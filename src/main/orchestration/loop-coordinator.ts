@@ -40,6 +40,7 @@ import {
   type LoopVerdict,
   type CompletionSignalEvidence,
   type ProgressSignalEvidence,
+  type LoopTerminalIntent,
 } from '../../shared/types/loop.types';
 import {
   LoopCompletionDetector,
@@ -55,6 +56,20 @@ import {
   ensureLoopAttachmentsIgnored,
 } from './loop-attachments';
 import type { LoopAttachment } from '@contracts/schemas/loop';
+import {
+  buildLoopControlEnv,
+  cleanupLoopControl,
+  cloneIntentWithStatus,
+  commitImportedIntent,
+  importLoopTerminalIntents,
+  latestIntentByReceivedAt,
+  listArchivedImportedIntents,
+  prepareLoopControl,
+  publicLoopControlMetadata,
+  summarizeLoopControlPrompt,
+  writeLoopControlFile,
+  type LoopControlRuntime,
+} from './loop-control';
 
 const logger = getLogger('LoopCoordinator');
 
@@ -98,6 +113,16 @@ interface IterationHookContext {
 export type LoopIterationHook = (ctx: IterationHookContext) => Promise<void> | void;
 
 /**
+ * Hook for durable persistence of terminal intents. Called by the
+ * coordinator *before* the source intent file is archived from
+ * `<controlDir>/intents/` to `<controlDir>/imported/`. The hook must
+ * throw on failure so the coordinator can leave the source file in
+ * place for the next boundary to retry. See NB2 in the spec at
+ * `docs/plans/2026-05-12-loop-terminal-control-spec.md`.
+ */
+export type LoopIntentPersistHook = (intent: LoopTerminalIntent) => Promise<void> | void;
+
+/**
  * Severity of a fresh-eyes review finding. Mirrors
  * `HeadlessReviewFinding.severity` from
  * `src/main/cli-entrypoints/review-command-output.ts` but is kept as a local
@@ -129,6 +154,8 @@ export interface FreshEyesReviewerInput {
   verifyOutputExcerpt: string;
   /** Coordinator's signal that fired this completion attempt. */
   signal: string;
+  /** Explicit terminal intent that caused the completion attempt, if present. */
+  terminalIntent?: LoopTerminalIntent;
   /** Review configuration (reviewers, severities, depth, timeout). */
   config: LoopCrossModelReviewConfig;
 }
@@ -169,6 +196,9 @@ const defaultFreshEyesReviewer: FreshEyesReviewer = async (input) => {
     input.uncompletedPlanFilesAtStart.length > 0
       ? `\n\nPlan files that existed at loop start (the agent was asked to address these):\n${input.uncompletedPlanFilesAtStart.map((f) => `  - ${f}`).join('\n')}`
       : '';
+  const intentBlock = input.terminalIntent
+    ? `\n\nExplicit terminal intent:\n  - kind: ${input.terminalIntent.kind}\n  - summary: ${input.terminalIntent.summary}\n`
+    : '';
 
   const content =
     `# Fresh-eyes review request\n\n` +
@@ -182,7 +212,7 @@ const defaultFreshEyesReviewer: FreshEyesReviewer = async (input) => {
     `## What "ready_for_done" means here\n` +
     `Mark a finding as **critical** or **high** severity ONLY for blocking issues that would make a reasonable reviewer say "no, this isn't done yet."\n` +
     `Use **medium** or **low** for nice-to-haves, style nits, or follow-up suggestions — those do not block completion.\n\n` +
-    `## Iteration output (what the agent said it did)\n${input.iterationOutput}${filesBlock}${plansBlock}\n\n` +
+    `## Iteration output (what the agent said it did)\n${input.iterationOutput}${filesBlock}${plansBlock}${intentBlock}\n\n` +
     `## Verify output\n${input.verifyOutputExcerpt}\n`;
 
   try {
@@ -241,7 +271,9 @@ export class LoopCoordinator extends EventEmitter {
   private histories = new Map<string, LoopIteration[]>();
   private watchers = new Map<string, CompletedFileWatcher>();
   private runtimeContexts = new Map<string, LoopRuntimeContext>();
+  private loopControls = new Map<string, LoopControlRuntime>();
   private iterationHooks: LoopIterationHook[] = [];
+  private intentPersistHook: LoopIntentPersistHook | null = null;
 
   private progressDetector = new LoopProgressDetector();
   private completionDetector = new LoopCompletionDetector();
@@ -276,7 +308,9 @@ export class LoopCoordinator extends EventEmitter {
       this.instance.histories.clear();
       this.instance.watchers.clear();
       this.instance.runtimeContexts.clear();
+      this.instance.loopControls.clear();
       this.instance.iterationHooks = [];
+      this.instance.intentPersistHook = null;
       this.instance.removeAllListeners();
       this.instance = null;
     }
@@ -293,6 +327,73 @@ export class LoopCoordinator extends EventEmitter {
       const i = this.iterationHooks.indexOf(hook);
       if (i >= 0) this.iterationHooks.splice(i, 1);
     };
+  }
+
+  /**
+   * Install a hook the coordinator awaits before archiving an imported
+   * intent file. Called once for each intent the coordinator adds to
+   * `state.terminalIntentHistory` during a boundary import (winner +
+   * any superseded peers). Returning normally indicates durable
+   * persistence; throwing leaves the source file in `intents/` so the
+   * next boundary will re-import. There is one hook per coordinator;
+   * the most recent registration wins.
+   */
+  setIntentPersistHook(hook: LoopIntentPersistHook | null): void {
+    this.intentPersistHook = hook;
+  }
+
+  /**
+   * Reconcile any intent files left in `<controlDir>/imported/` that
+   * are not already persisted in the caller's durable store. The caller
+   * passes the set of intent ids it already knows about (typically the
+   * result of `LoopStore.listTerminalIntents(loopRunId)`); the
+   * coordinator returns the orphan intents, runs the configured
+   * `intentPersistHook` on each, and leaves the file in `imported/`.
+   *
+   * Designed to be called at boot — once `prepareLoopControl` has
+   * recreated the loop runtime — to close the residual crash window
+   * where the DB transaction committed but the source-file rename had
+   * not yet completed. Safe to call multiple times (no-op when no
+   * orphans exist).
+   */
+  async reconcileImportedOrphans(
+    loopRunId: string,
+    persistedIntentIds: ReadonlySet<string>,
+  ): Promise<LoopTerminalIntent[]> {
+    const loopControl = this.loopControls.get(loopRunId);
+    if (!loopControl) return [];
+    const onDisk = await listArchivedImportedIntents(loopControl);
+    const orphans = onDisk.filter((intent) => !persistedIntentIds.has(intent.id));
+    if (orphans.length === 0) return [];
+    const persistHook = this.intentPersistHook;
+    if (!persistHook) {
+      logger.warn('reconcileImportedOrphans: no persist hook registered; orphans cannot be recovered', {
+        loopRunId,
+        orphanCount: orphans.length,
+      });
+      return orphans;
+    }
+    const persisted: LoopTerminalIntent[] = [];
+    for (const intent of orphans) {
+      try {
+        await persistHook(intent);
+        persisted.push(intent);
+      } catch (err) {
+        logger.warn('reconcileImportedOrphans: persist hook failed for orphan', {
+          loopRunId,
+          intentId: intent.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    if (persisted.length > 0) {
+      logger.info('Reconciled imported intent orphans on boot', {
+        loopRunId,
+        recovered: persisted.length,
+        totalOnDisk: onDisk.length,
+      });
+    }
+    return persisted;
   }
 
   // ============ Public API ============
@@ -337,6 +438,11 @@ export class LoopCoordinator extends EventEmitter {
     }
 
     const id = `loop-${Date.now()}-${randomUUID().slice(0, 8)}`;
+    const loopControl = await prepareLoopControl(
+      config.workspaceCwd,
+      id,
+      [...this.active.keys(), id],
+    );
 
     // Persist attachments to the workspace and prepend their paths to BOTH
     // prompts so every iteration (not just iter 0) sees the file references.
@@ -443,6 +549,8 @@ export class LoopCoordinator extends EventEmitter {
       totalCostCents: 0,
       currentStage: initialStage,
       pendingInterventions: [],
+      loopControl: publicLoopControlMetadata(loopControl),
+      terminalIntentHistory: [],
       // Always start false — see scan note above. Only in-run rename events
       // flip this to true (via watcher.onCompleted below).
       completedFileRenameObserved: false,
@@ -457,6 +565,7 @@ export class LoopCoordinator extends EventEmitter {
     this.active.set(id, state);
     this.histories.set(id, []);
     this.watchers.set(id, watcher);
+    this.loopControls.set(id, loopControl);
     this.cancelFlags.set(id, false);
     if (runtimeContext?.existingSessionContext?.trim()) {
       this.runtimeContexts.set(id, {
@@ -553,6 +662,7 @@ export class LoopCoordinator extends EventEmitter {
     return (
       status === 'completed' ||
       status === 'cancelled' ||
+      status === 'failed' ||
       status === 'cap-reached' ||
       status === 'error' ||
       status === 'no-progress'
@@ -603,15 +713,28 @@ export class LoopCoordinator extends EventEmitter {
     const onPaused = (d: { loopRunId: string; signal: ProgressSignalEvidence }) => {
       if (d.loopRunId === loopRunId) push({ type: 'paused-no-progress', loopRunId, signal: d.signal });
     };
-    const onClaimedFailed = (d: { loopRunId: string; signal: 'completed-rename' | 'done-promise' | 'done-sentinel' | 'all-green' | 'self-declared' | 'plan-checklist'; failure: string }) => {
+    const onClaimedFailed = (d: { loopRunId: string; signal: CompletionSignalEvidence['id']; failure: string }) => {
       if (d.loopRunId === loopRunId) push({ type: 'claimed-done-but-failed', loopRunId, signal: d.signal, failure: d.failure });
+    };
+    const onTerminalIntentRecorded = (d: { loopRunId: string; intent: LoopTerminalIntent }) => {
+      if (d.loopRunId === loopRunId) push({ type: 'terminal-intent-recorded', loopRunId, intent: d.intent });
+    };
+    const onTerminalIntentRejected = (d: { loopRunId: string; intent: LoopTerminalIntent; reason: string }) => {
+      if (d.loopRunId === loopRunId) push({ type: 'terminal-intent-rejected', loopRunId, intent: d.intent, reason: d.reason });
     };
     const onIntervention = (d: { loopRunId: string; message: string }) => {
       if (d.loopRunId === loopRunId) push({ type: 'intervention-applied', loopRunId, message: d.message });
     };
-    const onCompleted = (d: { loopRunId: string; signal: 'completed-rename' | 'done-promise' | 'done-sentinel' | 'all-green' | 'self-declared' | 'plan-checklist'; verifyOutput: string }) => {
+    const onCompleted = (d: { loopRunId: string; signal: CompletionSignalEvidence['id']; verifyOutput: string }) => {
       if (d.loopRunId === loopRunId) {
         push({ type: 'completed', loopRunId, signal: d.signal, verifyOutput: d.verifyOutput });
+        done = true;
+        if (resolve) { resolve(); resolve = null; }
+      }
+    };
+    const onFailed = (d: { loopRunId: string; reason: string }) => {
+      if (d.loopRunId === loopRunId) {
+        push({ type: 'failed', loopRunId, reason: d.reason });
         done = true;
         if (resolve) { resolve(); resolve = null; }
       }
@@ -642,8 +765,11 @@ export class LoopCoordinator extends EventEmitter {
     this.on('loop:iteration-complete', onIterationComplete);
     this.on('loop:paused-no-progress', onPaused);
     this.on('loop:claimed-done-but-failed', onClaimedFailed);
+    this.on('loop:terminal-intent-recorded', onTerminalIntentRecorded);
+    this.on('loop:terminal-intent-rejected', onTerminalIntentRejected);
     this.on('loop:intervention-applied', onIntervention);
     this.on('loop:completed', onCompleted);
+    this.on('loop:failed', onFailed);
     this.on('loop:cap-reached', onCap);
     this.on('loop:cancelled', onCancelled);
     this.on('loop:error', onError);
@@ -661,8 +787,11 @@ export class LoopCoordinator extends EventEmitter {
       this.off('loop:iteration-complete', onIterationComplete);
       this.off('loop:paused-no-progress', onPaused);
       this.off('loop:claimed-done-but-failed', onClaimedFailed);
+      this.off('loop:terminal-intent-recorded', onTerminalIntentRecorded);
+      this.off('loop:terminal-intent-rejected', onTerminalIntentRejected);
       this.off('loop:intervention-applied', onIntervention);
       this.off('loop:completed', onCompleted);
+      this.off('loop:failed', onFailed);
       this.off('loop:cap-reached', onCap);
       this.off('loop:cancelled', onCancelled);
       this.off('loop:error', onError);
@@ -694,6 +823,21 @@ export class LoopCoordinator extends EventEmitter {
         this.emit('loop:cap-reached', { loopRunId: state.id, cap: capHit });
         this.terminate(state, 'cap-reached', `cap=${capHit}`);
         return;
+      }
+      await this.importTerminalIntentsForBoundary(state, {
+        maxIterationSeq: state.totalIterations,
+        terminalEligible: state.status === 'running',
+      });
+      if (state.terminalIntentPending?.kind === 'fail') {
+        const intent = state.terminalIntentPending;
+        this.transitionTerminalIntent(state, intent, 'accepted', 'fail intent imported before next iteration');
+        state.terminalIntentPending = undefined;
+        this.terminate(state, 'failed', intent.summary);
+        return;
+      }
+      if (state.terminalIntentPending?.kind === 'block' && state.status === 'running') {
+        await this.pauseForBlockIntent(state, state.terminalIntentPending);
+        continue;
       }
 
       // -- BLOCKED.md handshake --
@@ -738,25 +882,43 @@ export class LoopCoordinator extends EventEmitter {
       // -- spawn iteration --
       const seq = state.totalIterations;
       const iterStart = Date.now();
-      const prompt = stageMachine.buildPrompt({
+      const loopControl = this.loopControls.get(state.id);
+      if (loopControl) {
+        await writeLoopControlFile(loopControl, seq);
+        state.loopControl = publicLoopControlMetadata(loopControl);
+      }
+      const prompt = this.appendLoopControlPrompt(state, stageMachine.buildPrompt({
         config: state.config,
         iterationSeq: seq,
         pendingInterventions: state.pendingInterventions,
         existingSessionContext: this.runtimeContexts.get(state.id)?.existingSessionContext,
         uncompletedPlanFilesAtStart: state.uncompletedPlanFilesAtStart,
-      });
+      }));
       const consumedInterventions = state.pendingInterventions.splice(0, state.pendingInterventions.length);
 
       this.emit('loop:iteration-started', { loopRunId: state.id, seq, stage });
 
-      let childResult: LoopChildResult;
+      let childResult: LoopChildResult | null = null;
+      let invocationError: string | null = null;
       try {
         childResult = await this.invokeChild(state, prompt, stage);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        logger.error('Iteration invocation failed', err instanceof Error ? err : new Error(msg), { loopRunId: state.id, seq });
-        this.terminate(state, 'error', msg);
-        return;
+        invocationError = err instanceof Error ? err.message : String(err);
+        logger.error('Iteration invocation failed', err instanceof Error ? err : new Error(invocationError), { loopRunId: state.id, seq });
+      } finally {
+        await this.importTerminalIntentsForBoundary(state, {
+          maxIterationSeq: seq,
+          exactIterationSeq: seq,
+          terminalEligible: state.status === 'running',
+        });
+      }
+      if (!childResult) {
+        if (state.terminalIntentPending) {
+          childResult = this.syntheticChildResultFromTerminalIntent(state.terminalIntentPending, invocationError);
+        } else {
+          this.terminate(state, 'error', invocationError ?? 'iteration invocation failed');
+          return;
+        }
       }
 
       // If the loop was cancelled (or terminated otherwise) while the
@@ -840,6 +1002,17 @@ export class LoopCoordinator extends EventEmitter {
         }
       }
 
+      const terminalIntentForIteration = state.terminalIntentPending;
+      if (terminalIntentForIteration?.kind === 'complete' && consumedInterventions.length > 0) {
+        this.transitionTerminalIntent(
+          state,
+          terminalIntentForIteration,
+          'deferred',
+          'Completion intent was declared in an intervention-consuming iteration',
+        );
+        state.terminalIntentPending = undefined;
+      }
+
       // -- completion detection --
       const completionSignals = await this.completionDetector.observe({
         iteration,
@@ -860,6 +1033,7 @@ export class LoopCoordinator extends EventEmitter {
         iteration.verifyOutputExcerpt = excerpt(v1.output);
         verifyOutputForEmit = v1.output;
         if (v1.status === 'failed') {
+          this.rejectPendingCompleteIntent(state, 'verify failed');
           this.emit('loop:claimed-done-but-failed', {
             loopRunId: state.id,
             signal: candidate.id,
@@ -872,6 +1046,7 @@ export class LoopCoordinator extends EventEmitter {
           if (state.config.completion.runVerifyTwice) {
             v2 = await this.completionDetector.runVerify(state.config);
             if (v2.status === 'failed') {
+              this.rejectPendingCompleteIntent(state, 'second verify failed');
               iteration.verifyStatus = 'failed';
               iteration.verifyOutputExcerpt = excerpt(v2.output);
               verifyOutputForEmit = v2.output;
@@ -894,8 +1069,11 @@ export class LoopCoordinator extends EventEmitter {
             const reviewBlocked = await this.runFreshEyesReviewGate(state, candidate.id, iteration, verifyOutputForEmit);
             if (!reviewBlocked) {
               stopWithSignal = candidate;
+            } else {
+              this.rejectPendingCompleteIntent(state, 'fresh-eyes review blocked completion');
             }
           } else if (v2.status === 'passed') {
+            this.rejectPendingCompleteIntent(state, 'completed-file rename gate did not pass');
             // verify passes but belt-and-braces (rename) hasn't happened yet —
             // surface so the agent can do the rename, but don't stop.
             this.emit('loop:claimed-done-but-failed', {
@@ -936,8 +1114,23 @@ export class LoopCoordinator extends EventEmitter {
       this.emit('loop:iteration-complete', { loopRunId: state.id, seq, verdict: iteration.progressVerdict });
       this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
 
+      if (terminalIntentForIteration?.kind === 'block' && state.terminalIntentPending?.id === terminalIntentForIteration.id) {
+        await this.pauseForBlockIntent(state, terminalIntentForIteration);
+        continue;
+      }
+      if (terminalIntentForIteration?.kind === 'fail' && state.terminalIntentPending?.id === terminalIntentForIteration.id) {
+        this.transitionTerminalIntent(state, terminalIntentForIteration, 'accepted', 'fail intent accepted');
+        state.terminalIntentPending = undefined;
+        this.terminate(state, 'failed', terminalIntentForIteration.summary);
+        return;
+      }
+
       // -- terminal: completion --
       if (stopWithSignal) {
+        if (state.terminalIntentPending?.kind === 'complete') {
+          this.transitionTerminalIntent(state, state.terminalIntentPending, 'accepted', `completion accepted via ${stopWithSignal.id}`);
+          state.terminalIntentPending = undefined;
+        }
         this.emit('loop:completed', {
           loopRunId: state.id,
           signal: stopWithSignal.id,
@@ -995,6 +1188,9 @@ export class LoopCoordinator extends EventEmitter {
         uncompletedPlanFilesAtStart: state.uncompletedPlanFilesAtStart,
         verifyOutputExcerpt: verifyOutput.slice(0, 4096),
         signal: signalId,
+        terminalIntent: state.terminalIntentPending?.kind === 'complete'
+          ? state.terminalIntentPending
+          : undefined,
         config: reviewCfg,
       });
     } catch (err) {
@@ -1093,6 +1289,9 @@ export class LoopCoordinator extends EventEmitter {
         seq: state.totalIterations,
         config: state.config,
         prompt,
+        loopControlEnv: this.loopControls.has(state.id)
+          ? buildLoopControlEnv(this.loopControls.get(state.id)!)
+          : undefined,
         iterationTimeoutMs: state.config.iterationTimeoutMs,
         streamIdleTimeoutMs: state.config.streamIdleTimeoutMs,
         callback: (result: LoopChildResult | { error: string }) => {
@@ -1133,6 +1332,238 @@ export class LoopCoordinator extends EventEmitter {
       },
       completion: { ...base.completion, ...(p.completion ?? {}) },
     };
+  }
+
+  private appendLoopControlPrompt(state: LoopState, prompt: string): string {
+    const loopControl = this.loopControls.get(state.id);
+    if (!loopControl) return prompt;
+    return `${prompt}\n${summarizeLoopControlPrompt(loopControl)}`;
+  }
+
+  private async importTerminalIntentsForBoundary(
+    state: LoopState,
+    options: { maxIterationSeq: number; exactIterationSeq?: number; terminalEligible: boolean },
+  ): Promise<void> {
+    if (this.isTerminalStatus(state.status) || this.cancelFlags.get(state.id)) return;
+    const loopControl = this.loopControls.get(state.id);
+    if (!loopControl) return;
+    let imported: Awaited<ReturnType<typeof importLoopTerminalIntents>>;
+    try {
+      imported = await importLoopTerminalIntents(loopControl, options);
+    } catch (err) {
+      if (!this.isTerminalStatus(state.status) && !this.cancelFlags.get(state.id)) {
+        logger.warn('Failed to import loop-control intents', {
+          loopRunId: state.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return;
+    }
+    for (const rejection of imported.rejected) {
+      this.emit('loop:activity', {
+        loopRunId: state.id,
+        seq: options.exactIterationSeq ?? state.totalIterations,
+        stage: state.currentStage,
+        timestamp: Date.now(),
+        kind: 'error',
+        message: `Rejected loop-control intent: ${rejection.reason}`,
+        detail: { filePath: rejection.filePath },
+      });
+    }
+    if (imported.accepted.length === 0) return;
+
+    const latest = latestIntentByReceivedAt(imported.accepted);
+    if (!latest) return;
+
+    // Build the in-memory transition set BEFORE persisting. We need
+    // each intent's final status (`accepted`/`superseded`) to land in
+    // the same DB row that the persist hook receives — otherwise the
+    // store sees `status='pending'` and the partial unique index on
+    // accepted rows is never exercised.
+    if (state.terminalIntentPending && state.terminalIntentPending.id !== latest.id) {
+      this.transitionTerminalIntent(state, state.terminalIntentPending, 'superseded', `superseded by ${latest.id}`);
+    }
+    const persistOrder: { intent: LoopTerminalIntent; filePath: string | undefined }[] = [];
+    for (const intent of imported.accepted) {
+      if (intent.id === latest.id) continue;
+      const superseded = cloneIntentWithStatus(intent, 'superseded', `superseded by ${latest.id}`);
+      this.rememberTerminalIntent(state, superseded);
+      persistOrder.push({ intent: superseded, filePath: intent.filePath });
+    }
+    this.rememberTerminalIntent(state, latest);
+    persistOrder.push({ intent: latest, filePath: latest.filePath });
+    state.terminalIntentPending = latest;
+
+    // NB2: persist every intent we just added to history BEFORE moving
+    // any source file out of `intents/`. If the persist hook throws we
+    // leave the source files where they are so the next boundary will
+    // re-import — the importer is idempotent on intent id and the DB
+    // upsert collapses retries into no-ops.
+    const persistHook = this.intentPersistHook;
+    if (persistHook) {
+      for (const entry of persistOrder) {
+        try {
+          await persistHook(entry.intent);
+        } catch (err) {
+          logger.warn('Intent persist hook failed — leaving source file in intents/ for next boundary', {
+            loopRunId: state.id,
+            intentId: entry.intent.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          this.emit('loop:terminal-intent-rejected', {
+            loopRunId: state.id,
+            intent: cloneIntentWithStatus(entry.intent, 'rejected', 'persist-hook-failed'),
+            reason: err instanceof Error ? err.message : String(err),
+          });
+          // Drop the in-memory pending pointer so the next boundary
+          // reconstructs from disk rather than acting on a half-persisted
+          // intent. terminalIntentHistory keeps the attempt for debugging.
+          if (state.terminalIntentPending?.id === entry.intent.id) {
+            state.terminalIntentPending = undefined;
+          }
+          return;
+        }
+      }
+    }
+
+    // Persistence succeeded for every recorded intent — now it's safe
+    // to archive their source files. Archive failures here are
+    // observability noise, not data loss: the DB row is committed and
+    // the next boundary's importer is idempotent if the file lingers
+    // in `intents/`.
+    for (const entry of persistOrder) {
+      if (!entry.filePath) continue;
+      await commitImportedIntent(loopControl, entry.filePath).catch((err: unknown) => {
+        logger.warn('Failed to archive imported intent file after persistence; retry on next boundary', {
+          loopRunId: state.id,
+          intentId: entry.intent.id,
+          filePath: entry.filePath,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+
+    this.emit('loop:terminal-intent-recorded', { loopRunId: state.id, intent: latest });
+    this.emit('loop:activity', {
+      loopRunId: state.id,
+      seq: latest.iterationSeq,
+      stage: state.currentStage,
+      timestamp: Date.now(),
+      kind: 'status',
+      message: `Loop-control ${latest.kind} intent recorded: ${latest.summary}`,
+      detail: { intentId: latest.id, kind: latest.kind },
+    });
+  }
+
+  private rememberTerminalIntent(state: LoopState, intent: LoopTerminalIntent): void {
+    const history = state.terminalIntentHistory ?? [];
+    const existingIndex = history.findIndex((item) => item.id === intent.id);
+    if (existingIndex >= 0) {
+      history[existingIndex] = intent;
+    } else {
+      history.push(intent);
+    }
+    state.terminalIntentHistory = history;
+  }
+
+  private transitionTerminalIntent(
+    state: LoopState,
+    intent: LoopTerminalIntent,
+    status: LoopTerminalIntent['status'],
+    reason: string,
+  ): LoopTerminalIntent {
+    const updated = cloneIntentWithStatus(intent, status, reason);
+    this.rememberTerminalIntent(state, updated);
+    if (state.terminalIntentPending?.id === intent.id) {
+      state.terminalIntentPending = updated;
+    }
+    if (status === 'rejected') {
+      this.emit('loop:terminal-intent-rejected', { loopRunId: state.id, intent: updated, reason });
+    }
+    return updated;
+  }
+
+  private rejectPendingCompleteIntent(state: LoopState, reason: string): void {
+    if (state.terminalIntentPending?.kind !== 'complete') return;
+    this.transitionTerminalIntent(state, state.terminalIntentPending, 'rejected', reason);
+    state.terminalIntentPending = undefined;
+  }
+
+  private async pauseForBlockIntent(state: LoopState, intent: LoopTerminalIntent): Promise<void> {
+    this.transitionTerminalIntent(state, intent, 'accepted', 'block intent accepted');
+    state.terminalIntentPending = undefined;
+    await this.archiveBlockedFileForIntent(state, intent);
+    state.status = 'paused';
+    const signal: ProgressSignalEvidence = {
+      id: 'BLOCKED',
+      verdict: 'CRITICAL',
+      message: `Loop-control block intent: ${intent.summary}`,
+      detail: { intentId: intent.id, evidence: intent.evidence },
+    };
+    this.emit('loop:paused-no-progress', { loopRunId: state.id, signal });
+    this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
+    logger.info('Loop paused from loop-control block intent', { loopRunId: state.id, intentId: intent.id });
+  }
+
+  private syntheticChildResultFromTerminalIntent(
+    intent: LoopTerminalIntent,
+    invocationError: string | null,
+  ): LoopChildResult {
+    const output = [
+      `Loop-control ${intent.kind} intent recorded: ${intent.summary}`,
+      invocationError ? `Provider invocation also failed: ${invocationError}` : '',
+    ].filter(Boolean).join('\n');
+    return {
+      childInstanceId: null,
+      output,
+      tokens: 0,
+      filesChanged: [],
+      toolCalls: [],
+      errors: invocationError
+        ? [{ bucket: 'provider-invocation-error', exactHash: createHash('sha256').update(invocationError).digest('hex'), excerpt: invocationError }]
+        : [],
+      testPassCount: null,
+      testFailCount: null,
+      exitedCleanly: false,
+    };
+  }
+
+  private async archiveBlockedFileForIntent(state: LoopState, intent: LoopTerminalIntent): Promise<void> {
+    const loopControl = this.loopControls.get(state.id);
+    if (!loopControl) return;
+    const fs = await import('node:fs/promises');
+    const blockedPath = path.join(state.config.workspaceCwd, 'BLOCKED.md');
+    const target = path.join(loopControl.controlDir, `blocked-handled-${intent.iterationSeq}.md`);
+    try {
+      await fs.rename(blockedPath, target);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException | undefined)?.code;
+      if (code === 'ENOENT') {
+        // Operator (or another process) removed BLOCKED.md between the
+        // iteration ending and this archive running. The structured
+        // intent path proceeds unchanged.
+        logger.debug?.('BLOCKED.md absent at archive time — operator likely removed it', {
+          loopRunId: state.id,
+          intentId: intent.id,
+        });
+        return;
+      }
+      // EACCES, EBUSY, EXDEV, EEXIST, etc. — leave BLOCKED.md in place
+      // and surface the failure so the next pre-flight that re-pauses on
+      // the residual file is at least explained to the operator.
+      const reason = err instanceof Error ? err.message : String(err);
+      logger.warn('Failed to archive BLOCKED.md after structured block intent', {
+        loopRunId: state.id,
+        intentId: intent.id,
+        errorCode: code ?? null,
+        error: reason,
+      });
+      this.emit('loop:claimed-done-but-failed', {
+        loopRunId: state.id,
+        signal: 'declared-complete',
+        failure: `block intent recorded but BLOCKED.md could not be archived (${code ?? 'unknown'}): ${reason}. The next iteration will re-pause on the residual file until you resolve it manually.`,
+      });
+    }
   }
 
   /**
@@ -1185,19 +1616,26 @@ export class LoopCoordinator extends EventEmitter {
     state.status = status;
     state.endedAt = Date.now();
     state.endReason = reason ?? status;
-    state.endEvidence = { lastIterationSeq: state.totalIterations - 1 };
+    state.endEvidence = {
+      lastIterationSeq: state.totalIterations - 1,
+      terminalIntent: state.terminalIntentHistory?.at(-1),
+    };
     const watcher = this.watchers.get(state.id);
     if (watcher) {
       void watcher.stop();
       this.watchers.delete(state.id);
     }
     this.runtimeContexts.delete(state.id);
+    const loopControl = this.loopControls.get(state.id);
+    this.loopControls.delete(state.id);
     if (status === 'cancelled') this.emit('loop:cancelled', { loopRunId: state.id });
+    if (status === 'failed') this.emit('loop:failed', { loopRunId: state.id, reason: reason ?? 'failed' });
     if (status === 'error') this.emit('loop:error', { loopRunId: state.id, error: reason ?? 'unknown error' });
     this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
     logger.info('Loop terminated', { loopRunId: state.id, status, reason });
     // Best-effort cleanup of any attachment files we wrote into the workspace.
     void cleanupLoopAttachments(state.config.workspaceCwd, state.id);
+    void cleanupLoopControl(loopControl);
   }
 
   /** Deep-ish clone for safe broadcast — strips cycles and large arrays. */
@@ -1207,6 +1645,14 @@ export class LoopCoordinator extends EventEmitter {
       config: { ...s.config },
       pendingInterventions: [...s.pendingInterventions],
       recentWarnIterationSeqs: [...s.recentWarnIterationSeqs],
+      loopControl: s.loopControl ? { ...s.loopControl } : undefined,
+      terminalIntentPending: s.terminalIntentPending
+        ? { ...s.terminalIntentPending, evidence: s.terminalIntentPending.evidence.map((item) => ({ ...item })) }
+        : undefined,
+      terminalIntentHistory: (s.terminalIntentHistory ?? []).map((intent) => ({
+        ...intent,
+        evidence: intent.evidence.map((item) => ({ ...item })),
+      })),
     };
   }
 }

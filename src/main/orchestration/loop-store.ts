@@ -20,6 +20,7 @@ import type {
   LoopRunSummary,
   LoopState,
   LoopStatus,
+  LoopTerminalIntent,
 } from '../../shared/types/loop.types';
 import { runLoopMigrations } from './loop-schema';
 
@@ -123,6 +124,21 @@ interface LoopIterationRow {
   verify_output_excerpt: string;
 }
 
+interface LoopTerminalIntentRow {
+  id: string;
+  loop_run_id: string;
+  iteration_seq: number;
+  kind: string;
+  status: string;
+  summary: string;
+  evidence_json: string;
+  source: string;
+  created_at: number;
+  received_at: number;
+  status_reason: string | null;
+  file_path: string | null;
+}
+
 export class LoopStore {
   constructor(private readonly db: SqliteDriver) {}
 
@@ -162,6 +178,9 @@ export class LoopStore {
       state.endReason ?? null,
       state.endEvidence ? JSON.stringify(state.endEvidence) : null,
     );
+    for (const intent of state.terminalIntentHistory ?? []) {
+      this.upsertTerminalIntent(intent);
+    }
   }
 
   /** Persist a single iteration. */
@@ -273,6 +292,60 @@ export class LoopStore {
     }));
   }
 
+  upsertTerminalIntent(intent: LoopTerminalIntent): void {
+    this.db.prepare(`
+      INSERT INTO loop_terminal_intents (
+        id, loop_run_id, iteration_seq, kind, status, summary, evidence_json,
+        source, created_at, received_at, status_reason, file_path, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        status = excluded.status,
+        status_reason = excluded.status_reason,
+        evidence_json = excluded.evidence_json,
+        summary = excluded.summary,
+        file_path = excluded.file_path,
+        updated_at = excluded.updated_at
+    `).run(
+      intent.id,
+      intent.loopRunId,
+      intent.iterationSeq,
+      intent.kind,
+      intent.status,
+      intent.summary,
+      JSON.stringify(intent.evidence),
+      intent.source,
+      intent.createdAt,
+      intent.receivedAt,
+      intent.statusReason ?? null,
+      intent.filePath ?? null,
+      Date.now(),
+    );
+  }
+
+  listTerminalIntents(loopRunId: string): LoopTerminalIntent[] {
+    const rows = this.db.prepare(`
+      SELECT id, loop_run_id, iteration_seq, kind, status, summary, evidence_json,
+             source, created_at, received_at, status_reason, file_path
+      FROM loop_terminal_intents
+      WHERE loop_run_id = ?
+      ORDER BY received_at ASC
+    `).all<LoopTerminalIntentRow>(loopRunId);
+    return rows.map((row) => ({
+      id: row.id,
+      loopRunId: row.loop_run_id,
+      iterationSeq: row.iteration_seq,
+      kind: row.kind as LoopTerminalIntent['kind'],
+      status: row.status as LoopTerminalIntent['status'],
+      summary: row.summary,
+      evidence: JSON.parse(row.evidence_json) as LoopTerminalIntent['evidence'],
+      source: row.source as LoopTerminalIntent['source'],
+      createdAt: row.created_at,
+      receivedAt: row.received_at,
+      statusReason: row.status_reason ?? undefined,
+      filePath: row.file_path ?? undefined,
+    }));
+  }
+
   /**
    * Mark all "running" loops as "paused" with reason `app-restart` — called
    * at app boot. The user can then resume them after reviewing the trail.
@@ -282,6 +355,20 @@ export class LoopStore {
       .prepare("UPDATE loop_runs SET status = 'paused', end_reason = 'app-restart' WHERE status = 'running'")
       .run();
     return Number(result.changes ?? 0);
+  }
+
+  /**
+   * Return the set of intent ids already present in `loop_terminal_intents`
+   * for a given loop. Used by the startup orphan reconciler to detect
+   * intent files that were archived to `<controlDir>/imported/` before a
+   * crash but never reached the database. Cheaper than `listTerminalIntents`
+   * when the caller only needs membership testing.
+   */
+  getKnownTerminalIntentIds(loopRunId: string): Set<string> {
+    const rows = this.db
+      .prepare('SELECT id FROM loop_terminal_intents WHERE loop_run_id = ?')
+      .all<{ id: string }>(loopRunId);
+    return new Set(rows.map((row) => row.id));
   }
 }
 

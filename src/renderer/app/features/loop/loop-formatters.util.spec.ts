@@ -73,6 +73,7 @@ describe('terminalStatusLabel', () => {
   it('renders each terminal status exactly once', () => {
     expect(terminalStatusLabel('completed')).toBe('completed ✓');
     expect(terminalStatusLabel('cancelled')).toBe('cancelled');
+    expect(terminalStatusLabel('failed')).toBe('failed');
     expect(terminalStatusLabel('cap-reached')).toBe('cap reached');
     expect(terminalStatusLabel('error')).toBe('error');
     expect(terminalStatusLabel('no-progress')).toBe('no progress');
@@ -83,6 +84,7 @@ describe('loopStatusLabel', () => {
   it('handles terminal + intermediate statuses', () => {
     expect(loopStatusLabel('completed')).toBe('completed');
     expect(loopStatusLabel('cancelled')).toBe('cancelled');
+    expect(loopStatusLabel('failed')).toBe('failed');
     expect(loopStatusLabel('cap-reached')).toBe('cap');
     expect(loopStatusLabel('error')).toBe('error');
     expect(loopStatusLabel('no-progress')).toBe('no-progress');

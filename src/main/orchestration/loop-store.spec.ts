@@ -157,3 +157,42 @@ describe('LoopStore.listRunsForChat', () => {
     expect(store.listRunsForChat('chat-1')).toEqual([]);
   });
 });
+
+describe('LoopStore terminal intents', () => {
+  it('persists terminal intent history when a run is upserted', () => {
+    store.upsertRun(makeState({
+      terminalIntentHistory: [
+        {
+          id: 'intent-1',
+          loopRunId: 'loop-1',
+          iterationSeq: 2,
+          kind: 'complete',
+          summary: 'done',
+          evidence: [{ kind: 'test', label: 'npm test', value: 'passed' }],
+          source: 'loop-control-cli',
+          createdAt: 10,
+          receivedAt: 20,
+          status: 'accepted',
+          statusReason: 'verified',
+        },
+      ],
+    }));
+
+    expect(store.listTerminalIntents('loop-1')).toEqual([
+      {
+        id: 'intent-1',
+        loopRunId: 'loop-1',
+        iterationSeq: 2,
+        kind: 'complete',
+        summary: 'done',
+        evidence: [{ kind: 'test', label: 'npm test', value: 'passed' }],
+        source: 'loop-control-cli',
+        createdAt: 10,
+        receivedAt: 20,
+        status: 'accepted',
+        statusReason: 'verified',
+        filePath: undefined,
+      },
+    ]);
+  });
+});

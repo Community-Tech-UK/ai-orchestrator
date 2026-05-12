@@ -9,6 +9,7 @@ import { ipcMain } from 'electron';
 const hoisted = vi.hoisted(() => ({
   coordinator: {
     registerIterationHook: vi.fn(),
+    setIntentPersistHook: vi.fn(),
     on: vi.fn(),
     startLoop: vi.fn(),
     pauseLoop: vi.fn(),
@@ -20,6 +21,7 @@ const hoisted = vi.hoisted(() => ({
   store: {
     upsertRun: vi.fn(),
     insertIteration: vi.fn(),
+    upsertTerminalIntent: vi.fn(),
     getRunSummary: vi.fn(),
     listRunsForChat: vi.fn(),
     getIterations: vi.fn(),

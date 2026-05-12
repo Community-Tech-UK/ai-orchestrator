@@ -509,6 +509,10 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
       border-color: rgba(247, 140, 124, 0.45);
       background: rgba(247, 140, 124, 0.08);
     }
+    .loop-summary[data-status="failed"] {
+      border-color: rgba(247, 140, 124, 0.45);
+      background: rgba(247, 140, 124, 0.08);
+    }
     .loop-summary[data-status="cap-reached"],
     .loop-summary[data-status="no-progress"] {
       border-color: rgba(247, 192, 122, 0.45);
@@ -524,6 +528,7 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
     }
     .lsum-status-pill[data-status="completed"]   { color: #8edc8e; background: rgba(142,220,142,0.18); }
     .lsum-status-pill[data-status="cancelled"]   { color: #c8b482; background: rgba(200,180,130,0.16); }
+    .lsum-status-pill[data-status="failed"]      { color: #f78c7c; background: rgba(247,140,124,0.18); }
     .lsum-status-pill[data-status="cap-reached"] { color: #f7c07a; background: rgba(247,192,122,0.18); }
     .lsum-status-pill[data-status="error"]       { color: #f78c7c; background: rgba(247,140,124,0.18); }
     .lsum-status-pill[data-status="no-progress"] { color: #f7c07a; background: rgba(247,192,122,0.18); }
@@ -904,7 +909,7 @@ export class LoopControlComponent implements OnDestroy {
   protected cost(cents: number): string  { return formatCostCents(cents); }
   protected time(ts: number): string     { return shortTime(ts); }
   protected kindLabel(kind: string): string { return activityKindLabel(kind); }
-  protected summaryStatusLabel(status: 'completed' | 'cancelled' | 'cap-reached' | 'error' | 'no-progress'): string {
+  protected summaryStatusLabel(status: 'completed' | 'cancelled' | 'failed' | 'cap-reached' | 'error' | 'no-progress'): string {
     return terminalStatusLabel(status);
   }
 }

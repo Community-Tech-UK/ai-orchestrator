@@ -13,11 +13,11 @@ function assertNode22Plus(): void {
 
 async function main(): Promise<void> {
   assertNode22Plus();
-  const bundle = path.resolve('dist/worker-agent/index.js');
+  const bundle = path.resolve('dist/loop-control-cli/index.js');
   if (!fs.existsSync(bundle)) {
-    throw new Error(`Missing ${bundle} — run npm run build:worker-agent first`);
+    throw new Error(`Missing ${bundle} — run npm run build:loop-control-cli first`);
   }
-  const outDir = path.resolve('dist/worker-agent-sea');
+  const outDir = path.resolve('dist/loop-control-cli-sea');
   fs.mkdirSync(outDir, { recursive: true });
 
   const seaConfig = {
@@ -33,13 +33,12 @@ async function main(): Promise<void> {
   execFileSync(process.execPath, ['--experimental-sea-config', cfgPath], { stdio: 'inherit' });
 
   const suffix = process.platform === 'win32' ? '.exe' : '';
-  const binOut = path.join(outDir, `worker-agent${suffix}`);
+  const binOut = path.join(outDir, `aio-loop-control${suffix}`);
   fs.copyFileSync(process.execPath, binOut);
 
-  const seaResourceName = 'NODE_SEA_BLOB';
   const postjectArgs = [
     binOut,
-    seaResourceName,
+    'NODE_SEA_BLOB',
     seaConfig.output,
     '--sentinel-fuse',
     'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2',

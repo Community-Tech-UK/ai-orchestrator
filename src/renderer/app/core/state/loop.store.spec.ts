@@ -12,7 +12,14 @@ describe('LoopStore', () => {
     iterationComplete: Listener<{ loopRunId: string; seq: number; verdict: string }>[];
     pausedNoProgress: Listener<{ loopRunId: string; signal: { id: string; message: string; verdict: string } }>[];
     claimedDoneButFailed: Listener<{ loopRunId: string; signal: string; failure: string }>[];
+    terminalIntentRecorded: Listener<{ loopRunId: string; intent: NonNullable<LoopStatePayload['terminalIntentPending']> }>[];
+    terminalIntentRejected: Listener<{ loopRunId: string; intent: NonNullable<LoopStatePayload['terminalIntentPending']>; reason: string }>[];
+    freshEyesReviewStarted: Listener<{ loopRunId: string; signal: string }>[];
+    freshEyesReviewPassed: Listener<{ loopRunId: string; signal: string; reviewersUsed: string[]; nonBlockingFindings: number; summary?: string }>[];
+    freshEyesReviewFailed: Listener<{ loopRunId: string; signal: string; error: string }>[];
+    freshEyesReviewBlocked: Listener<{ loopRunId: string; signal: string; reviewersUsed: string[]; blockingFindings: unknown[]; summary?: string }>[];
     completed: Listener<{ loopRunId: string; signal: string; verifyOutput: string }>[];
+    failed: Listener<{ loopRunId: string; reason: string }>[];
     capReached: Listener<{ loopRunId: string; cap: string }>[];
     error: Listener<{ loopRunId: string; error: string }>[];
   };
@@ -30,7 +37,14 @@ describe('LoopStore', () => {
     onIterationComplete: ReturnType<typeof vi.fn>;
     onPausedNoProgress: ReturnType<typeof vi.fn>;
     onClaimedDoneButFailed: ReturnType<typeof vi.fn>;
+    onTerminalIntentRecorded: ReturnType<typeof vi.fn>;
+    onTerminalIntentRejected: ReturnType<typeof vi.fn>;
+    onFreshEyesReviewStarted: ReturnType<typeof vi.fn>;
+    onFreshEyesReviewPassed: ReturnType<typeof vi.fn>;
+    onFreshEyesReviewFailed: ReturnType<typeof vi.fn>;
+    onFreshEyesReviewBlocked: ReturnType<typeof vi.fn>;
     onCompleted: ReturnType<typeof vi.fn>;
+    onFailed: ReturnType<typeof vi.fn>;
     onCapReached: ReturnType<typeof vi.fn>;
     onError: ReturnType<typeof vi.fn>;
   };
@@ -45,7 +59,14 @@ describe('LoopStore', () => {
       iterationComplete: [],
       pausedNoProgress: [],
       claimedDoneButFailed: [],
+      terminalIntentRecorded: [],
+      terminalIntentRejected: [],
+      freshEyesReviewStarted: [],
+      freshEyesReviewPassed: [],
+      freshEyesReviewFailed: [],
+      freshEyesReviewBlocked: [],
       completed: [],
+      failed: [],
       capReached: [],
       error: [],
     };
@@ -63,7 +84,14 @@ describe('LoopStore', () => {
       onIterationComplete: vi.fn((cb) => subscribe(listeners.iterationComplete, cb)),
       onPausedNoProgress: vi.fn((cb) => subscribe(listeners.pausedNoProgress, cb)),
       onClaimedDoneButFailed: vi.fn((cb) => subscribe(listeners.claimedDoneButFailed, cb)),
+      onTerminalIntentRecorded: vi.fn((cb) => subscribe(listeners.terminalIntentRecorded, cb)),
+      onTerminalIntentRejected: vi.fn((cb) => subscribe(listeners.terminalIntentRejected, cb)),
+      onFreshEyesReviewStarted: vi.fn((cb) => subscribe(listeners.freshEyesReviewStarted, cb)),
+      onFreshEyesReviewPassed: vi.fn((cb) => subscribe(listeners.freshEyesReviewPassed, cb)),
+      onFreshEyesReviewFailed: vi.fn((cb) => subscribe(listeners.freshEyesReviewFailed, cb)),
+      onFreshEyesReviewBlocked: vi.fn((cb) => subscribe(listeners.freshEyesReviewBlocked, cb)),
       onCompleted: vi.fn((cb) => subscribe(listeners.completed, cb)),
+      onFailed: vi.fn((cb) => subscribe(listeners.failed, cb)),
       onCapReached: vi.fn((cb) => subscribe(listeners.capReached, cb)),
       onError: vi.fn((cb) => subscribe(listeners.error, cb)),
     };
@@ -133,6 +161,32 @@ describe('LoopStore', () => {
       timestamp: 1778310000000,
     }]);
     expect(store.activityForLoop('loop-1')()).toEqual(store.activityForChat('chat-1')());
+  });
+
+  it('surfaces fresh-eyes review lifecycle events as loop activity', () => {
+    store.ensureWired();
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), totalIterations: 2 },
+    }));
+
+    listeners.freshEyesReviewStarted.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      signal: 'declared-complete',
+    }));
+    listeners.freshEyesReviewBlocked.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      signal: 'declared-complete',
+      reviewersUsed: ['gemini'],
+      blockingFindings: [{ severity: 'high', title: 'Missing test' }],
+      summary: 'one blocker',
+    }));
+
+    expect(store.activityForLoop('loop-1')().map((activity) => activity.message)).toEqual([
+      'Fresh-eyes review started for declared-complete',
+      'Fresh-eyes review blocked declared-complete',
+    ]);
+    expect(store.activityForLoop('loop-1')()[1]?.kind).toBe('input_required');
   });
 
   it('clears the no-progress banner when the loop reaches a terminal state', () => {
@@ -225,6 +279,31 @@ describe('LoopStore', () => {
       iterationPrompt: 'continue with fresh eyes',
       iterations: 5,
       status: 'completed',
+    });
+  });
+
+  it('treats failed as terminal and captures a failed summary', () => {
+    store.ensureWired();
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: activeState(),
+    }));
+
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: {
+        ...activeState(),
+        status: 'failed',
+        totalIterations: 1,
+        endedAt: 1778310600000,
+        endReason: 'declared failed',
+      },
+    }));
+
+    expect(store.activeForChat('chat-1')()).toBeUndefined();
+    expect(store.summaryForChat('chat-1')()).toMatchObject({
+      status: 'failed',
+      reason: 'declared failed',
     });
   });
 

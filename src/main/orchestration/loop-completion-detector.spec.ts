@@ -276,6 +276,30 @@ describe('LoopCompletionDetector.observe', () => {
     const self = sigs.find((s) => s.id === 'self-declared');
     expect(self?.sufficient).toBe(false);
   });
+
+  it('reports explicit loop-control complete intent as a sufficient declared-complete signal', async () => {
+    const det = new LoopCompletionDetector();
+    const state = makeState(tmpDir, {
+      terminalIntentPending: {
+        id: 'intent-1',
+        loopRunId: 'loop-1',
+        iterationSeq: 0,
+        kind: 'complete',
+        summary: 'implementation complete',
+        evidence: [],
+        source: 'loop-control-cli',
+        createdAt: 1,
+        receivedAt: 2,
+        status: 'pending',
+      },
+    });
+    const sigs = await det.observe({ iteration: makeIteration({ stage: 'REVIEW' }), config: state.config, state });
+    const signal = sigs.find((s) => s.id === 'declared-complete');
+    expect(signal).toMatchObject({
+      sufficient: true,
+      detail: expect.stringContaining('implementation complete'),
+    });
+  });
 });
 
 describe('CompletedFileWatcher', () => {

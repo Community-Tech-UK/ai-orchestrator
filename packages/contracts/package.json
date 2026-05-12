@@ -51,6 +51,7 @@
     "./channels/conversation-ledger": { "types": "./src/channels/conversation-ledger.channels.ts", "default": "./src/channels/conversation-ledger.channels.ts" },
     "./channels/operator":        { "types": "./src/channels/operator.channels.ts",        "default": "./src/channels/operator.channels.ts" },
     "./channels/chat":            { "types": "./src/channels/chat.channels.ts",            "default": "./src/channels/chat.channels.ts" },
+    "./channels/loop":            { "types": "./src/channels/loop.channels.ts",            "default": "./src/channels/loop.channels.ts" },
     "./types/instance-events":    { "types": "./src/types/instance-events.ts",             "default": "./src/types/instance-events.ts" },
     "./types/provider-runtime-events": { "types": "./src/types/provider-runtime-events.ts", "default": "./src/types/provider-runtime-events.ts" },
     "./types/transport":          { "types": "./src/types/transport.types.ts",             "default": "./src/types/transport.types.ts" },

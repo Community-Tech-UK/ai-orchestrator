@@ -159,6 +159,7 @@ export interface ClaudeCliSpawnOptions {
   model?: string;
   maxTokens?: number;
   timeout?: number;
+  env?: Record<string, string>;
   yoloMode?: boolean;
   resume?: boolean;
   forkSession?: boolean; // When resuming, create a new session ID instead of reusing
@@ -258,7 +259,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     // Build env passthrough for the spawned CLI process. The PreToolUse hook
     // script reads ORCHESTRATOR_RTK_ENABLED and ORCHESTRATOR_RTK_PATH from env,
     // so they need to be present in the CLI's environment, not the orchestrator's.
-    const env: Record<string, string> = {};
+    const env: Record<string, string> = { ...(options.env ?? {}) };
     if (options.rtk?.enabled && options.rtk.binaryPath) {
       env['ORCHESTRATOR_RTK_ENABLED'] = '1';
       env['ORCHESTRATOR_RTK_PATH'] = options.rtk.binaryPath;

@@ -326,6 +326,7 @@ async function invokeCliTextResponse(params: {
   /** Hidden loop workers cannot ask the user; ordinary clarification prompts get an autonomous response. */
   autoAnswerInputRequired?: boolean;
   permissionHookPath?: string;
+  env?: Record<string, string>;
   rtk?: UnifiedSpawnOptions['rtk'];
   /** Reuse an existing adapter instead of creating + terminating a fresh
    *  one for every call. Used by Loop Mode's `same-session` contextStrategy
@@ -352,6 +353,7 @@ async function invokeCliTextResponse(params: {
     systemPrompt: params.systemPrompt,
     yoloMode: params.yoloMode ?? false,
     permissionHookPath: params.permissionHookPath,
+    env: params.env,
     rtk: params.rtk,
     timeout: params.timeoutMs ?? 300000,
   };
@@ -765,6 +767,7 @@ async function createPersistentLoopAdapter(opts: {
   workingDirectory: string;
   timeoutMs?: number;
   streamIdleTimeoutMs?: number;
+  env?: Record<string, string>;
 }): Promise<unknown> {
   const cliType = await resolveCliType(opts.provider as Parameters<typeof resolveCliType>[0], 'claude');
   const model = resolveDefaultModel(cliType, undefined);
@@ -779,6 +782,7 @@ async function createPersistentLoopAdapter(opts: {
       // Generous wall-clock cap so a long iteration doesn't die on a
       // spawn-level timeout.
       timeout: opts.timeoutMs ?? 30 * 60 * 1000,
+      env: opts.env,
     },
   });
   if (typeof opts.streamIdleTimeoutMs === 'number') {
@@ -853,7 +857,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
 
   const isTerminalLoopStatus = (status: string): boolean =>
     status === 'completed' || status === 'cancelled' || status === 'cap-reached'
-    || status === 'error' || status === 'no-progress';
+    || status === 'failed' || status === 'error' || status === 'no-progress';
 
   const terminateTrackedAdapter = async (adapter: unknown, graceful: boolean): Promise<void> => {
     if (adapter && typeof adapter === 'object') {
@@ -911,6 +915,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       // Forwarded from LoopConfig — overrides the invoker's defaults.
       iterationTimeoutMs?: number;
       streamIdleTimeoutMs?: number;
+      loopControlEnv?: Record<string, string>;
     }
     const p = payload as Payload;
     if (!p?.callback || typeof p.callback !== 'function') {
@@ -954,7 +959,9 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     // these methods. Production InstanceManager always has them.
     const liveInstance = instanceManager.getInstance?.(p.chatId);
     const liveAdapter = liveInstance ? instanceManager.getAdapter?.(p.chatId) : undefined;
-    if (liveAdapter && isBaseCliAdapterLike(liveAdapter)) {
+    // A borrowed live adapter is already running, so loop-control env cannot
+    // be injected retroactively. Use a loop-owned adapter when control is on.
+    if (!p.loopControlEnv && liveAdapter && isBaseCliAdapterLike(liveAdapter)) {
       reusedAdapter = liveAdapter;
       borrowedFromInstance = true;
     }
@@ -974,6 +981,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
           workingDirectory: p.workspaceCwd,
           timeoutMs: loopIterationTimeoutMs,
           streamIdleTimeoutMs: loopActiveTimeoutMs,
+          env: p.loopControlEnv,
         }).catch((err: unknown) => {
           logger.warn('Failed to create same-session loop adapter, falling back to fresh-child', {
             loopRunId: p.loopRunId,
@@ -1019,6 +1027,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         continueWhileActiveOnTimeout: true,
         activeTimeoutMs: loopActiveTimeoutMs,
         autoAnswerInputRequired: true,
+        env: p.loopControlEnv,
         reusedAdapter,
         activity: emitActivity,
         // Track + clean up adapters the loop owns. The instance's adapter is

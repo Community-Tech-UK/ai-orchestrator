@@ -32,6 +32,11 @@
       "filter": ["*.mjs"]
     },
     {
+      "from": "dist/loop-control-cli-sea",
+      "to": "loop-control-cli",
+      "filter": ["aio-loop-control*"]
+    },
+    {
       "from": "resources/browser-extension",
       "to": "browser-extension",
       "filter": ["**/*"]

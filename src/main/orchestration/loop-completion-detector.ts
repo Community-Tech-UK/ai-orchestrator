@@ -174,6 +174,14 @@ export class LoopCompletionDetector {
     const { iteration, config, state } = input;
     const out: CompletionSignalEvidence[] = [];
 
+    if (state.terminalIntentPending?.kind === 'complete' && state.terminalIntentPending.status === 'pending') {
+      out.push({
+        id: 'declared-complete',
+        sufficient: true,
+        detail: `Loop-control complete intent: ${state.terminalIntentPending.summary}`,
+      });
+    }
+
     // Textual/sentinel/checklist completion signals are only actionable when
     // the agent is actually in IMPLEMENT. A durable completed-plan rename is
     // stronger than the stage hint, though: if the configured plan file was

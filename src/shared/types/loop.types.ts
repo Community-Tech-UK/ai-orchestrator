@@ -257,6 +257,7 @@ export type LoopStatus =
   | 'paused'
   | 'completed'
   | 'cancelled'
+  | 'failed'
   | 'error'
   | 'no-progress'
   | 'verify-failed'
@@ -350,7 +351,8 @@ export type CompletionSignalId =
   | 'done-sentinel'      // DONE.txt exists
   | 'all-green'          // verify command passes (transition from prev failing)
   | 'self-declared'      // "TASK COMPLETE" in output (auxiliary only)
-  | 'plan-checklist';    // PLAN.md checkboxes 100%
+  | 'plan-checklist'     // PLAN.md checkboxes 100%
+  | 'declared-complete'; // explicit loop-control complete intent
 
 export interface CompletionSignalEvidence {
   id: CompletionSignalId;
@@ -360,6 +362,51 @@ export interface CompletionSignalEvidence {
    */
   sufficient: boolean;
   detail: string;
+}
+
+// ============ Explicit terminal control ============
+
+export type LoopTerminalIntentKind = 'complete' | 'block' | 'fail';
+export type LoopTerminalIntentStatus = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'superseded';
+export type LoopTerminalIntentSource = 'loop-control-cli' | 'imported-file';
+export type LoopTerminalIntentEvidenceKind = 'summary' | 'command' | 'file' | 'test' | 'note';
+
+export interface LoopTerminalIntentEvidence {
+  kind: LoopTerminalIntentEvidenceKind;
+  label: string;
+  value: string;
+}
+
+export interface LoopTerminalIntent {
+  id: string;
+  loopRunId: string;
+  iterationSeq: number;
+  kind: LoopTerminalIntentKind;
+  summary: string;
+  evidence: LoopTerminalIntentEvidence[];
+  source: LoopTerminalIntentSource;
+  createdAt: number;
+  /**
+   * Coordinator clock timestamp. Ordering and terminal eligibility use this
+   * value, not the child-controlled createdAt.
+   */
+  receivedAt: number;
+  status: LoopTerminalIntentStatus;
+  statusReason?: string;
+  filePath?: string;
+}
+
+export interface LoopControlMetadata {
+  version: 1;
+  loopRunId: string;
+  workspaceCwd: string;
+  controlDir: string;
+  controlFile: string;
+  intentsDir: string;
+  currentIterationSeq: number;
+  cliPath: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 // ============ Loop state (live) ============
@@ -385,6 +432,12 @@ export interface LoopState {
   endEvidence?: Record<string, unknown>;
   /** Pending interventions to inject at next iteration. */
   pendingInterventions: string[];
+  /** Workspace-local loop-control transport metadata, excluding the secret. */
+  loopControl?: LoopControlMetadata;
+  /** Current unconsumed terminal intent, if any. */
+  terminalIntentPending?: LoopTerminalIntent;
+  /** Full accepted/rejected/deferred terminal-intent audit trail for this run. */
+  terminalIntentHistory?: LoopTerminalIntent[];
   /** Whether a *_Completed.md rename has been observed during this run. */
   completedFileRenameObserved: boolean;
   /**
@@ -436,8 +489,11 @@ export type LoopStreamEvent =
   | { type: 'iteration-complete'; loopRunId: string; seq: number; verdict: LoopVerdict }
   | { type: 'paused-no-progress'; loopRunId: string; signal: ProgressSignalEvidence }
   | { type: 'claimed-done-but-failed'; loopRunId: string; signal: CompletionSignalId; failure: string }
+  | { type: 'terminal-intent-recorded'; loopRunId: string; intent: LoopTerminalIntent }
+  | { type: 'terminal-intent-rejected'; loopRunId: string; intent: LoopTerminalIntent; reason: string }
   | { type: 'intervention-applied'; loopRunId: string; message: string }
   | { type: 'completed'; loopRunId: string; signal: CompletionSignalId; verifyOutput: string }
+  | { type: 'failed'; loopRunId: string; reason: string }
   | { type: 'cap-reached'; loopRunId: string; cap: 'iterations' | 'wall-time' | 'tokens' | 'cost' }
   | { type: 'cancelled'; loopRunId: string }
   | { type: 'error'; loopRunId: string; error: string };

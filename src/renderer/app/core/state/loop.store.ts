@@ -54,7 +54,7 @@ export interface LoopFinalSummaryLastIteration {
 
 export interface LoopFinalSummary {
   loopRunId: string;
-  status: 'completed' | 'cancelled' | 'cap-reached' | 'error' | 'no-progress';
+  status: 'completed' | 'cancelled' | 'failed' | 'cap-reached' | 'error' | 'no-progress';
   reason: string;
   iterations: number;
   tokens: number;
@@ -169,7 +169,7 @@ export class LoopStore {
     this.wired = true;
 
     this.ipc.onStateChanged(({ state }) => {
-      if (state.status === 'completed' || state.status === 'cancelled' || state.status === 'cap-reached' || state.status === 'error' || state.status === 'no-progress') {
+      if (state.status === 'completed' || state.status === 'cancelled' || state.status === 'failed' || state.status === 'cap-reached' || state.status === 'error' || state.status === 'no-progress') {
         // The loop is over — clear any lingering paused-no-progress / claimed-failed
         // banner now. Otherwise the orange bar stays on screen with buttons
         // (Resume anyway / Stop / Inject hint) that all early-return because
@@ -246,7 +246,88 @@ export class LoopStore {
       });
     });
 
+    this.ipc.onTerminalIntentRecorded(({ loopRunId, intent }) => {
+      this.addActivity({
+        loopRunId,
+        seq: intent.iterationSeq,
+        stage: this.activeByLoop(loopRunId)?.currentStage ?? '',
+        kind: 'status',
+        message: `Loop-control ${intent.kind} intent: ${intent.summary}`,
+        timestamp: Date.now(),
+        detail: { intentId: intent.id, status: intent.status },
+      });
+    });
+
+    this.ipc.onTerminalIntentRejected(({ loopRunId, intent, reason }) => {
+      this.addActivity({
+        loopRunId,
+        seq: intent.iterationSeq,
+        stage: this.activeByLoop(loopRunId)?.currentStage ?? '',
+        kind: 'error',
+        message: `Loop-control ${intent.kind} intent rejected: ${reason}`,
+        timestamp: Date.now(),
+        detail: { intentId: intent.id, status: intent.status },
+      });
+    });
+
+    this.ipc.onFreshEyesReviewStarted(({ loopRunId, signal }) => {
+      const state = this.activeByLoop(loopRunId);
+      this.addActivity({
+        loopRunId,
+        seq: state?.totalIterations ?? 0,
+        stage: state?.currentStage ?? '',
+        kind: 'status',
+        message: `Fresh-eyes review started for ${signal}`,
+        timestamp: Date.now(),
+        detail: { signal },
+      });
+    });
+
+    this.ipc.onFreshEyesReviewPassed(({ loopRunId, signal, reviewersUsed, nonBlockingFindings, summary }) => {
+      const state = this.activeByLoop(loopRunId);
+      this.addActivity({
+        loopRunId,
+        seq: state?.totalIterations ?? 0,
+        stage: state?.currentStage ?? '',
+        kind: 'status',
+        message: `Fresh-eyes review passed for ${signal}`,
+        timestamp: Date.now(),
+        detail: { signal, reviewersUsed, nonBlockingFindings, summary },
+      });
+    });
+
+    this.ipc.onFreshEyesReviewFailed(({ loopRunId, signal, error }) => {
+      const state = this.activeByLoop(loopRunId);
+      this.addActivity({
+        loopRunId,
+        seq: state?.totalIterations ?? 0,
+        stage: state?.currentStage ?? '',
+        kind: 'error',
+        message: `Fresh-eyes review failed for ${signal}: ${error}`,
+        timestamp: Date.now(),
+        detail: { signal, error },
+      });
+    });
+
+    this.ipc.onFreshEyesReviewBlocked(({ loopRunId, signal, reviewersUsed, blockingFindings, summary }) => {
+      const state = this.activeByLoop(loopRunId);
+      this.addActivity({
+        loopRunId,
+        seq: state?.totalIterations ?? 0,
+        stage: state?.currentStage ?? '',
+        kind: 'input_required',
+        message: `Fresh-eyes review blocked ${signal}`,
+        timestamp: Date.now(),
+        detail: { signal, reviewersUsed, blockingFindings, summary },
+      });
+    });
+
     this.ipc.onCompleted(({ loopRunId }) => {
+      const chatId = this.findChatIdForLoop(loopRunId);
+      if (chatId) this.setBanner(chatId, null);
+    });
+
+    this.ipc.onFailed(({ loopRunId }) => {
       const chatId = this.findChatIdForLoop(loopRunId);
       if (chatId) this.setBanner(chatId, null);
     });
@@ -354,6 +435,13 @@ export class LoopStore {
       this.activeByChat.set(map);
       return;
     }
+  }
+
+  private activeByLoop(loopRunId: string): LoopStatePayload | undefined {
+    for (const state of this.activeByChat().values()) {
+      if (state.id === loopRunId) return state;
+    }
+    return undefined;
   }
 
   private upsertSummary(chatId: string, summary: LoopFinalSummary): void {

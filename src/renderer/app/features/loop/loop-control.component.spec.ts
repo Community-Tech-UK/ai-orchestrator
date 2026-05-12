@@ -27,7 +27,14 @@ describe('LoopControlComponent', () => {
     onIterationComplete: ReturnType<typeof vi.fn>;
     onPausedNoProgress: ReturnType<typeof vi.fn>;
     onClaimedDoneButFailed: ReturnType<typeof vi.fn>;
+    onTerminalIntentRecorded: ReturnType<typeof vi.fn>;
+    onTerminalIntentRejected: ReturnType<typeof vi.fn>;
+    onFreshEyesReviewStarted: ReturnType<typeof vi.fn>;
+    onFreshEyesReviewPassed: ReturnType<typeof vi.fn>;
+    onFreshEyesReviewFailed: ReturnType<typeof vi.fn>;
+    onFreshEyesReviewBlocked: ReturnType<typeof vi.fn>;
     onCompleted: ReturnType<typeof vi.fn>;
+    onFailed: ReturnType<typeof vi.fn>;
     onCapReached: ReturnType<typeof vi.fn>;
     onError: ReturnType<typeof vi.fn>;
   };
@@ -55,7 +62,14 @@ describe('LoopControlComponent', () => {
       onIterationComplete: vi.fn(() => noop),
       onPausedNoProgress: vi.fn(() => noop),
       onClaimedDoneButFailed: vi.fn(() => noop),
+      onTerminalIntentRecorded: vi.fn(() => noop),
+      onTerminalIntentRejected: vi.fn(() => noop),
+      onFreshEyesReviewStarted: vi.fn(() => noop),
+      onFreshEyesReviewPassed: vi.fn(() => noop),
+      onFreshEyesReviewFailed: vi.fn(() => noop),
+      onFreshEyesReviewBlocked: vi.fn(() => noop),
       onCompleted: vi.fn(() => noop),
+      onFailed: vi.fn(() => noop),
       onCapReached: vi.fn(() => noop),
       onError: vi.fn(() => noop),
     };

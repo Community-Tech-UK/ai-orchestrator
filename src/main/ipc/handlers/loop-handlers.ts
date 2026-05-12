@@ -51,6 +51,14 @@ export function registerLoopHandlers(deps: {
     }
   });
 
+  // NB2: persist a terminal intent BEFORE the coordinator archives its
+  // source file from `<controlDir>/intents/` to `<controlDir>/imported/`.
+  // The coordinator awaits this hook; if it throws, the source file
+  // stays in `intents/` and the next boundary re-imports.
+  coordinator.setIntentPersistHook((intent) => {
+    store.upsertTerminalIntent(intent);
+  });
+
   // Forward state changes to renderer.
   coordinator.on('loop:state-changed', (data: { loopRunId: string; state: LoopState }) => {
     try { store.upsertRun(data.state); } catch { /* logged below */ }
@@ -92,8 +100,15 @@ export function registerLoopHandlers(deps: {
   coordinator.on('loop:iteration-complete', (data: unknown) => send(IPC_CHANNELS.LOOP_ITERATION_COMPLETE, data));
   coordinator.on('loop:paused-no-progress', (data: unknown) => send(IPC_CHANNELS.LOOP_PAUSED_NO_PROGRESS, data));
   coordinator.on('loop:claimed-done-but-failed', (data: unknown) => send(IPC_CHANNELS.LOOP_CLAIMED_DONE_BUT_FAILED, data));
+  coordinator.on('loop:terminal-intent-recorded', (data: unknown) => send(IPC_CHANNELS.LOOP_TERMINAL_INTENT_RECORDED, data));
+  coordinator.on('loop:terminal-intent-rejected', (data: unknown) => send(IPC_CHANNELS.LOOP_TERMINAL_INTENT_REJECTED, data));
+  coordinator.on('loop:fresh-eyes-review-started', (data: unknown) => send(IPC_CHANNELS.LOOP_FRESH_EYES_REVIEW_STARTED, data));
+  coordinator.on('loop:fresh-eyes-review-passed', (data: unknown) => send(IPC_CHANNELS.LOOP_FRESH_EYES_REVIEW_PASSED, data));
+  coordinator.on('loop:fresh-eyes-review-failed', (data: unknown) => send(IPC_CHANNELS.LOOP_FRESH_EYES_REVIEW_FAILED, data));
+  coordinator.on('loop:fresh-eyes-review-blocked', (data: unknown) => send(IPC_CHANNELS.LOOP_FRESH_EYES_REVIEW_BLOCKED, data));
   coordinator.on('loop:intervention-applied', (data: unknown) => send(IPC_CHANNELS.LOOP_INTERVENTION_APPLIED, data));
   coordinator.on('loop:completed', (data: unknown) => send(IPC_CHANNELS.LOOP_COMPLETED, data));
+  coordinator.on('loop:failed', (data: unknown) => send(IPC_CHANNELS.LOOP_FAILED, data));
   coordinator.on('loop:cap-reached', (data: unknown) => send(IPC_CHANNELS.LOOP_CAP_REACHED, data));
   coordinator.on('loop:cancelled', (data: unknown) => send(IPC_CHANNELS.LOOP_CANCELLED, data));
   coordinator.on('loop:error', (data: unknown) => send(IPC_CHANNELS.LOOP_ERROR, data));
@@ -270,6 +285,7 @@ function isTerminalLoopStatus(status: LoopState['status']): boolean {
   return (
     status === 'completed'
     || status === 'cancelled'
+    || status === 'failed'
     || status === 'cap-reached'
     || status === 'error'
     || status === 'no-progress'

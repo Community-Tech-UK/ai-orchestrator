@@ -60,6 +60,7 @@ export function activityKindLabel(kind: string): string {
 export type TerminalLoopStatus =
   | 'completed'
   | 'cancelled'
+  | 'failed'
   | 'cap-reached'
   | 'error'
   | 'no-progress';
@@ -68,6 +69,7 @@ export function terminalStatusLabel(status: TerminalLoopStatus): string {
   switch (status) {
     case 'completed':   return 'completed ✓';
     case 'cancelled':   return 'cancelled';
+    case 'failed':      return 'failed';
     case 'cap-reached': return 'cap reached';
     case 'error':       return 'error';
     case 'no-progress': return 'no progress';
@@ -85,6 +87,7 @@ export function loopStatusLabel(status: string): string {
   switch (status) {
     case 'completed':   return 'completed';
     case 'cancelled':   return 'cancelled';
+    case 'failed':      return 'failed';
     case 'cap-reached': return 'cap';
     case 'error':       return 'error';
     case 'no-progress': return 'no-progress';

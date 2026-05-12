@@ -50,6 +50,7 @@ export interface UnifiedSpawnOptions {
   model?: string;
   yoloMode?: boolean;
   timeout?: number;
+  env?: Record<string, string>;
   allowedTools?: string[];
   disallowedTools?: string[];
   resume?: boolean;  // Resume an existing session (requires sessionId)
@@ -198,6 +199,13 @@ function extendEnvWithRtk(
   return env;
 }
 
+function mergeSpawnEnv(options: UnifiedSpawnOptions, base: Record<string, string> = {}): Record<string, string> {
+  return {
+    ...base,
+    ...(options.env ?? {}),
+  };
+}
+
 function writeGeminiBrowserGatewaySettings(
   options: BrowserGatewayMcpConfigOptions | undefined,
 ): string | undefined {
@@ -326,6 +334,7 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     excludeDynamicSystemPromptSections: options.excludeDynamicSystemPromptSections ?? true,
     chrome: options.chrome,
     permissionHookPath: options.permissionHookPath,
+    env: options.env,
     rtk: options.rtk,
   };
   return new ClaudeCliAdapter(claudeOptions);
@@ -340,7 +349,7 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
         withBrowserGatewayProvider(options.browserGatewayMcp, 'codex'),
       )
     : null;
-  const codexEnv: Record<string, string> = {};
+  const codexEnv = mergeSpawnEnv(options);
   extendEnvWithRtk(codexEnv, options.rtk);
   const codexConfig: CodexCliConfig = {
     // AI Orchestrator owns its own session/history surface. Codex threads
@@ -369,7 +378,7 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
  */
 export function createGeminiAdapter(options: UnifiedSpawnOptions): GeminiCliAdapter {
   const browserGatewaySettingsPath = writeGeminiBrowserGatewaySettings(options.browserGatewayMcp);
-  const env: Record<string, string> = {};
+  const env = mergeSpawnEnv(options);
   if (browserGatewaySettingsPath) {
     env['GEMINI_CLI_SYSTEM_SETTINGS_PATH'] = browserGatewaySettingsPath;
   }
@@ -415,7 +424,7 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
   const providerStateArgs = copilotHomeDir
     ? ['--config-dir', copilotHomeDir, '--no-remote']
     : [];
-  const env = buildCopilotSpawnEnv();
+  const env = mergeSpawnEnv(options, buildCopilotSpawnEnv());
   if (copilotHomeDir) {
     // AI Orchestrator owns its own session/history surface. Copilot ACP
     // sessions created here should not write into ~/.copilot, because VS
@@ -485,7 +494,7 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
         withBrowserGatewayProvider(options.browserGatewayMcp, 'cursor'),
       )
     : [];
-  const env: Record<string, string> = {};
+  const env = mergeSpawnEnv(options);
   extendEnvWithRtk(env, options.rtk);
   return new AcpCliAdapter({
     adapterName: 'cursor-acp',

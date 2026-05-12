@@ -9,6 +9,7 @@ export const LoopStatusSchema = z.enum([
   'paused',
   'completed',
   'cancelled',
+  'failed',
   'error',
   'no-progress',
   'verify-failed',
@@ -27,6 +28,7 @@ export const CompletionSignalIdSchema = z.enum([
   'all-green',
   'self-declared',
   'plan-checklist',
+  'declared-complete',
 ]);
 
 // ============ Config ============
@@ -186,6 +188,45 @@ export const CompletionSignalEvidenceSchema = z.object({
   detail: z.string(),
 });
 
+export const LoopTerminalIntentKindSchema = z.enum(['complete', 'block', 'fail']);
+export const LoopTerminalIntentStatusSchema = z.enum(['pending', 'accepted', 'deferred', 'rejected', 'superseded']);
+export const LoopTerminalIntentSourceSchema = z.enum(['loop-control-cli', 'imported-file']);
+export const LoopTerminalIntentEvidenceKindSchema = z.enum(['summary', 'command', 'file', 'test', 'note']);
+
+export const LoopTerminalIntentEvidenceSchema = z.object({
+  kind: LoopTerminalIntentEvidenceKindSchema,
+  label: z.string(),
+  value: z.string(),
+});
+
+export const LoopTerminalIntentSchema = z.object({
+  id: z.string(),
+  loopRunId: z.string(),
+  iterationSeq: z.number().int().nonnegative(),
+  kind: LoopTerminalIntentKindSchema,
+  summary: z.string(),
+  evidence: z.array(LoopTerminalIntentEvidenceSchema),
+  source: LoopTerminalIntentSourceSchema,
+  createdAt: z.number().int(),
+  receivedAt: z.number().int(),
+  status: LoopTerminalIntentStatusSchema,
+  statusReason: z.string().optional(),
+  filePath: z.string().optional(),
+});
+
+export const LoopControlMetadataSchema = z.object({
+  version: z.literal(1),
+  loopRunId: z.string(),
+  workspaceCwd: z.string(),
+  controlDir: z.string(),
+  controlFile: z.string(),
+  intentsDir: z.string(),
+  currentIterationSeq: z.number().int().nonnegative(),
+  cliPath: z.string(),
+  createdAt: z.number().int(),
+  updatedAt: z.number().int(),
+});
+
 export const LoopIterationSchema = z.object({
   id: z.string(),
   loopRunId: z.string(),
@@ -226,6 +267,9 @@ export const LoopStateSchema = z.object({
   endReason: z.string().optional(),
   endEvidence: z.record(z.string(), z.unknown()).optional(),
   pendingInterventions: z.array(z.string()),
+  loopControl: LoopControlMetadataSchema.optional(),
+  terminalIntentPending: LoopTerminalIntentSchema.optional(),
+  terminalIntentHistory: z.array(LoopTerminalIntentSchema).default([]),
   completedFileRenameObserved: z.boolean(),
   /** True iff DONE.txt existed at startLoop. Defends against stale sentinels
    *  from a prior run by ensuring done-sentinel only fires on a transition. */
@@ -307,6 +351,7 @@ export type LoopConfigInput = z.infer<typeof LoopConfigInputSchema>;
 export type LoopStatePayload = z.infer<typeof LoopStateSchema>;
 export type LoopIterationPayload = z.infer<typeof LoopIterationSchema>;
 export type LoopRunSummaryPayload = z.infer<typeof LoopRunSummarySchema>;
+export type LoopTerminalIntentPayload = z.infer<typeof LoopTerminalIntentSchema>;
 export type LoopStartPayload = z.infer<typeof LoopStartPayloadSchema>;
 export type LoopAttachment = z.infer<typeof LoopAttachmentSchema>;
 export type LoopByIdPayload = z.infer<typeof LoopByIdPayloadSchema>;

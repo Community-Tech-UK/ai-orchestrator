@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   LoopCompletionConfigSchema,
   LoopCrossModelReviewConfigSchema,
+  LoopTerminalIntentSchema,
   LoopReviewSeveritySchema,
   LoopStateSchema,
 } from '../loop.schemas';
@@ -194,6 +195,27 @@ describe('Loop schemas — type/schema drift guards', () => {
       };
       const parsed = LoopStateSchema.parse(minimalState);
       expect(parsed.uncompletedPlanFilesAtStart).toEqual([]);
+      expect(parsed.terminalIntentHistory).toEqual([]);
+    });
+  });
+
+  describe('LoopTerminalIntentSchema', () => {
+    it('accepts explicit complete/block/fail intent records', () => {
+      for (const kind of ['complete', 'block', 'fail'] as const) {
+        const parsed = LoopTerminalIntentSchema.parse({
+          id: `intent-${kind}`,
+          loopRunId: 'loop-1',
+          iterationSeq: 1,
+          kind,
+          summary: 'done',
+          evidence: [{ kind: 'test', label: 'npm test', value: 'passed' }],
+          source: 'loop-control-cli',
+          createdAt: 10,
+          receivedAt: 20,
+          status: 'pending',
+        });
+        expect(parsed.kind).toBe(kind);
+      }
     });
   });
 });

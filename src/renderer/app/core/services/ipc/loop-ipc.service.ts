@@ -3,6 +3,7 @@ import type {
   LoopRunSummaryPayload,
   LoopStatePayload,
   LoopIterationPayload,
+  LoopTerminalIntentPayload,
 } from '@contracts/schemas/loop';
 import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
 
@@ -172,9 +173,37 @@ export class LoopIpcService {
     if (!this.api) return () => { /* noop */ };
     return this.api.onLoopClaimedDoneButFailed((p) => this.ngZone.run(() => cb(p as { loopRunId: string; signal: string; failure: string })));
   }
+  onTerminalIntentRecorded(cb: (data: { loopRunId: string; intent: LoopTerminalIntentPayload }) => void): () => void {
+    if (!this.api) return () => { /* noop */ };
+    return this.api.onLoopTerminalIntentRecorded((p) => this.ngZone.run(() => cb(p as { loopRunId: string; intent: LoopTerminalIntentPayload })));
+  }
+  onTerminalIntentRejected(cb: (data: { loopRunId: string; intent: LoopTerminalIntentPayload; reason: string }) => void): () => void {
+    if (!this.api) return () => { /* noop */ };
+    return this.api.onLoopTerminalIntentRejected((p) => this.ngZone.run(() => cb(p as { loopRunId: string; intent: LoopTerminalIntentPayload; reason: string })));
+  }
+  onFreshEyesReviewStarted(cb: (data: { loopRunId: string; signal: string }) => void): () => void {
+    if (!this.api) return () => { /* noop */ };
+    return this.api.onLoopFreshEyesReviewStarted((p) => this.ngZone.run(() => cb(p as { loopRunId: string; signal: string })));
+  }
+  onFreshEyesReviewPassed(cb: (data: { loopRunId: string; signal: string; reviewersUsed: string[]; nonBlockingFindings: number; summary?: string; infrastructureError?: string }) => void): () => void {
+    if (!this.api) return () => { /* noop */ };
+    return this.api.onLoopFreshEyesReviewPassed((p) => this.ngZone.run(() => cb(p as { loopRunId: string; signal: string; reviewersUsed: string[]; nonBlockingFindings: number; summary?: string; infrastructureError?: string })));
+  }
+  onFreshEyesReviewFailed(cb: (data: { loopRunId: string; signal: string; error: string }) => void): () => void {
+    if (!this.api) return () => { /* noop */ };
+    return this.api.onLoopFreshEyesReviewFailed((p) => this.ngZone.run(() => cb(p as { loopRunId: string; signal: string; error: string })));
+  }
+  onFreshEyesReviewBlocked(cb: (data: { loopRunId: string; signal: string; reviewersUsed: string[]; blockingFindings: unknown[]; summary?: string }) => void): () => void {
+    if (!this.api) return () => { /* noop */ };
+    return this.api.onLoopFreshEyesReviewBlocked((p) => this.ngZone.run(() => cb(p as { loopRunId: string; signal: string; reviewersUsed: string[]; blockingFindings: unknown[]; summary?: string })));
+  }
   onCompleted(cb: (data: { loopRunId: string; signal: string; verifyOutput: string }) => void): () => void {
     if (!this.api) return () => { /* noop */ };
     return this.api.onLoopCompleted((p) => this.ngZone.run(() => cb(p as { loopRunId: string; signal: string; verifyOutput: string })));
+  }
+  onFailed(cb: (data: { loopRunId: string; reason: string }) => void): () => void {
+    if (!this.api) return () => { /* noop */ };
+    return this.api.onLoopFailed((p) => this.ngZone.run(() => cb(p as { loopRunId: string; reason: string })));
   }
   onCapReached(cb: (data: { loopRunId: string; cap: string }) => void): () => void {
     if (!this.api) return () => { /* noop */ };

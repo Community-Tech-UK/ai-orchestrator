@@ -205,13 +205,55 @@ export function createInitializationSteps(
     { name: 'Workflow invokers', fn: () => registerDefaultWorkflowInvoker(instanceManager) },
     {
       name: 'Loop store',
-      fn: () => {
+      fn: async () => {
         try {
           const service = getLoopStoreService();
           // Mark any "running" loops as paused on boot so the user can review.
           const interrupted = service.store.markRunningAsInterruptedOnBoot();
           if (interrupted > 0) {
             logger.info(`Loop store: marked ${interrupted} previously-running loop(s) as paused on boot`);
+          }
+
+          // NB2 reconciler: walk `<workspaceCwd>/.aio-loop-control/<loopRunId>/imported/`
+          // for every resumable loop and import any intent files whose ids
+          // aren't yet in `loop_terminal_intents`. Closes the residual
+          // crash window where the DB transaction never committed but the
+          // source file was already moved out of `intents/`. See
+          // `docs/plans/2026-05-12-loop-terminal-control-spec.md` (NB2 / orphan reconciler).
+          const { listArchivedImportedIntentsByLoop } = await import(
+            '../orchestration/loop-control'
+          );
+          const resumable = service.store.listResumableRuns();
+          let totalReconciled = 0;
+          for (const { runRow, config } of resumable) {
+            const workspaceCwd = typeof config.workspaceCwd === 'string' ? config.workspaceCwd : null;
+            if (!workspaceCwd) continue;
+            try {
+              const orphans = await listArchivedImportedIntentsByLoop(workspaceCwd, runRow.id);
+              if (orphans.length === 0) continue;
+              const knownIds = service.store.getKnownTerminalIntentIds(runRow.id);
+              for (const intent of orphans) {
+                if (knownIds.has(intent.id)) continue;
+                try {
+                  service.store.upsertTerminalIntent(intent);
+                  totalReconciled += 1;
+                } catch (err) {
+                  logger.warn('Loop store: failed to reconcile orphan terminal intent', {
+                    loopRunId: runRow.id,
+                    intentId: intent.id,
+                    error: err instanceof Error ? err.message : String(err),
+                  });
+                }
+              }
+            } catch (err) {
+              logger.warn('Loop store: orphan scan failed for loop', {
+                loopRunId: runRow.id,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
+          if (totalReconciled > 0) {
+            logger.info(`Loop store: reconciled ${totalReconciled} orphan terminal intent(s) from disk`);
           }
         } catch (error) {
           logger.warn('Loop store initialization failed; Loop Mode IPC will report degraded errors', {
