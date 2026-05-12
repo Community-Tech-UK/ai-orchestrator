@@ -11,14 +11,14 @@
  *      silently never fire.
  *
  *   2. `GitStatusWatcher.setRepos` lifecycle — uses a mock chokidar
- *      module and a mock FileWatcherManager so we can drive events
+ *      module and a mock native worktree watcher so we can drive events
  *      synchronously and assert on the emitted `status-changed` events.
  *
  * No real filesystem, no real chokidar, no real git.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { EventEmitter } from 'events';
+import * as path from 'path';
 
 // ---------------------------------------------------------------------------
 // Mock chokidar BEFORE importing the system under test.
@@ -35,7 +35,7 @@ const createdWatchers: MockWatcher[] = [];
 
 vi.mock('chokidar', () => ({
   watch: (paths: string[] | string) => {
-    const handlers = new Map<string, Array<(...args: unknown[]) => void>>();
+    const handlers = new Map<string, ((...args: unknown[]) => void)[]>();
     const watcher: MockWatcher = {
       on: vi.fn((event: string, cb: (...args: unknown[]) => void) => {
         const list = handlers.get(event) ?? [];
@@ -55,34 +55,32 @@ vi.mock('chokidar', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mock FileWatcherManager so we don't spin up real fs watches for the
-// working-tree surface.
+// Mock the native worktree watcher so we don't spin up real fs watches for
+// the working-tree surface.
 // ---------------------------------------------------------------------------
 
-class MockFileWatcherManager extends EventEmitter {
-  watchCalls: Array<{ directory: string; sessionId: string }> = [];
-  unwatchCalls: string[] = [];
-  private nextSessionId = 0;
+class MockWorkTreeWatcher {
+  close = vi.fn().mockResolvedValue(undefined);
 
-  async watch(directory: string): Promise<{ id: string }> {
-    const id = `session-${++this.nextSessionId}`;
-    this.watchCalls.push({ directory, sessionId: id });
-    return { id };
-  }
+  constructor(
+    readonly repoPath: string,
+    private readonly onChange: (changedPath: string) => void,
+  ) {}
 
-  async unwatch(sessionId: string): Promise<void> {
-    this.unwatchCalls.push(sessionId);
+  fireChange(changedPath = path.join(this.repoPath, 'src', 'file.ts')): void {
+    this.onChange(changedPath);
   }
+}
 
-  /** Convenience for tests — emit a change event for a session. */
-  fireChange(sessionId: string): void {
-    this.emit('change', sessionId, {
-      type: 'change',
-      path: '/dummy',
-      relativePath: 'dummy',
-      timestamp: Date.now(),
-    });
-  }
+const createdWorkTreeWatchers: MockWorkTreeWatcher[] = [];
+
+function createMockWorkTreeWatcher(
+  repoPath: string,
+  onChange: (changedPath: string) => void,
+): MockWorkTreeWatcher {
+  const watcher = new MockWorkTreeWatcher(repoPath, onChange);
+  createdWorkTreeWatchers.push(watcher);
+  return watcher;
 }
 
 // ---------------------------------------------------------------------------
@@ -97,6 +95,7 @@ import {
 
 beforeEach(() => {
   createdWatchers.length = 0;
+  createdWorkTreeWatchers.length = 0;
 });
 
 afterEach(() => {
@@ -154,6 +153,28 @@ describe('resolveGitDirs', () => {
     const result = await resolveGitDirs('/tmp/not-a-repo', fakeExec as never);
     expect(result).toBeNull();
   });
+
+  // Phase 2 plan: "git rev-parse --git-dir and --git-common-dir can
+  // return relative paths. Resolve each non-absolute output against the
+  // repo working directory before handing it to chokidar."
+  it('resolves relative gitdir/common-dir outputs against the repo cwd', async () => {
+    const fakeExec = vi.fn().mockImplementation(
+      async (_cmd: string, args: string[]) => {
+        const which = args[1];
+        // Plain `.git` (relative) is the most common case for a non-
+        // worktree repo. Even with the linked-worktree shape git can
+        // emit relative paths depending on how the repo was created.
+        if (which === '--git-dir') return { stdout: '.git\n' };
+        if (which === '--git-common-dir') return { stdout: '.git\n' };
+        throw new Error('unexpected args');
+      },
+    );
+    const result = await resolveGitDirs('/work/sub/repo', fakeExec as never);
+    expect(result).not.toBeNull();
+    // Both must be absolute paths anchored at the repo cwd.
+    expect(result!.gitDir).toBe('/work/sub/repo/.git');
+    expect(result!.commonDir).toBe('/work/sub/repo/.git');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -161,19 +182,14 @@ describe('resolveGitDirs', () => {
 // ---------------------------------------------------------------------------
 
 describe('GitStatusWatcher', () => {
-  let fileWatcher: MockFileWatcherManager;
   let watcher: GitStatusWatcher;
   let events: GitStatusChangedEvent[];
 
   function setupWatcher(opts: { debounceMs?: number } = {}) {
-    fileWatcher = new MockFileWatcherManager();
     watcher = new GitStatusWatcher({
       // Default to 0ms so we don't need fake timers in basic tests.
       debounceMs: opts.debounceMs ?? 0,
-      // Cast: the MockFileWatcherManager exposes the same `on`,
-      // `watch`, `unwatch` surface that GitStatusWatcher actually
-      // touches, which is all the type-cast needs.
-      fileWatcher: fileWatcher as never,
+      createWorkTreeWatcher: createMockWorkTreeWatcher,
     });
     events = [];
     watcher.on('status-changed', e => events.push(e));
@@ -197,15 +213,15 @@ describe('GitStatusWatcher', () => {
 
     await watcher.setRepos([repoPath]);
     expect(watcher.watchedRepos()).toEqual([repoPath]);
-    // FileWatcherManager.watch was called for the working tree.
-    expect(fileWatcher.watchCalls.length).toBe(1);
-    expect(fileWatcher.watchCalls[0].directory).toBe(repoPath);
+    // The native worktree watcher was created for the working tree.
+    expect(createdWorkTreeWatchers.length).toBe(1);
+    expect(createdWorkTreeWatchers[0].repoPath).toBe(repoPath);
     // Two chokidar watchers were created (gitdir + commonDir).
     expect(createdWatchers.length).toBe(2);
 
     await watcher.setRepos([]);
     expect(watcher.watchedRepos()).toEqual([]);
-    expect(fileWatcher.unwatchCalls.length).toBe(1);
+    expect(createdWorkTreeWatchers[0].close).toHaveBeenCalledOnce();
     expect(createdWatchers.every(w => w.close.mock.calls.length > 0)).toBe(true);
   });
 
@@ -216,22 +232,21 @@ describe('GitStatusWatcher', () => {
     // Initial: just A
     await watcher.setRepos([repoA]);
     const watchersAfterA = createdWatchers.length;
-    const fwmCallsAfterA = fileWatcher.watchCalls.length;
+    const worktreeWatchersAfterA = createdWorkTreeWatchers.length;
 
     // Setting the same set again should NOT churn watchers
     await watcher.setRepos([repoA]);
     expect(createdWatchers.length).toBe(watchersAfterA);
-    expect(fileWatcher.watchCalls.length).toBe(fwmCallsAfterA);
+    expect(createdWorkTreeWatchers.length).toBe(worktreeWatchersAfterA);
     expect(watcher.watchedRepos()).toEqual([repoA]);
   });
 
-  it('emits status-changed with reason="worktree" when the FileWatcherManager fires', async () => {
+  it('emits status-changed with reason="worktree" when the native worktree watcher fires', async () => {
     setupWatcher();
     const repoPath = process.cwd();
     await watcher.setRepos([repoPath]);
 
-    const session = fileWatcher.watchCalls[0].sessionId;
-    fileWatcher.fireChange(session);
+    createdWorkTreeWatchers[0].fireChange();
     // 0ms debounce: event fires asynchronously through setTimeout.
     await new Promise(r => setTimeout(r, 5));
 
@@ -281,9 +296,8 @@ describe('GitStatusWatcher', () => {
     const repoPath = process.cwd();
     await watcher.setRepos([repoPath]);
 
-    const session = fileWatcher.watchCalls[0].sessionId;
     // Fire 5 events in rapid succession
-    for (let i = 0; i < 5; i++) fileWatcher.fireChange(session);
+    for (let i = 0; i < 5; i++) createdWorkTreeWatchers[0].fireChange();
 
     // No emission yet
     expect(events.filter(e => e.reason === 'worktree').length).toBe(0);
@@ -294,11 +308,10 @@ describe('GitStatusWatcher', () => {
   });
 
   it('stop() drains the setReposChain so no watchers leak past teardown', async () => {
-    fileWatcher = new MockFileWatcherManager();
     let resolveCount = 0;
     watcher = new GitStatusWatcher({
       debounceMs: 0,
-      fileWatcher: fileWatcher as never,
+      createWorkTreeWatcher: createMockWorkTreeWatcher,
       resolveGitDirs: async (repoPath) => {
         resolveCount++;
         // Yield so stop() can be called mid-setRepos.
@@ -313,12 +326,12 @@ describe('GitStatusWatcher', () => {
     await watcher.stop();
     await inflight;
 
-    // After stop+setRepos drain: no repos watched, no FileWatcherManager
-    // sessions held, no chokidar watchers still alive.
+    // After stop+setRepos drain: no repos watched, no native worktree
+    // watchers held, no chokidar watchers still alive.
     expect(watcher.watchedRepos()).toEqual([]);
-    // All sessions opened during the in-flight setRepos should have been
-    // unwatched as part of the cleanup.
-    expect(fileWatcher.watchCalls.length).toBe(fileWatcher.unwatchCalls.length);
+    // All worktree watchers opened during the in-flight setRepos should
+    // have been closed as part of the cleanup.
+    expect(createdWorkTreeWatchers.every(w => w.close.mock.calls.length > 0)).toBe(true);
     // All chokidar watchers created should be closed.
     for (const w of createdWatchers) {
       expect(w.close.mock.calls.length).toBeGreaterThanOrEqual(1);
@@ -330,11 +343,10 @@ describe('GitStatusWatcher', () => {
     // Use an injected resolver that adds a tiny artificial delay so
     // the first setRepos doesn't synchronously complete before the
     // second starts.
-    fileWatcher = new MockFileWatcherManager();
     let resolveCount = 0;
     watcher = new GitStatusWatcher({
       debounceMs: 0,
-      fileWatcher: fileWatcher as never,
+      createWorkTreeWatcher: createMockWorkTreeWatcher,
       resolveGitDirs: async (repoPath) => {
         resolveCount++;
         // Yield to let the second setRepos enter doSetRepos before
@@ -356,6 +368,7 @@ describe('GitStatusWatcher', () => {
     // (or never created, depending on timing) — but A and B must NOT
     // appear in `watchedRepos()`.
     expect(watcher.watchedRepos()).toEqual(['/work/C']);
+    expect(resolveCount).toBeGreaterThanOrEqual(1);
   });
 
   it('watches the LINKED worktree gitdir, not <repo>/.git (regression for the plan-flagged bug)', async () => {
@@ -363,10 +376,9 @@ describe('GitStatusWatcher', () => {
     // the main repo's .git/worktrees/<name>, NOT under the worktree
     // path itself. A naive `<repoPath>/.git/index` watcher would
     // silently never fire for this layout.
-    fileWatcher = new MockFileWatcherManager();
     watcher = new GitStatusWatcher({
       debounceMs: 0,
-      fileWatcher: fileWatcher as never,
+      createWorkTreeWatcher: createMockWorkTreeWatcher,
       resolveGitDirs: async () => ({
         gitDir: '/work/main/.git/worktrees/feature',
         commonDir: '/work/main/.git',
@@ -393,21 +405,41 @@ describe('GitStatusWatcher', () => {
     expect(commonDirWatcher.watchedPaths).toContain('/work/main/.git/packed-refs');
   });
 
-  it('routes per-session worktree events to the correct repo', async () => {
+  it('routes native worktree events to the correct repo', async () => {
+    watcher = new GitStatusWatcher({
+      debounceMs: 0,
+      createWorkTreeWatcher: createMockWorkTreeWatcher,
+      resolveGitDirs: async (repoPath) => ({
+        gitDir: `${repoPath}/.git`,
+        commonDir: `${repoPath}/.git`,
+      }),
+    });
+    events = [];
+    watcher.on('status-changed', e => events.push(e));
+
+    await watcher.setRepos(['/work/A', '/work/B']);
+
+    const repoAWatcher = createdWorkTreeWatchers.find(w => w.repoPath === '/work/A');
+    const repoBWatcher = createdWorkTreeWatchers.find(w => w.repoPath === '/work/B');
+    expect(repoAWatcher).toBeDefined();
+    expect(repoBWatcher).toBeDefined();
+
+    repoBWatcher!.fireChange('/work/B/src/file.ts');
+    await new Promise(r => setTimeout(r, 5));
+
+    expect(events.filter(e => e.reason === 'worktree' && e.repoPath === '/work/B').length).toBe(1);
+    expect(events.filter(e => e.repoPath === '/work/A').length).toBe(0);
+  });
+
+  it('ignores pruned generated/dependency paths from worktree events', async () => {
     setupWatcher();
     const repoPath = process.cwd();
     await watcher.setRepos([repoPath]);
 
-    const session = fileWatcher.watchCalls[0].sessionId;
-
-    // Fire a change for a session that isn't tracked — must NOT emit.
-    fileWatcher.fireChange('nonexistent-session');
+    createdWorkTreeWatchers[0].fireChange(path.join(repoPath, 'node_modules', 'pkg', 'index.js'));
+    createdWorkTreeWatchers[0].fireChange(path.join(repoPath, 'release', 'mac-arm64', 'app'));
     await new Promise(r => setTimeout(r, 5));
-    expect(events.length).toBe(0);
 
-    // Fire for the real session — emits.
-    fileWatcher.fireChange(session);
-    await new Promise(r => setTimeout(r, 5));
-    expect(events.filter(e => e.reason === 'worktree').length).toBe(1);
+    expect(events.filter(e => e.reason === 'worktree').length).toBe(0);
   });
 });

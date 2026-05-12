@@ -166,3 +166,159 @@ describe('VcsManager stageFiles / unstageFiles', () => {
     expect(events[0].exitCode).toBe(0);
   });
 });
+
+// ============================================================
+// Phase 2d items 8 / 9 / 11 — discard / commit / checkout
+// ============================================================
+
+describe('VcsManager Phase 2d items 8/9/11', () => {
+  const tempPaths: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(
+      tempPaths.map(tempPath => fs.rm(tempPath, { recursive: true, force: true })),
+    );
+    tempPaths.length = 0;
+  });
+
+  // --------- item 8: discardTracked ---------
+
+  it('discardTracked drops BOTH staged and unstaged changes to HEAD', async () => {
+    const repo = await makeRepo('vcs-discard-');
+    tempPaths.push(repo);
+    await fs.writeFile(path.join(repo, 'a.txt'), 'v1\n');
+    run(repo, ['add', 'a.txt']);
+    run(repo, ['commit', '-m', 'init', '-q']);
+
+    // Stage v2, then leave v3 unstaged. Plain `git restore <file>` would
+    // only drop v3, leaving v2 in the index — the wrong behaviour.
+    await fs.writeFile(path.join(repo, 'a.txt'), 'v2\n');
+    run(repo, ['add', 'a.txt']);
+    await fs.writeFile(path.join(repo, 'a.txt'), 'v3\n');
+
+    const vcs = new VcsManager(repo);
+    const result = await vcs.discardTracked(['a.txt']);
+    expect(result.exitCode).toBe(0);
+
+    // Both index and worktree should be back to HEAD's v1.
+    const content = await fs.readFile(path.join(repo, 'a.txt'), 'utf-8');
+    expect(content).toBe('v1\n');
+    // Porcelain should show no changes for a.txt
+    expect(porcelain(repo)).not.toMatch(/a\.txt/);
+  });
+
+  it('discardTracked is a no-op when paths is empty', async () => {
+    const repo = await makeRepo('vcs-discard-empty-');
+    tempPaths.push(repo);
+    const vcs = new VcsManager(repo);
+    const result = await vcs.discardTracked([]);
+    expect(result.exitCode).toBe(0);
+    expect(result.durationMs).toBe(0);
+  });
+
+  // --------- item 9: commit ---------
+
+  it('commit creates a commit with the supplied message', async () => {
+    const repo = await makeRepo('vcs-commit-');
+    tempPaths.push(repo);
+    await fs.writeFile(path.join(repo, 'a.txt'), 'hi\n');
+    run(repo, ['add', 'a.txt']);
+
+    const vcs = new VcsManager(repo);
+    const result = await vcs.commit({ message: 'feat: add a.txt' });
+    expect(result.exitCode).toBe(0);
+
+    const log = run(repo, ['log', '--format=%s']);
+    expect(log).toContain('feat: add a.txt');
+  });
+
+  it('commit --signoff adds Signed-off-by trailer', async () => {
+    const repo = await makeRepo('vcs-commit-signoff-');
+    tempPaths.push(repo);
+    await fs.writeFile(path.join(repo, 'a.txt'), 'hi\n');
+    run(repo, ['add', 'a.txt']);
+
+    const vcs = new VcsManager(repo);
+    const result = await vcs.commit({ message: 'feat: x', signoff: true });
+    expect(result.exitCode).toBe(0);
+
+    const full = run(repo, ['log', '--format=%B']);
+    expect(full).toMatch(/Signed-off-by: Test <test@example\.com>/);
+  });
+
+  // --------- item 11: checkoutBranch ---------
+
+  it('checkoutBranch switches to an existing branch on a clean tree', async () => {
+    const repo = await makeRepo('vcs-checkout-');
+    tempPaths.push(repo);
+    await fs.writeFile(path.join(repo, 'a.txt'), 'v1\n');
+    run(repo, ['add', 'a.txt']);
+    run(repo, ['commit', '-m', 'init', '-q']);
+    run(repo, ['branch', 'feature/x']);
+
+    const vcs = new VcsManager(repo);
+    const outcome = await vcs.checkoutBranch('feature/x');
+    expect(outcome.success).toBe(true);
+
+    const branch = run(repo, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+    expect(branch).toBe('feature/x');
+  });
+
+  it('checkoutBranch reports dirty=true when uncommitted changes would be overwritten', async () => {
+    const repo = await makeRepo('vcs-checkout-dirty-');
+    tempPaths.push(repo);
+    await fs.writeFile(path.join(repo, 'a.txt'), 'v1\n');
+    run(repo, ['add', 'a.txt']);
+    run(repo, ['commit', '-m', 'init', '-q']);
+    // Create a divergent branch whose a.txt differs from main.
+    run(repo, ['checkout', '-b', 'feature/x', '-q']);
+    await fs.writeFile(path.join(repo, 'a.txt'), 'v2\n');
+    run(repo, ['add', 'a.txt']);
+    run(repo, ['commit', '-m', 'feat: v2', '-q']);
+    run(repo, ['checkout', 'main', '-q']);
+    // Now create a conflicting uncommitted change on main.
+    await fs.writeFile(path.join(repo, 'a.txt'), 'unstaged-edit\n');
+
+    const vcs = new VcsManager(repo);
+    const outcome = await vcs.checkoutBranch('feature/x');
+    expect(outcome.success).toBe(false);
+    expect(outcome.dirty).toBe(true);
+    // Still on main (checkout was aborted).
+    const branch = run(repo, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+    expect(branch).toBe('main');
+  });
+
+  it('checkoutBranch with force=true overrides a dirty tree', async () => {
+    const repo = await makeRepo('vcs-checkout-force-');
+    tempPaths.push(repo);
+    await fs.writeFile(path.join(repo, 'a.txt'), 'v1\n');
+    run(repo, ['add', 'a.txt']);
+    run(repo, ['commit', '-m', 'init', '-q']);
+    run(repo, ['checkout', '-b', 'feature/x', '-q']);
+    await fs.writeFile(path.join(repo, 'a.txt'), 'v2\n');
+    run(repo, ['add', 'a.txt']);
+    run(repo, ['commit', '-m', 'feat: v2', '-q']);
+    run(repo, ['checkout', 'main', '-q']);
+    await fs.writeFile(path.join(repo, 'a.txt'), 'unstaged-edit\n');
+
+    const vcs = new VcsManager(repo);
+    const outcome = await vcs.checkoutBranch('feature/x', { force: true });
+    expect(outcome.success).toBe(true);
+
+    const branch = run(repo, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+    expect(branch).toBe('feature/x');
+  });
+
+  it('checkoutBranch rejects an empty branch name without spawning git', async () => {
+    const repo = await makeRepo('vcs-checkout-empty-');
+    tempPaths.push(repo);
+    const events: { args: string[] }[] = [];
+    const vcs = new VcsManager(repo, {
+      onCommand: ev => events.push({ args: ev.args }),
+    });
+    const outcome = await vcs.checkoutBranch('  ');
+    expect(outcome.success).toBe(false);
+    expect(outcome.dirty).toBe(false);
+    expect(events.length).toBe(0);
+  });
+});

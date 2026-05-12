@@ -87,3 +87,15 @@ export interface RenderedDiffLine {
   kind: 'add' | 'remove' | 'context' | 'header' | 'meta';
   text: string;
 }
+
+/**
+ * Branch description for the per-repo branch switcher dropdown
+ * (Phase 2d item 11). Mirrors `VcsManager.BranchInfo` loosely.
+ */
+export interface BranchInfo {
+  name: string;
+  current: boolean;
+  tracking?: string;
+  ahead?: number;
+  behind?: number;
+}

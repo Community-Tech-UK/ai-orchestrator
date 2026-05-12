@@ -6,12 +6,16 @@ import type { FileAttachment, InstanceStatus, OutputMessage, ThinkingContent } f
 import type { OperatorRunGraph, OperatorRunRecord } from '../../../../shared/types/operator.types';
 import { ChatStore } from '../../core/state/chat.store';
 import { InstanceStore } from '../../core/state/instance.store';
+import { InstanceListStore } from '../../core/state/instance/instance-list.store';
 import { SettingsStore } from '../../core/state/settings.store';
+import { DraftService } from '../../core/services/draft.service';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { OperatorIpcService } from '../../core/services/ipc/operator-ipc.service';
 import { OutputStreamComponent } from '../instance-detail/output-stream.component';
 import { InputPanelComponent } from '../instance-detail/input-panel.component';
 import { ActivityStatusComponent } from '../instance-detail/activity-status.component';
+import { FileAttachmentService } from '../instance-detail/file-attachment.service';
+import { DropZoneComponent } from '../file-drop/drop-zone.component';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import { LoopControlComponent } from '../loop/loop-control.component';
 import { SessionArtifactsStripComponent } from './session-artifacts-strip.component';
@@ -24,6 +28,7 @@ import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.serv
   standalone: true,
   imports: [
     FormsModule,
+    DropZoneComponent,
     OutputStreamComponent,
     InputPanelComponent,
     ActivityStatusComponent,
@@ -39,7 +44,10 @@ export class ChatDetailComponent {
   readonly chatStore = inject(ChatStore);
   private readonly destroyRef = inject(DestroyRef);
   private readonly instanceStore = inject(InstanceStore);
+  private readonly instanceListStore = inject(InstanceListStore);
   private readonly settingsStore = inject(SettingsStore);
+  private readonly draftService = inject(DraftService);
+  private readonly fileAttachment = inject(FileAttachmentService);
   private readonly fileIpc = inject(FileIpcService);
   private readonly operatorIpc = inject(OperatorIpcService);
   private readonly loopStore = inject(LoopStore);
@@ -128,6 +136,33 @@ export class ChatDetailComponent {
   readonly thinkingDefaultExpanded = this.settingsStore.thinkingDefaultExpanded;
   readonly showToolMessages = this.settingsStore.showToolMessages;
 
+  /**
+   * DraftService key for this chat's pending files/folders.
+   * Returns null until a chat is selected so handlers no-op safely.
+   *
+   * Keyed by `chat.id` (not the runtime instance id) so attachments persist
+   * across the chat's lifecycle — including when there's no instance yet
+   * (brand-new chat) or the runtime instance is torn down and recreated.
+   */
+  private readonly chatDraftKey = computed(() => {
+    const id = this.chat()?.id;
+    return id ? `chat:${id}` : null;
+  });
+
+  readonly pendingFiles = computed<File[]>(() => {
+    // Subscribe to DraftService attachment changes so this computed
+    // re-evaluates whenever files are added/removed.
+    this.draftService.attachmentVersion();
+    const key = this.chatDraftKey();
+    return key ? this.draftService.getPendingFiles(key) : [];
+  });
+
+  readonly pendingFolders = computed<string[]>(() => {
+    this.draftService.attachmentVersion();
+    const key = this.chatDraftKey();
+    return key ? this.draftService.getPendingFolders(key) : [];
+  });
+
   private readonly syncDrafts = effect(() => {
     const chat = this.chat();
     if (!chat) {
@@ -194,11 +229,121 @@ export class ChatDetailComponent {
   }
 
   async onSendMessage(message: string): Promise<void> {
-    await this.chatStore.sendMessage(message);
+    await this.sendChatMessage(message);
   }
 
   async onSteerMessage(message: string): Promise<void> {
-    await this.chatStore.sendMessage(message);
+    // Chat-detail currently has no separate steer path — same behavior as send.
+    await this.sendChatMessage(message);
+  }
+
+  /**
+   * Send the composed message through the chat store with any pending
+   * attachments/folders, then clear the per-chat draft state on success.
+   *
+   * Folder paths are inlined as `[Folder: …]` references at the top of the
+   * message (matches the instance-detail behavior) because chats don't have
+   * a separate "folder pin" wire format — folders are advisory references,
+   * not file uploads.
+   *
+   * Files are converted through the same `InstanceListStore.fileToAttachments`
+   * pipeline used by instance-detail so size/dimension limits, tiling, and
+   * compression are consistent across surfaces.
+   */
+  private async sendChatMessage(message: string): Promise<void> {
+    const key = this.chatDraftKey();
+    const folders = key ? this.draftService.getPendingFolders(key) : [];
+    const files = key ? this.draftService.getPendingFiles(key) : [];
+    const finalMessage = this.fileAttachment.prependPendingFolders(message, folders);
+
+    let attachments: FileAttachment[] | undefined;
+    if (files.length > 0) {
+      try {
+        attachments = (
+          await Promise.all(files.map((file) => this.instanceListStore.fileToAttachments(file)))
+        ).flat();
+      } catch (error) {
+        this.chatStore.setError(
+          error instanceof Error ? error.message : 'Failed to attach files',
+        );
+        return;
+      }
+    }
+
+    const errorBefore = this.chatStore.error();
+    await this.chatStore.sendMessage(finalMessage, attachments);
+    // Only clear pending state if the send actually succeeded. The store
+    // surfaces failures via `error()`; if a new error appeared, keep the
+    // user's attachments so they can retry without re-dropping every file.
+    const errorAfter = this.chatStore.error();
+    if (key && errorAfter === errorBefore) {
+      this.draftService.clearPendingFiles(key);
+      this.draftService.clearPendingFolders(key);
+    }
+  }
+
+  // ===== File drop / paste handlers (wired to <app-drop-zone>) =====
+
+  onFilesDropped(files: File[]): void {
+    const key = this.chatDraftKey();
+    if (!key || files.length === 0) return;
+    this.draftService.addPendingFiles(key, files);
+  }
+
+  onImagesPasted(images: File[]): void {
+    this.onFilesDropped(images);
+  }
+
+  onFolderDropped(folderPath: string): void {
+    const key = this.chatDraftKey();
+    if (!key || !folderPath) return;
+    this.draftService.addPendingFolder(key, folderPath);
+  }
+
+  /**
+   * Single external path drop (e.g. drag one file out of VSCode).
+   * VSCode/Finder/browsers don't include the raw bytes — they hand us a
+   * path/URI. `FileAttachmentService.loadDroppedFilesFromPaths` reads the
+   * bytes through IPC (CSP blocks `fetch('file://...')`) and rejects dirs.
+   */
+  async onFilePathDropped(filePath: string): Promise<void> {
+    const key = this.chatDraftKey();
+    if (!key) return;
+    const loaded = await this.fileAttachment.loadDroppedFilesFromPaths([filePath]);
+    if (loaded.length > 0) {
+      this.draftService.addPendingFiles(key, loaded);
+    }
+  }
+
+  async onFilePathsDropped(filePaths: string[]): Promise<void> {
+    const key = this.chatDraftKey();
+    if (!key || filePaths.length === 0) return;
+    const loaded = await this.fileAttachment.loadDroppedFilesFromPaths(filePaths);
+    if (loaded.length > 0) {
+      this.draftService.addPendingFiles(key, loaded);
+    }
+  }
+
+  onRemoveFile(file: File): void {
+    const key = this.chatDraftKey();
+    if (!key) return;
+    this.draftService.removePendingFile(key, file);
+  }
+
+  onRemoveFolder(folder: string): void {
+    const key = this.chatDraftKey();
+    if (!key) return;
+    this.draftService.removePendingFolder(key, folder);
+  }
+
+  async onAddFiles(): Promise<void> {
+    const key = this.chatDraftKey();
+    if (!key) return;
+    const cwd = this.chat()?.currentCwd ?? null;
+    const loaded = await this.fileAttachment.selectAndLoadFiles(cwd);
+    if (loaded.length > 0) {
+      this.draftService.addPendingFiles(key, loaded);
+    }
   }
 
   async refreshRuns(): Promise<void> {

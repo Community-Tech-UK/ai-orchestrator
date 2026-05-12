@@ -18,7 +18,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
@@ -294,6 +294,93 @@ describe('LoopCoordinator auto-enables requireCompletedFileRename from uncomplet
     try {
       expect(state.uncompletedPlanFilesAtStart).toEqual([]);
       expect(state.config.completion.requireCompletedFileRename).toBe(false);
+    } finally {
+      coordinator.cancelLoop(state.id);
+    }
+  });
+});
+
+describe('LoopCoordinator completion classification hardening', () => {
+  it('completes after a nested configured plan rename in REVIEW instead of spawning a second iteration that can error', async () => {
+    writeFileSync(join(workspace, 'STAGE.md'), 'REVIEW\n');
+    mkdirSync(join(workspace, 'docs', 'plans'), { recursive: true });
+    writeFileSync(join(workspace, 'docs', 'plans', 'phase.md'), '# Plan\n');
+    let invocations = 0;
+    coordinator.removeAllListeners('loop:invoke-iteration');
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      invocations += 1;
+      const p = payload as { callback: (result: LoopChildResult | { error: string }) => void };
+      if (invocations > 1) {
+        p.callback({ error: 'second iteration should not have been spawned' });
+        return;
+      }
+      renameSync(
+        join(workspace, 'docs', 'plans', 'phase.md'),
+        join(workspace, 'docs', 'plans', 'phase_completed.md'),
+      );
+      writeFileSync(join(workspace, 'DONE.txt'), 'finished\n');
+      queueMicrotask(() => {
+        p.callback({
+          childInstanceId: null,
+          output: 'TASK COMPLETE\n<promise>DONE</promise>\n',
+          tokens: 10,
+          filesChanged: [
+            {
+              path: 'docs/plans/phase_completed.md',
+              additions: 1,
+              deletions: 0,
+              contentHash: 'abc123',
+            },
+          ],
+          toolCalls: [],
+          errors: [],
+          testPassCount: null,
+          testFailCount: null,
+          exitedCleanly: true,
+        });
+      });
+    });
+
+    const terminalState = new Promise<{ status: string; endReason?: string }>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('loop did not reach terminal state')), 2_000);
+      coordinator.on('loop:state-changed', (data: unknown) => {
+        const state = (data as { state: { status: string; endReason?: string } }).state;
+        if (!['completed', 'cancelled', 'cap-reached', 'error', 'no-progress'].includes(state.status)) return;
+        clearTimeout(timeout);
+        resolve({ status: state.status, endReason: state.endReason });
+      });
+    });
+
+    const state = await coordinator.startLoop('chat-nested-review-complete', {
+      initialPrompt: 'implement docs/plans/phase.md',
+      workspaceCwd: workspace,
+      planFile: 'docs/plans/phase.md',
+      caps: {
+        maxIterations: 2,
+        maxWallTimeMs: 60_000,
+        maxTokens: 1_000_000,
+        maxCostCents: 100,
+        maxToolCallsPerIteration: 200,
+      },
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        verifyCommand: 'true',
+        runVerifyTwice: false,
+        crossModelReview: {
+          enabled: false,
+          blockingSeverities: ['critical'],
+          timeoutSeconds: 10,
+          reviewDepth: 'structured',
+        },
+      },
+    });
+
+    try {
+      await expect(terminalState).resolves.toEqual({
+        status: 'completed',
+        endReason: 'signal=completed-rename',
+      });
+      expect(invocations).toBe(1);
     } finally {
       coordinator.cancelLoop(state.id);
     }

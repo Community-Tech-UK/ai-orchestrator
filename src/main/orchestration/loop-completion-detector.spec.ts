@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { LoopCompletionDetector } from './loop-completion-detector';
+import { CompletedFileWatcher, LoopCompletionDetector } from './loop-completion-detector';
 import { defaultLoopConfig, type LoopIteration, type LoopState } from '../../shared/types/loop.types';
 
 let tmpDir: string;
@@ -70,6 +70,85 @@ function makeState(workspaceCwd: string, over: Partial<LoopState> = {}): LoopSta
 }
 
 describe('LoopCompletionDetector.observe', () => {
+  it('reports a nested configured plan-file completed rename even when the watcher missed it', async () => {
+    const det = new LoopCompletionDetector();
+    fs.mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'docs', 'plans', 'phase.md'), '# Plan\n');
+    const state = makeState(tmpDir, {
+      startedAt: Date.now() - 1_000,
+      config: {
+        ...defaultLoopConfig(tmpDir, 'do thing'),
+        planFile: 'docs/plans/phase.md',
+      },
+    });
+
+    fs.renameSync(
+      path.join(tmpDir, 'docs', 'plans', 'phase.md'),
+      path.join(tmpDir, 'docs', 'plans', 'phase_completed.md'),
+    );
+
+    const sigs = await det.observe({
+      iteration: makeIteration({ stage: 'IMPLEMENT' }),
+      config: state.config,
+      state,
+    });
+
+    const sig = sigs.find((s) => s.id === 'completed-rename');
+    expect(sig).toBeDefined();
+    expect(sig?.sufficient).toBe(true);
+    expect(sig?.detail).toContain('docs/plans/phase_completed.md');
+    expect(state.completedFileRenameObserved).toBe(true);
+    expect(det.passesBeltAndBraces({ ...state }, { ...state.config, completion: { ...state.config.completion, requireCompletedFileRename: true } })).toBe(true);
+  });
+
+  it('treats a durable configured plan-file rename as sufficient even when the iteration started in REVIEW', async () => {
+    const det = new LoopCompletionDetector();
+    fs.mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'docs', 'plans', 'phase.md'), '# Plan\n');
+    const state = makeState(tmpDir, {
+      startedAt: Date.now() - 1_000,
+      config: {
+        ...defaultLoopConfig(tmpDir, 'do thing'),
+        planFile: 'docs/plans/phase.md',
+      },
+    });
+
+    fs.renameSync(
+      path.join(tmpDir, 'docs', 'plans', 'phase.md'),
+      path.join(tmpDir, 'docs', 'plans', 'phase_Completed.md'),
+    );
+
+    const sigs = await det.observe({
+      iteration: makeIteration({ stage: 'REVIEW' }),
+      config: state.config,
+      state,
+    });
+
+    expect(sigs.some((s) => s.id === 'completed-rename' && s.sufficient)).toBe(true);
+  });
+
+  it('does not treat a stale completed plan target as an in-run rename fallback', async () => {
+    const det = new LoopCompletionDetector();
+    fs.mkdirSync(path.join(tmpDir, 'docs', 'plans'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'docs', 'plans', 'phase_completed.md'), '# Old completed plan\n');
+    const state = makeState(tmpDir, {
+      startedAt: Date.now() + 60_000,
+      config: {
+        ...defaultLoopConfig(tmpDir, 'do thing'),
+        planFile: 'docs/plans/phase.md',
+      },
+    });
+
+    const sigs = await det.observe({
+      iteration: makeIteration({ stage: 'IMPLEMENT' }),
+      config: state.config,
+      state,
+    });
+
+    expect(sigs.find((s) => s.id === 'completed-rename')).toBeUndefined();
+    expect(state.completedFileRenameObserved).toBe(false);
+  });
+
   it('reports done-promise as auxiliary only when output contains the marker (IMPLEMENT stage)', async () => {
     const det = new LoopCompletionDetector();
     const state = makeState(tmpDir);
@@ -180,13 +259,13 @@ describe('LoopCompletionDetector.observe', () => {
     expect(sigs.some((s) => s.id === 'completed-rename' && s.sufficient)).toBe(true);
   });
 
-  it('completed-rename is NOT sufficient in REVIEW stage', async () => {
+  it('completed-rename from the in-run watcher is sufficient in REVIEW stage because the durable rename is stronger than the stage hint', async () => {
     const det = new LoopCompletionDetector();
     const state = makeState(tmpDir, { completedFileRenameObserved: true });
     const sigs = await det.observe({ iteration: makeIteration({ stage: 'REVIEW' }), config: state.config, state });
     const sig = sigs.find((s) => s.id === 'completed-rename');
     expect(sig).toBeDefined();
-    expect(sig?.sufficient).toBe(false);
+    expect(sig?.sufficient).toBe(true);
   });
 
   it('flags self-declared as auxiliary (sufficient: false)', async () => {
@@ -196,6 +275,31 @@ describe('LoopCompletionDetector.observe', () => {
     const sigs = await det.observe({ iteration: iter, config: state.config, state });
     const self = sigs.find((s) => s.id === 'self-declared');
     expect(self?.sufficient).toBe(false);
+  });
+});
+
+describe('CompletedFileWatcher', () => {
+  it('observes completed files added in configured nested directories', async () => {
+    const nestedDir = path.join(tmpDir, 'docs', 'plans');
+    fs.mkdirSync(nestedDir, { recursive: true });
+    const watcher = new CompletedFileWatcher(tmpDir, '*_[Cc]ompleted.md', [nestedDir]);
+    const observed = new Promise<string>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('timed out waiting for nested completed file event')), 2_000);
+      watcher.onCompleted((filePath) => {
+        clearTimeout(timeout);
+        resolve(filePath);
+      });
+    });
+
+    watcher.start();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    fs.writeFileSync(path.join(nestedDir, 'phase_completed.md'), '# Done\n');
+
+    try {
+      await expect(observed).resolves.toBe(path.join(nestedDir, 'phase_completed.md'));
+    } finally {
+      await watcher.stop();
+    }
   });
 });
 

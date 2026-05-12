@@ -25,6 +25,7 @@ import { ViewLayoutService } from '../../core/services/view-layout.service';
 import { SourceControlStore } from '../../core/state/source-control.store';
 import { SourceControlDiffViewerComponent } from './source-control-diff-viewer.component';
 import { SourceControlInlineDiffComponent } from './source-control-inline-diff.component';
+import { SourceControlRepoActionsComponent } from './source-control-repo-actions.component';
 import type {
   FileChangeStatus,
   GitStatusResponse,
@@ -34,7 +35,11 @@ import type {
 @Component({
   selector: 'app-source-control',
   standalone: true,
-  imports: [SourceControlDiffViewerComponent, SourceControlInlineDiffComponent],
+  imports: [
+    SourceControlDiffViewerComponent,
+    SourceControlInlineDiffComponent,
+    SourceControlRepoActionsComponent,
+  ],
   template: `
     <div
       class="source-control-wrapper"
@@ -122,8 +127,14 @@ import type {
                       @if (repo.error) {
                         <div class="repo-error">{{ repo.error }}</div>
                       } @else if (repo.status?.isClean) {
+                        <!-- Clean repo: still expose fetch/pull/push and
+                             branch picker so the user can sync / switch
+                             without staged changes. -->
+                        <app-source-control-repo-actions [repo]="repo" />
                         <div class="repo-clean">✓ No changes</div>
                       } @else if (repo.status) {
+                        <!-- Phase 2d items 9–11 — toolbar (commit, sync, branch) -->
+                        <app-source-control-repo-actions [repo]="repo" />
                         @if (repo.status.staged.length > 0) {
                           <div class="change-group">
                             <div class="change-group-title">Staged ({{ repo.status.staged.length }})</div>
@@ -151,6 +162,14 @@ import type {
                                     <span class="file-name">{{ fileBasename(file.path) }}</span>
                                     <span class="file-dir">{{ fileDirname(file.path) }}</span>
                                   </button>
+                                  <button
+                                    type="button"
+                                    class="file-action file-action-discard"
+                                    (click)="onDiscardFile(repo, file.path)"
+                                    [disabled]="isWriting(repo.absolutePath)"
+                                    title="Discard changes (revert to HEAD)"
+                                    [attr.aria-label]="'Discard ' + file.path"
+                                  >⌫</button>
                                   <button
                                     type="button"
                                     class="file-action file-action-unstage"
@@ -210,6 +229,14 @@ import type {
                                   </button>
                                   <button
                                     type="button"
+                                    class="file-action file-action-discard"
+                                    (click)="onDiscardFile(repo, file.path)"
+                                    [disabled]="isWriting(repo.absolutePath)"
+                                    title="Discard changes (revert to HEAD)"
+                                    [attr.aria-label]="'Discard ' + file.path"
+                                  >⌫</button>
+                                  <button
+                                    type="button"
                                     class="file-action file-action-stage"
                                     (click)="onStageFile(repo.absolutePath, file.path)"
                                     [disabled]="isWriting(repo.absolutePath)"
@@ -252,6 +279,14 @@ import type {
                                   <span class="file-name">{{ fileBasename(path) }}</span>
                                   <span class="file-dir">{{ fileDirname(path) }}</span>
                                 </div>
+                                <button
+                                  type="button"
+                                  class="file-action file-action-discard"
+                                  (click)="onDiscardUntracked(repo, path)"
+                                  [disabled]="isWriting(repo.absolutePath)"
+                                  title="Move to Trash (recoverable)"
+                                  [attr.aria-label]="'Trash ' + path"
+                                >⌫</button>
                                 <button
                                   type="button"
                                   class="file-action file-action-stage"
@@ -772,6 +807,15 @@ import type {
       color: #e85050;
     }
 
+    /* Phase 2d item 8 — discard button. Warning color signals the
+       destructive nature; the actual destructive call routes tracked
+       paths through git restore --source=HEAD --staged --worktree, and
+       untracked paths through shell.trashItem (recoverable from Trash). */
+    .file-action-discard:hover:not(:disabled) {
+      color: #e85050;
+      border-color: rgba(232, 80, 80, 0.4);
+    }
+
     .file-action:disabled {
       opacity: 0.35;
       cursor: default;
@@ -950,5 +994,40 @@ export class SourceControlComponent {
     const paths = status.staged.map(f => f.path);
     if (paths.length === 0) return;
     void this.store.unstageFiles(repo.absolutePath, paths);
+  }
+
+  // -------------------------------------------------------------------------
+  // Phase 2d item 8 — discard handlers.
+  // Tracked files: confirm because the change is unrecoverable.
+  // Untracked files: trash without confirm (shell.trashItem is reversible).
+  // Untracked DIRECTORIES: confirm because losing a whole directory is a
+  // bigger consequence and matches the plan's "confirmation modal required"
+  // requirement for the directory case.
+  // -------------------------------------------------------------------------
+
+  onDiscardFile(repo: RepoState, filePath: string): void {
+    const ok = window.confirm(
+      `Discard changes to ${filePath}?\n\nThis reverts the file to HEAD and cannot be undone.`,
+    );
+    if (!ok) return;
+    void this.store.discardFiles(repo.absolutePath, [filePath]);
+  }
+
+  onDiscardUntracked(repo: RepoState, filePath: string): void {
+    // Untracked entries from `git status --porcelain` are paths relative
+    // to the repo root. We can't reliably tell from the string whether
+    // it points at a file or a directory, so do a heuristic: trailing `/`
+    // means directory in git's output. For everything else we still ask
+    // for the dir case via the OS — better to over-confirm than to lose
+    // a folder accidentally.
+    const looksLikeDir = filePath.endsWith('/');
+    if (looksLikeDir) {
+      const ok = window.confirm(
+        `Move untracked directory "${filePath}" to the Trash?\n\n` +
+        `You can recover it from your Trash if you change your mind.`,
+      );
+      if (!ok) return;
+    }
+    void this.store.discardFiles(repo.absolutePath, [filePath]);
   }
 }

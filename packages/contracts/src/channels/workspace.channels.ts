@@ -18,6 +18,17 @@ export const WORKSPACE_CHANNELS = {
   VCS_STATUS_CHANGED: 'vcs:status-changed',
   VCS_STAGE_FILES: 'vcs:stage-files',
   VCS_UNSTAGE_FILES: 'vcs:unstage-files',
+  // Phase 2d items 8–11
+  VCS_DISCARD_FILES: 'vcs:discard-files',
+  VCS_COMMIT: 'vcs:commit',
+  VCS_FETCH: 'vcs:fetch',
+  VCS_PULL: 'vcs:pull',
+  VCS_PUSH: 'vcs:push',
+  VCS_CHECKOUT_BRANCH: 'vcs:checkout-branch',
+  /** Progress / status updates for long-running fetch / pull / push ops. */
+  VCS_OPERATION_PROGRESS: 'vcs:operation-progress',
+  /** Cancel an in-flight long-running operation by its opId. */
+  VCS_OPERATION_CANCEL: 'vcs:operation-cancel',
 
   // Git Worktree operations
   WORKTREE_CREATE: 'worktree:create',

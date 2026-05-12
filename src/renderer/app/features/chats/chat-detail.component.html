@@ -1,4 +1,12 @@
 @if (detail(); as detail) {
+  <app-drop-zone
+    class="full-drop-zone"
+    (filesDropped)="onFilesDropped($event)"
+    (imagesPasted)="onImagesPasted($event)"
+    (folderDropped)="onFolderDropped($event)"
+    (filePathDropped)="onFilePathDropped($event)"
+    (filePathsDropped)="onFilePathsDropped($event)"
+  >
   <section class="chat-detail">
     <header class="chat-header">
       <div class="chat-title-area">
@@ -141,8 +149,8 @@
       [instanceId]="streamInstanceId()"
       [disabled]="!setupComplete() || chatStore.sending()"
       [placeholder]="setupComplete() ? 'Send a message...' : 'Choose provider and project first'"
-      [pendingFiles]="[]"
-      [pendingFolders]="[]"
+      [pendingFiles]="pendingFiles()"
+      [pendingFolders]="pendingFolders()"
       [queuedCount]="0"
       [queuedMessages]="[]"
       [isBusy]="isBusy()"
@@ -156,10 +164,14 @@
       [isReplayFallback]="false"
       (sendMessage)="onSendMessage($event)"
       (steerMessage)="onSteerMessage($event)"
+      (removeFile)="onRemoveFile($event)"
+      (removeFolder)="onRemoveFolder($event)"
+      (addFiles)="onAddFiles()"
       (loopStartRequested)="onLoopStartRequested($event)"
       (loopStopRequested)="onLoopStopRequested()"
     />
   </section>
+  </app-drop-zone>
 } @else {
   <section class="chat-detail empty-chat">
     <div class="empty-chat-copy">

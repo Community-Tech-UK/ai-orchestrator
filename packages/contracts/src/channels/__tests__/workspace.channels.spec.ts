@@ -9,6 +9,14 @@ describe('WORKSPACE_CHANNELS', () => {
     expect(WORKSPACE_CHANNELS.VCS_STATUS_CHANGED).toBe('vcs:status-changed');
     expect(WORKSPACE_CHANNELS.VCS_STAGE_FILES).toBe('vcs:stage-files');
     expect(WORKSPACE_CHANNELS.VCS_UNSTAGE_FILES).toBe('vcs:unstage-files');
+    expect(WORKSPACE_CHANNELS.VCS_DISCARD_FILES).toBe('vcs:discard-files');
+    expect(WORKSPACE_CHANNELS.VCS_COMMIT).toBe('vcs:commit');
+    expect(WORKSPACE_CHANNELS.VCS_FETCH).toBe('vcs:fetch');
+    expect(WORKSPACE_CHANNELS.VCS_PULL).toBe('vcs:pull');
+    expect(WORKSPACE_CHANNELS.VCS_PUSH).toBe('vcs:push');
+    expect(WORKSPACE_CHANNELS.VCS_CHECKOUT_BRANCH).toBe('vcs:checkout-branch');
+    expect(WORKSPACE_CHANNELS.VCS_OPERATION_PROGRESS).toBe('vcs:operation-progress');
+    expect(WORKSPACE_CHANNELS.VCS_OPERATION_CANCEL).toBe('vcs:operation-cancel');
   });
 
   it('has worktree channels', () => {

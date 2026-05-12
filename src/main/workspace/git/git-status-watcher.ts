@@ -6,16 +6,17 @@
  * have changed. The Source Control panel subscribes via IPC and triggers
  * a targeted refresh of the affected repo.
  *
- * Four trigger surfaces (per the Phase 2 plan, item 4 rev2):
+ * Three trigger surfaces (per the Phase 2 plan, item 4 rev2):
  *
  *   1. Per-worktree gitdir — `<gitdir>/index`, `<gitdir>/HEAD`,
  *      `<gitdir>/logs/HEAD`. Catches `git add`, commits, branch checkouts.
  *   2. Common gitdir — `<commonDir>/refs/heads/*`, `<commonDir>/refs/remotes/*`,
  *      `<commonDir>/packed-refs`. Catches branch creation/deletion,
  *      remote-tracking updates after fetches (drives ahead/behind chips).
- *   3. Working tree — debounced, gitignore-aware via the existing
- *      `FileWatcherManager`. Catches unstaged edits (the most common
- *      case, e.g. Claude editing files in another window).
+ *   3. Working tree — debounced native recursive `fs.watch`. Catches
+ *      unstaged edits without recursively scanning the entire repository
+ *      through chokidar, which can exhaust file descriptors in large
+ *      repos with generated workdirs or vendored dependencies.
  *
  * **Worktree correctness**: this app creates linked worktrees via
  * `git worktree add` (see `worktree-manager.ts:123`). In a linked
@@ -28,11 +29,12 @@
 
 import { EventEmitter } from 'events';
 import { execFile } from 'child_process';
+import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
 import * as chokidar from 'chokidar';
 import { getLogger } from '../../logging/logger';
-import { getFileWatcherManager, type FileWatcherManager } from '../watcher/file-watcher';
+import { isPathPrunedByDefault } from '../watcher/watch-ignore';
 
 const execFileAsync = promisify(execFile);
 const logger = getLogger('GitStatusWatcher');
@@ -62,8 +64,17 @@ interface RepoWatch {
   commonDir: string;
   gitDirWatcher: chokidar.FSWatcher | null;
   commonDirWatcher: chokidar.FSWatcher | null;
-  workTreeSessionId: string | null;
+  workTreeWatcher: WorkTreeWatcher | null;
 }
+
+interface WorkTreeWatcher {
+  close: () => void | Promise<void>;
+}
+
+type WorkTreeWatchFactory = (
+  repoPath: string,
+  onChange: (changedPath: string) => void,
+) => WorkTreeWatcher | null;
 
 /**
  * Default debounce — coalesces rapid-fire events from the same repo +
@@ -76,8 +87,8 @@ const DEFAULT_DEBOUNCE_MS = 250;
 export interface GitStatusWatcherOptions {
   /** Override the per-(repo, reason) debounce window. */
   debounceMs?: number;
-  /** Inject a non-default `FileWatcherManager` for tests. */
-  fileWatcher?: FileWatcherManager;
+  /** Inject a non-default worktree watcher for tests. */
+  createWorkTreeWatcher?: WorkTreeWatchFactory;
   /**
    * Override how per-repo gitdirs are resolved. Tests inject a stub so
    * the linked-worktree wiring can be exercised without spawning real
@@ -118,15 +129,8 @@ export class GitStatusWatcher extends EventEmitter {
   private repoWatches = new Map<string, RepoWatch>();
   private debounceTimers = new Map<string, NodeJS.Timeout>();
   private readonly debounceMs: number;
-  private readonly fileWatcher: FileWatcherManager;
+  private readonly createWorkTreeWatcher: WorkTreeWatchFactory;
   private readonly resolveGitDirsFn: (repoPath: string) => Promise<{ gitDir: string; commonDir: string } | null>;
-  /**
-   * Mapping from FileWatcherManager session ID → repo path so the
-   * single 'change' listener on the file watcher can route events
-   * to the right repo.
-   */
-  private sessionToRepo = new Map<string, string>();
-  private fileWatcherHandler: ((sessionId: string) => void) | null = null;
 
   /**
    * Serialization chain for `setRepos()`. Without this, two rapid
@@ -141,7 +145,7 @@ export class GitStatusWatcher extends EventEmitter {
   constructor(opts: GitStatusWatcherOptions = {}) {
     super();
     this.debounceMs = opts.debounceMs ?? DEFAULT_DEBOUNCE_MS;
-    this.fileWatcher = opts.fileWatcher ?? getFileWatcherManager();
+    this.createWorkTreeWatcher = opts.createWorkTreeWatcher ?? createNativeWorkTreeWatcher;
     this.resolveGitDirsFn = opts.resolveGitDirs ?? resolveGitDirs;
   }
 
@@ -164,9 +168,6 @@ export class GitStatusWatcher extends EventEmitter {
   private async doSetRepos(repoPaths: string[]): Promise<void> {
     const incoming = new Set(repoPaths);
 
-    // Lazy-bind the FileWatcherManager listener (idempotent).
-    this.ensureFileWatcherListener();
-
     // Tear down removed
     const toRemove: string[] = [];
     for (const repoPath of this.repoWatches.keys()) {
@@ -183,8 +184,8 @@ export class GitStatusWatcher extends EventEmitter {
    * Stop all watchers and release resources.
    *
    * Drains the `setReposChain` first so an in-flight `doSetRepos` can't
-   * race past us and leave orphan chokidar watchers / file-watcher
-   * sessions after we've cleared bookkeeping.
+   * race past us and leave orphan chokidar / native fs watchers after
+   * we've cleared bookkeeping.
    */
   async stop(): Promise<void> {
     // Wait for any in-flight setRepos to settle. Errors on the chain
@@ -199,11 +200,6 @@ export class GitStatusWatcher extends EventEmitter {
       clearTimeout(timer);
     }
     this.debounceTimers.clear();
-
-    if (this.fileWatcherHandler) {
-      this.fileWatcher.off('change', this.fileWatcherHandler);
-      this.fileWatcherHandler = null;
-    }
   }
 
   /** Currently-watched repo paths (test introspection). */
@@ -281,17 +277,18 @@ export class GitStatusWatcher extends EventEmitter {
     );
 
     // -----------------------------------------------------------------
-    // 3. Working-tree watcher via FileWatcherManager
-    //    We don't subscribe to the watcher per repo; the single listener
-    //    on `this.fileWatcher` routes by session ID via sessionToRepo.
+    // 3. Working-tree watcher via native fs.watch.
+    //    Chokidar recursively scans a tree during watcher setup, even
+    //    with ignoreInitial. On large repos that can hold tens of
+    //    thousands of descriptors and make later spawn() calls fail
+    //    with EBADF/EMFILE. Native recursive fs.watch gives us a cheap
+    //    "something in this repo changed" signal without the scan.
     // -----------------------------------------------------------------
-    const session = await this.fileWatcher.watch(repoPath, {
-      useGitignore: true,
-      depth: 99,
-      ignoreInitial: true,
-      debounceMs: this.debounceMs,
+    const workTreeWatcher = this.createWorkTreeWatcher(repoPath, (changedPath) => {
+      if (!isPathPrunedByDefault(repoPath, changedPath)) {
+        this.emitDebounced(repoPath, 'worktree');
+      }
     });
-    this.sessionToRepo.set(session.id, repoPath);
 
     this.repoWatches.set(repoPath, {
       repoPath,
@@ -299,21 +296,10 @@ export class GitStatusWatcher extends EventEmitter {
       commonDir,
       gitDirWatcher,
       commonDirWatcher,
-      workTreeSessionId: session.id,
+      workTreeWatcher,
     });
 
     logger.debug('startWatch: now watching', { repoPath, gitDir, commonDir });
-  }
-
-  private ensureFileWatcherListener(): void {
-    if (this.fileWatcherHandler) return;
-    this.fileWatcherHandler = (sessionId: string) => {
-      const repoPath = this.sessionToRepo.get(sessionId);
-      if (repoPath) {
-        this.emitDebounced(repoPath, 'worktree');
-      }
-    };
-    this.fileWatcher.on('change', this.fileWatcherHandler);
   }
 
   private async stopWatch(repoPath: string): Promise<void> {
@@ -323,9 +309,8 @@ export class GitStatusWatcher extends EventEmitter {
     const closes: Promise<unknown>[] = [];
     if (watch.gitDirWatcher) closes.push(watch.gitDirWatcher.close());
     if (watch.commonDirWatcher) closes.push(watch.commonDirWatcher.close());
-    if (watch.workTreeSessionId) {
-      this.sessionToRepo.delete(watch.workTreeSessionId);
-      closes.push(this.fileWatcher.unwatch(watch.workTreeSessionId));
+    if (watch.workTreeWatcher) {
+      closes.push(Promise.resolve(watch.workTreeWatcher.close()));
     }
     try {
       await Promise.all(closes);
@@ -390,4 +375,35 @@ function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   if (typeof err === 'string') return err;
   return String(err);
+}
+
+function createNativeWorkTreeWatcher(
+  repoPath: string,
+  onChange: (changedPath: string) => void,
+): WorkTreeWatcher | null {
+  try {
+    const watcher = fs.watch(
+      repoPath,
+      { recursive: true, persistent: true },
+      (_eventType, filename) => {
+        const changedPath = filename
+          ? path.resolve(repoPath, filename.toString())
+          : repoPath;
+        onChange(changedPath);
+      },
+    );
+
+    watcher.on('error', err =>
+      logger.warn('worktree watcher error', { repoPath, error: errorMessage(err) }),
+    );
+
+    return { close: () => watcher.close() };
+  } catch (err) {
+    logger.warn('worktree watcher unavailable', {
+      repoPath,
+      platform: process.platform,
+      error: errorMessage(err),
+    });
+    return null;
+  }
 }

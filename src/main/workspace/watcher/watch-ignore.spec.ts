@@ -22,6 +22,8 @@ describe('watch-ignore', () => {
     expect(isPathPrunedByDefault(root, '/repo/node_modules')).toBe(true);
     expect(isPathPrunedByDefault(root, '/repo/.git/index')).toBe(true);
     expect(isPathPrunedByDefault(root, '/repo/dist/main.js')).toBe(true);
+    expect(isPathPrunedByDefault(root, '/repo/release/mac-arm64/app')).toBe(true);
+    expect(isPathPrunedByDefault(root, '/repo/benchmarks/external-benchmarks/swe-bench/workdir/file.py')).toBe(true);
     expect(isPathPrunedByDefault(root, '/repo/src/app.ts')).toBe(false);
   });
 

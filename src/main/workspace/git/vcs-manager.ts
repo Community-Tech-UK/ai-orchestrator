@@ -104,12 +104,51 @@ export interface GitFetchOptions {
   remote?: string;
   prune?: boolean;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface GitPullFastForwardOptions {
   remote?: string;
   branch?: string;
   timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
+/** Phase 2d (item 9) — commit options. */
+export interface GitCommitOptions {
+  message: string;
+  signoff?: boolean;
+  amend?: boolean;
+  timeoutMs?: number;
+}
+
+/** Phase 2d (item 10) — push options. */
+export interface GitPushOptions {
+  remote?: string;
+  branch?: string;
+  forceWithLease?: boolean;
+  setUpstream?: boolean;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
+/** Phase 2d (item 11) — branch checkout options. */
+export interface GitCheckoutBranchOptions {
+  force?: boolean;
+  timeoutMs?: number;
+}
+
+/**
+ * Result envelope for `checkoutBranch()` that distinguishes a dirty-
+ * tree failure (recoverable — the renderer can prompt and retry with
+ * `force`) from other errors (treated as terminal).
+ */
+export interface CheckoutBranchOutcome {
+  success: boolean;
+  /** True when the failure was caused by a dirty work tree / index. */
+  dirty?: boolean;
+  result?: GitCommandResult;
+  errorMessage?: string;
 }
 
 export interface GitCommandAuditEvent {
@@ -190,7 +229,7 @@ export class VcsManager {
         stdio: ['ignore', 'pipe', 'ignore'],
       });
       return result;
-    } catch (error) {
+    } catch {
       // Command failed or git not found
       return null;
     }
@@ -207,7 +246,10 @@ export class VcsManager {
     return result;
   }
 
-  private async execGitAsync(args: string[], options?: { cwd?: string; timeoutMs?: number }): Promise<GitCommandResult> {
+  private async execGitAsync(
+    args: string[],
+    options?: { cwd?: string; timeoutMs?: number; signal?: AbortSignal }
+  ): Promise<GitCommandResult> {
     const cwd = options?.cwd || this.workingDirectory;
     const startedAt = Date.now();
     try {
@@ -216,6 +258,7 @@ export class VcsManager {
         encoding: 'utf-8',
         maxBuffer: 10 * 1024 * 1024,
         timeout: options?.timeoutMs ?? 30000,
+        signal: options?.signal,
       });
       const durationMs = Date.now() - startedAt;
       const stdout = String(result.stdout);
@@ -259,6 +302,19 @@ export class VcsManager {
     this.onCommand?.(event);
   }
 
+  /**
+   * Recursively discover git repositories under `root`.
+   *
+   * **Nested repo discovery (Phase 2a fix)**: when a `.git` is found we
+   * record the repo *and continue walking* below it, so nested
+   * repos/submodules (`root/.git` plus `root/packages/child/.git`) are
+   * both returned. The `.git` directory/file itself is skipped via the
+   * ignore set so we don't descend into git internals.
+   *
+   * Phase 1's version stopped walking as soon as a `.git` was found,
+   * which made it impossible to see submodules or vendored repos inside
+   * a monorepo. The new behaviour matches VS Code's SCM panel.
+   */
   static findRepositories(root: string, ignorePatterns: string[] = []): string[] {
     const normalizedRoot = path.resolve(root);
     const ignores = new Set([...DEFAULT_REPOSITORY_SCAN_IGNORES, ...ignorePatterns]);
@@ -270,7 +326,9 @@ export class VcsManager {
 
       if (fs.existsSync(path.join(dirPath, '.git'))) {
         repositories.push(dirPath);
-        return;
+        // Fall through and continue walking — nested repos / submodules
+        // are valid and must be surfaced too. The `.git` entry itself
+        // is in `ignores` so we won't descend into git internals.
       }
 
       let entries: fs.Dirent[];
@@ -751,11 +809,11 @@ export class VcsManager {
   /**
    * Get blame information for a file
    */
-  getBlame(filePath: string): Array<{ commit: string; author: string; date: string; line: string }> | null {
+  getBlame(filePath: string): { commit: string; author: string; date: string; line: string }[] | null {
     const result = this.execGit(['blame', '--porcelain', '--', filePath]);
     if (!result) return null;
 
-    const blameEntries: Array<{ commit: string; author: string; date: string; line: string }> = [];
+    const blameEntries: { commit: string; author: string; date: string; line: string }[] = [];
     const lines = result.split('\n');
 
     let currentCommit = '';
@@ -790,7 +848,7 @@ export class VcsManager {
   /**
    * List stashes
    */
-  listStashes(): Array<{ index: number; message: string; branch: string }> {
+  listStashes(): { index: number; message: string; branch: string }[] {
     const result = this.execGit(['stash', 'list', '--format=%gd|%s|%gs']);
     if (!result) return [];
 
@@ -814,7 +872,7 @@ export class VcsManager {
   /**
    * Get list of remotes
    */
-  getRemotes(): Array<{ name: string; url: string; type: 'fetch' | 'push' }> {
+  getRemotes(): { name: string; url: string; type: 'fetch' | 'push' }[] {
     const result = this.execGit(['remote', '-v']);
     if (!result) return [];
 
@@ -849,7 +907,10 @@ export class VcsManager {
     if (options.remote) {
       args.push(options.remote);
     }
-    return this.execGitAsync(args, { timeoutMs: options.timeoutMs });
+    return this.execGitAsync(args, {
+      timeoutMs: options.timeoutMs ?? 60000,
+      signal: options.signal,
+    });
   }
 
   async pullFastForward(options: GitPullFastForwardOptions = {}): Promise<GitCommandResult> {
@@ -857,7 +918,37 @@ export class VcsManager {
     if (options.remote && options.branch) {
       args.push(options.remote, options.branch);
     }
-    return this.execGitAsync(args, { timeoutMs: options.timeoutMs });
+    return this.execGitAsync(args, {
+      timeoutMs: options.timeoutMs ?? 60000,
+      signal: options.signal,
+    });
+  }
+
+  /**
+   * Phase 2d (item 10) — push.
+   *
+   * Composes the command from explicit options; never falls through to
+   * shell defaults. `--force-with-lease` is preferred over `--force` so
+   * we don't blow away upstream commits we didn't fetch first.
+   */
+  async push(options: GitPushOptions = {}): Promise<GitCommandResult> {
+    const args = ['push'];
+    if (options.forceWithLease) {
+      args.push('--force-with-lease');
+    }
+    if (options.setUpstream) {
+      args.push('--set-upstream');
+    }
+    if (options.remote) {
+      args.push(options.remote);
+    }
+    if (options.branch) {
+      args.push(options.branch);
+    }
+    return this.execGitAsync(args, {
+      timeoutMs: options.timeoutMs ?? 120000,
+      signal: options.signal,
+    });
   }
 
   // ============================================
@@ -894,6 +985,133 @@ export class VcsManager {
       return noopGitCommandResult(this.workingDirectory, ['restore', '--staged', '--']);
     }
     return this.execGitAsync(['restore', '--staged', '--', ...paths]);
+  }
+
+  // ============================================
+  // Phase 2d — items 8/9/11
+  // ============================================
+
+  /**
+   * Phase 2d (item 8) — discard *tracked* file changes.
+   *
+   * Runs `git restore --source=HEAD --staged --worktree -- <paths>` so
+   * both the staged and the worktree side are dropped to HEAD. The bare
+   * `git restore <file>` form (worktree only) is intentionally NOT used
+   * — that's almost never what users mean when they click "Discard".
+   *
+   * Untracked files / directories are handled outside this method via
+   * Electron's `shell.trashItem` so the user can recover from Trash;
+   * the handler dispatches per-path between the two strategies.
+   *
+   * Empty `paths` is a no-op.
+   */
+  async discardTracked(paths: string[]): Promise<GitCommandResult> {
+    if (paths.length === 0) {
+      return noopGitCommandResult(this.workingDirectory, [
+        'restore',
+        '--source=HEAD',
+        '--staged',
+        '--worktree',
+        '--',
+      ]);
+    }
+    return this.execGitAsync([
+      'restore',
+      '--source=HEAD',
+      '--staged',
+      '--worktree',
+      '--',
+      ...paths,
+    ]);
+  }
+
+  /**
+   * Phase 2d (item 9) — commit the staged set.
+   *
+   * Commit message is passed via `-m` (single message) so callers can
+   * include newlines inside one argv slot. `signoff` adds the standard
+   * `Signed-off-by:` trailer; `amend` replaces the previous commit
+   * (and reuses its message if `message` is empty, but we require a
+   * non-empty message at the schema layer).
+   */
+  async commit(options: GitCommitOptions): Promise<GitCommandResult> {
+    const args = ['commit', '-m', options.message];
+    if (options.signoff) {
+      args.push('--signoff');
+    }
+    if (options.amend) {
+      args.push('--amend');
+    }
+    return this.execGitAsync(args, { timeoutMs: options.timeoutMs ?? 60000 });
+  }
+
+  /**
+   * Phase 2d (item 11) — switch branches.
+   *
+   * First attempts a plain `git checkout <branch>`. If that fails with
+   * a dirty-tree error (the only recoverable failure mode), the result
+   * surfaces `dirty: true` so the renderer can prompt and call again
+   * with `force: true`. `force: true` adds `--force` which discards
+   * uncommitted changes — dangerous, hence the confirmation step.
+   *
+   * Other failures (no such branch, detached-HEAD edge cases, etc.)
+   * resolve with `success: false, dirty: false` and the renderer
+   * surfaces the stderr message.
+   */
+  async checkoutBranch(
+    name: string,
+    options: GitCheckoutBranchOptions = {},
+  ): Promise<CheckoutBranchOutcome> {
+    if (!name || name.trim().length === 0) {
+      return {
+        success: false,
+        dirty: false,
+        errorMessage: 'Branch name is required.',
+      };
+    }
+    // Defence-in-depth: never let a branch name that starts with `-` get
+    // parsed as a flag. The schema enforces length/min, but the value
+    // itself isn't constrained to a safe pattern.
+    if (name.startsWith('-')) {
+      return {
+        success: false,
+        dirty: false,
+        errorMessage: 'Branch name cannot start with "-".',
+      };
+    }
+    // Note: `--` after `checkout` introduces a pathspec, NOT a branch
+    // name. The canonical form is `git checkout <branch>` (or
+    // `git switch <branch>` on 2.23+).
+    const args = ['checkout'];
+    if (options.force) {
+      args.push('--force');
+    }
+    args.push(name);
+    try {
+      const result = await this.execGitAsync(args, {
+        timeoutMs: options.timeoutMs ?? 30000,
+      });
+      return { success: true, result };
+    } catch (error) {
+      const stderr = commandOutput(error, 'stderr');
+      const stdout = commandOutput(error, 'stdout');
+      const combined = `${stderr}\n${stdout}`;
+      // `git checkout` prints a localized message containing one of these
+      // phrases when the worktree / index has overlapping changes. Match
+      // permissively — it's only used to decide whether to surface the
+      // dirty-tree retry path; a false negative just shows the error
+      // message instead of offering retry.
+      const dirty =
+        /Your local changes to the following files would be overwritten/i.test(combined) ||
+        /commit your changes or stash them/i.test(combined) ||
+        /would be overwritten by checkout/i.test(combined);
+      return {
+        success: false,
+        dirty,
+        errorMessage:
+          error instanceof Error ? error.message : stderr.trim() || 'checkout failed',
+      };
+    }
   }
 }
 

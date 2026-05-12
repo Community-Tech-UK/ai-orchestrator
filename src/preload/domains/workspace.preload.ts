@@ -164,6 +164,99 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
       return ipcRenderer.invoke(ch.VCS_UNSTAGE_FILES, payload);
     },
 
+    /**
+     * Phase 2d (item 8) — discard changes.
+     * For tracked paths: `git restore --source=HEAD --staged --worktree`.
+     * For untracked paths/dirs: Electron `shell.trashItem` (recoverable
+     * from the system Trash). The handler picks per-path.
+     */
+    vcsDiscardFiles: (payload: {
+      workingDirectory: string;
+      filePaths: string[];
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.VCS_DISCARD_FILES, payload);
+    },
+
+    /** Phase 2d (item 9) — commit. */
+    vcsCommit: (payload: {
+      workingDirectory: string;
+      message: string;
+      signoff?: boolean;
+      amend?: boolean;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.VCS_COMMIT, payload);
+    },
+
+    /** Phase 2d (item 10) — fetch. */
+    vcsFetch: (payload: {
+      workingDirectory: string;
+      remote?: string;
+      prune?: boolean;
+      opId: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.VCS_FETCH, payload);
+    },
+
+    /** Phase 2d (item 10) — pull (fast-forward only). */
+    vcsPull: (payload: {
+      workingDirectory: string;
+      remote?: string;
+      branch?: string;
+      opId: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.VCS_PULL, payload);
+    },
+
+    /** Phase 2d (item 10) — push. */
+    vcsPush: (payload: {
+      workingDirectory: string;
+      remote?: string;
+      branch?: string;
+      forceWithLease?: boolean;
+      setUpstream?: boolean;
+      opId: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.VCS_PUSH, payload);
+    },
+
+    /** Phase 2d (item 10) — cancel an in-flight fetch / pull / push. */
+    vcsOperationCancel: (payload: { opId: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.VCS_OPERATION_CANCEL, payload);
+    },
+
+    /**
+     * Phase 2d (item 10) — subscribe to operation progress events.
+     * The single channel carries `started` / `completed` / `cancelled`
+     * / `failed` phases tagged with the operation kind + id so the
+     * renderer can match progress to the originating call.
+     */
+    onVcsOperationProgress: (
+      callback: (event: {
+        opId: string;
+        kind: 'fetch' | 'pull' | 'push';
+        phase: 'started' | 'running' | 'completed' | 'cancelled' | 'failed';
+        repoPath: string;
+        durationMs?: number;
+        message?: string;
+        stdout?: string;
+        stderr?: string;
+        exitCode?: number | null;
+      }) => void,
+    ): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: Parameters<typeof callback>[0]) => callback(data);
+      ipcRenderer.on(ch.VCS_OPERATION_PROGRESS, handler);
+      return () => ipcRenderer.removeListener(ch.VCS_OPERATION_PROGRESS, handler);
+    },
+
+    /** Phase 2d (item 11) — branch checkout. */
+    vcsCheckoutBranch: (payload: {
+      workingDirectory: string;
+      branchName: string;
+      force?: boolean;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.VCS_CHECKOUT_BRANCH, payload);
+    },
+
     // ============================================
     // Phase 7: Worktrees (7.1)
     // ============================================

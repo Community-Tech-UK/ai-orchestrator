@@ -23,6 +23,7 @@
 
 import { EventEmitter } from 'events';
 import { createHash, randomUUID } from 'crypto';
+import * as path from 'path';
 import { getLogger } from '../logging/logger';
 import {
   defaultLoopConfig,
@@ -43,6 +44,7 @@ import {
 import {
   LoopCompletionDetector,
   CompletedFileWatcher,
+  completedPlanFileCandidates,
 } from './loop-completion-detector';
 import { LoopProgressDetector } from './loop-progress-detector';
 import { LoopStageMachine } from './loop-stage-machine';
@@ -352,7 +354,11 @@ export class LoopCoordinator extends EventEmitter {
       // Best-effort gitignore so attachments aren't accidentally committed.
       void ensureLoopAttachmentsIgnored(config.workspaceCwd);
     }
-    const watcher = new CompletedFileWatcher(config.workspaceCwd, config.completion.completedFilenamePattern);
+    const watcher = new CompletedFileWatcher(
+      config.workspaceCwd,
+      config.completion.completedFilenamePattern,
+      completedPlanWatchDirs(config),
+    );
     watcher.start();
     // Log pre-existing matches for observability, but do NOT treat them as
     // evidence of completion. The completion semantic we care about is "the
@@ -1269,6 +1275,10 @@ export function computeWorkHash(args: {
     .update('\0')
     .update(toolSig)
     .digest('hex');
+}
+
+function completedPlanWatchDirs(config: LoopConfig): string[] {
+  return [...new Set(completedPlanFileCandidates(config).map((candidate) => path.dirname(candidate)))];
 }
 
 export function getLoopCoordinator(): LoopCoordinator {

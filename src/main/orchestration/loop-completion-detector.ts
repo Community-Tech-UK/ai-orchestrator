@@ -57,6 +57,7 @@ export class CompletedFileWatcher {
   constructor(
     public readonly workspaceCwd: string,
     public readonly pattern = '*_[Cc]ompleted.md',
+    private readonly additionalWatchDirs: string[] = [],
   ) {}
 
   isObserved(): boolean {
@@ -71,10 +72,12 @@ export class CompletedFileWatcher {
   /** Scan once for an existing match (e.g. immediately after restart). */
   scanOnce(): string | null {
     try {
-      const entries = fs.readdirSync(this.workspaceCwd);
       const re = this.globToRegex(this.pattern);
-      for (const e of entries) {
-        if (re.test(e)) return path.join(this.workspaceCwd, e);
+      for (const dir of this.watchTargets()) {
+        const entries = fs.readdirSync(dir);
+        for (const e of entries) {
+          if (re.test(e)) return path.join(dir, e);
+        }
       }
     } catch (err) {
       logger.warn('CompletedFileWatcher.scanOnce failed', { error: String(err) });
@@ -85,7 +88,7 @@ export class CompletedFileWatcher {
   start(): void {
     if (this.watcher) return;
     const re = this.globToRegex(this.pattern);
-    this.watcher = watch(this.workspaceCwd, {
+    this.watcher = watch(this.watchTargets(), {
       depth: 0,
       ignoreInitial: true,
       awaitWriteFinish: { stabilityThreshold: 250, pollInterval: 50 },
@@ -132,6 +135,24 @@ export class CompletedFileWatcher {
     re += '$';
     return new RegExp(re);
   }
+
+  private watchTargets(): string[] {
+    const workspace = path.resolve(this.workspaceCwd);
+    const targets = new Set<string>([workspace]);
+    for (const dir of this.additionalWatchDirs) {
+      const resolved = path.isAbsolute(dir)
+        ? path.resolve(dir)
+        : path.resolve(workspace, dir);
+      if (!isInsideOrEqual(workspace, resolved)) continue;
+      try {
+        if (fs.statSync(resolved).isDirectory()) targets.add(resolved);
+      } catch {
+        // Missing plan directories are harmless; the detector also has an
+        // end-of-iteration filesystem fallback for configured plan files.
+      }
+    }
+    return [...targets];
+  }
 }
 
 export interface CompletionObservationInput {
@@ -153,21 +174,27 @@ export class LoopCompletionDetector {
     const { iteration, config, state } = input;
     const out: CompletionSignalEvidence[] = [];
 
-    // Completion signals are only actionable (sufficient to stop the loop)
-    // when the agent is actually in the IMPLEMENT stage. In PLAN and REVIEW
-    // stages, an agent emitting DONE has gone off-script — most commonly after
-    // a context compaction mid-iteration. We still record the signals for
-    // observability but mark them as insufficient so the loop continues.
+    // Textual/sentinel/checklist completion signals are only actionable when
+    // the agent is actually in IMPLEMENT. A durable completed-plan rename is
+    // stronger than the stage hint, though: if the configured plan file was
+    // renamed and verification passes, an unnecessary follow-up iteration can
+    // only turn a valid completion into a spurious provider error.
     const isImplement = iteration.stage === 'IMPLEMENT';
 
     // 1. *_Completed.md rename — owned by the watcher, recorded in state.
+    const completedPlanFallback = state.completedFileRenameObserved
+      ? null
+      : await this.detectConfiguredPlanCompletedRename(config, state);
+    if (completedPlanFallback) {
+      state.completedFileRenameObserved = true;
+    }
     if (state.completedFileRenameObserved) {
       out.push({
         id: 'completed-rename',
-        sufficient: isImplement,
-        detail: isImplement
-          ? 'A *_Completed.md rename was observed during the loop'
-          : 'A *_Completed.md rename was observed, but stage is not IMPLEMENT — ignoring',
+        sufficient: true,
+        detail: completedPlanFallback
+          ? `Configured plan file was renamed during the loop: ${completedPlanFallback}`
+          : 'A *_Completed.md rename was observed during the loop',
       });
     }
 
@@ -339,4 +366,74 @@ export class LoopCompletionDetector {
     if (!config.completion.requireCompletedFileRename) return true;
     return state.completedFileRenameObserved;
   }
+
+  private async detectConfiguredPlanCompletedRename(
+    config: LoopConfig,
+    state: LoopState,
+  ): Promise<string | null> {
+    if (!config.planFile) return null;
+    const workspace = path.resolve(config.workspaceCwd);
+    const original = path.resolve(workspace, config.planFile);
+    if (!isInsideOrEqual(workspace, original)) return null;
+    if (await pathExists(original)) return null;
+
+    for (const candidate of completedPlanFileCandidates(config)) {
+      try {
+        const stat = await fsp.stat(candidate);
+        if (!stat.isFile()) continue;
+        const newestFileTimestamp = Math.max(stat.birthtimeMs, stat.ctimeMs, stat.mtimeMs);
+        // Guard against stale completed files that predate this loop. Rename
+        // updates ctime even when mtime is preserved, so this still catches a
+        // real in-run `mv old.md old_completed.md`.
+        if (state.startedAt > 0 && newestFileTimestamp + 2_000 < state.startedAt) {
+          continue;
+        }
+        const actualPath = await resolveActualPathCase(candidate);
+        return path.relative(workspace, actualPath) || path.basename(actualPath);
+      } catch {
+        // candidate absent — try the next casing
+      }
+    }
+    return null;
+  }
+}
+
+export function completedPlanFileCandidates(config: Pick<LoopConfig, 'workspaceCwd' | 'planFile'>): string[] {
+  if (!config.planFile) return [];
+  const workspace = path.resolve(config.workspaceCwd);
+  const original = path.resolve(workspace, config.planFile);
+  if (!isInsideOrEqual(workspace, original)) return [];
+  const ext = path.extname(original);
+  if (ext.toLowerCase() !== '.md') return [];
+  const stem = original.slice(0, -ext.length);
+  return [...new Set([`${stem}_Completed.md`, `${stem}_completed.md`])];
+}
+
+function isInsideOrEqual(parent: string, child: string): boolean {
+  const relative = path.relative(parent, child);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await fsp.access(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveActualPathCase(target: string): Promise<string> {
+  const dir = path.dirname(target);
+  const base = path.basename(target);
+  try {
+    const entries = await fsp.readdir(dir);
+    const exact = entries.find((entry) => entry === base);
+    if (exact) return path.join(dir, exact);
+    const insensitive = entries.find((entry) => entry.toLowerCase() === base.toLowerCase());
+    if (insensitive) return path.join(dir, insensitive);
+  } catch {
+    // Fall back to the candidate path if the directory cannot be read.
+  }
+  return target;
 }

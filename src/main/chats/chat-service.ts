@@ -20,6 +20,7 @@ import type { InstanceManager } from '../instance/instance-manager';
 import type { Instance } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
 import { getOperatorDatabase } from '../operator/operator-database';
+import { addAllowedRoot } from '../security/path-validator';
 import { ChatStore } from './chat-store';
 import { ChatTranscriptBridge, createUserLedgerMessage } from './chat-transcript-bridge';
 import type { SqliteDriver } from '../db/sqlite-driver';
@@ -98,6 +99,15 @@ export class ChatService {
     this.initialized = true;
     this.store.clearRuntimeLinks();
     this.migrateLegacyOrchestratorThread();
+    // Trust each persisted chat's working directory in the renderer-facing
+    // path sandbox so file drags into a returning chat session work after
+    // a restart. Includes archived chats (cheap) since the user could
+    // un-archive at any time.
+    for (const chat of this.store.list({ includeArchived: true })) {
+      if (chat.currentCwd) {
+        addAllowedRoot(chat.currentCwd);
+      }
+    }
     this.bridge.start();
   }
 
@@ -135,6 +145,7 @@ export class ChatService {
       yolo: input.yolo ?? false,
       ledgerThreadId: thread.id,
     });
+    addAllowedRoot(input.currentCwd);
     const detail = this.detailFor(chat);
     this.emit({ type: 'chat-created', chatId: chat.id, chat });
     return detail;
@@ -228,6 +239,7 @@ export class ChatService {
     const chat = this.requireChat(chatId);
     const previousInstanceId = chat.currentInstanceId;
     const previousCwd = chat.currentCwd;
+    addAllowedRoot(cwd);
     if (previousInstanceId) {
       this.bridge.unlink(previousInstanceId);
       await this.instanceManager.terminateInstance(previousInstanceId, true).catch((error) => {

@@ -5,6 +5,17 @@
   min-height: 0;
 }
 
+// Overrides drop-zone's default `:host { display: contents }` so the host
+// element actually flexes within app-chat-detail. Without this the chat
+// content would collapse to its intrinsic height after we wrapped it in
+// <app-drop-zone>.
+.full-drop-zone {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
 .chat-detail {
   display: flex;
   flex-direction: column;

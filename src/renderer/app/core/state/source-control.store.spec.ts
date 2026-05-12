@@ -56,8 +56,16 @@ function status(branch: string, staged = 0, unstaged = 0, untracked = 0): GitSta
 interface PendingWriteResponse {
   resolve: () => void;
   reject: (err: unknown) => void;
-  payload: { workingDirectory: string; filePaths: string[] };
-  kind: 'stage' | 'unstage';
+  payload: { workingDirectory: string; filePaths?: string[] } & Record<string, unknown>;
+  kind:
+    | 'stage'
+    | 'unstage'
+    | 'discard'
+    | 'commit'
+    | 'fetch'
+    | 'pull'
+    | 'push'
+    | 'checkout';
 }
 
 function makeVcsMock() {
@@ -96,28 +104,65 @@ function makeVcsMock() {
     return Promise.resolve({ success: true, data: { watchedCount: repoPaths.length } });
   });
 
-  function makeWrite(kind: 'stage' | 'unstage') {
-    return vi.fn((payload: { workingDirectory: string; filePaths: string[] }) => {
+  function makeWrite(kind: PendingWriteResponse['kind'], failureResponse?: { success: false; error: { message: string }; data?: unknown }) {
+    return vi.fn((payload: Record<string, unknown>) => {
       let resolveFn!: () => void;
       let rejectFn!: (err: unknown) => void;
       const promise = new Promise<{ success: boolean; data?: unknown; error?: { message: string } }>(
         (resolve, reject) => {
-          resolveFn = () => resolve({ success: true, data: { exitCode: 0 } });
+          resolveFn = () => resolve(failureResponse ?? { success: true, data: { exitCode: 0 } });
           rejectFn = err => reject(err instanceof Error ? err : new Error(String(err)));
         }
       );
-      pendingWrites.push({ resolve: resolveFn, reject: rejectFn, payload, kind });
+      pendingWrites.push({ resolve: resolveFn, reject: rejectFn, payload: payload as PendingWriteResponse['payload'], kind });
       return promise;
     });
   }
   const vcsStageFiles = makeWrite('stage');
   const vcsUnstageFiles = makeWrite('unstage');
+  const vcsDiscardFiles = makeWrite('discard');
+  const vcsCommit = makeWrite('commit');
+  const vcsFetch = makeWrite('fetch');
+  const vcsPull = makeWrite('pull');
+  const vcsPush = makeWrite('push');
+  // Default: succeed. Tests can swap by replacing the impl per-call
+  // (see the checkout-branch tests below).
+  const vcsCheckoutBranch = vi.fn(() => Promise.resolve({ success: true, data: { exitCode: 0 } }));
+  const vcsOperationCancel = vi.fn(() => Promise.resolve({ success: true, data: { cancelled: true } }));
+
+  const vcsGetBranches = vi.fn(() =>
+    Promise.resolve({
+      success: true,
+      data: {
+        branches: [
+          { name: 'main', current: true },
+          { name: 'develop', current: false },
+        ],
+        currentBranch: 'main',
+      },
+    }),
+  );
 
   const onVcsStatusChanged = vi.fn(
     (callback: (event: { repoPath: string; reason: string; timestamp: number }) => void) => {
       statusChangedCallback = callback;
       return () => {
         statusChangedCallback = null;
+      };
+    }
+  );
+
+  let operationProgressCallback: ((event: {
+    opId: string;
+    kind: 'fetch' | 'pull' | 'push';
+    phase: 'started' | 'running' | 'completed' | 'cancelled' | 'failed';
+    repoPath: string;
+  }) => void) | null = null;
+  const onVcsOperationProgress = vi.fn(
+    (callback: typeof operationProgressCallback) => {
+      operationProgressCallback = callback;
+      return () => {
+        operationProgressCallback = null;
       };
     }
   );
@@ -130,14 +175,42 @@ function makeVcsMock() {
       onVcsStatusChanged,
       vcsStageFiles,
       vcsUnstageFiles,
+      vcsDiscardFiles,
+      vcsCommit,
+      vcsFetch,
+      vcsPull,
+      vcsPush,
+      vcsCheckoutBranch,
+      vcsOperationCancel,
+      vcsGetBranches,
+      onVcsOperationProgress,
     } as unknown as VcsIpcService,
     pendingFinds,
     pendingStatuses,
     pendingWrites,
     vcsWatchReposCalls,
+    vcsStageFiles,
+    vcsUnstageFiles,
+    vcsDiscardFiles,
+    vcsCommit,
+    vcsFetch,
+    vcsPull,
+    vcsPush,
+    vcsCheckoutBranch,
+    vcsOperationCancel,
+    vcsGetBranches,
     fireStatusChanged: (event: { repoPath: string; reason: string; timestamp?: number }) => {
       if (!statusChangedCallback) throw new Error('No status-changed subscription is active');
       statusChangedCallback({ ...event, timestamp: event.timestamp ?? Date.now() });
+    },
+    fireOperationProgress: (event: {
+      opId: string;
+      kind: 'fetch' | 'pull' | 'push';
+      phase: 'started' | 'running' | 'completed' | 'cancelled' | 'failed';
+      repoPath: string;
+    }) => {
+      if (!operationProgressCallback) throw new Error('No operation-progress subscription is active');
+      operationProgressCallback(event);
     },
   };
 }
@@ -153,6 +226,10 @@ describe('SourceControlStore', () => {
   let pendingWrites: PendingWriteResponse[];
   let vcsWatchReposCalls: string[][];
   let fireStatusChanged: ReturnType<typeof makeVcsMock>['fireStatusChanged'];
+  let fireOperationProgress: ReturnType<typeof makeVcsMock>['fireOperationProgress'];
+  let vcsCheckoutBranchMock: ReturnType<typeof makeVcsMock>['vcsCheckoutBranch'];
+  let vcsOperationCancelMock: ReturnType<typeof makeVcsMock>['vcsOperationCancel'];
+  let vcsGetBranchesMock: ReturnType<typeof makeVcsMock>['vcsGetBranches'];
 
   beforeEach(() => {
     const mockBundle = makeVcsMock();
@@ -161,6 +238,10 @@ describe('SourceControlStore', () => {
     pendingWrites = mockBundle.pendingWrites;
     vcsWatchReposCalls = mockBundle.vcsWatchReposCalls;
     fireStatusChanged = mockBundle.fireStatusChanged;
+    fireOperationProgress = mockBundle.fireOperationProgress;
+    vcsCheckoutBranchMock = mockBundle.vcsCheckoutBranch;
+    vcsOperationCancelMock = mockBundle.vcsOperationCancel;
+    vcsGetBranchesMock = mockBundle.vcsGetBranches;
 
     TestBed.configureTestingModule({
       providers: [
@@ -857,6 +938,207 @@ describe('SourceControlStore', () => {
       expect(store.isWriting('/work/B')).toBe(true);
 
       store.endWrite('/work/B', tB);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 2d items 8 / 9 / 10 / 11 — discard / commit / push-pull-fetch / checkout
+  // -------------------------------------------------------------------------
+
+  describe('Phase 2d — items 8–11', () => {
+    async function loadOneRepo() {
+      const loadP = store.loadForRoot('/work/p');
+      pendingFinds[0].resolve({ repositories: ['/work/p/r'], gitAvailable: true });
+      await Promise.resolve();
+      await Promise.resolve();
+      pendingStatuses[0].resolve(status('main', 1, 1, 1));
+      await loadP;
+    }
+
+    it('discardFiles forwards the call to vcsDiscardFiles', async () => {
+      await loadOneRepo();
+      const op = store.discardFiles('/work/p/r', ['a.ts']);
+      expect(pendingWrites.length).toBe(1);
+      expect(pendingWrites[0].kind).toBe('discard');
+      expect(pendingWrites[0].payload).toEqual({
+        workingDirectory: '/work/p/r',
+        filePaths: ['a.ts'],
+      });
+      pendingWrites[0].resolve();
+      const result = await op;
+      expect(result.success).toBe(true);
+    });
+
+    it('commit forwards the message + signoff + amend flags', async () => {
+      await loadOneRepo();
+      const op = store.commit('/work/p/r', {
+        message: 'feat: x',
+        signoff: true,
+        amend: false,
+      });
+      expect(pendingWrites.length).toBe(1);
+      expect(pendingWrites[0].kind).toBe('commit');
+      expect(pendingWrites[0].payload).toEqual({
+        workingDirectory: '/work/p/r',
+        message: 'feat: x',
+        signoff: true,
+        amend: false,
+      });
+      pendingWrites[0].resolve();
+      const result = await op;
+      expect(result.success).toBe(true);
+    });
+
+    it('commit clears the per-repo draft message on success', async () => {
+      await loadOneRepo();
+      store.setCommitMessage('/work/p/r', 'feat: x');
+      expect(store.getCommitMessage('/work/p/r')).toBe('feat: x');
+
+      const op = store.commit('/work/p/r', { message: 'feat: x' });
+      pendingWrites[0].resolve();
+      await op;
+
+      expect(store.getCommitMessage('/work/p/r')).toBe('');
+    });
+
+    it('commit preserves the draft message on failure so the user can fix and retry', async () => {
+      await loadOneRepo();
+      store.setCommitMessage('/work/p/r', 'feat: x');
+
+      const op = store.commit('/work/p/r', { message: 'feat: x' });
+      pendingWrites[0].reject(new Error('pre-commit hook failed'));
+      const result = await op;
+
+      expect(result.success).toBe(false);
+      expect(store.getCommitMessage('/work/p/r')).toBe('feat: x');
+    });
+
+    it('fetch / pull / push assign per-op ids and surface a long-op state', async () => {
+      await loadOneRepo();
+
+      const fetchOp = store.fetch('/work/p/r');
+      // longOp signal flips on
+      expect(store.isLongOpActive('/work/p/r')).toBe(true);
+      expect(store.longOpState('/work/p/r')?.kind).toBe('fetch');
+      expect(pendingWrites[0].kind).toBe('fetch');
+      expect(typeof pendingWrites[0].payload.opId).toBe('string');
+
+      pendingWrites[0].resolve();
+      await fetchOp;
+      // belt-and-braces: longOp cleared when handler resolves
+      expect(store.isLongOpActive('/work/p/r')).toBe(false);
+    });
+
+    it('terminal operation-progress event clears the long-op state', async () => {
+      await loadOneRepo();
+      const fetchOp = store.fetch('/work/p/r');
+      // Capture the opId we generated for this fetch
+      const opId = pendingWrites[0].payload.opId as string;
+
+      // The handler is still in-flight; fire the terminal event manually
+      // to simulate the main process telling us "completed".
+      fireOperationProgress({
+        opId,
+        kind: 'fetch',
+        phase: 'completed',
+        repoPath: '/work/p/r',
+      });
+
+      expect(store.isLongOpActive('/work/p/r')).toBe(false);
+      pendingWrites[0].resolve();
+      await fetchOp;
+    });
+
+    it('cancelLongRunningOp forwards opId to vcsOperationCancel', async () => {
+      await loadOneRepo();
+      const fetchOp = store.fetch('/work/p/r');
+      const opId = pendingWrites[0].payload.opId as string;
+
+      await store.cancelLongRunningOp('/work/p/r');
+      expect(vcsOperationCancelMock).toHaveBeenCalledWith({ opId });
+
+      pendingWrites[0].resolve();
+      await fetchOp;
+    });
+
+    it('checkoutBranch returns success when the IPC reports success', async () => {
+      await loadOneRepo();
+      const result = await store.checkoutBranch('/work/p/r', 'develop');
+      expect(result).toEqual({ success: true });
+      expect(vcsCheckoutBranchMock).toHaveBeenCalledWith({
+        workingDirectory: '/work/p/r',
+        branchName: 'develop',
+        force: undefined,
+      });
+    });
+
+    it('checkoutBranch surfaces dirty-tree as { success: false, dirty: true }', async () => {
+      await loadOneRepo();
+      vcsCheckoutBranchMock.mockResolvedValueOnce({
+        success: false,
+        error: {
+          code: 'VCS_CHECKOUT_BRANCH_DIRTY_TREE',
+          message: 'your changes would be overwritten',
+        },
+        data: { dirty: true },
+      });
+      const result = await store.checkoutBranch('/work/p/r', 'develop');
+      expect(result.success).toBe(false);
+      expect(result.dirty).toBe(true);
+      // dirty-tree must NOT spam loadError — the caller will prompt
+      expect(store.loadError()).toBeNull();
+    });
+
+    it('checkoutBranch surfaces non-dirty failures via loadError', async () => {
+      await loadOneRepo();
+      vcsCheckoutBranchMock.mockResolvedValueOnce({
+        success: false,
+        error: {
+          code: 'VCS_CHECKOUT_BRANCH_FAILED',
+          message: 'pathspec did not match any file(s)',
+        },
+      });
+      const result = await store.checkoutBranch('/work/p/r', 'no-such-branch');
+      expect(result.success).toBe(false);
+      expect(result.dirty).toBe(false);
+      expect(store.loadError()).toBe('pathspec did not match any file(s)');
+    });
+
+    it('setCommitMessage / clearCommitMessage manipulate per-repo drafts independently', () => {
+      store.setCommitMessage('/r1', 'msg-1');
+      store.setCommitMessage('/r2', 'msg-2');
+      expect(store.getCommitMessage('/r1')).toBe('msg-1');
+      expect(store.getCommitMessage('/r2')).toBe('msg-2');
+
+      store.clearCommitMessage('/r1');
+      expect(store.getCommitMessage('/r1')).toBe('');
+      expect(store.getCommitMessage('/r2')).toBe('msg-2');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 2h — branch loading
+  // -------------------------------------------------------------------------
+
+  describe('Phase 2h — loadBranches / branchesFor', () => {
+    it('branchesFor returns [] before loadBranches is called', () => {
+      expect(store.branchesFor('/work/r')).toEqual([]);
+    });
+
+    it('loadBranches populates availableBranchesByRepo for the given repo', async () => {
+      await store.loadBranches('/work/r');
+      expect(vcsGetBranchesMock).toHaveBeenCalledWith('/work/r');
+      const branches = store.branchesFor('/work/r');
+      expect(branches).toHaveLength(2);
+      expect(branches[0].name).toBe('main');
+      expect(branches[0].current).toBe(true);
+    });
+
+    it('loadForRoot(null) clears the branch cache', async () => {
+      await store.loadBranches('/work/r');
+      expect(store.branchesFor('/work/r')).toHaveLength(2);
+      await store.loadForRoot(null);
+      expect(store.branchesFor('/work/r')).toEqual([]);
     });
   });
 });

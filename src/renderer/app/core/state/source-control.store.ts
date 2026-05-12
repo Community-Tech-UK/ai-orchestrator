@@ -26,6 +26,7 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { VcsIpcService } from '../services/ipc/vcs-ipc.service';
 import type {
+  BranchInfo,
   DiffViewerRequest,
   FileChange,
   GitStatusResponse,
@@ -41,6 +42,17 @@ import type {
 export interface IpcWriteResult {
   success: boolean;
   error?: string;
+}
+
+/**
+ * Per-repo state for an in-flight fetch / pull / push (Phase 2d item 10).
+ * Powers the progress UI and the cancel button.
+ */
+export interface LongOpState {
+  opId: string;
+  kind: 'fetch' | 'pull' | 'push';
+  phase: 'started' | 'running' | 'completed' | 'cancelled' | 'failed';
+  startedAt: number;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -197,6 +209,55 @@ export class SourceControlStore {
   private pendingRefreshAfterWrite = new Set<string>();
 
   /**
+   * Per-repo commit message drafts (Phase 2d — item 9). Keyed by
+   * absolute repo path so the user can have separate drafts open in
+   * different repos in the same panel. Cleared on successful commit or
+   * when the user clears the input. Does NOT persist across app
+   * restart — that's a follow-up if users ask for it.
+   */
+  readonly commitMessages = signal<Record<string, string>>({});
+
+  /**
+   * Per-repo "long-running operation" state (fetch/pull/push). Powers
+   * the progress UI and the cancel button. Cleared whenever the
+   * matching VCS_OPERATION_PROGRESS terminal event arrives, the op
+   * resolves, or the user cancels.
+   */
+  readonly longOpsByRepo = signal<Record<string, LongOpState>>({});
+  private activeOpIdByRepo = new Map<string, string>();
+
+  /** Subscribe to operation progress events. Bound lazily on first use. */
+  private operationProgressUnsubscribe: (() => void) | null = null;
+
+  private ensureOperationProgressSubscription(): void {
+    if (this.operationProgressUnsubscribe) return;
+    this.operationProgressUnsubscribe = this.vcs.onVcsOperationProgress((event) => {
+      // Match by opId so out-of-order events for stale ops are ignored.
+      const repoPath = event.repoPath;
+      const tracked = this.activeOpIdByRepo.get(repoPath);
+      if (tracked !== event.opId) return;
+      this.longOpsByRepo.update((current) => {
+        const next = { ...current };
+        const existing = next[repoPath];
+        if (event.phase === 'completed' || event.phase === 'cancelled' || event.phase === 'failed') {
+          // Terminal: drop the op state on the next tick so the UI can
+          // surface a brief completion flash if it wants.
+          delete next[repoPath];
+          this.activeOpIdByRepo.delete(repoPath);
+          return next;
+        }
+        next[repoPath] = {
+          opId: event.opId,
+          kind: event.kind,
+          phase: event.phase,
+          startedAt: existing?.startedAt ?? Date.now(),
+        };
+        return next;
+      });
+    });
+  }
+
+  /**
    * Grace period (ms) between the last `endWrite()` for a repo and the
    * coalesced refresh. Allows back-to-back writes (e.g. stage all)
    * without an immediate refresh that would then need to be redone.
@@ -230,8 +291,9 @@ export class SourceControlStore {
       this.initialLoad.set(true);
       this.isRefreshing.set(false);
       this.lastRefreshedRoot = null;
-      // Drop inline expansions: they belonged to the now-defunct root.
+      // Drop inline expansions and branch caches: they belonged to the now-defunct root.
       this.expandedFiles.set(new Set());
+      this.availableBranchesByRepo.set({});
       // Stop main-process watchers — nothing to watch.
       void this.vcs.vcsWatchRepos([]);
       return;
@@ -513,6 +575,146 @@ export class SourceControlStore {
   }
 
   /**
+   * Phase 2d — item 8. Discard changes for one or more files.
+   * The handler picks the right strategy per-path (tracked → git restore,
+   * untracked → shell.trashItem).
+   */
+  async discardFiles(repoPath: string, filePaths: string[]): Promise<IpcWriteResult> {
+    return this.runWrite('discard', repoPath, () =>
+      this.vcs.vcsDiscardFiles({ workingDirectory: repoPath, filePaths })
+    );
+  }
+
+  /**
+   * Phase 2d — item 9. Commit the staged set with the provided message.
+   *
+   * On success the per-repo draft message is cleared via `clearCommitMessage`.
+   * On failure the draft is preserved so the user doesn't lose their text.
+   */
+  async commit(repoPath: string, opts: {
+    message: string;
+    signoff?: boolean;
+    amend?: boolean;
+  }): Promise<IpcWriteResult> {
+    const result = await this.runWrite('commit', repoPath, () =>
+      this.vcs.vcsCommit({
+        workingDirectory: repoPath,
+        message: opts.message,
+        signoff: opts.signoff,
+        amend: opts.amend,
+      })
+    );
+    if (result.success) {
+      this.clearCommitMessage(repoPath);
+    }
+    return result;
+  }
+
+  /**
+   * Phase 2d — item 10. Fetch + pull + push share a common runner.
+   *
+   * The `opId` is generated client-side via crypto.randomUUID() so the
+   * progress / cancellation channel can correlate events to the
+   * originating call.
+   */
+  async fetch(repoPath: string, opts?: { remote?: string; prune?: boolean }): Promise<IpcWriteResult> {
+    const opId = generateOpId('fetch');
+    return this.runWriteLongOp({
+      kind: 'fetch',
+      repoPath,
+      opId,
+      call: () => this.vcs.vcsFetch({
+        workingDirectory: repoPath,
+        remote: opts?.remote,
+        prune: opts?.prune,
+        opId,
+      }),
+    });
+  }
+
+  async pull(repoPath: string, opts?: { remote?: string; branch?: string }): Promise<IpcWriteResult> {
+    const opId = generateOpId('pull');
+    return this.runWriteLongOp({
+      kind: 'pull',
+      repoPath,
+      opId,
+      call: () => this.vcs.vcsPull({
+        workingDirectory: repoPath,
+        remote: opts?.remote,
+        branch: opts?.branch,
+        opId,
+      }),
+    });
+  }
+
+  async push(repoPath: string, opts?: {
+    remote?: string;
+    branch?: string;
+    forceWithLease?: boolean;
+    setUpstream?: boolean;
+  }): Promise<IpcWriteResult> {
+    const opId = generateOpId('push');
+    return this.runWriteLongOp({
+      kind: 'push',
+      repoPath,
+      opId,
+      call: () => this.vcs.vcsPush({
+        workingDirectory: repoPath,
+        remote: opts?.remote,
+        branch: opts?.branch,
+        forceWithLease: opts?.forceWithLease,
+        setUpstream: opts?.setUpstream,
+        opId,
+      }),
+    });
+  }
+
+  /** Phase 2d — item 10. Cancel the in-flight long-running op for `repoPath`. */
+  async cancelLongRunningOp(repoPath: string): Promise<void> {
+    const opId = this.activeOpIdByRepo.get(repoPath);
+    if (!opId) return;
+    await this.vcs.vcsOperationCancel({ opId });
+  }
+
+  /**
+   * Phase 2d — item 11. Switch branches. Returns a structured outcome so
+   * the caller can decide whether to prompt the user about a dirty
+   * working tree.
+   */
+  async checkoutBranch(
+    repoPath: string,
+    branchName: string,
+    opts?: { force?: boolean },
+  ): Promise<{ success: boolean; dirty?: boolean; error?: string }> {
+    this.ensureStatusSubscription();
+    const token = this.beginWrite(repoPath, 'checkout');
+    try {
+      const response = await this.vcs.vcsCheckoutBranch({
+        workingDirectory: repoPath,
+        branchName,
+        force: opts?.force,
+      });
+      if (response.success) {
+        return { success: true };
+      }
+      const errorBody = response as { error?: { message?: string; code?: string }; data?: { dirty?: boolean } };
+      const dirty = errorBody.error?.code === 'VCS_CHECKOUT_BRANCH_DIRTY_TREE'
+        || !!errorBody.data?.dirty;
+      const message = errorBody.error?.message ?? 'checkout failed';
+      if (!dirty) {
+        this.loadError.set(message);
+      }
+      return { success: false, dirty, error: message };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.loadError.set(message);
+      return { success: false, error: message };
+    } finally {
+      this.endWrite(repoPath, token);
+    }
+  }
+
+  /**
    * Shared write driver: acquires/releases the write token, surfaces
    * errors on `loadError`, and ensures the targeted `refreshOne` fires
    * on success. Exposed as a protected helper so future write actions
@@ -540,6 +742,109 @@ export class SourceControlStore {
     } finally {
       this.endWrite(repoPath, token);
     }
+  }
+
+  /**
+   * Long-running write driver for fetch / pull / push. Tracks the active
+   * op id per repo so the cancel button knows what to abort, and
+   * subscribes to progress events on first use.
+   */
+  private async runWriteLongOp(opts: {
+    kind: 'fetch' | 'pull' | 'push';
+    repoPath: string;
+    opId: string;
+    call: () => Promise<{ success: boolean; data?: unknown; error?: { message?: string } }>;
+  }): Promise<IpcWriteResult> {
+    this.ensureStatusSubscription();
+    this.ensureOperationProgressSubscription();
+    const { kind, repoPath, opId, call } = opts;
+    this.activeOpIdByRepo.set(repoPath, opId);
+    this.longOpsByRepo.update((current) => ({
+      ...current,
+      [repoPath]: { opId, kind, phase: 'started', startedAt: Date.now() },
+    }));
+    const token = this.beginWrite(repoPath, kind);
+    try {
+      const response = await call();
+      if (!response.success) {
+        const message = response.error?.message ?? `${kind} failed`;
+        this.loadError.set(message);
+        return { success: false, error: message };
+      }
+      return { success: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.loadError.set(message);
+      return { success: false, error: message };
+    } finally {
+      this.endWrite(repoPath, token);
+      // Belt-and-braces: clear in case the terminal event never arrived
+      // (e.g. window closed mid-op).
+      if (this.activeOpIdByRepo.get(repoPath) === opId) {
+        this.activeOpIdByRepo.delete(repoPath);
+        this.longOpsByRepo.update((current) => {
+          const next = { ...current };
+          delete next[repoPath];
+          return next;
+        });
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Commit message draft persistence (Phase 2d — item 9)
+  // ---------------------------------------------------------------------
+
+  getCommitMessage(repoPath: string): string {
+    return this.commitMessages()[repoPath] ?? '';
+  }
+
+  setCommitMessage(repoPath: string, message: string): void {
+    this.commitMessages.update((current) => ({ ...current, [repoPath]: message }));
+  }
+
+  clearCommitMessage(repoPath: string): void {
+    this.commitMessages.update((current) => {
+      if (!(repoPath in current)) return current;
+      const next = { ...current };
+      delete next[repoPath];
+      return next;
+    });
+  }
+
+  /** Returns true when the per-repo long-running op is in flight. */
+  isLongOpActive(repoPath: string): boolean {
+    return repoPath in this.longOpsByRepo();
+  }
+
+  longOpState(repoPath: string): LongOpState | null {
+    return this.longOpsByRepo()[repoPath] ?? null;
+  }
+
+  // ---------------------------------------------------------------------
+  // Branch switcher (Phase 2h — item 11)
+  // ---------------------------------------------------------------------
+
+  /**
+   * Per-repo branch list. Populated lazily by `loadBranches()` when the
+   * user opens the branch switcher dropdown. Reset on root change.
+   */
+  readonly availableBranchesByRepo = signal<Record<string, BranchInfo[]>>({});
+
+  /** Fetch the branch list for a repo and cache it. */
+  async loadBranches(repoPath: string): Promise<void> {
+    const response = await this.vcs.vcsGetBranches(repoPath);
+    if (!response.success) return;
+    const data = response.data as { branches: BranchInfo[]; currentBranch: string };
+    this.availableBranchesByRepo.update(current => ({
+      ...current,
+      [repoPath]: data.branches,
+    }));
+  }
+
+  /** Returns the cached branch list for a repo, or `[]` if not yet loaded. */
+  branchesFor(repoPath: string): BranchInfo[] {
+    return this.availableBranchesByRepo()[repoPath] ?? [];
   }
 
   // ---------------------------------------------------------------------
@@ -616,9 +921,17 @@ export class SourceControlStore {
     this.activeWritesByRepo.clear();
     this.pendingRefreshAfterWrite.clear();
     this.writingRepos.set(new Set());
+    this.commitMessages.set({});
+    this.longOpsByRepo.set({});
+    this.activeOpIdByRepo.clear();
+    this.availableBranchesByRepo.set({});
     if (this.statusChangedUnsubscribe) {
       this.statusChangedUnsubscribe();
       this.statusChangedUnsubscribe = null;
+    }
+    if (this.operationProgressUnsubscribe) {
+      this.operationProgressUnsubscribe();
+      this.operationProgressUnsubscribe = null;
     }
   }
 
@@ -631,6 +944,22 @@ export class SourceControlStore {
   _getPendingRefreshes(): string[] {
     return Array.from(this.pendingRefreshAfterWrite);
   }
+}
+
+/**
+ * Generate a renderer-side operation id for fetch / pull / push so the
+ * main-process progress events can correlate. Prefers `crypto.randomUUID()`
+ * but degrades to a timestamp + random suffix if the API is absent
+ * (older Electron renderers in tests).
+ */
+export function generateOpId(prefix: string): string {
+  try {
+    const uuid = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto?.randomUUID?.();
+    if (uuid) return `${prefix}-${uuid}`;
+  } catch {
+    // fall through
+  }
+  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 }
 
 /** Pure helper — exported only for tests. */

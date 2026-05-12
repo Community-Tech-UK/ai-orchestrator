@@ -44,6 +44,9 @@ benchmarks/orchestrator-benchmark/dist/
 .worktrees/
 .superpowers/
 
+# AI Orchestrator project memory skeletons
+.aio/
+
 # Loop Mode runtime state (the loop coordinator writes these into the
 # workspace where it runs; they are per-iteration memory, not source).
 /STAGE.md

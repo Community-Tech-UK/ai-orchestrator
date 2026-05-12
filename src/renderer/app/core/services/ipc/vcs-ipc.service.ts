@@ -143,4 +143,109 @@ export class VcsIpcService {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.vcsUnstageFiles(payload);
   }
+
+  // ============================================
+  // Phase 2d items 8 / 9 / 10 / 11
+  // ============================================
+
+  /**
+   * Phase 2d (item 8) — discard changes. The handler dispatches per-path
+   * between `git restore --source=HEAD --staged --worktree` (tracked)
+   * and Electron's `shell.trashItem` (untracked file or directory).
+   */
+  async vcsDiscardFiles(payload: {
+    workingDirectory: string;
+    filePaths: string[];
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.vcsDiscardFiles(payload);
+  }
+
+  /** Phase 2d (item 9) — commit the staged set. */
+  async vcsCommit(payload: {
+    workingDirectory: string;
+    message: string;
+    signoff?: boolean;
+    amend?: boolean;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.vcsCommit(payload);
+  }
+
+  /** Phase 2d (item 10) — fetch. Streams progress via `onVcsOperationProgress`. */
+  async vcsFetch(payload: {
+    workingDirectory: string;
+    remote?: string;
+    prune?: boolean;
+    opId: string;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.vcsFetch(payload);
+  }
+
+  /** Phase 2d (item 10) — pull (fast-forward only). */
+  async vcsPull(payload: {
+    workingDirectory: string;
+    remote?: string;
+    branch?: string;
+    opId: string;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.vcsPull(payload);
+  }
+
+  /** Phase 2d (item 10) — push. */
+  async vcsPush(payload: {
+    workingDirectory: string;
+    remote?: string;
+    branch?: string;
+    forceWithLease?: boolean;
+    setUpstream?: boolean;
+    opId: string;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.vcsPush(payload);
+  }
+
+  /** Phase 2d (item 10) — cancel an in-flight long-running operation. */
+  async vcsOperationCancel(payload: { opId: string }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.vcsOperationCancel(payload);
+  }
+
+  /**
+   * Phase 2d (item 10) — subscribe to operation progress.
+   * Returns an unsubscribe function (no-op outside Electron).
+   */
+  onVcsOperationProgress(
+    callback: (event: {
+      opId: string;
+      kind: 'fetch' | 'pull' | 'push';
+      phase: 'started' | 'running' | 'completed' | 'cancelled' | 'failed';
+      repoPath: string;
+      durationMs?: number;
+      message?: string;
+      stdout?: string;
+      stderr?: string;
+      exitCode?: number | null;
+    }) => void,
+  ): () => void {
+    if (!this.api) return () => { /* no-op */ };
+    return this.api.onVcsOperationProgress(callback);
+  }
+
+  /** Phase 2d (item 11) — branch checkout. */
+  async vcsCheckoutBranch(payload: {
+    workingDirectory: string;
+    branchName: string;
+    force?: boolean;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.vcsCheckoutBranch(payload);
+  }
+
+  /** Phase 2d (item 11) — list branches (uses existing channel). */
+  async vcsListBranches(workingDirectory: string): Promise<IpcResponse> {
+    return this.vcsGetBranches(workingDirectory);
+  }
 }

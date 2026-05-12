@@ -34,6 +34,7 @@ import type {
 } from '../../shared/types/instance.types';
 import { createPromptHistoryEntryId } from '../../shared/types/prompt-history.types';
 import { generateId, generateInstanceId } from '../../shared/utils/id-generator';
+import { addAllowedRoot } from '../security/path-validator';
 import {
   resolveCliType,
   type CliAdapter,
@@ -1301,6 +1302,12 @@ export class InstanceManager extends EventEmitter {
         config: sanitizeCreateConfig(config),
       });
       throw new Error(`Instance creation is paused by the resource governor (${creationBlockReason}).`);
+    }
+
+    // Trust this working directory for renderer-facing file reads so VSCode /
+    // Finder / "Add files…" drops under it pass the path sandbox.
+    if (config.workingDirectory) {
+      addAllowedRoot(config.workingDirectory);
     }
 
     emitPluginHook('instance.spawn.before', {

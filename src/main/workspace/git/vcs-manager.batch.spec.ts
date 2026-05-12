@@ -22,4 +22,20 @@ describe('VcsManager batch helpers', () => {
 
     expect(VcsManager.findRepositories(root)).toEqual([repo]);
   });
+
+  // Phase 2a (item 4 prologue) — the original implementation returned as
+  // soon as it found `.git`, so a monorepo with submodules below the
+  // selected root would never surface the child repos. The fix is to
+  // record the parent and keep walking below it.
+  it('continues walking after finding `.git` so nested repos are surfaced', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'vcs-manager-nested-'));
+    tempPaths.push(root);
+    const child = path.join(root, 'packages', 'child');
+    await fs.mkdir(path.join(root, '.git'), { recursive: true });
+    await fs.mkdir(path.join(child, '.git'), { recursive: true });
+
+    const repos = VcsManager.findRepositories(root);
+    expect(repos).toContain(root);
+    expect(repos).toContain(child);
+  });
 });

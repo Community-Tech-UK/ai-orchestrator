@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import type { ChatCreateInput, ChatDetail, ChatEvent, ChatRecord } from '../../../../shared/types/chat.types';
+import type { FileAttachment } from '../../../../shared/types/instance.types';
 import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 import { ChatIpcService } from '../services/ipc/chat-ipc.service';
 
@@ -154,7 +155,7 @@ export class ChatStore {
     this.handleDetailResponse(response, 'Failed to set autonomy');
   }
 
-  async sendMessage(text: string): Promise<void> {
+  async sendMessage(text: string, attachments?: FileAttachment[]): Promise<void> {
     const chatId = this._selectedChatId();
     const trimmed = text.trim();
     if (!chatId || !trimmed || this._sending()) {
@@ -163,7 +164,7 @@ export class ChatStore {
     this._sending.set(true);
     this._error.set(null);
     try {
-      const response = await this.ipc.sendMessage(chatId, trimmed);
+      const response = await this.ipc.sendMessage(chatId, trimmed, attachments);
       if (response.success && response.data) {
         this.mergeDetail(response.data);
         this.mergeChat(response.data.chat);
