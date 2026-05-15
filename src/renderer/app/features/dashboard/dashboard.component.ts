@@ -47,6 +47,7 @@ import { SidebarNavComponent } from './sidebar-nav.component';
 import { SidebarFooterComponent } from './sidebar-footer.component';
 import { SidebarActionsComponent } from './sidebar-actions.component';
 import { BrowserPreviewNoticeComponent } from './browser-preview-notice.component';
+import { SessionProgressPanelComponent } from '../instance-detail/session-progress-panel.component';
 
 @Component({
   selector: 'app-dashboard',
@@ -69,7 +70,8 @@ import { BrowserPreviewNoticeComponent } from './browser-preview-notice.componen
     SidebarActionsComponent,
     SidebarNavComponent,
     SidebarFooterComponent,
-    BrowserPreviewNoticeComponent
+    BrowserPreviewNoticeComponent,
+    SessionProgressPanelComponent
   ],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.scss',
@@ -124,6 +126,14 @@ export class DashboardComponent implements OnInit, OnDestroy {
     if (!inst?.executionLocation || inst.executionLocation.type === 'local') return null;
     return inst.executionLocation.nodeId;
   });
+
+  // Selected instance for the floating session-progress HUD. Rendered at
+  // dashboard level (anchored to .main-content) so it docks against the
+  // workspace scrollbar instead of floating over the centred chat column.
+  // Null while a chat is selected so the HUD doesn't overlap chat-detail.
+  progressPanelInstance = computed(() =>
+    this.chatStore.selectedChatId() ? null : this.store.selectedInstance()
+  );
 
   isBenchmarkMode = computed(() => {
     if (typeof window === 'undefined') {

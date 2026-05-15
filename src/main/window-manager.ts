@@ -9,6 +9,7 @@ import type { WebContents } from 'electron';
 import * as path from 'path';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { getLogger } from './logging/logger';
+import { getSettingsManager } from './core/config/settings-manager';
 
 const logger = getLogger('WindowManager');
 const SAMPLE_DURATION_SECONDS = 5;
@@ -419,6 +420,26 @@ export class WindowManager {
 
   isMainWindowFocused(): boolean {
     return this.mainWindow?.isFocused() ?? false;
+  }
+
+  notifyAgentCompleted(instanceId: string, displayName: string): void {
+    if (getSettingsManager().get('notifyOnAgentCompletion') === false) return;
+    if (Notification.isSupported() && !this.mainWindow?.isFocused()) {
+      const notification = new Notification({
+        title: 'Agent finished',
+        body: `${displayName} has completed its task`,
+        silent: false,
+      });
+      notification.on('click', () => {
+        if (this.mainWindow) {
+          this.mainWindow.show();
+          this.mainWindow.focus();
+        }
+      });
+      notification.show();
+    }
+    // instanceId is retained for future use (e.g. INSTANCE_FOCUS_REQUEST channel once added)
+    void instanceId;
   }
 
   notifyUserActionRequest(title: string, body: string): void {

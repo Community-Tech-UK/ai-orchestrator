@@ -54,3 +54,11 @@ benchmarks/orchestrator-benchmark/dist/
 /ITERATION_LOG.md
 # AI Orchestrator loop attachments
 .aio-loop-attachments/
+.aio-loop-control/
+
+# Temporary JSON dumps (vitest session reviews, etc.)
+.tmp-*.json
+*.tmp.json
+
+# Orphaned pre-migration JS copies
+cross-model-review-service.js

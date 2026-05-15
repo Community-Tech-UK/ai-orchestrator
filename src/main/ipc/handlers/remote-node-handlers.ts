@@ -12,6 +12,9 @@ import {
   RemoteNodeRevokePayloadSchema,
   RemoteNodeRevokePairingPayloadSchema,
   RemoteNodeSetTokenPayloadSchema,
+  RemoteNodeGetPayloadSchema,
+  RemoteNodeStartServerPayloadSchema,
+  RemoteNodeServiceActionPayloadSchema,
 } from '@contracts/schemas/remote-node';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getLogger } from '../../logging/logger';
@@ -44,9 +47,10 @@ export function registerRemoteNodeHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.REMOTE_NODE_GET,
-    async (_event, payload: { nodeId: string }): Promise<IpcResponse> => {
+    async (_event, payload: unknown): Promise<IpcResponse> => {
       try {
-        const node = getWorkerNodeRegistry().getNode(payload.nodeId);
+        const validated = RemoteNodeGetPayloadSchema.parse(payload);
+        const node = getWorkerNodeRegistry().getNode(validated.nodeId);
         return {
           success: true,
           data: node ?? null,
@@ -66,11 +70,12 @@ export function registerRemoteNodeHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.REMOTE_NODE_START_SERVER,
-    async (_event, payload?: { port?: number; host?: string }): Promise<IpcResponse> => {
+    async (_event, payload: unknown): Promise<IpcResponse> => {
       try {
+        const validated = RemoteNodeStartServerPayloadSchema.parse(payload);
         const config = getRemoteNodeConfig();
-        const port = payload?.port ?? config.serverPort;
-        const host = payload?.host ?? config.serverHost;
+        const port = validated?.port ?? config.serverPort;
+        const host = validated?.host ?? config.serverHost;
         await getWorkerNodeConnectionServer().start(port, host);
         getDiscoveryService().publish(port, config.namespace, config.namespace);
         return { success: true, data: { port, host } };
@@ -278,9 +283,10 @@ export function registerRemoteNodeHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.REMOTE_NODE_SERVICE_STATUS,
-    async (_event, payload: { nodeId: string }): Promise<IpcResponse> => {
+    async (_event, payload: unknown): Promise<IpcResponse> => {
       try {
-        const data = await sendServiceRpc(payload.nodeId, COORDINATOR_TO_NODE.SERVICE_STATUS);
+        const validated = RemoteNodeServiceActionPayloadSchema.parse(payload);
+        const data = await sendServiceRpc(validated.nodeId, COORDINATOR_TO_NODE.SERVICE_STATUS);
         return { success: true, data };
       } catch (error) {
         return {
@@ -297,9 +303,10 @@ export function registerRemoteNodeHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.REMOTE_NODE_SERVICE_RESTART,
-    async (_event, payload: { nodeId: string }): Promise<IpcResponse> => {
+    async (_event, payload: unknown): Promise<IpcResponse> => {
       try {
-        await sendServiceRpc(payload.nodeId, COORDINATOR_TO_NODE.SERVICE_RESTART);
+        const validated = RemoteNodeServiceActionPayloadSchema.parse(payload);
+        await sendServiceRpc(validated.nodeId, COORDINATOR_TO_NODE.SERVICE_RESTART);
         return { success: true };
       } catch (error) {
         return {
@@ -316,9 +323,10 @@ export function registerRemoteNodeHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.REMOTE_NODE_SERVICE_STOP,
-    async (_event, payload: { nodeId: string }): Promise<IpcResponse> => {
+    async (_event, payload: unknown): Promise<IpcResponse> => {
       try {
-        await sendServiceRpc(payload.nodeId, COORDINATOR_TO_NODE.SERVICE_STOP);
+        const validated = RemoteNodeServiceActionPayloadSchema.parse(payload);
+        await sendServiceRpc(validated.nodeId, COORDINATOR_TO_NODE.SERVICE_STOP);
         return { success: true };
       } catch (error) {
         return {
@@ -335,9 +343,10 @@ export function registerRemoteNodeHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.REMOTE_NODE_SERVICE_UNINSTALL,
-    async (_event, payload: { nodeId: string }): Promise<IpcResponse> => {
+    async (_event, payload: unknown): Promise<IpcResponse> => {
       try {
-        await sendServiceRpc(payload.nodeId, COORDINATOR_TO_NODE.SERVICE_UNINSTALL);
+        const validated = RemoteNodeServiceActionPayloadSchema.parse(payload);
+        await sendServiceRpc(validated.nodeId, COORDINATOR_TO_NODE.SERVICE_UNINSTALL);
         return { success: true };
       } catch (error) {
         return {

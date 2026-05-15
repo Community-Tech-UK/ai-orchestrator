@@ -104,3 +104,29 @@
 .animate-glow {
   animation: glow 2s ease-in-out infinite;
 }
+
+// Honor the user's motion preference. WCAG 2.3.3: reduce excessive animation.
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-fade-in-up,
+  .animate-scale-in {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .animate-spin,
+  .animate-pulse,
+  .animate-glow {
+    animation: none;
+  }
+
+  // Also stop any directly-applied infinite animations globally
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

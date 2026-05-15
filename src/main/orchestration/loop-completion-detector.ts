@@ -163,6 +163,7 @@ export interface CompletionObservationInput {
 
 export type VerifyOutcome =
   | { status: 'passed'; output: string; durationMs: number }
+  | { status: 'skipped'; output: string; durationMs: number }
   | { status: 'failed'; output: string; durationMs: number; exitCode: number | null };
 
 export class LoopCompletionDetector {
@@ -301,7 +302,11 @@ export class LoopCompletionDetector {
   async runVerify(config: LoopConfig): Promise<VerifyOutcome> {
     const cmd = (config.completion.verifyCommand || '').trim();
     if (!cmd) {
-      return { status: 'passed', output: '(no verify command configured)', durationMs: 0 };
+      // No command => the loop has NOT verified anything. Returning 'passed'
+      // here would make the completion gate a rubber stamp: a self-declared
+      // "done" would stop the loop with zero independent evidence. Report a
+      // distinct 'skipped' so the coordinator refuses to stop on it.
+      return { status: 'skipped', output: '(no verify command configured)', durationMs: 0 };
     }
     const started = Date.now();
     return new Promise<VerifyOutcome>((resolve) => {

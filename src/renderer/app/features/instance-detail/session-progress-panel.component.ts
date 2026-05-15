@@ -7,7 +7,6 @@ import {
   input,
   signal,
 } from '@angular/core';
-import type { InstanceStatus } from '../../../../shared/types/instance.types';
 import type { TodoItem } from '../../../../shared/types/todo.types';
 import { TodoStore } from '../../core/state/todo.store';
 import type { Instance } from '../../core/state/instance/instance.types';
@@ -18,9 +17,26 @@ import {
   formatChipTooltip,
   type ArtifactEntry,
 } from '../chats/session-artifacts.util';
+import {
+  readStorage,
+  writeStorage,
+  type StorageField,
+} from '../../shared/utils/typed-storage';
 
 const MAX_VISIBLE_TASKS = 5;
 const MAX_VISIBLE_OUTPUTS = 6;
+
+/**
+ * The user's minimise choice is sticky: persisted to localStorage so the
+ * panel stays collapsed (or expanded) across session switches, instance
+ * switches and app restarts until they reopen it from the collapsed pill.
+ */
+export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
+  key: 'session-progress-panel:collapsed',
+  version: 1,
+  defaultValue: false,
+  validate: (value): value is boolean => typeof value === 'boolean',
+};
 
 @Component({
   selector: 'app-session-progress-panel',
@@ -28,7 +44,7 @@ const MAX_VISIBLE_OUTPUTS = 6;
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (shouldRender()) {
-      @if (expanded()) {
+      @if (!collapsed()) {
         <aside class="progress-panel" aria-label="Session progress">
           <header class="panel-header">
             <div class="panel-title-group">
@@ -41,12 +57,12 @@ const MAX_VISIBLE_OUTPUTS = 6;
               <button
                 type="button"
                 class="icon-button"
-                title="Collapse progress"
-                aria-label="Collapse progress"
+                title="Minimize panel"
+                aria-label="Minimize progress panel"
                 (click)="collapsePanel()"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M18 6 6 18M6 6l12 12"></path>
+                  <path d="M18 15l-6-6-6 6"></path>
                 </svg>
               </button>
             </div>
@@ -121,8 +137,8 @@ const MAX_VISIBLE_OUTPUTS = 6;
         <button
           type="button"
           class="progress-tab"
-          title="Show progress"
-          aria-label="Show progress"
+          title="Show progress panel"
+          aria-label="Show progress panel"
           (click)="expandPanel()"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -130,17 +146,25 @@ const MAX_VISIBLE_OUTPUTS = 6;
             <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
           </svg>
           <span>{{ collapsedSummary() }}</span>
+          <svg class="tab-chevron" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 9l6 6 6-6"></path>
+          </svg>
         </button>
       }
     }
   `,
   styles: [`
+    /* Mounted at dashboard level inside <main class="main-content">, which is
+       position: relative. Docked top-right so the panel sits against the
+       workspace scrollbar (the rightmost scrollbar) rather than floating over
+       the centred chat column. 'right' clears the ~6px scrollbar; 'top'
+       clears the instance header. */
     :host {
       position: absolute;
-      top: 18px;
-      right: 18px;
+      top: 132px;
+      right: 12px;
       z-index: 5;
-      width: min(360px, calc(100% - 36px));
+      width: min(360px, calc(100% - 24px));
       pointer-events: none;
     }
 
@@ -459,9 +483,19 @@ const MAX_VISIBLE_OUTPUTS = 6;
       white-space: nowrap;
     }
 
+    .progress-tab svg {
+      flex: 0 0 auto;
+    }
+
+    .tab-chevron {
+      width: 13px;
+      height: 13px;
+      opacity: 0.55;
+    }
+
     @media (max-width: 840px) {
       :host {
-        top: 10px;
+        top: 116px;
         right: 10px;
         width: min(340px, calc(100% - 20px));
       }
@@ -479,11 +513,9 @@ export class SessionProgressPanelComponent {
   readonly sessionId = input<string | null>(null);
   readonly diffStats = input<Instance['diffStats'] | null | undefined>(null);
   readonly workingDirectory = input<string | null | undefined>(null);
-  readonly instanceStatus = input<InstanceStatus | null>(null);
 
-  readonly expanded = signal(true);
-  private readonly userCollapsed = signal(false);
-  private lastSessionId: string | null = null;
+  /** Sticky, persisted minimise state — see PANEL_COLLAPSED_FIELD. */
+  readonly collapsed = signal<boolean>(readStorage(PANEL_COLLAPSED_FIELD));
 
   readonly outputs = computed(() =>
     buildArtifactEntries(this.diffStats(), this.workingDirectory())
@@ -527,35 +559,25 @@ export class SessionProgressPanelComponent {
   });
 
   constructor() {
+    // Keep the TODO store pointed at the panel's session. The minimise
+    // preference is deliberately left untouched on session changes so a
+    // collapsed panel stays collapsed until the user reopens it.
     effect(() => {
-      const sessionId = this.sessionId();
-      if (sessionId !== this.lastSessionId) {
-        this.lastSessionId = sessionId;
-        this.userCollapsed.set(false);
-        this.expanded.set(true);
-      }
-      void this.todoStore.setSession(sessionId);
-    });
-
-    effect(() => {
-      if (
-        this.shouldRender()
-        && this.isWorkingStatus(this.instanceStatus())
-        && !this.userCollapsed()
-      ) {
-        this.expanded.set(true);
-      }
+      void this.todoStore.setSession(this.sessionId());
     });
   }
 
   collapsePanel(): void {
-    this.userCollapsed.set(true);
-    this.expanded.set(false);
+    this.setCollapsed(true);
   }
 
   expandPanel(): void {
-    this.userCollapsed.set(false);
-    this.expanded.set(true);
+    this.setCollapsed(false);
+  }
+
+  private setCollapsed(collapsed: boolean): void {
+    this.collapsed.set(collapsed);
+    writeStorage(PANEL_COLLAPSED_FIELD, collapsed);
   }
 
   taskLabel(todo: TodoItem): string {
@@ -581,13 +603,6 @@ export class SessionProgressPanelComponent {
     } else {
       await this.fileIpc.editorOpen(entry.absPath, { line: 1 });
     }
-  }
-
-  private isWorkingStatus(status: InstanceStatus | null): boolean {
-    return status === 'busy'
-      || status === 'processing'
-      || status === 'thinking_deeply'
-      || status === 'waiting_for_permission';
   }
 }
 

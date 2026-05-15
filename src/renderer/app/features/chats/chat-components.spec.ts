@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 describe('chat feature templates', () => {
-  it('renders the top-level Chats group and create-chat controls', () => {
+  it('renders create-chat controls while hiding the chat history section', () => {
     const template = readFileSync(
       'src/renderer/app/features/chats/chat-sidebar.component.html',
       'utf-8',
@@ -13,9 +13,10 @@ describe('chat feature templates', () => {
     );
 
     expect(template).toContain('New chat');
-    expect(template).toContain('<div class="chat-group-label">Chats</div>');
-    expect(template).toContain('chatStore.chats()');
-    expect(template).toContain('archiveChat($event, chat.id)');
+    expect(template).not.toContain('chat-group-label');
+    expect(template).not.toContain('chat-list');
+    expect(template).not.toContain('chatStore.chats()');
+    expect(template).not.toContain('archiveChat($event, chat.id)');
     expect(source).toContain("this.historyStore.clearSelection()");
     expect(source).toContain("this.instanceStore.setSelectedInstance(null)");
   });

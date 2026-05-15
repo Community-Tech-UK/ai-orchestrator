@@ -87,7 +87,12 @@ export interface LoopCompletionConfig {
   donePromiseRegex: string;         // default '<promise>\\s*DONE\\s*</promise>'
   /** Sentinel file that indicates "done". */
   doneSentinelFile: string;         // default 'DONE.txt'
-  /** Verify command (run before stop). Empty disables verify. */
+  /**
+   * Verify command (run before stop). When empty, verify is reported as
+   * 'skipped': the loop has no independent check, so it will NOT stop on a
+   * (self-declared) completion signal — it keeps iterating until a hard cap.
+   * Set this to your test/lint/build command for clean signal-based stops.
+   */
   verifyCommand: string;            // default empty; loop prompt asks agent to run appropriate checks
   /** Verify timeout in ms. */
   verifyTimeoutMs: number;          // default 600_000 (10 min)

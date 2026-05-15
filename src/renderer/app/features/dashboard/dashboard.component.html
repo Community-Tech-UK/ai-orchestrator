@@ -137,6 +137,16 @@
           <app-sidebar-nav />
         </section>
       }
+
+      <!-- Floating session-progress HUD — docked against the workspace
+           scrollbar, clear of the centred chat column. -->
+      @if (progressPanelInstance(); as inst) {
+        <app-session-progress-panel
+          [sessionId]="inst.sessionId"
+          [diffStats]="inst.diffStats"
+          [workingDirectory]="inst.workingDirectory"
+        />
+      }
     </main>
 
     <!-- Source Control (right side, sits LEFT of File Explorer).

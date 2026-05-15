@@ -66,11 +66,16 @@ type ContinuityTask =
   | { kind: 'state'; instanceId: string; update: Record<string, unknown> }
   | { kind: 'entry'; instanceId: string; entry: { id: string; role: 'user' | 'assistant' | 'system' | 'tool'; content: string; timestamp: number } };
 
+const ACTIVE_STATUSES = new Set(['running', 'busy', 'waiting', 'waiting_for_input']);
+
 export function setupInstanceEventForwarding(options: InstanceEventForwardingOptions): void {
   const { instanceManager, windowManager, isStatelessExecProvider, getNodeLatencyForInstance } = options;
   const observer = getRemoteObserverServer();
   const repoJobs = getRepoJobService();
   const traceSink = getProviderRuntimeTraceSink();
+
+  // Track previous statuses so we can detect active → idle transitions.
+  const previousStatus = new Map<string, string>();
 
   // Continuity updates run off the hot event path. State updates coalesce per
   // instance (bounded queue, drop when full); entry ordering is preserved.
@@ -121,6 +126,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
     getDoomLoopDetector().cleanupInstance(instanceId as string);
     getLoadBalancer().removeMetrics(instanceId as string);
     getWorkflowManager().cleanupInstance(instanceId as string);
+    previousStatus.delete(instanceId as string);
     observer.publishInstanceState({
       type: 'removed',
       instanceId,
@@ -288,6 +294,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
 
   instanceManager.on('instance:removed', (instanceId: string) => {
     crossModelReview.cancelPendingReviews(instanceId);
+    previousStatus.delete(instanceId);
   });
 
   crossModelReview.on('review:started', (data) => {
@@ -384,6 +391,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
 
   instanceManager.on('instance:created', (instance: Instance) => {
     try { addInstance(toSlice(instance)); } catch { /* store failure must not block main flow */ }
+    if (instance.status) previousStatus.set(instance.id, instance.status);
   });
 
   instanceManager.on('instance:removed', (instanceId: string) => {
@@ -407,6 +415,19 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
       if (update.status) partial.status = update.status as InstanceSlice['status'];
       if (update.contextUsage) partial.contextUsage = update.contextUsage;
       try { updateInstance(update.instanceId, partial); } catch { /* non-critical */ }
+
+      // Fire a desktop notification when an instance transitions from an active
+      // state to idle/completed. Skip if we haven't seen a previous status yet
+      // (startup) to avoid spurious notifications.
+      if (update.status) {
+        const prev = previousStatus.get(update.instanceId);
+        if (prev && ACTIVE_STATUSES.has(prev) && update.status === 'idle') {
+          const instance = instanceManager.getInstance(update.instanceId);
+          const displayName = instance?.displayName ?? update.instanceId;
+          windowManager.notifyAgentCompleted(update.instanceId, displayName);
+        }
+        previousStatus.set(update.instanceId, update.status);
+      }
     }
   });
 

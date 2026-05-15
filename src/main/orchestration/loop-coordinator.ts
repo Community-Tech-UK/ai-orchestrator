@@ -1029,7 +1029,7 @@ export class LoopCoordinator extends EventEmitter {
         const sufficientList = completionSignals.filter((c) => c.sufficient);
         const candidate = sufficientList[0]!;
         const v1 = await this.completionDetector.runVerify(state.config);
-        iteration.verifyStatus = v1.status;
+        iteration.verifyStatus = v1.status === 'skipped' ? 'not-run' : v1.status;
         iteration.verifyOutputExcerpt = excerpt(v1.output);
         verifyOutputForEmit = v1.output;
         if (v1.status === 'failed') {
@@ -1039,6 +1039,39 @@ export class LoopCoordinator extends EventEmitter {
             signal: candidate.id,
             failure: excerpt(v1.output, 4096),
           });
+          // do not stop; continue
+        } else if (v1.status === 'skipped') {
+          // No verify command is configured, so the loop has NO independent
+          // way to confirm the work is done — every completion signal
+          // (declared-complete, *_Completed.md rename, DONE.txt, plan
+          // checklist) is produced by the agent itself. Refuse to stop on an
+          // unverified self-declaration: reject the pending completion,
+          // surface why, and keep iterating until a hard cap is reached.
+          this.rejectPendingCompleteIntent(
+            state,
+            'completion not verified — no verify command configured',
+          );
+          this.emit('loop:claimed-done-but-failed', {
+            loopRunId: state.id,
+            signal: candidate.id,
+            failure:
+              'Completion cannot be confirmed: no verify command is configured, so the loop ' +
+              'has no independent way to check the work is actually done. Configure a verify ' +
+              'command (your test / lint / build command) in the loop settings — until then ' +
+              'the loop will keep iterating until it reaches a hard cap rather than stop on an ' +
+              'unverified, self-declared completion.',
+          });
+          // Feed the rejection back to the agent: the next iteration must
+          // know its completion was not accepted, otherwise it may simply
+          // re-declare done each iteration and burn the run out at the cap.
+          state.pendingInterventions.push(
+            'Your completion was NOT accepted. This loop has no verify command configured, ' +
+              'so it cannot independently confirm the work is finished. Do not simply ' +
+              're-declare completion — it will be rejected again. Either keep making concrete ' +
+              'progress on the task, or, if you believe it is genuinely done, run the ' +
+              "project's own checks yourself (tests / lint / typecheck / build) and report " +
+              'their actual output as evidence.',
+          );
           // do not stop; continue
         } else {
           // anti-flake: optionally run again
@@ -1660,7 +1693,7 @@ export class LoopCoordinator extends EventEmitter {
 // ============ module-private helpers ============
 
 interface VerifyOutcomeLike {
-  status: 'passed' | 'failed';
+  status: 'passed' | 'skipped' | 'failed';
   output: string;
 }
 

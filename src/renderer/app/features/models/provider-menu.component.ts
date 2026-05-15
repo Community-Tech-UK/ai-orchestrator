@@ -35,7 +35,11 @@ const PROVIDER_COLORS: Record<PickerProvider, string> = {
   codex: '#10a37f',
   gemini: '#4285f4',
   copilot: '#a855f7',
-  cursor: '#0f172a',
+  // Cursor's mark is monochrome — a fixed hex would vanish into one theme's
+  // background (#0f172a was near-invisible on the dark panel). The theme
+  // foreground token stays legible on both dark and light themes. Consumed
+  // only via `[style.color]` / `[style.background]`, so a var() value is safe.
+  cursor: 'var(--text-primary)',
 };
 
 /**

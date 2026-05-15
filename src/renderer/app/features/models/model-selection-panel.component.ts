@@ -358,10 +358,10 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
       display: grid;
       grid-template-columns: 38px minmax(0, 1fr) auto;
       align-items: center;
-      min-height: 68px;
+      min-height: 58px;
       margin-bottom: 6px;
       border: 1px solid transparent;
-      border-radius: 7px;
+      border-radius: 8px;
       background: color-mix(in srgb, var(--bg-elevated, #242424) 62%, transparent);
       color: var(--text-primary, #f4f4f5);
       cursor: pointer;
@@ -429,8 +429,8 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
     .model-picker-row__body {
       min-width: 0;
       display: grid;
-      gap: 5px;
-      padding: 10px 8px 10px 0;
+      gap: 4px;
+      padding: 9px 8px 9px 0;
     }
 
     .model-picker-row__name {
@@ -439,6 +439,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
       white-space: nowrap;
       font-size: 14px;
       font-weight: 700;
+      line-height: 1.3;
       color: var(--text-primary, #f4f4f5);
     }
 
@@ -478,17 +479,39 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
       border: 0;
     }
 
+    /*
+     * Reasoning picker. Re-declares every box property explicitly so the
+     * control no longer inherits the global 'input, textarea, select' rule
+     * from _base.scss — that rule's 8px/12px padding collapsed the fixed
+     * height and clipped the value text. Background is set with longhands
+     * (never the 'background' shorthand) so the caret image survives.
+     */
     .model-picker-row__reasoning {
-      max-width: 108px;
-      height: 28px;
-      border: 1px solid var(--border-subtle, rgba(255,255,255,0.12));
-      border-radius: 7px;
-      background: color-mix(in srgb, var(--bg-primary, #111) 80%, transparent);
+      appearance: none;
+      flex: 0 0 auto;
+      width: 104px;
+      height: 26px;
+      padding: 0 24px 0 10px;
+      border: 1px solid var(--border-color, rgba(255,255,255,0.16));
+      border-radius: 6px;
+      background-color: var(--bg-elevated, #242424);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2391988d' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      background-size: 10px;
       color: var(--text-secondary, #c4c4c9);
       font: inherit;
       font-size: 12px;
+      font-weight: 600;
+      line-height: 1;
       outline: none;
       cursor: pointer;
+    }
+
+    .model-picker-row__reasoning:hover:not(:disabled) {
+      border-color: var(--border-light, rgba(255,255,255,0.28));
+      background-color: var(--bg-hover, #1d2925);
+      color: var(--text-primary, #f4f4f5);
     }
 
     .model-picker-row__reasoning:focus-visible {
@@ -501,12 +524,18 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
     }
 
     .model-picker-row__shortcut {
-      padding: 3px 8px;
-      border-radius: 8px;
-      background: color-mix(in srgb, var(--bg-primary, #111) 72%, transparent);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 26px;
+      min-width: 28px;
+      padding: 0 8px;
+      border-radius: 6px;
+      background: color-mix(in srgb, var(--bg-primary, #111) 60%, transparent);
       color: var(--text-muted, #9ca3af);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 700;
+      letter-spacing: 0.01em;
     }
 
     .model-picker-empty {
@@ -535,7 +564,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
       }
 
       .model-picker-row__reasoning {
-        max-width: 92px;
+        width: 92px;
       }
     }
   `],

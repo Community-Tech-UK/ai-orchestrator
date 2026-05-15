@@ -98,5 +98,6 @@
   "nsis": {
     "oneClick": false,
     "allowToChangeInstallationDirectory": true
-  }
+  },
+  "afterPack": "scripts/set-electron-fuses.js"
 }

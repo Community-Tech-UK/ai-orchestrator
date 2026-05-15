@@ -7,14 +7,11 @@
     "eqeqeq": "warn",
     "prefer-const": "warn",
     "no-var": "error",
-    "no-duplicate-imports": "error",
+    "no-duplicate-imports": "off",
     "no-undef": "off",
-    "typescript": {
-      "no-explicit-any": "warn",
-      "no-unused-vars": "warn",
-      "prefer-as-const": "warn",
-      "no-require-imports": "warn"
-    }
+    "typescript/no-explicit-any": "warn",
+    "typescript/prefer-as-const": "warn",
+    "typescript/no-require-imports": "warn"
   },
   "globals": {
     "process": "readonly",

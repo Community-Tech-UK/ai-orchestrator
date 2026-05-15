@@ -47,6 +47,16 @@ const NAV_GROUPS: NavGroup[] = [
         label: 'Instance Messaging',
         route: '/communication',
         icon: '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><path d="M22 6l-10 7L2 6"/>'
+      },
+      {
+        label: 'Remote Nodes',
+        route: '/remote-nodes',
+        icon: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.59 3.2 2 2 0 0 1 3.56 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.7a16 16 0 0 0 6 6l.89-.89a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>'
+      },
+      {
+        label: 'Remote Config',
+        route: '/remote-config',
+        icon: '<circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>'
       }
     ]
   },
@@ -87,6 +97,11 @@ const NAV_GROUPS: NavGroup[] = [
         label: 'Supervisor',
         route: '/supervision',
         icon: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>'
+      },
+      {
+        label: 'Hooks',
+        route: '/hooks',
+        icon: '<path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/>'
       }
     ]
   },
@@ -167,6 +182,11 @@ const NAV_GROUPS: NavGroup[] = [
         label: 'Background Jobs',
         route: '/tasks',
         icon: '<path d="M3 4h18"/><path d="M8 4v16"/><path d="M16 8v12"/><path d="M12 12v8"/><rect x="3" y="4" width="18" height="16" rx="2"/>'
+      },
+      {
+        label: 'Worktrees',
+        route: '/worktrees',
+        icon: '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>'
       }
     ]
   },
@@ -197,6 +217,36 @@ const NAV_GROUPS: NavGroup[] = [
         label: 'Security',
         route: '/security',
         icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>'
+      },
+      {
+        label: 'Snapshots',
+        route: '/snapshots',
+        icon: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>'
+      },
+      {
+        label: 'Archive',
+        route: '/archive',
+        icon: '<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>'
+      }
+    ]
+  },
+  {
+    label: 'Apps',
+    items: [
+      {
+        label: 'MCP Servers',
+        route: '/mcp',
+        icon: '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>'
+      },
+      {
+        label: 'Plugins',
+        route: '/plugins',
+        icon: '<path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5l6.74-6.76z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/>'
+      },
+      {
+        label: 'Models',
+        route: '/models',
+        icon: '<rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>'
       }
     ]
   }

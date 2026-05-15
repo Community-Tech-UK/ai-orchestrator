@@ -373,7 +373,11 @@ describe('LoopCompletionDetector.runVerify', () => {
     const cfg = defaultLoopConfig(tmpDir, 'x');
     cfg.completion.verifyCommand = '';
     const r = await det.runVerify(cfg);
-    expect(r.status).toBe('passed');
+    // No command => the loop verified NOTHING. It must report 'skipped'
+    // (not 'passed') so the coordinator refuses to stop the loop on an
+    // unverified, self-declared completion.
+    expect(r.status).toBe('skipped');
+    expect(r.output).toContain('no verify command');
   });
 
   it('passes when command exits 0', async () => {

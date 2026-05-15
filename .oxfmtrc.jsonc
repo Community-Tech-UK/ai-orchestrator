@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  // Standard formatting configuration for the AI Orchestrator TypeScript project.
+  // oxfmt is a fast formatter (Rust-based) that handles TypeScript, JSON, and more.
+  "ignorePatterns": [
+    "dist/**",
+    "node_modules/**",
+    "packages/*/dist/**",
+    "coverage/**",
+    "*.min.js",
+    "*.min.css"
+  ]
+}

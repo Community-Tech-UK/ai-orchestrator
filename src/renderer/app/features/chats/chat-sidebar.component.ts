@@ -1,12 +1,10 @@
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import type { ChatProvider, ChatRecord } from '../../../../shared/types/chat.types';
 import { ChatStore } from '../../core/state/chat.store';
 import { HistoryStore } from '../../core/state/history.store';
 import { InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
-import { deriveChatRuntimeState, type ChatRuntimeState } from './chat-runtime-state';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import type { PendingSelection } from '../models/compact-model-picker.types';
 
@@ -84,34 +82,6 @@ export class ChatSidebarComponent implements OnInit {
     if (!this.chatStore.error()) {
       this.showCreate.set(false);
     }
-  }
-
-  selectChat(chatId: string): void {
-    this.clearWorkspaceSelection();
-    void this.chatStore.select(chatId);
-  }
-
-  archiveChat(event: MouseEvent, chatId: string): void {
-    event.stopPropagation();
-    void this.chatStore.archive(chatId);
-  }
-
-  cwdLabel(cwd: string | null): string {
-    if (!cwd) return 'no project';
-    const trimmed = cwd.replace(/\/+$/, '');
-    return trimmed.split('/').pop() || cwd;
-  }
-
-  providerLabel(provider: ChatProvider | null, model: string | null): string {
-    if (!provider) return 'setup required';
-    return model ? `${provider} · ${model}` : provider;
-  }
-
-  runtimeState(chat: ChatRecord): ChatRuntimeState {
-    const instance = chat.currentInstanceId
-      ? this.instanceStore.getInstance(chat.currentInstanceId)
-      : null;
-    return deriveChatRuntimeState(chat, instance?.status);
   }
 
   private clearWorkspaceSelection(): void {

@@ -38,10 +38,11 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.electron.json",
     "typecheck:fast": "tsgo --noEmit -p tsconfig.electron.json",
     "typecheck:spec": "tsc --noEmit -p tsconfig.spec.json",
-    "verify": "npm run lint && npm run typecheck && npm run typecheck:spec && npm run verify:ipc && npm run verify:exports && npm run check:contracts && npm run test && npm run verify:architecture && npm run rebuild:native && npm run smoke:electron",
+    "verify": "npm run lint && npm run lint:fast && npm run typecheck && npm run typecheck:spec && npm run verify:ipc && npm run verify:exports && npm run check:contracts && npm run test && npm run verify:architecture && npm run rebuild:native && npm run smoke:electron",
     "verify:ipc": "node scripts/verify-ipc-channels.js",
     "verify:exports": "node scripts/verify-package-exports.js",
     "check:contracts": "tsx scripts/check-contracts-aliases.ts",
+    "check:ts-max-loc": "tsx scripts/check-ts-max-loc.ts",
     "verify:architecture": "node scripts/check-import-boundaries.js && node scripts/generate-architecture-inventory.js --check",
     "verify:boundaries": "node scripts/check-import-boundaries.js",
     "generate:architecture": "node scripts/generate-architecture-inventory.js --write",
@@ -58,7 +59,9 @@
     "build:loop-control-sea": "tsx build-loop-control-cli-sea.ts",
     "build:loop-control-dist": "npm run build:loop-control-cli && npm run build:loop-control-sea",
     "download:winsw": "node scripts/download-winsw.js",
-    "review": "tsx src/main/cli-entrypoints/review-command.ts"
+    "review": "tsx src/main/cli-entrypoints/review-command.ts",
+    "fmt": "oxfmt --config .oxfmtrc.jsonc --write src/ packages/",
+    "fmt:check": "oxfmt --config .oxfmtrc.jsonc --check src/ packages/"
   },
   "keywords": [
     "ai",
@@ -75,7 +78,8 @@
   "overrides": {
     "undici": "^7.8.0",
     "picomatch": "^4.0.4",
-    "vite": "^7.3.2"
+    "vite": "^7.3.2",
+    "protobufjs": ">=7.4.0"
   },
   "dependencies": {
     "@angular/animations": "^21.2.5",
@@ -128,6 +132,7 @@
     "@angular-devkit/build-angular": "^21.1.0",
     "@angular/cli": "^21.1.0",
     "@angular/compiler-cli": "^21.2.5",
+    "@electron/fuses": "^2.1.1",
     "@sqlite.org/sqlite-wasm": "^3.51.2-build9",
     "@types/better-sqlite3": "^7.6.13",
     "@types/diff": "^7.0.2",
@@ -139,21 +144,22 @@
     "@types/qrcode": "^1.5.6",
     "@types/uuid": "^10.0.0",
     "@types/ws": "^8.18.1",
+    "@typescript/native-preview": "^7.0.0-dev.20250327.1",
     "angular-eslint": "21.3.1",
-    "oxlint": "^1.0.0",
     "concurrently": "^9.0.0",
     "electron": "^40.6.0",
     "electron-builder": "^26.0.0",
     "esbuild": "^0.28.0",
     "eslint": "^9.39.1",
     "jsdom": "^27.4.0",
+    "oxfmt": "^0.49.0",
+    "oxlint": "^1.0.0",
     "postject": "^1.0.0-alpha.6",
     "tsx": "^4.21.0",
+    "turbo": "^2.5.4",
     "typescript": "~5.9.0",
     "typescript-eslint": "8.47.0",
     "vitest": "^3.0.0",
-    "@typescript/native-preview": "^7.0.0-dev.20250327.1",
-    "turbo": "^2.5.4",
     "wait-on": "^8.0.0",
     "zone.js": "^0.16.0"
   }

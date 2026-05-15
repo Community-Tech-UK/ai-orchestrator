@@ -118,6 +118,10 @@ export interface AppSettings {
   rtkEnabled: boolean;
   /** When true, never use a system-installed rtk; only the bundled binary. */
   rtkBundledOnly: boolean;
+
+  // Notifications
+  /** Show a desktop notification when an agent transitions from busy to idle. Default: true. */
+  notifyOnAgentCompletion: boolean;
 }
 
 /**
@@ -207,6 +211,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // RTK
   rtkEnabled: true,
   rtkBundledOnly: false,
+
+  // Notifications
+  notifyOnAgentCompletion: true,
 };
 
 /**
@@ -687,6 +694,13 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
     description: 'Always use the rtk binary shipped with this app, never a system-installed rtk on PATH. Useful for reproducibility.',
     type: 'boolean',
     category: 'rtk',
+  },
+  {
+    key: 'notifyOnAgentCompletion',
+    label: 'Notify when agent finishes',
+    description: 'Show a desktop notification when an agent transitions from busy to idle (only when the window is not focused)',
+    type: 'boolean',
+    category: 'general',
   },
 ];
 

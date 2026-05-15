@@ -386,3 +386,93 @@ describe('LoopCoordinator completion classification hardening', () => {
     }
   });
 });
+
+describe('LoopCoordinator skipped-verify completion gate', () => {
+  it('does NOT complete on a sufficient signal when no verify command is configured', async () => {
+    // The agent "finishes": it renames the plan file to *_completed.md — a
+    // sufficient completion signal. But no verify command is configured, so
+    // the loop has no independent way to confirm the work is actually done.
+    // It must keep iterating until a hard cap rather than stop 'completed'.
+    writeFileSync(join(workspace, 'task-plan.md'), '# Plan\n');
+
+    coordinator.removeAllListeners('loop:invoke-iteration');
+    let invocations = 0;
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      invocations += 1;
+      const p = payload as { callback: (result: LoopChildResult) => void };
+      if (invocations === 1) {
+        renameSync(
+          join(workspace, 'task-plan.md'),
+          join(workspace, 'task-plan_completed.md'),
+        );
+      }
+      queueMicrotask(() => {
+        p.callback({
+          childInstanceId: null,
+          output: 'TASK COMPLETE — implementation finished.',
+          tokens: 5,
+          filesChanged: [],
+          toolCalls: [],
+          errors: [],
+          testPassCount: null,
+          testFailCount: null,
+          exitedCleanly: true,
+        });
+      });
+    });
+
+    let claimedDoneButFailed = 0;
+    coordinator.on('loop:claimed-done-but-failed', () => {
+      claimedDoneButFailed += 1;
+    });
+
+    const terminalState = new Promise<{ status: string }>((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error('loop did not reach terminal state')),
+        15_000,
+      );
+      coordinator.on('loop:state-changed', (data: unknown) => {
+        const s = (data as { state: { status: string } }).state;
+        if (!['completed', 'cancelled', 'cap-reached', 'error', 'no-progress'].includes(s.status)) {
+          return;
+        }
+        clearTimeout(timeout);
+        resolve({ status: s.status });
+      });
+    });
+
+    const state = await coordinator.startLoop('chat-no-verify-command', {
+      initialPrompt: 'implement task-plan.md',
+      workspaceCwd: workspace,
+      planFile: 'task-plan.md',
+      caps: {
+        maxIterations: 2,
+        maxWallTimeMs: 60_000,
+        maxTokens: 1_000_000,
+        maxCostCents: 100,
+        maxToolCallsPerIteration: 200,
+      },
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        verifyCommand: '',
+        runVerifyTwice: false,
+        crossModelReview: {
+          enabled: false,
+          blockingSeverities: ['critical'],
+          timeoutSeconds: 10,
+          reviewDepth: 'structured',
+        },
+      },
+    });
+
+    try {
+      const result = await terminalState;
+      // The unverified completion signal must NOT have stopped the loop.
+      expect(result.status).toBe('cap-reached');
+      // ...and the agent's unverifiable claim was surfaced as a warning.
+      expect(claimedDoneButFailed).toBeGreaterThanOrEqual(1);
+    } finally {
+      coordinator.cancelLoop(state.id);
+    }
+  }, 20_000);
+});
