@@ -25,6 +25,7 @@ import {
 } from './provider-menu.component';
 
 type ActiveModelTab = 'favorites' | PickerProvider;
+type ProviderLabelMap = Partial<Record<PickerProvider, string>>;
 
 interface ModelPickerRow {
   key: string;
@@ -551,7 +552,7 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
   private readonly _selectedProvider = signal<PickerProvider | null>(null);
   private readonly _selectedModelId = signal<string | null>(null);
   private readonly _selectedReasoning = signal<ReasoningEffort | null>(null);
-  private readonly _providerLabels = signal<Record<string, string>>(PROVIDER_MENU_LABELS);
+  private readonly _providerLabels = signal<ProviderLabelMap>(PROVIDER_MENU_LABELS);
   private readonly _modelsForProvider = signal<
     (provider: PickerProvider) => ModelDisplayInfo[]
   >(() => []);
@@ -579,7 +580,7 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
   @Input({ required: true }) set selectedReasoning(value: ReasoningEffort | null) {
     this._selectedReasoning.set(value);
   }
-  @Input({ required: true }) set providerLabels(value: Record<string, string>) {
+  @Input({ required: true }) set providerLabels(value: ProviderLabelMap | null | undefined) {
     this._providerLabels.set(value ?? PROVIDER_MENU_LABELS);
   }
   @Input({ required: true }) set modelsForProvider(
@@ -689,8 +690,9 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
 
   protected readonly emptyStateLabel = computed(() => {
     if (this.searchTerm().trim()) return 'No models match your search';
-    if (this.activeTab() === 'favorites') return 'No favorite models yet';
-    const label = this._providerLabels()[this.activeTab()] ?? this.activeTab();
+    const active = this.activeTab();
+    if (active === 'favorites') return 'No favorite models yet';
+    const label = this._providerLabels()[active] ?? active;
     return `No models available for ${label}`;
   });
 
