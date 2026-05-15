@@ -76,23 +76,18 @@ export function registerLoopHandlers(deps: {
     send(IPC_CHANNELS.LOOP_STATE_CHANGED, data);
   });
   coordinator.on('loop:started', (data: { loopRunId: string; chatId: string }) => {
-    try {
-      const state = coordinator.getLoop(data.loopRunId);
-      if (state) {
-        appendLoopStartPrompt(state, chatService, deps.instanceManager);
-      } else {
-        logger.warn('loop:started fired but coordinator has no live state — chat start event skipped', {
-          loopRunId: data.loopRunId,
-          chatId: data.chatId,
-        });
-      }
-    } catch (err) {
-      logger.warn('Failed to append loop start event', {
-        loopRunId: data.loopRunId,
-        chatId: data.chatId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+    // Kickoff-prompt persistence runs synchronously in the LOOP_START IPC
+    // handler below (right after coordinator.startLoop returns) so it
+    // completes BEFORE the renderer receives the IPC response. Doing it
+    // here on the listener also works in tests, but introduces a race
+    // in production: chat:event is forwarded over IPC asynchronously
+    // while the LOOP_START response races to the renderer first, and
+    // the renderer's chat-store applies the IPC `transcript-updated`
+    // event before the local `upsertActive(state)` runs — so any
+    // selection change or detail refresh that depends on the new
+    // state can wipe the just-appended message out of view. The
+    // forward-only listener keeps the renderer notification path
+    // untouched.
     send(IPC_CHANNELS.LOOP_STARTED, data);
   });
   coordinator.on('loop:iteration-started', (data: unknown) => send(IPC_CHANNELS.LOOP_ITERATION_STARTED, data));
@@ -134,6 +129,24 @@ export function registerLoopHandlers(deps: {
       );
       try { store.upsertRun(state); } catch (err) {
         logger.warn('Initial upsertRun failed', { error: String(err) });
+      }
+      // Persist the kickoff prompt as a user-role event in the chat
+      // ledger (or as a synthetic user message on the parent instance's
+      // output buffer when the loop is rooted in an instance-detail
+      // view) BEFORE returning the LOOP_START response. Running here —
+      // rather than in the `loop:started` listener — guarantees the
+      // append is sequenced ahead of the renderer's `upsertActive`
+      // call, so a chat-detail's `messages()` computed signal
+      // re-evaluates against a conversation that already contains the
+      // user bubble for the loop goal.
+      try {
+        appendLoopStartPrompt(state, chatService, deps.instanceManager);
+      } catch (err) {
+        logger.warn('Failed to append loop start event', {
+          loopRunId: state.id,
+          chatId: state.chatId,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
       return { success: true, data: { state } };
     } catch (error) {

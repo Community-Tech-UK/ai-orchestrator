@@ -117,16 +117,18 @@ export function createTodoItem(
   request: CreateTodoRequest
 ): TodoItem {
   const now = Date.now();
+  const status = request.status || 'pending';
   return {
     id: generateTodoId(),
     content: request.content,
     activeForm: request.activeForm,
-    status: request.status || 'pending',
+    status,
     priority: request.priority || 'medium',
     parentId: request.parentId,
     sessionId,
     createdAt: now,
     updatedAt: now,
+    ...(status === 'completed' ? { completedAt: now } : {}),
   };
 }
 

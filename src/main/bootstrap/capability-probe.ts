@@ -124,7 +124,18 @@ export class CapabilityProbe {
     }));
 
     const checks: StartupCapabilityCheck[] = diagnoses.map(({ provider, diagnosis, error }) => {
-      const installed = available.has(provider.id);
+      const detectedAvailable = available.has(provider.id);
+      // ProviderDoctor's `cli_installed` probe uses the lighter `which <cmd>` and
+      // is much less prone to flakes than CliDetectionService's spawn-based
+      // version probe. If detection's cached scan missed the CLI (e.g. its
+      // `--version` spawn timed out under fork pressure at startup) but the
+      // doctor's `which` confirms the binary is on PATH, treat the provider as
+      // installed. Without this defense in depth, a single bad detection scan
+      // can falsely flag a working provider as "not available on PATH".
+      const doctorSaysInstalled = diagnosis?.probes.some(
+        (probe) => probe.name === 'cli_installed' && probe.status === 'pass',
+      ) ?? false;
+      const installed = detectedAvailable || doctorSaysInstalled;
       if (!installed) {
         return {
           id: `provider.${provider.id}`,

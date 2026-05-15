@@ -25,6 +25,7 @@ import {
   input,
   signal,
 } from '@angular/core';
+import { OverlayModule, type ConnectedPosition } from '@angular/cdk/overlay';
 import { SourceControlStore } from '../../core/state/source-control.store';
 import { VcsIpcService } from '../../core/services/ipc/vcs-ipc.service';
 import type { BranchInfo, RepoState } from './source-control.types';
@@ -32,6 +33,7 @@ import type { BranchInfo, RepoState } from './source-control.types';
 @Component({
   selector: 'app-source-control-repo-actions',
   standalone: true,
+  imports: [OverlayModule],
   template: `
     <!-- ============================================================
          Sync row (Phase 2d item 10): fetch / pull / push + cancel.
@@ -74,16 +76,32 @@ import type { BranchInfo, RepoState } from './source-control.types';
 
       <!-- ============================================================
            Branch picker (Phase 2d item 11). Click to open menu.
+           The dropdown is mounted via cdkConnectedOverlay so it escapes
+           the .source-control panel's overflow:hidden clipping — long
+           branch names would otherwise be cut off behind the panel edge
+           and look like they're "behind the sidebar".
            ============================================================ -->
       <div class="branch-picker">
         <button
+          cdkOverlayOrigin
+          #branchTriggerOrigin="cdkOverlayOrigin"
           type="button"
           class="action-btn branch-picker-button"
           (click)="onToggleBranchMenu()"
           [disabled]="isWriting()"
           [title]="'Switch branch (current: ' + branchName() + ')'"
         >⎇ {{ branchName() }} <span class="caret">▾</span></button>
-        @if (branchMenuOpen()) {
+
+        <ng-template
+          cdkConnectedOverlay
+          [cdkConnectedOverlayOpen]="branchMenuOpen()"
+          [cdkConnectedOverlayOrigin]="branchTriggerOrigin"
+          [cdkConnectedOverlayPositions]="branchOverlayPositions"
+          [cdkConnectedOverlayHasBackdrop]="true"
+          cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+          (backdropClick)="branchMenuOpen.set(false)"
+          (overlayKeydown)="onBranchOverlayKeydown($event)"
+        >
           <div class="branch-menu" role="menu">
             @if (branchesLoading()) {
               <div class="branch-menu-loading">Loading branches…</div>
@@ -98,6 +116,7 @@ import type { BranchInfo, RepoState } from './source-control.types';
                   class="branch-menu-item"
                   [class.current]="b.current"
                   (click)="onSelectBranch(b.name)"
+                  [title]="b.tracking ? b.name + ' → ' + b.tracking : b.name"
                 >
                   <span class="branch-menu-marker">{{ b.current ? '●' : '○' }}</span>
                   <span class="branch-menu-name">{{ b.name }}</span>
@@ -108,7 +127,7 @@ import type { BranchInfo, RepoState } from './source-control.types';
               }
             }
           </div>
-        }
+        </ng-template>
       </div>
     </div>
 
@@ -212,19 +231,19 @@ import type { BranchInfo, RepoState } from './source-control.types';
       opacity: 0.6;
     }
 
+    /* Positioning is owned by cdkConnectedOverlay; this rule only
+       handles appearance + size. The overlay container lives at
+       document-body level, so it can't be clipped by ancestor
+       overflow:hidden. */
     .branch-menu {
-      position: absolute;
-      top: 100%;
-      right: 0;
-      margin-top: 4px;
-      min-width: 200px;
-      max-height: 240px;
+      min-width: 220px;
+      max-width: min(420px, calc(100vw - 24px));
+      max-height: 320px;
       overflow-y: auto;
       background: var(--bg-secondary);
       border: 1px solid var(--border-color);
       border-radius: var(--radius-md);
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-      z-index: 50;
     }
 
     .branch-menu-item {
@@ -395,6 +414,17 @@ export class SourceControlRepoActionsComponent {
   protected branchesLoading = signal(false);
   protected branchesError = signal<string | null>(null);
 
+  /**
+   * cdkConnectedOverlay positions for the branch dropdown. Anchored
+   * to the right edge of the trigger button so the menu visually
+   * "hangs" off the picker. Prefers opening downward; if there's not
+   * enough room below, falls back to opening upward.
+   */
+  protected readonly branchOverlayPositions: ConnectedPosition[] = [
+    { originX: 'end', originY: 'bottom', overlayX: 'end', overlayY: 'top',    offsetY: 4 },
+    { originX: 'end', originY: 'top',    overlayX: 'end', overlayY: 'bottom', offsetY: -4 },
+  ];
+
   // ------- commit state -------
   protected signoff = signal(false);
 
@@ -476,6 +506,14 @@ export class SourceControlRepoActionsComponent {
     this.branchMenuOpen.set(willOpen);
     if (willOpen && this.branches().length === 0) {
       await this.loadBranches();
+    }
+  }
+
+  /** Close the overlay on Escape so keyboard users aren't trapped. */
+  protected onBranchOverlayKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      this.branchMenuOpen.set(false);
     }
   }
 

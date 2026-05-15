@@ -32,6 +32,7 @@ import { generateId } from '../../shared/utils/id-generator';
 import { isContextOverflowError, extractOverflowTokenCount } from '../context/ptl-retry';
 import { TokenBudgetTracker, BudgetAction } from '../context/token-budget-tracker.js';
 import { getTokenStatsService } from '../memory/token-stats';
+import { getTodoManager } from '../tasks/todo-manager';
 import type {
   ProviderName,
   ProviderQuotaDiagnostics,
@@ -40,6 +41,7 @@ import type {
 } from '@contracts/types/provider-runtime-events';
 import { getPauseCoordinator } from '../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../pause/orchestrator-paused-error';
+import { extractTodoToolItems } from './todo-tool-parser';
 
 /**
  * Dependencies required by the communication manager
@@ -1021,8 +1023,12 @@ export class InstanceCommunicationManager extends EventEmitter {
         // which may differ from the orchestrator-generated UUID after forks/interrupts.
         const cliSessionId = adapter.getSessionId();
         if (cliSessionId && cliSessionId !== instance.providerSessionId) {
+          const previousSessionId = instance.sessionId;
           instance.providerSessionId = cliSessionId;
           instance.sessionId = cliSessionId;
+          if (previousSessionId !== cliSessionId) {
+            getTodoManager().copyTodos(previousSessionId, cliSessionId);
+          }
           this.deps.queueUpdate(
             instanceId,
             instance.status,
@@ -1111,6 +1117,11 @@ export class InstanceCommunicationManager extends EventEmitter {
               return;
             }
           }
+        }
+
+        const todoItems = extractTodoToolItems(message);
+        if (todoItems !== null) {
+          getTodoManager().writeTodos(instance.sessionId, todoItems);
         }
 
         // Trigger hooks for tool_use events (PreToolUse)

@@ -308,11 +308,18 @@ describe('Cross-cutting', () => {
     expect(extractFilePaths(msg, WD, 'claude')).toEqual([]);
   });
 
-  it('filters bash redirect targeting path outside working directory', () => {
+  it('filters bash redirect targeting code outside working directory', () => {
     const msg = toolUse('Bash', {
-      command: 'echo data > /tmp/outside.txt',
+      command: 'echo data > /tmp/outside.ts',
     });
     expect(extractFilePaths(msg, WD, 'claude')).toEqual([]);
+  });
+
+  it('allows document artifacts outside the working directory', () => {
+    const msg = toolUse('Bash', {
+      command: 'echo notes > /tmp/review.md',
+    });
+    expect(extractFilePaths(msg, WD, 'claude')).toEqual(['/tmp/review.md']);
   });
 
   it('resolves relative paths against the working directory', () => {

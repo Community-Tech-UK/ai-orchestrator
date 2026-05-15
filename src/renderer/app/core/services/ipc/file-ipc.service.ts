@@ -233,16 +233,17 @@ export class FileIpcService {
     filePath: string,
     options?: { editor?: string; line?: number; column?: number; waitForClose?: boolean }
   ): Promise<IpcResponse> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.editorOpen(filePath, options);
+    return this.editorOpenFile(filePath, options);
   }
 
   /**
    * Open a file in the configured editor (routes to the handled EDITOR_OPEN_FILE channel).
    */
-  async editorOpenFile(filePath: string, options?: Record<string, unknown>): Promise<IpcResponse> {
-    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.editorOpenFile({ filePath, options });
+  async editorOpenFile(
+    filePath: string,
+    options?: { line?: number; column?: number; waitForClose?: boolean; newWindow?: boolean }
+  ): Promise<IpcResponse> {
+    return this.base.invoke('editor:open-file', { filePath, ...options });
   }
 
   /**

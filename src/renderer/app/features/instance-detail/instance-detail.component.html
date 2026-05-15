@@ -113,6 +113,12 @@
 
           <!-- Output stream (primary content) -->
           <div class="output-section">
+            <app-session-progress-panel
+              [sessionId]="inst.sessionId"
+              [diffStats]="inst.diffStats"
+              [workingDirectory]="inst.workingDirectory"
+              [instanceStatus]="inst.status"
+            />
             <app-output-stream
               [messages]="inst.outputBuffer"
               [instanceId]="inst.id"

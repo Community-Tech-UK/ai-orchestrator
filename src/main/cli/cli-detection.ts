@@ -427,6 +427,43 @@ export class CliDetectionService {
       }
     }
 
+    // Last-resort fallback: if every `--version` probe failed (typically a
+    // transient SIGTERM/timeout under fork pressure when 6 CLI scans run
+    // concurrently at startup) but the binary still exists on disk at a
+    // known install path, trust file existence as proof of installation.
+    // We surface the binary path without a version; the UI already handles
+    // missing version (renders "Unknown"). Without this fallback, a single
+    // slow startup can poison the 60s cache and make the Startup Capability
+    // probe falsely report "<CLI> is not available on PATH" — see app.log
+    // entries where ProviderDoctor's lighter `which` probe reported the
+    // same CLI as healthy in the same run.
+    if (!result.installed) {
+      for (const altPath of config.alternativePaths) {
+        const expandedPath = altPath.replace('~', process.env['HOME'] || '');
+        if (existsSync(expandedPath)) {
+          logger.warn(
+            'CLI version probe failed for every candidate, but binary exists on disk — marking installed by path',
+            {
+              cli: type,
+              path: expandedPath,
+              lastError: result.error,
+            },
+          );
+          result = {
+            name: config.name,
+            command: config.command,
+            displayName: config.displayName,
+            installed: true,
+            path: expandedPath,
+            // version intentionally left undefined — we couldn't probe it.
+            // authenticated likewise unknown; downstream auth probes handle this.
+            capabilities: config.capabilities,
+          };
+          break;
+        }
+      }
+    }
+
     return result;
   }
 

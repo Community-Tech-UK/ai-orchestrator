@@ -202,4 +202,90 @@ describe('CapabilityProbe', () => {
       summary: 'A browser automation server is configured in-app but is not currently connected.',
     });
   });
+
+  it('treats a provider as installed when the doctor\'s cli_installed probe passes, even if detection missed it', async () => {
+    // Reproduce the bug from app.log timestamp 1778679400184: CliDetection
+    // missed cursor (its `--version` spawn timed out under fork pressure),
+    // but ProviderDoctor's `which cursor-agent` succeeded in the same run.
+    // The probe should trust the lighter `which` probe rather than emitting
+    // "Cursor CLI is not available on PATH" for a CLI that is on PATH.
+    mocks.detectAll.mockResolvedValue({
+      available: [
+        { name: 'claude' },
+        { name: 'codex' },
+        { name: 'gemini' },
+        { name: 'copilot' },
+        // cursor intentionally absent — detection thinks it's not installed
+      ],
+      detected: [],
+      unavailable: [],
+      timestamp: new Date(),
+    });
+
+    mocks.diagnose.mockImplementation(async (providerKey: string) => ({
+      overall: 'healthy' as const,
+      probes: [
+        {
+          name: 'cli_installed',
+          status: 'pass' as const,
+          message: `${providerKey} found in PATH`,
+          latencyMs: 1,
+        },
+      ],
+      recommendations: [],
+      provider: providerKey,
+      timestamp: Date.now(),
+    }));
+
+    const probe = new CapabilityProbe();
+    const report = await probe.run();
+
+    const cursorCheck = report.checks.find((check) => check.id === 'provider.cursor');
+    expect(cursorCheck).toBeDefined();
+    expect(cursorCheck?.status).toBe('ready');
+    expect(cursorCheck?.summary).not.toMatch(/not available on PATH/i);
+  });
+
+  it('still reports the provider as not available on PATH when both detection and the cli_installed probe fail', async () => {
+    mocks.detectAll.mockResolvedValue({
+      available: [
+        { name: 'claude' },
+        { name: 'codex' },
+        { name: 'gemini' },
+        { name: 'copilot' },
+      ],
+      detected: [],
+      unavailable: [],
+      timestamp: new Date(),
+    });
+
+    mocks.diagnose.mockImplementation(async (providerKey: string) => ({
+      overall: providerKey === 'cursor' ? 'unhealthy' as const : 'healthy' as const,
+      probes: providerKey === 'cursor'
+        ? [{
+            name: 'cli_installed',
+            status: 'fail' as const,
+            message: 'cursor-agent not found in PATH',
+            latencyMs: 1,
+          }]
+        : [{
+            name: 'cli_installed',
+            status: 'pass' as const,
+            message: `${providerKey} found in PATH`,
+            latencyMs: 1,
+          }],
+      recommendations: providerKey === 'cursor' ? ['Install Cursor and ensure `cursor-agent` is on PATH'] : [],
+      provider: providerKey,
+      timestamp: Date.now(),
+    }));
+
+    const probe = new CapabilityProbe();
+    const report = await probe.run();
+
+    const cursorCheck = report.checks.find((check) => check.id === 'provider.cursor');
+    expect(cursorCheck).toMatchObject({
+      status: 'degraded',
+      summary: 'Cursor CLI is not available on PATH.',
+    });
+  });
 });

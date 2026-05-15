@@ -1474,20 +1474,22 @@ export class CodexCliAdapter extends BaseCliAdapter {
             metadata: { name: 'other', streaming: true, phase: 'reviewing' as TurnPhase },
           });
         } else if (item.type === 'mcpToolCall') {
+          const toolName = this.getToolCallName(item);
           this.emit('output', {
             id: generateId(),
             timestamp: Date.now(),
             type: 'tool_use',
-            content: `Calling ${item.server || 'mcp'}/${item.tool || item.toolName || 'unknown'}`,
-            metadata: { name: 'other', streaming: true, phase: 'investigating' as TurnPhase },
+            content: `Calling ${item.server || 'mcp'}/${toolName}`,
+            metadata: { name: toolName, input: this.getToolCallInput(item), streaming: true, phase: 'investigating' as TurnPhase },
           });
         } else if (item.type === 'dynamicToolCall') {
+          const toolName = this.getToolCallName(item);
           this.emit('output', {
             id: generateId(),
             timestamp: Date.now(),
             type: 'tool_use',
-            content: `Running tool: ${item.tool || item.toolName || 'unknown'}`,
-            metadata: { name: 'other', streaming: true, phase: 'investigating' as TurnPhase },
+            content: `Running tool: ${toolName}`,
+            metadata: { name: toolName, input: this.getToolCallInput(item), streaming: true, phase: 'investigating' as TurnPhase },
           });
         } else if (item.type === 'collabAgentToolCall') {
           const subagentLabels = (item.receiverThreadIds ?? [])
@@ -1624,23 +1626,25 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
         // ── MCP tool call completed ──
         if (item.type === 'mcpToolCall') {
+          const toolName = this.getToolCallName(item);
           this.emit('output', {
             id: generateId(),
             timestamp: Date.now(),
             type: 'tool_result',
-            content: `Tool ${item.server || 'mcp'}/${item.tool || item.toolName || 'unknown'} ${item.status || 'completed'}`,
-            metadata: { is_error: false, phase: 'investigating' },
+            content: `Tool ${item.server || 'mcp'}/${toolName} ${item.status || 'completed'}`,
+            metadata: { name: toolName, input: this.getToolCallInput(item), is_error: false, phase: 'investigating' },
           });
         }
 
         // ── Dynamic tool call completed ──
         if (item.type === 'dynamicToolCall') {
+          const toolName = this.getToolCallName(item);
           this.emit('output', {
             id: generateId(),
             timestamp: Date.now(),
             type: 'tool_result',
-            content: `Tool ${item.tool || item.toolName || 'unknown'} ${item.status || 'completed'}`,
-            metadata: { is_error: false, phase: 'investigating' },
+            content: `Tool ${toolName} ${item.status || 'completed'}`,
+            metadata: { name: toolName, input: this.getToolCallInput(item), is_error: false, phase: 'investigating' },
           });
         }
 
@@ -2039,6 +2043,24 @@ export class CodexCliAdapter extends BaseCliAdapter {
       }
     }
     return 'unknown';
+  }
+
+  private getToolCallName(item: ThreadItem): string {
+    for (const value of [item.tool, item.toolName, item['name']]) {
+      if (typeof value === 'string' && value.trim()) {
+        return value.trim();
+      }
+    }
+    return 'unknown';
+  }
+
+  private getToolCallInput(item: ThreadItem): Record<string, unknown> {
+    for (const value of [item.input, item['arguments'], item['args']]) {
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        return value as Record<string, unknown>;
+      }
+    }
+    return {};
   }
 
   /**

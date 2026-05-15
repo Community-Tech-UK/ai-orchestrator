@@ -37,6 +37,7 @@ import { InstanceWelcomeComponent } from './instance-welcome.component';
 import { InstanceReviewPanelComponent } from './instance-review-panel.component';
 import { CrossModelReviewPanelComponent } from './cross-model-review-panel.component';
 import { ProviderDiagnosticsPanelComponent } from './provider-diagnostics-panel.component';
+import { SessionProgressPanelComponent } from './session-progress-panel.component';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import { OrchestrationHudComponent } from '../orchestration/orchestration-hud.component';
 import { LoopControlComponent } from '../loop/loop-control.component';
@@ -92,6 +93,7 @@ interface HistoryPreviewView {
     InstanceReviewPanelComponent,
     CrossModelReviewPanelComponent,
     ProviderDiagnosticsPanelComponent,
+    SessionProgressPanelComponent,
     RemoteBrowseModalComponent,
     OrchestrationHudComponent,
     ChildDiagnosticBundleModalComponent,

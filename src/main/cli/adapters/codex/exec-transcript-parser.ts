@@ -87,9 +87,18 @@ export function parseCodexExecTranscript(
           continue;
         }
 
+        if (itemType === 'mcpToolCall' || itemType === 'dynamicToolCall') {
+          toolCalls.push({
+            id: typeof item['id'] === 'string' ? item['id'] : createToolId(),
+            name: extractToolCallName(item),
+            arguments: extractToolCallArguments(item),
+            result: extractToolCallResult(item),
+          });
+          continue;
+        }
+
         if (
           itemType === 'file_change' || itemType === 'fileChange'
-          || itemType === 'mcpToolCall' || itemType === 'dynamicToolCall'
           || itemType === 'webSearch' || itemType === 'exitedReviewMode'
           || itemType === 'collaboration'
         ) {
@@ -212,6 +221,36 @@ function extractToolCallsFromFallback(raw: string): CliToolCall[] {
   }
 
   return toolCalls;
+}
+
+function extractToolCallName(item: Record<string, unknown>): string {
+  for (const key of ['tool', 'toolName', 'name']) {
+    const value = item[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return 'unknown';
+}
+
+function extractToolCallArguments(item: Record<string, unknown>): Record<string, unknown> {
+  for (const key of ['input', 'arguments', 'args']) {
+    const value = item[key];
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+  }
+  return {};
+}
+
+function extractToolCallResult(item: Record<string, unknown>): string | undefined {
+  for (const key of ['output', 'result', 'content', 'text', 'description']) {
+    const value = item[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 function createToolId(): string {

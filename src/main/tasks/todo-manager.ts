@@ -168,11 +168,12 @@ export class TodoManager extends EventEmitter {
 
       if (existing) {
         // Update existing item
+        const oldStatus = existing.status;
         existing.status = parsed.status;
         existing.activeForm = parsed.activeForm;
         existing.updatedAt = now;
 
-        if (parsed.status === 'completed' && existing.status !== 'completed') {
+        if (parsed.status === 'completed' && oldStatus !== 'completed') {
           existing.completedAt = now;
         } else if (parsed.status !== 'completed') {
           existing.completedAt = undefined;
@@ -274,7 +275,6 @@ export class TodoManager extends EventEmitter {
       sessionId: toSessionId,
       createdAt: now,
       updatedAt: now,
-      completedAt: undefined,
     }));
 
     this.todosBySession.set(toSessionId, newItems);

@@ -3,11 +3,13 @@
  *
  * Only `tool_use` messages are processed; all other message types are ignored.
  * Read-only tools are skipped so that we only track mutations.
- * All returned paths are absolute and guaranteed to reside inside workingDirectory.
+ * Returned paths are absolute and either inside workingDirectory or user-facing
+ * artifacts outside it. Outside code files are ignored.
  */
 
 import * as path from 'path';
 import type { OutputMessage } from '../../shared/types/instance.types';
+import { isArtifactPath } from '../../shared/utils/artifact-extensions';
 
 // ---------------------------------------------------------------------------
 // Read-only tool names (skip – they never mutate files)
@@ -43,7 +45,8 @@ const READ_ONLY_TOOLS = new Set([
 
 /**
  * Resolves `p` relative to `workingDirectory` when it is relative, then
- * returns the absolute path only if it lives inside `workingDirectory`.
+ * returns the absolute path only if it lives inside `workingDirectory` or is a
+ * user-facing artifact. Outside code files stay ignored.
  * Returns `null` otherwise.
  */
 function resolveWithinDir(p: unknown, workingDirectory: string): string | null {
@@ -54,6 +57,9 @@ function resolveWithinDir(p: unknown, workingDirectory: string): string | null {
   const base = path.normalize(workingDirectory);
 
   if (normalised === base || normalised.startsWith(base + path.sep)) {
+    return normalised;
+  }
+  if (isArtifactPath(normalised)) {
     return normalised;
   }
   return null;
@@ -256,7 +262,7 @@ function extractGeneric(input: ToolInput, workingDirectory: string): string[] {
  * @param message          The output message to inspect.
  * @param workingDirectory Absolute path to the instance working directory.
  * @param provider         CLI provider hint ('claude' | 'codex' | 'gemini' | 'copilot' | ...).
- * @returns                Deduplicated list of absolute paths inside workingDirectory.
+ * @returns                Deduplicated list of absolute paths to track.
  */
 export function extractFilePaths(
   message: OutputMessage,

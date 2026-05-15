@@ -20,10 +20,10 @@ import {
 } from './provider-menu.component';
 import { ModelPickerFocusService } from './model-picker-focus.service';
 import {
-  UnifiedModelMenuComponent,
   type UnifiedSelection,
   type UnifiedReasoningOption,
 } from './unified-model-menu.component';
+import { ModelSelectionPanelComponent } from './model-selection-panel.component';
 import {
   getModelsForProvider,
   getPrimaryModelForProvider,
@@ -48,14 +48,13 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
 
 /**
  * Single-chip provider+model picker. Renders one trigger button that opens
- * a unified nested menu: top-level rows are providers (LLMs); each provider
- * expands to its models; models with reasoning options expand again to an
- * Intelligence submenu.
+ * a search-first selection panel with a favorites rail, provider tabs, model
+ * rows, and inline reasoning choices for providers that support them.
  */
 @Component({
   selector: 'app-compact-model-picker',
   standalone: true,
-  imports: [OverlayModule, UnifiedModelMenuComponent],
+  imports: [OverlayModule, ModelSelectionPanelComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [ModelPickerController],
   template: `
@@ -94,7 +93,7 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
       (backdropClick)="closeMenu()"
       (overlayKeydown)="onOverlayKeydown($event)"
     >
-      <app-unified-model-menu
+      <app-model-selection-panel
         [providers]="providerList()"
         [selectedProvider]="selectedPickerProvider()"
         [selectedModelId]="controller.selectedModelId() || null"
@@ -229,7 +228,7 @@ export class CompactModelPickerComponent {
   protected readonly providerLabels = PROVIDER_MENU_LABELS;
 
   /**
-   * Bound `[modelsForProvider]` callback for the unified menu. Always returns
+   * Bound `[modelsForProvider]` callback for the selection panel. Always returns
    * the static `getModelsForProvider` lookup — provider-specific dynamic
    * model discovery already mutates `PROVIDER_MODEL_LIST` in place, so the
    * lookup stays current.
@@ -237,7 +236,7 @@ export class CompactModelPickerComponent {
   protected readonly modelsForProviderFn = (provider: PickerProvider): ModelDisplayInfo[] =>
     getModelsForProvider(provider);
 
-  /** Bound `[reasoningOptionsForProvider]` callback for the unified menu. */
+  /** Bound `[reasoningOptionsForProvider]` callback for the selection panel. */
   protected readonly reasoningOptionsForProviderFn = (
     provider: PickerProvider,
   ): UnifiedReasoningOption[] => {
