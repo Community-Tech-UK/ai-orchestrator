@@ -169,39 +169,7 @@ export class LoopStore {
     this.wired = true;
 
     this.ipc.onStateChanged(({ state }) => {
-      if (state.status === 'completed' || state.status === 'cancelled' || state.status === 'failed' || state.status === 'cap-reached' || state.status === 'error' || state.status === 'no-progress') {
-        // The loop is over — clear any lingering paused-no-progress / claimed-failed
-        // banner now. Otherwise the orange bar stays on screen with buttons
-        // (Resume anyway / Stop / Inject hint) that all early-return because
-        // `active()` becomes undefined the moment we call clearActive() below,
-        // making the bar look broken to the user.
-        //
-        // Must run BEFORE clearActive(), because findChatIdForLoop() (used by
-        // the per-event clearers like onCancelled) walks activeByChat and
-        // would no longer be able to map this loopRunId back to a chat.
-        this.setBanner(state.chatId, null);
-
-        // record final summary, clear active
-        this.upsertSummary(state.chatId, {
-          loopRunId: state.id,
-          status: state.status as LoopFinalSummary['status'],
-          reason: state.endReason ?? state.status,
-          iterations: state.totalIterations,
-          tokens: state.totalTokens,
-          costCents: state.totalCostCents,
-          startedAt: state.startedAt,
-          endedAt: state.endedAt ?? Date.now(),
-          initialPrompt: state.config.initialPrompt,
-          iterationPrompt: state.config.iterationPrompt,
-          lastIteration: snapshotLastIteration(state.lastIteration),
-        });
-        this.clearRunningIteration(state.id);
-        this.clearActive(state.chatId);
-      } else {
-        this.upsertActive(state);
-        // if we re-entered a non-terminal state, clear any banner (the no-progress
-        // banner stays until user resumes/cancels — leave it).
-      }
+      this.applyState(state);
     });
 
     this.ipc.onIterationStarted(({ loopRunId, seq, stage }) => {
@@ -376,14 +344,39 @@ export class LoopStore {
     }
   }
 
-  async pause(loopRunId: string): Promise<void> { await this.ipc.pause(loopRunId); }
-  async resume(loopRunId: string): Promise<void> {
-    const chatId = this.findChatIdForLoop(loopRunId);
-    if (chatId) this.setBanner(chatId, null);
-    await this.ipc.resume(loopRunId);
+  async pause(loopRunId: string): Promise<void> {
+    const response = await this.ipc.pause(loopRunId);
+    this.applyControlResponse(loopRunId, response, 'pause');
   }
-  async intervene(loopRunId: string, message: string): Promise<void> { await this.ipc.intervene(loopRunId, message); }
-  async cancel(loopRunId: string): Promise<void> { await this.ipc.cancel(loopRunId); }
+
+  async resume(loopRunId: string): Promise<void> {
+    const response = await this.ipc.resume(loopRunId);
+    const ok = this.applyControlResponse(loopRunId, response, 'resume');
+    const chatId = this.findChatIdForLoop(loopRunId);
+    if (ok && chatId) this.setBanner(chatId, null);
+  }
+
+  async intervene(loopRunId: string, message: string): Promise<void> {
+    const response = await this.ipc.intervene(loopRunId, message);
+    const ok = this.applyControlResponse(loopRunId, response, 'hint');
+    if (ok) {
+      this.addControlActivity(loopRunId, 'status', 'Hint queued for the next loop iteration');
+    }
+  }
+
+  async cancel(loopRunId: string): Promise<void> {
+    const response = await this.ipc.cancel(loopRunId);
+    const ok = this.applyControlResponse(loopRunId, response, 'stop');
+    if (!ok) return;
+    const state = this.activeByLoop(loopRunId);
+    if (!state) return;
+    this.applyState({
+      ...state,
+      status: 'cancelled',
+      endedAt: Date.now(),
+      endReason: 'user cancelled',
+    });
+  }
 
   async refreshHistory(chatId: string, limit = 25): Promise<void> {
     const r = await this.ipc.listRunsForChat(chatId, limit);
@@ -425,6 +418,42 @@ export class LoopStore {
     const map = new Map(this.activeByChat());
     map.delete(chatId);
     this.activeByChat.set(map);
+  }
+
+  private applyState(state: LoopStatePayload): void {
+    if (this.isTerminalStatus(state.status)) {
+      // The loop is over — clear any lingering paused-no-progress / claimed-failed
+      // banner now. Otherwise the orange bar stays on screen with buttons
+      // (Resume anyway / Stop / Inject hint) that all early-return because
+      // `active()` becomes undefined the moment we call clearActive() below,
+      // making the bar look broken to the user.
+      //
+      // Must run BEFORE clearActive(), because findChatIdForLoop() (used by
+      // the per-event clearers like onCancelled) walks activeByChat and
+      // would no longer be able to map this loopRunId back to a chat.
+      this.setBanner(state.chatId, null);
+
+      this.upsertSummary(state.chatId, {
+        loopRunId: state.id,
+        status: state.status,
+        reason: state.endReason ?? state.status,
+        iterations: state.totalIterations,
+        tokens: state.totalTokens,
+        costCents: state.totalCostCents,
+        startedAt: state.startedAt,
+        endedAt: state.endedAt ?? Date.now(),
+        initialPrompt: state.config.initialPrompt,
+        iterationPrompt: state.config.iterationPrompt,
+        lastIteration: snapshotLastIteration(state.lastIteration),
+      });
+      this.clearRunningIteration(state.id);
+      this.clearActive(state.chatId);
+      return;
+    }
+
+    this.upsertActive(state);
+    // If we re-entered a non-terminal state, leave the no-progress banner
+    // alone. It is intentionally user-dismissed by Resume/Stop/Dismiss.
   }
 
   private updateActiveByLoop(loopRunId: string, update: (state: LoopStatePayload) => LoopStatePayload): void {
@@ -475,11 +504,64 @@ export class LoopStore {
     this.activityByLoop.set(map);
   }
 
+  private applyControlResponse(
+    loopRunId: string,
+    response: {
+      success: boolean;
+      data?: { ok?: boolean; state?: LoopStatePayload | null };
+      error?: { message: string };
+    },
+    action: 'pause' | 'resume' | 'hint' | 'stop',
+  ): boolean {
+    if (!response.success) {
+      this.addControlActivity(loopRunId, 'error', `Loop ${action} failed: ${response.error?.message ?? 'unknown error'}`);
+      return false;
+    }
+
+    if (response.data?.state) {
+      this.applyState(response.data.state);
+    }
+
+    if (response.data?.ok === false) {
+      this.addControlActivity(loopRunId, 'error', `Loop ${action} was rejected by the main process`);
+      return false;
+    }
+
+    return true;
+  }
+
+  private addControlActivity(
+    loopRunId: string,
+    kind: LoopActivityPayload['kind'],
+    message: string,
+  ): void {
+    const state = this.activeByLoop(loopRunId);
+    this.addActivity({
+      loopRunId,
+      seq: state?.totalIterations ?? 0,
+      stage: state?.currentStage ?? '',
+      kind,
+      message,
+      timestamp: Date.now(),
+    });
+  }
+
   private findChatIdForLoop(loopRunId: string): string | null {
     for (const [chatId, state] of this.activeByChat()) {
       if (state.id === loopRunId) return chatId;
     }
     return null;
+  }
+
+  private isTerminalStatus(status: LoopStatePayload['status']): status is LoopFinalSummary['status'] {
+    return (
+      status === 'completed'
+      || status === 'cancelled'
+      || status === 'failed'
+      || status === 'cap-reached'
+      || status === 'error'
+      || status === 'no-progress'
+    );
   }
 }
 

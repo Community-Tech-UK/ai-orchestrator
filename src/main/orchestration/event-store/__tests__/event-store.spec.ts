@@ -51,6 +51,10 @@ class InMemoryDb {
     if (indexMatch) this.indices.add(indexMatch[1]);
   }
 
+  prepareCached(sql: string) {
+    return this.prepare(sql);
+  }
+
   prepare(sql: string) {
     const tables = this.tables;
     const tableName = sql.includes('orchestration_command_receipts')

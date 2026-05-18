@@ -222,6 +222,72 @@ describe('LoopStore', () => {
     expect(store.activeForChat('chat-1')()).toBeUndefined();
   });
 
+  it('applies loop control returned state when the push event is missed', async () => {
+    store.ensureWired();
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), status: 'paused' },
+    }));
+    listeners.pausedNoProgress.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      signal: { id: 'D-prime', message: 'Tests unchanged at null pass for 5 iterations', verdict: 'CRITICAL' },
+    }));
+    ipc.resume.mockResolvedValueOnce({
+      success: true,
+      data: { ok: true, state: { ...activeState(), status: 'running' } },
+    });
+
+    await store.resume('loop-1');
+
+    expect(store.activeForChat('chat-1')()?.status).toBe('running');
+    expect(store.bannerForChat('chat-1')()).toBeNull();
+  });
+
+  it('keeps the no-progress banner visible when resume is rejected', async () => {
+    store.ensureWired();
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), status: 'paused' },
+    }));
+    listeners.pausedNoProgress.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      signal: { id: 'D-prime', message: 'Tests unchanged at null pass for 5 iterations', verdict: 'CRITICAL' },
+    }));
+    ipc.resume.mockResolvedValueOnce({
+      success: true,
+      data: { ok: false },
+    });
+
+    await store.resume('loop-1');
+
+    expect(store.bannerForChat('chat-1')()).not.toBeNull();
+    expect(store.activityForLoop('loop-1')().at(-1)).toMatchObject({
+      kind: 'error',
+      message: 'Loop resume was rejected by the main process',
+    });
+  });
+
+  it('clears active loop locally when cancel succeeds without a returned state', async () => {
+    store.ensureWired();
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), status: 'paused' },
+    }));
+    ipc.cancel.mockResolvedValueOnce({
+      success: true,
+      data: { ok: true },
+    });
+
+    await store.cancel('loop-1');
+
+    expect(store.activeForChat('chat-1')()).toBeUndefined();
+    expect(store.summaryForChat('chat-1')()).toMatchObject({
+      loopRunId: 'loop-1',
+      status: 'cancelled',
+      reason: 'user cancelled',
+    });
+  });
+
   it('clears running activity linkage when the loop reaches a terminal state', () => {
     store.ensureWired();
     listeners.stateChanged.forEach((cb) => cb({

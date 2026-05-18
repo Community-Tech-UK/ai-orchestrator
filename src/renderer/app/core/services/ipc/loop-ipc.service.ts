@@ -17,6 +17,11 @@ export interface LoopActivityPayload {
   detail?: Record<string, unknown>;
 }
 
+export interface LoopControlResult {
+  ok: boolean;
+  state?: LoopStatePayload | null;
+}
+
 export interface LoopStartConfigInput {
   initialPrompt: string;
   /** Optional continuation directive used on iterations 1+. If omitted,
@@ -110,24 +115,24 @@ export class LoopIpcService {
     return api.loopStart(chatId, config, attachments) as Promise<IpcResponse<{ state: LoopStatePayload }>>;
   }
 
-  async pause(loopRunId: string): Promise<IpcResponse> {
+  async pause(loopRunId: string): Promise<IpcResponse<LoopControlResult>> {
     if (!this.api) return notInElectron();
-    return this.api.loopPause(loopRunId);
+    return this.api.loopPause(loopRunId) as Promise<IpcResponse<LoopControlResult>>;
   }
 
-  async resume(loopRunId: string): Promise<IpcResponse> {
+  async resume(loopRunId: string): Promise<IpcResponse<LoopControlResult>> {
     if (!this.api) return notInElectron();
-    return this.api.loopResume(loopRunId);
+    return this.api.loopResume(loopRunId) as Promise<IpcResponse<LoopControlResult>>;
   }
 
-  async intervene(loopRunId: string, message: string): Promise<IpcResponse> {
+  async intervene(loopRunId: string, message: string): Promise<IpcResponse<LoopControlResult>> {
     if (!this.api) return notInElectron();
-    return this.api.loopIntervene(loopRunId, message);
+    return this.api.loopIntervene(loopRunId, message) as Promise<IpcResponse<LoopControlResult>>;
   }
 
-  async cancel(loopRunId: string): Promise<IpcResponse> {
+  async cancel(loopRunId: string): Promise<IpcResponse<LoopControlResult>> {
     if (!this.api) return notInElectron();
-    return this.api.loopCancel(loopRunId);
+    return this.api.loopCancel(loopRunId) as Promise<IpcResponse<LoopControlResult>>;
   }
 
   async getState(loopRunId: string): Promise<IpcResponse<{ state: LoopStatePayload | null; summary?: LoopRunSummaryPayload | null; source: 'live' | 'store' }>> {

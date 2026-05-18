@@ -19,7 +19,7 @@ export function createStore(
     config?: Record<string, unknown>;
   }
 ): void {
-  const stmt = db.prepare(`
+  const stmt = db.prepareCached(`
     INSERT INTO context_stores
       (id, instance_id, created_at, last_accessed, config_json)
     VALUES (?, ?, ?, ?, ?)
@@ -39,7 +39,7 @@ export function createStore(
  * Get a store by ID.
  */
 export function getStore(db: SqliteDriver, storeId: string): ContextStoreRow | null {
-  const stmt = db.prepare(`
+  const stmt = db.prepareCached(`
     SELECT * FROM context_stores WHERE id = ?
   `);
   return stmt.get(storeId) as ContextStoreRow | null;
@@ -49,7 +49,7 @@ export function getStore(db: SqliteDriver, storeId: string): ContextStoreRow | n
  * Get a store by instance ID.
  */
 export function getStoreByInstance(db: SqliteDriver, instanceId: string): ContextStoreRow | null {
-  const stmt = db.prepare(`
+  const stmt = db.prepareCached(`
     SELECT * FROM context_stores WHERE instance_id = ?
   `);
   return stmt.get(instanceId) as ContextStoreRow | null;
@@ -59,7 +59,7 @@ export function getStoreByInstance(db: SqliteDriver, instanceId: string): Contex
  * List all stores.
  */
 export function listStores(db: SqliteDriver): ContextStoreRow[] {
-  const stmt = db.prepare(`
+  const stmt = db.prepareCached(`
     SELECT * FROM context_stores ORDER BY last_accessed DESC
   `);
   return stmt.all() as ContextStoreRow[];
@@ -95,7 +95,7 @@ export function updateStoreStats(
 
   params.push(storeId);
 
-  const stmt = db.prepare(`
+  const stmt = db.prepareCached(`
     UPDATE context_stores SET ${updates.join(', ')} WHERE id = ?
   `);
   stmt.run(...params);
@@ -119,7 +119,7 @@ export function deleteStore(
   }
 
   // CASCADE will delete sections, search_index, sessions
-  const stmt = db.prepare(`DELETE FROM context_stores WHERE id = ?`);
+  const stmt = db.prepareCached(`DELETE FROM context_stores WHERE id = ?`);
   stmt.run(storeId);
 }
 
@@ -134,7 +134,7 @@ export function updateStoreStatsForSection(
   operation: 'add' | 'remove'
 ): void {
   const multiplier = operation === 'add' ? 1 : -1;
-  const stmt = db.prepare(`
+  const stmt = db.prepareCached(`
     UPDATE context_stores
     SET total_tokens = total_tokens + ?,
         total_size = total_size + ?,

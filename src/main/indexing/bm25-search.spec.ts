@@ -15,6 +15,7 @@ const mockRun = vi.fn();
 
 const mockDb = {
   prepare: mockPrepare,
+  prepareCached: mockPrepare,
 } as any;
 
 describe('BM25Search', () => {

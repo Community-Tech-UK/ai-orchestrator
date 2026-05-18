@@ -54,7 +54,7 @@
         "packages/contracts/src/schemas/**/*.ts",
         "scripts/generate-preload-channels.js"
       ],
-      "outputs": ["src/preload/channels.ts"]
+      "outputs": ["src/preload/generated/channels.ts"]
     },
     "verify:architecture": {
       "inputs": ["src/**/*.ts", "scripts/generate-architecture-inventory.js"],

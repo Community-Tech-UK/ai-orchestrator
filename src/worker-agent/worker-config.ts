@@ -54,8 +54,19 @@ export function loadWorkerConfig(configPath = DEFAULT_CONFIG_PATH): WorkerConfig
   const args = parseCliArgs(process.argv.slice(2));
   if (args['coordinator']) merged.coordinatorUrl = args['coordinator'];
   if (args['name']) merged.name = args['name'];
-  if (args['token']) merged.authToken = args['token'];
   if (args['namespace']) merged.namespace = args['namespace'];
+
+  // Prefer the environment variable for the auth token so it does not
+  // appear in the OS process table (visible via `ps aux` to all local
+  // users). The env-var form is set by the coordinator when it spawns
+  // the worker. The --token CLI flag is kept as a deprecated fallback
+  // for one release cycle.
+  const envToken = process.env['AIO_WORKER_TOKEN'];
+  if (envToken) {
+    merged.authToken = envToken;
+  } else if (args['token']) {
+    merged.authToken = args['token'];
+  }
 
   // Persist generated values back
   persistConfig(configPath, merged);

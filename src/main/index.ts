@@ -30,6 +30,7 @@ import { providerAdapterRegistry } from './providers/provider-adapter-registry';
 import { registerBuiltInProviders } from './providers/register-built-in-providers';
 import { createInitializationSteps } from './app/initialization-steps';
 import { shutdownTracer } from './observability/otel-setup';
+import { shutdownMetrics } from './observability/otel-metrics';
 
 // Register built-in provider adapters once at startup so the instance
 // manager (and future consumers) can look them up by ProviderName.
@@ -202,6 +203,7 @@ class AIOrchestratorApp {
     // teardown order remains explicit for bootstrap-managed services.
     await teardownAll();
     await shutdownTracer();
+    await shutdownMetrics();
     // Session state already saved synchronously in cleanupSync()
     await runCleanupFunctions();
     // Kill any orphaned child processes that were not cleaned up by terminateAll.

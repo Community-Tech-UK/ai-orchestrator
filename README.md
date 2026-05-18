@@ -40,7 +40,7 @@ npm run dev
 # Build for production
 npm run build
 
-# Package for macOS (unsigned)
+# Package for macOS (local ad-hoc signed)
 npm run build && npm run electron:build -- --mac --config.mac.identity=null
 
 # Run tests

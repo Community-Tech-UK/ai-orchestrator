@@ -20,7 +20,7 @@ export function createSession(
   }
 ): void {
   const now = Date.now();
-  const stmt = db.prepare(`
+  const stmt = db.prepareCached(`
     INSERT INTO rlm_sessions
       (id, store_id, instance_id, started_at, last_activity_at, estimated_direct_tokens)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -39,7 +39,7 @@ export function createSession(
  * Get a session by ID.
  */
 export function getSession(db: SqliteDriver, sessionId: string): RLMSessionRow | null {
-  const stmt = db.prepare(`SELECT * FROM rlm_sessions WHERE id = ?`);
+  const stmt = db.prepareCached(`SELECT * FROM rlm_sessions WHERE id = ?`);
   return stmt.get(sessionId) as RLMSessionRow | null;
 }
 
@@ -48,12 +48,12 @@ export function getSession(db: SqliteDriver, sessionId: string): RLMSessionRow |
  */
 export function listSessions(db: SqliteDriver, storeId?: string): RLMSessionRow[] {
   if (storeId) {
-    const stmt = db.prepare(`
+    const stmt = db.prepareCached(`
       SELECT * FROM rlm_sessions WHERE store_id = ? ORDER BY started_at DESC
     `);
     return stmt.all(storeId) as RLMSessionRow[];
   }
-  const stmt = db.prepare(`SELECT * FROM rlm_sessions ORDER BY started_at DESC`);
+  const stmt = db.prepareCached(`SELECT * FROM rlm_sessions ORDER BY started_at DESC`);
   return stmt.all() as RLMSessionRow[];
 }
 
@@ -102,7 +102,7 @@ export function updateSession(
 
   params.push(sessionId);
 
-  const stmt = db.prepare(`
+  const stmt = db.prepareCached(`
     UPDATE rlm_sessions SET ${setClause.join(', ')} WHERE id = ?
   `);
   stmt.run(...params);
@@ -112,7 +112,7 @@ export function updateSession(
  * End a session.
  */
 export function endSession(db: SqliteDriver, sessionId: string): void {
-  const stmt = db.prepare(`
+  const stmt = db.prepareCached(`
     UPDATE rlm_sessions SET ended_at = ?, last_activity_at = ? WHERE id = ?
   `);
   const now = Date.now();

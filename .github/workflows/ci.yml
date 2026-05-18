@@ -60,12 +60,23 @@ jobs:
       - name: Build worker agent smoke
         run: npm run build:worker-agent
 
-      # TODO: harden to --audit-level=high once protobufjs CVE is resolved upstream
-      # (tracked in package.json overrides). continue-on-error keeps CI green while
-      # the transitive dep is unfixable, but still surfaces new vulnerabilities in logs.
+      - name: Build renderer (Angular AOT)
+        run: npm run build:renderer
+
+      - name: Verify architecture (import boundaries + inventory)
+        run: npm run verify:architecture
+
+      - name: Check contracts (schema/alias drift)
+        run: npm run check:contracts
+
+      - name: Check provider parity checklist
+        run: npm run check:provider-parity
+
+      # Allowlisted: protobufjs transitive CVE is unfixable upstream (package.json overrides).
+      # New high-severity vulnerabilities will now fail the build.
       - name: Security audit
         run: npm audit --omit=dev --audit-level=high
-        continue-on-error: true
+        continue-on-error: false
 
       - name: Run tests
         run: npm run test
@@ -98,3 +109,8 @@ jobs:
 
       - name: Verify native ABI
         run: node scripts/verify-native-abi.js
+
+      - name: Electron packaging smoke (--dir, no signing)
+        run: npx electron-builder --mac --dir --config electron-builder.json
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"

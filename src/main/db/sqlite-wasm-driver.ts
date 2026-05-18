@@ -158,6 +158,7 @@ class SqliteWasmStatement implements SqliteStatement {
 class SqliteWasmDriver implements SqliteDriver {
   private readonly db: OO1Database;
   private readonly statements: SqliteWasmStatement[] = [];
+  private readonly stmtCache = new Map<string, SqliteWasmStatement>();
   private closed = false;
 
   constructor(db: OO1Database) {
@@ -176,6 +177,14 @@ class SqliteWasmDriver implements SqliteDriver {
     const wrapped = new SqliteWasmStatement(stmt, this.db);
     this.statements.push(wrapped);
     return wrapped;
+  }
+
+  prepareCached(sql: string): SqliteStatement {
+    const cached = this.stmtCache.get(sql);
+    if (cached) return cached;
+    const stmt = this.prepare(sql) as SqliteWasmStatement;
+    this.stmtCache.set(sql, stmt);
+    return stmt;
   }
 
   exec(sql: string): void {

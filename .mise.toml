@@ -1,0 +1,13 @@
+# AI Orchestrator — Mise tool version pins
+# https://mise.jdx.dev
+#
+# Ensures all contributors and CI use the same Node version regardless of
+# which version manager is installed locally. `.nvmrc` is kept for nvm/fnm
+# compatibility; this file adds explicit pinning for mise users.
+
+[tools]
+node = "24.15.0"
+
+[env]
+# Default renderer port — override per-instance for multi-dev scenarios.
+AIO_RENDERER_PORT = "4567"

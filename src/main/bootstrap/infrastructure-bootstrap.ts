@@ -74,7 +74,11 @@ export function registerInfrastructureBootstrap(): void {
     failureMode: 'degraded',
     init: () => {
       const { initTracer } = require('../observability/otel-setup') as typeof import('../observability/otel-setup');
+      const { initMetrics } = require('../observability/otel-metrics') as typeof import('../observability/otel-metrics');
       initTracer();
+      initMetrics({
+        enableConsole: Boolean(process.env['OTEL_METRICS_CONSOLE']),
+      });
     },
   });
 

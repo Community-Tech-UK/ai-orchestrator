@@ -43,6 +43,7 @@
     "verify:exports": "node scripts/verify-package-exports.js",
     "check:contracts": "tsx scripts/check-contracts-aliases.ts",
     "check:ts-max-loc": "tsx scripts/check-ts-max-loc.ts",
+    "check:provider-parity": "node scripts/check-provider-parity.js",
     "verify:architecture": "node scripts/check-import-boundaries.js && node scripts/generate-architecture-inventory.js --check",
     "verify:boundaries": "node scripts/check-import-boundaries.js",
     "generate:architecture": "node scripts/generate-architecture-inventory.js --write",

@@ -1,0 +1,61 @@
+import { describe, it, expect } from 'vitest';
+import {
+  MODEL_CATALOG,
+  getModelCatalogEntry,
+  getModelsForProvider,
+  getModelsWithInputModality,
+  estimatePromptCost,
+} from './models-catalog';
+
+describe('models-catalog', () => {
+  it('catalog has at least one active model per major provider', () => {
+    for (const provider of ['anthropic', 'google', 'openai'] as const) {
+      expect(getModelsForProvider(provider).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('every entry has required fields', () => {
+    for (const entry of MODEL_CATALOG) {
+      expect(entry.id).toBeTruthy();
+      expect(entry.name).toBeTruthy();
+      expect(entry.contextWindow).toBeGreaterThan(0);
+      expect(entry.maxOutputTokens).toBeGreaterThan(0);
+      expect(entry.inputModalities.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('getModelCatalogEntry returns undefined for unknown IDs', () => {
+    expect(getModelCatalogEntry('not-a-real-model')).toBeUndefined();
+  });
+
+  it('getModelCatalogEntry returns entry for known IDs', () => {
+    const entry = getModelCatalogEntry('claude-sonnet-4-6');
+    expect(entry).toBeDefined();
+    expect(entry?.provider).toBe('anthropic');
+  });
+
+  it('getModelsWithInputModality returns vision-capable models', () => {
+    const visionModels = getModelsWithInputModality('image');
+    expect(visionModels.length).toBeGreaterThan(0);
+    for (const m of visionModels) {
+      expect(m.inputModalities).toContain('image');
+    }
+  });
+
+  it('estimatePromptCost returns a number for known models with pricing', () => {
+    const cost = estimatePromptCost('claude-sonnet-4-6', 1_000_000, 500_000);
+    expect(typeof cost).toBe('number');
+    expect(cost).toBeGreaterThan(0);
+  });
+
+  it('estimatePromptCost returns undefined for unknown model IDs', () => {
+    expect(estimatePromptCost('unknown-model', 1000, 500)).toBeUndefined();
+  });
+
+  it('claude-sonnet-4-6 has correct context window and pricing', () => {
+    const m = getModelCatalogEntry('claude-sonnet-4-6')!;
+    expect(m.contextWindow).toBe(200_000);
+    expect(m.capabilities.promptCaching).toBe(true);
+    expect(m.pricing?.inputPer1mTokens).toBe(3.0);
+  });
+});

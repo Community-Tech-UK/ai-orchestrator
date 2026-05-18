@@ -18,9 +18,23 @@ function run(command, args) {
   }
 }
 
+function verifyMacPackageSignature() {
+  if (process.platform !== 'darwin') {
+    return;
+  }
+
+  const appPath = path.join(ROOT, 'release', 'mac-arm64', 'AI Orchestrator.app');
+  if (!fs.existsSync(appPath)) {
+    return;
+  }
+
+  run('codesign', ['--verify', '--deep', '--strict', '--verbose=4', appPath]);
+}
+
 run(process.execPath, ['scripts/verify-native-abi.js']);
 run(process.execPath, ['scripts/verify-ipc-channels.js']);
 run(process.execPath, ['scripts/verify-package-exports.js']);
+verifyMacPackageSignature();
 
 const requiredFiles = [
   'src/preload/generated/channels.ts',

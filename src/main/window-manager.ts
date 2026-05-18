@@ -205,11 +205,37 @@ export class WindowManager {
     });
 
     window.webContents.on('render-process-gone', (_event, details) => {
+      const diagnostics = this.getWindowDiagnostics(window);
       logger.error('Renderer process exited unexpectedly', undefined, {
-        ...this.getWindowDiagnostics(window),
+        ...diagnostics,
         reason: details.reason,
         exitCode: details.exitCode,
       });
+
+      // Auto-write a redacted crash artifact so crashes are captured even
+      // when the user never manually triggers an export. Import lazily to
+      // avoid a circular reference at module load time.
+      void import('./diagnostics/operator-artifact-exporter').then(({ OperatorArtifactExporter }) => {
+        return OperatorArtifactExporter.getInstance().export({ force: true });
+      }).then((result) => {
+        logger.info('Auto-wrote crash artifact after renderer crash', { bundlePath: result.bundlePath });
+      }).catch((err: unknown) => {
+        logger.warn('Failed to auto-write crash artifact', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+
+      // For unclean exits (crash/killed) attempt to reload the window so the
+      // user sees a recoverable state instead of a permanently dead window.
+      // "clean-exit" is the only intentional exit reason — don't reload it.
+      if (details.reason !== 'clean-exit') {
+        logger.info('Attempting renderer reload after unclean renderer exit', { reason: details.reason });
+        setTimeout(() => {
+          if (!window.isDestroyed()) {
+            window.webContents.reload();
+          }
+        }, 1000);
+      }
     });
 
     window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {

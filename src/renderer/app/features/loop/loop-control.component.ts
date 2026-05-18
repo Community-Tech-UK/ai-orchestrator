@@ -293,6 +293,19 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
     }
   `,
   styles: [`
+    :host {
+      display: block;
+      flex: 0 0 auto;
+      position: relative;
+      z-index: 20;
+      pointer-events: auto;
+      -webkit-app-region: no-drag;
+    }
+
+    button {
+      -webkit-app-region: no-drag;
+    }
+
     .loop-status {
       display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
       padding: 6px 10px; margin: 6px 0;
@@ -679,6 +692,7 @@ export class LoopControlComponent implements OnDestroy {
   });
 
   inspectableLoopId = computed(() => this.active()?.id ?? this.banner()?.loopRunId ?? this.summary()?.loopRunId ?? null);
+  controlLoopId = computed(() => this.active()?.id ?? this.banner()?.loopRunId ?? null);
 
   runningIteration = computed(() => {
     const id = this.chatId();
@@ -815,20 +829,20 @@ export class LoopControlComponent implements OnDestroy {
   }
 
   async onResumeAnyway(): Promise<void> {
-    const a = this.active(); if (!a) return;
-    await this.store.resume(a.id);
+    const loopId = this.controlLoopId(); if (!loopId) return;
+    await this.store.resume(loopId);
   }
 
   async onStop(): Promise<void> {
-    const a = this.active(); if (!a) return;
-    await this.store.cancel(a.id);
+    const loopId = this.controlLoopId(); if (!loopId) return;
+    await this.store.cancel(loopId);
   }
 
   async onInjectHint(): Promise<void> {
-    const a = this.active(); if (!a) return;
+    const loopId = this.controlLoopId(); if (!loopId) return;
     const message = window.prompt('Inject a hint for the next iteration:');
     if (!message?.trim()) return;
-    await this.store.intervene(a.id, message.trim());
+    await this.store.intervene(loopId, message.trim());
   }
 
   onDismissBanner(): void {

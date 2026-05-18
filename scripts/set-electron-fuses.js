@@ -44,6 +44,7 @@ module.exports = async (context) => {
 
   await flipFuses(executableName, {
     version: FuseVersion.V1,
+    resetAdHocDarwinSignature: electronPlatformName === 'darwin',
     [FuseV1Options.RunAsNode]: false,
     [FuseV1Options.EnableCookieEncryption]: true,
     [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,

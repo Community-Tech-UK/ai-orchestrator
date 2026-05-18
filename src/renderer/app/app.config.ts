@@ -5,12 +5,14 @@
 
 import {
   ApplicationConfig,
+  ErrorHandler,
   provideZonelessChangeDetection,
 } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { routes } from './app.routes';
 import { CLIPBOARD_TOAST } from './core/services/clipboard-toast.token';
 import { ToastService } from './core/services/toast.service';
+import { RendererErrorHandler } from './core/services/renderer-error-handler';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -19,6 +21,10 @@ export const appConfig: ApplicationConfig = {
 
     // Router configuration
     provideRouter(routes),
+
+    // Global error handler — forwards uncaught Angular errors to the
+    // main-process logger so crashes appear in diagnostics bundles.
+    { provide: ErrorHandler, useClass: RendererErrorHandler },
 
     {
       provide: CLIPBOARD_TOAST,

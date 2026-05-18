@@ -12,6 +12,7 @@ describe('LoopControlComponent', () => {
   let listeners: {
     stateChanged: Listener<{ loopRunId: string; state: LoopStatePayload }>[];
     activity: Listener<LoopActivityPayload>[];
+    pausedNoProgress: Listener<{ loopRunId: string; signal: { id: string; message: string; verdict: string } }>[];
   };
   let ipc: {
     start: ReturnType<typeof vi.fn>;
@@ -44,13 +45,14 @@ describe('LoopControlComponent', () => {
     listeners = {
       stateChanged: [],
       activity: [],
+      pausedNoProgress: [],
     };
     ipc = {
       start: vi.fn(),
-      pause: vi.fn(),
-      resume: vi.fn(),
-      intervene: vi.fn(),
-      cancel: vi.fn(),
+      pause: vi.fn().mockResolvedValue({ success: true, data: { ok: true, state: { ...activeState(), status: 'paused' } } }),
+      resume: vi.fn().mockResolvedValue({ success: true, data: { ok: true, state: { ...activeState(), status: 'running' } } }),
+      intervene: vi.fn().mockResolvedValue({ success: true, data: { ok: true } }),
+      cancel: vi.fn().mockResolvedValue({ success: true, data: { ok: true } }),
       listRunsForChat: vi.fn().mockResolvedValue({ success: true, data: { runs: [] } }),
       getIterations: vi.fn().mockResolvedValue({
         success: true,
@@ -60,7 +62,7 @@ describe('LoopControlComponent', () => {
       onIterationStarted: vi.fn(() => noop),
       onActivity: vi.fn((cb) => subscribe(listeners.activity, cb)),
       onIterationComplete: vi.fn(() => noop),
-      onPausedNoProgress: vi.fn(() => noop),
+      onPausedNoProgress: vi.fn((cb) => subscribe(listeners.pausedNoProgress, cb)),
       onClaimedDoneButFailed: vi.fn(() => noop),
       onTerminalIntentRecorded: vi.fn(() => noop),
       onTerminalIntentRejected: vi.fn(() => noop),
@@ -121,6 +123,76 @@ describe('LoopControlComponent', () => {
     expect(text).toContain('src/main/orchestration/loop-runner.ts (+12/-3)');
     expect(text).toContain('Read state files to orient, then edited the target service and ran focused tests.');
   });
+
+  it('routes the status-strip pause button to the active loop', async () => {
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: activeState(),
+    }));
+    fixture.detectChanges();
+
+    const pause = fixture.nativeElement.querySelector('.ls-actions button[title="Pause loop"]') as HTMLButtonElement;
+    pause.click();
+    await settle(fixture);
+
+    expect(ipc.pause).toHaveBeenCalledWith('loop-1');
+    expect(fixture.nativeElement.textContent).toContain('Resume');
+  });
+
+  it('routes visible no-progress banner controls to the loop id', async () => {
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), status: 'paused' },
+    }));
+    listeners.pausedNoProgress.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      signal: { id: 'A', message: 'Identical work hash repeated', verdict: 'CRITICAL' },
+    }));
+    fixture.detectChanges();
+
+    const prompt = vi.spyOn(window, 'prompt').mockReturnValueOnce('try a different verification path');
+    try {
+      bannerButton('Inject hint').click();
+      await settle(fixture);
+      expect(ipc.intervene).toHaveBeenCalledWith('loop-1', 'try a different verification path');
+    } finally {
+      prompt.mockRestore();
+    }
+
+    bannerButton('Resume anyway').click();
+    await settle(fixture);
+
+    expect(ipc.resume).toHaveBeenCalledWith('loop-1');
+    expect(fixture.nativeElement.textContent).not.toContain('Loop paused — no progress');
+  });
+
+  it('stops a paused no-progress loop from the banner', async () => {
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), status: 'paused' },
+    }));
+    listeners.pausedNoProgress.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      signal: { id: 'A', message: 'Identical work hash repeated', verdict: 'CRITICAL' },
+    }));
+    fixture.detectChanges();
+
+    bannerButton('Stop').click();
+    await settle(fixture);
+
+    expect(ipc.cancel).toHaveBeenCalledWith('loop-1');
+    expect(fixture.nativeElement.textContent).not.toContain('Loop ·');
+    expect(fixture.nativeElement.textContent).not.toContain('Loop paused — no progress');
+  });
+
+  function bannerButton(label: string): HTMLButtonElement {
+    const buttons = Array.from(
+      fixture.nativeElement.querySelectorAll('.loop-banner-actions button'),
+    ) as HTMLButtonElement[];
+    const button = buttons.find((candidate) => candidate.textContent?.trim() === label);
+    if (!button) throw new Error(`Missing banner button: ${label}`);
+    return button;
+  }
 });
 
 const noop = (): void => undefined;
@@ -133,6 +205,12 @@ function subscribe<T>(target: Listener<T>[], cb: Listener<T>): () => void {
     const index = target.indexOf(cb);
     if (index >= 0) target.splice(index, 1);
   };
+}
+
+async function settle(fixture: ComponentFixture<LoopControlComponent>): Promise<void> {
+  await fixture.whenStable();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  fixture.detectChanges();
 }
 
 function clipboardMock() {

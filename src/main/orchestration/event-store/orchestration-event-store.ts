@@ -31,6 +31,11 @@ export interface EventStoreDb {
     all(...args: unknown[]): unknown[];
     get(...args: unknown[]): unknown | undefined;
   };
+  prepareCached(sql: string): {
+    run(...args: unknown[]): { changes: number };
+    all(...args: unknown[]): unknown[];
+    get(...args: unknown[]): unknown | undefined;
+  };
 }
 
 interface EventRow {
@@ -150,7 +155,7 @@ export class OrchestrationEventStore {
   append(event: OrchestrationEvent): void {
     if (!isFeatureEnabled('EVENT_SOURCING')) return;
 
-    const stmt = this.db.prepare(`
+    const stmt = this.db.prepareCached(`
       INSERT INTO orchestration_events (id, type, aggregate_id, timestamp, payload, metadata)
       VALUES (?, ?, ?, ?, ?, ?)
     `);
@@ -165,28 +170,28 @@ export class OrchestrationEventStore {
   }
 
   getByAggregateId(aggregateId: string): OrchestrationEvent[] {
-    const stmt = this.db.prepare(
+    const stmt = this.db.prepareCached(
       'SELECT * FROM orchestration_events WHERE aggregate_id = ? ORDER BY timestamp ASC',
     );
     return (stmt.all(aggregateId) as EventRow[]).map(rowToEvent);
   }
 
   getByType(type: OrchestrationEventType, limit = 100): OrchestrationEvent[] {
-    const stmt = this.db.prepare(
+    const stmt = this.db.prepareCached(
       'SELECT * FROM orchestration_events WHERE type = ? ORDER BY timestamp DESC LIMIT ?',
     );
     return (stmt.all(type, limit) as EventRow[]).map(rowToEvent);
   }
 
   getRecentEvents(limit = 50): OrchestrationEvent[] {
-    const stmt = this.db.prepare(
+    const stmt = this.db.prepareCached(
       'SELECT * FROM orchestration_events ORDER BY timestamp DESC LIMIT ?',
     );
     return (stmt.all(limit) as EventRow[]).map(rowToEvent);
   }
 
   getAllEvents(): OrchestrationEvent[] {
-    const stmt = this.db.prepare(
+    const stmt = this.db.prepareCached(
       'SELECT * FROM orchestration_events ORDER BY timestamp ASC',
     );
     return (stmt.all() as EventRow[]).map(rowToEvent);
@@ -215,7 +220,7 @@ export class OrchestrationEventStore {
   }
 
   recordCommandReceipt(receipt: OrchestrationCommandReceipt): void {
-    const stmt = this.db.prepare(`
+    const stmt = this.db.prepareCached(`
       INSERT OR REPLACE INTO orchestration_command_receipts (
         command_id, status, type, aggregate_id, timestamp, event_id, reason, metadata
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -233,7 +238,7 @@ export class OrchestrationEventStore {
   }
 
   getCommandReceipt(commandId: string): OrchestrationCommandReceipt | undefined {
-    const stmt = this.db.prepare(
+    const stmt = this.db.prepareCached(
       'SELECT * FROM orchestration_command_receipts WHERE command_id = ?',
     );
     const row = stmt.get(commandId) as CommandReceiptRow | undefined;

@@ -13,6 +13,7 @@ vi.mock('../../logging/logger', () => ({
 vi.mock('../../rlm/llm-service', () => ({
   getLLMService: () => ({
     configure: vi.fn(),
+    isAvailable: vi.fn().mockResolvedValue(false),
     summarize: vi.fn().mockResolvedValue('Summary of conversation'),
   }),
 }));
@@ -23,7 +24,7 @@ vi.mock('../../../shared/constants/limits', () => ({
   },
 }));
 
-import { ContextCompactor } from '../context-compactor';
+import { ContextCompactor, buildCompactionPrompt } from '../context-compactor';
 import type { ConversationTurn, ToolCallRecord } from '../context-compactor';
 
 function makeTurn(overrides?: Partial<ConversationTurn>): Omit<ConversationTurn, 'id' | 'timestamp'> {
@@ -222,6 +223,122 @@ describe('ContextCompactor', () => {
 
       expect(state1).toEqual(state2);
       expect(state1.turns).not.toBe(state2.turns); // Different array instances
+    });
+  });
+
+  describe('buildCompactionPrompt (anchored template)', () => {
+    it('includes all required section headers in the prompt', () => {
+      const prompt = buildCompactionPrompt('some conversation text', null);
+      expect(prompt).toContain('## Objective');
+      expect(prompt).toContain('## Current State');
+      expect(prompt).toContain('## Key Decisions');
+      expect(prompt).toContain('## Files Touched');
+      expect(prompt).toContain('## Pending Work');
+      expect(prompt).toContain('## Blockers');
+      expect(prompt).toContain('## Commands Run');
+      expect(prompt).toContain('## Verification Status');
+    });
+
+    it('embeds conversation text in the prompt', () => {
+      const prompt = buildCompactionPrompt('user said hello', null);
+      expect(prompt).toContain('user said hello');
+    });
+
+    it('omits anchor section when no prior summary', () => {
+      const prompt = buildCompactionPrompt('text', null);
+      expect(prompt).not.toContain('<prior_summary>');
+    });
+
+    it('embeds prior summary as anchor when provided', () => {
+      const prior = '## Objective\nRefactor auth module';
+      const prompt = buildCompactionPrompt('new turns text', prior);
+      expect(prompt).toContain('<prior_summary>');
+      expect(prompt).toContain('## Objective\nRefactor auth module');
+      expect(prompt).toContain('Preserve all decisions and state from the prior summary');
+    });
+
+    it('instructs LLM to add only deltas when a prior summary is present', () => {
+      const prompt = buildCompactionPrompt('new conversation', '## Objective\nFix bug');
+      expect(prompt).toContain('Only add deltas for what changed');
+    });
+  });
+
+  describe('local fallback generateLocalSummary (via compact)', () => {
+    // Helper that creates a config where compaction will fire and the local
+    // summary will be smaller than the compacted turns.  We use 10 turns of
+    // 100 tokens each (1000 total) and preserve only the last 2.  The local
+    // summary is ~70 tokens; newTotal ≈ 70 + 200 = 270 < 1000 → passes
+    // post-compaction verification.
+    function largeCompactionConfig() {
+      return {
+        maxContextTokens: 1100,
+        autoCompact: false,
+        triggerThreshold: 0.85,
+        preserveRecent: 2,
+      };
+    }
+
+    function addManyTurns(content = 'implement the new auth flow') {
+      for (let i = 0; i < 10; i++) {
+        compactor.addTurn(makeTurn({
+          tokenCount: 100,
+          role: i % 2 === 0 ? 'user' : 'assistant',
+          content,
+        }));
+      }
+    }
+
+    it('produces a structured summary with section headers', async () => {
+      compactor.updateConfig(largeCompactionConfig());
+      addManyTurns();
+
+      const result = await compactor.compact();
+      expect(result.summaryGenerated).toBe(true);
+
+      const state = compactor.getState();
+      expect(state.summaries).toHaveLength(1);
+      expect(state.summaries[0].content).toContain('## Objective');
+      expect(state.summaries[0].content).toContain('## Current State');
+      expect(state.summaries[0].content).toContain('## Commands Run');
+      expect(state.summaries[0].content).toContain('## Verification Status');
+    });
+
+    it('includes tool invocations in the Commands Run section', async () => {
+      compactor.updateConfig(largeCompactionConfig());
+
+      const toolCall = makeToolCall({ name: 'bash', output: 'exit 0' });
+      for (let i = 0; i < 10; i++) {
+        compactor.addTurn(makeTurn({
+          tokenCount: 100,
+          role: i % 2 === 0 ? 'user' : 'assistant',
+          toolCalls: i === 0 ? [toolCall] : undefined,
+        }));
+      }
+
+      const result = await compactor.compact();
+      expect(result.summaryGenerated).toBe(true);
+
+      const summary = compactor.getState().summaries[0].content;
+      expect(summary).toContain('## Commands Run');
+      expect(summary).toContain('bash');
+    });
+
+    it('anchors subsequent summaries on the previous one', async () => {
+      compactor.updateConfig(largeCompactionConfig());
+      addManyTurns('first objective: fix login');
+      await compactor.compact();
+
+      expect(compactor.getState().summaries).toHaveLength(1);
+
+      // After compaction, totalTokens ≈ 270.  Add 10 more turns of 100 to
+      // push back over threshold (270 + 1000 = 1270 > 0.85 * 1100 = 935).
+      addManyTurns('second objective: add tests');
+      await compactor.compact();
+
+      const state = compactor.getState();
+      expect(state.summaries.length).toBeGreaterThanOrEqual(2);
+      const latestSummary = state.summaries[state.summaries.length - 1].content;
+      expect(latestSummary).toContain('prior compaction');
     });
   });
 });

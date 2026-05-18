@@ -60,6 +60,19 @@ export interface SqliteDriver {
   prepare(sql: string): SqliteStatement;
 
   /**
+   * Compile and cache a prepared statement by SQL text.
+   * On the first call for a given `sql` the statement is compiled and
+   * stored in a `Map<string, SqliteStatement>`; subsequent calls with the
+   * same text return the cached instance without recompiling.
+   *
+   * Use this on any hot path where the same SQL is executed repeatedly
+   * (event-store append, BM25 search, RLM CRUD). Passing a unique
+   * SQL string each time (e.g. with inline values) defeats the cache —
+   * use parameterised queries.
+   */
+  prepareCached(sql: string): SqliteStatement;
+
+  /**
    * Run one or more semicolon-separated SQL statements directly against
    * the database. Used for DDL (CREATE TABLE) and VACUUM. No parameters,
    * no result rows. Mirrors better-sqlite3's db.exec(sql).

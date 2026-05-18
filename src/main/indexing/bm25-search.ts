@@ -69,7 +69,7 @@ export class BM25Search {
     params.push(limit, offset);
 
     try {
-      const stmt = this.db.prepare(sql);
+      const stmt = this.db.prepareCached(sql);
       const rows = stmt.all(...params) as Array<{
         section_id: string;
         file_path: string;
@@ -112,7 +112,7 @@ export class BM25Search {
     `;
 
     try {
-      const stmt = this.db.prepare(sql);
+      const stmt = this.db.prepareCached(sql);
       stmt.run(storeId, sectionId, filePath, content, symbols.join(' '));
     } catch (error) {
       logger.error('Failed to add document to FTS index', error instanceof Error ? error : undefined);
@@ -126,7 +126,7 @@ export class BM25Search {
     const sql = `DELETE FROM code_fts WHERE section_id = ?`;
 
     try {
-      const stmt = this.db.prepare(sql);
+      const stmt = this.db.prepareCached(sql);
       stmt.run(sectionId);
     } catch (error) {
       logger.error('Failed to remove document from FTS index', error instanceof Error ? error : undefined);
@@ -140,7 +140,7 @@ export class BM25Search {
     const sql = `DELETE FROM code_fts WHERE store_id = ?`;
 
     try {
-      const stmt = this.db.prepare(sql);
+      const stmt = this.db.prepareCached(sql);
       stmt.run(storeId);
     } catch (error) {
       logger.error('Failed to clear store from FTS index', error instanceof Error ? error : undefined);
@@ -153,7 +153,7 @@ export class BM25Search {
    */
   rebuildIndex(): void {
     try {
-      const stmt = this.db.prepare(`INSERT INTO code_fts(code_fts) VALUES('optimize')`);
+      const stmt = this.db.prepareCached(`INSERT INTO code_fts(code_fts) VALUES('optimize')`);
       stmt.run();
     } catch (error) {
       logger.error('Failed to rebuild FTS index', error instanceof Error ? error : undefined);
@@ -165,7 +165,7 @@ export class BM25Search {
    */
   getStats(storeId: string): { documentCount: number; uniqueTerms: number } {
     try {
-      const countStmt = this.db.prepare(
+      const countStmt = this.db.prepareCached(
         `SELECT COUNT(DISTINCT section_id) as count FROM code_fts WHERE store_id = ?`
       );
       const countResult = countStmt.get(storeId) as { count: number } | undefined;
