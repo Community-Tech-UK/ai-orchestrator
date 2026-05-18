@@ -4,7 +4,7 @@ import { Router } from '@angular/router';
 import { PluginIpcService } from '../../core/services/ipc/plugin-ipc.service';
 import { PluginsPageComponent } from './plugins-page.component';
 
-describe('PluginsPageComponent runtime plugin package controls', () => {
+describe('PluginsPageComponent', () => {
   const pluginIpc = {
     pluginsGetLoaded: vi.fn(),
     pluginsDiscover: vi.fn(),
@@ -88,5 +88,50 @@ describe('PluginsPageComponent runtime plugin package controls', () => {
     expect(pluginIpc.runtimePluginsUpdate).toHaveBeenCalledWith('runtime-plugin', undefined);
     expect(pluginIpc.runtimePluginsPrune).toHaveBeenCalledOnce();
     expect(pluginIpc.runtimePluginsUninstall).toHaveBeenCalledWith('runtime-plugin');
+  });
+
+  it('populates loaded, available, and runtime lists on refresh', async () => {
+    pluginIpc.pluginsGetLoaded.mockResolvedValue({
+      success: true,
+      data: [
+        { id: 'p1', name: 'Plugin One', status: 'loaded' },
+        { id: 'p2', name: 'Plugin Two', status: 'unloaded' },
+      ],
+    });
+    pluginIpc.pluginsDiscover.mockResolvedValue({
+      success: true,
+      data: [{ id: 'p1', name: 'Plugin One', status: 'unloaded' }],
+    });
+    pluginIpc.runtimePluginsList.mockResolvedValue({
+      success: true,
+      data: [{ id: 'rt', name: 'Runtime One', status: 'installed' }],
+    });
+
+    await component.refresh();
+
+    expect(component.loadedPlugins()).toHaveLength(2);
+    expect(component.availablePlugins()).toHaveLength(1);
+    expect(component.runtimePlugins()).toHaveLength(1);
+    expect(component.loadedCount()).toBe(1);
+    expect(component.installedCount()).toBe(2);
+    expect(component.runtimePackageCount()).toBe(1);
+    expect(component.errorMessage()).toBeNull();
+  });
+
+  it('still loads runtime packages when the provider plugin list fails', async () => {
+    // Regression: a rejecting pluginsGetLoaded() must not abort the whole
+    // refresh and blank the runtime package list.
+    pluginIpc.pluginsGetLoaded.mockRejectedValue(new Error('No handler registered'));
+    pluginIpc.runtimePluginsList.mockResolvedValue({
+      success: true,
+      data: [{ id: 'rt', name: 'Runtime One', status: 'installed' }],
+    });
+
+    await component.refresh();
+
+    expect(component.runtimePlugins()).toHaveLength(1);
+    expect(component.runtimePackageCount()).toBe(1);
+    expect(component.errorMessage()).toBeTruthy();
+    expect(component.loading()).toBe(false);
   });
 });

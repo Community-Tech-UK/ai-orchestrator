@@ -7,6 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { Router } from '@angular/router';
 import type {
   BrowserAllowedOrigin,
   BrowserApprovalRequest,
@@ -36,9 +37,12 @@ interface BrowserSnapshotView {
   template: `
     <div class="browser-page">
       <header class="page-header">
-        <div>
-          <h1>Browser Gateway</h1>
-          <p>Managed Chrome profiles, target selection, allowed-origin navigation, snapshots, and audit.</p>
+        <div class="page-header-main">
+          <button class="btn" data-testid="back-button" type="button" (click)="goBack()">← Back</button>
+          <div>
+            <h1>Browser Gateway</h1>
+            <p>Managed Chrome profiles, target selection, allowed-origin navigation, snapshots, and audit.</p>
+          </div>
         </div>
         <button class="btn" type="button" [disabled]="loading()" (click)="refresh()">Refresh</button>
       </header>
@@ -367,6 +371,12 @@ interface BrowserSnapshotView {
 
     .page-header {
       justify-content: space-between;
+    }
+
+    .page-header-main {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-md);
     }
 
     h1,
@@ -758,6 +768,7 @@ interface BrowserSnapshotView {
 })
 export class BrowserPageComponent implements OnInit {
   private readonly ipc = inject(BrowserGatewayIpcService);
+  private readonly router = inject(Router);
 
   readonly profiles = signal<BrowserProfile[]>([]);
   readonly targets = signal<BrowserTarget[]>([]);
@@ -823,6 +834,10 @@ export class BrowserPageComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     await this.refresh();
+  }
+
+  goBack(): void {
+    void this.router.navigate(['/']);
   }
 
   async refresh(): Promise<void> {

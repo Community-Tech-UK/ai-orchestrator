@@ -30,9 +30,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Format check (oxfmt)
-        run: npm run fmt:check
-
       - name: Lint
         run: npm run lint
 

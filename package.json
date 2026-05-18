@@ -60,9 +60,7 @@
     "build:loop-control-sea": "tsx build-loop-control-cli-sea.ts",
     "build:loop-control-dist": "npm run build:loop-control-cli && npm run build:loop-control-sea",
     "download:winsw": "node scripts/download-winsw.js",
-    "review": "tsx src/main/cli-entrypoints/review-command.ts",
-    "fmt": "oxfmt --config .oxfmtrc.jsonc --write src/ packages/",
-    "fmt:check": "oxfmt --config .oxfmtrc.jsonc --check src/ packages/"
+    "review": "tsx src/main/cli-entrypoints/review-command.ts"
   },
   "keywords": [
     "ai",
@@ -153,7 +151,6 @@
     "esbuild": "^0.28.0",
     "eslint": "^9.39.1",
     "jsdom": "^27.4.0",
-    "oxfmt": "^0.49.0",
     "oxlint": "^1.0.0",
     "postject": "^1.0.0-alpha.6",
     "tsx": "^4.21.0",

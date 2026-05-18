@@ -331,6 +331,46 @@ export function registerProviderHandlers(
     }
   );
 
+  // Get installed provider plugins with their load state.
+  // Drives the Plugins page list — returns every discovered plugin file
+  // (not just loaded ones) with a per-plugin status.
+  ipcMain.handle(
+    IPC_CHANNELS.PLUGINS_GET_LOADED,
+    async (): Promise<IpcResponse> => {
+      try {
+        // Refresh metadata from disk so newly created/installed plugins appear.
+        const metas = await pluginManager.discoverPlugins();
+        // discoverPlugins() rebuilds metadata and resets the `loaded` flag, so
+        // derive load state from the live loaded-plugin instances instead.
+        const loadedIds = new Set(
+          pluginManager.getLoadedPlugins().map((plugin) => plugin.id)
+        );
+        const data = metas.map((meta) => ({
+          id: meta.id,
+          name: meta.name,
+          version: meta.version,
+          description: meta.description,
+          status: meta.error
+            ? 'error'
+            : loadedIds.has(meta.id)
+              ? 'loaded'
+              : 'unloaded',
+          path: meta.filePath,
+        }));
+        return { success: true, data };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'PLUGINS_GET_LOADED_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
   // Get plugin metadata
   ipcMain.handle(
     IPC_CHANNELS.PLUGINS_GET_META,

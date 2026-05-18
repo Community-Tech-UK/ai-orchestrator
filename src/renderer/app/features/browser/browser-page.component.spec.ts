@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { Router } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BrowserPageComponent } from './browser-page.component';
 import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gateway-ipc.service';
@@ -36,6 +37,7 @@ describe('BrowserPageComponent', () => {
     getAuditLog: ReturnType<typeof vi.fn>;
     getHealth: ReturnType<typeof vi.fn>;
   };
+  let router: { navigate: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     service = {
@@ -207,9 +209,14 @@ describe('BrowserPageComponent', () => {
       })),
     };
 
+    router = { navigate: vi.fn().mockResolvedValue(true) };
+
     await TestBed.configureTestingModule({
       imports: [BrowserPageComponent],
-      providers: [{ provide: BrowserGatewayIpcService, useValue: service }],
+      providers: [
+        { provide: BrowserGatewayIpcService, useValue: service },
+        { provide: Router, useValue: router },
+      ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(BrowserPageComponent);
@@ -420,6 +427,17 @@ describe('BrowserPageComponent', () => {
       grantId: 'grant-1',
       reason: 'Revoked from Browser Gateway page',
     });
+  });
+
+  it('navigates back to the dashboard from the header back button', () => {
+    const button = fixture.nativeElement.querySelector(
+      '[data-testid="back-button"]',
+    ) as HTMLButtonElement;
+    expect(button).toBeTruthy();
+
+    button.click();
+
+    expect(router.navigate).toHaveBeenCalledWith(['/']);
   });
 });
 

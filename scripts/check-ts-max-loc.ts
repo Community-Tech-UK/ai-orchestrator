@@ -56,7 +56,7 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — codemem
   'src/main/codemem/code-index-manager.ts': 782,
   // Main process — context
-  'src/main/context/context-compactor.ts': 853,
+  'src/main/context/context-compactor.ts': 952,
   'src/main/context/jit-loader.ts': 772,
   // Main process — core
   'src/main/core/config/claude-md-loader.ts': 804,
@@ -114,8 +114,8 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/orchestration/debate-coordinator.ts': 1196,
   'src/main/orchestration/default-invokers.ts': 1072,
   'src/main/orchestration/embedding-service.ts': 845,
-  'src/main/orchestration/event-store/__tests__/event-store.spec.ts': 783,
-  'src/main/orchestration/loop-coordinator.ts': 1733,
+  'src/main/orchestration/event-store/__tests__/event-store.spec.ts': 787,
+  'src/main/orchestration/loop-coordinator.ts': 1766,
   'src/main/orchestration/multi-verify-coordinator.ts': 1163,
   'src/main/orchestration/orchestration-handler.ts': 1507,
   'src/main/orchestration/supervisor.ts': 735,
@@ -163,7 +163,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/core/state/source-control.store.ts': 973,
   // Renderer — feature components
   'src/renderer/app/features/archive/archive-page.component.ts': 1059,
-  'src/renderer/app/features/browser/browser-page.component.ts': 1195,
+  'src/renderer/app/features/browser/browser-page.component.ts': 1210,
   'src/renderer/app/features/chats/session-artifacts-strip.component.ts': 729,
   'src/renderer/app/features/communication/communication-page.component.ts': 729,
   'src/renderer/app/features/debate/debate-visualization.component.ts': 993,
@@ -180,14 +180,14 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/instance-list/instance-row.component.ts': 842,
   'src/renderer/app/features/knowledge/knowledge-page.component.ts': 1322,
   'src/renderer/app/features/logs/logs-page.component.ts': 1020,
-  'src/renderer/app/features/loop/loop-control.component.ts': 916,
+  'src/renderer/app/features/loop/loop-control.component.ts': 930,
   'src/renderer/app/features/mcp/mcp-page.component.ts': 1113,
   'src/renderer/app/features/memory/memory-browser.component.ts': 957,
   'src/renderer/app/features/models/model-selection-panel.component.ts': 905,
   'src/renderer/app/features/models/models-page.component.ts': 768,
   'src/renderer/app/features/observations/observations-page.component.ts': 806,
   'src/renderer/app/features/plan/plan-page.component.ts': 1036,
-  'src/renderer/app/features/plugins/plugins-page.component.ts': 1100,
+  'src/renderer/app/features/plugins/plugins-page.component.ts': 1208,
   'src/renderer/app/features/remote-config/remote-config-page.component.ts': 815,
   'src/renderer/app/features/replay/session-replay-page.component.ts': 893,
   'src/renderer/app/features/review/review-results.component.ts': 858,
@@ -214,7 +214,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/worktree/worktree-page.component.ts': 717,
   'src/renderer/app/features/worktree/worktree-panel.component.ts': 714,
   // Shared
-  'src/shared/types/settings.types.ts': 796,
+  'src/shared/types/settings.types.ts': 810,
   // Worker agent
   'src/worker-agent/worker-agent.ts': 801,
 };

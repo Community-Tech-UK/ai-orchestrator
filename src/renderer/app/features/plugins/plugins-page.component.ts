@@ -75,21 +75,56 @@ type ActiveTab = 'installed' | 'discover';
         </div>
       </div>
 
+      <!-- What are plugins? -->
+      <div class="panel info-panel">
+        <div class="info-block">
+          <span class="info-title">Provider Plugins</span>
+          <p class="info-text">
+            Add a custom AI provider — a new model backend alongside Claude,
+            Gemini, Codex, and Copilot. Each is a JavaScript file that implements
+            a provider interface (initialize, send message, list models). Use
+            <strong>Create Plugin Template</strong> below to scaffold one, then
+            load it from the <strong>Installed</strong> tab.
+          </p>
+        </div>
+        <div class="info-block">
+          <span class="info-title">Runtime Plugin Packages</span>
+          <p class="info-text">
+            Event-driven extensions that observe and react to the orchestrator
+            — notifications, telemetry, audit logging, custom automation —
+            through lifecycle hooks. Install a package from a folder, .zip, or
+            URL in the <strong>Discover</strong> tab.
+          </p>
+        </div>
+      </div>
+
       <!-- Metric Cards -->
       <div class="metrics">
-        <div class="metric-card">
+        <div
+          class="metric-card"
+          title="Provider plugins currently loaded into memory and usable as a model backend"
+        >
           <span class="metric-label">Loaded Plugins</span>
           <span class="metric-value">{{ loadedCount() }}</span>
         </div>
-        <div class="metric-card">
+        <div
+          class="metric-card"
+          title="Provider plugins discovered on disk via the Discover tab"
+        >
           <span class="metric-label">Available</span>
           <span class="metric-value">{{ availableCount() }}</span>
         </div>
-        <div class="metric-card">
+        <div
+          class="metric-card"
+          title="Provider plugin files installed in your app data folder"
+        >
           <span class="metric-label">Installed</span>
           <span class="metric-value">{{ installedCount() }}</span>
         </div>
-        <div class="metric-card">
+        <div
+          class="metric-card"
+          title="Runtime plugin packages installed and active"
+        >
           <span class="metric-label">Runtime Packages</span>
           <span class="metric-value">{{ runtimePackageCount() }}</span>
         </div>
@@ -121,6 +156,10 @@ type ActiveTab = 'installed' | 'discover';
         @if (activeTab() === 'installed') {
           <div class="tab-content">
             <div class="section-title">Provider Plugins</div>
+            <p class="section-desc">
+              Custom AI providers installed in your app data folder. Load one to
+              make it usable as a model backend.
+            </p>
             @if (loadedPlugins().length === 0) {
               <div class="empty-state">No plugins currently loaded.</div>
             } @else {
@@ -168,6 +207,10 @@ type ActiveTab = 'installed' | 'discover';
             }
 
             <div class="section-title">Runtime Plugin Packages</div>
+            <p class="section-desc">
+              Hook/event plugins installed into <code>~/.orchestrator/plugins</code>.
+              Active automatically while installed — no manual load step.
+            </p>
             @if (runtimePlugins().length === 0) {
               <div class="empty-state">No runtime plugin packages installed.</div>
             } @else {
@@ -327,6 +370,10 @@ type ActiveTab = 'installed' | 'discover';
       <!-- Create Template Panel -->
       <div class="panel create-template">
         <div class="panel-title">Create Plugin Template</div>
+        <p class="section-desc">
+          Scaffolds a new Provider Plugin (custom AI provider) as a JavaScript
+          file in your app data folder, ready to edit.
+        </p>
         <div class="create-row">
           <input
             class="input"
@@ -456,6 +503,39 @@ type ActiveTab = 'installed' | 'discover';
       border-radius: var(--radius-md);
       background: var(--bg-secondary);
       overflow: hidden;
+    }
+
+    /* ── Info / Explainer ── */
+
+    .info-panel {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--spacing-lg);
+      padding: var(--spacing-md);
+    }
+
+    .info-block {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .info-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .info-text {
+      margin: 0;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text-muted);
+    }
+
+    .info-text strong {
+      font-weight: 600;
+      color: var(--text-primary);
     }
 
     .tab-bar {
@@ -594,6 +674,18 @@ type ActiveTab = 'installed' | 'discover';
       letter-spacing: 0.04em;
     }
 
+    .section-desc {
+      margin: 2px 0 0;
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--text-muted);
+    }
+
+    .section-desc code {
+      font-family: var(--font-family-mono);
+      font-size: 11px;
+    }
+
     .install-row,
     .create-row {
       display: flex;
@@ -702,6 +794,10 @@ type ActiveTab = 'installed' | 'discover';
       .metrics {
         grid-template-columns: 1fr;
       }
+
+      .info-panel {
+        grid-template-columns: 1fr;
+      }
     }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -780,24 +876,13 @@ export class PluginsPageComponent implements OnInit, OnDestroy {
     this.errorMessage.set(null);
     this.loading.set(true);
     try {
-      const [loadedResponse, availableResponse] = await Promise.all([
-        this.pluginIpc.pluginsGetLoaded(),
-        this.pluginIpc.pluginsDiscover(),
+      // Each section refreshes independently — a failure in one (e.g. a
+      // backend error) must not prevent the others from loading.
+      await Promise.allSettled([
+        this.refreshLoaded(),
+        this.refreshAvailable(),
+        this.refreshRuntimePlugins(),
       ]);
-
-      if (!loadedResponse.success) {
-        this.setError(loadedResponse, 'Failed to load plugins list.');
-      } else {
-        const loaded = this.extractData<PluginInfo[]>(loadedResponse) ?? [];
-        this.loadedPlugins.set(loaded);
-      }
-
-      if (availableResponse.success) {
-        const available = this.extractData<PluginInfo[]>(availableResponse) ?? [];
-        this.availablePlugins.set(available);
-      }
-
-      await this.refreshRuntimePlugins();
     } finally {
       this.loading.set(false);
     }
@@ -1015,8 +1100,12 @@ export class PluginsPageComponent implements OnInit, OnDestroy {
         this.setError(response, `Failed to create plugin template "${name}".`);
         return;
       }
-      const result = this.extractData<string>(response) ?? `Template "${name}" created successfully.`;
-      this.templateResult.set(result);
+      const data = this.extractData<{ filePath: string }>(response);
+      this.templateResult.set(
+        data?.filePath
+          ? `Created provider plugin template at ${data.filePath}`
+          : `Template "${name}" created successfully.`,
+      );
       this.templateName.set('');
     } finally {
       this.working.set(false);
@@ -1045,18 +1134,37 @@ export class PluginsPageComponent implements OnInit, OnDestroy {
   // ── Private helpers ────────────────────────────────────────────────────────
 
   private async refreshLoaded(): Promise<void> {
-    const response = await this.pluginIpc.pluginsGetLoaded();
-    if (response.success) {
-      const loaded = this.extractData<PluginInfo[]>(response) ?? [];
-      this.loadedPlugins.set(loaded);
+    try {
+      const response = await this.pluginIpc.pluginsGetLoaded();
+      if (response.success) {
+        this.loadedPlugins.set(this.extractData<PluginInfo[]>(response) ?? []);
+      } else {
+        this.setError(response, 'Failed to load plugins list.');
+      }
+    } catch {
+      this.errorMessage.set('Failed to load plugins list.');
+    }
+  }
+
+  private async refreshAvailable(): Promise<void> {
+    try {
+      const response = await this.pluginIpc.pluginsDiscover();
+      if (response.success) {
+        this.availablePlugins.set(this.extractData<PluginInfo[]>(response) ?? []);
+      }
+    } catch {
+      // Discovery is best-effort; keep the existing list on failure.
     }
   }
 
   private async refreshRuntimePlugins(): Promise<void> {
-    const response = await this.pluginIpc.runtimePluginsList();
-    if (response.success) {
-      const runtimePlugins = this.extractData<RuntimePluginInfo[]>(response) ?? [];
-      this.runtimePlugins.set(runtimePlugins);
+    try {
+      const response = await this.pluginIpc.runtimePluginsList();
+      if (response.success) {
+        this.runtimePlugins.set(this.extractData<RuntimePluginInfo[]>(response) ?? []);
+      }
+    } catch {
+      // Runtime package listing is best-effort; keep the existing list.
     }
   }
 
