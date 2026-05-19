@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+set -eu
+
+node scripts/run-git-hook.js pre-push
