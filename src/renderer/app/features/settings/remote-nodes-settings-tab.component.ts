@@ -8,6 +8,7 @@ import {
   Component,
   OnDestroy,
   OnInit,
+  computed,
   inject,
   signal,
 } from '@angular/core';
@@ -16,6 +17,12 @@ import { SettingsStore } from '../../core/state/settings.store';
 import { RemoteNodeIpcService, RemoteNodeServerStatus } from '../../core/services/ipc/remote-node-ipc.service';
 import type { RemotePairingCredentialInfo, WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
+import { InlineHelpComponent } from './ui/inline-help.component';
+import { SaveStateBannerComponent, type SaveState } from './ui/save-state-banner.component';
+import { ValidationRowComponent } from './ui/validation-row.component';
+import { CopyRowComponent } from './ui/copy-row.component';
+import { CodePreviewBlockComponent } from './ui/code-preview-block.component';
+import { DangerZoneComponent } from './ui/danger-zone.component';
 
 interface RegisteredNodeRecord {
   sessionId?: string;
@@ -48,6 +55,14 @@ interface NodeHealthEntry {
 @Component({
   standalone: true,
   selector: 'app-remote-nodes-settings-tab',
+  imports: [
+    InlineHelpComponent,
+    SaveStateBannerComponent,
+    ValidationRowComponent,
+    CopyRowComponent,
+    CodePreviewBlockComponent,
+    DangerZoneComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './remote-nodes-settings-tab.component.html',
   styleUrl: './remote-nodes-settings-tab.component.scss',
@@ -88,7 +103,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   private unsubscribeNodeEvent: (() => void) | null = null;
   private unsubscribeNodesChanged: (() => void) | null = null;
 
-  readonly hasDraftChanges = () => {
+  readonly hasDraftChanges = computed(() => {
     return (
       this.draftPort() !== this.store.remoteNodesServerPort() ||
       this.draftHost() !== this.store.remoteNodesServerHost() ||
@@ -98,7 +113,17 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
       this.draftAutoOffloadBrowser() !== this.store.remoteNodesAutoOffloadBrowser() ||
       this.draftAutoOffloadGpu() !== this.store.remoteNodesAutoOffloadGpu()
     );
-  };
+  });
+
+  readonly configSaveState = computed<SaveState>(() => {
+    if (this.applying()) {
+      return 'saving';
+    }
+    if (!this.hasDraftChanges()) {
+      return 'saved';
+    }
+    return this.serverStatus().running ? 'restart' : 'dirty';
+  });
 
   readonly activePairing = () => this.pendingPairings()[0] ?? null;
 
@@ -180,7 +205,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     this.unsubscribeNodesChanged?.();
   }
 
-  private syncDraftsFromStore(): void {
+  protected syncDraftsFromStore(): void {
     this.draftPort.set(this.store.remoteNodesServerPort());
     this.draftHost.set(this.store.remoteNodesServerHost());
     this.draftNamespace.set(this.store.remoteNodesNamespace());

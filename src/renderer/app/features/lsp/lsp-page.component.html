@@ -66,7 +66,7 @@
       </div>
 
       @if (symbolsLoading()) {
-        <div class="loading-text">Loading symbols…</div>
+        <app-skeleton [lines]="6" />
       } @else if (documentSymbols().length > 0) {
         <div class="symbol-tree">
           @for (sym of documentSymbols(); track sym.name + sym.range.start.line) {
@@ -100,7 +100,10 @@
           }
         </div>
       } @else if (symbolsLoaded()) {
-        <div class="hint">No symbols found in this file.</div>
+        <app-empty-state
+          title="No symbols"
+          message="This file has no recognized symbols. Check that an LSP server is running for this language."
+        />
       } @else {
         <div class="hint">Enter a file path and click Load.</div>
       }
@@ -127,7 +130,7 @@
         </div>
 
         @if (hoverLoading()) {
-          <div class="loading-text">Loading hover info…</div>
+          <app-skeleton [lines]="3" />
         } @else if (hoverInfo()) {
           <div class="hover-info">
             <div class="section-label">Hover Info</div>
@@ -204,7 +207,7 @@
       </div>
 
       @if (workspaceLoading()) {
-        <div class="loading-text">Searching…</div>
+        <app-skeleton [lines]="5" />
       } @else if (workspaceSymbols().length > 0) {
         <div class="workspace-results">
           @for (sym of workspaceSymbols(); track sym.name + sym.range.start.line) {
@@ -222,7 +225,10 @@
           }
         </div>
       } @else if (workspaceSearched()) {
-        <div class="hint">No symbols found for "{{ workspaceQuery() }}".</div>
+        <app-empty-state
+          title="No results"
+          [message]="'No symbols found for \'' + workspaceQuery() + '\'.'"
+        />
       } @else {
         <div class="hint">Enter a query and root path, then click Search.</div>
       }
@@ -254,7 +260,7 @@
     </div>
 
     @if (diagnosticsLoading()) {
-      <div class="loading-text">Loading diagnostics…</div>
+      <app-skeleton [lines]="4" />
     } @else if (diagnostics().length > 0) {
       <div class="diag-table-wrap">
         <table class="diag-table">

@@ -1024,6 +1024,7 @@ export class LoopCoordinator extends EventEmitter {
       // -- verify-before-stop --
       let stopWithSignal: CompletionSignalEvidence | null = null;
       let verifyOutputForEmit = '';
+      let pauseBecauseCompletionCannotBeVerified = false;
       if (this.completionDetector.hasSufficientSignal(completionSignals) && !consumedInterventions.length) {
         // Pick the highest-priority sufficient signal for the stop attempt.
         const sufficientList = completionSignals.filter((c) => c.sufficient);
@@ -1046,7 +1047,7 @@ export class LoopCoordinator extends EventEmitter {
           // (declared-complete, *_Completed.md rename, DONE.txt, plan
           // checklist) is produced by the agent itself. Refuse to stop on an
           // unverified self-declaration: reject the pending completion,
-          // surface why, and keep iterating until a hard cap is reached.
+          // surface why, and pause for operator review.
           this.rejectPendingCompleteIntent(
             state,
             'completion not verified — no verify command configured',
@@ -1057,9 +1058,8 @@ export class LoopCoordinator extends EventEmitter {
             failure:
               'Completion cannot be confirmed: no verify command is configured, so the loop ' +
               'has no independent way to check the work is actually done. Configure a verify ' +
-              'command (your test / lint / build command) in the loop settings — until then ' +
-              'the loop will keep iterating until it reaches a hard cap rather than stop on an ' +
-              'unverified, self-declared completion.',
+              'command (your test / lint / build command) before starting a loop that should ' +
+              'auto-complete, or inspect the reported evidence and stop the loop manually.',
           });
           // Feed the rejection back to the agent: the next iteration must
           // know its completion was not accepted, otherwise it may simply
@@ -1067,11 +1067,11 @@ export class LoopCoordinator extends EventEmitter {
           state.pendingInterventions.push(
             'Your completion was NOT accepted. This loop has no verify command configured, ' +
               'so it cannot independently confirm the work is finished. Do not simply ' +
-              're-declare completion — it will be rejected again. Either keep making concrete ' +
-              'progress on the task, or, if you believe it is genuinely done, run the ' +
-              "project's own checks yourself (tests / lint / typecheck / build) and report " +
-              'their actual output as evidence.',
+              're-declare completion — it will be rejected again. The loop is pausing for ' +
+              'operator review because only the operator can decide whether your reported ' +
+              'verification evidence is sufficient without an independent verify command.',
           );
+          pauseBecauseCompletionCannotBeVerified = true;
           // do not stop; continue
         } else {
           // anti-flake: optionally run again
@@ -1171,6 +1171,13 @@ export class LoopCoordinator extends EventEmitter {
         });
         this.terminate(state, 'completed', `signal=${stopWithSignal.id}`);
         return;
+      }
+
+      if (pauseBecauseCompletionCannotBeVerified) {
+        state.status = 'paused';
+        this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
+        logger.info('Loop paused — completion cannot be verified without a verify command', { loopRunId: state.id });
+        continue;
       }
 
       // -- post-iteration: critical no-progress → pause --
@@ -1348,8 +1355,7 @@ export class LoopCoordinator extends EventEmitter {
     // `p.completion.requireCompletedFileRename`, so user choice still wins;
     // this only auto-enables for programmatic callers (tests, future MCP entry
     // points) that omit the field. Without this gate, a stale Completed.md
-    // from a prior run combined with an unconfigured verify command can
-    // terminate the loop on iteration 0.
+    // from a prior run could be mistaken for in-run completion evidence.
     if (p.planFile && p.completion?.requireCompletedFileRename === undefined) {
       base.completion.requireCompletedFileRename = true;
     }

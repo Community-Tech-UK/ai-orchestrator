@@ -19,11 +19,8 @@ import { PauseStore, type ResumeEvent } from './core/state/pause/pause.store';
 import { PauseToggleComponent } from './core/state/pause/pause-toggle.component';
 import { PauseBannerComponent } from './core/state/pause/pause-banner.component';
 import { PauseDetectorErrorModalComponent } from './core/state/pause/pause-detector-error-modal.component';
-import type {
-  StartupCapabilityCheck,
-  StartupCapabilityReport,
-} from '../../shared/types/startup-capability.types';
-import type { DoctorSectionId } from '../../shared/types/diagnostics.types';
+import type { StartupCapabilityReport } from '../../shared/types/startup-capability.types';
+import { FirstRunService } from './core/services/first-run.service';
 
 const STARTUP_BANNER_DISMISSAL_STORAGE_KEY = 'startup-capabilities-banner:dismissed-fingerprint';
 
@@ -62,6 +59,7 @@ export class AppComponent implements OnInit, OnDestroy {
   protected readonly pauseStore = inject(PauseStore);
   private pauseRendererController = inject(PauseRendererController);
   protected readonly toastService = inject(ToastService);
+  private readonly firstRunService = inject(FirstRunService);
 
   private menuListenerCleanup: (() => void) | null = null;
   private resumeToastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -80,6 +78,14 @@ export class AppComponent implements OnInit, OnDestroy {
     const fingerprint = this.startupCapabilityReportFingerprint(report);
     return fingerprint === this.dismissedStartupBannerFingerprint() ? null : report;
   });
+
+  /**
+   * Always-visible title-bar chip: shown as soon as a capabilities report is
+   * available, regardless of status. The chip is green when healthy so /setup
+   * is always reachable even on a clean install.
+   */
+  protected readonly startupStatusChipReport = computed(() => this.startupCapabilities());
+
   protected readonly resumeToast = signal<ResumeEvent | null>(null);
 
   constructor() {
@@ -143,6 +149,11 @@ export class AppComponent implements OnInit, OnDestroy {
         this.startupCapabilities.set(report);
       }
     }
+
+    // First-run: navigate to /setup exactly once (cleared by SetupCenterComponent).
+    if (!this.firstRunService.isCompleted()) {
+      void this.router.navigate(['/setup']);
+    }
   }
 
   ngOnDestroy(): void {
@@ -169,15 +180,8 @@ export class AppComponent implements OnInit, OnDestroy {
       .join(' ');
   }
 
-  openDoctorForBanner(): void {
-    const report = this.startupCapabilities();
-    const check = report ? this.pickHighestSeverityFailingCheck(report.checks) : null;
-    void this.router.navigate(['/settings'], {
-      queryParams: {
-        tab: 'doctor',
-        section: check ? this.doctorSectionForCheck(check.id) : 'startup-capabilities',
-      },
-    });
+  openSetupCenter(): void {
+    void this.router.navigate(['/setup']);
   }
 
   dismissStartupBanner(): void {
@@ -189,26 +193,6 @@ export class AppComponent implements OnInit, OnDestroy {
     const fingerprint = this.startupCapabilityReportFingerprint(report);
     this.dismissedStartupBannerFingerprint.set(fingerprint);
     this.writeDismissedStartupBannerFingerprint(fingerprint);
-  }
-
-  private pickHighestSeverityFailingCheck(
-    checks: StartupCapabilityCheck[],
-  ): StartupCapabilityCheck | null {
-    const rank: Record<StartupCapabilityCheck['status'], number> = {
-      unavailable: 4,
-      degraded: 3,
-      disabled: 2,
-      ready: 1,
-    };
-    return checks
-      .filter((check) => check.status !== 'ready' && check.status !== 'disabled')
-      .sort((a, b) => rank[b.status] - rank[a.status] || Number(b.critical) - Number(a.critical))[0] ?? null;
-  }
-
-  private doctorSectionForCheck(checkId: string): DoctorSectionId {
-    if (checkId.startsWith('provider.')) return 'provider-health';
-    if (checkId === 'subsystem.browser-automation') return 'browser-automation';
-    return 'startup-capabilities';
   }
 
   private startupCapabilityReportFingerprint(report: StartupCapabilityReport): string {

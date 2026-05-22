@@ -388,11 +388,12 @@ describe('LoopCoordinator completion classification hardening', () => {
 });
 
 describe('LoopCoordinator skipped-verify completion gate', () => {
-  it('does NOT complete on a sufficient signal when no verify command is configured', async () => {
+  it('pauses for operator review on a sufficient signal when no verify command is configured', async () => {
     // The agent "finishes": it renames the plan file to *_completed.md — a
     // sufficient completion signal. But no verify command is configured, so
     // the loop has no independent way to confirm the work is actually done.
-    // It must keep iterating until a hard cap rather than stop 'completed'.
+    // It must pause for operator review rather than stop 'completed' or keep
+    // burning iterations until a hard cap.
     writeFileSync(join(workspace, 'task-plan.md'), '# Plan\n');
 
     coordinator.removeAllListeners('loop:invoke-iteration');
@@ -426,14 +427,14 @@ describe('LoopCoordinator skipped-verify completion gate', () => {
       claimedDoneButFailed += 1;
     });
 
-    const terminalState = new Promise<{ status: string }>((resolve, reject) => {
+    const pausedState = new Promise<{ status: string }>((resolve, reject) => {
       const timeout = setTimeout(
-        () => reject(new Error('loop did not reach terminal state')),
-        15_000,
+        () => reject(new Error('loop did not pause for operator review')),
+        2_000,
       );
       coordinator.on('loop:state-changed', (data: unknown) => {
         const s = (data as { state: { status: string } }).state;
-        if (!['completed', 'cancelled', 'cap-reached', 'error', 'no-progress'].includes(s.status)) {
+        if (s.status !== 'paused') {
           return;
         }
         clearTimeout(timeout);
@@ -466,9 +467,11 @@ describe('LoopCoordinator skipped-verify completion gate', () => {
     });
 
     try {
-      const result = await terminalState;
-      // The unverified completion signal must NOT have stopped the loop.
-      expect(result.status).toBe('cap-reached');
+      const result = await pausedState;
+      // The unverified completion signal must NOT have stopped the loop or
+      // started another iteration.
+      expect(result.status).toBe('paused');
+      expect(invocations).toBe(1);
       // ...and the agent's unverifiable claim was surfaced as a warning.
       expect(claimedDoneButFailed).toBeGreaterThanOrEqual(1);
     } finally {

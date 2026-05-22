@@ -103,6 +103,7 @@ export const LoopCompletionConfigSchema = z.object({
   donePromiseRegex: z.string().min(1),
   doneSentinelFile: z.string().min(1),
   verifyCommand: z.string(),
+  allowOperatorReviewedCompletion: z.boolean().default(false),
   verifyTimeoutMs: z.number().int().positive().max(60 * 60 * 1000),
   runVerifyTwice: z.boolean(),
   requireCompletedFileRename: z.boolean(),

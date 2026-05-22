@@ -1,13 +1,17 @@
 /**
- * SessionDiffTracker — captures file content baselines and computes line-level
- * diffs to accumulate session-wide change stats (added/deleted line counts).
+ * SessionDiffTracker — captures file snapshots and computes line-level diffs
+ * to accumulate session-wide change stats (added/deleted line counts).
  *
  * One tracker is created per active instance. The lifecycle is:
- *   1. Agent tool calls trigger captureBaseline() for each file it reads/writes.
- *   2. At the end of a turn computeDiff() is called — it diffs each baseline
- *      against the current on-disk content, accumulates the results, then clears
- *      the per-turn baselines ready for the next turn.
+ *   1. Agent tool calls trigger captureBaseline() for each file they read/write.
+ *   2. At the end of a turn computeDiff() is called — it snapshots each baseline
+ *      file's current state, accumulates the results, then clears the per-turn
+ *      baselines ready for the next turn.
  *   3. reset() zeroes all accumulated stats (used when starting a fresh session).
+ *
+ * Baselines are stored as a discriminated union of `text` (full content for
+ * line-level diff), `binary` (size + mtimeMs for change-detection without
+ * holding the full content in memory), or `absent` (file did not exist).
  */
 
 import * as fs from 'fs';
@@ -30,21 +34,34 @@ const BINARY_DETECT_BYTES = 8 * 1024;
 // ============================================================================
 
 /**
- * Read raw file content.  Returns:
- *   - `null`   — file is binary (null byte found in first BINARY_DETECT_BYTES)
- *   - `''`     — file does not exist
- *   - `string` — file text content
+ * A snapshot of a file at a point in time.
  *
- * Files larger than MAX_FILE_SIZE_BYTES are skipped (returns undefined, caller
- * must handle the skip).
+ * - `text`   — text file with its full UTF-8 contents, used for line-level diff.
+ * - `binary` — binary file: only size + mtimeMs are recorded so unchanged
+ *              binaries can be detected cheaply without holding the full file
+ *              in memory.
+ * - `absent` — file did not exist at snapshot time.
  */
-function readFileContent(filePath: string): string | null | undefined {
+type FileSnapshot =
+  | { kind: 'text'; content: string }
+  | { kind: 'binary'; size: number; mtimeMs: number }
+  | { kind: 'absent' };
+
+/**
+ * Snapshot `filePath`. Returns:
+ *   - `{ kind: 'absent' }`  — file does not exist.
+ *   - `{ kind: 'binary', size, mtimeMs }` — file is binary (null byte found in
+ *     the first BINARY_DETECT_BYTES). Content is intentionally NOT read.
+ *   - `{ kind: 'text', content }` — file is text; full UTF-8 content captured.
+ *   - `undefined` — file is larger than MAX_FILE_SIZE_BYTES (caller skips).
+ */
+function snapshotFile(filePath: string): FileSnapshot | undefined {
   let stat: fs.Stats;
   try {
     stat = fs.statSync(filePath);
   } catch {
-    // File does not exist — treat as empty baseline.
-    return '';
+    // File does not exist — treat as absent baseline.
+    return { kind: 'absent' };
   }
 
   if (stat.size > MAX_FILE_SIZE_BYTES) {
@@ -59,17 +76,32 @@ function readFileContent(filePath: string): string | null | undefined {
       const sample = Buffer.alloc(bytesToCheck);
       fs.readSync(fd, sample, 0, bytesToCheck, 0);
       if (sample.includes(0)) {
-        return null; // binary
+        return { kind: 'binary', size: stat.size, mtimeMs: stat.mtimeMs };
       }
     }
 
     // Read full content as text.
     const buf = Buffer.alloc(stat.size);
     fs.readSync(fd, buf, 0, stat.size, 0);
-    return buf.toString('utf8');
+    return { kind: 'text', content: buf.toString('utf8') };
   } finally {
     fs.closeSync(fd);
   }
+}
+
+/**
+ * Run a line-level diff and return added / deleted line counts.
+ */
+function lineDiffCounts(before: string, after: string): { added: number; deleted: number } {
+  const hunks = diffLines(before, after);
+  let added = 0;
+  let deleted = 0;
+  for (const hunk of hunks) {
+    const lineCount = hunk.count ?? 0;
+    if (hunk.added) added += lineCount;
+    else if (hunk.removed) deleted += lineCount;
+  }
+  return { added, deleted };
 }
 
 // ============================================================================
@@ -82,11 +114,10 @@ function readFileContent(filePath: string): string | null | undefined {
  */
 export class SessionDiffTracker {
   /**
-   * Baseline content captured at the start of each turn.
+   * Baseline snapshot captured at the start of each turn.
    * Key: absolute file path.
-   * Value: text content (`null` = binary file marker).
    */
-  private baselines = new Map<string, string | null>();
+  private baselines = new Map<string, FileSnapshot>();
 
   /** Accumulated diff stats for the entire session. */
   private stats: SessionDiffStats = {
@@ -102,14 +133,16 @@ export class SessionDiffTracker {
   // --------------------------------------------------------------------------
 
   /**
-   * Capture the baseline content of `filePath` for the current turn.
+   * Capture the baseline state of `filePath` for the current turn.
    *
    * Rules:
    * - A file is only captured ONCE per turn (subsequent calls for the same
    *   path within the same turn are ignored).
-   * - Paths outside `workingDirectory` are silently ignored.
-   * - Non-existent files get an empty-string baseline.
-   * - Binary files get a `null` marker.
+   * - Paths outside `workingDirectory` are only tracked if they are
+   *   user-facing artifacts (md, pdf, png, docx, etc.). Code files outside
+   *   cwd stay ignored.
+   * - Non-existent files get an `absent` baseline.
+   * - Binary files get a `binary` baseline (size + mtimeMs only — no content).
    * - Files larger than 10 MB are skipped.
    *
    * `filePath` may be absolute or relative; relative paths are resolved
@@ -140,22 +173,22 @@ export class SessionDiffTracker {
       return;
     }
 
-    const content = readFileContent(absolute);
-    if (content === undefined) {
+    const snapshot = snapshotFile(absolute);
+    if (snapshot === undefined) {
       logger.debug('captureBaseline: skipping large file', { filePath: absolute });
       return;
     }
 
-    this.baselines.set(absolute, content);
+    this.baselines.set(absolute, snapshot);
     logger.debug('captureBaseline: captured baseline', {
       filePath: absolute,
-      binary: content === null,
+      kind: snapshot.kind,
     });
   }
 
   /**
-   * Compute line-level diffs for all captured baselines vs their current
-   * on-disk state.  Accumulates results into session stats.
+   * Snapshot the current state of every baseline file and diff against its
+   * baseline. Accumulates results into session stats.
    *
    * After computing, all per-turn baselines are cleared so the next turn
    * starts fresh.
@@ -165,9 +198,80 @@ export class SessionDiffTracker {
   computeDiff(): SessionDiffStats {
     for (const [absolute, baseline] of this.baselines) {
       const relPath = path.relative(this.workingDirectory, absolute);
+      const current = snapshotFile(absolute);
 
-      // Binary file — count as 1 file changed, 0 line changes.
-      if (baseline === null) {
+      // File became too large to re-read — skip.
+      if (current === undefined) {
+        continue;
+      }
+
+      // baseline absent → either nothing happened (both absent) or the file
+      // was created during the turn (ADDED). Handled here so the rest of the
+      // body can assume baseline is text|binary, giving TS the narrowing it
+      // needs to access baseline.content / baseline.size below.
+      if (baseline.kind === 'absent') {
+        if (current.kind === 'absent') {
+          continue; // file never appeared
+        }
+        if (current.kind === 'binary') {
+          this.accumulateFileEntry(relPath, {
+            path: relPath,
+            status: 'added',
+            added: 0,
+            deleted: 0,
+          });
+        } else {
+          // text — count its lines as added
+          const { added, deleted } = lineDiffCounts('', current.content);
+          if (added === 0 && deleted === 0) continue; // file created empty
+          this.accumulateFileEntry(relPath, {
+            path: relPath,
+            status: 'added',
+            added,
+            deleted,
+          });
+        }
+        continue;
+      }
+
+      // baseline is text|binary from here on.
+      // current absent → DELETED.
+      if (current.kind === 'absent') {
+        if (baseline.kind === 'binary') {
+          this.accumulateFileEntry(relPath, {
+            path: relPath,
+            status: 'deleted',
+            added: 0,
+            deleted: 0,
+          });
+        } else {
+          // text — count its baseline lines as deleted
+          const { added, deleted } = lineDiffCounts(baseline.content, '');
+          this.accumulateFileEntry(relPath, {
+            path: relPath,
+            status: 'deleted',
+            added,
+            deleted,
+          });
+        }
+        continue;
+      }
+
+      // Both present — handle binary / text combinations.
+      if (baseline.kind === 'binary' || current.kind === 'binary') {
+        // Both binary: skip when size + mtimeMs are unchanged. This prevents
+        // the long-standing false positive where a binary file the agent
+        // merely referenced (e.g. `cat foo.docx | head`) was always surfaced
+        // as "Updated" even though nothing was written.
+        if (
+          baseline.kind === 'binary' &&
+          current.kind === 'binary' &&
+          baseline.size === current.size &&
+          baseline.mtimeMs === current.mtimeMs
+        ) {
+          continue;
+        }
+        // Mixed kind or changed binary → modified with 0/0 lines.
         this.accumulateFileEntry(relPath, {
           path: relPath,
           status: 'modified',
@@ -177,47 +281,16 @@ export class SessionDiffTracker {
         continue;
       }
 
-      const current = readFileContent(absolute);
+      // Both text — line-level diff.
+      const { added, deleted } = lineDiffCounts(baseline.content, current.content);
+      if (added === 0 && deleted === 0) continue;
 
-      // File was too large to read now — skip.
-      if (current === undefined) {
-        continue;
-      }
-
-      // Newly-added binary file — treat like binary.
-      if (current === null) {
-        this.accumulateFileEntry(relPath, {
-          path: relPath,
-          status: baseline === '' ? 'added' : 'modified',
-          added: 0,
-          deleted: 0,
-        });
-        continue;
-      }
-
-      // Both baseline and current are text — run diffLines.
-      const hunks = diffLines(baseline, current);
-      let added = 0;
-      let deleted = 0;
-
-      for (const hunk of hunks) {
-        const lineCount = hunk.count ?? 0;
-        if (hunk.added) {
-          added += lineCount;
-        } else if (hunk.removed) {
-          deleted += lineCount;
-        }
-      }
-
-      // No changes — nothing to record.
-      if (added === 0 && deleted === 0) {
-        continue;
-      }
-
+      // Treat empty-text → non-empty-text as "added" so newly populated
+      // files show the right status (matches pre-refactor behaviour).
       let status: FileDiffEntry['status'];
-      if (baseline === '' && current !== '') {
+      if (baseline.content === '' && current.content !== '') {
         status = 'added';
-      } else if (current === '') {
+      } else if (current.content === '') {
         status = 'deleted';
       } else {
         status = 'modified';

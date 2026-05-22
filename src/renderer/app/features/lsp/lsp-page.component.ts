@@ -15,6 +15,8 @@ import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { LspIpcService } from '../../core/services/ipc/lsp-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
+import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
+import { SkeletonComponent } from '../../shared/components/skeleton/skeleton.component';
 
 // ============================================================
 // Local interfaces
@@ -92,7 +94,7 @@ function symbolKindIcon(kind: string): string {
 @Component({
   selector: 'app-lsp-page',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, EmptyStateComponent, SkeletonComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './lsp-page.component.html',
   styleUrl: './lsp-page.component.scss',

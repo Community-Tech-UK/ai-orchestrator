@@ -1,118 +1,99 @@
+/**
+ * Network Settings Tab - VPN-pause detection and traffic gate configuration.
+ *
+ * Uses the draft/apply pattern (copilot_todo.md item 5): changes are collected
+ * locally and only written to the store when the user clicks "Apply changes".
+ * Styles extracted to .scss (copilot_todo.md item 15).
+ */
+
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
 import { SettingRowComponent } from './setting-row.component';
 import { PauseDetectorEventsDialogComponent } from './pause-detector-events-dialog.component';
+import { SettingsCardComponent } from './ui/settings-card.component';
+import { SaveStateBannerComponent, type SaveState } from './ui/save-state-banner.component';
+import { InlineHelpComponent } from './ui/inline-help.component';
 import type { AppSettings, SettingMetadata } from '../../../../shared/types/settings.types';
 
 @Component({
   selector: 'app-network-settings-tab',
   standalone: true,
-  imports: [SettingRowComponent, PauseDetectorEventsDialogComponent],
+  imports: [
+    SettingRowComponent,
+    PauseDetectorEventsDialogComponent,
+    SettingsCardComponent,
+    SaveStateBannerComponent,
+    InlineHelpComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `
-    <section class="network-settings">
-      <header class="section-header">
-        <div>
-          <h3>Network Safety</h3>
-          <p>Control pause-on-VPN detection and the outbound traffic gate.</p>
-        </div>
-        <button type="button" class="secondary-btn" (click)="eventsOpen.set(true)">
-          Events
-        </button>
-      </header>
-
-      @if (masterSetting()) {
-        <app-setting-row
-          [setting]="masterSetting()!"
-          [value]="store.get('pauseFeatureEnabled')"
-          (valueChange)="onSettingChange($event)"
-        />
-      }
-
-      @if (!store.get('pauseFeatureEnabled')) {
-        <div class="disabled-note">
-          Enable network safety to configure VPN detection, probes, and local-network allow-listing.
-        </div>
-      } @else {
-        @for (setting of detailSettings(); track setting.key) {
-          <app-setting-row
-            [setting]="setting"
-            [value]="store.get(setting.key)"
-            (valueChange)="onSettingChange($event)"
-          />
-        }
-      }
-    </section>
-
-    @if (eventsOpen()) {
-      <app-pause-detector-events-dialog (closeRequested)="eventsOpen.set(false)" />
-    }
-  `,
-  styles: [`
-    .network-settings {
-      display: flex;
-      flex-direction: column;
-      gap: var(--spacing-md, 1rem);
-    }
-
-    .section-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-    }
-
-    h3 {
-      margin: 0;
-      font-size: 1.25rem;
-      font-weight: 600;
-      color: var(--text-primary, #e5e5e5);
-    }
-
-    p {
-      margin: 0.25rem 0 0;
-      color: var(--text-muted, #888);
-      font-size: 0.875rem;
-    }
-
-    .secondary-btn {
-      height: 32px;
-      padding: 0 0.85rem;
-      border: 1px solid var(--border-color, #333);
-      border-radius: 6px;
-      background: rgba(255, 255, 255, 0.06);
-      color: var(--text-primary, #e5e5e5);
-      cursor: pointer;
-      font-weight: 600;
-    }
-
-    .secondary-btn:hover {
-      background: rgba(255, 255, 255, 0.1);
-    }
-
-    .disabled-note {
-      padding: 0.8rem 0.9rem;
-      border: 1px solid rgba(148, 163, 184, 0.22);
-      border-radius: 8px;
-      background: rgba(148, 163, 184, 0.08);
-      color: var(--text-secondary, #cbd5e1);
-      font-size: 0.875rem;
-      line-height: 1.4;
-    }
-  `],
+  templateUrl: './network-settings-tab.component.html',
+  styleUrl: './network-settings-tab.component.scss',
 })
 export class NetworkSettingsTabComponent {
   protected readonly store = inject(SettingsStore);
   protected readonly eventsOpen = signal(false);
+  private readonly _draft = signal<Partial<AppSettings>>({});
 
   protected readonly masterSetting = computed<SettingMetadata | undefined>(() =>
-    this.store.networkSettings().find((setting) => setting.key === 'pauseFeatureEnabled')
+    this.store.networkSettings().find((s) => s.key === 'pauseFeatureEnabled'),
   );
   protected readonly detailSettings = computed(() =>
-    this.store.networkSettings().filter((setting) => setting.key !== 'pauseFeatureEnabled')
+    this.store.networkSettings().filter((s) => s.key !== 'pauseFeatureEnabled'),
   );
 
+  /**
+   * Returns a map of key → effective value (draft overrides store).
+   * Exposing this as a signal ensures the template re-renders when the
+   * draft changes.
+   */
+  protected readonly effectiveValues = computed((): Record<string, unknown> => {
+    const d = this._draft();
+    const result: Record<string, unknown> = {};
+    for (const s of this.store.networkSettings()) {
+      const key = s.key as keyof AppSettings;
+      result[s.key] = key in d ? d[key] : this.store.get(key);
+    }
+    return result;
+  });
+
+  /** Whether the master toggle is on in the draft (or store if not drafted). */
+  protected readonly masterEnabled = computed(
+    () => (this.effectiveValues()['pauseFeatureEnabled'] as boolean) ?? false,
+  );
+
+  protected readonly dirty = computed(() => {
+    const d = this._draft();
+    return Object.entries(d).some(
+      ([key, val]) => val !== this.store.get(key as keyof AppSettings),
+    );
+  });
+
+  private readonly saving = signal(false);
+
+  protected readonly saveState = computed<SaveState>(() => {
+    if (this.saving()) return 'saving';
+    return this.dirty() ? 'dirty' : 'saved';
+  });
+
   onSettingChange(event: { key: string; value: unknown }): void {
-    void this.store.set(event.key as keyof AppSettings, event.value as AppSettings[keyof AppSettings]);
+    this._draft.update((d) => ({ ...d, [event.key]: event.value }));
+  }
+
+  async apply(): Promise<void> {
+    this.saving.set(true);
+    try {
+      await Promise.all(
+        Object.entries(this._draft()).map(([key, val]) =>
+          this.store.set(key as keyof AppSettings, val as AppSettings[keyof AppSettings]),
+        ),
+      );
+      this._draft.set({});
+    } finally {
+      this.saving.set(false);
+    }
+  }
+
+  discard(): void {
+    this._draft.set({});
   }
 }

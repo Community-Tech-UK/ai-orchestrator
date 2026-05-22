@@ -6,6 +6,9 @@ dist/
 out/
 release/
 
+# Visual QA screenshot artifacts (docs/visual-qa-checklist.md)
+visual-qa/
+
 # Angular
 .angular/
 

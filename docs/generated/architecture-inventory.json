@@ -4801,12 +4801,12 @@
       "lines": 1803
     },
     {
-      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
-      "lines": 1767
+      "path": "src/main/orchestration/loop-coordinator.ts",
+      "lines": 1772
     },
     {
-      "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 1766
+      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
+      "lines": 1767
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
@@ -5041,6 +5041,10 @@
       "lines": 1125
     },
     {
+      "path": "src/renderer/app/features/settings/permissions-settings-tab.component.ts",
+      "lines": 1121
+    },
+    {
       "path": "docs/plans/bigchange_remote-nodes_completed.md",
       "lines": 1113
     },
@@ -5065,10 +5069,6 @@
       "lines": 1104
     },
     {
-      "path": "src/renderer/app/features/settings/permissions-settings-tab.component.ts",
-      "lines": 1092
-    },
-    {
       "path": "src/main/orchestration/default-invokers.ts",
       "lines": 1072
     },
@@ -5083,6 +5083,10 @@
     {
       "path": "src/main/orchestration/__tests__/debate-coordinator.spec.ts",
       "lines": 1055
+    },
+    {
+      "path": "src/renderer/app/features/settings/settings.component.ts",
+      "lines": 1039
     },
     {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
@@ -5109,12 +5113,12 @@
       "lines": 1024
     },
     {
-      "path": "src/renderer/app/features/logs/logs-page.component.ts",
+      "path": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
       "lines": 1020
     },
     {
-      "path": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
-      "lines": 1015
+      "path": "src/renderer/app/features/logs/logs-page.component.ts",
+      "lines": 1020
     },
     {
       "path": "src/main/ipc/handlers/session-handlers.ts",
@@ -5345,6 +5349,10 @@
       "lines": 841
     },
     {
+      "path": "src/shared/types/settings.types.ts",
+      "lines": 840
+    },
+    {
       "path": "src/renderer/app/features/mcp/mcp-page.component.scss",
       "lines": 838
     },
@@ -5387,10 +5395,6 @@
     {
       "path": "docs/superpowers/specs/2026-05-06-claude-code-feature-harvest-design_completed.md",
       "lines": 814
-    },
-    {
-      "path": "src/shared/types/settings.types.ts",
-      "lines": 810
     },
     {
       "path": "src/renderer/app/features/observations/observations-page.component.ts",

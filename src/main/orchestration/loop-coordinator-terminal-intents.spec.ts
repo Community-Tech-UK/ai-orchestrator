@@ -20,6 +20,60 @@ afterEach(() => {
 });
 
 describe('LoopCoordinator terminal intents', () => {
+  it('pauses instead of continuing when a complete intent has no configured verify command', async () => {
+    const claimedFailed = waitForEvent<{ signal: string; failure: string }>(
+      coordinator,
+      'loop:claimed-done-but-failed',
+    );
+    let invokeCount = 0;
+    coordinator.on('loop:invoke-iteration', async (payload: unknown) => {
+      const p = payload as {
+        loopControlEnv: NodeJS.ProcessEnv;
+        callback: (result: LoopChildResult | { error: string }) => void;
+      };
+      invokeCount += 1;
+      const code = await runLoopControlCli(
+        ['node', 'aio-loop-control', 'complete', '--summary', 'verified manually'],
+        p.loopControlEnv,
+        silentIo(),
+      );
+      expect(code).toBe(0);
+      p.callback(iterationResult('declared complete after manual checks'));
+    });
+
+    let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
+    try {
+      state = await coordinator.startLoop('chat-complete-no-verify', {
+        initialPrompt: 'do thing',
+        workspaceCwd: workspace,
+        caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 5 },
+        completion: {
+          ...defaultLoopConfig(workspace, 'x').completion,
+          verifyCommand: '',
+          runVerifyTwice: false,
+          requireCompletedFileRename: false,
+          crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
+        },
+      });
+
+      await expect(claimedFailed).resolves.toMatchObject({
+        signal: 'declared-complete',
+        failure: expect.stringContaining('no verify command is configured'),
+      });
+      await waitForCondition(() => coordinator.getLoop(state!.id)?.status === 'paused');
+      expect(coordinator.getLoop(state.id)?.terminalIntentHistory).toEqual([
+        expect.objectContaining({
+          kind: 'complete',
+          status: 'rejected',
+          statusReason: 'completion not verified — no verify command configured',
+        }),
+      ]);
+      expect(invokeCount).toBe(1);
+    } finally {
+      if (state) await coordinator.cancelLoop(state.id);
+    }
+  });
+
   it('accepts a complete intent even when the provider callback reports an error, then still runs verify', async () => {
     const completed = waitForEvent<{ signal: string }>(coordinator, 'loop:completed');
     coordinator.on('loop:invoke-iteration', async (payload: unknown) => {
@@ -259,6 +313,15 @@ function waitForEvent<T = unknown>(coordinator: LoopCoordinator, eventName: stri
   return new Promise((resolve) => {
     coordinator.once(eventName, (payload) => resolve(payload as T));
   });
+}
+
+async function waitForCondition(predicate: () => boolean, timeoutMs = 750): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error('condition was not met before timeout');
 }
 
 function silentIo() {

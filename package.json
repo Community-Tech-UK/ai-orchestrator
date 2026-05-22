@@ -61,7 +61,8 @@
     "build:loop-control-sea": "tsx build-loop-control-cli-sea.ts",
     "build:loop-control-dist": "npm run build:loop-control-cli && npm run build:loop-control-sea",
     "download:winsw": "node scripts/download-winsw.js",
-    "review": "tsx src/main/cli-entrypoints/review-command.ts"
+    "review": "tsx src/main/cli-entrypoints/review-command.ts",
+    "visual:qa": "node scripts/visual-qa-screenshots.mjs --all"
   },
   "keywords": [
     "ai",

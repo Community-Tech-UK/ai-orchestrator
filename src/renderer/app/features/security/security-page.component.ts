@@ -16,6 +16,7 @@ import { Router } from '@angular/router';
 import { SecurityIpcService } from '../../core/services/ipc/security-ipc.service';
 import { CommandIpcService } from '../../core/services/ipc/command-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
+import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
 
 // ─── Local interfaces ────────────────────────────────────────────────────────
 
@@ -46,7 +47,7 @@ interface EnvVar {
 @Component({
   selector: 'app-security-page',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, EmptyStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './security-page.component.html',
   styleUrl: './security-page.component.scss',

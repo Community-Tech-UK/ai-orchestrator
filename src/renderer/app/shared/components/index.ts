@@ -7,4 +7,5 @@ export { ActivityFeedComponent, type FeedEvent } from './activity-feed/activity-
 export { MetricCardComponent } from './metric-card/metric-card.component';
 export { SearchPanelComponent, type SearchFilter } from './search-panel/search-panel.component';
 export { EmptyStateComponent } from './empty-state/empty-state.component';
+export { SkeletonComponent } from './skeleton/skeleton.component';
 export { PageHeaderComponent } from './page-header/page-header.component';

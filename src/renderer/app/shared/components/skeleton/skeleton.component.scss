@@ -1,0 +1,49 @@
+:host {
+  display: block;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+%shimmer-base {
+  background: linear-gradient(
+    90deg,
+    var(--skeleton-base) 25%,
+    var(--skeleton-sheen) 50%,
+    var(--skeleton-base) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    background: var(--skeleton-base);
+  }
+}
+
+.skeleton-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) 0;
+}
+
+.skeleton-line {
+  @extend %shimmer-base;
+  height: 12px;
+  width: 90%;
+
+  &:nth-child(3n) { width: 60%; }
+  &:nth-child(3n+2) { width: 75%; }
+}
+
+.skeleton-block {
+  @extend %shimmer-base;
+  height: 100%;
+  min-height: 80px;
+  border-radius: var(--radius-md);
+  width: 100%;
+}

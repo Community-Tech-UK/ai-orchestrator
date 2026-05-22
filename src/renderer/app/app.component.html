@@ -2,11 +2,28 @@
   <div class="title-bar-drag-area" [class.windows]="!isMacOS"></div>
 
   <div class="title-bar-overlay" [class.macos]="isMacOS">
+    @if (startupStatusChipReport(); as report) {
+      <button
+        type="button"
+        class="startup-status-chip"
+        [class.ready]="report.status === 'ready'"
+        [class.failed]="report.status === 'failed'"
+        [title]="startupCapabilitySummary()"
+        (click)="openSetupCenter()"
+      >
+        Startup {{ report.status }}
+      </button>
+    }
     <app-cli-update-pill />
     @if (settingsStore.isInitialized() && settingsStore.get('pauseFeatureEnabled')) {
       <app-pause-toggle />
     }
     <app-provider-quota-chip />
+    @if (resumeToast(); as toast) {
+      <span class="title-activity-chip" title="Queued paused traffic is resuming">
+        Sending {{ toast.queuedTotal }}
+      </span>
+    }
   </div>
 
   @if (startupBannerReport(); as report) {
@@ -21,7 +38,7 @@
       </span>
       <span class="startup-banner-body">{{ startupCapabilitySummary() }}</span>
       <span class="startup-banner-actions">
-        <button type="button" class="startup-banner-cta" (click)="openDoctorForBanner()">Open Doctor</button>
+        <button type="button" class="startup-banner-cta" (click)="openSetupCenter()">Open setup</button>
         <button
           type="button"
           class="startup-banner-dismiss"

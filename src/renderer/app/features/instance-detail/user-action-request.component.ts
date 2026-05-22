@@ -485,19 +485,13 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   private unsubscribeInputRequired: (() => void) | null = null;
 
   constructor() {
-    // Reload pending requests when instanceId changes.
-    // Only filter input_required (permission prompts) by instance — orchestrator
-    // user-action requests (ask_questions, switch_mode, etc.) are shown globally
-    // so questions from child instances are visible regardless of which instance
-    // the user is viewing.
+    // Reload pending requests when instanceId changes and keep the card scoped
+    // to the selected session.
     effect(() => {
       const id = this.instanceId();
       if (id) {
-        // Keep orchestrator requests (global) + instance-scoped input_required
         this.pendingRequests.update((requests) =>
-          requests.filter(
-            (r) => r.requestType !== 'input_required' || r.instanceId === id
-          )
+          requests.filter((r) => this.isRequestForInstance(r, id))
         );
         this.loadPendingRequests();
       } else {
@@ -524,11 +518,14 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     // Initial load of pending requests (for cases where instanceId is already set)
     this.loadPendingRequests();
 
-    // Subscribe to user action requests (orchestrator commands).
-    // Show ALL orchestrator requests globally so questions from child instances
-    // are visible regardless of which instance the user is viewing.
+    // Subscribe to user action requests (orchestrator commands) for the
+    // currently selected session.
     this.unsubscribeUserAction = this.ipc.onUserActionRequest((request) => {
       const req = request as UserActionRequest;
+      const currentInstanceId = this.instanceId();
+      if (!currentInstanceId || !this.isRequestForInstance(req, currentInstanceId)) {
+        return;
+      }
 
       // Deduplicate: skip if we already have this request ID
       this.pendingRequests.update((requests) => {
@@ -625,24 +622,28 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
   private async loadPendingRequests(): Promise<void> {
     const currentInstanceId = this.instanceId();
+    if (!currentInstanceId) {
+      this.pendingRequests.set([]);
+      return;
+    }
 
     try {
-      // Load ALL pending orchestrator requests (shown globally) so child
-      // instance questions are visible from any instance view.
-      const response = await this.ipc.listUserActionRequests();
+      const response = await this.ipc.listUserActionRequestsForInstance(currentInstanceId);
+      if (this.instanceId() !== currentInstanceId) {
+        return;
+      }
 
       if (response.success && 'data' in response && response.data) {
         const serverRequests = response.data as UserActionRequest[];
         // Merge: use server list as base, but keep any locally-tracked requests
         // that the server doesn't know about yet (e.g., input_required from IPC events).
-        // Filter input_required to the current instance only.
         this.pendingRequests.update((existing) => {
           const serverIds = new Set(serverRequests.map((r) => r.id));
           const localOnly = existing.filter(
-            (r) => !serverIds.has(r.id) && (r.requestType !== 'input_required' || r.instanceId === currentInstanceId)
+            (r) => !serverIds.has(r.id) && this.isRequestForInstance(r, currentInstanceId)
           );
           const filteredServer = serverRequests.filter(
-            (r) => r.requestType !== 'input_required' || r.instanceId === currentInstanceId
+            (r) => this.isRequestForInstance(r, currentInstanceId)
           );
           return [...filteredServer, ...localOnly];
         });
@@ -650,6 +651,10 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     } catch (error) {
       console.error('Failed to load pending user action requests:', error);
     }
+  }
+
+  private isRequestForInstance(request: UserActionRequest, instanceId: string): boolean {
+    return request.instanceId === instanceId;
   }
 
   @HostListener('document:keydown', ['$event'])

@@ -187,7 +187,10 @@
             }
 
             @if (totalChanges() === 0) {
-              <div class="empty-hint">Working tree clean.</div>
+              <app-empty-state
+                title="Working tree clean"
+                message="No staged or unstaged changes detected."
+              />
             }
           }
 
@@ -202,7 +205,10 @@
               </div>
             }
             @if (branches().length === 0) {
-              <div class="empty-hint">No branches found.</div>
+              <app-empty-state
+                title="No branches"
+                message="No local branches found in this repository."
+              />
             }
           }
         </div>
@@ -250,7 +256,10 @@
             </button>
           }
           @if (commits().length === 0) {
-            <div class="empty-hint">No commits found.</div>
+            <app-empty-state
+              title="No commits"
+              message="No commit history found for this branch."
+            />
           }
         </div>
 
@@ -314,7 +323,7 @@
               <div class="empty-hint">Load a file path to see its commit history.</div>
             }
             @if (historyLoading()) {
-              <div class="empty-hint">Loading…</div>
+              <app-skeleton [lines]="4" />
             }
           </div>
         </div>

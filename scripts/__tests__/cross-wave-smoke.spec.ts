@@ -422,17 +422,20 @@ describe('Wave 7 cross-wave smoke', () => {
   });
 
   it('keeps recent operator-facing UI surfaces mounted and discoverable', async () => {
+    // Global destinations moved from the sidebar-actions strip into the
+    // slim workspace rail (copilot_todo.md item 6); the rail is now the
+    // canonical home for the Browser destination.
     const [
       appTs,
       appHtml,
       dashboardTs,
-      sidebarActionsTs,
+      workspaceRailTs,
       sidebarNavTs,
     ] = await Promise.all([
       readFile(join(process.cwd(), 'src/renderer/app/app.component.ts'), 'utf-8'),
       readFile(join(process.cwd(), 'src/renderer/app/app.component.html'), 'utf-8'),
       readFile(join(process.cwd(), 'src/renderer/app/features/dashboard/dashboard.component.ts'), 'utf-8'),
-      readFile(join(process.cwd(), 'src/renderer/app/features/dashboard/sidebar-actions.component.ts'), 'utf-8'),
+      readFile(join(process.cwd(), 'src/renderer/app/features/dashboard/workspace-rail.component.ts'), 'utf-8'),
       readFile(join(process.cwd(), 'src/renderer/app/features/dashboard/sidebar-nav.component.ts'), 'utf-8'),
     ]);
 
@@ -440,7 +443,7 @@ describe('Wave 7 cross-wave smoke', () => {
     expect(appHtml).toContain('<app-cli-update-pill');
     expect(dashboardTs).toContain("id: 'app.open-browser'");
     expect(dashboardTs).toContain("id: 'app.open-doctor'");
-    expect(sidebarActionsTs).toContain('routerLink="/browser"');
+    expect(workspaceRailTs).toContain('routerLink="/browser"');
     expect(sidebarNavTs).toContain("route: '/browser'");
   });
 

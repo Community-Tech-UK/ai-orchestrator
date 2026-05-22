@@ -3,9 +3,25 @@
  */
 
 import { Injectable, signal, computed, effect, inject } from '@angular/core';
-import type { AppSettings, ThemeMode } from '../../../../shared/types/settings.types';
+import type {
+  AppSettings,
+  DisplayDensity,
+  SidebarStyle,
+  ThemeMode,
+} from '../../../../shared/types/settings.types';
 import { DEFAULT_SETTINGS, SETTINGS_METADATA } from '../../../../shared/types/settings.types';
 import { SettingsIpcService } from '../services/ipc/settings-ipc.service';
+
+/**
+ * A transient, non-persisted appearance override used to preview shell
+ * appearance changes before the user commits them. See `previewAppearance`.
+ */
+export interface AppearancePreview {
+  theme?: ThemeMode;
+  fontSize?: number;
+  displayDensity?: DisplayDensity;
+  sidebarStyle?: SidebarStyle;
+}
 
 @Injectable({ providedIn: 'root' })
 export class SettingsStore {
@@ -16,6 +32,7 @@ export class SettingsStore {
   private _loading = signal(false);
   private _error = signal<string | null>(null);
   private _initialized = signal(false);
+  private _appearancePreview = signal<AppearancePreview | null>(null);
   private initPromise: Promise<void> | null = null;
 
   // Public readonly signals
@@ -23,6 +40,8 @@ export class SettingsStore {
   readonly loading = this._loading.asReadonly();
   readonly error = this._error.asReadonly();
   readonly isInitialized = this._initialized.asReadonly();
+  /** The staged, un-persisted appearance preview, or null when none is active. */
+  readonly appearancePreview = this._appearancePreview.asReadonly();
 
   // Computed values for common settings
   readonly defaultYoloMode = computed(() => this._settings().defaultYoloMode);
@@ -31,6 +50,22 @@ export class SettingsStore {
   readonly theme = computed(() => this._settings().theme);
   readonly maxChildrenPerParent = computed(() => this._settings().maxChildrenPerParent);
   readonly fontSize = computed(() => this._settings().fontSize);
+  readonly displayDensity = computed(
+    () => this._settings().displayDensity ?? DEFAULT_SETTINGS.displayDensity,
+  );
+  readonly sidebarStyle = computed(
+    () => this._settings().sidebarStyle ?? DEFAULT_SETTINGS.sidebarStyle,
+  );
+  readonly effectiveDisplayDensity = computed(
+    () => this._appearancePreview()?.displayDensity
+      ?? this._settings().displayDensity
+      ?? DEFAULT_SETTINGS.displayDensity,
+  );
+  readonly effectiveSidebarStyle = computed(
+    () => this._appearancePreview()?.sidebarStyle
+      ?? this._settings().sidebarStyle
+      ?? DEFAULT_SETTINGS.sidebarStyle,
+  );
   readonly showToolMessages = computed(() => this._settings().showToolMessages);
   readonly showThinking = computed(() => this._settings().showThinking);
   readonly thinkingDefaultExpanded = computed(() => this._settings().thinkingDefaultExpanded);
@@ -96,14 +131,28 @@ export class SettingsStore {
   private _systemThemeMql: MediaQueryList | null = null;
 
   constructor() {
-    // Apply theme on settings change
+    // Apply theme on settings change. A transient appearance preview, when
+    // set, wins over the saved value so changes can be previewed un-persisted.
+    // Both signals are read eagerly so the effect tracks both as dependencies.
     effect(() => {
-      this.applyTheme(this._settings().theme);
+      const previewTheme = this._appearancePreview()?.theme;
+      const savedTheme = this._settings().theme;
+      this.applyTheme(previewTheme ?? savedTheme);
     });
 
-    // Apply font size on settings change
+    // Apply font size on settings change (preview wins, as above).
     effect(() => {
-      this.applyFontSize(this._settings().fontSize);
+      const previewFontSize = this._appearancePreview()?.fontSize;
+      const savedFontSize = this._settings().fontSize;
+      this.applyFontSize(previewFontSize ?? savedFontSize);
+    });
+
+    effect(() => {
+      this.applyDisplayDensity(this.effectiveDisplayDensity());
+    });
+
+    effect(() => {
+      this.applySidebarStyle(this.effectiveSidebarStyle());
     });
   }
 
@@ -200,6 +249,48 @@ export class SettingsStore {
     }
   }
 
+  // ============================================
+  // Appearance Preview (theme + font size)
+  // ============================================
+
+  /**
+   * Stage a transient appearance change (theme and/or font size). The change
+   * is applied to the document immediately but NOT persisted — call
+   * `commitAppearancePreview()` to save it, or `clearAppearancePreview()` to
+   * revert to the saved values.
+   */
+  previewAppearance(patch: AppearancePreview): void {
+    this._appearancePreview.update((current) => ({ ...current, ...patch }));
+  }
+
+  /** Discard the staged appearance preview and revert to the saved values. */
+  clearAppearancePreview(): void {
+    this._appearancePreview.set(null);
+  }
+
+  /** Persist the staged appearance preview, then clear it. No-op when none. */
+  async commitAppearancePreview(): Promise<void> {
+    const preview = this._appearancePreview();
+    if (!preview) {
+      return;
+    }
+    const patch: Partial<AppSettings> = {};
+    if (preview.theme !== undefined) {
+      patch.theme = preview.theme;
+    }
+    if (preview.fontSize !== undefined) {
+      patch.fontSize = preview.fontSize;
+    }
+    if (preview.displayDensity !== undefined) {
+      patch.displayDensity = preview.displayDensity;
+    }
+    if (preview.sidebarStyle !== undefined) {
+      patch.sidebarStyle = preview.sidebarStyle;
+    }
+    await this.update(patch);
+    this._appearancePreview.set(null);
+  }
+
   /**
    * Reset all settings to defaults
    */
@@ -272,7 +363,8 @@ export class SettingsStore {
   }
 
   private _onSystemThemeChange = (event: MediaQueryListEvent): void => {
-    if (this._settings().theme !== 'system') {
+    const effectiveTheme = this._appearancePreview()?.theme ?? this._settings().theme;
+    if (effectiveTheme !== 'system') {
       return;
     }
     document.documentElement.setAttribute('data-theme', event.matches ? 'dark' : 'light');
@@ -296,6 +388,14 @@ export class SettingsStore {
    */
   private applyFontSize(fontSize: number): void {
     document.documentElement.style.setProperty('--output-font-size', `${fontSize}px`);
+  }
+
+  private applyDisplayDensity(displayDensity: DisplayDensity): void {
+    document.documentElement.setAttribute('data-density', displayDensity);
+  }
+
+  private applySidebarStyle(sidebarStyle: SidebarStyle): void {
+    document.documentElement.setAttribute('data-sidebar-style', sidebarStyle);
   }
 
   // ============================================

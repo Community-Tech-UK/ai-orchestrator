@@ -382,7 +382,8 @@ export function summarizeLoopControlPrompt(runtime: LoopControlRuntime): string 
     `- When the requested work is complete and verified by you, run: "${runtime.cliPath}" complete --summary "<what is done>"`,
     `- If genuinely blocked and another iteration cannot help, run: "${runtime.cliPath}" block --summary "<exact blocker>"`,
     `- If the task should be marked failed, run: "${runtime.cliPath}" fail --summary "<failure reason>"`,
-    '- This command records your intent only. The coordinator will still run verification and fresh-eyes review before marking completion.',
+    '- This command records your intent only. The coordinator still requires its configured verification and fresh-eyes gates before marking completion.',
+    '- If no verify command is configured, a complete intent pauses for operator review instead of auto-completing.',
     '- The command reads the current iteration from the loop control file, so use it exactly as provided even in same-session loops.',
   ].join('\n');
 }

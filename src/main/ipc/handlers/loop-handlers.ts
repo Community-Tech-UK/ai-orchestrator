@@ -8,10 +8,12 @@ import {
   LoopInterveneePayloadSchema,
   LoopListByChatPayloadSchema,
   LoopGetIterationsPayloadSchema,
+  type LoopConfigInput,
 } from '@contracts/schemas/loop';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getLoopCoordinator } from '../../orchestration/loop-coordinator';
 import { getLoopStore } from '../../orchestration/loop-store';
+import { inferLoopVerifyCommand } from '../../orchestration/loop-verify-command';
 import {
   buildLoopInterveneChatEvent,
   buildLoopStartChatEvent,
@@ -19,7 +21,7 @@ import {
 } from '../../orchestration/loop-chat-summary';
 import { getLogger } from '../../logging/logger';
 import type { WindowManager } from '../../window-manager';
-import type { LoopState } from '../../../shared/types/loop.types';
+import { defaultLoopConfig, type LoopConfig, type LoopState } from '../../../shared/types/loop.types';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { buildReplayContinuityMessage } from '../../session/replay-continuity';
 import { getChatService } from '../../chats';
@@ -113,6 +115,7 @@ export function registerLoopHandlers(deps: {
   ipcMain.handle(IPC_CHANNELS.LOOP_START, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(LoopStartPayloadSchema, payload, 'LOOP_START');
+      const startConfig = await prepareLoopStartConfig(validated.config);
       const existingSessionContext = buildExistingSessionContext(
         deps.instanceManager,
         validated.chatId,
@@ -120,9 +123,9 @@ export function registerLoopHandlers(deps: {
       const state = await coordinator.startLoop(
         validated.chatId,
         {
-          ...validated.config,
-          initialPrompt: validated.config.initialPrompt,
-          workspaceCwd: validated.config.workspaceCwd,
+          ...startConfig,
+          initialPrompt: startConfig.initialPrompt,
+          workspaceCwd: startConfig.workspaceCwd,
         },
         validated.attachments,
         { existingSessionContext },
@@ -250,6 +253,38 @@ export function registerLoopHandlers(deps: {
       return errorResponse('LOOP_GET_ITERATIONS_FAILED', error);
     }
   });
+}
+
+async function prepareLoopStartConfig(
+  config: LoopConfigInput,
+): Promise<Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string }> {
+  const verifyCommand = config.completion?.verifyCommand?.trim() ?? '';
+  if (verifyCommand || config.completion?.allowOperatorReviewedCompletion) {
+    return config;
+  }
+
+  const inferred = await inferLoopVerifyCommand(config.workspaceCwd);
+  if (inferred) {
+    logger.info('Inferred Loop Mode verify command at start', {
+      workspaceCwd: config.workspaceCwd,
+      command: inferred.command,
+      source: inferred.source,
+    });
+    return {
+      ...config,
+      completion: {
+        ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
+        ...(config.completion ?? {}),
+        verifyCommand: inferred.command,
+      },
+    };
+  }
+
+  throw new Error(
+    'Loop Mode needs a verify command before it can auto-complete. ' +
+    'Add one in Advanced > Verify command, add a package.json "verify" script, ' +
+    'or enable operator-reviewed completion so the loop pauses when it thinks it is done.',
+  );
 }
 
 export function buildExistingSessionContext(

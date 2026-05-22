@@ -7,12 +7,13 @@
  * - Statistics on permission decisions
  */
 
-import { ChangeDetectionStrategy, Component, inject, signal, effect } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal, effect } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
 import { SecurityIpcService } from '../../core/services/ipc/security-ipc.service';
 import { TaskIpcService } from '../../core/services/ipc/task-ipc.service';
 import { TaskPreflightCardComponent } from '../../shared/components/task-preflight-card.component';
 import type { TaskPreflightReport } from '../../../../shared/types/task-preflight.types';
+import { SaveStateBannerComponent, type SaveState } from './ui/save-state-banner.component';
 
 interface PermissionsApi {
   permissionGetPendingBatch?: () => Promise<{ success: boolean; data?: { requests?: unknown[] } }>;
@@ -62,7 +63,7 @@ interface PermissionStats {
 @Component({
   selector: 'app-permissions-settings-tab',
   standalone: true,
-  imports: [TaskPreflightCardComponent],
+  imports: [TaskPreflightCardComponent, SaveStateBannerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="section">
@@ -84,8 +85,8 @@ interface PermissionStats {
           <span>Default preset</span>
           <select
             class="scope-select"
-            [value]="permissionPreset()"
-            (change)="updatePermissionPreset($any($event.target).value)"
+            [value]="draftPermissionPreset()"
+            (change)="setDraftPermissionPreset($any($event.target).value)"
           >
             <option value="allow">Allow by default</option>
             <option value="ask">Ask before action</option>
@@ -98,6 +99,12 @@ interface PermissionStats {
           <strong>{{ permissionPreset() }}</strong>
         </div>
       </div>
+
+      <app-save-state-banner
+        [state]="permissionPresetSaveState()"
+        (apply)="applyPermissionPreset()"
+        (discard)="discardPermissionPreset()"
+      />
 
       @if (defaultWorkspacePreflight()) {
         <div class="preflight-wrapper">
@@ -499,7 +506,7 @@ interface PermissionStats {
 
       .btn-allow {
         background: var(--success-color);
-        color: white;
+        color: var(--button-on-success);
 
         &:hover:not(:disabled) {
           filter: brightness(1.1);
@@ -508,7 +515,7 @@ interface PermissionStats {
 
       .btn-deny {
         background: var(--error-color);
-        color: white;
+        color: var(--button-on-danger);
 
         &:hover:not(:disabled) {
           filter: brightness(1.1);
@@ -555,7 +562,7 @@ interface PermissionStats {
 
       .pattern-row.approved {
         border-color: var(--success-color);
-        background: rgba(46, 204, 113, 0.05);
+        background: var(--pill-ok-bg);
       }
 
       .permission-info {
@@ -611,22 +618,22 @@ interface PermissionStats {
       }
 
       .btn-allow-sm {
-        background: rgba(46, 204, 113, 0.2);
+        background: var(--pill-ok-bg);
         color: var(--success-color);
 
         &:hover:not(:disabled) {
           background: var(--success-color);
-          color: white;
+          color: var(--button-on-success);
         }
       }
 
       .btn-deny-sm {
-        background: rgba(231, 76, 60, 0.2);
+        background: var(--pill-error-bg);
         color: var(--error-color);
 
         &:hover:not(:disabled) {
           background: var(--error-color);
-          color: white;
+          color: var(--button-on-danger);
         }
       }
 
@@ -661,12 +668,12 @@ interface PermissionStats {
         text-transform: uppercase;
 
         &.allow {
-          background: rgba(46, 204, 113, 0.2);
+          background: var(--pill-ok-bg);
           color: var(--success-color);
         }
 
         &.deny {
-          background: rgba(231, 76, 60, 0.2);
+          background: var(--pill-error-bg);
           color: var(--error-color);
         }
       }
@@ -674,7 +681,7 @@ interface PermissionStats {
       .pattern-approved-badge {
         padding: 2px 6px;
         background: var(--success-color);
-        color: white;
+        color: var(--button-on-success);
         border-radius: 999px;
         font-size: 10px;
         font-weight: 500;
@@ -718,7 +725,7 @@ interface PermissionStats {
 
       .btn-approve {
         background: var(--success-color);
-        color: white;
+        color: var(--button-on-success);
 
         &:hover:not(:disabled) {
           filter: brightness(1.1);
@@ -826,7 +833,16 @@ export class PermissionsSettingsTabComponent {
   learnedPatterns = signal<LearnedPattern[]>([]);
   batchScope = signal<'once' | 'session' | 'always'>('session');
   permissionPreset = signal<'allow' | 'ask' | 'deny'>('ask');
+  draftPermissionPreset = signal<'allow' | 'ask' | 'deny'>('ask');
   defaultWorkspacePreflight = signal<TaskPreflightReport | null>(null);
+  presetSaving = signal(false);
+  permissionPresetDirty = computed(() => this.draftPermissionPreset() !== this.permissionPreset());
+  permissionPresetSaveState = computed<SaveState>(() => {
+    if (this.presetSaving()) {
+      return 'saving';
+    }
+    return this.permissionPresetDirty() ? 'dirty' : 'saved';
+  });
 
   stats = signal<PermissionStats>({
     totalPatterns: 0,
@@ -881,6 +897,7 @@ export class PermissionsSettingsTabComponent {
       const response = await this.securityIpc.securityGetPermissionConfig();
       if (response.success && response.data?.config) {
         this.permissionPreset.set(response.data.config.defaultAction);
+        this.draftPermissionPreset.set(response.data.config.defaultAction);
       }
       await this.refreshDefaultWorkspacePreflight();
     } finally {
@@ -1042,18 +1059,30 @@ export class PermissionsSettingsTabComponent {
     }
   }
 
-  async updatePermissionPreset(value: 'allow' | 'ask' | 'deny'): Promise<void> {
-    this.presetLoading.set(true);
+  setDraftPermissionPreset(value: 'allow' | 'ask' | 'deny'): void {
+    this.draftPermissionPreset.set(value);
+  }
+
+  async applyPermissionPreset(): Promise<void> {
+    if (!this.permissionPresetDirty()) {
+      return;
+    }
+    this.presetSaving.set(true);
     try {
-      const response = await this.securityIpc.securitySetPermissionPreset(value);
+      const response = await this.securityIpc.securitySetPermissionPreset(this.draftPermissionPreset());
       if (response.success && response.data?.config) {
         this.permissionPreset.set(response.data.config.defaultAction);
+        this.draftPermissionPreset.set(response.data.config.defaultAction);
         await this.loadStats();
         await this.refreshDefaultWorkspacePreflight();
       }
     } finally {
-      this.presetLoading.set(false);
+      this.presetSaving.set(false);
     }
+  }
+
+  discardPermissionPreset(): void {
+    this.draftPermissionPreset.set(this.permissionPreset());
   }
 
   private async refreshDefaultWorkspacePreflight(): Promise<void> {

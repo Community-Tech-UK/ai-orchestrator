@@ -85,13 +85,12 @@
     <div class="panel panel-left">
       <div class="panel-header">Sessions</div>
       @if (sessions().length === 0) {
-        <div class="empty-hint">
-          @if (selectedInstanceId().trim()) {
-            No sessions found for this instance.
-          } @else {
-            Enter an instance ID above to load sessions.
-          }
-        </div>
+        <app-empty-state
+          [title]="selectedInstanceId().trim() ? 'No sessions found' : 'No instance selected'"
+          [message]="selectedInstanceId().trim()
+            ? 'No snapshot sessions were recorded for this instance.'
+            : 'Enter an instance ID above to load its sessions.'"
+        />
       } @else {
         <ul class="item-list">
           @for (session of sessions(); track session.id) {
@@ -128,9 +127,15 @@
         }
       </div>
       @if (!selectedSessionId()) {
-        <div class="empty-hint">Select a session to view its snapshots.</div>
+        <app-empty-state
+          title="No session selected"
+          message="Select a session from the left panel to view its file snapshots."
+        />
       } @else if (snapshots().length === 0) {
-        <div class="empty-hint">No snapshots in this session.</div>
+        <app-empty-state
+          title="No snapshots"
+          message="No file snapshots were recorded in this session."
+        />
       } @else {
         <ul class="item-list">
           @for (snap of snapshots(); track snap.id) {
@@ -169,9 +174,12 @@
         }
       </div>
       @if (!selectedSnapshotId()) {
-        <div class="empty-hint">Select a file snapshot to view its diff.</div>
+        <app-empty-state
+          title="No snapshot selected"
+          message="Select a file snapshot to view its diff."
+        />
       } @else if (loadingDiff()) {
-        <div class="empty-hint">Loading diff…</div>
+        <app-skeleton variant="block" />
       } @else if (currentDiff()) {
         <app-diff-viewer
           [oldContent]="currentDiff()!.oldContent"
@@ -180,7 +188,10 @@
           [interactive]="true"
         />
       } @else {
-        <div class="empty-hint">No diff available for this snapshot.</div>
+        <app-empty-state
+          title="No diff available"
+          message="No diff could be loaded for this snapshot."
+        />
       }
     </div>
 
@@ -194,7 +205,7 @@
       </div>
 
       @if (loadingEvidence()) {
-        <div class="empty-hint">Loading evidence preview…</div>
+        <app-skeleton [lines]="4" />
       } @else if (!selectedInstanceId().trim()) {
         <div class="empty-hint">Enter an instance ID to inspect replay artifacts for that run.</div>
       } @else if (!evidenceBundle()?.artifacts?.length) {
@@ -231,7 +242,7 @@
       </div>
 
       @if (loadingEvidence()) {
-        <div class="empty-hint">Loading attachments…</div>
+        <app-skeleton [lines]="3" />
       } @else if (!evidenceBundle()?.attachments?.length) {
         <div class="empty-hint">No embedded evidence files were included in the share preview.</div>
       } @else {

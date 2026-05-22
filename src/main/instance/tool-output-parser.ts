@@ -102,6 +102,32 @@ function extractFromCommand(command: string, workingDirectory: string): string[]
     if (resolved) found.push(resolved);
   }
 
+  // 5. Generic artifact-extension token scan — catches tools that produce
+  //    artifact files via flags (`pandoc -o foo.docx`), positional args
+  //    (`convert in.png out.jpg`), or library calls inside `-c "..."` script
+  //    blocks (`python3 -c "doc.save('foo.docx')"`), none of which match the
+  //    redirection / tee / sed / mv patterns above.
+  //
+  //    The match is intentionally limited to the artifact whitelist
+  //    (`isArtifactPath`) so source-code paths are not dragged in — those
+  //    are tracked via the explicit Write/Edit tool calls. Read-only refs
+  //    (e.g. `cat foo.pdf | head`) are also picked up here, but the diff
+  //    tracker now compares size+mtime for binary baselines, so unchanged
+  //    files do not surface as "Updated".
+  //
+  //    Token chars are a conservative path-safe set: word chars plus `.`,
+  //    `/`, `\`, `:` (Windows drives), `~`, `-`. The surrounding lookbehind
+  //    / lookahead delimit on shell separators (whitespace, quotes, parens,
+  //    `=`, `>`, `,`) so paths inside quoted Python/JS string literals are
+  //    captured correctly.
+  const artifactTokenRe = /(?<=^|[\s"'`(=,>])([\w./~:\\-]+\.[a-zA-Z0-9]{2,8})(?=[\s"'`),]|$)/g;
+  for (const match of command.matchAll(artifactTokenRe)) {
+    const token = match[1];
+    if (!isArtifactPath(token)) continue;
+    const resolved = resolveWithinDir(token, workingDirectory);
+    if (resolved) found.push(resolved);
+  }
+
   return found;
 }
 

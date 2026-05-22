@@ -34,4 +34,19 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.planFile).toBeUndefined();
     expect(config?.completion?.requireCompletedFileRename).toBe(false);
   });
+
+  it('defaults to verifier-backed completion', () => {
+    const config = component.buildConfig();
+
+    expect(config?.completion?.allowOperatorReviewedCompletion).toBe(false);
+  });
+
+  it('can opt into operator-reviewed completion for loops without a verifier', () => {
+    component.operatorReviewedCompletion.set(true);
+    fixture.detectChanges();
+
+    const config = component.buildConfig();
+
+    expect(config?.completion?.allowOperatorReviewedCompletion).toBe(true);
+  });
 });

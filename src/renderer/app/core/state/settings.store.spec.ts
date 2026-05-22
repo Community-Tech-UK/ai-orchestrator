@@ -134,3 +134,130 @@ describe('SettingsStore system theme listener', () => {
     ]);
   });
 });
+
+describe('SettingsStore appearance preview', () => {
+  let mql: MockMql;
+  let store: SettingsStore;
+  let ipc: {
+    updateSettings: ReturnType<typeof vi.fn>;
+    setSetting: ReturnType<typeof vi.fn>;
+    getSettings: ReturnType<typeof vi.fn>;
+    onSettingsChanged: ReturnType<typeof vi.fn>;
+  };
+
+  beforeEach(() => {
+    mql = makeMockMql();
+    Object.defineProperty(window, 'matchMedia', {
+      value: vi.fn(() => mql),
+      configurable: true,
+    });
+    document.documentElement.removeAttribute('data-theme');
+    document.documentElement.removeAttribute('data-density');
+    document.documentElement.removeAttribute('data-sidebar-style');
+    document.documentElement.style.removeProperty('--output-font-size');
+
+    ipc = {
+      updateSettings: vi.fn().mockResolvedValue({ success: true }),
+      setSetting: vi.fn().mockResolvedValue({ success: true }),
+      getSettings: vi.fn().mockResolvedValue({ success: true, data: DEFAULT_SETTINGS }),
+      onSettingsChanged: vi.fn(() => () => undefined),
+    };
+
+    TestBed.configureTestingModule({
+      providers: [{ provide: SettingsIpcService, useValue: ipc }],
+    });
+    store = TestBed.inject(SettingsStore);
+  });
+
+  function flushEffects(): void {
+    TestBed.tick();
+  }
+
+  it('previews a theme change on the document without persisting it', () => {
+    store.previewAppearance({ theme: 'light' });
+    flushEffects();
+
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(store.settings().theme).toBe('dark');
+    expect(ipc.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it('keeps system theme preview responsive to OS changes without persisting it', () => {
+    store.previewAppearance({ theme: 'system' });
+    flushEffects();
+
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+
+    mql.fireChange(true);
+
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(store.settings().theme).toBe('dark');
+    expect(ipc.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it('previews a font-size change on the document without persisting it', () => {
+    store.previewAppearance({ fontSize: 19 });
+    flushEffects();
+
+    expect(document.documentElement.style.getPropertyValue('--output-font-size')).toBe('19px');
+    expect(store.settings().fontSize).toBe(DEFAULT_SETTINGS.fontSize);
+    expect(ipc.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it('previews density and sidebar style changes on the document without persisting them', () => {
+    store.previewAppearance({
+      displayDensity: 'compact',
+      sidebarStyle: 'compact',
+    } as Parameters<typeof store.previewAppearance>[0]);
+    flushEffects();
+
+    expect(document.documentElement.getAttribute('data-density')).toBe('compact');
+    expect(document.documentElement.getAttribute('data-sidebar-style')).toBe('compact');
+    expect((store.settings() as { displayDensity?: string }).displayDensity).toBe('comfortable');
+    expect((store.settings() as { sidebarStyle?: string }).sidebarStyle).toBe('standard');
+    expect(ipc.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it('clearAppearancePreview reverts to the saved theme', () => {
+    store.previewAppearance({ theme: 'light' });
+    flushEffects();
+    store.clearAppearancePreview();
+    flushEffects();
+
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(store.appearancePreview()).toBeNull();
+  });
+
+  it('commitAppearancePreview persists the staged change and clears the preview', async () => {
+    store.previewAppearance({
+      theme: 'light',
+      fontSize: 17,
+      displayDensity: 'compact',
+      sidebarStyle: 'compact',
+    } as Parameters<typeof store.previewAppearance>[0]);
+    flushEffects();
+
+    await store.commitAppearancePreview();
+    flushEffects();
+
+    expect(ipc.updateSettings).toHaveBeenCalledWith({
+      theme: 'light',
+      fontSize: 17,
+      displayDensity: 'compact',
+      sidebarStyle: 'compact',
+    });
+    expect(store.settings().theme).toBe('light');
+    expect(store.settings().fontSize).toBe(17);
+    expect((store.settings() as { displayDensity?: string }).displayDensity).toBe('compact');
+    expect((store.settings() as { sidebarStyle?: string }).sidebarStyle).toBe('compact');
+    expect(store.appearancePreview()).toBeNull();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(document.documentElement.getAttribute('data-density')).toBe('compact');
+    expect(document.documentElement.getAttribute('data-sidebar-style')).toBe('compact');
+  });
+
+  it('commitAppearancePreview is a no-op when no preview is staged', async () => {
+    await store.commitAppearancePreview();
+    expect(ipc.updateSettings).not.toHaveBeenCalled();
+  });
+});

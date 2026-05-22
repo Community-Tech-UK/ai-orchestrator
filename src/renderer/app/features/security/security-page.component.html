@@ -109,7 +109,10 @@
                 </table>
               </div>
             } @else {
-              <div class="empty-state">No audit entries found.</div>
+              <app-empty-state
+                title="No audit entries"
+                message="No entries match the current filters. Adjust the severity filter or wait for activity."
+              />
             }
           </div>
         }
@@ -188,7 +191,10 @@
                 </div>
               </div>
             } @else if (scanComplete()) {
-              <div class="empty-state success-state">No secrets detected.</div>
+              <app-empty-state
+                title="No secrets detected"
+                message="The scanned content appears clean — no known secret patterns were found."
+              />
             }
 
             <!-- Redacted output -->
@@ -239,7 +245,12 @@
                     </table>
                   </div>
                 } @else {
-                  <div class="empty-state">No environment variables loaded.</div>
+                  <app-empty-state
+                    title="No variables loaded"
+                    message="Click Reload to fetch the list of allowed environment variables."
+                    actionLabel="Reload"
+                    (action)="loadSafeEnv()"
+                  />
                 }
               </div>
 

@@ -9,34 +9,115 @@
   width: 100%;
 }
 
-.loading-container {
+/* Shell skeleton shown while CLIs are detected (copilot_todo.md item 10):
+   a faux dashboard layout reads as "the app is arriving" rather than a
+   bare spinner. */
+.dashboard-skeleton {
+  display: flex;
+  height: calc(100vh - 52px);
+  width: 100%;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+.skel-rail {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  height: 100%;
-  gap: var(--spacing-lg);
-  color: var(--text-secondary);
-  background:
-    radial-gradient(circle at 18% 18%, rgba(var(--secondary-rgb), 0.12), transparent 34%),
-    radial-gradient(circle at 82% 82%, rgba(var(--primary-rgb), 0.12), transparent 30%),
-    var(--bg-primary);
-
-  p {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
+  gap: 10px;
+  width: 56px;
+  padding: 14px 0;
+  background: var(--shell-rail-bg);
+  border-right: 1px solid var(--glass-border);
 }
 
-.loading-spinner {
-  width: 48px;
-  height: 48px;
-  border: 2px solid var(--glass-strong);
-  border-top-color: var(--primary-color);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+.skel-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 280px;
+  padding: 18px 14px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--glass-border);
+}
+
+.skel-main {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: 48px clamp(24px, 6vw, 96px);
+  overflow: hidden;
+}
+
+.skel-col {
+  width: 100%;
+  max-width: 620px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.skel-dot,
+.skel-bar,
+.skel-hero,
+.skel-line {
+  background: linear-gradient(
+    90deg,
+    var(--skeleton-base) 25%,
+    var(--skeleton-sheen) 50%,
+    var(--skeleton-base) 75%
+  );
+  background-size: 400% 100%;
+  animation: shimmer 1.5s ease infinite;
+}
+
+.skel-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+}
+
+.skel-bar {
+  height: 40px;
+  border-radius: var(--radius-md);
+}
+
+.skel-bar--header {
+  height: 22px;
+  width: 55%;
+}
+
+.skel-hero {
+  height: 132px;
+  border-radius: var(--radius-lg);
+}
+
+.skel-line {
+  height: 16px;
+  border-radius: var(--radius-sm);
+}
+
+.skel-line.narrow {
+  width: 56%;
+}
+
+.skel-caption {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skel-dot,
+  .skel-bar,
+  .skel-hero,
+  .skel-line {
+    animation: none;
+    background: var(--skeleton-base);
+  }
 }
 
 .dashboard {
@@ -45,16 +126,29 @@
   height: calc(100vh - 52px);
   width: 100%;
   background:
-    radial-gradient(circle at 10% 6%, rgba(var(--secondary-rgb), 0.1), transparent 26%),
-    radial-gradient(circle at 84% 100%, rgba(var(--primary-rgb), 0.08), transparent 24%),
+    radial-gradient(circle at 10% 6%, var(--shell-workspace-glow-secondary), transparent 26%),
+    radial-gradient(circle at 84% 100%, var(--shell-workspace-glow-primary), transparent 24%),
     linear-gradient(180deg, var(--glass-subtle), transparent 18%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.01), transparent 34%),
+    linear-gradient(135deg, var(--shell-workspace-sheen), transparent 34%),
     var(--bg-primary);
   position: relative;
 
   &.resizing {
     user-select: none;
     cursor: col-resize;
+  }
+}
+
+/* Smooth the wide sidebar's entrance (copilot_todo.md item 11). The global
+   reduced-motion rules in styles/_animations.scss disable this. */
+@keyframes sidebar-in {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }
 
@@ -71,11 +165,17 @@
   border-right: 1px solid var(--glass-border);
   box-shadow:
     inset -1px 0 0 var(--glass-subtle),
-    24px 0 60px rgba(0, 0, 0, 0.22);
+    var(--shell-sidebar-shadow);
   flex-shrink: 0;
   overflow: hidden;
   position: relative;
   z-index: 1;
+  animation: sidebar-in 0.2s ease-out;
+}
+
+.dashboard.sidebar-style-compact .sidebar {
+  min-width: 230px;
+  max-width: var(--sidebar-compact-max-width);
 }
 
 .resize-handle {
@@ -90,7 +190,7 @@
 
   &:hover,
   &.dragging {
-    background: linear-gradient(180deg, transparent, rgba(var(--primary-rgb), 0.45), transparent);
+    background: linear-gradient(180deg, transparent, var(--shell-resize-handle-bg), transparent);
   }
 }
 
@@ -122,26 +222,46 @@
   padding: 0 28px 28px;
 }
 
+/* Control plane (copilot_todo.md item 7). Floats as an overlay by default;
+   when pinned (&.pinned) it docks as a real layout track. Opened from the
+   rail; pinned/unpinned from the toggle in its own header. */
 .control-plane-panel {
   position: absolute;
-  top: 24px;
-  right: 28px;
-  width: min(380px, calc(100% - 48px));
-  max-height: calc(100% - 40px);
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  width: min(360px, calc(100% - 48px));
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
   padding: 20px;
-  border-radius: 24px;
-  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--card-border);
   background:
     linear-gradient(180deg, var(--glass-subtle), transparent),
-    var(--bg-primary);
+    var(--bg-elevated);
   backdrop-filter: blur(26px);
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.44);
+  box-shadow: var(--shadow-xl);
   overflow: hidden;
   z-index: 30;
-  animation: fadeInUp 0.18s ease-out;
+  /* Slides in from the docked edge; global reduced-motion rules disable it. */
+  animation: slideInRight 0.2s ease-out;
+
+  /* Pinned: the panel leaves the floating overlay layer and becomes a real
+     layout track. Rendered as a flex child of .dashboard, so it reflows the
+     workspace instead of overlapping it. position: static makes the base
+     top/right/bottom and z-index inert. */
+  &.pinned {
+    position: static;
+    width: 360px;
+    height: 100%;
+    flex-shrink: 0;
+    border: none;
+    border-left: 1px solid var(--glass-border);
+    border-radius: 0;
+    box-shadow: none;
+    animation: none;
+  }
 }
 
 .control-plane-header {
@@ -166,6 +286,13 @@
   color: var(--text-primary);
 }
 
+.control-plane-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
+}
+
 .control-plane-close {
   width: 32px;
   height: 32px;
@@ -181,30 +308,86 @@
   }
 }
 
-.control-plane-actions {
+/* Pin/dock toggle — sits beside the close button in the panel header. */
+.control-plane-pin {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.control-plane-chip {
-  padding: 8px 12px;
-  border-radius: 999px;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
   border: 1px solid var(--glass-strong);
   background: var(--glass-light);
   color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  cursor: pointer;
   transition: all var(--transition-fast);
 
-  &:hover,
-  &.active {
-    color: var(--text-primary);
-    border-color: rgba(var(--primary-rgb), 0.28);
-    background: rgba(var(--primary-rgb), 0.1);
+  svg {
+    width: 15px;
+    height: 15px;
   }
+
+  &:hover {
+    color: var(--text-primary);
+    background: var(--glass-strong);
+  }
+
+  &.active {
+    color: var(--primary-color);
+    border-color: var(--pill-accent-border);
+    background: var(--pill-accent-bg);
+  }
+}
+
+.control-plane-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.control-plane-section-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.preset-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.preset-btn {
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--card-border);
+  background: var(--glass-light);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+
+  &:hover {
+    color: var(--text-primary);
+    background: var(--glass-medium);
+    border-color: var(--border-light);
+  }
+
+  &.active {
+    color: var(--primary-color);
+    border-color: var(--pill-accent-border);
+    background: var(--pill-accent-bg);
+  }
+}
+
+.control-plane-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 app-file-explorer,
@@ -219,7 +402,7 @@ app-source-control {
 
 .sidebar-toggle-btn {
   position: absolute;
-  left: 0;
+  left: 56px;
   top: 50%;
   transform: translateY(-50%);
   width: 26px;
@@ -250,5 +433,10 @@ app-source-control {
 
   .workspace-shell.empty {
     padding: 0 18px 24px;
+  }
+
+  /* Keep the docked control plane from crowding the workspace on narrow windows. */
+  .control-plane-panel.pinned {
+    width: 320px;
   }
 }

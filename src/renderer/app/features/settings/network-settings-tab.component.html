@@ -1,0 +1,48 @@
+<app-settings-card
+  icon="network"
+  title="Network Safety"
+  description="Control pause-on-VPN detection and the outbound traffic gate."
+>
+  <button card-actions type="button" class="secondary-btn" (click)="eventsOpen.set(true)">
+    Events
+  </button>
+
+  @if (masterSetting()) {
+    <app-setting-row
+      [setting]="masterSetting()!"
+      [value]="effectiveValues()['pauseFeatureEnabled']"
+      (valueChange)="onSettingChange($event)"
+    />
+  }
+
+  <app-inline-help variant="info">
+    When a matching VPN interface is detected, outbound AI traffic is paused and
+    queued. It resumes automatically once the connection is considered safe, so
+    requests are never sent over an unexpected network.
+  </app-inline-help>
+
+  @if (!masterEnabled()) {
+    <div class="disabled-note">
+      Enable network safety to configure VPN detection, probes, and local-network allow-listing.
+    </div>
+  } @else {
+    @for (setting of detailSettings(); track setting.key) {
+      <app-setting-row
+        [setting]="setting"
+        [value]="effectiveValues()[setting.key]"
+        (valueChange)="onSettingChange($event)"
+      />
+    }
+  }
+
+  <app-save-state-banner
+    card-footer
+    [state]="saveState()"
+    (apply)="apply()"
+    (discard)="discard()"
+  />
+</app-settings-card>
+
+@if (eventsOpen()) {
+  <app-pause-detector-events-dialog (closeRequested)="eventsOpen.set(false)" />
+}

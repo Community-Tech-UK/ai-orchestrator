@@ -410,6 +410,15 @@ export const routes: Routes = [
       ),
   },
 
+  // Setup Center: guided environment & provider readiness
+  {
+    path: 'setup',
+    loadComponent: () =>
+      import('./features/setup/setup-center.component').then(
+        (m) => m.SetupCenterComponent
+      ),
+  },
+
   // Catch-all redirect to dashboard
   {
     path: '**',

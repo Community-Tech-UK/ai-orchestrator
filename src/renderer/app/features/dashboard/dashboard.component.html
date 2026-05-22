@@ -1,9 +1,29 @@
 @if (showBrowserPreview()) {
   <app-browser-preview-notice />
 } @else if (cliStore.loading()) {
-  <div class="loading-container">
-    <div class="loading-spinner"></div>
-    <p>Detecting available AI CLIs...</p>
+  <div class="dashboard-skeleton" aria-busy="true" aria-label="Detecting available AI CLIs">
+    <div class="skel-rail">
+      <span class="skel-dot"></span>
+      <span class="skel-dot"></span>
+      <span class="skel-dot"></span>
+      <span class="skel-dot"></span>
+    </div>
+    <div class="skel-sidebar">
+      <div class="skel-bar skel-bar--header"></div>
+      <div class="skel-bar"></div>
+      <div class="skel-bar"></div>
+      <div class="skel-bar"></div>
+      <div class="skel-bar"></div>
+    </div>
+    <div class="skel-main">
+      <div class="skel-col">
+        <div class="skel-hero"></div>
+        <div class="skel-line"></div>
+        <div class="skel-line"></div>
+        <div class="skel-line narrow"></div>
+        <p class="skel-caption">Detecting available AI CLIs…</p>
+      </div>
+    </div>
   </div>
 } @else if (cliStore.noClisError()) {
   <app-cli-error
@@ -14,21 +34,21 @@
   <div
     class="dashboard"
     [class.sidebar-hidden]="!showSidebar()"
+    [class.sidebar-style-compact]="settingsStore.effectiveSidebarStyle() === 'compact'"
     [class.resizing]="isResizing()"
   >
+    <!-- Slim global-navigation rail -->
+    <app-workspace-rail
+      [controlPlaneOpen]="showControlPlane()"
+      (toggleControlPlane)="toggleControlPlane()"
+      (historyClicked)="showHistory.set(true)"
+      (settingsClicked)="navigateToSettings()"
+    />
+
     <!-- Sidebar with instance list -->
     @if (showSidebar()) {
-      <aside class="sidebar" [style.width.px]="sidebarWidth()">
-        <app-sidebar-header
-          (historyClicked)="showHistory.set(true)"
-          (settingsClicked)="navigateToSettings()"
-          (createClicked)="createInstance()"
-        />
-
-        <app-sidebar-actions
-          [moreOpen]="showControlPlane()"
-          (moreClicked)="toggleControlPlane()"
-        />
+      <aside class="sidebar" [style.width.px]="effectiveSidebarWidth()">
+        <app-sidebar-header (createClicked)="createInstance()" />
 
         <app-chat-sidebar />
         <app-instance-list />
@@ -88,54 +108,10 @@
         }
       </div>
 
-      @if (showControlPlane()) {
-        <section class="control-plane-panel">
-          <div class="control-plane-header">
-            <div>
-              <p class="control-plane-eyebrow">Tools & Views</p>
-              <h2 class="control-plane-title">Manage agents, search code, and monitor usage</h2>
-            </div>
-            <button
-              class="control-plane-close"
-              (click)="showControlPlane.set(false)"
-              title="Close control plane"
-            >
-              ×
-            </button>
-          </div>
-
-          <div class="control-plane-actions">
-            <button
-              class="control-plane-chip"
-              [class.active]="showHistory()"
-              (click)="showHistory.set(true)"
-            >
-              History
-            </button>
-            <button
-              class="control-plane-chip"
-              (click)="navigateToSettings()"
-            >
-              Settings
-            </button>
-            @if (canShowFileExplorer()) {
-              <button
-                class="control-plane-chip"
-                [class.active]="showFileExplorer()"
-                (click)="toggleFileExplorer()"
-              >
-                {{ showFileExplorer() ? 'Hide Files' : 'Show Files' }}
-              </button>
-            }
-            <!--
-              Source Control no longer has a control-plane chip — the canonical
-              entry point is the git-branch icon in the instance header
-              (Phase 2a decision: single source of truth, less chrome).
-            -->
-          </div>
-
-          <app-sidebar-nav />
-        </section>
+      <!-- Control plane — floating overlay when not pinned (copilot_todo.md
+           item 7). Pinned, it renders via the docked outlet below instead. -->
+      @if (showControlPlane() && !controlPlanePinned()) {
+        <ng-container [ngTemplateOutlet]="controlPlaneTpl"></ng-container>
       }
 
       <!-- Floating session-progress HUD — docked against the workspace
@@ -148,6 +124,13 @@
         />
       }
     </main>
+
+    <!-- Control plane — docked layout track when pinned (copilot_todo.md
+         item 7). Rendered as a sibling of <main> so, as a flex child of
+         .dashboard, it reflows the workspace instead of overlapping it. -->
+    @if (showControlPlane() && controlPlanePinned()) {
+      <ng-container [ngTemplateOutlet]="controlPlaneTpl"></ng-container>
+    }
 
     <!-- Source Control (right side, sits LEFT of File Explorer).
          The store owns the working-directory state and is eagerly populated
@@ -168,6 +151,74 @@
         (filesDragged)="onFilesDragged($event)"
       />
     }
+
+    <!-- Control plane content — shared by the floating and docked outlets
+         above. The pin toggle in the header switches controlPlanePinned,
+         which both picks the outlet and applies the .pinned class. -->
+    <ng-template #controlPlaneTpl>
+      <section class="control-plane-panel" [class.pinned]="controlPlanePinned()">
+        <div class="control-plane-header">
+          <div>
+            <p class="control-plane-eyebrow">Tools &amp; Views</p>
+            <h2 class="control-plane-title">Agents, code tools, and monitoring</h2>
+          </div>
+          <div class="control-plane-actions">
+            <button
+              type="button"
+              class="control-plane-pin"
+              [class.active]="controlPlanePinned()"
+              (click)="toggleControlPlanePinned()"
+              [title]="controlPlanePinned() ? 'Unpin — float the control plane' : 'Pin — dock the control plane'"
+              [attr.aria-label]="controlPlanePinned() ? 'Unpin control plane' : 'Pin control plane'"
+              [attr.aria-pressed]="controlPlanePinned()"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12 17v5" />
+                <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              class="control-plane-close"
+              (click)="toggleControlPlane()"
+              title="Close control plane"
+              aria-label="Close control plane"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        <div class="control-plane-presets">
+          <p class="control-plane-section-label">Workspace layout</p>
+          <div class="preset-grid">
+            @for (preset of workspacePresets; track preset.id) {
+              <button
+                type="button"
+                class="preset-btn"
+                [class.active]="activeWorkspacePreset() === preset.id"
+                [title]="preset.description"
+                (click)="applyWorkspacePreset(preset.id)"
+              >
+                {{ preset.label }}
+              </button>
+            }
+          </div>
+        </div>
+
+        <div class="control-plane-scroll">
+          <app-sidebar-nav />
+        </div>
+      </section>
+    </ng-template>
   </div>
 
   <!-- History Sidebar -->

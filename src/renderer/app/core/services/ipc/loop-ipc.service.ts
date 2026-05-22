@@ -44,6 +44,7 @@ export interface LoopStartConfigInput {
     donePromiseRegex: string;
     doneSentinelFile: string;
     verifyCommand: string;
+    allowOperatorReviewedCompletion: boolean;
     verifyTimeoutMs: number;
     runVerifyTwice: boolean;
     requireCompletedFileRename: boolean;

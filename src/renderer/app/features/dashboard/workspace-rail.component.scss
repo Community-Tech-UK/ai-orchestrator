@@ -1,0 +1,95 @@
+/**
+ * Workspace Rail styles (copilot_todo.md items 6 & 7).
+ */
+
+:host {
+  display: flex;
+  flex-shrink: 0;
+  z-index: 2;
+}
+
+.workspace-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 56px;
+  padding: 12px 0;
+  gap: 4px;
+  background: var(--shell-rail-bg);
+  border-right: 1px solid var(--glass-border);
+}
+
+.rail-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.rail-spacer {
+  flex: 1;
+}
+
+.rail-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--settings-nav-icon);
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.rail-btn svg {
+  width: 19px;
+  height: 19px;
+}
+
+.rail-btn:hover {
+  background: var(--settings-nav-bg-hover);
+  color: var(--text-primary);
+}
+
+.rail-btn:active {
+  transform: scale(0.94);
+}
+
+.rail-btn:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 1px;
+}
+
+/* Shared by routerLinkActive links and the control-plane toggle. */
+.rail-btn.active {
+  background: var(--pill-accent-bg);
+  border-color: var(--pill-accent-border);
+  color: var(--primary-color);
+}
+
+.rail-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  background: var(--warning-color);
+  color: #1a1208;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}

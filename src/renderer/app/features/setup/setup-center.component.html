@@ -1,0 +1,96 @@
+<div class="setup-center">
+  <header class="setup-hero" [attr.data-status]="heroStatus()">
+    <div class="hero-text">
+      <p class="hero-eyebrow">Setup &amp; readiness</p>
+      <h1 class="hero-title">{{ heroTitle() }}</h1>
+      <p class="hero-summary">{{ heroSummary() }}</p>
+    </div>
+    <div class="hero-actions">
+      <button type="button" class="ghost-btn" (click)="refresh()" [disabled]="loading()">
+        Re-check
+      </button>
+      <button type="button" class="primary-btn" (click)="goToWorkspace()">
+        Go to workspace
+      </button>
+    </div>
+  </header>
+
+  @if (loading()) {
+    <div class="setup-skeleton" aria-busy="true" aria-label="Loading readiness checks">
+      <div class="skeleton-line wide"></div>
+      <div class="skeleton-line"></div>
+      <div class="skeleton-line narrow"></div>
+    </div>
+  } @else if (!report()) {
+    <div class="setup-empty">
+      <p class="empty-title">Readiness checks aren't available</p>
+      <p class="empty-body">
+        Startup capability data is only collected when running the desktop app.
+        Try again once the orchestrator has finished starting up.
+      </p>
+      <button type="button" class="ghost-btn" (click)="refresh()">Try again</button>
+    </div>
+  } @else {
+    <div class="setup-progress">
+      <div class="progress-head">
+        <span class="progress-label">Readiness</span>
+        <span class="progress-count">{{ readyCount() }} / {{ totalCount() }} ready</span>
+      </div>
+      <div
+        class="progress-track"
+        role="progressbar"
+        [attr.aria-valuenow]="progressPercent()"
+        aria-valuemin="0"
+        aria-valuemax="100"
+      >
+        <div class="progress-fill" [style.width.%]="progressPercent()"></div>
+      </div>
+    </div>
+
+    @for (group of groups(); track group.category) {
+      <section class="setup-group">
+        <div class="group-head">
+          <h2 class="group-label">{{ group.label }}</h2>
+          <p class="group-description">{{ group.description }}</p>
+        </div>
+        <div class="check-list">
+          @for (check of group.checks; track check.id) {
+            <div class="check-row" [attr.data-status]="check.status">
+              <span class="check-pill">{{ check.status }}</span>
+              <div class="check-text">
+                <span class="check-label">
+                  {{ check.label }}
+                  @if (check.critical) {
+                    <span class="check-critical" title="Required for core functionality">
+                      Required
+                    </span>
+                  }
+                </span>
+                <span class="check-summary">{{ check.summary }}</span>
+              </div>
+              @if (needsAttention(check)) {
+                <button type="button" class="check-fix" (click)="openDoctor(check)">
+                  Resolve
+                </button>
+              }
+            </div>
+          }
+        </div>
+      </section>
+    }
+
+    <aside class="setup-help">
+      <span class="help-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9" /><line x1="12" y1="11" x2="12" y2="16" />
+          <line x1="12" y1="8" x2="12" y2="8" />
+        </svg>
+      </span>
+      <p class="help-text">
+        Items marked <strong>Resolve</strong> open the Doctor with the relevant
+        diagnostics. Disabled checks are optional features you have turned off —
+        they don't need fixing.
+      </p>
+    </aside>
+  }
+</div>

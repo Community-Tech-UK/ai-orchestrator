@@ -97,6 +97,47 @@ describe('Claude provider', () => {
     expect(extractFilePaths(msg, WD, 'claude')).toContain(`${WD}/config.cfg`);
   });
 
+  // ----- Artifact-extension token scan (catches binary-artifact tooling
+  //       that bypasses Write/Edit, e.g. pandoc -o, python-docx, ImageMagick).
+  it('extracts pandoc -o output artifact from Bash', () => {
+    const msg = toolUse('Bash', {
+      command: `pandoc input.md -o ${WD}/proposal.docx`,
+    });
+    const result = extractFilePaths(msg, WD, 'claude');
+    expect(result).toContain(`${WD}/proposal.docx`);
+  });
+
+  it('extracts artifact paths inside python -c script string literals', () => {
+    // The actual case that broke the Outputs panel: python-docx saving a
+    // .docx inside a quoted -c script. No `>` / `tee` / `mv`, so only the
+    // artifact-token scan can find it.
+    const msg = toolUse('Bash', {
+      command: `python3 -c "from docx import Document; d = Document('${WD}/in.docx'); d.save('${WD}/out.docx')"`,
+    });
+    const result = extractFilePaths(msg, WD, 'claude');
+    expect(result).toContain(`${WD}/in.docx`);
+    expect(result).toContain(`${WD}/out.docx`);
+  });
+
+  it('extracts artifact positional args from convert (ImageMagick)', () => {
+    const msg = toolUse('Bash', {
+      command: `convert ${WD}/diagram.png ${WD}/diagram.jpg`,
+    });
+    const result = extractFilePaths(msg, WD, 'claude');
+    expect(result).toContain(`${WD}/diagram.png`);
+    expect(result).toContain(`${WD}/diagram.jpg`);
+  });
+
+  it('does NOT capture source-code paths from Bash (only artifacts)', () => {
+    // Running a python script is not a write target — the script itself
+    // (.py) is source code, not an artifact, so it must be ignored. The
+    // existing Write/Edit tool calls handle source-code tracking.
+    const msg = toolUse('Bash', {
+      command: `python3 ${WD}/build.py`,
+    });
+    expect(extractFilePaths(msg, WD, 'claude')).toEqual([]);
+  });
+
   it('ignores Read tool', () => {
     const msg = toolUse('Read', { file_path: `${WD}/src/main.ts` });
     expect(extractFilePaths(msg, WD, 'claude')).toEqual([]);

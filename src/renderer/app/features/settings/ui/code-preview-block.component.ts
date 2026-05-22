@@ -1,0 +1,79 @@
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
+
+@Component({
+  selector: 'app-code-preview-block',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <div class="code-preview-block">
+      <div class="code-preview-header">
+        <span>{{ label }}</span>
+        <button type="button" class="copy-button" [disabled]="!code" (click)="copyRequested.emit(code)">
+          Copy
+        </button>
+      </div>
+      <pre>{{ code }}</pre>
+    </div>
+  `,
+  styles: [
+    `
+      :host {
+        display: block;
+      }
+
+      .code-preview-block {
+        overflow: hidden;
+        border: 1px solid var(--terminal-surface-border);
+        border-radius: var(--radius-md);
+        background: var(--terminal-surface-bg);
+      }
+
+      .code-preview-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--spacing-md);
+        padding: var(--spacing-sm) var(--spacing-md);
+        border-bottom: 1px solid var(--terminal-surface-border);
+        color: var(--text-secondary);
+        font-size: var(--text-sm);
+        font-weight: 700;
+      }
+
+      pre {
+        margin: 0;
+        padding: var(--spacing-md);
+        overflow-x: auto;
+        font-family: var(--font-mono);
+        font-size: var(--text-sm);
+        line-height: var(--leading-normal);
+        color: var(--text-primary);
+      }
+
+      .copy-button {
+        padding: var(--spacing-xs) var(--spacing-sm);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-sm);
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        font-size: var(--text-xs);
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .copy-button:hover:not(:disabled) {
+        background: var(--bg-hover);
+      }
+
+      .copy-button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+    `,
+  ],
+})
+export class CodePreviewBlockComponent {
+  @Input() label = 'Preview';
+  @Input() code = '';
+  @Output() readonly copyRequested = new EventEmitter<string>();
+}

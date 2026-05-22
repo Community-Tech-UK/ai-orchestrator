@@ -42,6 +42,9 @@
   --primary-muted: #8a7044;
   --primary-rgb: 184, 154, 102;
   --primary-glow: rgba(184, 154, 102, 0.12);
+  --button-on-primary: #1a1208;
+  --button-on-success: #052e16;
+  --button-on-danger: #fff7f7;
 
   --secondary-color: #789482;
   --secondary-hover: #8ca594;
@@ -108,6 +111,112 @@
   --glass-strong: rgba(255, 255, 255, 0.08);
   --glass-border: rgba(255, 255, 255, 0.05);
   --glass-border-hover: rgba(255, 255, 255, 0.1);
+
+  // ============================================
+  // SEMANTIC SHELL TOKENS
+  // Component-level semantics layered over the base palette.
+  // These reference base tokens, so they adapt to light/dark
+  // automatically — define them once here, not per theme.
+  // ============================================
+
+  // Shell surfaces (rail, sidebar, header, workspace)
+  --shell-rail-bg: var(--bg-secondary);
+  --shell-sidebar-bg: var(--bg-secondary);
+  --shell-header-bg: var(--bg-secondary);
+  --shell-workspace-bg: var(--bg-primary);
+  --shell-workspace-glow-secondary: rgba(var(--secondary-rgb), 0.1);
+  --shell-workspace-glow-primary: rgba(var(--primary-rgb), 0.08);
+  --shell-workspace-sheen: var(--glass-subtle);
+  --shell-sidebar-shadow: 24px 0 60px rgba(0, 0, 0, 0.22);
+  --shell-resize-handle-bg: rgba(var(--primary-rgb), 0.45);
+
+  // Settings workspace
+  --settings-sidebar-bg: var(--bg-secondary);
+  --settings-content-bg: var(--bg-primary);
+  --settings-header-bg: var(--bg-secondary);
+  --settings-nav-fg: var(--text-secondary);
+  --settings-nav-fg-hover: var(--text-primary);
+  --settings-nav-fg-active: var(--text-primary);
+  --settings-nav-bg-hover: var(--glass-medium);
+  --settings-nav-bg-active: var(--glass-strong);
+  --settings-nav-accent: var(--primary-color);
+  --settings-nav-icon: var(--text-muted);
+  --settings-nav-icon-active: var(--primary-color);
+  --settings-group-fg: var(--text-muted);
+
+  // Cards & surfaces
+  --card-bg: var(--bg-secondary);
+  --card-bg-hover: var(--bg-tertiary);
+  --card-border: var(--border-color);
+  --card-radius: var(--radius-lg);
+  --card-shadow: var(--shadow-sm);
+  --surface-sunken-bg: var(--bg-tertiary);
+  --section-icon-bg: var(--glass-medium);
+  --section-icon-fg: var(--primary-color);
+
+  // Status pills
+  --pill-ok-bg: var(--success-bg);
+  --pill-ok-fg: var(--success-color);
+  --pill-ok-border: var(--success-border);
+  --pill-warn-bg: var(--warning-bg);
+  --pill-warn-fg: var(--warning-color);
+  --pill-warn-border: var(--warning-border);
+  --pill-error-bg: var(--error-bg);
+  --pill-error-fg: var(--error-color);
+  --pill-error-border: var(--error-border);
+  --pill-info-bg: var(--info-bg);
+  --pill-info-fg: var(--info-color);
+  --pill-info-border: var(--info-border);
+  --pill-neutral-bg: var(--glass-medium);
+  --pill-neutral-fg: var(--text-secondary);
+  --pill-neutral-border: var(--border-color);
+  --pill-accent-bg: var(--primary-glow);
+  --pill-accent-fg: var(--primary-color);
+  --pill-accent-border: var(--primary-muted);
+
+  // Segmented control
+  --segment-track-bg: var(--bg-tertiary);
+  --segment-track-border: var(--border-color);
+  --segment-thumb-bg: var(--bg-elevated);
+  --segment-thumb-border: var(--border-light);
+  --segment-fg: var(--text-secondary);
+  --segment-fg-active: var(--text-primary);
+
+  // Inline help / callouts
+  --inline-help-bg: var(--info-bg);
+  --inline-help-border: var(--info-border);
+  --inline-help-fg: var(--text-secondary);
+  --inline-help-icon: var(--info-color);
+
+  // Shell toasts and activity status
+  --toast-bg: color-mix(in srgb, var(--bg-elevated) 92%, black);
+  --toast-border: var(--glass-border-hover);
+  --toast-error-fg: #fca5a5;
+  --toast-success-bg: color-mix(in srgb, var(--success-color) 22%, var(--bg-primary));
+  --toast-success-fg: #dcfce7;
+  --toast-success-border: var(--success-border);
+  --toast-shadow: var(--shadow-lg);
+
+  // Empty / loading / skeleton states
+  --empty-state-fg: var(--text-muted);
+  --empty-state-title-fg: var(--text-secondary);
+  --empty-state-icon-fg: var(--text-disabled);
+  --skeleton-base: var(--bg-tertiary);
+  --skeleton-sheen: var(--glass-medium);
+
+  // Terminal & chart surfaces
+  --terminal-surface-bg: var(--bg-primary);
+  --terminal-surface-border: var(--border-color);
+  --chart-grid: var(--border-subtle);
+  --chart-axis: var(--text-muted);
+
+  // Density and shell sizing
+  --density-card-padding: var(--spacing-md);
+  --density-row-gap: var(--spacing-md);
+  --density-section-gap: var(--spacing-xl);
+  --density-nav-padding-y: var(--spacing-sm);
+  --density-settings-content-padding: var(--spacing-2xl);
+  --sidebar-compact-max-width: 280px;
 
   // ============================================
   // SPACING - Refined 4px base grid
@@ -190,6 +299,14 @@
   --output-font-size: 13px;
 }
 
+:root[data-density='compact'] {
+  --density-card-padding: var(--spacing-sm);
+  --density-row-gap: var(--spacing-sm);
+  --density-section-gap: var(--spacing-lg);
+  --density-nav-padding-y: 6px;
+  --density-settings-content-padding: var(--spacing-xl);
+}
+
 // ============================================
 // LIGHT THEME
 // ============================================
@@ -217,6 +334,14 @@
   --primary-hover: #b45309;
   --primary-muted: #f59e0b;
   --primary-glow: rgba(217, 119, 6, 0.15);
+  --button-on-primary: #fff7ed;
+  --button-on-success: #052e16;
+  --button-on-danger: #fff7f7;
+  --toast-bg: color-mix(in srgb, var(--bg-elevated) 96%, black);
+  --toast-error-fg: #b91c1c;
+  --toast-success-bg: color-mix(in srgb, var(--success-color) 14%, var(--bg-elevated));
+  --toast-success-fg: #14532d;
+  --toast-shadow: var(--shadow-md);
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);

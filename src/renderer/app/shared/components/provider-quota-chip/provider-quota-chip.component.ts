@@ -75,7 +75,7 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
     :host { display: inline-flex; }
     .chip {
       display: inline-flex; align-items: center; gap: 6px;
-      padding: 2px 10px 2px 8px; border-radius: 999px;
+      padding: 5px 10px 5px 8px; border-radius: 999px;
       font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.02em;
       white-space: nowrap; cursor: default;
       transition: all var(--transition-normal, 0.2s);

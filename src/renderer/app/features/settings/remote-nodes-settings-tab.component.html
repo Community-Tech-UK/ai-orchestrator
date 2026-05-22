@@ -2,6 +2,12 @@
   <h3 class="section-title">Remote Nodes</h3>
   <p class="section-desc">Allow remote machines to connect as worker nodes.</p>
 
+  <app-inline-help variant="info">
+    Remote nodes let other machines on your network run browser- and GPU-heavy
+    work on this orchestrator's behalf. Start the server, issue a one-time
+    pairing credential, then open it on the remote machine to connect.
+  </app-inline-help>
+
   @if (error()) {
     <div class="error-msg">{{ error() }}</div>
   }
@@ -42,6 +48,12 @@
         }
       </p>
     }
+
+    <app-validation-row
+      [status]="serverStatus().running ? 'pass' : 'warn'"
+      [label]="serverStatus().running ? 'Server accepting workers' : 'Server stopped'"
+      [detail]="serverStatus().running ? 'Remote workers can pair and receive eligible tasks.' : 'Enable the server before sharing pairing credentials.'"
+    />
   </div>
 
   @if (store.remoteNodesEnabled()) {
@@ -160,16 +172,11 @@
         <p class="field-hint">Automatically route GPU-intensive tasks to capable remote nodes.</p>
       </div>
 
-      @if (hasDraftChanges()) {
-        <button
-          class="btn btn-primary"
-          type="button"
-          (click)="applyAndRestart()"
-          [disabled]="applying()"
-        >
-          {{ applying() ? 'Applying...' : 'Apply & Restart Server' }}
-        </button>
-      }
+      <app-save-state-banner
+        [state]="configSaveState()"
+        (apply)="applyAndRestart()"
+        (discard)="syncDraftsFromStore()"
+      />
     </div>
 
     <div class="connection-card">
@@ -250,30 +257,23 @@
           </div>
 
           <div class="pairing-details">
-            <div class="field-group">
-              <span class="field-label">One-Time Credential</span>
-              <input
-                type="text"
-                class="field-input mono"
-                [value]="pairing.token"
-                readonly
-              />
-            </div>
+            <app-copy-row
+              label="One-Time Credential"
+              [value]="pairing.token"
+              (copyRequested)="copyPairingToken($event)"
+            />
 
-            <div class="field-group">
-              <span class="field-label">Pairing Link</span>
-              <input
-                type="text"
-                class="field-input mono"
-                [value]="pairingLink()"
-                readonly
-              />
-            </div>
+            <app-copy-row
+              label="Pairing Link"
+              [value]="pairingLink()"
+              (copyRequested)="copyPairingLink(pairing.token)"
+            />
 
-            <div class="field-group">
-              <span class="field-label">Connection Config</span>
-              <pre class="config-preview">{{ pairingConfigPreview() }}</pre>
-            </div>
+            <app-code-preview-block
+              label="Connection Config"
+              [code]="pairingConfigPreview()"
+              (copyRequested)="copyPairingConfig(pairing.token)"
+            />
 
             <div class="meta-row">
               <span>{{ pairing.label || 'Unlabeled credential' }}</span>
@@ -284,15 +284,6 @@
             </div>
 
             <div class="btn-row">
-              <button class="btn btn-secondary small" type="button" (click)="copyPairingToken(pairing.token)">
-                Copy Token
-              </button>
-              <button class="btn btn-secondary small" type="button" (click)="copyPairingLink(pairing.token)">
-                Copy Link
-              </button>
-              <button class="btn btn-secondary small" type="button" (click)="copyPairingConfig(pairing.token)">
-                Copy Config
-              </button>
               <button class="btn btn-danger small" type="button" (click)="revokePairing(pairing.token)">
                 Revoke
               </button>
@@ -327,14 +318,10 @@
       }
     </div>
 
-    <div class="connection-card">
-      <div class="card-row">
-        <div>
-          <span class="card-name">Manual Pairing Token</span>
-          <p class="field-hint section-inline-hint">Optional manually managed credential that is consumed on first successful registration.</p>
-        </div>
-      </div>
-
+    <app-danger-zone
+      title="Manual Pairing Token"
+      description="Optional manually managed credential that is consumed on first successful registration."
+    >
       @if (!customTokenMode()) {
         <div class="token-row">
           <input
@@ -421,7 +408,7 @@
           </button>
         </div>
       }
-    </div>
+    </app-danger-zone>
 
     <div class="connection-card">
       <div class="card-row">

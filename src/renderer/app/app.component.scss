@@ -24,28 +24,72 @@
   height: 40px;
 }
 
-/* Floating overlay above the drag area for non-draggable widgets like the
- * provider-quota chip. Clicks pass through to the chip; the chip itself
- * is small and right-aligned so it doesn't block the title-bar drag region.
+/* Cohesive status cluster pinned to the title bar's no-drag region. The three
+ * widgets (CLI updates, pause, provider quota) share one framed group so the
+ * top bar reads as a single designed surface rather than floating widgets.
  */
 .title-bar-overlay {
   position: fixed;
-  top: 12px;
+  top: 10px;
   right: 12px;
   z-index: 1100;
   -webkit-app-region: no-drag;
   pointer-events: auto;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 6px;
+  padding: 4px 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-md);
 }
 
 .title-bar-overlay.macos {
-  /* Leave room for the macOS traffic-light buttons on the left,
-   * but our overlay is right-aligned so just push down a few px to
-   * vertically centre with the traffic lights.
-   */
-  top: 14px;
+  /* Vertically centre the cluster against the macOS traffic lights. */
+  top: 12px;
+}
+
+.startup-status-chip,
+.title-activity-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.startup-status-chip {
+  border: 1px solid var(--pill-warn-border);
+  background: var(--pill-warn-bg);
+  color: var(--pill-warn-fg);
+  cursor: pointer;
+  text-transform: capitalize;
+}
+
+.startup-status-chip.ready {
+  border-color: var(--pill-ok-border);
+  background: var(--pill-ok-bg);
+  color: var(--pill-ok-fg);
+}
+
+.startup-status-chip.failed {
+  border-color: var(--pill-error-border);
+  background: var(--pill-error-bg);
+  color: var(--pill-error-fg);
+}
+
+.startup-status-chip:hover {
+  background: var(--glass-strong);
+}
+
+.title-activity-chip {
+  border: 1px solid var(--pill-ok-border);
+  background: var(--pill-ok-bg);
+  color: var(--pill-ok-fg);
 }
 
 .startup-banner {
@@ -55,18 +99,18 @@
   flex-wrap: wrap;
   margin: 0 1rem;
   padding: 0.625rem 0.875rem;
-  border-radius: 8px;
-  border: 1px solid rgba(234, 179, 8, 0.35);
-  background: rgba(234, 179, 8, 0.12);
-  color: var(--text-primary, #e5e5e5);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--warning-border);
+  background: var(--warning-bg);
+  color: var(--text-primary);
   font: inherit;
   text-align: left;
   z-index: 1001;
 }
 
 .startup-banner.failed {
-  border-color: rgba(239, 68, 68, 0.35);
-  background: rgba(239, 68, 68, 0.12);
+  border-color: var(--error-border);
+  background: var(--error-bg);
 }
 
 .startup-banner-title {
@@ -78,7 +122,7 @@
 .startup-banner-body {
   flex: 1 1 20rem;
   font-size: 0.8125rem;
-  color: var(--text-secondary, #cbd5e1);
+  color: var(--text-secondary);
 }
 
 .startup-banner-actions {
@@ -92,7 +136,7 @@
 .startup-banner-dismiss {
   border: none;
   background: transparent;
-  color: var(--accent, #7aa2f7);
+  color: var(--primary-color);
   cursor: pointer;
   font: inherit;
 }
@@ -104,7 +148,7 @@
 }
 
 .startup-banner-cta:hover {
-  color: var(--accent-hover, #9ab8ff);
+  color: var(--primary-hover);
 }
 
 .startup-banner-dismiss {
@@ -113,12 +157,12 @@
   display: grid;
   place-items: center;
   border-radius: 6px;
-  color: var(--text-secondary, #cbd5e1);
+  color: var(--text-secondary);
 }
 
 .startup-banner-dismiss:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary, #e5e5e5);
+  background: var(--glass-strong);
+  color: var(--text-primary);
 }
 
 .startup-banner-dismiss svg {
@@ -155,13 +199,13 @@
   z-index: 4300;
   max-width: min(360px, calc(100vw - 2rem));
   padding: 0.7rem 0.9rem;
-  border: 1px solid rgba(34, 197, 94, 0.36);
+  border: 1px solid var(--toast-success-border);
   border-radius: 8px;
-  background: rgba(20, 83, 45, 0.92);
-  color: #dcfce7;
+  background: var(--toast-success-bg);
+  color: var(--toast-success-fg);
   font-size: 0.875rem;
   font-weight: 600;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
+  box-shadow: var(--toast-shadow);
 }
 
 .toast-stack {
@@ -179,14 +223,14 @@
 .toast-item {
   padding: 8px 16px;
   border-radius: 6px;
-  background: rgba(30, 40, 38, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--toast-bg);
+  border: 1px solid var(--toast-border);
   color: var(--text-primary);
   font-size: 13px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--toast-shadow);
 
   &.toast-error {
-    border-color: rgba(239, 68, 68, 0.4);
-    color: #fca5a5;
+    border-color: var(--pill-error-border);
+    color: var(--toast-error-fg);
   }
 }

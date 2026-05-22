@@ -1,10 +1,13 @@
 <section class="chat-sidebar">
-  <div class="chat-sidebar-header">
-    <button type="button" class="new-chat-button" (click)="openCreate()">
-      <span aria-hidden="true">+</span>
-      New chat
-    </button>
-  </div>
+  <!-- "+ New chat" button temporarily hidden -->
+  @if (false) {
+    <div class="chat-sidebar-header">
+      <button type="button" class="new-chat-button" (click)="openCreate()">
+        <span aria-hidden="true">+</span>
+        New chat
+      </button>
+    </div>
+  }
 
   @if (showCreate()) {
     <form class="chat-create" (ngSubmit)="createChat()">

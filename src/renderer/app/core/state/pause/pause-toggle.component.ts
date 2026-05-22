@@ -28,12 +28,12 @@ import { PauseStore } from './pause.store';
   `,
   styles: [`
     .pause-toggle {
-      width: 32px;
-      height: 32px;
+      width: 28px;
+      height: 28px;
       display: inline-grid;
       place-items: center;
       border: 1px solid var(--border-color, #333);
-      border-radius: 6px;
+      border-radius: 7px;
       background: var(--bg-secondary, #1e1e1e);
       color: var(--text-secondary, #aaa);
       cursor: pointer;

@@ -8,6 +8,8 @@
  */
 
 export type ThemeMode = 'light' | 'dark' | 'system';
+export type DisplayDensity = 'comfortable' | 'compact';
+export type SidebarStyle = 'standard' | 'compact';
 export type CanonicalCliType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'auto' | 'cursor';
 export type CliType = CanonicalCliType | 'openai'; // legacy alias kept for persisted settings compatibility
 export type ConfigSource = 'project' | 'user' | 'default';
@@ -57,6 +59,8 @@ export interface AppSettings {
 
   // Display
   fontSize: number; // 12-20
+  displayDensity: DisplayDensity;
+  sidebarStyle: SidebarStyle;
   contextWarningThreshold: number; // 0-100 percentage
   showToolMessages: boolean;
   showThinking: boolean; // Display AI thinking process in collapsible panels
@@ -153,6 +157,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   // Display
   fontSize: 14,
+  displayDensity: 'comfortable',
+  sidebarStyle: 'standard',
   contextWarningThreshold: 80,
   showToolMessages: true,
   showThinking: true,
@@ -306,7 +312,9 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
     label: 'Theme',
     description: 'Application color theme',
     type: 'select',
-    category: 'general',
+    // Rendered by the Display tab's Appearance panel (with live preview),
+    // so it is grouped with the other display/appearance settings.
+    category: 'display',
     options: [
       { value: 'dark', label: 'Dark' },
       { value: 'light', label: 'Light' },
@@ -382,6 +390,28 @@ export const SETTINGS_METADATA: SettingMetadata[] = [
     category: 'display',
     min: 12,
     max: 20
+  },
+  {
+    key: 'displayDensity',
+    label: 'Display Density',
+    description: 'Spacing density for settings, shell panels, and workspace rows',
+    type: 'select',
+    category: 'display',
+    options: [
+      { value: 'comfortable', label: 'Comfortable' },
+      { value: 'compact', label: 'Compact' },
+    ],
+  },
+  {
+    key: 'sidebarStyle',
+    label: 'Sidebar Style',
+    description: 'Sidebar width behavior for the workspace shell',
+    type: 'select',
+    category: 'display',
+    options: [
+      { value: 'standard', label: 'Standard' },
+      { value: 'compact', label: 'Compact' },
+    ],
   },
   {
     key: 'contextWarningThreshold',

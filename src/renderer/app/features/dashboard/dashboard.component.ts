@@ -2,6 +2,7 @@
  * Dashboard Component - Main application layout
  */
 
+import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -23,7 +24,7 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
 import { KeybindingService } from '../../core/services/keybinding.service';
-import { ViewLayoutService } from '../../core/services/view-layout.service';
+import { ViewLayoutService, type WorkspacePresetId } from '../../core/services/view-layout.service';
 import { VisibleInstanceResolver } from '../../core/services/visible-instance-resolver.service';
 import { InstanceListComponent } from '../instance-list/instance-list.component';
 import { InstanceDetailComponent } from '../instance-detail/instance-detail.component';
@@ -45,7 +46,7 @@ import { NewSessionDraftService } from '../../core/services/new-session-draft.se
 import { SidebarHeaderComponent } from './sidebar-header.component';
 import { SidebarNavComponent } from './sidebar-nav.component';
 import { SidebarFooterComponent } from './sidebar-footer.component';
-import { SidebarActionsComponent } from './sidebar-actions.component';
+import { WorkspaceRailComponent } from './workspace-rail.component';
 import { BrowserPreviewNoticeComponent } from './browser-preview-notice.component';
 import { SessionProgressPanelComponent } from '../instance-detail/session-progress-panel.component';
 
@@ -53,6 +54,7 @@ import { SessionProgressPanelComponent } from '../instance-detail/session-progre
   selector: 'app-dashboard',
   standalone: true,
   imports: [
+    NgTemplateOutlet,
     InstanceListComponent,
     InstanceDetailComponent,
     ChatSidebarComponent,
@@ -67,7 +69,7 @@ import { SessionProgressPanelComponent } from '../instance-detail/session-progre
     FileExplorerComponent,
     SourceControlComponent,
     SidebarHeaderComponent,
-    SidebarActionsComponent,
+    WorkspaceRailComponent,
     SidebarNavComponent,
     SidebarFooterComponent,
     BrowserPreviewNoticeComponent,
@@ -104,6 +106,14 @@ export class DashboardComponent implements OnInit, OnDestroy {
   showSidebar = signal(true);
   showFileExplorer = signal(false);
   showSourceControl = signal(false);
+
+  // Workspace layout presets (copilot_todo.md item 9).
+  readonly workspacePresets = this.viewLayoutService.presets;
+  readonly activeWorkspacePreset = this.viewLayoutService.activePreset;
+
+  // Whether the control plane is docked (pinned) vs a floating overlay
+  // (copilot_todo.md item 7). Persisted by ViewLayoutService.
+  readonly controlPlanePinned = this.viewLayoutService.controlPlanePinned;
 
   private readonly anyTransientOverlayOpen = computed(() =>
     this.showCommandPalette()
@@ -173,6 +183,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   // Sidebar resize state - using ViewLayoutService for persistence
   sidebarWidth = signal(this.viewLayoutService.sidebarWidth);
+  effectiveSidebarWidth = computed(() => {
+    if (this.settingsStore.effectiveSidebarStyle() !== 'compact') {
+      return this.sidebarWidth();
+    }
+    return Math.min(this.sidebarWidth(), 280);
+  });
   isResizing = signal(false);
   private resizeStartX = 0;
   private resizeStartWidth = 0;
@@ -234,7 +250,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
     event.preventDefault();
     this.isResizing.set(true);
     this.resizeStartX = event.clientX;
-    this.resizeStartWidth = this.sidebarWidth();
+    this.resizeStartWidth = this.effectiveSidebarWidth();
   }
 
   @HostListener('document:mousemove', ['$event'])
@@ -242,9 +258,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
     if (!this.isResizing()) return;
 
     const delta = event.clientX - this.resizeStartX;
+    const maxWidth = this.settingsStore.effectiveSidebarStyle() === 'compact' ? 280 : 600;
     const newWidth = Math.max(
       260,
-      Math.min(600, this.resizeStartWidth + delta)
+      Math.min(maxWidth, this.resizeStartWidth + delta)
     );
     this.sidebarWidth.set(newWidth);
     // Update service (debounced save)
@@ -490,6 +507,25 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   toggleControlPlane(): void {
     this.showControlPlane.update((open) => !open);
+    this.viewLayoutService.setActivePreset(null);
+  }
+
+  /**
+   * Toggle the control plane between docked (pinned) and floating overlay.
+   * The pinned state is persisted by ViewLayoutService so it survives reloads.
+   */
+  toggleControlPlanePinned(): void {
+    this.viewLayoutService.setControlPlanePinned(!this.controlPlanePinned());
+  }
+
+  /** Apply a named workspace layout preset (copilot_todo.md item 9). */
+  applyWorkspacePreset(id: WorkspacePresetId): void {
+    const preset = this.viewLayoutService.getPreset(id);
+    this.viewLayoutService.setActivePreset(id);
+    this.showSidebar.set(preset.panels.sidebar);
+    this.showControlPlane.set(preset.panels.controlPlane);
+    this.showFileExplorer.set(preset.panels.fileExplorer && this.canShowFileExplorer());
+    this.showSourceControl.set(preset.panels.sourceControl && this.canShowSourceControl());
   }
 
   toggleFileExplorer(): void {
@@ -499,6 +535,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
     }
 
     this.showFileExplorer.update((open) => !open);
+    this.viewLayoutService.setActivePreset(null);
   }
 
   toggleSourceControl(): void {
@@ -508,6 +545,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
     }
 
     this.showSourceControl.update((open) => !open);
+    this.viewLayoutService.setActivePreset(null);
   }
 
   navigateToSettings(): void {
@@ -524,7 +562,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   openDoctor(): void {
     void this.router.navigate(['/settings'], {
-      queryParams: { tab: 'doctor' },
+      fragment: 'doctor',
     });
   }
 

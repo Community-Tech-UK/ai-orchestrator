@@ -152,8 +152,8 @@ const DEFAULT_PROGRESS_THRESHOLDS = {
           </section>
 
           <section class="row">
-            <label for="loop-cfg-verify">Verify command <span class="hint">(empty disables)</span></label>
-            <input id="loop-cfg-verify" type="text" [ngModel]="verifyCommand()" (ngModelChange)="verifyCommand.set($event)" />
+            <label for="loop-cfg-verify">Verify command <span class="hint">(auto-detected if blank)</span></label>
+            <input id="loop-cfg-verify" type="text" placeholder="npm run verify" [ngModel]="verifyCommand()" (ngModelChange)="verifyCommand.set($event)" />
           </section>
 
           <section class="row split">
@@ -230,6 +230,11 @@ const DEFAULT_PROGRESS_THRESHOLDS = {
             <label>
               <input type="checkbox" [checked]="runVerifyTwice()" (change)="runVerifyTwice.set(toggleEvent($event))" />
               Run verify command twice (anti-flake)
+            </label>
+            <label>
+              <input type="checkbox" [checked]="operatorReviewedCompletion()" (change)="operatorReviewedCompletion.set(toggleEvent($event))" />
+              Operator-reviewed completion
+              <span class="hint">(no auto-complete without verify)</span>
             </label>
             <label>
               <input type="checkbox" [checked]="pauseOnTokenBurn()" (change)="pauseOnTokenBurn.set(toggleEvent($event))" />
@@ -454,6 +459,7 @@ export class LoopConfigPanelComponent {
   streamIdleTimeoutSec = signal(300);
   requireRename = signal(false);
   runVerifyTwice = signal(true);
+  operatorReviewedCompletion = signal(false);
   /** Opt-in for signal F (token-burn-without-test-progress). Default off so
    *  legitimate non-test-driven loops (new module scaffolds, refactors with
    *  no test deltas, doc/asset generation) don't pause spuriously. */
@@ -549,7 +555,8 @@ export class LoopConfigPanelComponent {
         completedFilenamePattern: DEFAULT_COMPLETION.completedFilenamePattern,
         donePromiseRegex: DEFAULT_COMPLETION.donePromiseRegex,
         doneSentinelFile: DEFAULT_COMPLETION.doneSentinelFile,
-        verifyCommand: this.verifyCommand(),
+        verifyCommand: this.verifyCommand().trim(),
+        allowOperatorReviewedCompletion: this.operatorReviewedCompletion(),
         verifyTimeoutMs: DEFAULT_COMPLETION.verifyTimeoutMs,
         runVerifyTwice: this.runVerifyTwice(),
         requireCompletedFileRename: this.effectiveRequireRename(),

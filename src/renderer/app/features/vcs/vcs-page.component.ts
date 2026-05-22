@@ -15,6 +15,8 @@ import { Router } from '@angular/router';
 import { VcsIpcService } from '../../core/services/ipc/vcs-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { DiffViewerComponent } from '../../shared/components/diff-viewer/diff-viewer.component';
+import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
+import { SkeletonComponent } from '../../shared/components/skeleton/skeleton.component';
 
 // -----------------------------------------------------------------------
 // Local interfaces
@@ -61,7 +63,7 @@ type LeftTab = 'changes' | 'branches';
 @Component({
   selector: 'app-vcs-page',
   standalone: true,
-  imports: [CommonModule, DiffViewerComponent],
+  imports: [CommonModule, DiffViewerComponent, EmptyStateComponent, SkeletonComponent],
   templateUrl: './vcs-page.component.html',
   styleUrl: './vcs-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

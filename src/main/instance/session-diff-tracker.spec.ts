@@ -227,6 +227,58 @@ describe('SessionDiffTracker', () => {
       expect(stats.files[relPath].added).toBe(0);
       expect(stats.files[relPath].deleted).toBe(0);
     });
+
+    it('does NOT surface a binary file that was unchanged between baseline and diff', () => {
+      // Regression: previously a binary baseline always emitted a
+      // 'modified' entry on computeDiff regardless of whether the file
+      // actually changed (because the null-marker baseline short-circuited
+      // the comparison). With size+mtime baselines, unchanged binaries are
+      // correctly skipped — important now that the Bash tool-output parser
+      // also captures binary references like `cat foo.pdf | head`.
+      const filePath = path.join(tmpDir, 'unchanged.bin');
+      fs.writeFileSync(filePath, Buffer.from([0x89, 0x50, 0x00, 0x0d, 0x0a]));
+
+      tracker.captureBaseline(filePath);
+      // No modification.
+      const stats = tracker.computeDiff();
+
+      expect(Object.keys(stats.files)).toHaveLength(0);
+    });
+
+    it('reports a binary file created from scratch as added', () => {
+      // Mirrors the real-world scenario behind this fix: the agent runs
+      // `python3 -c "doc.save('proposal.docx')"`. captureBaseline fires
+      // before the script runs (file absent), then computeDiff fires after
+      // the script writes the binary docx.
+      const filePath = path.join(tmpDir, 'proposal.docx');
+      // File doesn't exist yet.
+      tracker.captureBaseline(filePath);
+
+      // Now simulate the script writing a binary docx (PK zip header + null).
+      fs.writeFileSync(filePath, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00]));
+
+      const stats = tracker.computeDiff();
+
+      const relPath = path.relative(tmpDir, filePath);
+      expect(stats.files[relPath]).toBeDefined();
+      expect(stats.files[relPath].status).toBe('added');
+      expect(stats.files[relPath].added).toBe(0);
+      expect(stats.files[relPath].deleted).toBe(0);
+    });
+
+    it('reports a binary file deleted between baseline and diff as deleted', () => {
+      const filePath = path.join(tmpDir, 'will-vanish.bin');
+      fs.writeFileSync(filePath, Buffer.from([0x00, 0xff, 0xaa]));
+
+      tracker.captureBaseline(filePath);
+      fs.unlinkSync(filePath);
+
+      const stats = tracker.computeDiff();
+
+      const relPath = path.relative(tmpDir, filePath);
+      expect(stats.files[relPath]).toBeDefined();
+      expect(stats.files[relPath].status).toBe('deleted');
+    });
   });
 
   // =========================================================================

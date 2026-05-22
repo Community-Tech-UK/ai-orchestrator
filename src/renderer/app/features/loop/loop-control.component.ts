@@ -58,8 +58,8 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
             </span>
           }
           @case ('claimed-failed') {
-            <span class="loop-banner-title">Verify failed</span>
-            <span class="loop-banner-msg">Loop reported done via <code>{{ b.signal }}</code> but verify failed: {{ b.failure | slice:0:280 }}…</span>
+            <span class="loop-banner-title">Completion not accepted</span>
+            <span class="loop-banner-msg">Loop reported done via <code>{{ b.signal }}</code>: {{ b.failure | slice:0:280 }}…</span>
             <span class="loop-banner-actions">
               <button type="button" (click)="onToggleInspector()">Inspect</button>
               <button type="button" (click)="onInjectHint()">Inject hint</button>

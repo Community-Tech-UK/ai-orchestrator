@@ -20,6 +20,8 @@ import { SnapshotIpcService } from '../../core/services/ipc/snapshot-ipc.service
 import { SessionShareIpcService } from '../../core/services/ipc/session-share-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { DiffViewerComponent } from '../../shared/components/diff-viewer/diff-viewer.component';
+import { EmptyStateComponent } from '../../shared/components/empty-state/empty-state.component';
+import { SkeletonComponent } from '../../shared/components/skeleton/skeleton.component';
 import type { SessionShareAttachment, SessionShareBundle } from '../../../../shared/types/session-share.types';
 
 interface SnapshotSession {
@@ -55,7 +57,7 @@ interface SnapshotDiff {
 @Component({
   selector: 'app-snapshot-page',
   standalone: true,
-  imports: [CommonModule, DiffViewerComponent],
+  imports: [CommonModule, DiffViewerComponent, EmptyStateComponent, SkeletonComponent],
   templateUrl: './snapshot-page.component.html',
   styleUrl: './snapshot-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

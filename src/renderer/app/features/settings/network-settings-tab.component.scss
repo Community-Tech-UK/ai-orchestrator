@@ -1,0 +1,44 @@
+/**
+ * Network Settings Tab styles.
+ *
+ * Extracted from the component decorator (copilot_todo.md item 15).
+ * Uses semantic shell tokens from _theme.scss — no raw rgba() values.
+ */
+
+:host {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+.disabled-note {
+  padding: var(--spacing-md) var(--spacing-lg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken-bg);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+
+.card-actions-row {
+  display: flex;
+  align-items: center;
+}
+
+.secondary-btn {
+  height: 32px;
+  padding: 0 var(--spacing-md);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--glass-light);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  transition: background var(--transition-fast);
+}
+
+.secondary-btn:hover {
+  background: var(--glass-medium);
+}

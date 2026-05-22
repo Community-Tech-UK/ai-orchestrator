@@ -360,7 +360,7 @@ If the work for the current STAGE is complete:
 - IMPLEMENT done **but plan still has unfinished items** → write \`REVIEW\` into STAGE.md (loop back through review).
 - IMPLEMENT done **and the plan or completion inventory is fully implemented & verified** →
     1. Confirm there are no unchecked plan items or unchecked \`NOTES.md\` completion-inventory items. For broad implementation goals, run a final targeted search for unfinished implementation markers and either implement each actionable item or record why it is out of scope.
-    2. Run the verify command if one is configured (\`${config.completion.verifyCommand || '(none configured)'}\`). If none is configured, run the appropriate project checks yourself and summarize them. Verification must pass.
+    2. Run the verify command if one is configured (\`${config.completion.verifyCommand || '(none configured)'}\`). If none is configured, run the appropriate project checks yourself and summarize their exact output, but understand the coordinator cannot independently verify completion and will pause for operator review instead of auto-completing. Verification must pass.
     3. If a plan file exists, rename it before declaring done: \`mv ${config.planFile ?? '<plan-file>'} ${(config.planFile ?? '<plan-file>').replace(/\.md$/, '_Completed.md')}\` (or use git mv if applicable).
     4. Write \`DONE.txt\` containing the date — this durable sentinel is required for no-plan loops.
     5. Append \`<promise>DONE</promise>\` on its own line at the end of your output only after the durable marker above exists.

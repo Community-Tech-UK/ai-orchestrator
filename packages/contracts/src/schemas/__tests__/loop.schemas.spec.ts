@@ -85,7 +85,9 @@ describe('Loop schemas — type/schema drift guards', () => {
     };
 
     it('accepts the legacy shape without crossModelReview (backward compat)', () => {
-      expect(() => LoopCompletionConfigSchema.parse(base)).not.toThrow();
+      const parsed = LoopCompletionConfigSchema.parse(base);
+
+      expect(parsed.allowOperatorReviewedCompletion).toBe(false);
     });
 
     it('accepts the shape with crossModelReview present', () => {
@@ -100,6 +102,15 @@ describe('Loop schemas — type/schema drift guards', () => {
       };
       const parsed = LoopCompletionConfigSchema.parse(cfg);
       expect(parsed.crossModelReview?.enabled).toBe(true);
+    });
+
+    it('preserves an explicit operator-reviewed completion opt-in', () => {
+      const parsed = LoopCompletionConfigSchema.parse({
+        ...base,
+        allowOperatorReviewedCompletion: true,
+      });
+
+      expect(parsed.allowOperatorReviewedCompletion).toBe(true);
     });
 
     it('preserves crossModelReview through parse→stringify→parse roundtrip', () => {

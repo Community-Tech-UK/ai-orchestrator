@@ -88,12 +88,19 @@ export interface LoopCompletionConfig {
   /** Sentinel file that indicates "done". */
   doneSentinelFile: string;         // default 'DONE.txt'
   /**
-   * Verify command (run before stop). When empty, verify is reported as
-   * 'skipped': the loop has no independent check, so it will NOT stop on a
-   * (self-declared) completion signal — it keeps iterating until a hard cap.
-   * Set this to your test/lint/build command for clean signal-based stops.
+   * Verify command (run before stop). User-facing LOOP_START flows reject an
+   * empty command unless one can be inferred from the workspace or
+   * `allowOperatorReviewedCompletion` is true. Programmatic callers that
+   * still run empty-command loops get a skipped verify and the coordinator
+   * pauses on completion for operator review.
    */
   verifyCommand: string;            // default empty; loop prompt asks agent to run appropriate checks
+  /**
+   * Explicit escape hatch for loops that cannot be independently verified.
+   * When true and `verifyCommand` is empty, the loop may start, but it cannot
+   * auto-complete: completion evidence pauses the run for operator review.
+   */
+  allowOperatorReviewedCompletion: boolean; // default false
   /** Verify timeout in ms. */
   verifyTimeoutMs: number;          // default 600_000 (10 min)
   /** Run verify twice (anti-flake) before final stop. */
@@ -241,6 +248,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
       doneSentinelFile: 'DONE.txt',
       verifyCommand: '',
+      allowOperatorReviewedCompletion: false,
       verifyTimeoutMs: 600_000,
       runVerifyTwice: true,
       requireCompletedFileRename: false,

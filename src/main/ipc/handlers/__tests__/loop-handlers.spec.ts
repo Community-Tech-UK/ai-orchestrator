@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { LoopConfigInput } from '@contracts/schemas/loop';
 import { IPC_CHANNELS } from '@contracts/channels';
 import type { InstanceManager } from '../../../instance/instance-manager';
@@ -31,6 +34,8 @@ const hoisted = vi.hoisted(() => ({
     tryGetChat: vi.fn(),
   },
 }));
+
+let tempWorkspace: string | null = null;
 
 vi.mock('electron', () => ({
   ipcMain: {
@@ -82,6 +87,10 @@ function makeInstanceManager(
 }
 
 beforeEach(() => {
+  if (tempWorkspace) {
+    rmSync(tempWorkspace, { recursive: true, force: true });
+    tempWorkspace = null;
+  }
   vi.clearAllMocks();
   // Default: behave as if state.chatId is a real chat. Individual tests can
   // override this to exercise the instance-id fallback path.
@@ -184,7 +193,14 @@ describe('LOOP_START handler — kickoff prompt persistence', () => {
   function defaultStartPayload(): unknown {
     return {
       chatId: 'chat-1',
-      config: { initialPrompt: 'Build the thing.', workspaceCwd: '/work/project' },
+      config: {
+        initialPrompt: 'Build the thing.',
+        workspaceCwd: '/work/project',
+        completion: {
+          ...defaultLoopConfig('/work/project', 'Build the thing.').completion,
+          verifyCommand: 'true',
+        },
+      },
       attachments: undefined,
     };
   }
@@ -286,6 +302,117 @@ describe('LOOP_START handler — kickoff prompt persistence', () => {
     const response = await handler({}, defaultStartPayload());
 
     expect(response).toEqual({ success: true, data: { state: startState } });
+  });
+
+  it('fills a blank verify command from the workspace before starting the loop', async () => {
+    tempWorkspace = mkdtempSync(join(tmpdir(), 'loop-handler-verify-'));
+    writeFileSync(
+      join(tempWorkspace, 'package.json'),
+      JSON.stringify({ scripts: { verify: 'npm test' } }, null, 2),
+    );
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    const startState = makeLoopState({ status: 'running', endedAt: null });
+    hoisted.coordinator.startLoop.mockResolvedValue(startState);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_START);
+    const payload = {
+      chatId: 'chat-1',
+      config: {
+        initialPrompt: 'Build the thing.',
+        workspaceCwd: tempWorkspace,
+        completion: {
+          ...defaultLoopConfig(tempWorkspace, 'Build the thing.').completion,
+          verifyCommand: '',
+        },
+      },
+    };
+
+    const response = await handler({}, payload);
+
+    expect(response).toEqual({ success: true, data: { state: startState } });
+    expect(hoisted.coordinator.startLoop).toHaveBeenCalledWith(
+      'chat-1',
+      expect.objectContaining({
+        completion: expect.objectContaining({
+          verifyCommand: 'npm run verify',
+        }),
+      }),
+      undefined,
+      expect.any(Object),
+    );
+  });
+
+  it('rejects loop start up front when no verifier can be inferred', async () => {
+    tempWorkspace = mkdtempSync(join(tmpdir(), 'loop-handler-verify-'));
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_START);
+    const payload = {
+      chatId: 'chat-1',
+      config: {
+        initialPrompt: 'Build the thing.',
+        workspaceCwd: tempWorkspace,
+        completion: {
+          ...defaultLoopConfig(tempWorkspace, 'Build the thing.').completion,
+          verifyCommand: '',
+        },
+      },
+    };
+
+    const response = await handler({}, payload);
+
+    expect(response.success).toBe(false);
+    expect(response.error?.code).toBe('LOOP_START_FAILED');
+    expect(response.error?.message).toContain('Loop Mode needs a verify command before it can auto-complete');
+    expect(hoisted.coordinator.startLoop).not.toHaveBeenCalled();
+  });
+
+  it('allows explicit operator-reviewed completion without a verify command', async () => {
+    tempWorkspace = mkdtempSync(join(tmpdir(), 'loop-handler-verify-'));
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    const startState = makeLoopState({ status: 'running', endedAt: null });
+    hoisted.coordinator.startLoop.mockResolvedValue(startState);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_START);
+    const payload = {
+      chatId: 'chat-1',
+      config: {
+        initialPrompt: 'Build the thing.',
+        workspaceCwd: tempWorkspace,
+        completion: {
+          ...defaultLoopConfig(tempWorkspace, 'Build the thing.').completion,
+          verifyCommand: '',
+          allowOperatorReviewedCompletion: true,
+        },
+      },
+    };
+
+    const response = await handler({}, payload);
+
+    expect(response).toEqual({ success: true, data: { state: startState } });
+    expect(hoisted.coordinator.startLoop).toHaveBeenCalledWith(
+      'chat-1',
+      expect.objectContaining({
+        completion: expect.objectContaining({
+          verifyCommand: '',
+          allowOperatorReviewedCompletion: true,
+        }),
+      }),
+      undefined,
+      expect.any(Object),
+    );
   });
 
   it('forwards the loop:started event to the renderer without re-appending the kickoff prompt', () => {

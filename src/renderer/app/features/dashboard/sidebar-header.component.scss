@@ -1,12 +1,12 @@
 /**
  * Sidebar Header Component Styles
- * Quiet rail header with launch controls
+ * Session-list header — a label plus the new-session control.
  */
 
 .sidebar-header {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   padding: 12px 14px;
   border-bottom: 1px solid var(--glass-border);
   background:
@@ -14,10 +14,12 @@
     var(--bg-secondary);
 }
 
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+.sidebar-title {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
 }
 
 .btn-header-icon {
