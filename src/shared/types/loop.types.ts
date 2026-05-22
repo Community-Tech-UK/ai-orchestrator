@@ -27,8 +27,8 @@ export interface LoopHardCaps {
   maxWallTimeMs: number;
   /** Token spend cap (approx — measured per iteration). Default 1_000_000. */
   maxTokens: number;
-  /** Cost cap in cents. Default 1000 ($10). */
-  maxCostCents: number;
+  /** Cost cap in cents. Null means unbounded. Default null for subscription usage. */
+  maxCostCents: number | null;
   /** Per-iteration tool-call cap. Default 200. */
   maxToolCallsPerIteration: number;
 }
@@ -215,7 +215,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       maxIterations: 50,
       maxWallTimeMs: 8 * 60 * 60 * 1000,
       maxTokens: 1_000_000,
-      maxCostCents: 1000,
+      maxCostCents: null,
       maxToolCallsPerIteration: 200,
     },
     progressThresholds: {

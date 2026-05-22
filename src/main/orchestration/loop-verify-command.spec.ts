@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inferLoopVerifyCommand } from './loop-verify-command';
@@ -23,6 +23,20 @@ describe('inferLoopVerifyCommand', () => {
 
     await expect(inferLoopVerifyCommand(workspace)).resolves.toEqual({
       command: 'npm run verify',
+      source: 'package.json script "verify"',
+    });
+  });
+
+  it('finds the nearest parent package verifier for nested workspaces', async () => {
+    workspace = mkdtempSync(join(tmpdir(), 'loop-verify-infer-'));
+    writePackageJson({
+      verify: 'npm test',
+    });
+    const nestedWorkspace = join(workspace, 'src', 'main');
+    mkdirSync(nestedWorkspace, { recursive: true });
+
+    await expect(inferLoopVerifyCommand(nestedWorkspace)).resolves.toEqual({
+      command: `npm --prefix "${workspace}" run verify`,
       source: 'package.json script "verify"',
     });
   });

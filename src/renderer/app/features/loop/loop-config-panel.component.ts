@@ -147,7 +147,7 @@ const DEFAULT_PROGRESS_THRESHOLDS = {
             </div>
             <div>
               <label for="loop-cfg-cap-cost">Max spend ($)</label>
-              <input id="loop-cfg-cap-cost" type="number" min="1" max="1000" [ngModel]="maxDollars()" (ngModelChange)="maxDollars.set($event)" />
+              <input id="loop-cfg-cap-cost" type="number" min="1" max="1000" placeholder="No cap" [ngModel]="maxDollars()" (ngModelChange)="maxDollars.set($event)" />
             </div>
           </section>
 
@@ -447,7 +447,7 @@ export class LoopConfigPanelComponent {
   planFile = signal('');
   maxIterations = signal(50);
   maxHours = signal(8);
-  maxDollars = signal(10);
+  maxDollars = signal<number | null>(null);
   verifyCommand = signal('');
   provider = signal<'claude' | 'codex'>('claude');
   reviewStyle = signal<'single' | 'debate' | 'star-chamber'>('debate');
@@ -513,7 +513,8 @@ export class LoopConfigPanelComponent {
     if (!this.prompt().trim()) return 'Prompt is required.';
     if (this.maxIterations() < 1) return 'Max iterations must be at least 1.';
     if (this.maxHours() < 1) return 'Max wall time must be at least 1 hour.';
-    if (this.maxDollars() < 1) return 'Max spend must be at least $1.';
+    const maxDollars = this.maxDollars();
+    if (maxDollars !== null && maxDollars < 1) return 'Max spend must be at least $1, or blank for no cap.';
     return null;
   });
 
@@ -536,6 +537,7 @@ export class LoopConfigPanelComponent {
   buildConfig(): LoopStartConfigInput | null {
     if (!this.canSubmit()) return null;
     const planFile = this.planFile().trim() || undefined;
+    const maxDollars = this.maxDollars();
     return {
       initialPrompt: this.prompt().trim(),
       workspaceCwd: this.workspaceCwd(),
@@ -548,7 +550,7 @@ export class LoopConfigPanelComponent {
         maxIterations: this.maxIterations(),
         maxWallTimeMs: this.maxHours() * 60 * 60 * 1000,
         maxTokens: DEFAULT_CAPS.maxTokens,
-        maxCostCents: this.maxDollars() * 100,
+        maxCostCents: maxDollars === null ? null : maxDollars * 100,
         maxToolCallsPerIteration: DEFAULT_CAPS.maxToolCallsPerIteration,
       },
       completion: {

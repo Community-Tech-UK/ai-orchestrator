@@ -41,6 +41,12 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.completion?.allowOperatorReviewedCompletion).toBe(false);
   });
 
+  it('defaults to no spend cap', () => {
+    const config = component.buildConfig();
+
+    expect(config?.caps?.maxCostCents).toBeNull();
+  });
+
   it('can opt into operator-reviewed completion for loops without a verifier', () => {
     component.operatorReviewedCompletion.set(true);
     fixture.detectChanges();

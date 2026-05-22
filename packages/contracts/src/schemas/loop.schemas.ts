@@ -37,7 +37,7 @@ export const LoopHardCapsSchema = z.object({
   maxIterations: z.number().int().positive().max(1000),
   maxWallTimeMs: z.number().int().positive().max(24 * 60 * 60 * 1000),
   maxTokens: z.number().int().positive().max(100_000_000),
-  maxCostCents: z.number().int().nonnegative().max(1_000_000),
+  maxCostCents: z.number().int().nonnegative().max(1_000_000).nullable(),
   maxToolCallsPerIteration: z.number().int().positive().max(10_000),
 });
 

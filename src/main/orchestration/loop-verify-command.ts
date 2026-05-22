@@ -16,15 +16,31 @@ const COMPOSABLE_NPM_VERIFY_SCRIPTS = [
 export async function inferLoopVerifyCommand(
   workspaceCwd: string,
 ): Promise<InferredLoopVerifyCommand | null> {
-  const packageJson = await readPackageJson(workspaceCwd);
-  if (!packageJson) return null;
+  const requestedWorkspace = path.resolve(workspaceCwd);
+  let current = requestedWorkspace;
 
-  const scripts = packageJson.scripts;
+  while (true) {
+    const packageJson = await readPackageJson(current);
+    const inferred = inferFromPackageJson(packageJson, current, requestedWorkspace);
+    if (inferred) return inferred;
+
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+function inferFromPackageJson(
+  packageJson: { scripts?: Record<string, unknown> } | null,
+  packageDir: string,
+  requestedWorkspace: string,
+): InferredLoopVerifyCommand | null {
+  const scripts = packageJson?.scripts;
   if (!scripts) return null;
 
   if (isUsableScript(scripts['verify'])) {
     return {
-      command: 'npm run verify',
+      command: npmRunCommand('verify', packageDir, requestedWorkspace),
       source: 'package.json script "verify"',
     };
   }
@@ -35,9 +51,24 @@ export async function inferLoopVerifyCommand(
   if (scriptNames.length === 0) return null;
 
   return {
-    command: scriptNames.map((name) => `npm run ${name}`).join(' && '),
+    command: scriptNames.map((name) => npmRunCommand(name, packageDir, requestedWorkspace)).join(' && '),
     source: `package.json scripts: ${scriptNames.join(', ')}`,
   };
+}
+
+function npmRunCommand(
+  scriptName: string,
+  packageDir: string,
+  requestedWorkspace: string,
+): string {
+  if (path.resolve(packageDir) === path.resolve(requestedWorkspace)) {
+    return `npm run ${scriptName}`;
+  }
+  return `npm --prefix ${quoteShellArg(packageDir)} run ${scriptName}`;
+}
+
+function quoteShellArg(value: string): string {
+  return `"${value.replace(/(["\\$`])/g, '\\$1')}"`;
 }
 
 async function readPackageJson(

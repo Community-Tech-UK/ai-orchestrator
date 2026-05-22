@@ -1429,7 +1429,7 @@ export class LoopCoordinator extends EventEmitter {
     if (state.totalIterations >= caps.maxIterations) return 'iterations';
     if (Date.now() - state.startedAt >= caps.maxWallTimeMs) return 'wall-time';
     if (state.totalTokens >= caps.maxTokens) return 'tokens';
-    if (state.totalCostCents >= caps.maxCostCents) return 'cost';
+    if (caps.maxCostCents !== null && state.totalCostCents >= caps.maxCostCents) return 'cost';
     return null;
   }
 

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   LoopCompletionConfigSchema,
   LoopCrossModelReviewConfigSchema,
+  LoopHardCapsSchema,
   LoopTerminalIntentSchema,
   LoopReviewSeveritySchema,
   LoopStateSchema,
@@ -130,6 +131,20 @@ describe('Loop schemas — type/schema drift guards', () => {
       const json = JSON.stringify(parsed1);
       const parsed2 = LoopCompletionConfigSchema.parse(JSON.parse(json));
       expect(parsed2.crossModelReview).toEqual(original.crossModelReview);
+    });
+  });
+
+  describe('LoopHardCapsSchema', () => {
+    it('accepts null maxCostCents as an unbounded spend cap', () => {
+      const parsed = LoopHardCapsSchema.parse({
+        maxIterations: 50,
+        maxWallTimeMs: 60_000,
+        maxTokens: 100_000,
+        maxCostCents: null,
+        maxToolCallsPerIteration: 100,
+      });
+
+      expect(parsed.maxCostCents).toBeNull();
     });
   });
 
