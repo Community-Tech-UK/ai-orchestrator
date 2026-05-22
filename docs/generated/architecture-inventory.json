@@ -4801,10 +4801,6 @@
       "lines": 1803
     },
     {
-      "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 1772
-    },
-    {
       "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
       "lines": 1767
     },
@@ -4855,6 +4851,10 @@
     {
       "path": "src/main/orchestration/orchestration-handler.ts",
       "lines": 1507
+    },
+    {
+      "path": "src/main/orchestration/loop-coordinator.ts",
+      "lines": 1489
     },
     {
       "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
@@ -5041,10 +5041,6 @@
       "lines": 1125
     },
     {
-      "path": "src/renderer/app/features/settings/permissions-settings-tab.component.ts",
-      "lines": 1121
-    },
-    {
       "path": "docs/plans/bigchange_remote-nodes_completed.md",
       "lines": 1113
     },
@@ -5085,10 +5081,6 @@
       "lines": 1055
     },
     {
-      "path": "src/renderer/app/features/settings/settings.component.ts",
-      "lines": 1039
-    },
-    {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
       "lines": 1036
     },
@@ -5113,20 +5105,12 @@
       "lines": 1024
     },
     {
-      "path": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
-      "lines": 1020
-    },
-    {
       "path": "src/renderer/app/features/logs/logs-page.component.ts",
       "lines": 1020
     },
     {
       "path": "src/main/ipc/handlers/session-handlers.ts",
       "lines": 1003
-    },
-    {
-      "path": "src/renderer/app/features/settings/ecosystem-settings-tab.component.ts",
-      "lines": 999
     },
     {
       "path": "src/main/memory/project-memory-brief.ts",
@@ -5347,10 +5331,6 @@
     {
       "path": "docs/superpowers/specs/2026-04-05-bash-validation-pipeline-design.md",
       "lines": 841
-    },
-    {
-      "path": "src/shared/types/settings.types.ts",
-      "lines": 840
     },
     {
       "path": "src/renderer/app/features/mcp/mcp-page.component.scss",

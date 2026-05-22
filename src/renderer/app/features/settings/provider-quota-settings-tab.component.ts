@@ -137,66 +137,7 @@ const LIMIT_UNAVAILABLE_TEXT: Record<ProviderId, string> = {
       </div>
     </div>
   `,
-  styles: [`
-    :host { display: block; }
-    .quota-settings-tab { padding: 1rem 1.25rem; }
-    .section-title { font-size: 1rem; font-weight: 700; margin: 0 0 4px; }
-    .section-desc { color: var(--text-secondary, #cbd5e1); margin: 0 0 1rem; font-size: 0.8125rem; }
-
-    .quota-table {
-      width: 100%; border-collapse: collapse;
-      font-size: 0.8125rem;
-    }
-    .quota-table th {
-      text-align: left; font-weight: 600; padding: 0.5rem 0.75rem;
-      color: var(--text-secondary, #94a3b8);
-      border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
-    }
-    .quota-table td {
-      padding: 0.625rem 0.75rem;
-      border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.04));
-    }
-    .provider-cell { font-weight: 600; }
-    .state-cell { color: var(--text-secondary, #cbd5e1); }
-    .state-cell.error { color: #ef4444; }
-    .limits-cell { max-width: 360px; color: var(--text-secondary, #cbd5e1); }
-    .limit-row {
-      display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.375rem;
-      line-height: 1.35;
-    }
-    .limit-row + .limit-row { margin-top: 0.375rem; }
-    .limit-label { color: var(--text-primary, #e5e5e5); font-weight: 600; }
-    .limit-value { color: var(--text-secondary, #cbd5e1); }
-    .limit-reset { color: var(--text-muted, #94a3b8); font-size: 0.75rem; }
-    .limit-unavailable {
-      display: inline-block;
-      max-width: 34rem;
-      color: var(--text-muted, #94a3b8);
-      font-size: 0.75rem;
-      line-height: 1.35;
-    }
-
-    .interval-cell select {
-      padding: 4px 8px; font-size: 0.8125rem;
-      background: var(--bg-input, #1e293b); color: var(--text-primary, #e5e5e5);
-      border: 1px solid var(--border-subtle, rgba(255,255,255,0.12));
-      border-radius: 6px;
-    }
-
-    .btn-link {
-      background: transparent; border: none; padding: 0;
-      color: var(--accent, #3b82f6); cursor: pointer; font-size: 0.8125rem;
-    }
-    .btn-link:hover { text-decoration: underline; }
-
-    .footer-actions {
-      display: flex; gap: 1rem; align-items: center;
-      margin-top: 1rem;
-    }
-    .warning {
-      color: #eab308; font-size: 0.8125rem;
-    }
-  `],
+  styleUrl: './provider-quota-settings-tab.component.scss',
 })
 export class ProviderQuotaSettingsTabComponent implements OnInit {
   private store = inject(ProviderQuotaStore);

@@ -1,0 +1,117 @@
+.section-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  flex-shrink: 0;
+  padding: var(--spacing-lg) var(--spacing-2xl);
+  background: var(--settings-header-bg);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.section-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: var(--section-icon-bg);
+  color: var(--section-icon-fg);
+  font-size: 22px;
+}
+
+.section-heading {
+  min-width: 0;
+}
+
+.section-heading h2 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.section-heading p {
+  margin: 2px 0 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  color: var(--text-secondary);
+}
+
+.settings-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--density-settings-content-padding);
+}
+
+.settings-content.wide {
+  padding: 0;
+}
+
+.settings-body {
+  max-width: 760px;
+}
+
+.settings-body.wide {
+  max-width: none;
+  height: 100%;
+}
+
+.settings-body.hidden {
+  display: none;
+}
+
+.settings-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  max-width: 760px;
+}
+
+.skeleton-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--card-radius);
+}
+
+.skeleton-bar {
+  height: 14px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--glass-light) 25%,
+    var(--glass-medium) 50%,
+    var(--glass-light) 75%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+
+.skeleton-bar.wide {
+  width: 72%;
+}
+
+.skeleton-bar.medium {
+  width: 55%;
+}
+
+.skeleton-bar.narrow {
+  width: 38%;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-bar {
+    animation: none;
+    background: var(--glass-medium);
+  }
+}

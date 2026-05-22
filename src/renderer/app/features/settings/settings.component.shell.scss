@@ -1,0 +1,28 @@
+:host {
+  display: block;
+  height: 100%;
+}
+
+.settings-page {
+  display: flex;
+  height: 100vh;
+  background: var(--settings-content-bg);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.settings-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.settings-main-primary {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}

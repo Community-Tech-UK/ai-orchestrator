@@ -35,59 +35,7 @@ export interface SegmentOption {
       }
     </div>
   `,
-  styles: [
-    `
-      :host {
-        display: block;
-      }
-
-      .segmented {
-        display: flex;
-        gap: 2px;
-        padding: 3px;
-        background: var(--segment-track-bg);
-        border: 1px solid var(--segment-track-border);
-        border-radius: var(--radius-md);
-      }
-
-      .segment {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 1px;
-        padding: var(--spacing-sm) var(--spacing-md);
-        border: 1px solid transparent;
-        border-radius: var(--radius-sm);
-        background: transparent;
-        color: var(--segment-fg);
-        font-size: var(--text-base);
-        font-weight: 500;
-        cursor: pointer;
-        transition:
-          background var(--transition-fast),
-          color var(--transition-fast);
-      }
-
-      .segment:hover:not(.active) {
-        color: var(--segment-fg-active);
-        background: var(--glass-light);
-      }
-
-      .segment.active {
-        background: var(--segment-thumb-bg);
-        border-color: var(--segment-thumb-border);
-        color: var(--segment-fg-active);
-        box-shadow: var(--shadow-sm);
-      }
-
-      .segment-hint {
-        font-size: var(--text-2xs);
-        font-weight: 400;
-        color: var(--text-muted);
-      }
-    `,
-  ],
+  styleUrl: './segmented-control.component.scss',
 })
 export class SegmentedControlComponent {
   readonly options = input.required<SegmentOption[]>();

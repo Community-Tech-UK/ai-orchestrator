@@ -1,0 +1,339 @@
+<div class="settings-page" (keydown)="onKeydown($event)" tabindex="0">
+  <!-- Left nav rail -->
+  <aside class="settings-sidebar">
+    <div class="sidebar-header">
+      <button class="back-btn" type="button" (click)="goBack()">
+        <app-settings-nav-icon name="back" />
+        <span>Settings</span>
+      </button>
+    </div>
+
+    <div class="sidebar-search">
+      <span class="search-icon"><app-settings-nav-icon name="search" /></span>
+      <input
+        type="search"
+        class="search-input"
+        placeholder="Search settings…"
+        [value]="searchQuery()"
+        (input)="onSearch($event)"
+        (keydown.escape)="onSearchEscape($event)"
+        aria-label="Search settings"
+      />
+      @if (searchQuery()) {
+        <button
+          class="search-clear"
+          type="button"
+          (click)="clearSearch()"
+          aria-label="Clear search"
+        >
+          ×
+        </button>
+      }
+    </div>
+
+    <nav class="settings-nav">
+      @for (item of ungroupedItems(); track item.id) {
+        <button
+          class="nav-item"
+          type="button"
+          [class.active]="activeTab() === item.id"
+          (click)="selectTab(item.id)"
+        >
+          <span class="nav-item-icon"><app-settings-nav-icon [name]="item.id" /></span>
+          <span class="nav-item-label">{{ item.label }}</span>
+          @if (navBadges()[item.id]; as badge) {
+            <span class="nav-badge" [attr.data-status]="badge.status">{{ badge.text }}</span>
+          } @else if (item.recommended) {
+            <span class="nav-recommended">Recommended</span>
+          }
+        </button>
+      }
+
+      @for (group of groups(); track group) {
+        <span class="nav-group-label">{{ group }}</span>
+        @for (item of getGroupItems(group); track item.id) {
+          <button
+            class="nav-item"
+            type="button"
+            [class.active]="activeTab() === item.id"
+            (click)="selectTab(item.id)"
+          >
+            <span class="nav-item-icon"><app-settings-nav-icon [name]="item.id" /></span>
+            <span class="nav-item-label">{{ item.label }}</span>
+            @if (navBadges()[item.id]; as badge) {
+              <span class="nav-badge" [attr.data-status]="badge.status">{{ badge.text }}</span>
+            } @else if (item.recommended) {
+              <span class="nav-recommended">Recommended</span>
+            }
+          </button>
+        }
+      }
+
+      @if (!hasResults()) {
+        <p class="nav-empty">No settings match “{{ searchQuery() }}”.</p>
+      }
+    </nav>
+  </aside>
+
+  <!-- Main content area -->
+  <main class="settings-main">
+    <div class="settings-main-primary">
+      @if (!isWideTab() && activeItem(); as item) {
+        <header class="section-topbar">
+          <span class="section-icon">
+            <app-settings-nav-icon [name]="item.id" />
+          </span>
+          <div class="section-heading">
+            <h2>{{ item.label }}</h2>
+            <p>{{ item.summary }}</p>
+          </div>
+        </header>
+      }
+
+      <div class="settings-content" [class.wide]="isWideTab()">
+        @if (isLoading()) {
+          <div class="settings-skeleton" aria-busy="true" aria-label="Loading settings…">
+            <div class="skeleton-card">
+              <div class="skeleton-bar wide"></div>
+              <div class="skeleton-bar medium"></div>
+              <div class="skeleton-bar narrow"></div>
+            </div>
+            <div class="skeleton-card">
+              <div class="skeleton-bar medium"></div>
+              <div class="skeleton-bar narrow"></div>
+            </div>
+          </div>
+        }
+        <div class="settings-body" [class.wide]="isWideTab()" [class.hidden]="isLoading()">
+          @switch (activeTab()) {
+            @case ('general') {
+              <app-general-settings-tab />
+            }
+            @case ('connections') {
+              <app-connections-settings-tab />
+            }
+            @case ('network') {
+              <app-network-settings-tab />
+            }
+            @case ('orchestration') {
+              <app-orchestration-settings-tab />
+            }
+            @case ('memory') {
+              <app-memory-settings-tab />
+            }
+            @case ('display') {
+              <app-display-settings-tab />
+            }
+            @case ('ecosystem') {
+              <app-ecosystem-settings-tab />
+            }
+            @case ('permissions') {
+              <app-permissions-settings-tab />
+            }
+            @case ('review') {
+              <app-review-settings-tab />
+            }
+            @case ('advanced') {
+              <app-advanced-settings-tab />
+            }
+            @case ('keyboard') {
+              <app-keyboard-settings-tab />
+            }
+            @case ('remote-nodes') {
+              <app-remote-nodes-settings-tab />
+            }
+            @case ('cli-health') {
+              <app-cli-health-settings-tab />
+            }
+            @case ('doctor') {
+              <app-doctor-settings-tab />
+            }
+            @case ('provider-quota') {
+              <app-provider-quota-settings-tab />
+            }
+            @case ('rtk-savings') {
+              <app-rtk-savings-tab />
+            }
+            @case ('models') {
+              <app-models-page />
+            }
+            @case ('mcp') {
+              <app-mcp-page />
+            }
+            @case ('hooks') {
+              <app-hooks-page />
+            }
+            @case ('worktrees') {
+              <app-worktree-page />
+            }
+            @case ('snapshots') {
+              <app-snapshot-page />
+            }
+            @case ('archive') {
+              <app-archive-page />
+            }
+            @case ('remote-config') {
+              <app-remote-config-page />
+            }
+          }
+        </div>
+      </div>
+    </div>
+
+    <!-- Contextual help / preview pane (item 13) -->
+    <aside
+      class="settings-help-pane"
+      [class.collapsed]="helpCollapsed()"
+      aria-label="Contextual help and preview"
+    >
+      @if (helpCollapsed()) {
+        <button
+          class="help-pane-rail"
+          type="button"
+          (click)="toggleHelp()"
+          aria-expanded="false"
+          title="Show help &amp; tips"
+        >
+          <span class="help-pane-rail-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 6l-6 6 6 6" />
+            </svg>
+          </span>
+          <span class="help-pane-rail-text">Help</span>
+        </button>
+      } @else {
+        <div class="help-pane-inner">
+          <header class="help-pane-header">
+            <h3 class="help-pane-title">Help &amp; tips</h3>
+            <button
+              class="help-pane-collapse"
+              type="button"
+              (click)="toggleHelp()"
+              aria-expanded="true"
+              aria-label="Hide help panel"
+              title="Hide help panel"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M9 6l6 6-6 6" />
+              </svg>
+            </button>
+          </header>
+          <div class="help-pane-body">
+            @switch (activeTab()) {
+              @case ('display') {
+                <app-inline-help heading="What this does">
+                  Controls the workspace theme, layout density, base font size, and
+                  how much of each agent's reasoning and tool activity is shown
+                  inline with messages.
+                </app-inline-help>
+                <app-inline-help variant="tip" heading="Saved as you go">
+                  Theme, density, and font changes apply immediately and persist
+                  across restarts — there is no separate save step.
+                </app-inline-help>
+                <app-inline-help variant="tip" heading="Quieter transcripts">
+                  Hide thinking and tool messages to keep runs compact, then switch
+                  them back on only while debugging.
+                </app-inline-help>
+              }
+              @case ('models') {
+                <app-inline-help heading="What this does">
+                  Discovers the models each provider exposes, verifies they
+                  respond, and lets you pin per-model overrides such as temperature.
+                </app-inline-help>
+                <app-inline-help [variant]="modelsHelpStatus().variant" heading="Live status">
+                  {{ modelsHelpStatus().text }}
+                </app-inline-help>
+                <app-inline-help variant="tip" heading="Verify before relying">
+                  “Verify” runs a real probe against the model. One still labelled
+                  “available” has not been confirmed to work yet.
+                </app-inline-help>
+                <div class="help-block">
+                  <p class="help-subhead">Override config example</p>
+                  <pre class="help-code">{{ modelOverrideExample }}</pre>
+                </div>
+              }
+              @case ('remote-nodes') {
+                <app-inline-help heading="What this does">
+                  Lets this machine hand agent work to other machines you have
+                  paired as remote worker nodes.
+                </app-inline-help>
+                <app-inline-help [variant]="remoteNodesHelpStatus().variant" heading="Live status">
+                  {{ remoteNodesHelpStatus().text }}
+                </app-inline-help>
+                <div class="help-block">
+                  <p class="help-subhead">Pairing a node</p>
+                  <ol class="help-steps">
+                    <li>Enable Remote Nodes to start the pairing server.</li>
+                    <li>Create a one-time pairing credential.</li>
+                    <li>Scan the QR code or paste the link on the worker machine.</li>
+                  </ol>
+                </div>
+                <app-inline-help variant="warning" heading="Credentials expire">
+                  Pairing credentials are single-use and time-limited. Generate a
+                  fresh one if a worker does not connect in time.
+                </app-inline-help>
+              }
+              @case ('doctor') {
+                <app-inline-help heading="What this does">
+                  Aggregates startup, provider, CLI, browser-automation, and
+                  command/skill/instruction diagnostics into one report.
+                </app-inline-help>
+                <app-inline-help [variant]="doctorHelpStatus().variant" heading="Live status">
+                  {{ doctorHelpStatus().text }}
+                </app-inline-help>
+                <div class="help-block">
+                  <p class="help-subhead">Runbooks</p>
+                  <p class="help-text">
+                    “Open Runbook” in each Doctor section opens the matching guide:
+                  </p>
+                  <ul class="help-links">
+                    <li><code>runbooks/doctor-updates-and-artifacts.md</code></li>
+                    <li><code>runbooks/command-help-and-palette.md</code></li>
+                  </ul>
+                </div>
+                <app-inline-help variant="tip" heading="Sharing diagnostics">
+                  Operator Artifacts exports a redacted bundle — paths are
+                  home-relative and secrets are stripped — safe to attach to a
+                  bug report.
+                </app-inline-help>
+              }
+              @case ('permissions') {
+                <app-inline-help heading="What this does">
+                  Sets the default answer for filesystem and network actions an
+                  agent takes that no rule or earlier decision already covers.
+                </app-inline-help>
+                <app-inline-help variant="warning" heading="“Allow” is broad">
+                  The Allow preset lets agents act with no confirmation. “Ask” is
+                  the safe default — switch to Allow only for trusted, sandboxed
+                  workspaces.
+                </app-inline-help>
+                <div class="help-block">
+                  <p class="help-subhead">Decision scopes</p>
+                  <ul class="help-list">
+                    <li><strong>This time only</strong> — applies to a single action.</li>
+                    <li><strong>This session</strong> — until the app restarts.</li>
+                    <li><strong>Always</strong> — saved as a persistent rule.</li>
+                  </ul>
+                </div>
+                <app-inline-help variant="tip" heading="Learned patterns">
+                  Approving a learned pattern turns a repeated decision into a
+                  standing rule, cutting future prompts.
+                </app-inline-help>
+              }
+              @default {
+                <app-inline-help heading="Settings tips">
+                  Use the search box to jump straight to any setting by name. Your
+                  last section reopens automatically next time you visit Settings.
+                </app-inline-help>
+                <app-inline-help variant="tip" heading="Finding your way">
+                  Sidebar sections are grouped by what they affect — agents,
+                  workspace, network, and diagnostics. Press Esc to leave Settings.
+                </app-inline-help>
+              }
+            }
+          </div>
+        </div>
+      }
+    </aside>
+  </main>
+</div>

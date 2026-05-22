@@ -1,0 +1,108 @@
+:host {
+  display: block;
+}
+
+.save-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background: var(--surface-sunken-bg);
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--text-sm);
+  min-height: 44px;
+}
+
+.save-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.save-banner[data-state='saved'] .save-status {
+  color: var(--pill-ok-fg);
+}
+
+.save-banner[data-state='dirty'] .save-status,
+.save-banner[data-state='restart'] .save-status,
+.save-banner[data-state='error'] .save-status {
+  color: var(--text-primary);
+}
+
+.check {
+  color: var(--pill-ok-fg);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.save-banner[data-state='dirty'] .dot {
+  background: var(--warning-color);
+}
+
+.save-banner[data-state='restart'] .dot {
+  background: var(--info-color);
+}
+
+.save-banner[data-state='error'] .dot {
+  background: var(--error-color);
+}
+
+.spinner {
+  width: 13px;
+  height: 13px;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--primary-color);
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.save-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.banner-btn {
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border: 1px solid transparent;
+}
+
+.banner-btn.ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: var(--border-color);
+}
+
+.banner-btn.ghost:hover {
+  background: var(--glass-medium);
+  color: var(--text-primary);
+}
+
+.banner-btn.primary {
+  background: var(--primary-color);
+  color: var(--button-on-primary);
+}
+
+.banner-btn.primary:hover {
+  background: var(--primary-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2s;
+  }
+}

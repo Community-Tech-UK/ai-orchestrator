@@ -29,7 +29,6 @@ import {
   defaultLoopConfig,
   defaultCrossModelReviewConfig,
   type LoopConfig,
-  type LoopCrossModelReviewConfig,
   type LoopErrorRecord,
   type LoopFileChange,
   type LoopIteration,
@@ -37,7 +36,6 @@ import {
   type LoopState,
   type LoopStreamEvent,
   type LoopToolCallRecord,
-  type LoopVerdict,
   type CompletionSignalEvidence,
   type ProgressSignalEvidence,
   type LoopTerminalIntent,
@@ -45,7 +43,6 @@ import {
 import {
   LoopCompletionDetector,
   CompletedFileWatcher,
-  completedPlanFileCandidates,
 } from './loop-completion-detector';
 import { LoopProgressDetector } from './loop-progress-detector';
 import { LoopStageMachine } from './loop-stage-machine';
@@ -70,6 +67,29 @@ import {
   writeLoopControlFile,
   type LoopControlRuntime,
 } from './loop-control';
+import { computeWorkHash } from './loop-work-hash';
+import {
+  completedPlanWatchDirs,
+  excerpt,
+  jaccard,
+  sleep,
+  type VerifyOutcomeLike,
+} from './loop-coordinator-utils';
+import {
+  defaultFreshEyesReviewer,
+  type FreshEyesReviewer,
+  type FreshEyesReviewerResult,
+} from './loop-fresh-eyes-reviewer';
+import { streamLoopEvents } from './loop-stream';
+
+export { computeWorkHash } from './loop-work-hash';
+export type {
+  FreshEyesFinding,
+  FreshEyesReviewer,
+  FreshEyesReviewerInput,
+  FreshEyesReviewerResult,
+  FreshEyesSeverity,
+} from './loop-fresh-eyes-reviewer';
 
 const logger = getLogger('LoopCoordinator');
 
@@ -121,137 +141,6 @@ export type LoopIterationHook = (ctx: IterationHookContext) => Promise<void> | v
  * `docs/plans/2026-05-12-loop-terminal-control-spec.md`.
  */
 export type LoopIntentPersistHook = (intent: LoopTerminalIntent) => Promise<void> | void;
-
-/**
- * Severity of a fresh-eyes review finding. Mirrors
- * `HeadlessReviewFinding.severity` from
- * `src/main/cli-entrypoints/review-command-output.ts` but is kept as a local
- * type so this module does not pull in the headless-review surface at
- * import time (LoopCoordinator runs in tests that mock the review service).
- */
-export type FreshEyesSeverity = 'critical' | 'high' | 'medium' | 'low';
-
-export interface FreshEyesFinding {
-  title: string;
-  body: string;
-  severity: FreshEyesSeverity;
-  file?: string;
-  confidence: number;
-}
-
-export interface FreshEyesReviewerInput {
-  loopRunId: string;
-  workspaceCwd: string;
-  /** The user's actual goal — fed to the reviewer as taskDescription. */
-  goal: string;
-  /** Excerpt of the iteration output that claimed completion. */
-  iterationOutput: string;
-  /** Files changed across the run (best-effort, can be empty). */
-  filesChangedThisIteration: readonly string[];
-  /** Plan files that started uncompleted in this run. */
-  uncompletedPlanFilesAtStart: readonly string[];
-  /** Verify output passed-in for context. */
-  verifyOutputExcerpt: string;
-  /** Coordinator's signal that fired this completion attempt. */
-  signal: string;
-  /** Explicit terminal intent that caused the completion attempt, if present. */
-  terminalIntent?: LoopTerminalIntent;
-  /** Review configuration (reviewers, severities, depth, timeout). */
-  config: LoopCrossModelReviewConfig;
-}
-
-export interface FreshEyesReviewerResult {
-  findings: FreshEyesFinding[];
-  /** Provider names actually used as reviewers. Empty when none available. */
-  reviewersUsed: string[];
-  /** Plain-English summary returned by the review service. */
-  summary: string;
-  /** Whether the underlying review infrastructure failed entirely. */
-  infrastructureError?: string;
-}
-
-export type FreshEyesReviewer = (
-  input: FreshEyesReviewerInput,
-) => Promise<FreshEyesReviewerResult>;
-
-/**
- * Default implementation — lazily imports `CrossModelReviewService` and
- * dispatches a headless review. Returns an empty findings list when the
- * service has no reviewers available (degrades safely).
- */
-const defaultFreshEyesReviewer: FreshEyesReviewer = async (input) => {
-  // Lazy import to avoid pulling the review service into test paths that
-  // mock `getCrossModelReviewService`.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { getCrossModelReviewService } = require(
-    './cross-model-review-service',
-  ) as typeof import('./cross-model-review-service');
-  const service = getCrossModelReviewService();
-
-  const filesBlock =
-    input.filesChangedThisIteration.length > 0
-      ? `\n\nFiles changed in this iteration:\n${input.filesChangedThisIteration.slice(0, 50).map((f) => `  - ${f}`).join('\n')}`
-      : '';
-  const plansBlock =
-    input.uncompletedPlanFilesAtStart.length > 0
-      ? `\n\nPlan files that existed at loop start (the agent was asked to address these):\n${input.uncompletedPlanFilesAtStart.map((f) => `  - ${f}`).join('\n')}`
-      : '';
-  const intentBlock = input.terminalIntent
-    ? `\n\nExplicit terminal intent:\n  - kind: ${input.terminalIntent.kind}\n  - summary: ${input.terminalIntent.summary}\n`
-    : '';
-
-  const content =
-    `# Fresh-eyes review request\n\n` +
-    `A long-running autonomous loop has signalled completion via "${input.signal}" and ` +
-    `verify passed. Before the loop terminates, please review the workspace with fresh eyes.\n\n` +
-    `## What to look for\n` +
-    `- Items the goal asked for that are NOT actually implemented in code (orphan modules, stubs returning constants, "completed" docs with no real wiring).\n` +
-    `- Specs that say one thing but code does another.\n` +
-    `- Half-done features or TODOs left behind.\n` +
-    `- Integration gaps: new code that is never imported or invoked outside its own tests.\n\n` +
-    `## What "ready_for_done" means here\n` +
-    `Mark a finding as **critical** or **high** severity ONLY for blocking issues that would make a reasonable reviewer say "no, this isn't done yet."\n` +
-    `Use **medium** or **low** for nice-to-haves, style nits, or follow-up suggestions — those do not block completion.\n\n` +
-    `## Iteration output (what the agent said it did)\n${input.iterationOutput}${filesBlock}${plansBlock}${intentBlock}\n\n` +
-    `## Verify output\n${input.verifyOutputExcerpt}\n`;
-
-  try {
-    const result = await service.runHeadlessReview({
-      target: `loop:${input.loopRunId}`,
-      cwd: input.workspaceCwd,
-      content,
-      taskDescription: input.goal,
-      reviewers: input.config.reviewers,
-      reviewDepth: input.config.reviewDepth,
-      timeoutSeconds: input.config.timeoutSeconds,
-    });
-
-    return {
-      findings: result.findings.map((f) => ({
-        title: f.title,
-        body: f.body,
-        severity: f.severity,
-        file: f.file,
-        confidence: f.confidence,
-      })),
-      reviewersUsed: result.reviewers
-        .filter((r) => r.status === 'used')
-        .map((r) => r.provider),
-      summary: result.summary,
-      infrastructureError:
-        result.infrastructureErrors && result.infrastructureErrors.length > 0
-          ? result.infrastructureErrors.join('; ')
-          : undefined,
-    };
-  } catch (err) {
-    return {
-      findings: [],
-      reviewersUsed: [],
-      summary: 'Fresh-eyes review threw.',
-      infrastructureError: err instanceof Error ? err.message : String(err),
-    };
-  }
-};
 
 export interface LoopRuntimeContext {
   /**
@@ -688,114 +577,12 @@ export class LoopCoordinator extends EventEmitter {
   // ============ Stream API ============
 
   async *streamLoop(loopRunId: string): AsyncGenerator<LoopStreamEvent> {
-    if (!this.active.has(loopRunId)) {
+    const active = this.active.get(loopRunId);
+    if (!active) {
       yield { type: 'error', loopRunId, error: `Loop ${loopRunId} not found` };
       return;
     }
-
-    const queue: LoopStreamEvent[] = [];
-    let resolve: (() => void) | null = null;
-    let done = false;
-    const push = (e: LoopStreamEvent) => {
-      queue.push(e);
-      if (resolve) {
-        resolve();
-        resolve = null;
-      }
-    };
-
-    const onIterationStarted = (d: { loopRunId: string; seq: number; stage: LoopStage }) => {
-      if (d.loopRunId === loopRunId) push({ type: 'iteration-started', loopRunId, seq: d.seq, stage: d.stage });
-    };
-    const onIterationComplete = (d: { loopRunId: string; seq: number; verdict: LoopVerdict }) => {
-      if (d.loopRunId === loopRunId) push({ type: 'iteration-complete', loopRunId, seq: d.seq, verdict: d.verdict });
-    };
-    const onPaused = (d: { loopRunId: string; signal: ProgressSignalEvidence }) => {
-      if (d.loopRunId === loopRunId) push({ type: 'paused-no-progress', loopRunId, signal: d.signal });
-    };
-    const onClaimedFailed = (d: { loopRunId: string; signal: CompletionSignalEvidence['id']; failure: string }) => {
-      if (d.loopRunId === loopRunId) push({ type: 'claimed-done-but-failed', loopRunId, signal: d.signal, failure: d.failure });
-    };
-    const onTerminalIntentRecorded = (d: { loopRunId: string; intent: LoopTerminalIntent }) => {
-      if (d.loopRunId === loopRunId) push({ type: 'terminal-intent-recorded', loopRunId, intent: d.intent });
-    };
-    const onTerminalIntentRejected = (d: { loopRunId: string; intent: LoopTerminalIntent; reason: string }) => {
-      if (d.loopRunId === loopRunId) push({ type: 'terminal-intent-rejected', loopRunId, intent: d.intent, reason: d.reason });
-    };
-    const onIntervention = (d: { loopRunId: string; message: string }) => {
-      if (d.loopRunId === loopRunId) push({ type: 'intervention-applied', loopRunId, message: d.message });
-    };
-    const onCompleted = (d: { loopRunId: string; signal: CompletionSignalEvidence['id']; verifyOutput: string }) => {
-      if (d.loopRunId === loopRunId) {
-        push({ type: 'completed', loopRunId, signal: d.signal, verifyOutput: d.verifyOutput });
-        done = true;
-        if (resolve) { resolve(); resolve = null; }
-      }
-    };
-    const onFailed = (d: { loopRunId: string; reason: string }) => {
-      if (d.loopRunId === loopRunId) {
-        push({ type: 'failed', loopRunId, reason: d.reason });
-        done = true;
-        if (resolve) { resolve(); resolve = null; }
-      }
-    };
-    const onCap = (d: { loopRunId: string; cap: 'iterations' | 'wall-time' | 'tokens' | 'cost' }) => {
-      if (d.loopRunId === loopRunId) {
-        push({ type: 'cap-reached', loopRunId, cap: d.cap });
-        done = true;
-        if (resolve) { resolve(); resolve = null; }
-      }
-    };
-    const onCancelled = (d: { loopRunId: string }) => {
-      if (d.loopRunId === loopRunId) {
-        push({ type: 'cancelled', loopRunId });
-        done = true;
-        if (resolve) { resolve(); resolve = null; }
-      }
-    };
-    const onError = (d: { loopRunId: string; error: string }) => {
-      if (d.loopRunId === loopRunId) {
-        push({ type: 'error', loopRunId, error: d.error });
-        done = true;
-        if (resolve) { resolve(); resolve = null; }
-      }
-    };
-
-    this.on('loop:iteration-started', onIterationStarted);
-    this.on('loop:iteration-complete', onIterationComplete);
-    this.on('loop:paused-no-progress', onPaused);
-    this.on('loop:claimed-done-but-failed', onClaimedFailed);
-    this.on('loop:terminal-intent-recorded', onTerminalIntentRecorded);
-    this.on('loop:terminal-intent-rejected', onTerminalIntentRejected);
-    this.on('loop:intervention-applied', onIntervention);
-    this.on('loop:completed', onCompleted);
-    this.on('loop:failed', onFailed);
-    this.on('loop:cap-reached', onCap);
-    this.on('loop:cancelled', onCancelled);
-    this.on('loop:error', onError);
-
-    yield { type: 'started', loopRunId, chatId: this.active.get(loopRunId)!.chatId };
-
-    try {
-      while (!done) {
-        if (queue.length > 0) yield queue.shift()!;
-        else await new Promise<void>((r) => { resolve = r; });
-      }
-      while (queue.length > 0) yield queue.shift()!;
-    } finally {
-      this.off('loop:iteration-started', onIterationStarted);
-      this.off('loop:iteration-complete', onIterationComplete);
-      this.off('loop:paused-no-progress', onPaused);
-      this.off('loop:claimed-done-but-failed', onClaimedFailed);
-      this.off('loop:terminal-intent-recorded', onTerminalIntentRecorded);
-      this.off('loop:terminal-intent-rejected', onTerminalIntentRejected);
-      this.off('loop:intervention-applied', onIntervention);
-      this.off('loop:completed', onCompleted);
-      this.off('loop:failed', onFailed);
-      this.off('loop:cap-reached', onCap);
-      this.off('loop:cancelled', onCancelled);
-      this.off('loop:error', onError);
-    }
+    yield* streamLoopEvents({ emitter: this, loopRunId, chatId: active.chatId });
   }
 
   // ============ Internal — main loop ============
@@ -1694,76 +1481,6 @@ export class LoopCoordinator extends EventEmitter {
       })),
     };
   }
-}
-
-// ============ module-private helpers ============
-
-interface VerifyOutcomeLike {
-  status: 'passed' | 'skipped' | 'failed';
-  output: string;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise<void>((r) => setTimeout(r, ms));
-}
-
-function excerpt(s: string, max = 4096): string {
-  if (!s) return '';
-  if (s.length <= max) return s;
-  const half = Math.floor(max / 2);
-  return s.slice(0, half) + '\n…\n' + s.slice(-half);
-}
-
-function tokenize(s: string): Set<string> {
-  return new Set(
-    s.toLowerCase()
-      .replace(/[^a-z0-9_\s]+/g, ' ')
-      .split(/\s+/)
-      .filter((t) => t.length > 0),
-  );
-}
-
-function jaccard(a: string, b: string): number {
-  const A = tokenize(a);
-  const B = tokenize(b);
-  if (A.size === 0 && B.size === 0) return 1;
-  let inter = 0;
-  for (const t of A) if (B.has(t)) inter++;
-  const union = A.size + B.size - inter;
-  return union > 0 ? inter / union : 0;
-}
-
-/**
- * Compute the work hash for an iteration.
- *
- * sha256( sortedFileDiffPaths ‖ stage ‖ uniqueToolCallSig )
- *
- * This is the structural fingerprint of "what the iteration did" — same
- * fingerprint repeating means the agent is doing the same thing.
- */
-export function computeWorkHash(args: {
-  stage: LoopStage;
-  filesChanged: LoopFileChange[];
-  toolCalls: LoopToolCallRecord[];
-}): string {
-  const sortedFiles = [...args.filesChanged]
-    .map((f) => `${f.path}::${f.contentHash}`)
-    .sort()
-    .join('|');
-  const toolSig = [...new Set(args.toolCalls.map((tc) => `${tc.toolName}::${tc.argsHash}`))]
-    .sort()
-    .join('|');
-  return createHash('sha256')
-    .update(args.stage)
-    .update('\0')
-    .update(sortedFiles)
-    .update('\0')
-    .update(toolSig)
-    .digest('hex');
-}
-
-function completedPlanWatchDirs(config: LoopConfig): string[] {
-  return [...new Set(completedPlanFileCandidates(config).map((candidate) => path.dirname(candidate)))];
 }
 
 export function getLoopCoordinator(): LoopCoordinator {

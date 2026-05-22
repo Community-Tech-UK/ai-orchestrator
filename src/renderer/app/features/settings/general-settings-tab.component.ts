@@ -21,15 +21,7 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
       />
     }
   `,
-  styles: [
-    `
-      :host {
-        display: flex;
-        flex-direction: column;
-        gap: var(--spacing-md);
-      }
-    `
-  ]
+  styleUrl: './general-settings-tab.component.scss'
 })
 export class GeneralSettingsTabComponent {
   store = inject(SettingsStore);

@@ -22,448 +22,16 @@ import {
   shouldClearInputRequiredForYolo,
   shouldClearRequestAfterYoloEnabled
 } from './user-action-request.rules';
+import type { UserActionRequest } from './user-action-request.types';
 
-export interface UserActionRequest {
-  id: string;
-  instanceId: string;
-  requestType: 'switch_mode' | 'approve_action' | 'confirm' | 'select_option' | 'input_required' | 'ask_questions';
-  title: string;
-  message: string;
-  targetMode?: 'build' | 'plan' | 'review';
-  options?: {
-    id: string;
-    label: string;
-    description?: string;
-  }[];
-  /** For ask_questions: list of questions to present with text inputs */
-  questions?: string[];
-  context?: Record<string, unknown>;
-  createdAt: number;
-  /** Permission metadata for input_required requests (action, path, etc.) */
-  permissionMetadata?: {
-    type?: string;
-    tool_use_id?: string;
-    action?: string;
-    /** Display-friendly (possibly truncated) path shown in prompts. */
-    path?: string;
-    /**
-     * Untruncated resource path or Bash command. Preferred over `path` when
-     * building rule strings (e.g. for `~/.claude/settings.json` allow-lists).
-     */
-    full_path?: string;
-    originalContent?: string;
-    approvalTraceId?: string;
-    /**
-     * Canonical Claude CLI tool name for the denied tool_use (e.g. 'Edit',
-     * 'Write'). Set by the adapter for `permission_denial` prompts and by
-     * the hook bridge for `deferred_permission` prompts.
-     */
-    tool_name?: string;
-    /** Tool input for deferred permission requests (e.g., { command: '...' }) */
-    tool_input?: Record<string, unknown>;
-    /** Session ID for deferred permission resume */
-    session_id?: string;
-  };
-}
+export type { UserActionRequest } from './user-action-request.types';
 
 @Component({
   selector: 'app-user-action-request',
   standalone: true,
   imports: [],
-  template: `
-    @if (pendingRequests().length > 0) {
-      <div class="user-action-requests">
-        @for (request of pendingRequests(); track request.id) {
-          <div class="request-card" [class]="'request-' + request.requestType">
-            <div class="request-header">
-              <span class="request-icon">{{
-                getRequestIcon(request.requestType)
-              }}</span>
-              <span class="request-title">{{ request.title }}</span>
-            </div>
-            <p class="request-message">{{ request.message }}</p>
-
-            @if (request.requestType === 'ask_questions' && request.questions) {
-              <!-- Ask questions: render text inputs for each question -->
-              <div class="questions-form">
-                @for (question of request.questions; track $index) {
-                  <label class="question-item">
-                    <span class="question-label">{{ question }}</span>
-                    <textarea
-                      class="question-input"
-                      rows="2"
-                      [placeholder]="'Type your answer...'"
-                      [disabled]="isResponding()"
-                      (input)="onQuestionAnswerChange(request.id, $index, $event)"
-                    ></textarea>
-                  </label>
-                }
-                <div class="request-actions">
-                  <button
-                    class="btn-reject"
-                    (click)="onReject(request)"
-                    [disabled]="isResponding()"
-                  >
-                    Skip
-                  </button>
-                  <button
-                    class="btn-approve"
-                    (click)="onSubmitAnswers(request)"
-                    [disabled]="isResponding()"
-                  >
-                    Submit Answers
-                  </button>
-                </div>
-              </div>
-            } @else if (request.requestType === 'input_required' && !isPermissionRequest(request)) {
-              <!-- Generic input_required prompt: collect free-form text -->
-              <div class="questions-form">
-                <label class="question-item">
-                  <span class="question-label">Your response</span>
-                  <textarea
-                    class="question-input"
-                    rows="3"
-                    [placeholder]="'Type your response...'"
-                    [disabled]="isResponding()"
-                    (input)="onInputRequiredTextChange(request.id, $event)"
-                  ></textarea>
-                </label>
-                <div class="request-actions">
-                  <button
-                    class="btn-reject"
-                    (click)="onReject(request)"
-                    [disabled]="isResponding()"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    class="btn-approve"
-                    (click)="onSubmitInputRequired(request)"
-                    [disabled]="isResponding() || !hasInputRequiredText(request.id)"
-                  >
-                    Submit
-                  </button>
-                </div>
-              </div>
-            } @else if (request.requestType === 'select_option' && request.options) {
-              <div class="request-options">
-                @for (option of request.options; track option.id) {
-                  <button
-                    class="option-btn"
-                    (click)="onSelectOption(request, option.id)"
-                    [disabled]="isResponding()"
-                  >
-                    {{ option.label }}
-                    @if (option.description) {
-                      <span class="option-desc">{{ option.description }}</span>
-                    }
-                  </button>
-                }
-              </div>
-            } @else {
-              <div class="request-actions">
-                @if (request.requestType === 'input_required' && isPermissionRequest(request)) {
-                  <select
-                    class="scope-select"
-                    [value]="getInputRequiredScope(request)"
-                    (change)="onInputRequiredScopeChange(request.id, $event)"
-                    [disabled]="isResponding()"
-                    [title]="isPermissionDenial(request) ? 'Remember this decision (Always writes an allow rule to ~/.claude/settings.json)' : 'Remember this decision'"
-                  >
-                    @for (scope of scopesFor(request); track scope) {
-                      <option [value]="scope">{{ scopeLabel(scope) }}</option>
-                    }
-                  </select>
-                }
-                <button
-                  class="btn-reject"
-                  (click)="onReject(request)"
-                  [disabled]="isResponding()"
-                >
-                  Reject
-                </button>
-                @if (request.requestType === 'input_required' && isPermissionRequest(request)) {
-                  @if (canResolveWithYolo(request)) {
-                    <button
-                      class="btn-yolo"
-                      (click)="onEnableYolo(request)"
-                      [disabled]="isResponding()"
-                      title="Enable YOLO mode to auto-approve all permissions for this session"
-                    >
-                      ⚡ YOLO
-                    </button>
-                  }
-                }
-                <button
-                  class="btn-approve"
-                  (click)="onApprove(request)"
-                  [disabled]="isResponding()"
-                >
-                  {{ getApproveLabel(request) }}
-                </button>
-              </div>
-            }
-          </div>
-        }
-      </div>
-    }
-  `,
-  styles: [
-    `
-      .user-action-requests {
-        display: flex;
-        flex-direction: column;
-        gap: var(--spacing-md);
-        padding: var(--spacing-md);
-      }
-
-      .request-card {
-        background: var(--bg-secondary);
-        border: 2px solid var(--primary-color);
-        border-radius: var(--radius-lg);
-        padding: var(--spacing-md);
-        animation:
-          slideIn 0.3s ease-out,
-          pulse-border 2s ease-in-out infinite;
-        box-shadow: 0 4px 16px rgba(var(--primary-rgb), 0.2);
-      }
-
-      @keyframes slideIn {
-        from {
-          opacity: 0;
-          transform: translateY(-10px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-
-      @keyframes pulse-border {
-        0%,
-        100% {
-          border-color: var(--primary-color);
-          box-shadow: 0 4px 16px rgba(var(--primary-rgb), 0.2);
-        }
-        50% {
-          border-color: var(--primary-hover);
-          box-shadow: 0 4px 24px rgba(var(--primary-rgb), 0.35);
-        }
-      }
-
-      .request-switch_mode {
-        border-color: #6366f1;
-        box-shadow: 0 4px 16px rgba(99, 102, 241, 0.2);
-      }
-
-      .request-approve_action {
-        border-color: #f59e0b;
-        box-shadow: 0 4px 16px rgba(245, 158, 11, 0.2);
-      }
-
-      .request-input_required {
-        border-color: #ef4444;
-        box-shadow: 0 4px 16px rgba(239, 68, 68, 0.2);
-      }
-
-      .request-ask_questions {
-        border-color: #8b5cf6;
-        box-shadow: 0 4px 16px rgba(139, 92, 246, 0.2);
-      }
-
-      .request-header {
-        display: flex;
-        align-items: center;
-        gap: var(--spacing-sm);
-        margin-bottom: var(--spacing-sm);
-      }
-
-      .request-icon {
-        font-size: 20px;
-      }
-
-      .request-title {
-        font-family: var(--font-display);
-        font-size: 16px;
-        font-weight: 700;
-        color: var(--text-primary);
-      }
-
-      .request-message {
-        font-size: 14px;
-        color: var(--text-secondary);
-        margin: 0 0 var(--spacing-md) 0;
-        line-height: 1.5;
-      }
-
-      .request-actions {
-        display: flex;
-        gap: var(--spacing-sm);
-        justify-content: flex-end;
-        align-items: center;
-      }
-
-      .scope-select {
-        padding: 6px 8px;
-        border-radius: var(--radius-md);
-        border: 1px solid var(--border-subtle);
-        background: var(--bg-tertiary);
-        color: var(--text-primary);
-        font-size: 12px;
-      }
-
-      .request-options {
-        display: flex;
-        flex-direction: column;
-        gap: var(--spacing-sm);
-      }
-
-      .option-btn {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        padding: var(--spacing-sm) var(--spacing-md);
-        background: var(--bg-tertiary);
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-md);
-        color: var(--text-primary);
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all var(--transition-fast);
-
-        &:hover:not(:disabled) {
-          background: rgba(var(--primary-rgb), 0.1);
-          border-color: var(--primary-color);
-        }
-
-        &:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-      }
-
-      .option-desc {
-        font-size: 12px;
-        color: var(--text-muted);
-        font-weight: 400;
-        margin-top: 2px;
-      }
-
-      .btn-reject,
-      .btn-approve,
-      .btn-yolo {
-        padding: var(--spacing-sm) var(--spacing-lg);
-        border-radius: var(--radius-md);
-        font-family: var(--font-display);
-        font-size: 13px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all var(--transition-fast);
-
-        &:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-      }
-
-      .btn-reject {
-        background: var(--bg-tertiary);
-        border: 1px solid var(--border-subtle);
-        color: var(--text-secondary);
-
-        &:hover:not(:disabled) {
-          background: rgba(var(--error-rgb), 0.1);
-          border-color: var(--error-color);
-          color: var(--error-color);
-        }
-      }
-
-      .btn-yolo {
-        background: linear-gradient(
-          135deg,
-          #f59e0b 0%,
-          #d97706 100%
-        );
-        border: none;
-        color: #000;
-        box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
-
-        &:hover:not(:disabled) {
-          transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(245, 158, 11, 0.5);
-        }
-      }
-
-      .btn-approve {
-        background: linear-gradient(
-          135deg,
-          var(--primary-color) 0%,
-          var(--primary-hover) 100%
-        );
-        border: none;
-        color: var(--bg-primary);
-        box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.3);
-
-        &:hover:not(:disabled) {
-          transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.4);
-        }
-      }
-
-      /* Ask questions form styles */
-      .questions-form {
-        display: flex;
-        flex-direction: column;
-        gap: var(--spacing-md);
-      }
-
-      .question-item {
-        display: flex;
-        flex-direction: column;
-        gap: var(--spacing-xs);
-        cursor: default;
-      }
-
-      .question-label {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--text-primary);
-        line-height: 1.4;
-      }
-
-      .question-input {
-        width: 100%;
-        padding: var(--spacing-sm);
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-md);
-        background: var(--bg-tertiary);
-        color: var(--text-primary);
-        font-size: 14px;
-        font-family: inherit;
-        line-height: 1.5;
-        resize: vertical;
-        min-height: 40px;
-        box-sizing: border-box;
-        transition: border-color var(--transition-fast);
-
-        &:focus {
-          outline: none;
-          border-color: var(--primary-color);
-          box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.15);
-        }
-
-        &::placeholder {
-          color: var(--text-muted);
-        }
-
-        &:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-      }
-    `
-  ],
+  templateUrl: './user-action-request.component.html',
+  styleUrl: './user-action-request.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class UserActionRequestComponent implements OnInit, OnDestroy {
@@ -477,6 +45,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
   private inputRequiredScopes = new Map<string, InputRequiredScope>();
   private inputRequiredTexts = new Map<string, string>();
+  private pendingInputRequiredById = new Map<string, UserActionRequest>();
 
   /** Tracks user answers for ask_questions requests: requestId → Map<questionIndex, answer> */
   private questionAnswers = new Map<string, Map<number, string>>();
@@ -506,6 +75,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         const instance = this.instanceStore.getInstance(id);
         if (instance?.yoloMode) {
           // YOLO mode enabled - clear any pending permission requests
+          this.clearCachedInputRequiredForInstance(id, shouldClearInputRequiredForYolo);
           this.pendingRequests.update((requests) =>
             requests.filter((r) => !shouldClearInputRequiredForYolo(r))
           );
@@ -554,8 +124,8 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
       // denies the tool_use and the user must still decide whether to add a
       // rule to ~/.claude/settings.json. Suppressing the prompt here would
       // leave the user with no visible path to fix the denial.
-      if (currentInstanceId && metadata?.type !== 'permission_denial') {
-        const instance = this.instanceStore.getInstance(currentInstanceId);
+      if (metadata?.type !== 'permission_denial') {
+        const instance = this.instanceStore.getInstance(payload.instanceId);
         if (instance?.yoloMode) {
           console.log('[APPROVAL_TRACE][renderer:user-action] skipped_yolo_enabled', {
             approvalTraceId,
@@ -567,21 +137,23 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         }
       }
 
+      const isPermissionPrompt = metadata?.type === 'permission_denial' || metadata?.type === 'deferred_permission';
+      const req: UserActionRequest = {
+        id: payload.requestId,
+        instanceId: payload.instanceId,
+        requestType: 'input_required',
+        title: isPermissionPrompt ? 'Permission Required' : 'Input Required',
+        message: payload.prompt,
+        createdAt: payload.timestamp,
+        permissionMetadata: metadata // Store permission details for retry message
+      };
+      this.pendingInputRequiredById.set(req.id, req);
+      if (!this.inputRequiredScopes.has(req.id)) {
+        this.inputRequiredScopes.set(req.id, defaultInputRequiredScope(metadata));
+      }
+
       // Only show for this instance
       if (!currentInstanceId || payload.instanceId === currentInstanceId) {
-        const isPermissionPrompt = metadata?.type === 'permission_denial' || metadata?.type === 'deferred_permission';
-        const req: UserActionRequest = {
-          id: payload.requestId,
-          instanceId: payload.instanceId,
-          requestType: 'input_required',
-          title: isPermissionPrompt ? 'Permission Required' : 'Input Required',
-          message: payload.prompt,
-          createdAt: payload.timestamp,
-          permissionMetadata: metadata // Store permission details for retry message
-        };
-        if (!this.inputRequiredScopes.has(req.id)) {
-          this.inputRequiredScopes.set(req.id, defaultInputRequiredScope(metadata));
-        }
         this.pendingRequests.update((requests) => {
           if (requests.some((r) => r.id === req.id)) {
             console.log('[APPROVAL_TRACE][renderer:user-action] duplicate_request_skipped', {
@@ -639,13 +211,18 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         // that the server doesn't know about yet (e.g., input_required from IPC events).
         this.pendingRequests.update((existing) => {
           const serverIds = new Set(serverRequests.map((r) => r.id));
+          const cachedInputRequired = this.getCachedInputRequiredForInstance(currentInstanceId);
+          const cachedIds = new Set(cachedInputRequired.map((r) => r.id));
           const localOnly = existing.filter(
-            (r) => !serverIds.has(r.id) && this.isRequestForInstance(r, currentInstanceId)
+            (r) =>
+              !serverIds.has(r.id) &&
+              !cachedIds.has(r.id) &&
+              this.isRequestForInstance(r, currentInstanceId)
           );
           const filteredServer = serverRequests.filter(
             (r) => this.isRequestForInstance(r, currentInstanceId)
           );
-          return [...filteredServer, ...localOnly];
+          return [...filteredServer, ...localOnly, ...cachedInputRequired];
         });
       }
     } catch (error) {
@@ -655,6 +232,23 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
   private isRequestForInstance(request: UserActionRequest, instanceId: string): boolean {
     return request.instanceId === instanceId;
+  }
+
+  private getCachedInputRequiredForInstance(instanceId: string): UserActionRequest[] {
+    return Array.from(this.pendingInputRequiredById.values()).filter(
+      (request) => this.isRequestForInstance(request, instanceId)
+    );
+  }
+
+  private clearCachedInputRequiredForInstance(
+    instanceId: string,
+    shouldClear: (request: UserActionRequest) => boolean = () => true,
+  ): void {
+    for (const [requestId, request] of this.pendingInputRequiredById.entries()) {
+      if (this.isRequestForInstance(request, instanceId) && shouldClear(request)) {
+        this.pendingInputRequiredById.delete(requestId);
+      }
+    }
   }
 
   @HostListener('document:keydown', ['$event'])
@@ -831,6 +425,10 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
       const result = await this.ipc.toggleYoloMode(request.instanceId);
       if (result.success) {
         // Remove all pending permission requests for this instance since YOLO is now enabled
+        this.clearCachedInputRequiredForInstance(
+          request.instanceId,
+          (cachedRequest) => shouldClearRequestAfterYoloEnabled(cachedRequest, request.instanceId)
+        );
         this.pendingRequests.update((requests) =>
           requests.filter((r) => !shouldClearRequestAfterYoloEnabled(r, request.instanceId))
         );
@@ -894,6 +492,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
               instanceId: request.instanceId
             });
             this.inputRequiredTexts.delete(request.id);
+            this.pendingInputRequiredById.delete(request.id);
             this.pendingRequests.update((requests) =>
               requests.filter((r) => r.id !== request.id)
             );
@@ -979,6 +578,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
             isDeferred: this.isDeferredPermission(request),
           });
           this.inputRequiredScopes.delete(request.id);
+          this.pendingInputRequiredById.delete(request.id);
           this.pendingRequests.update((requests) =>
             requests.filter((r) => r.id !== request.id)
           );

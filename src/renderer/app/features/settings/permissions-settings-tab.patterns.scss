@@ -1,0 +1,132 @@
+.patterns-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.pattern-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+}
+
+.pattern-row.approved {
+  border-color: var(--success-color);
+  background: var(--pill-ok-bg);
+}
+
+.pattern-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.pattern-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.pattern-scope {
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.pattern-action {
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+
+  &.allow {
+    background: var(--pill-ok-bg);
+    color: var(--success-color);
+  }
+
+  &.deny {
+    background: var(--pill-error-bg);
+    color: var(--error-color);
+  }
+}
+
+.pattern-approved-badge {
+  padding: 2px 6px;
+  background: var(--success-color);
+  color: var(--button-on-success);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.pattern-details {
+  margin-top: 2px;
+}
+
+.pattern-value {
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.pattern-meta {
+  display: flex;
+  gap: var(--spacing-sm);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.pattern-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  flex-shrink: 0;
+}
+
+.btn-approve,
+.btn-reject {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all var(--transition-fast);
+}
+
+.btn-approve {
+  background: var(--success-color);
+  color: var(--button-on-success);
+
+  &:hover:not(:disabled) {
+    filter: brightness(1.1);
+  }
+}
+
+.btn-reject {
+  background: transparent;
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+
+  &:hover:not(:disabled) {
+    border-color: var(--error-color);
+    color: var(--error-color);
+  }
+}
+
+.approved-text {
+  font-size: 11px;
+  color: var(--success-color);
+  font-style: italic;
+}

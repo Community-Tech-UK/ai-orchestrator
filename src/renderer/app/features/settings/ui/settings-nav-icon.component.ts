@@ -160,16 +160,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
       }
     }
   `,
-  styles: [
-    `
-      :host {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        line-height: 0;
-      }
-    `,
-  ],
+  styleUrl: './settings-nav-icon.component.scss',
 })
 export class SettingsNavIconComponent {
   /** The settings section id, or a utility name (search, back). */

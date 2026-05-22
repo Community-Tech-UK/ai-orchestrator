@@ -1,0 +1,136 @@
+@if (pendingRequests().length > 0) {
+  <div class="user-action-requests">
+    @for (request of pendingRequests(); track request.id) {
+      <div class="request-card" [class]="'request-' + request.requestType">
+        <div class="request-header">
+          <span class="request-icon">{{
+            getRequestIcon(request.requestType)
+          }}</span>
+          <span class="request-title">{{ request.title }}</span>
+        </div>
+        <p class="request-message">{{ request.message }}</p>
+
+        @if (request.requestType === 'ask_questions' && request.questions) {
+          <!-- Ask questions: render text inputs for each question -->
+          <div class="questions-form">
+            @for (question of request.questions; track $index) {
+              <label class="question-item">
+                <span class="question-label">{{ question }}</span>
+                <textarea
+                  class="question-input"
+                  rows="2"
+                  [placeholder]="'Type your answer...'"
+                  [disabled]="isResponding()"
+                  (input)="onQuestionAnswerChange(request.id, $index, $event)"
+                ></textarea>
+              </label>
+            }
+            <div class="request-actions">
+              <button
+                class="btn-reject"
+                (click)="onReject(request)"
+                [disabled]="isResponding()"
+              >
+                Skip
+              </button>
+              <button
+                class="btn-approve"
+                (click)="onSubmitAnswers(request)"
+                [disabled]="isResponding()"
+              >
+                Submit Answers
+              </button>
+            </div>
+          </div>
+        } @else if (request.requestType === 'input_required' && !isPermissionRequest(request)) {
+          <!-- Generic input_required prompt: collect free-form text -->
+          <div class="questions-form">
+            <label class="question-item">
+              <span class="question-label">Your response</span>
+              <textarea
+                class="question-input"
+                rows="3"
+                [placeholder]="'Type your response...'"
+                [disabled]="isResponding()"
+                (input)="onInputRequiredTextChange(request.id, $event)"
+              ></textarea>
+            </label>
+            <div class="request-actions">
+              <button
+                class="btn-reject"
+                (click)="onReject(request)"
+                [disabled]="isResponding()"
+              >
+                Cancel
+              </button>
+              <button
+                class="btn-approve"
+                (click)="onSubmitInputRequired(request)"
+                [disabled]="isResponding() || !hasInputRequiredText(request.id)"
+              >
+                Submit
+              </button>
+            </div>
+          </div>
+        } @else if (request.requestType === 'select_option' && request.options) {
+          <div class="request-options">
+            @for (option of request.options; track option.id) {
+              <button
+                class="option-btn"
+                (click)="onSelectOption(request, option.id)"
+                [disabled]="isResponding()"
+              >
+                {{ option.label }}
+                @if (option.description) {
+                  <span class="option-desc">{{ option.description }}</span>
+                }
+              </button>
+            }
+          </div>
+        } @else {
+          <div class="request-actions">
+            @if (request.requestType === 'input_required' && isPermissionRequest(request)) {
+              <select
+                class="scope-select"
+                [value]="getInputRequiredScope(request)"
+                (change)="onInputRequiredScopeChange(request.id, $event)"
+                [disabled]="isResponding()"
+                [title]="isPermissionDenial(request) ? 'Remember this decision (Always writes an allow rule to ~/.claude/settings.json)' : 'Remember this decision'"
+              >
+                @for (scope of scopesFor(request); track scope) {
+                  <option [value]="scope">{{ scopeLabel(scope) }}</option>
+                }
+              </select>
+            }
+            <button
+              class="btn-reject"
+              (click)="onReject(request)"
+              [disabled]="isResponding()"
+            >
+              Reject
+            </button>
+            @if (request.requestType === 'input_required' && isPermissionRequest(request)) {
+              @if (canResolveWithYolo(request)) {
+                <button
+                  class="btn-yolo"
+                  (click)="onEnableYolo(request)"
+                  [disabled]="isResponding()"
+                  title="Enable YOLO mode to auto-approve all permissions for this session"
+                >
+                  ⚡ YOLO
+                </button>
+              }
+            }
+            <button
+              class="btn-approve"
+              (click)="onApprove(request)"
+              [disabled]="isResponding()"
+            >
+              {{ getApproveLabel(request) }}
+            </button>
+          </div>
+        }
+      </div>
+    }
+  </div>
+}
