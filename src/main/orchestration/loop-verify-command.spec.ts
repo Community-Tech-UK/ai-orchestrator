@@ -41,6 +41,21 @@ describe('inferLoopVerifyCommand', () => {
     });
   });
 
+  it('finds a verifier in a child package when the workspace is a parent folder', async () => {
+    workspace = mkdtempSync(join(tmpdir(), 'loop-verify-infer-'));
+    const packageWorkspace = join(workspace, 'ai-orchestrator');
+    mkdirSync(packageWorkspace, { recursive: true });
+    writeFileSync(
+      join(packageWorkspace, 'package.json'),
+      JSON.stringify({ scripts: { verify: 'npm test' } }, null, 2),
+    );
+
+    await expect(inferLoopVerifyCommand(workspace)).resolves.toEqual({
+      command: `npm --prefix "${packageWorkspace}" run verify`,
+      source: 'package.json script "verify"',
+    });
+  });
+
   it('composes the strongest available package scripts when verify is absent', async () => {
     workspace = mkdtempSync(join(tmpdir(), 'loop-verify-infer-'));
     writePackageJson({
