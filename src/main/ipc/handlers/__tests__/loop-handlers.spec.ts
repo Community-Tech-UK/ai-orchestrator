@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { LoopConfigInput } from '@contracts/schemas/loop';
@@ -346,6 +346,56 @@ describe('LOOP_START handler — kickoff prompt persistence', () => {
     );
   });
 
+  it('fills a blank verify command from a child package when the workspace points at its parent', async () => {
+    tempWorkspace = mkdtempSync(join(tmpdir(), 'loop-handler-verify-'));
+    const siblingWorkspace = join(tempWorkspace, 'agent-orchestrator');
+    mkdirSync(siblingWorkspace, { recursive: true });
+    writeFileSync(
+      join(siblingWorkspace, 'package.json'),
+      JSON.stringify({ scripts: { typecheck: 'tsc --noEmit', lint: 'eslint .', test: 'vitest run' } }, null, 2),
+    );
+    const packageWorkspace = join(tempWorkspace, 'ai-orchestrator');
+    mkdirSync(packageWorkspace, { recursive: true });
+    writeFileSync(
+      join(packageWorkspace, 'package.json'),
+      JSON.stringify({ scripts: { verify: 'npm test' } }, null, 2),
+    );
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    const startState = makeLoopState({ status: 'running', endedAt: null });
+    hoisted.coordinator.startLoop.mockResolvedValue(startState);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_START);
+    const payload = {
+      chatId: 'chat-1',
+      config: {
+        initialPrompt: 'Build the thing.',
+        workspaceCwd: tempWorkspace,
+        completion: {
+          ...defaultLoopConfig(tempWorkspace, 'Build the thing.').completion,
+          verifyCommand: '',
+        },
+      },
+    };
+
+    const response = await handler({}, payload);
+
+    expect(response).toEqual({ success: true, data: { state: startState } });
+    expect(hoisted.coordinator.startLoop).toHaveBeenCalledWith(
+      'chat-1',
+      expect.objectContaining({
+        completion: expect.objectContaining({
+          verifyCommand: `npm --prefix "${packageWorkspace}" run verify`,
+        }),
+      }),
+      undefined,
+      expect.any(Object),
+    );
+  });
+
   it('rejects loop start up front when no verifier can be inferred', async () => {
     tempWorkspace = mkdtempSync(join(tmpdir(), 'loop-handler-verify-'));
     const windowManager = { sendToRenderer: vi.fn() };
@@ -371,7 +421,7 @@ describe('LOOP_START handler — kickoff prompt persistence', () => {
 
     expect(response.success).toBe(false);
     expect(response.error?.code).toBe('LOOP_START_FAILED');
-    expect(response.error?.message).toContain('Loop Mode needs a verify command before it can auto-complete');
+    expect(response.error?.message).toContain('Loop Mode could not infer a verify command');
     expect(hoisted.coordinator.startLoop).not.toHaveBeenCalled();
   });
 

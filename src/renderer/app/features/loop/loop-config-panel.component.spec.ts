@@ -47,6 +47,15 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.caps?.maxCostCents).toBeNull();
   });
 
+  it('keeps the verify command control visible without opening advanced settings', () => {
+    fixture.detectChanges();
+
+    const verifyInput = fixture.nativeElement.querySelector('#loop-cfg-verify') as HTMLInputElement | null;
+
+    expect(component.showAdvanced()).toBe(false);
+    expect(verifyInput).not.toBeNull();
+  });
+
   it('can opt into operator-reviewed completion for loops without a verifier', () => {
     component.operatorReviewedCompletion.set(true);
     fixture.detectChanges();

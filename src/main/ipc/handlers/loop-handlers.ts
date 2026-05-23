@@ -281,8 +281,8 @@ async function prepareLoopStartConfig(
   }
 
   throw new Error(
-    'Loop Mode needs a verify command before it can auto-complete. ' +
-    'Add one in Advanced > Verify command, add a package.json "verify" script, ' +
+    `Loop Mode could not infer a verify command for workspace "${config.workspaceCwd}". ` +
+    'Add one in Verify command, add a package.json "verify" script, ' +
     'or enable operator-reviewed completion so the loop pauses when it thinks it is done.',
   );
 }

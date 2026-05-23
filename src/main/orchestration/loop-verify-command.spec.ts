@@ -43,6 +43,12 @@ describe('inferLoopVerifyCommand', () => {
 
   it('finds a verifier in a child package when the workspace is a parent folder', async () => {
     workspace = mkdtempSync(join(tmpdir(), 'loop-verify-infer-'));
+    const siblingWorkspace = join(workspace, 'agent-orchestrator');
+    mkdirSync(siblingWorkspace, { recursive: true });
+    writeFileSync(
+      join(siblingWorkspace, 'package.json'),
+      JSON.stringify({ scripts: { typecheck: 'tsc --noEmit', lint: 'eslint .', test: 'vitest run' } }, null, 2),
+    );
     const packageWorkspace = join(workspace, 'ai-orchestrator');
     mkdirSync(packageWorkspace, { recursive: true });
     writeFileSync(

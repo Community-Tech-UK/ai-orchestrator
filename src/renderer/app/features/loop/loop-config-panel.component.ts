@@ -119,6 +119,11 @@ const DEFAULT_PROGRESS_THRESHOLDS = {
         ></textarea>
       </section>
 
+      <section class="row">
+        <label for="loop-cfg-verify">Verify command <span class="hint">(auto-detected if blank)</span></label>
+        <input id="loop-cfg-verify" type="text" placeholder="Auto-detect" [ngModel]="verifyCommand()" (ngModelChange)="verifyCommand.set($event)" />
+      </section>
+
       <button
         type="button"
         class="advanced-toggle"
@@ -149,11 +154,6 @@ const DEFAULT_PROGRESS_THRESHOLDS = {
               <label for="loop-cfg-cap-cost">Max spend ($)</label>
               <input id="loop-cfg-cap-cost" type="number" min="1" max="1000" placeholder="No cap" [ngModel]="maxDollars()" (ngModelChange)="maxDollars.set($event)" />
             </div>
-          </section>
-
-          <section class="row">
-            <label for="loop-cfg-verify">Verify command <span class="hint">(auto-detected if blank)</span></label>
-            <input id="loop-cfg-verify" type="text" placeholder="npm run verify" [ngModel]="verifyCommand()" (ngModelChange)="verifyCommand.set($event)" />
           </section>
 
           <section class="row split">
