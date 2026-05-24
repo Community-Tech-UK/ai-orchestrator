@@ -716,6 +716,22 @@ app-copilot-model-selector {
     background: rgba(var(--primary-rgb), 0.32);
     border-color: rgba(var(--primary-rgb), 0.7);
   }
+
+  &.btn-stop {
+    background: rgba(var(--error-rgb), 0.14);
+    border-color: rgba(var(--error-rgb), 0.32);
+    color: var(--error-color);
+  }
+
+  &.btn-stop:hover:not(:disabled) {
+    background: rgba(var(--error-rgb), 0.22);
+    border-color: rgba(var(--error-rgb), 0.52);
+    color: var(--error-color);
+  }
+}
+
+.stop-icon {
+  flex-shrink: 0;
 }
 
 .hint-loop {

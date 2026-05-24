@@ -4806,7 +4806,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1676
+      "lines": 1703
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -4913,6 +4913,10 @@
       "lines": 1275
     },
     {
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
+      "lines": 1272
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-13-collapsible-system-events_completed.md",
       "lines": 1268
     },
@@ -4923,10 +4927,6 @@
     {
       "path": "docs/plans/2026-03-02-architectural-remediation-plan.md",
       "lines": 1257
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
-      "lines": 1256
     },
     {
       "path": "docs/superpowers/plans/2026-03-11-f11-scale-operations.md",

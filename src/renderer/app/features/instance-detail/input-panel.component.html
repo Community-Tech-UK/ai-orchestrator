@@ -357,16 +357,30 @@
             <span class="steer-label">Steer</span>
           </button>
         }
-        <button
-          type="button"
-          class="btn-send"
-          [class.loop-mode]="loopArmed()"
-          [disabled]="disabled() || !canSend()"
-          (click)="onSend()"
-          [title]="loopStarting() ? 'Starting loop...' : (loopArmed() ? 'Start loop (Enter)' : (isInitializing() || isSteeringTarget() ? 'Queue message (Enter)' : 'Send message (Enter)'))"
-        >
-          <span class="send-icon">{{ loopArmed() ? '🔁' : '↑' }}</span>
-        </button>
+        @if (showStopButton()) {
+          <button
+            type="button"
+            class="btn-send btn-stop"
+            (click)="onInterruptClick()"
+            title="Stop current turn (Esc)"
+            aria-label="Stop current turn"
+          >
+            <svg class="stop-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+            </svg>
+          </button>
+        } @else {
+          <button
+            type="button"
+            class="btn-send"
+            [class.loop-mode]="loopArmed()"
+            [disabled]="disabled() || !canSend()"
+            (click)="onSend()"
+            [title]="loopStarting() ? 'Starting loop...' : (loopArmed() ? 'Start loop (Enter)' : (isInitializing() || isSteeringTarget() ? 'Queue message (Enter)' : 'Send message (Enter)'))"
+          >
+            <span class="send-icon">{{ loopArmed() ? '🔁' : '↑' }}</span>
+          </button>
+        }
       </div>
     </div>
 

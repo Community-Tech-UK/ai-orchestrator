@@ -174,6 +174,12 @@ export class InputPanelComponent implements OnDestroy {
     onResolved: (ok: boolean, error?: string) => void;
   }>();
   loopStopRequested = output<void>();
+  /**
+   * Emitted when the user clicks the stop button rendered in place of the
+   * send button while the instance is busy/respawning. The parent should
+   * interrupt the active turn (same effect as pressing Esc).
+   */
+  interruptRequested = output<void>();
 
   loopArmed = signal(false);
   showLoopPanel = signal(false);
@@ -444,6 +450,23 @@ export class InputPanelComponent implements OnDestroy {
       || status === 'terminated'
       || status === 'cancelled'
       || status === 'superseded';
+  });
+  /**
+   * Show a stop button in place of the send/queue arrow when the instance is
+   * actively working AND the composer has no content to send. With content the
+   * arrow stays so the user can still click-to-queue while busy; Esc remains
+   * the keyboard path to interrupt in either case.
+   */
+  readonly showStopButton = computed(() => {
+    if (this.loopArmed()) return false;
+    if (this.disabled()) return false;
+    const busy = this.isBusy() || this.isRespawning();
+    if (!busy) return false;
+    const hasContent =
+      this.message().trim().length > 0
+      || this.pendingFilePreviews().length > 0
+      || this.pendingFolders().length > 0;
+    return !hasContent;
   });
   selectedProvider = computed(() =>
     this.isDraftComposer()
@@ -1174,6 +1197,10 @@ export class InputPanelComponent implements OnDestroy {
       return;
     }
     this.clearSubmittedMessage();
+  }
+
+  onInterruptClick(): void {
+    this.interruptRequested.emit();
   }
 
   async onSteer(): Promise<void> {

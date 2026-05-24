@@ -238,6 +238,17 @@ export class ChatDetailComponent {
   }
 
   /**
+   * Stop the active turn for this chat's current runtime instance. Triggered
+   * by the in-composer stop button (which replaces the send arrow while the
+   * instance is busy) and mirrors what Esc does in `instance-detail`.
+   */
+  async onInterrupt(): Promise<void> {
+    const instance = this.currentInstance();
+    if (!instance) return;
+    await this.instanceStore.interruptInstance(instance.id);
+  }
+
+  /**
    * Send the composed message through the chat store with any pending
    * attachments/folders, then clear the per-chat draft state on success.
    *
