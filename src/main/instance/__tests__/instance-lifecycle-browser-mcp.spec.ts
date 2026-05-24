@@ -1,5 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Phase 5+ wiring: instance-lifecycle resolves the `aio-mcp` SEA binary path
+// + the parent's RPC socket paths and passes them to every MCP config
+// builder. The tests below pin that wiring — they would fail under the old
+// `process.execPath` + script-path scheme (which silently broke packaged
+// builds with the RunAsNode fuse off).
+const FAKE_AIO_MCP_PATH =
+  '/Applications/AI Orchestrator.app/Contents/Resources/aio-mcp-cli/aio-mcp';
+const FAKE_ORCHESTRATOR_TOOLS_SOCKET = '/tmp/ai-orchestrator/ot-test.sock';
+const FAKE_CODEMEM_SOCKET = '/tmp/ai-orchestrator/cm-test.sock';
+const FAKE_BROWSER_GATEWAY_SOCKET = '/tmp/browser-gateway.sock';
+
 vi.mock('electron', () => ({
   app: {
     getPath: () => '/tmp/ai-orchestrator',
@@ -19,6 +30,20 @@ const mcpInjectionMocks = vi.hoisted(() => ({
   })),
 }));
 
+const orchestratorToolsMocks = vi.hoisted(() => ({
+  buildOrchestratorToolsMcpConfig: vi.fn(() => '{"mcpServers":{"orchestrator":{}}}'),
+  getOrchestratorToolsRpcSocketPath: vi.fn(() => '/tmp/ai-orchestrator/ot-test.sock'),
+}));
+
+const codememMocks = vi.hoisted(() => ({
+  buildCodememMcpConfig: vi.fn(() => '{"mcpServers":{"codemem":{}}}'),
+  getCodememRpcSocketPath: vi.fn(() => '/tmp/ai-orchestrator/cm-test.sock'),
+}));
+
+const aioMcpPathMocks = vi.hoisted(() => ({
+  resolveAioMcpCliPath: vi.fn(),
+}));
+
 vi.mock('../../browser-gateway', () => ({
   buildBrowserGatewayMcpConfigJson: browserGatewayMocks.buildBrowserGatewayMcpConfigJson,
   getBrowserGatewayRpcSocketPath: browserGatewayMocks.getBrowserGatewayRpcSocketPath,
@@ -28,6 +53,26 @@ vi.mock('../../mcp/mcp-multi-provider-singletons', () => ({
   getOrchestratorInjectionReader: () => ({
     buildBundle: mcpInjectionMocks.buildBundle,
   }),
+}));
+
+vi.mock('../../mcp/orchestrator-tools-mcp-config', () => ({
+  buildOrchestratorToolsMcpConfig: orchestratorToolsMocks.buildOrchestratorToolsMcpConfig,
+}));
+
+vi.mock('../../mcp/orchestrator-tools-rpc-server', () => ({
+  getOrchestratorToolsRpcSocketPath: orchestratorToolsMocks.getOrchestratorToolsRpcSocketPath,
+}));
+
+vi.mock('../../codemem/mcp-config', () => ({
+  buildCodememMcpConfig: codememMocks.buildCodememMcpConfig,
+}));
+
+vi.mock('../../codemem/codemem-rpc-server', () => ({
+  getCodememRpcSocketPath: codememMocks.getCodememRpcSocketPath,
+}));
+
+vi.mock('../../util/aio-mcp-cli-path', () => ({
+  resolveAioMcpCliPath: aioMcpPathMocks.resolveAioMcpCliPath,
 }));
 
 vi.mock('../../logging/logger', () => ({
@@ -44,6 +89,14 @@ import { InstanceLifecycleManager } from '../instance-lifecycle';
 describe('InstanceLifecycleManager Browser Gateway MCP config', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    aioMcpPathMocks.resolveAioMcpCliPath.mockReturnValue(FAKE_AIO_MCP_PATH);
+    orchestratorToolsMocks.getOrchestratorToolsRpcSocketPath.mockReturnValue(
+      FAKE_ORCHESTRATOR_TOOLS_SOCKET,
+    );
+    codememMocks.getCodememRpcSocketPath.mockReturnValue(FAKE_CODEMEM_SOCKET);
+    browserGatewayMocks.getBrowserGatewayRpcSocketPath.mockReturnValue(
+      FAKE_BROWSER_GATEWAY_SOCKET,
+    );
   });
 
   it('adds Browser Gateway MCP config for local instances when the RPC socket is available', () => {
@@ -54,7 +107,7 @@ describe('InstanceLifecycleManager Browser Gateway MCP config', () => {
     expect(configs).toContain('{"mcpServers":{"browser-gateway":{}}}');
     expect(browserGatewayMocks.buildBrowserGatewayMcpConfigJson).toHaveBeenCalledWith(
       expect.objectContaining({
-        socketPath: '/tmp/browser-gateway.sock',
+        socketPath: FAKE_BROWSER_GATEWAY_SOCKET,
         instanceId: 'instance-browser',
       }),
     );
@@ -93,7 +146,100 @@ describe('InstanceLifecycleManager Browser Gateway MCP config', () => {
   });
 });
 
-function makeManager(): {
+// These tests pin the wiring between the lifecycle manager and the SEA
+// dispatcher + parent-side RPC sockets. The original regression was that
+// `instance-lifecycle.ts` was passing `process.execPath` (the foreground
+// GUI binary) directly to the MCP config builders — yesterday's helper-
+// binary fix masked the visible dock-icon flash but the underlying MCP
+// servers silently failed under the `RunAsNode=false` Electron fuse.
+//
+// After Phase 5 each builder receives:
+//   aioMcpCliPath: <resolved SEA binary path>
+//   socketPath:    <parent-side RPC socket path>
+//   instanceId:    <auth handle>
+//
+// Mocking the resolver + socket-path getters lets us assert each builder
+// receives the right combination, independent of what's installed on the
+// vitest host machine.
+describe('InstanceLifecycleManager MCP configs route through the aio-mcp SEA + RPC sockets', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    aioMcpPathMocks.resolveAioMcpCliPath.mockReturnValue(FAKE_AIO_MCP_PATH);
+    orchestratorToolsMocks.getOrchestratorToolsRpcSocketPath.mockReturnValue(
+      FAKE_ORCHESTRATOR_TOOLS_SOCKET,
+    );
+    codememMocks.getCodememRpcSocketPath.mockReturnValue(FAKE_CODEMEM_SOCKET);
+    browserGatewayMocks.getBrowserGatewayRpcSocketPath.mockReturnValue(
+      FAKE_BROWSER_GATEWAY_SOCKET,
+    );
+  });
+
+  it('passes the SEA path + browser-gateway socket to buildBrowserGatewayMcpConfigJson', () => {
+    const manager = makeManager();
+
+    manager.getMcpConfig({ type: 'local' }, 'instance-browser');
+
+    expect(browserGatewayMocks.buildBrowserGatewayMcpConfigJson).toHaveBeenCalledWith({
+      aioMcpCliPath: FAKE_AIO_MCP_PATH,
+      socketPath: FAKE_BROWSER_GATEWAY_SOCKET,
+      instanceId: 'instance-browser',
+    });
+  });
+
+  it('passes the SEA path + orchestrator-tools socket to buildOrchestratorToolsMcpConfig', () => {
+    const manager = makeManager();
+
+    manager.getMcpConfig({ type: 'local' }, 'instance-tools', 'claude');
+
+    expect(orchestratorToolsMocks.buildOrchestratorToolsMcpConfig).toHaveBeenCalledWith({
+      aioMcpCliPath: FAKE_AIO_MCP_PATH,
+      socketPath: FAKE_ORCHESTRATOR_TOOLS_SOCKET,
+      instanceId: 'instance-tools',
+    });
+  });
+
+  it('passes the SEA path + codemem socket to buildCodememMcpConfig when codemem is enabled', () => {
+    const manager = makeManager({ codememEnabled: true });
+
+    manager.getMcpConfig({ type: 'local' }, 'instance-codemem');
+
+    expect(codememMocks.buildCodememMcpConfig).toHaveBeenCalledWith({
+      aioMcpCliPath: FAKE_AIO_MCP_PATH,
+      socketPath: FAKE_CODEMEM_SOCKET,
+      instanceId: 'instance-codemem',
+    });
+  });
+
+  it('omits orchestrator-tools when its socket is unavailable, even with the SEA present', () => {
+    orchestratorToolsMocks.getOrchestratorToolsRpcSocketPath.mockReturnValue(null);
+    const manager = makeManager();
+
+    manager.getMcpConfig({ type: 'local' }, 'instance-x', 'claude');
+
+    expect(orchestratorToolsMocks.buildOrchestratorToolsMcpConfig).not.toHaveBeenCalled();
+  });
+
+  it('omits codemem when the SEA binary is missing, even with the socket up', () => {
+    aioMcpPathMocks.resolveAioMcpCliPath.mockReturnValue(null);
+    const manager = makeManager({ codememEnabled: true });
+
+    manager.getMcpConfig({ type: 'local' }, 'instance-x');
+
+    expect(codememMocks.buildCodememMcpConfig).not.toHaveBeenCalled();
+  });
+
+  it('does not even try to resolve the SEA path for remote instances (no spawn happens)', () => {
+    const manager = makeManager({ codememEnabled: true });
+
+    manager.getMcpConfig({ type: 'remote', nodeId: 'node-1' }, 'instance-remote');
+
+    expect(aioMcpPathMocks.resolveAioMcpCliPath).not.toHaveBeenCalled();
+    expect(orchestratorToolsMocks.getOrchestratorToolsRpcSocketPath).not.toHaveBeenCalled();
+    expect(codememMocks.getCodememRpcSocketPath).not.toHaveBeenCalled();
+  });
+});
+
+function makeManager(overrides: { codememEnabled?: boolean } = {}): {
   getMcpConfig(
     executionLocation?: { type: 'local' } | { type: 'remote'; nodeId: string },
     instanceId?: string,
@@ -109,7 +255,9 @@ function makeManager(): {
     ): string[];
     settings: { getAll: () => { codememEnabled: boolean } };
   };
-  manager.settings = { getAll: () => ({ codememEnabled: false }) };
+  manager.settings = {
+    getAll: () => ({ codememEnabled: overrides.codememEnabled ?? false }),
+  };
   return manager;
 }
 

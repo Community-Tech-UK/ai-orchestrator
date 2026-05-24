@@ -1,14 +1,25 @@
 import { existsSync } from 'node:fs';
-import * as path from 'node:path';
 
+/**
+ * MCP config writer for the orchestrator-tools stdio forwarder.
+ *
+ * The forwarder is dispatched via the shared `aio-mcp` Node SEA binary:
+ *
+ *   command: <resources>/aio-mcp-cli/aio-mcp
+ *   args:    ['orchestrator-tools']
+ *   env:     {
+ *     AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: <parent RPC socket path>,
+ *     AI_ORCHESTRATOR_INSTANCE_ID:               <auth handle for the parent>,
+ *   }
+ *
+ * The forwarder talks to `OrchestratorToolsRpcServer` running in the parent
+ * over the Unix socket — so the spawned binary contains no `better-sqlite3`
+ * dependency and works under the `RunAsNode=false` Electron hardening fuse.
+ */
 export interface OrchestratorToolsMcpConfigOptions {
-  currentDir: string;
-  operatorDbPath: string;
-  conversationLedgerDbPath: string;
-  execPath: string;
-  isPackaged: boolean;
-  resourcesPath: string;
-  instanceId?: string;
+  aioMcpCliPath: string;
+  socketPath: string;
+  instanceId: string;
   exists?: (candidatePath: string) => boolean;
 }
 
@@ -22,22 +33,16 @@ export function resolveOrchestratorToolsBridgeSpec(
   options: OrchestratorToolsMcpConfigOptions,
 ): OrchestratorToolsBridgeSpec | null {
   const exists = options.exists ?? existsSync;
-  const scriptPath = options.isPackaged
-    ? path.join(options.resourcesPath, 'app.asar', 'dist', 'main', 'mcp', 'orchestrator-tools-mcp-server.js')
-    : path.resolve(options.currentDir, '../mcp/orchestrator-tools-mcp-server.js');
-
-  if (!exists(scriptPath)) {
+  if (!exists(options.aioMcpCliPath)) {
     return null;
   }
 
   return {
-    command: options.execPath,
-    args: [scriptPath],
+    command: options.aioMcpCliPath,
+    args: ['orchestrator-tools'],
     env: {
-      ELECTRON_RUN_AS_NODE: '1',
-      AI_ORCHESTRATOR_OPERATOR_DB_PATH: options.operatorDbPath,
-      AI_ORCHESTRATOR_CONVERSATION_LEDGER_DB_PATH: options.conversationLedgerDbPath,
-      ...(options.instanceId ? { AI_ORCHESTRATOR_INSTANCE_ID: options.instanceId } : {}),
+      AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: options.socketPath,
+      AI_ORCHESTRATOR_INSTANCE_ID: options.instanceId,
     },
   };
 }

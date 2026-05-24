@@ -2,7 +2,10 @@ import { createInterface } from 'node:readline';
 import { stdin, stdout } from 'node:process';
 import { getLogManager, getLogger } from '../logging/logger';
 import { McpServer } from '../mcp/mcp-server';
-import { BrowserGatewayRpcClient } from './browser-gateway-rpc-client';
+import {
+  BrowserGatewayRpcClient,
+  type BrowserGatewayRpcClientLike,
+} from './browser-gateway-rpc-client';
 import { createBrowserMcpTools } from './browser-mcp-tools';
 
 const logger = getLogger('BrowserMcpStdioServer');
@@ -18,10 +21,11 @@ function writeResponse(id: JsonRpcRequest['id'], payload: Record<string, unknown
   stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id, ...payload })}\n`);
 }
 
-async function main(): Promise<void> {
+export async function runBrowserMcpForwarder(
+  client: BrowserGatewayRpcClientLike = new BrowserGatewayRpcClient(),
+): Promise<void> {
   getLogManager().updateConfig({ enableConsole: false });
 
-  const client = new BrowserGatewayRpcClient();
   const server = McpServer.getInstance();
   server.registerTools(createBrowserMcpTools(client));
   server.start();
@@ -87,10 +91,10 @@ async function main(): Promise<void> {
   shutdown();
 }
 
-void main().catch((error) => {
-  logger.error(
-    'Browser MCP stdio server failed',
-    error instanceof Error ? error : new Error(String(error)),
-  );
-  process.exit(1);
-});
+// No auto-run here. The aio-mcp SEA dispatcher is the only entrypoint —
+// it imports `runBrowserMcpForwarder` and calls it under the `browser-gateway`
+// subcommand. Re-adding a `require.main === module` guard would also fire
+// from inside the dispatcher's esbuild bundle (esbuild rewrites all bundled
+// modules to share the same outer `require.main`/`module`), causing the
+// browser-gateway forwarder to start unconditionally whenever any other
+// aio-mcp subcommand runs.

@@ -37,6 +37,11 @@
       "filter": ["aio-loop-control*"]
     },
     {
+      "from": "dist/aio-mcp-cli-sea",
+      "to": "aio-mcp-cli",
+      "filter": ["aio-mcp*"]
+    },
+    {
       "from": "resources/browser-extension",
       "to": "browser-extension",
       "filter": ["**/*"]

@@ -60,7 +60,7 @@ export async function handleBrowserExtensionNativeMessage(
   };
 }
 
-async function main(): Promise<void> {
+export async function runBrowserExtensionNativeHost(): Promise<void> {
   const configPath = process.env['AI_ORCHESTRATOR_BROWSER_NATIVE_CONFIG'];
   if (!configPath) {
     stdout.write(createNativeMessageFrame({
@@ -189,11 +189,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-if (require.main === module) {
-  void main().catch((error) => {
-    stdout.write(createNativeMessageFrame({
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    }));
-  });
-}
+// No auto-run here. The aio-mcp SEA dispatcher is the only entrypoint —
+// it imports `runBrowserExtensionNativeHost` and calls it under the
+// `native-host` subcommand. See the matching comment in
+// browser-mcp-stdio-server.ts for why a `require.main === module` guard
+// would mis-fire from inside the dispatcher's esbuild bundle.

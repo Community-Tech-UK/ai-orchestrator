@@ -7,52 +7,52 @@ import {
   resolveBrowserGatewayBridgeSpec,
 } from './browser-mcp-config';
 
+const AIO_MCP = '/Applications/AI Orchestrator.app/Contents/Resources/aio-mcp-cli/aio-mcp';
+const SOCKET = '/tmp/browser-gateway.sock';
 const options = {
-  currentDir: '/app/dist/main/instance',
-  execPath: '/Applications/AI Orchestrator.app/Contents/MacOS/AI Orchestrator',
-  isPackaged: false,
-  resourcesPath: '/Applications/AI Orchestrator.app/Contents/Resources',
-  socketPath: '/tmp/browser-gateway.sock',
+  aioMcpCliPath: AIO_MCP,
+  socketPath: SOCKET,
   instanceId: 'instance-1',
   exists: () => true,
 };
 
 describe('browser-mcp-config', () => {
-  it('resolves non-packaged and packaged bridge paths', () => {
-    expect(resolveBrowserGatewayBridgeSpec(options)?.args[0]).toBe(
-      '/app/dist/main/browser-gateway/browser-mcp-stdio-server.js',
-    );
-    expect(
-      resolveBrowserGatewayBridgeSpec({
-        ...options,
-        isPackaged: true,
-      })?.args[0],
-    ).toBe(
-      '/Applications/AI Orchestrator.app/Contents/Resources/app.asar/dist/main/browser-gateway/browser-mcp-stdio-server.js',
-    );
+  it('builds a bridge pointing at the aio-mcp SEA browser-gateway subcommand', () => {
+    const bridge = resolveBrowserGatewayBridgeSpec(options);
+
+    expect(bridge).toEqual({
+      command: AIO_MCP,
+      args: ['browser-gateway'],
+      env: {
+        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: SOCKET,
+        AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+      },
+    });
   });
 
-  it('builds Claude inline JSON config with record env', () => {
+  it('returns null when the aio-mcp SEA is missing', () => {
+    expect(
+      resolveBrowserGatewayBridgeSpec({ ...options, exists: () => false }),
+    ).toBeNull();
+  });
+
+  it('builds Claude inline JSON config with record env — no ELECTRON_RUN_AS_NODE', () => {
     const config = JSON.parse(buildBrowserGatewayMcpConfigJson(options)!);
     const server = config.mcpServers['browser-gateway'];
 
     expect(server.env).toEqual({
-      ELECTRON_RUN_AS_NODE: '1',
-      AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: '/tmp/browser-gateway.sock',
+      AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: SOCKET,
       AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
     });
+    expect(server.env).not.toHaveProperty('ELECTRON_RUN_AS_NODE');
   });
 
-  it('builds ACP config with env array entries', () => {
+  it('builds ACP config with env array entries — no ELECTRON_RUN_AS_NODE', () => {
     const [server] = buildBrowserGatewayAcpMcpServers(options);
 
     expect(server.name).toBe('browser-gateway');
     expect(server.env).toEqual([
-      { name: 'ELECTRON_RUN_AS_NODE', value: '1' },
-      {
-        name: 'AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET',
-        value: '/tmp/browser-gateway.sock',
-      },
+      { name: 'AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET', value: SOCKET },
       { name: 'AI_ORCHESTRATOR_BROWSER_INSTANCE_ID', value: 'instance-1' },
     ]);
   });
@@ -68,30 +68,30 @@ describe('browser-mcp-config', () => {
     });
   });
 
-  it('builds Codex TOML config for the Browser Gateway MCP server', () => {
+  it('builds Codex TOML config pointing at the aio-mcp SEA', () => {
     const config = buildBrowserGatewayCodexConfigToml({
       ...options,
       provider: 'codex',
     });
 
     expect(config).toContain('[mcp_servers."browser-gateway"]');
-    expect(config).toContain('command = "/Applications/AI Orchestrator.app/Contents/MacOS/AI Orchestrator"');
-    expect(config).toContain('args = ["/app/dist/main/browser-gateway/browser-mcp-stdio-server.js"]');
-    expect(config).toContain('AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET = "/tmp/browser-gateway.sock"');
+    expect(config).toContain(`command = "${AIO_MCP}"`);
+    expect(config).toContain('args = ["browser-gateway"]');
+    expect(config).toContain(`AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET = "${SOCKET}"`);
     expect(config).toContain('AI_ORCHESTRATOR_BROWSER_PROVIDER = "codex"');
   });
 
-  it('builds Gemini settings JSON for the Browser Gateway MCP server', () => {
+  it('builds Gemini settings JSON pointing at the aio-mcp SEA', () => {
     const config = JSON.parse(buildBrowserGatewayGeminiSettingsJson({
       ...options,
       provider: 'gemini',
     })!);
 
     expect(config.mcpServers['browser-gateway']).toMatchObject({
-      command: '/Applications/AI Orchestrator.app/Contents/MacOS/AI Orchestrator',
-      args: ['/app/dist/main/browser-gateway/browser-mcp-stdio-server.js'],
+      command: AIO_MCP,
+      args: ['browser-gateway'],
       env: expect.objectContaining({
-        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: '/tmp/browser-gateway.sock',
+        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: SOCKET,
         AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
         AI_ORCHESTRATOR_BROWSER_PROVIDER: 'gemini',
       }),

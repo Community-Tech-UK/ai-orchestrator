@@ -1,5 +1,3 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { app } from 'electron';
 import type { BrowserGatewayRpcServerOptions } from './browser-gateway-rpc-server';
 import { initializeBrowserGatewayService } from './browser-gateway-service';
@@ -9,6 +7,10 @@ import {
 } from './browser-gateway-rpc-server';
 import { prepareBrowserExtensionNativeHostRuntime } from './browser-extension-native-runtime';
 import { setBrowserGatewayMcpBridgeAvailabilityProvider } from './browser-health-service';
+import { getLogger } from '../logging/logger';
+import { resolveAioMcpCliPath } from '../util/aio-mcp-cli-path';
+
+const logger = getLogger('BrowserGatewayRuntime');
 
 export * from './browser-audit-store';
 export * from './browser-action-classifier';
@@ -42,26 +44,26 @@ export async function initializeBrowserGatewayRuntime(
   setBrowserGatewayMcpBridgeAvailabilityProvider(() => Boolean(server.getSocketPath()));
   const socketPath = server.getSocketPath();
   if (socketPath) {
-    prepareBrowserExtensionNativeHostRuntime({
-      userDataPath: options.userDataPath ?? app.getPath('userData'),
-      socketPath,
-      extensionToken: server.getExtensionToken(),
-      electronPath: process.execPath,
-      nativeHostScriptPath: resolveBrowserExtensionNativeHostScriptPath(),
-    });
+    const aioMcpCliPath = resolveAioMcpCliPath();
+    if (!aioMcpCliPath) {
+      // Without the SEA we have nothing to point Chrome's native-messaging
+      // host registration at. The MCP bridge for the in-app browser
+      // extension stays unregistered — degraded but non-fatal.
+      logger.warn(
+        'aio-mcp SEA binary not found — Chrome native-messaging host wrapper not installed',
+      );
+    } else {
+      prepareBrowserExtensionNativeHostRuntime({
+        userDataPath: options.userDataPath ?? app.getPath('userData'),
+        socketPath,
+        extensionToken: server.getExtensionToken(),
+        aioMcpCliPath,
+      });
+    }
   }
   initializeBrowserGatewayService();
 }
 
 export function isBrowserGatewayMcpBridgeAvailable(): boolean {
   return Boolean(getBrowserGatewayRpcSocketPath());
-}
-
-function resolveBrowserExtensionNativeHostScriptPath(): string {
-  const candidates = [
-    path.join(__dirname, 'browser-extension-native-host.js'),
-    path.join(app.getAppPath(), 'dist', 'main', 'browser-gateway', 'browser-extension-native-host.js'),
-    path.join(app.getAppPath(), 'dist', 'src', 'main', 'browser-gateway', 'browser-extension-native-host.js'),
-  ];
-  return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0]!;
 }

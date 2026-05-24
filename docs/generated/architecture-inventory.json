@@ -4674,7 +4674,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3304
+      "lines": 3337
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",

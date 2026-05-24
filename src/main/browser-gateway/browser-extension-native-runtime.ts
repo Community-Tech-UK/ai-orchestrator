@@ -18,8 +18,14 @@ export interface BrowserExtensionNativeRuntimeOptions {
   userDataPath: string;
   socketPath: string;
   extensionToken: string;
-  electronPath: string;
-  nativeHostScriptPath: string;
+  /**
+   * Absolute path to the `aio-mcp` Node SEA binary. The wrapper script
+   * Chrome registers points at `aio-mcp native-host`, which runs the
+   * forwarder inside a vanilla Node SEA (no Electron, no
+   * `ELECTRON_RUN_AS_NODE` dependency, no LSUIElement-less dock-icon
+   * flash on launch).
+   */
+  aioMcpCliPath: string;
   chromeNativeMessagingDir?: string;
   now?: () => number;
 }
@@ -55,8 +61,7 @@ export function prepareBrowserExtensionNativeHostRuntime(
   writeNativeHostWrapper({
     wrapperPath,
     runtimeConfigPath,
-    electronPath: options.electronPath,
-    nativeHostScriptPath: options.nativeHostScriptPath,
+    aioMcpCliPath: options.aioMcpCliPath,
   });
 
   const chromeNativeMessagingDir =
@@ -108,8 +113,7 @@ function registerWindowsNativeMessagingHost(manifestPath: string): void {
 function writeNativeHostWrapper(options: {
   wrapperPath: string;
   runtimeConfigPath: string;
-  electronPath: string;
-  nativeHostScriptPath: string;
+  aioMcpCliPath: string;
 }): void {
   if (process.platform === 'win32') {
     fs.writeFileSync(
@@ -117,8 +121,7 @@ function writeNativeHostWrapper(options: {
       [
         '@echo off',
         `set AI_ORCHESTRATOR_BROWSER_NATIVE_CONFIG=${options.runtimeConfigPath}`,
-        'set ELECTRON_RUN_AS_NODE=1',
-        `"${options.electronPath}" "${options.nativeHostScriptPath}" %*`,
+        `"${options.aioMcpCliPath}" native-host %*`,
         '',
       ].join('\r\n'),
     );
@@ -130,8 +133,7 @@ function writeNativeHostWrapper(options: {
     [
       '#!/bin/sh',
       `AI_ORCHESTRATOR_BROWSER_NATIVE_CONFIG=${quoteSh(options.runtimeConfigPath)} \\`,
-      'ELECTRON_RUN_AS_NODE=1 \\',
-      `exec ${quoteSh(options.electronPath)} ${quoteSh(options.nativeHostScriptPath)} "$@"`,
+      `exec ${quoteSh(options.aioMcpCliPath)} native-host "$@"`,
       '',
     ].join('\n'),
     { mode: 0o700 },

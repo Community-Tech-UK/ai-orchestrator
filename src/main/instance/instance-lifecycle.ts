@@ -84,9 +84,12 @@ import { RuntimeReadinessCoordinator } from './lifecycle/runtime-readiness';
 import { InstanceTerminationCoordinator } from './lifecycle/instance-termination';
 import { getCompactionCoordinator } from '../context/compaction-coordinator';
 import { getCodemem } from '../codemem';
-import { buildCodememMcpConfig } from '../codemem/mcp-config';
+import { buildCodememMcpConfig, type CodememMcpConfigOptions } from '../codemem/mcp-config';
 import { getMcpManager } from '../mcp/mcp-manager';
-import { buildOrchestratorToolsMcpConfig } from '../mcp/orchestrator-tools-mcp-config';
+import {
+  buildOrchestratorToolsMcpConfig,
+  type OrchestratorToolsMcpConfigOptions,
+} from '../mcp/orchestrator-tools-mcp-config';
 import {
   buildBrowserGatewayMcpConfigJson,
   getBrowserGatewayRpcSocketPath,
@@ -108,6 +111,9 @@ import {
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { getPromptHistoryService } from '../prompt-history/prompt-history-service';
 import { ORCHESTRATOR_INJECTION_PROVIDERS, isSupportedProvider } from '../../shared/types/mcp-scopes.types';
+import { resolveAioMcpCliPath } from '../util/aio-mcp-cli-path';
+import { getCodememRpcSocketPath } from '../codemem/codemem-rpc-server';
+import { getOrchestratorToolsRpcSocketPath } from '../mcp/orchestrator-tools-rpc-server';
 
 const logger = getLogger('InstanceLifecycle');
 const LOG_PREVIEW_LENGTH = 160;
@@ -375,21 +381,22 @@ export class InstanceLifecycleManager extends EventEmitter {
     }
 
     if (this.settings.getAll().codememEnabled) {
-      const codememConfig = buildCodememMcpConfig({
-        currentDir: __dirname,
-        dbPath: path.join(app.getPath('userData'), 'codemem.sqlite'),
-        execPath: process.execPath,
-        isPackaged: app.isPackaged,
-        resourcesPath: process.resourcesPath,
-      });
-
-      if (codememConfig) {
-        configs.push(codememConfig);
+      const codememOptions = this.getCodememMcpOptions(instanceId);
+      if (codememOptions) {
+        const codememConfig = buildCodememMcpConfig(codememOptions);
+        if (codememConfig) {
+          configs.push(codememConfig);
+        } else {
+          logger.warn('Codemem MCP bridge entrypoint not found — child sessions will not expose mcp__codemem__* tools', {
+            aioMcpCliPath: codememOptions.aioMcpCliPath,
+            isPackaged: app.isPackaged,
+          });
+        }
       } else {
-        logger.warn('Codemem MCP bridge entrypoint not found — child sessions will not expose mcp__codemem__* tools', {
-          currentDir: __dirname,
-          isPackaged: app.isPackaged,
-        });
+        logger.warn(
+          'Codemem MCP not configured — aio-mcp SEA binary or codemem RPC socket missing',
+          { instanceId, isPackaged: app.isPackaged },
+        );
       }
     }
 
@@ -432,15 +439,16 @@ export class InstanceLifecycleManager extends EventEmitter {
 
     try {
       const bundle = getOrchestratorInjectionReader().buildBundle(provider);
-      const builtInToolsConfig = buildOrchestratorToolsMcpConfig({
-        currentDir: __dirname,
-        operatorDbPath: defaultOperatorDbPath(),
-        conversationLedgerDbPath: path.join(app.getPath('userData'), 'conversation-ledger', 'conversation-ledger.db'),
-        execPath: process.execPath,
-        isPackaged: app.isPackaged,
-        resourcesPath: process.resourcesPath,
-        instanceId,
-      });
+      const orchestratorToolsOptions = this.getOrchestratorToolsMcpOptions(instanceId);
+      const builtInToolsConfig = orchestratorToolsOptions
+        ? buildOrchestratorToolsMcpConfig(orchestratorToolsOptions)
+        : null;
+      if (!builtInToolsConfig) {
+        logger.warn(
+          'Orchestrator-tools MCP not configured — aio-mcp SEA binary or orchestrator-tools RPC socket missing',
+          { provider, instanceId, isPackaged: app.isPackaged },
+        );
+      }
       return [
         ...bundle.configPaths,
         ...bundle.inlineConfigs,
@@ -455,6 +463,30 @@ export class InstanceLifecycleManager extends EventEmitter {
     }
   }
 
+  /** Build args for the codemem MCP config builder, or null if a prerequisite
+   *  (the SEA binary or the parent's RPC socket) is missing. */
+  private getCodememMcpOptions(instanceId?: string): CodememMcpConfigOptions | null {
+    if (!instanceId) return null;
+    const aioMcpCliPath = resolveAioMcpCliPath();
+    if (!aioMcpCliPath) return null;
+    const socketPath = getCodememRpcSocketPath();
+    if (!socketPath) return null;
+    return { aioMcpCliPath, socketPath, instanceId };
+  }
+
+  /** Build args for the orchestrator-tools MCP config builder, or null if a
+   *  prerequisite is missing. */
+  private getOrchestratorToolsMcpOptions(
+    instanceId?: string,
+  ): OrchestratorToolsMcpConfigOptions | null {
+    if (!instanceId) return null;
+    const aioMcpCliPath = resolveAioMcpCliPath();
+    if (!aioMcpCliPath) return null;
+    const socketPath = getOrchestratorToolsRpcSocketPath();
+    if (!socketPath) return null;
+    return { aioMcpCliPath, socketPath, instanceId };
+  }
+
   private getBrowserGatewayMcpOptions(
     executionLocation?: ExecutionLocation,
     instanceId?: string,
@@ -467,11 +499,12 @@ export class InstanceLifecycleManager extends EventEmitter {
     if (!socketPath) {
       return null;
     }
+    const aioMcpCliPath = resolveAioMcpCliPath();
+    if (!aioMcpCliPath) {
+      return null;
+    }
     return {
-      currentDir: __dirname,
-      execPath: process.execPath,
-      isPackaged: app.isPackaged,
-      resourcesPath: process.resourcesPath,
+      aioMcpCliPath,
       socketPath,
       instanceId,
       ...(provider ? { provider } : {}),

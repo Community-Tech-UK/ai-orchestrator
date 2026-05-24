@@ -4,55 +4,54 @@ import {
   resolveOrchestratorToolsBridgeSpec,
 } from '../orchestrator-tools-mcp-config';
 
+const AIO_MCP = '/Applications/AI Orchestrator.app/Contents/Resources/aio-mcp-cli/aio-mcp';
+const SOCKET = '/Users/u/Library/Application Support/ai-orchestrator/ot-abc123.sock';
+
 describe('orchestrator tools MCP config helpers', () => {
-  it('resolves the dev bridge against the compiled dist entrypoint', () => {
+  it('returns a bridge spec pointing at `aio-mcp orchestrator-tools` when the SEA exists', () => {
     const bridge = resolveOrchestratorToolsBridgeSpec({
-      currentDir: '/repo/dist/main/instance',
-      operatorDbPath: '/tmp/operator.db',
-      conversationLedgerDbPath: '/tmp/conversation-ledger.db',
-      execPath: '/Applications/AI Orchestrator.app/Contents/MacOS/AI Orchestrator',
-      isPackaged: false,
-      resourcesPath: '/Applications/AI Orchestrator.app/Contents/Resources',
+      aioMcpCliPath: AIO_MCP,
+      socketPath: SOCKET,
       instanceId: 'inst-1',
-      exists: (candidatePath) => candidatePath === '/repo/dist/main/mcp/orchestrator-tools-mcp-server.js',
+      exists: (candidate) => candidate === AIO_MCP,
     });
 
     expect(bridge).toEqual({
-      command: '/Applications/AI Orchestrator.app/Contents/MacOS/AI Orchestrator',
-      args: ['/repo/dist/main/mcp/orchestrator-tools-mcp-server.js'],
+      command: AIO_MCP,
+      args: ['orchestrator-tools'],
       env: {
-        ELECTRON_RUN_AS_NODE: '1',
-        AI_ORCHESTRATOR_OPERATOR_DB_PATH: '/tmp/operator.db',
-        AI_ORCHESTRATOR_CONVERSATION_LEDGER_DB_PATH: '/tmp/conversation-ledger.db',
+        AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: SOCKET,
         AI_ORCHESTRATOR_INSTANCE_ID: 'inst-1',
       },
     });
   });
 
-  it('resolves the packaged bridge against app.asar', () => {
-    const bridge = resolveOrchestratorToolsBridgeSpec({
-      currentDir: '/ignored',
-      operatorDbPath: '/tmp/operator.db',
-      conversationLedgerDbPath: '/tmp/conversation-ledger.db',
-      execPath: '/Applications/AI Orchestrator.app/Contents/MacOS/AI Orchestrator',
-      isPackaged: true,
-      resourcesPath: '/Applications/AI Orchestrator.app/Contents/Resources',
-      exists: (candidatePath) => candidatePath === '/Applications/AI Orchestrator.app/Contents/Resources/app.asar/dist/main/mcp/orchestrator-tools-mcp-server.js',
-    });
-
-    expect(bridge?.args).toEqual([
-      '/Applications/AI Orchestrator.app/Contents/Resources/app.asar/dist/main/mcp/orchestrator-tools-mcp-server.js',
-    ]);
+  it('returns null when the aio-mcp SEA binary is missing', () => {
+    expect(
+      resolveOrchestratorToolsBridgeSpec({
+        aioMcpCliPath: AIO_MCP,
+        socketPath: SOCKET,
+        instanceId: 'inst-1',
+        exists: () => false,
+      }),
+    ).toBeNull();
   });
 
-  it('returns inline JSON with the git batch MCP server definition', () => {
+  it('omits ELECTRON_RUN_AS_NODE — the SEA is real Node so the env is irrelevant', () => {
+    const bridge = resolveOrchestratorToolsBridgeSpec({
+      aioMcpCliPath: AIO_MCP,
+      socketPath: SOCKET,
+      instanceId: 'inst-1',
+      exists: () => true,
+    });
+
+    expect(bridge?.env).not.toHaveProperty('ELECTRON_RUN_AS_NODE');
+  });
+
+  it('produces inline mcpServers JSON the CLIs can read directly', () => {
     const config = buildOrchestratorToolsMcpConfig({
-      currentDir: '/repo/dist/main/instance',
-      operatorDbPath: '/tmp/operator.db',
-      conversationLedgerDbPath: '/tmp/conversation-ledger.db',
-      execPath: '/Applications/AI Orchestrator.app/Contents/MacOS/AI Orchestrator',
-      isPackaged: false,
-      resourcesPath: '/Applications/AI Orchestrator.app/Contents/Resources',
+      aioMcpCliPath: AIO_MCP,
+      socketPath: SOCKET,
       instanceId: 'inst-1',
       exists: () => true,
     });
@@ -61,12 +60,10 @@ describe('orchestrator tools MCP config helpers', () => {
     expect(JSON.parse(config as string)).toEqual({
       mcpServers: {
         orchestrator: {
-          command: '/Applications/AI Orchestrator.app/Contents/MacOS/AI Orchestrator',
-          args: ['/repo/dist/main/mcp/orchestrator-tools-mcp-server.js'],
+          command: AIO_MCP,
+          args: ['orchestrator-tools'],
           env: {
-            ELECTRON_RUN_AS_NODE: '1',
-            AI_ORCHESTRATOR_OPERATOR_DB_PATH: '/tmp/operator.db',
-            AI_ORCHESTRATOR_CONVERSATION_LEDGER_DB_PATH: '/tmp/conversation-ledger.db',
+            AI_ORCHESTRATOR_ORCHESTRATOR_TOOLS_SOCKET: SOCKET,
             AI_ORCHESTRATOR_INSTANCE_ID: 'inst-1',
           },
         },
@@ -74,17 +71,14 @@ describe('orchestrator tools MCP config helpers', () => {
     });
   });
 
-  it('returns null when the bridge entrypoint cannot be resolved', () => {
-    const config = buildOrchestratorToolsMcpConfig({
-      currentDir: '/repo/dist/main/instance',
-      operatorDbPath: '/tmp/operator.db',
-      conversationLedgerDbPath: '/tmp/conversation-ledger.db',
-      execPath: '/Applications/AI Orchestrator.app/Contents/MacOS/AI Orchestrator',
-      isPackaged: false,
-      resourcesPath: '/Applications/AI Orchestrator.app/Contents/Resources',
-      exists: () => false,
-    });
-
-    expect(config).toBeNull();
+  it('returns null when the SEA binary is missing — caller logs and degrades gracefully', () => {
+    expect(
+      buildOrchestratorToolsMcpConfig({
+        aioMcpCliPath: AIO_MCP,
+        socketPath: SOCKET,
+        instanceId: 'inst-1',
+        exists: () => false,
+      }),
+    ).toBeNull();
   });
 });

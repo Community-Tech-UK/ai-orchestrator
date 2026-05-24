@@ -60,6 +60,10 @@ import { WorkflowPersistence } from '../workflows/workflow-persistence';
 import { initializeCodemem, getCodemem } from '../codemem';
 import { initializeAutomations } from '../automations';
 import { initializeBrowserGatewayRuntime } from '../browser-gateway';
+import { initializeCodememRpcServer } from '../codemem/codemem-rpc-server';
+import { initializeOrchestratorToolsRpcServer } from '../mcp/orchestrator-tools-rpc-server';
+import * as path from 'node:path';
+import { defaultOperatorDbPath } from '../operator/operator-database';
 import { installRuntimeDiagnostics } from './runtime-diagnostics';
 import { setupCompactionCoordinator } from './compaction-runtime';
 import { setupInstanceEventForwarding } from './instance-event-forwarding';
@@ -510,6 +514,36 @@ export function createInitializationSteps(
         initializeBrowserGatewayRuntime({
           isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
         }),
+    },
+    {
+      // Parent-side RPC servers backing the orchestrator-tools / codemem
+      // MCP forwarders that the `aio-mcp` SEA dispatcher spawns. Must be
+      // started before any child instance does — the MCP config builders
+      // bail out (and log a warning) if the socket path is missing.
+      name: 'Orchestrator-tools RPC server',
+      fn: async () => {
+        const { app } = await import('electron');
+        await initializeOrchestratorToolsRpcServer({
+          operatorDbPath: defaultOperatorDbPath(),
+          conversationLedgerDbPath: path.join(
+            app.getPath('userData'),
+            'conversation-ledger',
+            'conversation-ledger.db',
+          ),
+          isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
+        });
+      },
+    },
+    {
+      name: 'Codemem RPC server',
+      fn: async () => {
+        const { app } = await import('electron');
+        await initializeCodememRpcServer({
+          dbPath: path.join(app.getPath('userData'), 'codemem.sqlite'),
+          userDataPath: app.getPath('userData'),
+          isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
+        });
+      },
     },
     {
       name: 'Cross-project patterns',

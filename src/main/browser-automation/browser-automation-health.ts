@@ -3,6 +3,7 @@ import * as path from 'path';
 import { execFile } from 'child_process';
 import type { McpServerConfig, McpTool } from '../../shared/types/mcp.types';
 import { getMcpManager } from '../mcp/mcp-manager';
+import { resolveAioMcpCliPath } from '../util/aio-mcp-cli-path';
 
 export type BrowserAutomationHealthStatus = 'ready' | 'partial' | 'missing';
 
@@ -176,18 +177,14 @@ async function detectBrowserRuntime(): Promise<{ available: boolean; command?: s
 }
 
 async function detectNodeAvailability(): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
-    const child = execFile(process.execPath, ['--version'], {
-      encoding: 'utf-8',
-      timeout: 3000,
-    }, (error) => {
-      resolve(!error);
-    });
-    setTimeout(() => {
-      try { child.kill(); } catch { /* already exited */ }
-      resolve(false);
-    }, 3500);
-  });
+  // After Phase 5 there is no longer a separate Node-host we need to probe —
+  // the `aio-mcp` SEA dispatcher is the single Node runtime we ship, and it
+  // is just a file on disk. Presence of the binary is sufficient evidence
+  // that a healthy Node runtime is available to the spawned MCP forwarders.
+  // (Pre-Phase-5 this used to spawn `process.execPath --version` with
+  // `ELECTRON_RUN_AS_NODE=1`, which silently failed under the `RunAsNode=false`
+  // fuse and caused a Dock-icon flash on macOS.)
+  return Promise.resolve(resolveAioMcpCliPath() !== null);
 }
 
 export class BrowserAutomationHealthService {

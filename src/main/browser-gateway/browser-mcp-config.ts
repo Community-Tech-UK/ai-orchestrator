@@ -1,12 +1,25 @@
 import { existsSync } from 'node:fs';
-import * as path from 'node:path';
 import type { AcpMcpServerConfig } from '../../shared/types/cli.types';
 
+/**
+ * MCP config writer for the browser-gateway stdio forwarder.
+ *
+ * The forwarder is dispatched via the shared `aio-mcp` Node SEA binary:
+ *
+ *   command: <resources>/aio-mcp-cli/aio-mcp
+ *   args:    ['browser-gateway']
+ *   env:     {
+ *     AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: <parent RPC socket path>,
+ *     AI_ORCHESTRATOR_BROWSER_INSTANCE_ID:    <auth handle for the parent>,
+ *     AI_ORCHESTRATOR_BROWSER_PROVIDER:       <optional provider override>,
+ *   }
+ *
+ * The forwarder talks to `BrowserGatewayRpcServer` running in the parent
+ * over the Unix socket — no `better-sqlite3` dependency in the spawned
+ * binary, compatible with the `RunAsNode=false` Electron hardening fuse.
+ */
 export interface BrowserGatewayMcpConfigOptions {
-  currentDir: string;
-  execPath: string;
-  isPackaged: boolean;
-  resourcesPath: string;
+  aioMcpCliPath: string;
   socketPath: string;
   instanceId: string;
   provider?: string;
@@ -23,31 +36,19 @@ export function resolveBrowserGatewayBridgeSpec(
   options: BrowserGatewayMcpConfigOptions,
 ): BrowserGatewayBridgeSpec | null {
   const exists = options.exists ?? existsSync;
-  const scriptPath = options.isPackaged
-    ? path.join(
-        options.resourcesPath,
-        'app.asar',
-        'dist',
-        'main',
-        'browser-gateway',
-        'browser-mcp-stdio-server.js',
-      )
-    : path.resolve(options.currentDir, '../browser-gateway/browser-mcp-stdio-server.js');
-
-  if (!exists(scriptPath)) {
+  if (!exists(options.aioMcpCliPath)) {
     return null;
   }
 
   const env = {
-    ELECTRON_RUN_AS_NODE: '1',
     AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: options.socketPath,
     AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: options.instanceId,
     ...(options.provider ? { AI_ORCHESTRATOR_BROWSER_PROVIDER: options.provider } : {}),
   };
 
   return {
-    command: options.execPath,
-    args: [scriptPath],
+    command: options.aioMcpCliPath,
+    args: ['browser-gateway'],
     env,
   };
 }

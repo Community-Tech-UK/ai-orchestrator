@@ -9,11 +9,13 @@ import { GitBatchCancelledError, GitBatchService, getGitBatchService } from '../
 import { OperatorRunStore } from '../operator/operator-run-store';
 import type { McpServerToolDefinition } from './mcp-server-tools';
 
-const GitBatchPullArgsSchema = z.object({
+export const GitBatchPullArgsSchema = z.object({
   root: z.string().min(1),
   ignore: z.array(z.string()).optional(),
   concurrency: z.number().int().min(1).max(16).optional(),
 });
+
+export type GitBatchPullArgs = z.infer<typeof GitBatchPullArgsSchema>;
 
 export interface OrchestratorToolRuntimeContext {
   db: SqliteDriver;
