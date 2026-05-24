@@ -121,6 +121,29 @@ describe('MarkdownService.renderSync command stripping', () => {
     expect(service.renderSync('`hello`')).not.toContain('data-file-path');
   });
 
+  it('preserves the start attribute on ordered lists that do not begin at 1', () => {
+    // Regression: typing "2) do this" was rendering as "1. do this" because
+    // DOMPurify stripped the `start="2"` that marked emitted on the <ol>.
+    const html = service.renderSync('2) do this, and do this properly and thoroughly');
+
+    expect(html).toMatch(/<ol[^>]*\sstart="2"/);
+    expect(html).toContain('do this, and do this properly and thoroughly');
+  });
+
+  it('preserves the start attribute when an ordered list starts with a dot', () => {
+    const html = service.renderSync('5. pick option five');
+    expect(html).toMatch(/<ol[^>]*\sstart="5"/);
+  });
+
+  it('does not add a start attribute for lists that begin at 1', () => {
+    const html = service.renderSync('1. first\n2. second');
+    // marked omits start="1" for lists beginning at 1; just confirm the items
+    // render and we don't accidentally inject a stray start attribute.
+    expect(html).toContain('<ol>');
+    expect(html).toContain('first');
+    expect(html).toContain('second');
+  });
+
   it('uses ClipboardService for code-block copy buttons', async () => {
     document.body.innerHTML = [
       '<button data-copy-id="copy-1">Copy</button>',

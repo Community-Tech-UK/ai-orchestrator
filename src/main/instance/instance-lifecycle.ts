@@ -3,9 +3,6 @@
  */
 
 import { EventEmitter } from 'events';
-import { app } from 'electron';
-import { existsSync } from 'fs';
-import * as path from 'path';
 import {
   resolveCliType,
   getCliDisplayName,
@@ -65,8 +62,6 @@ import {
 } from './instance-state-machine';
 import { getAutoTitleService } from './auto-title-service';
 import { ActivityStateDetector } from '../providers/activity-state-detector';
-import { ensureHookScript, ensureRtkDeferHookScript } from '../cli/hooks/hook-path-resolver';
-import { getRtkRuntime } from '../cli/rtk/rtk-runtime';
 import { getDeferDecisionStore } from '../cli/hooks/defer-decision-store';
 import { InstanceSpawner } from './lifecycle/instance-spawner';
 import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handler';
@@ -82,21 +77,10 @@ import { IdleMonitor } from './lifecycle/idle-monitor';
 import { InterruptRespawnHandler } from './lifecycle/interrupt-respawn-handler';
 import { RuntimeReadinessCoordinator } from './lifecycle/runtime-readiness';
 import { InstanceTerminationCoordinator } from './lifecycle/instance-termination';
+import { SpawnConfigBuilder } from './lifecycle/spawn-config-builder';
 import { getCompactionCoordinator } from '../context/compaction-coordinator';
 import { getCodemem } from '../codemem';
-import { buildCodememMcpConfig, type CodememMcpConfigOptions } from '../codemem/mcp-config';
 import { getMcpManager } from '../mcp/mcp-manager';
-import {
-  buildOrchestratorToolsMcpConfig,
-  type OrchestratorToolsMcpConfigOptions,
-} from '../mcp/orchestrator-tools-mcp-config';
-import {
-  buildBrowserGatewayMcpConfigJson,
-  getBrowserGatewayRpcSocketPath,
-  type BrowserGatewayMcpConfigOptions,
-} from '../browser-gateway';
-import { getOrchestratorInjectionReader } from '../mcp/mcp-multi-provider-singletons';
-import { defaultOperatorDbPath } from '../operator/operator-database';
 import { recordLifecycleTrace } from '../observability/lifecycle-trace';
 import { warmCodememWithTimeout } from './warm-codemem';
 import {
@@ -110,10 +94,6 @@ import {
 } from './lifecycle/tool-permission-config';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { getPromptHistoryService } from '../prompt-history/prompt-history-service';
-import { ORCHESTRATOR_INJECTION_PROVIDERS, isSupportedProvider } from '../../shared/types/mcp-scopes.types';
-import { resolveAioMcpCliPath } from '../util/aio-mcp-cli-path';
-import { getCodememRpcSocketPath } from '../codemem/codemem-rpc-server';
-import { getOrchestratorToolsRpcSocketPath } from '../mcp/orchestrator-tools-rpc-server';
 
 const logger = getLogger('InstanceLifecycle');
 const LOG_PREVIEW_LENGTH = 160;
@@ -299,13 +279,6 @@ export interface LifecycleDependencies {
   coreDeps?: CoreDeps;
 }
 
-// MCP config file for spawned CLI instances (LSP server, etc.)
-// In packaged app: extraResources places config/ in Contents/Resources/config/
-// In dev mode: config/ is at project root, 3 levels up from dist/main/instance/
-const MCP_CONFIG_PATH = app.isPackaged
-  ? path.join(process.resourcesPath, 'config', 'mcp-servers.json')
-  : path.resolve(__dirname, '../../../config/mcp-servers.json');
-
 export class InstanceLifecycleManager extends EventEmitter {
   private settings = getSettingsManager();
   private memoryMonitor = getMemoryMonitor();
@@ -342,6 +315,9 @@ export class InstanceLifecycleManager extends EventEmitter {
   /** Extracted restart/respawn policy helpers. */
   readonly restartHelpers: RestartPolicyHelpers;
 
+  /** Extracted MCP/permission/RTK hook config builder for spawn options. */
+  private readonly spawnConfigBuilder: SpawnConfigBuilder;
+
   private getRecoveryEngine(): RecoveryRecipeEngine {
     if (!this.recoveryEngine) {
       this.recoveryEngine = new RecoveryRecipeEngine(
@@ -353,222 +329,6 @@ export class InstanceLifecycleManager extends EventEmitter {
       }
     }
     return this.recoveryEngine;
-  }
-
-  /** Returns MCP config paths to pass to spawned CLI instances.
-   *  Returns empty for remote instances — local filesystem paths don't exist on the worker. */
-  private getMcpConfig(
-    executionLocation?: ExecutionLocation,
-    instanceId?: string,
-    provider?: string,
-  ): string[] {
-    // MCP config paths are local filesystem paths. Remote workers have their
-    // own MCP config on their filesystem; passing ours would cause invalid
-    // --mcp-config arguments that may crash the CLI on the worker.
-    if (executionLocation?.type === 'remote') {
-      return [];
-    }
-    const configs: string[] = [];
-    try {
-      if (existsSync(MCP_CONFIG_PATH)) {
-        logger.info('MCP config found', { path: MCP_CONFIG_PATH });
-        configs.push(MCP_CONFIG_PATH);
-      }
-    } catch (err) {
-      logger.error('Failed to check MCP config', err instanceof Error ? err : new Error(String(err)), {
-        path: MCP_CONFIG_PATH,
-      });
-    }
-
-    if (this.settings.getAll().codememEnabled) {
-      const codememOptions = this.getCodememMcpOptions(instanceId);
-      if (codememOptions) {
-        const codememConfig = buildCodememMcpConfig(codememOptions);
-        if (codememConfig) {
-          configs.push(codememConfig);
-        } else {
-          logger.warn('Codemem MCP bridge entrypoint not found — child sessions will not expose mcp__codemem__* tools', {
-            aioMcpCliPath: codememOptions.aioMcpCliPath,
-            isPackaged: app.isPackaged,
-          });
-        }
-      } else {
-        logger.warn(
-          'Codemem MCP not configured — aio-mcp SEA binary or codemem RPC socket missing',
-          { instanceId, isPackaged: app.isPackaged },
-        );
-      }
-    }
-
-    const browserGatewayOptions = this.getBrowserGatewayMcpOptions(
-      executionLocation,
-      instanceId,
-      provider,
-    );
-    if (browserGatewayOptions) {
-      const browserGatewayConfig = buildBrowserGatewayMcpConfigJson(browserGatewayOptions);
-      if (browserGatewayConfig) {
-        configs.push(browserGatewayConfig);
-      } else {
-        logger.warn('Browser Gateway MCP bridge entrypoint not found — child sessions will not expose browser.* tools', {
-          currentDir: __dirname,
-          isPackaged: app.isPackaged,
-        });
-      }
-    }
-
-    configs.push(...this.getOrchestratorMcpConfigs(provider, instanceId));
-
-    if (configs.length === 0) {
-      logger.warn('No MCP configs resolved — spawned instances will not have custom MCP servers', {
-        expectedPath: MCP_CONFIG_PATH,
-        isPackaged: app.isPackaged,
-      });
-    }
-
-    return configs;
-  }
-
-  private getOrchestratorMcpConfigs(provider?: string, instanceId?: string): string[] {
-    if (
-      !isSupportedProvider(provider) ||
-      !ORCHESTRATOR_INJECTION_PROVIDERS.includes(provider)
-    ) {
-      return [];
-    }
-
-    try {
-      const bundle = getOrchestratorInjectionReader().buildBundle(provider);
-      const orchestratorToolsOptions = this.getOrchestratorToolsMcpOptions(instanceId);
-      const builtInToolsConfig = orchestratorToolsOptions
-        ? buildOrchestratorToolsMcpConfig(orchestratorToolsOptions)
-        : null;
-      if (!builtInToolsConfig) {
-        logger.warn(
-          'Orchestrator-tools MCP not configured — aio-mcp SEA binary or orchestrator-tools RPC socket missing',
-          { provider, instanceId, isPackaged: app.isPackaged },
-        );
-      }
-      return [
-        ...bundle.configPaths,
-        ...bundle.inlineConfigs,
-        ...(builtInToolsConfig ? [builtInToolsConfig] : []),
-      ];
-    } catch (error) {
-      logger.warn('Failed to resolve Orchestrator MCP injection bundle', {
-        provider,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return [];
-    }
-  }
-
-  /** Build args for the codemem MCP config builder, or null if a prerequisite
-   *  (the SEA binary or the parent's RPC socket) is missing. */
-  private getCodememMcpOptions(instanceId?: string): CodememMcpConfigOptions | null {
-    if (!instanceId) return null;
-    const aioMcpCliPath = resolveAioMcpCliPath();
-    if (!aioMcpCliPath) return null;
-    const socketPath = getCodememRpcSocketPath();
-    if (!socketPath) return null;
-    return { aioMcpCliPath, socketPath, instanceId };
-  }
-
-  /** Build args for the orchestrator-tools MCP config builder, or null if a
-   *  prerequisite is missing. */
-  private getOrchestratorToolsMcpOptions(
-    instanceId?: string,
-  ): OrchestratorToolsMcpConfigOptions | null {
-    if (!instanceId) return null;
-    const aioMcpCliPath = resolveAioMcpCliPath();
-    if (!aioMcpCliPath) return null;
-    const socketPath = getOrchestratorToolsRpcSocketPath();
-    if (!socketPath) return null;
-    return { aioMcpCliPath, socketPath, instanceId };
-  }
-
-  private getBrowserGatewayMcpOptions(
-    executionLocation?: ExecutionLocation,
-    instanceId?: string,
-    provider?: string,
-  ): BrowserGatewayMcpConfigOptions | null {
-    if (executionLocation?.type === 'remote' || !instanceId) {
-      return null;
-    }
-    const socketPath = getBrowserGatewayRpcSocketPath();
-    if (!socketPath) {
-      return null;
-    }
-    const aioMcpCliPath = resolveAioMcpCliPath();
-    if (!aioMcpCliPath) {
-      return null;
-    }
-    return {
-      aioMcpCliPath,
-      socketPath,
-      instanceId,
-      ...(provider ? { provider } : {}),
-    };
-  }
-
-  /** Returns the defer permission hook path for non-YOLO instances, undefined for YOLO.
-   *  The hook intercepts dangerous tools (Bash, etc.) and returns `defer` so the
-   *  orchestrator can surface approval UI instead of silently denying. */
-  private getPermissionHookPath(yoloMode: boolean): string | undefined {
-    if (yoloMode) return undefined;
-    // When the RTK feature flag is on AND a usable rtk binary is available,
-    // use the combined RTK + defer hook script. Otherwise, fall back to the
-    // standard defer-only hook. Both scripts honor the same decision-file
-    // resume protocol, so callers don't need to care which is in use.
-    if (this.shouldUseRtkHook()) {
-      try {
-        return ensureRtkDeferHookScript();
-      } catch (err) {
-        logger.warn('Failed to resolve RTK defer hook path, falling back to defer-only', {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-    try {
-      return ensureHookScript();
-    } catch (err) {
-      logger.warn('Failed to resolve defer permission hook path, skipping', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return undefined;
-    }
-  }
-
-  /**
-   * Whether to use the RTK + defer combined hook for this orchestrator process.
-   * Requires both the rtkEnabled setting AND a usable rtk binary on disk.
-   * Result is computed lazily and cached for the process lifetime; toggling the
-   * setting requires a restart to take effect.
-   */
-  private rtkHookEligibility: boolean | null = null;
-  private shouldUseRtkHook(): boolean {
-    if (this.rtkHookEligibility !== null) return this.rtkHookEligibility;
-    const enabled = getSettingsManager().get('rtkEnabled');
-    if (!enabled) {
-      this.rtkHookEligibility = false;
-      return false;
-    }
-    const bundledOnly = Boolean(getSettingsManager().get('rtkBundledOnly'));
-    const runtime = getRtkRuntime({ bundledOnly });
-    this.rtkHookEligibility = runtime.isAvailable();
-    return this.rtkHookEligibility;
-  }
-
-  /**
-   * Resolved RTK config to pass to spawn options when the hook is in use.
-   * Returns undefined when the RTK feature is disabled or unavailable.
-   */
-  private getRtkSpawnConfig(): { enabled: boolean; binaryPath: string } | undefined {
-    if (!this.shouldUseRtkHook()) return undefined;
-    const bundledOnly = Boolean(getSettingsManager().get('rtkBundledOnly'));
-    const runtime = getRtkRuntime({ bundledOnly });
-    if (!runtime.isAvailable()) return undefined;
-    return { enabled: true, binaryPath: runtime.binaryPath() };
   }
 
   private async warmCodememWorkspace(workspacePath: string): Promise<void> {
@@ -657,6 +417,7 @@ export class InstanceLifecycleManager extends EventEmitter {
   constructor(deps: LifecycleDependencies) {
     super();
     this.deps = deps;
+    this.spawnConfigBuilder = new SpawnConfigBuilder({ settings: this.settings });
     this.runtimeReadiness = new RuntimeReadinessCoordinator({
       getInstance: (id) => deps.getInstance(id),
       getAdapter: (id) => deps.getAdapter(id),
@@ -720,10 +481,10 @@ export class InstanceLifecycleManager extends EventEmitter {
       {
         transitionState: (instance, newState) => this.transitionState(instance, newState),
         resolveCliTypeForInstance: (instance) => this.resolveCliTypeForInstance(instance) as Promise<string>,
-        getMcpConfig: (loc, instanceId, provider) => this.getMcpConfig(loc, instanceId, provider),
+        getMcpConfig: (loc, instanceId, provider) => this.spawnConfigBuilder.getMcpConfig(loc, instanceId, provider),
         getBrowserGatewayMcpOptions: (loc, instanceId, provider) =>
-          this.getBrowserGatewayMcpOptions(loc, instanceId, provider),
-        getPermissionHookPath: (yolo) => this.getPermissionHookPath(yolo),
+          this.spawnConfigBuilder.getBrowserGatewayMcpOptions(loc, instanceId, provider),
+        getPermissionHookPath: (yolo) => this.spawnConfigBuilder.getPermissionHookPath(yolo),
         waitForResumeHealth: (id) => this.waitForResumeHealth(id),
         createCliAdapter: (cliType, options, loc) => this.createRuntimeAdapter(cliType as CliType, options, loc),
         acquireSessionMutex: (id, label) => {
@@ -786,10 +547,10 @@ export class InstanceLifecycleManager extends EventEmitter {
       transitionState: (instance, newState) => this.transitionState(instance, newState),
       getAdapterRuntimeCapabilities: (adapter) => this.getAdapterRuntimeCapabilities(adapter),
       resolveCliTypeForInstance: (instance) => this.resolveCliTypeForInstance(instance),
-      getMcpConfig: (loc, instanceId, provider) => this.getMcpConfig(loc, instanceId, provider),
+      getMcpConfig: (loc, instanceId, provider) => this.spawnConfigBuilder.getMcpConfig(loc, instanceId, provider),
       getBrowserGatewayMcpOptions: (loc, instanceId, provider) =>
-        this.getBrowserGatewayMcpOptions(loc, instanceId, provider),
-      getPermissionHookPath: (yolo) => this.getPermissionHookPath(yolo),
+        this.spawnConfigBuilder.getBrowserGatewayMcpOptions(loc, instanceId, provider),
+      getPermissionHookPath: (yolo) => this.spawnConfigBuilder.getPermissionHookPath(yolo),
       waitForResumeHealth: (id, timeoutMs) => this.waitForResumeHealth(id, timeoutMs),
       waitForAdapterWritable: (id, timeoutMs) => this.waitForAdapterWritable(id, timeoutMs),
       buildReplayContinuityMessage: (instance, reason) => this.buildReplayContinuityMessage(instance, reason),
@@ -1531,14 +1292,14 @@ export class InstanceLifecycleManager extends EventEmitter {
           allowedTools: toolPermissions.allowedTools,
           disallowedTools: toolPermissions.disallowedToolsForSpawn,
           resume: config.resume,
-          mcpConfig: this.getMcpConfig(instance.executionLocation, instance.id, resolvedCliType),
-          browserGatewayMcp: this.getBrowserGatewayMcpOptions(
+          mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, resolvedCliType),
+          browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
             instance.executionLocation,
             instance.id,
             resolvedCliType,
           ) ?? undefined,
-          permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
-          rtk: this.getRtkSpawnConfig(),
+          permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
+          rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
         };
 
         // Check for a pre-warmed adapter before spawning fresh.
@@ -1989,14 +1750,14 @@ export class InstanceLifecycleManager extends EventEmitter {
           yoloMode: instance.yoloMode,
           model: instance.currentModel,
           resume: canAttemptNativeResume,
-          mcpConfig: this.getMcpConfig(instance.executionLocation, instance.id, cliType),
-          browserGatewayMcp: this.getBrowserGatewayMcpOptions(
+          mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
+          browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
             instance.executionLocation,
             instance.id,
             cliType,
           ) ?? undefined,
-          permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
-          rtk: this.getRtkSpawnConfig(),
+          permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
+          rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
         };
 
         let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
@@ -2176,14 +1937,14 @@ export class InstanceLifecycleManager extends EventEmitter {
         model: instance.currentModel,
         resume: true,
         forkSession: false,
-        mcpConfig: this.getMcpConfig(instance.executionLocation, instance.id, cliType),
-        browserGatewayMcp: this.getBrowserGatewayMcpOptions(
+        mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
+        browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
           instance.executionLocation,
           instance.id,
           cliType,
         ) ?? undefined,
-        permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
-          rtk: this.getRtkSpawnConfig(),
+        permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
+          rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
       },
       instance.executionLocation
     );
@@ -2248,14 +2009,14 @@ export class InstanceLifecycleManager extends EventEmitter {
         model: instance.currentModel,
         resume: false,
         forkSession: false,
-        mcpConfig: this.getMcpConfig(instance.executionLocation, instance.id, cliType),
-        browserGatewayMcp: this.getBrowserGatewayMcpOptions(
+        mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
+        browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
           instance.executionLocation,
           instance.id,
           cliType,
         ) ?? undefined,
-        permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
-          rtk: this.getRtkSpawnConfig(),
+        permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
+          rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
       },
       instance.executionLocation
     );
@@ -2488,14 +2249,14 @@ export class InstanceLifecycleManager extends EventEmitter {
           model: instance.currentModel,
           resume: false,
           forkSession: false,
-          mcpConfig: this.getMcpConfig(instance.executionLocation, instance.id, cliType),
-          browserGatewayMcp: this.getBrowserGatewayMcpOptions(
+          mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
+          browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
             instance.executionLocation,
             instance.id,
             cliType,
           ) ?? undefined,
-          permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
-          rtk: this.getRtkSpawnConfig(),
+          permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
+          rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
         },
         instance.executionLocation
       );
@@ -2644,14 +2405,14 @@ export class InstanceLifecycleManager extends EventEmitter {
         disallowedTools: toolPermissions.disallowedToolsForSpawn,
         resume: shouldResume,
         forkSession: shouldForkSession,
-        mcpConfig: this.getMcpConfig(instance.executionLocation, instance.id, cliType),
-        browserGatewayMcp: this.getBrowserGatewayMcpOptions(
+        mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
+        browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
           instance.executionLocation,
           instance.id,
           cliType,
         ) ?? undefined,
-        permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
-          rtk: this.getRtkSpawnConfig(),
+        permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
+          rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
       };
 
       let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
@@ -2821,14 +2582,14 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         disallowedTools: toolPermissions.disallowedToolsForSpawn,
         resume: shouldResume,
         forkSession: shouldForkSession,
-        mcpConfig: this.getMcpConfig(instance.executionLocation, instance.id, cliType),
-        browserGatewayMcp: this.getBrowserGatewayMcpOptions(
+        mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
+        browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
           instance.executionLocation,
           instance.id,
           cliType,
         ) ?? undefined,
-        permissionHookPath: this.getPermissionHookPath(newYoloMode),
-        rtk: this.getRtkSpawnConfig(),
+        permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(newYoloMode),
+        rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
       };
       logger.debug('Spawn options configured', {
         instanceId,
@@ -3054,14 +2815,14 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         disallowedTools: toolPermissions.disallowedToolsForSpawn,
         resume: shouldResume,
         forkSession: shouldForkSession,
-        mcpConfig: this.getMcpConfig(instance.executionLocation, instance.id, cliType),
-        browserGatewayMcp: this.getBrowserGatewayMcpOptions(
+        mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
+        browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
           instance.executionLocation,
           instance.id,
           cliType,
         ) ?? undefined,
-        permissionHookPath: this.getPermissionHookPath(instance.yoloMode),
-          rtk: this.getRtkSpawnConfig(),
+        permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
+          rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
       };
 
       let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);

@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Phase 5+ wiring: instance-lifecycle resolves the `aio-mcp` SEA binary path
-// + the parent's RPC socket paths and passes them to every MCP config
-// builder. The tests below pin that wiring — they would fail under the old
-// `process.execPath` + script-path scheme (which silently broke packaged
-// builds with the RunAsNode fuse off).
+// Phase 5+ wiring: SpawnConfigBuilder (extracted from instance-lifecycle)
+// resolves the `aio-mcp` SEA binary path + the parent's RPC socket paths and
+// passes them to every MCP config builder. The tests below pin that wiring —
+// they would fail under the old `process.execPath` + script-path scheme
+// (which silently broke packaged builds with the RunAsNode fuse off).
 const FAKE_AIO_MCP_PATH =
   '/Applications/AI Orchestrator.app/Contents/Resources/aio-mcp-cli/aio-mcp';
 const FAKE_ORCHESTRATOR_TOOLS_SOCKET = '/tmp/ai-orchestrator/ot-test.sock';
@@ -84,9 +84,10 @@ vi.mock('../../logging/logger', () => ({
   }),
 }));
 
-import { InstanceLifecycleManager } from '../instance-lifecycle';
+import type { SettingsManager } from '../../core/config/settings-manager';
+import { SpawnConfigBuilder } from '../lifecycle/spawn-config-builder';
 
-describe('InstanceLifecycleManager Browser Gateway MCP config', () => {
+describe('SpawnConfigBuilder — Browser Gateway MCP config', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     aioMcpPathMocks.resolveAioMcpCliPath.mockReturnValue(FAKE_AIO_MCP_PATH);
@@ -100,9 +101,9 @@ describe('InstanceLifecycleManager Browser Gateway MCP config', () => {
   });
 
   it('adds Browser Gateway MCP config for local instances when the RPC socket is available', () => {
-    const manager = makeManager();
+    const builder = makeBuilder();
 
-    const configs = manager.getMcpConfig({ type: 'local' }, 'instance-browser');
+    const configs = builder.getMcpConfig({ type: 'local' }, 'instance-browser');
 
     expect(configs).toContain('{"mcpServers":{"browser-gateway":{}}}');
     expect(browserGatewayMocks.buildBrowserGatewayMcpConfigJson).toHaveBeenCalledWith(
@@ -114,39 +115,39 @@ describe('InstanceLifecycleManager Browser Gateway MCP config', () => {
   });
 
   it('does not add local Browser Gateway config for remote instances', () => {
-    const manager = makeManager();
+    const builder = makeBuilder();
 
-    expect(configsForRemote(manager)).toEqual([]);
+    expect(configsForRemote(builder)).toEqual([]);
     expect(browserGatewayMocks.buildBrowserGatewayMcpConfigJson).not.toHaveBeenCalled();
   });
 
   it('adds Orchestrator-scoped inline MCP configs for supported local providers', () => {
-    const manager = makeManager();
+    const builder = makeBuilder();
 
-    const configs = manager.getMcpConfig({ type: 'local' }, 'instance-browser', 'claude');
+    const configs = builder.getMcpConfig({ type: 'local' }, 'instance-browser', 'claude');
 
     expect(configs).toContain('{"mcpServers":{"orchestrator-test":{}}}');
     expect(mcpInjectionMocks.buildBundle).toHaveBeenCalledWith('claude');
   });
 
   it('skips Orchestrator-scoped configs for providers that do not consume mcpConfig', () => {
-    const manager = makeManager();
+    const builder = makeBuilder();
 
-    manager.getMcpConfig({ type: 'local' }, 'instance-browser', 'codex');
+    builder.getMcpConfig({ type: 'local' }, 'instance-browser', 'codex');
 
     expect(mcpInjectionMocks.buildBundle).not.toHaveBeenCalled();
   });
 
   it('skips Orchestrator-scoped configs for unsupported providers', () => {
-    const manager = makeManager();
+    const builder = makeBuilder();
 
-    manager.getMcpConfig({ type: 'local' }, 'instance-browser', 'cursor');
+    builder.getMcpConfig({ type: 'local' }, 'instance-browser', 'cursor');
 
     expect(mcpInjectionMocks.buildBundle).not.toHaveBeenCalled();
   });
 });
 
-// These tests pin the wiring between the lifecycle manager and the SEA
+// These tests pin the wiring between the spawn-config builder and the SEA
 // dispatcher + parent-side RPC sockets. The original regression was that
 // `instance-lifecycle.ts` was passing `process.execPath` (the foreground
 // GUI binary) directly to the MCP config builders — yesterday's helper-
@@ -161,7 +162,7 @@ describe('InstanceLifecycleManager Browser Gateway MCP config', () => {
 // Mocking the resolver + socket-path getters lets us assert each builder
 // receives the right combination, independent of what's installed on the
 // vitest host machine.
-describe('InstanceLifecycleManager MCP configs route through the aio-mcp SEA + RPC sockets', () => {
+describe('SpawnConfigBuilder — MCP configs route through the aio-mcp SEA + RPC sockets', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     aioMcpPathMocks.resolveAioMcpCliPath.mockReturnValue(FAKE_AIO_MCP_PATH);
@@ -175,9 +176,9 @@ describe('InstanceLifecycleManager MCP configs route through the aio-mcp SEA + R
   });
 
   it('passes the SEA path + browser-gateway socket to buildBrowserGatewayMcpConfigJson', () => {
-    const manager = makeManager();
+    const builder = makeBuilder();
 
-    manager.getMcpConfig({ type: 'local' }, 'instance-browser');
+    builder.getMcpConfig({ type: 'local' }, 'instance-browser');
 
     expect(browserGatewayMocks.buildBrowserGatewayMcpConfigJson).toHaveBeenCalledWith({
       aioMcpCliPath: FAKE_AIO_MCP_PATH,
@@ -187,9 +188,9 @@ describe('InstanceLifecycleManager MCP configs route through the aio-mcp SEA + R
   });
 
   it('passes the SEA path + orchestrator-tools socket to buildOrchestratorToolsMcpConfig', () => {
-    const manager = makeManager();
+    const builder = makeBuilder();
 
-    manager.getMcpConfig({ type: 'local' }, 'instance-tools', 'claude');
+    builder.getMcpConfig({ type: 'local' }, 'instance-tools', 'claude');
 
     expect(orchestratorToolsMocks.buildOrchestratorToolsMcpConfig).toHaveBeenCalledWith({
       aioMcpCliPath: FAKE_AIO_MCP_PATH,
@@ -199,9 +200,9 @@ describe('InstanceLifecycleManager MCP configs route through the aio-mcp SEA + R
   });
 
   it('passes the SEA path + codemem socket to buildCodememMcpConfig when codemem is enabled', () => {
-    const manager = makeManager({ codememEnabled: true });
+    const builder = makeBuilder({ codememEnabled: true });
 
-    manager.getMcpConfig({ type: 'local' }, 'instance-codemem');
+    builder.getMcpConfig({ type: 'local' }, 'instance-codemem');
 
     expect(codememMocks.buildCodememMcpConfig).toHaveBeenCalledWith({
       aioMcpCliPath: FAKE_AIO_MCP_PATH,
@@ -212,26 +213,26 @@ describe('InstanceLifecycleManager MCP configs route through the aio-mcp SEA + R
 
   it('omits orchestrator-tools when its socket is unavailable, even with the SEA present', () => {
     orchestratorToolsMocks.getOrchestratorToolsRpcSocketPath.mockReturnValue(null);
-    const manager = makeManager();
+    const builder = makeBuilder();
 
-    manager.getMcpConfig({ type: 'local' }, 'instance-x', 'claude');
+    builder.getMcpConfig({ type: 'local' }, 'instance-x', 'claude');
 
     expect(orchestratorToolsMocks.buildOrchestratorToolsMcpConfig).not.toHaveBeenCalled();
   });
 
   it('omits codemem when the SEA binary is missing, even with the socket up', () => {
     aioMcpPathMocks.resolveAioMcpCliPath.mockReturnValue(null);
-    const manager = makeManager({ codememEnabled: true });
+    const builder = makeBuilder({ codememEnabled: true });
 
-    manager.getMcpConfig({ type: 'local' }, 'instance-x');
+    builder.getMcpConfig({ type: 'local' }, 'instance-x');
 
     expect(codememMocks.buildCodememMcpConfig).not.toHaveBeenCalled();
   });
 
   it('does not even try to resolve the SEA path for remote instances (no spawn happens)', () => {
-    const manager = makeManager({ codememEnabled: true });
+    const builder = makeBuilder({ codememEnabled: true });
 
-    manager.getMcpConfig({ type: 'remote', nodeId: 'node-1' }, 'instance-remote');
+    builder.getMcpConfig({ type: 'remote', nodeId: 'node-1' }, 'instance-remote');
 
     expect(aioMcpPathMocks.resolveAioMcpCliPath).not.toHaveBeenCalled();
     expect(orchestratorToolsMocks.getOrchestratorToolsRpcSocketPath).not.toHaveBeenCalled();
@@ -239,28 +240,14 @@ describe('InstanceLifecycleManager MCP configs route through the aio-mcp SEA + R
   });
 });
 
-function makeManager(overrides: { codememEnabled?: boolean } = {}): {
-  getMcpConfig(
-    executionLocation?: { type: 'local' } | { type: 'remote'; nodeId: string },
-    instanceId?: string,
-    provider?: string,
-  ): string[];
-  settings: { getAll: () => { codememEnabled: boolean } };
-} {
-  const manager = Object.create(InstanceLifecycleManager.prototype) as {
-    getMcpConfig(
-      executionLocation?: { type: 'local' } | { type: 'remote'; nodeId: string },
-      instanceId?: string,
-      provider?: string,
-    ): string[];
-    settings: { getAll: () => { codememEnabled: boolean } };
-  };
-  manager.settings = {
+function makeBuilder(overrides: { codememEnabled?: boolean } = {}): SpawnConfigBuilder {
+  const settings = {
     getAll: () => ({ codememEnabled: overrides.codememEnabled ?? false }),
-  };
-  return manager;
+    get: () => undefined,
+  } as unknown as SettingsManager;
+  return new SpawnConfigBuilder({ settings });
 }
 
-function configsForRemote(manager: ReturnType<typeof makeManager>): string[] {
-  return manager.getMcpConfig({ type: 'remote', nodeId: 'node-1' }, 'instance-browser');
+function configsForRemote(builder: SpawnConfigBuilder): string[] {
+  return builder.getMcpConfig({ type: 'remote', nodeId: 'node-1' }, 'instance-browser');
 }

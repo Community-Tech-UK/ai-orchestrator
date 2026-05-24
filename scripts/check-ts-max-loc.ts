@@ -71,7 +71,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/instance/instance-communication.spec.ts': 896,
   'src/main/instance/instance-communication.ts': 2236,
   'src/main/instance/instance-context.ts': 1204,
-  'src/main/instance/instance-lifecycle.ts': 3304,
+  'src/main/instance/instance-lifecycle.ts': 3098,
   'src/main/instance/instance-manager.ts': 2500,
   'src/main/instance/instance-orchestration.ts': 1516,
   'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 941,

@@ -236,6 +236,12 @@ export class MarkdownService {
         'src', 'alt', 'width', 'height',
         'viewBox', 'fill', 'stroke', 'stroke-width',
         'x', 'y', 'rx', 'ry', 'd', 'points',
+        // Ordered list numbering: preserve the start/type/value attrs that marked
+        // emits when a list begins at something other than 1 (e.g. user typing
+        // "2) pick this") or uses a non-default numeral style. Without these,
+        // DOMPurify strips the attribute and the browser renumbers from 1 —
+        // making "2) foo" render as "1. foo".
+        'start', 'type', 'value',
       ],
       ALLOW_DATA_ATTR: true,
     });
