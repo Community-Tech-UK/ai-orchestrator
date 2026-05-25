@@ -249,6 +249,11 @@ export interface BrowserListTargetsRequest {
   profileId?: string;
 }
 
+export interface BrowserFindOrOpenRequest {
+  url?: string;
+  titleHint?: string;
+}
+
 export interface BrowserTargetRequest {
   profileId: string;
   targetId: string;

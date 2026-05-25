@@ -4685,6 +4685,10 @@
       "lines": 2952
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-service.ts",
+      "lines": 2897
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-16-worker-agent-autostart-service.md",
       "lines": 2867
     },
@@ -4725,10 +4729,6 @@
       "lines": 2500
     },
     {
-      "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2455
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
       "lines": 2339
     },
@@ -4737,12 +4737,12 @@
       "lines": 2236
     },
     {
-      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
+      "path": "src/main/cli/adapters/acp-cli-adapter.ts",
       "lines": 2170
     },
     {
-      "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2142
+      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
+      "lines": 2170
     },
     {
       "path": "src/main/persistence/rlm/rlm-schema.ts",
@@ -4818,7 +4818,7 @@
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.spec.ts",
-      "lines": 1602
+      "lines": 1607
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
@@ -4865,6 +4865,10 @@
       "lines": 1478
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
+      "lines": 1476
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-08-phase2-provider-tool-sdk_completed.md",
       "lines": 1457
     },
@@ -4879,10 +4883,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-10-cross-project-improvements_completed.md",
       "lines": 1394
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
-      "lines": 1363
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-a-type-safety-utilities.md",
@@ -4901,16 +4901,16 @@
       "lines": 1322
     },
     {
+      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
+      "lines": 1320
+    },
+    {
       "path": "src/main/memory/unified-controller.ts",
       "lines": 1320
     },
     {
       "path": "src/main/ipc/orchestration-ipc-handler.ts",
       "lines": 1316
-    },
-    {
-      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
-      "lines": 1275
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
@@ -4962,7 +4962,7 @@
     },
     {
       "path": "src/renderer/app/features/browser/browser-page.component.ts",
-      "lines": 1210
+      "lines": 1214
     },
     {
       "path": "src/renderer/app/features/plugins/plugins-page.component.ts",

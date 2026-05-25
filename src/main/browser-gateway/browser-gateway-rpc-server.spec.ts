@@ -185,6 +185,52 @@ describe('BrowserGatewayRpcServer', () => {
     });
   });
 
+  it('validates and forwards find-or-open calls for provider browser tasks', async () => {
+    const findOrOpen = vi.fn().mockResolvedValue({ decision: 'allowed' });
+    const server = new BrowserGatewayRpcServer({
+      service: { findOrOpen },
+      userDataPath: '/tmp',
+      isKnownLocalInstance: () => true,
+      registerCleanup: vi.fn(),
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'browser.find_or_open',
+        params: {
+          instanceId: 'instance-1',
+          provider: 'claude',
+          payload: {
+            url: 'https://play.google.com/console',
+            titleHint: 'Google Play Console',
+          },
+        },
+      }),
+    ).resolves.toEqual({ decision: 'allowed' });
+    expect(findOrOpen).toHaveBeenCalledWith({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      url: 'https://play.google.com/console',
+      titleHint: 'Google Play Console',
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'browser.find_or_open',
+        params: {
+          instanceId: 'instance-1',
+          payload: {
+            url: 'file:///etc/passwd',
+          },
+        },
+      }),
+    ).rejects.toThrow(/Invalid browser gateway RPC payload/);
+  });
+
   it('validates native-host token and forwards existing-tab attachment calls without a provider instance id', async () => {
     const attachExistingTab = vi.fn().mockResolvedValue({ decision: 'allowed' });
     const server = new BrowserGatewayRpcServer({
@@ -224,6 +270,81 @@ describe('BrowserGatewayRpcServer', () => {
       text: 'Release dashboard',
       screenshotBase64: 'cG5n',
       capturedAt: 1000,
+    });
+  });
+
+  it('lets an authorized extension native host poll queued commands and report results', async () => {
+    const extensionCommandStore = {
+      pollCommand: vi.fn().mockResolvedValue({
+        id: 'command-1',
+        command: 'click',
+        target: {
+          tabId: 42,
+          windowId: 7,
+          profileId: 'existing-profile-42',
+          targetId: 'existing-tab-42',
+        },
+        payload: { selector: '#continue' },
+        createdAt: 1234,
+      }),
+      resolveCommand: vi.fn(),
+    };
+    const server = new BrowserGatewayRpcServer({
+      service: {},
+      userDataPath: '/tmp',
+      extensionToken: 'native-token',
+      extensionCommandStore,
+      registerCleanup: vi.fn(),
+    } as ConstructorParameters<typeof BrowserGatewayRpcServer>[0] & {
+      extensionCommandStore: typeof extensionCommandStore;
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'browser.extension_poll_command',
+        params: {
+          extensionToken: 'native-token',
+          payload: {
+            timeoutMs: 25,
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      id: 'command-1',
+      command: 'click',
+      target: {
+        tabId: 42,
+        windowId: 7,
+      },
+      payload: { selector: '#continue' },
+    });
+    expect(extensionCommandStore.pollCommand).toHaveBeenCalledWith({ timeoutMs: 25 });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'browser.extension_command_result',
+        params: {
+          extensionToken: 'native-token',
+          payload: {
+            commandId: 'command-1',
+            ok: true,
+            result: {
+              text: 'Continue',
+            },
+          },
+        },
+      }),
+    ).resolves.toEqual({ ok: true });
+    expect(extensionCommandStore.resolveCommand).toHaveBeenCalledWith({
+      commandId: 'command-1',
+      ok: true,
+      result: {
+        text: 'Continue',
+      },
     });
   });
 

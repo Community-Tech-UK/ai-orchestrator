@@ -211,6 +211,47 @@ describe('InstancePersistenceManager', () => {
     );
   });
 
+  it('inherits the source historyThreadId on supersede-edit forks so the rail collapses to one entry', async () => {
+    // Edit-and-resend forks (supersedeSource: true) are logically the same
+    // conversation thread as the source. Sharing the threadId lets:
+    //   - the live-rail filter hide the source's history entry once the fork
+    //     is live (no duplicate row);
+    //   - history-manager dedupe on threadId so the fork's eventual archive
+    //     replaces the source's archived entry on disk.
+    sourceInstance.historyThreadId = 'source-thread-1';
+    loadMessagesMock.mockResolvedValue([]);
+
+    await manager.forkInstance({
+      instanceId: sourceInstance.id,
+      atMessageIndex: 0,
+      sourceMessageId: 'user-1',
+      initialPrompt: 'edited question',
+      supersedeSource: true,
+    });
+
+    expect(createInstanceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        historyThreadId: 'source-thread-1',
+      }),
+    );
+  });
+
+  it('does not pass a historyThreadId on divergent forks so both branches stay independently visible', async () => {
+    // A regular fork (no supersedeSource) is an explicit branch — the user
+    // wants both threads preserved, so the fork must get a fresh threadId.
+    sourceInstance.historyThreadId = 'source-thread-2';
+    loadMessagesMock.mockResolvedValue([]);
+
+    await manager.forkInstance({
+      instanceId: sourceInstance.id,
+      atMessageIndex: 1,
+      preserveRuntimeSettings: true,
+    });
+
+    const call = createInstanceMock.mock.calls[0]?.[0] as { historyThreadId?: string } | undefined;
+    expect(call?.historyThreadId).toBeUndefined();
+  });
+
   it('uses forkAfterMessageId for the transcript cut while preserving source message attachments', async () => {
     const attachment = {
       name: 'sketch.png',

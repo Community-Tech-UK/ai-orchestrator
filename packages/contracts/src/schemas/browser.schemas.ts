@@ -383,6 +383,16 @@ export type BrowserListTargetsRequest = z.infer<
   typeof BrowserListTargetsRequestSchema
 >;
 
+export const BrowserFindOrOpenRequestSchema = z
+  .object({
+    url: webUrlSchema.optional(),
+    titleHint: z.string().min(1).max(500).optional(),
+  })
+  .strict();
+export type BrowserFindOrOpenRequest = z.infer<
+  typeof BrowserFindOrOpenRequestSchema
+>;
+
 export const BrowserTargetRequestSchema = z
   .object({
     profileId: idSchema,

@@ -137,6 +137,7 @@ interface AcpPendingRequest {
   /** Timer that rejects the pending promise if the agent never replies.
    *  Cleared on any settle path (resolve, reject, cancel, terminate). */
   timer: ReturnType<typeof setTimeout>;
+  timeoutMs: number;
 }
 
 interface AcpObservedToolCall {
@@ -237,7 +238,7 @@ function slug(value: string): string {
 }
 
 function isAcpPromptRequestTimeout(error: Error): boolean {
-  return /^ACP session\/prompt request timed out after \d+ms \(id=.+\)\./.test(error.message);
+  return /^ACP session\/prompt request timed out after \d+ms(?: without a session\/update)? \(id=.+\)\./.test(error.message);
 }
 
 function isAcpPromptCancelledByClient(error: Error): boolean {
@@ -1102,6 +1103,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     // clearly still alive even if individual updates take a while. We do
     // this up front so the reset applies even to updates we don't have a
     // specific handler branch for below.
+    this.refreshCurrentPromptTimeout();
     this.resetStallWatchdog();
 
     const rawUpdate = params['update'];
@@ -2019,41 +2021,12 @@ export class AcpCliAdapter extends BaseCliAdapter {
       : this.acpConfig.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 
     const responsePromise = new Promise<TResult>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        // Only act if this pending entry is still the live one; resolve()
-        // and reject() paths both clear the timer before settling.
-        const entry = this.pendingRequests.get(id);
-        if (!entry) return;
-        this.pendingRequests.delete(id);
-        if (this.currentPromptRequestId === id) {
-          this.currentPromptRequestId = null;
-        }
-        const error = new Error(
-          `ACP ${method} request timed out after ${timeoutMs}ms (id=${id}). ` +
-          'The agent may be stuck on an orphaned tool call or permission request.',
-        );
-        logger.warn('ACP request timeout', {
-          adapter: this.getName(),
-          method,
-          id,
-          timeoutMs,
-        });
-        if (method === 'session/prompt') {
-          this.cancelTimedOutPrompt(id, timeoutMs);
-        }
-        reject(error);
-      }, timeoutMs);
-      // Let the event loop exit even if this timer is still armed (e.g.,
-      // during process shutdown); terminate() also explicitly clears it.
-      if (typeof timer.unref === 'function') {
-        timer.unref();
-      }
-
       this.pendingRequests.set(id, {
         method,
         resolve: (value) => resolve(value as TResult),
         reject,
-        timer,
+        timer: this.createRequestTimeout(id, method, timeoutMs),
+        timeoutMs,
       });
     });
 
@@ -2077,6 +2050,61 @@ export class AcpCliAdapter extends BaseCliAdapter {
       throw err;
     }
     return responsePromise;
+  }
+
+  private createRequestTimeout(
+    id: string,
+    method: string,
+    timeoutMs: number,
+  ): ReturnType<typeof setTimeout> {
+    const timer = setTimeout(() => {
+      // Only act if this pending entry is still the live one; resolve()
+      // and reject() paths both clear the timer before settling.
+      const entry = this.pendingRequests.get(id);
+      if (!entry) return;
+      this.pendingRequests.delete(id);
+      if (this.currentPromptRequestId === id) {
+        this.currentPromptRequestId = null;
+      }
+      const promptInactivityText = method === 'session/prompt'
+        ? ' without a session/update'
+        : '';
+      const error = new Error(
+        `ACP ${method} request timed out after ${timeoutMs}ms${promptInactivityText} (id=${id}). ` +
+        'The agent may be stuck on an orphaned tool call or permission request.',
+      );
+      logger.warn('ACP request timeout', {
+        adapter: this.getName(),
+        method,
+        id,
+        timeoutMs,
+      });
+      if (method === 'session/prompt') {
+        this.cancelTimedOutPrompt(id, timeoutMs);
+      }
+      entry.reject(error);
+    }, timeoutMs);
+    // Let the event loop exit even if this timer is still armed (e.g.,
+    // during process shutdown); terminate() also explicitly clears it.
+    if (typeof timer.unref === 'function') {
+      timer.unref();
+    }
+    return timer;
+  }
+
+  private refreshCurrentPromptTimeout(): void {
+    const id = this.currentPromptRequestId;
+    if (!id) {
+      return;
+    }
+
+    const pending = this.pendingRequests.get(id);
+    if (!pending || pending.method !== 'session/prompt') {
+      return;
+    }
+
+    clearTimeout(pending.timer);
+    pending.timer = this.createRequestTimeout(id, pending.method, pending.timeoutMs);
   }
 
   private cancelTimedOutPrompt(id: string, timeoutMs: number): void {

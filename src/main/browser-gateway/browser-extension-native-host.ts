@@ -9,7 +9,29 @@ interface BrowserExtensionAttachTabMessage {
   tab: BrowserAttachExistingTabRequest;
 }
 
-type BrowserExtensionNativeMessage = BrowserExtensionAttachTabMessage;
+interface BrowserExtensionTabInventoryMessage {
+  type: 'tab_inventory';
+  tabs: BrowserAttachExistingTabRequest[];
+}
+
+interface BrowserExtensionPollCommandMessage {
+  type: 'poll_command';
+  timeoutMs?: number;
+}
+
+interface BrowserExtensionCommandResultMessage {
+  type: 'command_result';
+  commandId: string;
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+}
+
+type BrowserExtensionNativeMessage =
+  | BrowserExtensionAttachTabMessage
+  | BrowserExtensionTabInventoryMessage
+  | BrowserExtensionPollCommandMessage
+  | BrowserExtensionCommandResultMessage;
 
 interface ExtensionRpcSendInput {
   socketPath: string;
@@ -49,15 +71,64 @@ export async function handleBrowserExtensionNativeMessage(
 ): Promise<Record<string, unknown>> {
   const message = parseBrowserExtensionNativeMessage(input.message);
   const send = input.send ?? sendExtensionRpc;
-  const result = await send(toRpcInput({
-    message,
-    extensionOrigin: input.extensionOrigin,
-    runtimeConfig: input.runtimeConfig,
-  }));
-  return {
-    ok: true,
-    result,
-  };
+  switch (message.type) {
+    case 'attach_tab': {
+      const result = await send(toAttachTabRpcInput({
+        tab: message.tab,
+        extensionOrigin: input.extensionOrigin,
+        runtimeConfig: input.runtimeConfig,
+      }));
+      return {
+        ok: true,
+        result,
+      };
+    }
+    case 'tab_inventory': {
+      const results = [];
+      for (const tab of message.tabs) {
+        results.push(await send(toAttachTabRpcInput({
+          tab,
+          extensionOrigin: input.extensionOrigin,
+          runtimeConfig: input.runtimeConfig,
+        })));
+      }
+      return {
+        ok: true,
+        result: {
+          attached: results.length,
+          results,
+        },
+      };
+    }
+    case 'poll_command': {
+      const result = await send({
+        ...toBaseRpcInput({
+          extensionOrigin: input.extensionOrigin,
+          runtimeConfig: input.runtimeConfig,
+        }),
+        method: 'browser.extension_poll_command',
+        payload: message.timeoutMs === undefined ? {} : { timeoutMs: message.timeoutMs },
+      });
+      return {
+        type: 'browser_command',
+        command: result ?? null,
+      };
+    }
+    case 'command_result': {
+      const result = await send({
+        ...toBaseRpcInput({
+          extensionOrigin: input.extensionOrigin,
+          runtimeConfig: input.runtimeConfig,
+        }),
+        method: 'browser.extension_command_result',
+        payload: commandResultPayload(message),
+      });
+      return {
+        ok: true,
+        result,
+      };
+    }
+  }
 }
 
 export async function runBrowserExtensionNativeHost(): Promise<void> {
@@ -73,13 +144,12 @@ export async function runBrowserExtensionNativeHost(): Promise<void> {
   const runtimeConfig = JSON.parse(
     fs.readFileSync(configPath, 'utf-8'),
   ) as BrowserExtensionNativeRuntimeConfig;
-  const frame = await readNativeMessageFrame();
-  const response = await handleBrowserExtensionNativeMessage({
-    message: parseNativeMessageFrame(frame),
-    extensionOrigin: process.argv[2],
+  await runNativeMessageLoop({
     runtimeConfig,
+    extensionOrigin: process.argv[2],
+    input: stdin,
+    output: stdout,
   });
-  stdout.write(createNativeMessageFrame(response));
 }
 
 function parseBrowserExtensionNativeMessage(
@@ -95,7 +165,86 @@ function parseBrowserExtensionNativeMessage(
       tab: message['tab'] as unknown as BrowserAttachExistingTabRequest,
     };
   }
+  if (message['type'] === 'tab_inventory' && Array.isArray(message['tabs'])) {
+    return {
+      type: 'tab_inventory',
+      tabs: message['tabs']
+        .filter(isRecord)
+        .map((tab) => tab as unknown as BrowserAttachExistingTabRequest),
+    };
+  }
+  if (message['type'] === 'poll_command') {
+    const timeoutMs = message['timeoutMs'];
+    if (timeoutMs !== undefined && typeof timeoutMs !== 'number') {
+      throw new Error('invalid_browser_extension_message');
+    }
+    return {
+      type: 'poll_command',
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    };
+  }
+  if (
+    message['type'] === 'command_result'
+    && typeof message['commandId'] === 'string'
+    && typeof message['ok'] === 'boolean'
+  ) {
+    return {
+      type: 'command_result',
+      commandId: message['commandId'],
+      ok: message['ok'],
+      ...(Object.prototype.hasOwnProperty.call(message, 'result')
+        ? { result: message['result'] }
+        : {}),
+      ...(typeof message['error'] === 'string' && message['error']
+        ? { error: message['error'] }
+        : {}),
+    };
+  }
   throw new Error('unsupported_browser_extension_message');
+}
+
+function runNativeMessageLoop(options: {
+  runtimeConfig: BrowserExtensionNativeRuntimeConfig;
+  extensionOrigin?: string;
+  input: NodeJS.ReadableStream;
+  output: NodeJS.WritableStream;
+}): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    let buffer = Buffer.alloc(0);
+    let pending = Promise.resolve();
+
+    options.input.on('data', (chunk: Buffer) => {
+      buffer = Buffer.concat([buffer, chunk]);
+      while (buffer.length >= 4) {
+        const length = buffer.readUInt32LE(0);
+        const frameLength = length + 4;
+        if (buffer.length < frameLength) {
+          return;
+        }
+        const frame = buffer.subarray(0, frameLength);
+        buffer = buffer.subarray(frameLength);
+        pending = pending.then(async () => {
+          try {
+            const response = await handleBrowserExtensionNativeMessage({
+              message: parseNativeMessageFrame(frame),
+              extensionOrigin: options.extensionOrigin,
+              runtimeConfig: options.runtimeConfig,
+            });
+            options.output.write(createNativeMessageFrame(response));
+          } catch (error) {
+            options.output.write(createNativeMessageFrame({
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            }));
+          }
+        });
+      }
+    });
+    options.input.on('error', reject);
+    options.input.on('end', () => {
+      pending.then(() => resolve(), reject);
+    });
+  });
 }
 
 function readNativeMessageFrame(): Promise<Buffer> {
@@ -125,17 +274,39 @@ function readNativeMessageFrame(): Promise<Buffer> {
   });
 }
 
-function toRpcInput(input: {
-  message: BrowserExtensionNativeMessage;
+function toAttachTabRpcInput(input: {
+  tab: BrowserAttachExistingTabRequest;
   extensionOrigin?: string;
   runtimeConfig: BrowserExtensionNativeRuntimeConfig;
 }): ExtensionRpcSendInput {
   return {
+    ...toBaseRpcInput(input),
+    method: 'browser.extension_attach_tab',
+    payload: input.tab as unknown as Record<string, unknown>,
+  };
+}
+
+function toBaseRpcInput(input: {
+  extensionOrigin?: string;
+  runtimeConfig: BrowserExtensionNativeRuntimeConfig;
+}): Omit<ExtensionRpcSendInput, 'method' | 'payload'> {
+  return {
     socketPath: input.runtimeConfig.socketPath,
     extensionToken: input.runtimeConfig.extensionToken,
     ...(input.extensionOrigin ? { extensionOrigin: input.extensionOrigin } : {}),
-    method: 'browser.extension_attach_tab',
-    payload: input.message.tab as unknown as Record<string, unknown>,
+  };
+}
+
+function commandResultPayload(
+  message: BrowserExtensionCommandResultMessage,
+): Record<string, unknown> {
+  return {
+    commandId: message.commandId,
+    ok: message.ok,
+    ...(Object.prototype.hasOwnProperty.call(message, 'result')
+      ? { result: message.result }
+      : {}),
+    ...(message.error ? { error: message.error } : {}),
   };
 }
 

@@ -29,10 +29,10 @@ class FakeAcpProcess extends EventEmitter {
   private stdinBuffer = '';
   private readonly handlers = new Map<string, (message: AcpJsonRpcRequest) => void | Promise<void>>();
   readonly receivedMessages: AcpJsonRpcMessage[] = [];
-  private readonly waiters: Array<{
+  private readonly waiters: {
     predicate: (message: AcpJsonRpcMessage) => boolean;
     resolve: (message: AcpJsonRpcMessage) => void;
-  }> = [];
+  }[] = [];
 
   constructor() {
     super();
@@ -159,7 +159,8 @@ class TestAcpCliAdapter extends AcpCliAdapter {
     return { available: true };
   }
 
-  protected override spawnProcess(_args: string[]): FakeAcpProcess {
+  protected override spawnProcess(args: string[]): FakeAcpProcess {
+    void args;
     this.emit('spawned', this.proc.pid);
     return this.proc;
   }
@@ -542,12 +543,12 @@ describe('AcpCliAdapter', () => {
     });
     await adapter.spawn();
 
-    const outputs: Array<{
+    const outputs: {
       id: string;
       type: string;
       content: string;
       metadata?: Record<string, unknown>;
-    }> = [];
+    }[] = [];
     adapter.on('output', (message: {
       id: string;
       type: string;
@@ -886,7 +887,7 @@ describe('AcpCliAdapter', () => {
   it('injects the ACP system prompt only on the first prompt turn', async () => {
     const proc = createInitializedAgentHarness();
 
-    const promptPayloads: Array<{ prompt: unknown[] }> = [];
+    const promptPayloads: { prompt: unknown[] }[] = [];
     proc.onRequest('session/prompt', (message) => {
       promptPayloads.push(message.params as { prompt: unknown[] });
       proc.respond(message.id, { stopReason: 'end_turn' });
@@ -956,6 +957,50 @@ describe('AcpCliAdapter', () => {
     proc.exit();
   });
 
+  it('keeps session/prompt alive when session updates arrive before promptTimeoutMs', async () => {
+    const proc = createInitializedAgentHarness();
+
+    proc.onRequest('session/prompt', (message) => {
+      setTimeout(() => {
+        proc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: 'still ' },
+          },
+        });
+      }, 30);
+
+      setTimeout(() => {
+        proc.notify('session/update', {
+          sessionId: 'sess-acp-1',
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: 'working' },
+          },
+        });
+      }, 90);
+
+      setTimeout(() => {
+        proc.respond(message.id, { stopReason: 'end_turn' });
+      }, 120);
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      promptTimeoutMs: 80,
+      stallWarningMs: 0,
+    });
+    await adapter.spawn();
+
+    const response = await adapter.sendMessage({ role: 'user', content: 'long active turn' });
+
+    expect(response.content).toBe('still working');
+
+    proc.exit();
+  });
+
   it('sendInput leaves session/prompt timeouts retryable and returns to idle', async () => {
     const proc = createInitializedAgentHarness();
 
@@ -971,7 +1016,7 @@ describe('AcpCliAdapter', () => {
     await adapter.spawn();
 
     const statuses: string[] = [];
-    const outputs: Array<{ type: string; content: string; metadata?: Record<string, unknown> }> = [];
+    const outputs: { type: string; content: string; metadata?: Record<string, unknown> }[] = [];
     const errors: Error[] = [];
     adapter.on('status', (status: string) => statuses.push(status));
     adapter.on('output', (message: { type: string; content: string; metadata?: Record<string, unknown> }) => {
@@ -1216,7 +1261,7 @@ describe('AcpCliAdapter', () => {
         errorOutputs.push({ content: message.content, metadata: message.metadata });
       }
     });
-    const stallEvents: Array<Record<string, unknown>> = [];
+    const stallEvents: Record<string, unknown>[] = [];
     adapter.on('stall_warning', (payload: Record<string, unknown>) => stallEvents.push(payload));
 
     const pending = adapter.sendMessage({ role: 'user', content: 'hang please' });
@@ -1262,7 +1307,7 @@ describe('AcpCliAdapter', () => {
     });
     await adapter.spawn();
 
-    const stallEvents: Array<Record<string, unknown>> = [];
+    const stallEvents: Record<string, unknown>[] = [];
     adapter.on('stall_warning', (payload: Record<string, unknown>) => stallEvents.push(payload));
 
     const response = await adapter.sendMessage({ role: 'user', content: 'responsive please' });

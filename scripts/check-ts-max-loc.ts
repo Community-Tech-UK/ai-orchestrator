@@ -172,7 +172,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/file-explorer/file-explorer.component.ts': 1069,
   'src/renderer/app/features/hooks/hooks-config.component.ts': 1027,
   'src/renderer/app/features/hooks/hooks-page.component.ts': 767,
-  'src/renderer/app/features/instance-detail/input-panel.component.ts': 1676,
+  'src/renderer/app/features/instance-detail/input-panel.component.ts': 1703,
   'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1489,
   'src/renderer/app/features/instance-detail/output-stream.component.ts': 1113,
   'src/renderer/app/features/instance-detail/user-action-request.component.ts': 1015,

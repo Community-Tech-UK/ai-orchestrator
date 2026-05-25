@@ -82,10 +82,25 @@ export class InstancePersistenceManager {
     // initialPrompt (when set by edit-and-resend) is sent inside background
     // init right after the CLI spawns, bypassing the renderer's status-gated
     // queue. The queue would otherwise race the 'idle' transition.
+    //
+    // When supersedeSource is true (the edit-and-resend flow), inherit the
+    // source's historyThreadId. The fork is the same logical conversation
+    // thread, just with an edited message. Sharing the threadId means:
+    //   1. The rail's history-side filter (which drops history entries whose
+    //      threadId matches a live instance) hides the source's pre-archive
+    //      history entry as soon as the fork is live — no duplicate row.
+    //   2. history-manager.archiveInstance() dedupes on threadId, so when the
+    //      fork later archives it replaces (not appends to) any prior entry
+    //      for this thread on disk.
+    // Non-supersede forks (explicit divergent branches) keep getting a fresh
+    // threadId so both branches remain independently visible.
     const forkedInstance = await this.deps.createInstance({
       workingDirectory: sourceInstance.workingDirectory,
       displayName:
         config.displayName || `Fork of ${sourceInstance.displayName}`,
+      historyThreadId: config.supersedeSource === true
+        ? sourceInstance.historyThreadId
+        : undefined,
       yoloMode: config.preserveRuntimeSettings === false ? undefined : sourceInstance.yoloMode,
       agentId: config.preserveRuntimeSettings === false ? undefined : sourceInstance.agentId,
       modelOverride: config.preserveRuntimeSettings === false ? undefined : sourceInstance.currentModel,

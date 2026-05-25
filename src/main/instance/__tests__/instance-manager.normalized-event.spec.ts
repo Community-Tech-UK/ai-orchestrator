@@ -387,13 +387,18 @@ vi.mock('../../../shared/types/supervision.types', () => ({
   }),
 }));
 
-vi.mock('../../../shared/constants/limits', () => ({
-  LIMITS: {
-    OUTPUT_BATCH_INTERVAL_MS: 100,
-    OUTPUT_BUFFER_MAX_SIZE: 500,
-    DEFAULT_MAX_CONTEXT_TOKENS: 1000000,
-  },
-}));
+vi.mock('../../../shared/constants/limits', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../shared/constants/limits')>();
+  return {
+    ...actual,
+    LIMITS: {
+      ...actual.LIMITS,
+      OUTPUT_BATCH_INTERVAL_MS: 100,
+      OUTPUT_BUFFER_MAX_SIZE: 500,
+      DEFAULT_MAX_CONTEXT_TOKENS: 1000000,
+    },
+  };
+});
 
 let idCounter = 0;
 vi.mock('../../../shared/utils/id-generator', () => ({

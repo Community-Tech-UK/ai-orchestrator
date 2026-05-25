@@ -37,6 +37,14 @@ const logger = getLogger('AdapterFactory');
 
 const COPILOT_ORCHESTRATOR_HOME_ENV = 'AI_ORCHESTRATOR_COPILOT_HOME';
 const COPILOT_ORCHESTRATOR_HOME_DIR = 'copilot-cli-home';
+const BROWSER_GATEWAY_SYSTEM_PROMPT = [
+  '[Browser Gateway]',
+  'When the user asks you to use a website, browser tab, authenticated session, web form, or page state, use the browser.* tools directly.',
+  'Start with browser.find_or_open using the best URL and/or title hint. It can find existing authenticated Chrome tabs first and open a new tab when no matching tab exists.',
+  'Then use browser.snapshot, browser.screenshot, browser.wait_for, browser.click, browser.type, browser.fill_form, and browser.select as needed.',
+  'For login, captcha, two-factor, destructive, submit, credential, or unclear actions, use the Browser Gateway approval/manual-step tools instead of guessing.',
+  'Do not tell the user to open /browser. /browser is only a Browser Gateway diagnostics and approval page, not the user browser.',
+].join('\n');
 
 /**
  * Unified spawn options that work across all adapters
@@ -171,6 +179,22 @@ function withBrowserGatewayProvider(
   return {
     ...options,
     provider: options.provider ?? provider,
+  };
+}
+
+function withBrowserGatewaySystemPrompt(options: UnifiedSpawnOptions): UnifiedSpawnOptions {
+  if (!options.browserGatewayMcp) {
+    return options;
+  }
+  const existingPrompt = options.systemPrompt?.trim() ?? '';
+  if (existingPrompt.includes('browser.find_or_open')) {
+    return options;
+  }
+  return {
+    ...options,
+    systemPrompt: [existingPrompt, BROWSER_GATEWAY_SYSTEM_PROMPT]
+      .filter(Boolean)
+      .join('\n\n---\n\n'),
   };
 }
 
@@ -547,30 +571,31 @@ export function createCliAdapter(
   options: UnifiedSpawnOptions,
   executionLocation?: ExecutionLocation,
 ): CliAdapter {
+  const effectiveOptions = withBrowserGatewaySystemPrompt(options);
   // If remote, create a RemoteCliAdapter regardless of CLI type
   if (executionLocation?.type === 'remote') {
     const connection = getWorkerNodeConnectionServer();
-    return new RemoteCliAdapter(connection, executionLocation.nodeId, cliType, options);
+    return new RemoteCliAdapter(connection, executionLocation.nodeId, cliType, effectiveOptions);
   }
 
   switch (cliType) {
     case 'claude':
-      return createClaudeAdapter(options);
+      return createClaudeAdapter(effectiveOptions);
 
     case 'codex':
-      return createCodexAdapter(options);
+      return createCodexAdapter(effectiveOptions);
 
     case 'gemini':
-      return createGeminiAdapter(options);
+      return createGeminiAdapter(effectiveOptions);
 
     case 'copilot':
-      return createCopilotAdapter(options);
+      return createCopilotAdapter(effectiveOptions);
 
     case 'cursor':
-      return createCursorAdapter(options);
+      return createCursorAdapter(effectiveOptions);
 
     case 'ollama':
-      return createOllamaAdapter(options);
+      return createOllamaAdapter(effectiveOptions);
 
     default:
       throw new Error(`Unknown CLI type: ${cliType}`);

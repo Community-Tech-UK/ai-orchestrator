@@ -144,7 +144,8 @@ export class BrowserHealthService {
     this.profileStore = options.profileStore ?? getBrowserProfileStore();
     this.rawAutomationHealthService =
       options.rawAutomationHealthService ?? getBrowserAutomationHealthService();
-    this.mcpBridgeAvailable = options.mcpBridgeAvailable ?? defaultMcpBridgeAvailableProvider;
+    this.mcpBridgeAvailable =
+      options.mcpBridgeAvailable ?? (() => defaultMcpBridgeAvailableProvider());
     this.chromeRuntimeDetector = options.chromeRuntimeDetector ?? detectChromeRuntime;
     this.now = options.now ?? Date.now;
   }

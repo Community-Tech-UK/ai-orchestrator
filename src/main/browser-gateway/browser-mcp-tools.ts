@@ -10,6 +10,7 @@ const TOOL_NAMES = [
   'browser.open_profile',
   'browser.close_profile',
   'browser.list_targets',
+  'browser.find_or_open',
   'browser.select_target',
   'browser.navigate',
   'browser.click',
@@ -142,6 +143,16 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
   'browser.open_profile': objectSchema({ profileId: profileIdProp }, ['profileId']),
   'browser.close_profile': objectSchema({ profileId: profileIdProp }, ['profileId']),
   'browser.list_targets': objectSchema({ profileId: profileIdProp }),
+  'browser.find_or_open': objectSchema({
+    url: {
+      ...stringProp,
+      description: 'Optional http(s) URL to find in existing Chrome tabs, or open in a new Chrome tab if no match exists.',
+    },
+    titleHint: {
+      ...stringProp,
+      description: 'Optional tab title hint to use when matching an existing Chrome tab.',
+    },
+  }),
   'browser.select_target': targetSchema,
   'browser.navigate': objectSchema({
     profileId: profileIdProp,

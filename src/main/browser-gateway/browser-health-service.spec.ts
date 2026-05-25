@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { BrowserProfile } from '@contracts/types/browser';
-import { BrowserHealthService } from './browser-health-service';
+import {
+  BrowserHealthService,
+  setBrowserGatewayMcpBridgeAvailabilityProvider,
+} from './browser-health-service';
 
 describe('BrowserHealthService', () => {
   it('does not treat raw Chrome DevTools MCP readiness as managed Browser Gateway readiness', async () => {
@@ -137,6 +140,41 @@ describe('BrowserHealthService', () => {
         message: expect.stringContaining('ACP MCP'),
       },
     });
+  });
+
+  it('uses the latest default MCP bridge availability provider for long-lived services', async () => {
+    setBrowserGatewayMcpBridgeAvailabilityProvider(() => false);
+    const service = new BrowserHealthService({
+      profileStore: { listProfiles: () => [] },
+      rawAutomationHealthService: {
+        diagnose: async () => ({
+          status: 'missing',
+          checkedAt: 1,
+          runtimeAvailable: false,
+          nodeAvailable: true,
+          inAppConfigured: false,
+          inAppConnected: false,
+          inAppToolCount: 0,
+          configDetected: false,
+          configSources: [],
+          browserToolNames: [],
+          warnings: [],
+          suggestions: [],
+          surface: 'legacy_raw_browser_automation',
+        }),
+      },
+      chromeRuntimeDetector: async () => ({
+        available: true,
+        command: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      }),
+      now: () => 5,
+    });
+    setBrowserGatewayMcpBridgeAvailabilityProvider(() => true);
+
+    const report = await service.diagnose();
+
+    expect(report.mcpBridge.available).toBe(true);
+    expect(report.status).toBe('ready');
   });
 
   it('reports locked and errored profile counts in health output', async () => {

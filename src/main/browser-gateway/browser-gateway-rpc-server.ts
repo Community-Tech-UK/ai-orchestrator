@@ -8,6 +8,7 @@ import {
   BrowserAttachExistingTabRequestSchema,
   BrowserClickRequestSchema,
   BrowserCreateProfileRequestSchema,
+  BrowserFindOrOpenRequestSchema,
   BrowserFillFormRequestSchema,
   BrowserListAuditLogRequestSchema,
   BrowserListGrantsRequestSchema,
@@ -31,6 +32,13 @@ import {
   BrowserGatewayService,
   getBrowserGatewayService,
 } from './browser-gateway-service';
+import {
+  getBrowserExtensionCommandStore,
+  type BrowserExtensionCommandResult,
+  type BrowserExtensionCommandStore,
+  type BrowserExtensionPollRequest,
+  type BrowserExtensionQueuedCommand,
+} from './browser-extension-command-store';
 
 interface BrowserGatewayRpcRequest {
   jsonrpc?: '2.0';
@@ -53,6 +61,10 @@ interface BrowserGatewayExtensionRpcParams {
 
 export interface BrowserGatewayRpcServerOptions {
   service?: Partial<BrowserGatewayService>;
+  extensionCommandStore?: Pick<
+    BrowserExtensionCommandStore,
+    'pollCommand' | 'resolveCommand'
+  >;
   userDataPath?: string;
   isKnownLocalInstance?: (instanceId: string) => boolean;
   extensionToken?: string;
@@ -69,6 +81,10 @@ const MAX_RPC_ENVELOPE_BYTES = 16 * 1024;
 const MAX_UNIX_SOCKET_PATH_BYTES = 100;
 export class BrowserGatewayRpcServer {
   private readonly service: Partial<BrowserGatewayService>;
+  private readonly extensionCommandStore: Pick<
+    BrowserExtensionCommandStore,
+    'pollCommand' | 'resolveCommand'
+  >;
   private readonly userDataPath: string;
   private readonly isKnownLocalInstance: (instanceId: string) => boolean;
   private readonly extensionToken: string;
@@ -81,6 +97,8 @@ export class BrowserGatewayRpcServer {
 
   constructor(options: BrowserGatewayRpcServerOptions = {}) {
     this.service = options.service ?? getBrowserGatewayService();
+    this.extensionCommandStore =
+      options.extensionCommandStore ?? getBrowserExtensionCommandStore();
     this.userDataPath = options.userDataPath ?? app.getPath('userData');
     this.isKnownLocalInstance = options.isKnownLocalInstance ?? (() => false);
     this.extensionToken = options.extensionToken ?? crypto.randomBytes(32).toString('hex');
@@ -136,6 +154,12 @@ export class BrowserGatewayRpcServer {
     if (request.method === 'browser.extension_attach_tab') {
       return this.handleExtensionAttachTab(request);
     }
+    if (request.method === 'browser.extension_poll_command') {
+      return this.handleExtensionPollCommand(request);
+    }
+    if (request.method === 'browser.extension_command_result') {
+      return this.handleExtensionCommandResult(request);
+    }
 
     const params = this.parseParams(request.params);
     if (!this.isKnownLocalInstance(params.instanceId)) {
@@ -157,6 +181,8 @@ export class BrowserGatewayRpcServer {
         return this.requireMethod('createProfile')(withContext);
       case 'browser.list_targets':
         return this.requireMethod('listTargets')(withContext);
+      case 'browser.find_or_open':
+        return this.requireMethod('findOrOpen')(withContext);
       case 'browser.open_profile':
         return this.requireMethod('openProfile')(withContext);
       case 'browser.close_profile':
@@ -217,6 +243,23 @@ export class BrowserGatewayRpcServer {
       provider: 'orchestrator',
       ...(params.extensionOrigin ? { extensionOrigin: params.extensionOrigin } : {}),
     });
+  }
+
+  private handleExtensionPollCommand(
+    request: BrowserGatewayRpcRequest,
+  ): Promise<BrowserExtensionQueuedCommand | null> {
+    const params = this.parseAuthorizedExtensionParams(request.params);
+    return this.extensionCommandStore.pollCommand(
+      this.validateExtensionPollPayload(params.payload),
+    );
+  }
+
+  private handleExtensionCommandResult(request: BrowserGatewayRpcRequest): { ok: true } {
+    const params = this.parseAuthorizedExtensionParams(request.params);
+    this.extensionCommandStore.resolveCommand(
+      this.validateExtensionCommandResultPayload(params.payload),
+    );
+    return { ok: true };
   }
 
   private handleSocket(socket: net.Socket): void {
@@ -370,6 +413,8 @@ export class BrowserGatewayRpcServer {
       switch (method) {
         case 'browser.create_profile':
           return BrowserCreateProfileRequestSchema;
+        case 'browser.find_or_open':
+          return BrowserFindOrOpenRequestSchema;
         case 'browser.navigate':
           return BrowserNavigateRequestSchema;
         case 'browser.click':
@@ -422,6 +467,52 @@ export class BrowserGatewayRpcServer {
       throw new Error('Invalid browser gateway RPC payload');
     }
     return result.data as Record<string, unknown>;
+  }
+
+  private validateExtensionPollPayload(
+    payload: Record<string, unknown>,
+  ): BrowserExtensionPollRequest {
+    const timeoutMs = payload['timeoutMs'];
+    if (timeoutMs === undefined) {
+      return {};
+    }
+    if (
+      typeof timeoutMs !== 'number'
+      || !Number.isInteger(timeoutMs)
+      || timeoutMs < 0
+      || timeoutMs > 25_000
+    ) {
+      throw new Error('Invalid browser gateway extension command payload');
+    }
+    return { timeoutMs };
+  }
+
+  private validateExtensionCommandResultPayload(
+    payload: Record<string, unknown>,
+  ): BrowserExtensionCommandResult {
+    const commandId = payload['commandId'];
+    const ok = payload['ok'];
+    if (typeof commandId !== 'string' || !commandId) {
+      throw new Error('Invalid browser gateway extension command payload');
+    }
+    if (typeof ok !== 'boolean') {
+      throw new Error('Invalid browser gateway extension command payload');
+    }
+    const result: BrowserExtensionCommandResult = {
+      commandId,
+      ok,
+    };
+    if ('result' in payload) {
+      result.result = payload['result'];
+    }
+    const error = payload['error'];
+    if (error !== undefined) {
+      if (typeof error !== 'string' || !error) {
+        throw new Error('Invalid browser gateway extension command payload');
+      }
+      result.error = error;
+    }
+    return result;
   }
 
   private requireMethod(name: keyof BrowserGatewayService): (payload: Record<string, unknown>) => unknown {

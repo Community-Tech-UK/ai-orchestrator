@@ -40,8 +40,8 @@ interface BrowserSnapshotView {
         <div class="page-header-main">
           <button class="btn" data-testid="back-button" type="button" (click)="goBack()">← Back</button>
           <div>
-            <h1>Browser Gateway</h1>
-            <p>Managed Chrome profiles, target selection, allowed-origin navigation, snapshots, and audit.</p>
+            <h1>Browser Control & Diagnostics</h1>
+            <p>Control Browser Gateway profiles, approvals, and live Chrome tab bridge status; this is not the browser itself.</p>
           </div>
         </div>
         <button class="btn" type="button" [disabled]="loading()" (click)="refresh()">Refresh</button>
@@ -187,19 +187,23 @@ interface BrowserSnapshotView {
 
         <aside class="side-panel">
           <section>
-            <h2>Existing Tab Bridge</h2>
+            <h2>Live Chrome Extension Bridge</h2>
             <div class="bridge-list">
               <div>
                 <span>Extension</span>
                 <code>resources/browser-extension</code>
               </div>
               <div>
+                <span>Agent entrypoint</span>
+                <strong>browser.find_or_open</strong>
+              </div>
+              <div>
                 <span>Chrome action</span>
-                <strong>Share Current Tab</strong>
+                <strong>Automatic tab inventory + Share Current Tab fallback</strong>
               </div>
               <div>
                 <span>Target mode</span>
-                <small>Read-only extension target</small>
+                <small>Live extension target for authenticated Chrome tabs</small>
               </div>
             </div>
           </section>

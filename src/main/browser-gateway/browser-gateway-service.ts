@@ -92,6 +92,11 @@ import {
   type BrowserExistingTabAttachment,
   getBrowserExtensionTabStore,
 } from './browser-extension-tab-store';
+import {
+  BrowserExtensionCommandStore,
+  getBrowserExtensionCommandStore,
+  type BrowserExtensionCommandName,
+} from './browser-extension-command-store';
 
 export interface BrowserGatewayContext {
   instanceId?: string;
@@ -124,6 +129,11 @@ export interface BrowserGatewayAuditLogRequest
 export interface BrowserGatewayCreateProfileRequest
   extends BrowserGatewayContext,
     BrowserCreateProfileRequest {}
+
+export interface BrowserGatewayFindOrOpenRequest extends BrowserGatewayContext {
+  url?: string;
+  titleHint?: string;
+}
 
 export interface BrowserGatewayAttachExistingTabRequest
   extends BrowserGatewayContext,
@@ -170,8 +180,9 @@ export interface BrowserGatewayServiceOptions {
   >;
   extensionTabStore?: Pick<
     BrowserExtensionTabStore,
-    'attachTab' | 'getTab' | 'detachTab'
+    'attachTab' | 'getTab' | 'detachTab' | 'listTabs'
   >;
+  extensionCommandStore?: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
   auditStore?: Pick<BrowserAuditStore, 'record' | 'list'>;
   grantStore?: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
   approvalStore?: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
@@ -207,8 +218,9 @@ export class BrowserGatewayService {
   >;
   private readonly extensionTabStore: Pick<
     BrowserExtensionTabStore,
-    'attachTab' | 'getTab' | 'detachTab'
+    'attachTab' | 'getTab' | 'detachTab' | 'listTabs'
   >;
+  private readonly extensionCommandStore: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
   private readonly auditStore: Pick<BrowserAuditStore, 'record' | 'list'>;
   private readonly grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
   private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
@@ -220,6 +232,7 @@ export class BrowserGatewayService {
     this.targetRegistry = options.targetRegistry ?? getBrowserTargetRegistry();
     this.driver = options.driver ?? getPuppeteerBrowserDriver();
     this.extensionTabStore = options.extensionTabStore ?? getBrowserExtensionTabStore();
+    this.extensionCommandStore = options.extensionCommandStore ?? getBrowserExtensionCommandStore();
     this.auditStore = options.auditStore ?? getBrowserAuditStore();
     this.grantStore = options.grantStore ?? getBrowserGrantStore();
     this.approvalStore = options.approvalStore ?? getBrowserApprovalStore();
@@ -480,6 +493,82 @@ export class BrowserGatewayService {
     });
   }
 
+  async findOrOpen(
+    request: BrowserGatewayFindOrOpenRequest,
+  ): Promise<BrowserGatewayResult<ReturnType<typeof toAgentSafeTarget> | null>> {
+    const url = request.url?.trim();
+    const titleHint = request.titleHint?.trim().toLowerCase();
+    const existing = this.findExistingTabCandidate(url, titleHint);
+    if (existing) {
+      return this.result({
+        context: request,
+        profileId: existing.profileId,
+        targetId: existing.targetId,
+        action: 'find_or_open',
+        toolName: 'browser.find_or_open',
+        actionClass: 'read',
+        decision: 'allowed',
+        outcome: 'succeeded',
+        summary: 'Selected an existing Chrome tab matching the browser task',
+        origin: existing.origin,
+        url: existing.url,
+        data: this.safeTargetFromExistingTab(existing),
+      });
+    }
+
+    if (!url) {
+      return this.result({
+        context: request,
+        action: 'find_or_open',
+        toolName: 'browser.find_or_open',
+        actionClass: 'navigate',
+        decision: 'denied',
+        outcome: 'not_run',
+        reason: 'url_required_to_open_tab',
+        summary: 'A URL is required before Browser Gateway can open a new Chrome tab',
+        data: null,
+      });
+    }
+
+    try {
+      const result = await this.extensionCommandStore.sendCommand({
+        command: 'open_tab',
+        payload: { url },
+        timeoutMs: 30_000,
+      });
+      const tab = this.extractTabPayload(result);
+      const attachment = this.extensionTabStore.attachTab(tab);
+      return this.result({
+        context: request,
+        profileId: attachment.profileId,
+        targetId: attachment.targetId,
+        action: 'find_or_open',
+        toolName: 'browser.find_or_open',
+        actionClass: 'navigate',
+        decision: 'allowed',
+        outcome: 'succeeded',
+        summary: 'Opened a new Chrome tab through the Browser Gateway extension',
+        origin: attachment.origin,
+        url: attachment.url,
+        data: this.safeTargetFromExistingTab(attachment),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return this.result({
+        context: request,
+        action: 'find_or_open',
+        toolName: 'browser.find_or_open',
+        actionClass: 'navigate',
+        decision: 'allowed',
+        outcome: 'failed',
+        reason: message,
+        summary: `Chrome extension could not open a tab: ${message}`,
+        url,
+        data: null,
+      });
+    }
+  }
+
   async selectTarget(
     request: BrowserGatewayTargetRequest,
   ): Promise<BrowserGatewayResult<ReturnType<typeof toAgentSafeTarget> | null>> {
@@ -570,6 +659,11 @@ export class BrowserGatewayService {
   async navigate(
     request: BrowserGatewayNavigateRequest,
   ): Promise<BrowserGatewayResult<null>> {
+    const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
+    if (existingTab) {
+      return this.navigateExistingTab(request, existingTab);
+    }
+
     const profile = this.profileStore.getProfile(request.profileId);
     const target = this.getTarget(request.profileId, request.targetId);
     if (!profile || !target) {
@@ -928,7 +1022,14 @@ export class BrowserGatewayService {
     }
 
     try {
-      await this.driver.click(request.profileId, request.targetId, request.selector);
+      const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
+      if (existingTab) {
+        await this.sendExistingTabCommand(existingTab, 'click', {
+          selector: request.selector,
+        });
+      } else {
+        await this.driver.click(request.profileId, request.targetId, request.selector);
+      }
       if (prepared.grant.mode === 'per_action') {
         this.grantStore.consumeGrant(prepared.grant.id);
       }
@@ -988,7 +1089,15 @@ export class BrowserGatewayService {
       return recheck;
     }
     try {
-      await this.driver.type(request.profileId, request.targetId, request.selector, request.value);
+      const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
+      if (existingTab) {
+        await this.sendExistingTabCommand(existingTab, 'type', {
+          selector: request.selector,
+          value: request.value,
+        });
+      } else {
+        await this.driver.type(request.profileId, request.targetId, request.selector, request.value);
+      }
       return this.mutationSucceeded(request, 'type', 'browser.type', prepared);
     } catch (error) {
       return this.mutationFailed(request, 'type', 'browser.type', prepared, error);
@@ -1013,7 +1122,15 @@ export class BrowserGatewayService {
       return recheck;
     }
     try {
-      await this.driver.select(request.profileId, request.targetId, request.selector, request.value);
+      const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
+      if (existingTab) {
+        await this.sendExistingTabCommand(existingTab, 'select', {
+          selector: request.selector,
+          value: request.value,
+        });
+      } else {
+        await this.driver.select(request.profileId, request.targetId, request.selector, request.value);
+      }
       return this.mutationSucceeded(request, 'select', 'browser.select', prepared);
     } catch (error) {
       return this.mutationFailed(request, 'select', 'browser.select', prepared, error);
@@ -1129,6 +1246,41 @@ export class BrowserGatewayService {
     request: BrowserGatewayContext & BrowserFillFormRequest,
   ): Promise<BrowserGatewayResult<null>> {
     const firstField = request.fields[0]!;
+    const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
+    if (existingTab) {
+      const prepared = await this.prepareMutatingAction(
+        request,
+        'fill_form',
+        'browser.fill_form',
+        firstField.selector,
+        firstField.actionHint,
+        {
+          actionClass: 'input',
+          hardStop: false,
+        },
+      );
+      if (prepared.result) {
+        return prepared.result;
+      }
+      const recheck = this.recheckPreparedGrant(
+        request,
+        'fill_form',
+        'browser.fill_form',
+        prepared,
+      );
+      if (recheck) {
+        return recheck;
+      }
+      try {
+        await this.sendExistingTabCommand(existingTab, 'fill_form', {
+          fields: request.fields,
+        });
+        return this.mutationSucceeded(request, 'fill_form', 'browser.fill_form', prepared);
+      } catch (error) {
+        return this.mutationFailed(request, 'fill_form', 'browser.fill_form', prepared, error);
+      }
+    }
+
     const gate = await this.prepareMutatingAction(
       request,
       'fill_form',
@@ -1818,6 +1970,19 @@ export class BrowserGatewayService {
         url: string;
       }
   > {
+    const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
+    if (existingTab) {
+      return this.prepareExistingTabMutatingAction(
+        request,
+        existingTab,
+        action,
+        toolName,
+        selector,
+        actionHint,
+        classificationOverride,
+      );
+    }
+
     const profile = this.profileStore.getProfile(request.profileId);
     const { target, error } = profile
       ? await this.getLiveTarget(request.profileId, request.targetId)
@@ -2114,6 +2279,283 @@ export class BrowserGatewayService {
       autonomous: prepared.grant.autonomous,
       data: null,
     });
+  }
+
+  private findExistingTabCandidate(
+    url: string | undefined,
+    titleHint: string | undefined,
+  ): BrowserExistingTabAttachment | null {
+    const tabs = this.extensionTabStore.listTabs();
+    const parsedUrl = url ? this.tryParseWebUrl(url) : null;
+
+    if (parsedUrl && url) {
+      const exactOrPrefix = tabs.find((tab) =>
+        tab.url === url || tab.url.startsWith(url),
+      );
+      if (exactOrPrefix) {
+        return exactOrPrefix;
+      }
+      const sameOrigin = tabs.find((tab) => tab.origin === parsedUrl.origin);
+      if (sameOrigin) {
+        return sameOrigin;
+      }
+    }
+
+    if (titleHint) {
+      return tabs.find((tab) =>
+        (tab.title ?? '').toLowerCase().includes(titleHint),
+      ) ?? null;
+    }
+
+    return null;
+  }
+
+  private tryParseWebUrl(url: string): URL | null {
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+        ? parsed
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async navigateExistingTab(
+    request: BrowserGatewayNavigateRequest,
+    attachment: BrowserExistingTabAttachment,
+  ): Promise<BrowserGatewayResult<null>> {
+    const originDecision = isOriginAllowed(request.url, attachment.allowedOrigins);
+    if (!originDecision.allowed) {
+      return this.result({
+        context: request,
+        profileId: attachment.profileId,
+        targetId: attachment.targetId,
+        action: 'navigate',
+        toolName: 'browser.navigate',
+        actionClass: 'navigate',
+        decision: 'denied',
+        outcome: 'not_run',
+        reason: originDecision.reason,
+        summary: `Existing Chrome tab navigation denied by Browser Gateway origin policy: ${originDecision.reason}`,
+        url: request.url,
+        data: null,
+      });
+    }
+
+    try {
+      const result = await this.sendExistingTabCommand(attachment, 'navigate', {
+        url: request.url,
+      });
+      if (result) {
+        try {
+          const tab = this.extractTabPayload(result);
+          this.extensionTabStore.attachTab(tab);
+        } catch {
+          // Navigation succeeded; stale metadata is less important than
+          // preserving the audited command result.
+        }
+      }
+      return this.result({
+        context: request,
+        profileId: attachment.profileId,
+        targetId: attachment.targetId,
+        action: 'navigate',
+        toolName: 'browser.navigate',
+        actionClass: 'navigate',
+        decision: 'allowed',
+        outcome: 'succeeded',
+        summary: 'Navigated existing Chrome tab within allowed origin',
+        origin: originDecision.origin,
+        url: request.url,
+        data: null,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return this.result({
+        context: request,
+        profileId: attachment.profileId,
+        targetId: attachment.targetId,
+        action: 'navigate',
+        toolName: 'browser.navigate',
+        actionClass: 'navigate',
+        decision: 'allowed',
+        outcome: 'failed',
+        reason: message,
+        summary: `Existing Chrome tab navigation failed: ${message}`,
+        origin: originDecision.origin,
+        url: request.url,
+        data: null,
+      });
+    }
+  }
+
+  private async sendExistingTabCommand(
+    attachment: BrowserExistingTabAttachment,
+    command: BrowserExtensionCommandName,
+    payload?: Record<string, unknown>,
+  ): Promise<unknown> {
+    return this.extensionCommandStore.sendCommand({
+      command,
+      target: {
+        profileId: attachment.profileId,
+        targetId: attachment.targetId,
+        tabId: attachment.tabId,
+        windowId: attachment.windowId,
+      },
+      ...(payload ? { payload } : {}),
+      timeoutMs: 30_000,
+    });
+  }
+
+  private prepareExistingTabMutatingAction(
+    request: BrowserGatewayContext & { profileId: string; targetId: string },
+    attachment: BrowserExistingTabAttachment,
+    action: string,
+    toolName: string,
+    selector: string,
+    actionHint?: string,
+    classificationOverride?: ReturnType<typeof classifyBrowserAction>,
+  ):
+    | {
+        result: BrowserGatewayResult<null>;
+      }
+    | {
+        result?: undefined;
+        grant: ReturnType<BrowserGrantStore['listGrants']>[number];
+        actionClass: BrowserActionClass;
+        origin: string;
+        url: string;
+      } {
+    const originDecision = isOriginAllowed(attachment.url, attachment.allowedOrigins);
+    if (!originDecision.allowed) {
+      return {
+        result: this.result({
+          context: request,
+          profileId: attachment.profileId,
+          targetId: attachment.targetId,
+          action,
+          toolName,
+          actionClass: 'unknown',
+          decision: 'denied',
+          outcome: 'not_run',
+          reason: originDecision.reason,
+          summary: `${toolName} denied by existing Chrome tab origin policy: ${originDecision.reason}`,
+          url: attachment.url,
+          data: null,
+        }),
+      };
+    }
+
+    const elementContext = redactElementContext({
+      visibleText: actionHint,
+      nearbyText: actionHint,
+    });
+    const classification = classificationOverride ?? classifyBrowserAction({
+      toolName,
+      actionHint,
+      elementContext,
+    });
+    const grants = this.grantStore.listGrants({
+      instanceId: request.instanceId,
+      profileId: attachment.profileId,
+    });
+    const match = findMatchingBrowserGrant({
+      grants,
+      instanceId: request.instanceId ?? '',
+      provider: this.providerFromContext(request.provider),
+      profileId: attachment.profileId,
+      targetId: attachment.targetId,
+      origin: originDecision.origin,
+      liveOrigin: attachment.origin,
+      actionClass: classification.actionClass,
+      autonomousRequired:
+        classification.actionClass === 'submit' ||
+        classification.actionClass === 'destructive',
+    });
+
+    if (!match.grant || classification.hardStop) {
+      const approval = this.approvalStore.createRequest({
+        instanceId: request.instanceId ?? 'unknown',
+        provider: this.providerFromContext(request.provider),
+        profileId: attachment.profileId,
+        targetId: attachment.targetId,
+        toolName,
+        action,
+        actionClass: classification.actionClass,
+        origin: originDecision.origin,
+        url: attachment.url,
+        selector,
+        elementContext,
+        proposedGrant: {
+          mode: 'per_action',
+          allowedOrigins: [originDecision.matchedOrigin],
+          allowedActionClasses: [classification.actionClass],
+          allowExternalNavigation: false,
+          autonomous: false,
+        },
+        expiresAt: Date.now() + 30 * 60 * 1000,
+      });
+      return {
+        result: this.result({
+          context: request,
+          profileId: attachment.profileId,
+          targetId: attachment.targetId,
+          action,
+          toolName,
+          actionClass: classification.actionClass,
+          decision: 'requires_user',
+          outcome: 'not_run',
+          requestId: approval.requestId,
+          reason: classification.reason ?? match.reason,
+          summary: `${toolName} requires user approval for existing Chrome tab control`,
+          origin: originDecision.origin,
+          url: attachment.url,
+          data: null,
+        }),
+      };
+    }
+
+    return {
+      grant: match.grant,
+      actionClass: classification.actionClass,
+      origin: originDecision.origin,
+      url: attachment.url,
+    };
+  }
+
+  private extractTabPayload(result: unknown): BrowserAttachExistingTabRequest {
+    const value = this.isRecord(result) && this.isRecord(result['tab'])
+      ? result['tab']
+      : result;
+    if (!this.isRecord(value)) {
+      throw new Error('browser_extension_tab_result_invalid');
+    }
+    const tabId = value['tabId'];
+    const windowId = value['windowId'];
+    const url = value['url'];
+    if (
+      typeof tabId !== 'number' ||
+      typeof windowId !== 'number' ||
+      typeof url !== 'string'
+    ) {
+      throw new Error('browser_extension_tab_result_invalid');
+    }
+    return {
+      tabId,
+      windowId,
+      url,
+      ...(typeof value['title'] === 'string' ? { title: value['title'] } : {}),
+      ...(typeof value['text'] === 'string' ? { text: value['text'] } : {}),
+      ...(typeof value['screenshotBase64'] === 'string'
+        ? { screenshotBase64: value['screenshotBase64'] }
+        : {}),
+      ...(typeof value['capturedAt'] === 'number' ? { capturedAt: value['capturedAt'] } : {}),
+    };
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value && typeof value === 'object' && !Array.isArray(value));
   }
 
   private safeTargetFromExistingTab(

@@ -325,8 +325,11 @@ describe('BrowserPageComponent', () => {
   it('renders existing-tab bridge setup guidance', () => {
     const text = fixture.nativeElement.textContent;
 
-    expect(text).toContain('Existing Tab Bridge');
-    expect(text).toContain('Share Current Tab');
+    expect(text).toContain('Browser Control & Diagnostics');
+    expect(text).toContain('not the browser itself');
+    expect(text).toContain('Live Chrome Extension Bridge');
+    expect(text).toContain('browser.find_or_open');
+    expect(text).toContain('Automatic tab inventory');
     expect(text).toContain('resources/browser-extension');
   });
 

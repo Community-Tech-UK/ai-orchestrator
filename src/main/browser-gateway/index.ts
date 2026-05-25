@@ -19,6 +19,7 @@ export * from './browser-gateway-service';
 export * from './browser-gateway-rpc-client';
 export * from './browser-gateway-rpc-server';
 export * from './browser-extension-tab-store';
+export * from './browser-extension-command-store';
 export * from './browser-extension-native-host';
 export * from './browser-extension-native-runtime';
 export * from './browser-grant-policy';

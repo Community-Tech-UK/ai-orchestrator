@@ -207,6 +207,32 @@ describe('adapter factory — copilot', () => {
     );
   });
 
+  it('adds Browser Gateway usage guidance to provider system prompts when browser tools are enabled', () => {
+    const adapter = createCliAdapter('copilot', {
+      workingDirectory: '/tmp',
+      instanceId: 'instance-browser',
+      systemPrompt: 'Base instructions.',
+      browserGatewayMcp: {
+        currentDir: '/tmp/dist/main/instance',
+        execPath: '/Applications/App.app/Contents/MacOS/App',
+        isPackaged: false,
+        resourcesPath: '/tmp/resources',
+        socketPath: '/tmp/browser-gateway.sock',
+        instanceId: 'instance-browser',
+        exists: () => true,
+      },
+    });
+
+    const systemPrompt = (adapter as unknown as {
+      acpConfig: { systemPrompt?: string };
+    }).acpConfig.systemPrompt ?? '';
+
+    expect(systemPrompt).toContain('Base instructions.');
+    expect(systemPrompt).toContain('browser.find_or_open');
+    expect(systemPrompt).toContain('authenticated Chrome tabs');
+    expect(systemPrompt).toContain('Do not tell the user to open /browser');
+  });
+
   it('merges caller-provided ACP MCP servers with Browser Gateway', () => {
     const adapter = createCliAdapter('copilot', {
       workingDirectory: '/tmp',

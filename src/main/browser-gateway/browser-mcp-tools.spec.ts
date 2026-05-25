@@ -8,6 +8,7 @@ const ALLOWED_TOOLS = [
   'browser.open_profile',
   'browser.close_profile',
   'browser.list_targets',
+  'browser.find_or_open',
   'browser.select_target',
   'browser.navigate',
   'browser.click',
@@ -51,6 +52,7 @@ describe('browser-mcp-tools', () => {
   it('exposes concrete input schemas for provider-facing browser tools', () => {
     const tools = createBrowserMcpTools({ call: vi.fn() });
     const createProfile = tools.find((tool) => tool.name === 'browser.create_profile');
+    const findOrOpen = tools.find((tool) => tool.name === 'browser.find_or_open');
     const navigate = tools.find((tool) => tool.name === 'browser.navigate');
     const click = tools.find((tool) => tool.name === 'browser.click');
     const requestUserLogin = tools.find((tool) => tool.name === 'browser.request_user_login');
@@ -70,6 +72,14 @@ describe('browser-mcp-tools', () => {
             required: ['scheme', 'hostPattern', 'includeSubdomains'],
           },
         },
+      },
+      additionalProperties: false,
+    });
+    expect(findOrOpen?.inputSchema).toMatchObject({
+      type: 'object',
+      properties: {
+        url: { type: 'string' },
+        titleHint: { type: 'string' },
       },
       additionalProperties: false,
     });
