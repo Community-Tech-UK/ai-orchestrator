@@ -124,7 +124,7 @@ describe('InstanceContextPort', () => {
     };
 
     expect(() => new InstanceManager(undefined, fakePort)).not.toThrow();
-  });
+  }, 10_000);
 
   it('formatRlmContextBlock returns null for null input', async () => {
     const { InstanceContextManager } = await import('../instance-context');

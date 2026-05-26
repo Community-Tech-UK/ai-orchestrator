@@ -343,6 +343,36 @@ describe('BrowserGatewayService', () => {
     });
   });
 
+  it('auto-approves ungranted browser actions for YOLO instances', async () => {
+    const { service, driver, approvalStore, grants } = makeService({
+      autoApproveRequests: ({ instanceId }) => instanceId === 'instance-1',
+    });
+
+    const result = await service.click({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      selector: 'button.continue',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+    });
+    expect(driver.click).toHaveBeenCalledWith('profile-1', 'target-1', 'button.continue');
+    expect(grants[0]).toMatchObject({
+      mode: 'per_action',
+      instanceId: 'instance-1',
+      allowedActionClasses: ['input'],
+      autonomous: false,
+    });
+    expect(approvalStore.resolveRequest).toHaveBeenCalledWith('request-1', {
+      status: 'approved',
+      grantId: 'grant-1',
+    });
+  });
+
   it('redacts element context before storing approval requests', async () => {
     const { service, driver, approvalRequests } = makeService();
     driver.inspectElement.mockResolvedValueOnce({
@@ -730,6 +760,50 @@ describe('BrowserGatewayService', () => {
         requestId: 'request-1',
         status: 'pending',
       },
+    });
+  });
+
+  it('auto-approves explicit browser grant requests for YOLO instances', async () => {
+    const { service, approvalStore, grants } = makeService({
+      autoApproveRequests: ({ instanceId }) => instanceId === 'instance-1',
+    });
+
+    const result = await service.requestGrant({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      proposedGrant: {
+        mode: 'autonomous',
+        allowedOrigins: [
+          {
+            scheme: 'http',
+            hostPattern: 'localhost',
+            port: 4567,
+            includeSubdomains: false,
+          },
+        ],
+        allowedActionClasses: ['read', 'navigate', 'input'],
+        allowExternalNavigation: false,
+        autonomous: true,
+      },
+      reason: 'overnight form filling',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+    });
+    expect(grants[0]).toMatchObject({
+      mode: 'autonomous',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      allowedActionClasses: ['read', 'navigate', 'input'],
+      autonomous: true,
+    });
+    expect(approvalStore.resolveRequest).toHaveBeenCalledWith('request-1', {
+      status: 'approved',
+      grantId: 'grant-1',
     });
   });
 

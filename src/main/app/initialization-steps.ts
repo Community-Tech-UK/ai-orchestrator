@@ -513,6 +513,8 @@ export function createInitializationSteps(
       fn: () =>
         initializeBrowserGatewayRuntime({
           isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
+          autoApproveRequests: ({ instanceId }) =>
+            Boolean(instanceManager.getInstance(instanceId)?.yoloMode),
         }),
     },
     {

@@ -224,6 +224,7 @@
 
           <!-- User action requests + on-demand inspector panels -->
           <app-user-action-request [instanceId]="inst.id" />
+          <app-browser-approval-request [instanceId]="inst.id" />
           @if (hasActiveInspector()) {
             <div class="inspector-panels">
               @if (showTodoInspector()) {

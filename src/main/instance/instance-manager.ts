@@ -1689,28 +1689,36 @@ export class InstanceManager extends EventEmitter {
     ].filter(Boolean) as string[];
     let contextBlock = contextBlocks.length > 0 ? contextBlocks.join('\n\n') : null;
 
-    // Prepend orchestration prompt to first message
-    if (!this.hasReceivedFirstMessage.has(instanceId)) {
-      this.hasReceivedFirstMessage.add(instanceId);
-    const orchestrationPrompt = this.orchestrationMgr.getOrchestrationPrompt(instanceId, instance.currentModel);
-    const prefix = contextBlock ? `${contextBlock}\n\n` : '';
-    contextBlock = `${prefix}${orchestrationPrompt}\n\n---`;
+    const isFirstTrackedInput = !this.hasReceivedFirstMessage.has(instanceId);
+    const hasPriorConversationHistory = instance.outputBuffer.some(
+      (output) => output.type === 'user' || output.type === 'assistant'
+    );
 
-    // Auto-generate a title from the first user message (fire-and-forget)
-    getAutoTitleService().maybeGenerateTitle(
-      instanceId,
-      message,
-      (id, title) => {
-        logger.debug('Auto-title callback (sendInput)', { id, title, isRenamed: instance.isRenamed });
-        if (!instance.isRenamed) {
-          instance.displayName = title;
-          this.state.queueUpdate(id, instance.status, instance.contextUsage, undefined, title);
-          getSessionContinuityManager().updateState(id, { displayName: title });
-        }
-      },
-      instance.isRenamed,
-    ).catch(() => { /* non-critical */ });
-  }
+    // Prepend orchestration prompt only for genuinely fresh conversations.
+    if (isFirstTrackedInput) {
+      this.hasReceivedFirstMessage.add(instanceId);
+
+      if (!hasPriorConversationHistory) {
+        const orchestrationPrompt = this.orchestrationMgr.getOrchestrationPrompt(instanceId, instance.currentModel);
+        const prefix = contextBlock ? `${contextBlock}\n\n` : '';
+        contextBlock = `${prefix}${orchestrationPrompt}\n\n---`;
+
+        // Auto-generate a title from the first user message (fire-and-forget)
+        getAutoTitleService().maybeGenerateTitle(
+          instanceId,
+          message,
+          (id, title) => {
+            logger.debug('Auto-title callback (sendInput)', { id, title, isRenamed: instance.isRenamed });
+            if (!instance.isRenamed) {
+              instance.displayName = title;
+              this.state.queueUpdate(id, instance.status, instance.contextUsage, undefined, title);
+              getSessionContinuityManager().updateState(id, { displayName: title });
+            }
+          },
+          instance.isRenamed,
+        ).catch(() => { /* non-critical */ });
+      }
+    }
 
     // Add user message to output buffer BEFORE sending to CLI.
     // This ensures the user message appears before the AI response in the chat,

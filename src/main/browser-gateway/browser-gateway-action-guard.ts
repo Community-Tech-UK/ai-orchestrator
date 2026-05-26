@@ -1,5 +1,6 @@
 import type {
   BrowserActionClass,
+  BrowserApprovalRequest,
   BrowserGatewayDecision,
   BrowserGatewayOutcome,
   BrowserGatewayResult,
@@ -14,6 +15,10 @@ import type { BrowserProfileStore } from './browser-profile-store';
 import type { BrowserTargetRegistry } from './browser-target-registry';
 import type { BrowserGatewayContext } from './browser-gateway-service';
 import type { PuppeteerBrowserDriver } from './puppeteer-browser-driver';
+import {
+  autoApproveBrowserApproval,
+  type BrowserAutoApprovePredicate,
+} from './browser-auto-approve';
 import { classifyBrowserAction } from './browser-action-classifier';
 import { findMatchingBrowserGrant } from './browser-grant-policy';
 import { isOriginAllowed } from './browser-origin-policy';
@@ -58,8 +63,9 @@ export interface BrowserGatewayActionGuardOptions {
   targetRegistry: Pick<BrowserTargetRegistry, 'listTargets'>;
   driver: Pick<PuppeteerBrowserDriver, 'refreshTarget' | 'inspectElement'>;
   extensionTabStore: Pick<BrowserExtensionTabStore, 'getTab'>;
-  grantStore: Pick<BrowserGrantStore, 'listGrants'>;
-  approvalStore: Pick<BrowserApprovalStore, 'createRequest'>;
+  grantStore: Pick<BrowserGrantStore, 'listGrants' | 'createGrant'>;
+  approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'resolveRequest'>;
+  autoApproveRequests?: BrowserAutoApprovePredicate;
   result: <T>(params: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
 }
 
@@ -68,8 +74,9 @@ export class BrowserGatewayActionGuard {
   private readonly targetRegistry: Pick<BrowserTargetRegistry, 'listTargets'>;
   private readonly driver: Pick<PuppeteerBrowserDriver, 'refreshTarget' | 'inspectElement'>;
   private readonly extensionTabStore: Pick<BrowserExtensionTabStore, 'getTab'>;
-  private readonly grantStore: Pick<BrowserGrantStore, 'listGrants'>;
-  private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest'>;
+  private readonly grantStore: Pick<BrowserGrantStore, 'listGrants' | 'createGrant'>;
+  private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'resolveRequest'>;
+  private readonly autoApproveRequests?: BrowserAutoApprovePredicate;
   private readonly result: BrowserGatewayActionGuardOptions['result'];
 
   constructor(options: BrowserGatewayActionGuardOptions) {
@@ -79,6 +86,7 @@ export class BrowserGatewayActionGuard {
     this.extensionTabStore = options.extensionTabStore;
     this.grantStore = options.grantStore;
     this.approvalStore = options.approvalStore;
+    this.autoApproveRequests = options.autoApproveRequests;
     this.result = options.result;
   }
 
@@ -175,6 +183,15 @@ export class BrowserGatewayActionGuard {
         },
         expiresAt: Date.now() + 30 * 60 * 1000,
       });
+      const autoGrant = this.autoApproveApproval(approval);
+      if (autoGrant) {
+        return {
+          grant: autoGrant,
+          actionClass: 'unknown',
+          origin: originDecision.origin,
+          url: currentUrl,
+        };
+      }
       return {
         result: this.result({
           context: request,
@@ -239,6 +256,15 @@ export class BrowserGatewayActionGuard {
         },
         expiresAt: Date.now() + 30 * 60 * 1000,
       });
+      const autoGrant = this.autoApproveApproval(approval);
+      if (autoGrant) {
+        return {
+          grant: autoGrant,
+          actionClass: classification.actionClass,
+          origin: originDecision.origin,
+          url: currentUrl,
+        };
+      }
       return {
         result: this.result({
           context: request,
@@ -461,6 +487,15 @@ export class BrowserGatewayActionGuard {
         },
         expiresAt: Date.now() + 30 * 60 * 1000,
       });
+      const autoGrant = this.autoApproveApproval(approval);
+      if (autoGrant) {
+        return {
+          grant: autoGrant,
+          actionClass: classification.actionClass,
+          origin: originDecision.origin,
+          url: attachment.url,
+        };
+      }
       return {
         result: this.result({
           context: request,
@@ -495,6 +530,15 @@ export class BrowserGatewayActionGuard {
         .listTargets(profileId)
         .find((target) => target.id === targetId) ?? null
     );
+  }
+
+  private autoApproveApproval(approval: BrowserApprovalRequest): BrowserPermissionGrant | null {
+    return autoApproveBrowserApproval({
+      approval,
+      approvalStore: this.approvalStore,
+      grantStore: this.grantStore,
+      autoApproveRequests: this.autoApproveRequests,
+    });
   }
 
   private async getLiveTarget(

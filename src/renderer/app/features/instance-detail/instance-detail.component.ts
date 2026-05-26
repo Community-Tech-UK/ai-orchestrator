@@ -32,6 +32,7 @@ import { ChildInstancesPanelComponent } from './child-instances-panel.component'
 import { ChildDiagnosticBundleModalComponent } from '../orchestration/child-diagnostic-bundle.modal.component';
 import { TodoListComponent } from './todo-list.component';
 import { UserActionRequestComponent } from './user-action-request.component';
+import { BrowserApprovalRequestComponent } from './browser-approval-request.component';
 import { InstanceHeaderComponent } from './instance-header.component';
 import { InstanceWelcomeComponent } from './instance-welcome.component';
 import { InstanceReviewPanelComponent } from './instance-review-panel.component';
@@ -87,6 +88,7 @@ interface HistoryPreviewView {
     ChildInstancesPanelComponent,
     TodoListComponent,
     UserActionRequestComponent,
+    BrowserApprovalRequestComponent,
     InstanceHeaderComponent,
     InstanceWelcomeComponent,
     InstanceReviewPanelComponent,

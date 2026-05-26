@@ -1,6 +1,9 @@
 import { app } from 'electron';
 import type { BrowserGatewayRpcServerOptions } from './browser-gateway-rpc-server';
-import { initializeBrowserGatewayService } from './browser-gateway-service';
+import {
+  initializeBrowserGatewayService,
+  type BrowserGatewayServiceOptions,
+} from './browser-gateway-service';
 import {
   getBrowserGatewayRpcSocketPath,
   initializeBrowserGatewayRpcServer,
@@ -14,6 +17,7 @@ const logger = getLogger('BrowserGatewayRuntime');
 
 export * from './browser-audit-store';
 export * from './browser-action-classifier';
+export * from './browser-auto-approve';
 export * from './browser-approval-store';
 export * from './browser-gateway-service';
 export * from './browser-gateway-rpc-client';
@@ -38,10 +42,20 @@ export * from './browser-types';
 export * from './browser-upload-policy';
 export * from './puppeteer-browser-driver';
 
+export interface BrowserGatewayRuntimeOptions extends BrowserGatewayRpcServerOptions {
+  autoApproveRequests?: BrowserGatewayServiceOptions['autoApproveRequests'];
+}
+
 export async function initializeBrowserGatewayRuntime(
-  options: BrowserGatewayRpcServerOptions = {},
+  options: BrowserGatewayRuntimeOptions = {},
 ): Promise<void> {
-  const server = await initializeBrowserGatewayRpcServer(options);
+  const service = initializeBrowserGatewayService({
+    autoApproveRequests: options.autoApproveRequests,
+  });
+  const server = await initializeBrowserGatewayRpcServer({
+    ...options,
+    service: options.service ?? service,
+  });
   setBrowserGatewayMcpBridgeAvailabilityProvider(() => Boolean(server.getSocketPath()));
   const socketPath = server.getSocketPath();
   if (socketPath) {
@@ -62,7 +76,6 @@ export async function initializeBrowserGatewayRuntime(
       });
     }
   }
-  initializeBrowserGatewayService();
 }
 
 export function isBrowserGatewayMcpBridgeAvailable(): boolean {

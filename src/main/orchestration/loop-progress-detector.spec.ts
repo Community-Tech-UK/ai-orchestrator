@@ -192,6 +192,24 @@ describe('signal D-prime — test stagnation with file writes', () => {
     expect(signalDPrime_testStagnationWithWrites(history, current, T)).toBeNull();
   });
 
+  it('uses the latest contiguous measured suffix after an older null count', () => {
+    const history = [
+      makeIteration({ seq: 0, testPassCount: null, filesChanged: [{ path: 'x', additions: 1, deletions: 0, contentHash: 'h0' }] }),
+      makeIteration({ seq: 1, testPassCount: 4, filesChanged: [{ path: 'x', additions: 1, deletions: 0, contentHash: 'h1' }] }),
+      makeIteration({ seq: 2, testPassCount: 4, filesChanged: [{ path: 'x', additions: 1, deletions: 0, contentHash: 'h2' }] }),
+    ];
+    const current = makeIteration({
+      seq: 3,
+      testPassCount: 4,
+      filesChanged: [{ path: 'x', additions: 1, deletions: 0, contentHash: 'h3' }],
+    });
+
+    const sig = signalDPrime_testStagnationWithWrites(history, current, T);
+
+    expect(sig?.verdict).toBe('WARN');
+    expect(sig?.detail).toMatchObject({ iterations: T.testStagnationWarnIterations, passCount: 4 });
+  });
+
   it('null when test count changes', () => {
     const history = [
       makeIteration({ testPassCount: 1, filesChanged: [{ path: 'x', additions: 1, deletions: 0, contentHash: 'h' }] }),

@@ -125,23 +125,17 @@ export interface LoopCompletionConfig {
    */
   requireCompletedFileRename: boolean; // default false
   /**
-   * Mandatory fresh-eyes cross-model review before accepting completion.
+   * Optional fresh-eyes cross-model review before accepting completion.
    *
-   * When the agent declares done (sufficient signal + verify passed +
-   * belt-and-braces passed), the coordinator invokes
-   * `CrossModelReviewService.runHeadlessReview` against a different CLI
-   * provider. Any finding whose severity is in `blockingSeverities`
-   * cancels the stop, injects the finding as a user intervention, and
-   * lets the loop continue iterating. This automates the "check again
-   * with fresh eyes until no issues" pattern.
+   * When this block is explicitly set with `{ enabled: true }` and the agent
+   * declares done (sufficient signal + verify passed + belt-and-braces
+   * passed), the coordinator invokes `CrossModelReviewService.runHeadlessReview`
+   * against a different CLI provider. Any finding whose severity is in
+   * `blockingSeverities` cancels the stop, injects the finding as a user
+   * intervention, and lets the loop continue iterating.
    *
-   * Auto-enables when `uncompletedPlanFilesAtStart.length > 0` and the
-   * caller did not explicitly set this block — same trigger as
-   * `requireCompletedFileRename`. Explicit `{ enabled: false }` from
-   * the caller is always respected.
-   *
-   * Optional — when undefined, the coordinator applies the auto-detection
-   * rule. When defined, the caller's settings win.
+   * Undefined means no fresh-eyes gate. The coordinator does not auto-enable
+   * this from uncompleted plan files; callers that want the gate must pass it.
    */
   crossModelReview?: LoopCrossModelReviewConfig;
 }

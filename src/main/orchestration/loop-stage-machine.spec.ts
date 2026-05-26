@@ -54,6 +54,27 @@ describe('LoopStageMachine', () => {
     expect(p).toContain('`claude2.md`');
     expect(p).toContain('`gemini.md`');
     expect(p).toContain('requireCompletedFileRename');
+    expect(p).not.toContain('the coordinator will run an **independent cross-model fresh-eyes review**');
+  });
+
+  it('buildPrompt only mentions fresh-eyes review when the gate is explicitly enabled', () => {
+    const m = new LoopStageMachine(tmpDir);
+    const cfg = defaultLoopConfig(tmpDir, 'x');
+    cfg.completion.crossModelReview = {
+      enabled: true,
+      blockingSeverities: ['critical', 'high'],
+      timeoutSeconds: 90,
+      reviewDepth: 'structured',
+    };
+    const p = m.buildPrompt({
+      config: cfg,
+      iterationSeq: 0,
+      pendingInterventions: [],
+      uncompletedPlanFilesAtStart: ['plan.md'],
+    });
+
+    expect(p).toContain('Fresh-eyes review is enabled');
+    expect(p).toContain('critical/high severity finding');
   });
 
   it('FU-2: buildPrompt includes the manual-review-only block when manualReviewOnly=true', () => {

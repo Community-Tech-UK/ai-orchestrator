@@ -64,4 +64,30 @@ describe('LoopConfigPanelComponent', () => {
 
     expect(config?.completion?.allowOperatorReviewedCompletion).toBe(true);
   });
+
+  it('sends quick verify command config when provided', () => {
+    component.quickVerifyCommand.set('npx tsc --noEmit');
+    fixture.detectChanges();
+
+    const config = component.buildConfig();
+
+    expect(config?.completion?.quickVerifyCommand).toBe('npx tsc --noEmit');
+    expect(config?.completion?.quickVerifyTimeoutMs).toBe(120_000);
+  });
+
+  it('sends fresh-eyes review config only when explicitly enabled', () => {
+    expect(component.buildConfig()?.completion?.crossModelReview).toBeUndefined();
+
+    component.freshEyesReview.set(true);
+    fixture.detectChanges();
+
+    const config = component.buildConfig();
+
+    expect(config?.completion?.crossModelReview).toEqual({
+      enabled: true,
+      blockingSeverities: ['critical', 'high'],
+      timeoutSeconds: 90,
+      reviewDepth: 'structured',
+    });
+  });
 });

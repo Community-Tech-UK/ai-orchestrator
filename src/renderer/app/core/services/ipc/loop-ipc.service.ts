@@ -44,10 +44,19 @@ export interface LoopStartConfigInput {
     donePromiseRegex: string;
     doneSentinelFile: string;
     verifyCommand: string;
+    quickVerifyCommand: string;
+    quickVerifyTimeoutMs: number;
     allowOperatorReviewedCompletion: boolean;
     verifyTimeoutMs: number;
     runVerifyTwice: boolean;
     requireCompletedFileRename: boolean;
+    crossModelReview: {
+      enabled: boolean;
+      reviewers?: string[];
+      blockingSeverities: ('critical' | 'high' | 'medium' | 'low')[];
+      timeoutSeconds: number;
+      reviewDepth: 'structured' | 'tiered';
+    };
   }>;
   /**
    * Progress-detector thresholds. Optional; if omitted, the main process

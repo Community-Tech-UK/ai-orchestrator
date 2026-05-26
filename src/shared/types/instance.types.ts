@@ -389,6 +389,11 @@ export interface InstanceCreateConfig {
   resume?: boolean; // Resume a previous session (requires sessionId)
   workingDirectory: string;
   initialPrompt?: string;
+  /**
+   * Hidden runtime-only context prepended to the initial prompt sent to the
+   * provider. The visible transcript still records only `initialPrompt`.
+   */
+  initialContextBlock?: string;
   attachments?: FileAttachment[];
   yoloMode?: boolean;
   initialOutputBuffer?: OutputMessage[]; // Pre-populate output buffer (for history restore)

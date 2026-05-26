@@ -16,6 +16,7 @@ const DEFAULT_COMPLETION = {
   donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
   doneSentinelFile: 'DONE.txt',
   verifyTimeoutMs: 600_000,
+  quickVerifyTimeoutMs: 120_000,
 };
 /** Mirrors defaultLoopConfig().progressThresholds. We only ever ship this
  *  to the main process when the user opts into a non-default toggle (today
@@ -141,6 +142,17 @@ const DEFAULT_PROGRESS_THRESHOLDS = {
             <input id="loop-cfg-plan" type="text" placeholder="PLAN.md" [ngModel]="planFile()" (ngModelChange)="planFile.set($event)" />
           </section>
 
+          <section class="row">
+            <label for="loop-cfg-quick-verify">Quick verify command <span class="hint">(optional)</span></label>
+            <input
+              id="loop-cfg-quick-verify"
+              type="text"
+              placeholder="npx tsc --noEmit"
+              [ngModel]="quickVerifyCommand()"
+              (ngModelChange)="quickVerifyCommand.set($event)"
+            />
+          </section>
+
           <section class="row split">
             <div>
               <label for="loop-cfg-cap-iter">Max iterations</label>
@@ -240,6 +252,11 @@ const DEFAULT_PROGRESS_THRESHOLDS = {
               <input type="checkbox" [checked]="pauseOnTokenBurn()" (change)="pauseOnTokenBurn.set(toggleEvent($event))" />
               Pause if many tokens spent without test progress
               <span class="hint">(opt-in; tests-driven runs only)</span>
+            </label>
+            <label>
+              <input type="checkbox" [checked]="freshEyesReview()" (change)="freshEyesReview.set(toggleEvent($event))" />
+              Fresh-eyes completion review
+              <span class="hint">(blocks critical/high findings)</span>
             </label>
             <label class="warn">
               <input type="checkbox" [checked]="allowDestructive()" (change)="allowDestructive.set(toggleEvent($event))" />
@@ -449,6 +466,7 @@ export class LoopConfigPanelComponent {
   maxHours = signal(8);
   maxDollars = signal<number | null>(null);
   verifyCommand = signal('');
+  quickVerifyCommand = signal('');
   provider = signal<'claude' | 'codex'>('claude');
   reviewStyle = signal<'single' | 'debate' | 'star-chamber'>('debate');
   contextStrategy = signal<'fresh-child' | 'hybrid' | 'same-session'>('same-session');
@@ -460,6 +478,7 @@ export class LoopConfigPanelComponent {
   requireRename = signal(false);
   runVerifyTwice = signal(true);
   operatorReviewedCompletion = signal(false);
+  freshEyesReview = signal(false);
   /** Opt-in for signal F (token-burn-without-test-progress). Default off so
    *  legitimate non-test-driven loops (new module scaffolds, refactors with
    *  no test deltas, doc/asset generation) don't pause spuriously. */
@@ -538,6 +557,7 @@ export class LoopConfigPanelComponent {
     if (!this.canSubmit()) return null;
     const planFile = this.planFile().trim() || undefined;
     const maxDollars = this.maxDollars();
+    const quickVerifyCommand = this.quickVerifyCommand().trim();
     return {
       initialPrompt: this.prompt().trim(),
       workspaceCwd: this.workspaceCwd(),
@@ -560,8 +580,24 @@ export class LoopConfigPanelComponent {
         verifyCommand: this.verifyCommand().trim(),
         allowOperatorReviewedCompletion: this.operatorReviewedCompletion(),
         verifyTimeoutMs: DEFAULT_COMPLETION.verifyTimeoutMs,
+        ...(quickVerifyCommand
+          ? {
+              quickVerifyCommand,
+              quickVerifyTimeoutMs: DEFAULT_COMPLETION.quickVerifyTimeoutMs,
+            }
+          : {}),
         runVerifyTwice: this.runVerifyTwice(),
         requireCompletedFileRename: this.effectiveRequireRename(),
+        ...(this.freshEyesReview()
+          ? {
+              crossModelReview: {
+                enabled: true,
+                blockingSeverities: ['critical', 'high'],
+                timeoutSeconds: 90,
+                reviewDepth: 'structured',
+              },
+            }
+          : {}),
       },
       // Only override progressThresholds when the user has opted into a
       // non-default behaviour. Otherwise omit it entirely so the main

@@ -177,6 +177,7 @@ function summarizeCreateInstanceConfig(config: InstanceCreateConfig): Record<str
     workingDirectory: config.workingDirectory,
     initialPromptLength: config.initialPrompt?.length ?? 0,
     initialPromptPreview: summarizeLogText(config.initialPrompt),
+    initialContextBlockLength: config.initialContextBlock?.length ?? 0,
     attachments: summarizeAttachments(config.attachments),
     yoloMode: config.yoloMode,
     initialOutputBuffer: summarizeInitialOutputBuffer(config.initialOutputBuffer),
@@ -194,11 +195,14 @@ function isRestoreOrReplayContinuity(config: InstanceCreateConfig): boolean {
   const hasInitialPrompt =
     typeof config.initialPrompt === 'string'
     && config.initialPrompt.trim().length > 0;
+  const hasInitialContextBlock =
+    typeof config.initialContextBlock === 'string'
+    && config.initialContextBlock.trim().length > 0;
   const hasSeededConversation = config.initialOutputBuffer?.some(
     (message) => message.type === 'user' || message.type === 'assistant'
   ) ?? false;
 
-  return Boolean(config.resume || (hasSeededConversation && !hasInitialPrompt));
+  return Boolean(config.resume || hasInitialContextBlock || (hasSeededConversation && !hasInitialPrompt));
 }
 
 /**
@@ -785,17 +789,21 @@ export class InstanceLifecycleManager extends EventEmitter {
     adapter: CliAdapter;
     resolvedCliType: CliType;
     message: string;
+    contextBlock?: string;
     attachments?: InstanceCreateConfig['attachments'];
   }): Promise<void> {
     const { instance, adapter, resolvedCliType, message } = params;
+    const runtimeMessage = params.contextBlock?.trim()
+      ? `${params.contextBlock}\n\n${message}`
+      : message;
     let attachments = params.attachments;
 
     try {
-      await adapter.sendInput(message, attachments);
+      await adapter.sendInput(runtimeMessage, attachments);
       return;
     } catch (initialError) {
       if (isOrchestratorPausedError(initialError)) {
-        this.queuePausedInitialPrompt({ instance, message, attachments });
+        this.queuePausedInitialPrompt({ instance, message: runtimeMessage, attachments });
         return;
       }
 
@@ -805,7 +813,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
       this.emitAttachmentDropWarnings(instance.id, instance, adapter.getName(), attachments);
 
-      if (!message.trim()) {
+      if (!runtimeMessage.trim()) {
         logger.info('Dropped unsupported attachments from attachment-only initial prompt', {
           instanceId: instance.id,
           provider: resolvedCliType,
@@ -815,10 +823,10 @@ export class InstanceLifecycleManager extends EventEmitter {
 
       attachments = undefined;
       try {
-        await adapter.sendInput(message, attachments);
+        await adapter.sendInput(runtimeMessage, attachments);
       } catch (retryError) {
         if (isOrchestratorPausedError(retryError)) {
-          this.queuePausedInitialPrompt({ instance, message, attachments });
+          this.queuePausedInitialPrompt({ instance, message: runtimeMessage, attachments });
           return;
         }
         throw retryError;
@@ -1364,6 +1372,7 @@ export class InstanceLifecycleManager extends EventEmitter {
                 adapter,
                 resolvedCliType,
                 message: initialUserMessage.content,
+                contextBlock: config.initialContextBlock,
                 attachments: config.attachments,
               });
             } catch (error) {
@@ -1468,6 +1477,7 @@ export class InstanceLifecycleManager extends EventEmitter {
                 adapter,
                 resolvedCliType,
                 message: initialUserMessage.content,
+                contextBlock: config.initialContextBlock,
                 attachments: config.attachments,
               });
             }

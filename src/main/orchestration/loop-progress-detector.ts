@@ -302,16 +302,17 @@ export function signalDPrime_testStagnationWithWrites(
   const tail = all.slice(-Math.max(th.testStagnationCriticalIterations, th.testStagnationWarnIterations));
   if (tail.length === 0) return null;
 
-  // Only evaluate the contiguous prefix with present test counts. Missing
-  // counts mean there is no reliable stagnation window across that gap.
-  let k = tail.length;
-  for (let i = 0; i < tail.length; i++) {
+  // Only evaluate the latest contiguous suffix with present test counts.
+  // Missing counts break reliability across that gap, but older nulls should
+  // not suppress a newer measured stagnation window.
+  let start = tail.length;
+  for (let i = tail.length - 1; i >= 0; i--) {
     if (tail[i].testPassCount == null) {
-      k = i;
       break;
     }
+    start = i;
   }
-  const usable = tail.slice(0, k);
+  const usable = tail.slice(start);
   if (usable.length < th.testStagnationWarnIterations) return null;
 
   const first = usable[0].testPassCount;

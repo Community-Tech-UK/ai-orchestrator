@@ -41,6 +41,8 @@ const BROWSER_GATEWAY_SYSTEM_PROMPT = [
   '[Browser Gateway]',
   'When the user asks you to use a website, browser tab, authenticated session, web form, or page state, use the browser.* tools directly.',
   'Start with browser.find_or_open using the best URL and/or title hint. It can find existing authenticated Chrome tabs first and open a new tab when no matching tab exists.',
+  'If the user says the authenticated page is already open but Browser Gateway cannot see it, ask the user to share the current tab through the Browser Gateway extension, then retry browser.find_or_open or browser.list_targets.',
+  'Do not ask the user to copy/paste page content, take screenshots, or gather browser data manually until the share-tab handoff has been tried.',
   'Then use browser.snapshot, browser.screenshot, browser.wait_for, browser.click, browser.type, browser.fill_form, and browser.select as needed.',
   'For login, captcha, two-factor, destructive, submit, credential, or unclear actions, use the Browser Gateway approval/manual-step tools instead of guessing.',
   'Do not tell the user to open /browser. /browser is only a Browser Gateway diagnostics and approval page, not the user browser.',

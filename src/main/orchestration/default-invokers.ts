@@ -987,13 +987,23 @@ export function parseTestCounts(output: string): { pass: number | null; fail: nu
     if (p !== null) pass = p;
     if (f !== null) fail = f;
   };
+  const setFailOnly = (f: number): void => {
+    if (!Number.isFinite(f)) return;
+    set(pass ?? 0, f);
+  };
 
   // vitest: "Test Files  3 passed (3)" and "Tests   10 passed | 2 failed (12)"
-  //         The pipe form may have just "passed" or just "failed".
+  //         The pipe form may have just "passed"; failed-only appears on its
+  //         own "Tests  N failed" line.
   for (const m of output.matchAll(/Tests\s+(?:[^\n|]*\|)?\s*(\d+)\s+passed(?:\s*\|\s*(\d+)\s+failed)?/gi)) {
     const p = Number.parseInt(m[1], 10);
     const f = m[2] != null ? Number.parseInt(m[2], 10) : 0;
     if (Number.isFinite(p)) set(p, f);
+  }
+  for (const line of output.split(/\r?\n/)) {
+    if (/\bpassed\b/i.test(line)) continue;
+    const m = line.match(/^\s*Tests\s+(\d+)\s+failed\b/i);
+    if (m) setFailOnly(Number.parseInt(m[1], 10));
   }
 
   // jest: "Tests:       1 failed, 1 skipped, 5 passed, 7 total"
@@ -1002,12 +1012,20 @@ export function parseTestCounts(output: string): { pass: number | null; fail: nu
     const p = Number.parseInt(m[2], 10);
     if (Number.isFinite(p)) set(p, f);
   }
+  for (const m of output.matchAll(/Tests:\s+(\d+)\s+failed,?\s+\d+\s+total/gi)) {
+    setFailOnly(Number.parseInt(m[1], 10));
+  }
 
   // pytest: "===== 10 passed, 2 failed in 1.20s =====" (failed optional)
   for (const m of output.matchAll(/={3,}[^=\n]*?\b(\d+)\s+passed\b(?:[^=\n]*?\b(\d+)\s+failed\b)?[^=\n]*={3,}/gi)) {
     const p = Number.parseInt(m[1], 10);
     const f = m[2] != null ? Number.parseInt(m[2], 10) : 0;
     if (Number.isFinite(p)) set(p, f);
+  }
+  for (const line of output.split(/\r?\n/)) {
+    if (/\bpassed\b/i.test(line)) continue;
+    const m = line.match(/={3,}[^=\n]*?\b(\d+)\s+failed\b[^=\n]*={3,}/i);
+    if (m) setFailOnly(Number.parseInt(m[1], 10));
   }
 
   // mocha: "10 passing" and "2 failing" on separate lines.
@@ -1017,7 +1035,7 @@ export function parseTestCounts(output: string): { pass: number | null; fail: nu
   }
   for (const m of output.matchAll(/(\d+)\s+failing\b/gi)) {
     const f = Number.parseInt(m[1], 10);
-    if (Number.isFinite(f)) set(pass, f);
+    if (Number.isFinite(f)) set(pass ?? 0, f);
   }
 
   // cargo test: "test result: ok. 5 passed; 0 failed; ..."

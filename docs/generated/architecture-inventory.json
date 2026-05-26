@@ -4674,7 +4674,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3098
+      "lines": 3108
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
@@ -4717,16 +4717,16 @@
       "lines": 2519
     },
     {
-      "path": "src/main/channels/channel-message-router.ts",
-      "lines": 2502
-    },
-    {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2500
+      "lines": 2508
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2452
+      "lines": 2507
+    },
+    {
+      "path": "src/main/channels/channel-message-router.ts",
+      "lines": 2502
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
@@ -4809,6 +4809,10 @@
       "lines": 1703
     },
     {
+      "path": "src/main/instance/__tests__/instance-manager.spec.ts",
+      "lines": 1653
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
       "lines": 1635
     },
@@ -4819,10 +4823,6 @@
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
       "lines": 1612
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.spec.ts",
-      "lines": 1593
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
@@ -4858,7 +4858,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
-      "lines": 1489
+      "lines": 1491
     },
     {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-audit-phase2.COMPLETED.md",
@@ -4874,7 +4874,7 @@
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1436
+      "lines": 1454
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency.md",
@@ -5001,6 +5001,10 @@
       "lines": 1164
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
+      "lines": 1163
+    },
+    {
       "path": "src/main/orchestration/multi-verify-coordinator.ts",
       "lines": 1163
     },
@@ -5063,10 +5067,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-context-token-management.COMPLETED.md",
       "lines": 1104
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
-      "lines": 1089
     },
     {
       "path": "src/renderer/app/features/file-explorer/file-explorer.component.ts",

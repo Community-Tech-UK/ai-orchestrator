@@ -30,9 +30,19 @@ describe('parseTestCounts', () => {
     expect(parseTestCounts(out)).toEqual({ pass: 12, fail: 0 });
   });
 
+  it('parses jest failed-only summaries', () => {
+    const out = 'Tests:       2 failed, 2 total';
+    expect(parseTestCounts(out)).toEqual({ pass: 0, fail: 2 });
+  });
+
   it('parses vitest "Tests   N passed | N failed" pipe form', () => {
     const out = ' Test Files  3 passed (3)\n      Tests   10 passed | 2 failed (12)';
     expect(parseTestCounts(out)).toEqual({ pass: 10, fail: 2 });
+  });
+
+  it('parses vitest failed-only summary lines', () => {
+    const out = ' Test Files  1 failed (1)\n      Tests  2 failed (2)';
+    expect(parseTestCounts(out)).toEqual({ pass: 0, fail: 2 });
   });
 
   it('parses vitest "Tests  N passed (N)" — pass-only form', () => {
@@ -50,9 +60,19 @@ describe('parseTestCounts', () => {
     expect(parseTestCounts(out)).toEqual({ pass: 8, fail: 0 });
   });
 
+  it('parses pytest failed-only summary', () => {
+    const out = '===== 2 failed in 0.40s =====';
+    expect(parseTestCounts(out)).toEqual({ pass: 0, fail: 2 });
+  });
+
   it('parses mocha "N passing" + "N failing"', () => {
     const out = '\n  42 passing (1s)\n  3 failing\n';
     expect(parseTestCounts(out)).toEqual({ pass: 42, fail: 3 });
+  });
+
+  it('parses mocha failed-only summaries', () => {
+    const out = '\n  3 failing\n';
+    expect(parseTestCounts(out)).toEqual({ pass: 0, fail: 3 });
   });
 
   it('parses cargo test "test result: ok. N passed; N failed; ..."', () => {

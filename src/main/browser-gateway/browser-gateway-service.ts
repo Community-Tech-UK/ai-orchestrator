@@ -99,6 +99,10 @@ import {
   providerFromContext,
   type BrowserGatewayResultInput,
 } from './browser-gateway-action-guard';
+import {
+  autoApproveBrowserApproval,
+  type BrowserAutoApprovePredicate,
+} from './browser-auto-approve';
 
 export interface BrowserGatewayContext {
   instanceId?: string;
@@ -189,6 +193,7 @@ export interface BrowserGatewayServiceOptions {
   grantStore?: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
   approvalStore?: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
   healthService?: Pick<BrowserHealthService, 'diagnose'>;
+  autoApproveRequests?: BrowserAutoApprovePredicate;
 }
 
 export class BrowserGatewayService {
@@ -227,6 +232,7 @@ export class BrowserGatewayService {
   private readonly grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
   private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
   private readonly healthService: Pick<BrowserHealthService, 'diagnose'>;
+  private readonly autoApproveRequests?: BrowserAutoApprovePredicate;
   private readonly actionGuard: BrowserGatewayActionGuard;
 
   constructor(options: BrowserGatewayServiceOptions = {}) {
@@ -240,6 +246,7 @@ export class BrowserGatewayService {
     this.grantStore = options.grantStore ?? getBrowserGrantStore();
     this.approvalStore = options.approvalStore ?? getBrowserApprovalStore();
     this.healthService = options.healthService ?? getBrowserHealthService();
+    this.autoApproveRequests = options.autoApproveRequests;
     this.actionGuard = new BrowserGatewayActionGuard({
       profileStore: this.profileStore,
       targetRegistry: this.targetRegistry,
@@ -247,6 +254,7 @@ export class BrowserGatewayService {
       extensionTabStore: this.extensionTabStore,
       grantStore: this.grantStore,
       approvalStore: this.approvalStore,
+      autoApproveRequests: this.autoApproveRequests,
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
     });
   }
@@ -254,6 +262,13 @@ export class BrowserGatewayService {
   static getInstance(): BrowserGatewayService {
     if (!this.instance) {
       this.instance = new BrowserGatewayService();
+    }
+    return this.instance;
+  }
+
+  static initialize(options: BrowserGatewayServiceOptions = {}): BrowserGatewayService {
+    if (!this.instance) {
+      this.instance = new BrowserGatewayService(options);
     }
     return this.instance;
   }
@@ -1152,7 +1167,7 @@ export class BrowserGatewayService {
   async uploadFile(
     request: BrowserGatewayContext & BrowserUploadFileRequest,
   ): Promise<BrowserGatewayResult<null>> {
-    const prepared = await this.actionGuard.prepareMutatingAction(
+    let prepared = await this.actionGuard.prepareMutatingAction(
       request,
       'upload_file',
       'browser.upload_file',
@@ -1224,22 +1239,32 @@ export class BrowserGatewayService {
         },
         expiresAt: Date.now() + 30 * 60 * 1000,
       });
-      return this.result({
-        context: request,
-        profileId: request.profileId,
-        targetId: request.targetId,
-        action: 'upload_file',
-        toolName: 'browser.upload_file',
-        actionClass: 'file-upload',
-        decision: 'requires_user',
-        outcome: 'not_run',
-        requestId: approval.requestId,
-        reason: uploadDecision.reason,
-        summary: `browser.upload_file requires user approval: ${uploadDecision.reason}`,
-        origin: prepared.origin,
-        url: prepared.url,
-        data: null,
-      });
+      const autoGrant = this.autoApproveApproval(approval);
+      if (autoGrant) {
+        prepared = {
+          grant: autoGrant,
+          actionClass: 'file-upload',
+          origin: prepared.origin,
+          url: prepared.url,
+        };
+      } else {
+        return this.result({
+          context: request,
+          profileId: request.profileId,
+          targetId: request.targetId,
+          action: 'upload_file',
+          toolName: 'browser.upload_file',
+          actionClass: 'file-upload',
+          decision: 'requires_user',
+          outcome: 'not_run',
+          requestId: approval.requestId,
+          reason: uploadDecision.reason,
+          summary: `browser.upload_file requires user approval: ${uploadDecision.reason}`,
+          origin: prepared.origin,
+          url: prepared.url,
+          data: null,
+        });
+      }
     }
     try {
       await this.driver.uploadFile(
@@ -1457,6 +1482,25 @@ export class BrowserGatewayService {
       proposedGrant: request.proposedGrant,
       expiresAt: Date.now() + 30 * 60 * 1000,
     });
+    const autoGrant = this.autoApproveApproval(approval);
+    if (autoGrant) {
+      return this.result({
+        context: request,
+        profileId: profile.id,
+        targetId: target.id,
+        action: 'request_grant',
+        toolName: 'browser.request_grant',
+        actionClass,
+        decision: 'allowed',
+        outcome: 'succeeded',
+        summary: 'Auto-approved Browser Gateway grant request',
+        origin: originDecision.origin,
+        url: currentUrl,
+        grantId: autoGrant.id,
+        autonomous: autoGrant.autonomous,
+        data: null,
+      });
+    }
 
     return this.result({
       context: request,
@@ -2387,6 +2431,15 @@ export class BrowserGatewayService {
     return this.approvalStore.getRequest(requestId, instanceId);
   }
 
+  private autoApproveApproval(approval: BrowserApprovalRequest): BrowserPermissionGrant | null {
+    return autoApproveBrowserApproval({
+      approval,
+      approvalStore: this.approvalStore,
+      grantStore: this.grantStore,
+      autoApproveRequests: this.autoApproveRequests,
+    });
+  }
+
   private expireApprovalIfNeeded(approval: BrowserApprovalRequest): BrowserApprovalRequest {
     if (approval.status !== 'pending' || approval.expiresAt > Date.now()) {
       return approval;
@@ -2446,6 +2499,8 @@ export function getBrowserGatewayService(): BrowserGatewayService {
   return BrowserGatewayService.getInstance();
 }
 
-export function initializeBrowserGatewayService(): BrowserGatewayService {
-  return BrowserGatewayService.getInstance();
+export function initializeBrowserGatewayService(
+  options: BrowserGatewayServiceOptions = {},
+): BrowserGatewayService {
+  return BrowserGatewayService.initialize(options);
 }

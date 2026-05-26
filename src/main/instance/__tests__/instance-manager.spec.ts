@@ -949,6 +949,34 @@ describe('InstanceManager', () => {
       });
     });
 
+    it('prepends initial context only to the runtime send and keeps the visible prompt clean', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        initialOutputBuffer: [
+          {
+            id: 'prior-user',
+            timestamp: Date.now(),
+            type: 'user',
+            content: 'context before the edit',
+          },
+        ],
+        initialPrompt: 'edited question',
+        initialContextBlock: '<conversation_history>context before the edit</conversation_history>',
+      } as Parameters<InstanceManager['createInstance']>[0] & { initialContextBlock: string });
+      await instance.readyPromise;
+
+      expect(mockAdapterSendInput).toHaveBeenCalledWith(
+        '<conversation_history>context before the edit</conversation_history>\n\nedited question',
+        undefined,
+      );
+
+      const visibleUserMessages = instance.outputBuffer.filter((message) => message.type === 'user');
+      expect(visibleUserMessages.map((message) => message.content)).toEqual([
+        'context before the edit',
+        'edited question',
+      ]);
+    });
+
     it('drops unsupported initial attachments and retries without failing the instance', async () => {
       const attachments = [
         { name: 'screenshot.png', type: 'image/png', size: 3, data: 'abc' },
@@ -1251,6 +1279,38 @@ describe('InstanceManager', () => {
         model: 'opus',
         wasSlashCommand: false,
       }));
+    });
+
+    it('does not prepend orchestration context to restored conversations with prior history', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Restored Prompt Context Test',
+        initialOutputBuffer: [
+          {
+            id: 'restored-user',
+            timestamp: Date.now() - 2000,
+            type: 'user',
+            content: 'previous instruction',
+          },
+          {
+            id: 'restored-assistant',
+            timestamp: Date.now() - 1000,
+            type: 'assistant',
+            content: 'previous response',
+          },
+        ],
+      });
+      await instance.readyPromise;
+
+      const firstMessageTracking = (
+        manager as unknown as { hasReceivedFirstMessage: Set<string> }
+      ).hasReceivedFirstMessage;
+      firstMessageTracking.delete(instance.id);
+      mockAdapterSendInput.mockClear();
+
+      await manager.sendInput(instance.id, '1) do this please');
+
+      expect(mockAdapterSendInput).toHaveBeenCalledWith('1) do this please', undefined);
     });
 
     it('emits provider:normalized-event for the user message', async () => {

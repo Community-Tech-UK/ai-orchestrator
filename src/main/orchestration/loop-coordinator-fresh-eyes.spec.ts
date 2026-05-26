@@ -12,8 +12,8 @@
  *   3. When the reviewer throws or fails infrastructurally, the loop
  *      does NOT pin open — it lets completion proceed. (A broken reviewer
  *      shouldn't trap an otherwise-done agent forever.)
- *   4. The review block auto-enables when `uncompletedPlanFilesAtStart`
- *      is non-empty and the caller didn't configure it.
+ *   4. The review block stays opt-in even when `uncompletedPlanFilesAtStart`
+ *      is non-empty.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';

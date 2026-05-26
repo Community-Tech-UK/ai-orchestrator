@@ -9,6 +9,7 @@ import type {
 import { BrowserGatewayService } from './browser-gateway-service';
 import type { BrowserExtensionCommandStore } from './browser-extension-command-store';
 import type { BrowserGatewayHealthReport } from './browser-health-service';
+import type { BrowserAutoApprovePredicate } from './browser-auto-approve';
 
 export function makeProfile(overrides: Partial<BrowserProfile> = {}): BrowserProfile {
   return {
@@ -59,6 +60,7 @@ export function makeService(overrides: {
   snapshot?: () => Promise<{ title: string; url: string; text: string }>;
   refreshTarget?: () => Promise<BrowserTarget>;
   grants?: BrowserPermissionGrant[];
+  autoApproveRequests?: BrowserAutoApprovePredicate;
   existingTab?: {
     profileId: string;
     targetId: string;
@@ -240,6 +242,7 @@ export function makeService(overrides: {
     auditStore,
     grantStore,
     approvalStore,
+    autoApproveRequests: overrides.autoApproveRequests,
     healthService: {
       diagnose: async (): Promise<BrowserGatewayHealthReport> => ({
         status: 'ready',

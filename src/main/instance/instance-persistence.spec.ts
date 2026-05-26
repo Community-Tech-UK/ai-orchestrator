@@ -186,6 +186,37 @@ describe('InstancePersistenceManager', () => {
     );
   });
 
+  it('adds hidden replay context for prompted forks without changing the visible prompt', async () => {
+    sourceInstance.outputBuffer = [
+      { ...message('user-1', 'original setup context'), type: 'user' },
+      message('assistant-2', 'previous answer context'),
+      { ...message('user-3', 'message being edited'), type: 'user' },
+      message('assistant-4', 'superseded response'),
+    ];
+    loadMessagesMock.mockResolvedValue([]);
+
+    await manager.forkInstance({
+      instanceId: sourceInstance.id,
+      sourceMessageId: 'user-3',
+      initialPrompt: 'edited follow-up',
+      supersedeSource: true,
+    });
+
+    expect(createInstanceMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialOutputBuffer: [
+          expect.objectContaining({ id: 'user-1' }),
+          expect.objectContaining({ id: 'assistant-2' }),
+        ],
+        initialPrompt: 'edited follow-up',
+        initialContextBlock: expect.stringContaining('original setup context'),
+      }),
+    );
+    const createConfig = createInstanceMock.mock.calls[0]?.[0] as { initialContextBlock?: string };
+    expect(createConfig.initialContextBlock).toContain('previous answer context');
+    expect(createConfig.initialContextBlock).not.toContain('edited follow-up');
+  });
+
   it('copies source metadata when preserving runtime settings across a fork', async () => {
     sourceInstance.metadata = {
       operatorRunId: 'run-1',

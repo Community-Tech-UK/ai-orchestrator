@@ -4,6 +4,7 @@
 
 import { getOutputStorageManager } from '../memory';
 import { getLogger } from '../logging/logger';
+import { buildReplayContinuityMessage } from '../session/replay-continuity';
 import type {
   Instance,
   InstanceCreateConfig,
@@ -94,6 +95,10 @@ export class InstancePersistenceManager {
     //      for this thread on disk.
     // Non-supersede forks (explicit divergent branches) keep getting a fresh
     // threadId so both branches remain independently visible.
+    const initialContextBlock = this.buildInitialContextBlockForFork(
+      forkedMessages,
+      config,
+    );
     const forkedInstance = await this.deps.createInstance({
       workingDirectory: sourceInstance.workingDirectory,
       displayName:
@@ -114,6 +119,7 @@ export class InstancePersistenceManager {
         : { ...sourceInstance.metadata },
       initialOutputBuffer: forkedMessages,
       initialPrompt: config.initialPrompt,
+      initialContextBlock,
       attachments: config.attachments ?? sourceMessage?.attachments,
     });
 
@@ -168,6 +174,32 @@ export class InstancePersistenceManager {
     }
 
     return { forkIndex: messages.length };
+  }
+
+  private buildInitialContextBlockForFork(
+    forkedMessages: OutputMessage[],
+    config: ForkConfig,
+  ): string | undefined {
+    const hasInitialPayload =
+      (typeof config.initialPrompt === 'string' && config.initialPrompt.length > 0)
+      || Boolean(config.attachments?.length);
+    if (!hasInitialPayload || forkedMessages.length === 0) {
+      return undefined;
+    }
+
+    const reason = config.supersedeSource === true
+      ? 'edit-and-resend-fork'
+      : 'session-fork';
+    const continuity = buildReplayContinuityMessage(forkedMessages, { reason });
+    if (!continuity) {
+      return undefined;
+    }
+
+    return [
+      continuity,
+      '',
+      'The next user message is the fork prompt. Use the transcript above as prior context, then answer the next user message directly.',
+    ].join('\n');
   }
 
   private async buildForkSourceMessages(
