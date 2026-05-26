@@ -42,7 +42,18 @@ interface LoopRunRow {
   highest_test_pass_count: number;
   end_reason: string | null;
   end_evidence_json: string | null;
+  /** FU-3: consecutive boot-time interruptions with no intervening progress. */
+  restart_failure_count: number;
+  /** FU-2: true (1) when the loop was started with no verifyCommand. */
+  manual_review_only: number;
 }
+
+/** FU-3: when restart_failure_count reaches this many consecutive
+ *  interruptions, treat the loop as a crash spiral and refuse to
+ *  pause-restore it. The threshold is intentionally lenient (a user
+ *  who restarts their machine twice while a long-running loop sleeps
+ *  shouldn't trigger crash-loop). */
+const CRASH_LOOP_THRESHOLD = 3;
 
 /** Subset of `loop_runs` columns used to build a `LoopRunSummary`. */
 interface RunSummaryRow {
@@ -142,14 +153,33 @@ interface LoopTerminalIntentRow {
 export class LoopStore {
   constructor(private readonly db: SqliteDriver) {}
 
-  /** Insert / overwrite a loop run row from in-memory state. */
+  /**
+   * Insert / overwrite a loop run row from in-memory state.
+   *
+   * NB: `restart_failure_count` (FU-3) is intentionally NOT in the UPDATE
+   * SET clause. The in-memory `LoopState` doesn't carry the counter, so
+   * including it here would clobber the column to 0 on every state-change
+   * upsert. SQLite's `ON CONFLICT DO UPDATE SET` leaves un-listed columns
+   * alone, which is exactly what we want — only the dedicated counter
+   * APIs (`markRunningAsInterruptedOnBoot`, `resetRestartFailureCount`)
+   * may write that column. On INSERT the column gets `DEFAULT 0` from the
+   * schema. See `loop-store.spec.ts` "preserves restart_failure_count
+   * across routine upsertRun calls" for the regression guard.
+   *
+   * `manual_review_only` (FU-2 persistence) IS included so the flag
+   * survives DB round-trips. The value is derived from the loop's
+   * configuration at start time and doesn't change during the run, so
+   * a clobbering UPDATE is safe (and on rehydration it must round-trip
+   * accurately — see migration 004).
+   */
   upsertRun(state: LoopState): void {
     this.db.prepare(`
       INSERT INTO loop_runs (
         id, chat_id, plan_file, config_json, status, started_at, ended_at,
         total_iterations, total_tokens, total_cost_cents, current_stage,
-        completed_file_rename_observed, highest_test_pass_count, end_reason, end_evidence_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        completed_file_rename_observed, highest_test_pass_count, end_reason,
+        end_evidence_json, manual_review_only
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         status = excluded.status,
         ended_at = excluded.ended_at,
@@ -160,7 +190,8 @@ export class LoopStore {
         completed_file_rename_observed = excluded.completed_file_rename_observed,
         highest_test_pass_count = excluded.highest_test_pass_count,
         end_reason = excluded.end_reason,
-        end_evidence_json = excluded.end_evidence_json
+        end_evidence_json = excluded.end_evidence_json,
+        manual_review_only = excluded.manual_review_only
     `).run(
       state.id,
       state.chatId,
@@ -177,6 +208,7 @@ export class LoopStore {
       state.highestTestPassCount,
       state.endReason ?? null,
       state.endEvidence ? JSON.stringify(state.endEvidence) : null,
+      state.manualReviewOnly ? 1 : 0,
     );
     for (const intent of state.terminalIntentHistory ?? []) {
       this.upsertTerminalIntent(intent);
@@ -347,14 +379,59 @@ export class LoopStore {
   }
 
   /**
-   * Mark all "running" loops as "paused" with reason `app-restart` — called
-   * at app boot. The user can then resume them after reviewing the trail.
+   * Mark all "running" loops as "paused" (or "failed" if they're in a
+   * crash spiral) on app boot. FU-3 logic:
+   *  - Each call increments `restart_failure_count` for every still-
+   *    running loop.
+   *  - When the count crosses `CRASH_LOOP_THRESHOLD` we mark the loop
+   *    `failed` with reason `crash-loop` rather than resurrecting it.
+   *  - A successful iteration calls `resetRestartFailureCount` so this
+   *    threshold only triggers when a loop genuinely crashes every
+   *    restart without making progress.
+   * Returns the total number of running-row updates applied.
    */
   markRunningAsInterruptedOnBoot(): number {
-    const result = this.db
-      .prepare("UPDATE loop_runs SET status = 'paused', end_reason = 'app-restart' WHERE status = 'running'")
-      .run();
-    return Number(result.changes ?? 0);
+    const rows = this.db
+      .prepare('SELECT id, restart_failure_count FROM loop_runs WHERE status = \'running\'')
+      .all<{ id: string; restart_failure_count: number | null }>();
+    let changes = 0;
+    const pauseStmt = this.db.prepare(
+      "UPDATE loop_runs SET status = 'paused', end_reason = 'app-restart', restart_failure_count = ? WHERE id = ?",
+    );
+    const failStmt = this.db.prepare(
+      "UPDATE loop_runs SET status = 'failed', end_reason = 'crash-loop', restart_failure_count = ?, ended_at = ? WHERE id = ?",
+    );
+    for (const row of rows) {
+      const nextCount = (row.restart_failure_count ?? 0) + 1;
+      if (nextCount >= CRASH_LOOP_THRESHOLD) {
+        const r = failStmt.run(nextCount, Date.now(), row.id);
+        changes += Number(r.changes ?? 0);
+      } else {
+        const r = pauseStmt.run(nextCount, row.id);
+        changes += Number(r.changes ?? 0);
+      }
+    }
+    return changes;
+  }
+
+  /**
+   * FU-3: reset the restart-failure counter for a loop. Called by the
+   * coordinator's iteration hook after a successful iteration so a
+   * loop that crashed once and then ran successfully isn't penalised
+   * on the next interruption.
+   */
+  resetRestartFailureCount(loopRunId: string): void {
+    this.db
+      .prepare('UPDATE loop_runs SET restart_failure_count = 0 WHERE id = ?')
+      .run(loopRunId);
+  }
+
+  /** FU-3: read the current restart-failure counter (mostly for tests). */
+  getRestartFailureCount(loopRunId: string): number {
+    const row = this.db
+      .prepare('SELECT restart_failure_count FROM loop_runs WHERE id = ?')
+      .get<{ restart_failure_count: number | null }>(loopRunId);
+    return row?.restart_failure_count ?? 0;
   }
 
   /**

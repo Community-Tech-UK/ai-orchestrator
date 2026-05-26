@@ -4,6 +4,7 @@ const POLL_TIMEOUT_MS = 10000;
 const POLL_IDLE_DELAY_MS = 250;
 const POLL_ERROR_DELAY_MS = 5000;
 const MAX_INVENTORY_TABS = 40;
+const CONTROL_GROUP_TITLE = 'AI Orchestrator';
 
 let nativePort = null;
 let pollInFlight = false;
@@ -69,6 +70,8 @@ function connectNativePort() {
     void handleNativeMessage(message);
   });
   nativePort.onDisconnect.addListener(() => {
+    // Read lastError so handled native-host disconnects do not surface as extension errors.
+    void chrome.runtime.lastError?.message;
     nativePort = null;
     pollInFlight = false;
     setTimeout(() => {
@@ -178,7 +181,7 @@ async function reportTab(tab) {
 }
 
 async function shareActiveTab() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tab = await findActiveWebTabForSharing();
   if (!isWebTab(tab)) {
     throw new Error('No active Chrome tab is available to share.');
   }
@@ -197,26 +200,63 @@ async function shareActiveTab() {
   };
 }
 
+async function findActiveWebTabForSharing() {
+  const focusedTabs = await chrome.tabs.query({
+    active: true,
+    lastFocusedWindow: true,
+  }).catch(() => []);
+  const focusedTab = focusedTabs.find(isWebTab);
+  if (focusedTab) {
+    return focusedTab;
+  }
+
+  const currentWindowTabs = await chrome.tabs.query({
+    active: true,
+    currentWindow: true,
+  }).catch(() => []);
+  const currentWindowTab = currentWindowTabs.find(isWebTab);
+  if (currentWindowTab) {
+    return currentWindowTab;
+  }
+
+  const tabs = await chrome.tabs.query({}).catch(() => []);
+  return tabs.find((tab) => tab.active && isWebTab(tab))
+    ?? tabs.find(isWebTab)
+    ?? null;
+}
+
 async function executeBrowserCommand(command) {
   switch (command.command) {
     case 'open_tab': {
       const url = requirePayloadString(command, 'url');
       const tab = await chrome.tabs.create({ url, active: true });
-      await waitForTabComplete(tab.id);
-      return buildTabPayload(await chrome.tabs.get(tab.id), {
-        includeText: true,
-        includeScreenshot: true,
-      });
+      await startControlledTab(tab.id);
+      try {
+        await waitForTabComplete(tab.id);
+        await installControlGlow(tab.id);
+        return buildTabPayload(await chrome.tabs.get(tab.id), {
+          includeText: true,
+          includeScreenshot: true,
+        });
+      } finally {
+        await stopControlledTab(tab.id);
+      }
     }
     case 'navigate': {
       const tabId = requireTargetTabId(command);
       const url = requirePayloadString(command, 'url');
-      const tab = await chrome.tabs.update(tabId, { url, active: true });
-      await waitForTabComplete(tabId);
-      return buildTabPayload(tab || await chrome.tabs.get(tabId), {
-        includeText: true,
-        includeScreenshot: true,
-      });
+      await startControlledTab(tabId);
+      try {
+        const tab = await chrome.tabs.update(tabId, { url, active: true });
+        await waitForTabComplete(tabId);
+        await installControlGlow(tabId);
+        return buildTabPayload(tab || await chrome.tabs.get(tabId), {
+          includeText: true,
+          includeScreenshot: true,
+        });
+      } finally {
+        await stopControlledTab(tabId);
+      }
     }
     case 'click':
       return runInTargetTab(command, clickElementScript, [
@@ -237,16 +277,28 @@ async function executeBrowserCommand(command) {
         requirePayloadString(command, 'value'),
       ]);
     case 'snapshot': {
-      const tab = await chrome.tabs.get(requireTargetTabId(command));
-      return buildTabPayload(tab, { includeText: true });
+      const tabId = requireTargetTabId(command);
+      await startControlledTab(tabId);
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        return buildTabPayload(tab, { includeText: true });
+      } finally {
+        await stopControlledTab(tabId);
+      }
     }
     case 'screenshot': {
-      const tab = await chrome.tabs.get(requireTargetTabId(command));
-      await focusTab(tab);
-      return {
-        screenshotBase64: await captureScreenshot(tab.windowId),
-        capturedAt: Date.now(),
-      };
+      const tabId = requireTargetTabId(command);
+      await startControlledTab(tabId);
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        await focusTab(tab);
+        return {
+          screenshotBase64: await captureScreenshot(tab.windowId),
+          capturedAt: Date.now(),
+        };
+      } finally {
+        await stopControlledTab(tabId);
+      }
     }
     case 'wait_for':
       return runInTargetTab(command, waitForElementScript, [
@@ -260,13 +312,18 @@ async function executeBrowserCommand(command) {
 
 async function runInTargetTab(command, func, args) {
   const tabId = requireTargetTabId(command);
-  const [result] = await chrome.scripting.executeScript({
-    target: { tabId },
-    func,
-    args,
-  });
-  await reportTab(await chrome.tabs.get(tabId));
-  return result?.result ?? null;
+  await startControlledTab(tabId);
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func,
+      args,
+    });
+    await reportTab(await chrome.tabs.get(tabId));
+    return result?.result ?? null;
+  } finally {
+    await stopControlledTab(tabId);
+  }
 }
 
 async function buildTabPayload(tab, options = {}) {
@@ -338,6 +395,109 @@ async function focusTab(tab) {
   if (typeof tab.id === 'number') {
     await chrome.tabs.update(tab.id, { active: true }).catch(() => undefined);
   }
+}
+
+async function startControlledTab(tabId) {
+  if (typeof tabId !== 'number') {
+    return;
+  }
+  await Promise.all([
+    markControlledTabGroup(tabId),
+    installControlGlow(tabId),
+  ]);
+}
+
+async function stopControlledTab(tabId) {
+  if (typeof tabId !== 'number') {
+    return;
+  }
+  await removeControlGlow(tabId);
+}
+
+async function markControlledTabGroup(tabId) {
+  if (!chrome.tabs?.group || !chrome.tabGroups?.update) {
+    return;
+  }
+
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  const noGroupId = chrome.tabGroups.TAB_GROUP_ID_NONE ?? -1;
+  let groupId = typeof tab?.groupId === 'number' ? tab.groupId : noGroupId;
+  if (groupId !== noGroupId) {
+    const group = await chrome.tabGroups.get(groupId).catch(() => null);
+    if (group?.title !== CONTROL_GROUP_TITLE) {
+      groupId = await chrome.tabs.group({ tabIds: tabId }).catch(() => groupId);
+    }
+  } else {
+    groupId = await chrome.tabs.group({ tabIds: tabId }).catch(() => noGroupId);
+  }
+
+  if (typeof groupId === 'number' && groupId !== noGroupId) {
+    await chrome.tabGroups.update(groupId, {
+      title: CONTROL_GROUP_TITLE,
+      color: 'blue',
+      collapsed: false,
+    }).catch(() => undefined);
+  }
+}
+
+async function installControlGlow(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: installControlGlowScript,
+  }).catch(() => undefined);
+}
+
+async function removeControlGlow(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: removeControlGlowScript,
+  }).catch(() => undefined);
+}
+
+function installControlGlowScript() {
+  const styleId = 'aio-browser-control-glow-style';
+  const elementId = 'aio-browser-control-glow';
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = `
+      @keyframes aio-browser-control-glow-pulse {
+        0%, 100% {
+          opacity: 0.82;
+          box-shadow:
+            inset 0 0 28px 7px rgba(37, 99, 235, 0.52),
+            inset 0 0 8px 2px rgba(147, 197, 253, 0.9);
+        }
+        50% {
+          opacity: 1;
+          box-shadow:
+            inset 0 0 42px 10px rgba(37, 99, 235, 0.7),
+            inset 0 0 12px 3px rgba(147, 197, 253, 0.95);
+        }
+      }
+
+      #aio-browser-control-glow {
+        position: fixed;
+        inset: 0;
+        border: 2px solid rgba(96, 165, 250, 0.95);
+        pointer-events: none;
+        z-index: 2147483647;
+        animation: aio-browser-control-glow-pulse 1.6s ease-in-out infinite;
+      }
+    `;
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  if (!document.getElementById(elementId)) {
+    const glow = document.createElement('div');
+    glow.id = elementId;
+    glow.setAttribute('aria-hidden', 'true');
+    document.documentElement.appendChild(glow);
+  }
+}
+
+function removeControlGlowScript() {
+  document.getElementById('aio-browser-control-glow')?.remove();
 }
 
 function clickElementScript(selector) {

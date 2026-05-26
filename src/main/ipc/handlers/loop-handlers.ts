@@ -48,6 +48,12 @@ export function registerLoopHandlers(deps: {
     try {
       store.upsertRun(state);
       store.insertIteration(iteration);
+      // FU-3: a completed iteration means the loop is making progress
+      // through restarts. Reset the consecutive-interruption counter so
+      // a loop that crashed once and then ran a clean iteration is back
+      // in good standing — the next boot will only re-arm the counter
+      // if the iteration ends without completing.
+      store.resetRestartFailureCount(state.id);
     } catch (err) {
       logger.warn('LoopStore persistence failed for iteration', { error: String(err) });
     }

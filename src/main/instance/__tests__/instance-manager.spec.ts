@@ -1456,21 +1456,7 @@ describe('InstanceManager', () => {
   // =========================================================================
 
   describe('handleChildExit auto-capture', () => {
-    /**
-     * Regression test for the "echo-back" bug:
-     *
-     * When a child instance is spawned, its outputBuffer is pre-seeded with a
-     * slice of the parent's recent messages so the child has context. If the
-     * child terminates without producing any output, the auto-capture logic in
-     * handleChildExit would previously pick up the LAST assistant message from
-     * the buffer — which would be one of the PARENT's messages we copied in —
-     * and store it as the child's "result". That manifested in the UI as the
-     * child appearing to succeed while echoing back the parent's prior text.
-     *
-     * Fix: seeded messages are tagged `metadata.seededFromParent = true`, and
-     * the auto-capture code skips them when finding the child's last assistant
-     * message.
-     */
+    // Regression: seeded parent messages must not be stored as the child's result.
     it('skips seeded parent messages and stores a "no output" summary instead of echoing them back', async () => {
       const parent = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,

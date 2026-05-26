@@ -22,7 +22,6 @@ import type {
   BrowserListGrantsRequest,
   BrowserManualStepRequest,
   BrowserPermissionGrant,
-  BrowserProvider,
   BrowserRequestGrantRequest,
   BrowserRequestUserLoginRequest,
   BrowserRevokeGrantRequest,
@@ -82,10 +81,8 @@ import {
   redactElementContext,
 } from './browser-redaction';
 import {
-  classifyBrowserAction,
   classifyBrowserFillForm,
 } from './browser-action-classifier';
-import { findMatchingBrowserGrant } from './browser-grant-policy';
 import { validateBrowserUploadPath } from './browser-upload-policy';
 import {
   BrowserExtensionTabStore,
@@ -97,6 +94,11 @@ import {
   getBrowserExtensionCommandStore,
   type BrowserExtensionCommandName,
 } from './browser-extension-command-store';
+import {
+  BrowserGatewayActionGuard,
+  providerFromContext,
+  type BrowserGatewayResultInput,
+} from './browser-gateway-action-guard';
 
 export interface BrowserGatewayContext {
   instanceId?: string;
@@ -225,6 +227,7 @@ export class BrowserGatewayService {
   private readonly grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
   private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
   private readonly healthService: Pick<BrowserHealthService, 'diagnose'>;
+  private readonly actionGuard: BrowserGatewayActionGuard;
 
   constructor(options: BrowserGatewayServiceOptions = {}) {
     this.profileStore = options.profileStore ?? getBrowserProfileStore();
@@ -237,6 +240,15 @@ export class BrowserGatewayService {
     this.grantStore = options.grantStore ?? getBrowserGrantStore();
     this.approvalStore = options.approvalStore ?? getBrowserApprovalStore();
     this.healthService = options.healthService ?? getBrowserHealthService();
+    this.actionGuard = new BrowserGatewayActionGuard({
+      profileStore: this.profileStore,
+      targetRegistry: this.targetRegistry,
+      driver: this.driver,
+      extensionTabStore: this.extensionTabStore,
+      grantStore: this.grantStore,
+      approvalStore: this.approvalStore,
+      result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
+    });
   }
 
   static getInstance(): BrowserGatewayService {
@@ -1006,7 +1018,7 @@ export class BrowserGatewayService {
   async click(
     request: BrowserGatewayContext & BrowserClickRequest,
   ): Promise<BrowserGatewayResult<null>> {
-    const prepared = await this.prepareMutatingAction(
+    const prepared = await this.actionGuard.prepareMutatingAction(
       request,
       'click',
       'browser.click',
@@ -1016,7 +1028,7 @@ export class BrowserGatewayService {
     if (prepared.result) {
       return prepared.result;
     }
-    const recheck = this.recheckPreparedGrant(request, 'click', 'browser.click', prepared);
+    const recheck = this.actionGuard.recheckPreparedGrant(request, 'click', 'browser.click', prepared);
     if (recheck) {
       return recheck;
     }
@@ -1074,7 +1086,7 @@ export class BrowserGatewayService {
   async type(
     request: BrowserGatewayContext & BrowserTypeRequest,
   ): Promise<BrowserGatewayResult<null>> {
-    const prepared = await this.prepareMutatingAction(
+    const prepared = await this.actionGuard.prepareMutatingAction(
       request,
       'type',
       'browser.type',
@@ -1084,7 +1096,7 @@ export class BrowserGatewayService {
     if (prepared.result) {
       return prepared.result;
     }
-    const recheck = this.recheckPreparedGrant(request, 'type', 'browser.type', prepared);
+    const recheck = this.actionGuard.recheckPreparedGrant(request, 'type', 'browser.type', prepared);
     if (recheck) {
       return recheck;
     }
@@ -1098,16 +1110,16 @@ export class BrowserGatewayService {
       } else {
         await this.driver.type(request.profileId, request.targetId, request.selector, request.value);
       }
-      return this.mutationSucceeded(request, 'type', 'browser.type', prepared);
+      return this.actionGuard.mutationSucceeded(request, 'type', 'browser.type', prepared);
     } catch (error) {
-      return this.mutationFailed(request, 'type', 'browser.type', prepared, error);
+      return this.actionGuard.mutationFailed(request, 'type', 'browser.type', prepared, error);
     }
   }
 
   async select(
     request: BrowserGatewayContext & BrowserSelectRequest,
   ): Promise<BrowserGatewayResult<null>> {
-    const prepared = await this.prepareMutatingAction(
+    const prepared = await this.actionGuard.prepareMutatingAction(
       request,
       'select',
       'browser.select',
@@ -1117,7 +1129,7 @@ export class BrowserGatewayService {
     if (prepared.result) {
       return prepared.result;
     }
-    const recheck = this.recheckPreparedGrant(request, 'select', 'browser.select', prepared);
+    const recheck = this.actionGuard.recheckPreparedGrant(request, 'select', 'browser.select', prepared);
     if (recheck) {
       return recheck;
     }
@@ -1131,16 +1143,16 @@ export class BrowserGatewayService {
       } else {
         await this.driver.select(request.profileId, request.targetId, request.selector, request.value);
       }
-      return this.mutationSucceeded(request, 'select', 'browser.select', prepared);
+      return this.actionGuard.mutationSucceeded(request, 'select', 'browser.select', prepared);
     } catch (error) {
-      return this.mutationFailed(request, 'select', 'browser.select', prepared, error);
+      return this.actionGuard.mutationFailed(request, 'select', 'browser.select', prepared, error);
     }
   }
 
   async uploadFile(
     request: BrowserGatewayContext & BrowserUploadFileRequest,
   ): Promise<BrowserGatewayResult<null>> {
-    const prepared = await this.prepareMutatingAction(
+    const prepared = await this.actionGuard.prepareMutatingAction(
       request,
       'upload_file',
       'browser.upload_file',
@@ -1150,7 +1162,7 @@ export class BrowserGatewayService {
     if (prepared.result) {
       return prepared.result;
     }
-    const recheck = this.recheckPreparedGrant(
+    const recheck = this.actionGuard.recheckPreparedGrant(
       request,
       'upload_file',
       'browser.upload_file',
@@ -1191,7 +1203,7 @@ export class BrowserGatewayService {
       );
       const approval = this.approvalStore.createRequest({
         instanceId: request.instanceId ?? 'unknown',
-        provider: this.providerFromContext(request.provider),
+        provider: providerFromContext(request.provider),
         profileId: request.profileId,
         targetId: request.targetId,
         toolName: 'browser.upload_file',
@@ -1236,9 +1248,9 @@ export class BrowserGatewayService {
         request.selector,
         uploadDecision.resolvedPath ?? request.filePath,
       );
-      return this.mutationSucceeded(request, 'upload_file', 'browser.upload_file', prepared);
+      return this.actionGuard.mutationSucceeded(request, 'upload_file', 'browser.upload_file', prepared);
     } catch (error) {
-      return this.mutationFailed(request, 'upload_file', 'browser.upload_file', prepared, error);
+      return this.actionGuard.mutationFailed(request, 'upload_file', 'browser.upload_file', prepared, error);
     }
   }
 
@@ -1248,7 +1260,7 @@ export class BrowserGatewayService {
     const firstField = request.fields[0]!;
     const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
     if (existingTab) {
-      const prepared = await this.prepareMutatingAction(
+      const prepared = await this.actionGuard.prepareMutatingAction(
         request,
         'fill_form',
         'browser.fill_form',
@@ -1262,7 +1274,7 @@ export class BrowserGatewayService {
       if (prepared.result) {
         return prepared.result;
       }
-      const recheck = this.recheckPreparedGrant(
+      const recheck = this.actionGuard.recheckPreparedGrant(
         request,
         'fill_form',
         'browser.fill_form',
@@ -1275,13 +1287,13 @@ export class BrowserGatewayService {
         await this.sendExistingTabCommand(existingTab, 'fill_form', {
           fields: request.fields,
         });
-        return this.mutationSucceeded(request, 'fill_form', 'browser.fill_form', prepared);
+        return this.actionGuard.mutationSucceeded(request, 'fill_form', 'browser.fill_form', prepared);
       } catch (error) {
-        return this.mutationFailed(request, 'fill_form', 'browser.fill_form', prepared, error);
+        return this.actionGuard.mutationFailed(request, 'fill_form', 'browser.fill_form', prepared, error);
       }
     }
 
-    const gate = await this.prepareMutatingAction(
+    const gate = await this.actionGuard.prepareMutatingAction(
       request,
       'fill_form',
       'browser.fill_form',
@@ -1311,7 +1323,7 @@ export class BrowserGatewayService {
           ),
         });
       } catch {
-        const prepared = await this.prepareMutatingAction(
+        const prepared = await this.actionGuard.prepareMutatingAction(
           request,
           'fill_form',
           'browser.fill_form',
@@ -1331,7 +1343,7 @@ export class BrowserGatewayService {
     }
     const classification = classifyBrowserFillForm(inspectedFields);
     if (classification.actionClass === 'credential' || classification.actionClass === 'unknown') {
-      const prepared = await this.prepareMutatingAction(
+      const prepared = await this.actionGuard.prepareMutatingAction(
         request,
         'fill_form',
         'browser.fill_form',
@@ -1355,7 +1367,7 @@ export class BrowserGatewayService {
       });
     }
 
-    const prepared = await this.prepareMutatingAction(
+    const prepared = await this.actionGuard.prepareMutatingAction(
       request,
       'fill_form',
       'browser.fill_form',
@@ -1366,7 +1378,7 @@ export class BrowserGatewayService {
     if (prepared.result) {
       return prepared.result;
     }
-    const recheck = this.recheckPreparedGrant(
+    const recheck = this.actionGuard.recheckPreparedGrant(
       request,
       'fill_form',
       'browser.fill_form',
@@ -1380,9 +1392,9 @@ export class BrowserGatewayService {
         selector: field.selector,
         value: field.value,
       })));
-      return this.mutationSucceeded(request, 'fill_form', 'browser.fill_form', prepared);
+      return this.actionGuard.mutationSucceeded(request, 'fill_form', 'browser.fill_form', prepared);
     } catch (error) {
-      return this.mutationFailed(request, 'fill_form', 'browser.fill_form', prepared, error);
+      return this.actionGuard.mutationFailed(request, 'fill_form', 'browser.fill_form', prepared, error);
     }
   }
 
@@ -1434,7 +1446,7 @@ export class BrowserGatewayService {
     const actionClass = this.primaryActionClass(request.proposedGrant.allowedActionClasses);
     const approval = this.approvalStore.createRequest({
       instanceId: request.instanceId ?? 'unknown',
-      provider: this.providerFromContext(request.provider),
+      provider: providerFromContext(request.provider),
       profileId: profile.id,
       targetId: target.id,
       toolName: 'browser.request_grant',
@@ -1801,7 +1813,7 @@ export class BrowserGatewayService {
     const prompt = params.request.reason?.trim() || params.defaultPrompt;
     const approval = this.approvalStore.createRequest({
       instanceId: params.request.instanceId ?? 'unknown',
-      provider: this.providerFromContext(params.request.provider),
+      provider: providerFromContext(params.request.provider),
       profileId: params.request.profileId,
       targetId: params.request.targetId,
       toolName: params.toolName,
@@ -1951,336 +1963,6 @@ export class BrowserGatewayService {
     }
   }
 
-  private async prepareMutatingAction(
-    request: BrowserGatewayContext & { profileId: string; targetId: string },
-    action: string,
-    toolName: string,
-    selector: string,
-    actionHint?: string,
-    classificationOverride?: ReturnType<typeof classifyBrowserAction>,
-  ): Promise<
-    | {
-        result: BrowserGatewayResult<null>;
-      }
-    | {
-        result?: undefined;
-        grant: ReturnType<BrowserGrantStore['listGrants']>[number];
-        actionClass: BrowserActionClass;
-        origin: string;
-        url: string;
-      }
-  > {
-    const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
-    if (existingTab) {
-      return this.prepareExistingTabMutatingAction(
-        request,
-        existingTab,
-        action,
-        toolName,
-        selector,
-        actionHint,
-        classificationOverride,
-      );
-    }
-
-    const profile = this.profileStore.getProfile(request.profileId);
-    const { target, error } = profile
-      ? await this.getLiveTarget(request.profileId, request.targetId)
-      : { target: null, error: undefined };
-    const currentUrl = target?.url;
-    if (!profile || !target || !currentUrl) {
-      return {
-        result: this.result({
-          context: request,
-          profileId: request.profileId,
-          targetId: request.targetId,
-          action,
-          toolName,
-          actionClass: 'unknown',
-          decision: 'denied',
-          outcome: 'not_run',
-          reason: error ?? 'profile_target_or_url_not_found',
-          summary: error
-            ? `${toolName} denied because the live browser target could not be refreshed: ${error}`
-            : `${toolName} denied because the profile, target, or URL was not found`,
-          data: null,
-        }),
-      };
-    }
-
-    const originDecision = isOriginAllowed(currentUrl, profile.allowedOrigins);
-    if (!originDecision.allowed) {
-      return {
-        result: this.result({
-          context: request,
-          profileId: profile.id,
-          targetId: target.id,
-          action,
-          toolName,
-          actionClass: 'unknown',
-          decision: 'denied',
-          outcome: 'not_run',
-          reason: originDecision.reason,
-          summary: `${toolName} denied by Browser Gateway origin policy: ${originDecision.reason}`,
-          url: currentUrl,
-          data: null,
-        }),
-      };
-    }
-
-    let elementContext: Awaited<ReturnType<PuppeteerBrowserDriver['inspectElement']>>;
-    try {
-      elementContext = redactElementContext(
-        await this.driver.inspectElement(profile.id, target.id, selector),
-      );
-    } catch (inspectError) {
-      const message = inspectError instanceof Error ? inspectError.message : String(inspectError);
-      const approval = this.approvalStore.createRequest({
-        instanceId: request.instanceId ?? 'unknown',
-        provider: this.providerFromContext(request.provider),
-        profileId: profile.id,
-        targetId: target.id,
-        toolName,
-        action,
-        actionClass: 'unknown',
-        origin: originDecision.origin,
-        url: currentUrl,
-        selector,
-        proposedGrant: {
-          mode: 'per_action',
-          allowedOrigins: [originDecision.matchedOrigin],
-          allowedActionClasses: ['unknown'],
-          allowExternalNavigation: false,
-          autonomous: false,
-        },
-        expiresAt: Date.now() + 30 * 60 * 1000,
-      });
-      return {
-        result: this.result({
-          context: request,
-          profileId: profile.id,
-          targetId: target.id,
-          action,
-          toolName,
-          actionClass: 'unknown',
-          decision: 'requires_user',
-          outcome: 'not_run',
-          requestId: approval.requestId,
-          reason: 'element_context_unavailable',
-          summary: `${toolName} requires user approval because element context could not be inspected: ${message}`,
-          origin: originDecision.origin,
-          url: currentUrl,
-          data: null,
-        }),
-      };
-    }
-    const classification = classificationOverride ?? classifyBrowserAction({
-      toolName,
-      actionHint,
-      elementContext,
-    });
-    const grants = this.grantStore.listGrants({
-      instanceId: request.instanceId,
-      profileId: profile.id,
-    });
-    const match = findMatchingBrowserGrant({
-      grants,
-      instanceId: request.instanceId ?? '',
-      provider: this.providerFromContext(request.provider),
-      profileId: profile.id,
-      targetId: target.id,
-      origin: originDecision.origin,
-      liveOrigin: target.origin ?? originDecision.origin,
-      actionClass: classification.actionClass,
-      autonomousRequired:
-        classification.actionClass === 'submit' ||
-        classification.actionClass === 'destructive',
-    });
-
-    if (!match.grant || classification.hardStop) {
-      const approval = this.approvalStore.createRequest({
-        instanceId: request.instanceId ?? 'unknown',
-        provider: this.providerFromContext(request.provider),
-        profileId: profile.id,
-        targetId: target.id,
-        toolName,
-        action,
-        actionClass: classification.actionClass,
-        origin: originDecision.origin,
-        url: currentUrl,
-        selector,
-        elementContext,
-        proposedGrant: {
-          mode: 'per_action',
-          allowedOrigins: [originDecision.matchedOrigin],
-          allowedActionClasses: [classification.actionClass],
-          allowExternalNavigation: false,
-          autonomous: false,
-        },
-        expiresAt: Date.now() + 30 * 60 * 1000,
-      });
-      return {
-        result: this.result({
-          context: request,
-          profileId: profile.id,
-          targetId: target.id,
-          action,
-          toolName,
-          actionClass: classification.actionClass,
-          decision: 'requires_user',
-          outcome: 'not_run',
-          requestId: approval.requestId,
-          reason: classification.reason ?? match.reason,
-          summary: `${toolName} requires user approval`,
-          origin: originDecision.origin,
-          url: currentUrl,
-          data: null,
-        }),
-      };
-    }
-
-    return {
-      grant: match.grant,
-      actionClass: classification.actionClass,
-      origin: originDecision.origin,
-      url: currentUrl,
-    };
-  }
-
-  private recheckPreparedGrant(
-    request: BrowserGatewayContext & { profileId: string; targetId: string },
-    action: string,
-    toolName: string,
-    prepared: {
-      grant: ReturnType<BrowserGrantStore['listGrants']>[number];
-      actionClass: BrowserActionClass;
-      origin: string;
-      url: string;
-    },
-  ): BrowserGatewayResult<null> | null {
-    const grants = this.grantStore.listGrants({
-      instanceId: request.instanceId,
-      profileId: request.profileId,
-    });
-    const match = findMatchingBrowserGrant({
-      grants,
-      instanceId: request.instanceId ?? '',
-      provider: this.providerFromContext(request.provider),
-      profileId: request.profileId,
-      targetId: request.targetId,
-      origin: prepared.origin,
-      liveOrigin: prepared.origin,
-      actionClass: prepared.actionClass,
-      autonomousRequired:
-        prepared.actionClass === 'submit' ||
-        prepared.actionClass === 'destructive',
-    });
-    if (match.grant?.id === prepared.grant.id) {
-      return null;
-    }
-
-    const approval = this.approvalStore.createRequest({
-      instanceId: request.instanceId ?? 'unknown',
-      provider: this.providerFromContext(request.provider),
-      profileId: request.profileId,
-      targetId: request.targetId,
-      toolName,
-      action,
-      actionClass: prepared.actionClass,
-      origin: prepared.origin,
-      url: prepared.url,
-      proposedGrant: {
-        mode: 'per_action',
-        allowedOrigins: prepared.grant.allowedOrigins,
-        allowedActionClasses: [prepared.actionClass],
-        allowExternalNavigation: false,
-        uploadRoots: prepared.grant.uploadRoots,
-        autonomous: false,
-      },
-      expiresAt: Date.now() + 30 * 60 * 1000,
-    });
-    return this.result({
-      context: request,
-      profileId: request.profileId,
-      targetId: request.targetId,
-      action,
-      toolName,
-      actionClass: prepared.actionClass,
-      decision: 'requires_user',
-      outcome: 'not_run',
-      requestId: approval.requestId,
-      reason: match.reason ?? 'grant_changed_before_execution',
-      summary: `${toolName} requires user approval because the grant changed before execution`,
-      origin: prepared.origin,
-      url: prepared.url,
-      data: null,
-    });
-  }
-
-  private mutationSucceeded(
-    request: BrowserGatewayContext & { profileId: string; targetId: string },
-    action: string,
-    toolName: string,
-    prepared: {
-      grant: ReturnType<BrowserGrantStore['listGrants']>[number];
-      actionClass: BrowserActionClass;
-      origin: string;
-      url: string;
-    },
-  ): BrowserGatewayResult<null> {
-    if (prepared.grant.mode === 'per_action') {
-      this.grantStore.consumeGrant(prepared.grant.id);
-    }
-    return this.result({
-      context: request,
-      profileId: request.profileId,
-      targetId: request.targetId,
-      action,
-      toolName,
-      actionClass: prepared.actionClass,
-      decision: 'allowed',
-      outcome: 'succeeded',
-      summary: `Executed ${toolName} under approved grant`,
-      origin: prepared.origin,
-      url: prepared.url,
-      grantId: prepared.grant.id,
-      autonomous: prepared.grant.autonomous,
-      data: null,
-    });
-  }
-
-  private mutationFailed(
-    request: BrowserGatewayContext & { profileId: string; targetId: string },
-    action: string,
-    toolName: string,
-    prepared: {
-      grant: ReturnType<BrowserGrantStore['listGrants']>[number];
-      actionClass: BrowserActionClass;
-      origin: string;
-      url: string;
-    },
-    error: unknown,
-  ): BrowserGatewayResult<null> {
-    const message = error instanceof Error ? error.message : String(error);
-    return this.result({
-      context: request,
-      profileId: request.profileId,
-      targetId: request.targetId,
-      action,
-      toolName,
-      actionClass: prepared.actionClass,
-      decision: 'allowed',
-      outcome: 'failed',
-      reason: message,
-      summary: `${toolName} failed: ${message}`,
-      origin: prepared.origin,
-      url: prepared.url,
-      grantId: prepared.grant.id,
-      autonomous: prepared.grant.autonomous,
-      data: null,
-    });
-  }
-
   private findExistingTabCandidate(
     url: string | undefined,
     titleHint: string | undefined,
@@ -2406,122 +2088,6 @@ export class BrowserGatewayService {
       ...(payload ? { payload } : {}),
       timeoutMs: 30_000,
     });
-  }
-
-  private prepareExistingTabMutatingAction(
-    request: BrowserGatewayContext & { profileId: string; targetId: string },
-    attachment: BrowserExistingTabAttachment,
-    action: string,
-    toolName: string,
-    selector: string,
-    actionHint?: string,
-    classificationOverride?: ReturnType<typeof classifyBrowserAction>,
-  ):
-    | {
-        result: BrowserGatewayResult<null>;
-      }
-    | {
-        result?: undefined;
-        grant: ReturnType<BrowserGrantStore['listGrants']>[number];
-        actionClass: BrowserActionClass;
-        origin: string;
-        url: string;
-      } {
-    const originDecision = isOriginAllowed(attachment.url, attachment.allowedOrigins);
-    if (!originDecision.allowed) {
-      return {
-        result: this.result({
-          context: request,
-          profileId: attachment.profileId,
-          targetId: attachment.targetId,
-          action,
-          toolName,
-          actionClass: 'unknown',
-          decision: 'denied',
-          outcome: 'not_run',
-          reason: originDecision.reason,
-          summary: `${toolName} denied by existing Chrome tab origin policy: ${originDecision.reason}`,
-          url: attachment.url,
-          data: null,
-        }),
-      };
-    }
-
-    const elementContext = redactElementContext({
-      visibleText: actionHint,
-      nearbyText: actionHint,
-    });
-    const classification = classificationOverride ?? classifyBrowserAction({
-      toolName,
-      actionHint,
-      elementContext,
-    });
-    const grants = this.grantStore.listGrants({
-      instanceId: request.instanceId,
-      profileId: attachment.profileId,
-    });
-    const match = findMatchingBrowserGrant({
-      grants,
-      instanceId: request.instanceId ?? '',
-      provider: this.providerFromContext(request.provider),
-      profileId: attachment.profileId,
-      targetId: attachment.targetId,
-      origin: originDecision.origin,
-      liveOrigin: attachment.origin,
-      actionClass: classification.actionClass,
-      autonomousRequired:
-        classification.actionClass === 'submit' ||
-        classification.actionClass === 'destructive',
-    });
-
-    if (!match.grant || classification.hardStop) {
-      const approval = this.approvalStore.createRequest({
-        instanceId: request.instanceId ?? 'unknown',
-        provider: this.providerFromContext(request.provider),
-        profileId: attachment.profileId,
-        targetId: attachment.targetId,
-        toolName,
-        action,
-        actionClass: classification.actionClass,
-        origin: originDecision.origin,
-        url: attachment.url,
-        selector,
-        elementContext,
-        proposedGrant: {
-          mode: 'per_action',
-          allowedOrigins: [originDecision.matchedOrigin],
-          allowedActionClasses: [classification.actionClass],
-          allowExternalNavigation: false,
-          autonomous: false,
-        },
-        expiresAt: Date.now() + 30 * 60 * 1000,
-      });
-      return {
-        result: this.result({
-          context: request,
-          profileId: attachment.profileId,
-          targetId: attachment.targetId,
-          action,
-          toolName,
-          actionClass: classification.actionClass,
-          decision: 'requires_user',
-          outcome: 'not_run',
-          requestId: approval.requestId,
-          reason: classification.reason ?? match.reason,
-          summary: `${toolName} requires user approval for existing Chrome tab control`,
-          origin: originDecision.origin,
-          url: attachment.url,
-          data: null,
-        }),
-      };
-    }
-
-    return {
-      grant: match.grant,
-      actionClass: classification.actionClass,
-      origin: originDecision.origin,
-      url: attachment.url,
-    };
   }
 
   private extractTabPayload(result: unknown): BrowserAttachExistingTabRequest {
@@ -2812,17 +2378,6 @@ export class BrowserGatewayService {
 
   private safeAgentString(value: string, maxLength: number): string {
     return redactAgentString(value).slice(0, maxLength);
-  }
-
-  private providerFromContext(provider: string | undefined): BrowserProvider {
-    return provider === 'claude' ||
-      provider === 'codex' ||
-      provider === 'gemini' ||
-      provider === 'copilot' ||
-      provider === 'cursor' ||
-      provider === 'orchestrator'
-      ? provider
-      : 'orchestrator';
   }
 
   private getScopedApprovalRequest(

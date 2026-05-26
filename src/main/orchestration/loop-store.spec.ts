@@ -158,6 +158,108 @@ describe('LoopStore.listRunsForChat', () => {
   });
 });
 
+describe('FU-3: LoopStore restart-failure counter', () => {
+  function insertRunningRun(id: string, restartFailureCount = 0): void {
+    driver.prepare(`
+      INSERT INTO loop_runs (
+        id, chat_id, plan_file, config_json, status, started_at, ended_at,
+        total_iterations, total_tokens, total_cost_cents, current_stage,
+        completed_file_rename_observed, highest_test_pass_count, end_reason,
+        end_evidence_json, restart_failure_count
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      'chat-1',
+      null,
+      JSON.stringify(defaultLoopConfig('/tmp/project', 'goal')),
+      'running',
+      1,
+      null,
+      0,
+      0,
+      0,
+      'IMPLEMENT',
+      0,
+      0,
+      null,
+      null,
+      restartFailureCount,
+    );
+  }
+
+  it('increments restart_failure_count and pauses the loop on a single interruption', () => {
+    insertRunningRun('loop-a', 0);
+    expect(store.markRunningAsInterruptedOnBoot()).toBe(1);
+    expect(store.getRestartFailureCount('loop-a')).toBe(1);
+
+    const row = driver.prepare('SELECT status, end_reason FROM loop_runs WHERE id = ?')
+      .get<{ status: string; end_reason: string }>('loop-a');
+    expect(row?.status).toBe('paused');
+    expect(row?.end_reason).toBe('app-restart');
+  });
+
+  it('marks the loop failed (crash-loop) once the counter crosses the threshold', () => {
+    insertRunningRun('loop-crash', 2);
+    expect(store.markRunningAsInterruptedOnBoot()).toBe(1);
+    expect(store.getRestartFailureCount('loop-crash')).toBe(3);
+
+    const row = driver.prepare('SELECT status, end_reason, ended_at FROM loop_runs WHERE id = ?')
+      .get<{ status: string; end_reason: string; ended_at: number | null }>('loop-crash');
+    expect(row?.status).toBe('failed');
+    expect(row?.end_reason).toBe('crash-loop');
+    expect(row?.ended_at).not.toBeNull();
+  });
+
+  it('resetRestartFailureCount zeroes the counter so an interruption after progress only counts once again', () => {
+    insertRunningRun('loop-recovered', 2);
+    store.resetRestartFailureCount('loop-recovered');
+    expect(store.getRestartFailureCount('loop-recovered')).toBe(0);
+    store.markRunningAsInterruptedOnBoot();
+    expect(store.getRestartFailureCount('loop-recovered')).toBe(1);
+  });
+
+  it('getRestartFailureCount returns 0 for an unknown loop', () => {
+    expect(store.getRestartFailureCount('does-not-exist')).toBe(0);
+  });
+
+  it('FU-2 persistence: round-trips manualReviewOnly through upsertRun (migration 004)', () => {
+    const state = makeState({ id: 'loop-mro', manualReviewOnly: true });
+    store.upsertRun(state);
+    const row = driver
+      .prepare('SELECT manual_review_only FROM loop_runs WHERE id = ?')
+      .get<{ manual_review_only: number }>('loop-mro');
+    expect(row?.manual_review_only).toBe(1);
+
+    // Update path: flipping the in-memory value must update the column.
+    store.upsertRun({ ...state, manualReviewOnly: false });
+    const after = driver
+      .prepare('SELECT manual_review_only FROM loop_runs WHERE id = ?')
+      .get<{ manual_review_only: number }>('loop-mro');
+    expect(after?.manual_review_only).toBe(0);
+  });
+
+  it('preserves restart_failure_count across routine upsertRun calls (counter not in UPDATE clause)', () => {
+    // Simulate: app boots, increments counter to 1, then the user resumes
+    // the loop and the coordinator upserts state on every state-change.
+    // Each upsert must NOT clobber the counter — only the dedicated
+    // markRunningAsInterruptedOnBoot / resetRestartFailureCount paths
+    // are allowed to write the column.
+    insertRunningRun('loop-preserve', 2);
+    store.markRunningAsInterruptedOnBoot();
+    expect(store.getRestartFailureCount('loop-preserve')).toBe(3);
+
+    // Simulate the loop being "started" / state-changed repeatedly.
+    const state = makeState({ id: 'loop-preserve', status: 'running' });
+    store.upsertRun(state);
+    store.upsertRun({ ...state, totalIterations: 1 });
+    store.upsertRun({ ...state, totalIterations: 2 });
+
+    // Counter must still be 3 — upsertRun is allowed to change status and
+    // counters but must leave restart_failure_count alone.
+    expect(store.getRestartFailureCount('loop-preserve')).toBe(3);
+  });
+});
+
 describe('LoopStore terminal intents', () => {
   it('persists terminal intent history when a run is upserted', () => {
     store.upsertRun(makeState({

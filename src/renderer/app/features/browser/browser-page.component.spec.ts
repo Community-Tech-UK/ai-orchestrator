@@ -333,6 +333,14 @@ describe('BrowserPageComponent', () => {
     expect(text).toContain('resources/browser-extension');
   });
 
+  it('refreshes targets without the selected profile filter so extension tabs appear', async () => {
+    service.listTargets.mockClear();
+
+    await fixture.componentInstance.refreshTargets();
+
+    expect(service.listTargets).toHaveBeenCalledWith({});
+  });
+
   it('renders screenshot base64 with a data URL prefix', async () => {
     await fixture.componentInstance.captureScreenshot();
     fixture.detectChanges();

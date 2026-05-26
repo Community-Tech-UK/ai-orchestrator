@@ -56,6 +56,38 @@ describe('LoopStageMachine', () => {
     expect(p).toContain('requireCompletedFileRename');
   });
 
+  it('FU-2: buildPrompt includes the manual-review-only block when manualReviewOnly=true', () => {
+    const m = new LoopStageMachine(tmpDir);
+    const cfg = defaultLoopConfig(tmpDir, 'x');
+    const p = m.buildPrompt({
+      config: cfg,
+      iterationSeq: 0,
+      pendingInterventions: [],
+      manualReviewOnly: true,
+    });
+    expect(p).toContain('Manual-Review-Only Loop');
+    expect(p).toContain('verifyCommand');
+    expect(p).toContain('pause the loop for the operator to review');
+  });
+
+  it('FU-2: buildPrompt omits the manual-review-only block when manualReviewOnly is false/undefined', () => {
+    const m = new LoopStageMachine(tmpDir);
+    const cfg = defaultLoopConfig(tmpDir, 'x');
+    const p1 = m.buildPrompt({
+      config: cfg,
+      iterationSeq: 0,
+      pendingInterventions: [],
+      manualReviewOnly: false,
+    });
+    expect(p1).not.toContain('Manual-Review-Only Loop');
+    const p2 = m.buildPrompt({
+      config: cfg,
+      iterationSeq: 0,
+      pendingInterventions: [],
+    });
+    expect(p2).not.toContain('Manual-Review-Only Loop');
+  });
+
   it('buildPrompt omits the uncompleted-plans block when none are provided', () => {
     const m = new LoopStageMachine(tmpDir);
     const cfg = defaultLoopConfig(tmpDir, 'x');

@@ -8,7 +8,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const LOOP_SCHEMA_VERSION = 2;
+export const LOOP_SCHEMA_VERSION = 4;
 
 interface LoopMigration {
   version: number;
@@ -102,6 +102,32 @@ const MIGRATIONS: LoopMigration[] = [
 
       CREATE INDEX IF NOT EXISTS idx_loop_terminal_intents_status
         ON loop_terminal_intents(status, received_at DESC);
+    `,
+  },
+  {
+    // FU-3: persist a per-run restart-failure counter so the boot-time
+    // interrupt handler can detect loops that crash on every restart
+    // (each boot interrupt without intervening successful iteration
+    // bumps the count). When the counter crosses a threshold the loop
+    // is marked `failed` with reason `crash-loop` instead of being
+    // restored to `paused`, preventing an infinite restart spiral.
+    version: 3,
+    name: '003_loop_runs_restart_failure_count',
+    up: `
+      ALTER TABLE loop_runs ADD COLUMN restart_failure_count INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    // FU-2 persistence: store the manual-review flag so a rehydrated
+    // paused loop keeps its "no verify command" semantics through an
+    // app restart. Without this, on a future resume-from-DB path the
+    // Zod schema's `.default(false)` would lie about the loop's
+    // configuration and the agent's prompt would no longer warn about
+    // manual review.
+    version: 4,
+    name: '004_loop_runs_manual_review_only',
+    up: `
+      ALTER TABLE loop_runs ADD COLUMN manual_review_only INTEGER NOT NULL DEFAULT 0;
     `,
   },
 ];

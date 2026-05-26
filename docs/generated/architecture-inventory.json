@@ -4685,10 +4685,6 @@
       "lines": 2952
     },
     {
-      "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2897
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-16-worker-agent-autostart-service.md",
       "lines": 2867
     },
@@ -4729,16 +4725,16 @@
       "lines": 2500
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-service.ts",
+      "lines": 2452
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
       "lines": 2339
     },
     {
       "path": "src/main/instance/instance-communication.ts",
       "lines": 2236
-    },
-    {
-      "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2170
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
@@ -4767,6 +4763,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-remote-nodes-phase1-phase2.COMPLETED.md",
       "lines": 2078
+    },
+    {
+      "path": "src/main/cli/adapters/acp-cli-adapter.ts",
+      "lines": 2071
     },
     {
       "path": "docs/superpowers/plans/2026-04-04-remote-nodes-settings_completed.md",
@@ -4817,8 +4817,12 @@
       "lines": 1613
     },
     {
+      "path": "src/main/orchestration/loop-coordinator.ts",
+      "lines": 1612
+    },
+    {
       "path": "src/main/instance/__tests__/instance-manager.spec.ts",
-      "lines": 1607
+      "lines": 1593
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
@@ -4853,10 +4857,6 @@
       "lines": 1507
     },
     {
-      "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 1489
-    },
-    {
       "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
       "lines": 1489
     },
@@ -4865,16 +4865,16 @@
       "lines": 1478
     },
     {
-      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
-      "lines": 1476
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-08-phase2-provider-tool-sdk_completed.md",
       "lines": 1457
     },
     {
       "path": "docs/superpowers/plans/2026-04-04-agentic-harness-hardening_completed.md",
       "lines": 1456
+    },
+    {
+      "path": "src/main/orchestration/default-invokers.ts",
+      "lines": 1436
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency.md",
@@ -4899,10 +4899,6 @@
     {
       "path": "src/renderer/app/features/knowledge/knowledge-page.component.ts",
       "lines": 1322
-    },
-    {
-      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
-      "lines": 1320
     },
     {
       "path": "src/main/memory/unified-controller.ts",
@@ -4962,7 +4958,7 @@
     },
     {
       "path": "src/renderer/app/features/browser/browser-page.component.ts",
-      "lines": 1214
+      "lines": 1208
     },
     {
       "path": "src/renderer/app/features/plugins/plugins-page.component.ts",
@@ -4983,6 +4979,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-streaming-tool-executor.COMPLETED.md",
       "lines": 1177
+    },
+    {
+      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
+      "lines": 1174
     },
     {
       "path": "src/main/workspace/git/vcs-manager.ts",
@@ -5065,8 +5065,8 @@
       "lines": 1104
     },
     {
-      "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1072
+      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
+      "lines": 1089
     },
     {
       "path": "src/renderer/app/features/file-explorer/file-explorer.component.ts",

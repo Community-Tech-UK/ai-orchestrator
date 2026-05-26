@@ -177,10 +177,8 @@ describe('LoopCoordinator terminal intents', () => {
     expect(invokeCount).toBe(1);
   });
 
-  it('defers a complete intent from an intervention-consuming iteration', async () => {
-    const iterationComplete = waitForEvent(coordinator, 'loop:iteration-complete');
-    let completed = false;
-    coordinator.once('loop:completed', () => { completed = true; });
+  it('accepts a complete intent from an intervention-consuming iteration when verify passes', async () => {
+    const completed = waitForEvent<{ signal: string }>(coordinator, 'loop:completed', 1000);
     coordinator.on('loop:started', ({ loopRunId }: { loopRunId: string }) => {
       expect(coordinator.intervene(loopRunId, 'operator correction')).toBe(true);
     });
@@ -204,25 +202,194 @@ describe('LoopCoordinator terminal intents', () => {
       caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 2 },
       completion: {
         ...defaultLoopConfig(workspace, 'x').completion,
-        verifyCommand: 'false',
+        verifyCommand: 'true',
         runVerifyTwice: false,
         requireCompletedFileRename: false,
         crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
       },
     });
 
-    await iterationComplete;
-    const live = coordinator.getLoop(state.id);
-    expect(live?.terminalIntentPending).toBeUndefined();
-    expect(live?.terminalIntentHistory).toEqual([
+    await expect(completed).resolves.toMatchObject({ signal: 'declared-complete' });
+    await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'completed');
+    expect(coordinator.getLoop(state.id)?.terminalIntentHistory).toEqual([
       expect.objectContaining({
         kind: 'complete',
-        status: 'deferred',
-        statusReason: 'Completion intent was declared in an intervention-consuming iteration',
+        status: 'accepted',
+        statusReason: 'completion accepted via declared-complete',
       }),
     ]);
-    expect(completed).toBe(false);
-    await coordinator.cancelLoop(state.id);
+  });
+
+  it('pushes verify failure output into the next pending intervention', async () => {
+    const claimedFailed = waitForEvent<{ failure: string }>(
+      coordinator,
+      'loop:claimed-done-but-failed',
+      1000,
+    );
+    const iterationComplete = waitForEvent(coordinator, 'loop:iteration-complete', 1000);
+    coordinator.on('loop:invoke-iteration', async (payload: unknown) => {
+      const p = payload as {
+        loopControlEnv: NodeJS.ProcessEnv;
+        callback: (result: LoopChildResult | { error: string }) => void;
+      };
+      const code = await runLoopControlCli(
+        ['node', 'aio-loop-control', 'complete', '--summary', 'all done'],
+        p.loopControlEnv,
+        silentIo(),
+      );
+      expect(code).toBe(0);
+      p.callback(iterationResult('declared complete'));
+    });
+
+    const state = await coordinator.startLoop('chat-verify-failed-feedback', {
+      initialPrompt: 'do thing',
+      workspaceCwd: workspace,
+      caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1 },
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        verifyCommand: `"${process.execPath}" -e "console.error('first verify failed'); process.exit(1)"`,
+        runVerifyTwice: false,
+        requireCompletedFileRename: false,
+        crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
+      },
+    });
+
+    try {
+      await expect(claimedFailed).resolves.toMatchObject({
+        failure: expect.stringContaining('first verify failed'),
+      });
+      await iterationComplete;
+      expect(coordinator.getLoop(state.id)?.pendingInterventions).toEqual([
+        expect.stringContaining('first verify failed'),
+      ]);
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  });
+
+  it('pushes second verify failure output into the next pending intervention', async () => {
+    writeFileSync(
+      join(workspace, 'verify-second.js'),
+      [
+        "const fs = require('node:fs');",
+        "const p = 'verify-count.txt';",
+        "const n = fs.existsSync(p) ? Number(fs.readFileSync(p, 'utf8')) : 0;",
+        "fs.writeFileSync(p, String(n + 1));",
+        'if (n === 0) process.exit(0);',
+        "console.error('second verify failed');",
+        'process.exit(1);',
+      ].join('\n'),
+    );
+    const claimedFailed = waitForEvent<{ failure: string }>(
+      coordinator,
+      'loop:claimed-done-but-failed',
+      1000,
+    );
+    const iterationComplete = waitForEvent(coordinator, 'loop:iteration-complete', 1000);
+    coordinator.on('loop:invoke-iteration', async (payload: unknown) => {
+      const p = payload as {
+        loopControlEnv: NodeJS.ProcessEnv;
+        callback: (result: LoopChildResult | { error: string }) => void;
+      };
+      const code = await runLoopControlCli(
+        ['node', 'aio-loop-control', 'complete', '--summary', 'all done'],
+        p.loopControlEnv,
+        silentIo(),
+      );
+      expect(code).toBe(0);
+      p.callback(iterationResult('declared complete'));
+    });
+
+    const state = await coordinator.startLoop('chat-second-verify-failed-feedback', {
+      initialPrompt: 'do thing',
+      workspaceCwd: workspace,
+      caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1 },
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        verifyCommand: `"${process.execPath}" verify-second.js`,
+        runVerifyTwice: true,
+        requireCompletedFileRename: false,
+        crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
+      },
+    });
+
+    try {
+      await expect(claimedFailed).resolves.toMatchObject({
+        failure: expect.stringContaining('second verify failed'),
+      });
+      await iterationComplete;
+      expect(coordinator.getLoop(state.id)?.pendingInterventions).toEqual([
+        expect.stringContaining('second verify failed'),
+      ]);
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  });
+
+  it('pushes completed-file rename gate failure into the next pending intervention', async () => {
+    const claimedFailed = waitForEvent<{ failure: string }>(
+      coordinator,
+      'loop:claimed-done-but-failed',
+      1000,
+    );
+    const iterationComplete = waitForEvent(coordinator, 'loop:iteration-complete', 1000);
+    coordinator.on('loop:invoke-iteration', async (payload: unknown) => {
+      const p = payload as {
+        loopControlEnv: NodeJS.ProcessEnv;
+        callback: (result: LoopChildResult | { error: string }) => void;
+      };
+      const code = await runLoopControlCli(
+        ['node', 'aio-loop-control', 'complete', '--summary', 'all done'],
+        p.loopControlEnv,
+        silentIo(),
+      );
+      expect(code).toBe(0);
+      p.callback(iterationResult('declared complete'));
+    });
+
+    const state = await coordinator.startLoop('chat-rename-gate-feedback', {
+      initialPrompt: 'do thing',
+      workspaceCwd: workspace,
+      caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1 },
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        verifyCommand: 'true',
+        runVerifyTwice: false,
+        requireCompletedFileRename: true,
+        crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
+      },
+    });
+
+    try {
+      await expect(claimedFailed).resolves.toMatchObject({
+        failure: expect.stringContaining('no *_Completed.md rename observed'),
+      });
+      await iterationComplete;
+      expect(coordinator.getLoop(state.id)?.pendingInterventions).toEqual([
+        expect.stringContaining('*_Completed.md rename'),
+      ]);
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  });
+
+  it('uses iterationTimeoutMs for the child invocation backstop', async () => {
+    const loopError = waitForEvent<{ error: string }>(coordinator, 'loop:error', 1000);
+    coordinator.on('loop:invoke-iteration', () => {
+      // Intentionally never invokes the callback. The coordinator backstop
+      // must use the per-iteration timeout rather than the total wall cap.
+    });
+
+    await coordinator.startLoop('chat-iteration-timeout', {
+      initialPrompt: 'do thing',
+      workspaceCwd: workspace,
+      caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1, maxWallTimeMs: 250 },
+      iterationTimeoutMs: 25,
+    });
+
+    await expect(loopError).resolves.toMatchObject({
+      error: expect.stringContaining('timed out after 25ms'),
+    });
   });
 
   it('prefers a structured block intent over a simultaneous BLOCKED.md file and archives the file', async () => {
@@ -261,6 +428,84 @@ describe('LoopCoordinator terminal intents', () => {
     await paused;
     expect(coordinator.getLoop(state.id)?.status).toBe('paused');
     expect(existsSync(join(workspace, 'BLOCKED.md'))).toBe(false);
+  });
+
+  it('FU-2: marks the loop manual-review-only when no verifyCommand is configured', async () => {
+    const state = await coordinator.startLoop('chat-manual-review', {
+      initialPrompt: 'do thing',
+      workspaceCwd: workspace,
+      caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1 },
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        verifyCommand: '',
+        // crossModelReview off so no plan-file workspace state interferes.
+        crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
+      },
+    });
+    try {
+      expect(state.manualReviewOnly).toBe(true);
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  });
+
+  it('FU-2: does NOT mark manual-review-only when a verifyCommand is configured', async () => {
+    const state = await coordinator.startLoop('chat-not-manual-review', {
+      initialPrompt: 'do thing',
+      workspaceCwd: workspace,
+      caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1 },
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        verifyCommand: 'true',
+        crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
+      },
+    });
+    try {
+      expect(state.manualReviewOnly).toBe(false);
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  });
+
+  it('FU-8: cancelLoop awaits the registered adapter-cleanup hook', async () => {
+    let resolveCleanup: (() => void) | undefined;
+    const cleanupStarted = new Promise<string>((resolve) => {
+      coordinator.setAdapterCleanupHook(async (loopRunId: string) => {
+        resolve(loopRunId);
+        await new Promise<void>((r) => { resolveCleanup = r; });
+      });
+    });
+    coordinator.on('loop:invoke-iteration', () => {
+      // Never callback — hold the iteration so cancellation is mid-flight.
+    });
+
+    const state = await coordinator.startLoop('chat-cleanup-hook', {
+      initialPrompt: 'do thing',
+      workspaceCwd: workspace,
+      caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1, maxWallTimeMs: 60_000 },
+      iterationTimeoutMs: 60_000,
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        verifyCommand: 'true',
+        crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
+      },
+    });
+
+    let cancelDone = false;
+    const cancelPromise = coordinator.cancelLoop(state.id).then((ok) => {
+      cancelDone = true;
+      return ok;
+    });
+
+    // The hook must be entered (cancelLoop has called terminate, which
+    // invoked the hook), but cancelLoop must NOT have resolved yet — it's
+    // awaiting our hook's still-unresolved promise.
+    await expect(cleanupStarted).resolves.toBe(state.id);
+    expect(cancelDone).toBe(false);
+
+    // Resolve the hook; cancelLoop should now resolve.
+    resolveCleanup!();
+    await expect(cancelPromise).resolves.toBe(true);
   });
 
   it('treats a missing BLOCKED.md at archive time as benign (operator deleted manually) — no error event', async () => {
@@ -309,9 +554,24 @@ describe('LoopCoordinator terminal intents', () => {
   });
 });
 
-function waitForEvent<T = unknown>(coordinator: LoopCoordinator, eventName: string): Promise<T> {
-  return new Promise((resolve) => {
-    coordinator.once(eventName, (payload) => resolve(payload as T));
+function waitForEvent<T = unknown>(
+  coordinator: LoopCoordinator,
+  eventName: string,
+  timeoutMs?: number,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let timeout: NodeJS.Timeout | undefined;
+    const onEvent = (payload: unknown) => {
+      if (timeout) clearTimeout(timeout);
+      resolve(payload as T);
+    };
+    if (timeoutMs !== undefined) {
+      timeout = setTimeout(() => {
+        coordinator.off(eventName, onEvent);
+        reject(new Error(`Timed out waiting for ${eventName}`));
+      }, timeoutMs);
+    }
+    coordinator.once(eventName, onEvent);
   });
 }
 

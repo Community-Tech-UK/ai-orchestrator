@@ -105,6 +105,12 @@ export const LoopCompletionConfigSchema = z.object({
   verifyCommand: z.string(),
   allowOperatorReviewedCompletion: z.boolean().default(false),
   verifyTimeoutMs: z.number().int().positive().max(60 * 60 * 1000),
+  /** FU-6: optional cheap verify run BEFORE the heavyweight verifyCommand.
+   *  When configured and the cheap run fails, the loop rejects completion
+   *  without spending the full verify. When the cheap run passes (or no
+   *  command is set), the full verify runs unchanged. */
+  quickVerifyCommand: z.string().optional(),
+  quickVerifyTimeoutMs: z.number().int().positive().max(60 * 60 * 1000).optional(),
   runVerifyTwice: z.boolean(),
   requireCompletedFileRename: z.boolean(),
   /** Optional. When set, the loop coordinator runs a different CLI provider
@@ -281,6 +287,13 @@ export const LoopStateSchema = z.object({
    *  Used to auto-enable requireCompletedFileRename when uncompleted plans
    *  exist and the caller didn't explicitly configure the rename gate. */
   uncompletedPlanFilesAtStart: z.array(z.string()).default([]),
+  /** FU-2: true when no `verifyCommand` is configured. The loop can still
+   *  run but cannot auto-complete — every completion attempt will pause
+   *  the run for operator review. Surfaced to the renderer so the UI can
+   *  label these runs and to the iteration prompt so the agent learns the
+   *  constraint upfront. Defaults to false for back-compat with paused
+   *  rows persisted before the field existed. */
+  manualReviewOnly: z.boolean().default(false),
   tokensSinceLastTestImprovement: z.number().int().nonnegative(),
   highestTestPassCount: z.number().int().nonnegative(),
   iterationsOnCurrentStage: z.number().int().nonnegative(),

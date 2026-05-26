@@ -281,6 +281,14 @@ export class LoopStageMachine {
      * declaring done — this is the operator's contract with the loop.
      */
     uncompletedPlanFilesAtStart?: string[];
+    /**
+     * FU-2: when true, the loop has no `verifyCommand` configured so
+     * completion attempts will pause for human review rather than
+     * stopping the loop. Surfacing this in the prompt avoids the agent
+     * wasting an iteration on a completion attempt the loop cannot
+     * accept.
+     */
+    manualReviewOnly?: boolean;
   }): string {
     const {
       config,
@@ -288,6 +296,7 @@ export class LoopStageMachine {
       pendingInterventions,
       existingSessionContext,
       uncompletedPlanFilesAtStart = [],
+      manualReviewOnly = false,
     } = args;
     const planRef = config.planFile
       ? `the plan in \`${config.planFile}\` (referred to below as PLAN.md)`
@@ -296,6 +305,9 @@ export class LoopStageMachine {
       uncompletedPlanFilesAtStart.length > 0
         ? `\n\n## Uncompleted Plan Files Detected\nThe workspace root contained these uncompleted plan-like markdown files when the loop started:\n${uncompletedPlanFilesAtStart.map((f) => `  - \`${f}\``).join('\n')}\n\nThe loop coordinator has auto-enabled the \`requireCompletedFileRename\` gate. Writing \`DONE.txt\` alone is **not sufficient** — at least one of these files must be renamed to \`<name>_completed.md\` during the run before the loop will accept a stop signal. When you finish implementing all addressable items in a file, perform the rename (\`mv <name>.md <name>_completed.md\` or \`git mv\` if tracked). Items explicitly deferred to future architectural specs do not block the rename — document them in NOTES.md and rename anyway.\n\nAdditionally: when you declare done, the coordinator will run an **independent cross-model fresh-eyes review** (a different CLI provider reads your iteration output + workspace context). Any critical/high severity finding is automatically injected as a user intervention here in the prompt, and the loop continues with you addressing it. If you address every intervention and the reviewer has no further critical/high findings, the loop accepts completion. So: declaring done early just adds review cycles — be honest about whether the work is actually finished.\n`
         : '';
+    const manualReviewBlock = manualReviewOnly
+      ? '\n\n## Manual-Review-Only Loop\nThis loop has no `verifyCommand` configured. The coordinator cannot independently confirm completion: any completion attempt will pause the loop for the operator to review. **Do not declare completion until you are confident the work is truly done** — declaring early just pauses the loop for the operator without making progress. Configure a verify command in the loop settings if you want the coordinator to auto-confirm.\n'
+      : '';
     const interventions =
       pendingInterventions.length > 0
         ? `\n\n## User Intervention\nThe operator added the following hint(s) since the last iteration. Treat them as binding direction:\n\n${pendingInterventions.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n`
@@ -340,7 +352,7 @@ There is no human in the loop to answer questions. You must:
 2. Open ${planRef}.
 3. Open \`NOTES.md\`. It contains the rolling notes from prior iterations.
 4. Open \`ITERATION_LOG.md\` if you need detailed per-iteration history.
-5. If no plan file is configured and the goal is broad, maintain a \`## Completion Inventory\` section in \`NOTES.md\`: list discovered concrete work items, check them off only when fully implemented and verified, and add newly discovered items instead of losing them between iterations.${uncompletedPlansBlock}${interventions}${promptBlocks}
+5. If no plan file is configured and the goal is broad, maintain a \`## Completion Inventory\` section in \`NOTES.md\`: list discovered concrete work items, check them off only when fully implemented and verified, and add newly discovered items instead of losing them between iterations.${uncompletedPlansBlock}${manualReviewBlock}${interventions}${promptBlocks}
 
 ## Step 2 — Do this iteration's work
 

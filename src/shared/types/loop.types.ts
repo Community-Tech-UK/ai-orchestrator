@@ -103,6 +103,18 @@ export interface LoopCompletionConfig {
   allowOperatorReviewedCompletion: boolean; // default false
   /** Verify timeout in ms. */
   verifyTimeoutMs: number;          // default 600_000 (10 min)
+  /**
+   * Optional cheap verify command run BEFORE the heavyweight `verifyCommand`.
+   * When set, a completion attempt runs quick-verify first. If quick-verify
+   * fails, the loop rejects completion without running the expensive full
+   * verify — saving minutes of test/lint/build time per spurious completion
+   * attempt. If quick-verify passes, the loop runs the full `verifyCommand`
+   * exactly as before. Typical contents: `npx tsc --noEmit && npm run lint`
+   * (fast feedback) while `verifyCommand` holds the full test suite.
+   */
+  quickVerifyCommand?: string;
+  /** Quick-verify timeout in ms (if quickVerifyCommand is set). */
+  quickVerifyTimeoutMs?: number;    // default 120_000 (2 min)
   /** Run verify twice (anti-flake) before final stop. */
   runVerifyTwice: boolean;          // default true
   /**
@@ -250,6 +262,11 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       verifyCommand: '',
       allowOperatorReviewedCompletion: false,
       verifyTimeoutMs: 600_000,
+      // FU-6 quick-verify defaults: undefined command means the optimization
+      // is opt-in. A 2-minute timeout reflects "should be fast or it isn't
+      // a quick verify". Callers wanting the split set both fields.
+      quickVerifyCommand: undefined,
+      quickVerifyTimeoutMs: 120_000,
       runVerifyTwice: true,
       requireCompletedFileRename: false,
     },
@@ -483,6 +500,15 @@ export interface LoopState {
    * forgets to rename the plan files it was asked to implement.
    */
   uncompletedPlanFilesAtStart: string[];
+  /**
+   * True when the loop has no configured `verifyCommand` — every
+   * completion attempt will be paused for human review instead of
+   * auto-completing. Set once at startLoop based on the materialized
+   * config; surfaced to the renderer so the UI can label these runs,
+   * and to the prompt builder so the agent learns the constraint
+   * before its first completion attempt.
+   */
+  manualReviewOnly: boolean;
   /** Tracks tokens since last test-pass-count improvement. */
   tokensSinceLastTestImprovement: number;
   /** Highest test-pass-count seen so far. */

@@ -1,5 +1,11 @@
 const shareButton = document.getElementById('share');
+const reloadButton = document.getElementById('reload');
 const status = document.getElementById('status');
+
+const isDevExtension = !chrome.runtime.getManifest().update_url;
+if (isDevExtension) {
+  reloadButton.classList.add('visible');
+}
 
 shareButton.addEventListener('click', async () => {
   shareButton.disabled = true;
@@ -15,4 +21,9 @@ shareButton.addEventListener('click', async () => {
   } finally {
     shareButton.disabled = false;
   }
+});
+
+reloadButton.addEventListener('click', () => {
+  status.textContent = 'Reloading extension...';
+  chrome.runtime.reload();
 });

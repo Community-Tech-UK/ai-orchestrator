@@ -23,11 +23,7 @@ import type {
 import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gateway-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 
-interface BrowserSnapshotView {
-  title: string;
-  url: string;
-  text: string;
-}
+interface BrowserSnapshotView { title: string; url: string; text: string }
 
 @Component({
   selector: 'app-browser-page',
@@ -870,9 +866,7 @@ export class BrowserPageComponent implements OnInit {
   }
 
   async refreshTargets(): Promise<void> {
-    const response = await this.ipc.listTargets({
-      profileId: this.selectedProfileId() ?? undefined,
-    });
+    const response = await this.ipc.listTargets({});
     this.applyGatewayArray(response, this.targets);
     const selected = this.targets().find((target) => target.status === 'selected') ?? this.targets()[0];
     this.selectedTargetId.set(selected?.id ?? null);

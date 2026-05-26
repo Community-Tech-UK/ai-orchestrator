@@ -53,6 +53,10 @@ export class CompletedFileWatcher {
   private watcher: FSWatcher | null = null;
   private observed = false;
   private listeners = new Set<(filePath: string) => void>();
+  /** Listeners notified when every previously-observed completed file is gone. */
+  private undoneListeners = new Set<(filePath: string) => void>();
+  /** Absolute paths of completed files we've seen during the current run. */
+  private observedPaths = new Set<string>();
 
   constructor(
     public readonly workspaceCwd: string,
@@ -67,6 +71,20 @@ export class CompletedFileWatcher {
   onCompleted(listener: (filePath: string) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /**
+   * Subscribe to "completed file was undone" notifications. Fires when the
+   * last completed-pattern file we'd observed during the run disappears
+   * (rename reverted, file deleted). Allows the coordinator to clear the
+   * rename observation so the rename gate is re-evaluated on the next
+   * completion attempt — without this, an operator who reverts a premature
+   * `_completed.md` rename couldn't reset the loop's belief that completion
+   * happened.
+   */
+  onUndone(listener: (filePath: string) => void): () => void {
+    this.undoneListeners.add(listener);
+    return () => this.undoneListeners.delete(listener);
   }
 
   /** Scan once for an existing match (e.g. immediately after restart). */
@@ -97,16 +115,39 @@ export class CompletedFileWatcher {
       const base = path.basename(filePath);
       if (!re.test(base)) return;
       this.observed = true;
+      this.observedPaths.add(filePath);
       for (const l of this.listeners) {
         try { l(filePath); } catch (err) { logger.warn('CompletedFileWatcher listener threw', { error: String(err) }); }
       }
     };
-    // Listen to `add` only. A `mv X.md X_Completed.md` rename is reported by
-    // chokidar as `unlink('X.md')` + `add('X_Completed.md')`, so renames are
-    // covered. We deliberately do NOT listen to `change`: editing a
-    // pre-existing `*_Completed.md` (e.g. appending a "what we did" note)
-    // would otherwise trip completion on the edit, not on a rename.
+    const fireUndone = (filePath: string) => {
+      const base = path.basename(filePath);
+      if (!re.test(base)) return;
+      // Only meaningful if we'd previously observed this completion. A bare
+      // `unlink` event on a file we never saw doesn't represent an undo.
+      if (!this.observedPaths.delete(filePath)) return;
+      // Re-scan synchronously so we don't fire on transient mid-rename
+      // states. `mv a_completed.md b_completed.md` issues unlink+add; we
+      // ignore the unlink because scanOnce still sees a matching file.
+      if (this.scanOnce()) return;
+      this.observed = false;
+      for (const l of this.undoneListeners) {
+        try { l(filePath); } catch (err) { logger.warn('CompletedFileWatcher undone-listener threw', { error: String(err) }); }
+      }
+    };
+    // Listen to `add` for completion observation. A `mv X.md X_Completed.md`
+    // rename is reported by chokidar as `unlink('X.md')` + `add('X_Completed.md')`,
+    // so renames are covered. We deliberately do NOT listen to `change`:
+    // editing a pre-existing `*_Completed.md` (e.g. appending a "what we did"
+    // note) would otherwise trip completion on the edit, not on a rename.
+    //
+    // Listen to `unlink` to detect undo: if the operator reverts the rename
+    // (or deletes the completed file), the watcher must clear observation
+    // so the gate is re-evaluated. fireUndone re-scans before firing so a
+    // simple in-place rename (`mv a_completed.md b_completed.md`) doesn't
+    // cause a spurious undo notification.
     this.watcher.on('add', fire);
+    this.watcher.on('unlink', fireUndone);
   }
 
   async stop(): Promise<void> {
@@ -114,6 +155,8 @@ export class CompletedFileWatcher {
     try { await this.watcher.close(); } catch { /* noop */ }
     this.watcher = null;
     this.listeners.clear();
+    this.undoneListeners.clear();
+    this.observedPaths.clear();
   }
 
   private globToRegex(glob: string): RegExp {
@@ -308,10 +351,40 @@ export class LoopCompletionDetector {
       // distinct 'skipped' so the coordinator refuses to stop on it.
       return { status: 'skipped', output: '(no verify command configured)', durationMs: 0 };
     }
+    return this.spawnVerify(cmd, config.workspaceCwd, config.completion.verifyTimeoutMs, 'verify');
+  }
+
+  /**
+   * FU-6: run an optional cheap pre-flight verify before the full
+   * `verifyCommand`. Returns:
+   *  - 'skipped' when no quickVerifyCommand is configured (callers should
+   *    proceed directly to runVerify);
+   *  - 'passed' when the cheap command exits zero;
+   *  - 'failed' when the cheap command exits non-zero or times out.
+   *
+   * A failed quick-verify lets the coordinator reject completion without
+   * spending the (typically minutes-long) full verify on a known-failing
+   * change.
+   */
+  async runQuickVerify(config: LoopConfig): Promise<VerifyOutcome> {
+    const cmd = (config.completion.quickVerifyCommand || '').trim();
+    if (!cmd) {
+      return { status: 'skipped', output: '(no quick verify command configured)', durationMs: 0 };
+    }
+    const timeout = config.completion.quickVerifyTimeoutMs ?? 120_000;
+    return this.spawnVerify(cmd, config.workspaceCwd, timeout, 'quick-verify');
+  }
+
+  private spawnVerify(
+    cmd: string,
+    workspaceCwd: string,
+    timeoutMs: number,
+    label: 'verify' | 'quick-verify',
+  ): Promise<VerifyOutcome> {
     const started = Date.now();
     return new Promise<VerifyOutcome>((resolve) => {
       const child = spawn(cmd, [], {
-        cwd: config.workspaceCwd,
+        cwd: workspaceCwd,
         shell: true,
         env: { ...process.env, CI: '1' },
       });
@@ -334,11 +407,11 @@ export class LoopCompletionDetector {
         try { child.kill('SIGKILL'); } catch { /* noop */ }
         resolve({
           status: 'failed',
-          output: `${stdout}\n${stderr}\n(timed out after ${config.completion.verifyTimeoutMs}ms)`,
+          output: `${stdout}\n${stderr}\n(${label} timed out after ${timeoutMs}ms)`,
           durationMs: Date.now() - started,
           exitCode: null,
         });
-      }, config.completion.verifyTimeoutMs);
+      }, timeoutMs);
 
       child.on('close', (code) => {
         clearTimeout(to);
@@ -353,7 +426,7 @@ export class LoopCompletionDetector {
         clearTimeout(to);
         resolve({
           status: 'failed',
-          output: `verify command failed to spawn: ${err.message}`,
+          output: `${label} command failed to spawn: ${err.message}`,
           durationMs: Date.now() - started,
           exitCode: null,
         });

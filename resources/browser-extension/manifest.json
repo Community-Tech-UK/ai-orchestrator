@@ -9,6 +9,7 @@
     "alarms",
     "nativeMessaging",
     "scripting",
+    "tabGroups",
     "tabs"
   ],
   "host_permissions": [

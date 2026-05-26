@@ -178,6 +178,20 @@ describe('signal D — test oscillation', () => {
 });
 
 describe('signal D-prime — test stagnation with file writes', () => {
+  it('returns null when every iteration has null testPassCount', () => {
+    const fileWrite = { path: 'x', additions: 1, deletions: 0, contentHash: 'h' };
+    const history = Array.from({ length: T.testStagnationCriticalIterations - 1 }, (_, i) =>
+      makeIteration({ seq: i, testPassCount: null, filesChanged: [fileWrite] }),
+    );
+    const current = makeIteration({
+      seq: T.testStagnationCriticalIterations - 1,
+      testPassCount: null,
+      filesChanged: [fileWrite],
+    });
+
+    expect(signalDPrime_testStagnationWithWrites(history, current, T)).toBeNull();
+  });
+
   it('null when test count changes', () => {
     const history = [
       makeIteration({ testPassCount: 1, filesChanged: [{ path: 'x', additions: 1, deletions: 0, contentHash: 'h' }] }),
@@ -347,5 +361,66 @@ describe('LoopProgressDetector aggregator', () => {
     const block = det.shouldRefuseToSpawnNext(makeState(), history);
     expect(block).not.toBeNull();
     expect(block?.id).toBe('A');
+  });
+});
+
+describe('FU-4: weak-signal confirmation phase', () => {
+  const det = new LoopProgressDetector();
+  const text = 'I will refactor the verification pipeline to extract a coordinator and a runner so the lifecycle is clearer';
+  // Distinct work hashes per iteration so signal A doesn't fire alongside H —
+  // we want to isolate the weak-signal downgrade behaviour for H.
+  const iter = (seq: number, progressSignals: LoopIteration['progressSignals'] = []) =>
+    makeIteration({ seq, outputExcerpt: text, workHash: `h-${seq}`, progressSignals });
+
+  it('downgrades signal H CRITICAL to WARN on first occurrence when no strong signal accompanies it', () => {
+    const history = [iter(0), iter(1)];
+    const current = iter(2);
+    const result = det.evaluate(makeState(), history, current);
+    expect(result.verdict).toBe('WARN');
+    const h = result.signals.find((s) => s.id === 'H');
+    expect(h?.verdict).toBe('WARN');
+    expect(h?.message).toContain('provisional');
+  });
+
+  it('keeps signal H CRITICAL when the previous iteration also recorded an H signal (confirmed)', () => {
+    const history = [
+      iter(0),
+      iter(1, [{ id: 'H', verdict: 'WARN', message: 'prior H' }]),
+    ];
+    const current = iter(2);
+    const result = det.evaluate(makeState(), history, current);
+    expect(result.verdict).toBe('CRITICAL');
+    const h = result.signals.find((s) => s.id === 'H');
+    expect(h?.verdict).toBe('CRITICAL');
+    expect(h?.message).not.toContain('provisional');
+  });
+
+  it('keeps signal H CRITICAL when a strong signal also fires this iteration', () => {
+    // Same hash across iterations triggers signal A as the strong signal.
+    const history = [
+      makeIteration({ outputExcerpt: text, workHash: 'X', progressSignals: [] }),
+      makeIteration({ outputExcerpt: text, workHash: 'X', progressSignals: [] }),
+    ];
+    const current = makeIteration({ outputExcerpt: text, workHash: 'X' });
+    const result = det.evaluate(makeState(), history, current);
+    expect(result.verdict).toBe('CRITICAL');
+    const h = result.signals.find((s) => s.id === 'H');
+    expect(h?.verdict).toBe('CRITICAL');
+  });
+
+  it('shouldRefuseToSpawnNext does not block when H is unconfirmed', () => {
+    const history = [iter(0), iter(1), iter(2)];
+    const block = det.shouldRefuseToSpawnNext(makeState(), history);
+    expect(block).toBeNull();
+  });
+
+  it('shouldRefuseToSpawnNext blocks when H was recorded in the prior iteration too', () => {
+    const history = [
+      iter(0),
+      iter(1, [{ id: 'H', verdict: 'WARN', message: 'prior' }]),
+      iter(2, [{ id: 'H', verdict: 'WARN', message: 'prior' }]),
+    ];
+    const block = det.shouldRefuseToSpawnNext(makeState(), history);
+    expect(block?.id).toBe('H');
   });
 });

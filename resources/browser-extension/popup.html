@@ -29,6 +29,18 @@
         cursor: pointer;
       }
 
+      button + button {
+        margin-top: 8px;
+      }
+
+      .dev-only {
+        display: none;
+      }
+
+      .dev-only.visible {
+        display: block;
+      }
+
       #status {
         min-height: 18px;
         margin-top: 10px;
@@ -41,6 +53,7 @@
   <body>
     <h1>AI Orchestrator</h1>
     <button id="share" type="button">Share Current Tab</button>
+    <button id="reload" class="dev-only" type="button">Reload Extension</button>
     <div id="status" role="status"></div>
     <script src="popup.js"></script>
   </body>

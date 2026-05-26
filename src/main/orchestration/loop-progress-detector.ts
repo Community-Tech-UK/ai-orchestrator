@@ -302,7 +302,8 @@ export function signalDPrime_testStagnationWithWrites(
   const tail = all.slice(-Math.max(th.testStagnationCriticalIterations, th.testStagnationWarnIterations));
   if (tail.length === 0) return null;
 
-  // strip leading entries that have null counts
+  // Only evaluate the contiguous prefix with present test counts. Missing
+  // counts mean there is no reliable stagnation window across that gap.
   let k = tail.length;
   for (let i = 0; i < tail.length; i++) {
     if (tail[i].testPassCount == null) {
@@ -310,7 +311,7 @@ export function signalDPrime_testStagnationWithWrites(
       break;
     }
   }
-  const usable = tail.slice(0, k > 0 ? k : tail.length);
+  const usable = tail.slice(0, k);
   if (usable.length < th.testStagnationWarnIterations) return null;
 
   const first = usable[0].testPassCount;
@@ -578,6 +579,23 @@ export interface LoopProgressEvaluation {
 /** Order by signal severity then by ID priority. */
 const SIGNAL_PRIORITY: ProgressSignalId[] = ['A', 'B', 'D', 'D-prime', 'E', 'C', 'F', 'G', 'H'];
 
+/**
+ * FU-4: weak signals — heuristic indicators (tool-call repetition,
+ * output similarity) that can produce false positives on legitimate
+ * work (refactors that reuse the same tools, plan/notes iterations
+ * that share boilerplate). When one of these signals fires CRITICAL
+ * in isolation — i.e. without a strong signal also firing in this
+ * iteration AND without the same weak signal firing in the previous
+ * iteration — we downgrade it to WARN so the standard warn-escalation
+ * window has to confirm the pattern before the loop pauses.
+ *
+ * The set is intentionally small. Hash repeat (A), churn (B), test
+ * oscillation (D), test stagnation (D-prime), and stage stagnation
+ * (C) are all structural — repeats only when the agent really is
+ * stuck — so they don't get the downgrade.
+ */
+export const WEAK_PROGRESS_SIGNAL_IDS: readonly ProgressSignalId[] = ['G', 'H'];
+
 export class LoopProgressDetector {
   /**
    * Evaluate a freshly-completed iteration and return progress verdict +
@@ -603,6 +621,26 @@ export class LoopProgressDetector {
     const signals: ProgressSignalEvidence[] = candidates.filter(
       (s): s is ProgressSignalEvidence => s !== null,
     );
+
+    // FU-4: confirmation phase for weak signals. If a weak signal is the
+    // ONLY CRITICAL in this iteration and didn't fire in the previous
+    // iteration, downgrade it to WARN. A genuine "stuck" pattern will
+    // fire the same weak signal again next iteration; the warn-escalation
+    // window then promotes it back to CRITICAL. This stops a single
+    // noisy heuristic from pausing the loop on a one-off coincidence.
+    const prevSignals = history[history.length - 1]?.progressSignals ?? [];
+    const strongCriticalPresent = signals.some(
+      (s) => s.verdict === 'CRITICAL' && !WEAK_PROGRESS_SIGNAL_IDS.includes(s.id),
+    );
+    for (const sig of signals) {
+      if (sig.verdict !== 'CRITICAL') continue;
+      if (!WEAK_PROGRESS_SIGNAL_IDS.includes(sig.id)) continue;
+      if (strongCriticalPresent) continue;
+      const firedPrev = prevSignals.some((p) => p.id === sig.id);
+      if (firedPrev) continue;
+      sig.verdict = 'WARN';
+      sig.message = `${sig.message} (provisional — needs confirmation next iteration)`;
+    }
 
     let verdict: LoopVerdict = 'OK';
     for (const s of signals) verdict = maxVerdict(verdict, s.verdict);
@@ -655,6 +693,7 @@ export class LoopProgressDetector {
   ): ProgressSignalEvidence | null {
     if (history.length < 2) return null;
     const last = history[history.length - 1];
+    const prev = history[history.length - 2];
     // Re-run signals A, B, D, D', H against the trailing iterations alone —
     // these are the "looped without progress" signals. C/F are already
     // evaluated as part of state and would have paused the loop already.
@@ -666,7 +705,19 @@ export class LoopProgressDetector {
       signalDPrime_testStagnationWithWrites(history.slice(0, -1), last, th),
       signalH_outputSimilarity(history.slice(0, -1), last, th),
     ];
-    for (const s of candidates) if (s && s.verdict === 'CRITICAL') return s;
+    for (const s of candidates) {
+      if (!s || s.verdict !== 'CRITICAL') continue;
+      // FU-4: weak signals (G, H) need confirmation. If H is the only
+      // CRITICAL here and didn't also fire in the previous iteration,
+      // hold off on blocking. The next iteration will see the same
+      // signal pattern and either re-fire (confirming) or clear (false
+      // positive).
+      if (WEAK_PROGRESS_SIGNAL_IDS.includes(s.id)) {
+        const firedPrev = prev?.progressSignals.some((p) => p.id === s.id);
+        if (!firedPrev) continue;
+      }
+      return s;
+    }
     return null;
   }
 }

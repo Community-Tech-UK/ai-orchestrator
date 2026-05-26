@@ -566,11 +566,24 @@ export abstract class BaseCliAdapter extends EventEmitter {
     // Wire stream idle watchdog: reset on stdout data, clear on process close.
     // We use 'close' rather than 'exit' because stdout may still have buffered
     // data after 'exit' fires (flagged by Copilot/gpt-5.2 review).
+    //
+    // FU-1: idle is "no meaningful activity", not just "no stdout". We reset
+    // the watchdog on stderr too (test runners and build tools often log
+    // progress only to stderr), and on `heartbeat` events that subclasses
+    // emit when the process is demonstrably alive — codex's app-server
+    // reasoning summaries, mcp tool calls, exec-mode liveness pings, etc.
+    // External callers can also nudge the watchdog via `noteActivity()`.
     proc.stdout?.on('data', () => this.resetStreamIdleWatchdog(generation));
-    proc.stderr?.on('data', () => this.emit('stderr'));
+    proc.stderr?.on('data', () => {
+      this.emit('stderr');
+      this.resetStreamIdleWatchdog(generation);
+    });
+    const heartbeatListener = () => this.resetStreamIdleWatchdog(generation);
+    this.on('heartbeat', heartbeatListener);
     proc.on('close', () => {
       this.processAlive = false;
       this.clearStreamIdleWatchdog();
+      this.off('heartbeat', heartbeatListener);
     });
 
     // Guard against EPIPE errors on stdin/stdout — these occur when the CLI
@@ -621,6 +634,20 @@ export abstract class BaseCliAdapter extends EventEmitter {
     if (typeof ms === 'number' && Number.isFinite(ms) && ms > 0) {
       this.streamIdleTimeoutMs = Math.floor(ms);
     }
+  }
+
+  /**
+   * FU-1: external "I saw the child do meaningful work" nudge. Loop Mode
+   * and other supervisors call this when they detect activity that the
+   * adapter wouldn't otherwise count toward idle reset — e.g. a parsed
+   * tool-use event handed off via the activity stream, a provider
+   * progress notification from a thread channel, an assistant token
+   * surfaced through a non-stdout transport. No-op if the watchdog is
+   * not currently armed.
+   */
+  noteActivity(): void {
+    if (!this.streamIdleTimer) return;
+    this.resetStreamIdleWatchdog();
   }
 
   /**

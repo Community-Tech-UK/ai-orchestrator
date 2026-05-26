@@ -51,18 +51,21 @@ function makeChildResultThatClaimsDone(): LoopChildResult {
 }
 
 describe('LoopCoordinator fresh-eyes review gate', () => {
-  it('auto-enables crossModelReview when uncompleted plan files exist at start', async () => {
+  it('leaves crossModelReview undefined when uncompleted plan files exist but the caller did not opt in', async () => {
     writeFileSync(join(workspace, 'plan.md'), '# Plan\n');
 
-    const state = await coordinator.startLoop('chat-fresh-eyes-auto', {
+    const state = await coordinator.startLoop('chat-fresh-eyes-optin', {
       initialPrompt: 'implement plan.md',
       workspaceCwd: workspace,
     });
 
     try {
-      expect(state.config.completion.crossModelReview).toBeDefined();
-      expect(state.config.completion.crossModelReview?.enabled).toBe(true);
-      expect(state.config.completion.crossModelReview?.blockingSeverities).toEqual(['critical', 'high']);
+      // Fresh-eyes review is opt-in (FU-7). Previously the coordinator
+      // auto-enabled it whenever uncompleted plan files were present, which
+      // surprised users with extra cross-CLI calls on every completion
+      // attempt. Callers who want the gate must pass an explicit
+      // `crossModelReview: { enabled: true, ... }`.
+      expect(state.config.completion.crossModelReview).toBeUndefined();
     } finally {
       coordinator.cancelLoop(state.id);
     }

@@ -327,6 +327,86 @@ describe('CompletedFileWatcher', () => {
   });
 });
 
+describe('FU-9: CompletedFileWatcher.onUndone', () => {
+  it('fires onUndone when the only observed completed file is deleted', async () => {
+    const watcher = new CompletedFileWatcher(tmpDir, '*_[Cc]ompleted.md');
+    const undonePath = new Promise<string>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('timed out waiting for onUndone')), 3_000);
+      watcher.onUndone((filePath) => {
+        clearTimeout(timeout);
+        resolve(filePath);
+      });
+    });
+
+    watcher.start();
+    await new Promise((r) => setTimeout(r, 100));
+    fs.writeFileSync(path.join(tmpDir, 'phase_completed.md'), '# Done\n');
+    // Wait for the add to register; we don't assert here — the next step
+    // unlinks the file.
+    await new Promise((r) => setTimeout(r, 350));
+    expect(watcher.isObserved()).toBe(true);
+    fs.unlinkSync(path.join(tmpDir, 'phase_completed.md'));
+
+    try {
+      await expect(undonePath).resolves.toBe(path.join(tmpDir, 'phase_completed.md'));
+      expect(watcher.isObserved()).toBe(false);
+    } finally {
+      await watcher.stop();
+    }
+  });
+
+  it('does NOT fire onUndone for an in-place rename (another completed file still exists)', async () => {
+    const watcher = new CompletedFileWatcher(tmpDir, '*_[Cc]ompleted.md');
+    let undoneCalls = 0;
+    watcher.onUndone(() => { undoneCalls += 1; });
+
+    watcher.start();
+    await new Promise((r) => setTimeout(r, 100));
+    fs.writeFileSync(path.join(tmpDir, 'phase_completed.md'), '# Done\n');
+    fs.writeFileSync(path.join(tmpDir, 'extra_completed.md'), '# Done\n');
+    await new Promise((r) => setTimeout(r, 350));
+    expect(watcher.isObserved()).toBe(true);
+    // Delete only one; another completed file still exists → undo should NOT fire.
+    fs.unlinkSync(path.join(tmpDir, 'phase_completed.md'));
+    await new Promise((r) => setTimeout(r, 350));
+
+    try {
+      expect(undoneCalls).toBe(0);
+      expect(watcher.isObserved()).toBe(true);
+    } finally {
+      await watcher.stop();
+    }
+  });
+});
+
+describe('FU-6: LoopCompletionDetector.runQuickVerify', () => {
+  it('reports passed when the configured quick command exits zero', async () => {
+    const det = new LoopCompletionDetector();
+    const cfg = defaultLoopConfig(tmpDir, 'do thing');
+    cfg.completion.quickVerifyCommand = 'true';
+    cfg.completion.quickVerifyTimeoutMs = 5_000;
+    const outcome = await det.runQuickVerify(cfg);
+    expect(outcome.status).toBe('passed');
+  });
+
+  it('reports failed when the configured quick command exits non-zero', async () => {
+    const det = new LoopCompletionDetector();
+    const cfg = defaultLoopConfig(tmpDir, 'do thing');
+    cfg.completion.quickVerifyCommand = 'false';
+    cfg.completion.quickVerifyTimeoutMs = 5_000;
+    const outcome = await det.runQuickVerify(cfg);
+    expect(outcome.status).toBe('failed');
+  });
+
+  it('reports skipped when no quick verify command is configured', async () => {
+    const det = new LoopCompletionDetector();
+    const cfg = defaultLoopConfig(tmpDir, 'do thing');
+    cfg.completion.quickVerifyCommand = '';
+    const outcome = await det.runQuickVerify(cfg);
+    expect(outcome.status).toBe('skipped');
+  });
+});
+
 describe('LoopCompletionDetector.hasSufficientSignal', () => {
   it('true when any signal is sufficient', () => {
     const det = new LoopCompletionDetector();

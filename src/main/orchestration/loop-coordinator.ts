@@ -27,7 +27,6 @@ import * as path from 'path';
 import { getLogger } from '../logging/logger';
 import {
   defaultLoopConfig,
-  defaultCrossModelReviewConfig,
   type LoopConfig,
   type LoopErrorRecord,
   type LoopFileChange,
@@ -95,6 +94,7 @@ const logger = getLogger('LoopCoordinator');
 
 /** Approximate Claude Sonnet cost in cents per 1M tokens, rounded up. */
 const COST_PER_M_TOKENS_CENTS = 1500;
+const DEFAULT_ITERATION_TIMEOUT_MS = 30 * 60 * 1000;
 
 /** Result the LLM-invocation handler must return to the coordinator. */
 export interface LoopChildResult {
@@ -142,6 +142,17 @@ export type LoopIterationHook = (ctx: IterationHookContext) => Promise<void> | v
  */
 export type LoopIntentPersistHook = (intent: LoopTerminalIntent) => Promise<void> | void;
 
+/**
+ * Hook for tearing down per-loop CLI adapters when a loop reaches a
+ * terminal state. The coordinator awaits this hook (via
+ * `awaitTerminalCleanup`) before reporting the loop as fully shut
+ * down. Registered once per coordinator by the default invoker so
+ * that long-running CLI children aren't orphaned when the loop
+ * cancels mid-iteration. See FU-8 in
+ * `docs/plans/2026-05-26-loop-mode-reliability.md`.
+ */
+export type LoopAdapterCleanupHook = (loopRunId: string) => Promise<void>;
+
 export interface LoopRuntimeContext {
   /**
    * Prior visible-session transcript used as read-only background for loop
@@ -163,6 +174,14 @@ export class LoopCoordinator extends EventEmitter {
   private loopControls = new Map<string, LoopControlRuntime>();
   private iterationHooks: LoopIterationHook[] = [];
   private intentPersistHook: LoopIntentPersistHook | null = null;
+  private adapterCleanupHook: LoopAdapterCleanupHook | null = null;
+  /**
+   * In-flight terminal-cleanup promises, keyed by loopRunId. Populated
+   * inside `terminate()` when an adapter-cleanup hook is registered;
+   * `awaitTerminalCleanup` returns the matching promise so callers
+   * (e.g. `cancelLoop`) can wait for full shutdown.
+   */
+  private terminalCleanupPromises = new Map<string, Promise<void>>();
 
   private progressDetector = new LoopProgressDetector();
   private completionDetector = new LoopCompletionDetector();
@@ -200,6 +219,8 @@ export class LoopCoordinator extends EventEmitter {
       this.instance.loopControls.clear();
       this.instance.iterationHooks = [];
       this.instance.intentPersistHook = null;
+      this.instance.adapterCleanupHook = null;
+      this.instance.terminalCleanupPromises.clear();
       this.instance.removeAllListeners();
       this.instance = null;
     }
@@ -229,6 +250,26 @@ export class LoopCoordinator extends EventEmitter {
    */
   setIntentPersistHook(hook: LoopIntentPersistHook | null): void {
     this.intentPersistHook = hook;
+  }
+
+  /**
+   * Register the per-loop adapter teardown hook (FU-8). The default
+   * invoker installs this so the coordinator can await CLI child
+   * termination before reporting a cancellation/completion as fully
+   * done, avoiding orphaned children.
+   */
+  setAdapterCleanupHook(hook: LoopAdapterCleanupHook | null): void {
+    this.adapterCleanupHook = hook;
+  }
+
+  /**
+   * Return the in-flight adapter-cleanup promise for a loop, or a
+   * resolved promise if there's nothing to wait for. Used by
+   * `cancelLoop` and external callers (graceful app shutdown) that
+   * need to wait until child processes are torn down.
+   */
+  awaitTerminalCleanup(loopRunId: string): Promise<void> {
+    return this.terminalCleanupPromises.get(loopRunId) ?? Promise.resolve();
   }
 
   /**
@@ -305,13 +346,21 @@ export class LoopCoordinator extends EventEmitter {
     // rename gate when uncompleted plan files are found in the workspace.
     const userExplicitlySetCompletedRename =
       partialConfig.completion?.requireCompletedFileRename !== undefined;
-    // Same idea for cross-model fresh-eyes review: only auto-enable when
-    // the caller did not give us a concrete config block.
-    const userExplicitlySetCrossModelReview =
-      partialConfig.completion?.crossModelReview !== undefined;
     const config = this.materializeConfig(partialConfig);
     if (!config.initialPrompt.trim()) throw new Error('initialPrompt is required');
     if (!config.workspaceCwd.trim()) throw new Error('workspaceCwd is required');
+
+    // FU-2: a loop with no `verifyCommand` cannot auto-complete — every
+    // completion attempt is "skipped" by verify and the coordinator pauses
+    // the loop for operator review. The runtime behaviour already handles
+    // this gracefully, but the agent doesn't learn about it until the
+    // first completion attempt is rejected, which wastes an iteration.
+    // We mark this state up front (`manualReviewOnly`) so the prompt
+    // builder can tell the agent upfront and the UI can label the run.
+    const manualReviewOnly = !config.completion.verifyCommand.trim();
+    if (manualReviewOnly) {
+      logger.info('Loop start: no verifyCommand — loop is manual-review-only', { workspaceCwd: config.workspaceCwd });
+    }
 
     // Enforce one-active-loop-per-chat. Without this, double-start races
     // (Send + Enter, Enter + Enter) can spawn duplicate runs in the same
@@ -410,21 +459,12 @@ export class LoopCoordinator extends EventEmitter {
         { id, count: snapshot.uncompletedPlanFilesAtStart.length, files: snapshot.uncompletedPlanFilesAtStart.slice(0, 8) },
       );
     }
-    // Auto-enable mandatory fresh-eyes cross-model review for the same
-    // trigger: if the workspace had uncompleted plan files and the caller
-    // did not explicitly configure the review block, default it on.
-    // This is the loop's automated "check again with fresh eyes" gate.
-    if (
-      !userExplicitlySetCrossModelReview &&
-      !config.completion.crossModelReview &&
-      snapshot.uncompletedPlanFilesAtStart.length > 0
-    ) {
-      config.completion.crossModelReview = defaultCrossModelReviewConfig();
-      logger.info(
-        'Loop start: auto-enabled crossModelReview — uncompleted plan files present',
-        { id, blockingSeverities: config.completion.crossModelReview.blockingSeverities },
-      );
-    }
+    // NB: cross-model fresh-eyes review is opt-in. Earlier revisions
+    // auto-enabled it whenever the workspace had uncompleted plan files,
+    // but that surprised users with cross-CLI calls on every completion
+    // attempt — sometimes blocking valid completions for hours when a
+    // reviewer disagreed about style. Callers who want the gate must
+    // pass `completion.crossModelReview = { enabled: true, ... }`.
 
     const state: LoopState = {
       id,
@@ -446,6 +486,7 @@ export class LoopCoordinator extends EventEmitter {
       doneSentinelPresentAtStart: snapshot.doneSentinelPresent,
       planChecklistFullyCheckedAtStart: snapshot.planChecklistFullyChecked,
       uncompletedPlanFilesAtStart: snapshot.uncompletedPlanFilesAtStart,
+      manualReviewOnly,
       tokensSinceLastTestImprovement: 0,
       highestTestPassCount: 0,
       iterationsOnCurrentStage: 0,
@@ -467,6 +508,16 @@ export class LoopCoordinator extends EventEmitter {
       state.completedFileRenameObserved = true;
       logger.info('CompletedFileWatcher fired', { id, filePath });
       this.emit('loop:completed-file-observed', { loopRunId: id, filePath });
+    });
+    // FU-9: if the operator reverts the rename (or deletes the completed
+    // file), clear the observation so the rename gate re-evaluates on the
+    // next completion attempt. Without this, a premature rename followed
+    // by an undo leaves the loop convinced completion already happened.
+    watcher.onUndone((filePath) => {
+      if (!state.completedFileRenameObserved) return;
+      state.completedFileRenameObserved = false;
+      logger.info('CompletedFileWatcher undone', { id, filePath });
+      this.emit('loop:completed-file-undone', { loopRunId: id, filePath });
     });
 
     this.emit('loop:started', { loopRunId: id, chatId });
@@ -544,6 +595,18 @@ export class LoopCoordinator extends EventEmitter {
     }
     // Force-terminate now so the UI escapes a hung in-flight iteration.
     this.terminate(state, 'cancelled', 'user cancelled');
+    // FU-8: wait for the adapter-cleanup hook (if registered) to actually
+    // tear down any CLI children before returning. Callers — IPC handlers,
+    // graceful-shutdown logic, tests — get a real "fully shut down" signal,
+    // not just "state is terminal but the CLI child may still be running".
+    try {
+      await this.awaitTerminalCleanup(loopRunId);
+    } catch (err) {
+      logger.warn('cancelLoop: adapter cleanup hook rejected', {
+        loopRunId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
     return true;
   }
 
@@ -680,8 +743,14 @@ export class LoopCoordinator extends EventEmitter {
         pendingInterventions: state.pendingInterventions,
         existingSessionContext: this.runtimeContexts.get(state.id)?.existingSessionContext,
         uncompletedPlanFilesAtStart: state.uncompletedPlanFilesAtStart,
+        manualReviewOnly: state.manualReviewOnly,
       }));
-      const consumedInterventions = state.pendingInterventions.splice(0, state.pendingInterventions.length);
+      // The buildPrompt() call above embedded the pending interventions into
+      // the iteration prompt, so we can clear the queue. (Previous revisions
+      // captured the consumed list for a lockout decision that no longer
+      // exists — Task 2 in the 2026-05-26 loop-mode-reliability plan
+      // removed it.)
+      state.pendingInterventions.length = 0;
 
       this.emit('loop:iteration-started', { loopRunId: state.id, seq, stage });
 
@@ -790,15 +859,6 @@ export class LoopCoordinator extends EventEmitter {
       }
 
       const terminalIntentForIteration = state.terminalIntentPending;
-      if (terminalIntentForIteration?.kind === 'complete' && consumedInterventions.length > 0) {
-        this.transitionTerminalIntent(
-          state,
-          terminalIntentForIteration,
-          'deferred',
-          'Completion intent was declared in an intervention-consuming iteration',
-        );
-        state.terminalIntentPending = undefined;
-      }
 
       // -- completion detection --
       const completionSignals = await this.completionDetector.observe({
@@ -812,16 +872,35 @@ export class LoopCoordinator extends EventEmitter {
       let stopWithSignal: CompletionSignalEvidence | null = null;
       let verifyOutputForEmit = '';
       let pauseBecauseCompletionCannotBeVerified = false;
-      if (this.completionDetector.hasSufficientSignal(completionSignals) && !consumedInterventions.length) {
+      if (this.completionDetector.hasSufficientSignal(completionSignals)) {
         // Pick the highest-priority sufficient signal for the stop attempt.
         const sufficientList = completionSignals.filter((c) => c.sufficient);
         const candidate = sufficientList[0]!;
-        const v1 = await this.completionDetector.runVerify(state.config);
+
+        // FU-6: optional quick-verify pre-flight. When configured, the
+        // cheap check (typecheck, lint) runs FIRST so the loop can reject
+        // an obviously-broken completion without spending minutes on the
+        // full verify. When `quickVerifyCommand` is undefined, the call
+        // returns 'skipped' and the full verify runs as before.
+        const quick = await this.completionDetector.runQuickVerify(state.config);
+        // If the quick check actively failed, treat it as the verify
+        // outcome and skip the full verify — saves time and surfaces a
+        // focused error message to the agent.
+        const v1 = quick.status === 'failed'
+          ? quick
+          : await this.completionDetector.runVerify(state.config);
+        const verifyLabel = quick.status === 'failed' ? 'quick verify' : 'verify';
         iteration.verifyStatus = v1.status === 'skipped' ? 'not-run' : v1.status;
         iteration.verifyOutputExcerpt = excerpt(v1.output);
         verifyOutputForEmit = v1.output;
         if (v1.status === 'failed') {
-          this.rejectPendingCompleteIntent(state, 'verify failed');
+          this.rejectCompletionAttempt(
+            state,
+            `${verifyLabel} failed`,
+            `Your completion was rejected because the ${verifyLabel} command failed. ` +
+              'Fix these errors before re-declaring completion:\n\n' +
+              (excerpt(v1.output, 8192) || `(${verifyLabel} produced no output)`),
+          );
           this.emit('loop:claimed-done-but-failed', {
             loopRunId: state.id,
             signal: candidate.id,
@@ -866,7 +945,13 @@ export class LoopCoordinator extends EventEmitter {
           if (state.config.completion.runVerifyTwice) {
             v2 = await this.completionDetector.runVerify(state.config);
             if (v2.status === 'failed') {
-              this.rejectPendingCompleteIntent(state, 'second verify failed');
+              this.rejectCompletionAttempt(
+                state,
+                'second verify failed',
+                'Your completion was rejected because the anti-flake second verify run failed. ' +
+                  'Fix these errors before re-declaring completion:\n\n' +
+                  (excerpt(v2.output, 8192) || '(second verify produced no output)'),
+              );
               iteration.verifyStatus = 'failed';
               iteration.verifyOutputExcerpt = excerpt(v2.output);
               verifyOutputForEmit = v2.output;
@@ -893,7 +978,13 @@ export class LoopCoordinator extends EventEmitter {
               this.rejectPendingCompleteIntent(state, 'fresh-eyes review blocked completion');
             }
           } else if (v2.status === 'passed') {
-            this.rejectPendingCompleteIntent(state, 'completed-file rename gate did not pass');
+            this.rejectCompletionAttempt(
+              state,
+              'completed-file rename gate did not pass',
+              'Your completion was rejected because the completed-file rename gate did not pass. ' +
+                'A *_Completed.md rename is required before this loop can stop. ' +
+                'Rename the relevant plan file to *_Completed.md, then re-declare completion.',
+            );
             // verify passes but belt-and-braces (rename) hasn't happened yet —
             // surface so the agent can do the rename, but don't stop.
             this.emit('loop:claimed-done-but-failed', {
@@ -1100,11 +1191,15 @@ export class LoopCoordinator extends EventEmitter {
     return new Promise<LoopChildResult>((resolve, reject) => {
       let settled = false;
       const correlationId = `${state.id}::${state.totalIterations}`;
+      const iterationTimeoutMs = Math.max(
+        1,
+        state.config.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
+      );
       const timeout = setTimeout(() => {
         if (settled) return;
         settled = true;
-        reject(new Error(`Loop iteration timed out after ${state.config.caps.maxWallTimeMs}ms (single-iter wall slice)`));
-      }, state.config.caps.maxWallTimeMs);
+        reject(new Error(`Loop iteration timed out after ${iterationTimeoutMs}ms`));
+      }, iterationTimeoutMs);
 
       this.emit('loop:invoke-iteration', {
         correlationId,
@@ -1315,6 +1410,11 @@ export class LoopCoordinator extends EventEmitter {
     state.terminalIntentPending = undefined;
   }
 
+  private rejectCompletionAttempt(state: LoopState, reason: string, intervention: string): void {
+    this.rejectPendingCompleteIntent(state, reason);
+    state.pendingInterventions.push(intervention);
+  }
+
   private async pauseForBlockIntent(state: LoopState, intent: LoopTerminalIntent): Promise<void> {
     this.transitionTerminalIntent(state, intent, 'accepted', 'block intent accepted');
     state.terminalIntentPending = undefined;
@@ -1462,6 +1562,29 @@ export class LoopCoordinator extends EventEmitter {
     // Best-effort cleanup of any attachment files we wrote into the workspace.
     void cleanupLoopAttachments(state.config.workspaceCwd, state.id);
     void cleanupLoopControl(loopControl);
+    // FU-8: kick off the adapter-cleanup hook (CLI child teardown) and
+    // remember the promise so `awaitTerminalCleanup` / `cancelLoop`
+    // callers can wait on real shutdown. Hook errors are swallowed —
+    // they're logged here so we don't propagate cleanup failures into
+    // already-terminal loop control flow.
+    const adapterCleanupHook = this.adapterCleanupHook;
+    if (adapterCleanupHook) {
+      const loopRunId = state.id;
+      const cleanupPromise = Promise.resolve()
+        .then(() => adapterCleanupHook(loopRunId))
+        .catch((err) => {
+          logger.warn('Loop adapter cleanup hook threw', {
+            loopRunId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        })
+        .finally(() => {
+          if (this.terminalCleanupPromises.get(loopRunId) === cleanupPromise) {
+            this.terminalCleanupPromises.delete(loopRunId);
+          }
+        });
+      this.terminalCleanupPromises.set(loopRunId, cleanupPromise);
+    }
   }
 
   /** Deep-ish clone for safe broadcast — strips cycles and large arrays. */

@@ -747,7 +747,33 @@ import * as fsLoop from 'fs';
 import * as pathLoop from 'path';
 import { getLoopCoordinator } from './loop-coordinator';
 import type { LoopChildResult } from './loop-coordinator';
-import type { LoopFileChange } from '../../shared/types/loop.types';
+import type { LoopErrorRecord, LoopFileChange, LoopToolCallRecord } from '../../shared/types/loop.types';
+
+interface WorkspaceSnapshotEntry {
+  contentHash: string;
+}
+
+type WorkspaceSnapshot = Map<string, WorkspaceSnapshotEntry>;
+
+const WORKSPACE_SNAPSHOT_MAX_FILES = 5_000;
+const WORKSPACE_SNAPSHOT_MAX_FILE_BYTES = 5 * 1024 * 1024;
+const WORKSPACE_SNAPSHOT_IGNORED_DIRS = new Set([
+  '.aio-loop-attachments',
+  '.aio-loop-control',
+  '.angular',
+  '.cache',
+  '.git',
+  '.next',
+  '.nuxt',
+  '.turbo',
+  '.vite',
+  'build',
+  'coverage',
+  'dist',
+  'node_modules',
+  'out',
+]);
+const WORKSPACE_SNAPSHOT_IGNORED_FILES = new Set(['.DS_Store']);
 
 function enableAdapterResume(adapter: unknown): void {
   const setResume = (adapter as { setResume?: (resume: boolean) => void } | null | undefined)?.setResume;
@@ -835,6 +861,221 @@ function snapshotFileChangesViaGit(cwd: string): LoopFileChange[] {
   }
 }
 
+function normalizeWorkspacePath(relPath: string): string {
+  return relPath.split(pathLoop.sep).join('/');
+}
+
+function hashWorkspaceFile(absPath: string, stat: fsLoop.Stats): string {
+  try {
+    if (stat.size <= WORKSPACE_SNAPSHOT_MAX_FILE_BYTES) {
+      const buf = fsLoop.readFileSync(absPath);
+      return createHash('sha256').update(buf).digest('hex').slice(0, 16);
+    }
+  } catch {
+    // Fall through to a metadata hash. This is still useful for detecting
+    // progress in non-git workspaces when a file is unreadable or large.
+  }
+
+  return createHash('sha256')
+    .update(`${stat.size}:${Math.trunc(stat.mtimeMs)}`)
+    .digest('hex')
+    .slice(0, 16);
+}
+
+function snapshotWorkspaceFiles(cwd: string): WorkspaceSnapshot {
+  const root = pathLoop.resolve(cwd);
+  const snapshot: WorkspaceSnapshot = new Map();
+  let limitReached = false;
+
+  const visit = (dir: string, relDir: string): void => {
+    if (limitReached) return;
+
+    let entries: fsLoop.Dirent[];
+    try {
+      entries = fsLoop.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      if (limitReached) return;
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory() && WORKSPACE_SNAPSHOT_IGNORED_DIRS.has(entry.name)) continue;
+      if (entry.isFile() && WORKSPACE_SNAPSHOT_IGNORED_FILES.has(entry.name)) continue;
+
+      const relPath = relDir ? pathLoop.join(relDir, entry.name) : entry.name;
+      const absPath = pathLoop.join(root, relPath);
+
+      if (entry.isDirectory()) {
+        visit(absPath, relPath);
+        continue;
+      }
+
+      if (!entry.isFile()) continue;
+      if (snapshot.size >= WORKSPACE_SNAPSHOT_MAX_FILES) {
+        limitReached = true;
+        return;
+      }
+
+      try {
+        const stat = fsLoop.statSync(absPath);
+        if (!stat.isFile()) continue;
+        snapshot.set(normalizeWorkspacePath(relPath), {
+          contentHash: hashWorkspaceFile(absPath, stat),
+        });
+      } catch {
+        // Best effort only.
+      }
+    }
+  };
+
+  visit(root, '');
+  return snapshot;
+}
+
+function snapshotFileChangesViaWorkspace(
+  before: WorkspaceSnapshot,
+  cwd: string,
+): LoopFileChange[] {
+  const after = snapshotWorkspaceFiles(cwd);
+  const paths = new Set<string>([...before.keys(), ...after.keys()]);
+  const changes: LoopFileChange[] = [];
+
+  for (const relPath of [...paths].sort()) {
+    const prev = before.get(relPath);
+    const next = after.get(relPath);
+    if (prev?.contentHash === next?.contentHash) continue;
+
+    changes.push({
+      path: relPath,
+      additions: prev ? 0 : 1,
+      deletions: next ? 0 : 1,
+      contentHash: next?.contentHash ?? '',
+    });
+  }
+
+  return changes;
+}
+
+function mergeFileChanges(...groups: LoopFileChange[][]): LoopFileChange[] {
+  const byPath = new Map<string, LoopFileChange>();
+  for (const group of groups) {
+    for (const change of group) {
+      byPath.set(change.path, change);
+    }
+  }
+  return [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/**
+ * FU-5: parse common test-runner summary lines out of an iteration's
+ * accumulated output and return aggregate pass/fail counts. Used by the
+ * loop invoker to populate `LoopIteration.testPassCount` /
+ * `testFailCount` so the D-prime test-stagnation signal has real data
+ * to evaluate.
+ *
+ * Returns `{ pass: null, fail: null }` when no runner summary is
+ * recognised — the progress detector already handles null counts
+ * (treats them as "no reliable measurement").
+ */
+export function parseTestCounts(output: string): { pass: number | null; fail: number | null } {
+  if (!output) return { pass: null, fail: null };
+  let pass: number | null = null;
+  let fail: number | null = null;
+  const set = (p: number | null, f: number | null): void => {
+    if (p !== null) pass = p;
+    if (f !== null) fail = f;
+  };
+
+  // vitest: "Test Files  3 passed (3)" and "Tests   10 passed | 2 failed (12)"
+  //         The pipe form may have just "passed" or just "failed".
+  for (const m of output.matchAll(/Tests\s+(?:[^\n|]*\|)?\s*(\d+)\s+passed(?:\s*\|\s*(\d+)\s+failed)?/gi)) {
+    const p = Number.parseInt(m[1], 10);
+    const f = m[2] != null ? Number.parseInt(m[2], 10) : 0;
+    if (Number.isFinite(p)) set(p, f);
+  }
+
+  // jest: "Tests:       1 failed, 1 skipped, 5 passed, 7 total"
+  for (const m of output.matchAll(/Tests:\s+(?:(\d+)\s+failed,?\s+)?(?:\d+\s+skipped,?\s+)?(\d+)\s+passed,?\s+\d+\s+total/gi)) {
+    const f = m[1] != null ? Number.parseInt(m[1], 10) : 0;
+    const p = Number.parseInt(m[2], 10);
+    if (Number.isFinite(p)) set(p, f);
+  }
+
+  // pytest: "===== 10 passed, 2 failed in 1.20s =====" (failed optional)
+  for (const m of output.matchAll(/={3,}[^=\n]*?\b(\d+)\s+passed\b(?:[^=\n]*?\b(\d+)\s+failed\b)?[^=\n]*={3,}/gi)) {
+    const p = Number.parseInt(m[1], 10);
+    const f = m[2] != null ? Number.parseInt(m[2], 10) : 0;
+    if (Number.isFinite(p)) set(p, f);
+  }
+
+  // mocha: "10 passing" and "2 failing" on separate lines.
+  for (const m of output.matchAll(/(\d+)\s+passing\b/gi)) {
+    const p = Number.parseInt(m[1], 10);
+    if (Number.isFinite(p)) set(p, fail);
+  }
+  for (const m of output.matchAll(/(\d+)\s+failing\b/gi)) {
+    const f = Number.parseInt(m[1], 10);
+    if (Number.isFinite(f)) set(pass, f);
+  }
+
+  // cargo test: "test result: ok. 5 passed; 0 failed; ..."
+  for (const m of output.matchAll(/test result:[^\n]*?(\d+)\s+passed;\s*(\d+)\s+failed/gi)) {
+    const p = Number.parseInt(m[1], 10);
+    const f = Number.parseInt(m[2], 10);
+    if (Number.isFinite(p)) set(p, f);
+  }
+
+  return { pass, fail };
+}
+
+/**
+ * FU-5: classify free-form CLI output into coarse error buckets so the
+ * loop's error-repeat signal (E) has data to work with. Returns one
+ * error record per distinct error-signature seen in the output (capped
+ * to a small number so a flood of errors doesn't explode the iteration
+ * size). Buckets are intentionally generic — the goal is "did the same
+ * kind of error happen N iterations in a row", not exact diagnosis.
+ */
+export function classifyIterationErrors(output: string): LoopErrorRecord[] {
+  if (!output) return [];
+  const records: LoopErrorRecord[] = [];
+  const seen = new Set<string>();
+  const push = (bucket: string, excerpt: string): void => {
+    const hash = createHash('sha256').update(`${bucket}:${excerpt}`).digest('hex').slice(0, 16);
+    if (seen.has(hash)) return;
+    seen.add(hash);
+    records.push({ bucket, exactHash: hash, excerpt: excerpt.slice(0, 512) });
+  };
+  // Cap on number of distinct errors to record per iteration.
+  const MAX = 10;
+  // TypeScript / compile errors: "error TS1234:" or "TS1234: <msg>"
+  for (const m of output.matchAll(/(?:^|\n).{0,40}(?:error\s+)?TS(\d{3,5})[:\s][^\n]{0,200}/gi)) {
+    push(`ts-${m[1]}`, m[0].trim());
+    if (records.length >= MAX) return records;
+  }
+  // ESLint-style: "  N:N  error  <msg>  <rule>"
+  for (const m of output.matchAll(/\b\d+:\d+\s+error\s+[^\n]{0,200}/gi)) {
+    push('eslint', m[0].trim());
+    if (records.length >= MAX) return records;
+  }
+  // Runtime errors — Python tracebacks AND Node/JS stack traces share the
+  // `XxxError: msg` shape. We classify both into the same `runtime-<name>`
+  // bucket so signal E's repeat detector treats them uniformly. The
+  // `Exception:` alternation catches Python's bare Exception class.
+  for (const m of output.matchAll(/(?:^|\n)([A-Z][A-Za-z]*Error|Exception):\s[^\n]{0,200}/gm)) {
+    push(`runtime-${m[1].toLowerCase()}`, m[0].trim());
+    if (records.length >= MAX) return records;
+  }
+  // Generic "FAILED" / "failed:" lines (test runners, build tools)
+  for (const m of output.matchAll(/(?:^|\n)[^\n]{0,40}\b(FAILED|failed:)[^\n]{0,200}/g)) {
+    push('test-failure', m[0].trim());
+    if (records.length >= MAX) return records;
+  }
+  return records;
+}
+
 /**
  * Wire `loop:invoke-iteration` to the existing CLI adapter pipeline. The
  * prompt is sent as a single user message; the response text is captured
@@ -854,10 +1095,6 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   const persistentLoopAdapters = new Map<string, unknown>();
   const activeLoopAdapters = new Map<string, Set<unknown>>();
   const terminatedAdapters = new WeakSet<object>();
-
-  const isTerminalLoopStatus = (status: string): boolean =>
-    status === 'completed' || status === 'cancelled' || status === 'cap-reached'
-    || status === 'failed' || status === 'error' || status === 'no-progress';
 
   const terminateTrackedAdapter = async (adapter: unknown, graceful: boolean): Promise<void> => {
     if (adapter && typeof adapter === 'object') {
@@ -882,22 +1119,66 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     };
   };
 
+  const isTerminalLoopStatus = (status: string): boolean =>
+    status === 'completed' || status === 'cancelled' || status === 'cap-reached'
+    || status === 'failed' || status === 'error' || status === 'no-progress';
+
+  // FU-8: cleanup function that tears down every adapter we own for a
+  // given loop. Two callers may invoke this concurrently (the awaitable
+  // hook AND the `loop:state-changed` listener — see comment below). We
+  // dedupe via `inFlightCleanups` so the second caller observes the
+  // first caller's promise instead of running a separate (now-empty)
+  // pass. Without the dedupe, the hook's promise would resolve
+  // instantly (the listener already drained the maps) and `cancelLoop`'s
+  // `awaitTerminalCleanup` would return before the actual CLI children
+  // are torn down — the exact behaviour FU-8 exists to prevent.
+  const inFlightCleanups = new Map<string, Promise<void>>();
+  const cleanupLoopAdapters = (loopRunId: string): Promise<void> => {
+    const existing = inFlightCleanups.get(loopRunId);
+    if (existing) return existing;
+    const adapters = new Set<unknown>(activeLoopAdapters.get(loopRunId) ?? []);
+    const persistentAdapter = persistentLoopAdapters.get(loopRunId);
+    if (persistentAdapter) adapters.add(persistentAdapter);
+    activeLoopAdapters.delete(loopRunId);
+    persistentLoopAdapters.delete(loopRunId);
+    if (adapters.size === 0) return Promise.resolve();
+    const promise = Promise.allSettled(
+      [...adapters].map(async (adapter) => {
+        try {
+          await terminateTrackedAdapter(adapter, false);
+        } catch (err) {
+          logger.warn('Loop adapter teardown failed', {
+            loopRunId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }),
+    ).then(() => undefined);
+    inFlightCleanups.set(loopRunId, promise);
+    void promise.finally(() => {
+      if (inFlightCleanups.get(loopRunId) === promise) {
+        inFlightCleanups.delete(loopRunId);
+      }
+    });
+    return promise;
+  };
+  // FU-8: prefer the awaitable hook (lets cancelLoop / app-shutdown
+  // wait for real CLI teardown). Older test harnesses construct a plain
+  // EventEmitter as the coordinator stub, so guard the call.
+  const setHook = (coordinator as { setAdapterCleanupHook?: (h: typeof cleanupLoopAdapters) => void })
+    .setAdapterCleanupHook;
+  if (typeof setHook === 'function') {
+    setHook.call(coordinator, cleanupLoopAdapters);
+  }
+  // Defense-in-depth: also clean up on any terminal state-change. Catches
+  // exotic paths that bypass `terminate()` directly (test mocks emitting
+  // state-changed without invoking the hook). `cleanupLoopAdapters` is
+  // idempotent: if a cleanup is already in flight for the loop, this
+  // call observes the same promise.
   coordinator.on('loop:state-changed', (data: unknown) => {
     const payload = data as { loopRunId: string; state: { status: string } };
     if (!isTerminalLoopStatus(payload?.state?.status ?? '')) return;
-    const adapters = new Set<unknown>(activeLoopAdapters.get(payload.loopRunId) ?? []);
-    const persistentAdapter = persistentLoopAdapters.get(payload.loopRunId);
-    if (persistentAdapter) adapters.add(persistentAdapter);
-    activeLoopAdapters.delete(payload.loopRunId);
-    persistentLoopAdapters.delete(payload.loopRunId);
-    for (const adapter of adapters) {
-      terminateTrackedAdapter(adapter, false).catch((err: unknown) => {
-        logger.warn('Loop adapter teardown failed', {
-          loopRunId: payload.loopRunId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
-    }
+    void cleanupLoopAdapters(payload.loopRunId);
   });
 
   coordinator.on('loop:invoke-iteration', async (payload: unknown) => {
@@ -922,7 +1203,70 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       logger.warn('loop:invoke-iteration payload missing callback');
       return;
     }
+    // FU-5: collect tool-use events from the adapter activity stream so
+    // LoopIteration.toolCalls reflects what the child actually did. The
+    // progress detector's G signal (tool-call repetition) was unable to
+    // fire before because this list was hardcoded to []. We capture
+    // tool name + a content-stable hash of the args + an approximate
+    // duration so the same call can be detected across iterations.
+    const toolCalls: LoopToolCallRecord[] = [];
+    const toolStarts = new Map<string, number>();
+    // FU-1: when we see meaningful activity from the adapter's event
+    // stream (tool use, assistant tokens, input_required), nudge the
+    // adapter's stream-idle watchdog so it doesn't fire while the child
+    // is demonstrably working. The watchdog already resets on stdout
+    // (and now stderr + heartbeat per FU-1 in base-cli-adapter), but
+    // these higher-level events catch cases where progress is reported
+    // over non-stdout channels (e.g. JSON-RPC notifications) parsed by
+    // the adapter without re-emitting raw stdout.
+    let activeAdapterRef: CliAdapter | null = null;
+    const meaningfulKinds = new Set<LoopInvocationActivityKind>([
+      'spawned',
+      'tool_use',
+      'assistant',
+      'input_required',
+      'heartbeat',
+      'complete',
+    ]);
+    const nudgeAdapterIdle = (): void => {
+      const a = activeAdapterRef as { noteActivity?: () => void } | null;
+      if (a && typeof a.noteActivity === 'function') a.noteActivity();
+    };
     const emitActivity = (activity: LoopInvocationActivity) => {
+      if (meaningfulKinds.has(activity.kind)) nudgeAdapterIdle();
+      if (activity.kind === 'tool_use') {
+        const detail = activity.detail ?? {};
+        const toolName = typeof detail['name'] === 'string'
+          ? detail['name']
+          : activity.message.replace(/^Using tool:\s*/i, '');
+        const toolId = typeof detail['id'] === 'string' ? detail['id'] : null;
+        // Hash everything except identity-like fields so reruns with the
+        // same intent collapse to the same argsHash.
+        const argSource = (() => {
+          const copy: Record<string, unknown> = { ...detail };
+          delete copy['id'];
+          delete copy['name'];
+          delete copy['startedAt'];
+          delete copy['durationMs'];
+          try { return JSON.stringify(copy); } catch { return String(copy); }
+        })();
+        const argsHash = createHash('sha256').update(`${toolName}:${argSource}`).digest('hex').slice(0, 16);
+        if (toolId) toolStarts.set(toolId, Date.now());
+        toolCalls.push({ toolName: toolName || 'unknown', argsHash, success: true, durationMs: 0 });
+      } else if (activity.kind === 'complete' || activity.kind === 'error') {
+        // Approximate duration: distance from each tool start to the
+        // terminal event. Better than zero for the signal detectors.
+        const now = Date.now();
+        for (const [id, started] of toolStarts) {
+          for (let i = toolCalls.length - 1; i >= 0; i--) {
+            if (toolCalls[i].durationMs === 0) {
+              toolCalls[i] = { ...toolCalls[i], durationMs: now - started };
+              break;
+            }
+          }
+          toolStarts.delete(id);
+        }
+      }
       coordinator.emit('loop:activity', {
         loopRunId: p.loopRunId,
         seq: p.seq,
@@ -996,6 +1340,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     }
 
     try {
+      const workspaceBefore = snapshotWorkspaceFiles(p.workspaceCwd);
       const result = await invokeCliTextResponse({
         instanceManager,
         // When borrowing the parent instance's adapter, pass the instance id so
@@ -1035,8 +1380,18 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         // — otherwise the loop's terminal-state listener would terminate the
         // user's session CLI when the loop ends.
         onAdapterReady: borrowedFromInstance
-          ? undefined
-          : (adapter) => trackActiveAdapter(p.loopRunId, adapter),
+          ? (adapter) => {
+              activeAdapterRef = adapter;
+              return () => { activeAdapterRef = null; };
+            }
+          : (adapter) => {
+              activeAdapterRef = adapter;
+              const stopTracking = trackActiveAdapter(p.loopRunId, adapter);
+              return () => {
+                activeAdapterRef = null;
+                stopTracking();
+              };
+            },
         cleanupAdapter: borrowedFromInstance
           ? undefined
           : (adapter, graceful) => terminateTrackedAdapter(adapter, graceful),
@@ -1045,16 +1400,25 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         enableAdapterResume(reusedAdapter);
       }
 
-      const filesChanged = snapshotFileChangesViaGit(p.workspaceCwd);
+      const filesChanged = mergeFileChanges(
+        snapshotFileChangesViaWorkspace(workspaceBefore, p.workspaceCwd),
+        snapshotFileChangesViaGit(p.workspaceCwd),
+      );
+      // FU-5: derive structured signals from the actual iteration output.
+      // testPassCount/testFailCount feeds the D / D-prime signals;
+      // errors feeds the E signal; toolCalls (collected via the activity
+      // stream above) feeds G.
+      const { pass: testPassCount, fail: testFailCount } = parseTestCounts(result.response);
+      const errors: LoopErrorRecord[] = classifyIterationErrors(result.response);
       const childResult: LoopChildResult = {
         childInstanceId: null,
         output: result.response,
         tokens: result.tokens,
         filesChanged,
-        toolCalls: [],
-        errors: [],
-        testPassCount: null,
-        testFailCount: null,
+        toolCalls,
+        errors,
+        testPassCount,
+        testFailCount,
         exitedCleanly: true,
       };
       p.callback(childResult);

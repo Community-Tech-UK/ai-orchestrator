@@ -12,6 +12,9 @@
  */
 
 import { EventEmitter } from 'events';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LoopChildResult } from './loop-coordinator';
 
@@ -292,6 +295,31 @@ describe('Loop Mode invoker plumbing', () => {
         }),
       ]),
     );
+  });
+
+  it('captures file changes from non-git loop workspaces', async () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'loop-invoker-'));
+    try {
+      registerDefaultLoopInvoker({} as never);
+      hoisted.sendMessage.mockImplementation(async () => {
+        fs.writeFileSync(path.join(workspace, 'notes.txt'), 'created during loop iteration\n');
+        return { content: 'ok', usage: { totalTokens: 1 } };
+      });
+
+      const callbackResult = await emitIteration({ workspaceCwd: workspace });
+
+      expect(callbackResult).not.toHaveProperty('error');
+      expect((callbackResult as LoopChildResult).filesChanged).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: 'notes.txt',
+            contentHash: expect.any(String),
+          }),
+        ]),
+      );
+    } finally {
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
   });
 
   it('surfaces hidden input_required prompts and auto-answers ordinary loop questions', async () => {
@@ -637,6 +665,64 @@ describe('Loop Mode invoker plumbing', () => {
       await new Promise<void>((r) => setImmediate(r));
 
       expect(hoisted.terminate).toHaveBeenCalledTimes(1);
+    });
+
+    it('FU-8: the registered cleanup hook returns the SAME promise as the state-changed listener (dedupe)', async () => {
+      // Capture the cleanup hook the invoker registers on the coordinator.
+      let registeredHook: ((id: string) => Promise<void>) | undefined;
+      (hoisted.loopCoordinatorRef.current as unknown as { setAdapterCleanupHook?: (h: (id: string) => Promise<void>) => void })
+        .setAdapterCleanupHook = (hook) => { registeredHook = hook; };
+
+      registerDefaultLoopInvoker({} as never);
+      hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 1 } });
+
+      // Run one iteration so the adapter is tracked.
+      const iter0 = new Promise<LoopChildResult | { error: string }>((resolve) => {
+        hoisted.loopCoordinatorRef.current.emit('loop:invoke-iteration', {
+          correlationId: 'loop-dedupe::0',
+          loopRunId: 'loop-dedupe',
+          chatId: 'chat-dedupe',
+          provider: 'claude',
+          workspaceCwd: '/tmp/ws',
+          stage: 'PLAN',
+          seq: 0,
+          prompt: 'iter 0',
+          config: { contextStrategy: 'same-session' },
+          callback: resolve,
+        });
+      });
+      await new Promise<void>((r) => setImmediate(r));
+      await new Promise<void>((r) => setImmediate(r));
+      await iter0;
+
+      expect(registeredHook).toBeDefined();
+      // Hold the adapter terminate so we can prove the dedupe is real.
+      let resolveTerminate: (() => void) | undefined;
+      hoisted.terminate.mockImplementationOnce(() => new Promise<void>((r) => { resolveTerminate = r; }));
+
+      // Fire both triggers: the state-changed listener (defense-in-depth)
+      // AND the awaitable hook. They MUST observe the same in-flight cleanup
+      // promise — otherwise the hook's promise would resolve before
+      // adapters actually finish terminating (the FU-8 bug).
+      hoisted.loopCoordinatorRef.current.emit('loop:state-changed', {
+        loopRunId: 'loop-dedupe',
+        state: { status: 'completed' },
+      });
+      const hookPromise = registeredHook!('loop-dedupe');
+      let hookResolved = false;
+      void hookPromise.then(() => { hookResolved = true; });
+
+      // Give the event loop a tick; the hook must NOT have resolved while
+      // the adapter's terminate is still in flight.
+      await new Promise<void>((r) => setImmediate(r));
+      await new Promise<void>((r) => setImmediate(r));
+      expect(hookResolved).toBe(false);
+      expect(hoisted.terminate).toHaveBeenCalledTimes(1);
+
+      // Resolve terminate; both the listener cleanup AND the hook promise
+      // must resolve together because they share the same in-flight promise.
+      resolveTerminate!();
+      await expect(hookPromise).resolves.toBeUndefined();
     });
 
     it('creates fresh adapters per iteration when contextStrategy is fresh-child', async () => {
