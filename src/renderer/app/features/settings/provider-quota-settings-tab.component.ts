@@ -66,10 +66,10 @@ const LIMIT_UNAVAILABLE_TEXT: Record<ProviderId, string> = {
   template: `
     <div class="quota-settings-tab">
       <div class="tab-header">
-        <h3 class="section-title">Provider Quota</h3>
+        <h3 class="section-title">Usage probes</h3>
         <p class="section-desc">
-          Background polling for each provider's quota probe. Off by default —
-          turn on the providers you want auto-refreshed in the title-bar chip.
+          Choose which provider quota probes refresh in the background. Polling
+          is off by default and only updates the title-bar chip for selected providers.
         </p>
       </div>
 

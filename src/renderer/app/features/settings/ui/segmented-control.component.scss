@@ -6,9 +6,10 @@
   display: flex;
   gap: 2px;
   padding: 3px;
-  background: var(--segment-track-bg);
-  border: 1px solid var(--segment-track-border);
+  background: color-mix(in srgb, var(--segment-track-bg) 86%, transparent);
+  border: 1px solid color-mix(in srgb, var(--segment-track-border) 76%, transparent);
   border-radius: var(--radius-md);
+  box-shadow: var(--shadow-inner);
 }
 
 .segment {
@@ -27,7 +28,9 @@
   cursor: pointer;
   transition:
     background var(--transition-fast),
-    color var(--transition-fast);
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
 .segment:hover:not(.active) {
@@ -40,6 +43,20 @@
   border-color: var(--segment-thumb-border);
   color: var(--segment-fg-active);
   box-shadow: var(--shadow-sm);
+}
+
+.segment:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary-color) 42%, transparent);
+  outline-offset: 2px;
+}
+
+.segment-label,
+.segment-hint {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .segment-hint {

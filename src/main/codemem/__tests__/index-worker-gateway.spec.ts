@@ -67,6 +67,26 @@ describe('IndexWorkerGateway', () => {
     expect(gateway.getMetrics().processed).toBe(1);
   });
 
+  it('emits code-index:changed when the worker reports changed indexed files', async () => {
+    const listener = vi.fn();
+    gateway.on('code-index:changed', listener);
+
+    fakeWorker.emit('message', {
+      type: 'code-index-changed',
+      workspacePath: '/project',
+      workspaceHash: 'workspace-hash',
+      paths: ['src/index.ts'],
+      timestamp: 1000,
+    });
+
+    expect(listener).toHaveBeenCalledWith({
+      workspacePath: '/project',
+      workspaceHash: 'workspace-hash',
+      paths: ['src/index.ts'],
+      timestamp: 1000,
+    });
+  });
+
   it('returns degraded result on RPC timeout', async () => {
     const result = await gateway.warmWorkspace('/slow-project');
     expect(result.indexed).toBe(false);

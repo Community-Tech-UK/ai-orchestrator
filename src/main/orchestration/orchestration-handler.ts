@@ -1191,7 +1191,7 @@ export class OrchestrationHandler extends EventEmitter {
     payload: {
       summary: string;
       task: string;
-      mode: 'grep' | 'files';
+      mode: 'grep' | 'files' | 'indexed-codebase';
       command: string;
       args: string[];
       totalMatches: number;

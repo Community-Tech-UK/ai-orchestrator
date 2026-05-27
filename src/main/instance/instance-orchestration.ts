@@ -44,6 +44,10 @@ import type {
 import { SpawnChildPayloadSchema } from '@contracts/schemas/orchestration';
 import { emitPluginHook } from '../plugins/hook-emitter';
 import type { PluginRoutingAudit } from '../../shared/types/plugin.types';
+import {
+  getIndexedCodebaseContextService,
+  type IndexedCodebaseContextService,
+} from '../indexing/indexed-codebase-context';
 
 /**
  * Dependencies required by the orchestration manager
@@ -55,9 +59,12 @@ export interface OrchestrationDependencies {
   sendInput: (instanceId: string, message: string) => Promise<void>;
   terminateInstance: (instanceId: string, graceful: boolean) => Promise<void>;
   getAdapter: (id: string) => any;
+  indexedCodebaseContext?: Pick<IndexedCodebaseContextService, 'buildFastPathResult'>;
 }
 
 const logger = getLogger('InstanceOrchestration');
+const FAST_PATH_COMMAND_TIMEOUT_MS = 2_500;
+const FAST_PATH_MAX_OUTPUT_BYTES = 256 * 1024;
 
 function getChildRoutingAudit(child: Instance): PluginRoutingAudit | undefined {
   const orchestration = child.metadata?.['orchestration'];
@@ -903,6 +910,11 @@ export class InstanceOrchestrationManager {
     const pattern = terms.length > 0 ? this.buildLexicalPattern(terms) : '';
     const lineLimit = 40;
 
+    const indexedResult = await this.runIndexedCodebaseFastPath(task, cwd);
+    if (indexedResult) {
+      return indexedResult;
+    }
+
     if (this.isListFilesTask(task) || !pattern) {
       const fileList = await this.runFastPathFileList(cwd);
       if (!fileList) return null;
@@ -944,25 +956,64 @@ export class InstanceOrchestrationManager {
     };
   }
 
+  private async runIndexedCodebaseFastPath(
+    task: string,
+    cwd: string,
+  ): Promise<FastPathResult | null> {
+    try {
+      const service = this.deps.indexedCodebaseContext ?? getIndexedCodebaseContextService();
+      return await service.buildFastPathResult({
+        workspacePath: cwd,
+        query: task,
+        maxTokens: 900,
+        topK: 8,
+      });
+    } catch (error) {
+      logger.debug('Indexed codebase fast-path search unavailable', {
+        cwd,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
   private async runFastPathFileList(
     cwd: string
   ): Promise<{ files: string[]; command: string; args: string[] } | null> {
     const gitArgs = ['ls-files'];
-    const gitResult = await this.runFastPathCommand('git', gitArgs, cwd, 4000);
+    const gitResult = await this.runFastPathCommand(
+      'git',
+      gitArgs,
+      cwd,
+      FAST_PATH_COMMAND_TIMEOUT_MS,
+    );
     if (gitResult && gitResult.exitCode === 0) {
       const files = gitResult.stdout.split('\n').filter(Boolean);
       return { files, command: 'git', args: gitArgs };
     }
 
-    const findArgs = [
-      '.', '-maxdepth', '3', '-type', 'f',
-      '-not', '-path', '*/node_modules/*',
-      '-not', '-path', '*/.git/*'
+    const rgArgs = [
+      '--files',
+      '--max-depth',
+      '3',
+      '--glob',
+      '!node_modules/**',
+      '--glob',
+      '!dist/**',
+      '--glob',
+      '!build/**',
+      '--glob',
+      '!.git/**',
     ];
-    const findResult = await this.runFastPathCommand('find', findArgs, cwd, 5000);
-    if (findResult && findResult.exitCode === 0) {
-      const files = findResult.stdout.split('\n').filter(Boolean);
-      return { files, command: 'find', args: findArgs };
+    const rgResult = await this.runFastPathCommand(
+      'rg',
+      rgArgs,
+      cwd,
+      FAST_PATH_COMMAND_TIMEOUT_MS,
+    );
+    if (rgResult && rgResult.exitCode === 0) {
+      const files = rgResult.stdout.split('\n').filter(Boolean);
+      return { files, command: 'rg', args: rgArgs };
     }
 
     return null;
@@ -978,7 +1029,12 @@ export class InstanceOrchestrationManager {
     totalMatches: number;
   } | null> {
     const rgArgs = ['-n', '--no-heading', '-S', pattern, '.'];
-    const rgResult = await this.runFastPathCommand('rg', rgArgs, cwd, 5000);
+    const rgResult = await this.runFastPathCommand(
+      'rg',
+      rgArgs,
+      cwd,
+      FAST_PATH_COMMAND_TIMEOUT_MS,
+    );
     if (rgResult && (rgResult.exitCode === 0 || rgResult.exitCode === 1)) {
       const output = rgResult.stdout || '';
       const lines = output.split('\n').filter(Boolean);
@@ -991,29 +1047,18 @@ export class InstanceOrchestrationManager {
     }
 
     const gitArgs = ['grep', '-n', '-e', pattern];
-    const gitResult = await this.runFastPathCommand('git', gitArgs, cwd, 5000);
+    const gitResult = await this.runFastPathCommand(
+      'git',
+      gitArgs,
+      cwd,
+      FAST_PATH_COMMAND_TIMEOUT_MS,
+    );
     if (gitResult && (gitResult.exitCode === 0 || gitResult.exitCode === 1)) {
       const output = gitResult.stdout || '';
       const lines = output.split('\n').filter(Boolean);
       return {
         command: 'git',
         args: gitArgs,
-        rawOutput: output,
-        totalMatches: lines.length
-      };
-    }
-
-    const grepArgs = [
-      '-RIn', '--exclude-dir=node_modules', '--exclude-dir=.git',
-      '-e', pattern, '.'
-    ];
-    const grepResult = await this.runFastPathCommand('grep', grepArgs, cwd, 5000);
-    if (grepResult && (grepResult.exitCode === 0 || grepResult.exitCode === 1)) {
-      const output = grepResult.stdout || '';
-      const lines = output.split('\n').filter(Boolean);
-      return {
-        command: 'grep',
-        args: grepArgs,
         rawOutput: output,
         totalMatches: lines.length
       };
@@ -1037,28 +1082,46 @@ export class InstanceOrchestrationManager {
       let stdout = '';
       let stderr = '';
       let settled = false;
+      let outputBytes = 0;
+      let timer: NodeJS.Timeout | null = null;
 
       const finish = (exitCode: number | null) => {
         if (settled) return;
         settled = true;
+        if (timer) {
+          clearTimeout(timer);
+        }
         resolve({ stdout, stderr, exitCode });
       };
 
+      const appendOutput = (target: 'stdout' | 'stderr', data: Buffer | string): void => {
+        const chunk = data.toString();
+        outputBytes += Buffer.byteLength(chunk);
+        if (outputBytes > FAST_PATH_MAX_OUTPUT_BYTES) {
+          proc.kill('SIGTERM');
+          finish(null);
+          return;
+        }
+        if (target === 'stdout') {
+          stdout += chunk;
+        } else {
+          stderr += chunk;
+        }
+      };
+
       proc.stdout?.on('data', (data) => {
-        stdout += data.toString();
+        appendOutput('stdout', data);
       });
       proc.stderr?.on('data', (data) => {
-        stderr += data.toString();
+        appendOutput('stderr', data);
       });
       proc.on('error', () => finish(null));
       proc.on('close', (code) => finish(code));
 
-      const timer = setTimeout(() => {
+      timer = setTimeout(() => {
         proc.kill('SIGTERM');
         finish(proc.exitCode ?? null);
       }, timeoutMs);
-
-      proc.on('close', () => clearTimeout(timer));
     });
   }
 

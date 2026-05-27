@@ -94,6 +94,15 @@ describe('generateOrchestrationPrompt', () => {
     });
   });
 
+  describe('code navigation guidance', () => {
+    it('points agents at codemem tools and indexed context instead of legacy lsp tool names', () => {
+      expect(prompt).toContain('mcp__codemem__find_symbol');
+      expect(prompt).toContain('mcp__codemem__find_references');
+      expect(prompt).toContain('[Indexed Codebase Context]');
+      expect(prompt).not.toContain('mcp__lsp__lsp_goto_definition');
+    });
+  });
+
   describe('model and provider routing guidance', () => {
     it('tells the parent to set both provider and model when the user names both', () => {
       expect(prompt).toContain('set both `provider` and `model`');

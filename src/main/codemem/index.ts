@@ -1,4 +1,5 @@
 import { app } from 'electron';
+import { EventEmitter } from 'node:events';
 import * as path from 'node:path';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { McpServer } from '../mcp/mcp-server';
@@ -12,10 +13,10 @@ import { PeriodicScan } from './periodic-scan';
 import { AgentLspFacade, type WorkspaceLspState } from './agent-lsp-facade';
 import { workspaceHashForPath } from './symbol-id';
 import { LspWorkerGateway } from '../lsp-worker/gateway-rpc';
-import { IndexWorkerGateway } from './index-worker-gateway';
+import { IndexWorkerGateway, type IndexWorkerCodeIndexChangedEvent } from './index-worker-gateway';
 import { createCodememMcpTools } from './mcp-tools';
 
-export class CodememService {
+export class CodememService extends EventEmitter {
   private readonly db: SqliteDriver = defaultDriverFactory(
     path.join(app.getPath('userData'), 'codemem.sqlite'),
   );
@@ -31,6 +32,7 @@ export class CodememService {
   private mcpToolsRegistered = false;
 
   constructor() {
+    super();
     migrate(this.db);
     this.store = new CasStore(this.db);
     this.indexManager = new CodeIndexManager({ store: this.store });
@@ -41,6 +43,9 @@ export class CodememService {
       store: this.store,
       gateway: this.gateway,
       getWorkspaceLspState: (workspaceHash) => this.workspaceLspState.get(workspaceHash) ?? 'idle',
+    });
+    this.indexWorkerGateway.on('code-index:changed', (event: IndexWorkerCodeIndexChangedEvent) => {
+      this.emit('code-index:changed', event);
     });
   }
 

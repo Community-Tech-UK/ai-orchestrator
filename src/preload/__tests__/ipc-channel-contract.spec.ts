@@ -79,29 +79,18 @@ function extractContractsChannels(indexPath: string): Map<string, string> {
  */
 function extractChannels(filePath: string): Map<string, string> {
   const content = fs.readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n');
   const channels = new Map<string, string>();
+  const objectStart = content.indexOf('IPC_CHANNELS');
+  const openBrace = content.indexOf('{', objectStart);
+  const closeBrace = content.lastIndexOf('} as const');
+  const body = openBrace >= 0 && closeBrace > openBrace
+    ? content.slice(openBrace + 1, closeBrace)
+    : '';
 
-  const channelPattern = /^\s+([A-Z0-9_]+):\s*['"]([^'"]+)['"]/;
-  let inIpcChannels = false;
-
-  for (const line of lines) {
-    if (line.includes('IPC_CHANNELS') && line.includes('{')) {
-      inIpcChannels = true;
-      continue;
-    }
-
-    if (inIpcChannels && /^}\s*(as const)?;?\s*$/.test(line.trim())) {
-      inIpcChannels = false;
-      continue;
-    }
-
-    if (inIpcChannels) {
-      const match = line.match(channelPattern);
-      if (match) {
-        channels.set(match[1], match[2]);
-      }
-    }
+  const channelPattern = /([A-Z0-9_]+):\s*['"]([^'"]+)['"]/g;
+  let match: RegExpExecArray | null;
+  while ((match = channelPattern.exec(body)) !== null) {
+    channels.set(match[1], match[2]);
   }
 
   return channels;

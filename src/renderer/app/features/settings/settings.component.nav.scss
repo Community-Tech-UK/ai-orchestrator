@@ -1,14 +1,20 @@
 .settings-sidebar {
-  width: 264px;
-  min-width: 264px;
+  width: 276px;
+  min-width: 276px;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border-color);
-  background: var(--settings-sidebar-bg);
+  border-right: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--settings-sidebar-bg) 94%, var(--bg-elevated)) 0%,
+      var(--settings-sidebar-bg) 42%
+    );
+  box-shadow: 12px 0 34px color-mix(in srgb, var(--bg-primary) 56%, transparent);
 }
 
 .sidebar-header {
-  padding: var(--spacing-lg) var(--spacing-md) var(--spacing-sm);
+  padding: var(--spacing-lg) var(--spacing-md) var(--spacing-md);
 }
 
 .back-btn {
@@ -16,15 +22,19 @@
   align-items: center;
   gap: var(--spacing-sm);
   width: 100%;
-  padding: var(--spacing-sm);
+  min-height: 38px;
+  padding: var(--spacing-xs) var(--spacing-sm);
   background: none;
-  border: none;
-  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   color: var(--text-primary);
-  font-size: var(--text-xl);
+  font-size: var(--text-lg);
   font-weight: 600;
   cursor: pointer;
-  transition: background var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .back-btn app-settings-nav-icon {
@@ -37,6 +47,7 @@
 
 .back-btn:hover {
   background: var(--settings-nav-bg-hover);
+  border-color: var(--glass-border-hover);
 }
 
 .back-btn:hover app-settings-nav-icon {
@@ -46,7 +57,7 @@
 
 .sidebar-search {
   position: relative;
-  padding: 0 var(--spacing-md) var(--spacing-md);
+  padding: 0 var(--spacing-md) var(--spacing-lg);
 }
 
 .search-icon {
@@ -61,12 +72,27 @@
 
 .search-input {
   width: 100%;
-  padding: var(--spacing-sm) var(--spacing-xl) var(--spacing-sm) 32px;
+  height: 36px;
+  padding: var(--spacing-sm) var(--spacing-xl) var(--spacing-sm) 34px;
   font-size: var(--text-base);
-  background: var(--surface-sunken-bg);
-  border: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--surface-sunken-bg) 86%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color) 76%, transparent);
   border-radius: var(--radius-md);
   color: var(--text-primary);
+  box-shadow: var(--shadow-inner);
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.search-input:focus {
+  outline: none;
+  background: var(--surface-sunken-bg);
+  border-color: var(--border-focus);
+  box-shadow:
+    var(--shadow-inner),
+    0 0 0 2px color-mix(in srgb, var(--primary-color) 18%, transparent);
 }
 
 .search-input::-webkit-search-cancel-button {
@@ -105,20 +131,22 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--spacing-2xs);
   padding: 0 var(--spacing-sm) var(--spacing-lg);
   overflow-y: auto;
 }
 
 .nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
   width: 100%;
+  min-height: 34px;
   padding: var(--density-nav-padding-y) var(--spacing-sm);
   background: none;
-  border: none;
-  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   color: var(--settings-nav-fg);
   font-size: var(--text-base);
   font-weight: 500;
@@ -126,7 +154,9 @@
   cursor: pointer;
   transition:
     background var(--transition-fast),
+    border-color var(--transition-fast),
     color var(--transition-fast),
+    transform var(--transition-fast),
     box-shadow var(--transition-fast);
 }
 
@@ -134,10 +164,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
   font-size: 15px;
   color: var(--settings-nav-icon);
-  transition: color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .nav-item-label {
@@ -193,20 +227,26 @@
 
 .nav-item:hover {
   background: var(--settings-nav-bg-hover);
+  border-color: var(--glass-border);
   color: var(--settings-nav-fg-hover);
 }
 
 .nav-item:hover .nav-item-icon {
   color: var(--settings-nav-fg-hover);
+  background: var(--glass-light);
 }
 
 .nav-item.active {
-  background: var(--settings-nav-bg-active);
+  background: color-mix(in srgb, var(--settings-nav-bg-active) 82%, var(--primary-color));
+  border-color: color-mix(in srgb, var(--primary-color) 24%, var(--border-color));
   color: var(--settings-nav-fg-active);
-  box-shadow: inset 2px 0 0 var(--settings-nav-accent);
+  box-shadow:
+    inset 2px 0 0 var(--settings-nav-accent),
+    var(--shadow-sm);
 }
 
 .nav-item.active .nav-item-icon {
+  background: var(--pill-accent-bg);
   color: var(--settings-nav-icon-active);
 }
 
@@ -215,7 +255,7 @@
   font-size: var(--text-2xs);
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0;
   color: var(--settings-group-fg);
 }
 
@@ -224,4 +264,24 @@
   font-size: var(--text-sm);
   line-height: var(--leading-snug);
   color: var(--empty-state-fg);
+}
+
+@media (max-width: 900px) {
+  .settings-sidebar {
+    width: 236px;
+    min-width: 236px;
+  }
+
+  .back-btn {
+    font-size: var(--text-md);
+  }
+
+  .nav-recommended,
+  .nav-badge {
+    max-width: 72px;
+  }
+
+  .nav-recommended {
+    display: none;
+  }
 }

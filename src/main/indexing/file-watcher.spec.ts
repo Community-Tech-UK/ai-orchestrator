@@ -172,6 +172,7 @@ describe('CodebaseFileWatcher', () => {
 
       expect(status).toEqual(expect.objectContaining({
         storeId: 'test-store',
+        rootPath: expect.stringContaining('/fake/path'),
         isWatching: true,
         pendingChanges: 0,
       }));

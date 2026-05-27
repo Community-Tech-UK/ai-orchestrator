@@ -9,6 +9,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import ignore from 'ignore';
 import { getLogger } from '../logging/logger';
 import type {
   MerkleNode,
@@ -35,6 +36,7 @@ interface SerializedMerkleNode {
 // ============================================================================
 
 const logger = getLogger('MerkleTree');
+type IgnoreMatcher = ReturnType<typeof ignore>;
 
 export class MerkleTreeManager {
   private config: MerkleTreeConfig;
@@ -56,7 +58,9 @@ export class MerkleTreeManager {
    */
   async buildTree(rootPath: string): Promise<MerkleNode> {
     const absolutePath = path.resolve(rootPath);
-    return this.buildNodeRecursive(absolutePath, absolutePath);
+    const gitignore = await this.loadGitignore(absolutePath);
+    const root = await this.buildNodeRecursive(absolutePath, absolutePath, gitignore, true);
+    return root ?? this.createEmptyRoot();
   }
 
   /**
@@ -166,30 +170,39 @@ export class MerkleTreeManager {
 
   private async buildNodeRecursive(
     absolutePath: string,
-    rootPath: string
-  ): Promise<MerkleNode> {
+    rootPath: string,
+    gitignore: IgnoreMatcher,
+    isRoot = false
+  ): Promise<MerkleNode | null> {
     const stats = await fs.promises.stat(absolutePath);
-    const relativePath = path.relative(rootPath, absolutePath);
+    const relativePath = this.toRelativePath(rootPath, absolutePath);
 
     if (stats.isDirectory()) {
-      return this.buildDirectoryNode(absolutePath, rootPath, relativePath, stats);
-    } else {
-      return this.buildFileNode(absolutePath, relativePath, stats);
+      if (!isRoot && this.isIgnoredPath(relativePath, true, gitignore)) {
+        return null;
+      }
+      return this.buildDirectoryNode(absolutePath, rootPath, relativePath, stats, gitignore);
     }
+
+    if (!this.shouldIncludeFile(relativePath, stats.size, gitignore)) {
+      return null;
+    }
+    return this.buildFileNode(absolutePath, relativePath, stats);
   }
 
   private async buildDirectoryNode(
     absolutePath: string,
     rootPath: string,
     relativePath: string,
-    stats: fs.Stats
+    stats: fs.Stats,
+    gitignore: IgnoreMatcher
   ): Promise<MerkleNode> {
     const entries = await fs.promises.readdir(absolutePath, { withFileTypes: true });
     const children = new Map<string, MerkleNode>();
 
     // Build children in parallel with concurrency limit
     const CONCURRENCY_LIMIT = 20;
-    const childEntries = entries.filter((entry) => this.shouldInclude(entry.name, relativePath));
+    const childEntries = entries.filter((entry) => this.shouldConsiderEntry(entry, relativePath, gitignore));
 
     for (let i = 0; i < childEntries.length; i += CONCURRENCY_LIMIT) {
       const batch = childEntries.slice(i, i + CONCURRENCY_LIMIT);
@@ -197,7 +210,7 @@ export class MerkleTreeManager {
         batch.map(async (entry) => {
           const childPath = path.join(absolutePath, entry.name);
           try {
-            return await this.buildNodeRecursive(childPath, rootPath);
+            return await this.buildNodeRecursive(childPath, rootPath, gitignore);
           } catch (error) {
             // Skip files that can't be read (permissions, broken symlinks, etc.)
             logger.warn('Skipping file due to read error', { childPath, error: String(error) });
@@ -405,21 +418,64 @@ export class MerkleTreeManager {
     return crypto.createHash(algorithm).update(content).digest('hex');
   }
 
-  private shouldInclude(name: string, parentPath: string): boolean {
+  private async loadGitignore(rootPath: string): Promise<IgnoreMatcher> {
+    const matcher = ignore();
+    try {
+      const content = await fs.promises.readFile(path.join(rootPath, '.gitignore'), 'utf8');
+      matcher.add(content);
+    } catch {
+      // Workspaces are not required to have .gitignore.
+    }
+    return matcher;
+  }
+
+  private shouldConsiderEntry(entry: fs.Dirent, parentPath: string, gitignore: IgnoreMatcher): boolean {
     // Skip hidden files/directories
-    if (name.startsWith('.')) {
+    if (entry.name.startsWith('.')) {
       return false;
     }
 
-    // Check ignore patterns
-    const fullPath = parentPath ? `${parentPath}/${name}` : name;
+    const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+    return !this.isIgnoredPath(relativePath, entry.isDirectory(), gitignore);
+  }
+
+  private shouldIncludeFile(relativePath: string, fileSize: number, gitignore: IgnoreMatcher): boolean {
+    if (this.isIgnoredPath(relativePath, false, gitignore)) {
+      return false;
+    }
+    if (fileSize > this.config.maxFileSize) {
+      return false;
+    }
+    return this.config.includeExtensions.includes(path.extname(relativePath).toLowerCase());
+  }
+
+  private isIgnoredPath(relativePath: string, isDirectory: boolean, gitignore: IgnoreMatcher): boolean {
+    const normalized = relativePath.split(path.sep).join('/');
+    if (!normalized) {
+      return false;
+    }
+    const candidate = isDirectory ? `${normalized}/` : normalized;
+
     for (const regex of this.ignoreRegexes) {
-      if (regex.test(fullPath) || regex.test(name)) {
-        return false;
+      if (regex.test(candidate) || regex.test(path.basename(normalized))) {
+        return true;
       }
     }
 
-    return true;
+    return gitignore.ignores(candidate);
+  }
+
+  private createEmptyRoot(): MerkleNode {
+    return {
+      hash: this.computeHash('empty-directory'),
+      path: '.',
+      isDirectory: true,
+      children: new Map(),
+    };
+  }
+
+  private toRelativePath(rootPath: string, absolutePath: string): string {
+    return path.relative(rootPath, absolutePath).split(path.sep).join('/');
   }
 
   private escapeRegex(str: string): string {

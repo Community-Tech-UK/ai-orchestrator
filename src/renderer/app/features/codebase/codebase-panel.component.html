@@ -1,0 +1,116 @@
+<div class="codebase-container">
+  <div class="codebase-header">
+    <div class="header-left">
+      <span class="codebase-icon">📚</span>
+      <span class="codebase-title">Codebase Index</span>
+      @if (autoStatusBadge(); as badge) {
+        <span
+          class="auto-status-badge"
+          [class]="'auto-status-' + badge.tone"
+          [title]="badge.title"
+        >
+          {{ badge.label }}
+        </span>
+      }
+    </div>
+    <div class="header-actions">
+      @if (isIndexing()) {
+        <button class="action-btn danger" (click)="cancelIndexing()">
+          Cancel
+        </button>
+      } @else {
+        <button
+          class="action-btn primary"
+          (click)="startIndexing()"
+          [disabled]="!rootPath()"
+        >
+          Index Codebase
+        </button>
+      }
+    </div>
+  </div>
+
+  @if (toasts().length > 0) {
+    <div class="toast-container">
+      @for (toast of toasts(); track toast.id) {
+        <div
+          class="toast"
+          [class]="'toast-' + toast.type"
+          role="button"
+          tabindex="0"
+          (click)="dismissToast(toast.id)"
+          (keyup.enter)="dismissToast(toast.id)"
+          (keyup.space)="dismissToast(toast.id)"
+        >
+          <span class="toast-message">{{ toast.message }}</span>
+          <button class="toast-close" (click)="dismissToast(toast.id); $event.stopPropagation()">
+            ✕
+          </button>
+        </div>
+      }
+    </div>
+  }
+
+  <div class="directory-section">
+    <label class="directory-label" for="root-path-input">Root Directory</label>
+    <div class="directory-input-wrapper">
+      <input
+        type="text"
+        id="root-path-input"
+        class="directory-input"
+        [ngModel]="rootPath()"
+        (ngModelChange)="rootPath.set($event)"
+        placeholder="/path/to/codebase"
+      />
+      <button class="browse-btn" (click)="browseDirectory()">
+        Browse
+      </button>
+    </div>
+  </div>
+
+  @if (indexingProgress()) {
+    <app-indexing-progress
+      [progress]="indexingProgress()"
+      (cancelIndexing)="cancelIndexing()"
+    />
+  }
+
+  @if (indexStats()) {
+    <app-codebase-stats
+      [stats]="indexStats()"
+      [watcherStatus]="watcherStatus()"
+    />
+  }
+
+  @if (hasIndex()) {
+    <div class="search-section">
+      <app-codebase-search
+        [storeId]="storeId()"
+        [disabled]="isIndexing()"
+        [isSearching]="isSearching()"
+        (searchTriggered)="onSearch($event)"
+      />
+
+      @if (searchResults().length > 0 || hasSearched()) {
+        <app-search-results
+          [results]="searchResults()"
+          [selectedId]="selectedResultId()"
+          (resultSelected)="onResultSelected($event)"
+          (clearResults)="clearResults()"
+          (openFile)="onOpenFile($event)"
+          (copySuccess)="showToast($event, 'success')"
+        />
+      }
+    </div>
+  }
+
+  @if (!hasIndex() && !isIndexing()) {
+    <div class="no-index">
+      <span class="no-index-icon">📂</span>
+      <span class="no-index-title">No Index Available</span>
+      <span class="no-index-text">
+        Select a directory and click "Index Codebase" to enable semantic search
+      </span>
+    </div>
+  }
+</div>

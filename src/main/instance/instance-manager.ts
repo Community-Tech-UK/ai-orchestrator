@@ -89,6 +89,10 @@ import {
   type HistoryRestoreCoordinatorResult,
 } from '../history/history-restore-coordinator';
 import { getPromptHistoryService } from '../prompt-history/prompt-history-service';
+import {
+  getIndexedCodebaseContextService,
+  type IndexedCodebaseContextInfo,
+} from '../indexing/indexed-codebase-context';
 
 const logger = getLogger('InstanceManager');
 const LOG_PREVIEW_LENGTH = 160;
@@ -1571,9 +1575,10 @@ export class InstanceManager extends EventEmitter {
     // Calculate context budget and build contexts
     const budgets = this.context.calculateContextBudget(instance, resolvedMessage);
 
-    const [rlmContext, unifiedMemoryContext] = await Promise.all([
+    const [rlmContext, unifiedMemoryContext, indexedCodebaseContext] = await Promise.all([
       this.context.buildRlmContext(instanceId, resolvedMessage, budgets.rlmMaxTokens, budgets.rlmTopK),
-      this.context.buildUnifiedMemoryContext(instance, resolvedMessage, generateId(), budgets.unifiedMaxTokens)
+      this.context.buildUnifiedMemoryContext(instance, resolvedMessage, generateId(), budgets.unifiedMaxTokens),
+      this.buildIndexedCodebaseContext(instance, resolvedMessage),
     ]);
 
     if (rlmContext) {
@@ -1582,6 +1587,16 @@ export class InstanceManager extends EventEmitter {
 
     if (unifiedMemoryContext) {
       logger.info('UnifiedMemory context injected', { instanceId, tokens: unifiedMemoryContext.tokens, longTermCount: unifiedMemoryContext.longTermCount, proceduralCount: unifiedMemoryContext.proceduralCount, durationMs: unifiedMemoryContext.durationMs });
+    }
+
+    if (indexedCodebaseContext) {
+      logger.info('Indexed codebase context injected', {
+        instanceId,
+        tokens: indexedCodebaseContext.tokens,
+        resultCount: indexedCodebaseContext.results.length,
+        storeId: indexedCodebaseContext.storeId,
+        durationMs: indexedCodebaseContext.durationMs,
+      });
     }
 
     // Build metadata for user message
@@ -1602,6 +1617,15 @@ export class InstanceManager extends EventEmitter {
         longTermCount: unifiedMemoryContext.longTermCount,
         proceduralCount: unifiedMemoryContext.proceduralCount,
         durationMs: unifiedMemoryContext.durationMs
+      };
+    }
+    if (indexedCodebaseContext) {
+      metadata['indexedCodebaseContext'] = {
+        injected: true,
+        tokens: indexedCodebaseContext.tokens,
+        resultCount: indexedCodebaseContext.results.length,
+        storeId: indexedCodebaseContext.storeId,
+        durationMs: indexedCodebaseContext.durationMs,
       };
     }
 
@@ -1685,6 +1709,7 @@ export class InstanceManager extends EventEmitter {
     // Build context blocks
     const contextBlocks = [
       this.context.formatUnifiedMemoryContextBlock(unifiedMemoryContext),
+      this.formatIndexedCodebaseContextBlock(indexedCodebaseContext),
       this.context.formatRlmContextBlock(rlmContext)
     ].filter(Boolean) as string[];
     let contextBlock = contextBlocks.length > 0 ? contextBlocks.join('\n\n') : null;
@@ -1742,6 +1767,48 @@ export class InstanceManager extends EventEmitter {
         error: hookError,
         timestamp: Date.now(),
       });
+    }
+  }
+
+  private async buildIndexedCodebaseContext(
+    instance: Instance,
+    message: string,
+  ): Promise<IndexedCodebaseContextInfo | null> {
+    if (instance.parentId) {
+      return null;
+    }
+
+    try {
+      return await getIndexedCodebaseContextService().buildContext({
+        workspacePath: instance.workingDirectory,
+        query: message,
+        maxTokens: 900,
+        topK: 5,
+      });
+    } catch (error) {
+      logger.warn('Failed to build indexed codebase context', {
+        instanceId: instance.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  private formatIndexedCodebaseContextBlock(
+    context: IndexedCodebaseContextInfo | null,
+  ): string | null {
+    if (!context) {
+      return null;
+    }
+
+    try {
+      return getIndexedCodebaseContextService().formatContextBlock(context);
+    } catch (error) {
+      logger.warn('Failed to format indexed codebase context', {
+        storeId: context.storeId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
     }
   }
 

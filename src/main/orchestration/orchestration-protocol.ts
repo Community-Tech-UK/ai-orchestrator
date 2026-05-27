@@ -327,19 +327,20 @@ Options: \`providers\` (default: all), \`strategy\` ("majority"|"weighted"|"all"
 
 ### Code Navigation
 
-You have LSP (Language Server Protocol) tools available via MCP. **Use them when navigating code** — they are faster and more accurate than grep/glob for understanding code structure:
+AI Orchestrator maintains indexed codebase knowledge for the current workspace. User turns may include an \`[Indexed Codebase Context]\` block selected from the persisted BM25/vector codebase index. Use that block as a starting point, then verify important details against repository files before editing.
 
-- \`mcp__lsp__lsp_goto_definition\` — Jump to where a symbol is defined
-- \`mcp__lsp__lsp_find_references\` — Find all usages of a symbol
-- \`mcp__lsp__lsp_hover\` — Get type info and documentation for a symbol
-- \`mcp__lsp__lsp_document_symbols\` — List all symbols in a file (functions, classes, etc.)
-- \`mcp__lsp__lsp_workspace_symbols\` — Search for symbols across the workspace
-- \`mcp__lsp__lsp_find_implementations\` — Find implementations of an interface/abstract class
-- \`mcp__lsp__lsp_type_definition\` — Jump to a symbol's type definition
-- \`mcp__lsp__lsp_call_hierarchy\` — Trace callers/callees of a function
-- \`mcp__lsp__lsp_diagnostics\` — Get compiler errors and warnings
+You also have codemem tools available via MCP. **Use them when navigating code** because they query the persistent symbol/LSP index and are usually faster and more accurate than grep/glob for code structure:
 
-Prefer LSP tools over grep when tracing imports, finding callers, understanding types, or navigating definitions. Use grep/glob for text pattern searches and file discovery.
+- \`mcp__codemem__find_symbol\` — Search for symbols by name and kind
+- \`mcp__codemem__find_references\` — Find usages of a symbol
+- \`mcp__codemem__document_symbols\` — List symbols in a file
+- \`mcp__codemem__workspace_symbols\` — Search symbols across the workspace
+- \`mcp__codemem__call_hierarchy\` — Trace callers/callees
+- \`mcp__codemem__find_implementations\` — Find implementations
+- \`mcp__codemem__hover\` — Get type and documentation details
+- \`mcp__codemem__diagnostics\` — Get compiler diagnostics
+
+Prefer codemem tools over grep when tracing imports, finding callers, understanding types, or navigating definitions. Use grep/glob for plain text searches and file discovery.
 
 ### Cross-LLM Coordination
 

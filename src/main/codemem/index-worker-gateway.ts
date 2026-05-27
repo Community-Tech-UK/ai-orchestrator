@@ -11,6 +11,7 @@
  */
 
 import { Worker } from 'node:worker_threads';
+import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import type {
@@ -47,6 +48,13 @@ export interface IndexWorkerMetrics {
   degraded: boolean;
 }
 
+export interface IndexWorkerCodeIndexChangedEvent {
+  workspacePath: string;
+  workspaceHash: string;
+  paths: string[];
+  timestamp: number;
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function getElectronUserDataPath(): string | undefined {
@@ -73,7 +81,7 @@ function makeWorker(userDataPath: string): Worker {
 
 // ── IndexWorkerGateway ────────────────────────────────────────────────────────
 
-export class IndexWorkerGateway {
+export class IndexWorkerGateway extends EventEmitter {
   private worker: Worker | null = null;
   private rpcId = 0;
   private pending = new Map<number, PendingRpc>();
@@ -85,6 +93,7 @@ export class IndexWorkerGateway {
   private metrics = { processed: 0, dropped: 0, lastError: null as string | null };
 
   constructor(options: IndexWorkerGatewayOptions = {}) {
+    super();
     this.defaultRpcTimeoutMs = options.rpcTimeoutMs ?? DEFAULT_RPC_TIMEOUT_MS;
     this.workerFactory = options.workerFactory ?? makeWorker;
     this.userDataPath =
@@ -183,6 +192,16 @@ export class IndexWorkerGateway {
   }
 
   private handleMessage(msg: IndexWorkerOutboundMsg): void {
+    if (msg.type === 'code-index-changed') {
+      this.emit('code-index:changed', {
+        workspacePath: msg.workspacePath,
+        workspaceHash: msg.workspaceHash,
+        paths: msg.paths,
+        timestamp: msg.timestamp,
+      } satisfies IndexWorkerCodeIndexChangedEvent);
+      return;
+    }
+
     if (msg.type !== 'rpc-response') return;
     const pending = this.pending.get(msg.id);
     if (!pending) return;

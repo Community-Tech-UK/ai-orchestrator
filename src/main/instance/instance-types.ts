@@ -50,7 +50,7 @@ export type UnifiedMemoryContextInfo = {
  * Fast-path search result for simple retrieval tasks
  */
 export type FastPathResult = {
-  mode: 'grep' | 'files';
+  mode: 'grep' | 'files' | 'indexed-codebase';
   command: string;
   args: string[];
   totalMatches: number;

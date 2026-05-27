@@ -180,6 +180,14 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     max: 300000,
   },
   {
+    key: 'codebaseAutoIndexStartupHint',
+    label: 'Codebase Auto-Index Startup Hint',
+    description:
+      'On app startup, auto-index the most-recent local workspace with the heavier embedding + BM25 pipeline',
+    type: 'boolean',
+    category: 'advanced',
+  },
+  {
     key: 'projectKnowledgeAutoMirrorEnabled',
     label: 'Enable Project Knowledge Auto-Mirror on Workspace Open',
     description:

@@ -16,13 +16,26 @@
 const fs = require('fs');
 const path = require('path');
 const {
-  extractContractsChannelBodyLines,
   extractContractsChannelEntries,
 } = require('./ipc-channel-utils');
 
 const ROOT = path.resolve(__dirname, '..');
 const CONTRACTS_CHANNELS_INDEX_PATH = path.join(ROOT, 'packages/contracts/src/channels/index.ts');
 const GENERATED_PATH = path.join(ROOT, 'src/preload/generated/channels.ts');
+const ENTRIES_PER_LINE = 24;
+
+function formatChannelEntry(channel) {
+  return `${channel.name}: '${channel.value}',`;
+}
+
+function formatCompactChannelLines(channels) {
+  const lines = [];
+  for (let index = 0; index < channels.length; index += ENTRIES_PER_LINE) {
+    const entries = channels.slice(index, index + ENTRIES_PER_LINE);
+    lines.push(`  ${entries.map(formatChannelEntry).join(' ')}`);
+  }
+  return lines;
+}
 
 function main() {
   console.log('Generating preload IPC channels from contracts package...\n');
@@ -33,9 +46,8 @@ function main() {
     process.exit(1);
   }
 
-  const channelBodyLines = extractContractsChannelBodyLines(CONTRACTS_CHANNELS_INDEX_PATH);
-  const channelCount = extractContractsChannelEntries(CONTRACTS_CHANNELS_INDEX_PATH).length;
-  console.log('Extracted ' + channelCount + ' channels from contracts package');
+  const channels = extractContractsChannelEntries(CONTRACTS_CHANNELS_INDEX_PATH);
+  console.log('Extracted ' + channels.length + ' channels from contracts package');
 
   // Write generated file
   const generatedContent = [
@@ -44,7 +56,7 @@ function main() {
     '// Regenerate: npm run generate:ipc',
     '',
     'export const IPC_CHANNELS = {',
-    ...channelBodyLines,
+    ...formatCompactChannelLines(channels),
     '} as const;',
     '',
     'export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];',
@@ -54,7 +66,7 @@ function main() {
   fs.mkdirSync(path.dirname(GENERATED_PATH), { recursive: true });
   fs.writeFileSync(GENERATED_PATH, generatedContent, 'utf-8');
 
-  console.log('Wrote ' + channelCount + ' channels to ' + path.relative(ROOT, GENERATED_PATH));
+  console.log('Wrote ' + channels.length + ' channels to ' + path.relative(ROOT, GENERATED_PATH));
   console.log('Done.\n');
 }
 

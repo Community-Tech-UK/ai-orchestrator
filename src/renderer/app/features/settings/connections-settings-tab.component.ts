@@ -18,8 +18,8 @@ import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="connections-tab">
-      <h3 class="section-title">Connections</h3>
-      <p class="section-desc">Connect external services to control the Orchestrator remotely.</p>
+      <h3 class="section-title">Remote control channels</h3>
+      <p class="section-desc">Connect Discord or WhatsApp accounts that can message the Orchestrator.</p>
 
       <!-- Discord -->
       <div class="connection-card" [class.connected]="store.discord().status === 'connected'">

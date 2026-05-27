@@ -3,12 +3,18 @@
 }
 
 .settings-card {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: var(--card-radius);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--card-bg) 94%, var(--bg-elevated)) 0%,
+      var(--card-bg) 100%
+    );
+  border: 1px solid color-mix(in srgb, var(--card-border) 76%, transparent);
+  border-radius: var(--radius-md);
   box-shadow: var(--card-shadow);
   overflow: hidden;
   transition:
+    background var(--transition-fast),
     box-shadow var(--transition-fast),
     border-color var(--transition-fast);
 }
@@ -28,8 +34,9 @@
   display: flex;
   align-items: flex-start;
   gap: var(--spacing-md);
-  padding: var(--spacing-lg);
-  border-bottom: 1px solid var(--border-subtle);
+  padding: var(--spacing-lg) var(--spacing-lg) var(--spacing-md);
+  border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
+  background: color-mix(in srgb, var(--surface-sunken-bg) 34%, transparent);
 }
 
 .card-icon {
@@ -39,8 +46,14 @@
   width: 34px;
   height: 34px;
   flex-shrink: 0;
-  border-radius: var(--radius-md);
-  background: var(--section-icon-bg);
+  border-radius: var(--radius-sm);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--section-icon-bg) 82%, var(--primary-color)) 0%,
+      var(--section-icon-bg) 100%
+    );
+  border: 1px solid color-mix(in srgb, var(--primary-color) 22%, transparent);
   color: var(--section-icon-fg);
   font-size: 18px;
 }
@@ -52,7 +65,7 @@
 
 .card-title {
   margin: 0;
-  font-size: var(--text-md);
+  font-size: var(--text-lg);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -76,12 +89,23 @@
 }
 
 .card-body {
-  padding: var(--spacing-lg);
+  padding: var(--spacing-md) var(--spacing-lg) var(--spacing-lg);
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  gap: var(--density-row-gap);
 }
 
 .card-body:empty {
   display: none;
+}
+
+@media (max-width: 760px) {
+  .card-header {
+    flex-wrap: wrap;
+  }
+
+  .card-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }

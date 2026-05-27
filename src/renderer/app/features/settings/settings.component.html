@@ -221,18 +221,17 @@
           <div class="help-pane-body">
             @switch (activeTab()) {
               @case ('display') {
-                <app-inline-help heading="What this does">
-                  Controls the workspace theme, layout density, base font size, and
-                  how much of each agent's reasoning and tool activity is shown
-                  inline with messages.
+                <app-inline-help heading="Display settings">
+                  Tune the app theme, workspace density, sidebar layout, output
+                  font size, and transcript detail.
                 </app-inline-help>
-                <app-inline-help variant="tip" heading="Saved as you go">
-                  Theme, density, and font changes apply immediately and persist
-                  across restarts — there is no separate save step.
+                <app-inline-help variant="tip" heading="Preview before applying">
+                  Theme, density, sidebar, and output font changes preview
+                  immediately. Apply them to persist across restarts.
                 </app-inline-help>
-                <app-inline-help variant="tip" heading="Quieter transcripts">
-                  Hide thinking and tool messages to keep runs compact, then switch
-                  them back on only while debugging.
+                <app-inline-help variant="tip" heading="Transcript noise">
+                  Hide tool activity and reasoning panels for calmer runs, then
+                  turn them back on while debugging.
                 </app-inline-help>
               }
               @case ('models') {
@@ -326,8 +325,9 @@
                   last section reopens automatically next time you visit Settings.
                 </app-inline-help>
                 <app-inline-help variant="tip" heading="Finding your way">
-                  Sidebar sections are grouped by what they affect — agents,
-                  workspace, network, and diagnostics. Press Esc to leave Settings.
+                  Sidebar sections are grouped by what they affect — agent
+                  behavior, workspace tools, network, and health diagnostics.
+                  Press Esc to leave Settings.
                 </app-inline-help>
               }
             }

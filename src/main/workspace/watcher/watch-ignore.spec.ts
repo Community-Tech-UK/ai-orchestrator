@@ -34,6 +34,35 @@ describe('watch-ignore', () => {
     expect(ignored.some((matcher) => typeof matcher === 'function')).toBe(true);
   });
 
+  it('uses the root .gitignore for watcher pruning', async () => {
+    tempRoot = await mkdtemp(path.join(tmpdir(), 'aio-watch-gitignore-'));
+    await mkdir(path.join(tempRoot, 'cache'), { recursive: true });
+    await mkdir(path.join(tempRoot, 'src'), { recursive: true });
+    await writeFile(path.join(tempRoot, '.gitignore'), '/cache/\n');
+
+    const ignored = buildWatchIgnoredMatchers(tempRoot);
+    const predicates = ignored.filter(
+      (matcher): matcher is (candidatePath: string) => boolean => typeof matcher === 'function',
+    );
+
+    expect(predicates.some((predicate) => predicate(path.join(tempRoot, 'cache', 'generated.ts')))).toBe(true);
+    expect(predicates.some((predicate) => predicate(path.join(tempRoot, 'src', 'app.ts')))).toBe(false);
+  });
+
+  it('does not pass absolute out-of-root paths to the gitignore matcher', async () => {
+    tempRoot = await mkdtemp(path.join(tmpdir(), 'aio-watch-gitignore-outside-'));
+    await writeFile(path.join(tempRoot, '.gitignore'), '/cache/\n');
+
+    const ignored = buildWatchIgnoredMatchers(tempRoot);
+    const predicates = ignored.filter(
+      (matcher): matcher is (candidatePath: string) => boolean => typeof matcher === 'function',
+    );
+    const outsidePath = path.join(path.dirname(tempRoot), 'other-project', 'src', 'app.ts');
+
+    expect(() => predicates.some((predicate) => predicate(outsidePath))).not.toThrow();
+    expect(predicates.some((predicate) => predicate(outsidePath))).toBe(false);
+  });
+
   it('prevents chokidar from descending into ignored directories', async () => {
     tempRoot = await mkdtemp(path.join(tmpdir(), 'aio-watch-ignore-'));
     await mkdir(path.join(tempRoot, 'node_modules', 'pkg'), { recursive: true });

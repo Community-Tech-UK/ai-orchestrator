@@ -4689,7 +4689,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3108
+      "lines": 3154
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
@@ -4728,12 +4728,12 @@
       "lines": 2659
     },
     {
-      "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing.md",
-      "lines": 2519
+      "path": "src/main/instance/instance-manager.ts",
+      "lines": 2575
     },
     {
-      "path": "src/main/instance/instance-manager.ts",
-      "lines": 2508
+      "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing.md",
+      "lines": 2519
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
@@ -4820,12 +4820,12 @@
       "lines": 1767
     },
     {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1703
+      "path": "src/main/instance/__tests__/instance-manager.spec.ts",
+      "lines": 1764
     },
     {
-      "path": "src/main/instance/__tests__/instance-manager.spec.ts",
-      "lines": 1653
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+      "lines": 1703
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -4842,6 +4842,10 @@
     {
       "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
       "lines": 1582
+    },
+    {
+      "path": "src/main/instance/instance-orchestration.ts",
+      "lines": 1579
     },
     {
       "path": "src/main/session/session-continuity.ts",
@@ -4862,10 +4866,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-e-developer-experience.md",
       "lines": 1517
-    },
-    {
-      "path": "src/main/instance/instance-orchestration.ts",
-      "lines": 1516
     },
     {
       "path": "src/main/orchestration/orchestration-handler.ts",
@@ -5022,10 +5022,6 @@
     {
       "path": "src/main/orchestration/multi-verify-coordinator.ts",
       "lines": 1163
-    },
-    {
-      "path": "src/preload/generated/channels.ts",
-      "lines": 1151
     },
     {
       "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
@@ -5220,10 +5216,6 @@
       "lines": 930
     },
     {
-      "path": "src/preload/domains/workspace.preload.ts",
-      "lines": 929
-    },
-    {
       "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
       "lines": 908
     },
@@ -5300,10 +5292,6 @@
       "lines": 864
     },
     {
-      "path": "src/preload/domains/infrastructure.preload.ts",
-      "lines": 861
-    },
-    {
       "path": "src/main/orchestration/consensus-coordinator.ts",
       "lines": 860
     },
@@ -5362,10 +5350,6 @@
     {
       "path": "src/main/learning/ab-testing.ts",
       "lines": 832
-    },
-    {
-      "path": "src/main/app/initialization-steps.ts",
-      "lines": 822
     },
     {
       "path": "src/renderer/app/features/debate/enhanced-debate-visualization.component.ts",

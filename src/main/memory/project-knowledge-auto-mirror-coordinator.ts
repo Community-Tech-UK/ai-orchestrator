@@ -79,6 +79,15 @@ export interface AutoMirrorBridgeTarget {
 export interface AutoMirrorCodememTarget {
   isEnabled(): boolean;
   isIndexingEnabled(): boolean;
+  on?(event: 'code-index:changed', listener: (event: CodememCodeIndexChangedEvent) => void): unknown;
+  off?(event: 'code-index:changed', listener: (event: CodememCodeIndexChangedEvent) => void): unknown;
+}
+
+export interface CodememCodeIndexChangedEvent {
+  workspacePath: string;
+  workspaceHash?: string;
+  paths: string[];
+  timestamp: number;
 }
 
 /**
@@ -118,15 +127,22 @@ export interface ProjectKnowledgeAutoMirrorCoordinatorOptions {
   now?: () => number;
 }
 
+interface MirrorQueueEntry {
+  rootPath: string;
+  force: boolean;
+}
+
 /**
  * Public surface, primarily for tests + `getProjectKnowledgeAutoMirrorCoordinator()`.
  */
 export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
   private readonly debounceTimers = new Map<string, NodeJS.Timeout>();
-  private readonly queue: string[] = [];
+  private readonly debounceForces = new Map<string, boolean>();
+  private readonly queue: MirrorQueueEntry[] = [];
   private readonly queuedSet = new Set<string>();
   private readonly active = new Set<string>();
   private listenerBound: ((entry: RecentDirectoryEntry) => void) | null = null;
+  private codeIndexChangedBound: ((event: CodememCodeIndexChangedEvent) => void) | null = null;
   private started = false;
   private recentDirsManager: EventEmitter | null = null;
   private readonly knowledge: AutoMirrorKnowledgeTarget;
@@ -156,7 +172,10 @@ export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
     const manager = this.options.recentDirectoriesManager ?? getRecentDirectoriesManager();
     this.recentDirsManager = manager;
     this.listenerBound = (entry: RecentDirectoryEntry) => this.onDirectoryAdded(entry);
+    this.codeIndexChangedBound = (event: CodememCodeIndexChangedEvent) =>
+      this.onCodeIndexChanged(event);
     manager.on('directory-added', this.listenerBound);
+    this.codemem.on?.('code-index:changed', this.codeIndexChangedBound);
     this.started = true;
     logger.info('ProjectKnowledgeAutoMirrorCoordinator started');
   }
@@ -167,12 +186,17 @@ export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
     if (this.recentDirsManager && this.listenerBound) {
       this.recentDirsManager.off('directory-added', this.listenerBound);
     }
+    if (this.codeIndexChangedBound) {
+      this.codemem.off?.('code-index:changed', this.codeIndexChangedBound);
+    }
     this.listenerBound = null;
+    this.codeIndexChangedBound = null;
     this.recentDirsManager = null;
     for (const timer of this.debounceTimers.values()) {
       clearTimeout(timer);
     }
     this.debounceTimers.clear();
+    this.debounceForces.clear();
     this.started = false;
     logger.info('ProjectKnowledgeAutoMirrorCoordinator stopped');
   }
@@ -208,7 +232,7 @@ export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
     // Remove from queue (if pending) so we can move it to the front.
     this.removeFromQueue(normalized);
 
-    this.queue.unshift(normalized);
+    this.queue.unshift({ rootPath: normalized, force: false });
     this.queuedSet.add(normalized);
 
     void this.drainQueue();
@@ -223,7 +247,7 @@ export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
     debouncedPaths: string[];
   } {
     return {
-      queue: [...this.queue],
+      queue: this.queue.map((entry) => entry.rootPath),
       active: [...this.active],
       debouncedPaths: [...this.debounceTimers.keys()],
     };
@@ -238,6 +262,7 @@ export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
       clearTimeout(timer);
     }
     this.debounceTimers.clear();
+    this.debounceForces.clear();
     this.queue.length = 0;
     this.queuedSet.clear();
     this.active.clear();
@@ -261,38 +286,58 @@ export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
     this.scheduleDebounce(normalized);
   }
 
-  private scheduleDebounce(rootPath: string): void {
+  private onCodeIndexChanged(event: CodememCodeIndexChangedEvent): void {
+    this.hintWorkspaceChanged(event.workspacePath);
+  }
+
+  private hintWorkspaceChanged(workspacePath: string | null | undefined): void {
+    const normalized = this.normalizePath(workspacePath);
+    if (!normalized) return;
+
+    if (!this.isEnabled()) return;
+    if (!this.pathExistsAsDirectory(normalized)) return;
+    if (!this.registry.canAutoMine(normalized)) return;
+
+    this.scheduleDebounce(normalized, true);
+  }
+
+  private scheduleDebounce(rootPath: string, force = false): void {
     const existing = this.debounceTimers.get(rootPath);
     if (existing) {
       clearTimeout(existing);
     }
+    const shouldForce = force || this.debounceForces.get(rootPath) === true;
     const delay = this.getDebounceMs();
     if (delay <= 0) {
       // Zero-debounce path used by tests that want immediate enqueue without
       // having to advance fake timers.
       this.debounceTimers.delete(rootPath);
-      this.enqueue(rootPath);
+      this.debounceForces.delete(rootPath);
+      this.enqueue(rootPath, shouldForce);
       return;
     }
     const timer = setTimeout(() => {
       this.debounceTimers.delete(rootPath);
-      this.enqueue(rootPath);
+      const forceEntry = this.debounceForces.get(rootPath) === true;
+      this.debounceForces.delete(rootPath);
+      this.enqueue(rootPath, forceEntry);
     }, delay);
     // Don't keep the Node event loop alive for a pending debounce.
     if (typeof timer.unref === 'function') {
       timer.unref();
     }
     this.debounceTimers.set(rootPath, timer);
+    this.debounceForces.set(rootPath, shouldForce);
   }
 
-  private enqueue(rootPath: string): void {
+  private enqueue(rootPath: string, force = false): void {
     if (this.active.has(rootPath) || this.queuedSet.has(rootPath)) {
       return;
     }
-    if (this.shouldSkipBecauseRecentlyMirrored(rootPath)) {
+    if (!force && this.shouldSkipBecauseRecentlyMirrored(rootPath)) {
       return;
     }
-    this.queue.push(rootPath);
+    this.queue.push({ rootPath, force });
     this.queuedSet.add(rootPath);
     void this.drainQueue();
   }
@@ -302,17 +347,18 @@ export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
     while (this.active.size < cap && this.queue.length > 0) {
       const next = this.queue.shift();
       if (!next) break;
-      this.queuedSet.delete(next);
-      this.active.add(next);
+      this.queuedSet.delete(next.rootPath);
+      this.active.add(next.rootPath);
       // Fire-and-forget: each mirror runs to completion independently.
       void this.mirrorOne(next).finally(() => {
-        this.active.delete(next);
+        this.active.delete(next.rootPath);
         void this.drainQueue();
       });
     }
   }
 
-  private async mirrorOne(rootPath: string): Promise<void> {
+  private async mirrorOne(entry: MirrorQueueEntry): Promise<void> {
+    const { rootPath, force } = entry;
     // Re-check on dispatch — settings or codemem state may have flipped
     // between enqueue and dispatch.
     if (!this.isEnabled()) {
@@ -321,7 +367,7 @@ export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
     if (!this.registry.canAutoMine(rootPath)) {
       return;
     }
-    if (this.shouldSkipBecauseRecentlyMirrored(rootPath)) {
+    if (!force && this.shouldSkipBecauseRecentlyMirrored(rootPath)) {
       return;
     }
 
@@ -369,7 +415,7 @@ export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
 
   private removeFromQueue(rootPath: string): void {
     if (!this.queuedSet.has(rootPath)) return;
-    const idx = this.queue.indexOf(rootPath);
+    const idx = this.queue.findIndex((entry) => entry.rootPath === rootPath);
     if (idx !== -1) {
       this.queue.splice(idx, 1);
     }
@@ -455,6 +501,8 @@ function createDefaultCodememTarget(): AutoMirrorCodememTarget {
   return {
     isEnabled: () => (getCodemem() as CodememService).isEnabled(),
     isIndexingEnabled: () => (getCodemem() as CodememService).isIndexingEnabled(),
+    on: (event, listener) => (getCodemem() as CodememService).on(event, listener),
+    off: (event, listener) => (getCodemem() as CodememService).off(event, listener),
   };
 }
 

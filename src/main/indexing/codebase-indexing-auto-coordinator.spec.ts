@@ -38,6 +38,7 @@ interface Fakes {
   };
   contextManager: AutoIndexContextManagerTarget & {
     createCalls: { instanceId: string; config?: Record<string, unknown> }[];
+    listStores: ReturnType<typeof vi.fn>;
   };
   registry: AutoIndexProjectRegistryTarget & { excluded: Set<string> };
   settings: AutoIndexSettingsTarget & { values: Partial<AppSettings> };
@@ -113,6 +114,7 @@ function makeFakes(): Fakes {
       this.createCalls.push({ instanceId, config });
       return { id: `ctx_${instanceId}` };
     },
+    listStores: vi.fn(() => []),
   };
 
   const registry = {
@@ -492,6 +494,107 @@ describe('CodebaseIndexingAutoCoordinator', () => {
 
     fakes.indexing.resolveNext();
     await flushMicrotasks();
+    fakes.indexing.resolveNext();
+    await flushMicrotasks();
+  });
+
+  it('restores file watchers for persisted codebase-auto stores on start', async () => {
+    coordinator._resetForTesting();
+    const dir = mkTmpDir();
+    fakes.tempDirs.push(dir);
+    fakes.contextManager.listStores.mockReturnValue([
+      {
+        id: 'ctx-persisted',
+        instanceId: `codebase:${path.resolve(dir)}`,
+        sections: [],
+        totalTokens: 0,
+        totalSize: 0,
+        createdAt: 1,
+        lastAccessed: 1,
+        accessCount: 0,
+        config: {
+          kind: 'codebase-auto',
+          rootPath: path.resolve(dir),
+        },
+      },
+    ]);
+
+    coordinator = new CodebaseIndexingAutoCoordinator({
+      recentDirectoriesManager: fakes.emitter,
+      indexingService: fakes.indexing,
+      fileWatcher: fakes.fileWatcher,
+      contextManager: fakes.contextManager,
+      registry: fakes.registry,
+      settings: fakes.settings,
+      preflight: fakes.preflight,
+      storeIdResolver: (p) => `codebase:${p}`,
+    });
+    coordinator.start();
+    await flushMicrotasks();
+
+    expect(fakes.fileWatcher.startCalls).toEqual([
+      { storeId: 'ctx-persisted', rootPath: path.resolve(dir) },
+    ]);
+  });
+
+  it('reindexes a persisted codebase store that contains sections no longer eligible for indexing', async () => {
+    coordinator._resetForTesting();
+    const dir = mkTmpDir();
+    fakes.tempDirs.push(dir);
+    fakes.contextManager.listStores.mockReturnValue([
+      {
+        id: 'ctx-polluted',
+        instanceId: `codebase:${path.resolve(dir)}`,
+        sections: [
+          {
+            id: 'sec-jar',
+            type: 'file',
+            name: 'library.jar',
+            content: '',
+            tokens: 7999,
+            startOffset: 0,
+            endOffset: 1,
+            checksum: 'jar',
+            depth: 0,
+            filePath: path.join(dir, 'libraries', 'example.jar'),
+          },
+        ],
+        totalTokens: 7999,
+        totalSize: 1,
+        createdAt: 1,
+        lastAccessed: 1,
+        accessCount: 0,
+        config: {
+          kind: 'codebase-auto',
+          rootPath: path.resolve(dir),
+        },
+      },
+    ]);
+
+    coordinator = new CodebaseIndexingAutoCoordinator({
+      recentDirectoriesManager: fakes.emitter,
+      indexingService: fakes.indexing,
+      fileWatcher: fakes.fileWatcher,
+      contextManager: fakes.contextManager,
+      registry: fakes.registry,
+      settings: fakes.settings,
+      preflight: fakes.preflight,
+      storeIdResolver: (p) => `codebase:${p}`,
+    });
+    coordinator.start();
+    await flushMicrotasks();
+
+    expect(fakes.fileWatcher.startCalls).toEqual([
+      { storeId: 'ctx-polluted', rootPath: path.resolve(dir) },
+    ]);
+    expect(fakes.indexing.indexCalls).toEqual([
+      {
+        storeId: 'ctx_codebase:' + path.resolve(dir),
+        rootPath: path.resolve(dir),
+        force: false,
+      },
+    ]);
+
     fakes.indexing.resolveNext();
     await flushMicrotasks();
   });

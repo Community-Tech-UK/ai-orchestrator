@@ -48,7 +48,15 @@ export interface WorkerRpcResponseMsg {
   error?: string;
 }
 
-export type IndexWorkerOutboundMsg = WorkerReadyMsg | WorkerRpcResponseMsg;
+export interface CodeIndexChangedMsg {
+  type: 'code-index-changed';
+  workspacePath: string;
+  workspaceHash: string;
+  paths: string[];
+  timestamp: number;
+}
+
+export type IndexWorkerOutboundMsg = WorkerReadyMsg | WorkerRpcResponseMsg | CodeIndexChangedMsg;
 
 // ── Shared result types ───────────────────────────────────────────────────────
 

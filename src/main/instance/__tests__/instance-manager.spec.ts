@@ -15,11 +15,17 @@ import { EventEmitter } from 'events';
 
 const {
   mockCreateCliAdapter,
+  mockIndexedBuildContext,
+  mockIndexedFormatContextBlock,
+  mockIndexedBuildFastPathResult,
   mockProjectMemoryBuildBrief,
   mockPromptHistoryRecord,
   mockResourceGovernorGetCreationBlockReason,
 } = vi.hoisted(() => ({
   mockCreateCliAdapter: vi.fn(),
+  mockIndexedBuildContext: vi.fn(),
+  mockIndexedFormatContextBlock: vi.fn(),
+  mockIndexedBuildFastPathResult: vi.fn(),
   mockProjectMemoryBuildBrief: vi.fn().mockResolvedValue({
     text: '',
     sections: [],
@@ -138,6 +144,14 @@ const mockSettingsManager = {
 vi.mock('../../core/config/settings-manager', () => ({
   getSettingsManager: vi.fn(() => mockSettingsManager),
   SettingsManager: vi.fn().mockImplementation(() => mockSettingsManager),
+}));
+
+vi.mock('../../indexing/indexed-codebase-context', () => ({
+  getIndexedCodebaseContextService: vi.fn(() => ({
+    buildContext: mockIndexedBuildContext,
+    formatContextBlock: mockIndexedFormatContextBlock,
+    buildFastPathResult: mockIndexedBuildFastPathResult,
+  })),
 }));
 
 // ---------------------------------------------------------------------------
@@ -700,6 +714,12 @@ describe('InstanceManager', () => {
     mockAdapterSendInput.mockResolvedValue(undefined);
     mockAdapterTerminate.mockResolvedValue(undefined);
     mockCreateCliAdapter.mockImplementation(() => makeMockAdapter());
+    mockIndexedBuildContext.mockReset();
+    mockIndexedBuildContext.mockResolvedValue(null);
+    mockIndexedFormatContextBlock.mockReset();
+    mockIndexedFormatContextBlock.mockReturnValue(null);
+    mockIndexedBuildFastPathResult.mockReset();
+    mockIndexedBuildFastPathResult.mockResolvedValue(null);
     mockAutoTitleMaybeGenerate.mockResolvedValue(undefined);
     mockAutoTitleClearInstance.mockReset();
     mockProjectMemoryBuildBrief.mockResolvedValue({
@@ -1115,6 +1135,46 @@ describe('InstanceManager', () => {
         wasSlashCommand: false,
       }));
     });
+
+    it('prepends indexed codebase context to fresh root initial prompts', async () => {
+      mockIndexedBuildContext.mockResolvedValueOnce({
+        context: '- src/auth/middleware.ts:10\n```typescript\nrequireAuth();\n```',
+        tokens: 16,
+        storeId: 'ctx-codebase',
+        workspacePath: TEST_WORKING_DIR,
+        results: [
+          {
+            sectionId: 'sec-1',
+            filePath: `${TEST_WORKING_DIR}/src/auth/middleware.ts`,
+            relativePath: 'src/auth/middleware.ts',
+            content: 'requireAuth();',
+            startLine: 10,
+            endLine: 10,
+            score: 0.4,
+            matchType: 'hybrid' as const,
+          },
+        ],
+        durationMs: 7,
+      });
+      mockIndexedFormatContextBlock.mockReturnValueOnce(
+        '[Indexed Codebase Context]\nsrc/auth/middleware.ts:10\nrequireAuth();\n[End Indexed Codebase Context]',
+      );
+
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        initialPrompt: 'where is auth middleware handled?',
+      });
+      await instance.readyPromise;
+
+      expect(mockIndexedBuildContext).toHaveBeenCalledWith(expect.objectContaining({
+        workspacePath: TEST_WORKING_DIR,
+        query: 'where is auth middleware handled?',
+      }));
+      const sentMessage = mockAdapterSendInput.mock.calls.at(-1)?.[0] as string;
+      expect(sentMessage).toContain('[Indexed Codebase Context]');
+      expect(sentMessage).toContain('src/auth/middleware.ts:10');
+      expect(sentMessage).toContain('where is auth middleware handled?');
+    });
   });
 
   // =========================================================================
@@ -1337,6 +1397,57 @@ describe('InstanceManager', () => {
           event.event.content === 'user message text',
       );
       expect(userOutputs.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('injects indexed codebase context into normal root user turns', async () => {
+      const indexedContext = {
+        context: '- src/auth/middleware.ts:10\n```typescript\nrequireAuth();\n```',
+        tokens: 16,
+        storeId: 'ctx-codebase',
+        workspacePath: TEST_WORKING_DIR,
+        results: [
+          {
+            sectionId: 'sec-1',
+            filePath: `${TEST_WORKING_DIR}/src/auth/middleware.ts`,
+            relativePath: 'src/auth/middleware.ts',
+            content: 'requireAuth();',
+            startLine: 10,
+            endLine: 10,
+            score: 0.4,
+            matchType: 'hybrid' as const,
+          },
+        ],
+        durationMs: 7,
+      };
+      mockIndexedBuildContext.mockResolvedValueOnce(indexedContext);
+      mockIndexedFormatContextBlock.mockReturnValueOnce(
+        '[Indexed Codebase Context]\nsrc/auth/middleware.ts:10\nrequireAuth();\n[End Indexed Codebase Context]',
+      );
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Indexed Context Test',
+      });
+
+      await manager.sendInput(instance.id, 'where is auth middleware handled?');
+
+      expect(mockIndexedBuildContext).toHaveBeenCalledWith(expect.objectContaining({
+        workspacePath: TEST_WORKING_DIR,
+        query: 'where is auth middleware handled?',
+      }));
+      const sentMessage = mockAdapterSendInput.mock.calls.at(-1)?.[0] as string;
+      expect(sentMessage).toContain('[Indexed Codebase Context]');
+      expect(sentMessage).toContain('src/auth/middleware.ts:10');
+
+      const userMessage = instance.outputBuffer.find(
+        (message) => message.type === 'user' && message.content === 'where is auth middleware handled?',
+      );
+      expect(userMessage?.metadata?.['indexedCodebaseContext']).toEqual(expect.objectContaining({
+        injected: true,
+        tokens: 16,
+        resultCount: 1,
+        storeId: 'ctx-codebase',
+        durationMs: 7,
+      }));
     });
   });
 

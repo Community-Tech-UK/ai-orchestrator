@@ -51,6 +51,11 @@ interface IndexingState {
   cancelled: boolean;
 }
 
+interface PersistedChunk {
+  chunk: ProcessedChunk;
+  sectionId: string;
+}
+
 // ============================================================================
 // CodebaseIndexingService Class
 // ============================================================================
@@ -110,9 +115,21 @@ export class CodebaseIndexingService extends EventEmitter {
 
     try {
       // Build or load merkle tree for change detection
-      const { changedFiles, currentTree } = await this.detectChanges(storeId, absoluteRoot, force);
+      const { changedFiles, currentTree, shouldResetStore } = await this.detectChanges(
+        storeId,
+        absoluteRoot,
+        force,
+        Boolean(filePatterns?.length)
+      );
+
+      if (shouldResetStore) {
+        await this.clearStoreIndex(storeId);
+      }
 
       if (changedFiles.length === 0 && !force) {
+        if (shouldResetStore) {
+          await this.saveMerkleTree(storeId, absoluteRoot, currentTree);
+        }
         this.state.status = 'complete';
         this.state.completedAt = Date.now();
         this.emitProgress();
@@ -122,7 +139,9 @@ export class CodebaseIndexingService extends EventEmitter {
 
       // Scan files to process
       const filesToProcess = force
-        ? await this.scanDirectory(absoluteRoot, filePatterns)
+        ? filePatterns?.length
+          ? await this.scanDirectory(absoluteRoot, filePatterns)
+          : changedFiles.map((f) => path.join(absoluteRoot, f.path))
         : changedFiles.filter((f) => f.type !== 'deleted').map((f) => path.join(absoluteRoot, f.path));
 
       this.state.totalFiles = filesToProcess.length;
@@ -131,6 +150,7 @@ export class CodebaseIndexingService extends EventEmitter {
       // Process files in batches
       this.state.status = 'chunking';
       const allChunks: ProcessedChunk[] = [];
+      const persistedChunks: PersistedChunk[] = [];
 
       for (let i = 0; i < filesToProcess.length; i += this.config.batchSize) {
         if (this.state.cancelled) {
@@ -145,25 +165,25 @@ export class CodebaseIndexingService extends EventEmitter {
 
         // Persist batch if configured
         if (this.config.persistAfterBatch) {
-          await this.persistChunks(storeId, batchChunks);
+          persistedChunks.push(...await this.persistChunks(storeId, batchChunks));
         }
       }
 
       // Handle deletions
       const deletedFiles = changedFiles.filter((f) => f.type === 'deleted');
       for (const file of deletedFiles) {
-        await this.removeFileFromIndex(storeId, file.path);
+        await this.removeFileFromIndex(storeId, path.join(absoluteRoot, file.path));
       }
 
       // Persist all chunks if not done incrementally
       if (!this.config.persistAfterBatch) {
-        await this.persistChunks(storeId, allChunks);
+        persistedChunks.push(...await this.persistChunks(storeId, allChunks));
       }
 
       // Generate embeddings
       this.state.status = 'embedding';
       this.emitProgress();
-      await this.generateEmbeddings(storeId, allChunks);
+      await this.generateEmbeddings(storeId, persistedChunks);
 
       // Save merkle tree
       await this.saveMerkleTree(storeId, absoluteRoot, currentTree);
@@ -211,8 +231,8 @@ export class CodebaseIndexingService extends EventEmitter {
       }));
 
       // Persist and embed
-      await this.persistChunks(storeId, processedChunks);
-      await this.generateEmbeddings(storeId, processedChunks);
+      const persistedChunks = await this.persistChunks(storeId, processedChunks);
+      await this.generateEmbeddings(storeId, persistedChunks);
 
       this.emit('file:indexed', { storeId, filePath: absolutePath });
     } catch (error) {
@@ -291,8 +311,9 @@ export class CodebaseIndexingService extends EventEmitter {
   private async detectChanges(
     storeId: string,
     rootPath: string,
-    force: boolean
-  ): Promise<{ changedFiles: ChangedFile[]; currentTree: MerkleNode }> {
+    force: boolean,
+    hasFilePatterns = false
+  ): Promise<{ changedFiles: ChangedFile[]; currentTree: MerkleNode; shouldResetStore: boolean }> {
     // Build current tree
     const currentTree = await this.merkleTree.buildTree(rootPath);
 
@@ -303,6 +324,7 @@ export class CodebaseIndexingService extends EventEmitter {
           type: 'added' as const,
         })),
         currentTree,
+        shouldResetStore: !hasFilePatterns,
       };
     }
 
@@ -316,13 +338,14 @@ export class CodebaseIndexingService extends EventEmitter {
           type: 'added' as const,
         })),
         currentTree,
+        shouldResetStore: true,
       };
     }
 
     // Diff trees
     const changedFiles = this.merkleTree.diffTrees(previousTree, currentTree);
 
-    return { changedFiles, currentTree };
+    return { changedFiles, currentTree, shouldResetStore: false };
   }
 
   private async loadMerkleTree(storeId: string, rootPath: string): Promise<MerkleNode | null> {
@@ -455,12 +478,12 @@ export class CodebaseIndexingService extends EventEmitter {
     return allChunks;
   }
 
-  private async persistChunks(storeId: string, chunks: ProcessedChunk[]): Promise<void> {
-    for (const chunk of chunks) {
-      const sectionId = generateId('sec');
+  private async persistChunks(storeId: string, chunks: ProcessedChunk[]): Promise<PersistedChunk[]> {
+    const persistedChunks: PersistedChunk[] = [];
 
+    for (const chunk of chunks) {
       // Add to context store
-      this.contextManager.addSection(
+      const section = this.contextManager.addSection(
         storeId,
         'file',
         chunk.name || path.basename(chunk.filePath),
@@ -470,6 +493,7 @@ export class CodebaseIndexingService extends EventEmitter {
           language: chunk.language,
         }
       );
+      const sectionId = section.id;
 
       // Add to FTS index
       const symbols = chunk.metadata.symbols.map((s) => s.name);
@@ -483,7 +507,10 @@ export class CodebaseIndexingService extends EventEmitter {
 
       // Save file metadata
       await this.saveFileMetadata(storeId, chunk.metadata);
+      persistedChunks.push({ chunk, sectionId });
     }
+
+    return persistedChunks;
   }
 
   private async saveFileMetadata(storeId: string, metadata: FileMetadata): Promise<void> {
@@ -526,15 +553,15 @@ export class CodebaseIndexingService extends EventEmitter {
   // Private: Embedding Generation
   // ==========================================================================
 
-  private async generateEmbeddings(storeId: string, chunks: ProcessedChunk[]): Promise<void> {
+  private async generateEmbeddings(storeId: string, chunks: PersistedChunk[]): Promise<void> {
     // Throttle embedding generation
     for (let i = 0; i < chunks.length; i++) {
       if (this.state.cancelled) break;
 
-      const chunk = chunks[i];
+      const { chunk, sectionId } = chunks[i];
 
       try {
-        await this.vectorStore.addSection(storeId, generateId('sec'), chunk.content);
+        await this.vectorStore.addSection(storeId, sectionId, chunk.content);
         this.state.embeddedChunks++;
 
         // Throttle
@@ -581,6 +608,26 @@ export class CodebaseIndexingService extends EventEmitter {
       metaStmt.run(storeId, filePath);
     } catch (error) {
       logger.error('Failed to remove file from index', error instanceof Error ? error : undefined, { filePath });
+    }
+  }
+
+  private async clearStoreIndex(storeId: string): Promise<void> {
+    try {
+      this.bm25.clearStore(storeId);
+      this.vectorStore.clearStore(storeId);
+
+      const sections = [...this.contextManager.listSections(storeId)];
+      for (const section of sections) {
+        this.contextManager.removeSection(storeId, section.id);
+      }
+
+      const db = this.db['db'];
+      db.prepare('DELETE FROM search_index WHERE store_id = ?').run(storeId);
+      db.prepare('DELETE FROM vectors WHERE store_id = ?').run(storeId);
+      db.prepare('DELETE FROM file_metadata WHERE store_id = ?').run(storeId);
+      db.prepare('DELETE FROM codebase_trees WHERE store_id = ?').run(storeId);
+    } catch (error) {
+      logger.error('Failed to clear stale codebase index data', error instanceof Error ? error : undefined, { storeId });
     }
   }
 

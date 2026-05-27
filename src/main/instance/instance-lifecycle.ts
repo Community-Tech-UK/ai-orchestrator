@@ -81,6 +81,7 @@ import { SpawnConfigBuilder } from './lifecycle/spawn-config-builder';
 import { getCompactionCoordinator } from '../context/compaction-coordinator';
 import { getCodemem } from '../codemem';
 import { getMcpManager } from '../mcp/mcp-manager';
+import { getIndexedCodebaseContextService } from '../indexing/indexed-codebase-context';
 import { recordLifecycleTrace } from '../observability/lifecycle-trace';
 import { warmCodememWithTimeout } from './warm-codemem';
 import {
@@ -834,6 +835,45 @@ export class InstanceLifecycleManager extends EventEmitter {
     }
   }
 
+  private async buildInitialRuntimeContextBlock(
+    instance: Instance,
+    config: InstanceCreateConfig,
+    initialPrompt: string | undefined,
+  ): Promise<string | undefined> {
+    const blocks = [config.initialContextBlock?.trim()].filter(Boolean) as string[];
+    const prompt = initialPrompt?.trim();
+    if (!prompt || instance.depth !== 0 || isRestoreOrReplayContinuity(config)) {
+      return blocks.length > 0 ? blocks.join('\n\n') : undefined;
+    }
+
+    try {
+      const service = getIndexedCodebaseContextService();
+      const indexedContext = await service.buildContext({
+        workspacePath: instance.workingDirectory,
+        query: prompt,
+        maxTokens: 900,
+        topK: 5,
+      });
+      const indexedBlock = service.formatContextBlock(indexedContext);
+      if (indexedBlock) {
+        blocks.push(indexedBlock);
+        logger.info('Injected indexed codebase context into initial prompt', {
+          instanceId: instance.id,
+          storeId: indexedContext?.storeId,
+          resultCount: indexedContext?.results.length ?? 0,
+          tokens: indexedContext?.tokens ?? 0,
+        });
+      }
+    } catch (error) {
+      logger.warn('Failed to build indexed codebase context for initial prompt', {
+        instanceId: instance.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    return blocks.length > 0 ? blocks.join('\n\n') : undefined;
+  }
+
   private async waitForResumeHealth(
     instanceId: string,
     timeoutMs = 5000,
@@ -1181,6 +1221,12 @@ export class InstanceLifecycleManager extends EventEmitter {
           });
         }
 
+        const initialRuntimeContextBlock = await this.buildInitialRuntimeContextBlock(
+          instance,
+          config,
+          initialUserMessage?.content,
+        );
+
         try {
           const mcpManager = getMcpManager();
           const runtimeToolContext = await mcpManager.getRuntimeToolContext({
@@ -1372,7 +1418,7 @@ export class InstanceLifecycleManager extends EventEmitter {
                 adapter,
                 resolvedCliType,
                 message: initialUserMessage.content,
-                contextBlock: config.initialContextBlock,
+                contextBlock: initialRuntimeContextBlock,
                 attachments: config.attachments,
               });
             } catch (error) {
@@ -1477,7 +1523,7 @@ export class InstanceLifecycleManager extends EventEmitter {
                 adapter,
                 resolvedCliType,
                 message: initialUserMessage.content,
-                contextBlock: config.initialContextBlock,
+                contextBlock: initialRuntimeContextBlock,
                 attachments: config.attachments,
               });
             }

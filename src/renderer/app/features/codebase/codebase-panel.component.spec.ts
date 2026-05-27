@@ -8,7 +8,7 @@
  */
 
 import { TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
+import { signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { CodebasePanelComponent } from './codebase-panel.component';
 import { CodebaseIpcService } from '../../core/services/ipc/codebase-ipc.service';
@@ -18,6 +18,13 @@ import {
   type ClipboardService,
 } from '../../core/services/clipboard.service';
 import type { CodebaseAutoIndexStatus } from '../../../../shared/types/codebase.types';
+
+await resolveComponentResources((url) => {
+  if (url.endsWith('codebase-panel.component.html') || url.endsWith('codebase-panel.component.scss')) {
+    return Promise.resolve('');
+  }
+  return Promise.reject(new Error(`Unexpected resource: ${url}`));
+});
 
 class FakeCodebaseIpcService {
   readonly indexingProgress = signal(null);
@@ -59,6 +66,7 @@ describe('CodebasePanelComponent auto-status badge', () => {
   beforeEach(async () => {
     fakeIpc = new FakeCodebaseIpcService();
     await TestBed.configureTestingModule({
+      imports: [CodebasePanelComponent],
       providers: [
         { provide: CodebaseIpcService, useValue: fakeIpc },
         { provide: CLIPBOARD_SERVICE, useValue: fakeClipboard },

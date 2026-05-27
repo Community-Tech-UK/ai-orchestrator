@@ -130,6 +130,12 @@ export interface AppSettings {
    * events into a single index run.
    */
   codebaseAutoIndexDebounceMs: number;
+  /**
+   * When true, on app startup the most-recent local recent directory is
+   * auto-indexed by the heavier codebase indexing pipeline. Defaults off so
+   * app launch does not immediately compete with restored sessions.
+   */
+  codebaseAutoIndexStartupHint: boolean;
 
   // Project knowledge auto-mirror (RLM mirror of codemem snapshot + the
   // codebase miner — driven by `ProjectKnowledgeAutoMirrorCoordinator`).
@@ -270,17 +276,18 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   // Codebase auto-index defaults
   codebaseAutoIndexEnabled: true,
-  codebaseAutoIndexMaxFiles: 10_000,
-  codebaseAutoIndexMaxBytes: 500 * 1024 * 1024,
+  codebaseAutoIndexMaxFiles: 3_000,
+  codebaseAutoIndexMaxBytes: 150 * 1024 * 1024,
   codebaseAutoIndexConcurrent: 1,
-  codebaseAutoIndexDebounceMs: 3_000,
+  codebaseAutoIndexDebounceMs: 15_000,
+  codebaseAutoIndexStartupHint: false,
 
   // Project knowledge auto-mirror defaults
   projectKnowledgeAutoMirrorEnabled: true,
   projectKnowledgeAutoMirrorDebounceMs: 2_000,
-  projectKnowledgeAutoMirrorMaxConcurrent: 2,
+  projectKnowledgeAutoMirrorMaxConcurrent: 1,
   projectKnowledgeAutoMirrorSkipWithinMs: 30_000,
-  projectKnowledgeAutoMirrorStartupHint: true,
+  projectKnowledgeAutoMirrorStartupHint: false,
 
   // Cross-Model Review
   crossModelReviewEnabled: true,

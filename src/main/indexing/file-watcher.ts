@@ -35,8 +35,10 @@ export class CodebaseFileWatcher extends EventEmitter {
   private indexingService: CodebaseIndexingService;
 
   private watchers = new Map<string, FSWatcher>();
+  private rootPaths = new Map<string, string>();
   private pendingChanges = new Map<string, Map<string, PendingChange>>();
   private processTimers = new Map<string, NodeJS.Timeout>();
+  private lastProcessedAt = new Map<string, number>();
 
   constructor(config: Partial<FileWatcherConfig> = {}) {
     super();
@@ -82,6 +84,7 @@ export class CodebaseFileWatcher extends EventEmitter {
     });
 
     this.watchers.set(storeId, watcher);
+    this.rootPaths.set(storeId, absolutePath);
 
     this.emit('watcher:started', { storeId, rootPath: absolutePath });
   }
@@ -95,6 +98,9 @@ export class CodebaseFileWatcher extends EventEmitter {
       await watcher.close();
       this.watchers.delete(storeId);
     }
+    const rootPath = this.rootPaths.get(storeId);
+    this.rootPaths.delete(storeId);
+    this.lastProcessedAt.delete(storeId);
 
     // Clear pending changes
     this.pendingChanges.delete(storeId);
@@ -106,7 +112,7 @@ export class CodebaseFileWatcher extends EventEmitter {
       this.processTimers.delete(storeId);
     }
 
-    this.emit('watcher:stopped', { storeId });
+    this.emit('watcher:stopped', { storeId, rootPath });
   }
 
   /**
@@ -130,9 +136,10 @@ export class CodebaseFileWatcher extends EventEmitter {
 
     return {
       storeId,
-      rootPath: '', // chokidar doesn't expose the watched path easily
+      rootPath: this.rootPaths.get(storeId) ?? '',
       isWatching: true,
       pendingChanges: pending?.size || 0,
+      lastProcessedAt: this.lastProcessedAt.get(storeId),
     };
   }
 
@@ -189,7 +196,13 @@ export class CodebaseFileWatcher extends EventEmitter {
     });
 
     // Emit event
-    this.emit('change:detected', { storeId, path: filePath, type, timestamp: Date.now() });
+    this.emit('change:detected', {
+      storeId,
+      rootPath: this.rootPaths.get(storeId),
+      path: filePath,
+      type,
+      timestamp: Date.now(),
+    });
 
     // Debounce processing
     this.scheduleProcessing(storeId);
@@ -228,7 +241,8 @@ export class CodebaseFileWatcher extends EventEmitter {
       this.processTimers.delete(storeId);
     }
 
-    this.emit('changes:processing', { storeId, count: changes.length });
+    const rootPath = this.rootPaths.get(storeId);
+    this.emit('changes:processing', { storeId, rootPath, count: changes.length });
 
     // Group changes by type
     const additions: string[] = [];
@@ -283,11 +297,15 @@ export class CodebaseFileWatcher extends EventEmitter {
       }
     }
 
+    const processedAt = Date.now();
+    this.lastProcessedAt.set(storeId, processedAt);
     this.emit('changes:processed', {
       storeId,
+      rootPath,
       additions: additions.length,
       modifications: modifications.length,
       deletions: deletions.length,
+      processedAt,
     });
   }
 }

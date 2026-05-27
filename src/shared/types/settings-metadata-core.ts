@@ -3,15 +3,15 @@ import type { SettingMetadata } from './settings-metadata.types';
 export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'defaultYoloMode',
-    label: 'YOLO Mode by Default',
-    description: 'Enable YOLO mode (auto-approve all actions) for new instances',
+    label: 'Auto-approve actions by default',
+    description: 'Start new instances in YOLO mode, auto-approving actions without prompts.',
     type: 'boolean',
     category: 'general',
   },
   {
     key: 'defaultWorkingDirectory',
-    label: 'Default Working Directory',
-    description: 'Starting folder for new instances (empty = home directory)',
+    label: 'Default working directory',
+    description: 'Starting folder for new instances. Leave empty to use your home directory.',
     type: 'directory',
     category: 'general',
     placeholder: '~/Projects',
@@ -19,7 +19,7 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'defaultCli',
     label: 'Default CLI',
-    description: 'Which AI CLI to use when multiple are available',
+    description: 'Provider CLI used when creating a new instance.',
     type: 'select',
     category: 'general',
     options: [
@@ -33,8 +33,8 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'defaultModel',
-    label: 'Default Model',
-    description: 'Model to use for new instances (passed via --model flag)',
+    label: 'Default model',
+    description: 'Model passed to new instances when the selected CLI supports a model flag.',
     type: 'select',
     category: 'general',
     options: [
@@ -57,7 +57,7 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'theme',
     label: 'Theme',
-    description: 'Application color theme',
+    description: 'Application color theme.',
     type: 'select',
     category: 'display',
     options: [
@@ -121,8 +121,8 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'fontSize',
-    label: 'Font Size',
-    description: 'Base font size for output display',
+    label: 'Output font size',
+    description: 'Text size for agent responses and transcript output.',
     type: 'number',
     category: 'display',
     min: 12,
@@ -130,8 +130,8 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'displayDensity',
-    label: 'Display Density',
-    description: 'Spacing density for settings, shell panels, and workspace rows',
+    label: 'Display density',
+    description: 'Spacing density for settings, shell panels, and workspace rows.',
     type: 'select',
     category: 'display',
     options: [
@@ -141,8 +141,8 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'sidebarStyle',
-    label: 'Sidebar Style',
-    description: 'Sidebar width behavior for the workspace shell',
+    label: 'Sidebar style',
+    description: 'Sidebar width behavior for the workspace shell.',
     type: 'select',
     category: 'display',
     options: [
@@ -152,8 +152,8 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'contextWarningThreshold',
-    label: 'Context Warning Threshold',
-    description: 'Show warning when context usage exceeds this percentage',
+    label: 'Context warning threshold',
+    description: 'Warn when a session reaches this percentage of its context window.',
     type: 'number',
     category: 'display',
     min: 50,
@@ -161,29 +161,29 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'showToolMessages',
-    label: 'Show Tool Messages',
-    description: 'Display tool use and tool result messages in output',
+    label: 'Show tool activity',
+    description: 'Show tool calls and results in the transcript.',
     type: 'boolean',
     category: 'display',
   },
   {
     key: 'showThinking',
-    label: 'Show Thinking/Reasoning',
-    description: 'Display AI thinking process in collapsible panels',
+    label: 'Show reasoning panels',
+    description: 'Show AI reasoning in collapsible transcript panels.',
     type: 'boolean',
     category: 'display',
   },
   {
     key: 'thinkingDefaultExpanded',
-    label: 'Expand Thinking by Default',
-    description: 'Show thinking panels expanded instead of collapsed',
+    label: 'Expand reasoning by default',
+    description: 'Open reasoning panels automatically instead of keeping them collapsed.',
     type: 'boolean',
     category: 'display',
   },
   {
     key: 'maxRecentDirectories',
-    label: 'Recent Directories Limit',
-    description: 'Maximum number of recently opened directories to remember',
+    label: 'Recent workspace limit',
+    description: 'Number of recently opened directories to keep in workspace history.',
     type: 'number',
     category: 'display',
     min: 5,

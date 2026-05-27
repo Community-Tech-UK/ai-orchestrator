@@ -118,6 +118,43 @@ describe('CasStore', () => {
     expect(symbols[0]?.name).toBe('subtract');
   });
 
+  it('replaceWorkspaceSymbolsForFile tolerates duplicate symbol ids in a single extraction batch', () => {
+    store.replaceWorkspaceSymbolsForFile('w1', 'src/a.ts', [
+      {
+        workspaceHash: 'w1',
+        symbolId: 'sym-1',
+        pathFromRoot: 'src/a.ts',
+        name: 'first',
+        kind: 'function',
+        containerName: null,
+        startLine: 0,
+        startCharacter: 0,
+        endLine: 2,
+        endCharacter: 1,
+        signature: 'first()',
+        docComment: null,
+      },
+      {
+        workspaceHash: 'w1',
+        symbolId: 'sym-1',
+        pathFromRoot: 'src/a.ts',
+        name: 'second',
+        kind: 'function',
+        containerName: null,
+        startLine: 3,
+        startCharacter: 0,
+        endLine: 5,
+        endCharacter: 1,
+        signature: 'second()',
+        docComment: null,
+      },
+    ]);
+
+    const symbols = store.listWorkspaceSymbols('w1');
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]?.name).toBe('second');
+  });
+
   it('searchWorkspaceSymbols finds exact and partial matches', () => {
     store.replaceWorkspaceSymbolsForFile('w1', 'src/a.ts', [
       {

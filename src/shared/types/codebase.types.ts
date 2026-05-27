@@ -21,6 +21,7 @@ export interface MerkleNode {
 export interface MerkleTreeConfig {
   ignorePatterns: string[];
   includeExtensions: string[];
+  maxFileSize: number;
   hashAlgorithm: 'xxhash' | 'md5' | 'sha256';
 }
 

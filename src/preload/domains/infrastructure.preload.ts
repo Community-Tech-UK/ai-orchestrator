@@ -14,13 +14,7 @@ export function createInfrastructureDomain(
     withAuth({ ...payload, ipcAuthToken: ipcAuthToken || undefined });
 
   return {
-    // ============================================
-    // App
-    // ============================================
 
-    /**
-     * Signal app ready
-     */
     appReady: (): Promise<IpcResponse> => {
       return ipcRenderer
         .invoke(ch.APP_READY)
@@ -32,24 +26,12 @@ export function createInfrastructureDomain(
           return response;
         });
     },
-
-    /**
-     * Get app version
-     */
     getVersion: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.APP_GET_VERSION);
     },
-
-    /**
-     * Get the structured startup capability report.
-     */
     getStartupCapabilities: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.APP_GET_STARTUP_CAPABILITIES);
     },
-
-    /**
-     * Listen for startup capability updates emitted during app bootstrap.
-     */
     onStartupCapabilities: (callback: (data: unknown) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on(ch.APP_STARTUP_CAPABILITIES, handler);
@@ -57,83 +39,37 @@ export function createInfrastructureDomain(
         ipcRenderer.removeListener(ch.APP_STARTUP_CAPABILITIES, handler);
     },
 
-    // ============================================
-    // Settings
-    // ============================================
-
-    /**
-     * Get all settings
-     */
     getSettings: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SETTINGS_GET_ALL);
     },
-
-    /**
-     * Get a single setting
-     */
     getSetting: (key: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SETTINGS_GET, key);
     },
-
-    /**
-     * Set a single setting
-     */
     setSetting: (key: string, value: unknown): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SETTINGS_SET, { key, value });
     },
-
-    /**
-     * Update multiple settings
-     */
     updateSettings: (settings: Record<string, unknown>): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SETTINGS_UPDATE, { settings });
     },
-
-    /**
-     * Reset all settings to defaults
-     */
     resetSettings: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SETTINGS_RESET);
     },
-
-    /**
-     * Reset a single setting to default
-     */
     resetSetting: (key: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SETTINGS_RESET_ONE, { key });
     },
-
-    /**
-     * Listen for settings changes
-     */
     onSettingsChanged: (callback: (data: unknown) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on(ch.SETTINGS_CHANGED, handler);
       return () =>
         ipcRenderer.removeListener(ch.SETTINGS_CHANGED, handler);
     },
-
-    /**
-     * Export all settings to a JSON file (shows save dialog)
-     */
     exportSettings: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SETTINGS_EXPORT);
     },
-
-    /**
-     * Import settings from a JSON file (shows open dialog)
-     */
     importSettings: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SETTINGS_IMPORT);
     },
 
-    // ============================================
-    // Security - Secret Detection & Redaction
-    // ============================================
-
-    /**
-     * Detect secrets in content
-     */
     securityDetectSecrets: (
       content: string,
       contentType?: 'env' | 'text' | 'auto'
@@ -143,10 +79,6 @@ export function createInfrastructureDomain(
         contentType
       });
     },
-
-    /**
-     * Redact secrets in content
-     */
     securityRedactContent: (
       content: string,
       contentType?: 'env' | 'text' | 'auto',
@@ -164,17 +96,9 @@ export function createInfrastructureDomain(
         options
       });
     },
-
-    /**
-     * Check if a file path is sensitive
-     */
     securityCheckFile: (filePath: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SECURITY_CHECK_FILE, { filePath });
     },
-
-    /**
-     * Get secret access audit log
-     */
     securityGetAuditLog: (
       instanceId?: string,
       limit?: number
@@ -184,10 +108,6 @@ export function createInfrastructureDomain(
         limit
       });
     },
-
-    /**
-     * Clear audit log
-     */
     securityClearAuditLog: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SECURITY_CLEAR_AUDIT_LOG);
     },
@@ -201,38 +121,19 @@ export function createInfrastructureDomain(
     ): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SECURITY_SET_PERMISSION_PRESET, { preset });
     },
-
-    /**
-     * Get safe environment variables
-     */
     securityGetSafeEnv: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SECURITY_GET_SAFE_ENV);
     },
-
-    /**
-     * Check if a single env var should be allowed
-     */
     securityCheckEnvVar: (name: string, value: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SECURITY_CHECK_ENV_VAR, {
         name,
         value
       });
     },
-
-    /**
-     * Get env filter config
-     */
     securityGetEnvFilterConfig: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SECURITY_GET_ENV_FILTER_CONFIG);
     },
 
-    // ============================================
-    // Cost Tracking (5.3)
-    // ============================================
-
-    /**
-     * Record token usage and cost
-     */
     costRecordUsage: (
       instanceId: string,
       provider: string,
@@ -251,20 +152,12 @@ export function createInfrastructureDomain(
         })
       );
     },
-
-    /**
-     * Get cost summary
-     */
     costGetSummary: (instanceId?: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(
         ch.COST_GET_SUMMARY,
         _withAuth({ instanceId })
       );
     },
-
-    /**
-     * Get cost history
-     */
     costGetHistory: (
       instanceId?: string,
       limit?: number
@@ -274,10 +167,6 @@ export function createInfrastructureDomain(
         limit
       });
     },
-
-    /**
-     * Set budget limits
-     */
     costSetBudget: (budget: {
       daily?: number;
       weekly?: number;
@@ -289,80 +178,40 @@ export function createInfrastructureDomain(
         _withAuth({ budget })
       );
     },
-
-    /**
-     * Get current budget status
-     */
     costGetBudgetStatus: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(
         ch.COST_GET_BUDGET_STATUS,
         _withAuth({})
       );
     },
-
-    /**
-     * Listen for cost usage events
-     */
     onCostUsageRecorded: (callback: (data: unknown) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on('cost:usage-recorded', handler);
       return () => ipcRenderer.removeListener('cost:usage-recorded', handler);
     },
-
-    /**
-     * Listen for budget warning events
-     */
     onCostBudgetWarning: (callback: (data: unknown) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on('cost:budget-warning', handler);
       return () => ipcRenderer.removeListener('cost:budget-warning', handler);
     },
-
-    /**
-     * Listen for budget exceeded events
-     */
     onCostBudgetExceeded: (callback: (data: unknown) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on('cost:budget-exceeded', handler);
       return () => ipcRenderer.removeListener('cost:budget-exceeded', handler);
     },
 
-    // ============================================
-    // Provider Quota (remaining usage per CLI provider)
-    // ============================================
-
-    /**
-     * Get the latest snapshot for every provider.
-     */
     quotaGetAll: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.QUOTA_GET_ALL, _withAuth({}));
     },
-
-    /**
-     * Get the latest snapshot for one provider.
-     */
     quotaGetProvider: (provider: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.QUOTA_GET_PROVIDER, _withAuth({ provider }));
     },
-
-    /**
-     * Force a fresh probe for one provider.
-     */
     quotaRefresh: (provider: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.QUOTA_REFRESH, _withAuth({ provider }));
     },
-
-    /**
-     * Force a fresh probe for every provider with a registered probe.
-     */
     quotaRefreshAll: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.QUOTA_REFRESH_ALL, _withAuth({}));
     },
-
-    /**
-     * Configure how often a provider's quota is auto-refreshed.
-     * `intervalMs = 0` disables polling for that provider.
-     */
     quotaSetPollInterval: (
       provider: string,
       intervalMs: number,
@@ -372,48 +221,25 @@ export function createInfrastructureDomain(
         _withAuth({ provider, intervalMs }),
       );
     },
-
-    /**
-     * Listen for quota snapshot updates.
-     */
     onQuotaUpdated: (callback: (data: unknown) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on(ch.QUOTA_UPDATED, handler);
       return () => ipcRenderer.removeListener(ch.QUOTA_UPDATED, handler);
     },
-
-    /**
-     * Listen for quota threshold warnings (50/75/90 %).
-     */
     onQuotaWarning: (callback: (data: unknown) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on(ch.QUOTA_WARNING, handler);
       return () => ipcRenderer.removeListener(ch.QUOTA_WARNING, handler);
     },
-
-    /**
-     * Listen for quota exhaustion (>= 100 %).
-     */
     onQuotaExhausted: (callback: (data: unknown) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on(ch.QUOTA_EXHAUSTED, handler);
       return () => ipcRenderer.removeListener(ch.QUOTA_EXHAUSTED, handler);
     },
 
-    // ============================================
-    // Remote Config (6.2)
-    // ============================================
-
-    /**
-     * Fetch remote config
-     */
     remoteConfigFetch: (force?: boolean): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.REMOTE_CONFIG_FETCH, { force });
     },
-
-    /**
-     * Get config value
-     */
     remoteConfigGet: (
       key: string,
       defaultValue?: unknown
@@ -423,10 +249,6 @@ export function createInfrastructureDomain(
         defaultValue
       });
     },
-
-    /**
-     * Set config source
-     */
     remoteConfigSetSource: (source: {
       type: 'url' | 'file' | 'git';
       location: string;
@@ -437,17 +259,9 @@ export function createInfrastructureDomain(
         source
       });
     },
-
-    /**
-     * Get config status
-     */
     remoteConfigStatus: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.REMOTE_CONFIG_STATUS);
     },
-
-    /**
-     * Listen for remote config updates
-     */
     onRemoteConfigUpdated: (
       callback: (config: unknown) => void
     ): (() => void) => {
@@ -456,10 +270,6 @@ export function createInfrastructureDomain(
       ipcRenderer.on('remote-config:updated', handler);
       return () => ipcRenderer.removeListener('remote-config:updated', handler);
     },
-
-    /**
-     * Listen for remote config errors
-     */
     onRemoteConfigError: (callback: (error: unknown) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, error: unknown) =>
         callback(error);
@@ -467,13 +277,6 @@ export function createInfrastructureDomain(
       return () => ipcRenderer.removeListener('remote-config:error', handler);
     },
 
-    // ============================================
-    // Logging (13.1)
-    // ============================================
-
-    /**
-     * Log a message
-     */
     logMessage: (
       level: 'debug' | 'info' | 'warn' | 'error',
       message: string,
@@ -487,10 +290,6 @@ export function createInfrastructureDomain(
         metadata
       });
     },
-
-    /**
-     * Get logs
-     */
     logGetLogs: (options?: {
       level?: 'debug' | 'info' | 'warn' | 'error';
       context?: string;
@@ -500,75 +299,37 @@ export function createInfrastructureDomain(
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.LOG_GET_LOGS, { options });
     },
-
-    /**
-     * Set log level
-     */
     logSetLevel: (
       level: 'debug' | 'info' | 'warn' | 'error'
     ): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.LOG_SET_LEVEL, { level });
     },
-
-    /**
-     * Export logs
-     */
     logExport: (
       filePath: string,
       options?: { format?: 'json' | 'csv'; compress?: boolean }
     ): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.LOG_EXPORT, { filePath, options });
     },
-
-    /**
-     * Clear logs
-     */
     logClear: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.LOG_CLEAR);
     },
 
-    // ============================================
-    // Debug Commands (13.2)
-    // ============================================
-
-    /**
-     * Execute debug command
-     */
     debugExecute: (
       command: string,
       args?: Record<string, unknown>
     ): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.DEBUG_EXECUTE, { command, args });
     },
-
-    /**
-     * Get available debug commands
-     */
     debugGetCommands: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.DEBUG_GET_COMMANDS);
     },
-
-    /**
-     * Get debug info
-     */
     debugGetInfo: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.DEBUG_GET_INFO);
     },
-
-    /**
-     * Run diagnostics
-     */
     debugRunDiagnostics: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.DEBUG_RUN_DIAGNOSTICS);
     },
 
-    // ============================================
-    // Usage Stats (14.1)
-    // ============================================
-
-    /**
-     * Record session start
-     */
     statsRecordSessionStart: (
       sessionId: string,
       instanceId: string,
@@ -582,19 +343,11 @@ export function createInfrastructureDomain(
         workingDirectory
       });
     },
-
-    /**
-     * Record session end
-     */
     statsRecordSessionEnd: (sessionId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.STATS_RECORD_SESSION_END, {
         sessionId
       });
     },
-
-    /**
-     * Record message stats
-     */
     statsRecordMessage: (
       sessionId: string,
       inputTokens: number,
@@ -608,10 +361,6 @@ export function createInfrastructureDomain(
         cost
       });
     },
-
-    /**
-     * Record tool usage
-     */
     statsRecordToolUsage: (
       sessionId: string,
       tool: string
@@ -621,19 +370,11 @@ export function createInfrastructureDomain(
         tool
       });
     },
-
-    /**
-     * Get stats for a period
-     */
     statsGetStats: (
       period: 'day' | 'week' | 'month' | 'year' | 'all'
     ): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.STATS_GET_STATS, { period });
     },
-
-    /**
-     * Export stats
-     */
     statsExport: (
       filePath: string,
       period?: 'day' | 'week' | 'month' | 'year' | 'all'
@@ -641,13 +382,6 @@ export function createInfrastructureDomain(
       return ipcRenderer.invoke(ch.STATS_EXPORT, { filePath, period });
     },
 
-    // ============================================
-    // Semantic Search (4.7)
-    // ============================================
-
-    /**
-     * Perform semantic search
-     */
     searchSemantic: (options: {
       query: string;
       directory: string;
@@ -659,10 +393,6 @@ export function createInfrastructureDomain(
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SEARCH_SEMANTIC, { options });
     },
-
-    /**
-     * Build search index
-     */
     searchBuildIndex: (
       directory: string,
       includePatterns?: string[],
@@ -674,31 +404,16 @@ export function createInfrastructureDomain(
         excludePatterns
       });
     },
-
-    /**
-     * Configure Exa API for enhanced search
-     */
     searchConfigureExa: (config: {
       apiKey: string;
       baseUrl?: string;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SEARCH_CONFIGURE_EXA, { config });
     },
-
-    /**
-     * Get search index stats
-     */
     searchGetIndexStats: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SEARCH_GET_INDEX_STATS);
     },
 
-    // ============================================
-    // Codebase Indexing
-    // ============================================
-
-    /**
-     * Index a codebase (full or incremental)
-     */
     codebaseIndexStore: (
       storeId: string,
       rootPath: string,
@@ -710,41 +425,21 @@ export function createInfrastructureDomain(
         options
       });
     },
-
-    /**
-     * Index a single file
-     */
     codebaseIndexFile: (storeId: string, filePath: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.CODEBASE_INDEX_FILE, {
         storeId,
         filePath
       });
     },
-
-    /**
-     * Cancel ongoing indexing
-     */
     codebaseIndexCancel: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.CODEBASE_INDEX_CANCEL);
     },
-
-    /**
-     * Get current indexing status
-     */
     codebaseIndexStatus: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.CODEBASE_INDEX_STATUS);
     },
-
-    /**
-     * Get index stats for a store
-     */
     codebaseIndexStats: (storeId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.CODEBASE_INDEX_STATS, { storeId });
     },
-
-    /**
-     * Perform hybrid search (BM25 + vector + reranking)
-     */
     codebaseSearch: (options: {
       query: string;
       storeId: string;
@@ -758,10 +453,6 @@ export function createInfrastructureDomain(
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.CODEBASE_SEARCH, { options });
     },
-
-    /**
-     * Search for symbols
-     */
     codebaseSearchSymbols: (
       storeId: string,
       query: string
@@ -771,34 +462,18 @@ export function createInfrastructureDomain(
         query
       });
     },
-
-    /**
-     * Start file watcher for a store
-     */
     codebaseWatcherStart: (storeId: string, rootPath: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.CODEBASE_WATCHER_START, {
         storeId,
         rootPath
       });
     },
-
-    /**
-     * Stop file watcher for a store
-     */
     codebaseWatcherStop: (storeId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.CODEBASE_WATCHER_STOP, { storeId });
     },
-
-    /**
-     * Get watcher status
-     */
     codebaseWatcherStatus: (storeId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.CODEBASE_WATCHER_STATUS, { storeId });
     },
-
-    /**
-     * Listen for indexing progress updates
-     */
     onCodebaseIndexProgress: (
       callback: (progress: unknown) => void
     ): (() => void) => {
@@ -810,10 +485,6 @@ export function createInfrastructureDomain(
         ipcRenderer.removeListener(ch.CODEBASE_INDEX_PROGRESS, listener);
       };
     },
-
-    /**
-     * Listen for watcher change events
-     */
     onCodebaseWatcherChanges: (
       callback: (data: unknown) => void
     ): (() => void) => {
@@ -825,11 +496,6 @@ export function createInfrastructureDomain(
         ipcRenderer.removeListener(ch.CODEBASE_WATCHER_CHANGES, listener);
       };
     },
-
-    /**
-     * Get the current auto-index status for one or all workspaces.
-     * Pass `rootPath` to scope to a single workspace; omit it to fetch all.
-     */
     codebaseAutoStatusGet: (rootPath?: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(
         ch.CODEBASE_AUTO_STATUS_GET,
@@ -841,10 +507,6 @@ export function createInfrastructureDomain(
     // `workspace.workspaceHintActive(...)` exposed by the workspace preload
     // domain. The main-process handler fans the hint out to this
     // coordinator alongside its siblings.
-
-    /**
-     * Listen for auto-index status changes (queued → running → complete / failed / skipped).
-     */
     onCodebaseAutoStatusChanged: (
       callback: (status: unknown) => void
     ): (() => void) => {

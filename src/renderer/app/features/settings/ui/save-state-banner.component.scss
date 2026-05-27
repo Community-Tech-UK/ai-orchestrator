@@ -8,8 +8,8 @@
   justify-content: space-between;
   gap: var(--spacing-md);
   padding: var(--spacing-sm) var(--spacing-lg);
-  background: var(--surface-sunken-bg);
-  border-top: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-sunken-bg) 78%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
   font-size: var(--text-sm);
   min-height: 44px;
 }
@@ -77,7 +77,10 @@
   font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
   border: 1px solid transparent;
 }
 

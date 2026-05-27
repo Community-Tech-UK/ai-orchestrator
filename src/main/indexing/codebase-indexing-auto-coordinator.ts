@@ -15,118 +15,54 @@
 
 import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
-import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import ignore from 'ignore';
 import { getLogger } from '../logging/logger';
 import {
-  getCodebaseIndexingService,
-  type CodebaseIndexingService,
-} from './indexing-service';
-import { getCodebaseFileWatcher, type CodebaseFileWatcher } from './file-watcher';
+  createDefaultContextManagerTarget,
+  createDefaultFileWatcherTarget,
+  createDefaultIndexingTarget,
+  createDefaultRegistryTarget,
+  createDefaultSettingsTarget,
+  defaultPreflight,
+  defaultStoreIdResolver,
+} from './codebase-indexing-auto-defaults';
 import { getRecentDirectoriesManager } from '../core/config/recent-directories-manager';
-import { getSettingsManager } from '../core/config/settings-manager';
-import { getProjectRootRegistry } from '../memory/project-root-registry';
-import { RLMContextManager } from '../rlm/context-manager';
-import { workspaceHashForPath } from '../codemem/symbol-id';
-import type { AppSettings } from '../../shared/types/settings.types';
 import type { RecentDirectoryEntry } from '../../shared/types/recent-directories.types';
 import type {
   CodebaseAutoIndexStatus,
-  CodebaseAutoIndexState,
   IndexingProgress,
-  IndexingStats,
 } from '../../shared/types/codebase.types';
+import type { ContextStore } from '../../shared/types/rlm.types';
+import { DEFAULT_INDEXING_CONFIG, shouldIncludeFile } from './config';
+import type {
+  AutoIndexContextManagerTarget,
+  AutoIndexFileWatcherTarget,
+  AutoIndexingTarget,
+  AutoIndexProjectRegistryTarget,
+  AutoIndexSettingsTarget,
+  CodebaseAutoStatusEvent,
+  CodebaseAutoStatusPartial,
+  CodebaseIndexingAutoCoordinatorOptions,
+  PreflightResult,
+} from './codebase-indexing-auto.types';
+
+export type {
+  AutoIndexContextManagerTarget,
+  AutoIndexFileWatcherTarget,
+  AutoIndexingTarget,
+  AutoIndexProjectRegistryTarget,
+  AutoIndexSettingsTarget,
+  CodebaseAutoStatusEvent,
+  CodebaseIndexingAutoCoordinatorOptions,
+  PreflightResult,
+} from './codebase-indexing-auto.types';
 
 const logger = getLogger('CodebaseAutoIndex');
 
-const DEFAULT_MAX_FILES = 10_000;
-const DEFAULT_MAX_BYTES = 500 * 1024 * 1024;
+const DEFAULT_MAX_FILES = 3_000;
+const DEFAULT_MAX_BYTES = 150 * 1024 * 1024;
 const DEFAULT_MAX_CONCURRENT = 1;
-const DEFAULT_DEBOUNCE_MS = 3_000;
-
-// Mirror project-code-index-bridge's DEFAULT_IGNORES so preflight matches the
-// codemem mining preflight semantics.
-const DEFAULT_IGNORES = [
-  '.git/',
-  '.gitignore',
-  'node_modules/',
-  'dist/',
-  'build/',
-  '.next/',
-  'coverage/',
-];
-
-/**
- * Subset of `CodebaseIndexingService` we depend on, so tests can substitute a
- * fake without booting the real indexing pipeline (sqlite, embedder, etc.).
- */
-export interface AutoIndexingTarget {
-  indexCodebase(
-    storeId: string,
-    rootPath: string,
-    options?: { force?: boolean },
-  ): Promise<IndexingStats>;
-  on(
-    event: 'progress',
-    listener: (progress: IndexingProgress) => void,
-  ): unknown;
-  off(
-    event: 'progress',
-    listener: (progress: IndexingProgress) => void,
-  ): unknown;
-}
-
-/** Subset of `CodebaseFileWatcher` we touch on completion. */
-export interface AutoIndexFileWatcherTarget {
-  startWatching(storeId: string, rootPath: string): Promise<void>;
-}
-
-/** Subset of `RLMContextManager` used to allocate a per-workspace store. */
-export interface AutoIndexContextManagerTarget {
-  createStore(instanceId: string, config?: Record<string, unknown>): { id: string };
-}
-
-/** Subset of `ProjectRootRegistry` we consult before auto-indexing. */
-export interface AutoIndexProjectRegistryTarget {
-  canAutoMine(rootPath: string): boolean;
-}
-
-/** Lookup for the app settings keys this coordinator reads. */
-export interface AutoIndexSettingsTarget {
-  get<K extends keyof AppSettings>(key: K): AppSettings[K];
-}
-
-export interface CodebaseIndexingAutoCoordinatorOptions {
-  /**
-   * Source of `directory-added` events. Defaults to the singleton.
-   * Typed as the base EventEmitter so tests can pass a plain emitter without
-   * importing the real `RecentDirectoriesManager`.
-   */
-  recentDirectoriesManager?: EventEmitter;
-  indexingService?: AutoIndexingTarget;
-  fileWatcher?: AutoIndexFileWatcherTarget;
-  contextManager?: AutoIndexContextManagerTarget;
-  registry?: AutoIndexProjectRegistryTarget;
-  settings?: AutoIndexSettingsTarget;
-  /** Override the workspace-hash → storeId scheme (test seam). */
-  storeIdResolver?: (rootPath: string) => string;
-  /** Override preflight scanner (test seam). */
-  preflight?: (rootPath: string, limits: { maxFiles: number; maxBytes: number }) => Promise<PreflightResult>;
-  now?: () => number;
-}
-
-export interface PreflightResult {
-  fileCount: number;
-  totalBytes: number;
-  exceeded?: 'files' | 'bytes';
-}
-
-/**
- * Status event emitted whenever a workspace's auto-index status changes.
- * Mirrors the shape consumed by the renderer panel.
- */
-export type CodebaseAutoStatusEvent = CodebaseAutoIndexStatus;
+const DEFAULT_DEBOUNCE_MS = 15_000;
 
 interface QueueEntry {
   rootPath: string;
@@ -177,6 +113,7 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
     this.listenerBound = (entry: RecentDirectoryEntry) => this.onDirectoryAdded(entry);
     manager.on('directory-added', this.listenerBound);
     this.started = true;
+    void this.restorePersistedWatchers();
     logger.info('CodebaseIndexingAutoCoordinator started');
   }
 
@@ -311,6 +248,55 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
     }
 
     this.scheduleDebounce(normalized);
+  }
+
+  private async restorePersistedWatchers(): Promise<void> {
+    if (!this.isEnabled()) {
+      return;
+    }
+    const stores = this.contextManager.listStores?.() ?? [];
+    for (const store of stores) {
+      const config = store.config;
+      if (config?.['kind'] !== 'codebase-auto') {
+        continue;
+      }
+      const rootPath = config['rootPath'];
+      if (typeof rootPath !== 'string') {
+        continue;
+      }
+      const normalized = this.normalizePath(rootPath);
+      if (!normalized || !this.pathExistsAsDirectory(normalized)) {
+        continue;
+      }
+      if (!this.registry.canAutoMine(normalized)) {
+        this.recordStatus(normalized, {
+          state: 'skipped',
+          reason: 'excluded',
+          storeId: store.id,
+        });
+        continue;
+      }
+      try {
+        await this.fileWatcher.startWatching(store.id, normalized);
+        this.recordStatus(normalized, {
+          state: 'complete',
+          storeId: store.id,
+        });
+        if (this.storeNeedsReindexForCurrentFilters(store)) {
+          logger.info('Persisted codebase store contains stale excluded sections; scheduling repair reindex', {
+            rootPath: normalized,
+            storeId: store.id,
+          });
+          this.enqueue(normalized);
+        }
+      } catch (error) {
+        logger.warn('Failed to restore codebase file watcher', {
+          rootPath: normalized,
+          storeId: store.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
   }
 
   private scheduleDebounce(rootPath: string): void {
@@ -510,7 +496,7 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
 
   private recordStatus(
     rootPath: string,
-    partial: Partial<CodebaseAutoIndexStatus> & { state: CodebaseAutoIndexState },
+    partial: CodebaseAutoStatusPartial,
   ): void {
     const previous = this.statuses.get(rootPath);
     const storeId = partial.storeId ?? previous?.storeId ?? this.storeIdResolver(rootPath);
@@ -596,135 +582,14 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
       return false;
     }
   }
-}
 
-// ── Default adapters over the live singletons ───────────────────────────────
-
-function createDefaultIndexingTarget(): AutoIndexingTarget {
-  const service = getCodebaseIndexingService();
-  return wrapIndexingService(service);
-}
-
-function wrapIndexingService(service: CodebaseIndexingService): AutoIndexingTarget {
-  return {
-    indexCodebase: (storeId, rootPath, options) =>
-      service.indexCodebase(storeId, rootPath, options),
-    on: (event, listener) => service.on(event, listener),
-    off: (event, listener) => service.off(event, listener),
-  };
-}
-
-function createDefaultFileWatcherTarget(): AutoIndexFileWatcherTarget {
-  return {
-    startWatching: (storeId, rootPath) =>
-      (getCodebaseFileWatcher() as CodebaseFileWatcher).startWatching(storeId, rootPath),
-  };
-}
-
-function createDefaultContextManagerTarget(): AutoIndexContextManagerTarget {
-  return {
-    createStore: (instanceId: string, config?: Record<string, unknown>) =>
-      RLMContextManager.getInstance().createStore(instanceId, config),
-  };
-}
-
-function createDefaultRegistryTarget(): AutoIndexProjectRegistryTarget {
-  return {
-    canAutoMine: (rootPath: string): boolean => {
-      try {
-        return getProjectRootRegistry().canAutoMine(rootPath);
-      } catch {
-        // If the registry is unavailable (e.g. database not initialised in a
-        // test or early startup), default to allowing the auto-index.
-        return true;
-      }
-    },
-  };
-}
-
-function createDefaultSettingsTarget(): AutoIndexSettingsTarget {
-  return {
-    get<K extends keyof AppSettings>(key: K): AppSettings[K] {
-      try {
-        return getSettingsManager().get(key);
-      } catch {
-        return undefined as unknown as AppSettings[K];
-      }
-    },
-  };
-}
-
-function defaultStoreIdResolver(rootPath: string): string {
-  return `codebase:${workspaceHashForPath(rootPath)}`;
-}
-
-async function defaultPreflight(
-  rootPath: string,
-  limits: { maxFiles: number; maxBytes: number },
-): Promise<PreflightResult> {
-  const ig = ignore().add(DEFAULT_IGNORES);
-  try {
-    const gitignore = await fsp.readFile(path.join(rootPath, '.gitignore'), 'utf8');
-    ig.add(gitignore);
-  } catch {
-    // Missing .gitignore is expected.
+  private storeNeedsReindexForCurrentFilters(store: ContextStore): boolean {
+    return store.sections.some((section) => (
+      section.type === 'file'
+      && typeof section.filePath === 'string'
+      && !shouldIncludeFile(section.filePath, DEFAULT_INDEXING_CONFIG)
+    ));
   }
-
-  const result: PreflightResult = { fileCount: 0, totalBytes: 0 };
-  const stack: string[] = [rootPath];
-
-  while (stack.length > 0) {
-    const dirPath = stack.pop();
-    if (!dirPath) break;
-    let entries: fs.Dirent[];
-    try {
-      entries = await fsp.readdir(dirPath, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-
-    for (const entry of entries) {
-      const absolutePath = path.join(dirPath, entry.name);
-      const relativePath = toRelativePath(rootPath, absolutePath);
-      const candidate = entry.isDirectory() ? `${relativePath}/` : relativePath;
-      if (relativePath && ig.ignores(candidate)) {
-        continue;
-      }
-
-      if (entry.isDirectory()) {
-        stack.push(absolutePath);
-        continue;
-      }
-      if (!entry.isFile()) {
-        continue;
-      }
-
-      let stat: fs.Stats;
-      try {
-        stat = await fsp.stat(absolutePath);
-      } catch {
-        continue;
-      }
-
-      result.fileCount++;
-      result.totalBytes += stat.size;
-
-      if (result.fileCount > limits.maxFiles) {
-        result.exceeded = 'files';
-        return result;
-      }
-      if (result.totalBytes > limits.maxBytes) {
-        result.exceeded = 'bytes';
-        return result;
-      }
-    }
-  }
-
-  return result;
-}
-
-function toRelativePath(rootPath: string, absolutePath: string): string {
-  return path.relative(rootPath, absolutePath).split(path.sep).join('/');
 }
 
 // ── Singleton accessor ──────────────────────────────────────────────────────

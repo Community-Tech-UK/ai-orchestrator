@@ -287,10 +287,18 @@ export class SummarizationWorker extends EventEmitter {
           COALESCE(cs.content_inline, '') as content,
           cs.content_file
         FROM context_sections cs
+        JOIN context_stores stores ON stores.id = cs.store_id
         WHERE cs.depth = 0
           AND cs.tokens >= ?
           AND cs.parent_summary_id IS NULL
           AND (cs.pending_summary IS NULL OR cs.pending_summary = 0)
+          AND (
+            CASE
+              WHEN stores.config_json IS NOT NULL AND json_valid(stores.config_json)
+                THEN COALESCE(json_extract(stores.config_json, '$.kind'), '')
+              ELSE ''
+            END
+          ) != 'codebase-auto'
         ORDER BY cs.tokens DESC, cs.created_at ASC
         LIMIT ?
       `);

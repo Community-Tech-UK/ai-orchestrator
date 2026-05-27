@@ -3,16 +3,11 @@
  * Registers all IPC handlers and manages event forwarding
  */
 
-import { ipcMain, IpcMainInvokeEvent } from 'electron';
+import { IpcMainInvokeEvent } from 'electron';
 import * as crypto from 'crypto';
 import { getLogger } from '../logging/logger';
-import { validateIpcPayload } from '@contracts/schemas/common';
-import {
-  MemoryLoadHistoryPayloadSchema,
-} from '@contracts/schemas/instance';
 import { InstanceManager } from '../instance/instance-manager';
 import { WindowManager } from '../window-manager';
-import { IPC_CHANNELS } from '@contracts/channels';
 import type { IpcResponse } from '../../shared/types/ipc.types';
 import { registerOrchestrationHandlers } from './orchestration-ipc-handler';
 import { registerVerificationHandlers } from './verification-ipc-handler';
@@ -24,22 +19,16 @@ import { registerTrainingHandlers } from './training-ipc-handler';
 import { registerLLMHandlers } from './llm-ipc-handler';
 import { registerObservationHandlers } from './observation-ipc-handler';
 import { registerTokenStatsHandlers } from './token-stats-ipc-handler';
-import { RLMContextManager } from '../rlm/context-manager';
-import { getDebateCoordinator } from '../orchestration/debate-coordinator';
-import { getMultiVerifyCoordinator } from '../orchestration/multi-verify-coordinator';
-import { getTrainingLoop } from '../memory/training-loop';
-import { getHotModelSwitcher } from '../routing/hot-model-switcher';
-import { getChannelManager } from '../channels';
-import { getReactionEngine } from '../reactions';
-import { getKnowledgeGraphService } from '../memory/knowledge-graph-service';
-import { getConversationMiner } from '../memory/conversation-miner';
-import { getWakeContextBuilder } from '../memory/wake-context-builder';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import { OrchestrationEventStore } from '../orchestration/event-store/orchestration-event-store';
 import { isFeatureEnabled } from '../../shared/constants/feature-flags';
 import { registerDefaultQuotaProbes } from '../core/system/provider-quota';
-import { getAutomationEvents } from '../automations/automation-events';
 import { getPromptHistoryService } from '../prompt-history/prompt-history-service';
+import {
+  registerMemoryStatsHandlers,
+  serializeInstanceForIpc,
+  setupIpcEventForwarding,
+} from './ipc-main-runtime-wiring';
 
 // Import extracted handlers
 import {
@@ -219,12 +208,12 @@ export class IpcMainHandler {
     registerInstructionHandlers();
 
     // Memory stats handlers (basic memory tracking)
-    this.registerMemoryStatsHandlers();
+    registerMemoryStatsHandlers(this.instanceManager);
 
     // Session, archive, and history handlers
     registerSessionHandlers({
       instanceManager: this.instanceManager,
-      serializeInstance: this.serializeInstance.bind(this)
+      serializeInstance: serializeInstanceForIpc,
     });
 
     // Provider and plugin handlers
@@ -402,333 +391,13 @@ export class IpcMainHandler {
     registerRuntimePluginHandlers();
 
     // Set up event forwarding to renderer
-    this.setupMemoryEventForwarding();
-    this.setupRlmEventForwarding();
-    this.setupDebateEventForwarding();
-    this.setupVerificationEventForwarding();
-    this.setupTrainingEventForwarding();
-    this.setupHotSwitchEventForwarding();
-    this.setupChannelEventForwarding();
-    this.setupReactionEventForwarding();
-    this.setupKnowledgeEventForwarding();
-    this.setupAutomationEventForwarding();
+    setupIpcEventForwarding({
+      instanceManager: this.instanceManager,
+      windowManager: this.windowManager,
+    });
     bridgeCliUpdatePillDeltaToWindow(this.windowManager);
 
     logger.info('IPC handlers registered');
   }
 
-  private setupAutomationEventForwarding(): void {
-    const events = getAutomationEvents();
-    events.on('automation:changed', (event) => {
-      this.windowManager.sendToRenderer(IPC_CHANNELS.AUTOMATION_CHANGED, event);
-    });
-    events.on('automation:run-changed', (event) => {
-      this.windowManager.sendToRenderer(IPC_CHANNELS.AUTOMATION_RUN_CHANGED, event);
-    });
-  }
-
-  private registerMemoryStatsHandlers(): void {
-    // Get memory stats
-    ipcMain.handle(
-      IPC_CHANNELS.MEMORY_GET_STATS,
-      async (): Promise<IpcResponse> => {
-        try {
-          const stats = this.instanceManager.getMemoryStats();
-          return {
-            success: true,
-            data: stats
-          };
-        } catch (error) {
-          return {
-            success: false,
-            error: {
-              code: 'MEMORY_STATS_FAILED',
-              message: (error as Error).message,
-              timestamp: Date.now()
-            }
-          };
-        }
-      }
-    );
-
-    // Load historical output from disk
-    ipcMain.handle(
-      IPC_CHANNELS.MEMORY_LOAD_HISTORY,
-      async (
-        _event: IpcMainInvokeEvent,
-        payload: unknown
-      ): Promise<IpcResponse> => {
-        try {
-          const validated = validateIpcPayload(MemoryLoadHistoryPayloadSchema, payload, 'MEMORY_LOAD_HISTORY');
-          const messages = await this.instanceManager.loadHistoricalOutput(
-            validated.instanceId,
-            validated.limit
-          );
-          return {
-            success: true,
-            data: messages
-          };
-        } catch (error) {
-          return {
-            success: false,
-            error: {
-              code: 'LOAD_HISTORY_FAILED',
-              message: (error as Error).message,
-              timestamp: Date.now()
-            }
-          };
-        }
-      }
-    );
-  }
-
-  /**
-   * Set up memory event forwarding to renderer
-   */
-  private setupMemoryEventForwarding(): void {
-    // Forward memory stats updates to renderer
-    this.instanceManager.on('memory:stats', (stats) => {
-      this.windowManager
-        .getMainWindow()
-        ?.webContents.send(IPC_CHANNELS.MEMORY_STATS_UPDATE, stats);
-    });
-
-    // Forward memory warnings
-    this.instanceManager.on('memory:warning', (stats) => {
-      this.windowManager
-        .getMainWindow()
-        ?.webContents.send(IPC_CHANNELS.MEMORY_WARNING, {
-          ...stats,
-          message: `Memory usage warning: ${stats.heapUsedMB}MB heap used`
-        });
-    });
-
-    // Forward critical memory alerts
-    this.instanceManager.on('memory:critical', (stats) => {
-      this.windowManager
-        .getMainWindow()
-        ?.webContents.send(IPC_CHANNELS.MEMORY_CRITICAL, {
-          ...stats,
-          message: `Critical memory usage: ${stats.heapUsedMB}MB heap used. Idle instances may be terminated.`
-        });
-    });
-  }
-
-  /**
-   * Set up RLM event forwarding to renderer
-   */
-  private setupRlmEventForwarding(): void {
-    const rlm = RLMContextManager.getInstance();
-
-    rlm.on('store:created', (store) => {
-      this.windowManager
-        .getMainWindow()
-        ?.webContents.send(IPC_CHANNELS.RLM_STORE_UPDATED, {
-          storeId: store.id,
-          store
-        });
-    });
-
-    rlm.on('section:added', ({ store, section }) => {
-      this.windowManager
-        .getMainWindow()
-        ?.webContents.send(IPC_CHANNELS.RLM_SECTION_ADDED, {
-          storeId: store.id,
-          section
-        });
-      this.windowManager
-        .getMainWindow()
-        ?.webContents.send(IPC_CHANNELS.RLM_STORE_UPDATED, {
-          storeId: store.id,
-          store
-        });
-    });
-
-    rlm.on('section:removed', ({ store, section }) => {
-      this.windowManager
-        .getMainWindow()
-        ?.webContents.send(IPC_CHANNELS.RLM_SECTION_REMOVED, {
-          storeId: store.id,
-          sectionId: section.id
-        });
-      this.windowManager
-        .getMainWindow()
-        ?.webContents.send(IPC_CHANNELS.RLM_STORE_UPDATED, {
-          storeId: store.id,
-          store
-        });
-    });
-
-    rlm.on('query:executed', ({ session, queryResult }) => {
-      this.windowManager
-        .getMainWindow()
-        ?.webContents.send(IPC_CHANNELS.RLM_QUERY_COMPLETE, {
-          sessionId: session.id,
-          queryResult
-        });
-    });
-
-    rlm.on('summary:created', ({ storeId, section }) => {
-      this.windowManager
-        .getMainWindow()
-        ?.webContents.send(IPC_CHANNELS.RLM_SECTION_ADDED, {
-          storeId,
-          section
-        });
-    });
-  }
-
-
-  /**
-   * Forward debate events to renderer
-   */
-  private setupDebateEventForwarding(): void {
-    try {
-      const debate = getDebateCoordinator();
-      const send = (channel: string, data: unknown) =>
-        this.windowManager.getMainWindow()?.webContents.send(channel, data);
-
-      debate.on('debate:started', (data) => send(IPC_CHANNELS.DEBATE_EVENT_STARTED, data));
-      debate.on('debate:round-complete', (data) => send(IPC_CHANNELS.DEBATE_EVENT_ROUND_COMPLETE, data));
-      debate.on('debate:completed', (data) => send(IPC_CHANNELS.DEBATE_EVENT_COMPLETED, data));
-      debate.on('debate:error', (data) => send(IPC_CHANNELS.DEBATE_EVENT_ERROR, data));
-      debate.on('debate:paused', (data) => send(IPC_CHANNELS.DEBATE_EVENT_PAUSED, data));
-      debate.on('debate:resumed', (data) => send(IPC_CHANNELS.DEBATE_EVENT_RESUMED, data));
-    } catch {
-      logger.warn('DebateCoordinator not available for event forwarding');
-    }
-  }
-
-  /**
-   * Forward verification events to renderer
-   */
-  private setupVerificationEventForwarding(): void {
-    try {
-      const verify = getMultiVerifyCoordinator();
-      const send = (channel: string, data: unknown) =>
-        this.windowManager.getMainWindow()?.webContents.send(channel, data);
-
-      verify.on('verification:started', (data) => send(IPC_CHANNELS.VERIFICATION_EVENT_STARTED, data));
-      verify.on('verification:progress', (data) => send(IPC_CHANNELS.VERIFICATION_EVENT_PROGRESS, data));
-      verify.on('verification:completed', (data) => send(IPC_CHANNELS.VERIFICATION_EVENT_COMPLETED, data));
-      verify.on('verification:error', (data) => send(IPC_CHANNELS.VERIFICATION_EVENT_ERROR, data));
-    } catch {
-      logger.warn('MultiVerifyCoordinator not available for event forwarding');
-    }
-  }
-
-  /**
-   * Forward training events to renderer
-   */
-  private setupTrainingEventForwarding(): void {
-    try {
-      const training = getTrainingLoop();
-      const send = (channel: string, data: unknown) =>
-        this.windowManager.getMainWindow()?.webContents.send(channel, data);
-
-      training.on('training:started', (data) => send(IPC_CHANNELS.TRAINING_EVENT_STARTED, data));
-      training.on('training:completed', (data) => send(IPC_CHANNELS.TRAINING_EVENT_COMPLETED, data));
-      training.on('training:error', (data) => send(IPC_CHANNELS.TRAINING_EVENT_ERROR, data));
-    } catch {
-      logger.warn('TrainingLoop not available for event forwarding');
-    }
-  }
-
-  /**
-   * Forward hot model switcher events to renderer
-   */
-  private setupHotSwitchEventForwarding(): void {
-    try {
-      const switcher = getHotModelSwitcher();
-      const send = (channel: string, data: unknown) =>
-        this.windowManager.getMainWindow()?.webContents.send(channel, data);
-
-      switcher.on('switch:started', (data) => send(IPC_CHANNELS.HOT_SWITCH_EVENT_STARTED, data));
-      switcher.on('switch:completed', (data) => send(IPC_CHANNELS.HOT_SWITCH_EVENT_COMPLETED, data));
-      switcher.on('switch:failed', (data) => send(IPC_CHANNELS.HOT_SWITCH_EVENT_FAILED, data));
-    } catch {
-      logger.warn('HotModelSwitcher not available for event forwarding');
-    }
-  }
-
-  private setupChannelEventForwarding(): void {
-    const channelManager = getChannelManager();
-
-    channelManager.onEvent((event) => {
-      const mainWindow = this.windowManager.getMainWindow();
-      if (!mainWindow) return;
-
-      switch (event.type) {
-        case 'status':
-          mainWindow.webContents.send(IPC_CHANNELS.CHANNEL_STATUS_CHANGED, event.data);
-          break;
-        case 'message':
-          mainWindow.webContents.send(IPC_CHANNELS.CHANNEL_MESSAGE_RECEIVED, event.data);
-          break;
-        case 'error':
-          mainWindow.webContents.send(IPC_CHANNELS.CHANNEL_ERROR, event.data);
-          break;
-        case 'response-sent':
-          mainWindow.webContents.send(IPC_CHANNELS.CHANNEL_RESPONSE_SENT, event.data);
-          break;
-      }
-    });
-  }
-
-  private setupReactionEventForwarding(): void {
-    const engine = getReactionEngine();
-
-    engine.on('reaction:event', (event: unknown) => {
-      const mainWindow = this.windowManager.getMainWindow();
-      if (!mainWindow) return;
-      mainWindow.webContents.send(IPC_CHANNELS.REACTION_EVENT, event);
-    });
-
-    engine.on('reaction:escalated', (event: unknown) => {
-      const mainWindow = this.windowManager.getMainWindow();
-      if (!mainWindow) return;
-      mainWindow.webContents.send(IPC_CHANNELS.REACTION_ESCALATED, event);
-    });
-  }
-
-  /**
-   * Forward knowledge graph, mining, and wake events to renderer
-   */
-  private setupKnowledgeEventForwarding(): void {
-    try {
-      const kg = getKnowledgeGraphService();
-      const miner = getConversationMiner();
-      const wake = getWakeContextBuilder();
-      const send = (channel: string, data: unknown) =>
-        this.windowManager.getMainWindow()?.webContents.send(channel, data);
-
-      kg.on('graph:fact-added', (data) => send(IPC_CHANNELS.KG_EVENT_FACT_ADDED, data));
-      kg.on('graph:fact-invalidated', (data) => send(IPC_CHANNELS.KG_EVENT_FACT_INVALIDATED, data));
-      miner.on('miner:import-complete', (data) => send(IPC_CHANNELS.CONVO_EVENT_IMPORT_COMPLETE, data));
-      wake.on('wake:hint-added', (data) => send(IPC_CHANNELS.WAKE_EVENT_HINT_ADDED, data));
-      wake.on('wake:context-generated', (data) => send(IPC_CHANNELS.WAKE_EVENT_CONTEXT_GENERATED, data));
-    } catch {
-      logger.warn('Knowledge services not available for event forwarding');
-    }
-  }
-
-  private serializeInstance(instance: unknown): Record<string, unknown> {
-    const record = (
-      typeof instance === 'object' && instance !== null
-        ? { ...(instance as Record<string, unknown>) }
-        : {}
-    ) as Record<string, unknown>;
-    const communicationTokens = record['communicationTokens'];
-    delete record['readyPromise'];
-    delete record['respawnPromise'];
-    delete record['abortController'];
-
-    return {
-      ...record,
-      communicationTokens:
-        communicationTokens instanceof Map
-          ? Object.fromEntries(communicationTokens)
-          : communicationTokens
-    };
-  }
 }

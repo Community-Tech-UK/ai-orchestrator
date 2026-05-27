@@ -5,38 +5,19 @@ import type { IpcResponse } from './types';
 export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNELS) {
   return {
 
-    // ============================================
-    // VCS (Git) Operations
-    // ============================================
-
-    /**
-     * Check if working directory is a git repository
-     */
     vcsIsRepo: (workingDirectory: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.VCS_IS_REPO, { workingDirectory });
     },
-
-    /**
-     * Get git status for working directory
-     */
     vcsGetStatus: (workingDirectory: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.VCS_GET_STATUS, {
         workingDirectory
       });
     },
-
-    /**
-     * Get branches for working directory
-     */
     vcsGetBranches: (workingDirectory: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.VCS_GET_BRANCHES, {
         workingDirectory
       });
     },
-
-    /**
-     * Get recent commits
-     */
     vcsGetCommits: (
       workingDirectory: string,
       limit?: number
@@ -46,10 +27,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
         limit
       });
     },
-
-    /**
-     * Get diff (staged, unstaged, or between refs)
-     */
     vcsGetDiff: (payload: {
       workingDirectory: string;
       type: 'staged' | 'unstaged' | 'between';
@@ -59,10 +36,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.VCS_GET_DIFF, payload);
     },
-
-    /**
-     * Get file history (commits that modified the file)
-     */
     vcsGetFileHistory: (
       workingDirectory: string,
       filePath: string,
@@ -74,10 +47,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
         limit
       });
     },
-
-    /**
-     * Get file content at a specific commit
-     */
     vcsGetFileAtCommit: (
       workingDirectory: string,
       filePath: string,
@@ -89,10 +58,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
         commitHash
       });
     },
-
-    /**
-     * Get blame information for a file
-     */
     vcsGetBlame: (
       workingDirectory: string,
       filePath: string
@@ -102,12 +67,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
         filePath
       });
     },
-
-    /**
-     * Discover all nested git repositories under a directory.
-     * Used by the Source Control panel to enumerate every repo the user has
-     * inside their working folder (matches VS Code's multi-root SCM behavior).
-     */
     vcsFindRepos: (
       rootPath: string,
       ignorePatterns?: string[]
@@ -117,19 +76,9 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
         ignorePatterns
       });
     },
-
-    /**
-     * Replace the set of repos the main-process GitStatusWatcher tracks.
-     * Passing `repoPaths: []` stops all watchers.
-     */
     vcsWatchRepos: (repoPaths: string[]): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.VCS_WATCH_REPOS, { repoPaths });
     },
-
-    /**
-     * Subscribe to git-status-changed events from the main-process
-     * watcher. Returns an unsubscribe function.
-     */
     onVcsStatusChanged: (
       callback: (event: { repoPath: string; reason: string; timestamp: number }) => void
     ): (() => void) => {
@@ -140,44 +89,24 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
       ipcRenderer.on(ch.VCS_STATUS_CHANGED, handler);
       return () => ipcRenderer.removeListener(ch.VCS_STATUS_CHANGED, handler);
     },
-
-    /**
-     * Stage files (`git add -- <paths>`).
-     * Phase 2d — item 7 of the source-control phase-2 plan.
-     */
     vcsStageFiles: (payload: {
       workingDirectory: string;
       filePaths: string[];
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.VCS_STAGE_FILES, payload);
     },
-
-    /**
-     * Unstage files (`git restore --staged -- <paths>`).
-     * Phase 2d — item 7. Only the index side is touched; the worktree
-     * contents are preserved.
-     */
     vcsUnstageFiles: (payload: {
       workingDirectory: string;
       filePaths: string[];
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.VCS_UNSTAGE_FILES, payload);
     },
-
-    /**
-     * Phase 2d (item 8) — discard changes.
-     * For tracked paths: `git restore --source=HEAD --staged --worktree`.
-     * For untracked paths/dirs: Electron `shell.trashItem` (recoverable
-     * from the system Trash). The handler picks per-path.
-     */
     vcsDiscardFiles: (payload: {
       workingDirectory: string;
       filePaths: string[];
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.VCS_DISCARD_FILES, payload);
     },
-
-    /** Phase 2d (item 9) — commit. */
     vcsCommit: (payload: {
       workingDirectory: string;
       message: string;
@@ -186,8 +115,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.VCS_COMMIT, payload);
     },
-
-    /** Phase 2d (item 10) — fetch. */
     vcsFetch: (payload: {
       workingDirectory: string;
       remote?: string;
@@ -196,8 +123,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.VCS_FETCH, payload);
     },
-
-    /** Phase 2d (item 10) — pull (fast-forward only). */
     vcsPull: (payload: {
       workingDirectory: string;
       remote?: string;
@@ -206,8 +131,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.VCS_PULL, payload);
     },
-
-    /** Phase 2d (item 10) — push. */
     vcsPush: (payload: {
       workingDirectory: string;
       remote?: string;
@@ -218,18 +141,9 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.VCS_PUSH, payload);
     },
-
-    /** Phase 2d (item 10) — cancel an in-flight fetch / pull / push. */
     vcsOperationCancel: (payload: { opId: string }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.VCS_OPERATION_CANCEL, payload);
     },
-
-    /**
-     * Phase 2d (item 10) — subscribe to operation progress events.
-     * The single channel carries `started` / `completed` / `cancelled`
-     * / `failed` phases tagged with the operation kind + id so the
-     * renderer can match progress to the originating call.
-     */
     onVcsOperationProgress: (
       callback: (event: {
         opId: string;
@@ -247,8 +161,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
       ipcRenderer.on(ch.VCS_OPERATION_PROGRESS, handler);
       return () => ipcRenderer.removeListener(ch.VCS_OPERATION_PROGRESS, handler);
     },
-
-    /** Phase 2d (item 11) — branch checkout. */
     vcsCheckoutBranch: (payload: {
       workingDirectory: string;
       branchName: string;
@@ -257,13 +169,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
       return ipcRenderer.invoke(ch.VCS_CHECKOUT_BRANCH, payload);
     },
 
-    // ============================================
-    // Phase 7: Worktrees (7.1)
-    // ============================================
-
-    /**
-     * Create a worktree for isolated work
-     */
     worktreeCreate: (payload: {
       instanceId: string;
       baseBranch?: string;
@@ -271,31 +176,15 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.WORKTREE_CREATE, payload);
     },
-
-    /**
-     * List worktrees
-     */
     worktreeList: (instanceId?: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.WORKTREE_LIST, { instanceId });
     },
-
-    /**
-     * Delete a worktree
-     */
     worktreeDelete: (worktreeId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.WORKTREE_DELETE, { worktreeId });
     },
-
-    /**
-     * Get worktree status
-     */
     worktreeGetStatus: (worktreeId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.WORKTREE_GET_STATUS, { worktreeId });
     },
-
-    // ============================================
-    // Parallel Worktrees
-    // ============================================
 
     parallelWorktreeStart: (payload: {
       tasks: unknown[];
@@ -316,20 +205,9 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     parallelWorktreeList: (): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.PARALLEL_WORKTREE_LIST),
 
-    // ============================================
-    // TODO Operations
-    // ============================================
-
-    /**
-     * Get TODO list for a session
-     */
     todoGetList: (sessionId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.TODO_GET_LIST, { sessionId });
     },
-
-    /**
-     * Create a new TODO
-     */
     todoCreate: (payload: {
       sessionId: string;
       content: string;
@@ -339,10 +217,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.TODO_CREATE, payload);
     },
-
-    /**
-     * Update a TODO
-     */
     todoUpdate: (payload: {
       sessionId: string;
       todoId: string;
@@ -353,18 +227,9 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.TODO_UPDATE, payload);
     },
-
-    /**
-     * Delete a TODO
-     */
     todoDelete: (sessionId: string, todoId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.TODO_DELETE, { sessionId, todoId });
     },
-
-    /**
-     * Write all TODOs at once (replaces existing)
-     * This matches Claude's TodoWrite tool format
-     */
     todoWriteAll: (payload: {
       sessionId: string;
       todos: {
@@ -375,24 +240,12 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.TODO_WRITE_ALL, payload);
     },
-
-    /**
-     * Clear all TODOs for a session
-     */
     todoClear: (sessionId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.TODO_CLEAR, { sessionId });
     },
-
-    /**
-     * Get the current in-progress TODO
-     */
     todoGetCurrent: (sessionId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.TODO_GET_CURRENT, { sessionId });
     },
-
-    /**
-     * Listen for TODO list changes
-     */
     onTodoListChanged: (
       callback: (data: { sessionId: string; list: unknown }) => void
     ): (() => void) => {
@@ -405,34 +258,15 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
         ipcRenderer.removeListener(ch.TODO_LIST_CHANGED, handler);
     },
 
-    // ============================================
-    // MCP Operations
-    // ============================================
-
-    /**
-     * Get full MCP state (servers, tools, resources, prompts)
-     */
     mcpGetState: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MCP_GET_STATE);
     },
-
-    /**
-     * Get all MCP servers
-     */
     mcpGetServers: (payload?: { includeExternal?: boolean }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MCP_GET_SERVERS, payload);
     },
-
-    /**
-     * Enable or disable a provider-configured MCP server
-     */
     mcpSetServerEnabled: (payload: { serverId: string; enabled: boolean }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MCP_SET_SERVER_ENABLED, payload);
     },
-
-    /**
-     * Add an MCP server
-     */
     mcpAddServer: (payload: {
       id: string;
       name: string;
@@ -446,59 +280,27 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MCP_ADD_SERVER, payload);
     },
-
-    /**
-     * Remove an MCP server
-     */
     mcpRemoveServer: (serverId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MCP_REMOVE_SERVER, { serverId });
     },
-
-    /**
-     * Connect to an MCP server
-     */
     mcpConnect: (serverId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MCP_CONNECT, { serverId });
     },
-
-    /**
-     * Disconnect from an MCP server
-     */
     mcpDisconnect: (serverId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MCP_DISCONNECT, { serverId });
     },
-
-    /**
-     * Restart an MCP server connection
-     */
     mcpRestart: (serverId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MCP_RESTART, { serverId });
     },
-
-    /**
-     * Get all MCP tools
-     */
     mcpGetTools: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MCP_GET_TOOLS);
     },
-
-    /**
-     * Get all MCP resources
-     */
     mcpGetResources: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MCP_GET_RESOURCES);
     },
-
-    /**
-     * Get all MCP prompts
-     */
     mcpGetPrompts: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MCP_GET_PROMPTS);
     },
-
-    /**
-     * Call an MCP tool
-     */
     mcpCallTool: (payload: {
       serverId: string;
       toolName: string;
@@ -506,20 +308,12 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MCP_CALL_TOOL, payload);
     },
-
-    /**
-     * Read an MCP resource
-     */
     mcpReadResource: (payload: {
       serverId: string;
       uri: string;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MCP_READ_RESOURCE, payload);
     },
-
-    /**
-     * Get an MCP prompt
-     */
     mcpGetPrompt: (payload: {
       serverId: string;
       promptName: string;
@@ -527,17 +321,9 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MCP_GET_PROMPT, payload);
     },
-
-    /**
-     * Get MCP server presets
-     */
     mcpGetPresets: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MCP_GET_PRESETS);
     },
-
-    /**
-     * Get browser automation readiness diagnostics
-     */
     mcpGetBrowserAutomationHealth: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MCP_GET_BROWSER_AUTOMATION_HEALTH);
     },
@@ -600,10 +386,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     mcpProviderOpenScopeFile: (payload: { provider: string; scope: string }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MCP_PROVIDER_OPEN_SCOPE_FILE, payload);
     },
-
-    /**
-     * Listen for MCP state changes (tools, resources, prompts updated)
-     */
     onMcpStateChanged: (
       callback: (data: { type: string; serverId?: string }) => void
     ): (() => void) => {
@@ -615,10 +397,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
       return () =>
         ipcRenderer.removeListener(ch.MCP_STATE_CHANGED, handler);
     },
-
-    /**
-     * Listen for MCP server status changes
-     */
     onMcpServerStatusChanged: (
       callback: (data: {
         serverId: string;
@@ -647,27 +425,12 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
         ipcRenderer.removeListener(ch.MCP_MULTI_PROVIDER_STATE_CHANGED, handler);
     },
 
-    // ============================================
-    // LSP Operations
-    // ============================================
-
-    /**
-     * Get available LSP servers (installed language servers)
-     */
     lspGetAvailableServers: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.LSP_GET_AVAILABLE_SERVERS);
     },
-
-    /**
-     * Get status of all active LSP clients
-     */
     lspGetStatus: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.LSP_GET_STATUS);
     },
-
-    /**
-     * Go to definition (navigate to where symbol is defined)
-     */
     lspGoToDefinition: (payload: {
       filePath: string;
       line: number;
@@ -675,10 +438,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.LSP_GO_TO_DEFINITION, payload);
     },
-
-    /**
-     * Find all references to a symbol
-     */
     lspFindReferences: (payload: {
       filePath: string;
       line: number;
@@ -687,10 +446,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.LSP_FIND_REFERENCES, payload);
     },
-
-    /**
-     * Get hover information (type info, documentation)
-     */
     lspHover: (payload: {
       filePath: string;
       line: number;
@@ -698,17 +453,9 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.LSP_HOVER, payload);
     },
-
-    /**
-     * Get document symbols (outline/structure)
-     */
     lspDocumentSymbols: (filePath: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.LSP_DOCUMENT_SYMBOLS, { filePath });
     },
-
-    /**
-     * Search workspace symbols
-     */
     lspWorkspaceSymbols: (
       query: string,
       rootPath: string
@@ -718,35 +465,16 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
         rootPath
       });
     },
-
-    /**
-     * Get diagnostics (errors, warnings) for a file
-     */
     lspDiagnostics: (filePath: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.LSP_DIAGNOSTICS, { filePath });
     },
-
-    /**
-     * Check if LSP is available for a file type
-     */
     lspIsAvailable: (filePath: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.LSP_IS_AVAILABLE, { filePath });
     },
-
-    /**
-     * Shutdown all LSP clients
-     */
     lspShutdown: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.LSP_SHUTDOWN);
     },
 
-    // ============================================
-    // Multi-Edit Operations
-    // ============================================
-
-    /**
-     * Preview edits without applying them
-     */
     multiEditPreview: (payload: {
       edits: {
         filePath: string;
@@ -757,10 +485,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MULTIEDIT_PREVIEW, payload);
     },
-
-    /**
-     * Apply edits atomically (all succeed or all fail)
-     */
     multiEditApply: (payload: {
       edits: {
         filePath: string;
@@ -774,80 +498,34 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
       return ipcRenderer.invoke(ch.MULTIEDIT_APPLY, payload);
     },
 
-    // ============================================
-    // Bash Validation
-    // ============================================
-
-    /**
-     * Validate a bash command for safety
-     */
     bashValidate: (command: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.BASH_VALIDATE, command);
     },
-
-    /**
-     * Get bash validator configuration
-     */
     bashGetConfig: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.BASH_GET_CONFIG);
     },
-
-    /**
-     * Add a command to the allowed list
-     */
     bashAddAllowed: (command: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.BASH_ADD_ALLOWED, command);
     },
-
-    /**
-     * Add a command to the blocked list
-     */
     bashAddBlocked: (command: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.BASH_ADD_BLOCKED, command);
     },
 
-    // ============================================
-    // Task Management (Subagent Spawning)
-    // ============================================
-
-    /**
-     * Get task status by ID
-     */
     taskGetStatus: (taskId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.TASK_GET_STATUS, { taskId });
     },
-
-    /**
-     * Get task history
-     */
     taskGetHistory: (parentId?: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.TASK_GET_HISTORY, { parentId });
     },
-
-    /**
-     * Get tasks by parent instance
-     */
     taskGetByParent: (parentId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.TASK_GET_BY_PARENT, { parentId });
     },
-
-    /**
-     * Get task by child instance
-     */
     taskGetByChild: (childId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.TASK_GET_BY_CHILD, { childId });
     },
-
-    /**
-     * Cancel a task
-     */
     taskCancel: (taskId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.TASK_CANCEL, { taskId });
     },
-
-    /**
-     * Get task queue stats
-     */
     taskGetQueue: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.TASK_GET_QUEUE);
     },
@@ -902,21 +580,6 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
       return ipcRenderer.invoke(ch.REPO_JOB_GET_STATS);
     },
 
-    // ============================================
-    // Workspace Hint (unified active-workspace signal)
-    // ============================================
-
-    /**
-     * Fire-and-forget hint that the user's current focus is this workspace.
-     * The main-process handler fans the hint out to every coordinator that
-     * subscribes to "workspace is present" events (codemem prewarm,
-     * codebase auto-index, project knowledge mirror).
-     *
-     * Pass `nodeId` for remote workspaces — the fan-out is a no-op in that
-     * case because remote nodes own their own coordinators. Returns
-     * `{ accepted: boolean }` so callers can log if validation rejected
-     * the payload.
-     */
     workspaceHintActive: (payload: {
       path: string;
       nodeId?: string | null;

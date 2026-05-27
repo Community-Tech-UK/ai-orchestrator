@@ -50,6 +50,10 @@ import type {
   TaskTypeStats,
   SelfImprovementConfig,
 } from '../../shared/types/self-improvement.types';
+import {
+  serializeContextSectionForIpc,
+  serializeContextStoreForIpc,
+} from './rlm-ipc-serialization';
 
 /**
  * Register all learning-related IPC handlers
@@ -70,7 +74,9 @@ function registerRLMHandlers(): void {
 
   // Create store
   ipcMain.handle(IPC_CHANNELS.RLM_CREATE_STORE, (_event, instanceId: string): ContextStore => {
-    return rlm.createStore(instanceId);
+    return serializeContextStoreForIpc(rlm.createStore(instanceId), {
+      includeSections: true,
+    });
   });
 
   // Add section
@@ -81,7 +87,9 @@ function registerRLMHandlers(): void {
       payload: unknown
     ): ContextSection => {
       const validated = validateIpcPayload(RlmAddSectionPayloadSchema, payload, 'RLM_ADD_SECTION');
-      return rlm.addSection(validated.storeId, validated.type as ContextSection['type'], validated.name, validated.content, validated.metadata as Partial<ContextSection> | undefined);
+      return serializeContextSectionForIpc(
+        rlm.addSection(validated.storeId, validated.type as ContextSection['type'], validated.name, validated.content, validated.metadata as Partial<ContextSection> | undefined),
+      );
     }
   );
 
@@ -96,17 +104,23 @@ function registerRLMHandlers(): void {
 
   // Get store
   ipcMain.handle(IPC_CHANNELS.RLM_GET_STORE, (_event, storeId: string): ContextStore | undefined => {
-    return rlm.getStore(storeId);
+    const store = rlm.getStore(storeId);
+    return store
+      ? serializeContextStoreForIpc(store, {
+        includeSections: true,
+        sectionLimit: 1_000,
+      })
+      : undefined;
   });
 
   // List stores
   ipcMain.handle(IPC_CHANNELS.RLM_LIST_STORES, (): ContextStore[] => {
-    return rlm.listStores();
+    return rlm.listStores().map((store) => serializeContextStoreForIpc(store));
   });
 
   // List sections
   ipcMain.handle(IPC_CHANNELS.RLM_LIST_SECTIONS, (_event, storeId: string): ContextSection[] => {
-    return rlm.listSections(storeId);
+    return rlm.listSections(storeId).map((section) => serializeContextSectionForIpc(section));
   });
 
   // List active sessions

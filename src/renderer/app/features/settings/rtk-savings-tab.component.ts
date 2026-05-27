@@ -33,7 +33,7 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
     <section class="rtk-tab">
       <header class="rtk-header">
         <div>
-          <h3 class="section-title">RTK Token Savings</h3>
+          <h3 class="section-title">Compression savings</h3>
           <p class="section-desc">
             Compresses LLM-bound shell command output via the
             <a href="https://github.com/rtk-ai/rtk" target="_blank" rel="noopener">rtk</a>

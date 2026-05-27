@@ -84,7 +84,6 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/ipc/handlers/mcp-handlers.ts': 941,
   'src/main/ipc/handlers/session-handlers.ts': 1003,
   'src/main/ipc/handlers/vcs-handlers.ts': 978,
-  'src/main/ipc/ipc-main-handler.ts': 726,
   'src/main/ipc/orchestration-ipc-handler.ts': 1316,
   // Main process — learning
   'src/main/learning/ab-testing.ts': 832,
@@ -134,7 +133,6 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/repo-jobs/repo-job-service.ts': 989,
   // Main process — RLM
   'src/main/rlm/ast-chunker.ts': 766,
-  'src/main/rlm/context-manager.ts': 701,
   'src/main/rlm/episodic-rlm-store.ts': 765,
   'src/main/rlm/hyde-service.ts': 788,
   'src/main/rlm/llm-service.ts': 994,
@@ -150,10 +148,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/workspace/git/worktree-manager.ts': 742,
   'src/main/workspace/lsp-manager.ts': 899,
   // Preload
-  'src/preload/domains/infrastructure.preload.ts': 830,
   'src/preload/domains/orchestration.preload.ts': 940,
-  'src/preload/domains/workspace.preload.ts': 907,
-  'src/preload/generated/channels.ts': 1138,
   // Renderer — services
   'src/renderer/app/core/services/ipc/memory-ipc.service.ts': 724,
   'src/renderer/app/core/services/ipc/orchestration-ipc.service.ts': 745,

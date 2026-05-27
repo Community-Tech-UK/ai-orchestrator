@@ -43,13 +43,13 @@ import type {
   template: `
     <app-settings-card
       icon="display"
-      title="Appearance"
-      description="Preview the theme and text size live, then apply when you're happy."
+      title="Workspace appearance"
+      description="Preview theme, output font size, density, and sidebar layout before applying them."
     >
       <div class="field">
         <div class="field-text">
           <span class="field-label">Theme</span>
-          <span class="field-hint">Switch the whole app between light and dark.</span>
+          <span class="field-hint">Choose the app color theme.</span>
         </div>
         <div class="field-control">
           <app-segmented-control
@@ -64,7 +64,7 @@ import type {
       <div class="field">
         <div class="field-text">
           <span class="field-label">Font size</span>
-          <span class="field-hint">Base text size for agent output.</span>
+          <span class="field-hint">Text size for agent responses and transcript output.</span>
         </div>
         <div class="field-control font-control">
           <input
@@ -83,7 +83,7 @@ import type {
       <div class="field">
         <div class="field-text">
           <span class="field-label">Density</span>
-          <span class="field-hint">Adjust spacing for repeated settings and workspace surfaces.</span>
+          <span class="field-hint">Adjust spacing across settings and workspace surfaces.</span>
         </div>
         <div class="field-control">
           <app-segmented-control
@@ -113,9 +113,8 @@ import type {
       <p class="font-preview">The quick brown fox jumps over the lazy dog.</p>
 
       <app-inline-help variant="tip">
-        Font size changes the agent output text only — menus and the rest of the
-        app keep their standard size. Theme, density, and sidebar changes
-        preview instantly, so you can try them before saving.
+        These controls preview immediately. Apply changes to persist them across
+        restarts, or discard to return to the saved values.
       </app-inline-help>
 
       <app-save-state-banner
@@ -127,7 +126,7 @@ import type {
     </app-settings-card>
 
     <section class="output-section">
-      <h3 class="subsection-title">Output &amp; messages</h3>
+      <h3 class="subsection-title">Transcript &amp; workspace history</h3>
       @for (setting of outputSettings(); track setting.key) {
         <app-setting-row
           [setting]="setting"
@@ -139,15 +138,15 @@ import type {
 
     <div class="setting-row reset-layout-row">
       <div class="setting-info">
-        <h3 class="setting-label">Reset View Layout</h3>
+        <h3 class="setting-label">Reset workspace layout</h3>
         <p class="setting-description">
-          Reset sidebar and file explorer panel widths to their default
-          positions. This will not affect other settings.
+          Restore sidebar and file explorer panel widths to their default
+          positions. Other settings are unchanged.
         </p>
       </div>
       <div class="setting-control">
         <button type="button" class="btn-reset-layout" (click)="resetViewLayout()">
-          Reset Layout
+          Reset layout
         </button>
       </div>
     </div>

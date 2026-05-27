@@ -124,11 +124,10 @@ function createBridge(statusByKey: Map<string, ProjectCodeIndexStatus>): AutoMir
 }
 
 function createCodemem(overrides?: Partial<AutoMirrorCodememTarget>): AutoMirrorCodememTarget {
-  return {
-    isEnabled: vi.fn(() => true),
-    isIndexingEnabled: vi.fn(() => true),
-    ...overrides,
-  };
+  const emitter = new EventEmitter() as EventEmitter & AutoMirrorCodememTarget;
+  emitter.isEnabled = vi.fn(() => true);
+  emitter.isIndexingEnabled = vi.fn(() => true);
+  return Object.assign(emitter, overrides);
 }
 
 function createRegistry(canAutoMineByPath: Map<string, boolean>): AutoMirrorRegistryTarget {
@@ -437,6 +436,44 @@ describe('ProjectKnowledgeAutoMirrorCoordinator', () => {
     await flushMicrotasks();
 
     expect(knowledge.target.ensureProjectKnown).not.toHaveBeenCalled();
+    coordinator.stop();
+  });
+
+  it('forces a mirror when codemem reports indexed code changes inside the skip window', async () => {
+    statusByKey.set(workspaceA, {
+      projectKey: workspaceA,
+      status: 'ready',
+      lastSyncedAt: 99_500,
+      updatedAt: 99_500,
+      metadata: {},
+    });
+
+    const coordinator = new ProjectKnowledgeAutoMirrorCoordinator({
+      recentDirectoriesManager: emitter,
+      knowledge: knowledge.target,
+      bridge,
+      codemem,
+      registry,
+      settings: createSettings({ projectKnowledgeAutoMirrorSkipWithinMs: 30_000 }),
+      projectKeyResolver: (p) => path.resolve(p),
+      now: () => 100_000,
+    });
+    coordinator.start();
+
+    (codemem as EventEmitter).emit('code-index:changed', {
+      workspacePath: workspaceA,
+      workspaceHash: 'hash-a',
+      paths: ['src/auth/middleware.ts'],
+      timestamp: 100_000,
+    });
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flushMicrotasks();
+
+    expect(knowledge.target.ensureProjectKnown).toHaveBeenCalledWith(
+      workspaceA,
+      'recent-directory-open',
+      { autoRefresh: true },
+    );
     coordinator.stop();
   });
 

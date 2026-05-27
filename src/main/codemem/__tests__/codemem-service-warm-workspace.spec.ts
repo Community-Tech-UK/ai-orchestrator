@@ -72,4 +72,24 @@ describe('CodememService.warmWorkspace', () => {
     expect(indexWarm).not.toHaveBeenCalled();
     expect(lspReady).not.toHaveBeenCalled();
   });
+
+  it('re-emits code index change events from the index worker gateway', () => {
+    service = new CodememService();
+    const listener = vi.fn();
+    service.on('code-index:changed', listener);
+
+    service.indexWorkerGateway.emit('code-index:changed', {
+      workspacePath,
+      workspaceHash: 'workspace-hash',
+      paths: ['src/index.ts'],
+      timestamp: 1000,
+    });
+
+    expect(listener).toHaveBeenCalledWith({
+      workspacePath,
+      workspaceHash: 'workspace-hash',
+      paths: ['src/index.ts'],
+      timestamp: 1000,
+    });
+  });
 });

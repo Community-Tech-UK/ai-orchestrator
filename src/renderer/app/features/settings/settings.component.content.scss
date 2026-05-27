@@ -3,9 +3,14 @@
   align-items: center;
   gap: var(--spacing-md);
   flex-shrink: 0;
-  padding: var(--spacing-lg) var(--spacing-2xl);
-  background: var(--settings-header-bg);
-  border-bottom: 1px solid var(--border-color);
+  padding: var(--spacing-xl) var(--spacing-2xl) var(--spacing-lg);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--settings-header-bg) 88%, var(--bg-elevated)) 0%,
+      color-mix(in srgb, var(--settings-header-bg) 94%, transparent) 100%
+    );
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
 }
 
 .section-icon {
@@ -16,9 +21,16 @@
   height: 40px;
   flex-shrink: 0;
   border-radius: var(--radius-md);
-  background: var(--section-icon-bg);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--section-icon-bg) 82%, var(--primary-color)) 0%,
+      var(--section-icon-bg) 100%
+    );
+  border: 1px solid color-mix(in srgb, var(--primary-color) 22%, transparent);
   color: var(--section-icon-fg);
   font-size: 22px;
+  box-shadow: var(--shadow-sm);
 }
 
 .section-heading {
@@ -27,7 +39,7 @@
 
 .section-heading h2 {
   margin: 0;
-  font-size: var(--text-xl);
+  font-size: var(--text-2xl);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -42,7 +54,7 @@
 .settings-content {
   flex: 1;
   overflow-y: auto;
-  padding: var(--density-settings-content-padding);
+  padding: var(--spacing-xl) var(--density-settings-content-padding) var(--density-settings-content-padding);
 }
 
 .settings-content.wide {
@@ -50,7 +62,7 @@
 }
 
 .settings-body {
-  max-width: 760px;
+  max-width: 840px;
 }
 
 .settings-body.wide {
@@ -66,7 +78,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-lg);
-  max-width: 760px;
+  max-width: 840px;
 }
 
 .skeleton-card {
@@ -74,9 +86,10 @@
   flex-direction: column;
   gap: var(--spacing-md);
   padding: var(--spacing-lg);
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: var(--card-radius);
+  background: color-mix(in srgb, var(--card-bg) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--card-border) 72%, transparent);
+  border-radius: var(--radius-md);
+  box-shadow: var(--card-shadow);
 }
 
 .skeleton-bar {
@@ -113,5 +126,19 @@
   .skeleton-bar {
     animation: none;
     background: var(--glass-medium);
+  }
+}
+
+@media (max-width: 900px) {
+  .section-topbar {
+    padding: var(--spacing-lg);
+  }
+
+  .section-heading h2 {
+    font-size: var(--text-xl);
+  }
+
+  .settings-content {
+    padding: var(--spacing-lg);
   }
 }

@@ -60,6 +60,22 @@ const indexManager = new CodeIndexManager({ store });
 
 // Track which workspaces we've started watchers for.
 const watchedWorkspaces = new Set<string>();
+const watchedWorkspacePaths = new Map<string, string>();
+
+indexManager.on('code-index:changed', (event: { workspaceHash: string; paths: string[] }) => {
+  const workspacePath = watchedWorkspacePaths.get(event.workspaceHash);
+  if (!workspacePath) {
+    return;
+  }
+
+  parentPort!.postMessage({
+    type: 'code-index-changed',
+    workspacePath,
+    workspaceHash: event.workspaceHash,
+    paths: event.paths,
+    timestamp: Date.now(),
+  } satisfies IndexWorkerOutboundMsg);
+});
 
 // ── IPC ───────────────────────────────────────────────────────────────────────
 
@@ -93,6 +109,7 @@ async function handleMessage(msg: IndexWorkerInboundMsg): Promise<void> {
           await indexManager.start(normalizedPath, workspaceHash);
           watchedWorkspaces.add(workspaceHash);
         }
+        watchedWorkspacePaths.set(workspaceHash, normalizedPath);
 
         const result: WarmWorkspaceResult = {
           indexed: !!workspaceRoot,
@@ -111,6 +128,7 @@ async function handleMessage(msg: IndexWorkerInboundMsg): Promise<void> {
       const workspaceHash = workspaceHashForPath(normalizedPath);
       if (watchedWorkspaces.has(workspaceHash)) {
         watchedWorkspaces.delete(workspaceHash);
+        watchedWorkspacePaths.delete(workspaceHash);
         // CodeIndexManager stop is workspace-global — only stop when all are removed.
         if (watchedWorkspaces.size === 0) {
           await indexManager.stop().catch(() => undefined);

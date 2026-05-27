@@ -2,22 +2,56 @@ const fs = require('fs');
 const path = require('path');
 
 const CHANNEL_ENTRY_PATTERN = /^\s+([A-Z0-9_]+):\s*['"]([^'"]+)['"]/;
+const CHANNEL_ENTRY_GLOBAL_PATTERN = /([A-Z0-9_]+):\s*['"]([^'"]+)['"]/g;
 
-function extractChannelsFromLines(lines) {
+function lineForOffset(content, offset) {
+  return content.slice(0, offset).split('\n').length;
+}
+
+function extractChannelsFromText(content) {
   const channels = [];
+  let match;
 
-  for (let index = 0; index < lines.length; index += 1) {
-    const match = lines[index].match(CHANNEL_ENTRY_PATTERN);
-    if (match) {
-      channels.push({
-        name: match[1],
-        value: match[2],
-        line: index + 1
-      });
-    }
+  CHANNEL_ENTRY_GLOBAL_PATTERN.lastIndex = 0;
+  while ((match = CHANNEL_ENTRY_GLOBAL_PATTERN.exec(content)) !== null) {
+    channels.push({
+      name: match[1],
+      value: match[2],
+      line: lineForOffset(content, match.index)
+    });
   }
 
   return channels;
+}
+
+function extractChannelsFromLines(lines) {
+  return extractChannelsFromText(lines.join('\n'));
+}
+
+function extractIpcObjectBodyText(filePath) {
+  const content = fs.readFileSync(filePath, 'utf-8');
+  const objectStart = content.indexOf('IPC_CHANNELS');
+  if (objectStart === -1) {
+    throw new Error(`Failed to find IPC_CHANNELS in ${filePath}`);
+  }
+
+  const openBrace = content.indexOf('{', objectStart);
+  if (openBrace === -1) {
+    throw new Error(`Failed to find IPC_CHANNELS object start in ${filePath}`);
+  }
+
+  let braceDepth = 0;
+  for (let index = openBrace; index < content.length; index += 1) {
+    const ch = content[index];
+    if (ch === '{') braceDepth += 1;
+    if (ch === '}') braceDepth -= 1;
+
+    if (braceDepth === 0) {
+      return content.slice(openBrace + 1, index);
+    }
+  }
+
+  throw new Error(`Failed to extract IPC_CHANNELS body from ${filePath}`);
 }
 
 function extractIpcObjectLines(filePath) {
@@ -58,7 +92,7 @@ function extractIpcObjectLines(filePath) {
 }
 
 function extractIpcObjectChannels(filePath) {
-  return extractChannelsFromLines(extractIpcObjectLines(filePath));
+  return extractChannelsFromText(extractIpcObjectBodyText(filePath));
 }
 
 function getContractsChannelFiles(indexPath) {

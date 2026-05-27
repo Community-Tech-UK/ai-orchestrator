@@ -241,7 +241,7 @@ export class CasStore {
       'DELETE FROM workspace_symbols WHERE workspace_hash = ? AND path_from_root = ?',
     );
     const insertStmt = this.db.prepare(`
-      INSERT INTO workspace_symbols (
+      INSERT OR REPLACE INTO workspace_symbols (
         workspace_hash,
         symbol_id,
         path_from_root,
