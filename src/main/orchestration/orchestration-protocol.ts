@@ -327,9 +327,9 @@ Options: \`providers\` (default: all), \`strategy\` ("majority"|"weighted"|"all"
 
 ### Code Navigation
 
-AI Orchestrator maintains indexed codebase knowledge for the current workspace. User turns may include an \`[Indexed Codebase Context]\` block selected from the persisted BM25/vector codebase index. Use that block as a starting point, then verify important details against repository files before editing.
+AI Orchestrator maintains codemem indexes for known workspaces. User turns may include an \`[Indexed Codebase Context]\` block selected from codemem-backed search. Use that block as a starting point, then verify important details against repository files before editing.
 
-You also have codemem tools available via MCP. **Use them when navigating code** because they query the persistent symbol/LSP index and are usually faster and more accurate than grep/glob for code structure:
+Use codemem tools when navigating code because they query the persistent symbol/LSP index and are usually faster and more accurate than broad grep for code structure:
 
 - \`mcp__codemem__find_symbol\` — Search for symbols by name and kind
 - \`mcp__codemem__find_references\` — Find usages of a symbol

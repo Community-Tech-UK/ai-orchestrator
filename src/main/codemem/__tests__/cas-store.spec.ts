@@ -29,6 +29,20 @@ describe('CasStore', () => {
     store = new CasStore(db);
   });
 
+  it('migrates codemem search tables idempotently', () => {
+    migrate(db);
+    const tableNames = db.prepare(`
+      SELECT name
+      FROM sqlite_master
+      WHERE type IN ('table', 'virtual')
+    `).all() as Array<{ name: string }>;
+    const names = tableNames.map((row) => row.name);
+
+    expect(names).toContain('workspace_chunks');
+    expect(names).toContain('code_fts');
+    expect(names).toContain('code_index_status');
+  });
+
   it('upsertChunk inserts a new chunk', () => {
     store.upsertChunk(sampleChunk());
     expect(store.getChunk('a'.repeat(64))).toMatchObject({ name: 'foo' });
@@ -189,5 +203,121 @@ describe('CasStore', () => {
 
     const symbols = store.searchWorkspaceSymbols('w1', 'add');
     expect(symbols.map((symbol) => symbol.name)).toEqual(['add', 'addressBook']);
+  });
+
+  it('replaces workspace chunk rows and contentless FTS rows for one file', () => {
+    store.upsertChunk(sampleChunk({
+      contentHash: 'c'.repeat(64),
+      name: 'issueSessionToken',
+      symbolsJson: JSON.stringify(['issueSessionToken']),
+      rawText: 'export function issueSessionToken(userId: string) { return `session:${userId}`; }',
+    }));
+    store.replaceWorkspaceChunksForFile('w1', 'src/auth.ts', [
+      {
+        workspaceHash: 'w1',
+        pathFromRoot: 'src/auth.ts',
+        chunkIndex: 0,
+        contentHash: 'c'.repeat(64),
+        startLine: 1,
+        endLine: 3,
+        language: 'typescript',
+        chunkType: 'function',
+        name: 'issueSessionToken',
+        updatedAt: 1_000,
+      },
+    ]);
+
+    const hits = store.searchWorkspaceChunks('w1', 'issue session token', 5);
+    expect(hits[0]).toEqual(expect.objectContaining({
+      pathFromRoot: 'src/auth.ts',
+      contentHash: 'c'.repeat(64),
+      startLine: 1,
+      endLine: 3,
+      name: 'issueSessionToken',
+    }));
+
+    store.upsertChunk(sampleChunk({
+      contentHash: 'd'.repeat(64),
+      name: 'refreshSessionToken',
+      symbolsJson: JSON.stringify(['refreshSessionToken']),
+      rawText: 'export function refreshSessionToken(userId: string) { return `refresh:${userId}`; }',
+    }));
+    store.replaceWorkspaceChunksForFile('w1', 'src/auth.ts', [
+      {
+        workspaceHash: 'w1',
+        pathFromRoot: 'src/auth.ts',
+        chunkIndex: 0,
+        contentHash: 'd'.repeat(64),
+        startLine: 1,
+        endLine: 3,
+        language: 'typescript',
+        chunkType: 'function',
+        name: 'refreshSessionToken',
+        updatedAt: 2_000,
+      },
+    ]);
+
+    expect(store.searchWorkspaceChunks('w1', 'issue session token', 5)).toHaveLength(0);
+    expect(store.searchWorkspaceChunks('w1', 'refresh session token', 5)[0]).toEqual(
+      expect.objectContaining({ contentHash: 'd'.repeat(64) }),
+    );
+  });
+
+  it('deletes workspace chunk and FTS rows for one file', () => {
+    store.upsertChunk(sampleChunk({
+      contentHash: 'e'.repeat(64),
+      name: 'deleteMe',
+      rawText: 'export function deleteMe() { return true; }',
+    }));
+    store.replaceWorkspaceChunksForFile('w1', 'src/delete.ts', [
+      {
+        workspaceHash: 'w1',
+        pathFromRoot: 'src/delete.ts',
+        chunkIndex: 0,
+        contentHash: 'e'.repeat(64),
+        startLine: 1,
+        endLine: 2,
+        language: 'typescript',
+        chunkType: 'function',
+        name: 'deleteMe',
+        updatedAt: 1,
+      },
+    ]);
+
+    store.deleteWorkspaceChunksForFile('w1', 'src/delete.ts');
+
+    expect(store.searchWorkspaceChunks('w1', 'deleteMe', 5)).toHaveLength(0);
+  });
+
+  it('writes index status and cancellation flags', () => {
+    store.upsertIndexStatus({
+      workspaceHash: 'w1',
+      absPath: '/repo',
+      state: 'running',
+      phase: 'chunking',
+      totalFiles: 10,
+      processedFiles: 4,
+      totalChunks: 8,
+      processedChunks: 3,
+      currentPath: 'src/auth.ts',
+      startedAt: 100,
+      updatedAt: 200,
+      completedAt: null,
+      errorMessage: null,
+      cancelRequested: false,
+    });
+
+    expect(store.getIndexStatus('w1')).toEqual(expect.objectContaining({
+      workspaceHash: 'w1',
+      state: 'running',
+      phase: 'chunking',
+      processedFiles: 4,
+      cancelRequested: false,
+    }));
+
+    store.requestCancel('w1');
+    expect(store.isCancelRequested('w1')).toBe(true);
+    store.clearCancel('w1');
+    expect(store.isCancelRequested('w1')).toBe(false);
   });
 });

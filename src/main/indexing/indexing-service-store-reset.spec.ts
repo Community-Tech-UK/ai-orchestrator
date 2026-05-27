@@ -161,6 +161,21 @@ describe('CodebaseIndexingService store reset', () => {
     expect(mocks.contextManager.removeSection).not.toHaveBeenCalled();
   });
 
+  it('exposes an explicit legacy store cleanup action', async () => {
+    const { CodebaseIndexingService } = await import('./indexing-service');
+    const service = new CodebaseIndexingService();
+
+    await service.clearLegacyCodebaseStore('codebase:test');
+
+    expect(mocks.bm25.clearStore).toHaveBeenCalledWith('codebase:test');
+    expect(mocks.vectorStore.clearStore).toHaveBeenCalledWith('codebase:test');
+    expect(mocks.contextManager.removeSection).toHaveBeenCalledWith('codebase:test', 'sec-old');
+    expect(mocks.contextManager.removeSection).toHaveBeenCalledWith('codebase:test', 'vec-old');
+
+    const sql = mocks.statements.map((statement) => statement.sql.replace(/\s+/g, ' ').trim());
+    expect(sql).toContain('DELETE FROM codebase_trees WHERE store_id = ?');
+  });
+
   it('uses the persisted context section id for BM25 and vector records', async () => {
     const tmpRoot = mkdtempSync(path.join(tmpdir(), 'codebase-index-section-id-'));
     const filePath = path.join(tmpRoot, 'src/index.ts');

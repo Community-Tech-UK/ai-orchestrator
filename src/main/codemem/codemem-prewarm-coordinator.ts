@@ -21,6 +21,7 @@
 
 import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
 import { getCodemem, type CodememService } from './index';
@@ -157,6 +158,10 @@ export class CodememPrewarmCoordinator {
     if (!this.pathExistsAsDirectory(normalized)) {
       return;
     }
+    if (this.isBroadPrewarmRoot(normalized)) {
+      logger.info('Codemem prewarm skipped broad filesystem root', { workspacePath: normalized });
+      return;
+    }
 
     // Clear any debounce: we'll act immediately.
     const timer = this.debounceTimers.get(normalized);
@@ -227,6 +232,10 @@ export class CodememPrewarmCoordinator {
     if (!normalized) return;
 
     if (!this.pathExistsAsDirectory(normalized)) return;
+    if (this.isBroadPrewarmRoot(normalized)) {
+      logger.info('Codemem prewarm skipped broad filesystem root', { workspacePath: normalized });
+      return;
+    }
 
     this.scheduleDebounce(normalized);
   }
@@ -376,6 +385,23 @@ export class CodememPrewarmCoordinator {
     } catch {
       return false;
     }
+  }
+
+  private isBroadPrewarmRoot(workspacePath: string): boolean {
+    const normalized = path.resolve(workspacePath);
+    const root = path.parse(normalized).root;
+    if (normalized === root) {
+      return true;
+    }
+
+    const home = path.resolve(os.homedir());
+    const workRoot = path.join(home, 'work');
+    return (
+      normalized === home
+      || normalized === path.dirname(home)
+      || normalized === workRoot
+      || normalized === '/private/tmp'
+    );
   }
 }
 

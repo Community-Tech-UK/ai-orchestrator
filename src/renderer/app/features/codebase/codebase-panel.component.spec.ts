@@ -9,7 +9,7 @@
 
 import { TestBed } from '@angular/core/testing';
 import { signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CodebasePanelComponent } from './codebase-panel.component';
 import { CodebaseIpcService } from '../../core/services/ipc/codebase-ipc.service';
 import {
@@ -30,24 +30,24 @@ class FakeCodebaseIpcService {
   readonly indexingProgress = signal(null);
   readonly watcherChanges = signal(null);
   readonly autoStatusByPath = signal<Record<string, CodebaseAutoIndexStatus>>({});
-  async getIndexStats() {
+  getIndexStats = vi.fn(async () => {
     return { success: true, data: null } as const;
-  }
-  async getWatcherStatus() {
+  });
+  getWatcherStatus = vi.fn(async () => {
     return { success: true, data: null } as const;
-  }
-  async getAutoStatus() {
+  });
+  getAutoStatus = vi.fn(async () => {
     return { success: true, data: null } as const;
-  }
-  async indexCodebase() {
+  });
+  indexCodebase = vi.fn(async () => {
     return { success: true, data: null } as const;
-  }
-  async cancelIndexing() {
+  });
+  cancelIndexing = vi.fn(async () => {
     return { success: true, data: null } as const;
-  }
-  async search() {
+  });
+  search = vi.fn(async () => {
     return { success: true, data: [] } as const;
-  }
+  });
 }
 
 const noopCopyResult: ClipboardCopyResult = { ok: true };
@@ -174,5 +174,37 @@ describe('CodebasePanelComponent auto-status badge', () => {
     });
     const badge = component.autoStatusBadge();
     expect(badge?.label).toBe('Indexed');
+  });
+
+  it('cancels manual legacy lane indexing for the current workspace path', async () => {
+    component.rootPath.set('  /proj/a  ');
+
+    await component.cancelIndexing();
+
+    expect(fakeIpc.cancelIndexing).toHaveBeenCalledWith('/proj/a', 'legacy');
+  });
+
+  it('allows search when a workspace path is selected even without legacy stats', () => {
+    component.rootPath.set('/proj/a');
+    component.indexStats.set(null);
+
+    expect(component.canSearch()).toBe(true);
+  });
+
+  it('adds the current workspace path to search options', async () => {
+    component.rootPath.set('/proj/a');
+
+    await component.onSearch({
+      query: 'issue session token',
+      storeId: 'default',
+      topK: 10,
+    });
+
+    expect(fakeIpc.search).toHaveBeenCalledWith(expect.objectContaining({
+      query: 'issue session token',
+      storeId: 'default',
+      workspacePath: '/proj/a',
+      topK: 10,
+    }));
   });
 });

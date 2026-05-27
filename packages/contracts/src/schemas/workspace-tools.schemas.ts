@@ -66,17 +66,23 @@ export const LspWorkspaceSymbolPayloadSchema = z.object({
 export const CodebaseSearchPayloadSchema = z.object({
   options: z.object({
     query: z.string().min(1).max(100000),
-    storeId: StoreIdSchema,
+    storeId: StoreIdSchema.optional(),
+    workspacePath: DirectoryPathSchema.optional(),
     topK: z.number().int().min(1).max(1000).optional(),
     bm25Weight: z.number().min(0).max(1).optional(),
     vectorWeight: z.number().min(0).max(1).optional(),
     useHyDE: z.boolean().optional(),
+  }).refine((options) => Boolean(options.storeId || options.workspacePath), {
+    message: 'Either storeId or workspacePath is required',
   }),
 });
 
 export const CodebaseSearchSymbolsPayloadSchema = z.object({
-  storeId: StoreIdSchema,
+  storeId: StoreIdSchema.optional(),
+  workspacePath: DirectoryPathSchema.optional(),
   query: z.string().min(1).max(100000),
+}).refine((payload) => Boolean(payload.storeId || payload.workspacePath), {
+  message: 'Either storeId or workspacePath is required',
 });
 
 // ============ Workspace Hint Payloads ============

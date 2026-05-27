@@ -35,22 +35,7 @@ import type {
   CodebaseMiningResult,
   ProjectCodeIndexStatus,
 } from '../../../shared/types/knowledge-graph.types';
-
-interface Deferred<T> {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-  reject: (error: unknown) => void;
-}
-
-function makeDeferred<T>(): Deferred<T> {
-  let resolveFn!: (value: T) => void;
-  let rejectFn!: (error: unknown) => void;
-  const promise = new Promise<T>((resolve, reject) => {
-    resolveFn = resolve;
-    rejectFn = reject;
-  });
-  return { promise, resolve: resolveFn, reject: rejectFn };
-}
+import { flushMicrotasks, makeDeferred, type Deferred } from './auto-mirror-test-helpers';
 
 function createSettings(overrides: Partial<AppSettings> = {}): AutoMirrorSettingsTarget {
   const defaults: Partial<AppSettings> = {
@@ -134,18 +119,6 @@ function createRegistry(canAutoMineByPath: Map<string, boolean>): AutoMirrorRegi
   return {
     canAutoMine: vi.fn((rootPath: string) => canAutoMineByPath.get(rootPath) ?? true),
   };
-}
-
-/**
- * Wait for the coordinator's internal microtasks to drain. The coordinator
- * dispatches `mirrorOne` via `void mirrorOne(...).finally(drainQueue)`; once
- * we resolve a deferred we need to let the resulting microtask chain run
- * before asserting next-state.
- */
-async function flushMicrotasks(): Promise<void> {
-  for (let i = 0; i < 8; i++) {
-    await Promise.resolve();
-  }
 }
 
 describe('ProjectKnowledgeAutoMirrorCoordinator', () => {

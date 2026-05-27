@@ -26,6 +26,12 @@ interface PendingChange {
   timestamp: number;
 }
 
+type WatchMode = 'native' | 'polling';
+
+const WATCHER_RECOVERY_BACKOFF_MS = 5_000;
+const POLLING_INTERVAL_MS = 30_000;
+const RECOVERABLE_WATCH_ERROR_CODES = new Set(['EMFILE', 'ENFILE', 'ENOSPC', 'EPERM']);
+
 // ============================================================================
 // CodebaseFileWatcher Class
 // ============================================================================
@@ -38,7 +44,10 @@ export class CodebaseFileWatcher extends EventEmitter {
   private rootPaths = new Map<string, string>();
   private pendingChanges = new Map<string, Map<string, PendingChange>>();
   private processTimers = new Map<string, NodeJS.Timeout>();
+  private recoveryTimers = new Map<string, NodeJS.Timeout>();
   private lastProcessedAt = new Map<string, number>();
+  private watcherModes = new Map<string, WatchMode>();
+  private recovering = new Set<string>();
 
   constructor(config: Partial<FileWatcherConfig> = {}) {
     super();
@@ -56,6 +65,16 @@ export class CodebaseFileWatcher extends EventEmitter {
 
     const absolutePath = path.resolve(rootPath);
 
+    // Initialize pending changes map for this store
+    this.pendingChanges.set(storeId, new Map());
+
+    this.startWatcher(storeId, absolutePath, 'native');
+
+    this.emit('watcher:started', { storeId, rootPath: absolutePath });
+  }
+
+  private startWatcher(storeId: string, absolutePath: string, mode: WatchMode): void {
+    const usePolling = mode === 'polling';
     const watcher = watch(absolutePath, {
       ignored: buildWatchIgnoredMatchers(absolutePath, this.config.ignorePatterns),
       persistent: true,
@@ -64,19 +83,22 @@ export class CodebaseFileWatcher extends EventEmitter {
         stabilityThreshold: 200,
         pollInterval: 100,
       },
-      usePolling: false,
+      usePolling,
+      ...(usePolling
+        ? {
+          interval: POLLING_INTERVAL_MS,
+          binaryInterval: POLLING_INTERVAL_MS,
+        }
+        : {}),
       followSymlinks: false,
     });
-
-    // Initialize pending changes map for this store
-    this.pendingChanges.set(storeId, new Map());
 
     watcher.on('add', (filePath) => this.handleChange(storeId, filePath, 'add'));
     watcher.on('change', (filePath) => this.handleChange(storeId, filePath, 'change'));
     watcher.on('unlink', (filePath) => this.handleChange(storeId, filePath, 'unlink'));
 
     watcher.on('error', (error) => {
-      this.emit('error', { storeId, error });
+      this.handleWatcherError(storeId, absolutePath, mode, error);
     });
 
     watcher.on('ready', () => {
@@ -85,8 +107,7 @@ export class CodebaseFileWatcher extends EventEmitter {
 
     this.watchers.set(storeId, watcher);
     this.rootPaths.set(storeId, absolutePath);
-
-    this.emit('watcher:started', { storeId, rootPath: absolutePath });
+    this.watcherModes.set(storeId, mode);
   }
 
   /**
@@ -98,9 +119,16 @@ export class CodebaseFileWatcher extends EventEmitter {
       await watcher.close();
       this.watchers.delete(storeId);
     }
+    const recoveryTimer = this.recoveryTimers.get(storeId);
+    if (recoveryTimer) {
+      clearTimeout(recoveryTimer);
+      this.recoveryTimers.delete(storeId);
+    }
     const rootPath = this.rootPaths.get(storeId);
     this.rootPaths.delete(storeId);
     this.lastProcessedAt.delete(storeId);
+    this.watcherModes.delete(storeId);
+    this.recovering.delete(storeId);
 
     // Clear pending changes
     this.pendingChanges.delete(storeId);
@@ -206,6 +234,72 @@ export class CodebaseFileWatcher extends EventEmitter {
 
     // Debounce processing
     this.scheduleProcessing(storeId);
+  }
+
+  private handleWatcherError(
+    storeId: string,
+    rootPath: string,
+    mode: WatchMode,
+    error: unknown,
+  ): void {
+    const message = error instanceof Error ? error.message : String(error);
+    this.emit('watcher:error', { storeId, rootPath, error: message });
+
+    if (!this.isRecoverableWatchError(error)) {
+      this.emit('warning', {
+        storeId,
+        message: `File watcher error: ${message}`,
+      });
+      return;
+    }
+
+    this.emit('warning', {
+      storeId,
+      message: `Recoverable file watcher error (${message}); switching to polling`,
+    });
+
+    if (mode === 'polling' || this.recovering.has(storeId)) {
+      return;
+    }
+
+    this.recovering.add(storeId);
+    const timer = setTimeout(() => {
+      this.recoveryTimers.delete(storeId);
+      void this.recoverWithPolling(storeId, rootPath);
+    }, WATCHER_RECOVERY_BACKOFF_MS);
+    if (typeof timer.unref === 'function') {
+      timer.unref();
+    }
+    this.recoveryTimers.set(storeId, timer);
+  }
+
+  private async recoverWithPolling(storeId: string, rootPath: string): Promise<void> {
+    try {
+      const current = this.watchers.get(storeId);
+      if (current) {
+        await current.close();
+      }
+      if (!this.rootPaths.has(storeId)) {
+        return;
+      }
+      this.startWatcher(storeId, rootPath, 'polling');
+      this.emit('watcher:recovered', { storeId, rootPath, mode: 'polling' });
+    } catch (error) {
+      this.emit('watcher:error', {
+        storeId,
+        rootPath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      this.recovering.delete(storeId);
+    }
+  }
+
+  private isRecoverableWatchError(error: unknown): boolean {
+    const code = typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code ?? '')
+      : '';
+    return RECOVERABLE_WATCH_ERROR_CODES.has(code);
   }
 
   private scheduleProcessing(storeId: string): void {

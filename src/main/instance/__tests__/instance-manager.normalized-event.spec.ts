@@ -477,6 +477,7 @@ vi.mock('../../persistence/rlm-database', () => ({
 // Import after all mocks are defined
 // ---------------------------------------------------------------------------
 import { InstanceManager } from '../instance-manager';
+import { InstanceSettledTracker } from '../instance-settled-tracker';
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -570,31 +571,25 @@ describe('InstanceManager settled events', () => {
     };
   }
 
-  function lightweightManager(current: Instance): InstanceManager {
-    const manager = new EventEmitter() as InstanceManager & {
-      state: { getInstance: (id: string) => Instance | undefined };
-      settledTimers: Map<string, ReturnType<typeof setTimeout>>;
-      settledLastEventAt: Map<string, number>;
-      settledLastEmittedKey: Map<string, string>;
-    };
-    Object.setPrototypeOf(manager, InstanceManager.prototype);
-    manager.state = {
+  function lightweightTracker(current: Instance): {
+    emitter: EventEmitter;
+    tracker: InstanceSettledTracker;
+  } {
+    const emitter = new EventEmitter();
+    const tracker = new InstanceSettledTracker({
       getInstance: (id: string) => (id === current.id ? current : undefined),
-    };
-    manager.settledTimers = new Map();
-    manager.settledLastEventAt = new Map([[current.id, 0]]);
-    manager.settledLastEmittedKey = new Map();
-    return manager;
+      emitter,
+    });
+    return { emitter, tracker };
   }
 
   it('emits instance:settled only after the state-machine predicate passes', () => {
     const current = instance();
-    const manager = lightweightManager(current);
+    const { emitter, tracker } = lightweightTracker(current);
     const settled: unknown[] = [];
-    manager.on('instance:settled', (event) => settled.push(event));
+    emitter.on('instance:settled', (event) => settled.push(event));
 
-    (manager as unknown as { maybeEmitInstanceSettled: (instanceId: string) => void })
-      .maybeEmitInstanceSettled(current.id);
+    tracker.maybeEmit(current.id);
 
     expect(settled).toHaveLength(1);
     expect(settled[0]).toMatchObject({
@@ -608,15 +603,15 @@ describe('InstanceManager settled events', () => {
     const current = instance({
       outputBuffer: [output('assistant', 900)],
     });
-    const manager = lightweightManager(current);
-    const waiting = manager.waitForInstanceSettled(current.id, {
+    const { emitter, tracker } = lightweightTracker(current);
+    const waiting = tracker.waitForSettled(current.id, {
       afterTimestamp: 1_000,
       timeoutMs: 1_000,
       debounceMs: 0,
     });
 
     current.outputBuffer.push(output('assistant', 1_100));
-    manager.emit('instance:settled', {
+    emitter.emit('instance:settled', {
       instanceId: current.id,
       status: 'idle',
       timestamp: Date.now(),

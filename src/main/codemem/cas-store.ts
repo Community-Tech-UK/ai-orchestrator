@@ -62,6 +62,94 @@ interface WorkspaceSymbolRow {
   doc_comment: string | null;
 }
 
+interface WorkspaceChunkRow {
+  id: number;
+  workspace_hash: string;
+  path_from_root: string;
+  chunk_index: number;
+  content_hash: string;
+  start_line: number;
+  end_line: number;
+  language: string;
+  chunk_type: Chunk['chunkType'];
+  name: string;
+  updated_at: number;
+}
+
+interface WorkspaceChunkSearchRow {
+  rowid: number;
+  workspace_hash: string;
+  path_from_root: string;
+  content_hash: string;
+  start_line: number;
+  end_line: number;
+  language: string;
+  chunk_type: Chunk['chunkType'];
+  name: string;
+  score: number;
+}
+
+interface CodeIndexStatusRow {
+  workspace_hash: string;
+  abs_path: string;
+  state: CodeIndexStatusRecord['state'];
+  phase: CodeIndexStatusRecord['phase'];
+  total_files: number;
+  processed_files: number;
+  total_chunks: number;
+  processed_chunks: number;
+  current_path: string | null;
+  started_at: number | null;
+  updated_at: number;
+  completed_at: number | null;
+  error_message: string | null;
+  cancel_requested: number;
+}
+
+export interface WorkspaceChunkRecord {
+  id?: number;
+  workspaceHash: WorkspaceHash;
+  pathFromRoot: string;
+  chunkIndex: number;
+  contentHash: string;
+  startLine: number;
+  endLine: number;
+  language: string;
+  chunkType: Chunk['chunkType'];
+  name: string;
+  updatedAt: number;
+}
+
+export interface WorkspaceChunkSearchResult {
+  rowid: number;
+  workspaceHash: WorkspaceHash;
+  pathFromRoot: string;
+  contentHash: string;
+  startLine: number;
+  endLine: number;
+  language: string;
+  chunkType: Chunk['chunkType'];
+  name: string;
+  score: number;
+}
+
+export interface CodeIndexStatusRecord {
+  workspaceHash: WorkspaceHash;
+  absPath: string;
+  state: 'idle' | 'queued' | 'running' | 'complete' | 'failed' | 'cancelled';
+  phase: 'none' | 'scanning' | 'chunking' | 'fts' | 'watching';
+  totalFiles: number;
+  processedFiles: number;
+  totalChunks: number;
+  processedChunks: number;
+  currentPath: string | null;
+  startedAt: number | null;
+  updatedAt: number;
+  completedAt: number | null;
+  errorMessage: string | null;
+  cancelRequested: boolean;
+}
+
 export class CasStore {
   constructor(private readonly db: SqliteDriver) {}
 
@@ -335,6 +423,205 @@ export class CasStore {
     return rows.map((row) => this.mapWorkspaceSymbol(row));
   }
 
+  replaceWorkspaceChunksForFile(
+    workspaceHash: WorkspaceHash,
+    pathFromRoot: string,
+    chunks: WorkspaceChunkRecord[],
+  ): void {
+    const existingStmt = this.db.prepare(
+      'SELECT id FROM workspace_chunks WHERE workspace_hash = ? AND path_from_root = ?',
+    );
+    const deleteFtsStmt = this.db.prepare('DELETE FROM code_fts WHERE rowid = ?');
+    const deleteChunksStmt = this.db.prepare(
+      'DELETE FROM workspace_chunks WHERE workspace_hash = ? AND path_from_root = ?',
+    );
+    const insertChunkStmt = this.db.prepare(`
+      INSERT INTO workspace_chunks (
+        workspace_hash,
+        path_from_root,
+        chunk_index,
+        content_hash,
+        start_line,
+        end_line,
+        language,
+        chunk_type,
+        name,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertFtsStmt = this.db.prepare(`
+      INSERT INTO code_fts(rowid, content, symbols)
+      VALUES (?, ?, ?)
+    `);
+
+    const transaction = this.db.transaction((rows: WorkspaceChunkRecord[]) => {
+      const existingRows = existingStmt.all(workspaceHash, pathFromRoot) as Array<{ id: number }>;
+      for (const row of existingRows) {
+        deleteFtsStmt.run(row.id);
+      }
+      deleteChunksStmt.run(workspaceHash, pathFromRoot);
+
+      for (const chunk of rows) {
+        const result = insertChunkStmt.run(
+          workspaceHash,
+          pathFromRoot,
+          chunk.chunkIndex,
+          chunk.contentHash,
+          chunk.startLine,
+          chunk.endLine,
+          chunk.language,
+          chunk.chunkType,
+          chunk.name,
+          chunk.updatedAt,
+        );
+        const storedChunk = this.getChunk(chunk.contentHash);
+        insertFtsStmt.run(
+          result.lastInsertRowid,
+          storedChunk?.rawText ?? '',
+          this.buildFtsSymbolsText(storedChunk, chunk.name),
+        );
+      }
+    });
+
+    transaction(chunks);
+  }
+
+  searchWorkspaceChunks(
+    workspaceHash: WorkspaceHash,
+    query: string,
+    limit: number,
+  ): WorkspaceChunkSearchResult[] {
+    const ftsQuery = this.toFtsQuery(query);
+    if (!ftsQuery) return [];
+    const boundedLimit = Math.max(1, Math.min(Math.floor(limit), 100));
+    const rows = this.db.prepare(`
+      SELECT
+        f.rowid,
+        wc.workspace_hash,
+        wc.path_from_root,
+        wc.content_hash,
+        wc.start_line,
+        wc.end_line,
+        wc.language,
+        wc.chunk_type,
+        wc.name,
+        bm25(code_fts) AS score
+      FROM code_fts f
+      JOIN workspace_chunks wc ON wc.id = f.rowid
+      WHERE code_fts MATCH ?
+        AND wc.workspace_hash = ?
+      ORDER BY score
+      LIMIT ?
+    `).all(ftsQuery, workspaceHash, boundedLimit) as WorkspaceChunkSearchRow[];
+
+    return rows.map((row) => ({
+      rowid: row.rowid,
+      workspaceHash: row.workspace_hash,
+      pathFromRoot: row.path_from_root,
+      contentHash: row.content_hash,
+      startLine: row.start_line,
+      endLine: row.end_line,
+      language: row.language,
+      chunkType: row.chunk_type,
+      name: row.name,
+      score: row.score,
+    }));
+  }
+
+  deleteWorkspaceChunksForFile(workspaceHash: WorkspaceHash, pathFromRoot: string): void {
+    const existingStmt = this.db.prepare(
+      'SELECT id FROM workspace_chunks WHERE workspace_hash = ? AND path_from_root = ?',
+    );
+    const deleteFtsStmt = this.db.prepare('DELETE FROM code_fts WHERE rowid = ?');
+    const deleteChunksStmt = this.db.prepare(
+      'DELETE FROM workspace_chunks WHERE workspace_hash = ? AND path_from_root = ?',
+    );
+    const transaction = this.db.transaction(() => {
+      const existingRows = existingStmt.all(workspaceHash, pathFromRoot) as Array<{ id: number }>;
+      for (const row of existingRows) {
+        deleteFtsStmt.run(row.id);
+      }
+      deleteChunksStmt.run(workspaceHash, pathFromRoot);
+    });
+    transaction();
+  }
+
+  upsertIndexStatus(status: CodeIndexStatusRecord): void {
+    this.db.prepare(`
+      INSERT INTO code_index_status (
+        workspace_hash,
+        abs_path,
+        state,
+        phase,
+        total_files,
+        processed_files,
+        total_chunks,
+        processed_chunks,
+        current_path,
+        started_at,
+        updated_at,
+        completed_at,
+        error_message,
+        cancel_requested
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(workspace_hash) DO UPDATE SET
+        abs_path = excluded.abs_path,
+        state = excluded.state,
+        phase = excluded.phase,
+        total_files = excluded.total_files,
+        processed_files = excluded.processed_files,
+        total_chunks = excluded.total_chunks,
+        processed_chunks = excluded.processed_chunks,
+        current_path = excluded.current_path,
+        started_at = excluded.started_at,
+        updated_at = excluded.updated_at,
+        completed_at = excluded.completed_at,
+        error_message = excluded.error_message,
+        cancel_requested = excluded.cancel_requested
+    `).run(
+      status.workspaceHash,
+      status.absPath,
+      status.state,
+      status.phase,
+      status.totalFiles,
+      status.processedFiles,
+      status.totalChunks,
+      status.processedChunks,
+      status.currentPath,
+      status.startedAt,
+      status.updatedAt,
+      status.completedAt,
+      status.errorMessage,
+      status.cancelRequested ? 1 : 0,
+    );
+  }
+
+  getIndexStatus(workspaceHash: WorkspaceHash): CodeIndexStatusRecord | null {
+    const row = this.db.prepare(
+      'SELECT * FROM code_index_status WHERE workspace_hash = ?',
+    ).get(workspaceHash) as CodeIndexStatusRow | undefined;
+    return row ? this.mapIndexStatus(row) : null;
+  }
+
+  requestCancel(workspaceHash: WorkspaceHash): void {
+    this.db.prepare(
+      'UPDATE code_index_status SET cancel_requested = 1, updated_at = ? WHERE workspace_hash = ?',
+    ).run(Date.now(), workspaceHash);
+  }
+
+  clearCancel(workspaceHash: WorkspaceHash): void {
+    this.db.prepare(
+      'UPDATE code_index_status SET cancel_requested = 0, updated_at = ? WHERE workspace_hash = ?',
+    ).run(Date.now(), workspaceHash);
+  }
+
+  isCancelRequested(workspaceHash: WorkspaceHash): boolean {
+    const row = this.db.prepare(
+      'SELECT cancel_requested FROM code_index_status WHERE workspace_hash = ?',
+    ).get(workspaceHash) as { cancel_requested: number } | undefined;
+    return row?.cancel_requested === 1;
+  }
+
   private mapWorkspaceRoot(row: WorkspaceRootRow): WorkspaceRoot {
     return {
       workspaceHash: row.workspace_hash,
@@ -362,5 +649,49 @@ export class CasStore {
       signature: row.signature,
       docComment: row.doc_comment,
     };
+  }
+
+  private mapIndexStatus(row: CodeIndexStatusRow): CodeIndexStatusRecord {
+    return {
+      workspaceHash: row.workspace_hash,
+      absPath: row.abs_path,
+      state: row.state,
+      phase: row.phase,
+      totalFiles: row.total_files,
+      processedFiles: row.processed_files,
+      totalChunks: row.total_chunks,
+      processedChunks: row.processed_chunks,
+      currentPath: row.current_path,
+      startedAt: row.started_at,
+      updatedAt: row.updated_at,
+      completedAt: row.completed_at,
+      errorMessage: row.error_message,
+      cancelRequested: row.cancel_requested === 1,
+    };
+  }
+
+  private buildFtsSymbolsText(chunk: Chunk | null, name: string): string {
+    if (!chunk) return name;
+    return [name, this.identifierTerms(name), chunk.symbolsJson, this.identifierTerms(chunk.symbolsJson),
+      chunk.importsJson, this.identifierTerms(chunk.importsJson), chunk.exportsJson,
+      this.identifierTerms(chunk.exportsJson)].join(' ');
+  }
+
+  private identifierTerms(value: string): string {
+    return value
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .replace(/[_-]+/g, ' ')
+      .split(/[^A-Za-z0-9]+/)
+      .filter((term) => term.length > 0)
+      .join(' ');
+  }
+
+  private toFtsQuery(query: string): string {
+    return query
+      .split(/[^A-Za-z0-9_]+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length > 0)
+      .slice(0, 12)
+      .join(' ');
   }
 }

@@ -187,6 +187,22 @@ describe('CodememPrewarmCoordinator', () => {
     expect(stub.target.warmWorkspace).not.toHaveBeenCalled();
   });
 
+  it('skips broad filesystem roots during automatic prewarm', async () => {
+    buildCoordinator({ settings: createSettings({ codememPrewarmDebounceMs: 0 }) });
+
+    emitter.emit('directory-added', {
+      path: '/',
+      displayName: '/',
+      lastAccessed: Date.now(),
+      accessCount: 1,
+      isPinned: false,
+    } satisfies RecentDirectoryEntry);
+
+    await flushMicrotasks();
+
+    expect(stub.target.warmWorkspace).not.toHaveBeenCalled();
+  });
+
   // ── Disabled paths ──────────────────────────────────────────────────────
 
   it('does nothing when codemem is disabled', async () => {

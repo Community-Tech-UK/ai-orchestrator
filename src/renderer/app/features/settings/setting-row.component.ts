@@ -19,7 +19,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
   imports: [FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="setting-row">
+    <div class="setting-row" [attr.data-tone]="rowTone()">
       <div class="setting-info">
         <label [for]="setting().key" class="setting-label">{{
           setting().label
@@ -27,6 +27,9 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
         <p class="setting-description">
           {{ setting().description }}
         </p>
+        @if (rowBadge(); as badge) {
+          <span class="risk-pill">{{ badge }}</span>
+        }
       </div>
       <div class="setting-control">
         @switch (setting().type) {
@@ -111,6 +114,29 @@ export class SettingRowComponent {
   setting = input.required<SettingMetadata>();
   value = input.required<unknown>();
   valueChange = output<{ key: string; value: unknown }>();
+
+  rowTone(): 'risk' | null {
+    switch (this.setting().key) {
+      case 'defaultYoloMode':
+      case 'mcpDisableProviderBackups':
+      case 'mcpAllowWorldWritableParent':
+        return 'risk';
+      default:
+        return null;
+    }
+  }
+
+  rowBadge(): string | null {
+    switch (this.setting().key) {
+      case 'defaultYoloMode':
+        return 'High trust';
+      case 'mcpDisableProviderBackups':
+      case 'mcpAllowWorldWritableParent':
+        return 'Safety override';
+      default:
+        return null;
+    }
+  }
 
   onBooleanChange(event: Event): void {
     const checked = (event.target as HTMLInputElement).checked;

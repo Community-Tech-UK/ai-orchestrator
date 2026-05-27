@@ -3,8 +3,9 @@
  *
  * Ratchet script that enforces TypeScript file size limits.
  *
- * - For files NOT in the allowlist: fails if any file exceeds MAX_LINES (700).
- * - For files IN the allowlist: fails if the file GROWS beyond its recorded ceiling
+ * - Test sources are skipped; broad behavior coverage should not be shaped by LOC ratchets.
+ * - For production files NOT in the allowlist: fails if any file exceeds MAX_LINES (700).
+ * - For production files IN the allowlist: fails if the file GROWS beyond its recorded ceiling
  *   (the ceiling must be reduced as the file is refactored down).
  *
  * Usage: tsx scripts/check-ts-max-loc.ts
@@ -35,20 +36,14 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — automations
   'src/main/automations/automation-store.ts': 847,
   // Main process — browser gateway
-  'src/main/browser-gateway/browser-gateway-service.spec.ts': 1363,
   'src/main/browser-gateway/browser-gateway-service.ts': 2507,
   // Main process — channels
-  'src/main/channels/__tests__/channel-message-router.spec.ts': 1141,
   'src/main/channels/adapters/discord-adapter.ts': 898,
   'src/main/channels/channel-message-router.ts': 2502,
   // Main process — CLI adapters
-  'src/main/cli/adapters/__tests__/claude-cli-adapter.spec.ts': 721,
-  'src/main/cli/adapters/__tests__/cursor-cli-adapter.spec.ts': 1143,
-  'src/main/cli/adapters/acp-cli-adapter.spec.ts': 1275,
   'src/main/cli/adapters/acp-cli-adapter.ts': 2142,
   'src/main/cli/adapters/base-cli-adapter.ts': 768,
   'src/main/cli/adapters/claude-cli-adapter.ts': 2170,
-  'src/main/cli/adapters/codex-cli-adapter.spec.ts': 1227,
   'src/main/cli/adapters/codex-cli-adapter.ts': 3004,
   'src/main/cli/adapters/copilot-cli-adapter.ts': 1146,
   'src/main/cli/adapters/cursor-cli-adapter.ts': 1024,
@@ -67,8 +62,6 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/indexing/benchmarks/benchmark-utils.ts': 820,
   'src/main/indexing/tree-sitter-chunker.ts': 716,
   // Main process — instance
-  'src/main/instance/__tests__/instance-manager.spec.ts': 1653,
-  'src/main/instance/instance-communication.spec.ts': 896,
   'src/main/instance/instance-communication.ts': 2236,
   'src/main/instance/instance-context.ts': 1204,
   'src/main/instance/instance-lifecycle.ts': 3108,
@@ -76,9 +69,6 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/instance/instance-orchestration.ts': 1516,
   'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 941,
   // Main process — IPC handlers
-  'src/main/ipc/handlers/__tests__/instance-handlers.spec.ts': 846,
-  'src/main/ipc/handlers/__tests__/mcp-handlers.spec.ts': 720,
-  'src/main/ipc/handlers/__tests__/session-handlers.spec.ts': 761,
   'src/main/ipc/handlers/app-handlers.ts': 746,
   'src/main/ipc/handlers/instance-handlers.ts': 1125,
   'src/main/ipc/handlers/mcp-handlers.ts': 941,
@@ -103,18 +93,14 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/memory/r1-memory-manager.ts': 792,
   'src/main/memory/unified-controller.ts': 1320,
   // Main process — orchestration
-  'src/main/orchestration/__tests__/debate-coordinator.spec.ts': 1055,
-  'src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts': 908,
   'src/main/orchestration/child-result-storage.ts': 836,
   'src/main/orchestration/cli-verification-extension.ts': 973,
   'src/main/orchestration/consensus-coordinator.ts': 860,
   'src/main/orchestration/consensus.ts': 759,
   'src/main/orchestration/cross-model-review-service.ts': 798,
   'src/main/orchestration/debate-coordinator.ts': 1196,
-  'src/main/orchestration/default-invokers.loop.spec.ts': 749,
   'src/main/orchestration/default-invokers.ts': 1454,
   'src/main/orchestration/embedding-service.ts': 845,
-  'src/main/orchestration/event-store/__tests__/event-store.spec.ts': 787,
   'src/main/orchestration/loop-coordinator.ts': 1766,
   'src/main/orchestration/loop-progress-detector.ts': 725,
   'src/main/orchestration/multi-verify-coordinator.ts': 1163,
@@ -156,7 +142,6 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/core/state/instance/instance-list.store.ts': 972,
   'src/renderer/app/core/state/instance/instance-messaging.store.ts': 774,
   'src/renderer/app/core/state/instance/instance.store.ts': 753,
-  'src/renderer/app/core/state/source-control.store.spec.ts': 1164,
   'src/renderer/app/core/state/source-control.store.ts': 973,
   // Renderer — feature components
   'src/renderer/app/features/archive/archive-page.component.ts': 1059,
@@ -201,11 +186,8 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/training/training-page.component.ts': 818,
   'src/renderer/app/features/verification/config/api-key-manager.component.ts': 890,
   'src/renderer/app/features/verification/config/verification-preferences.component.ts': 850,
-  'src/renderer/app/features/verification/dashboard/verification-dashboard.component.spec.ts': 873,
-  'src/renderer/app/features/verification/execution/agent-selector.component.spec.ts': 747,
   'src/renderer/app/features/verification/execution/agent-selector.component.ts': 745,
   'src/renderer/app/features/verification/results/export-panel.component.ts': 774,
-  'src/renderer/app/features/verification/results/verification-results.component.spec.ts': 798,
   'src/renderer/app/features/workflow/workflow-page.component.ts': 799,
   'src/renderer/app/features/workflow/workflow-progress.component.ts': 733,
   'src/renderer/app/features/worktree/worktree-page.component.ts': 717,
@@ -225,6 +207,16 @@ function countLines(filePath: string): number {
   }
 }
 
+function isTestSourceFile(relPath: string): boolean {
+  const normalizedPath = relPath.replace(/\\/g, '/');
+  return (
+    normalizedPath.endsWith('.spec.ts') ||
+    normalizedPath.endsWith('.test.ts') ||
+    normalizedPath.includes('/__tests__/') ||
+    normalizedPath.startsWith('__tests__/')
+  );
+}
+
 function main(): void {
   const repoRoot = process.cwd();
 
@@ -233,10 +225,12 @@ function main(): void {
     .trim()
     .split('\n')
     .filter(Boolean);
+  const checkedFiles = trackedFiles.filter((relPath) => !isTestSourceFile(relPath));
+  const skippedTestFiles = trackedFiles.length - checkedFiles.length;
 
   const violations: string[] = [];
 
-  for (const relPath of trackedFiles) {
+  for (const relPath of checkedFiles) {
     const absPath = resolve(repoRoot, relPath);
     const lines = countLines(absPath);
 
@@ -269,8 +263,9 @@ function main(): void {
 
   console.log(
     `TypeScript file size ratchet passed. ` +
-      `Checked ${trackedFiles.length} files (limit: ${MAX_LINES} lines, ` +
-      `${Object.keys(ALLOWLIST).length} allowlisted legacy files).`,
+      `Checked ${checkedFiles.length} production files (limit: ${MAX_LINES} lines, ` +
+      `${Object.keys(ALLOWLIST).length} allowlisted legacy files, ` +
+      `${skippedTestFiles} test files skipped).`,
   );
   process.exit(0);
 }

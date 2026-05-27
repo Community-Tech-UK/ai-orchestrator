@@ -26,7 +26,6 @@ export class CodememService extends EventEmitter {
   readonly gateway: LspWorkerGateway;
   readonly indexWorkerGateway: IndexWorkerGateway;
   readonly facade: AgentLspFacade;
-  private readonly activeWatchers = new Set<string>();
   private readonly workspaceLspState = new Map<string, WorkspaceLspState>();
   private readonly workspaceLspReadyFiles = new Map<string, string | null>();
   private mcpToolsRegistered = false;
@@ -90,27 +89,17 @@ export class CodememService extends EventEmitter {
     return settings.codememEnabled && settings.codememLspWorkerEnabled;
   }
 
-  async ensureWorkspace(workspacePath: string) {
+  async ensureWorkspace(workspacePath: string, timeoutMs = 15_000) {
     if (!this.isEnabled() || !this.isIndexingEnabled()) {
       throw new Error('Codemem indexing is disabled.');
     }
 
     const normalizedPath = path.resolve(workspacePath);
-    const workspaceHash = workspaceHashForPath(normalizedPath);
-    let workspaceRoot = this.store.getWorkspaceRootByPath(normalizedPath);
-
-    if (!workspaceRoot) {
-      await this.indexManager.coldIndex(normalizedPath);
-      workspaceRoot = this.store.getWorkspaceRootByPath(normalizedPath);
-    }
+    await this.indexWorkerGateway.warmWorkspace(normalizedPath, timeoutMs);
+    const workspaceRoot = this.store.getWorkspaceRootByPath(normalizedPath);
 
     if (!workspaceRoot) {
       throw new Error(`Failed to index workspace: ${normalizedPath}`);
-    }
-
-    if (!this.activeWatchers.has(workspaceHash)) {
-      await this.indexManager.start(normalizedPath, workspaceHash);
-      this.activeWatchers.add(workspaceHash);
     }
 
     return workspaceRoot;
@@ -237,3 +226,13 @@ export type {
   PrewarmCodememTarget,
   PrewarmSettingsTarget,
 } from './codemem-prewarm-coordinator';
+
+export {
+  CodeRetrievalService,
+  getCodeRetrievalService,
+  resetCodeRetrievalServiceForTesting,
+} from './code-retrieval-service';
+export type {
+  CodeRetrievalResult,
+  CodeRetrievalSearchOptions,
+} from './code-retrieval-service';

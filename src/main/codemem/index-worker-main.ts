@@ -20,6 +20,7 @@ import { CasStore } from './cas-store';
 import { CodeIndexManager } from './code-index-manager';
 import { workspaceHashForPath } from './symbol-id';
 import type {
+  CodeIndexStatusSnapshot,
   IndexWorkerInboundMsg,
   IndexWorkerOutboundMsg,
   WarmWorkspaceResult,
@@ -123,6 +124,45 @@ async function handleMessage(msg: IndexWorkerInboundMsg): Promise<void> {
       break;
     }
 
+    case 'get-index-status': {
+      const normalizedPath = path.resolve(msg.workspacePath);
+      const workspaceHash = workspaceHashForPath(normalizedPath);
+      respond(msg.id, buildStatusSnapshot(normalizedPath, workspaceHash));
+      break;
+    }
+
+    case 'cancel-index': {
+      const normalizedPath = path.resolve(msg.workspacePath);
+      const workspaceHash = workspaceHashForPath(normalizedPath);
+      store.requestCancel(workspaceHash);
+      respond(msg.id);
+      break;
+    }
+
+    case 'rebuild-index': {
+      try {
+        const normalizedPath = path.resolve(msg.workspacePath);
+        const workspaceHash = workspaceHashForPath(normalizedPath);
+        store.clearCancel(workspaceHash);
+        await indexManager.coldIndex(normalizedPath);
+        const workspaceRoot = store.getWorkspaceRootByPath(normalizedPath);
+        if (!watchedWorkspaces.has(workspaceHash)) {
+          await indexManager.start(normalizedPath, workspaceHash);
+          watchedWorkspaces.add(workspaceHash);
+        }
+        watchedWorkspacePaths.set(workspaceHash, normalizedPath);
+        const result: WarmWorkspaceResult = {
+          indexed: !!workspaceRoot,
+          absPath: workspaceRoot?.absPath ?? normalizedPath,
+          primaryLanguage: workspaceRoot?.primaryLanguage ?? 'typescript',
+        };
+        respond(msg.id, result);
+      } catch (err) {
+        respond(msg.id, undefined, err instanceof Error ? err.message : String(err));
+      }
+      break;
+    }
+
     case 'stop-workspace-watcher': {
       const normalizedPath = path.resolve(msg.workspacePath);
       const workspaceHash = workspaceHashForPath(normalizedPath);
@@ -154,3 +194,43 @@ async function handleMessage(msg: IndexWorkerInboundMsg): Promise<void> {
 
 // Signal readiness after all synchronous initialisation is complete.
 parentPort!.postMessage({ type: 'ready' } satisfies IndexWorkerOutboundMsg);
+
+function buildStatusSnapshot(
+  workspacePath: string,
+  workspaceHash: string,
+): CodeIndexStatusSnapshot | null {
+  const status = store.getIndexStatus(workspaceHash);
+  if (!status) {
+    return null;
+  }
+  return {
+    workspacePath,
+    workspaceHash,
+    state: status.state,
+    phase: status.phase,
+    totalFiles: status.totalFiles,
+    processedFiles: status.processedFiles,
+    totalChunks: status.totalChunks,
+    processedChunks: status.processedChunks,
+    currentPath: status.currentPath,
+    startedAt: status.startedAt,
+    updatedAt: status.updatedAt,
+    completedAt: status.completedAt,
+    etaMs: estimateEtaMs(status.startedAt, status.updatedAt, status.processedFiles, status.totalFiles),
+    errorMessage: status.errorMessage,
+  };
+}
+
+function estimateEtaMs(
+  startedAt: number | null,
+  updatedAt: number,
+  processed: number,
+  total: number,
+): number | null {
+  if (!startedAt || processed <= 0 || total <= processed) {
+    return null;
+  }
+  const elapsed = Math.max(0, updatedAt - startedAt);
+  const perFile = elapsed / processed;
+  return Math.max(0, Math.round(perFile * (total - processed)));
+}

@@ -26,11 +26,15 @@ import {
 import { z } from 'zod';
 import {
   getCodebaseIndexingService,
-  getHybridSearchService,
   getCodebaseFileWatcher,
   getCodebaseIndexingAutoCoordinator,
 } from '../../indexing';
-import { RLMDatabase } from '../../persistence/rlm-database';
+import { getCodebaseIndexingLaneGateway } from '../../indexing/codebase-indexing-lane-gateway';
+import { getCodemem, getCodeRetrievalService } from '../../codemem';
+import type {
+  CodeIndexStatusSnapshot,
+} from '../../codemem/index-worker-protocol';
+import type { CodeRetrievalResult } from '../../codemem/code-retrieval-service';
 import type { WindowManager } from '../../window-manager';
 
 /**
@@ -39,10 +43,10 @@ import type { WindowManager } from '../../window-manager';
  */
 export function registerCodebaseHandlers(windowManager: WindowManager): void {
   const indexingService = getCodebaseIndexingService();
-  const db = RLMDatabase.getInstance();
-  const searchService = getHybridSearchService(db['db']);
   const fileWatcher = getCodebaseFileWatcher();
   const autoCoordinator = getCodebaseIndexingAutoCoordinator();
+  const codeRetrievalService = getCodeRetrievalService();
+  const indexingLaneGateway = getCodebaseIndexingLaneGateway();
 
   // Helper to safely send events to renderer
   const sendToRenderer = (channel: string, data: unknown): void => {
@@ -54,6 +58,9 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
 
   // Forward progress events to renderer
   indexingService.on('progress', (progress: IndexingProgress) => {
+    sendToRenderer(IPC_CHANNELS.CODEBASE_INDEX_PROGRESS, progress);
+  });
+  indexingLaneGateway.on('progress', (progress: IndexingProgress) => {
     sendToRenderer(IPC_CHANNELS.CODEBASE_INDEX_PROGRESS, progress);
   });
 
@@ -83,7 +90,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
     ): Promise<IpcResponse<IndexingStats>> => {
       try {
         const validated = validateIpcPayload(CodebaseIndexStorePayloadSchema, payload, 'CODEBASE_INDEX_STORE');
-        const stats = await indexingService.indexCodebase(
+        const stats = await indexingLaneGateway.indexCodebase(
           validated.storeId,
           validated.rootPath,
           validated.options
@@ -129,9 +136,24 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
   // Cancel ongoing indexing
   ipcMain.handle(
     IPC_CHANNELS.CODEBASE_INDEX_CANCEL,
-    async (): Promise<IpcResponse<void>> => {
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown,
+    ): Promise<IpcResponse<void>> => {
       try {
-        indexingService.cancel();
+        const schema = z.object({
+          workspacePath: z.string().min(1).max(4096).optional(),
+          target: z.enum(['codemem', 'legacy']).optional(),
+        }).optional();
+        const validated = validateIpcPayload(schema, payload, 'CODEBASE_INDEX_CANCEL');
+        if (validated?.target === 'legacy') {
+          await indexingLaneGateway.cancelIndexCodebase(validated.workspacePath);
+        } else if (validated?.workspacePath) {
+          await getCodemem().indexWorkerGateway.cancelIndex(validated.workspacePath);
+        } else {
+          await indexingLaneGateway.cancelIndexCodebase();
+          indexingService.cancel();
+        }
         return { success: true };
       } catch (error) {
         return {
@@ -149,8 +171,28 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
   // Get current indexing status
   ipcMain.handle(
     IPC_CHANNELS.CODEBASE_INDEX_STATUS,
-    async (): Promise<IpcResponse<IndexingProgress>> => {
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown,
+    ): Promise<IpcResponse<IndexingProgress | CodeIndexStatusSnapshot | null>> => {
       try {
+        const schema = z.object({
+          workspacePath: z.string().min(1).max(4096).optional(),
+          target: z.enum(['codemem', 'legacy']).optional(),
+        }).optional();
+        const validated = validateIpcPayload(schema, payload, 'CODEBASE_INDEX_STATUS');
+        if (validated?.target === 'legacy') {
+          const progress = indexingLaneGateway.getIndexCodebaseProgress(validated.workspacePath);
+          return { success: true, data: progress };
+        }
+        if (validated?.workspacePath) {
+          const progress = await getCodemem().indexWorkerGateway.getIndexStatus(validated.workspacePath);
+          return { success: true, data: progress };
+        }
+        const laneProgress = indexingLaneGateway.getIndexCodebaseProgress();
+        if (laneProgress) {
+          return { success: true, data: laneProgress };
+        }
         const progress = indexingService.getProgress();
         return { success: true, data: progress };
       } catch (error) {
@@ -194,11 +236,39 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
     }
   );
 
+  // Clear legacy RLM codebase index artifacts for diagnostics/reset flows.
+  ipcMain.handle(
+    IPC_CHANNELS.CODEBASE_LEGACY_CLEAR,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown,
+    ): Promise<IpcResponse<void>> => {
+      try {
+        const validated = validateIpcPayload(
+          z.object({ storeId: StoreIdSchema }),
+          payload,
+          'CODEBASE_LEGACY_CLEAR',
+        );
+        await indexingService.clearLegacyCodebaseStore(validated.storeId);
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'CODEBASE_LEGACY_CLEAR_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
   // ============================================
   // Search Handlers
   // ============================================
 
-  // Hybrid search (BM25 + vector + reranking)
+  // Code search, returned in the legacy HybridSearchResult shape for renderer compatibility.
   ipcMain.handle(
     IPC_CHANNELS.CODEBASE_SEARCH,
     async (
@@ -207,8 +277,16 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
     ): Promise<IpcResponse<HybridSearchResult[]>> => {
       try {
         const validated = validateIpcPayload(CodebaseSearchPayloadSchema, payload, 'CODEBASE_SEARCH');
-        const results = await searchService.search(validated.options);
-        return { success: true, data: results };
+        const workspacePath = validated.options.workspacePath
+          ?? resolveWorkspacePathForStore(validated.options.storeId, autoCoordinator.listStatuses());
+        const results = workspacePath
+          ? await codeRetrievalService.search({
+            workspacePath,
+            query: validated.options.query,
+            limit: validated.options.topK,
+          })
+          : [];
+        return { success: true, data: results.map(mapRetrievalToHybridResult) };
       } catch (error) {
         return {
           success: false,
@@ -222,7 +300,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
     }
   );
 
-  // Symbol search - uses BM25 search with symbol boosting
+  // Symbol search, returned in the legacy HybridSearchResult shape for renderer compatibility.
   ipcMain.handle(
     IPC_CHANNELS.CODEBASE_SEARCH_SYMBOLS,
     async (
@@ -231,16 +309,16 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
     ): Promise<IpcResponse<HybridSearchResult[]>> => {
       try {
         const validated = validateIpcPayload(CodebaseSearchSymbolsPayloadSchema, payload, 'CODEBASE_SEARCH_SYMBOLS');
-        // For symbol search, use hybrid search with BM25 boosting for symbols
-        const results = await searchService.search({
-          query: validated.query,
-          storeId: validated.storeId,
-          topK: 20,
-          bm25Weight: 0.7,  // Favor keyword matching for symbols
-          vectorWeight: 0.3,
-          useHyDE: false    // Disable HyDE for exact symbol matching
-        });
-        return { success: true, data: results };
+        const workspacePath = validated.workspacePath
+          ?? resolveWorkspacePathForStore(validated.storeId, autoCoordinator.listStatuses());
+        const results = workspacePath
+          ? await codeRetrievalService.search({
+            workspacePath,
+            query: validated.query,
+            limit: 20,
+          })
+          : [];
+        return { success: true, data: results.map(mapRetrievalToHybridResult) };
       } catch (error) {
         return {
           success: false,
@@ -389,4 +467,26 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
   // Note: the legacy `CODEBASE_AUTO_HINT` handler has been removed. Renderer
   // hints now arrive on the consolidated `WORKSPACE_HINT_ACTIVE` channel and
   // are fanned out to this coordinator via `workspace-hint-handlers.ts`.
+}
+
+function resolveWorkspacePathForStore(
+  storeId: string | undefined,
+  statuses: CodebaseAutoIndexStatus[],
+): string | null {
+  if (!storeId) return null;
+  return statuses.find((status) => status.storeId === storeId)?.rootPath ?? null;
+}
+
+function mapRetrievalToHybridResult(result: CodeRetrievalResult): HybridSearchResult {
+  return {
+    sectionId: `${result.relativePath}:${result.startLine}:${result.endLine}`,
+    filePath: result.absolutePath,
+    content: result.content,
+    startLine: result.startLine,
+    endLine: result.endLine,
+    score: result.score,
+    matchType: result.source === 'symbol' ? 'hybrid' : 'bm25',
+    language: result.language,
+    symbolName: result.symbolName ?? undefined,
+  };
 }

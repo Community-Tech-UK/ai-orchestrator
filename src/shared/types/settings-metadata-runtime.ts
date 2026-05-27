@@ -133,9 +133,9 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'codebaseAutoIndexEnabled',
-    label: 'Enable Codebase Auto-Index on Workspace Open',
+    label: 'Enable Legacy RLM Codebase Auto-Index',
     description:
-      'Automatically run the heavier embedding + BM25 codebase index when a workspace is opened, so search is ready without clicking Index Codebase',
+      'Automatically run the older BM25 + embedding RLM codebase index when a workspace is opened. This is heavier than codemem and should stay off unless debugging the legacy search path',
     type: 'boolean',
     category: 'advanced',
   },

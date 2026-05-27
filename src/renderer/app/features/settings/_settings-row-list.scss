@@ -1,0 +1,13 @@
+@mixin settings-row-list {
+  :host {
+    display: block;
+  }
+
+  .settings-list-card {
+    overflow: hidden;
+    background: color-mix(in srgb, var(--card-bg) 94%, transparent);
+    border: 1px solid color-mix(in srgb, var(--card-border) 76%, transparent);
+    border-radius: var(--radius-md);
+    box-shadow: var(--card-shadow);
+  }
+}

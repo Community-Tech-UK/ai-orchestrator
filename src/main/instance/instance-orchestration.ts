@@ -2,7 +2,6 @@
  * Instance Orchestration Manager - Handles child instance spawning and fast-path retrieval
  */
 
-import { spawn } from 'child_process';
 import { getLogger } from '../logging/logger';
 import { OrchestrationHandler } from '../orchestration/orchestration-handler';
 import { OutcomeTracker } from '../learning/outcome-tracker';
@@ -29,7 +28,6 @@ import type {
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type { TaskExecution, TaskProgress } from '../../shared/types/task.types';
 import type { ToolUsageRecord } from '../../shared/types/self-improvement.types';
-import type { FastPathResult } from './instance-types';
 import { getChildErrorClassifier } from '../orchestration/child-error-classifier';
 import type { ChildAnnouncement, ChildErrorClassification } from '../../shared/types/child-announce.types';
 import type {
@@ -44,10 +42,9 @@ import type {
 import { SpawnChildPayloadSchema } from '@contracts/schemas/orchestration';
 import { emitPluginHook } from '../plugins/hook-emitter';
 import type { PluginRoutingAudit } from '../../shared/types/plugin.types';
-import {
-  getIndexedCodebaseContextService,
-  type IndexedCodebaseContextService,
-} from '../indexing/indexed-codebase-context';
+import type { IndexedCodebaseContextService } from '../indexing/indexed-codebase-context';
+import { FastPathRetriever } from './orchestration/fast-path-retriever';
+import { OrchestrationMessageFormatter } from './orchestration/orchestration-message-formatter';
 
 /**
  * Dependencies required by the orchestration manager
@@ -63,8 +60,6 @@ export interface OrchestrationDependencies {
 }
 
 const logger = getLogger('InstanceOrchestration');
-const FAST_PATH_COMMAND_TIMEOUT_MS = 2_500;
-const FAST_PATH_MAX_OUTPUT_BYTES = 256 * 1024;
 
 function getChildRoutingAudit(child: Instance): PluginRoutingAudit | undefined {
   const orchestration = child.metadata?.['orchestration'];
@@ -90,9 +85,14 @@ export class InstanceOrchestrationManager {
   private orchestrationSettings = { maxTotalInstances: 0, maxChildrenPerParent: 0, allowNestedOrchestration: false };
   /** Guard to prevent duplicate listener registration */
   private handlersRegistered = false;
+  private readonly fastPathRetriever: FastPathRetriever;
+  private readonly formatter = new OrchestrationMessageFormatter();
 
   constructor(deps: OrchestrationDependencies) {
     this.deps = deps;
+    this.fastPathRetriever = new FastPathRetriever({
+      indexedCodebaseContext: deps.indexedCodebaseContext,
+    });
     this.orchestration = new OrchestrationHandler();
   }
 
@@ -426,7 +426,7 @@ export class InstanceOrchestrationManager {
             logger.warn('Failed to parse JSON data from orchestration response', { error: e instanceof Error ? e.message : String(e) });
           }
 
-          const friendlyContent = this.buildFriendlyOrchestrationMessage(action, status, data);
+          const friendlyContent = this.formatter.format(action, status, data);
 
           const orchestrationMessage = {
             id: `orch-${Date.now()}`,
@@ -881,10 +881,10 @@ export class InstanceOrchestrationManager {
 
     const cwd = command.workingDirectory || parent.workingDirectory;
     try {
-      const result = await this.runFastPathSearch(command.task, cwd);
+      const result = await this.fastPathRetriever.search(command.task, cwd);
       if (!result) return false;
 
-      const summary = this.buildFastPathSummary(command.task, result);
+      const summary = this.fastPathRetriever.buildSummary(command.task, result);
       this.orchestration.notifyFastPathResult(parent.id, {
         summary,
         task: command.task,
@@ -900,249 +900,6 @@ export class InstanceOrchestrationManager {
       logger.warn('Fast-path retrieval failed, falling back to child instance', { error: String(error) });
       return false;
     }
-  }
-
-  private async runFastPathSearch(
-    task: string,
-    cwd: string
-  ): Promise<FastPathResult | null> {
-    const terms = this.extractQueryTerms(task);
-    const pattern = terms.length > 0 ? this.buildLexicalPattern(terms) : '';
-    const lineLimit = 40;
-
-    const indexedResult = await this.runIndexedCodebaseFastPath(task, cwd);
-    if (indexedResult) {
-      return indexedResult;
-    }
-
-    if (this.isListFilesTask(task) || !pattern) {
-      const fileList = await this.runFastPathFileList(cwd);
-      if (!fileList) return null;
-      const filtered =
-        terms.length > 0
-          ? fileList.files.filter((file) =>
-              terms.some((term) => file.toLowerCase().includes(term))
-            )
-          : fileList.files;
-      const lines = filtered.slice(0, lineLimit);
-      return {
-        mode: 'files',
-        command: fileList.command,
-        args: fileList.args,
-        totalMatches: filtered.length,
-        lines,
-        rawOutput: filtered.join('\n'),
-        cwd
-      };
-    }
-
-    const result = await this.runFastPathGrep(pattern, cwd);
-    if (!result) return null;
-
-    const lines = result.rawOutput
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .slice(0, lineLimit);
-
-    return {
-      mode: 'grep',
-      command: result.command,
-      args: result.args,
-      totalMatches: result.totalMatches,
-      lines,
-      rawOutput: result.rawOutput,
-      cwd
-    };
-  }
-
-  private async runIndexedCodebaseFastPath(
-    task: string,
-    cwd: string,
-  ): Promise<FastPathResult | null> {
-    try {
-      const service = this.deps.indexedCodebaseContext ?? getIndexedCodebaseContextService();
-      return await service.buildFastPathResult({
-        workspacePath: cwd,
-        query: task,
-        maxTokens: 900,
-        topK: 8,
-      });
-    } catch (error) {
-      logger.debug('Indexed codebase fast-path search unavailable', {
-        cwd,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
-  }
-
-  private async runFastPathFileList(
-    cwd: string
-  ): Promise<{ files: string[]; command: string; args: string[] } | null> {
-    const gitArgs = ['ls-files'];
-    const gitResult = await this.runFastPathCommand(
-      'git',
-      gitArgs,
-      cwd,
-      FAST_PATH_COMMAND_TIMEOUT_MS,
-    );
-    if (gitResult && gitResult.exitCode === 0) {
-      const files = gitResult.stdout.split('\n').filter(Boolean);
-      return { files, command: 'git', args: gitArgs };
-    }
-
-    const rgArgs = [
-      '--files',
-      '--max-depth',
-      '3',
-      '--glob',
-      '!node_modules/**',
-      '--glob',
-      '!dist/**',
-      '--glob',
-      '!build/**',
-      '--glob',
-      '!.git/**',
-    ];
-    const rgResult = await this.runFastPathCommand(
-      'rg',
-      rgArgs,
-      cwd,
-      FAST_PATH_COMMAND_TIMEOUT_MS,
-    );
-    if (rgResult && rgResult.exitCode === 0) {
-      const files = rgResult.stdout.split('\n').filter(Boolean);
-      return { files, command: 'rg', args: rgArgs };
-    }
-
-    return null;
-  }
-
-  private async runFastPathGrep(
-    pattern: string,
-    cwd: string
-  ): Promise<{
-    command: string;
-    args: string[];
-    rawOutput: string;
-    totalMatches: number;
-  } | null> {
-    const rgArgs = ['-n', '--no-heading', '-S', pattern, '.'];
-    const rgResult = await this.runFastPathCommand(
-      'rg',
-      rgArgs,
-      cwd,
-      FAST_PATH_COMMAND_TIMEOUT_MS,
-    );
-    if (rgResult && (rgResult.exitCode === 0 || rgResult.exitCode === 1)) {
-      const output = rgResult.stdout || '';
-      const lines = output.split('\n').filter(Boolean);
-      return {
-        command: 'rg',
-        args: rgArgs,
-        rawOutput: output,
-        totalMatches: lines.length
-      };
-    }
-
-    const gitArgs = ['grep', '-n', '-e', pattern];
-    const gitResult = await this.runFastPathCommand(
-      'git',
-      gitArgs,
-      cwd,
-      FAST_PATH_COMMAND_TIMEOUT_MS,
-    );
-    if (gitResult && (gitResult.exitCode === 0 || gitResult.exitCode === 1)) {
-      const output = gitResult.stdout || '';
-      const lines = output.split('\n').filter(Boolean);
-      return {
-        command: 'git',
-        args: gitArgs,
-        rawOutput: output,
-        totalMatches: lines.length
-      };
-    }
-
-    return null;
-  }
-
-  private async runFastPathCommand(
-    command: string,
-    args: string[],
-    cwd: string,
-    timeoutMs: number
-  ): Promise<{
-    stdout: string;
-    stderr: string;
-    exitCode: number | null;
-  } | null> {
-    return new Promise((resolve) => {
-      const proc = spawn(command, args, { cwd });
-      let stdout = '';
-      let stderr = '';
-      let settled = false;
-      let outputBytes = 0;
-      let timer: NodeJS.Timeout | null = null;
-
-      const finish = (exitCode: number | null) => {
-        if (settled) return;
-        settled = true;
-        if (timer) {
-          clearTimeout(timer);
-        }
-        resolve({ stdout, stderr, exitCode });
-      };
-
-      const appendOutput = (target: 'stdout' | 'stderr', data: Buffer | string): void => {
-        const chunk = data.toString();
-        outputBytes += Buffer.byteLength(chunk);
-        if (outputBytes > FAST_PATH_MAX_OUTPUT_BYTES) {
-          proc.kill('SIGTERM');
-          finish(null);
-          return;
-        }
-        if (target === 'stdout') {
-          stdout += chunk;
-        } else {
-          stderr += chunk;
-        }
-      };
-
-      proc.stdout?.on('data', (data) => {
-        appendOutput('stdout', data);
-      });
-      proc.stderr?.on('data', (data) => {
-        appendOutput('stderr', data);
-      });
-      proc.on('error', () => finish(null));
-      proc.on('close', (code) => finish(code));
-
-      timer = setTimeout(() => {
-        proc.kill('SIGTERM');
-        finish(proc.exitCode ?? null);
-      }, timeoutMs);
-    });
-  }
-
-  private buildFastPathSummary(task: string, result: FastPathResult): string {
-    const matchLabel = result.mode === 'files' ? 'files' : 'matches';
-    const shown = result.lines.length;
-    const total = result.totalMatches;
-    const header = `Fast-path retrieval complete (${matchLabel}: ${total}, showing ${shown}).`;
-    const commandLine =
-      `Command: ${result.command} ${result.args.join(' ')}`.trim();
-    const lines =
-      result.lines.length > 0 ? result.lines.join('\n') : 'No matches found.';
-
-    return [
-      '[Fast Retrieval]',
-      header,
-      `Task: ${task}`,
-      commandLine,
-      lines,
-      '[End Fast Retrieval]'
-    ].join('\n');
   }
 
   // ============================================
@@ -1239,340 +996,4 @@ export class InstanceOrchestrationManager {
     }));
   }
 
-  // ============================================
-  // Helper Methods
-  // ============================================
-
-  private extractQueryTerms(message: string): string[] {
-    const matches = message.toLowerCase().match(/[a-z0-9_]{3,}/g) || [];
-    const unique = Array.from(
-      new Set(matches.filter((term) => term.length >= 4))
-    );
-    return unique.slice(0, 12);
-  }
-
-  private buildLexicalPattern(terms: string[]): string {
-    return terms
-      .map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-      .join('|');
-  }
-
-  private buildFriendlyOrchestrationMessage(action: string, status: string, data: any): string {
-    switch (action) {
-      case 'spawn_child':
-        if (status === 'SUCCESS') {
-          return `**Child Spawned:** ${data.name || 'Child instance'}\n\nID: \`${data.childId}\``;
-        } else {
-          return `**Failed to spawn child:** ${data.error || 'Unknown error'}`;
-        }
-      case 'message_child':
-        return status === 'SUCCESS'
-          ? `**Message sent** to child \`${data.childId}\``
-          : `**Failed to send message:** ${data.error || 'Unknown error'}`;
-      case 'terminate_child':
-        return status === 'SUCCESS'
-          ? `**Child terminated:** \`${data.childId}\``
-          : `**Failed to terminate child:** ${data.error || 'Unknown error'}`;
-      case 'task_complete':
-        return `**Task completed** by child \`${data.childId}\`\n\n${data.result?.summary || data.message || 'No summary'}`;
-      case 'task_progress':
-        return `**Progress update** from child \`${data.childId}\`: ${data.progress?.percentage || 0}% - ${data.progress?.currentStep || 'Working...'}`;
-      case 'task_error':
-        return `**Error** from child \`${data.childId}\`:\n\n${data.error?.message || data.message || 'Unknown error'}`;
-      case 'get_children': {
-        const activeConsensusQueries = typeof data.activeConsensusQueries === 'number'
-          ? data.activeConsensusQueries
-          : 0;
-        const completedChildIds = Array.isArray(data.completedChildIds)
-          ? data.completedChildIds as string[]
-          : [];
-        if (data.children && data.children.length > 0) {
-          const childList = data.children
-            .map((c: any) => `- **${c.name}** (\`${c.id}\`) - ${c.status}`)
-            .join('\n');
-          const consensusLine = activeConsensusQueries > 0
-            ? `\n\n**Consensus queries running:** ${activeConsensusQueries}`
-            : '';
-          return `**Active children:**\n\n${childList}${consensusLine}`;
-        }
-        if (activeConsensusQueries > 0) {
-          const queryLabel = activeConsensusQueries === 1 ? 'query is' : 'queries are';
-          return `**Consensus query in progress**\n\nNo child instances are active. ${activeConsensusQueries} internal consensus ${queryLabel} still running.`;
-        }
-        if (completedChildIds.length > 0) {
-          const shown = completedChildIds.slice(-5);
-          const childList = shown.map((id) => `- \`${id}\``).join('\n');
-          const extra = completedChildIds.length > shown.length
-            ? `\n- ... and ${completedChildIds.length - shown.length} more`
-            : '';
-          return `**No active children**\n\n${completedChildIds.length} child instance${completedChildIds.length === 1 ? '' : 's'} completed recently:\n${childList}${extra}`;
-        }
-        return `**No active children**`;
-      }
-      case 'get_child_output':
-        if (status !== 'SUCCESS') {
-          const errChildId = data.childId ? ` \`${data.childId}\`` : '';
-          return `**Failed to get child output**${errChildId}: ${data.error || 'Unknown error'}`;
-        }
-        if (data.output && data.output.length > 0) {
-          return `**Output from child \`${data.childId}\`:**\n\n\`\`\`\n${data.output.join('\n')}\n\`\`\``;
-        } else {
-          return `**No output from child** \`${data.childId ?? '(unknown)'}\``;
-        }
-      case 'call_tool':
-        if (status === 'SUCCESS') {
-          const toolId = data.toolId || data.tool?.id || 'tool';
-          const outputPreview =
-            data.output !== undefined
-              ? (typeof data.output === 'string'
-                  ? data.output
-                  : JSON.stringify(data.output, null, 2))
-              : '';
-          const trimmed =
-            outputPreview.length > 1500
-              ? outputPreview.slice(0, 1500) + '\n... (truncated)'
-              : outputPreview;
-          return `**Tool ran:** \`${toolId}\`\n\n\`\`\`\n${trimmed}\n\`\`\``;
-        }
-        return `**Tool failed:** \`${data.toolId || data.tool?.id || 'tool'}\`\n\n${data.error || 'Unknown error'}`;
-      case 'consensus_query':
-        return this.formatConsensusQueryMessage(status, data);
-      // New structured result messages
-      case 'child_result':
-        return this.formatChildResultMessage(data);
-      case 'child_completed':
-        return this.formatChildCompletedMessage(data);
-      case 'all_children_completed':
-        return this.formatAllChildrenCompletedMessage(data);
-      case 'get_child_summary':
-        return this.formatChildSummaryMessage(status, data);
-      case 'get_child_artifacts':
-        return this.formatChildArtifactsMessage(status, data);
-      case 'get_child_section':
-        return this.formatChildSectionMessage(status, data);
-      case 'request_user_action':
-        return this.formatRequestUserActionMessage(data);
-      case 'user_action_response':
-        return status === 'SUCCESS'
-          ? `**User responded** to "${data.requestType || 'request'}" — ${data.approved ? 'Approved' : 'Rejected'}${data.selectedOption ? `: ${data.selectedOption.slice(0, 200)}` : ''}`
-          : `**User action response failed**`;
-      default:
-        return `**Orchestration:** ${action} - ${status}`;
-    }
-  }
-
-  private formatConsensusQueryMessage(status: string, data: any): string {
-    if (data.status === 'dispatching') {
-      const requestedProviders = Array.isArray(data.providersRequested) && data.providersRequested.length > 0
-        ? data.providersRequested.join(', ')
-        : 'available providers';
-      return `**Consensus query started**\n\nConsulting ${requestedProviders}.`;
-    }
-
-    if (status === 'SUCCESS') {
-      const parts: string[] = [];
-      parts.push('**Consensus complete**');
-
-      if (typeof data.successCount === 'number' || typeof data.failureCount === 'number') {
-        const successCount = typeof data.successCount === 'number' ? data.successCount : 0;
-        const failureCount = typeof data.failureCount === 'number' ? data.failureCount : 0;
-        parts.push(`${successCount} provider${successCount === 1 ? '' : 's'} responded, ${failureCount} failed.`);
-      }
-
-      if (typeof data.totalDurationMs === 'number') {
-        parts.push(`Duration: ${Math.round(data.totalDurationMs / 1000)}s.`);
-      }
-
-      parts.push('');
-      parts.push('_Result injected to parent CLI._');
-      return parts.join('\n');
-    }
-
-    const parts = ['**Consensus query failed**'];
-    if (data.message || data.error) {
-      parts.push('');
-      parts.push(String(data.message || data.error));
-    }
-
-    if (Array.isArray(data.errors) && data.errors.length > 0) {
-      parts.push('');
-      parts.push('**Provider errors:**');
-      for (const err of data.errors.slice(0, 3)) {
-        const provider = typeof err.provider === 'string' ? err.provider : 'provider';
-        const message = typeof err.error === 'string' ? err.error : 'unknown error';
-        parts.push(`- ${provider}: ${message}`);
-      }
-      if (data.errors.length > 3) {
-        parts.push(`- ... and ${data.errors.length - 3} more`);
-      }
-    }
-
-    return parts.join('\n');
-  }
-
-  private formatRequestUserActionMessage(data: any): string {
-    const title = data.title || 'User Action Required';
-    const message = data.message || '';
-    const questions = data.questions as string[] | undefined;
-
-    const parts: string[] = [];
-    parts.push(`**Awaiting your response** — ${title}`);
-
-    if (message) {
-      parts.push('');
-      parts.push(message);
-    }
-
-    if (questions && questions.length > 0) {
-      parts.push('');
-      questions.forEach((q: string, i: number) => {
-        parts.push(`${i + 1}. ${q}`);
-      });
-    }
-
-    parts.push('');
-    parts.push('_See the prompt below to respond._');
-
-    return parts.join('\n');
-  }
-
-  private formatChildResultMessage(data: any): string {
-    const parts: string[] = [];
-    parts.push(`**Child Result** from \`${data.childId}\``);
-    parts.push('');
-    parts.push(`**Summary:** ${data.summary}`);
-    parts.push(`**Status:** ${data.success ? 'Success' : 'Failed'}`);
-
-    if (data.artifactCount > 0) {
-      parts.push(`**Artifacts:** ${data.artifactCount} (${data.artifactTypes?.join(', ') || 'various'})`);
-    }
-
-    if (data.conclusions && data.conclusions.length > 0) {
-      parts.push('');
-      parts.push('**Conclusions:**');
-      data.conclusions.slice(0, 3).forEach((c: string) => parts.push(`- ${c}`));
-      if (data.conclusions.length > 3) {
-        parts.push(`- ... and ${data.conclusions.length - 3} more`);
-      }
-    }
-
-    if (data.hasMoreDetails) {
-      parts.push('');
-      parts.push('_Use `get_child_artifacts` or `get_child_section` for more details._');
-    }
-
-    return parts.join('\n');
-  }
-
-  private formatChildSummaryMessage(status: string, data: any): string {
-    if (status !== 'SUCCESS') {
-      return `**Child Summary Error:** ${data.error || 'Unknown error'}\n\n${data.suggestion || ''}`;
-    }
-
-    const parts: string[] = [];
-    parts.push(`**Summary for child \`${data.childId}\`:**`);
-    parts.push('');
-    parts.push(data.summary);
-    parts.push('');
-    parts.push(`**Status:** ${data.success ? 'Success' : 'Failed'}`);
-
-    if (data.artifactCount > 0) {
-      parts.push(`**Artifacts:** ${data.artifactCount} (${data.artifactTypes?.join(', ') || 'various'})`);
-    }
-
-    if (data.conclusions && data.conclusions.length > 0) {
-      parts.push('');
-      parts.push('**Conclusions:**');
-      data.conclusions.forEach((c: string) => parts.push(`- ${c}`));
-    }
-
-    return parts.join('\n');
-  }
-
-  private formatChildArtifactsMessage(status: string, data: any): string {
-    if (status !== 'SUCCESS') {
-      return `**Artifacts Error:** ${data.error || 'Unknown error'}`;
-    }
-
-    const parts: string[] = [];
-    parts.push(`**Artifacts from child \`${data.childId}\`** (${data.filtered}/${data.total})`);
-
-    if (data.artifacts && data.artifacts.length > 0) {
-      for (const artifact of data.artifacts) {
-        parts.push('');
-        const severity = artifact.severity ? `[${artifact.severity.toUpperCase()}]` : '';
-        parts.push(`### ${severity} ${artifact.title || artifact.type}`);
-        if (artifact.file) {
-          const location = artifact.lines ? `${artifact.file}:${artifact.lines}` : artifact.file;
-          parts.push(`**Location:** \`${location}\``);
-        }
-        parts.push(artifact.content);
-      }
-    } else {
-      parts.push('_No artifacts found._');
-    }
-
-    if (data.hasMore) {
-      parts.push('');
-      parts.push(`_${data.total - data.filtered} more artifacts available. Use limit parameter to fetch more._`);
-    }
-
-    return parts.join('\n');
-  }
-
-  private formatChildSectionMessage(status: string, data: any): string {
-    if (status !== 'SUCCESS') {
-      return `**Section Error:** ${data.error || 'Unknown error'}`;
-    }
-
-    const parts: string[] = [];
-    parts.push(`**${data.section}** from child \`${data.childId}\` (${data.tokenCount} tokens)`);
-
-    if (data.warning) {
-      parts.push('');
-      parts.push(`⚠️ ${data.warning}`);
-    }
-
-    parts.push('');
-    parts.push(data.content);
-
-    return parts.join('\n');
-  }
-
-  private formatChildCompletedMessage(data: Record<string, unknown>): string {
-    const parts: string[] = [];
-    const name = (data['name'] as string) || (data['childId'] as string) || 'Unknown child';
-    const statusLabel = data['success'] ? 'Success' : 'Failed';
-    parts.push(`**Child Completed:** ${name} (\`${data['childId']}\`)`);
-    parts.push(`**Status:** ${statusLabel}`);
-    if (data['summary']) {
-      parts.push('');
-      parts.push(data['summary'] as string);
-    }
-    const conclusions = data['conclusions'] as string[] | undefined;
-    if (conclusions && conclusions.length > 0) {
-      parts.push('');
-      parts.push('**Conclusions:**');
-      for (const c of conclusions) {
-        parts.push(`- ${c}`);
-      }
-    }
-    return parts.join('\n');
-  }
-
-  private formatAllChildrenCompletedMessage(data: Record<string, unknown>): string {
-    const parts: string[] = [];
-    parts.push(`**All ${data['totalChildren']} children completed**`);
-    parts.push('');
-    const summaries = data['summaries'] as { success: boolean; name: string; summary: string }[] | undefined;
-    if (summaries && summaries.length > 0) {
-      for (const s of summaries) {
-        const statusLabel = s.success ? 'SUCCESS' : 'FAILED';
-        parts.push(`- **[${statusLabel}]** ${s.name}: ${s.summary}`);
-      }
-    }
-    parts.push('');
-    parts.push('_Synthesis prompt injected to parent CLI._');
-    return parts.join('\n');
-  }
 }

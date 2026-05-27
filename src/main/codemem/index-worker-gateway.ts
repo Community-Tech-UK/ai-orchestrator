@@ -15,6 +15,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import type {
+  CodeIndexStatusSnapshot,
   IndexWorkerInboundMsg,
   IndexWorkerOutboundMsg,
   WarmWorkspaceResult,
@@ -148,11 +149,61 @@ export class IndexWorkerGateway extends EventEmitter {
     }
 
     const id = this.nextId();
-    const result = await this.postRpc(
-      { type: 'warm-workspace', id, workspacePath },
-      timeoutMs,
-    );
-    return (result as WarmWorkspaceResult | null) ?? degradedResult;
+    try {
+      const result = await this.postRpc(
+        { type: 'warm-workspace', id, workspacePath },
+        timeoutMs,
+      );
+      return (result as WarmWorkspaceResult | null) ?? degradedResult;
+    } catch (error) {
+      this.metrics.lastError = error instanceof Error ? error.message : String(error);
+      return degradedResult;
+    }
+  }
+
+  async getIndexStatus(workspacePath: string): Promise<CodeIndexStatusSnapshot | null> {
+    if (this.isDegraded || !this.worker) {
+      return null;
+    }
+    const id = this.nextId();
+    try {
+      const result = await this.postRpc({ type: 'get-index-status', id, workspacePath });
+      return (result as CodeIndexStatusSnapshot | null) ?? null;
+    } catch (error) {
+      this.metrics.lastError = error instanceof Error ? error.message : String(error);
+      return null;
+    }
+  }
+
+  async cancelIndex(workspacePath: string): Promise<void> {
+    if (this.isDegraded || !this.worker) {
+      return;
+    }
+    const id = this.nextId();
+    try {
+      await this.postRpc({ type: 'cancel-index', id, workspacePath });
+    } catch (error) {
+      this.metrics.lastError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  async rebuildIndex(workspacePath: string): Promise<WarmWorkspaceResult> {
+    const degradedResult: WarmWorkspaceResult = {
+      indexed: false,
+      absPath: workspacePath,
+      primaryLanguage: 'typescript',
+    };
+    if (this.isDegraded || !this.worker) {
+      return degradedResult;
+    }
+    const id = this.nextId();
+    try {
+      const result = await this.postRpc({ type: 'rebuild-index', id, workspacePath });
+      return (result as WarmWorkspaceResult | null) ?? degradedResult;
+    } catch (error) {
+      this.metrics.lastError = error instanceof Error ? error.message : String(error);
+      return degradedResult;
+    }
   }
 
   /**

@@ -46,6 +46,7 @@ describe('WORKSPACE_CHANNELS', () => {
 
   it('has codebase indexing channels', () => {
     expect(WORKSPACE_CHANNELS.CODEBASE_INDEX_STORE).toBe('codebase:index:store');
+    expect(WORKSPACE_CHANNELS.CODEBASE_LEGACY_CLEAR).toBe('codebase:legacy:clear');
     expect(WORKSPACE_CHANNELS.CODEBASE_SEARCH).toBe('codebase:search');
   });
 

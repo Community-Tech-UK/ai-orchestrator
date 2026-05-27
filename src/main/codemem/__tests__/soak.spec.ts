@@ -56,5 +56,9 @@ describe('codemem soak', () => {
 
     expect(seedEntry).toBeDefined();
     expect(seedEntry?.contentHash).toBe(sha256(finalSource));
+    expect(store.searchWorkspaceChunks(result.workspaceHash, '200', 5)[0]).toEqual(
+      expect.objectContaining({ pathFromRoot: 'src/seed.ts' }),
+    );
+    expect(store.searchWorkspaceChunks(result.workspaceHash, '199', 5)).toHaveLength(0);
   }, 30_000);
 });

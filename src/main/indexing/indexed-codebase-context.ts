@@ -1,11 +1,13 @@
 import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
 import { RLMContextManager } from '../rlm/context-manager';
-import { getRLMDatabase } from '../persistence/rlm-database';
-import { getHybridSearchService } from './hybrid-search';
+import { getCodeRetrievalService } from '../codemem';
 import { defaultStoreIdResolver } from './codebase-indexing-auto-defaults';
 import type { ContextStore } from '../../shared/types/rlm.types';
-import type { HybridSearchOptions, HybridSearchResult } from '../../shared/types/codebase.types';
+import type {
+  CodeRetrievalResult,
+  CodeRetrievalSearchOptions,
+} from '../codemem/code-retrieval-service';
 import type { FastPathResult } from '../instance/instance-types';
 
 const logger = getLogger('IndexedCodebaseContext');
@@ -21,7 +23,7 @@ export interface IndexedCodebaseContextResult {
   startLine: number;
   endLine: number;
   score: number;
-  matchType: HybridSearchResult['matchType'];
+  matchType: 'exact' | 'bm25' | 'vector' | 'hybrid';
   language?: string;
   symbolName?: string;
 }
@@ -43,7 +45,7 @@ export interface IndexedCodebaseContextRequest {
 }
 
 export interface IndexedCodebaseContextSearchTarget {
-  search(options: HybridSearchOptions): Promise<HybridSearchResult[]>;
+  search(options: CodeRetrievalSearchOptions): Promise<CodeRetrievalResult[]>;
 }
 
 export interface IndexedCodebaseContextManagerTarget {
@@ -81,28 +83,25 @@ export class IndexedCodebaseContextService {
       return null;
     }
 
-    const store = this.resolveStore(workspacePath);
-    if (!store) {
-      return null;
-    }
-
     const search = this.getSearchTarget();
     if (!search) {
       return null;
     }
 
+    const storeId = this.resolveStore(workspacePath)?.id ?? this.storeIdResolver(workspacePath);
     const startedAt = Date.now();
-    let rawResults: HybridSearchResult[];
+    let rawResults: CodeRetrievalResult[];
     try {
       rawResults = await search.search({
-        storeId: store.id,
+        workspacePath,
         query,
-        topK: request.topK ?? DEFAULT_TOP_K,
+        limit: request.topK ?? DEFAULT_TOP_K,
+        maxTokens: request.maxTokens ?? DEFAULT_MAX_TOKENS,
       });
     } catch (error) {
       logger.warn('Indexed codebase search failed', {
         workspacePath,
-        storeId: store.id,
+        storeId,
         error: error instanceof Error ? error.message : String(error),
       });
       return null;
@@ -121,7 +120,7 @@ export class IndexedCodebaseContextService {
     return {
       context,
       tokens: estimateTokens(context),
-      storeId: store.id,
+      storeId,
       workspacePath,
       results,
       durationMs: Date.now() - startedAt,
@@ -193,22 +192,20 @@ export class IndexedCodebaseContextService {
   }
 
   private normalizeResult(
-    result: HybridSearchResult,
+    result: CodeRetrievalResult,
     workspacePath: string,
   ): IndexedCodebaseContextResult {
-    const filePath = this.normalizePath(result.filePath) ?? result.filePath;
-    const relativePath = path.relative(workspacePath, filePath).split(path.sep).join('/');
     return {
-      sectionId: result.sectionId,
-      filePath,
-      relativePath: relativePath && !relativePath.startsWith('..') ? relativePath : filePath,
+      sectionId: `${result.relativePath}:${result.startLine}:${result.endLine}`,
+      filePath: result.absolutePath,
+      relativePath: result.relativePath,
       content: result.content,
       startLine: result.startLine,
       endLine: result.endLine,
       score: result.score,
-      matchType: result.matchType,
+      matchType: result.source === 'symbol' ? 'hybrid' : 'bm25',
       language: result.language,
-      symbolName: result.symbolName,
+      symbolName: result.symbolName ?? undefined,
     };
   }
 
@@ -260,9 +257,9 @@ export class IndexedCodebaseContextService {
       return this.searchTarget;
     }
     try {
-      return getHybridSearchService(getRLMDatabase().getRawDb());
+      return getCodeRetrievalService();
     } catch (error) {
-      logger.debug('Hybrid search unavailable for indexed codebase context', {
+      logger.debug('Codemem retrieval unavailable for indexed codebase context', {
         error: error instanceof Error ? error.message : String(error),
       });
       return null;

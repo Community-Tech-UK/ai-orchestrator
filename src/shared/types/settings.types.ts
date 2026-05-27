@@ -275,7 +275,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   broadRootFileThreshold: 100,
 
   // Codebase auto-index defaults
-  codebaseAutoIndexEnabled: true,
+  codebaseAutoIndexEnabled: false,
   codebaseAutoIndexMaxFiles: 3_000,
   codebaseAutoIndexMaxBytes: 150 * 1024 * 1024,
   codebaseAutoIndexConcurrent: 1,

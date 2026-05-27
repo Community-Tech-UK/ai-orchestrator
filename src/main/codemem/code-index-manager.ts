@@ -3,12 +3,12 @@ import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import ignore, { type Ignore } from 'ignore';
-import { watch, type FSWatcher } from 'chokidar';
 import { getTreeSitterChunker, type TreeSitterChunker } from '../indexing/tree-sitter-chunker';
 import { getMetadataExtractor } from '../indexing/metadata-extractor';
 import { getLogger } from '../logging/logger';
 import { normalizeAndHash } from './ast-normalize';
-import type { CasStore } from './cas-store';
+import type { CasStore, CodeIndexStatusRecord, WorkspaceChunkRecord } from './cas-store';
+import { CodeIndexWatcher, DEFAULT_CODE_INDEX_IGNORES } from './code-index-watcher';
 import { symbolId, workspaceHashForPath } from './symbol-id';
 import type {
   Chunk,
@@ -21,13 +21,18 @@ import type {
 
 const logger = getLogger('CodeIndexManager');
 
-const DEFAULT_IGNORES = ['.git/', '.gitignore', 'node_modules/', 'dist/', 'build/', '.next/', 'coverage/'];
 const EMPTY_ROOT_HASH = sha256('');
+const DEFAULT_MAX_NATIVE_WATCH_FILES = 1_500;
+const DEFAULT_MAX_WATCHED_WORKSPACES = 3;
+const DEFAULT_POLLING_INTERVAL_MS = 30_000;
 
 export interface CodeIndexManagerOptions {
   store: CasStore;
   debounceMs?: number;
   chunker?: TreeSitterChunker;
+  maxNativeWatchFiles?: number;
+  maxWatchedWorkspaces?: number;
+  pollingIntervalMs?: number;
 }
 
 export interface ColdIndexResult {
@@ -37,64 +42,161 @@ export interface ColdIndexResult {
   merkleRootHash: MerkleNodeHash;
 }
 
-interface PendingWorkspaceChange {
-  paths: Set<string>;
-  timer: NodeJS.Timeout;
-}
-
-interface WorkspaceWatcherHandle {
-  close(): Promise<void>;
-}
-
 export class CodeIndexManager extends EventEmitter {
-  private readonly debounceMs: number;
   private readonly chunker: TreeSitterChunker;
   private readonly metadataExtractor = getMetadataExtractor();
+  private readonly watcher: CodeIndexWatcher;
   private readonly workspacePaths = new Map<WorkspaceHash, string>();
-  private readonly watchers = new Map<WorkspaceHash, WorkspaceWatcherHandle>();
-  private readonly pending = new Map<WorkspaceHash, PendingWorkspaceChange>();
 
   constructor(protected readonly opts: CodeIndexManagerOptions) {
     super();
-    this.debounceMs = opts.debounceMs ?? 75;
     this.chunker = opts.chunker ?? getTreeSitterChunker();
+    this.watcher = new CodeIndexWatcher({
+      debounceMs: opts.debounceMs ?? 75,
+      maxNativeWatchFiles: Math.max(0, opts.maxNativeWatchFiles ?? DEFAULT_MAX_NATIVE_WATCH_FILES),
+      maxWatchedWorkspaces: Math.max(1, opts.maxWatchedWorkspaces ?? DEFAULT_MAX_WATCHED_WORKSPACES),
+      pollingIntervalMs: Math.max(1_000, opts.pollingIntervalMs ?? DEFAULT_POLLING_INTERVAL_MS),
+      loadIgnoreRules: (workspacePath) => this.loadIgnoreRules(workspacePath),
+      walkFiles: (rootPath, dirPath, ig) => this.walkFiles(rootPath, dirPath, ig),
+      toRelativePath: (workspacePath, absolutePath) => this.toRelativePath(workspacePath, absolutePath),
+      applyFileChange: (workspaceHash, absoluteFilePath) =>
+        this.applyFileChange(workspaceHash, absoluteFilePath),
+      emitChanged: (event) => this.emit('code-index:changed', event),
+    });
   }
 
   async coldIndex(workspacePath: string): Promise<ColdIndexResult> {
     const absoluteWorkspacePath = path.resolve(workspacePath);
     const workspaceHash = workspaceHashForPath(absoluteWorkspacePath);
     this.workspacePaths.set(workspaceHash, absoluteWorkspacePath);
-
-    const ig = await this.loadIgnoreRules(absoluteWorkspacePath);
-    const files = await this.walkFiles(absoluteWorkspacePath, absoluteWorkspacePath, ig);
-
-    for (const entry of this.opts.store.listManifestEntries(workspaceHash)) {
-      this.opts.store.deleteManifestEntry(workspaceHash, entry.pathFromRoot);
-      this.opts.store.deleteWorkspaceSymbolsForFile(workspaceHash, entry.pathFromRoot);
-    }
-
-    let chunkCount = 0;
-    for (const absoluteFilePath of files) {
-      chunkCount += await this.indexFile(absoluteWorkspacePath, workspaceHash, absoluteFilePath);
-    }
-
-    const merkleRootHash = this.recomputeRootHash(workspaceHash);
-    this.opts.store.upsertWorkspaceRoot({
+    const startedAt = Date.now();
+    this.opts.store.clearCancel(workspaceHash);
+    this.writeIndexStatus({
       workspaceHash,
       absPath: absoluteWorkspacePath,
-      headCommit: null,
-      primaryLanguage: this.detectPrimaryLanguage(files),
-      lastIndexedAt: Date.now(),
-      merkleRootHash,
-      pagerankJson: null,
+      state: 'running',
+      phase: 'scanning',
+      totalFiles: 0,
+      processedFiles: 0,
+      totalChunks: 0,
+      processedChunks: 0,
+      currentPath: null,
+      startedAt,
+      updatedAt: startedAt,
+      completedAt: null,
+      errorMessage: null,
+      cancelRequested: false,
     });
 
-    return {
-      workspaceHash,
-      fileCount: files.length,
-      chunkCount,
-      merkleRootHash,
-    };
+    try {
+      const ig = await this.loadIgnoreRules(absoluteWorkspacePath);
+      const files = await this.walkFiles(absoluteWorkspacePath, absoluteWorkspacePath, ig);
+
+      for (const entry of this.opts.store.listManifestEntries(workspaceHash)) {
+        this.opts.store.deleteManifestEntry(workspaceHash, entry.pathFromRoot);
+        this.opts.store.deleteWorkspaceSymbolsForFile(workspaceHash, entry.pathFromRoot);
+        this.opts.store.deleteWorkspaceChunksForFile(workspaceHash, entry.pathFromRoot);
+      }
+
+      let chunkCount = 0;
+      let processedFiles = 0;
+      this.writeIndexStatus({
+        ...this.currentIndexStatus(workspaceHash, absoluteWorkspacePath, startedAt),
+        phase: 'chunking',
+        totalFiles: files.length,
+        processedFiles,
+      });
+      for (const absoluteFilePath of files) {
+        if (this.opts.store.isCancelRequested(workspaceHash)) {
+          const merkleRootHash = this.recomputeRootHash(workspaceHash);
+          const completedAt = Date.now();
+          this.writeIndexStatus({
+            ...this.currentIndexStatus(workspaceHash, absoluteWorkspacePath, startedAt),
+            state: 'cancelled',
+            phase: 'none',
+            totalFiles: files.length,
+            processedFiles,
+            totalChunks: chunkCount,
+            processedChunks: chunkCount,
+            currentPath: null,
+            updatedAt: completedAt,
+            completedAt,
+            cancelRequested: true,
+          });
+          return {
+            workspaceHash,
+            fileCount: processedFiles,
+            chunkCount,
+            merkleRootHash,
+          };
+        }
+
+        this.writeIndexStatus({
+          ...this.currentIndexStatus(workspaceHash, absoluteWorkspacePath, startedAt),
+          totalFiles: files.length,
+          processedFiles,
+          totalChunks: chunkCount,
+          processedChunks: chunkCount,
+          currentPath: this.toRelativePath(absoluteWorkspacePath, absoluteFilePath),
+          updatedAt: Date.now(),
+        });
+        chunkCount += await this.indexFile(absoluteWorkspacePath, workspaceHash, absoluteFilePath);
+        processedFiles += 1;
+        this.writeIndexStatus({
+          ...this.currentIndexStatus(workspaceHash, absoluteWorkspacePath, startedAt),
+          totalFiles: files.length,
+          processedFiles,
+          totalChunks: chunkCount,
+          processedChunks: chunkCount,
+          currentPath: this.toRelativePath(absoluteWorkspacePath, absoluteFilePath),
+          updatedAt: Date.now(),
+        });
+      }
+
+      const merkleRootHash = this.recomputeRootHash(workspaceHash);
+      const completedAt = Date.now();
+      this.opts.store.upsertWorkspaceRoot({
+        workspaceHash,
+        absPath: absoluteWorkspacePath,
+        headCommit: null,
+        primaryLanguage: this.detectPrimaryLanguage(files),
+        lastIndexedAt: completedAt,
+        merkleRootHash,
+        pagerankJson: null,
+      });
+      this.writeIndexStatus({
+        ...this.currentIndexStatus(workspaceHash, absoluteWorkspacePath, startedAt),
+        state: 'complete',
+        phase: 'watching',
+        totalFiles: files.length,
+        processedFiles: files.length,
+        totalChunks: chunkCount,
+        processedChunks: chunkCount,
+        currentPath: null,
+        updatedAt: completedAt,
+        completedAt,
+        cancelRequested: false,
+      });
+
+      return {
+        workspaceHash,
+        fileCount: files.length,
+        chunkCount,
+        merkleRootHash,
+      };
+    } catch (error) {
+      const completedAt = Date.now();
+      this.writeIndexStatus({
+        ...this.currentIndexStatus(workspaceHash, absoluteWorkspacePath, startedAt),
+        state: 'failed',
+        phase: 'none',
+        currentPath: null,
+        updatedAt: completedAt,
+        completedAt,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
 
   async start(
@@ -103,37 +205,11 @@ export class CodeIndexManager extends EventEmitter {
   ): Promise<void> {
     const absoluteWorkspacePath = path.resolve(workspacePath);
     this.workspacePaths.set(workspaceHash, absoluteWorkspacePath);
-
-    await this.stop(workspaceHash);
-
-    try {
-      const watcher = await this.createChokidarWatcher(absoluteWorkspacePath, workspaceHash);
-      this.watchers.set(workspaceHash, watcher);
-    } catch (error) {
-      if (!this.isRecoverableWatchError(error)) {
-        throw error;
-      }
-
-      logger.warn('Falling back to polling code index watcher after native watcher failure', {
-        workspaceHash,
-        workspacePath: absoluteWorkspacePath,
-        error: error instanceof Error ? error.message : String(error),
-      });
-
-      const watcher = await this.createPollingWatcher(absoluteWorkspacePath, workspaceHash);
-      this.watchers.set(workspaceHash, watcher);
-    }
+    await this.watcher.start(absoluteWorkspacePath, workspaceHash);
   }
 
   async stop(workspaceHash?: WorkspaceHash): Promise<void> {
-    if (workspaceHash) {
-      await this.stopWorkspace(workspaceHash);
-      return;
-    }
-
-    for (const hash of [...this.watchers.keys()]) {
-      await this.stopWorkspace(hash);
-    }
+    await this.watcher.stop(workspaceHash);
   }
 
   async onFileChange(absoluteFilePath: string, workspaceHash: WorkspaceHash): Promise<void> {
@@ -284,7 +360,7 @@ export class CodeIndexManager extends EventEmitter {
   }
 
   private async loadIgnoreRules(workspacePath: string): Promise<Ignore> {
-    const ig = ignore().add(DEFAULT_IGNORES);
+    const ig = ignore().add(['.gitignore', ...DEFAULT_CODE_INDEX_IGNORES]);
     try {
       const gitignore = await fs.readFile(path.join(workspacePath, '.gitignore'), 'utf8');
       ig.add(gitignore);
@@ -292,6 +368,34 @@ export class CodeIndexManager extends EventEmitter {
       // Missing .gitignore is expected for some workspaces.
     }
     return ig;
+  }
+
+  private currentIndexStatus(
+    workspaceHash: WorkspaceHash,
+    absPath: string,
+    startedAt: number,
+  ): CodeIndexStatusRecord {
+    return this.opts.store.getIndexStatus(workspaceHash) ?? {
+      workspaceHash,
+      absPath,
+      state: 'running',
+      phase: 'none',
+      totalFiles: 0,
+      processedFiles: 0,
+      totalChunks: 0,
+      processedChunks: 0,
+      currentPath: null,
+      startedAt,
+      updatedAt: Date.now(),
+      completedAt: null,
+      errorMessage: null,
+      cancelRequested: false,
+    };
+  }
+
+  private writeIndexStatus(status: CodeIndexStatusRecord): void {
+    this.opts.store.upsertIndexStatus(status);
+    this.emit('index:progress', { ...status });
   }
 
   private async indexFile(
@@ -304,11 +408,26 @@ export class CodeIndexManager extends EventEmitter {
     const chunks = this.chunker.chunk(sourceText, language, absoluteFilePath);
     const metadata = await this.metadataExtractor.extractFileMetadata(absoluteFilePath, sourceText);
     const leafTokens: string[] = [];
+    const workspaceChunks: WorkspaceChunkRecord[] = [];
+    const pathFromRoot = this.toRelativePath(workspacePath, absoluteFilePath);
+    const updatedAt = Date.now();
 
-    for (const chunk of chunks) {
+    for (const [chunkIndex, chunk] of chunks.entries()) {
       const storedChunk = this.createStoredChunk(chunk, language);
       this.opts.store.upsertChunk(storedChunk);
       leafTokens.push(`${storedChunk.astNormalizedHash}|${storedChunk.chunkType}|${storedChunk.name}`);
+      workspaceChunks.push({
+        workspaceHash,
+        pathFromRoot,
+        chunkIndex,
+        contentHash: storedChunk.contentHash,
+        startLine: chunk.startLine,
+        endLine: chunk.endLine,
+        language,
+        chunkType: storedChunk.chunkType,
+        name: storedChunk.name,
+        updatedAt,
+      });
     }
 
     leafTokens.sort();
@@ -321,7 +440,6 @@ export class CodeIndexManager extends EventEmitter {
     });
 
     const stat = await fs.stat(absoluteFilePath);
-    const pathFromRoot = this.toRelativePath(workspacePath, absoluteFilePath);
     this.opts.store.upsertManifestEntry({
       workspaceHash,
       pathFromRoot,
@@ -340,6 +458,7 @@ export class CodeIndexManager extends EventEmitter {
         chunks,
       ),
     );
+    this.opts.store.replaceWorkspaceChunksForFile(workspaceHash, pathFromRoot, workspaceChunks);
 
     return chunks.length;
   }
@@ -499,6 +618,7 @@ export class CodeIndexManager extends EventEmitter {
     } catch (error) {
       this.opts.store.deleteManifestEntry(workspaceHash, relativePath);
       this.opts.store.deleteWorkspaceSymbolsForFile(workspaceHash, relativePath);
+      this.opts.store.deleteWorkspaceChunksForFile(workspaceHash, relativePath);
       logger.debug('Removed missing file from manifest during incremental update', {
         workspaceHash,
         relativePath,
@@ -523,218 +643,6 @@ export class CodeIndexManager extends EventEmitter {
 
     this.workspacePaths.set(workspaceHash, workspaceRoot.absPath);
     return workspaceRoot.absPath;
-  }
-
-  private queueWorkspacePath(workspaceHash: WorkspaceHash, absoluteFilePath: string): void {
-    const pending = this.pending.get(workspaceHash);
-    if (pending) {
-      pending.paths.add(absoluteFilePath);
-      clearTimeout(pending.timer);
-      pending.timer = setTimeout(() => {
-        void this.flushWorkspaceChanges(workspaceHash);
-      }, this.debounceMs);
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      void this.flushWorkspaceChanges(workspaceHash);
-    }, this.debounceMs);
-
-    this.pending.set(workspaceHash, {
-      paths: new Set([absoluteFilePath]),
-      timer,
-    });
-  }
-
-  private async flushWorkspaceChanges(workspaceHash: WorkspaceHash): Promise<void> {
-    const pending = this.pending.get(workspaceHash);
-    if (!pending) {
-      return;
-    }
-
-    this.pending.delete(workspaceHash);
-    clearTimeout(pending.timer);
-
-    const changedPaths: string[] = [];
-    for (const absoluteFilePath of [...pending.paths].sort()) {
-      const changedPath = await this.applyFileChange(workspaceHash, absoluteFilePath);
-      if (changedPath) {
-        changedPaths.push(changedPath);
-      }
-    }
-
-    if (changedPaths.length > 0) {
-      this.emit('code-index:changed', { workspaceHash, paths: changedPaths });
-    }
-  }
-
-  private isDefaultIgnored(workspacePath: string, candidatePath: string): boolean {
-    const relativePath = this.toRelativePath(workspacePath, candidatePath);
-    return DEFAULT_IGNORES.some((pattern) => {
-      const normalizedPattern = pattern.endsWith('/') ? pattern.slice(0, -1) : pattern;
-      return relativePath === normalizedPattern || relativePath.startsWith(`${normalizedPattern}/`);
-    });
-  }
-
-  private async createChokidarWatcher(
-    absoluteWorkspacePath: string,
-    workspaceHash: WorkspaceHash,
-  ): Promise<WorkspaceWatcherHandle> {
-    return await new Promise<WorkspaceWatcherHandle>((resolve, reject) => {
-      const watcher = watch(absoluteWorkspacePath, {
-        ignoreInitial: true,
-        persistent: true,
-        awaitWriteFinish: {
-          stabilityThreshold: Math.max(this.debounceMs, 30),
-          pollInterval: 25,
-        },
-        ignored: (candidatePath) => this.isDefaultIgnored(absoluteWorkspacePath, candidatePath),
-      });
-
-      const queuePath = (changedPath: string): void => {
-        this.queueWorkspacePath(workspaceHash, changedPath);
-      };
-      const runtimeErrorHandler = (error: unknown): void => {
-        logger.warn('Code index watcher reported a runtime error', {
-          workspaceHash,
-          workspacePath: absoluteWorkspacePath,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      };
-      const cleanupStartupListeners = (): void => {
-        watcher.off('ready', handleReady);
-        watcher.off('error', handleStartupError);
-      };
-      const handleReady = (): void => {
-        cleanupStartupListeners();
-        watcher.on('error', runtimeErrorHandler);
-        resolve({
-          close: async () => {
-            watcher.off('error', runtimeErrorHandler);
-            await watcher.close();
-          },
-        });
-      };
-      const handleStartupError = (error: unknown): void => {
-        cleanupStartupListeners();
-        void watcher.close().catch(() => undefined);
-        reject(error instanceof Error ? error : new Error(String(error)));
-      };
-
-      watcher.on('add', queuePath);
-      watcher.on('change', queuePath);
-      watcher.on('unlink', queuePath);
-      watcher.on('ready', handleReady);
-      watcher.on('error', handleStartupError);
-    });
-  }
-
-  private async createPollingWatcher(
-    absoluteWorkspacePath: string,
-    workspaceHash: WorkspaceHash,
-  ): Promise<WorkspaceWatcherHandle> {
-    let closed = false;
-    let scanning = false;
-    let snapshot = await this.captureWorkspaceSnapshot(absoluteWorkspacePath);
-    const intervalMs = Math.max(this.debounceMs, 50);
-
-    const timer = setInterval(() => {
-      if (closed || scanning) {
-        return;
-      }
-
-      scanning = true;
-      void this.scanWorkspaceSnapshot(absoluteWorkspacePath, workspaceHash, snapshot)
-        .then((nextSnapshot) => {
-          snapshot = nextSnapshot;
-        })
-        .catch((error) => {
-          logger.warn('Polling code index watcher scan failed', {
-            workspaceHash,
-            workspacePath: absoluteWorkspacePath,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        })
-        .finally(() => {
-          scanning = false;
-        });
-    }, intervalMs);
-
-    if (timer.unref) {
-      timer.unref();
-    }
-
-    return {
-      close: async () => {
-        closed = true;
-        clearInterval(timer);
-      },
-    };
-  }
-
-  private async captureWorkspaceSnapshot(workspacePath: string): Promise<Map<string, string>> {
-    const ig = await this.loadIgnoreRules(workspacePath);
-    const files = await this.walkFiles(workspacePath, workspacePath, ig);
-    const snapshot = new Map<string, string>();
-
-    for (const absoluteFilePath of files) {
-      try {
-        const stat = await fs.stat(absoluteFilePath);
-        snapshot.set(absoluteFilePath, `${Math.floor(stat.mtimeMs)}:${stat.size}`);
-      } catch {
-        // Ignore files that disappear while the snapshot is being collected.
-      }
-    }
-
-    return snapshot;
-  }
-
-  private async scanWorkspaceSnapshot(
-    workspacePath: string,
-    workspaceHash: WorkspaceHash,
-    previousSnapshot: Map<string, string>,
-  ): Promise<Map<string, string>> {
-    const nextSnapshot = await this.captureWorkspaceSnapshot(workspacePath);
-    const changedPaths = new Set<string>();
-
-    for (const [absoluteFilePath, signature] of nextSnapshot) {
-      if (previousSnapshot.get(absoluteFilePath) !== signature) {
-        changedPaths.add(absoluteFilePath);
-      }
-    }
-
-    for (const absoluteFilePath of previousSnapshot.keys()) {
-      if (!nextSnapshot.has(absoluteFilePath)) {
-        changedPaths.add(absoluteFilePath);
-      }
-    }
-
-    for (const absoluteFilePath of [...changedPaths].sort()) {
-      this.queueWorkspacePath(workspaceHash, absoluteFilePath);
-    }
-
-    return nextSnapshot;
-  }
-
-  private isRecoverableWatchError(error: unknown): boolean {
-    const code = typeof error === 'object' && error !== null && 'code' in error
-      ? String((error as { code?: unknown }).code ?? '')
-      : '';
-    return code === 'EMFILE' || code === 'ENOSPC' || code === 'EPERM';
-  }
-
-  private async stopWorkspace(workspaceHash: WorkspaceHash): Promise<void> {
-    const watcher = this.watchers.get(workspaceHash);
-    if (watcher) {
-      await watcher.close();
-      this.watchers.delete(workspaceHash);
-    }
-
-    const pending = this.pending.get(workspaceHash);
-    if (pending) {
-      clearTimeout(pending.timer);
-      this.pending.delete(workspaceHash);
-    }
   }
 
   private toRelativePath(workspacePath: string, absolutePath: string): string {

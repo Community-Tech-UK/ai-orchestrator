@@ -431,14 +431,31 @@ export function createInfrastructureDomain(
         filePath
       });
     },
-    codebaseIndexCancel: (): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.CODEBASE_INDEX_CANCEL);
+    codebaseIndexCancel: (
+      workspacePath?: string,
+      target?: 'codemem' | 'legacy',
+    ): Promise<IpcResponse> => {
+      const trimmedPath = workspacePath?.trim();
+      return ipcRenderer.invoke(
+        ch.CODEBASE_INDEX_CANCEL,
+        trimmedPath || target ? { workspacePath: trimmedPath || undefined, target } : undefined,
+      );
     },
-    codebaseIndexStatus: (): Promise<IpcResponse> => {
-      return ipcRenderer.invoke(ch.CODEBASE_INDEX_STATUS);
+    codebaseIndexStatus: (
+      workspacePath?: string,
+      target?: 'codemem' | 'legacy',
+    ): Promise<IpcResponse> => {
+      const trimmedPath = workspacePath?.trim();
+      return ipcRenderer.invoke(
+        ch.CODEBASE_INDEX_STATUS,
+        trimmedPath || target ? { workspacePath: trimmedPath || undefined, target } : undefined,
+      );
     },
     codebaseIndexStats: (storeId: string): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.CODEBASE_INDEX_STATS, { storeId });
+    },
+    codebaseLegacyClear: (storeId: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.CODEBASE_LEGACY_CLEAR, { storeId });
     },
     codebaseSearch: (options: {
       query: string;
@@ -450,16 +467,19 @@ export function createInfrastructureDomain(
       minScore?: number;
       rerank?: boolean;
       filePatterns?: string[];
+      workspacePath?: string;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.CODEBASE_SEARCH, { options });
     },
     codebaseSearchSymbols: (
       storeId: string,
-      query: string
+      query: string,
+      workspacePath?: string,
     ): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.CODEBASE_SEARCH_SYMBOLS, {
         storeId,
-        query
+        query,
+        workspacePath: workspacePath?.trim() || undefined,
       });
     },
     codebaseWatcherStart: (storeId: string, rootPath: string): Promise<IpcResponse> => {

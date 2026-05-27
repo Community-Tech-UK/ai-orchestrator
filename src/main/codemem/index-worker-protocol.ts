@@ -14,6 +14,24 @@ export interface WarmWorkspaceMsg {
   workspacePath: string;
 }
 
+export interface GetIndexStatusMsg {
+  type: 'get-index-status';
+  id: number;
+  workspacePath: string;
+}
+
+export interface CancelIndexMsg {
+  type: 'cancel-index';
+  id: number;
+  workspacePath: string;
+}
+
+export interface RebuildIndexMsg {
+  type: 'rebuild-index';
+  id: number;
+  workspacePath: string;
+}
+
 export interface GetStatsMsg {
   type: 'get-stats';
   id: number;
@@ -31,7 +49,13 @@ export interface StopWorkspaceWatcherMsg {
   workspacePath: string;
 }
 
-export type IndexWorkerRpcMsg = WarmWorkspaceMsg | GetStatsMsg | ShutdownMsg;
+export type IndexWorkerRpcMsg =
+  | WarmWorkspaceMsg
+  | GetIndexStatusMsg
+  | CancelIndexMsg
+  | RebuildIndexMsg
+  | GetStatsMsg
+  | ShutdownMsg;
 export type IndexWorkerFireForgetMsg = StopWorkspaceWatcherMsg;
 export type IndexWorkerInboundMsg = IndexWorkerRpcMsg | IndexWorkerFireForgetMsg;
 
@@ -68,4 +92,21 @@ export interface WarmWorkspaceResult {
   absPath: string;
   /** Primary language detected by the indexer (defaults to 'typescript'). */
   primaryLanguage: string;
+}
+
+export interface CodeIndexStatusSnapshot {
+  workspacePath: string;
+  workspaceHash: string;
+  state: 'idle' | 'queued' | 'running' | 'complete' | 'failed' | 'cancelled';
+  phase: 'none' | 'scanning' | 'chunking' | 'fts' | 'watching';
+  totalFiles: number;
+  processedFiles: number;
+  totalChunks: number;
+  processedChunks: number;
+  currentPath: string | null;
+  startedAt: number | null;
+  updatedAt: number;
+  completedAt: number | null;
+  etaMs: number | null;
+  errorMessage: string | null;
 }

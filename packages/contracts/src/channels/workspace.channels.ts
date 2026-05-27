@@ -129,6 +129,7 @@ export const WORKSPACE_CHANNELS = {
   CODEBASE_INDEX_CANCEL: 'codebase:index:cancel',
   CODEBASE_INDEX_STATUS: 'codebase:index:status',
   CODEBASE_INDEX_STATS: 'codebase:index:stats',
+  CODEBASE_LEGACY_CLEAR: 'codebase:legacy:clear',
   CODEBASE_INDEX_PROGRESS: 'codebase:index:progress',
   CODEBASE_SEARCH: 'codebase:search',
   CODEBASE_SEARCH_SYMBOLS: 'codebase:search:symbols',

@@ -241,4 +241,17 @@ describe('workspace-tools.schemas', () => {
       expect(() => VcsOperationCancelPayloadSchema.parse({ opId: '' })).toThrow();
     });
   });
+
+  describe('CodebaseSearchPayloadSchema', () => {
+    it('accepts codemem workspacePath searches without a legacy storeId', () => {
+      const parsed = CodebaseSearchPayloadSchema.parse({
+        options: {
+          workspacePath: '/repo',
+          query: 'issue session token',
+          topK: 5,
+        },
+      });
+      expect(parsed.options.workspacePath).toBe('/repo');
+    });
+  });
 });

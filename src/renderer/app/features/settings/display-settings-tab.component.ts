@@ -127,29 +127,37 @@ import type {
 
     <section class="output-section">
       <h3 class="subsection-title">Transcript &amp; workspace history</h3>
-      @for (setting of outputSettings(); track setting.key) {
-        <app-setting-row
-          [setting]="setting"
-          [value]="store.get(setting.key)"
-          (valueChange)="onSettingChange($event)"
-        />
-      }
+      <div class="settings-list-card">
+        @for (setting of outputSettings(); track setting.key) {
+          <app-setting-row
+            class="settings-list-item"
+            [setting]="setting"
+            [value]="store.get(setting.key)"
+            (valueChange)="onSettingChange($event)"
+          />
+        }
+      </div>
     </section>
 
-    <div class="setting-row reset-layout-row">
-      <div class="setting-info">
-        <h3 class="setting-label">Reset workspace layout</h3>
-        <p class="setting-description">
-          Restore sidebar and file explorer panel widths to their default
-          positions. Other settings are unchanged.
-        </p>
+    <section class="layout-section">
+      <h3 class="subsection-title">Layout tools</h3>
+      <div class="settings-list-card">
+        <div class="setting-row reset-layout-row">
+          <div class="setting-info">
+            <h3 class="setting-label">Reset workspace layout</h3>
+            <p class="setting-description">
+              Restore sidebar and file explorer panel widths to their default
+              positions. Other settings are unchanged.
+            </p>
+          </div>
+          <div class="setting-control">
+            <button type="button" class="btn-reset-layout" (click)="resetViewLayout()">
+              Reset layout
+            </button>
+          </div>
+        </div>
       </div>
-      <div class="setting-control">
-        <button type="button" class="btn-reset-layout" (click)="resetViewLayout()">
-          Reset layout
-        </button>
-      </div>
-    </div>
+    </section>
   `,
   styleUrl: './display-settings-tab.component.scss',
 })

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ContextStore } from '../../shared/types/rlm.types';
-import type { HybridSearchResult } from '../../shared/types/codebase.types';
+import type { CodeRetrievalResult } from '../codemem/code-retrieval-service';
 import { IndexedCodebaseContextService } from './indexed-codebase-context';
 
 function makeStore(overrides: Partial<ContextStore> = {}): ContextStore {
@@ -21,16 +21,19 @@ function makeStore(overrides: Partial<ContextStore> = {}): ContextStore {
   };
 }
 
-function makeResult(overrides: Partial<HybridSearchResult> = {}): HybridSearchResult {
+function makeResult(overrides: Partial<CodeRetrievalResult> = {}): CodeRetrievalResult {
   return {
-    sectionId: 'sec-1',
-    filePath: '/repo/src/auth/middleware.ts',
+    workspacePath: '/repo',
+    relativePath: 'src/auth.ts',
+    absolutePath: '/repo/src/auth.ts',
     content: 'export function requireAuth() {\n  return true;\n}',
     startLine: 10,
     endLine: 12,
     score: 0.42,
-    matchType: 'hybrid',
+    source: 'fts',
     language: 'typescript',
+    symbolName: 'requireAuth',
+    stale: false,
     ...overrides,
   };
 }
@@ -58,23 +61,24 @@ describe('IndexedCodebaseContextService', () => {
     });
 
     expect(search.search).toHaveBeenCalledWith(expect.objectContaining({
-      storeId: 'ctx-codebase',
+      workspacePath: '/repo',
       query: 'where is auth middleware handled?',
-      topK: 3,
+      limit: 3,
     }));
     expect(context?.storeId).toBe('ctx-codebase');
-    expect(context?.results[0]?.relativePath).toBe('src/auth/middleware.ts');
+    expect(context?.results[0]?.relativePath).toBe('src/auth.ts');
 
     const block = service.formatContextBlock(context);
     expect(block).toContain('[Indexed Codebase Context]');
-    expect(block).toContain('src/auth/middleware.ts:10-12');
+    expect(block).toContain('Source: AI Orchestrator indexed codebase search');
+    expect(block).toContain('src/auth.ts:10-12');
     expect(block).toContain('requireAuth');
     expect(block).toContain('[End Indexed Codebase Context]');
   });
 
   it('falls back to persisted store metadata when the instance-id lookup misses', async () => {
     const search = {
-      search: vi.fn().mockResolvedValue([makeResult({ sectionId: 'sec-2' })]),
+      search: vi.fn().mockResolvedValue([makeResult()]),
     };
     const contextManager = {
       getStoreByInstance: vi.fn().mockReturnValue(undefined),
@@ -93,13 +97,13 @@ describe('IndexedCodebaseContextService', () => {
 
     expect(context?.storeId).toBe('ctx-from-config');
     expect(search.search).toHaveBeenCalledWith(expect.objectContaining({
-      storeId: 'ctx-from-config',
+      workspacePath: '/repo',
     }));
   });
 
-  it('returns null without searching when no indexed store exists', async () => {
+  it('returns null when codemem retrieval returns no indexed results', async () => {
     const search = {
-      search: vi.fn(),
+      search: vi.fn().mockResolvedValue([]),
     };
     const service = new IndexedCodebaseContextService({
       contextManager: {
@@ -114,6 +118,6 @@ describe('IndexedCodebaseContextService', () => {
       workspacePath: '/repo',
       query: 'find auth middleware',
     })).resolves.toBeNull();
-    expect(search.search).not.toHaveBeenCalled();
+    expect(search.search).toHaveBeenCalled();
   });
 });

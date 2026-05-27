@@ -186,6 +186,7 @@ export interface IndexingProgress {
   processedFiles: number;
   totalChunks: number;
   embeddedChunks: number;
+  rootPath?: string;
   currentFile?: string;
   startedAt?: number;
   completedAt?: number;
@@ -254,6 +255,7 @@ export interface BM25SearchResult {
 export interface HybridSearchOptions {
   query: string;
   storeId: string;
+  workspacePath?: string;
   topK?: number;
   useHyDE?: boolean;
   bm25Weight?: number;

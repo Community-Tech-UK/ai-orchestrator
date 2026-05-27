@@ -13,13 +13,16 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
   imports: [SettingRowComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @for (setting of store.memorySettings(); track setting.key) {
-      <app-setting-row
-        [setting]="setting"
-        [value]="store.get(setting.key)"
-        (valueChange)="onSettingChange($event)"
-      />
-    }
+    <section class="settings-list-card" aria-label="Memory settings">
+      @for (setting of store.memorySettings(); track setting.key) {
+        <app-setting-row
+          class="settings-list-item"
+          [setting]="setting"
+          [value]="store.get(setting.key)"
+          (valueChange)="onSettingChange($event)"
+        />
+      }
+    </section>
   `,
   styleUrl: './memory-settings-tab.component.scss'
 })

@@ -1,3 +1,7 @@
+@use './settings-row-list' as list;
+
+@include list.settings-row-list;
+
 :host {
   display: flex;
   flex-direction: column;
@@ -9,7 +13,17 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--spacing-lg);
-  padding: var(--spacing-sm) 0;
+  min-height: 64px;
+  padding: var(--spacing-md) 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 74%, transparent);
+}
+
+.field:first-child {
+  padding-top: 0;
+}
+
+.field:nth-of-type(4) {
+  border-bottom: 0;
 }
 
 .field-text {
@@ -31,7 +45,7 @@
 }
 
 .field-control {
-  width: 268px;
+  width: 276px;
   flex-shrink: 0;
 }
 
@@ -90,10 +104,11 @@ input[type='range']::-webkit-slider-thumb {
   border-radius: var(--radius-md);
 }
 
-.output-section {
+.output-section,
+.layout-section {
   display: flex;
   flex-direction: column;
-  gap: var(--density-row-gap);
+  gap: var(--spacing-sm);
 }
 
 .subsection-title {
@@ -108,12 +123,12 @@ input[type='range']::-webkit-slider-thumb {
 .setting-row {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--spacing-lg);
-  padding: var(--density-card-padding) var(--spacing-lg);
-  background: color-mix(in srgb, var(--surface-sunken-bg) 48%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border-color) 62%, transparent);
-  border-radius: var(--radius-md);
+  min-height: 82px;
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: transparent;
+  border: 0;
 }
 
 .setting-info {
@@ -136,15 +151,15 @@ input[type='range']::-webkit-slider-thumb {
 }
 
 .setting-control {
-  flex-shrink: 0;
-  min-width: 150px;
+  flex: 0 0 252px;
+  min-width: 190px;
   display: flex;
   justify-content: flex-end;
+  align-items: center;
 }
 
 .reset-layout-row {
-  border: 1px dashed var(--border-color);
-  background: color-mix(in srgb, var(--surface-sunken-bg) 66%, transparent);
+  border: 0;
 }
 
 .btn-reset-layout {
@@ -180,6 +195,7 @@ input[type='range']::-webkit-slider-thumb {
   .field-control,
   .setting-control {
     width: 100%;
+    flex-basis: auto;
     min-width: 0;
     justify-content: flex-start;
   }

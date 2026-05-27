@@ -19,8 +19,6 @@ import { generateChildPrompt, stripOrchestrationMarkers } from '../orchestration
 import { getCommandManager } from '../commands/command-manager';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getTaskManager } from '../orchestration/task-manager';
-import { buildChildDiagnosticBundle } from '../orchestration/child-diagnostics';
-import { getChildResultStorage } from '../orchestration/child-result-storage';
 import type { RoutingDecision } from '../routing';
 import type { SpawnChildCommand } from '../orchestration/orchestration-protocol';
 import type {
@@ -43,16 +41,17 @@ import {
 import { InstanceStateManager } from './instance-state';
 import { InstanceLifecycleManager } from './instance-lifecycle';
 import { InstanceCommunicationManager } from './instance-communication';
-import {
-  INSTANCE_SETTLED_DEBOUNCE_MS,
-  findLatestSettlingOutput,
-  isInstanceSettled,
-} from './instance-state-machine';
 import { InstanceContextManager } from './instance-context';
 import type { InstanceContextPort } from './instance-context-port';
 import { InstanceEventAggregator } from './instance-event-aggregator';
 import { InstanceOrchestrationManager } from './instance-orchestration';
 import { InstancePersistenceManager } from './instance-persistence';
+import { InstanceSettledTracker } from './instance-settled-tracker';
+import { InstanceChildCompletionHandler } from './instance-child-completion-handler';
+import type {
+  InstanceSettledEvent,
+  InstanceSettledWaitOptions,
+} from './instance-settled-tracker';
 import { WarmStartManager } from './warm-start-manager';
 import { StuckProcessDetector } from './stuck-process-detector';
 import { StaleRuntimeReconciler } from './stale-runtime-reconciler';
@@ -106,24 +105,7 @@ export interface InstanceStateChangedEvent {
   instance?: Instance;
 }
 
-export interface InstanceSettledEvent {
-  instanceId: string;
-  status: InstanceStatus;
-  timestamp: number;
-  instance: Instance;
-  outputMessageId?: string;
-  outputTimestamp?: number;
-}
-
-export interface InstanceSettledWaitOptions {
-  afterTimestamp?: number;
-  timeoutMs?: number;
-  debounceMs?: number;
-  signal?: AbortSignal;
-  isCancelled?: () => boolean;
-  onProgress?: (elapsedMs: number) => void;
-  progressIntervalMs?: number;
-}
+export type { InstanceSettledEvent, InstanceSettledWaitOptions };
 
 function summarizeLogText(value: string | undefined, maxLength = LOG_PREVIEW_LENGTH): string | undefined {
   if (!value) {
@@ -208,19 +190,17 @@ export class InstanceManager extends EventEmitter {
   private warmStart: WarmStartManager;
   private stuckDetector: StuckProcessDetector;
   private staleReconciler: StaleRuntimeReconciler;
+  private settledTracker: InstanceSettledTracker;
+  private childCompletion: InstanceChildCompletionHandler;
   private lifecycleEvents = new InstanceEventAggregator();
 
   // Tracking
   private hasReceivedFirstMessage = new Set<string>();
-  private completedChildNotifications = new Set<string>();
   private settings = getSettingsManager();
   private pendingPermissionRequestsByInputId = new Map<string, PermissionRequest>();
   private readonly providerEventBus = new ProviderRuntimeEventBus(
     (envelope) => this.emit('provider:normalized-event', envelope),
   );
-  private settledTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private settledLastEventAt = new Map<string, number>();
-  private settledLastEmittedKey = new Map<string, string>();
   private readonly handlePause = (): void => {
     this.interruptActiveTurnsForPause();
   };
@@ -257,6 +237,10 @@ export class InstanceManager extends EventEmitter {
 
     // Initialize sub-managers with dependencies
     this.state = new InstanceStateManager();
+    this.settledTracker = new InstanceSettledTracker({
+      getInstance: (id) => this.state.getInstance(id),
+      emitter: this,
+    });
     this.context = contextPort ?? new InstanceContextManager();
     this.orchestrationMgr = new InstanceOrchestrationManager({
       getInstance: (id) => this.state.getInstance(id),
@@ -265,6 +249,13 @@ export class InstanceManager extends EventEmitter {
       sendInput: (id, msg) => this.sendInput(id, msg),
       terminateInstance: (id, graceful) => this.terminateInstance(id, graceful),
       getAdapter: (id) => this.state.getAdapter(id)
+    });
+    this.childCompletion = new InstanceChildCompletionHandler({
+      getInstance: (id) => this.state.getInstance(id),
+      addToOutputBuffer: (inst, msg) => this.communication.addToOutputBuffer(inst, msg),
+      publishOutput: (instanceId, message) => this.publishOutput(instanceId, message),
+      terminateInstance: (id, graceful) => this.terminateInstance(id, graceful),
+      getOrchestrationHandler: () => this.orchestrationMgr.getOrchestrationHandler(),
     });
     this.stuckDetector = new StuckProcessDetector({
       isProcessAlive: (id) => {
@@ -513,7 +504,7 @@ export class InstanceManager extends EventEmitter {
     this.lifecycle.on('removed', (instanceId) => {
       const instance = this.state.getInstance(instanceId);
       this.providerEventBus.removeInstance(instanceId);
-      this.clearSettledTracking(instanceId);
+      this.settledTracker.clear(instanceId);
       this.emit('instance:event', this.lifecycleEvents.recordRemoved(instanceId, instance?.status));
       this.emit('instance:removed', instanceId);
     });
@@ -549,7 +540,7 @@ export class InstanceManager extends EventEmitter {
     if (payload.status === 'idle') {
       this.emit('instance:idle', event);
     }
-    this.recordSettledActivity(payload.instanceId, payload.timestamp);
+    this.settledTracker.recordActivity(payload.instanceId, payload.timestamp);
   }
 
   private mapCliPermissionActionToScope(action: string | undefined): PermissionScope {
@@ -963,75 +954,8 @@ export class InstanceManager extends EventEmitter {
   }
 
   private publishOutput(instanceId: string, message: OutputMessage): void {
-    this.recordSettledActivity(instanceId, message.timestamp);
+    this.settledTracker.recordActivity(instanceId, message.timestamp);
     this.emitProviderRuntimeEvent(instanceId, toProviderOutputEvent(message));
-  }
-
-  private recordSettledActivity(instanceId: string, timestamp = Date.now()): void {
-    this.settledLastEventAt.set(instanceId, timestamp);
-    const existing = this.settledTimers.get(instanceId);
-    if (existing) {
-      clearTimeout(existing);
-    }
-
-    const timer = setTimeout(() => {
-      this.settledTimers.delete(instanceId);
-      this.maybeEmitInstanceSettled(instanceId);
-    }, INSTANCE_SETTLED_DEBOUNCE_MS);
-    if (typeof timer.unref === 'function') {
-      timer.unref();
-    }
-    this.settledTimers.set(instanceId, timer);
-  }
-
-  private maybeEmitInstanceSettled(instanceId: string): void {
-    const instance = this.state.getInstance(instanceId);
-    if (!instance) {
-      this.clearSettledTracking(instanceId);
-      return;
-    }
-
-    const lastEventAt = this.settledLastEventAt.get(instanceId) ?? instance.lastActivity ?? instance.createdAt;
-    const now = Date.now();
-    if (!isInstanceSettled({
-      status: instance.status,
-      outputBuffer: instance.outputBuffer,
-      activeTurnId: instance.activeTurnId,
-      interruptRequestId: instance.interruptRequestId,
-      interruptPhase: instance.interruptPhase,
-      lastEventAt,
-      now,
-      debounceMs: INSTANCE_SETTLED_DEBOUNCE_MS,
-    })) {
-      return;
-    }
-
-    const output = findLatestSettlingOutput(instance.outputBuffer);
-    const emittedKey = `${instance.status}:${output?.id ?? 'none'}:${output?.timestamp ?? 0}:${instance.outputBuffer.length}`;
-    if (this.settledLastEmittedKey.get(instanceId) === emittedKey) {
-      return;
-    }
-    this.settledLastEmittedKey.set(instanceId, emittedKey);
-
-    const event: InstanceSettledEvent = {
-      instanceId,
-      status: instance.status,
-      timestamp: now,
-      instance,
-      outputMessageId: output?.id,
-      outputTimestamp: output?.timestamp,
-    };
-    this.emit('instance:settled', event);
-  }
-
-  private clearSettledTracking(instanceId: string): void {
-    const timer = this.settledTimers.get(instanceId);
-    if (timer) {
-      clearTimeout(timer);
-    }
-    this.settledTimers.delete(instanceId);
-    this.settledLastEventAt.delete(instanceId);
-    this.settledLastEmittedKey.delete(instanceId);
   }
 
   private queueInitialPromptForRenderer(payload: {
@@ -1159,117 +1083,7 @@ export class InstanceManager extends EventEmitter {
     instanceId: string,
     options: InstanceSettledWaitOptions = {},
   ): Promise<Instance | undefined> {
-    const startedAt = Date.now();
-    const timeoutMs = options.timeoutMs ?? 30 * 60 * 1000;
-    const debounceMs = options.debounceMs ?? INSTANCE_SETTLED_DEBOUNCE_MS;
-    const getSettledInstance = (): Instance | undefined => {
-      const instance = this.state.getInstance(instanceId);
-      if (!instance) {
-        return undefined;
-      }
-
-      const lastEventAt = this.settledLastEventAt.get(instanceId) ?? 0;
-      return isInstanceSettled({
-        status: instance.status,
-        outputBuffer: instance.outputBuffer,
-        activeTurnId: instance.activeTurnId,
-        interruptRequestId: instance.interruptRequestId,
-        interruptPhase: instance.interruptPhase,
-        afterTimestamp: options.afterTimestamp,
-        lastEventAt,
-        now: Date.now(),
-        debounceMs,
-      })
-        ? instance
-        : undefined;
-    };
-
-    const existing = getSettledInstance();
-    if (existing) {
-      return existing;
-    }
-
-    return new Promise<Instance | undefined>((resolve, reject) => {
-      let completed = false;
-      let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
-      let progressTimer: ReturnType<typeof setInterval> | undefined;
-
-      const cleanup = (): void => {
-        this.off('instance:settled', handleSettled);
-        this.off('instance:removed', handleRemoved);
-        if (timeoutTimer) {
-          clearTimeout(timeoutTimer);
-        }
-        if (progressTimer) {
-          clearInterval(progressTimer);
-        }
-      };
-
-      const finish = (instance: Instance | undefined): void => {
-        if (completed) {
-          return;
-        }
-        completed = true;
-        cleanup();
-        resolve(instance);
-      };
-
-      const fail = (error: Error): void => {
-        if (completed) {
-          return;
-        }
-        completed = true;
-        cleanup();
-        reject(error);
-      };
-
-      const isCancelled = (): boolean => (
-        options.signal?.aborted === true
-        || options.isCancelled?.() === true
-      );
-
-      const handleSettled = (event: InstanceSettledEvent): void => {
-        if (event.instanceId !== instanceId) {
-          return;
-        }
-        const settled = getSettledInstance();
-        if (settled) {
-          finish(settled);
-        }
-      };
-
-      const handleRemoved = (removedInstanceId: string): void => {
-        if (removedInstanceId === instanceId) {
-          finish(undefined);
-        }
-      };
-
-      if (isCancelled()) {
-        finish(this.state.getInstance(instanceId));
-        return;
-      }
-
-      this.on('instance:settled', handleSettled);
-      this.on('instance:removed', handleRemoved);
-
-      timeoutTimer = setTimeout(() => {
-        fail(new Error(`Timed out waiting for instance ${instanceId} to settle`));
-      }, timeoutMs);
-      if (typeof timeoutTimer.unref === 'function') {
-        timeoutTimer.unref();
-      }
-
-      progressTimer = setInterval(() => {
-        if (isCancelled()) {
-          finish(this.state.getInstance(instanceId));
-          return;
-        }
-        options.onProgress?.(Date.now() - startedAt);
-      }, options.progressIntervalMs ?? 1000);
-      if (typeof progressTimer.unref === 'function') {
-        progressTimer.unref();
-      }
-    });
+    return this.settledTracker.waitForSettled(instanceId, options);
   }
 
   getInstanceCount(): number {
@@ -2322,224 +2136,9 @@ export class InstanceManager extends EventEmitter {
 
   /**
    * Handle a child instance exiting - notify parent, capture results, clean up tasks.
-   * This fixes the issue where children could exit without the parent ever knowing.
-   *
-   * Flow:
-   *   1. Auto-capture result if child didn't use report_result
-   *   2. Get child summary from storage
-   *   3. Add a system notification to parent's UI output buffer
-   *   4. Call notifyChildTerminated with result data → injects to parent CLI
-   *   5. If remainingChildren === 0, gather all completed summaries → synthesis prompt
    */
   private async handleChildExit(childId: string, child: Instance, exitCode: number | null): Promise<void> {
-    if (!child.parentId) return;
-    if (this.completedChildNotifications.has(childId)) {
-      logger.debug('Ignoring duplicate child completion notification', {
-        childId,
-        parentId: child.parentId,
-        exitCode,
-      });
-      return;
-    }
-    this.completedChildNotifications.add(childId);
-
-    const orchestration = this.orchestrationMgr.getOrchestrationHandler();
-    const taskManager = getTaskManager();
-    const storage = getChildResultStorage();
-
-    // 1. Auto-capture result from output buffer if child didn't report one itself.
-    // ALWAYS persist a summary (even if buffer is empty) so synthesis never sees
-    // "No summary available" for a child that simply produced no output.
-    // Filter out messages tagged seededFromParent — those are parent messages we
-    // copied in for context, not the child's own output. Without this filter,
-    // a child that produced no output would echo back one of the parent's messages.
-    if (!storage.hasResult(childId)) {
-      const task = taskManager.getTaskByChildId(childId);
-      const isOwn = (m: { metadata?: Record<string, unknown> }): boolean =>
-        !m.metadata?.['seededFromParent'];
-      const lastAssistant = [...child.outputBuffer]
-        .reverse()
-        .find((m) => m.type === 'assistant' && isOwn(m));
-      // If there's no assistant message, fall back to the last error message —
-      // this happens with non-Claude providers (e.g. Gemini/Copilot) when a
-      // tool call fails silently and the adapter never produces a synthesized
-      // assistant reply. Using the error text gives the parent an actionable
-      // summary instead of an unhelpful "Child exited without producing any
-      // output." that hides the real cause.
-      const lastError = lastAssistant
-        ? undefined
-        : [...child.outputBuffer]
-            .reverse()
-            .find((m) => m.type === 'error' && isOwn(m));
-      const summary = lastAssistant
-        ? lastAssistant.content.substring(0, 500)
-        : lastError
-          ? `Child errored before producing a reply: ${lastError.content.substring(0, 500)}`
-          : 'Child exited without producing any output.';
-      const success = exitCode === 0 && lastAssistant !== undefined;
-
-      try {
-        await storage.storeFromOutputBuffer(
-          childId,
-          child.parentId,
-          task?.task || child.displayName,
-          summary,
-          success,
-          child.outputBuffer,
-          child.createdAt
-        );
-      } catch (err) {
-        logger.error('Failed to auto-capture result for child', err instanceof Error ? err : undefined, { childId });
-      }
-    }
-
-    // 2. Get child summary for both UI notification and CLI injection
-    let childSummaryData: {
-      resultId: string;
-      summary: string;
-      success: boolean;
-      conclusions: string[];
-      artifactCount: number;
-    } | undefined;
-    try {
-      const childSummary = await storage.getChildSummary(childId);
-      if (childSummary) {
-        childSummaryData = {
-          resultId: childSummary.resultId,
-          summary: childSummary.summary,
-          success: childSummary.success,
-          conclusions: childSummary.conclusions,
-          artifactCount: childSummary.artifactCount,
-        };
-      }
-    } catch (err) {
-      logger.error('Failed to get child summary', err instanceof Error ? err : undefined, { childId });
-    }
-
-    // 3. Add system notification to parent's UI output buffer
-    const parent = this.state.getInstance(child.parentId);
-    if (parent) {
-      let resultContent = `**Child completed:** ${child.displayName} (\`${childId}\`)`;
-      if (childSummaryData) {
-        resultContent += `\n\n**Result:** ${childSummaryData.success ? 'Success' : 'Failed'}`;
-        resultContent += `\n\n${childSummaryData.summary}`;
-        if (childSummaryData.conclusions.length > 0) {
-          resultContent += `\n\n**Key findings:**\n${childSummaryData.conclusions.map(c => `- ${c}`).join('\n')}`;
-        }
-      }
-
-      const resultMessage: OutputMessage = {
-        id: `child-result-${Date.now()}-${childId.slice(-6)}`,
-        timestamp: Date.now(),
-        type: 'system' as const,
-        content: resultContent,
-        metadata: { source: 'child-result', childId, exitCode }
-      };
-      this.communication.addToOutputBuffer(parent, resultMessage);
-      this.publishOutput(child.parentId, resultMessage);
-    }
-
-    // 4. Clean up tasks in TaskManager
-    taskManager.cleanupChildTasks(childId);
-
-    // 5. Notify parent CLI with rich result data (not just "terminated")
-    const resultData = childSummaryData
-      ? {
-          name: child.displayName,
-          summary: childSummaryData.summary,
-          success: childSummaryData.success,
-          conclusions: childSummaryData.conclusions
-        }
-      : undefined;
-
-    const { remainingChildren } = orchestration.notifyChildTerminated(
-      child.parentId,
-      childId,
-      resultData
-    );
-
-    logger.info('Child exited, parent notified', { childId, exitCode, parentId: child.parentId, remainingChildren });
-    const childFailed = childSummaryData?.success === false || exitCode !== 0;
-    const diagnosticBundle = childFailed
-      ? await buildChildDiagnosticBundle(child, this.getChildTimeoutReason(child)).catch((error: unknown) => {
-          logger.warn('Failed to build child diagnostic bundle', {
-            childId,
-            parentId: child.parentId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          return undefined;
-        })
-      : undefined;
-    emitPluginHook(childFailed ? 'orchestration.child.failed' : 'orchestration.child.completed', {
-      parentId: child.parentId,
-      childId,
-      name: child.displayName,
-      success: childSummaryData?.success,
-      summary: childSummaryData?.summary,
-      resultId: childSummaryData?.resultId,
-      exitCode,
-      diagnosticBundle,
-      timestamp: Date.now(),
-    });
-
-    // 6. If all children are done, inject synthesis prompt to parent CLI
-    if (remainingChildren === 0) {
-      const completedIds = orchestration.getCompletedChildIds(child.parentId);
-      const summaries = await Promise.all(
-        completedIds.map(async (cId) => {
-          try {
-            const s = await storage.getChildSummary(cId);
-            const inst = this.state.getInstance(cId);
-            return {
-              childId: cId,
-              name: inst?.displayName || s?.childId || cId,
-              summary: s?.summary || 'No summary available',
-              success: s?.success ?? false,
-              conclusions: s?.conclusions || []
-            };
-          } catch {
-            return {
-              childId: cId,
-              name: cId,
-              summary: 'Failed to retrieve summary',
-              success: false,
-              conclusions: []
-            };
-          }
-        })
-      );
-
-      if (summaries.length > 0) {
-        orchestration.notifyAllChildrenCompleted(child.parentId, summaries);
-        logger.info('All children completed, synthesis prompt injected', { parentId: child.parentId, childCount: summaries.length });
-      }
-
-      // Clean up all completed child instances now that synthesis data is gathered
-      for (const cId of completedIds) {
-        try {
-          await this.terminateInstance(cId, false);
-        } catch (err) {
-          logger.error('Failed to clean up completed child instance', err instanceof Error ? err : undefined, { childId: cId });
-        }
-      }
-    } else {
-      // Not all children done yet — clean up just this child
-      try {
-        await this.terminateInstance(childId, false);
-      } catch (err) {
-        logger.error('Failed to clean up child instance', err instanceof Error ? err : undefined, { childId });
-      }
-    }
-  }
-
-  private getChildTimeoutReason(child: Instance): string | undefined {
-    const timeoutMessage = [...child.outputBuffer]
-      .reverse()
-      .find((message) => (
-        message.metadata?.['source'] === 'child-startup-watchdog'
-        && typeof message.content === 'string'
-      ));
-    return timeoutMessage?.content;
+    await this.childCompletion.handleChildExit(childId, child, exitCode);
   }
 
   // ============================================
@@ -2549,12 +2148,7 @@ export class InstanceManager extends EventEmitter {
   destroy(): void {
     getPauseCoordinator().removeListener('pause', this.handlePause);
     getTaskManager().stopTimeoutChecker();
-    for (const timer of this.settledTimers.values()) {
-      clearTimeout(timer);
-    }
-    this.settledTimers.clear();
-    this.settledLastEventAt.clear();
-    this.settledLastEmittedKey.clear();
+    this.settledTracker.destroy();
     this.state.destroy();
     this.lifecycle.destroy();
     this.terminateAll();

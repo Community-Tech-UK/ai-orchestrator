@@ -96,10 +96,14 @@ describe('generateOrchestrationPrompt', () => {
 
   describe('code navigation guidance', () => {
     it('points agents at codemem tools and indexed context instead of legacy lsp tool names', () => {
+      expect(prompt).toContain('Use codemem tools when navigating code');
+      expect(prompt).toContain('Indexed Codebase Context');
+      expect(prompt).toContain('verify important details against repository files before editing');
       expect(prompt).toContain('mcp__codemem__find_symbol');
       expect(prompt).toContain('mcp__codemem__find_references');
       expect(prompt).toContain('[Indexed Codebase Context]');
       expect(prompt).not.toContain('mcp__lsp__lsp_goto_definition');
+      expect(prompt).not.toContain('persisted BM25/vector codebase index');
     });
   });
 

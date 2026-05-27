@@ -67,6 +67,81 @@ describe('IndexWorkerGateway', () => {
     expect(gateway.getMetrics().processed).toBe(1);
   });
 
+  it('gets codemem index status snapshots from the worker', async () => {
+    const expectedStatus = {
+      workspacePath: '/repo',
+      workspaceHash: 'workspace-hash',
+      state: 'running',
+      phase: 'chunking',
+      processedFiles: 10,
+      totalFiles: 20,
+      totalChunks: 40,
+      processedChunks: 12,
+      currentPath: 'src/auth.ts',
+      startedAt: 100,
+      updatedAt: 200,
+      completedAt: null,
+      etaMs: 500,
+      errorMessage: null,
+    };
+
+    const promise = gateway.getIndexStatus('/repo');
+    const posted = fakeWorker.postMessage.mock.calls[0]?.[0] as { id: number; type: string };
+    expect(posted.type).toBe('get-index-status');
+
+    fakeWorker.emit('message', {
+      type: 'rpc-response',
+      id: posted.id,
+      result: expectedStatus,
+    });
+
+    await expect(promise).resolves.toEqual(expect.objectContaining({
+      workspacePath: '/repo',
+      state: 'running',
+      phase: 'chunking',
+      processedFiles: 10,
+      totalFiles: 20,
+    }));
+  });
+
+  it('sends cancel-index RPCs to the worker', async () => {
+    const promise = gateway.cancelIndex('/repo');
+    const posted = fakeWorker.postMessage.mock.calls[0]?.[0] as { id: number; type: string; workspacePath: string };
+    expect(posted).toEqual(expect.objectContaining({
+      type: 'cancel-index',
+      workspacePath: '/repo',
+    }));
+
+    fakeWorker.emit('message', {
+      type: 'rpc-response',
+      id: posted.id,
+      result: undefined,
+    });
+
+    await expect(promise).resolves.toBeUndefined();
+  });
+
+  it('sends rebuild-index RPCs to the worker', async () => {
+    const promise = gateway.rebuildIndex('/repo');
+    const posted = fakeWorker.postMessage.mock.calls[0]?.[0] as { id: number; type: string; workspacePath: string };
+    expect(posted.type).toBe('rebuild-index');
+
+    fakeWorker.emit('message', {
+      type: 'rpc-response',
+      id: posted.id,
+      result: {
+        indexed: true,
+        absPath: '/repo',
+        primaryLanguage: 'typescript',
+      },
+    });
+
+    await expect(promise).resolves.toEqual(expect.objectContaining({
+      indexed: true,
+      absPath: '/repo',
+    }));
+  });
+
   it('emits code-index:changed when the worker reports changed indexed files', async () => {
     const listener = vi.fn();
     gateway.on('code-index:changed', listener);
@@ -154,9 +229,9 @@ describe('IndexWorkerGateway', () => {
       id: posted.id,
       error: 'cold index failed',
     });
-    // The RPC rejects; warmWorkspace doesn't catch — it returns null which maps to degraded
-    const result = await promise.catch(() => ({ indexed: false, absPath: '/project', primaryLanguage: 'typescript' }));
+    const result = await promise;
     expect(result.indexed).toBe(false);
+    expect(result.absPath).toBe('/project');
   });
 
   // ── Stop workspace watcher ────────────────────────────────────────────────

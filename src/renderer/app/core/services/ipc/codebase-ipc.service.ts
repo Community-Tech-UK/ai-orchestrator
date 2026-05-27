@@ -109,21 +109,27 @@ export class CodebaseIpcService implements OnDestroy {
   /**
    * Cancel ongoing indexing
    */
-  async cancelIndexing(): Promise<IpcResponse<void>> {
+  async cancelIndexing(
+    workspacePath?: string,
+    target?: 'codemem' | 'legacy',
+  ): Promise<IpcResponse<void>> {
     if (!this.api?.codebaseIndexCancel) {
       return { success: false, error: { message: 'Not in Electron' } };
     }
-    return this.api.codebaseIndexCancel() as Promise<IpcResponse<void>>;
+    return this.api.codebaseIndexCancel(workspacePath, target) as Promise<IpcResponse<void>>;
   }
 
   /**
    * Get current indexing status
    */
-  async getIndexingStatus(): Promise<IpcResponse<IndexingProgress>> {
+  async getIndexingStatus(
+    workspacePath?: string,
+    target?: 'codemem' | 'legacy',
+  ): Promise<IpcResponse<IndexingProgress | null | Record<string, unknown>>> {
     if (!this.api?.codebaseIndexStatus) {
       return { success: false, error: { message: 'Not in Electron' } };
     }
-    return this.api.codebaseIndexStatus() as Promise<IpcResponse<IndexingProgress>>;
+    return this.api.codebaseIndexStatus(workspacePath, target) as Promise<IpcResponse<IndexingProgress | null | Record<string, unknown>>>;
   }
 
   /**
@@ -155,12 +161,13 @@ export class CodebaseIpcService implements OnDestroy {
    */
   async searchSymbols(
     storeId: string,
-    query: string
+    query: string,
+    workspacePath?: string,
   ): Promise<IpcResponse<HybridSearchResult[]>> {
     if (!this.api?.codebaseSearchSymbols) {
       return { success: false, error: { message: 'Not in Electron' } };
     }
-    return this.api.codebaseSearchSymbols(storeId, query) as Promise<IpcResponse<HybridSearchResult[]>>;
+    return this.api.codebaseSearchSymbols(storeId, query, workspacePath) as Promise<IpcResponse<HybridSearchResult[]>>;
   }
 
   // ============================================

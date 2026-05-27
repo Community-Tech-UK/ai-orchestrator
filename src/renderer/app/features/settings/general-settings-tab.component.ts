@@ -13,13 +13,16 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
   imports: [SettingRowComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @for (setting of store.generalSettings(); track setting.key) {
-      <app-setting-row
-        [setting]="setting"
-        [value]="store.get(setting.key)"
-        (valueChange)="onSettingChange($event)"
-      />
-    }
+    <section class="settings-list-card" aria-label="General settings">
+      @for (setting of store.generalSettings(); track setting.key) {
+        <app-setting-row
+          class="settings-list-item"
+          [setting]="setting"
+          [value]="store.get(setting.key)"
+          (valueChange)="onSettingChange($event)"
+        />
+      }
+    </section>
   `,
   styleUrl: './general-settings-tab.component.scss'
 })

@@ -22,6 +22,7 @@ import {
   type PreflightResult,
 } from './codebase-indexing-auto-coordinator';
 import type { AppSettings } from '../../shared/types/settings.types';
+import { DEFAULT_SETTINGS } from '../../shared/types/settings.types';
 import type { RecentDirectoryEntry } from '../../shared/types/recent-directories.types';
 import type { CodebaseAutoIndexStatus, IndexingStats } from '../../shared/types/codebase.types';
 
@@ -54,9 +55,10 @@ interface Fakes {
 function makeFakes(): Fakes {
   const emitter = new EventEmitter();
   const progress = new EventEmitter();
-  let pending:
-    | { resolve: (stats: IndexingStats) => void; reject: (err: Error) => void }
-    | null = null;
+  const pending: Array<{
+    resolve: (stats: IndexingStats) => void;
+    reject: (err: Error) => void;
+  }> = [];
 
   const indexing = {
     indexCalls: [] as { storeId: string; rootPath: string; force?: boolean }[],
@@ -67,10 +69,10 @@ function makeFakes(): Fakes {
     ): Promise<IndexingStats> {
       this.indexCalls.push({ storeId, rootPath, force: options?.force });
       return new Promise<IndexingStats>((resolve, reject) => {
-        pending = {
+        pending.push({
           resolve,
           reject,
-        };
+        });
       });
     },
     on(event: 'progress', listener: (...args: unknown[]) => void) {
@@ -82,8 +84,9 @@ function makeFakes(): Fakes {
       return this;
     },
     resolveNext(stats: Partial<IndexingStats> = {}): void {
-      if (!pending) throw new Error('no pending indexCodebase to resolve');
-      pending.resolve({
+      const next = pending.shift();
+      if (!next) throw new Error('no pending indexCodebase to resolve');
+      next.resolve({
         filesIndexed: stats.filesIndexed ?? 5,
         chunksCreated: stats.chunksCreated ?? 25,
         tokensProcessed: stats.tokensProcessed ?? 0,
@@ -91,12 +94,11 @@ function makeFakes(): Fakes {
         duration: stats.duration ?? 1,
         errors: stats.errors ?? [],
       });
-      pending = null;
     },
     rejectNext(err: Error): void {
-      if (!pending) throw new Error('no pending indexCodebase to reject');
-      pending.reject(err);
-      pending = null;
+      const next = pending.shift();
+      if (!next) throw new Error('no pending indexCodebase to reject');
+      next.reject(err);
     },
     progress,
   };
@@ -203,6 +205,13 @@ describe('CodebaseIndexingAutoCoordinator', () => {
     for (const dir of fakes.tempDirs) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('defaults to codemem automatic indexing with legacy RLM auto-index disabled', () => {
+    expect(DEFAULT_SETTINGS.codebaseAutoIndexEnabled).toBe(false);
+    expect(DEFAULT_SETTINGS.codememEnabled).toBe(true);
+    expect(DEFAULT_SETTINGS.codememIndexingEnabled).toBe(true);
+    expect(DEFAULT_SETTINGS.codememPrewarmEnabled).toBe(true);
   });
 
   it('fires indexCodebase on directory-added for a local path', async () => {
@@ -341,6 +350,41 @@ describe('CodebaseIndexingAutoCoordinator', () => {
     expect(fakes.indexing.indexCalls).toHaveLength(2);
     expect(coordinator.getStatus(dirB)?.state).toBe('running');
 
+    fakes.indexing.resolveNext();
+    await flushMicrotasks();
+  });
+
+  it('scopes progress events to their workspace when multiple auto-index runs overlap', async () => {
+    fakes.settings.values.codebaseAutoIndexConcurrent = 2;
+    const dirA = mkTmpDir();
+    const dirB = mkTmpDir();
+    fakes.tempDirs.push(dirA, dirB);
+    const rootA = path.resolve(dirA);
+    const rootB = path.resolve(dirB);
+
+    fakes.emitter.emit('directory-added', makeEntry(dirA));
+    fakes.emitter.emit('directory-added', makeEntry(dirB));
+    await flushMicrotasks();
+
+    expect(fakes.indexing.indexCalls.map((call) => call.rootPath)).toEqual([rootA, rootB]);
+    expect(coordinator.getStatus(rootA)?.state).toBe('running');
+    expect(coordinator.getStatus(rootB)?.state).toBe('running');
+
+    fakes.indexing.progress.emit('progress', {
+      status: 'chunking',
+      totalFiles: 10,
+      processedFiles: 4,
+      totalChunks: 12,
+      embeddedChunks: 0,
+      rootPath: rootA,
+    });
+
+    expect(coordinator.getStatus(rootA)?.filesProcessed).toBe(4);
+    expect(coordinator.getStatus(rootA)?.chunksProcessed).toBe(12);
+    expect(coordinator.getStatus(rootB)?.filesProcessed).toBe(0);
+    expect(coordinator.getStatus(rootB)?.chunksProcessed).toBe(0);
+
+    fakes.indexing.resolveNext();
     fakes.indexing.resolveNext();
     await flushMicrotasks();
   });

@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { migrate } from '../cas-schema';
 import { CasStore } from '../cas-store';
 import { CodeIndexManager } from '../code-index-manager';
+import { workspaceHashForPath } from '../symbol-id';
 
 const FIXTURE = resolve(__dirname, '../../../../test/fixtures/codemem-sample');
 
@@ -79,6 +80,62 @@ describe('CodeIndexManager (cold index)', () => {
 
     expect(entries.find((entry) => entry.pathFromRoot.startsWith('node_modules/'))).toBeUndefined();
   });
+
+  it('coldIndex writes searchable workspace chunk rows', async () => {
+    const workDir = join(tmpdir(), `codemem-search-${Date.now()}-${Math.random()}`);
+    await mkdir(join(workDir, 'src'), { recursive: true });
+    await writeFile(
+      join(workDir, 'src/auth.ts'),
+      [
+        'export function issueSessionToken(userId: string): string {',
+        '  return `session:${userId}`;',
+        '}',
+        '',
+      ].join('\n'),
+    );
+
+    try {
+      await mgr.coldIndex(workDir);
+      const root = store.getWorkspaceRootByPath(workDir);
+      expect(root).not.toBeNull();
+      const hits = store.searchWorkspaceChunks(root!.workspaceHash, 'issue session token', 5);
+      expect(hits[0]).toEqual(expect.objectContaining({
+        pathFromRoot: 'src/auth.ts',
+        name: 'issueSessionToken',
+      }));
+    } finally {
+      await rm(workDir, { recursive: true, force: true });
+    }
+  });
+
+  it('coldIndex records cancelled status when cancellation is requested between files', async () => {
+    const workDir = join(tmpdir(), `codemem-cancel-${Date.now()}-${Math.random()}`);
+    await mkdir(join(workDir, 'src'), { recursive: true });
+    for (let index = 0; index < 25; index++) {
+      await writeFile(
+        join(workDir, 'src', `file-${index}.ts`),
+        `export function uniqueSourceToken${index}(): number { return ${index}; }\n`,
+      );
+    }
+
+    try {
+      const workspaceHash = workspaceHashForPath(workDir);
+      let requested = false;
+      mgr.on('index:progress', (status: { processedFiles: number; totalFiles: number }) => {
+        if (!requested && status.totalFiles > 0 && status.processedFiles > 0) {
+          requested = true;
+          store.requestCancel(workspaceHash);
+        }
+      });
+
+      await mgr.coldIndex(workDir);
+      const status = store.getIndexStatus(workspaceHash);
+      expect(status?.state).toBe('cancelled');
+      expect(status?.processedFiles).toBeLessThan(status?.totalFiles ?? 0);
+    } finally {
+      await rm(workDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('CodeIndexManager (incremental)', () => {
@@ -145,6 +202,58 @@ describe('CodeIndexManager (incremental)', () => {
 
     expect(symbols).toContain('sum');
     expect(symbols).not.toContain('add');
+  });
+
+  it('onFileChange refreshes workspace chunk search rows for the edited file', async () => {
+    await writeFile(
+      join(workDir, 'src/auth.ts'),
+      [
+        'export function issueSessionToken(userId: string): string {',
+        '  return `session:${userId}`;',
+        '}',
+        '',
+      ].join('\n'),
+    );
+    const result = await mgr.coldIndex(workDir);
+
+    await writeFile(
+      join(workDir, 'src/auth.ts'),
+      [
+        'export function refreshSessionToken(userId: string): string {',
+        '  return `refresh:${userId}`;',
+        '}',
+        '',
+      ].join('\n'),
+    );
+
+    await mgr.onFileChange(join(workDir, 'src/auth.ts'), result.workspaceHash);
+
+    expect(store.searchWorkspaceChunks(result.workspaceHash, 'issue session token', 5)).toHaveLength(0);
+    expect(store.searchWorkspaceChunks(result.workspaceHash, 'refresh session token', 5)[0]).toEqual(
+      expect.objectContaining({ pathFromRoot: 'src/auth.ts' }),
+    );
+  });
+
+  it('onFileChange removes manifest and workspace chunk search rows for deleted files', async () => {
+    await writeFile(
+      join(workDir, 'src/auth.ts'),
+      [
+        'export function refreshSessionToken(userId: string): string {',
+        '  return `refresh:${userId}`;',
+        '}',
+        '',
+      ].join('\n'),
+    );
+    const result = await mgr.coldIndex(workDir);
+
+    await rm(join(workDir, 'src/auth.ts'), { force: true });
+    await rm(join(workDir, 'src/math.ts'), { force: true });
+
+    await mgr.onFileChange(join(workDir, 'src/auth.ts'), result.workspaceHash);
+    await mgr.onFileChange(join(workDir, 'src/math.ts'), result.workspaceHash);
+
+    expect(store.listManifestEntries(result.workspaceHash)).toHaveLength(0);
+    expect(store.searchWorkspaceChunks(result.workspaceHash, 'refresh session token', 5)).toHaveLength(0);
   });
 
   it('format-only change does not change merkle_root_hash', async () => {

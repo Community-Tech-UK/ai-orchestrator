@@ -71,6 +71,44 @@ describe('CodebaseFileWatcher', () => {
       expect(startedEvents[0].storeId).toBe('test-store');
     });
 
+    it('backs off to polling on recoverable watcher errors without emitting unhandled error', async () => {
+      vi.useFakeTimers();
+
+      const nativeWatcher = {
+        on: vi.fn().mockReturnThis(),
+        close: vi.fn().mockResolvedValue(undefined),
+        getWatched: vi.fn().mockReturnValue({}),
+      };
+      const pollingWatcher = {
+        on: vi.fn().mockReturnThis(),
+        close: vi.fn().mockResolvedValue(undefined),
+        getWatched: vi.fn().mockReturnValue({}),
+      };
+      (watch as any)
+        .mockReturnValueOnce(nativeWatcher)
+        .mockReturnValueOnce(pollingWatcher);
+
+      await watcher.startWatching('test-store', '/fake/path');
+
+      const errorHandler = nativeWatcher.on.mock.calls.find((call: any[]) => call[0] === 'error')?.[1];
+      expect(errorHandler).toBeTypeOf('function');
+
+      expect(() => errorHandler(Object.assign(new Error('too many files'), { code: 'EMFILE' }))).not.toThrow();
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(nativeWatcher.close).toHaveBeenCalled();
+      expect(watch).toHaveBeenLastCalledWith(
+        expect.stringContaining('/fake/path'),
+        expect.objectContaining({
+          usePolling: true,
+          interval: expect.any(Number),
+        }),
+      );
+
+      vi.useRealTimers();
+    });
+
     it('should emit change events', async () => {
       const changeEvents: any[] = [];
       watcher.on('change:detected', (data) => {

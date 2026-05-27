@@ -480,6 +480,14 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
     storeId: string,
     progress: IndexingProgress,
   ): void {
+    const progressRoot = this.normalizePath(progress.rootPath);
+    if (progressRoot && progressRoot !== rootPath) {
+      return;
+    }
+    if (!progressRoot && this.active.size > 1) {
+      return;
+    }
+
     const existing = this.statuses.get(rootPath);
     if (!existing || existing.state !== 'running' || existing.storeId !== storeId) {
       // The status moved on (cancelled, replaced) — ignore this progress tick.
@@ -528,7 +536,7 @@ export class CodebaseIndexingAutoCoordinator extends EventEmitter {
 
   private isEnabled(): boolean {
     const enabled = this.settings.get('codebaseAutoIndexEnabled');
-    return enabled !== false;
+    return enabled === true;
   }
 
   private getMaxConcurrent(): number {

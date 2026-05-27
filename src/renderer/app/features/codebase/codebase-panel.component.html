@@ -82,7 +82,7 @@
     />
   }
 
-  @if (hasIndex()) {
+  @if (canSearch()) {
     <div class="search-section">
       <app-codebase-search
         [storeId]="storeId()"
@@ -104,7 +104,7 @@
     </div>
   }
 
-  @if (!hasIndex() && !isIndexing()) {
+  @if (!canSearch() && !isIndexing()) {
     <div class="no-index">
       <span class="no-index-icon">📂</span>
       <span class="no-index-title">No Index Available</span>

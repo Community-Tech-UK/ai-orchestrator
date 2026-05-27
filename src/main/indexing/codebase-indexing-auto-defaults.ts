@@ -10,6 +10,7 @@ import {
   getCodebaseIndexingService,
   type CodebaseIndexingService,
 } from './indexing-service';
+import { getCodebaseIndexingLaneGateway } from './codebase-indexing-lane-gateway';
 import { getCodebaseFileWatcher, type CodebaseFileWatcher } from './file-watcher';
 import { DEFAULT_INDEXING_CONFIG, shouldIncludeFile } from './config';
 import type { AppSettings } from '../../shared/types/settings.types';
@@ -41,8 +42,7 @@ const DEFAULT_IGNORES = [
 ];
 
 export function createDefaultIndexingTarget(): AutoIndexingTarget {
-  const service = getCodebaseIndexingService();
-  return wrapIndexingService(service);
+  return getCodebaseIndexingLaneGateway();
 }
 
 export function wrapIndexingService(service: CodebaseIndexingService): AutoIndexingTarget {

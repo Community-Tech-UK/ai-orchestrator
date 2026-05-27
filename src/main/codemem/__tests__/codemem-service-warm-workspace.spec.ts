@@ -2,6 +2,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { workspaceHashForPath } from '../symbol-id';
 
 vi.mock('electron', () => ({
   app: {
@@ -91,5 +92,44 @@ describe('CodememService.warmWorkspace', () => {
       paths: ['src/index.ts'],
       timestamp: 1000,
     });
+  });
+
+  it('ensures workspaces through the index worker gateway instead of main-process cold indexing', async () => {
+    service = new CodememService();
+    const normalizedPath = path.resolve(workspacePath);
+    const workspaceHash = workspaceHashForPath(normalizedPath);
+    const coldIndex = vi
+      .spyOn(service.indexManager, 'coldIndex')
+      .mockRejectedValue(new Error('main-process cold index should not run'));
+    const startWatcher = vi
+      .spyOn(service.indexManager, 'start')
+      .mockRejectedValue(new Error('main-process watcher should not start'));
+    const warmWorkspace = vi
+      .spyOn(service.indexWorkerGateway, 'warmWorkspace')
+      .mockImplementation(async () => {
+        service!.store.upsertWorkspaceRoot({
+          workspaceHash,
+          absPath: normalizedPath,
+          headCommit: null,
+          primaryLanguage: 'typescript',
+          lastIndexedAt: 123,
+          merkleRootHash: null,
+          pagerankJson: null,
+        });
+        return {
+          indexed: true,
+          absPath: normalizedPath,
+          primaryLanguage: 'typescript',
+        };
+      });
+
+    await expect(service.ensureWorkspace(workspacePath)).resolves.toEqual(expect.objectContaining({
+      workspaceHash,
+      absPath: normalizedPath,
+    }));
+
+    expect(warmWorkspace).toHaveBeenCalledWith(normalizedPath, 15_000);
+    expect(coldIndex).not.toHaveBeenCalled();
+    expect(startWatcher).not.toHaveBeenCalled();
   });
 });

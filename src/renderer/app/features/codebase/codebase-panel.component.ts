@@ -91,6 +91,10 @@ export class CodebasePanelComponent implements OnInit, OnDestroy {
     return (this.indexStats()?.totalFiles || 0) > 0;
   });
 
+  canSearch = computed(() => {
+    return Boolean(this.rootPath().trim()) || this.hasIndex();
+  });
+
   /**
    * Current auto-index status for the workspace this panel is bound to. We
    * pick the entry whose rootPath matches the user-entered path, falling back
@@ -234,7 +238,8 @@ export class CodebasePanelComponent implements OnInit, OnDestroy {
   }
 
   async cancelIndexing(): Promise<void> {
-    const response = await this.ipcService.cancelIndexing();
+    const workspacePath = this.rootPath().trim() || undefined;
+    const response = await this.ipcService.cancelIndexing(workspacePath, 'legacy');
 
     if (response.success) {
       this.showToast('Indexing cancelled', 'info');
@@ -273,7 +278,10 @@ export class CodebasePanelComponent implements OnInit, OnDestroy {
     this.isSearching.set(true);
     this.hasSearched.set(true);
 
-    const response = await this.ipcService.search(options);
+    const workspacePath = this.rootPath().trim();
+    const response = await this.ipcService.search(
+      workspacePath ? { ...options, workspacePath } : options,
+    );
 
     this.isSearching.set(false);
 

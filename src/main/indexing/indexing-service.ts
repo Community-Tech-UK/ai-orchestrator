@@ -290,6 +290,13 @@ export class CodebaseIndexingService extends EventEmitter {
   }
 
   /**
+   * Clear artifacts owned by the legacy RLM codebase index.
+   */
+  async clearLegacyCodebaseStore(storeId: string): Promise<void> {
+    await this.clearStoreIndex(storeId);
+  }
+
+  /**
    * Cancel ongoing indexing.
    */
   cancel(): void {

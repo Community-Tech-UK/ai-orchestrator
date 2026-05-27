@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { InstanceOrchestrationManager } from './instance-orchestration';
+import { FastPathRetriever } from './orchestration/fast-path-retriever';
 import type { FastPathResult } from './instance-types';
 
 interface CommandCall {
@@ -117,38 +117,10 @@ vi.mock('../learning/preference-store', () => ({
   }),
 }));
 
-type FileListHarness = {
-  runFastPathFileList(cwd: string): Promise<{ files: string[]; command: string; args: string[] } | null>;
-};
-
-type GrepHarness = {
-  runFastPathGrep(
-    pattern: string,
-    cwd: string,
-  ): Promise<{ command: string; args: string[]; rawOutput: string; totalMatches: number } | null>;
-};
-
-function makeManager(): InstanceOrchestrationManager {
-  return new InstanceOrchestrationManager({
-    getInstance: vi.fn(),
-    getInstanceCount: vi.fn(() => 0),
-    createChildInstance: vi.fn(),
-    sendInput: vi.fn(),
-    terminateInstance: vi.fn(),
-    getAdapter: vi.fn(),
-  });
-}
-
-function makeManagerWithIndexedSearch(
+function makeRetrieverWithIndexedSearch(
   result: FastPathResult | null,
-): InstanceOrchestrationManager {
-  return new InstanceOrchestrationManager({
-    getInstance: vi.fn(),
-    getInstanceCount: vi.fn(() => 0),
-    createChildInstance: vi.fn(),
-    sendInput: vi.fn(),
-    terminateInstance: vi.fn(),
-    getAdapter: vi.fn(),
+): FastPathRetriever {
+  return new FastPathRetriever({
     indexedCodebaseContext: {
       buildFastPathResult: vi.fn().mockResolvedValue(result),
     },
@@ -167,9 +139,9 @@ describe('InstanceOrchestrationManager fast-path retrieval', () => {
       { code: 1 },
       { code: 0, stdout: 'src/main.ts\nsrc/app.ts\n' },
     );
-    const manager = makeManager() as unknown as FileListHarness;
+    const retriever = new FastPathRetriever();
 
-    const result = await manager.runFastPathFileList('/repo');
+    const result = await retriever.listFiles('/repo');
 
     expect(result?.command).toBe('rg');
     expect(result?.files).toEqual(['src/main.ts', 'src/app.ts']);
@@ -181,9 +153,9 @@ describe('InstanceOrchestrationManager fast-path retrieval', () => {
       { code: 2 },
       { code: 2 },
     );
-    const manager = makeManager() as unknown as GrepHarness;
+    const retriever = new FastPathRetriever();
 
-    const result = await manager.runFastPathGrep('needle', '/repo');
+    const result = await retriever.grep('needle', '/repo');
 
     expect(result).toBeNull();
     expect(childProcess.calls.map((call) => call.command)).toEqual(['rg', 'git']);
@@ -199,11 +171,9 @@ describe('InstanceOrchestrationManager fast-path retrieval', () => {
       lines: ['src/auth/middleware.ts:10: requireAuth'],
       cwd: '/repo',
     };
-    const manager = makeManagerWithIndexedSearch(indexedResult) as unknown as {
-      runFastPathSearch(task: string, cwd: string): Promise<FastPathResult | null>;
-    };
+    const retriever = makeRetrieverWithIndexedSearch(indexedResult);
 
-    const result = await manager.runFastPathSearch('find auth middleware', '/repo');
+    const result = await retriever.search('find auth middleware', '/repo');
 
     expect(result).toEqual(indexedResult);
     expect(childProcess.spawn).not.toHaveBeenCalled();
