@@ -22,6 +22,7 @@ import type {
 const logger = getLogger('CodeIndexManager');
 
 const EMPTY_ROOT_HASH = sha256('');
+const MAX_INDEXED_FILE_BYTES = 10 * 1024 * 1024;
 const DEFAULT_MAX_NATIVE_WATCH_FILES = 1_500;
 const DEFAULT_MAX_WATCHED_WORKSPACES = 3;
 const DEFAULT_POLLING_INTERVAL_MS = 30_000;
@@ -403,13 +404,25 @@ export class CodeIndexManager extends EventEmitter {
     workspaceHash: WorkspaceHash,
     absoluteFilePath: string,
   ): Promise<number> {
+    const pathFromRoot = this.toRelativePath(workspacePath, absoluteFilePath);
+    const stat = await fs.stat(absoluteFilePath);
+    if (stat.size > MAX_INDEXED_FILE_BYTES) {
+      this.removeFileFromIndex(workspaceHash, pathFromRoot);
+      logger.warn('Skipping oversized file during code index', {
+        workspaceHash,
+        pathFromRoot,
+        size: stat.size,
+        maxBytes: MAX_INDEXED_FILE_BYTES,
+      });
+      return 0;
+    }
+
     const sourceText = await fs.readFile(absoluteFilePath, 'utf8');
     const language = inferLanguage(absoluteFilePath);
     const chunks = this.chunker.chunk(sourceText, language, absoluteFilePath);
     const metadata = await this.metadataExtractor.extractFileMetadata(absoluteFilePath, sourceText);
     const leafTokens: string[] = [];
     const workspaceChunks: WorkspaceChunkRecord[] = [];
-    const pathFromRoot = this.toRelativePath(workspacePath, absoluteFilePath);
     const updatedAt = Date.now();
 
     for (const [chunkIndex, chunk] of chunks.entries()) {
@@ -439,7 +452,6 @@ export class CodeIndexManager extends EventEmitter {
       childrenJson: JSON.stringify(leafTokens),
     });
 
-    const stat = await fs.stat(absoluteFilePath);
     this.opts.store.upsertManifestEntry({
       workspaceHash,
       pathFromRoot,
@@ -461,6 +473,12 @@ export class CodeIndexManager extends EventEmitter {
     this.opts.store.replaceWorkspaceChunksForFile(workspaceHash, pathFromRoot, workspaceChunks);
 
     return chunks.length;
+  }
+
+  private removeFileFromIndex(workspaceHash: WorkspaceHash, pathFromRoot: string): void {
+    this.opts.store.deleteManifestEntry(workspaceHash, pathFromRoot);
+    this.opts.store.deleteWorkspaceSymbolsForFile(workspaceHash, pathFromRoot);
+    this.opts.store.deleteWorkspaceChunksForFile(workspaceHash, pathFromRoot);
   }
 
   private createStoredChunk(

@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, rm, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { migrate } from '../cas-schema';
@@ -79,6 +79,55 @@ describe('CodeIndexManager (cold index)', () => {
     const entries = store.listManifestEntries(result.workspaceHash);
 
     expect(entries.find((entry) => entry.pathFromRoot.startsWith('node_modules/'))).toBeUndefined();
+  });
+
+  it('coldIndex ignores archive backup files', async () => {
+    const workDir = join(tmpdir(), `codemem-archive-skip-${Date.now()}-${Math.random()}`);
+    await mkdir(join(workDir, 'src'), { recursive: true });
+    await mkdir(join(workDir, 'server-backups'), { recursive: true });
+    await writeFile(
+      join(workDir, 'src/plugin.ts'),
+      'export function loadPlugin(): string { return "loaded"; }\n',
+    );
+    await writeFile(join(workDir, 'server-backups/world.tar.gz'), 'archive bytes');
+
+    try {
+      const result = await mgr.coldIndex(workDir);
+      const paths = store
+        .listManifestEntries(result.workspaceHash)
+        .map((entry) => entry.pathFromRoot)
+        .sort();
+
+      expect(paths).toEqual(['src/plugin.ts']);
+    } finally {
+      await rm(workDir, { recursive: true, force: true });
+    }
+  });
+
+  it('coldIndex skips oversized files without failing the workspace', async () => {
+    const workDir = join(tmpdir(), `codemem-large-skip-${Date.now()}-${Math.random()}`);
+    await mkdir(join(workDir, 'src'), { recursive: true });
+    await writeFile(
+      join(workDir, 'src/plugin.ts'),
+      'export function loadPlugin(): string { return "loaded"; }\n',
+    );
+    const oversizedPath = join(workDir, 'src/huge-generated.ts');
+    await writeFile(oversizedPath, '');
+    await truncate(oversizedPath, 2_200_000_000);
+
+    try {
+      const result = await mgr.coldIndex(workDir);
+      const paths = store
+        .listManifestEntries(result.workspaceHash)
+        .map((entry) => entry.pathFromRoot)
+        .sort();
+      const status = store.getIndexStatus(result.workspaceHash);
+
+      expect(paths).toEqual(['src/plugin.ts']);
+      expect(status?.state).toBe('complete');
+    } finally {
+      await rm(workDir, { recursive: true, force: true });
+    }
   });
 
   it('coldIndex writes searchable workspace chunk rows', async () => {

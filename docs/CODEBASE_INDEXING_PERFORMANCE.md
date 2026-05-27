@@ -1,424 +1,93 @@
-# Codebase Indexing Performance Guide
+# Codebase Indexing Performance
 
-Guide for optimizing and measuring codebase indexing performance.
+This guide covers the current codemem-backed indexing path. The performance goal is to keep indexing and retrieval bounded, avoid Electron main-process stalls, and make status/cancellation visible to the UI and IPC clients.
 
-## Performance Targets
+## Targets
 
-| Metric | Target | Description |
-|--------|--------|-------------|
-| **Indexing Speed** | ≥1000 files/min | ~16.67 files/second throughput |
-| **Search Latency (p95)** | <500ms | 95th percentile response time |
-| **Memory Usage** | <500MB | Peak memory during indexing |
-| **Incremental Update** | <5s | Single file re-index time |
+| Metric | Target | Notes |
+|--------|--------|-------|
+| Search latency | <500 ms p95 | Measured against codemem FTS retrieval with bounded snippets |
+| Single-file update | <5 s | Watcher event to updated chunk rows |
+| Main-process blocking | None for indexing loops | Heavy indexing runs in workers or lane processes |
+| Generated folder hits | 0 by default | `node_modules`, `dist`, `build`, `.git`, and similar paths stay ignored |
 
-## Running Benchmarks
+## Watchers
 
-### Run All Benchmarks
+Codemem uses a bounded native watcher when the platform and workspace size allow it. The watcher has a cap so very large workspaces do not create unbounded native handles or overwhelm the event loop.
+
+When the native watcher cannot be used or the cap is exceeded, codemem falls back to polling scans. Polling is slower, but it keeps updates bounded and avoids native watcher pressure. The polling path still ignores generated and dependency folders.
+
+File-change handling is incremental:
+
+1. Creates and updates re-index the affected file.
+2. Deletes remove the manifest entry, workspace chunk rows, FTS rows, and symbols for the file.
+3. Batch events are debounced so save storms do not trigger redundant work.
+
+## Storage Shape
+
+Codemem stores source text in CAS chunks and stores search metadata in SQLite:
+
+- `workspace_chunks` maps a workspace file chunk to its CAS `content_hash`, line range, language, type, and name.
+- `code_fts` is a contentless FTS5 table keyed by the `workspace_chunks` row id.
+- Snippet content is loaded from CAS at retrieval time instead of being stored again in FTS.
+- `code_index_status` stores workspace indexing progress, phase, timestamps, errors, and cancellation state.
+
+The contentless FTS design avoids duplicating source text while still giving fast keyword search over chunk content and symbol/import/export text.
+
+## Status and Cancellation
+
+Codemem status is available through worker gateway and IPC paths. Status snapshots include:
+
+- `state`: scanning, chunking, complete, failed, or cancelled
+- `phase`: current indexing phase
+- `totalFiles` and `processedFiles`
+- `totalChunks` and `processedChunks`
+- `currentPath`
+- `startedAt`, `updatedAt`, and `completedAt`
+- `etaMs` when enough progress data exists
+- `errorMessage` for failed runs
+
+Cancellation is cooperative. A cancel request sets the workspace status row's cancellation flag. The index manager checks that flag between files and exits with a cancelled status, preserving any chunks already written.
+
+## Retrieval Limits
+
+`CodeRetrievalService` keeps searches bounded:
+
+- It trims empty queries before hitting the index.
+- It warms a cold codemem workspace with a short timeout before searching.
+- It caps result count and snippet length.
+- It falls back to bounded `rg` only when the codemem index has no usable result yet.
+- The `rg` fallback excludes generated/dependency folders and has stdout and timeout limits.
+
+## Legacy RLM Indexing
+
+The legacy RLM codebase index is off by default. Manual legacy index buttons and IPC actions are diagnostics, not the canonical automatic path.
+
+When legacy indexing is explicitly enabled or manually triggered, it runs through the background indexing lane. The Electron main process owns scheduling and status only; the indexing loop runs outside the main process.
+
+## Vector Store Policy
+
+Do not add LanceDB, `sqlite-vec`, or another vector database to the canonical code-index path in this pass. Vector DB additions are deferred until they have:
+
+1. Benchmarks showing search-quality or latency improvement over codemem FTS plus symbols.
+2. Packaging validation for Electron and native dependencies.
+3. A clear migration and cleanup story for existing codemem/CAS data.
+4. Tests covering cold start, incremental updates, cancellation, and generated-folder exclusions.
+
+## Verification Commands
+
+Focused checks:
 
 ```bash
-npm run bench
+npx vitest run src/main/codemem/__tests__/code-retrieval-service.spec.ts
+npx vitest run src/main/indexing/indexed-codebase-context.spec.ts
 ```
 
-### Run Specific Benchmarks
+Full checks after indexing changes:
 
 ```bash
-# Indexing benchmarks only
-npm run bench:indexing
-
-# Search benchmarks only
-npm run bench:search
+npx tsc --noEmit
+npx tsc --noEmit -p tsconfig.spec.json
+npm run lint
+npm run test
 ```
-
-### Run Load Tests
-
-```bash
-npm run test:load
-```
-
-### Run with Memory Profiling
-
-```bash
-# Enable GC exposure for accurate memory tracking
-node --expose-gc node_modules/vitest/vitest.mjs bench
-```
-
-## Benchmark Files
-
-| File | Purpose |
-|------|---------|
-| `src/main/indexing/benchmarks/indexing.bench.ts` | Indexing throughput |
-| `src/main/indexing/benchmarks/search.bench.ts` | Search latency |
-| `src/main/indexing/benchmarks/benchmark-utils.ts` | Test utilities |
-
-## Interpreting Results
-
-### Indexing Benchmark Output
-
-```
-✓ File Scanning
-  ✓ glob - scan 100 files (23ms)
-  ✓ glob - scan 500 files (87ms)
-
-✓ Merkle Tree
-  ✓ build tree - 100 files (156ms)
-  ✓ diff trees - detect changes (12ms)
-
-✓ Code Chunking
-  ✓ chunk small TypeScript file (2ms)
-  ✓ chunk large TypeScript file (15ms)
-
-✓ Throughput Targets
-  ✓ verify 1000 files/min target
-    Processed 100 files in 4523ms
-    Rate: 22.11 files/sec ✓
-```
-
-### Search Benchmark Output
-
-```
-✓ Hybrid Search
-  ✓ hybrid search - basic (35ms p50, 48ms p95)
-  ✓ hybrid search with RRF fusion (12ms)
-
-✓ Latency Targets
-  ✓ verify p95 < 500ms target
-    p50: 145ms
-    p95: 287ms ✓
-    p99: 312ms
-```
-
-## Performance Tuning
-
-### Indexing Speed
-
-#### Increase Parallelism
-
-```typescript
-const indexingService = getCodebaseIndexingService({
-  maxConcurrentFiles: 20,  // Up from default 10
-  batchSize: 100,          // Up from default 50
-});
-```
-
-**Trade-off:** Higher memory usage
-
-#### Reduce Chunk Processing
-
-```typescript
-const indexingService = getCodebaseIndexingService({
-  maxChunkTokens: 4000,    // Down from 8000
-  minChunkTokens: 200,     // Up from 100
-});
-```
-
-**Trade-off:** Less granular search results
-
-#### Skip Embedding for Speed
-
-```typescript
-// For initial testing, skip embedding generation
-const stats = await indexingService.indexCodebase(storeId, rootPath, {
-  skipEmbeddings: true,  // BM25 only
-});
-```
-
-### Search Latency
-
-#### Disable HyDE for Speed
-
-```typescript
-const results = await searchService.search({
-  query: 'specific function name',
-  storeId,
-  useHyDE: false,  // Skip LLM call (~100ms savings)
-});
-```
-
-**Trade-off:** Worse results for natural language queries
-
-#### Disable Reranking
-
-```typescript
-const results = await searchService.search({
-  query,
-  storeId,
-  rerank: false,  // Skip reranking (~50ms savings)
-});
-```
-
-**Trade-off:** Less precise result ordering
-
-#### Reduce Result Count
-
-```typescript
-const results = await searchService.search({
-  query,
-  storeId,
-  topK: 5,  // Down from 10
-});
-```
-
-#### Optimize Weights
-
-For code-heavy queries:
-```typescript
-{ bm25Weight: 0.6, vectorWeight: 0.4 }
-```
-
-For natural language queries:
-```typescript
-{ bm25Weight: 0.3, vectorWeight: 0.7 }
-```
-
-### Memory Usage
-
-#### Reduce Batch Size
-
-```typescript
-const indexingService = getCodebaseIndexingService({
-  batchSize: 25,  // Down from 50
-  persistAfterBatch: true,  // Flush to disk after each batch
-});
-```
-
-#### Limit File Size
-
-```typescript
-const indexingService = getCodebaseIndexingService({
-  maxFileSize: 512 * 1024,  // 512KB instead of 1MB
-});
-```
-
-#### Enable Incremental Persistence
-
-```typescript
-const indexingService = getCodebaseIndexingService({
-  persistAfterBatch: true,
-  compactOnCompletion: true,
-});
-```
-
-### Incremental Updates
-
-#### Optimize File Watching
-
-```typescript
-const watcher = new CodebaseFileWatcher(storeId, rootPath, {
-  debounceMs: 1000,         // Wait 1s for batch
-  maxPendingChanges: 100,   // Limit queue size
-  autoIndex: true,
-});
-```
-
-#### Pre-warm Merkle Tree
-
-```typescript
-// Build tree once at startup
-const tree = await merkleTree.buildTree(rootPath);
-await merkleTree.saveTree(storeId, tree);
-```
-
-## Memory Profiling
-
-### Track Memory Usage
-
-```typescript
-import { getMemorySnapshot, formatBytes } from './benchmarks/benchmark-utils';
-
-const before = getMemorySnapshot();
-
-// ... indexing operation ...
-
-const after = getMemorySnapshot();
-console.log(`Memory used: ${formatBytes(after.heapUsed - before.heapUsed)}`);
-```
-
-### Memory Snapshot Fields
-
-```typescript
-interface MemorySnapshot {
-  heapUsed: number;    // Actual JS objects
-  heapTotal: number;   // Total heap allocated
-  external: number;    // Native bindings
-  rss: number;         // Resident set size
-}
-```
-
-### Memory Guidelines
-
-| Codebase Size | Expected Memory |
-|---------------|-----------------|
-| 100 files | <100MB |
-| 500 files | <200MB |
-| 1000 files | <400MB |
-| 2000 files | <600MB |
-
-## Optimization Strategies
-
-### 1. Batch Processing
-
-Process files in batches to control memory:
-
-```typescript
-for (let i = 0; i < files.length; i += batchSize) {
-  const batch = files.slice(i, i + batchSize);
-  await processBatch(batch);
-
-  // Allow GC between batches
-  await new Promise(r => setTimeout(r, 10));
-}
-```
-
-### 2. Streaming Chunks
-
-Don't hold all chunks in memory:
-
-```typescript
-for (const file of files) {
-  const chunks = chunker.chunk(content, language, file);
-  await persistChunks(chunks);  // Save immediately
-  // chunks go out of scope here
-}
-```
-
-### 3. Index Compression
-
-Compact FTS index after bulk operations:
-
-```typescript
-// After indexing many files
-bm25.rebuildIndex();  // VACUUM/OPTIMIZE
-```
-
-### 4. Connection Pooling
-
-Reuse database connections:
-
-```typescript
-// Singleton pattern prevents connection churn
-const db = RLMDatabase.getInstance();
-```
-
-### 5. Embedding Batching
-
-Batch embedding API calls:
-
-```typescript
-// Instead of one-by-one
-const embeddings = await embeddingService.embedBatch(
-  chunks.map(c => c.content)
-);
-```
-
-## Load Testing
-
-### Test Large Codebases
-
-```bash
-npm run test:load -- --grep "should index 1000"
-```
-
-### Test Concurrent Operations
-
-```bash
-npm run test:load -- --grep "concurrent"
-```
-
-### Test Memory Limits
-
-```bash
-npm run test:load -- --grep "memory"
-```
-
-## Monitoring in Production
-
-### Track Indexing Metrics
-
-```typescript
-indexingService.on('progress', (progress) => {
-  const rate = progress.processedFiles /
-    ((Date.now() - progress.startedAt!) / 1000 / 60);
-
-  console.log(`Rate: ${rate.toFixed(1)} files/min`);
-});
-```
-
-### Track Search Latency
-
-```typescript
-const startTime = performance.now();
-const results = await searchService.search(options);
-const latency = performance.now() - startTime;
-
-// Log for monitoring
-metricsLogger.log('search_latency', latency);
-```
-
-### Memory Monitoring
-
-```typescript
-setInterval(() => {
-  const mem = process.memoryUsage();
-  if (mem.heapUsed > 400 * 1024 * 1024) {
-    console.warn('High memory usage:', formatBytes(mem.heapUsed));
-  }
-}, 60000);
-```
-
-## Common Performance Issues
-
-### Issue: Slow Initial Indexing
-
-**Symptoms:** First indexing takes very long
-
-**Solutions:**
-1. Exclude large directories (`node_modules`, `dist`)
-2. Reduce `maxFileSize` to skip large files
-3. Increase `batchSize` and `maxConcurrentFiles`
-
-### Issue: High Search Latency
-
-**Symptoms:** Search >500ms regularly
-
-**Solutions:**
-1. Disable HyDE for simple queries
-2. Reduce `topK` result count
-3. Check if index needs rebuilding
-
-### Issue: Memory Growth
-
-**Symptoms:** Memory increases over time
-
-**Solutions:**
-1. Enable `persistAfterBatch`
-2. Reduce `batchSize`
-3. Check for retained references
-
-### Issue: Slow Incremental Updates
-
-**Symptoms:** File changes take >5s to reflect
-
-**Solutions:**
-1. Reduce file watcher debounce
-2. Pre-build merkle tree
-3. Skip unchanged file verification
-
-## Hardware Recommendations
-
-### Minimum
-
-- 4GB RAM
-- 2 CPU cores
-- SSD storage
-
-### Recommended
-
-- 8GB RAM
-- 4+ CPU cores
-- NVMe SSD
-
-### For Large Codebases (5000+ files)
-
-- 16GB RAM
-- 8+ CPU cores
-- NVMe SSD with high IOPS
