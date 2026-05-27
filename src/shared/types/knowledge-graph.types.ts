@@ -77,7 +77,13 @@ export type ProjectDiscoverySource =
   | 'manual'
   | 'manual-browse'
   | 'default-working-directory'
-  | 'instance-working-directory';
+  | 'instance-working-directory'
+  // Triggered by `ProjectKnowledgeAutoMirrorCoordinator` when a workspace
+  // path lands in `RecentDirectoriesManager` (the user picked a folder in
+  // the UI, opened a recent dir, or was seeded from the default working dir).
+  // Auto-mines by default just like the other sources — see
+  // `ProjectRootRegistry.canAutoMine`.
+  | 'recent-directory-open';
 
 export interface CodebaseMiningFileSnapshot {
   relativePath: string;

@@ -316,6 +316,7 @@ function parseDiscoverySource(value: string): ProjectDiscoverySource {
     || value === 'manual-browse'
     || value === 'default-working-directory'
     || value === 'instance-working-directory'
+    || value === 'recent-directory-open'
   ) {
     return value;
   }

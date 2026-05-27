@@ -51,7 +51,8 @@ export interface StorageDependencies {
 export function createStore(
   instanceId: string,
   stores: Map<string, ContextStore>,
-  deps: StorageDependencies
+  deps: StorageDependencies,
+  config?: Record<string, unknown>
 ): ContextStore {
   // Check if store already exists for this instance
   const existing = Array.from(stores.values()).find(
@@ -69,7 +70,8 @@ export function createStore(
     totalSize: 0,
     createdAt: Date.now(),
     lastAccessed: Date.now(),
-    accessCount: 0
+    accessCount: 0,
+    ...(config ? { config } : {})
   };
 
   // Persist to database
@@ -77,7 +79,8 @@ export function createStore(
     try {
       deps.db.createStore({
         id: store.id,
-        instanceId: store.instanceId
+        instanceId: store.instanceId,
+        ...(config ? { config } : {})
       });
     } catch (error) {
       logger.error('Failed to persist store', error instanceof Error ? error : undefined);

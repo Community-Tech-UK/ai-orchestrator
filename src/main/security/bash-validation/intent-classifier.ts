@@ -8,6 +8,7 @@ const READ_COMMANDS = new Set([
   'basename', 'dirname', 'realpath', 'readlink', 'tee', 'seq', 'yes', 'rev',
   'tr', 'cut', 'paste', 'join', 'comm', 'expand', 'unexpand', 'fold', 'fmt',
   'nl', 'od', 'xxd', 'hexdump', 'strings', 'md5sum', 'sha256sum', 'cksum',
+  'rg', 'ripgrep', 'sed', 'git',
 ]);
 
 const WRITE_COMMANDS = new Set([

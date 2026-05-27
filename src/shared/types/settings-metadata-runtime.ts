@@ -81,6 +81,41 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'advanced',
   },
   {
+    key: 'codememPrewarmEnabled',
+    label: 'Enable Codemem Pre-warm on Workspace Open',
+    description:
+      'Warm up codemem indexes the moment a workspace is opened in the UI, instead of waiting until a CLI is spawned against it',
+    type: 'boolean',
+    category: 'advanced',
+  },
+  {
+    key: 'codememPrewarmMaxConcurrent',
+    label: 'Codemem Pre-warm Max Concurrency',
+    description: 'Maximum number of workspaces that can warm up simultaneously',
+    type: 'number',
+    category: 'advanced',
+    min: 1,
+    max: 8,
+  },
+  {
+    key: 'codememPrewarmDebounceMs',
+    label: 'Codemem Pre-warm Debounce (ms)',
+    description:
+      'Debounce window per path for collapsing rapid-fire workspace-opened events into a single warm call',
+    type: 'number',
+    category: 'advanced',
+    min: 0,
+    max: 60000,
+  },
+  {
+    key: 'codememPrewarmStartupHint',
+    label: 'Pre-warm Most-Recent Directory on Startup',
+    description:
+      "On app startup, automatically pre-warm the codemem index for the most recently opened local workspace",
+    type: 'boolean',
+    category: 'advanced',
+  },
+  {
     key: 'commandDiagnosticsAvailable',
     label: 'Enable Command Diagnostics',
     description: 'Show command registry diagnostics in Doctor reports',
@@ -95,5 +130,99 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'advanced',
     min: 0,
     max: 100000,
+  },
+  {
+    key: 'codebaseAutoIndexEnabled',
+    label: 'Enable Codebase Auto-Index on Workspace Open',
+    description:
+      'Automatically run the heavier embedding + BM25 codebase index when a workspace is opened, so search is ready without clicking Index Codebase',
+    type: 'boolean',
+    category: 'advanced',
+  },
+  {
+    key: 'codebaseAutoIndexMaxFiles',
+    label: 'Codebase Auto-Index Max Files',
+    description:
+      'Skip auto-indexing workspaces with more files than this — the user can still trigger a full index manually',
+    type: 'number',
+    category: 'advanced',
+    min: 100,
+    max: 1_000_000,
+  },
+  {
+    key: 'codebaseAutoIndexMaxBytes',
+    label: 'Codebase Auto-Index Max Bytes',
+    description:
+      'Skip auto-indexing workspaces whose total file size exceeds this many bytes',
+    type: 'number',
+    category: 'advanced',
+    min: 1_048_576,
+    max: 10 * 1024 * 1024 * 1024,
+  },
+  {
+    key: 'codebaseAutoIndexConcurrent',
+    label: 'Codebase Auto-Index Max Concurrency',
+    description:
+      'Maximum number of simultaneous codebase auto-index runs. Heavier than codemem — keep at 1 unless you understand the embedder load',
+    type: 'number',
+    category: 'advanced',
+    min: 1,
+    max: 4,
+  },
+  {
+    key: 'codebaseAutoIndexDebounceMs',
+    label: 'Codebase Auto-Index Debounce (ms)',
+    description:
+      'Debounce window per path for collapsing rapid-fire workspace-opened events into a single auto-index run',
+    type: 'number',
+    category: 'advanced',
+    min: 0,
+    max: 300000,
+  },
+  {
+    key: 'projectKnowledgeAutoMirrorEnabled',
+    label: 'Enable Project Knowledge Auto-Mirror on Workspace Open',
+    description:
+      'Mirror codemem snapshots into the RLM project-knowledge store the moment a workspace is opened, so the Knowledge Graph view and wake-context have code_file / code_symbol evidence without spawning a CLI first',
+    type: 'boolean',
+    category: 'advanced',
+  },
+  {
+    key: 'projectKnowledgeAutoMirrorDebounceMs',
+    label: 'Project Knowledge Auto-Mirror Debounce (ms)',
+    description:
+      'Debounce window per path for collapsing rapid-fire workspace-opened events into a single mirror call',
+    type: 'number',
+    category: 'advanced',
+    min: 0,
+    max: 300000,
+  },
+  {
+    key: 'projectKnowledgeAutoMirrorMaxConcurrent',
+    label: 'Project Knowledge Auto-Mirror Max Concurrency',
+    description:
+      'Maximum number of simultaneous mirror runs. The bridge serialises on SQLite anyway; this cap protects against many cold codemem warm-ups in parallel',
+    type: 'number',
+    category: 'advanced',
+    min: 1,
+    max: 4,
+  },
+  {
+    key: 'projectKnowledgeAutoMirrorSkipWithinMs',
+    label: 'Project Knowledge Auto-Mirror Skip Window (ms)',
+    description:
+      'Skip re-running the auto-mirror if the bridge\'s lastSyncedAt is within this window. Only applies to the auto-mirror — manual refresh and spawn-time always re-run',
+    type: 'number',
+    category: 'advanced',
+    min: 0,
+    max: 3600000,
+  },
+  {
+    key: 'projectKnowledgeAutoMirrorStartupHint',
+    label: 'Project Knowledge Auto-Mirror Startup Hint',
+    description:
+      'On app startup, auto-mirror the most-recent local workspace so the Knowledge Graph view is populated when the user returns',
+    type: 'boolean',
+    category: 'advanced',
   },
 ];

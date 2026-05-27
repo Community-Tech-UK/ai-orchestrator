@@ -24,6 +24,7 @@ export interface ContextStore {
   createdAt: number;
   lastAccessed: number;
   accessCount: number;
+  config?: Record<string, unknown>;
 }
 
 /**

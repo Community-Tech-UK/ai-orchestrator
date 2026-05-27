@@ -27,6 +27,7 @@ export class CodememService {
   readonly facade: AgentLspFacade;
   private readonly activeWatchers = new Set<string>();
   private readonly workspaceLspState = new Map<string, WorkspaceLspState>();
+  private readonly workspaceLspReadyFiles = new Map<string, string | null>();
   private mcpToolsRegistered = false;
 
   constructor() {
@@ -115,18 +116,28 @@ export class CodememService {
       return { ready: false, filePath: null };
     }
 
+    const normalizedPath = path.resolve(workspacePath);
+    const workspaceHash = workspaceHashForPath(normalizedPath);
+    if (this.workspaceLspState.get(workspaceHash) === 'ready' && this.isLspEnabled()) {
+      return {
+        ready: true,
+        filePath: this.workspaceLspReadyFiles.get(workspaceHash) ?? null,
+      };
+    }
+
     // Indexing runs in the index worker so the main event loop is not blocked.
     // If the gateway is unavailable or times out, return degraded gracefully.
     const indexResult = await this.indexWorkerGateway.warmWorkspace(workspacePath, timeoutMs);
-    const workspaceHash = workspaceHashForPath(path.resolve(workspacePath));
 
     if (!indexResult.indexed) {
       this.workspaceLspState.set(workspaceHash, 'lsp_unavailable');
+      this.workspaceLspReadyFiles.delete(workspaceHash);
       return { ready: false, filePath: null };
     }
 
     if (!this.isLspEnabled()) {
       this.workspaceLspState.set(workspaceHash, 'lsp_unavailable');
+      this.workspaceLspReadyFiles.delete(workspaceHash);
       return { ready: false, filePath: null };
     }
 
@@ -138,9 +149,15 @@ export class CodememService {
         timeoutMs,
       );
       this.workspaceLspState.set(workspaceHash, result.ready ? 'ready' : 'lsp_unavailable');
+      if (result.ready) {
+        this.workspaceLspReadyFiles.set(workspaceHash, result.filePath);
+      } else {
+        this.workspaceLspReadyFiles.delete(workspaceHash);
+      }
       return result;
     } catch {
       this.workspaceLspState.set(workspaceHash, 'lsp_unavailable');
+      this.workspaceLspReadyFiles.delete(workspaceHash);
       return { ready: false, filePath: null };
     }
   }
@@ -202,3 +219,16 @@ export function resetCodememForTesting(): void {
   void codememService.shutdown();
   codememService = null;
 }
+
+// Re-export the prewarm coordinator so callers can `import { ... } from '../codemem'`
+// rather than reaching into a nested module path.
+export {
+  getCodememPrewarmCoordinator,
+  resetCodememPrewarmCoordinatorForTesting,
+  CodememPrewarmCoordinator,
+} from './codemem-prewarm-coordinator';
+export type {
+  CodememPrewarmCoordinatorOptions,
+  PrewarmCodememTarget,
+  PrewarmSettingsTarget,
+} from './codemem-prewarm-coordinator';

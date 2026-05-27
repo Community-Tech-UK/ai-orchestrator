@@ -7,10 +7,12 @@ import {
 } from '../../../../shared/types/provider.types';
 import { BUILTIN_AGENTS, getDefaultAgent } from '../../../../shared/types/agent.types';
 import { ProviderStateService, type ProviderType } from './provider-state.service';
+import { WorkspaceIpcService } from './ipc/workspace-ipc.service';
 
 @Injectable({ providedIn: 'root' })
 export class NewSessionDraftService {
   private readonly providerState = inject(ProviderStateService);
+  private readonly workspaceIpc = inject(WorkspaceIpcService);
   private readonly storageKey = 'new-session-drafts:v1';
   private readonly defaultDraftKey = '__default__';
   private persistHandle: number | null = null;
@@ -60,6 +62,21 @@ export class NewSessionDraftService {
   setWorkingDirectory(workingDirectory?: string | null): void {
     const normalized = this.normalizePath(workingDirectory);
     const nextKey = this.getDraftKey(normalized);
+
+    // Best-effort unified workspace hint. Fire-and-forget — the IPC service
+    // swallows its own errors, so this can't throw and slow down the draft
+    // state update. The main-process handler fans the hint out to every
+    // coordinator that subscribes to "workspace is present" events (codemem
+    // prewarm, codebase auto-index, project knowledge mirror), so each
+    // subsystem prioritises this workspace before the user spawns an
+    // instance against it. We pass any existing nodeId for the **target**
+    // path so remote-workspace hints are correctly short-circuited
+    // server-side rather than triggering local fan-out.
+    if (normalized) {
+      const nextDraft = this.state().drafts[nextKey];
+      const nodeId = nextDraft?.nodeId ?? null;
+      void this.workspaceIpc.hintActive(normalized, nodeId);
+    }
 
     this.patchState((current) => {
       const currentDraft = this.getDraftForState(current, current.activeKey);

@@ -6,6 +6,7 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import type {
+  CodebaseAutoIndexStatus,
   IndexingProgress,
   IndexingStats,
   IndexStats,
@@ -26,7 +27,8 @@ import { z } from 'zod';
 import {
   getCodebaseIndexingService,
   getHybridSearchService,
-  getCodebaseFileWatcher
+  getCodebaseFileWatcher,
+  getCodebaseIndexingAutoCoordinator,
 } from '../../indexing';
 import { RLMDatabase } from '../../persistence/rlm-database';
 import type { WindowManager } from '../../window-manager';
@@ -40,6 +42,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
   const db = RLMDatabase.getInstance();
   const searchService = getHybridSearchService(db['db']);
   const fileWatcher = getCodebaseFileWatcher();
+  const autoCoordinator = getCodebaseIndexingAutoCoordinator();
 
   // Helper to safely send events to renderer
   const sendToRenderer = (channel: string, data: unknown): void => {
@@ -60,6 +63,11 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
       storeId: info.storeId,
       count: info.additions + info.modifications + info.deletions
     });
+  });
+
+  // Forward auto-index status changes to renderer
+  autoCoordinator.on('status', (status: CodebaseAutoIndexStatus) => {
+    sendToRenderer(IPC_CHANNELS.CODEBASE_AUTO_STATUS_CHANGED, status);
   });
 
   // ============================================
@@ -344,4 +352,41 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
       }
     }
   );
+
+  // ============================================
+  // Auto-Index Coordinator Handlers
+  // ============================================
+
+  // Get the current auto-index status for a workspace (or all known statuses
+  // when no rootPath is supplied).
+  ipcMain.handle(
+    IPC_CHANNELS.CODEBASE_AUTO_STATUS_GET,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse<CodebaseAutoIndexStatus | CodebaseAutoIndexStatus[] | null>> => {
+      try {
+        const schema = z.object({ rootPath: z.string().min(1).max(4096).optional() }).optional();
+        const validated = validateIpcPayload(schema, payload, 'CODEBASE_AUTO_STATUS_GET');
+        if (validated?.rootPath) {
+          const status = autoCoordinator.getStatus(validated.rootPath);
+          return { success: true, data: status ?? null };
+        }
+        return { success: true, data: autoCoordinator.listStatuses() };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'CODEBASE_AUTO_STATUS_GET_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Note: the legacy `CODEBASE_AUTO_HINT` handler has been removed. Renderer
+  // hints now arrive on the consolidated `WORKSPACE_HINT_ACTIVE` channel and
+  // are fanned out to this coordinator via `workspace-hint-handlers.ts`.
 }

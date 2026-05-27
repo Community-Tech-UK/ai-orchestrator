@@ -75,8 +75,96 @@ export interface AppSettings {
   codememEnabled: boolean;
   codememIndexingEnabled: boolean;
   codememLspWorkerEnabled: boolean;
+  /**
+   * When true, codemem warms up workspace indexes automatically the moment a
+   * workspace path enters the app (e.g. user picks a folder in the UI), rather
+   * than waiting until the first CLI instance is spawned against it.
+   */
+  codememPrewarmEnabled: boolean;
+  /**
+   * Max simultaneous warm-up jobs. Prevents the index worker from being
+   * saturated when several recent directories are opened in quick succession.
+   */
+  codememPrewarmMaxConcurrent: number;
+  /**
+   * Per-path debounce window for collapsing rapid-fire `directory-added`
+   * events (e.g. user clicking around recent dirs) into a single warm call.
+   */
+  codememPrewarmDebounceMs: number;
+  /**
+   * When true, on app startup the most-recent local recent directory is
+   * pre-warmed automatically so re-launching the same workspace is fast.
+   */
+  codememPrewarmStartupHint: boolean;
   commandDiagnosticsAvailable: boolean;
   broadRootFileThreshold: number;
+
+  // Codebase auto-index (separate, heavier pipeline from codemem: BM25 +
+  // vector embeddings + Merkle change detection + hybrid search). Auto-runs
+  // incrementally whenever a workspace enters the app. See
+  // docs/plans/2026-05-26-codebase-indexing-auto-start.md.
+  /**
+   * When true, the codebase indexing service auto-runs incremental indexes
+   * whenever a workspace is opened (mirrors the codemem auto-warm trigger).
+   */
+  codebaseAutoIndexEnabled: boolean;
+  /**
+   * Hard cap on file count during preflight. Workspaces over this are
+   * recorded as `'too_large'` and never auto-indexed — the user must use the
+   * manual "Index" button which forces a full re-index.
+   */
+  codebaseAutoIndexMaxFiles: number;
+  /**
+   * Hard cap on total bytes during preflight. Same semantics as
+   * `codebaseAutoIndexMaxFiles`.
+   */
+  codebaseAutoIndexMaxBytes: number;
+  /**
+   * Max simultaneous full-index runs. Defaults to 1 — this pipeline is much
+   * heavier than codemem and we don't want two cold indexes hammering the
+   * disk and embedder at once.
+   */
+  codebaseAutoIndexConcurrent: number;
+  /**
+   * Per-path debounce window for collapsing rapid-fire `directory-added`
+   * events into a single index run.
+   */
+  codebaseAutoIndexDebounceMs: number;
+
+  // Project knowledge auto-mirror (RLM mirror of codemem snapshot + the
+  // codebase miner — driven by `ProjectKnowledgeAutoMirrorCoordinator`).
+  // See docs/plans/2026-05-26-project-code-index-bridge-auto-mirror.md.
+  /**
+   * When true, the RLM project-knowledge mirror (ProjectCodeIndexBridge +
+   * CodebaseMiner via ProjectKnowledgeCoordinator) refreshes automatically
+   * the moment a workspace path enters the app. Gated by codememEnabled +
+   * codememIndexingEnabled — without those the bridge has nothing to mirror.
+   */
+  projectKnowledgeAutoMirrorEnabled: boolean;
+  /**
+   * Per-path debounce window for collapsing rapid-fire `directory-added`
+   * events into a single mirror call.
+   */
+  projectKnowledgeAutoMirrorDebounceMs: number;
+  /**
+   * Max simultaneous mirror runs. The bridge serialises on the SQLite
+   * writer; this cap mostly protects against five recent dirs being
+   * opened in a row triggering five cold-codemem warm-ups in parallel.
+   */
+  projectKnowledgeAutoMirrorMaxConcurrent: number;
+  /**
+   * Skip re-running the auto-mirror if the bridge's `lastSyncedAt` is within
+   * this window. Only applies to the auto-mirror coordinator — the spawn-time
+   * call in `instance-lifecycle.ts` and the manual refresh IPC remain
+   * un-throttled because they're the always-fresh safety net.
+   */
+  projectKnowledgeAutoMirrorSkipWithinMs: number;
+  /**
+   * When true, on app startup the most-recent local recent directory is
+   * auto-mirrored so re-launching the same workspace surfaces the knowledge
+   * graph immediately.
+   */
+  projectKnowledgeAutoMirrorStartupHint: boolean;
 
   // Cross-Model Review
   crossModelReviewEnabled: boolean;
@@ -173,8 +261,26 @@ export const DEFAULT_SETTINGS: AppSettings = {
   codememEnabled: true,
   codememIndexingEnabled: true,
   codememLspWorkerEnabled: true,
+  codememPrewarmEnabled: true,
+  codememPrewarmMaxConcurrent: 2,
+  codememPrewarmDebounceMs: 1500,
+  codememPrewarmStartupHint: true,
   commandDiagnosticsAvailable: true,
   broadRootFileThreshold: 100,
+
+  // Codebase auto-index defaults
+  codebaseAutoIndexEnabled: true,
+  codebaseAutoIndexMaxFiles: 10_000,
+  codebaseAutoIndexMaxBytes: 500 * 1024 * 1024,
+  codebaseAutoIndexConcurrent: 1,
+  codebaseAutoIndexDebounceMs: 3_000,
+
+  // Project knowledge auto-mirror defaults
+  projectKnowledgeAutoMirrorEnabled: true,
+  projectKnowledgeAutoMirrorDebounceMs: 2_000,
+  projectKnowledgeAutoMirrorMaxConcurrent: 2,
+  projectKnowledgeAutoMirrorSkipWithinMs: 30_000,
+  projectKnowledgeAutoMirrorStartupHint: true,
 
   // Cross-Model Review
   crossModelReviewEnabled: true,

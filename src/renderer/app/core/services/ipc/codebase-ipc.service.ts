@@ -6,6 +6,7 @@
 import { Injectable, inject, signal, OnDestroy } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
 import type {
+  CodebaseAutoIndexStatus,
   IndexingProgress,
   IndexingStats,
   IndexStats,
@@ -19,6 +20,7 @@ export class CodebaseIpcService implements OnDestroy {
   private base = inject(ElectronIpcService);
   private unsubscribeProgress: (() => void) | null = null;
   private unsubscribeWatcher: (() => void) | null = null;
+  private unsubscribeAutoStatus: (() => void) | null = null;
 
   private get api() {
     return this.base.getApi();
@@ -27,6 +29,8 @@ export class CodebaseIpcService implements OnDestroy {
   // Reactive signals for UI binding
   readonly indexingProgress = signal<IndexingProgress | null>(null);
   readonly watcherChanges = signal<{ storeId: string; count: number } | null>(null);
+  /** Map of normalized rootPath → latest auto-index status. */
+  readonly autoStatusByPath = signal<Record<string, CodebaseAutoIndexStatus>>({});
 
   constructor() {
     this.setupEventListeners();
@@ -35,6 +39,7 @@ export class CodebaseIpcService implements OnDestroy {
   ngOnDestroy(): void {
     this.unsubscribeProgress?.();
     this.unsubscribeWatcher?.();
+    this.unsubscribeAutoStatus?.();
   }
 
   private setupEventListeners(): void {
@@ -54,6 +59,20 @@ export class CodebaseIpcService implements OnDestroy {
       this.unsubscribeWatcher = this.api.onCodebaseWatcherChanges((data) => {
         this.base.getNgZone().run(() => {
           this.watcherChanges.set(data as { storeId: string; count: number });
+        });
+      });
+    }
+
+    // Listen for auto-index status changes
+    if (this.api.onCodebaseAutoStatusChanged) {
+      this.unsubscribeAutoStatus = this.api.onCodebaseAutoStatusChanged((status) => {
+        const typed = status as CodebaseAutoIndexStatus | null | undefined;
+        if (!typed || !typed.rootPath) return;
+        this.base.getNgZone().run(() => {
+          this.autoStatusByPath.update((current) => ({
+            ...current,
+            [typed.rootPath]: typed,
+          }));
         });
       });
     }
@@ -177,4 +196,28 @@ export class CodebaseIpcService implements OnDestroy {
     }
     return this.api.codebaseWatcherStatus(storeId) as Promise<IpcResponse<WatcherStatus>>;
   }
+
+  // ============================================
+  // Auto-Index Operations
+  // ============================================
+
+  /**
+   * Get current auto-index status for a workspace (or all workspaces when
+   * `rootPath` is omitted).
+   */
+  async getAutoStatus(
+    rootPath?: string,
+  ): Promise<IpcResponse<CodebaseAutoIndexStatus | CodebaseAutoIndexStatus[] | null>> {
+    if (!this.api?.codebaseAutoStatusGet) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.codebaseAutoStatusGet(rootPath) as Promise<
+      IpcResponse<CodebaseAutoIndexStatus | CodebaseAutoIndexStatus[] | null>
+    >;
+  }
+
+  // Note: the per-subsystem `hintAutoIndex(rootPath)` method was removed
+  // when the renderer hint channels were consolidated into a single
+  // `WorkspaceIpcService.hintActive(...)` call. The main-process handler
+  // fans the unified hint out to this coordinator alongside its siblings.
 }

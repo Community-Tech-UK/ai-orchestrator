@@ -19,6 +19,19 @@ export { ProjectRootRegistry, getProjectRootRegistry } from './project-root-regi
 export { ProjectCodeIndexBridge, getProjectCodeIndexBridge } from './project-code-index-bridge';
 export type { ProjectCodeIndexSource } from './project-code-index-bridge';
 export { ProjectKnowledgeCoordinator, getProjectKnowledgeCoordinator } from './project-knowledge-coordinator';
+export {
+  ProjectKnowledgeAutoMirrorCoordinator,
+  getProjectKnowledgeAutoMirrorCoordinator,
+  resetProjectKnowledgeAutoMirrorCoordinatorForTesting,
+} from './project-knowledge-auto-mirror-coordinator';
+export type {
+  ProjectKnowledgeAutoMirrorCoordinatorOptions,
+  AutoMirrorKnowledgeTarget,
+  AutoMirrorBridgeTarget,
+  AutoMirrorCodememTarget,
+  AutoMirrorRegistryTarget,
+  AutoMirrorSettingsTarget,
+} from './project-knowledge-auto-mirror-coordinator';
 export { ProjectKnowledgeReadModelService, getProjectKnowledgeReadModelService } from './project-knowledge-read-model';
 
 // Phase 9: Memory-R1 Components

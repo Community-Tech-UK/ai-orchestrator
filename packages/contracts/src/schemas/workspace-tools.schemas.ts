@@ -79,6 +79,24 @@ export const CodebaseSearchSymbolsPayloadSchema = z.object({
   query: z.string().min(1).max(100000),
 });
 
+// ============ Workspace Hint Payloads ============
+
+/**
+ * Renderer-driven hint that this workspace is the user's current focus.
+ * Fans out to every coordinator that subscribes to "workspace is present"
+ * events (codemem prewarm, codebase auto-index, project knowledge mirror).
+ *
+ * `nodeId` is reserved for future remote-workspace support — today the
+ * main-process fan-out skips remote hints because each remote node owns
+ * its own coordinators.
+ */
+export const WorkspaceHintActivePayloadSchema = z.object({
+  path: DirectoryPathSchema,
+  nodeId: z.string().min(1).max(200).nullable().optional(),
+});
+
+export type WorkspaceHintActivePayload = z.infer<typeof WorkspaceHintActivePayloadSchema>;
+
 // ============ VCS Payloads ============
 
 export const VcsIsRepoPayloadSchema = z.object({

@@ -35,6 +35,17 @@ function getBashCommand(toolInput?: Record<string, unknown>): string | null {
     : null;
 }
 
+function shouldTryChildReadOnlyAutoAllow(
+  request: PermissionRequest,
+  permission: EnforcementResult,
+  bashValidation: BashValidationResult,
+): boolean {
+  return request.context?.isChildInstance === true
+    && permission.action === 'ask'
+    && permission.source === 'mode'
+    && bashValidation.risk === 'safe';
+}
+
 export class ToolExecutionGate {
   evaluate(input: ToolExecutionGateInput): ToolExecutionGateDecision {
     const permission = getPermissionEnforcer().enforce(input.request);
@@ -75,7 +86,8 @@ export class ToolExecutionGate {
       ? getBashCommand(input.toolInput)
       : null;
     if (bashCommand) {
-      const bashValidation = getBashValidationPipeline().validate(bashCommand, {
+      const bashPipeline = getBashValidationPipeline();
+      const bashValidation = bashPipeline.validate(bashCommand, {
         mode: permission.mode,
         workspacePath: input.request.context?.workingDirectory ?? process.cwd(),
         instanceDepth: input.request.context?.depth ?? 0,
@@ -105,6 +117,28 @@ export class ToolExecutionGate {
           validation,
           bashValidation,
         };
+      }
+
+      if (shouldTryChildReadOnlyAutoAllow(input.request, permission, bashValidation)) {
+        const readOnlyValidation = bashPipeline.validate(bashCommand, {
+          mode: 'read_only',
+          workspacePath: input.request.context?.workingDirectory ?? process.cwd(),
+          instanceDepth: input.request.context?.depth ?? 0,
+          yoloMode: Boolean(input.request.context?.yoloMode),
+          instanceId: input.request.instanceId,
+        });
+
+        if (readOnlyValidation.risk === 'safe' && readOnlyValidation.intent === 'read_only') {
+          return {
+            action: 'allow',
+            reason: 'Safe read-only Bash command auto-allowed for child instance',
+            source: 'bash-validation',
+            permission,
+            toolPermission,
+            validation,
+            bashValidation: readOnlyValidation,
+          };
+        }
       }
 
       return {

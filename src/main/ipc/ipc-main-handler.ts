@@ -73,6 +73,7 @@ import {
   registerAppHandlers,
   registerFileHandlers,
   registerCodebaseHandlers,
+  registerWorkspaceHintHandlers,
   registerEventStoreHandlers,
   registerSupervisionHandlers,
   registerRecentDirectoriesHandlers,
@@ -302,6 +303,14 @@ export class IpcMainHandler {
 
     // Codebase indexing handlers
     registerCodebaseHandlers(this.windowManager);
+
+    // Unified workspace hint handler. Fans `WORKSPACE_HINT_ACTIVE` (called from
+    // the renderer whenever the active workspace changes) out to every
+    // coordinator that subscribes to "workspace is present" events. The
+    // coordinators must already be initialized in initialization-steps.ts
+    // before the hint can do anything useful — if a coordinator isn't ready
+    // the fan-out is a no-op for it (best-effort).
+    registerWorkspaceHintHandlers();
 
     // Orchestration handlers (Phase 6: Workflows, Hooks, Skills)
     registerOrchestrationHandlers(this.instanceManager);

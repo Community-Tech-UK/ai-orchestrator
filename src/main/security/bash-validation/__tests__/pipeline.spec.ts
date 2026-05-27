@@ -40,6 +40,17 @@ describe('BashValidationPipeline', () => {
       expect(result.intent).toBe('read_only');
     });
 
+    it.each([
+      'rg "Permission Required" src',
+      'sed -n "1,20p" src/main/security/tool-execution-gate.ts',
+      'git diff -- src/main/security/tool-execution-gate.ts',
+    ])('classifies common read-only inspection command as read-only: %s', (command) => {
+      const result = pipeline.validate(command, { ...ctx, mode: 'read_only' });
+      expect(result.valid).toBe(true);
+      expect(result.risk).toBe('safe');
+      expect(result.intent).toBe('read_only');
+    });
+
     it('includes evasion flags', () => {
       const result = pipeline.validate('ls -la');
       expect(result.evasionFlags).toBeDefined();

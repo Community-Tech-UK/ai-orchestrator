@@ -964,6 +964,19 @@ export const IPC_CHANNELS = {
   CODEBASE_WATCHER_STOP: 'codebase:watcher:stop',
   CODEBASE_WATCHER_STATUS: 'codebase:watcher:status',
   CODEBASE_WATCHER_CHANGES: 'codebase:watcher:changes',
+  // Codebase auto-index coordinator
+  CODEBASE_AUTO_STATUS_GET: 'codebase:auto:status:get',
+  CODEBASE_AUTO_STATUS_CHANGED: 'codebase:auto:status:changed',
+  // Unified workspace hint — renderer tells the main process which workspace
+  // is the user's current focus. The handler fans the hint out to every
+  // coordinator that subscribes to "workspace is present" events:
+  //   - CodememPrewarmCoordinator (fast AST/LSP warm-up)
+  //   - CodebaseIndexingAutoCoordinator (heavier embedding pipeline)
+  //   - ProjectKnowledgeAutoMirrorCoordinator (RLM mirror of codemem snapshot)
+  // Replaces the per-subsystem `CODEBASE_AUTO_HINT` + `CODEMEM_PREWARM_HINT`
+  // channels — see docs/plans/2026-05-26-project-code-index-bridge-auto-mirror.md
+  // for the consolidation rationale.
+  WORKSPACE_HINT_ACTIVE: 'workspace:hint-active',
 
   // Background repo jobs
   REPO_JOB_SUBMIT: 'repo-job:submit',

@@ -1,8 +1,10 @@
 import { getLogger } from '../logging/logger';
 import { getCodebaseMiner, type CodebaseMiner } from './codebase-miner';
+import { getSettingsManager } from '../core/config/settings-manager';
 import { getProjectCodeIndexBridge, type ProjectCodeIndexBridge } from './project-code-index-bridge';
 import { getProjectRootRegistry, type ProjectRootRegistry } from './project-root-registry';
 import { normalizeProjectMemoryKey } from './project-memory-key';
+import type { AppSettings } from '../../shared/types/settings.types';
 import type {
   CodebaseMiningResult,
   CodebaseMiningStatus,
@@ -11,9 +13,14 @@ import type {
 } from '../../shared/types/knowledge-graph.types';
 
 const logger = getLogger('ProjectKnowledgeCoordinator');
+const DEFAULT_RECENT_CODE_INDEX_SKIP_MS = 30_000;
 
 export interface EnsureProjectKnownOptions {
   autoRefresh?: boolean;
+}
+
+interface ProjectKnowledgeSettings {
+  get<K extends keyof AppSettings>(key: K): AppSettings[K];
 }
 
 interface ProjectKnowledgeCoordinatorDeps {
@@ -28,7 +35,8 @@ interface ProjectKnowledgeCoordinatorDeps {
     | 'canManualMine'
   >;
   miner: Pick<CodebaseMiner, 'mineDirectory' | 'getStatus'>;
-  codeIndexBridge: Pick<ProjectCodeIndexBridge, 'refreshProject'>;
+  codeIndexBridge: Pick<ProjectCodeIndexBridge, 'refreshProject' | 'getStatus'>;
+  settings: ProjectKnowledgeSettings;
 }
 
 export class ProjectKnowledgeCoordinator {
@@ -49,6 +57,7 @@ export class ProjectKnowledgeCoordinator {
       registry: getProjectRootRegistry(),
       miner: getCodebaseMiner(),
       codeIndexBridge: getProjectCodeIndexBridge(),
+      settings: getSettingsManager(),
     },
   ) {
     logger.info('ProjectKnowledgeCoordinator initialized');
@@ -138,12 +147,44 @@ export class ProjectKnowledgeCoordinator {
     }
 
     const projectKey = root.projectKey ?? root.normalizedPath;
+    if (automatic && this.shouldSkipRecentAutomaticCodeIndexRefresh(projectKey)) {
+      return;
+    }
+
     this.deps.codeIndexBridge.refreshProject(projectKey, { automatic }).catch((error: unknown) => {
       logger.warn('Background project code-index refresh failed', {
         projectKey,
         error: error instanceof Error ? error.message : String(error),
       });
     });
+  }
+
+  private shouldSkipRecentAutomaticCodeIndexRefresh(projectKey: string): boolean {
+    const skipWithinMs = this.getRecentCodeIndexSkipWithinMs();
+    if (skipWithinMs <= 0) {
+      return false;
+    }
+
+    let status: ProjectCodeIndexStatus;
+    try {
+      status = this.deps.codeIndexBridge.getStatus(projectKey);
+    } catch {
+      return false;
+    }
+
+    if (status.status !== 'ready' || !status.lastSyncedAt) {
+      return false;
+    }
+
+    return Date.now() - status.lastSyncedAt <= skipWithinMs;
+  }
+
+  private getRecentCodeIndexSkipWithinMs(): number {
+    const raw = this.deps.settings.get('projectKnowledgeAutoMirrorSkipWithinMs');
+    if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 0) {
+      return Math.floor(raw);
+    }
+    return DEFAULT_RECENT_CODE_INDEX_SKIP_MS;
   }
 
   private skippedResult(status: CodebaseMiningStatus): CodebaseMiningResult {

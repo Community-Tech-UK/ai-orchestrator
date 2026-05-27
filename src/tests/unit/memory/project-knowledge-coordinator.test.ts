@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type {
   CodebaseMiningResult,
   CodebaseMiningStatus,
+  ProjectCodeIndexStatus,
   ProjectDiscoverySource,
 } from '../../../shared/types/knowledge-graph.types';
+import type { AppSettings } from '../../../shared/types/settings.types';
 import { ProjectKnowledgeCoordinator } from '../../../main/memory/project-knowledge-coordinator';
 
 function status(overrides: Partial<CodebaseMiningStatus> = {}): CodebaseMiningStatus {
@@ -55,6 +57,14 @@ function createDeps(root: CodebaseMiningStatus = status()) {
     mineDirectory: vi.fn(async () => result(root)),
     getStatus: vi.fn(() => root),
   };
+  const codeIndexStatus: ProjectCodeIndexStatus = {
+    projectKey: root.projectKey ?? root.normalizedPath,
+    status: 'never',
+    fileCount: 0,
+    symbolCount: 0,
+    updatedAt: 0,
+    metadata: {},
+  };
   const codeIndexBridge = {
     refreshProject: vi.fn(async () => ({
       projectKey: root.projectKey ?? root.normalizedPath,
@@ -64,9 +74,18 @@ function createDeps(root: CodebaseMiningStatus = status()) {
       updatedAt: 1,
       metadata: { snapshotVersion: 1 },
     })),
+    getStatus: vi.fn(() => codeIndexStatus),
+  };
+  const settings = {
+    get: vi.fn(<K extends keyof AppSettings>(key: K): AppSettings[K] => {
+      const values: Partial<AppSettings> = {
+        projectKnowledgeAutoMirrorSkipWithinMs: 30_000,
+      };
+      return values[key] as AppSettings[K];
+    }),
   };
 
-  return { registry, miner, codeIndexBridge };
+  return { registry, miner, codeIndexBridge, settings };
 }
 
 describe('ProjectKnowledgeCoordinator', () => {
@@ -85,6 +104,25 @@ describe('ProjectKnowledgeCoordinator', () => {
     expect(deps.registry.canAutoMine).toHaveBeenCalledWith('/fake/project');
     expect(deps.miner.mineDirectory).toHaveBeenCalledWith('/fake/project');
     expect(deps.codeIndexBridge.refreshProject).toHaveBeenCalledWith('/fake/project', { automatic: true });
+  });
+
+  it('does not re-run the code-index bridge for spawn-time auto refresh after a recent sync', async () => {
+    const deps = createDeps();
+    deps.codeIndexBridge.getStatus.mockReturnValue({
+      projectKey: '/fake/project',
+      status: 'ready',
+      fileCount: 1,
+      symbolCount: 1,
+      lastSyncedAt: Date.now(),
+      updatedAt: Date.now(),
+      metadata: {},
+    });
+    const coordinator = new ProjectKnowledgeCoordinator(deps);
+
+    await coordinator.ensureProjectKnown('/fake/project', 'instance-working-directory', { autoRefresh: true });
+
+    expect(deps.codeIndexBridge.refreshProject).not.toHaveBeenCalled();
+    expect(deps.miner.mineDirectory).toHaveBeenCalledWith('/fake/project');
   });
 
   it('skips auto-refresh when a project is paused', async () => {

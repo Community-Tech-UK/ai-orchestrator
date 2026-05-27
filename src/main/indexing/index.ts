@@ -64,3 +64,23 @@ export { ContextAssembler, getContextAssembler, resetContextAssembler } from './
 export type { AssembleContextOptions } from './context-assembler';
 export { SearchAnalytics, getSearchAnalytics, resetSearchAnalytics } from './search-analytics';
 export type { LogSearchOptions } from './search-analytics';
+export {
+  CodebaseIndexingAutoCoordinator,
+  getCodebaseIndexingAutoCoordinator,
+  resetCodebaseIndexingAutoCoordinatorForTesting,
+} from './codebase-indexing-auto-coordinator';
+export type {
+  CodebaseIndexingAutoCoordinatorOptions,
+  AutoIndexingTarget,
+  AutoIndexFileWatcherTarget,
+  AutoIndexContextManagerTarget,
+  AutoIndexProjectRegistryTarget,
+  AutoIndexSettingsTarget,
+  CodebaseAutoStatusEvent,
+  PreflightResult as CodebaseAutoIndexPreflightResult,
+} from './codebase-indexing-auto-coordinator';
+export type {
+  CodebaseAutoIndexStatus,
+  CodebaseAutoIndexState,
+  CodebaseAutoIndexSkipReason,
+} from '../../shared/types/codebase.types';

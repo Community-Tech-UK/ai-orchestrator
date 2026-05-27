@@ -19,6 +19,7 @@ const EXCLUDED_SCAN_DIRS = new Set([
   'node_modules',
   'dist',
   'build',
+  'release',
   '.angular',
   '.worktrees',
   // macOS protected directories — scanning these triggers TCC permission prompts
@@ -64,12 +65,17 @@ function toPosixPath(value: string): string {
 
 function getHomeDir(): string {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { app } = require('electron');
-    return app.getPath('home');
+    // Electron is unavailable in some unit-test/runtime contexts.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { app } = require('electron') as { app?: { getPath(name: string): string } };
+    const electronHome = app?.getPath('home');
+    if (electronHome) {
+      return electronHome;
+    }
   } catch {
-    return process.env['HOME'] || process.env['USERPROFILE'] || '';
+    // Fall through to process env below.
   }
+  return process.env['HOME'] || process.env['USERPROFILE'] || '';
 }
 
 function dedupePreserveOrder(values: string[]): string[] {
@@ -139,7 +145,20 @@ async function collectMatchingFiles(
 
   while (queue.length > 0) {
     const current = queue.shift()!;
-    const entries = await fs.readdir(current, { withFileTypes: true });
+    let entries;
+    try {
+      entries = await fs.readdir(current, { withFileTypes: true });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'EACCES' || code === 'EPERM') {
+        logger.debug('Skipping instruction scan directory', {
+          directory: current,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        continue;
+      }
+      throw error;
+    }
 
     for (const entry of entries) {
       const absolutePath = path.join(current, entry.name);

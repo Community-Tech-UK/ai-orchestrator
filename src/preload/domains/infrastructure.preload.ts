@@ -825,5 +825,36 @@ export function createInfrastructureDomain(
         ipcRenderer.removeListener(ch.CODEBASE_WATCHER_CHANGES, listener);
       };
     },
+
+    /**
+     * Get the current auto-index status for one or all workspaces.
+     * Pass `rootPath` to scope to a single workspace; omit it to fetch all.
+     */
+    codebaseAutoStatusGet: (rootPath?: string): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(
+        ch.CODEBASE_AUTO_STATUS_GET,
+        rootPath ? { rootPath } : undefined,
+      );
+    },
+
+    // Note: `codebaseAutoHint` was consolidated into the unified
+    // `workspace.workspaceHintActive(...)` exposed by the workspace preload
+    // domain. The main-process handler fans the hint out to this
+    // coordinator alongside its siblings.
+
+    /**
+     * Listen for auto-index status changes (queued → running → complete / failed / skipped).
+     */
+    onCodebaseAutoStatusChanged: (
+      callback: (status: unknown) => void
+    ): (() => void) => {
+      const listener = (_event: IpcRendererEvent, status: unknown): void => {
+        callback(status);
+      };
+      ipcRenderer.on(ch.CODEBASE_AUTO_STATUS_CHANGED, listener);
+      return () => {
+        ipcRenderer.removeListener(ch.CODEBASE_AUTO_STATUS_CHANGED, listener);
+      };
+    },
   };
 }

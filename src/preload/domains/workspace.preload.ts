@@ -902,5 +902,27 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
       return ipcRenderer.invoke(ch.REPO_JOB_GET_STATS);
     },
 
+    // ============================================
+    // Workspace Hint (unified active-workspace signal)
+    // ============================================
+
+    /**
+     * Fire-and-forget hint that the user's current focus is this workspace.
+     * The main-process handler fans the hint out to every coordinator that
+     * subscribes to "workspace is present" events (codemem prewarm,
+     * codebase auto-index, project knowledge mirror).
+     *
+     * Pass `nodeId` for remote workspaces — the fan-out is a no-op in that
+     * case because remote nodes own their own coordinators. Returns
+     * `{ accepted: boolean }` so callers can log if validation rejected
+     * the payload.
+     */
+    workspaceHintActive: (payload: {
+      path: string;
+      nodeId?: string | null;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.WORKSPACE_HINT_ACTIVE, payload);
+    },
+
   };
 }

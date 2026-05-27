@@ -57,7 +57,10 @@ import { getWorkflowManager } from '../workflows/workflow-manager';
 import { getPermissionManager } from '../security/permission-manager';
 import { PermissionDecisionStore } from '../security/permission-decision-store';
 import { WorkflowPersistence } from '../workflows/workflow-persistence';
-import { initializeCodemem, getCodemem } from '../codemem';
+import { initializeCodemem, getCodemem, getCodememPrewarmCoordinator } from '../codemem';
+import { getCodebaseIndexingAutoCoordinator } from '../indexing';
+import { getProjectKnowledgeAutoMirrorCoordinator } from '../memory';
+import { getRecentDirectoriesManager } from '../core/config/recent-directories-manager';
 import { initializeAutomations } from '../automations';
 import { initializeBrowserGatewayRuntime } from '../browser-gateway';
 import { initializeCodememRpcServer } from '../codemem/codemem-rpc-server';
@@ -508,6 +511,152 @@ export function createInitializationSteps(
       },
     },
     { name: 'Codemem', fn: () => initializeCodemem() },
+    {
+      // Codemem prewarm coordinator — subscribes to RecentDirectoriesManager
+      // and fires `warmWorkspace(path)` in the background whenever a workspace
+      // enters the app, so codemem is already indexed by the time the user
+      // launches an instance against it. The spawn-time warm-up in
+      // `instance-lifecycle.ts` stays in place as the safety net.
+      name: 'Codemem prewarm coordinator',
+      fn: async () => {
+        try {
+          const settings = getSettingsManager().getAll();
+          if (!settings.codememEnabled || !settings.codememIndexingEnabled) {
+            logger.info('Codemem prewarm coordinator skipped — codemem disabled');
+            return;
+          }
+          if (settings.codememPrewarmEnabled === false) {
+            logger.info('Codemem prewarm coordinator skipped — disabled in settings');
+            return;
+          }
+
+          const coordinator = getCodememPrewarmCoordinator();
+          coordinator.start();
+
+          if (settings.codememPrewarmStartupHint !== false) {
+            // Pre-warm the most recently used local workspace so re-opening
+            // the same project is fast. We deliberately limit this to one
+            // path on startup to avoid saturating the index worker.
+            try {
+              const recents = await getRecentDirectoriesManager().getDirectories({
+                limit: 1,
+                sortBy: 'lastAccessed',
+              });
+              const mostRecent = recents.find((entry) => !entry.nodeId);
+              if (mostRecent) {
+                logger.info('Codemem prewarm startup hint', { path: mostRecent.path });
+                coordinator.hintActiveWorkspace(mostRecent.path);
+              }
+            } catch (err) {
+              logger.warn('Codemem prewarm startup hint failed', {
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
+        } catch (err) {
+          logger.warn('Codemem prewarm coordinator failed to start (continuing without prewarm)', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      },
+    },
+    {
+      // Codebase indexing auto-coordinator — subscribes to the same
+      // `directory-added` event as the codemem prewarm coordinator, but drives
+      // the heavier embedding/BM25 pipeline (`CodebaseIndexingService`). One
+      // simultaneous run by default, with a size-based preflight that skips
+      // large repos to avoid pinning the embedder. See
+      // docs/plans/2026-05-26-codebase-indexing-auto-start.md.
+      name: 'Codebase auto-index coordinator',
+      fn: async () => {
+        try {
+          const settings = getSettingsManager().getAll();
+          if (settings.codebaseAutoIndexEnabled === false) {
+            logger.info('Codebase auto-index coordinator skipped — disabled in settings');
+            return;
+          }
+
+          const coordinator = getCodebaseIndexingAutoCoordinator();
+          coordinator.start();
+
+          // Hint the most-recent local workspace so it's prioritised on startup.
+          try {
+            const recents = await getRecentDirectoriesManager().getDirectories({
+              limit: 1,
+              sortBy: 'lastAccessed',
+            });
+            const mostRecent = recents.find((entry) => !entry.nodeId);
+            if (mostRecent) {
+              logger.info('Codebase auto-index startup hint', { path: mostRecent.path });
+              coordinator.hintActiveWorkspace(mostRecent.path);
+            }
+          } catch (err) {
+            logger.warn('Codebase auto-index startup hint failed', {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        } catch (err) {
+          logger.warn('Codebase auto-index coordinator failed to start', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      },
+    },
+    {
+      // Project knowledge auto-mirror coordinator — third subscriber to
+      // `directory-added`. Runs `ensureProjectKnown(..., 'recent-directory-open',
+      // { autoRefresh: true })` so the RLM mirror of codemem's snapshot
+      // (the data behind the Knowledge Graph view + wake-context hints)
+      // refreshes when a workspace enters the app, instead of waiting for
+      // a CLI to be spawned against it. The spawn-time call in
+      // `instance-lifecycle.ts` stays in place as the always-fresh safety
+      // net. See docs/plans/2026-05-26-project-code-index-bridge-auto-mirror.md.
+      name: 'Project knowledge auto-mirror coordinator',
+      fn: async () => {
+        try {
+          const settings = getSettingsManager().getAll();
+          if (!settings.codememEnabled || !settings.codememIndexingEnabled) {
+            logger.info('Project knowledge auto-mirror coordinator skipped — codemem disabled');
+            return;
+          }
+          if (settings.projectKnowledgeAutoMirrorEnabled === false) {
+            logger.info('Project knowledge auto-mirror coordinator skipped — disabled in settings');
+            return;
+          }
+
+          const coordinator = getProjectKnowledgeAutoMirrorCoordinator();
+          coordinator.start();
+
+          if (settings.projectKnowledgeAutoMirrorStartupHint !== false) {
+            // Mirror the most recently used *local* workspace so the project
+            // knowledge view is populated when the user returns. Same one-
+            // path policy as the sibling coordinators above. We fetch a small
+            // window (not just `limit: 1`) so a remote newest entry doesn't
+            // suppress the startup hint when an available local workspace
+            // exists further down the list.
+            try {
+              const recents = await getRecentDirectoriesManager().getDirectories({
+                limit: 10,
+                sortBy: 'lastAccessed',
+              });
+              const mostRecentLocal = recents.find((entry) => !entry.nodeId);
+              if (mostRecentLocal) {
+                logger.info('Project knowledge auto-mirror startup hint', { path: mostRecentLocal.path });
+                coordinator.hintActiveWorkspace(mostRecentLocal.path);
+              }
+            } catch (err) {
+              logger.warn('Project knowledge auto-mirror startup hint failed', {
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
+        } catch (err) {
+          logger.warn('Project knowledge auto-mirror coordinator failed to start', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      },
+    },
     {
       name: 'Browser Gateway',
       fn: () =>

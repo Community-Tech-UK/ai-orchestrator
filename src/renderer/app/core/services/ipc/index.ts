@@ -28,6 +28,7 @@ export { CommandIpcService } from './command-ipc.service';
 export { PromptHistoryIpcService } from './prompt-history-ipc.service';
 export { PauseIpcService } from './pause-ipc.service';
 export { LspIpcService } from './lsp-ipc.service';
+export { WorkspaceIpcService } from './workspace-ipc.service';
 export { TaskIpcService } from './task-ipc.service';
 export { SecurityIpcService } from './security-ipc.service';
 export { CostIpcService } from './cost-ipc.service';

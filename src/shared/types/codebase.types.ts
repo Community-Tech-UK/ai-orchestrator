@@ -355,6 +355,37 @@ export interface FileChangeEvent {
 }
 
 // ============================================================================
+// Auto-Index Coordinator Types
+// ============================================================================
+
+export type CodebaseAutoIndexState =
+  | 'idle'
+  | 'queued'
+  | 'running'
+  | 'complete'
+  | 'skipped'
+  | 'failed';
+
+export type CodebaseAutoIndexSkipReason =
+  | 'too_large'
+  | 'excluded'
+  | 'disabled'
+  | 'remote'
+  | 'error';
+
+export interface CodebaseAutoIndexStatus {
+  rootPath: string;
+  storeId: string;
+  state: CodebaseAutoIndexState;
+  reason?: CodebaseAutoIndexSkipReason;
+  startedAt?: number;
+  completedAt?: number;
+  filesProcessed?: number;
+  chunksProcessed?: number;
+  errorMessage?: string;
+}
+
+// ============================================================================
 // Context Assembly Types
 // ============================================================================
 

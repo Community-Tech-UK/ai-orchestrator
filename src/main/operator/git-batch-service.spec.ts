@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { GitBatchService } from './git-batch-service';
 
 describe('GitBatchService', () => {
+  const GIT_INTEGRATION_TIMEOUT_MS = 15_000;
   const tempPaths: string[] = [];
 
   afterEach(async () => {
@@ -18,7 +19,7 @@ describe('GitBatchService', () => {
     const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'git-batch-pull-'));
     tempPaths.push(workspace);
     const { seed, clone } = setupTrackingRepo(workspace);
-    const commands: Array<Record<string, unknown>> = [];
+    const commands: Record<string, unknown>[] = [];
 
     await fs.writeFile(path.join(seed, 'feature.txt'), 'feature\n', 'utf-8');
     git(seed, ['add', 'feature.txt']);
@@ -58,7 +59,7 @@ describe('GitBatchService', () => {
         durationMs: expect.any(Number),
       }),
     ]);
-  });
+  }, GIT_INTEGRATION_TIMEOUT_MS);
 
   it('skips dirty and no-remote repositories', async () => {
     const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'git-batch-skip-'));
@@ -78,7 +79,7 @@ describe('GitBatchService', () => {
       ['dirty-repo', 'dirty_worktree'],
       ['no-remote', 'no_remote'],
     ]);
-  });
+  }, GIT_INTEGRATION_TIMEOUT_MS);
 
   it('skips no-upstream, detached, and divergent repositories with reasons', async () => {
     const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'git-batch-safety-'));
@@ -107,7 +108,7 @@ describe('GitBatchService', () => {
       ['divergent', 'divergent'],
       ['no-upstream', 'no_upstream'],
     ]);
-  });
+  }, GIT_INTEGRATION_TIMEOUT_MS);
 
   function setupTrackingRepo(workspace: string, cloneName = 'app'): { seed: string; clone: string } {
     const remote = path.join(workspace, `${cloneName}.git`);

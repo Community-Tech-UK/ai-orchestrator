@@ -53,8 +53,15 @@ describe('RendererErrorHandler', () => {
   it('persists crash info to sessionStorage', () => {
     handler.handleError(new Error('storage test'));
 
-    const keys = Object.keys(sessionStorage).filter((k) => k.startsWith('aio:last-renderer-crash:'));
-    expect(keys.length).toBeGreaterThan(0);
+    const keys = Array.from({ length: sessionStorage.length }, (_, index) => sessionStorage.key(index));
+    const crashKey = keys.find((key) => key?.startsWith('aio:last-renderer-crash:'));
+    expect(crashKey).toBeDefined();
+
+    const storedCrash = sessionStorage.getItem(crashKey ?? '');
+    expect(storedCrash).not.toBeNull();
+    expect(JSON.parse(storedCrash ?? '{}')).toEqual(
+      expect.objectContaining({ name: 'Error', message: 'storage test' }),
+    );
   });
 
   it('does not throw when electronAPI is absent', () => {

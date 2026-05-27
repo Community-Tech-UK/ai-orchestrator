@@ -121,4 +121,39 @@ describe('instruction-resolver', () => {
     expect(draft.content).toContain('## Imported Sources');
     expect(draft.content).toContain('Project AGENTS');
   });
+
+  it('continues when a generated directory cannot be read during recursive scan', async () => {
+    const projectDir = path.join(tempRoot, 'repo');
+    const unreadableDir = path.join(projectDir, 'release', 'mac-arm64', 'Electron.app');
+    await fs.mkdir(unreadableDir, { recursive: true });
+    await fs.writeFile(path.join(projectDir, 'AGENTS.md'), 'Project AGENTS');
+
+    await fs.chmod(unreadableDir, 0o000);
+    let resolution;
+    try {
+      resolution = await resolveInstructionStack({
+        workingDirectory: projectDir,
+      });
+    } finally {
+      await fs.chmod(unreadableDir, 0o700).catch(() => { /* best-effort cleanup */ });
+    }
+
+    expect(resolution.mergedContent).toContain('Project AGENTS');
+  });
+
+  it('does not scan release output for scoped instruction files', async () => {
+    const projectDir = path.join(tempRoot, 'repo');
+    await fs.mkdir(path.join(projectDir, 'release'), { recursive: true });
+    await fs.writeFile(path.join(projectDir, 'AGENTS.md'), 'Project AGENTS');
+    await fs.writeFile(path.join(projectDir, 'release', 'AGENTS.md'), 'Generated AGENTS');
+
+    const resolution = await resolveInstructionStack({
+      workingDirectory: projectDir,
+    });
+
+    expect(resolution.sources.some((source) =>
+      source.path.includes(`${path.sep}release${path.sep}`),
+    )).toBe(false);
+    expect(resolution.mergedContent).not.toContain('Generated AGENTS');
+  });
 });

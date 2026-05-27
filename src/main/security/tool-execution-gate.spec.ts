@@ -142,4 +142,48 @@ describe('ToolExecutionGate', () => {
     expect(decision.action).toBe('ask');
     expect(decision.source).toBe('bash-validation');
   });
+
+  it('auto-allows read-only bash for child instances when no explicit rule matched', () => {
+    mockEnforce.mockReturnValue({
+      action: 'ask',
+      reason: 'No matching rule - using default action',
+      mode: 'workspace_write',
+      source: 'mode',
+      request,
+      fromCache: false,
+      decidedAt: 1,
+    });
+    mockValidateBash.mockReturnValue({
+      valid: true,
+      risk: 'safe',
+      command: 'ls -la /tmp/project/src/file.ts 2>&1 || echo "GONE"',
+      intent: 'read_only',
+      evasionFlags: {},
+      submoduleResults: [],
+    });
+
+    const decision = new ToolExecutionGate().evaluate({
+      request: {
+        ...request,
+        scope: 'bash_execute',
+        resource: 'bash:ls -la /tmp/project/src/file.ts',
+        context: {
+          ...request.context,
+          isChildInstance: true,
+          depth: 1,
+        },
+      },
+      toolName: 'Bash',
+      toolInput: { command: 'ls -la /tmp/project/src/file.ts 2>&1 || echo "GONE"' },
+    });
+
+    expect(decision.action).toBe('allow');
+    expect(decision.source).toBe('bash-validation');
+    expect(decision.reason).toContain('read-only Bash');
+    expect(mockValidateBash).toHaveBeenCalledTimes(2);
+    expect(mockValidateBash).toHaveBeenLastCalledWith(
+      'ls -la /tmp/project/src/file.ts 2>&1 || echo "GONE"',
+      expect.objectContaining({ mode: 'read_only', instanceDepth: 1 }),
+    );
+  });
 });

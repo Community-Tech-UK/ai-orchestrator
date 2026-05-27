@@ -252,6 +252,7 @@ export class RLMContextManager extends EventEmitter {
 
     for (const row of storeRows) {
       const sectionRows = this.db.getSections(row.id);
+      const config = parseStoreConfig(row.config_json);
 
       const store: ContextStore = {
         id: row.id,
@@ -262,7 +263,8 @@ export class RLMContextManager extends EventEmitter {
         searchIndex: createSearchIndex(),
         createdAt: row.created_at,
         lastAccessed: row.last_accessed,
-        accessCount: row.access_count
+        accessCount: row.access_count,
+        ...(config ? { config } : {})
       };
 
       // Rebuild in-memory search index
@@ -349,8 +351,8 @@ export class RLMContextManager extends EventEmitter {
 
   // ============ Store Management ============
 
-  createStore(instanceId: string): ContextStore {
-    const store = createStoreOp(instanceId, this.stores, this.getStorageDeps());
+  createStore(instanceId: string, config?: Record<string, unknown>): ContextStore {
+    const store = createStoreOp(instanceId, this.stores, this.getStorageDeps(), config);
     this.emit('store:created', store);
     return store;
   }
@@ -698,3 +700,16 @@ export function getRLMContextManager(): RLMContextManager {
 
 // Re-export types for backwards compatibility
 export type { ExportedStore } from './context';
+
+function parseStoreConfig(configJson: string | null): Record<string, unknown> | undefined {
+  if (!configJson) return undefined;
+  try {
+    const parsed = JSON.parse(configJson) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Corrupt store config should not prevent RLM stores from loading.
+  }
+  return undefined;
+}

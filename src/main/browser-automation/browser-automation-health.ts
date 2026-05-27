@@ -177,14 +177,14 @@ async function detectBrowserRuntime(): Promise<{ available: boolean; command?: s
 }
 
 async function detectNodeAvailability(): Promise<boolean> {
-  // After Phase 5 there is no longer a separate Node-host we need to probe —
-  // the `aio-mcp` SEA dispatcher is the single Node runtime we ship, and it
-  // is just a file on disk. Presence of the binary is sufficient evidence
-  // that a healthy Node runtime is available to the spawned MCP forwarders.
-  // (Pre-Phase-5 this used to spawn `process.execPath --version` with
-  // `ELECTRON_RUN_AS_NODE=1`, which silently failed under the `RunAsNode=false`
-  // fuse and caused a Dock-icon flash on macOS.)
-  return Promise.resolve(resolveAioMcpCliPath() !== null);
+  // The in-app browser gateway uses the shipped `aio-mcp` SEA dispatcher, while
+  // legacy Claude settings can still launch browser MCP servers through `npx`.
+  // Either runtime is enough evidence that browser automation can start.
+  if (resolveAioMcpCliPath() !== null) {
+    return true;
+  }
+
+  return commandExists('node');
 }
 
 export class BrowserAutomationHealthService {

@@ -92,6 +92,11 @@ export const CodebaseWatcherPayloadSchema = z.object({
   rootPath: DirectoryPathSchema.optional(),
 });
 
+// Note: the legacy `CodebaseAutoHintPayloadSchema` was removed when the
+// per-subsystem hint channels (CODEBASE_AUTO_HINT, CODEMEM_PREWARM_HINT)
+// were consolidated into a single `WORKSPACE_HINT_ACTIVE` channel. See
+// `WorkspaceHintActivePayloadSchema` in workspace-tools.schemas.ts.
+
 // ============ App / File Handler Payloads ============
 
 export const AppOpenDocsPayloadSchema = z.object({

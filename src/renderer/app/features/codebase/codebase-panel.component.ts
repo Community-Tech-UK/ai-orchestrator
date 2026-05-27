@@ -26,6 +26,7 @@ import { CodebaseSearchComponent } from './codebase-search.component';
 import { SearchResultsComponent } from './search-results.component';
 import { CodebaseStatsComponent } from './codebase-stats.component';
 import type {
+  CodebaseAutoIndexStatus,
   IndexStats,
   HybridSearchOptions,
   HybridSearchResult,
@@ -56,6 +57,15 @@ interface ToastNotification {
         <div class="header-left">
           <span class="codebase-icon">📚</span>
           <span class="codebase-title">Codebase Index</span>
+          @if (autoStatusBadge(); as badge) {
+            <span
+              class="auto-status-badge"
+              [class]="'auto-status-' + badge.tone"
+              [title]="badge.title"
+            >
+              {{ badge.label }}
+            </span>
+          }
         </div>
         <div class="header-actions">
           @if (isIndexing()) {
@@ -199,6 +209,50 @@ interface ToastNotification {
       font-size: 14px;
       font-weight: 600;
       color: var(--text-primary);
+    }
+
+    .auto-status-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 500;
+      line-height: 1.4;
+      letter-spacing: 0.02em;
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-color);
+    }
+
+    .auto-status-info {
+      background: rgba(59, 130, 246, 0.15);
+      color: rgb(59, 130, 246);
+      border-color: rgba(59, 130, 246, 0.4);
+    }
+
+    .auto-status-progress {
+      background: rgba(245, 158, 11, 0.15);
+      color: rgb(245, 158, 11);
+      border-color: rgba(245, 158, 11, 0.4);
+    }
+
+    .auto-status-success {
+      background: rgba(16, 185, 129, 0.15);
+      color: rgb(16, 185, 129);
+      border-color: rgba(16, 185, 129, 0.4);
+    }
+
+    .auto-status-warn {
+      background: rgba(234, 179, 8, 0.15);
+      color: rgb(202, 138, 4);
+      border-color: rgba(234, 179, 8, 0.4);
+    }
+
+    .auto-status-error {
+      background: rgba(239, 68, 68, 0.15);
+      color: rgb(239, 68, 68);
+      border-color: rgba(239, 68, 68, 0.4);
     }
 
     .header-actions {
@@ -436,6 +490,80 @@ export class CodebasePanelComponent implements OnInit, OnDestroy {
     return (this.indexStats()?.totalFiles || 0) > 0;
   });
 
+  /**
+   * Current auto-index status for the workspace this panel is bound to. We
+   * pick the entry whose rootPath matches the user-entered path, falling back
+   * to "any status" when there's only one tracked workspace (the common case
+   * for a single-workspace app session).
+   */
+  autoStatus = computed<CodebaseAutoIndexStatus | null>(() => {
+    const statuses = this.ipcService.autoStatusByPath();
+    const path = this.rootPath().trim();
+    if (path && statuses[path]) {
+      return statuses[path];
+    }
+    const all = Object.values(statuses);
+    if (all.length === 1) {
+      return all[0];
+    }
+    return null;
+  });
+
+  /**
+   * Rendered representation of the current auto-status: short label, tooltip,
+   * and visual tone. Returns `null` when nothing relevant to show (no status
+   * known, or the run is already complete and the panel has its own stats).
+   */
+  autoStatusBadge = computed<{ label: string; title: string; tone: 'info' | 'progress' | 'success' | 'warn' | 'error' } | null>(() => {
+    const status = this.autoStatus();
+    if (!status) return null;
+
+    switch (status.state) {
+      case 'queued':
+        return { label: 'Queued', title: 'Auto-index queued — will start shortly.', tone: 'info' };
+      case 'running': {
+        const filesText = typeof status.filesProcessed === 'number'
+          ? ` (${status.filesProcessed} files)`
+          : '';
+        return {
+          label: 'Indexing…',
+          title: `Auto-index running${filesText}.`,
+          tone: 'progress',
+        };
+      }
+      case 'complete':
+        return { label: 'Indexed', title: 'Auto-index complete.', tone: 'success' };
+      case 'skipped': {
+        if (status.reason === 'too_large') {
+          return {
+            label: 'Too large — index manually',
+            title: 'This workspace exceeds the auto-index size limits. Use the Index Codebase button to force a full run.',
+            tone: 'warn',
+          };
+        }
+        if (status.reason === 'disabled') {
+          return { label: 'Auto-index off', title: 'Auto-index disabled in settings.', tone: 'warn' };
+        }
+        if (status.reason === 'excluded') {
+          return { label: 'Excluded', title: 'Workspace marked as excluded from auto-indexing.', tone: 'warn' };
+        }
+        if (status.reason === 'remote') {
+          return { label: 'Remote workspace', title: 'Remote workspaces manage their own indices.', tone: 'info' };
+        }
+        return { label: 'Skipped', title: 'Auto-index skipped.', tone: 'warn' };
+      }
+      case 'failed':
+        return {
+          label: 'Failed',
+          title: status.errorMessage ?? 'Auto-index failed.',
+          tone: 'error',
+        };
+      case 'idle':
+      default:
+        return null;
+    }
+  });
+
   constructor() {
     // Sync initial path
     effect(() => {
@@ -457,6 +585,21 @@ export class CodebasePanelComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.loadStats();
     this.loadWatcherStatus();
+    void this.loadAutoStatus();
+  }
+
+  async loadAutoStatus(): Promise<void> {
+    const response = await this.ipcService.getAutoStatus();
+    if (!response.success || !response.data) return;
+    const list = Array.isArray(response.data) ? response.data : [response.data];
+    // Seed the IPC service signal so the badge has data before any push events arrive.
+    if (list.length > 0) {
+      const seed: Record<string, CodebaseAutoIndexStatus> = {};
+      for (const status of list) {
+        seed[status.rootPath] = status;
+      }
+      this.ipcService.autoStatusByPath.update((current) => ({ ...seed, ...current }));
+    }
   }
 
   ngOnDestroy(): void {
@@ -473,7 +616,13 @@ export class CodebasePanelComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const response = await this.ipcService.indexCodebase(this.storeId(), path);
+    // The manual button is the "re-index from scratch" affordance — the
+    // auto-coordinator already runs incremental Merkle scans on workspace
+    // open, so the only reason a user would click this button is to force a
+    // full re-index (e.g. after switching branches or noticing stale results).
+    const response = await this.ipcService.indexCodebase(this.storeId(), path, {
+      force: true,
+    });
 
     if (response.success) {
       this.showToast('Indexing started', 'info');

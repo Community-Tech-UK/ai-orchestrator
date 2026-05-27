@@ -63,6 +63,17 @@ export class ProjectRootRegistry {
     return miningStore.excludeProjectRoot(this.db, root.normalizedPath, Date.now());
   }
 
+  /**
+   * Whether a root may be auto-mined right now.
+   *
+   * Note: this gate intentionally does NOT switch on `discoverySource`.
+   * All sources — including `'recent-directory-open'` (used by
+   * `ProjectKnowledgeAutoMirrorCoordinator`) — auto-mine by default because
+   * `ensureProjectRoot` writes `auto_mine = 1` for newly-discovered rows
+   * regardless of how they were discovered. If you ever want to restrict
+   * auto-mining to a subset of sources, gate it here and *also* revisit
+   * the coordinator that owns the new source.
+   */
   canAutoMine(rootPath: string): boolean {
     const root = this.getRoot(rootPath);
     return !root?.isPaused && !root?.isExcluded && root?.autoMine !== false;
