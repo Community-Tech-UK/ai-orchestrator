@@ -110,4 +110,32 @@ describe('CodeIndexManager watcher pressure relief', () => {
 
     await manager.stop();
   });
+
+  it('passes native watchers an ignore matcher that prunes dependency directories', async () => {
+    await writeFiles(workDir, 1);
+    const manager = new CodeIndexManager({
+      store: createStoreStub(),
+      debounceMs: 30,
+      maxNativeWatchFiles: 10,
+    } as any);
+
+    await manager.start(workDir);
+
+    const options = vi.mocked(watch).mock.calls[0]?.[1] as { ignored?: unknown } | undefined;
+    const ignored = Array.isArray(options?.ignored)
+      ? options.ignored
+      : [options?.ignored];
+    const predicates = ignored.filter(
+      (matcher): matcher is (candidatePath: string) => boolean => typeof matcher === 'function',
+    );
+
+    expect(predicates.some((predicate) =>
+      predicate(path.join(workDir, 'node_modules', 'pkg', 'index.js')),
+    )).toBe(true);
+    expect(predicates.some((predicate) =>
+      predicate(path.join(workDir, 'src', 'file-0.ts')),
+    )).toBe(false);
+
+    await manager.stop();
+  });
 });

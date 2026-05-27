@@ -124,6 +124,7 @@ export class CodememService extends EventEmitter {
     const indexResult = await this.indexWorkerGateway.warmWorkspace(workspacePath, timeoutMs);
 
     if (!indexResult.indexed) {
+      this.cancelStaleWarmWorkspace(normalizedPath, workspaceHash, timeoutMs);
       this.workspaceLspState.set(workspaceHash, 'lsp_unavailable');
       this.workspaceLspReadyFiles.delete(workspaceHash);
       return { ready: false, filePath: null };
@@ -158,6 +159,31 @@ export class CodememService extends EventEmitter {
 
   getWorkspaceLspState(workspacePath: string): WorkspaceLspState {
     return this.workspaceLspState.get(workspaceHashForPath(path.resolve(workspacePath))) ?? 'idle';
+  }
+
+  private cancelStaleWarmWorkspace(
+    normalizedPath: string,
+    workspaceHash: string,
+    timeoutMs: number,
+  ): void {
+    const existingStatus = this.store.getIndexStatus(workspaceHash);
+    if (!existingStatus || existingStatus.state !== 'running') {
+      return;
+    }
+
+    const completedAt = Date.now();
+    this.store.requestCancel(workspaceHash);
+    this.store.upsertIndexStatus({
+      ...existingStatus,
+      state: 'cancelled',
+      phase: 'none',
+      currentPath: null,
+      updatedAt: completedAt,
+      completedAt,
+      errorMessage: `Codemem warm did not complete within ${timeoutMs}ms; cancellation requested.`,
+      cancelRequested: true,
+      absPath: normalizedPath,
+    });
   }
 
   private registerMcpTools(): void {

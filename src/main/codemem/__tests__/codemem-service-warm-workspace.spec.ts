@@ -132,4 +132,47 @@ describe('CodememService.warmWorkspace', () => {
     expect(coldIndex).not.toHaveBeenCalled();
     expect(startWatcher).not.toHaveBeenCalled();
   });
+
+  it('marks a running index as cancelled when warmWorkspace returns degraded before completion', async () => {
+    service = new CodememService();
+    const normalizedPath = path.resolve(workspacePath);
+    const workspaceHash = workspaceHashForPath(normalizedPath);
+    const startedAt = Date.now() - 60_000;
+    service.store.upsertIndexStatus({
+      workspaceHash,
+      absPath: normalizedPath,
+      state: 'running',
+      phase: 'chunking',
+      totalFiles: 100,
+      processedFiles: 25,
+      totalChunks: 50,
+      processedChunks: 50,
+      currentPath: 'src/current.ts',
+      startedAt,
+      updatedAt: startedAt + 1_000,
+      completedAt: null,
+      errorMessage: null,
+      cancelRequested: false,
+    });
+    vi.spyOn(service.indexWorkerGateway, 'warmWorkspace').mockResolvedValue({
+      indexed: false,
+      absPath: normalizedPath,
+      primaryLanguage: 'typescript',
+    });
+
+    await expect(service.warmWorkspace(workspacePath, 1234)).resolves.toEqual({
+      ready: false,
+      filePath: null,
+    });
+
+    const status = service.store.getIndexStatus(workspaceHash);
+    expect(status).toEqual(expect.objectContaining({
+      state: 'cancelled',
+      phase: 'none',
+      currentPath: null,
+      cancelRequested: true,
+    }));
+    expect(status?.completedAt).toEqual(expect.any(Number));
+    expect(status?.errorMessage).toContain('Codemem warm did not complete');
+  });
 });

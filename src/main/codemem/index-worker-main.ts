@@ -23,6 +23,8 @@ import type {
   CodeIndexStatusSnapshot,
   IndexWorkerInboundMsg,
   IndexWorkerOutboundMsg,
+  RebuildIndexMsg,
+  WarmWorkspaceMsg,
   WarmWorkspaceResult,
 } from './index-worker-protocol';
 
@@ -87,43 +89,58 @@ function respond(id: number, result?: unknown, error?: string): void {
 
 // ── Message routing ───────────────────────────────────────────────────────────
 
+type HeavyIndexWorkerMsg = WarmWorkspaceMsg | RebuildIndexMsg;
+
+let heavyWorkQueue: Promise<void> = Promise.resolve();
+let shuttingDown = false;
+
 parentPort!.on('message', (msg: IndexWorkerInboundMsg) => {
-  void handleMessage(msg);
+  if (isHeavyMessage(msg)) {
+    queueHeavyMessage(msg);
+    return;
+  }
+  void handleControlMessage(msg);
 });
 
-async function handleMessage(msg: IndexWorkerInboundMsg): Promise<void> {
+function isHeavyMessage(msg: IndexWorkerInboundMsg): msg is HeavyIndexWorkerMsg {
+  return msg.type === 'warm-workspace' || msg.type === 'rebuild-index';
+}
+
+function queueHeavyMessage(msg: HeavyIndexWorkerMsg): void {
+  const run = heavyWorkQueue.then(async () => {
+    if (shuttingDown) {
+      respond(msg.id, undefined, 'Index worker is shutting down');
+      return;
+    }
+    await handleHeavyMessage(msg);
+  });
+  heavyWorkQueue = run.catch(() => undefined);
+}
+
+async function handleHeavyMessage(msg: HeavyIndexWorkerMsg): Promise<void> {
   switch (msg.type) {
     case 'warm-workspace': {
       try {
-        const normalizedPath = path.resolve(msg.workspacePath);
-        const workspaceHash = workspaceHashForPath(normalizedPath);
-
-        // Cold index if the workspace isn't already tracked.
-        let workspaceRoot = store.getWorkspaceRootByPath(normalizedPath);
-        if (!workspaceRoot) {
-          await indexManager.coldIndex(normalizedPath);
-          workspaceRoot = store.getWorkspaceRootByPath(normalizedPath);
-        }
-
-        // Start an incremental watcher if not already watching.
-        if (!watchedWorkspaces.has(workspaceHash)) {
-          await indexManager.start(normalizedPath, workspaceHash);
-          watchedWorkspaces.add(workspaceHash);
-        }
-        watchedWorkspacePaths.set(workspaceHash, normalizedPath);
-
-        const result: WarmWorkspaceResult = {
-          indexed: !!workspaceRoot,
-          absPath: workspaceRoot?.absPath ?? normalizedPath,
-          primaryLanguage: workspaceRoot?.primaryLanguage ?? 'typescript',
-        };
-        respond(msg.id, result);
+        await warmWorkspace(msg);
       } catch (err) {
         respond(msg.id, undefined, err instanceof Error ? err.message : String(err));
       }
       break;
     }
 
+    case 'rebuild-index': {
+      try {
+        await rebuildIndex(msg);
+      } catch (err) {
+        respond(msg.id, undefined, err instanceof Error ? err.message : String(err));
+      }
+      break;
+    }
+  }
+}
+
+async function handleControlMessage(msg: Exclude<IndexWorkerInboundMsg, HeavyIndexWorkerMsg>): Promise<void> {
+  switch (msg.type) {
     case 'get-index-status': {
       const normalizedPath = path.resolve(msg.workspacePath);
       const workspaceHash = workspaceHashForPath(normalizedPath);
@@ -136,30 +153,6 @@ async function handleMessage(msg: IndexWorkerInboundMsg): Promise<void> {
       const workspaceHash = workspaceHashForPath(normalizedPath);
       store.requestCancel(workspaceHash);
       respond(msg.id);
-      break;
-    }
-
-    case 'rebuild-index': {
-      try {
-        const normalizedPath = path.resolve(msg.workspacePath);
-        const workspaceHash = workspaceHashForPath(normalizedPath);
-        store.clearCancel(workspaceHash);
-        await indexManager.coldIndex(normalizedPath);
-        const workspaceRoot = store.getWorkspaceRootByPath(normalizedPath);
-        if (!watchedWorkspaces.has(workspaceHash)) {
-          await indexManager.start(normalizedPath, workspaceHash);
-          watchedWorkspaces.add(workspaceHash);
-        }
-        watchedWorkspacePaths.set(workspaceHash, normalizedPath);
-        const result: WarmWorkspaceResult = {
-          indexed: !!workspaceRoot,
-          absPath: workspaceRoot?.absPath ?? normalizedPath,
-          primaryLanguage: workspaceRoot?.primaryLanguage ?? 'typescript',
-        };
-        respond(msg.id, result);
-      } catch (err) {
-        respond(msg.id, undefined, err instanceof Error ? err.message : String(err));
-      }
       break;
     }
 
@@ -183,6 +176,7 @@ async function handleMessage(msg: IndexWorkerInboundMsg): Promise<void> {
     }
 
     case 'shutdown': {
+      shuttingDown = true;
       await indexManager.stop().catch(() => undefined);
       db.close();
       respond(msg.id);
@@ -190,6 +184,67 @@ async function handleMessage(msg: IndexWorkerInboundMsg): Promise<void> {
       break;
     }
   }
+}
+
+async function warmWorkspace(msg: WarmWorkspaceMsg): Promise<void> {
+  const normalizedPath = path.resolve(msg.workspacePath);
+  const workspaceHash = workspaceHashForPath(normalizedPath);
+
+  let workspaceRoot = store.getWorkspaceRootByPath(normalizedPath);
+  if (!workspaceRoot) {
+    await indexManager.coldIndex(normalizedPath);
+    workspaceRoot = store.getWorkspaceRootByPath(normalizedPath);
+  }
+
+  if (!workspaceRoot) {
+    respond(msg.id, degradedWarmWorkspaceResult(normalizedPath));
+    return;
+  }
+
+  await startWatcherIfNeeded(normalizedPath, workspaceHash);
+
+  respond(msg.id, {
+    indexed: true,
+    absPath: workspaceRoot.absPath,
+    primaryLanguage: workspaceRoot.primaryLanguage ?? 'typescript',
+  } satisfies WarmWorkspaceResult);
+}
+
+async function rebuildIndex(msg: RebuildIndexMsg): Promise<void> {
+  const normalizedPath = path.resolve(msg.workspacePath);
+  const workspaceHash = workspaceHashForPath(normalizedPath);
+  store.clearCancel(workspaceHash);
+  await indexManager.coldIndex(normalizedPath);
+  const workspaceRoot = store.getWorkspaceRootByPath(normalizedPath);
+
+  if (!workspaceRoot) {
+    respond(msg.id, degradedWarmWorkspaceResult(normalizedPath));
+    return;
+  }
+
+  await startWatcherIfNeeded(normalizedPath, workspaceHash);
+
+  respond(msg.id, {
+    indexed: true,
+    absPath: workspaceRoot.absPath,
+    primaryLanguage: workspaceRoot.primaryLanguage ?? 'typescript',
+  } satisfies WarmWorkspaceResult);
+}
+
+async function startWatcherIfNeeded(normalizedPath: string, workspaceHash: string): Promise<void> {
+  if (!watchedWorkspaces.has(workspaceHash)) {
+    await indexManager.start(normalizedPath, workspaceHash);
+    watchedWorkspaces.add(workspaceHash);
+  }
+  watchedWorkspacePaths.set(workspaceHash, normalizedPath);
+}
+
+function degradedWarmWorkspaceResult(normalizedPath: string): WarmWorkspaceResult {
+  return {
+    indexed: false,
+    absPath: normalizedPath,
+    primaryLanguage: 'typescript',
+  };
 }
 
 // Signal readiness after all synchronous initialisation is complete.

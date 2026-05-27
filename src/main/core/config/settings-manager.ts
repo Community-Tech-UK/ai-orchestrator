@@ -26,6 +26,8 @@ export type ConfigSourceLevel = typeof CONFIG_SOURCE_PRECEDENCE[number];
  * Legacy app name for migration purposes
  */
 const LEGACY_APP_NAME = 'claude-orchestrator';
+const CODEBASE_AUTOINDEX_DISABLED_MIGRATION_KEY =
+  '__migration_codebase_auto_index_disabled_20260527';
 
 // Type for the internal store with the methods we need
 interface Store<T> {
@@ -35,6 +37,11 @@ interface Store<T> {
   set<K extends keyof T>(key: K, value: T[K]): void;
   set(object: Partial<T>): void;
   clear(): void;
+}
+
+interface MigrationStore {
+  get(key: string): unknown;
+  set(key: string, value: unknown): void;
 }
 
 /**
@@ -94,6 +101,8 @@ export class SettingsManager extends EventEmitter {
     this.migrateModelNames();
     // Migrate legacy CLI alias to canonical provider key
     this.migrateCliProviderAlias();
+    // Existing installs may have persisted the old, heavy auto-index default.
+    this.migrateLegacyCodebaseAutoIndexDefault();
     // Seed per-provider model memory from existing defaultModel/defaultCli on
     // first launch after this feature lands. This avoids an empty map showing
     // 'opus' for Claude and nothing else.
@@ -147,6 +156,28 @@ export class SettingsManager extends EventEmitter {
     if (currentCli === 'openai') {
       this.store.set('defaultCli', 'codex');
     }
+  }
+
+  /**
+   * Disable the legacy RLM codebase auto-indexer once for existing installs.
+   *
+   * Changing DEFAULT_SETTINGS protects new installs, but electron-store keeps
+   * older persisted values. This one-shot migration clears the old heavy
+   * default while still allowing the user to explicitly re-enable the legacy path
+   * later for diagnostics.
+   */
+  private migrateLegacyCodebaseAutoIndexDefault(): void {
+    const migrationStore = this.store as unknown as MigrationStore;
+    if (migrationStore.get(CODEBASE_AUTOINDEX_DISABLED_MIGRATION_KEY) === true) {
+      return;
+    }
+
+    if (this.store.get('codebaseAutoIndexEnabled') === true) {
+      logger.info('Disabling persisted legacy codebase auto-index default');
+      this.store.set('codebaseAutoIndexEnabled', false);
+    }
+
+    migrationStore.set(CODEBASE_AUTOINDEX_DISABLED_MIGRATION_KEY, true);
   }
 
   /**

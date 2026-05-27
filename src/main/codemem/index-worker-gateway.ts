@@ -153,6 +153,7 @@ export class IndexWorkerGateway extends EventEmitter {
       const result = await this.postRpc(
         { type: 'warm-workspace', id, workspacePath },
         timeoutMs,
+        () => this.cancelIndexFireAndForget(workspacePath),
       );
       return (result as WarmWorkspaceResult | null) ?? degradedResult;
     } catch (error) {
@@ -198,7 +199,11 @@ export class IndexWorkerGateway extends EventEmitter {
     }
     const id = this.nextId();
     try {
-      const result = await this.postRpc({ type: 'rebuild-index', id, workspacePath });
+      const result = await this.postRpc(
+        { type: 'rebuild-index', id, workspacePath },
+        undefined,
+        () => this.cancelIndexFireAndForget(workspacePath),
+      );
       return (result as WarmWorkspaceResult | null) ?? degradedResult;
     } catch (error) {
       this.metrics.lastError = error instanceof Error ? error.message : String(error);
@@ -293,13 +298,31 @@ export class IndexWorkerGateway extends EventEmitter {
     this.pending.clear();
   }
 
-  private postRpc(msg: IndexWorkerInboundMsg & { id: number }, timeoutMs?: number): Promise<unknown> {
+  private cancelIndexFireAndForget(workspacePath: string): void {
+    if (!this.worker) return;
+    try {
+      this.worker.postMessage({
+        type: 'cancel-index',
+        id: this.nextId(),
+        workspacePath,
+      } satisfies IndexWorkerInboundMsg & { id: number });
+    } catch {
+      // best-effort cancellation
+    }
+  }
+
+  private postRpc(
+    msg: IndexWorkerInboundMsg & { id: number },
+    timeoutMs?: number,
+    onTimeout?: () => void,
+  ): Promise<unknown> {
     if (!this.worker) return Promise.resolve(null);
     const effectiveTimeout = timeoutMs ?? this.defaultRpcTimeoutMs;
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(msg.id);
         this.metrics.dropped++;
+        onTimeout?.();
         resolve(null);
       }, effectiveTimeout);
       this.pending.set(msg.id, { resolve, reject, timeout });

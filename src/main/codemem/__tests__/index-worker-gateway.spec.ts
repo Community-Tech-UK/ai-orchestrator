@@ -167,6 +167,10 @@ describe('IndexWorkerGateway', () => {
     expect(result.indexed).toBe(false);
     expect(result.absPath).toBe('/slow-project');
     expect(gateway.getMetrics().dropped).toBeGreaterThan(0);
+    expect(fakeWorker.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'cancel-index',
+      workspacePath: '/slow-project',
+    }));
   });
 
   // ── Degradation ───────────────────────────────────────────────────────────

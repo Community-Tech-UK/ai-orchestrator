@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { watch } from 'chokidar';
 import type { Ignore } from 'ignore';
 import { getLogger } from '../logging/logger';
+import { buildWatchIgnoredMatchers } from '../workspace/watcher/watch-ignore';
 import type { WorkspaceHash } from './types';
 
 const logger = getLogger('CodeIndexWatcher');
@@ -128,17 +129,6 @@ export class CodeIndexWatcher {
     }
   }
 
-  private isDefaultIgnored(workspacePath: string, candidatePath: string): boolean {
-    const relativePath = this.options.toRelativePath(workspacePath, candidatePath);
-    return DEFAULT_CODE_INDEX_IGNORES.some((pattern) => {
-      if (pattern.startsWith('**/*')) {
-        return relativePath.endsWith(pattern.slice('**/*'.length));
-      }
-      const normalizedPattern = pattern.endsWith('/') ? pattern.slice(0, -1) : pattern;
-      return relativePath === normalizedPattern || relativePath.startsWith(`${normalizedPattern}/`);
-    });
-  }
-
   private async shouldUsePollingWatcher(workspacePath: string): Promise<boolean> {
     if (this.options.maxNativeWatchFiles === 0) {
       return true;
@@ -207,7 +197,8 @@ export class CodeIndexWatcher {
           stabilityThreshold: Math.max(this.options.debounceMs, 30),
           pollInterval: 25,
         },
-        ignored: (candidatePath) => this.isDefaultIgnored(absoluteWorkspacePath, candidatePath),
+        ignored: buildWatchIgnoredMatchers(absoluteWorkspacePath, DEFAULT_CODE_INDEX_IGNORES),
+        followSymlinks: false,
       });
 
       const queuePath = (changedPath: string): void => {

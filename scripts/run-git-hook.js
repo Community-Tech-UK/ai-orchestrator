@@ -16,11 +16,13 @@ const HOOK_COMMANDS = {
     { command: 'npm', args: ['run', 'generate:aliases'] },
     { command: 'npm', args: ['run', 'generate:ipc'] },
     { command: 'npm', args: ['run', 'generate:architecture'] },
+    { command: 'npm', args: ['run', 'check:ts-max-loc'] },
     { command: 'git', args: ['add', ...GENERATED_ARTIFACTS] },
   ],
   'pre-push': [
     { command: 'npm', args: ['run', 'verify:ipc'] },
     { command: 'npm', args: ['run', 'check:contracts'] },
+    { command: 'npm', args: ['run', 'check:ts-max-loc'] },
     { command: 'npm', args: ['run', 'verify:architecture'] },
   ],
 };

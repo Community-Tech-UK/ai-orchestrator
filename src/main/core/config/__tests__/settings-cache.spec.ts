@@ -86,10 +86,10 @@ describe('SettingsManager settings cache', () => {
 
   it('getMerged() reflects a setting change after invalidation', () => {
     const mgr = new SettingsManager();
-    mgr.set('theme', 'dark' as any);
+    mgr.set('theme', 'dark');
     mgr.invalidate(3);
     const merged = mgr.getMerged();
-    expect((merged as any).theme).toBe('dark');
+    expect(merged.theme).toBe('dark');
   });
 
   it('migrates persisted GPT-5.4 defaults to GPT-5.5', () => {
@@ -97,5 +97,23 @@ describe('SettingsManager settings cache', () => {
     const mgr = new SettingsManager();
 
     expect(mgr.get('defaultModel')).toBe('gpt-5.5-mini');
+  });
+
+  it('migrates previously-persisted legacy codebase auto-index opt-in back to disabled', () => {
+    store['codebaseAutoIndexEnabled'] = true;
+
+    const mgr = new SettingsManager();
+
+    expect(mgr.get('codebaseAutoIndexEnabled')).toBe(false);
+    expect(store['__migration_codebase_auto_index_disabled_20260527']).toBe(true);
+  });
+
+  it('does not override a later explicit legacy codebase auto-index opt-in after migration ran', () => {
+    store['__migration_codebase_auto_index_disabled_20260527'] = true;
+    store['codebaseAutoIndexEnabled'] = true;
+
+    const mgr = new SettingsManager();
+
+    expect(mgr.get('codebaseAutoIndexEnabled')).toBe(true);
   });
 });
