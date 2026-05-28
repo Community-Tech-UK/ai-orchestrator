@@ -293,7 +293,7 @@ export class CodememPrewarmCoordinator {
 
   private async warmOne(workspacePath: string): Promise<void> {
     if (!this.isPrewarmEnabled()) {
-      // Re-check on dispatch — settings may have flipped between enqueue and
+      // Re-check on dispatch. Settings may have flipped between enqueue and
       // dispatch. Mark as "warmed this session" so we don't keep re-enqueuing
       // the same path while prewarm stays disabled.
       this.warmedThisSession.add(workspacePath);
@@ -304,18 +304,26 @@ export class CodememPrewarmCoordinator {
 
     try {
       const result = await this.codemem.warmWorkspace(workspacePath, this.warmTimeoutMs);
-      logger.info('Codemem prewarm completed', {
-        workspacePath,
-        ready: result.ready,
-        representativeFile: result.filePath,
-      });
+      if (result.ready) {
+        logger.info('Codemem prewarm completed', {
+          workspacePath,
+          representativeFile: result.filePath,
+        });
+      } else {
+        // Soft failure. Index worker returned, but the LSP layer could not
+        // pick a representative file.
+        logger.warn('Codemem prewarm completed without LSP readiness', {
+          workspacePath,
+          representativeFile: result.filePath,
+        });
+      }
     } catch (error) {
       logger.warn('Codemem prewarm failed; will allow spawn-time warm-up to retry', {
         workspacePath,
         error: error instanceof Error ? error.message : String(error),
       });
     } finally {
-      // Add to "ever warmed this session" regardless of success — combined with
+      // Add to "ever warmed this session" regardless of success. Combined with
       // a fresh `lastIndexedAt`, this lets us short-circuit duplicate events
       // for the same workspace within the recent-index window. If the warm
       // failed and `lastIndexedAt` is null/stale, future events will retry.

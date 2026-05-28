@@ -21,8 +21,14 @@ const LANGUAGE_EXTENSIONS: Record<string, string[]> = {
   java: ['.java'],
 };
 
-async function findRepresentativeFile(workspacePath: string, language: string): Promise<string | null> {
-  const extensions = LANGUAGE_EXTENSIONS[language.toLowerCase()] ?? [];
+export async function findRepresentativeFile(workspacePath: string, language: string): Promise<string | null> {
+  const normalized = language.toLowerCase();
+  // If the stored language is unrecognized, scan for any supported source file.
+  const explicit = LANGUAGE_EXTENSIONS[normalized];
+  const extensions = explicit && explicit.length > 0
+    ? explicit
+    : Object.values(LANGUAGE_EXTENSIONS).flat();
+
   if (extensions.length === 0) {
     return null;
   }

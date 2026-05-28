@@ -1,6 +1,6 @@
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const CAS_SCHEMA_VERSION = 3;
+export const CAS_SCHEMA_VERSION = 4;
 
 const MIGRATIONS: Record<number, string[]> = {
   1: [
@@ -110,6 +110,15 @@ const MIGRATIONS: Record<number, string[]> = {
       cancel_requested INTEGER NOT NULL DEFAULT 0
     )`,
   ],
+  4: [],
+};
+
+const VERSIONED_DATA_MIGRATIONS: Record<number, string[]> = {
+  4: [
+    `UPDATE workspace_root
+      SET primary_language = NULL
+      WHERE primary_language = 'unknown'`,
+  ],
 };
 
 export function migrate(db: SqliteDriver): void {
@@ -125,6 +134,9 @@ export function migrate(db: SqliteDriver): void {
   };
   const startVersion = (current?.v ?? 0) + 1;
   for (let version = startVersion; version <= CAS_SCHEMA_VERSION; version += 1) {
+    for (const statement of VERSIONED_DATA_MIGRATIONS[version] ?? []) {
+      db.prepare(statement).run();
+    }
     db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (?, ?)')
       .run(version, Date.now());
   }

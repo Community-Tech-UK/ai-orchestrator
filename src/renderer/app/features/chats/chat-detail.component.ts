@@ -381,7 +381,29 @@ export class ChatDetailComponent {
     return trimmed.split('/').pop() || cwd;
   }
 
+  /**
+   * Memoizes the pure `ConversationMessageRecord` → `OutputMessage` mapping,
+   * keyed by record identity. The chat store preserves prior record identities
+   * across incremental transcript updates, so this cache returns stable
+   * `OutputMessage` references for unchanged messages. That keeps the output
+   * stream's incremental `DisplayItemProcessor` (which compares by reference)
+   * on its fast path: only the newly-appended message is reprocessed, rather
+   * than the entire transcript being rebuilt on every provider event and every
+   * streaming tick.
+   */
+  private readonly outputMessageCache = new WeakMap<ConversationMessageRecord, OutputMessage>();
+
   private toOutputMessage(message: ConversationMessageRecord): OutputMessage {
+    const cached = this.outputMessageCache.get(message);
+    if (cached) {
+      return cached;
+    }
+    const built = this.buildOutputMessage(message);
+    this.outputMessageCache.set(message, built);
+    return built;
+  }
+
+  private buildOutputMessage(message: ConversationMessageRecord): OutputMessage {
     const rawJson = this.asRecord(message.rawJson);
     const rawMetadata = this.asRecord(rawJson?.['metadata']);
     const type = this.toOutputMessageType(message, rawMetadata);

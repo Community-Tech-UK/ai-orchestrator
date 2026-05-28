@@ -1,4 +1,4 @@
-import type { ConversationLedgerConversation } from './conversation-ledger.types';
+import type { ConversationLedgerConversation, ConversationMessageRecord } from './conversation-ledger.types';
 import type { FileAttachment, Instance } from './instance.types';
 import type { SupportedProvider } from './mcp-scopes.types';
 import type { ReasoningEffort } from './provider.types';
@@ -80,6 +80,19 @@ export type ChatEvent =
   | { type: 'chat-created'; chatId: string; chat: ChatRecord }
   | { type: 'chat-updated'; chatId: string; chat: ChatRecord }
   | { type: 'chat-archived'; chatId: string }
-  | { type: 'transcript-updated'; chatId: string; detail: ChatDetail }
+  | {
+      /**
+       * Incremental transcript update. Carries only the message(s) appended by
+       * this event — never the full conversation — so a long-running chat does
+       * not re-serialize its entire (potentially multi-MB, attachment-laden)
+       * transcript over IPC on every provider event. The renderer merges the
+       * delta into its existing detail, preserving prior message identities.
+       */
+      type: 'transcript-appended';
+      chatId: string;
+      chat: ChatRecord;
+      messages: ConversationMessageRecord[];
+      currentInstance: Instance | null;
+    }
   | { type: 'runtime-linked'; chatId: string; instanceId: string; chat: ChatRecord }
   | { type: 'runtime-cleared'; chatId: string; previousInstanceId: string | null; chat: ChatRecord };

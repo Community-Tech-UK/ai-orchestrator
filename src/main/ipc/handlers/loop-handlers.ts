@@ -90,7 +90,7 @@ export function registerLoopHandlers(deps: {
     // here on the listener also works in tests, but introduces a race
     // in production: chat:event is forwarded over IPC asynchronously
     // while the LOOP_START response races to the renderer first, and
-    // the renderer's chat-store applies the IPC `transcript-updated`
+    // the renderer's chat-store applies the IPC `transcript-appended`
     // event before the local `upsertActive(state)` runs — so any
     // selection change or detail refresh that depends on the new
     // state can wipe the just-appended message out of view. The

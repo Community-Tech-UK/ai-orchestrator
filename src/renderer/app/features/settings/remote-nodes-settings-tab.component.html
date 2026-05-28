@@ -1,11 +1,19 @@
 <div class="remote-nodes-tab">
   <h3 class="section-title">Remote Nodes</h3>
-  <p class="section-desc">Allow remote machines to connect as worker nodes.</p>
+  <p class="section-desc">
+    Let another computer on your network do work for this app — running a web
+    browser, using its GPU, or adding extra AI&nbsp;CLI capacity.
+  </p>
 
-  <app-inline-help variant="info">
-    Remote nodes let other machines on your network run browser- and GPU-heavy
-    work on this orchestrator's behalf. Start the server, issue a one-time
-    pairing credential, then open it on the remote machine to connect.
+  <app-inline-help variant="info" heading="What is a remote node?">
+    A <strong>remote node</strong> is another computer (for example your Windows
+    PC) that does heavy jobs on this app's behalf — browser automation, GPU
+    work, or extra AI CLI capacity. This machine stays in charge and simply
+    hands out the work; the other computer runs it and reports back.
+    <br /><br />
+    To connect one: <strong>1.</strong> turn on the server below &nbsp;·&nbsp;
+    <strong>2.</strong> create a one-time pairing code &nbsp;·&nbsp;
+    <strong>3.</strong> scan or open that code on the other computer.
   </app-inline-help>
 
   @if (error()) {
@@ -29,6 +37,12 @@
         </span>
       </label>
     </div>
+
+    <p class="field-hint">
+      Starts a small server on <strong>this</strong> machine that other computers
+      dial into. Turning it off disconnects every remote node. Traffic stays on
+      your local network — nothing is sent to the internet.
+    </p>
 
     <p class="field-hint connection-summary">
       @if (serverStatus().running) {
@@ -59,6 +73,11 @@
   @if (store.remoteNodesEnabled()) {
     <div class="connection-card">
       <span class="card-name">Server Configuration</span>
+      <p class="field-hint">
+        How this machine listens for remote computers. The defaults work for most
+        setups — only change these if a port is already taken or you run more than
+        one separate group of machines.
+      </p>
 
       <div class="field-grid">
         <div class="field-group">
@@ -73,6 +92,10 @@
             max="65535"
             placeholder="4878"
           />
+          <p class="field-hint">
+            The network port remote computers connect to. Default is 4878 —
+            change it only if another program is already using that port.
+          </p>
         </div>
 
         <div class="field-group">
@@ -85,6 +108,11 @@
             (input)="draftHost.set($any($event.target).value)"
             placeholder="0.0.0.0"
           />
+          <p class="field-hint">
+            Which connections to accept. <code>0.0.0.0</code> = any computer on
+            your network (the normal choice). <code>127.0.0.1</code> = this
+            machine only, so nothing else can connect.
+          </p>
         </div>
 
         <div class="field-group">
@@ -97,13 +125,18 @@
             (input)="draftNamespace.set($any($event.target).value)"
             placeholder="default"
           />
-          <p class="field-hint">Logical grouping name for this node cluster.</p>
+          <p class="field-hint">
+            A label that groups machines together. A remote computer only
+            auto-finds this app when its namespace matches. Leave it as
+            <code>default</code> unless you deliberately run several separate
+            clusters.
+          </p>
         </div>
       </div>
 
       <div class="field-group">
         <div class="card-row">
-          <label class="field-label" for="rn-require-tls">Require TLS</label>
+          <label class="field-label" for="rn-require-tls">Encrypt connections (TLS)</label>
           <label class="toggle-label">
             <input
               id="rn-require-tls"
@@ -117,20 +150,30 @@
             </span>
           </label>
         </div>
+        <p class="field-hint">
+          Scrambles the traffic between this app and remote computers so others
+          on the network can't read it. Recommended on shared or public Wi-Fi;
+          optional on a trusted home network.
+        </p>
       </div>
 
       @if (draftRequireTls()) {
         <div class="field-group">
-          <label class="field-label" for="rn-tls-mode">TLS Mode</label>
+          <label class="field-label" for="rn-tls-mode">Certificate source</label>
           <select
             id="rn-tls-mode"
             class="field-input"
             [value]="draftTlsMode()"
             (change)="draftTlsMode.set($any($event.target).value)"
           >
-            <option value="auto">Auto (self-signed)</option>
-            <option value="custom">Custom certificate</option>
+            <option value="auto">Auto — let this app generate one</option>
+            <option value="custom">Custom — I'll provide my own files</option>
           </select>
+          <p class="field-hint">
+            <strong>Auto</strong> creates a self-signed certificate for you (no
+            setup — fine for a home/LAN). <strong>Custom</strong> lets you point
+            at your own certificate and key files (advanced).
+          </p>
         </div>
       }
 
@@ -150,7 +193,10 @@
             </span>
           </label>
         </div>
-        <p class="field-hint">Automatically route browser-dependent tasks to capable remote nodes.</p>
+        <p class="field-hint">
+          When a job needs a real web browser and a connected computer has one,
+          send it there automatically instead of running it on this machine.
+        </p>
       </div>
 
       <div class="field-group">
@@ -169,7 +215,10 @@
             </span>
           </label>
         </div>
-        <p class="field-hint">Automatically route GPU-intensive tasks to capable remote nodes.</p>
+        <p class="field-hint">
+          When a job needs a GPU (for example running a local model) and a
+          connected computer has one, send it there automatically.
+        </p>
       </div>
 
       <app-save-state-banner
@@ -182,8 +231,12 @@
     <div class="connection-card">
       <div class="card-row">
         <div>
-          <span class="card-name">Quick Pairing</span>
-          <p class="field-hint section-inline-hint">Issue one-time credentials, then share a link or QR code with the remote machine.</p>
+          <span class="card-name">Quick Pairing — connect a computer</span>
+          <p class="field-hint section-inline-hint">
+            The easy way to add a remote node. Create a temporary pairing code
+            here, then scan the QR code or open the link on the other computer.
+            The code works once and then expires.
+          </p>
         </div>
         <span class="status-badge" [class]="pendingPairings().length > 0 ? 'status-badge connecting' : 'status-badge disconnected'">
           {{ pendingPairings().length }} pending
@@ -192,7 +245,7 @@
 
       <div class="field-grid">
         <div class="field-group">
-          <label class="field-label" for="rn-pairing-label">Label</label>
+          <label class="field-label" for="rn-pairing-label">Label (optional)</label>
           <input
             id="rn-pairing-label"
             type="text"
@@ -201,10 +254,14 @@
             (input)="pairingLabel.set($any($event.target).value)"
             placeholder="Studio MacBook"
           />
+          <p class="field-hint">
+            A name so you can recognize this computer later in the list below
+            (e.g. "Studio MacBook"). Optional.
+          </p>
         </div>
 
         <div class="field-group">
-          <label class="field-label" for="rn-pairing-ttl">Credential Lifetime</label>
+          <label class="field-label" for="rn-pairing-ttl">Code expires after</label>
           <select
             id="rn-pairing-ttl"
             class="field-input"
@@ -216,6 +273,11 @@
             <option [value]="240">4 hours</option>
             <option [value]="1440">24 hours</option>
           </select>
+          <p class="field-hint">
+            How long the pairing code stays usable before it stops working.
+            Shorter is safer — pick just enough time to enter it on the other
+            computer.
+          </p>
         </div>
       </div>
 
@@ -257,6 +319,13 @@
           </div>
 
           <div class="pairing-details">
+            <p class="field-hint">
+              These all carry the <strong>same</strong> one-time code — use
+              whichever is easiest on the other computer: scan the QR code, open
+              the Pairing Link, paste the One-Time Credential, or drop the
+              Connection Config into its <code>worker-node.json</code> file.
+            </p>
+
             <app-copy-row
               label="One-Time Credential"
               [value]="pairing.token"
@@ -319,8 +388,8 @@
     </div>
 
     <app-danger-zone
-      title="Manual Pairing Token"
-      description="Optional manually managed credential that is consumed on first successful registration."
+      title="Manual Pairing Token (advanced)"
+      description="Automation only. A long-lived code you set yourself for connecting a computer by script or config file instead of the QR/link flow above. It is used up the first time a computer registers with it. Most people should use Quick Pairing instead and can ignore this."
     >
       @if (!customTokenMode()) {
         <div class="token-row">
@@ -412,14 +481,19 @@
 
     <div class="connection-card">
       <div class="card-row">
-        <span class="card-name">Node Health</span>
+        <span class="card-name">Connected Computers</span>
         <span class="status-badge" [class]="connectedCount() > 0 ? 'status-badge connected' : 'status-badge disconnected'">
           {{ connectedCount() }} {{ connectedCount() === 1 ? 'node' : 'nodes' }} connected
         </span>
       </div>
 
+      <p class="field-hint">
+        Computers that have paired with this app, with what each can do
+        (browser, GPU, installed AI CLIs) and whether it's online right now.
+      </p>
+
       @if (nodeHealthEntries().length === 0) {
-        <p class="field-hint">No nodes have registered yet. Issue a one-time credential above, or generate a manual pairing token for scripted/manual onboarding.</p>
+        <p class="field-hint">No computers have connected yet. Create a pairing code above and enter it on the other machine to connect one.</p>
       } @else {
         @for (entry of nodeHealthEntries(); track entry.id) {
           <div class="node-health-card">

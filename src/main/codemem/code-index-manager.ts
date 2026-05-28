@@ -253,6 +253,10 @@ export class CodeIndexManager extends EventEmitter {
 
     for (const absoluteFilePath of files) {
       const language = inferLanguage(absoluteFilePath);
+      // Skip unknown so non-code files cannot outvote real source files.
+      if (language === 'unknown') {
+        continue;
+      }
       counts.set(language, (counts.get(language) ?? 0) + 1);
     }
 

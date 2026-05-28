@@ -43,6 +43,65 @@ describe('CasStore', () => {
     expect(names).toContain('code_index_status');
   });
 
+  it('clears stale unknown primary languages when migrating from schema version 3', () => {
+    const legacyDb = new Database(':memory:');
+    legacyDb.exec(`
+      CREATE TABLE schema_version (
+        version INTEGER PRIMARY KEY,
+        applied_at INTEGER NOT NULL
+      );
+      CREATE TABLE workspace_root (
+        workspace_hash TEXT PRIMARY KEY,
+        abs_path TEXT NOT NULL UNIQUE,
+        head_commit TEXT,
+        primary_language TEXT,
+        last_indexed_at INTEGER NOT NULL,
+        merkle_root_hash TEXT,
+        pagerank_json TEXT
+      );
+    `);
+
+    const insertVersion = legacyDb.prepare(
+      'INSERT INTO schema_version (version, applied_at) VALUES (?, ?)',
+    );
+    for (const version of [1, 2, 3]) {
+      insertVersion.run(version, 1_000);
+    }
+
+    const insertWorkspace = legacyDb.prepare(`
+      INSERT INTO workspace_root (
+        workspace_hash,
+        abs_path,
+        head_commit,
+        primary_language,
+        last_indexed_at,
+        merkle_root_hash,
+        pagerank_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertWorkspace.run('w-known', '/repo-known', null, 'typescript', 1_000, null, null);
+    insertWorkspace.run('w-unknown', '/repo-unknown', null, 'unknown', 1_000, null, null);
+
+    migrate(legacyDb);
+
+    const rows = legacyDb.prepare(`
+      SELECT workspace_hash, primary_language
+      FROM workspace_root
+      ORDER BY workspace_hash ASC
+    `).all();
+    const version = legacyDb.prepare('SELECT MAX(version) AS v FROM schema_version').get() as {
+      v: number | null;
+    };
+
+    expect(rows).toEqual([
+      { workspace_hash: 'w-known', primary_language: 'typescript' },
+      { workspace_hash: 'w-unknown', primary_language: null },
+    ]);
+    expect(version.v).toBe(4);
+
+    legacyDb.close();
+  });
+
   it('upsertChunk inserts a new chunk', () => {
     store.upsertChunk(sampleChunk());
     expect(store.getChunk('a'.repeat(64))).toMatchObject({ name: 'foo' });

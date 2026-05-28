@@ -10,6 +10,15 @@ const logger = getLogger('RemoteAuth');
 const DEFAULT_PAIRING_TTL_MS = 60 * 60 * 1000;
 const LAST_SEEN_PERSIST_INTERVAL_MS = 60_000;
 
+/**
+ * Sentinel expiry used by the manually-managed pairing token. It never times
+ * out, so it is deliberately kept out of the one-time "pending pairings"
+ * listing — the manual token has its own dedicated Settings section and must
+ * not masquerade as a one-time credential (which previously rendered a
+ * nonsensical "expires in ~104,000,000 days").
+ */
+const NON_EXPIRING_AT = Number.MAX_SAFE_INTEGER;
+
 function safeCompare(a: string, b: string): boolean {
   const aBuf = Buffer.from(a, 'utf-8');
   const bBuf = Buffer.from(b, 'utf-8');
@@ -23,7 +32,7 @@ function generateToken(bytes = 32): string {
   return crypto.randomBytes(bytes).toString('hex');
 }
 
-export interface RemotePairingCredential extends RemotePairingCredentialInfo {}
+export type RemotePairingCredential = RemotePairingCredentialInfo;
 
 export interface RemoteSession {
   sessionId: string;
@@ -146,6 +155,10 @@ export class RemoteAuthService {
   listPendingPairings(): RemotePairingCredentialInfo[] {
     this.pruneExpiredPairings();
     return [...this.pendingPairings.values()]
+      // The manual pairing token never expires and is surfaced in its own
+      // Settings section; exclude it so it is not listed/counted as a
+      // one-time "Quick Pairing" credential.
+      .filter((pairing) => pairing.expiresAt !== NON_EXPIRING_AT)
       .sort((left, right) => left.expiresAt - right.expiresAt)
       .map((pairing) => ({ ...pairing }));
   }
@@ -179,7 +192,7 @@ export class RemoteAuthService {
     const credential: RemotePairingCredential = {
       token,
       createdAt: now,
-      expiresAt: Number.MAX_SAFE_INTEGER,
+      expiresAt: NON_EXPIRING_AT,
       label: 'Manual pairing token',
     };
     this.pendingPairings.set(token, credential);

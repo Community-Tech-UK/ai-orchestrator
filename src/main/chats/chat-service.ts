@@ -11,6 +11,7 @@ import type {
   ChatSendMessageInput,
 } from '../../shared/types/chat.types';
 import type { ReasoningEffort } from '../../shared/types/provider.types';
+import type { ConversationMessageRecord } from '../../shared/types/conversation-ledger.types';
 import type { ConversationLedgerService } from '../conversation-ledger';
 import {
   getConversationLedgerService,
@@ -304,13 +305,9 @@ export class ChatService {
       currentInstanceId: instance.id,
       lastActiveAt: Date.now(),
     });
-    const detail = this.detailFor(updated);
-    this.emit({
-      type: 'transcript-updated',
-      chatId: updated.id,
-      detail,
-    });
-    return detail;
+    const appended = conversation.messages[conversation.messages.length - 1];
+    this.emitAppended(updated, appended ? [appended] : []);
+    return this.detailFor(updated);
   }
 
   appendSystemEvent(input: ChatSystemEventInput): ChatDetail {
@@ -329,7 +326,7 @@ export class ChatService {
       ? this.store.update(chat.id, { name: autoNamed, lastActiveAt: Date.now() })
       : chat;
 
-    this.ledger.appendMessage(workingChat.ledgerThreadId, {
+    const conversation = this.ledger.appendMessage(workingChat.ledgerThreadId, {
       nativeMessageId: input.nativeMessageId,
       nativeTurnId: input.nativeTurnId,
       role: input.role ?? 'system',
@@ -342,17 +339,13 @@ export class ChatService {
       rawJson: input.metadata ? { metadata: input.metadata } : null,
       sourceChecksum: null,
     });
+    const appended = conversation.messages[conversation.messages.length - 1];
     const updated = this.store.update(workingChat.id, { lastActiveAt: Date.now() });
-    const detail = this.detailFor(updated);
     if (autoNamed) {
       this.emit({ type: 'chat-updated', chatId: updated.id, chat: updated });
     }
-    this.emit({
-      type: 'transcript-updated',
-      chatId: updated.id,
-      detail,
-    });
-    return detail;
+    this.emitAppended(updated, appended ? [appended] : []);
+    return this.detailFor(updated);
   }
 
   /**
@@ -513,6 +506,25 @@ export class ChatService {
 
   private emit(event: ChatEvent): void {
     this.events.emit('chat:event', event);
+  }
+
+  /**
+   * Emit an incremental transcript delta. Carries only the freshly-appended
+   * message(s) — never the whole conversation — so the renderer (and any other
+   * window) merges a small payload instead of re-rendering the entire
+   * transcript on every append.
+   */
+  private emitAppended(chat: ChatRecord, messages: ConversationMessageRecord[]): void {
+    const currentInstance = chat.currentInstanceId
+      ? this.instanceManager.getInstance(chat.currentInstanceId) ?? null
+      : null;
+    this.emit({
+      type: 'transcript-appended',
+      chatId: chat.id,
+      chat,
+      messages,
+      currentInstance,
+    });
   }
 }
 

@@ -12,7 +12,6 @@ const ROOT = path.resolve(__dirname, '..');
 const CONTRACTS_CHANNELS_INDEX_PATH = path.join(ROOT, 'packages/contracts/src/channels/index.ts');
 const PRELOAD_DOMAINS_DIR = path.join(ROOT, 'src/preload/domains');
 const OUTPUT_PATH = path.join(ROOT, 'docs/generated/architecture-inventory.json');
-const mode = process.argv.includes('--check') ? 'check' : 'write';
 const SKIPPED_DIRS = new Set([
   '.git',
   '.worktrees',
@@ -40,11 +39,16 @@ function walk(dir, matcher, results = []) {
   return results;
 }
 
+function toPosixPath(filePath) {
+  // Normalize separators so generated paths are byte-identical across platforms.
+  // Without this, a Windows-generated inventory uses "\" and fails `--check` on
+  // Linux CI (and vice versa). Forward slashes never appear inside a Windows
+  // path component and git always reports "/", so converting is safe everywhere.
+  return filePath.replace(/\\/g, '/');
+}
+
 function relative(filePath) {
-  // Normalize to POSIX separators so the generated inventory is identical
-  // across platforms. Without this, a Windows-generated file uses "\" and
-  // fails `--check` on Linux CI (and vice versa).
-  return path.relative(ROOT, filePath).split(path.sep).join('/');
+  return toPosixPath(path.relative(ROOT, filePath));
 }
 
 function readIndexedFiles() {
@@ -129,9 +133,11 @@ function readPackageDependencyGraph() {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function main() {
+function buildInventory() {
   const channels = extractContractsChannelEntries(CONTRACTS_CHANNELS_INDEX_PATH);
-  const inventory = {
+  const domains = readPreloadDomains();
+  const providerFiles = readProviderNames();
+  return {
     schemaVersion: 1,
     generatedBy: 'scripts/generate-architecture-inventory.js',
     ipc: {
@@ -139,18 +145,44 @@ function main() {
       channels,
     },
     preload: {
-      domainCount: readPreloadDomains().length,
-      domains: readPreloadDomains(),
+      domainCount: domains.length,
+      domains,
     },
     providers: {
-      fileCount: readProviderNames().length,
-      files: readProviderNames(),
+      fileCount: providerFiles.length,
+      files: providerFiles,
     },
     packages: {
       dependencyGraph: readPackageDependencyGraph(),
     },
     largeFiles: readLargeFiles(),
   };
+}
+
+function assertDeterministicPaths(inventory) {
+  // Regression guard: fail fast if any path field carries an OS-specific ("\")
+  // separator. Runs in both --write (pre-commit) and --check (pre-push/CI) so a
+  // Windows contributor sees the error locally instead of only on Linux CI, and
+  // so a future codegen change that bypasses toPosixPath() can't slip through.
+  const pathValues = [
+    ...inventory.providers.files,
+    ...inventory.largeFiles.map((entry) => entry.path),
+    ...inventory.packages.dependencyGraph.map((pkg) => pkg.path),
+  ];
+  const offenders = pathValues.filter((value) => value.includes('\\'));
+  if (offenders.length > 0) {
+    throw new Error(
+      'Architecture inventory contains non-POSIX path separators ("\\"): '
+      + `${offenders.join(', ')}. Paths must use "/" so the file is byte-identical `
+      + 'across Windows, macOS, and Linux. Route paths through toPosixPath().',
+    );
+  }
+}
+
+function main() {
+  const mode = process.argv.includes('--check') ? 'check' : 'write';
+  const inventory = buildInventory();
+  assertDeterministicPaths(inventory);
   const rendered = `${JSON.stringify(inventory, null, 2)}\n`;
 
   if (mode === 'check') {
@@ -170,4 +202,17 @@ function main() {
   console.log(`Wrote architecture inventory to ${relative(OUTPUT_PATH)}`);
 }
 
-main();
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+}
+
+module.exports = {
+  toPosixPath,
+  buildInventory,
+  assertDeterministicPaths,
+};

@@ -182,9 +182,9 @@ export const NAV_ITEMS: SettingsNavItem[] = [
   {
     id: 'remote-nodes',
     label: 'Remote Nodes',
-    summary: 'Pair and monitor remote worker machines.',
+    summary: 'Connect another computer to run browser, GPU, or extra CLI work for this app.',
     group: 'Network & Remote',
-    keywords: 'remote nodes offload distributed gpu browser',
+    keywords: 'remote nodes offload distributed gpu browser worker pair',
   },
   {
     id: 'remote-config',

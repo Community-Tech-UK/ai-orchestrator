@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import type { ChatCreateInput, ChatDetail, ChatEvent, ChatRecord } from '../../../../shared/types/chat.types';
+import type { ConversationMessageRecord } from '../../../../shared/types/conversation-ledger.types';
 import type { FileAttachment } from '../../../../shared/types/instance.types';
 import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 import { ChatIpcService } from '../services/ipc/chat-ipc.service';
@@ -226,13 +227,67 @@ export class ChatStore {
         this._selectedChatId.set(null);
       }
     }
-    if (event.type === 'transcript-updated') {
-      this.mergeDetail(event.detail);
-      this.mergeChat(event.detail.chat);
+    if (event.type === 'transcript-appended') {
+      this.applyTranscriptAppend(event);
+      this.mergeChat(event.chat);
     }
-    if (this._selectedChatId() === event.chatId && event.type !== 'transcript-updated') {
+    if (this._selectedChatId() === event.chatId && event.type !== 'transcript-appended') {
       await this.loadDetail(event.chatId);
     }
+  }
+
+  /**
+   * Merge an incremental transcript delta into the cached detail for a chat.
+   *
+   * Crucially, prior message records keep their object identity, so the
+   * chat-detail component's memoized message mapping and the output stream's
+   * incremental `DisplayItemProcessor` are not invalidated — only the appended
+   * message renders, instead of the whole transcript re-rendering per event.
+   *
+   * If we have no cached base (a background chat that was never opened), we
+   * skip; the chat hydrates fully on select. For the currently-selected chat we
+   * fall back to a full load so a delta that races ahead of the base still
+   * shows.
+   */
+  private applyTranscriptAppend(event: Extract<ChatEvent, { type: 'transcript-appended' }>): void {
+    const existing = this._details().get(event.chatId);
+    if (!existing) {
+      if (this._selectedChatId() === event.chatId) {
+        void this.loadDetail(event.chatId);
+      }
+      return;
+    }
+    const messages = this.mergeAppendedMessages(existing.conversation.messages, event.messages);
+    this.mergeDetail({
+      chat: event.chat,
+      conversation: { ...existing.conversation, messages },
+      currentInstance: event.currentInstance,
+    });
+  }
+
+  private mergeAppendedMessages(
+    prior: ConversationMessageRecord[],
+    incoming: ConversationMessageRecord[],
+  ): ConversationMessageRecord[] {
+    if (incoming.length === 0) {
+      return prior;
+    }
+    const existingIds = new Set(prior.map((message) => message.id));
+    const maxSequence = prior.length ? prior[prior.length - 1].sequence : 0;
+    const isPureAppend = incoming.every(
+      (message) => !existingIds.has(message.id) && message.sequence > maxSequence,
+    );
+    if (isPureAppend) {
+      // Fast path (the common case): keep every prior record's identity intact.
+      return [...prior, ...incoming];
+    }
+    // Robust path for re-delivery / out-of-order / content finalization:
+    // upsert by id, then re-order by ledger sequence.
+    const byId = new Map(prior.map((message) => [message.id, message]));
+    for (const message of incoming) {
+      byId.set(message.id, message);
+    }
+    return [...byId.values()].sort((a, b) => a.sequence - b.sequence);
   }
 
   private handleDetailResponse(response: { success: boolean; data?: ChatDetail; error?: { message: string } }, fallback: string): void {

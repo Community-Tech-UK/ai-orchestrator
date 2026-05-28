@@ -281,7 +281,39 @@ export class ConversationLedgerStore {
     `).all<CursorRow>(threadId).map(cursorRowToRecord);
   }
 
-  private upsertMessage(threadId: string, input: ConversationMessageUpsertInput): void {
+  /** Cheap row count for a thread — avoids materializing + JSON-parsing every
+   *  message just to learn how many there are (the old `getMessages().length`
+   *  was O(n) per append). */
+  countMessages(threadId: string): number {
+    const row = this.db.prepare('SELECT COUNT(*) AS count FROM conversation_messages WHERE thread_id = ?')
+      .get<{ count: number }>(threadId);
+    return row?.count ?? 0;
+  }
+
+  getMessageById(id: string): ConversationMessageRecord | null {
+    const row = this.db.prepare('SELECT * FROM conversation_messages WHERE id = ?')
+      .get<MessageRow>(id);
+    return row ? messageRowToRecord(row) : null;
+  }
+
+  /**
+   * Insert a single message and return only that record — without reading back
+   * the entire transcript. Used by the live transcript bridge so each provider
+   * event costs O(1), not O(transcript length).
+   */
+  appendMessageReturningRecord(
+    threadId: string,
+    input: ConversationMessageUpsertInput,
+  ): ConversationMessageRecord {
+    const id = this.upsertMessage(threadId, input);
+    const record = this.getMessageById(id);
+    if (!record) {
+      throw new Error(`Failed to read back appended message ${id} for thread ${threadId}`);
+    }
+    return record;
+  }
+
+  private upsertMessage(threadId: string, input: ConversationMessageUpsertInput): string {
     const existing = input.nativeMessageId
       ? this.db.prepare(`
           SELECT id FROM conversation_messages
@@ -325,6 +357,7 @@ export class ConversationLedgerStore {
       input.sourceChecksum ?? null,
       input.sequence,
     );
+    return id;
   }
 }
 

@@ -2,7 +2,6 @@ import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import type {
-  ConversationLedgerConversation,
   ConversationMessageRecord,
   ConversationRole,
 } from '../../shared/types/conversation-ledger.types';
@@ -80,9 +79,9 @@ export class ChatTranscriptBridge {
       if (!message) {
         return;
       }
-      const conversation = this.ledger.appendMessage(chat.ledgerThreadId, message);
+      const record = this.ledger.appendMessageReturningRecord(chat.ledgerThreadId, message);
       const updated = this.chatStore.update(chat.id, { lastActiveAt: Date.now() });
-      this.emitTranscriptUpdated(updated, conversation);
+      this.emitTranscriptAppended(updated, record);
     } catch (error) {
       logger.warn('Failed to bridge chat transcript event', {
         chatId,
@@ -211,21 +210,19 @@ export class ChatTranscriptBridge {
     };
   }
 
-  private emitTranscriptUpdated(
+  private emitTranscriptAppended(
     chat: ChatRecord,
-    conversation: ConversationLedgerConversation,
+    message: ConversationMessageRecord,
   ): void {
     const currentInstance = chat.currentInstanceId
       ? this.instanceManager.getInstance(chat.currentInstanceId) ?? null
       : null;
     const event: ChatEvent = {
-      type: 'transcript-updated',
+      type: 'transcript-appended',
       chatId: chat.id,
-      detail: {
-        chat,
-        conversation,
-        currentInstance,
-      },
+      chat,
+      messages: [message],
+      currentInstance,
     };
     this.eventBus.emit('chat:event', event);
   }

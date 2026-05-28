@@ -8,6 +8,7 @@ import type {
   ConversationDiscoveryScope,
   ConversationLedgerConversation,
   ConversationListQuery,
+  ConversationMessageRecord,
   ConversationMessageUpsertInput,
   ConversationProvider,
   ConversationThreadRecord,
@@ -272,11 +273,37 @@ export class ConversationLedgerService {
     if (!thread) {
       throw new ConversationLedgerServiceError(`Conversation ${threadId} not found`, 'CONVERSATION_NOT_FOUND');
     }
-    const existingCount = this.store.getMessages(threadId).length;
+    const existingCount = this.store.countMessages(threadId);
     this.store.upsertMessages(threadId, [{
       ...message,
       sequence: message.sequence ?? existingCount + 1,
     }]);
+    this.touchThread(thread);
+    return this.getConversation(threadId);
+  }
+
+  /**
+   * Append a single message and return only that record, never the full
+   * conversation. This keeps the live transcript path O(1) per event — the
+   * caller (e.g. the chat transcript bridge) broadcasts the delta instead of
+   * re-reading and re-serializing the entire transcript on every provider
+   * event, which was the dominant cause of main-thread stalls on long chats.
+   */
+  appendMessageReturningRecord(
+    threadId: string,
+    message: Omit<ConversationMessageUpsertInput, 'sequence'> & { sequence?: number },
+  ): ConversationMessageRecord {
+    const thread = this.store.findThreadById(threadId);
+    if (!thread) {
+      throw new ConversationLedgerServiceError(`Conversation ${threadId} not found`, 'CONVERSATION_NOT_FOUND');
+    }
+    const sequence = message.sequence ?? this.store.countMessages(threadId) + 1;
+    const record = this.store.appendMessageReturningRecord(threadId, { ...message, sequence });
+    this.touchThread(thread);
+    return record;
+  }
+
+  private touchThread(thread: ConversationThreadRecord): void {
     this.store.upsertThread({
       id: thread.id,
       provider: thread.provider,
@@ -294,7 +321,6 @@ export class ConversationLedgerService {
       conflictStatus: thread.conflictStatus,
       metadata: thread.metadata,
     });
-    return this.getConversation(threadId);
   }
 
   close(): void {

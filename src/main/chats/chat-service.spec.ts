@@ -237,8 +237,16 @@ describe('ChatService', () => {
     ]);
     expect(events).toEqual([
       expect.objectContaining({
-        type: 'transcript-updated',
+        type: 'transcript-appended',
         chatId: chat.chat.id,
+        messages: [
+          expect.objectContaining({
+            nativeMessageId: 'loop-summary:loop-1',
+            role: 'system',
+            content: expect.stringContaining('Loop ended - completed'),
+            sequence: 1,
+          }),
+        ],
       }),
     ]);
   });
@@ -319,7 +327,7 @@ describe('ChatService', () => {
         sequence: 1,
       }),
     ]);
-    expect(events.filter((event) => event.type === 'transcript-updated')).toHaveLength(1);
+    expect(events.filter((event) => event.type === 'transcript-appended')).toHaveLength(1);
   });
 
   it('recovers chats and transcripts across service restart without restoring stale runtimes', async () => {
@@ -394,6 +402,11 @@ describe('ChatService', () => {
     });
     const instanceId = detail.chat.currentInstanceId!;
 
+    // Only watch events emitted by the provider bridge (ignore the user-turn
+    // append from sendMessage above).
+    const events: ChatEvent[] = [];
+    service.events.on('chat:event', (event: ChatEvent) => events.push(event));
+
     instanceManager.emit('provider:normalized-event', {
       eventId: 'tool-event-1',
       seq: 1,
@@ -437,6 +450,23 @@ describe('ChatService', () => {
         content: 'done',
       }),
     ]);
+
+    // Each provider event must emit an incremental delta carrying ONLY the new
+    // message — never the full conversation. The old full-transcript fan-out on
+    // every event was the dominant cause of send-time main-thread stalls.
+    const appended = events.filter(
+      (event): event is Extract<ChatEvent, { type: 'transcript-appended' }> =>
+        event.type === 'transcript-appended',
+    );
+    expect(appended).toHaveLength(2);
+    expect(appended[0].messages).toHaveLength(1);
+    expect(appended[0].messages[0]).toEqual(
+      expect.objectContaining({ role: 'tool', phase: 'tool_call' }),
+    );
+    expect(appended[1].messages).toHaveLength(1);
+    expect(appended[1].messages[0]).toEqual(
+      expect.objectContaining({ role: 'tool', phase: 'tool_result', content: 'done' }),
+    );
   });
 
   describe('terminate-and-respawn on config setters', () => {
