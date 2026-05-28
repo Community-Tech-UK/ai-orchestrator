@@ -1,6 +1,9 @@
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import { createRequire } from 'node:module';
 import * as path from 'node:path';
+
+const localRequire = createRequire(__filename);
 
 function assertNode22Plus(): void {
   const [major] = process.versions.node.split('.').map(Number);
@@ -45,7 +48,7 @@ async function main(): Promise<void> {
     'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2',
   ];
   if (process.platform === 'darwin') postjectArgs.push('--macho-segment-name', 'NODE_SEA');
-  execFileSync('npx', ['postject', ...postjectArgs], { stdio: 'inherit' });
+  execFileSync(process.execPath, [localRequire.resolve('postject/dist/cli.js'), ...postjectArgs], { stdio: 'inherit' });
   if (process.platform === 'darwin') {
     execFileSync('codesign', ['--sign', '-', '--force', '--timestamp=none', binOut], { stdio: 'inherit' });
   }
