@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // empty' | { read -r f; case \"$f\" in *.generated.ts) echo \"Refusing to edit $f -- this is a generated file. Edits will be overwritten.\" >&2; exit 2 ;; esac; }"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_response.filePath // .tool_input.file_path // empty' | { read -r f; case \"$f\" in */src/renderer/*.ts) npx eslint --fix \"$f\" 2>&1 | tail -5 ;; esac; } 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}
