@@ -18,6 +18,15 @@
 }
 
 .back-btn {
+  /* The app's title-bar drag strip (`.title-bar-drag-area`, position: fixed,
+   * z-index: 1000, `-webkit-app-region: drag`) overlays the top 40px of all
+   * content on Windows, where page content is not offset downward. Without
+   * lifting the back button above that strip and opting it out of the drag
+   * region, the OS swallows clicks here for window-dragging and the button
+   * becomes unclickable (most noticeable in full screen). */
+  position: relative;
+  z-index: 1001;
+  -webkit-app-region: no-drag;
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-sm);
