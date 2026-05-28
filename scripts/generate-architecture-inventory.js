@@ -41,7 +41,10 @@ function walk(dir, matcher, results = []) {
 }
 
 function relative(filePath) {
-  return path.relative(ROOT, filePath);
+  // Normalize to POSIX separators so the generated inventory is identical
+  // across platforms. Without this, a Windows-generated file uses "\" and
+  // fails `--check` on Linux CI (and vice versa).
+  return path.relative(ROOT, filePath).split(path.sep).join('/');
 }
 
 function readIndexedFiles() {

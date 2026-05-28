@@ -13,7 +13,9 @@ export const NODE_TO_COORDINATOR = {
   INSTANCE_STATE_CHANGE: 'instance.stateChange',
   INSTANCE_PERMISSION_REQUEST: 'instance.permissionRequest',
   INSTANCE_CONTEXT: 'instance.context',
-  FS_EVENT: 'fs.event'
+  FS_EVENT: 'fs.event',
+  TERMINAL_OUTPUT: 'terminal.output',
+  TERMINAL_EXIT: 'terminal.exit'
 } as const;
 
 /** Methods sent FROM coordinator TO worker node */
@@ -24,6 +26,10 @@ export const COORDINATOR_TO_NODE = {
   INSTANCE_INTERRUPT: 'instance.interrupt',
   INSTANCE_HIBERNATE: 'instance.hibernate',
   INSTANCE_WAKE: 'instance.wake',
+  TERMINAL_CREATE: 'terminal.create',
+  TERMINAL_INPUT: 'terminal.input',
+  TERMINAL_RESIZE: 'terminal.resize',
+  TERMINAL_KILL: 'terminal.kill',
   NODE_PING: 'node.ping',
   FS_READ_DIRECTORY: 'fs.readDirectory',
   FS_STAT: 'fs.stat',

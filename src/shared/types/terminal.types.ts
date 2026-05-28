@@ -6,6 +6,8 @@ export interface TerminalSpawnOptions {
   env?: Record<string, string>;
   cols?: number;
   rows?: number;
+  /** Worker node to run the terminal on. Absent/null = local coordinator machine. */
+  nodeId?: string | null;
 }
 
 export type TerminalLifecycleEvent =
