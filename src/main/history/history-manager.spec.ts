@@ -641,4 +641,96 @@ describe('HistoryManager', () => {
     expect(entries[0]?.id).toBe('entry-newest');
     expect(entries[0]?.sessionId).toBe('session-central-auth');
   });
+
+  it('persists an AI title to the index and conversation file via setEntryAiTitle', async () => {
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    fs.mkdirSync(storageDir, { recursive: true });
+
+    const entry = {
+      id: 'entry-ai',
+      displayName: 'review this PR UnstablePvP core',
+      createdAt: 1,
+      endedAt: 2,
+      workingDirectory: '/tmp/ai',
+      messageCount: 1,
+      firstUserMessage: 'Please review this PR [UnstablePvP/core]',
+      lastUserMessage: 'Please review this PR [UnstablePvP/core]',
+      status: 'completed' as const,
+      originalInstanceId: 'instance-ai',
+      parentId: null,
+      sessionId: 'session-ai',
+    };
+    const conversationData = {
+      entry,
+      messages: [{ id: 'm1', timestamp: 1, type: 'user', content: 'x' }],
+    };
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, lastUpdated: Date.now(), entries: [entry] }, null, 2)
+    );
+    fs.writeFileSync(
+      path.join(storageDir, `${entry.id}.json.gz`),
+      zlib.gzipSync(JSON.stringify(conversationData))
+    );
+
+    const { HistoryManager } = await import('./history-manager');
+    const manager = new HistoryManager();
+
+    expect(await manager.setEntryAiTitle('entry-ai', '  UnstablePvP coin audit  ')).toBe(true);
+    expect(manager.getEntries()[0]?.aiTitle).toBe('UnstablePvP coin audit');
+
+    const conv = await manager.loadConversation('entry-ai');
+    expect(conv?.entry.aiTitle).toBe('UnstablePvP coin audit');
+
+    // Never clobbers an existing AI title, and skips a blank update.
+    expect(await manager.setEntryAiTitle('entry-ai', 'something else')).toBe(false);
+    expect(manager.getEntries()[0]?.aiTitle).toBe('UnstablePvP coin audit');
+  });
+
+  it('backfills missing AI titles for eligible entries only', async () => {
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    fs.mkdirSync(storageDir, { recursive: true });
+
+    const mk = (over: Record<string, unknown>): Record<string, unknown> => ({
+      createdAt: 1,
+      endedAt: 2,
+      workingDirectory: '/tmp/b',
+      messageCount: 1,
+      status: 'completed',
+      parentId: null,
+      lastUserMessage: 'x',
+      ...over,
+    });
+    const entries = [
+      mk({ id: 'e-needs', displayName: 'd', firstUserMessage: 'Please harden the coin accounting flow', originalInstanceId: 'i1', sessionId: 's1' }),
+      mk({ id: 'e-has', displayName: 'd', aiTitle: 'Existing AI', firstUserMessage: 'something long enough here', originalInstanceId: 'i2', sessionId: 's2' }),
+      mk({ id: 'e-renamed', displayName: 'mine', isRenamed: true, firstUserMessage: 'something long enough here', originalInstanceId: 'i3', sessionId: 's3' }),
+      mk({ id: 'e-short', displayName: 'd', firstUserMessage: 'hi', originalInstanceId: 'i4', sessionId: 's4' }),
+    ];
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, lastUpdated: Date.now(), entries }, null, 2)
+    );
+
+    const { HistoryManager } = await import('./history-manager');
+    const manager = new HistoryManager();
+
+    const seen: string[] = [];
+    const generate = vi.fn(async (text: string) => {
+      seen.push(text);
+      return 'Generated title';
+    });
+
+    await manager.backfillMissingAiTitles(manager.getEntries(), generate);
+
+    // Only the eligible entry (no AI title, not renamed, long-enough message).
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(seen[0]).toBe('Please harden the coin accounting flow');
+
+    const byId = Object.fromEntries(manager.getEntries().map((e) => [e.id, e.aiTitle]));
+    expect(byId['e-needs']).toBe('Generated title');
+    expect(byId['e-has']).toBe('Existing AI');
+    expect(byId['e-renamed']).toBeUndefined();
+    expect(byId['e-short']).toBeUndefined();
+  });
 });

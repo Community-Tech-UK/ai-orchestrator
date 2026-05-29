@@ -313,6 +313,78 @@ export class ConversationLedgerStore {
     return record;
   }
 
+  /**
+   * Append a batch of messages in a single transaction, assigning sequence
+   * numbers atomically (so concurrent batches never collide), touch the
+   * thread's `updated_at`, and return only the freshly-appended records.
+   *
+   * Returns `null` when the thread does not exist (so the caller can surface a
+   * thread-missing condition without a separate round-trip). This is the
+   * batched analogue of `appendMessageReturningRecord` and is the write path the
+   * conversation worker uses for the live transcript bridge: one transaction per
+   * flush instead of one per provider event, which is what eliminates the
+   * streaming-time write amplification.
+   */
+  appendMessagesWithThreadTouch(
+    threadId: string,
+    inputs: (Omit<ConversationMessageUpsertInput, 'sequence'> & { sequence?: number })[],
+  ): ConversationMessageRecord[] | null {
+    if (!this.findThreadById(threadId)) {
+      return null;
+    }
+    if (inputs.length === 0) {
+      return [];
+    }
+    const records: ConversationMessageRecord[] = [];
+    const write = this.db.transaction(() => {
+      const base = this.countMessages(threadId);
+      inputs.forEach((input, index) => {
+        const id = this.upsertMessage(threadId, {
+          ...input,
+          sequence: input.sequence ?? base + index + 1,
+        });
+        const record = this.getMessageById(id);
+        if (record) {
+          records.push(record);
+        }
+      });
+      this.db.prepare('UPDATE conversation_threads SET updated_at = ? WHERE id = ?')
+        .run(Date.now(), threadId);
+    });
+    write();
+    return records;
+  }
+
+  /**
+   * Return the most recent `limit` messages for a thread in ascending sequence
+   * order. Used where only the tail is needed (e.g. building the message a
+   * caller just appended, or replay context) so we never materialize a whole
+   * long transcript.
+   */
+  getRecentMessages(threadId: string, limit: number): ConversationMessageRecord[] {
+    const bounded = Math.max(1, Math.min(limit, 1000));
+    const rows = this.db.prepare(`
+      SELECT * FROM (
+        SELECT * FROM conversation_messages
+        WHERE thread_id = ?
+        ORDER BY sequence DESC
+        LIMIT ?
+      ) ORDER BY sequence ASC
+    `).all<MessageRow>(threadId, bounded);
+    return rows.map(messageRowToRecord);
+  }
+
+  /** Cheap existence check by native message id — avoids loading the transcript
+   *  just to test whether a message was already appended (idempotent events). */
+  hasMessageWithNativeId(threadId: string, nativeMessageId: string): boolean {
+    const row = this.db.prepare(`
+      SELECT 1 AS present FROM conversation_messages
+      WHERE thread_id = ? AND native_message_id = ?
+      LIMIT 1
+    `).get<{ present: number }>(threadId, nativeMessageId);
+    return row !== undefined && row !== null;
+  }
+
   private upsertMessage(threadId: string, input: ConversationMessageUpsertInput): string {
     const existing = input.nativeMessageId
       ? this.db.prepare(`

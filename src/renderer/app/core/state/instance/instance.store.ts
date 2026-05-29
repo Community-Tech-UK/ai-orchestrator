@@ -72,6 +72,7 @@ export class InstanceStore implements OnDestroy {
   readonly instanceCount = this.queries.instanceCount;
   readonly instancesByStatus = this.queries.instancesByStatus;
   readonly totalContextUsage = this.queries.totalContextUsage;
+  readonly costByProvider = this.queries.costByProvider;
   readonly rootInstances = this.queries.rootInstances;
   readonly selectedInstanceActivity = this.queries.selectedInstanceActivity;
   readonly instanceActivities = this.queries.instanceActivities;
@@ -175,6 +176,7 @@ export class InstanceStore implements OnDestroy {
       this.eventBus.compactStatus$.subscribe((data) => {
         if (data.status === 'started') {
           this._compactingInstances.update(set => {
+            if (set.has(data.instanceId)) return set; // already compacting — no-op
             const next = new Set(set);
             next.add(data.instanceId);
             return next;
@@ -182,6 +184,7 @@ export class InstanceStore implements OnDestroy {
         } else {
           // completed or error
           this._compactingInstances.update(set => {
+            if (!set.has(data.instanceId)) return set; // not compacting — no-op
             const next = new Set(set);
             next.delete(data.instanceId);
             return next;
@@ -429,15 +432,25 @@ export class InstanceStore implements OnDestroy {
 
   private updateBusySince(instanceId: string, newStatus: InstanceStatus): void {
     this._busySince.update(map => {
-      const next = new Map(map);
       if (newStatus === 'busy') {
-        // Only set if not already tracking (so we record the initial transition)
-        if (!next.has(instanceId)) {
-          next.set(instanceId, Date.now());
+        // Only set if not already tracking (so we record the initial transition).
+        // Instances stay 'busy' across many streaming updates, so short-circuit
+        // when already tracked: returning the same Map reference skips waking
+        // every _busySince subscriber on a no-op.
+        if (map.has(instanceId)) {
+          return map;
         }
-      } else {
-        next.delete(instanceId);
+        const next = new Map(map);
+        next.set(instanceId, Date.now());
+        return next;
       }
+
+      // Non-busy: remove if present; otherwise it's a no-op, keep the reference.
+      if (!map.has(instanceId)) {
+        return map;
+      }
+      const next = new Map(map);
+      next.delete(instanceId);
       return next;
     });
   }

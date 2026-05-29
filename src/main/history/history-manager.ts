@@ -81,6 +81,9 @@ export class HistoryManager {
   // Lock to prevent concurrent archiveInstance() calls for the same instance
   private archivingInstances = new Set<string>();
 
+  // Entries currently having an AI title generated, to dedupe concurrent backfills
+  private aiTitleInFlight = new Set<string>();
+
   /** Resolves once startup recovery + native transcript import have run. */
   readonly startupTasks: Promise<void>;
 
@@ -187,6 +190,10 @@ export class HistoryManager {
         id: entryId,
         displayName: instance.displayName,
         isRenamed: instance.isRenamed,
+        // Keep the cheap-AI title so closed threads stay AI-named in the rail.
+        // Fall back to a prior entry's title when re-archiving a restored thread
+        // whose live instance never re-ran auto-titling.
+        aiTitle: instance.aiTitle ?? previousEntries.find((e) => e.aiTitle)?.aiTitle,
         createdAt,
         endedAt: Date.now(),
         historyThreadId: instance.historyThreadId,
@@ -382,6 +389,102 @@ export class HistoryManager {
 
     logger.info('Marked history entry native resume as failed', { entryId, failedAt });
     return true;
+  }
+
+  /**
+   * Persist a cheap-AI title for a closed thread so the rail shows an AI-chosen
+   * name instead of the raw first message. No-op when the entry is missing, was
+   * user-renamed, or already has an AI title (so we never clobber a better one).
+   */
+  async setEntryAiTitle(entryId: string, aiTitle: string): Promise<boolean> {
+    const trimmed = aiTitle.trim();
+    if (!trimmed) {
+      return false;
+    }
+
+    const entry = this.index.entries.find((item) => item.id === entryId);
+    if (!entry || entry.isRenamed || entry.aiTitle) {
+      return false;
+    }
+
+    entry.aiTitle = trimmed;
+    this.index.lastUpdated = Date.now();
+
+    const conversation = await this.loadConversation(entryId);
+    if (conversation) {
+      conversation.entry.aiTitle = trimmed;
+      await this.saveConversation(entryId, conversation);
+    }
+
+    await this.saveIndex();
+
+    logger.info('Set history entry AI title', { entryId, aiTitle: trimmed });
+    return true;
+  }
+
+  /**
+   * Best-effort backfill of cheap-AI titles for the given (already-listed)
+   * entries that lack one — used so older threads pick up an AI-chosen rail
+   * name the next time history loads. Bounded in count and concurrency so
+   * listing history never spawns a flood of CLI title processes, and deduped
+   * against in-flight work.
+   *
+   * Fire-and-forget: callers should not depend on the result. `generate` is
+   * injected so this module stays free of a dependency on the CLI/title layer;
+   * the IPC caller skips wiring the real generator under Vitest.
+   */
+  async backfillMissingAiTitles(
+    entries: ConversationHistoryEntry[],
+    generate: (text: string) => Promise<string | null>,
+    options: { maxPerCall?: number; concurrency?: number } = {}
+  ): Promise<void> {
+    const maxPerCall = options.maxPerCall ?? 10;
+    const concurrency = Math.max(1, options.concurrency ?? 2);
+
+    const pending = entries
+      .filter(
+        (entry) =>
+          !entry.isRenamed &&
+          !entry.aiTitle &&
+          !this.aiTitleInFlight.has(entry.id) &&
+          (entry.firstUserMessage ?? '').trim().length >= 10
+      )
+      .slice(0, maxPerCall);
+
+    if (pending.length === 0) {
+      return;
+    }
+
+    for (const entry of pending) {
+      this.aiTitleInFlight.add(entry.id);
+    }
+
+    const queue = [...pending];
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        const entry = queue.shift();
+        if (!entry) {
+          return;
+        }
+        try {
+          const title = await generate(entry.firstUserMessage);
+          if (title) {
+            await this.setEntryAiTitle(entry.id, title);
+          }
+        } catch (error) {
+          logger.warn('AI title backfill failed for entry', {
+            entryId: entry.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        } finally {
+          this.aiTitleInFlight.delete(entry.id);
+        }
+      }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, pending.length) }, () => worker())
+    );
   }
 
   /**

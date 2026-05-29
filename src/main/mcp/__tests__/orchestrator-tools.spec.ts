@@ -18,8 +18,8 @@ describe('orchestrator MCP tools', () => {
   const ledgers: ConversationLedgerService[] = [];
   const dbs: SqliteDriver[] = [];
 
-  afterEach(() => {
-    for (const ledger of ledgers) ledger.close();
+  afterEach(async () => {
+    for (const ledger of ledgers) await ledger.close();
     ledgers.length = 0;
     for (const db of dbs) db.close();
     dbs.length = 0;
@@ -34,13 +34,13 @@ describe('orchestrator MCP tools', () => {
       title: 'Tool chat',
       metadata: { chatId: 'chat-1', scope: 'chat', operatorThreadKind: 'chat' },
     });
-    const userMessage = ledger.appendMessage(conversation.id, {
+    const userMessage = (await ledger.appendMessage(conversation.id, {
       role: 'user',
       phase: null,
       content: 'Pull the repositories',
       createdAt: Date.now(),
-    }).messages[0];
-    const toolCallMessage = ledger.appendMessage(conversation.id, {
+    })).messages[0];
+    const toolCallMessage = (await ledger.appendMessage(conversation.id, {
       role: 'assistant',
       phase: 'tool_call',
       content: 'git_batch_pull({"root":"/work"})',
@@ -51,7 +51,7 @@ describe('orchestrator MCP tools', () => {
           toolName: 'git_batch_pull',
         },
       },
-    }).messages[1];
+    })).messages[1];
     chatStore.insert({
       id: 'chat-1',
       name: 'Tool chat',

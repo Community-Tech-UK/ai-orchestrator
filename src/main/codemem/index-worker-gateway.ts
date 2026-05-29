@@ -20,10 +20,14 @@ import type {
   IndexWorkerOutboundMsg,
   WarmWorkspaceResult,
 } from './index-worker-protocol';
+import type { WorkspaceChunkSearchResponse } from './workspace-chunk-search';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const DEFAULT_RPC_TIMEOUT_MS = 30_000;
+// Searches sit on the create/send hot path — bound them tightly so a busy or
+// degraded worker never holds up prompt assembly; the caller falls back to ripgrep.
+const DEFAULT_SEARCH_TIMEOUT_MS = 2_500;
 const RESTART_BACKOFF_MS = 2_000;
 const MAX_RESTART_ATTEMPTS = 1;
 
@@ -159,6 +163,34 @@ export class IndexWorkerGateway extends EventEmitter {
     } catch (error) {
       this.metrics.lastError = error instanceof Error ? error.message : String(error);
       return degradedResult;
+    }
+  }
+
+  /**
+   * Run an indexed BM25 chunk search in the worker (off the main thread).
+   * Returns null when the gateway is degraded or the search times out, so the
+   * caller can fall back to ripgrep; returns `{ indexed: false }` when the
+   * workspace has no index yet.
+   */
+  async searchWorkspaceChunks(
+    workspacePath: string,
+    query: string,
+    limit: number,
+    timeoutMs: number = DEFAULT_SEARCH_TIMEOUT_MS,
+  ): Promise<WorkspaceChunkSearchResponse | null> {
+    if (this.isDegraded || !this.worker) {
+      return null;
+    }
+    const id = this.nextId();
+    try {
+      const result = await this.postRpc(
+        { type: 'search-workspace-chunks', id, workspacePath, query, limit },
+        timeoutMs,
+      );
+      return (result as WorkspaceChunkSearchResponse | null) ?? null;
+    } catch (error) {
+      this.metrics.lastError = error instanceof Error ? error.message : String(error);
+      return null;
     }
   }
 

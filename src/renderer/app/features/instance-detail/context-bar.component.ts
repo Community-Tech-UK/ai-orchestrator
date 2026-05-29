@@ -3,8 +3,9 @@
  */
 
 import { DecimalPipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { ContextUsage } from '../../core/state/instance.store';
+import { SettingsStore } from '../../core/state/settings.store';
 
 @Component({
   selector: 'app-context-bar',
@@ -30,7 +31,7 @@ import { ContextUsage } from '../../core/state/instance.store';
           <span class="separator">/</span>
           <span class="total">{{ usage().total | number:'1.0-0' }}</span>
           <span class="percentage">({{ isEstimated() ? '~' : '' }}{{ percentage() | number:'1.0-0' }}%)</span>
-          @if (showCost() && costEstimate()) {
+          @if (showCostEffective() && costEstimate()) {
             <span class="cost">≈{{ costEstimate() | number:'1.2-2' }} USD</span>
           }
         </div>
@@ -153,6 +154,10 @@ export class ContextBarComponent {
   compact = input<boolean>(false);
   showDetails = input<boolean>(false);
   showCost = input<boolean>(true);
+  private settings = inject(SettingsStore);
+
+  /** Per-call `showCost` input AND the global cost-visibility setting. */
+  readonly showCostEffective = computed(() => this.showCost() && this.settings.showCost());
 
   percentage = computed(() => {
     const usage = this.usage();

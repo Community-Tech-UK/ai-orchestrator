@@ -64,6 +64,20 @@ function checkAndNotify(name: string, startMs: number, thresholdMs: number): voi
   }
 }
 
+/**
+ * Report an already-measured duration through the same warn-and-notify path as
+ * the measure* helpers. Use when the caller measured the elapsed time itself
+ * (e.g. the IPC handler-timing guardrail, which measures a synchronous prelude
+ * with `performance.now()`). Only logs/fires when `durationMs > thresholdMs`.
+ */
+export function notifySlowOperation(name: string, durationMs: number, thresholdMs?: number): void {
+  const threshold = thresholdMs ?? getThreshold(name);
+  if (durationMs > threshold) {
+    logger.warn('Slow operation detected', { name, durationMs: Math.round(durationMs), thresholdMs: threshold });
+    slowOpCallback?.(name, durationMs, threshold);
+  }
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**

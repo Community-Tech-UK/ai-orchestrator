@@ -10,6 +10,7 @@ import { resolveCliType, type CliAdapter } from '../cli/adapters/adapter-factory
 import type { CliMessage } from '../cli/adapters/base-cli-adapter';
 import { isCliAvailable } from '../cli/cli-detection';
 import { resolveModelForTier } from '../../shared/types/provider.types';
+import { frontLoadTitle } from '../../shared/types/history.types';
 import { getLogger } from '../logging/logger';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 
@@ -38,8 +39,10 @@ function deriveInstantTitle(message: string): string | null {
   const trimmed = message.trim();
   if (trimmed.length < MIN_MESSAGE_LENGTH) return null;
 
-  // Take first line
-  let title = trimmed.split(/\r?\n/)[0].trim();
+  // Take the first line, stripping generic lead-ins ("Please …", "review this
+  // PR", a bare URL) so the distinctive part shows up front even before the AI
+  // upgrade lands.
+  let title = frontLoadTitle(trimmed.split(/\r?\n/)[0]);
 
   // If the first line is very long, take the first sentence
   if (title.length > MAX_FALLBACK_TITLE_LENGTH) {
@@ -97,13 +100,16 @@ export class AutoTitleService {
    *
    * @param instanceId - Instance to title
    * @param message - The first user message
-   * @param applyTitle - Callback to set the displayName on the instance
+   * @param applyTitle - Callback to set the title on the instance. `source` is
+   *   `'instant'` for the immediate truncated fallback and `'ai'` for the
+   *   cheap-model summary — callers persist the `'ai'` title so closed threads
+   *   keep an AI-chosen name.
    * @param isRenamed - Whether the user has already explicitly renamed
    */
   async maybeGenerateTitle(
     instanceId: string,
     message: string,
-    applyTitle: (instanceId: string, title: string) => void,
+    applyTitle: (instanceId: string, title: string, source: 'instant' | 'ai') => void,
     isRenamed?: boolean,
   ): Promise<void> {
     // Guard: already processed or in-flight
@@ -119,72 +125,85 @@ export class AutoTitleService {
     // Phase 1: Immediate fallback — truncated first message as title
     const instantTitle = deriveInstantTitle(message);
     if (instantTitle) {
-      applyTitle(instanceId, instantTitle);
+      applyTitle(instanceId, instantTitle, 'instant');
       logger.info('Auto-titled instance (instant)', { instanceId, title: instantTitle });
     }
 
-    // Phase 2: Upgrade with AI-generated title via CLI adapter.
-    // Always use the fastest available CLI — title generation doesn't need
-    // provider consistency with the session.
+    // Phase 2: Upgrade with an AI-generated title via the fastest available CLI
+    // (Haiku tier). Non-critical — on any failure the instant title remains.
     try {
-      const truncatedMessage = message.length > MAX_INPUT_LENGTH
-        ? message.slice(0, MAX_INPUT_LENGTH) + '...'
-        : message;
-
-      let cliType: Awaited<ReturnType<typeof resolveCliType>> | null = null;
-      for (const candidate of FAST_PROVIDER_PREFERENCE) {
-        try {
-          const info = await isCliAvailable(candidate);
-          if (info.installed) {
-            cliType = await resolveCliType(candidate);
-            break;
-          }
-        } catch {
-          // Skip unavailable providers
-        }
-      }
-
-      if (!cliType) {
-        logger.debug('No CLI available for AI title generation');
-        return;
-      }
-
-      const model = resolveModelForTier('fast', cliType);
-
-      const adapter = getProviderRuntimeService().createAdapter({
-        cliType,
-        options: {
-          workingDirectory: process.cwd(),
-          model,
-          systemPrompt: 'You generate very short tab titles (3-6 words) that summarize a task. Reply with ONLY the title, no quotes, no punctuation at the end, no explanation.',
-          yoloMode: false,
-          timeout: AI_TITLE_TIMEOUT,
-        },
-      });
-
-      if (!hasSendMessage(adapter)) {
-        logger.debug('CLI adapter does not support one-shot sendMessage, keeping instant title');
-        return;
-      }
-
-      const response = await adapter.sendMessage({
-        role: 'user',
-        content: `Summarize this task in 3-6 words for a tab title:\n\n${truncatedMessage}`,
-      });
-
-      const title = response.content?.trim();
-
-      if (title && title.length > 0 && title.length <= 80) {
-        applyTitle(instanceId, title);
+      const title = await this.generateTitle(message);
+      if (title) {
+        applyTitle(instanceId, title, 'ai');
         logger.info('Auto-titled instance (AI)', { instanceId, title });
       }
     } catch (error) {
-      // Non-critical: the instant title remains. Just log and move on.
       logger.warn('AI title upgrade failed, keeping instant title', {
         instanceId,
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  /**
+   * Generate a short, front-loaded title for arbitrary text using the fastest
+   * available CLI (Haiku tier). Shared by live auto-titling and the history
+   * backfill. Returns null when no CLI is available, the adapter can't do a
+   * one-shot, the text is too short, or generation fails/times out.
+   */
+  async generateTitle(text: string): Promise<string | null> {
+    const trimmed = text.trim();
+    if (trimmed.length < MIN_MESSAGE_LENGTH) {
+      return null;
+    }
+
+    const truncatedMessage = trimmed.length > MAX_INPUT_LENGTH
+      ? trimmed.slice(0, MAX_INPUT_LENGTH) + '...'
+      : trimmed;
+
+    let cliType: Awaited<ReturnType<typeof resolveCliType>> | null = null;
+    for (const candidate of FAST_PROVIDER_PREFERENCE) {
+      try {
+        const info = await isCliAvailable(candidate);
+        if (info.installed) {
+          cliType = await resolveCliType(candidate);
+          break;
+        }
+      } catch {
+        // Skip unavailable providers
+      }
+    }
+
+    if (!cliType) {
+      logger.debug('No CLI available for AI title generation');
+      return null;
+    }
+
+    const model = resolveModelForTier('fast', cliType);
+
+    const adapter = getProviderRuntimeService().createAdapter({
+      cliType,
+      options: {
+        workingDirectory: process.cwd(),
+        model,
+        systemPrompt: 'You generate very short tab titles (3-6 words) that summarize a task. The title is shown in a narrow sidebar and is realistically only legible by its first ~25 characters, so LEAD WITH THE MOST DISTINCTIVE, IDENTIFYING WORD — the project, feature, file, repo, or subject. Never start with generic filler ("Please", "Implement", "Fix", "Review this PR", "Help", "I need", "We need to") or a URL; drop it and open with what makes this task unique. Reply with ONLY the title — no quotes, no trailing punctuation, no explanation.',
+        yoloMode: false,
+        timeout: AI_TITLE_TIMEOUT,
+      },
+    });
+
+    if (!hasSendMessage(adapter)) {
+      logger.debug('CLI adapter does not support one-shot sendMessage');
+      return null;
+    }
+
+    const response = await adapter.sendMessage({
+      role: 'user',
+      content: `Summarize this task in 3-6 words for a sidebar tab title. Put the most distinctive, identifying word first so it's recognizable from just the first ~25 characters:\n\n${truncatedMessage}`,
+    });
+
+    const title = response.content?.trim();
+    return title && title.length > 0 && title.length <= 80 ? title : null;
   }
 
   /**

@@ -27,6 +27,7 @@ import type {
   FileAttachment
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
+import { computeTokenCost } from '../../../shared/data/model-pricing';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 
@@ -82,6 +83,12 @@ export class GeminiCliAdapter extends BaseCliAdapter {
   private readonly browserGatewaySettingsPath?: string;
   /** Running total of tokens used across all turns */
   private cumulativeTokensUsed = 0;
+  /**
+   * Running USD cost across all turns. Gemini's CLI reports no dollar cost, so
+   * we price the real per-turn input/output split with the shared pricing table
+   * and surface the cumulative total via `costEstimate` on context events.
+   */
+  private cumulativeCostUsd = 0;
 
   constructor(config: GeminiCliConfig = {}) {
     const adapterConfig: CliAdapterConfig = {
@@ -823,6 +830,12 @@ export class GeminiCliAdapter extends BaseCliAdapter {
           ? inputTokens + outputTokens
           : (response.usage.totalTokens || 0);
         this.cumulativeTokensUsed += turnTokens;
+        // Gemini's CLI reports no dollar cost, so price the real per-turn split
+        // with the shared table and accumulate it for the context bar.
+        this.cumulativeCostUsd += computeTokenCost(this.cliConfig.model, {
+          inputTokens,
+          outputTokens,
+        });
         const contextWindow = this.getCapabilities().contextWindow;
         const used = Math.min(turnTokens, contextWindow);
         const contextUsage: ContextUsage = {
@@ -830,6 +843,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
           total: contextWindow,
           percentage: contextWindow > 0 ? Math.min((used / contextWindow) * 100, 100) : 0,
           cumulativeTokens: this.cumulativeTokensUsed,
+          costEstimate: this.cumulativeCostUsd,
         };
         this.emit('context', contextUsage);
       }

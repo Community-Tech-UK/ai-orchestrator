@@ -39,6 +39,9 @@ export const LoopHardCapsSchema = z.object({
   maxTokens: z.number().int().positive().max(100_000_000),
   maxCostCents: z.number().int().nonnegative().max(1_000_000).nullable(),
   maxToolCallsPerIteration: z.number().int().positive().max(10_000),
+  /** LF-7: bound on verified-but-ungated completion attempts before the loop
+   *  stops as `cap-reached`. Optional; defaults to 3 via `defaultLoopConfig`. */
+  maxCompletionAttempts: z.number().int().positive().max(100).optional(),
 });
 
 export const LoopProgressThresholdsSchema = z.object({
@@ -119,6 +122,24 @@ export const LoopCompletionConfigSchema = z.object({
   crossModelReview: LoopCrossModelReviewConfigSchema.optional(),
 });
 
+/**
+ * LF-2 — semantic-progress signal config. Mirrors `LoopSemanticProgressConfig`
+ * in `src/shared/types/loop.types.ts` (AGENTS.md "type vs schema drift").
+ * Optional on LoopConfig; default off.
+ */
+export const LoopSemanticProgressConfigSchema = z.object({
+  enabled: z.boolean(),
+  cadence: z.number().int().min(1).max(100),
+  confidenceFloor: z.number().min(0).max(1),
+});
+
+/** LF-2 — per-iteration semantic-progress verdict. Mirrors `LoopSemanticProgressResult`. */
+export const LoopSemanticProgressResultSchema = z.object({
+  advanced: z.boolean(),
+  whatChanged: z.string(),
+  confidence: z.number().min(0).max(1),
+});
+
 export const LoopConfigSchema = z.object({
   /** The goal/ask. Sent on iteration 0 and is what the loop drives toward. */
   initialPrompt: z.string().min(1, 'initialPrompt cannot be empty'),
@@ -135,6 +156,7 @@ export const LoopConfigSchema = z.object({
   contextStrategy: LoopContextStrategySchema,
   caps: LoopHardCapsSchema,
   progressThresholds: LoopProgressThresholdsSchema,
+  semanticProgress: LoopSemanticProgressConfigSchema.optional(),
   completion: LoopCompletionConfigSchema,
   allowDestructiveOps: z.boolean(),
   initialStage: LoopStageSchema,
@@ -257,6 +279,7 @@ export const LoopIterationSchema = z.object({
   completionSignalsFired: z.array(CompletionSignalEvidenceSchema),
   verifyStatus: z.enum(['not-run', 'passed', 'failed']),
   verifyOutputExcerpt: z.string(),
+  semanticProgress: LoopSemanticProgressResultSchema.optional(),
 });
 
 export const LoopStateSchema = z.object({
@@ -298,6 +321,9 @@ export const LoopStateSchema = z.object({
   highestTestPassCount: z.number().int().nonnegative(),
   iterationsOnCurrentStage: z.number().int().nonnegative(),
   recentWarnIterationSeqs: z.array(z.number().int().nonnegative()),
+  /** LF-7: verified-but-ungated completion-attempt counter. Defaults to 0 for
+   *  back-compat with loop-state rows persisted before the field existed. */
+  completionAttempts: z.number().int().nonnegative().default(0),
 });
 
 export const LoopRunSummarySchema = z.object({

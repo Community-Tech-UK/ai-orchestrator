@@ -1,5 +1,5 @@
 import { execFile } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, realpathSync } from 'fs';
 import { dirname, isAbsolute, join } from 'path';
 import { getLogger } from '../logging/logger';
 import { buildCliSpawnOptions } from './cli-environment';
@@ -97,6 +97,9 @@ export interface CliUpdateServiceDeps {
     platform: NodeJS.Platform,
   ) => Promise<{ stdout: string; stderr: string }>;
   exists?: (path: string) => boolean;
+  /** Resolve symlinks for an absolute path (injectable for tests). Defaults to
+   *  fs.realpathSync; callers should tolerate it throwing on missing paths. */
+  realpath?: (path: string) => string;
   platform?: NodeJS.Platform;
   resolveCopilotLaunch?: (
     env?: NodeJS.ProcessEnv,
@@ -150,6 +153,7 @@ export class CliUpdateService {
   private readonly env: NodeJS.ProcessEnv;
   private readonly execFileAsync: NonNullable<CliUpdateServiceDeps['execFileAsync']>;
   private readonly exists: (path: string) => boolean;
+  private readonly realpath: (path: string) => string;
   private readonly platform: NodeJS.Platform;
   private readonly resolveCopilotLaunch: NonNullable<CliUpdateServiceDeps['resolveCopilotLaunch']>;
 
@@ -158,6 +162,7 @@ export class CliUpdateService {
     this.env = deps.env ?? process.env;
     this.execFileAsync = deps.execFileAsync ?? defaultExecFileAsync;
     this.exists = deps.exists ?? existsSync;
+    this.realpath = deps.realpath ?? ((p: string) => realpathSync(p));
     this.platform = deps.platform ?? process.platform;
     this.resolveCopilotLaunch = deps.resolveCopilotLaunch ?? resolveCopilotCliLaunch;
   }
@@ -303,9 +308,7 @@ export class CliUpdateService {
     }
 
     if (spec.npmPackage) {
-      const command = this.resolveSiblingNpm(activePath);
-      const args = ['install', '-g', `${spec.npmPackage}@latest`];
-      return this.withCommand(base, command, args);
+      return this.buildNpmFamilyPlan(base, spec.npmPackage, activePath);
     }
 
     if (spec.brewFormula && activePath && this.isHomebrewPath(activePath)) {
@@ -366,6 +369,102 @@ export class CliUpdateService {
       }
     }
     return this.platform === 'win32' ? 'npm.cmd' : 'npm';
+  }
+
+  /**
+   * Build the update plan for an npm-published CLI, choosing the package
+   * manager the binary was actually installed with. The default path heuristic
+   * always shelled out to `npm install -g`, which runs the WRONG manager when a
+   * user installed the CLI via bun or pnpm (the update silently no-ops or
+   * installs a parallel npm copy). We resolve symlinks first (a binary is often
+   * symlinked into the manager's bin dir) and classify by the manager's global
+   * root, falling back to npm — so detection failure never makes things worse.
+   */
+  private buildNpmFamilyPlan(
+    base: CliUpdatePlan,
+    npmPackage: string,
+    activePath: string | undefined,
+  ): CliUpdatePlan {
+    const resolved = activePath ? this.resolveRealPath(activePath) : undefined;
+    const probePaths = [activePath, resolved].filter((p): p is string => Boolean(p));
+
+    if (probePaths.some((p) => this.isBunGlobalPath(p))) {
+      return this.withCommand(base, this.resolveGlobalManager(activePath, 'bun'), ['add', '-g', `${npmPackage}@latest`]);
+    }
+    if (probePaths.some((p) => this.isPnpmGlobalPath(p))) {
+      return this.withCommand(base, this.resolveGlobalManager(activePath, 'pnpm'), ['add', '-g', `${npmPackage}@latest`]);
+    }
+    // Default: npm (unchanged behaviour). Prefer a sibling npm of the original
+    // (un-resolved) path — npm's bin dir holds the global shims.
+    return this.withCommand(base, this.resolveSiblingNpm(activePath), ['install', '-g', `${npmPackage}@latest`]);
+  }
+
+  /** Resolve symlinks for an absolute path; returns the input on any failure. */
+  private resolveRealPath(activePath: string): string {
+    if (!isAbsolute(activePath)) {
+      return activePath;
+    }
+    try {
+      return this.realpath(activePath);
+    } catch {
+      return activePath;
+    }
+  }
+
+  private homeDir(): string | undefined {
+    return this.env['HOME'] || this.env['USERPROFILE'] || undefined;
+  }
+
+  /** True when `p` is the binary of a bun global install (`bun add -g`). */
+  private isBunGlobalPath(p: string): boolean {
+    const roots: string[] = [];
+    const bunInstall = this.env['BUN_INSTALL'];
+    if (bunInstall) roots.push(bunInstall);
+    const home = this.homeDir();
+    if (home) roots.push(join(home, '.bun'));
+    return roots.some((root) => this.pathIsUnder(p, root));
+  }
+
+  /** True when `p` is the binary of a pnpm global install (`pnpm add -g`). */
+  private isPnpmGlobalPath(p: string): boolean {
+    const roots: string[] = [];
+    const pnpmHome = this.env['PNPM_HOME'];
+    if (pnpmHome) roots.push(pnpmHome);
+    const home = this.homeDir();
+    if (home) {
+      roots.push(join(home, 'Library', 'pnpm')); // macOS default
+      roots.push(join(home, '.local', 'share', 'pnpm')); // Linux default
+    }
+    const localAppData = this.env['LOCALAPPDATA'];
+    if (localAppData) roots.push(join(localAppData, 'pnpm')); // Windows default
+    return roots.some((root) => this.pathIsUnder(p, root));
+  }
+
+  /** Path-prefix containment that tolerates `\` vs `/` and a trailing slash. */
+  private pathIsUnder(candidate: string, root: string): boolean {
+    if (!root) return false;
+    const norm = (s: string) => s.split('\\').join('/').replace(/\/+$/, '');
+    const c = norm(candidate);
+    const r = norm(root);
+    return c === r || c.startsWith(`${r}/`);
+  }
+
+  /** Locate the bun/pnpm executable — a sibling of the CLI binary if present,
+   *  else the bare command name (resolved via PATH at exec time). On Windows
+   *  bun ships as `bun.exe` and pnpm as `pnpm.cmd`/`pnpm.exe`, so try both
+   *  extensions there (mirrors `resolveSiblingNpm`'s multi-candidate probe). */
+  private resolveGlobalManager(activePath: string | undefined, manager: 'bun' | 'pnpm'): string {
+    if (activePath && isAbsolute(activePath)) {
+      const dir = dirname(activePath);
+      const siblings = this.platform === 'win32'
+        ? [join(dir, `${manager}.cmd`), join(dir, `${manager}.exe`)]
+        : [join(dir, manager)];
+      const found = siblings.find((candidate) => this.exists(candidate));
+      if (found) {
+        return found;
+      }
+    }
+    return manager;
   }
 
   private isHomebrewPath(activePath: string): boolean {

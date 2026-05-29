@@ -96,8 +96,19 @@ import {
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
 import { getPromptHistoryService } from '../prompt-history/prompt-history-service';
 import { summarizeCreateInstanceConfig } from './lifecycle/instance-create-logging';
+import { callWithDeadline } from '../util/deadline';
 
 const logger = getLogger('InstanceLifecycle');
+
+/**
+ * How long create-time prompt enrichers (observation memory, MCP tool context)
+ * may run before we assemble the system prompt without them. A genuinely-async
+ * enricher that exceeds this is not waited on; its result, if it eventually
+ * arrives, is deferred into the next turn as a continuity preamble rather than
+ * blocking the first send. (Synchronous enrichers can't be interrupted by a
+ * deadline — those need an off-thread move, tracked separately.)
+ */
+const CREATE_ENRICHER_DEADLINE_MS = 600;
 
 async function getKnownModelsForCli(cliType: string): Promise<string[]> {
   if (cliType === 'copilot') {
@@ -213,6 +224,12 @@ export class InstanceLifecycleManager extends EventEmitter {
   private deps: LifecycleDependencies;
   private activityDetectors = new Map<string, ActivityStateDetector>();
   private recoveryEngine: RecoveryRecipeEngine | null = null;
+  /**
+   * Create-time enrichers (per instance → label → section text) that missed the
+   * deadline and are being deferred into the next turn's continuity preamble.
+   * Accumulated so multiple late enrichers combine into one preamble.
+   */
+  private readonly lateEnricherPreambles = new Map<string, Map<string, string>>();
 
   /** Extracted runtime readiness / native-resume health checks. */
   private readonly runtimeReadiness: RuntimeReadinessCoordinator;
@@ -360,6 +377,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       forceReleaseSessionMutex: (id) => getSessionMutex().forceRelease(id),
       removeActivityDetector: (id) => {
         this.activityDetectors.delete(id);
+        this.lateEnricherPreambles.delete(id);
       },
       clearRecoveryHistory: (id) => {
         this.recoveryEngine?.clearHistory(id);
@@ -608,10 +626,13 @@ export class InstanceLifecycleManager extends EventEmitter {
     getAutoTitleService().maybeGenerateTitle(
       instance.id,
       message,
-      (id, title) => {
-        logger.debug('Auto-title callback (lifecycle)', { id, title, isRenamed: instance.isRenamed });
+      (id, title, source) => {
+        logger.debug('Auto-title callback (lifecycle)', { id, title, source, isRenamed: instance.isRenamed });
         if (!instance.isRenamed) {
           instance.displayName = title;
+          if (source === 'ai') {
+            instance.aiTitle = title;
+          }
           this.deps.queueUpdate(id, instance.status, instance.contextUsage, undefined, title);
           getSessionContinuityManager().updateState(id, { displayName: title });
         }
@@ -755,6 +776,27 @@ export class InstanceLifecycleManager extends EventEmitter {
         throw retryError;
       }
     }
+  }
+
+  /**
+   * Queue a create-time enricher that exceeded its deadline into the next turn's
+   * continuity preamble instead of dropping it. Multiple late enrichers for the
+   * same instance are combined into one preamble (the continuity slot holds a
+   * single string). No-op for empty text or when no preamble sink is wired.
+   */
+  private deferEnricherPreamble(instanceId: string, label: string, text: string | null): void {
+    if (!text || !text.trim() || !this.deps.queueContinuityPreamble) {
+      return;
+    }
+    let byLabel = this.lateEnricherPreambles.get(instanceId);
+    if (!byLabel) {
+      byLabel = new Map<string, string>();
+      this.lateEnricherPreambles.set(instanceId, byLabel);
+    }
+    byLabel.set(label, text.trim());
+    const combined = [...byLabel.values()].join('\n\n---\n\n');
+    this.deps.queueContinuityPreamble(instanceId, combined);
+    logger.info('Deferred create-time enricher to next turn', { instanceId, label });
   }
 
   private async buildInitialRuntimeContextBlock(
@@ -1066,12 +1108,25 @@ export class InstanceLifecycleManager extends EventEmitter {
           logger.info('Prepended instruction prompts to system prompt', { count: instructionPrompts.length });
         }
 
-        // Inject observation memory context (learned reflections from past sessions)
+        // Inject observation memory context (learned reflections from past sessions).
+        // Deadline-bounded: this query hits the vector store + RLM and is genuinely
+        // async, so a slow run is not waited on — it defers into the next turn.
         try {
-          const observationContext = await getPolicyAdapter().buildObservationContext(
-            systemPrompt,
-            instance.id,
-            config.initialPrompt
+          const observationContext = await callWithDeadline(
+            getPolicyAdapter().buildObservationContext(systemPrompt, instance.id, config.initialPrompt),
+            {
+              ms: CREATE_ENRICHER_DEADLINE_MS,
+              fallback: '',
+              onTimeout: () =>
+                logger.info('Observation context exceeded create deadline; deferring to next turn', {
+                  instanceId: instance.id,
+                }),
+              onError: (err) =>
+                logger.warn('Failed to inject observation context', {
+                  error: err instanceof Error ? err.message : String(err),
+                }),
+              onLateResult: (text) => this.deferEnricherPreamble(instance.id, 'observation', text),
+            },
           );
           if (observationContext) {
             systemPrompt = `${systemPrompt}\n\n---\n\n${observationContext}`;
@@ -1149,14 +1204,33 @@ export class InstanceLifecycleManager extends EventEmitter {
           initialUserMessage?.content,
         );
 
+        // MCP runtime tool selection. Deadline-bounded: a slow tool-load (or a
+        // large connector set) defers into the next turn rather than holding up
+        // the first send.
         try {
           const mcpManager = getMcpManager();
-          const runtimeToolContext = await mcpManager.getRuntimeToolContext({
-            query: config.initialPrompt,
-            maxTools: 6,
-          });
-          const mcpPrompt = mcpManager.formatRuntimeToolContext(runtimeToolContext);
-          if (mcpPrompt) {
+          const runtimeToolContext = await callWithDeadline<
+            Awaited<ReturnType<typeof mcpManager.getRuntimeToolContext>> | null
+          >(
+            mcpManager.getRuntimeToolContext({ query: config.initialPrompt, maxTools: 6 }),
+            {
+              ms: CREATE_ENRICHER_DEADLINE_MS,
+              fallback: null,
+              onTimeout: () =>
+                logger.info('MCP tool context exceeded create deadline; deferring to next turn', {
+                  instanceId: instance.id,
+                }),
+              onLateResult: (ctx) => {
+                if (ctx) {
+                  this.deferEnricherPreamble(instance.id, 'mcp', mcpManager.formatRuntimeToolContext(ctx));
+                }
+              },
+            },
+          );
+          const mcpPrompt = runtimeToolContext
+            ? mcpManager.formatRuntimeToolContext(runtimeToolContext)
+            : null;
+          if (runtimeToolContext && mcpPrompt) {
             systemPrompt = `${systemPrompt}\n\n---\n\n${mcpPrompt}`;
             logger.info('Injected deferred MCP runtime tool context into system prompt', {
               selectedTools: runtimeToolContext.selectedTools.length,

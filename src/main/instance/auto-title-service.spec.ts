@@ -69,9 +69,9 @@ describe('AutoTitleService', () => {
       }),
     });
     // Phase 1 instant title
-    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Investigate the broken deployment and summarize the fix.');
+    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Investigate the broken deployment and summarize the fix.', 'instant');
     // Phase 2 AI title
-    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'AI generated title');
+    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'AI generated title', 'ai');
   });
 
   it('falls back to gemini when claude is not available', async () => {
@@ -111,7 +111,7 @@ describe('AutoTitleService', () => {
     );
 
     // Phase 1 instant title should still apply
-    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Investigate the broken deployment and summarize the fix.');
+    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Investigate the broken deployment and summarize the fix.', 'instant');
     // Phase 2 should not have been attempted
     expect(mockCreateAdapter).not.toHaveBeenCalled();
   });

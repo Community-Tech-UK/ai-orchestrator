@@ -1518,10 +1518,13 @@ export class InstanceManager extends EventEmitter {
         getAutoTitleService().maybeGenerateTitle(
           instanceId,
           message,
-          (id, title) => {
-            logger.debug('Auto-title callback (sendInput)', { id, title, isRenamed: instance.isRenamed });
+          (id, title, source) => {
+            logger.debug('Auto-title callback (sendInput)', { id, title, source, isRenamed: instance.isRenamed });
             if (!instance.isRenamed) {
               instance.displayName = title;
+              if (source === 'ai') {
+                instance.aiTitle = title;
+              }
               this.state.queueUpdate(id, instance.status, instance.contextUsage, undefined, title);
               getSessionContinuityManager().updateState(id, { displayName: title });
             }
@@ -1922,9 +1925,12 @@ export class InstanceManager extends EventEmitter {
       getAutoTitleService().maybeGenerateTitle(
         instanceId,
         content,
-        (id, title) => {
+        (id, title, source) => {
           if (instance.isRenamed) return;
           instance.displayName = title;
+          if (source === 'ai') {
+            instance.aiTitle = title;
+          }
           this.state.queueUpdate(id, instance.status, instance.contextUsage, undefined, title);
           getSessionContinuityManager().updateState(id, { displayName: title });
         },

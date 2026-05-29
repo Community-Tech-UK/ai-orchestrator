@@ -3,9 +3,10 @@
  * Registers all IPC handlers and manages event forwarding
  */
 
-import { IpcMainInvokeEvent } from 'electron';
+import { IpcMainInvokeEvent, ipcMain } from 'electron';
 import * as crypto from 'crypto';
 import { getLogger } from '../logging/logger';
+import { installIpcHandlerTiming } from './ipc-handler-timing';
 import { InstanceManager } from '../instance/instance-manager';
 import { WindowManager } from '../window-manager';
 import type { IpcResponse } from '../../shared/types/ipc.types';
@@ -175,6 +176,11 @@ export class IpcMainHandler {
    * Register all IPC handlers
    */
   registerHandlers(): void {
+    // Instrument every handler registered below with synchronous-prelude timing
+    // so any handler that blocks the main event loop is logged loudly. Must run
+    // before the first registerXxxHandlers() call.
+    installIpcHandlerTiming(ipcMain);
+
     // Instance management handlers
     registerInstanceHandlers({
       instanceManager: this.instanceManager,

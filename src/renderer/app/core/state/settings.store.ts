@@ -69,6 +69,7 @@ export class SettingsStore {
   readonly showToolMessages = computed(() => this._settings().showToolMessages);
   readonly showThinking = computed(() => this._settings().showThinking);
   readonly thinkingDefaultExpanded = computed(() => this._settings().thinkingDefaultExpanded);
+  readonly showCost = computed(() => this._settings().showCost ?? true);
   readonly contextWarningThreshold = computed(() => this._settings().contextWarningThreshold);
   readonly featureFlags = computed(() => {
     const settings = this._settings();

@@ -140,4 +140,76 @@ describe('CodeRetrievalService', () => {
 
     expect(results).toHaveLength(0);
   });
+
+  describe('off-thread index worker search', () => {
+    const makeResult = (overrides: Record<string, unknown> = {}) => ({
+      workspacePath,
+      relativePath: 'src/auth.ts',
+      absolutePath: join(workspacePath, 'src/auth.ts'),
+      content: 'export function issueSessionToken() {}',
+      startLine: 1,
+      endLine: 1,
+      score: 1,
+      source: 'fts' as const,
+      language: 'typescript',
+      symbolName: 'issueSessionToken',
+      stale: false,
+      ...overrides,
+    });
+
+    it('returns worker results without touching the main-thread store or ripgrep', async () => {
+      const searchWorkspaceChunks = vi.fn(async () => ({ indexed: true, results: [makeResult()] }));
+      const warmWorkspace = vi.fn();
+      const fallback = vi.fn(async () => []);
+      const storeSpy = vi.spyOn(store, 'searchWorkspaceChunks');
+      const service = new CodeRetrievalService({
+        store,
+        indexWorkerGateway: { warmWorkspace, searchWorkspaceChunks } as never,
+        runFallbackSearch: fallback,
+      });
+
+      const results = await service.search({ workspacePath, query: 'issue session', limit: 5 });
+
+      expect(searchWorkspaceChunks).toHaveBeenCalledWith(workspacePath, 'issue session', 5);
+      expect(results[0]).toEqual(expect.objectContaining({ source: 'fts', relativePath: 'src/auth.ts' }));
+      expect(fallback).not.toHaveBeenCalled();
+      expect(storeSpy).not.toHaveBeenCalled(); // never a synchronous main-thread FTS
+    });
+
+    it('warms in the background and ripgreps when the workspace is not yet indexed', async () => {
+      const searchWorkspaceChunks = vi.fn(async () => ({ indexed: false, results: [] }));
+      const warmWorkspace = vi.fn(async () => ({ indexed: true, absPath: workspacePath, primaryLanguage: 'typescript' }));
+      const fallback = vi.fn(async () => [makeResult({ source: 'grepFallback', stale: true })]);
+      const service = new CodeRetrievalService({
+        store,
+        indexWorkerGateway: { warmWorkspace, searchWorkspaceChunks } as never,
+        runFallbackSearch: fallback,
+      });
+
+      const results = await service.search({ workspacePath, query: 'issue session', limit: 5 });
+
+      expect(warmWorkspace).toHaveBeenCalledWith(workspacePath); // background, no deadline arg
+      expect(fallback).toHaveBeenCalled();
+      expect(results[0]?.source).toBe('grepFallback');
+    });
+
+    it('ripgreps without a sync store search or warm when the worker is degraded/times out', async () => {
+      const searchWorkspaceChunks = vi.fn(async () => null);
+      const warmWorkspace = vi.fn();
+      const fallback = vi.fn(async () => [makeResult({ source: 'grepFallback', stale: true })]);
+      const storeSpy = vi.spyOn(store, 'searchWorkspaceChunks');
+      const service = new CodeRetrievalService({
+        store,
+        indexWorkerGateway: { warmWorkspace, searchWorkspaceChunks } as never,
+        runFallbackSearch: fallback,
+      });
+
+      const results = await service.search({ workspacePath, query: 'issue session', limit: 5 });
+
+      expect(fallback).toHaveBeenCalled();
+      expect(warmWorkspace).not.toHaveBeenCalled();
+      expect(storeSpy).not.toHaveBeenCalled();
+      expect(results[0]?.source).toBe('grepFallback');
+    });
+  });
 });

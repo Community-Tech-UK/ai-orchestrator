@@ -36,7 +36,7 @@ export function registerChatHandlers(deps: { instanceManager: InstanceManager })
   ipcMain.handle(IPC_CHANNELS.CHAT_GET, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(ChatIdPayloadSchema, payload, 'CHAT_GET');
-      return { success: true, data: service.getChat(validated.chatId) };
+      return { success: true, data: await service.getChat(validated.chatId) };
     } catch (error) {
       return chatError(error, 'CHAT_GET_FAILED');
     }
@@ -54,7 +54,7 @@ export function registerChatHandlers(deps: { instanceManager: InstanceManager })
   ipcMain.handle(IPC_CHANNELS.CHAT_RENAME, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(ChatRenamePayloadSchema, payload, 'CHAT_RENAME');
-      return { success: true, data: service.renameChat(validated.chatId, validated.name) };
+      return { success: true, data: await service.renameChat(validated.chatId, validated.name) };
     } catch (error) {
       return chatError(error, 'CHAT_RENAME_FAILED');
     }
@@ -108,7 +108,7 @@ export function registerChatHandlers(deps: { instanceManager: InstanceManager })
   ipcMain.handle(IPC_CHANNELS.CHAT_SET_YOLO, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(ChatSetYoloPayloadSchema, payload, 'CHAT_SET_YOLO');
-      return { success: true, data: service.setYolo(validated.chatId, validated.yolo) };
+      return { success: true, data: await service.setYolo(validated.chatId, validated.yolo) };
     } catch (error) {
       return chatError(error, 'CHAT_SET_YOLO_FAILED');
     }

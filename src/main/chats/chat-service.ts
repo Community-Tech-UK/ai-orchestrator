@@ -19,6 +19,7 @@ import {
 } from '../conversation-ledger';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { Instance } from '../../shared/types/instance.types';
+import { frontLoadTitle } from '../../shared/types/history.types';
 import { getLogger } from '../logging/logger';
 import { getOperatorDatabase } from '../operator/operator-database';
 import { addAllowedRoot } from '../security/path-validator';
@@ -70,6 +71,7 @@ export class ChatService {
   private readonly store: ChatStore;
   private readonly bridge: ChatTranscriptBridge;
   private initialized = false;
+  private migrationDone: Promise<void> = Promise.resolve();
 
   static getInstance(config: ChatServiceConfig): ChatService {
     this.instance ??= new ChatService(config);
@@ -77,7 +79,27 @@ export class ChatService {
   }
 
   static _resetForTesting(): void {
+    this.instance?.dispose();
     this.instance = null;
+  }
+
+  /** Stop background work (the transcript bridge's deferred flush). Call on
+   *  teardown so a pending flush can't fire against a closed store. */
+  dispose(): void {
+    this.bridge.stop();
+  }
+
+  /** Resolves once lazy init and the one-time legacy migration have completed.
+   *  Production code doesn't need this; tests use it for determinism. */
+  async whenReady(): Promise<void> {
+    this.initialize();
+    await this.migrationDone;
+  }
+
+  /** Drain the transcript bridge's pending writes immediately (tests/shutdown).
+   *  Normally writes flush on a short timer off the event hot path. */
+  async flushTranscript(): Promise<void> {
+    await this.bridge.flush();
   }
 
   constructor(config: ChatServiceConfig) {
@@ -99,7 +121,15 @@ export class ChatService {
     }
     this.initialized = true;
     this.store.clearRuntimeLinks();
-    this.migrateLegacyOrchestratorThread();
+    // One-time legacy backfill — runs off the init critical path (it now reads
+    // the ledger through the worker, which is async). A slight delay before a
+    // migrated chat appears is acceptable. The promise is retained so callers
+    // (and tests) can await completion via whenReady().
+    this.migrationDone = this.migrateLegacyOrchestratorThread().catch((error) => {
+      logger.warn('Legacy orchestrator thread migration failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
     // Trust each persisted chat's working directory in the renderer-facing
     // path sandbox so file drags into a returning chat session work after
     // a restart. Includes archived chats (cheap) since the user could
@@ -117,7 +147,7 @@ export class ChatService {
     return this.store.list(options);
   }
 
-  getChat(chatId: string): ChatDetail {
+  async getChat(chatId: string): Promise<ChatDetail> {
     this.initialize();
     return this.detailFor(this.requireChat(chatId));
   }
@@ -147,12 +177,12 @@ export class ChatService {
       ledgerThreadId: thread.id,
     });
     addAllowedRoot(input.currentCwd);
-    const detail = this.detailFor(chat);
+    const detail = await this.detailFor(chat);
     this.emit({ type: 'chat-created', chatId: chat.id, chat });
     return detail;
   }
 
-  renameChat(chatId: string, name: string): ChatDetail {
+  async renameChat(chatId: string, name: string): Promise<ChatDetail> {
     this.initialize();
     const chat = this.store.update(chatId, {
       name: normalizeChatName(name),
@@ -176,7 +206,7 @@ export class ChatService {
   async setProvider(chatId: string, provider: ChatProvider): Promise<ChatDetail> {
     this.initialize();
     const chat = this.requireChat(chatId);
-    const messages = this.ledger.getConversation(chat.ledgerThreadId).messages;
+    const messages = (await this.ledger.getConversation(chat.ledgerThreadId)).messages;
     if (chat.provider && messages.length > 0) {
       throw new Error('Chat provider can only be changed before the first message');
     }
@@ -225,7 +255,7 @@ export class ChatService {
     return this.detailFor(updated);
   }
 
-  setYolo(chatId: string, yolo: boolean): ChatDetail {
+  async setYolo(chatId: string, yolo: boolean): Promise<ChatDetail> {
     this.initialize();
     const chat = this.store.update(chatId, {
       yolo,
@@ -256,7 +286,7 @@ export class ChatService {
       currentInstanceId: null,
       lastActiveAt: Date.now(),
     });
-    this.ledger.appendMessage(updated.ledgerThreadId, {
+    await this.ledger.appendMessage(updated.ledgerThreadId, {
       nativeMessageId: `chat-cwd-switch:${Date.now()}:${randomUUID()}`,
       nativeTurnId: `chat-cwd-switch:${randomUUID()}`,
       role: 'system',
@@ -293,7 +323,7 @@ export class ChatService {
     const workingChat = named
       ? this.store.update(chat.id, { name: named, lastActiveAt: Date.now() })
       : chat;
-    const conversation = this.ledger.appendMessage(workingChat.ledgerThreadId, createUserLedgerMessage({
+    const conversation = await this.ledger.appendMessage(workingChat.ledgerThreadId, createUserLedgerMessage({
       text,
       chatId: workingChat.id,
       attachments: input.attachments,
@@ -310,13 +340,10 @@ export class ChatService {
     return this.detailFor(updated);
   }
 
-  appendSystemEvent(input: ChatSystemEventInput): ChatDetail {
+  async appendSystemEvent(input: ChatSystemEventInput): Promise<ChatDetail> {
     this.initialize();
     const chat = this.requireChat(input.chatId);
-    const existing = this.ledger
-      .getConversation(chat.ledgerThreadId)
-      .messages
-      .some((message) => message.nativeMessageId === input.nativeMessageId);
+    const existing = await this.ledger.hasMessage(chat.ledgerThreadId, input.nativeMessageId);
     if (existing) {
       return this.detailFor(chat);
     }
@@ -326,7 +353,7 @@ export class ChatService {
       ? this.store.update(chat.id, { name: autoNamed, lastActiveAt: Date.now() })
       : chat;
 
-    const conversation = this.ledger.appendMessage(workingChat.ledgerThreadId, {
+    const conversation = await this.ledger.appendMessage(workingChat.ledgerThreadId, {
       nativeMessageId: input.nativeMessageId,
       nativeTurnId: input.nativeTurnId,
       role: input.role ?? 'system',
@@ -440,13 +467,13 @@ export class ChatService {
     return replay ? `${replay}\n\n${text}` : text;
   }
 
-  private detailFor(chat: ChatRecord): ChatDetail {
+  private async detailFor(chat: ChatRecord): Promise<ChatDetail> {
     const currentInstance = chat.currentInstanceId
       ? this.instanceManager.getInstance(chat.currentInstanceId) ?? null
       : null;
     return {
       chat,
-      conversation: this.ledger.getConversation(chat.ledgerThreadId),
+      conversation: await this.ledger.getConversation(chat.ledgerThreadId),
       currentInstance,
     };
   }
@@ -465,21 +492,20 @@ export class ChatService {
     }
   }
 
-  private migrateLegacyOrchestratorThread(): void {
+  private async migrateLegacyOrchestratorThread(): Promise<void> {
     const existingChats = this.store.list({ includeArchived: true });
-    const migrated = existingChats.some((chat) => {
-      const thread = this.ledger.getConversation(chat.ledgerThreadId).thread;
-      return thread.nativeThreadId === INTERNAL_ORCHESTRATOR_NATIVE_THREAD_ID;
-    });
-    if (migrated) {
-      return;
+    for (const chat of existingChats) {
+      const thread = await this.ledger.getThread(chat.ledgerThreadId);
+      if (thread?.nativeThreadId === INTERNAL_ORCHESTRATOR_NATIVE_THREAD_ID) {
+        return; // already migrated
+      }
     }
 
-    const thread = this.ledger.listConversations({
+    const thread = (await this.ledger.listConversations({
       provider: 'orchestrator',
       sourceKind: 'orchestrator',
       limit: 500,
-    }).find((candidate) =>
+    })).find((candidate) =>
       candidate.nativeThreadId === INTERNAL_ORCHESTRATOR_NATIVE_THREAD_ID
       || (
         candidate.metadata['scope'] === 'global'
@@ -541,7 +567,10 @@ function maybeAutoName(chat: ChatRecord, text: string): string | null {
   if (chat.name !== UNTITLED_CHAT) {
     return null;
   }
-  const compact = text.replace(/\s+/g, ' ').trim();
+  // Strip generic lead-ins ("Please …", "review this PR", a bare URL) so the
+  // stored chat name is recognizable within its first ~30 chars — the same
+  // treatment the workspace rail applies to thread titles.
+  const compact = frontLoadTitle(text);
   if (!compact) {
     return null;
   }

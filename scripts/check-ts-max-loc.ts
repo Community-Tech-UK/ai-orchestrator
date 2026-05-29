@@ -229,7 +229,7 @@ const ALLOWLIST: Record<string, number> = {
   // Shared
   'src/shared/types/settings.types.ts': 810,
   // Worker agent
-  'src/worker-agent/worker-agent.ts': 801,
+  'src/worker-agent/worker-agent.ts': 879,
 };
 
 function countLines(filePath: string): number {

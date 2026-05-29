@@ -6,8 +6,15 @@
 
 import { RLMContextManager } from '../rlm/context-manager';
 import { getLogger } from '../logging/logger';
-import { getUnifiedMemory } from '../memory';
-import { getSettingsManager } from '../core/config/settings-manager';
+// Deep-import getUnifiedMemory from the controller module rather than the
+// '../memory' barrel. InstanceContextManager runs inside the context worker
+// thread, where the barrel's eager re-exports (project-memory-brief,
+// project-code-index-bridge, output-storage, …) drag in CLI adapters,
+// automations, plugins and codemem — 14 of which `import { app } from 'electron'`
+// at module top level and crash the worker ("Cannot find module 'electron'").
+// The deep import keeps the worker's value-import closure slim (56 modules, 0
+// electron importers). See context-worker-import-isolation.spec.ts for the guard.
+import { getUnifiedMemory } from '../memory/unified-controller';
 import {
   JITContextLoader,
   getJITLoader,
@@ -87,7 +94,6 @@ export const DEFAULT_CONTEXT_CONFIG: ContextConfig = {
 export class InstanceContextManager implements InstanceContextPort {
   private rlm: RLMContextManager;
   private unifiedMemory = getUnifiedMemory();
-  private settings = getSettingsManager();
   private config: ContextConfig;
   private jitLoader: JITContextLoader;
 

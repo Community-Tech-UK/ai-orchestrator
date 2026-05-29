@@ -8,7 +8,7 @@ async function build(): Promise<void> {
     target: 'node20',
     outfile: 'dist/worker-agent/index.js',
     format: 'cjs',
-    external: ['electron', 'better-sqlite3'],
+    external: ['electron', 'better-sqlite3', 'node-pty'],
     tsconfig: 'tsconfig.worker.json',
     banner: {
       js: '#!/usr/bin/env node',

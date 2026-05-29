@@ -415,7 +415,9 @@ export class LoopStore {
   }
 
   private clearActive(chatId: string): void {
-    const map = new Map(this.activeByChat());
+    const current = this.activeByChat();
+    if (!current.has(chatId)) return; // already cleared — no-op
+    const map = new Map(current);
     map.delete(chatId);
     this.activeByChat.set(map);
   }
@@ -480,7 +482,14 @@ export class LoopStore {
   }
 
   private setBanner(chatId: string, banner: LoopBanner | null): void {
-    const map = new Map(this.bannerByChat());
+    const current = this.bannerByChat();
+    const has = current.has(chatId);
+    // No-op guards: clearing a banner that isn't set, or re-setting the same
+    // reference (commonly null on terminal/dismiss) shouldn't wake subscribers.
+    if ((banner === null && !has) || (has && current.get(chatId) === banner)) {
+      return;
+    }
+    const map = new Map(current);
     map.set(chatId, banner);
     this.bannerByChat.set(map);
   }
@@ -492,7 +501,9 @@ export class LoopStore {
   }
 
   private clearRunningIteration(loopRunId: string): void {
-    const map = new Map(this.runningIterationByLoop());
+    const current = this.runningIterationByLoop();
+    if (!current.has(loopRunId)) return; // nothing running — no-op
+    const map = new Map(current);
     map.delete(loopRunId);
     this.runningIterationByLoop.set(map);
   }

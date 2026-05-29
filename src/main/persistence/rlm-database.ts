@@ -7,7 +7,6 @@
 
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
-import { app } from 'electron';
 import * as path from 'path';
 import { createHash } from 'node:crypto';
 import * as os from 'node:os';
@@ -50,6 +49,27 @@ import * as backup from './rlm/rlm-backup';
 // Re-export config type
 export type { RLMDatabaseConfig };
 
+/**
+ * Lazily resolve Electron's userData path with a guarded require.
+ *
+ * RLMDatabase is imported by the context worker (via instance-context →
+ * context-manager). A static `import { app } from 'electron'` crashed that
+ * worker thread at module-load time inside a packaged asar with
+ * "Cannot find module 'electron'", which silently disabled all RLM/memory
+ * context (contextWorkerDegraded=true). The worker always passes explicit
+ * dbPath/contentDir, so it never needs this fallback; returning undefined here
+ * lets the constructor use the cwd-hash path in non-Electron contexts.
+ */
+function getElectronUserDataPath(): string | undefined {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const electron = require('electron') as typeof import('electron');
+    return electron.app?.getPath?.('userData');
+  } catch {
+    return undefined;
+  }
+}
+
 export class RLMDatabase extends EventEmitter {
   private static instance: RLMDatabase | null = null;
   private db: SqliteDriver;
@@ -63,7 +83,7 @@ export class RLMDatabase extends EventEmitter {
     // derive a stable per-project path under ~/.aio/{hash}/ keyed on the
     // project root, so parallel worktrees never share the same database.
     // (claude3.md §6: hash-based per-checkout data directory)
-    const userDataPath = app?.getPath?.('userData') ?? (() => {
+    const userDataPath = getElectronUserDataPath() ?? (() => {
       const projectRoot = process.cwd();
       const hash = createHash('sha256').update(projectRoot).digest('hex').slice(0, 12);
       return path.join(os.homedir(), '.aio', hash);

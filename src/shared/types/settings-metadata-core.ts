@@ -174,6 +174,13 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'display',
   },
   {
+    key: 'showCost',
+    label: 'Show cost estimates',
+    description: 'Show running USD cost estimates per instance and across all instances. Turn off to hide spend in managed setups.',
+    type: 'boolean',
+    category: 'display',
+  },
+  {
     key: 'thinkingDefaultExpanded',
     label: 'Expand reasoning by default',
     description: 'Open reasoning panels automatically instead of keeping them collapsed.',

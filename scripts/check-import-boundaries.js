@@ -6,6 +6,11 @@
  *   1. Renderer must not import from src/main (use IPC instead)
  *   2. SDK package must not import from src/main internals
  *   3. Contracts package must not import from src/main internals
+ *   4. Designated main-process hot-path modules must not import a synchronous
+ *      SQLite engine directly (better-sqlite3 / its driver factory). Per the
+ *      main-thread-offload architecture, all DB work on user-facing hot paths
+ *      must go through a worker/gateway, never a synchronous connection on the
+ *      Electron main event loop.
  *
  * Inspired by openclaw boundary scripts and claude3.md §14 recommendations.
  * Run with: node scripts/check-import-boundaries.js
@@ -18,7 +23,36 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 
-/** @typedef {{ from: RegExp, to: RegExp, message: string }} BoundaryRule */
+/**
+ * @typedef {Object} BoundaryRule
+ * @property {string} [fromGlob]   Directory prefix; every source file under it is checked.
+ * @property {string[]} [fromFiles] Explicit repo-relative file paths to check (alternative to fromGlob).
+ * @property {RegExp} toPattern    A line matching this pattern is a violation.
+ * @property {string} message      Human-readable explanation shown on violation.
+ */
+
+/**
+ * Matches importing the synchronous SQLite engine: the `better-sqlite3` package
+ * itself, or any relative import ending in `better-sqlite3-driver` (the factory
+ * that opens a real connection). Type-only imports of the `sqlite-driver`
+ * interface are intentionally NOT matched — they are erased at compile time and
+ * carry no runtime connection.
+ */
+const SYNC_SQLITE_IMPORT = /(?:from|require)\s*\(?['"](?:better-sqlite3|(?:[^'"]*\/)?better-sqlite3-driver)['"]/;
+
+/**
+ * Main-process modules that sit on a user-facing hot path (instance
+ * create/resume/send, live transcript bridging) and must therefore never open
+ * or call a synchronous SQLite connection directly. New DB needs here must be
+ * routed through a worker gateway instead.
+ */
+const HOT_PATH_FILES = [
+  'src/main/chats/chat-transcript-bridge.ts',
+  'src/main/instance/instance-lifecycle.ts',
+  'src/main/instance/instance-manager.ts',
+  'src/main/instance/instance-communication.ts',
+  'src/main/app/instance-event-forwarding.ts',
+];
 
 /** Rules: any file matching `from` must not have an import matching `to`. */
 const RULES = [
@@ -49,6 +83,14 @@ const RULES = [
     toPattern: /(?:from|require)\s*\(?['"](?:\.\.\/)+main\/(?!index)/,
     message: 'preload → main internals: preload may only reference main/index entry point',
   },
+  {
+    // Hot-path main-process modules must not open a synchronous SQLite engine.
+    fromFiles: HOT_PATH_FILES,
+    toPattern: SYNC_SQLITE_IMPORT,
+    message:
+      'hot-path → better-sqlite3: this module runs on a user-facing hot path and must not ' +
+      'import a synchronous SQLite engine; route DB work through a worker gateway instead',
+  },
 ];
 
 const SKIPPED_DIRS = new Set(['node_modules', 'dist', '.git', 'coverage', 'out', 'release']);
@@ -71,8 +113,10 @@ function checkBoundaries() {
   let violations = 0;
 
   for (const rule of RULES) {
-    const dir = path.join(ROOT, rule.fromGlob);
-    const files = walk(dir);
+    const files = rule.fromFiles
+      ? rule.fromFiles.map((rel) => path.join(ROOT, rel)).filter((f) => fs.existsSync(f))
+      : walk(path.join(ROOT, rule.fromGlob));
+    const label = rule.fromGlob ?? 'hot-path-files';
 
     for (const file of files) {
       const content = fs.readFileSync(file, 'utf-8');
@@ -81,7 +125,7 @@ function checkBoundaries() {
       for (let i = 0; i < lines.length; i++) {
         if (rule.toPattern.test(lines[i])) {
           console.error(
-            `BOUNDARY VIOLATION [${rule.fromGlob}]\n` +
+            `BOUNDARY VIOLATION [${label}]\n` +
             `  File: ${path.relative(ROOT, file)}:${i + 1}\n` +
             `  Line: ${lines[i].trim()}\n` +
             `  Rule: ${rule.message}\n`,

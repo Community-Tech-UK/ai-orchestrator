@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { marked } from 'marked';
 
 import { MarkdownService } from './markdown.service';
 import {
@@ -154,5 +155,92 @@ describe('MarkdownService.renderSync command stripping', () => {
 
     expect(clipboard.copyText).toHaveBeenCalledWith('const x = 1;', { label: 'code' });
     document.body.innerHTML = '';
+  });
+});
+
+describe('MarkdownService block-memoized rendering', () => {
+  let service: MarkdownService;
+
+  beforeEach(() => {
+    const clipboard: ClipboardService = {
+      lastResult: signal<ClipboardCopyResult | null>(null).asReadonly(),
+      copyText: vi.fn().mockResolvedValue({ ok: true }),
+      copyJSON: vi.fn().mockResolvedValue({ ok: true }),
+      copyImage: vi.fn().mockResolvedValue({ ok: true }),
+    };
+    TestBed.configureTestingModule({
+      providers: [{ provide: CLIPBOARD_SERVICE, useValue: clipboard }],
+    });
+    service = TestBed.inject(MarkdownService);
+  });
+
+  it('renders every block of a multi-block document', () => {
+    const md = [
+      '# Heading',
+      '',
+      'A paragraph with **bold** text.',
+      '',
+      '- item one',
+      '- item two',
+      '',
+      '```ts',
+      'const x = 1;',
+      '```',
+    ].join('\n');
+
+    const html = service.renderSync(md);
+
+    expect(html).toContain('Heading');
+    expect(html).toContain('<strong>bold</strong>');
+    expect(html).toContain('item one');
+    expect(html).toContain('item two');
+    expect(html).toContain('const x = 1;');
+    expect(html).toContain('code-block-wrapper');
+  });
+
+  it('produces identical HTML for a block whether or not later blocks are appended', () => {
+    // The memoized first block must render the same as when parsed standalone —
+    // this guards against block-splitting changing a block's output.
+    const first = service.renderSync('First paragraph.');
+    const grown = service.renderSync('First paragraph.\n\nSecond paragraph.');
+
+    expect(first).toContain('First paragraph.');
+    expect(grown).toContain('First paragraph.');
+    expect(grown).toContain('Second paragraph.');
+    // The rendered <p> for the first paragraph is byte-identical in both.
+    expect(grown).toContain(first.trim());
+  });
+
+  it('reuses cached block HTML across streaming growth (only the tail re-parses)', () => {
+    const lexSpy = vi.spyOn(marked, 'parser');
+
+    service.renderSync('# Stable title\n\nStable body.\n\nTail v1');
+    const callsAfterFirst = lexSpy.mock.calls.length;
+
+    // Grow only the final block; the two leading blocks must come from cache.
+    service.renderSync('# Stable title\n\nStable body.\n\nTail v2 with more text');
+    const callsAfterSecond = lexSpy.mock.calls.length - callsAfterFirst;
+
+    // Second render parses strictly fewer blocks than the 3 it contains,
+    // because the stable leading blocks are served from the cache.
+    expect(callsAfterSecond).toBeLessThan(3);
+    expect(callsAfterSecond).toBeGreaterThan(0);
+
+    lexSpy.mockRestore();
+  });
+
+  it('resolves reference-style links via the whole-document fallback path', () => {
+    const md = 'See [the docs][1] for details.\n\n[1]: https://example.com/docs';
+    const html = service.renderSync(md);
+    expect(html).toContain('href="https://example.com/docs"');
+    expect(html).toContain('the docs');
+  });
+
+  it('renders a still-open (streaming) code fence without corrupting earlier blocks', () => {
+    const md = '# Title\n\nIntro paragraph.\n\n```ts\nconst partial = ';
+    const html = service.renderSync(md);
+    expect(html).toContain('Title');
+    expect(html).toContain('Intro paragraph.');
+    expect(html).toContain('const partial =');
   });
 });

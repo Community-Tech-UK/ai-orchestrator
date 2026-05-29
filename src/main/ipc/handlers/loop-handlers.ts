@@ -363,9 +363,15 @@ function appendLoopStartPrompt(
 ): void {
   const chat = chatService.tryGetChat(state.chatId);
   if (chat) {
-    chatService.appendSystemEvent({
+    void chatService.appendSystemEvent({
       ...buildLoopStartChatEvent(state),
       autoName: true,
+    }).catch((error) => {
+      logger.warn('Failed to append loop start prompt to chat transcript', {
+        loopRunId: state.id,
+        chatId: state.chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     });
     return;
   }
@@ -396,11 +402,17 @@ function appendLoopInterveneMessage(
   const interventionId = randomUUID();
   const chat = chatService.tryGetChat(state.chatId);
   if (chat) {
-    chatService.appendSystemEvent(buildLoopInterveneChatEvent({
+    void chatService.appendSystemEvent(buildLoopInterveneChatEvent({
       state,
       interventionId,
       message,
-    }));
+    })).catch((error) => {
+      logger.warn('Failed to append loop intervene message to chat transcript', {
+        loopRunId: state.id,
+        chatId: state.chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
     return;
   }
   const instance = instanceManager.getInstance(state.chatId);
@@ -427,7 +439,13 @@ function appendLoopTerminalSummary(
 ): void {
   const chat = chatService.tryGetChat(state.chatId);
   if (chat) {
-    chatService.appendSystemEvent(buildLoopTerminalChatSummary(state));
+    void chatService.appendSystemEvent(buildLoopTerminalChatSummary(state)).catch((error) => {
+      logger.warn('Failed to append loop terminal summary to chat transcript', {
+        loopRunId: state.id,
+        chatId: state.chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
     return;
   }
   const instance = instanceManager.getInstance(state.chatId);

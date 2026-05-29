@@ -3,6 +3,9 @@ import * as path from 'node:path';
 import type { CasStore } from './cas-store';
 import type { IndexWorkerGateway } from './index-worker-gateway';
 import { inferLanguage } from './code-index-manager';
+import { searchHydratedChunks, type CodeRetrievalResult } from './workspace-chunk-search';
+
+export type { CodeRetrievalResult };
 
 export interface CodeRetrievalSearchOptions {
   workspacePath: string;
@@ -11,23 +14,12 @@ export interface CodeRetrievalSearchOptions {
   maxTokens?: number;
 }
 
-export interface CodeRetrievalResult {
-  workspacePath: string;
-  relativePath: string;
-  absolutePath: string;
-  content: string;
-  startLine: number;
-  endLine: number;
-  score: number;
-  source: 'symbol' | 'fts' | 'grepFallback';
-  language: string;
-  symbolName: string | null;
-  stale: boolean;
-}
+/** The index-worker gateway surface this service depends on. */
+type IndexSearchGateway = Pick<IndexWorkerGateway, 'warmWorkspace' | 'searchWorkspaceChunks'>;
 
 export interface CodeRetrievalServiceOptions {
   store?: CasStore;
-  indexWorkerGateway?: Pick<IndexWorkerGateway, 'warmWorkspace'>;
+  indexWorkerGateway?: IndexSearchGateway;
   runFallbackSearch?: (
     workspacePath: string,
     query: string,
@@ -36,8 +28,8 @@ export interface CodeRetrievalServiceOptions {
 }
 
 export class CodeRetrievalService {
-  private readonly store: CasStore;
-  private readonly indexWorkerGateway?: Pick<IndexWorkerGateway, 'warmWorkspace'>;
+  private readonly store?: CasStore;
+  private readonly indexWorkerGateway?: IndexSearchGateway;
   private readonly runFallbackSearchFn: (
     workspacePath: string,
     query: string,
@@ -46,7 +38,7 @@ export class CodeRetrievalService {
 
   constructor(options: CodeRetrievalServiceOptions = {}) {
     const codemem = options.store ? null : getCodememLazy();
-    this.store = options.store ?? codemem!.store;
+    this.store = options.store ?? codemem?.store;
     this.indexWorkerGateway = options.indexWorkerGateway ?? codemem?.indexWorkerGateway;
     this.runFallbackSearchFn = options.runFallbackSearch ?? runRipgrepFallbackSearch;
   }
@@ -57,47 +49,50 @@ export class CodeRetrievalService {
 
     const limit = Math.max(1, Math.min(Math.floor(options.limit ?? 8), 50));
     const workspacePath = path.resolve(options.workspacePath);
-    let workspaceRoot = this.store.getWorkspaceRootByPath(workspacePath);
 
-    if (!workspaceRoot) {
-      await this.indexWorkerGateway?.warmWorkspace(workspacePath, 2500).catch(() => undefined);
-      workspaceRoot = this.store.getWorkspaceRootByPath(workspacePath);
+    // Preferred path: run the FTS + chunk hydration in the index worker, off the
+    // main event loop. The gateway returns null on timeout/degradation (→ ripgrep)
+    // and `{ indexed: false }` when the workspace has no index yet.
+    if (this.indexWorkerGateway?.searchWorkspaceChunks) {
+      const response = await this.indexWorkerGateway.searchWorkspaceChunks(workspacePath, query, limit);
+      if (response?.indexed && response.results.length > 0) {
+        return response.results.slice(0, limit).map((r) => this.trimResult(r, options.maxTokens));
+      }
+      if (response && !response.indexed) {
+        // Warm in the background so the next search hits the index; serve ripgrep
+        // now rather than blocking this request on a cold index.
+        void this.indexWorkerGateway.warmWorkspace?.(workspacePath).catch(() => undefined);
+      }
+      // indexed-but-no-hits, not-indexed, or worker unavailable → ripgrep.
+      // Deliberately never run a synchronous main-thread FTS here: that is the
+      // stall this offload removes.
+      return this.fallbackSearch(workspacePath, query, limit, options.maxTokens);
     }
 
-    if (!workspaceRoot) {
-      const fallback = await this.runFallbackSearchFn(workspacePath, query, limit);
-      return fallback.slice(0, limit).map((result) => this.trimResult(result, options.maxTokens));
-    }
-
-    const hits = this.store.searchWorkspaceChunks(workspaceRoot.workspaceHash, query, limit * 2);
-    const results: CodeRetrievalResult[] = [];
-    for (const hit of hits) {
-      const chunk = this.store.getChunk(hit.contentHash);
-      if (!chunk) continue;
-      results.push(this.trimResult({
-        workspacePath,
-        relativePath: hit.pathFromRoot,
-        absolutePath: path.join(workspacePath, hit.pathFromRoot),
-        content: chunk.rawText,
-        startLine: hit.startLine,
-        endLine: hit.endLine,
-        score: hit.score,
-        source: 'fts',
-        language: hit.language,
-        symbolName: hit.name || null,
-        stale: false,
-      }, options.maxTokens));
-      if (results.length >= limit) {
-        break;
+    // No worker search available (tests / degraded construction): use the
+    // synchronous in-process store if present, mirroring the legacy behaviour.
+    if (this.store) {
+      let local = searchHydratedChunks(this.store, workspacePath, query, limit);
+      if (!local.indexed) {
+        await this.indexWorkerGateway?.warmWorkspace?.(workspacePath, 2500).catch(() => undefined);
+        local = searchHydratedChunks(this.store, workspacePath, query, limit);
+      }
+      if (local.results.length > 0) {
+        return local.results.slice(0, limit).map((r) => this.trimResult(r, options.maxTokens));
       }
     }
 
-    if (results.length > 0) {
-      return results;
-    }
+    return this.fallbackSearch(workspacePath, query, limit, options.maxTokens);
+  }
 
+  private async fallbackSearch(
+    workspacePath: string,
+    query: string,
+    limit: number,
+    maxTokens?: number,
+  ): Promise<CodeRetrievalResult[]> {
     const fallback = await this.runFallbackSearchFn(workspacePath, query, limit);
-    return fallback.slice(0, limit).map((result) => this.trimResult(result, options.maxTokens));
+    return fallback.slice(0, limit).map((result) => this.trimResult(result, maxTokens));
   }
 
   private trimResult(result: CodeRetrievalResult, maxTokens?: number): CodeRetrievalResult {
@@ -209,14 +204,14 @@ function parseRipgrepOutput(
 
 function getCodememLazy(): {
   store: CasStore;
-  indexWorkerGateway: Pick<IndexWorkerGateway, 'warmWorkspace'>;
+  indexWorkerGateway: IndexSearchGateway;
 } {
   // Avoid a static import cycle: codemem/index.ts re-exports this service.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const module = require('./index') as {
     getCodemem: () => {
       store: CasStore;
-      indexWorkerGateway: Pick<IndexWorkerGateway, 'warmWorkspace'>;
+      indexWorkerGateway: IndexSearchGateway;
     };
   };
   return module.getCodemem();

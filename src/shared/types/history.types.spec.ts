@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  frontLoadTitle,
   getConversationHistoryTitle,
   inferConversationHistoryProvider,
   normalizeConversationHistoryEntryProvider,
@@ -30,6 +31,33 @@ function makeEntry(
 describe('history title helpers', () => {
   it('prefers the first user message for a stable thread title', () => {
     expect(getConversationHistoryTitle(makeEntry())).toBe('Investigate prod error');
+  });
+
+  it('prefers the cheap-AI title over the raw first message when present', () => {
+    expect(
+      getConversationHistoryTitle(
+        makeEntry({
+          aiTitle: 'UnstablePvP coin audit',
+          firstUserMessage: 'Please review this PR [UnstablePvP/unstable-core#42]',
+        })
+      )
+    ).toBe('UnstablePvP coin audit');
+  });
+
+  it('still honours a user rename over the AI title', () => {
+    expect(
+      getConversationHistoryTitle(
+        makeEntry({ isRenamed: true, displayName: 'My Name', aiTitle: 'AI Name' })
+      )
+    ).toBe('My Name');
+  });
+
+  it('front-loads the first message when no AI title exists', () => {
+    expect(
+      getConversationHistoryTitle(
+        makeEntry({ firstUserMessage: 'We need to harden UnstablePvP coin accounting' })
+      )
+    ).toBe('Harden UnstablePvP coin accounting');
   });
 
   it('falls back to the last user message when the first is blank', () => {
@@ -75,6 +103,46 @@ describe('history title helpers', () => {
         })
       )
     ).toBe('Plan the smoke test');
+  });
+});
+
+describe('frontLoadTitle', () => {
+  it('strips a polite lead-in and a "<verb> this" framing (screenshot cases)', () => {
+    expect(frontLoadTitle('Please review this PR: [UnstablePvP/unstable-core#42]'))
+      .toBe('UnstablePvP/unstable-core#42]');
+    expect(frontLoadTitle('Please review this PR [UnstablePvP/unstable-core]'))
+      .toBe('UnstablePvP/unstable-core]');
+    expect(frontLoadTitle('We need to harden UnstablePvP coin accounting'))
+      .toBe('Harden UnstablePvP coin accounting');
+  });
+
+  it('shortens a leading absolute path to its last two segments', () => {
+    expect(frontLoadTitle('Please implement this /Users/suas/work/Minecraft/Noah'))
+      .toBe('…/Minecraft/Noah');
+  });
+
+  it('turns a leading bare URL into a readable host + path', () => {
+    expect(frontLoadTitle('[https://docs.google.com/document/d/1T1w4abc/edit]'))
+      .toBe('Docs.google.com/document');
+  });
+
+  it('peels stacked lead-ins', () => {
+    expect(frontLoadTitle('Hey, can you please fix this bug in the parser'))
+      .toBe('Bug in the parser');
+  });
+
+  it('does not over-strip a verb followed by a specific noun', () => {
+    expect(frontLoadTitle('Investigate the broken deployment'))
+      .toBe('Investigate the broken deployment');
+  });
+
+  it('returns the normalized original when stripping would leave too little', () => {
+    expect(frontLoadTitle('Please fix this')).toBe('Please fix this');
+  });
+
+  it('returns empty string for blank input', () => {
+    expect(frontLoadTitle('   ')).toBe('');
+    expect(frontLoadTitle(undefined)).toBe('');
   });
 });
 

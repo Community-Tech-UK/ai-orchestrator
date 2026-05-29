@@ -32,6 +32,14 @@ export interface RebuildIndexMsg {
   workspacePath: string;
 }
 
+export interface SearchWorkspaceChunksMsg {
+  type: 'search-workspace-chunks';
+  id: number;
+  workspacePath: string;
+  query: string;
+  limit: number;
+}
+
 export interface GetStatsMsg {
   type: 'get-stats';
   id: number;
@@ -54,6 +62,7 @@ export type IndexWorkerRpcMsg =
   | GetIndexStatusMsg
   | CancelIndexMsg
   | RebuildIndexMsg
+  | SearchWorkspaceChunksMsg
   | GetStatsMsg
   | ShutdownMsg;
 export type IndexWorkerFireForgetMsg = StopWorkspaceWatcherMsg;

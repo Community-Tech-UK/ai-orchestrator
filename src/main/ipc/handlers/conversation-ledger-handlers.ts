@@ -22,7 +22,7 @@ export function registerConversationLedgerHandlers(): void {
         payload ?? {},
         'CONVERSATION_LEDGER_LIST'
       );
-      return { success: true, data: getConversationLedgerService().listConversations(validated) };
+      return { success: true, data: await getConversationLedgerService().listConversations(validated) };
     } catch (error) {
       return conversationLedgerError(error, 'CONVERSATION_LEDGER_LIST_FAILED');
     }
@@ -35,7 +35,7 @@ export function registerConversationLedgerHandlers(): void {
         payload,
         'CONVERSATION_LEDGER_GET'
       );
-      return { success: true, data: getConversationLedgerService().getConversation(validated.threadId) };
+      return { success: true, data: await getConversationLedgerService().getConversation(validated.threadId) };
     } catch (error) {
       return conversationLedgerError(error, 'CONVERSATION_LEDGER_GET_FAILED');
     }

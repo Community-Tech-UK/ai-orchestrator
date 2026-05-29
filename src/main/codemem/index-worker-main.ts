@@ -18,6 +18,7 @@ import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import { migrate } from './cas-schema';
 import { CasStore } from './cas-store';
 import { CodeIndexManager } from './code-index-manager';
+import { searchHydratedChunks } from './workspace-chunk-search';
 import { workspaceHashForPath } from './symbol-id';
 import type {
   CodeIndexStatusSnapshot,
@@ -166,6 +167,16 @@ async function handleControlMessage(msg: Exclude<IndexWorkerInboundMsg, HeavyInd
         if (watchedWorkspaces.size === 0) {
           await indexManager.stop().catch(() => undefined);
         }
+      }
+      break;
+    }
+
+    case 'search-workspace-chunks': {
+      try {
+        const normalizedPath = path.resolve(msg.workspacePath);
+        respond(msg.id, searchHydratedChunks(store, normalizedPath, msg.query, msg.limit));
+      } catch (err) {
+        respond(msg.id, undefined, err instanceof Error ? err.message : String(err));
       }
       break;
     }

@@ -20,21 +20,62 @@ export interface ChatTranscriptBridgeConfig {
   chatStore: ChatStore;
   instanceManager: InstanceManager;
   eventBus: EventEmitter;
+  /**
+   * How long settled provider events are batched before the durable, off-thread
+   * flush. Defaults to 150ms. Lower bounds the at-risk-on-crash window; higher
+   * coalesces more aggressively.
+   */
+  flushIntervalMs?: number;
 }
 
+/** A message awaiting persistence — the sequence and id are assigned by the
+ *  ledger worker inside the flush transaction, never on the event hot path. */
+type QueuedMessage = Omit<ConversationMessageRecord, 'id' | 'threadId' | 'sequence'>;
+
+const DEFAULT_FLUSH_INTERVAL_MS = 150;
+/** Flush immediately once a single instance's queue reaches this, to bound
+ *  latency and memory under a burst rather than waiting for the timer. */
+const FLUSH_WHEN_PENDING_REACHES = 200;
+/** Hard cap on a single instance's pending queue. If the worker is wedged long
+ *  enough to exceed this, the oldest queued messages are dropped (logged). */
+const MAX_PENDING_PER_INSTANCE = 2_000;
+
+/**
+ * Bridges normalized provider events into the conversation ledger as a chat
+ * transcript.
+ *
+ * The event handler (`onProviderEvent`) does ZERO synchronous SQLite: it builds
+ * the message in memory and queues it. A trailing, coalesced flush resolves the
+ * chat, performs ONE off-thread batched ledger write per thread (through the
+ * conversation worker), coalesces the operator-db `lastActiveAt` touch, and
+ * broadcasts the appended records to the renderer. This removes the per-event
+ * write amplification that was the dominant streaming-time main-thread stall.
+ *
+ * On a flush failure (e.g. the worker is restarting) the batch is re-queued and
+ * retried on the next flush, so nothing is lost while the worker recovers.
+ */
 export class ChatTranscriptBridge {
   private readonly ledger: ConversationLedgerService;
   private readonly chatStore: ChatStore;
   private readonly instanceManager: InstanceManager;
   private readonly eventBus: EventEmitter;
+  private readonly flushIntervalMs: number;
   private started = false;
   private readonly instanceToChat = new Map<string, string>();
+
+  // ── Deferred-write batching (off the event hot path) ──────────────────────────
+  private readonly pendingByInstance = new Map<string, QueuedMessage[]>();
+  private readonly pendingLastActiveByInstance = new Map<string, number>();
+  private flushTimer: NodeJS.Timeout | null = null;
+  private draining = false;
+  private stopped = false;
 
   constructor(config: ChatTranscriptBridgeConfig) {
     this.ledger = config.ledger ?? getConversationLedgerService();
     this.chatStore = config.chatStore;
     this.instanceManager = config.instanceManager;
     this.eventBus = config.eventBus;
+    this.flushIntervalMs = config.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
   }
 
   start(): void {
@@ -47,6 +88,8 @@ export class ChatTranscriptBridge {
     });
     this.instanceManager.on('instance:removed', (instanceId) => {
       if (typeof instanceId === 'string') {
+        // Persist this instance's tail before forgetting the mapping.
+        void this.flush();
         this.instanceToChat.delete(instanceId);
       }
     });
@@ -60,31 +103,47 @@ export class ChatTranscriptBridge {
     this.instanceToChat.delete(instanceId);
   }
 
+  /**
+   * Stop bridging: cancel any pending flush and ignore further events. Called on
+   * teardown/shutdown. Any messages queued but not yet flushed are dropped (the
+   * renderer already received them as live provider events); flush before
+   * stopping if durability of the tail matters.
+   */
+  stop(): void {
+    this.stopped = true;
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+  }
+
   private onProviderEvent(envelope: ProviderRuntimeEventEnvelope): void {
-    const chatId = this.instanceToChat.get(envelope.instanceId)
-      ?? this.chatStore.getByInstanceId(envelope.instanceId)?.id
-      ?? null;
-    if (!chatId) {
+    if (this.stopped) {
       return;
     }
-
-    const chat = this.chatStore.get(chatId);
-    if (!chat) {
-      this.instanceToChat.delete(envelope.instanceId);
-      return;
-    }
-
     try {
       const message = this.messageFromEnvelope(envelope);
       if (!message) {
         return;
       }
-      const record = this.ledger.appendMessageReturningRecord(chat.ledgerThreadId, message);
-      const updated = this.chatStore.update(chat.id, { lastActiveAt: Date.now() });
-      this.emitTranscriptAppended(updated, record);
+      // Queue in memory only — no chat resolution, no SQLite. The flush resolves
+      // the chat and persists off the main thread.
+      const queue = this.pendingByInstance.get(envelope.instanceId);
+      if (queue) {
+        queue.push(message);
+      } else {
+        this.pendingByInstance.set(envelope.instanceId, [message]);
+      }
+      this.pendingLastActiveByInstance.set(envelope.instanceId, Date.now());
+
+      const queued = this.pendingByInstance.get(envelope.instanceId)!;
+      if (queued.length >= FLUSH_WHEN_PENDING_REACHES) {
+        void this.flush();
+      } else {
+        this.scheduleFlush();
+      }
     } catch (error) {
-      logger.warn('Failed to bridge chat transcript event', {
-        chatId,
+      logger.warn('Failed to queue chat transcript event', {
         instanceId: envelope.instanceId,
         eventKind: envelope.event.kind,
         error: error instanceof Error ? error.message : String(error),
@@ -92,9 +151,150 @@ export class ChatTranscriptBridge {
     }
   }
 
+  private scheduleFlush(): void {
+    if (this.flushTimer || this.stopped) {
+      return;
+    }
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      void this.flush();
+    }, this.flushIntervalMs);
+    // Don't keep the event loop alive solely for a pending flush.
+    this.flushTimer.unref?.();
+  }
+
+  /**
+   * Drain queued transcript writes: one off-thread batched ledger write per
+   * thread plus a coalesced operator-db touch. Safe to call any time (timer,
+   * instance teardown, shutdown). Serialized via `draining` so overlapping calls
+   * don't double-write; any items that arrive (or are re-queued) during a drain
+   * trigger a follow-up flush.
+   */
+  async flush(): Promise<void> {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    if (this.draining || this.stopped) {
+      return;
+    }
+    this.draining = true;
+    try {
+      const batches = this.drainPending();
+      for (const [instanceId, entry] of batches) {
+        await this.flushInstance(instanceId, entry.messages, entry.lastActiveAt);
+      }
+    } finally {
+      this.draining = false;
+    }
+    if (this.pendingByInstance.size > 0) {
+      this.scheduleFlush();
+    }
+  }
+
+  private drainPending(): [string, { messages: QueuedMessage[]; lastActiveAt: number }][] {
+    const entries: [string, { messages: QueuedMessage[]; lastActiveAt: number }][] = [];
+    for (const [instanceId, messages] of this.pendingByInstance) {
+      entries.push([
+        instanceId,
+        { messages, lastActiveAt: this.pendingLastActiveByInstance.get(instanceId) ?? Date.now() },
+      ]);
+    }
+    this.pendingByInstance.clear();
+    this.pendingLastActiveByInstance.clear();
+    return entries;
+  }
+
+  private async flushInstance(
+    instanceId: string,
+    messages: QueuedMessage[],
+    lastActiveAt: number,
+  ): Promise<void> {
+    if (messages.length === 0) {
+      return;
+    }
+    let chat: ChatRecord | null;
+    try {
+      const chatId = this.resolveChatId(instanceId);
+      if (!chatId) {
+        // No chat linked to this instance — drop its transcript events.
+        return;
+      }
+      chat = this.chatStore.get(chatId);
+    } catch (error) {
+      // operator-db read failed (e.g. closed during teardown). Drop rather than
+      // spin — this connection doesn't transiently recover the way the worker does.
+      logger.warn('Failed to resolve chat for transcript flush; dropping batch', {
+        instanceId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+    if (!chat) {
+      this.instanceToChat.delete(instanceId);
+      return;
+    }
+
+    try {
+      const records = await this.ledger.appendMessagesReturningRecords(chat.ledgerThreadId, messages);
+      let updated = chat;
+      try {
+        updated = this.chatStore.update(chat.id, { lastActiveAt });
+      } catch (error) {
+        logger.warn('Failed to flush chat lastActiveAt', {
+          chatId: chat.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      if (records.length > 0) {
+        this.emitTranscriptAppended(updated, records);
+      }
+    } catch (error) {
+      // The worker is likely restarting; re-queue and retry on the next flush.
+      logger.warn('Failed to flush transcript batch to ledger; will retry', {
+        chatId: chat.id,
+        instanceId,
+        messageCount: messages.length,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.requeue(instanceId, messages, lastActiveAt);
+    }
+  }
+
+  private resolveChatId(instanceId: string): string | null {
+    const cached = this.instanceToChat.get(instanceId);
+    if (cached) {
+      return cached;
+    }
+    const resolved = this.chatStore.getByInstanceId(instanceId)?.id ?? null;
+    if (resolved) {
+      this.instanceToChat.set(instanceId, resolved);
+    }
+    return resolved;
+  }
+
+  private requeue(instanceId: string, messages: QueuedMessage[], lastActiveAt: number): void {
+    const existing = this.pendingByInstance.get(instanceId) ?? [];
+    // Failed (older) messages go in front to preserve ascending order.
+    const combined = [...messages, ...existing];
+    const bounded =
+      combined.length > MAX_PENDING_PER_INSTANCE
+        ? combined.slice(combined.length - MAX_PENDING_PER_INSTANCE)
+        : combined;
+    if (bounded.length < combined.length) {
+      logger.warn('Transcript queue exceeded cap; dropped oldest pending messages', {
+        instanceId,
+        dropped: combined.length - bounded.length,
+      });
+    }
+    this.pendingByInstance.set(instanceId, bounded);
+    const priorLastActive = this.pendingLastActiveByInstance.get(instanceId) ?? 0;
+    this.pendingLastActiveByInstance.set(instanceId, Math.max(priorLastActive, lastActiveAt));
+  }
+
   private messageFromEnvelope(
     envelope: ProviderRuntimeEventEnvelope
-  ): Omit<ConversationMessageRecord, 'id' | 'threadId' | 'sequence'> | null {
+  ): QueuedMessage | null {
     const outputMessage = toOutputMessageFromProviderEnvelope(envelope);
     if (outputMessage) {
       if (outputMessage.type === 'user') {
@@ -181,7 +381,7 @@ export class ChatTranscriptBridge {
   private messageFromOutput(
     envelope: ProviderRuntimeEventEnvelope,
     output: OutputMessage,
-  ): Omit<ConversationMessageRecord, 'id' | 'threadId' | 'sequence'> | null {
+  ): QueuedMessage | null {
     const role = outputTypeToRole(output.type);
     if (!role) {
       return null;
@@ -212,7 +412,7 @@ export class ChatTranscriptBridge {
 
   private emitTranscriptAppended(
     chat: ChatRecord,
-    message: ConversationMessageRecord,
+    messages: ConversationMessageRecord[],
   ): void {
     const currentInstance = chat.currentInstanceId
       ? this.instanceManager.getInstance(chat.currentInstanceId) ?? null
@@ -221,7 +421,7 @@ export class ChatTranscriptBridge {
       type: 'transcript-appended',
       chatId: chat.id,
       chat,
-      messages: [message],
+      messages,
       currentInstance,
     };
     this.eventBus.emit('chat:event', event);

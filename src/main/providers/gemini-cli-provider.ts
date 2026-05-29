@@ -17,6 +17,7 @@ import type {
   ProviderAttachment,
 } from '../../shared/types/provider.types';
 import type { OutputMessage } from '../../shared/types/instance.types';
+import { computeTokenCost } from '../../shared/data/model-pricing';
 import { isCliAvailable } from '../cli/cli-detection';
 import { generateId } from '../../shared/utils/id-generator';
 import type { ProviderAdapterDescriptor } from '@sdk/provider-adapter-registry';
@@ -155,13 +156,16 @@ export class GeminiCliProvider extends BaseProvider {
         content: message,
       });
 
-      // Update usage
+      // Update usage. Price the real input/output split with the shared
+      // pricing table instead of a flat blended rate.
       if (response.usage) {
+        const inputTokens = response.usage.inputTokens || 0;
+        const outputTokens = response.usage.outputTokens || 0;
         this.currentUsage = {
-          inputTokens: response.usage.inputTokens || 0,
-          outputTokens: response.usage.outputTokens || 0,
+          inputTokens,
+          outputTokens,
           totalTokens: response.usage.totalTokens || 0,
-          estimatedCost: this.estimateCost(response.usage.totalTokens || 0),
+          estimatedCost: computeTokenCost(this.config.defaultModel, { inputTokens, outputTokens }),
         };
       }
 
@@ -193,14 +197,5 @@ export class GeminiCliProvider extends BaseProvider {
 
   override getUsage(): ProviderUsage | null {
     return this.currentUsage;
-  }
-
-  /**
-   * Estimate cost based on Gemini pricing
-   */
-  private estimateCost(tokens: number): number {
-    // Gemini Pro pricing (approximate blended rate)
-    const pricePerMillion = 3.5; // $3.50 per million tokens (blended)
-    return (tokens / 1_000_000) * pricePerMillion;
   }
 }

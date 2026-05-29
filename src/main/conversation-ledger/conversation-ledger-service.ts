@@ -2,14 +2,13 @@ import { mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { app } from 'electron';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
-import type { SqliteDriver, SqliteDriverFactory } from '../db/sqlite-driver';
+import type { SqliteDriverFactory } from '../db/sqlite-driver';
 import { getLogger } from '../logging/logger';
 import type {
   ConversationDiscoveryScope,
   ConversationLedgerConversation,
   ConversationListQuery,
   ConversationMessageRecord,
-  ConversationMessageUpsertInput,
   ConversationProvider,
   ConversationThreadRecord,
   NativeThreadStartRequest,
@@ -18,6 +17,12 @@ import type {
 } from '../../shared/types/conversation-ledger.types';
 import { ConversationLedgerStore } from './conversation-ledger-store';
 import { runConversationLedgerMigrations } from './conversation-ledger-schema';
+import {
+  InProcessLedgerStorePort,
+  type AppendMessageInput,
+  type LedgerStorePort,
+} from './ledger-store-port';
+import { ConversationLedgerWorkerClient } from './conversation-ledger-worker-client';
 import { getNativeConversationRegistry, NativeConversationRegistry } from './native-conversation-registry';
 import type { NativeConversationAdapter } from './native-conversation-adapter';
 import { CodexNativeConversationAdapter } from './codex/codex-native-conversation-adapter';
@@ -31,6 +36,13 @@ export interface ConversationLedgerServiceConfig {
   cacheSize?: number;
   driverFactory?: SqliteDriverFactory;
   store?: ConversationLedgerStore;
+  /**
+   * Pre-built storage port. Lets callers inject a fake or the worker client
+   * directly. When omitted, the service picks a port itself: an in-process port
+   * for an injected `store`/`dbPath` (tests, `:memory:`), otherwise a
+   * worker-backed port that owns the on-disk DB off the main thread (production).
+   */
+  port?: LedgerStorePort;
   registry?: NativeConversationRegistry;
   adapters?: NativeConversationAdapter[];
 }
@@ -48,9 +60,8 @@ export class ConversationLedgerServiceError extends Error {
 
 export class ConversationLedgerService {
   private static instance: ConversationLedgerService | null = null;
-  private readonly store: ConversationLedgerStore;
+  private readonly port: LedgerStorePort;
   private readonly registry: NativeConversationRegistry;
-  private readonly db: SqliteDriver | null;
 
   static getInstance(config?: ConversationLedgerServiceConfig): ConversationLedgerService {
     this.instance ??= new ConversationLedgerService(config);
@@ -58,28 +69,13 @@ export class ConversationLedgerService {
   }
 
   static _resetForTesting(): void {
-    this.instance?.close();
+    void this.instance?.close();
     this.instance = null;
   }
 
   constructor(config: ConversationLedgerServiceConfig = {}) {
     this.registry = config.registry ?? getNativeConversationRegistry();
-    if (config.store) {
-      this.store = config.store;
-      this.db = null;
-    } else {
-      const dbPath = config.dbPath ?? defaultConversationLedgerDbPath();
-      mkdirSync(dirname(dbPath), { recursive: true });
-      const factory = config.driverFactory ?? defaultDriverFactory;
-      this.db = factory(dbPath);
-      if (config.enableWAL ?? true) {
-        this.db.pragma('journal_mode = WAL');
-      }
-      this.db.pragma(`cache_size = -${(config.cacheSize ?? 64) * 1024}`);
-      this.db.pragma('foreign_keys = ON');
-      runConversationLedgerMigrations(this.db);
-      this.store = new ConversationLedgerStore(this.db);
-    }
+    this.port = ConversationLedgerService.createPort(config);
 
     const adapters = config.adapters ?? [
       new CodexNativeConversationAdapter(),
@@ -91,19 +87,59 @@ export class ConversationLedgerService {
     logger.info('ConversationLedgerService initialized');
   }
 
-  listConversations(query: ConversationListQuery = {}): ConversationThreadRecord[] {
-    return this.store.listThreads(query);
+  /**
+   * Choose the storage port. An explicit `port` wins; an injected `store` or a
+   * `dbPath`/`driverFactory` (tests, `:memory:`) builds a synchronous in-process
+   * port; otherwise production gets a worker-backed port that owns the on-disk
+   * conversation-ledger.db off the main thread.
+   */
+  private static createPort(config: ConversationLedgerServiceConfig): LedgerStorePort {
+    if (config.port) {
+      return config.port;
+    }
+    if (config.store) {
+      return new InProcessLedgerStorePort(config.store);
+    }
+    if (config.dbPath !== undefined || config.driverFactory) {
+      const dbPath = config.dbPath ?? defaultConversationLedgerDbPath();
+      mkdirSync(dirname(dbPath), { recursive: true });
+      const factory = config.driverFactory ?? defaultDriverFactory;
+      const db = factory(dbPath);
+      if (config.enableWAL ?? true) {
+        db.pragma('journal_mode = WAL');
+      }
+      db.pragma(`cache_size = -${(config.cacheSize ?? 64) * 1024}`);
+      db.pragma('foreign_keys = ON');
+      runConversationLedgerMigrations(db);
+      return new InProcessLedgerStorePort(new ConversationLedgerStore(db), db);
+    }
+    return new ConversationLedgerWorkerClient();
   }
 
-  getConversation(threadId: string): ConversationLedgerConversation {
-    const thread = this.store.findThreadById(threadId);
+  async listConversations(query: ConversationListQuery = {}): Promise<ConversationThreadRecord[]> {
+    return this.port.listThreads(query);
+  }
+
+  async getConversation(threadId: string): Promise<ConversationLedgerConversation> {
+    const thread = await this.port.findThreadById(threadId);
     if (!thread) {
       throw new ConversationLedgerServiceError(`Conversation ${threadId} not found`, 'CONVERSATION_NOT_FOUND');
     }
     return {
       thread,
-      messages: this.store.getMessages(threadId),
+      messages: await this.port.getMessages(threadId),
     };
+  }
+
+  /** Fetch just a thread record — no messages. Cheap existence/metadata check. */
+  async getThread(threadId: string): Promise<ConversationThreadRecord | null> {
+    return this.port.findThreadById(threadId);
+  }
+
+  /** Whether a message with the given native id already exists on a thread —
+   *  used to dedupe idempotent system events without loading the transcript. */
+  async hasMessage(threadId: string, nativeMessageId: string): Promise<boolean> {
+    return this.port.hasMessageWithNativeId(threadId, nativeMessageId);
   }
 
   async discoverNativeConversations(scope: ConversationDiscoveryScope): Promise<ConversationThreadRecord[]> {
@@ -113,7 +149,7 @@ export class ConversationLedgerService {
       const adapter = this.getAdapter(provider);
       const threads = await adapter.discover({ ...scope, provider });
       for (const thread of threads) {
-        imported.push(this.store.upsertThread({
+        imported.push(await this.port.upsertThread({
           provider: thread.provider,
           nativeThreadId: thread.nativeThreadId,
           nativeSessionId: thread.nativeSessionId ?? null,
@@ -136,12 +172,12 @@ export class ConversationLedgerService {
   }
 
   async reconcileConversation(threadId: string): Promise<ReconciliationResult> {
-    const thread = this.store.findThreadById(threadId);
+    const thread = await this.port.findThreadById(threadId);
     if (!thread?.nativeThreadId) {
       throw new ConversationLedgerServiceError(`Conversation ${threadId} cannot be reconciled`, 'CONVERSATION_NOT_RECONCILABLE');
     }
     if (thread.provider === 'orchestrator') {
-      this.store.upsertThread({
+      await this.port.upsertThread({
         id: thread.id,
         provider: thread.provider,
         nativeThreadId: thread.nativeThreadId,
@@ -172,8 +208,8 @@ export class ConversationLedgerService {
         workspacePath: thread.workspacePath,
       });
       const cursor = snapshot.cursor ? { ...snapshot.cursor, threadId } : undefined;
-      const result = this.store.replaceThreadMessagesFromImport(threadId, snapshot.messages, cursor);
-      this.store.upsertThread({
+      const result = await this.port.replaceThreadMessagesFromImport(threadId, snapshot.messages, cursor);
+      await this.port.upsertThread({
         id: thread.id,
         provider: thread.provider,
         nativeThreadId: thread.nativeThreadId,
@@ -194,7 +230,7 @@ export class ConversationLedgerService {
       });
       return result;
     } catch (error) {
-      this.store.upsertThread({
+      await this.port.upsertThread({
         id: thread.id,
         provider: thread.provider,
         nativeThreadId: thread.nativeThreadId,
@@ -212,7 +248,7 @@ export class ConversationLedgerService {
   async startConversation(request: NativeThreadStartRequest): Promise<ConversationThreadRecord> {
     const adapter = this.getAdapter(request.provider);
     const handle = await adapter.startThread({ ...request, ephemeral: request.ephemeral ?? false });
-    return this.store.upsertThread({
+    return this.port.upsertThread({
       provider: request.provider,
       nativeThreadId: handle.nativeThreadId,
       nativeSessionId: handle.nativeSessionId ?? null,
@@ -230,12 +266,12 @@ export class ConversationLedgerService {
   }
 
   async sendTurn(threadId: string, request: NativeTurnRequest) {
-    const thread = this.store.findThreadById(threadId);
+    const thread = await this.port.findThreadById(threadId);
     if (!thread?.nativeThreadId) {
       throw new ConversationLedgerServiceError(`Conversation ${threadId} cannot be sent to`, 'CONVERSATION_NOT_WRITABLE');
     }
     const adapter = this.getAdapter(thread.provider);
-    const existingCount = this.store.getMessages(threadId).length;
+    const existingCount = await this.port.countMessages(threadId);
     const result = await adapter.sendTurn({
       provider: thread.provider,
       threadId,
@@ -247,8 +283,8 @@ export class ConversationLedgerService {
       ...message,
       sequence: existingCount + index + 1,
     }));
-    this.store.upsertMessages(threadId, messages);
-    this.store.upsertThread({
+    await this.port.upsertMessages(threadId, messages);
+    await this.port.upsertThread({
       id: thread.id,
       provider: thread.provider,
       nativeThreadId: thread.nativeThreadId,
@@ -261,70 +297,63 @@ export class ConversationLedgerService {
     });
     return {
       ...result,
-      messages: this.store.getMessages(threadId),
+      messages: await this.port.getMessages(threadId),
     };
   }
 
-  appendMessage(
+  async appendMessage(
     threadId: string,
-    message: Omit<ConversationMessageUpsertInput, 'sequence'> & { sequence?: number },
-  ): ConversationLedgerConversation {
-    const thread = this.store.findThreadById(threadId);
-    if (!thread) {
+    message: AppendMessageInput,
+  ): Promise<ConversationLedgerConversation> {
+    const records = await this.port.appendMessagesWithThreadTouch(threadId, [message]);
+    if (records === null) {
       throw new ConversationLedgerServiceError(`Conversation ${threadId} not found`, 'CONVERSATION_NOT_FOUND');
     }
-    const existingCount = this.store.countMessages(threadId);
-    this.store.upsertMessages(threadId, [{
-      ...message,
-      sequence: message.sequence ?? existingCount + 1,
-    }]);
-    this.touchThread(thread);
     return this.getConversation(threadId);
   }
 
   /**
    * Append a single message and return only that record, never the full
-   * conversation. This keeps the live transcript path O(1) per event — the
-   * caller (e.g. the chat transcript bridge) broadcasts the delta instead of
-   * re-reading and re-serializing the entire transcript on every provider
-   * event, which was the dominant cause of main-thread stalls on long chats.
+   * conversation. Keeps the live transcript path O(1) per append — the caller
+   * broadcasts the delta instead of re-reading the whole transcript.
    */
-  appendMessageReturningRecord(
+  async appendMessageReturningRecord(
     threadId: string,
-    message: Omit<ConversationMessageUpsertInput, 'sequence'> & { sequence?: number },
-  ): ConversationMessageRecord {
-    const thread = this.store.findThreadById(threadId);
-    if (!thread) {
+    message: AppendMessageInput,
+  ): Promise<ConversationMessageRecord> {
+    const records = await this.port.appendMessagesWithThreadTouch(threadId, [message]);
+    if (records === null) {
       throw new ConversationLedgerServiceError(`Conversation ${threadId} not found`, 'CONVERSATION_NOT_FOUND');
     }
-    const sequence = message.sequence ?? this.store.countMessages(threadId) + 1;
-    const record = this.store.appendMessageReturningRecord(threadId, { ...message, sequence });
-    this.touchThread(thread);
+    const record = records[0];
+    if (!record) {
+      throw new ConversationLedgerServiceError(`Failed to append message to ${threadId}`, 'CONVERSATION_APPEND_FAILED');
+    }
     return record;
   }
 
-  private touchThread(thread: ConversationThreadRecord): void {
-    this.store.upsertThread({
-      id: thread.id,
-      provider: thread.provider,
-      nativeThreadId: thread.nativeThreadId,
-      nativeSessionId: thread.nativeSessionId,
-      nativeSourceKind: thread.nativeSourceKind,
-      sourceKind: thread.sourceKind,
-      sourcePath: thread.sourcePath,
-      workspacePath: thread.workspacePath,
-      title: thread.title,
-      updatedAt: Date.now(),
-      writable: thread.writable,
-      nativeVisibilityMode: thread.nativeVisibilityMode,
-      syncStatus: thread.provider === 'orchestrator' ? 'synced' : thread.syncStatus,
-      conflictStatus: thread.conflictStatus,
-      metadata: thread.metadata,
-    });
+  /**
+   * Append a batch of messages in a single off-thread transaction and return the
+   * freshly-appended records (with their assigned sequences). This is the write
+   * path the live transcript bridge uses for its coalesced flush — one worker
+   * round-trip + one transaction per flush instead of per provider event.
+   */
+  async appendMessagesReturningRecords(
+    threadId: string,
+    messages: AppendMessageInput[],
+  ): Promise<ConversationMessageRecord[]> {
+    if (messages.length === 0) {
+      return [];
+    }
+    const records = await this.port.appendMessagesWithThreadTouch(threadId, messages);
+    if (records === null) {
+      throw new ConversationLedgerServiceError(`Conversation ${threadId} not found`, 'CONVERSATION_NOT_FOUND');
+    }
+    return records;
   }
 
-  close(): void {
-    this.db?.close();
+  async close(): Promise<void> {
+    await this.port.close();
   }
 
   private getAdapter(provider: ConversationProvider): NativeConversationAdapter {

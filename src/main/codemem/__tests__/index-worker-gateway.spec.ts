@@ -67,6 +67,47 @@ describe('IndexWorkerGateway', () => {
     expect(gateway.getMetrics().processed).toBe(1);
   });
 
+  it('sends search-workspace-chunks and resolves with the worker search response', async () => {
+    const expectedResponse = {
+      indexed: true,
+      results: [
+        {
+          workspacePath: '/project',
+          relativePath: 'src/auth.ts',
+          absolutePath: '/project/src/auth.ts',
+          content: 'export function f() {}',
+          startLine: 1,
+          endLine: 1,
+          score: 2.5,
+          source: 'fts' as const,
+          language: 'typescript',
+          symbolName: 'f',
+          stale: false,
+        },
+      ],
+    };
+
+    const promise = gateway.searchWorkspaceChunks('/project', 'auth token', 8);
+    const posted = fakeWorker.postMessage.mock.calls[0]?.[0] as {
+      id: number;
+      type: string;
+      query: string;
+      limit: number;
+    };
+    expect(posted.type).toBe('search-workspace-chunks');
+    expect(posted.query).toBe('auth token');
+    expect(posted.limit).toBe(8);
+
+    fakeWorker.emit('message', { type: 'rpc-response', id: posted.id, result: expectedResponse });
+
+    await expect(promise).resolves.toEqual(expectedResponse);
+  });
+
+  it('returns null from search when the RPC times out (caller falls back to ripgrep)', async () => {
+    // Never respond — the 50ms gateway deadline should resolve null, not hang.
+    await expect(gateway.searchWorkspaceChunks('/project', 'auth', 8, 30)).resolves.toBeNull();
+  });
+
   it('gets codemem index status snapshots from the worker', async () => {
     const expectedStatus = {
       workspacePath: '/repo',

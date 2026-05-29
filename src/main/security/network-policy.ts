@@ -112,6 +112,9 @@ export const DEFAULT_NETWORK_CONFIG: NetworkPolicyConfig = {
     'docs.rs',
     'devdocs.io',
 
+    // Model metadata registry (context windows + pricing)
+    'models.dev',
+
     // Cloud providers (for API access)
     'amazonaws.com',
     'cloudflare.com',

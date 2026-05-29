@@ -12,10 +12,13 @@ import { ChatService } from './chat-service';
 describe('ChatService', () => {
   const ledgers: ConversationLedgerService[] = [];
   const dbs: SqliteDriver[] = [];
+  const services: ChatService[] = [];
 
-  afterEach(() => {
+  afterEach(async () => {
+    for (const service of services) service.dispose();
+    services.length = 0;
     ChatService._resetForTesting();
-    for (const ledger of ledgers) ledger.close();
+    for (const ledger of ledgers) await ledger.close();
     ledgers.length = 0;
     for (const db of dbs) db.close();
     dbs.length = 0;
@@ -106,7 +109,7 @@ describe('ChatService', () => {
       chatId: created.chat.id,
       text: 'First task',
     });
-    ledger.appendMessage(first.chat.ledgerThreadId, {
+    await ledger.appendMessage(first.chat.ledgerThreadId, {
       role: 'assistant',
       phase: null,
       content: 'First task complete.',
@@ -148,6 +151,8 @@ describe('ChatService', () => {
       },
     });
 
+    // The legacy backfill now reads the ledger asynchronously; wait for it.
+    await service.whenReady();
     const chats = service.listChats();
 
     expect(chats).toEqual([
@@ -190,7 +195,7 @@ describe('ChatService', () => {
       text: '   \n\t   ',
     })).rejects.toThrow('Chat message cannot be empty');
 
-    expect(service.getChat(chat.chat.id).conversation.messages).toEqual([]);
+    expect((await service.getChat(chat.chat.id)).conversation.messages).toEqual([]);
     expect(instanceManager.creates).toEqual([]);
     expect(instanceManager.inputs).toEqual([]);
   });
@@ -206,7 +211,7 @@ describe('ChatService', () => {
     });
     events.length = 0;
 
-    const detail = service.appendSystemEvent({
+    const detail = await service.appendSystemEvent({
       chatId: chat.chat.id,
       nativeMessageId: 'loop-summary:loop-1',
       nativeTurnId: 'loop:loop-1',
@@ -263,7 +268,7 @@ describe('ChatService', () => {
     expect(chat.chat.name).toBe('Untitled chat');
     events.length = 0;
 
-    service.appendSystemEvent({
+    await service.appendSystemEvent({
       chatId: chat.chat.id,
       nativeMessageId: 'loop-start:loop-99',
       role: 'user',
@@ -272,7 +277,7 @@ describe('ChatService', () => {
       metadata: { kind: 'loop-start', loopRunId: 'loop-99' },
     });
 
-    const refreshed = service.getChat(chat.chat.id);
+    const refreshed = await service.getChat(chat.chat.id);
     expect(refreshed.chat.name).toBe('Ship the dark mode fix');
     expect(events.some((event) => event.type === 'chat-updated')).toBe(true);
   });
@@ -285,7 +290,7 @@ describe('ChatService', () => {
       name: 'My focused chat',
     });
 
-    service.appendSystemEvent({
+    await service.appendSystemEvent({
       chatId: chat.chat.id,
       nativeMessageId: 'loop-start:loop-100',
       role: 'user',
@@ -293,7 +298,7 @@ describe('ChatService', () => {
       autoName: true,
     });
 
-    expect(service.getChat(chat.chat.id).chat.name).toBe('My focused chat');
+    expect((await service.getChat(chat.chat.id)).chat.name).toBe('My focused chat');
   });
 
   it('keeps synthetic system events idempotent by native message id', async () => {
@@ -307,20 +312,20 @@ describe('ChatService', () => {
     });
     events.length = 0;
 
-    service.appendSystemEvent({
+    await service.appendSystemEvent({
       chatId: chat.chat.id,
       nativeMessageId: 'loop-summary:loop-1',
       content: 'first',
       metadata: { kind: 'loop-summary' },
     });
-    service.appendSystemEvent({
+    await service.appendSystemEvent({
       chatId: chat.chat.id,
       nativeMessageId: 'loop-summary:loop-1',
       content: 'second should not replace first',
       metadata: { kind: 'loop-summary' },
     });
 
-    expect(service.getChat(chat.chat.id).conversation.messages).toEqual([
+    expect((await service.getChat(chat.chat.id)).conversation.messages).toEqual([
       expect.objectContaining({
         nativeMessageId: 'loop-summary:loop-1',
         content: 'first',
@@ -347,6 +352,7 @@ describe('ChatService', () => {
       instanceManager: firstInstanceManager as never,
       eventBus: new EventEmitter(),
     });
+    services.push(firstService);
     const created = await firstService.createChat({
       provider: 'claude',
       currentCwd: '/work/project',
@@ -366,6 +372,7 @@ describe('ChatService', () => {
       instanceManager: secondInstanceManager as never,
       eventBus: new EventEmitter(),
     });
+    services.push(secondService);
 
     const [restored] = secondService.listChats();
     expect(restored).toEqual(expect.objectContaining({
@@ -373,7 +380,7 @@ describe('ChatService', () => {
       currentInstanceId: null,
       ledgerThreadId: created.chat.ledgerThreadId,
     }));
-    expect(secondService.getChat(created.chat.id).conversation.messages).toEqual([
+    expect((await secondService.getChat(created.chat.id)).conversation.messages).toEqual([
       expect.objectContaining({
         role: 'user',
         content: 'Remember this after restart',
@@ -437,7 +444,11 @@ describe('ChatService', () => {
       },
     });
 
-    expect(service.getChat(chat.chat.id).conversation.messages).toEqual([
+    // The bridge persists provider events on a coalesced off-thread flush; drain
+    // it before asserting the durable transcript + emitted deltas.
+    await service.flushTranscript();
+
+    expect((await service.getChat(chat.chat.id)).conversation.messages).toEqual([
       expect.objectContaining({ role: 'user', content: 'Pull everything' }),
       expect.objectContaining({
         role: 'tool',
@@ -451,20 +462,20 @@ describe('ChatService', () => {
       }),
     ]);
 
-    // Each provider event must emit an incremental delta carrying ONLY the new
-    // message — never the full conversation. The old full-transcript fan-out on
-    // every event was the dominant cause of send-time main-thread stalls.
+    // Deltas carry only the freshly-appended messages — never the full
+    // conversation (the old full-transcript fan-out per event was the dominant
+    // send-time stall). The bridge now coalesces a burst into ONE batched delta,
+    // so the two tool events arrive together with their authoritative sequences.
     const appended = events.filter(
       (event): event is Extract<ChatEvent, { type: 'transcript-appended' }> =>
         event.type === 'transcript-appended',
     );
-    expect(appended).toHaveLength(2);
-    expect(appended[0].messages).toHaveLength(1);
-    expect(appended[0].messages[0]).toEqual(
+    const appendedMessages = appended.flatMap((event) => event.messages);
+    expect(appendedMessages).toHaveLength(2);
+    expect(appendedMessages[0]).toEqual(
       expect.objectContaining({ role: 'tool', phase: 'tool_call' }),
     );
-    expect(appended[1].messages).toHaveLength(1);
-    expect(appended[1].messages[0]).toEqual(
+    expect(appendedMessages[1]).toEqual(
       expect.objectContaining({ role: 'tool', phase: 'tool_result', content: 'done' }),
     );
   });
@@ -481,7 +492,7 @@ describe('ChatService', () => {
         name: 'Switch model',
       });
       await service.sendMessage({ chatId: chat.chat.id, text: 'Hi' });
-      const runningId = service.getChat(chat.chat.id).chat.currentInstanceId;
+      const runningId = (await service.getChat(chat.chat.id)).chat.currentInstanceId;
       expect(runningId).toBeTruthy();
       events.length = 0;
 
@@ -524,7 +535,7 @@ describe('ChatService', () => {
         name: 'Already terminated',
       });
       await service.sendMessage({ chatId: chat.chat.id, text: 'Hi' });
-      const runningId = service.getChat(chat.chat.id).chat.currentInstanceId!;
+      const runningId = (await service.getChat(chat.chat.id)).chat.currentInstanceId!;
       const inst = instanceManager.getInstance(runningId)!;
       inst.status = 'terminated';
       instanceManager.terminations.length = 0;
@@ -542,7 +553,7 @@ describe('ChatService', () => {
         name: 'Terminate fails',
       });
       await service.sendMessage({ chatId: chat.chat.id, text: 'Hi' });
-      const runningId = service.getChat(chat.chat.id).chat.currentInstanceId!;
+      const runningId = (await service.getChat(chat.chat.id)).chat.currentInstanceId!;
       instanceManager.terminateInstance = async () => {
         throw new Error('boom');
       };
@@ -585,7 +596,7 @@ describe('ChatService', () => {
         name: 'Reasoning chat',
       });
       await service.sendMessage({ chatId: chat.chat.id, text: 'Hi' });
-      const runningId = service.getChat(chat.chat.id).chat.currentInstanceId!;
+      const runningId = (await service.getChat(chat.chat.id)).chat.currentInstanceId!;
 
       const after = await service.setReasoning(chat.chat.id, 'high');
 
@@ -652,6 +663,7 @@ describe('ChatService', () => {
       instanceManager: instanceManager as never,
       eventBus: new EventEmitter(),
     });
+    services.push(service);
     return { db, ledger, instanceManager, service };
   }
 });

@@ -189,6 +189,11 @@ export class WakeContextBuilder extends EventEmitter {
     const snippetMax = this.config.l1SnippetMaxChars;
     const lines = ['## L1 — ESSENTIAL STORY', ''];
     let totalChars = lines.join('\n').length;
+    // Collect the rendered hint ids and apply usage tracking in ONE statement
+    // after the render. The old per-hint UPDATE ran N synchronous writes on the
+    // main-thread RLM connection per wake-context build — write amplification on
+    // the create/resume hot path.
+    const usedHintIds: string[] = [];
 
     for (const [room, hints] of byRoom.entries()) {
       const roomHeader = `[${room}]`;
@@ -214,16 +219,14 @@ export class WakeContextBuilder extends EventEmitter {
 
         lines.push(line);
         totalChars += line.length + 1;
-
-        // Update usage tracking
-        this.db.prepare(`
-          UPDATE wake_hints SET last_used = ?, usage_count = usage_count + 1 WHERE id = ?
-        `).run(Date.now(), hint.id);
+        usedHintIds.push(hint.id);
       }
 
       lines.push('');
       totalChars += 1;
     }
+
+    this.recordHintUsage(usedHintIds);
 
     const content = lines.join('\n').trim();
     return {
@@ -232,6 +235,21 @@ export class WakeContextBuilder extends EventEmitter {
       tokenEstimate: estimateTokens(content),
       generatedAt: Date.now(),
     };
+  }
+
+  /**
+   * Apply usage tracking for the hints rendered into a wake context in a single
+   * statement. Replaces the old one-UPDATE-per-hint loop, which amplified writes
+   * on the main-thread RLM connection during create/resume.
+   */
+  private recordHintUsage(hintIds: string[]): void {
+    if (hintIds.length === 0) {
+      return;
+    }
+    const placeholders = hintIds.map(() => '?').join(', ');
+    this.db.prepare(
+      `UPDATE wake_hints SET last_used = ?, usage_count = usage_count + 1 WHERE id IN (${placeholders})`,
+    ).run(Date.now(), ...hintIds);
   }
 
   // ============ Full Wake Context ============

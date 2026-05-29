@@ -6,8 +6,8 @@ import type { NativeConversationAdapter } from '../native-conversation-adapter';
 describe('ConversationLedgerService', () => {
   const services: ConversationLedgerService[] = [];
 
-  afterEach(() => {
-    for (const service of services) service.close();
+  afterEach(async () => {
+    for (const service of services) await service.close();
     services.length = 0;
   });
 
@@ -37,7 +37,7 @@ describe('ConversationLedgerService', () => {
     const turn = await service.sendTurn(thread.id, { text: 'hello' });
     const firstReconcile = await service.reconcileConversation(thread.id);
     const secondReconcile = await service.reconcileConversation(thread.id);
-    const conversation = service.getConversation(thread.id);
+    const conversation = await service.getConversation(thread.id);
 
     expect(adapter.startedEphemeral).toBe(false);
     expect(turn.messages.length).toBeGreaterThanOrEqual(2);
@@ -55,7 +55,7 @@ describe('ConversationLedgerService', () => {
 
     await expect(service.reconcileConversation(thread.id)).rejects.toThrow('read failed');
 
-    const conversation = service.getConversation(thread.id);
+    const conversation = await service.getConversation(thread.id);
     expect(conversation.thread.syncStatus).toBe('error');
     expect(conversation.messages.map(message => message.content)).toEqual(['hello', 'answer']);
   });
@@ -76,7 +76,7 @@ describe('ConversationLedgerService', () => {
     });
     await service.sendTurn(thread.id, { text: 'Pull all repos' });
 
-    const conversation = service.getConversation(thread.id);
+    const conversation = await service.getConversation(thread.id);
     expect(conversation.thread.provider).toBe('orchestrator');
     expect(conversation.thread.workspacePath).toBeNull();
     expect(conversation.thread.syncStatus).toBe('synced');

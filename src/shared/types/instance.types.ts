@@ -242,6 +242,13 @@ export interface Instance {
   displayName: string;
   /** True when the user explicitly renamed this instance */
   isRenamed?: boolean;
+  /**
+   * Cheap-model (Haiku) auto-generated title, set only when AI titling actually
+   * produced a summary. Captured into the history entry on archive so closed
+   * threads keep an AI-chosen name in the rail. Distinct from `displayName`,
+   * which also holds the instant pre-AI fallback.
+   */
+  aiTitle?: string;
   createdAt: number;
   historyThreadId: string;
 

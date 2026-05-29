@@ -62,6 +62,15 @@ export interface ConversationHistoryEntry {
   /** True when the user explicitly renamed this instance */
   isRenamed?: boolean;
 
+  /**
+   * Short, cheap-AI-generated thread title (e.g. Claude Haiku) that summarizes
+   * the task. When present and the user hasn't manually renamed the thread,
+   * this is preferred over the raw first message so the rail is recognizable
+   * within its first ~30 characters. Absent on older entries and whenever AI
+   * titling didn't run — callers fall back to a front-loaded first message.
+   */
+  aiTitle?: string;
+
   /** Stable app-level thread identity across restore and fallback copies */
   historyThreadId?: string;
 
@@ -136,6 +145,87 @@ export interface ConversationData {
 
 function normalizeHistoryTitlePart(value: string | null | undefined): string {
   return (value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Generic conversational lead-ins that carry no identifying information. They
+ * are stripped from the front of a title so the distinctive part of a task
+ * (project, feature, file, PR) lands within the first ~30 characters — the
+ * slice that survives truncation in the narrow workspace rail. Applied
+ * iteratively so stacked openers ("Please go ahead and implement this PR …")
+ * peel off one layer at a time.
+ */
+const TITLE_LEAD_IN_PATTERNS: readonly RegExp[] = [
+  /^[[(<"'\s]+/, // leading brackets / quotes / whitespace
+  /^(?:hey|hi|hello|yo)\b[\s,!:.-]*/i,
+  /^(?:please|pls|plz|kindly)\b[\s,]*/i,
+  /^(?:thanks?|thank you|cheers)\b[\s,!:.-]*/i,
+  /^(?:can|could|would|will)\s+you\s+(?:please\s+|kindly\s+)?/i,
+  /^(?:i'?d|we'?d|i would|we would)\s+like\s+(?:you\s+)?(?:to\s+)?/i,
+  /^(?:i|we)\s+(?:need|want|wanna)\s+(?:you\s+)?(?:to\s+)?/i,
+  /^(?:we|you)\s+(?:should|must|have to|need to|gotta|ought to)\s+/i,
+  /^let'?s\s+/i,
+  /^help\s+me\s+(?:to\s+|with\s+)?/i,
+  /^go\s+ahead\s+and\s+/i,
+  // "<verb> this/that/the PR/the following:" — the verb+pointer adds no signal,
+  // the words after it are what identify the thread.
+  /^(?:implement|review|fix|address|investigate|debug|handle|resolve|complete|finish|do|check|update|look\s+at|take\s+a\s+look\s+at|work\s+on)\s+(?:this|that|these|those|the\s+following|it)\b[\s:,.-]*(?:pr|mr|pull\s+request|merge\s+request|issue|ticket|task)?\b[\s:,.-]*/i,
+];
+
+/** Shorten a leading absolute/home path to its last two segments. */
+function shortenLeadingPath(text: string): string {
+  const match = /^(~?\/[^\s]+|[A-Za-z]:\\[^\s]+)/.exec(text);
+  if (!match) return text;
+  const token = match[1];
+  const segments = token.split(/[/\\]/).filter(Boolean);
+  if (segments.length <= 2) return text;
+  return (`…/${segments.slice(-2).join('/')}` + text.slice(token.length)).trim();
+}
+
+/** Replace a leading bare URL with a readable host + first path segment. */
+function shortenLeadingUrl(text: string): string {
+  const match = /^https?:\/\/(?:www\.)?([^/\s]+)(\/[^\s?#]*)?/i.exec(text);
+  if (!match) return text;
+  const host = match[1];
+  const firstSegment = (match[2] ?? '').split('/').filter(Boolean)[0];
+  const label = firstSegment ? `${host}/${firstSegment}` : host;
+  return (label + text.slice(match[0].length)).trim();
+}
+
+/**
+ * Produce a rail-friendly title from raw message text by stripping generic
+ * lead-ins and surfacing the distinctive token early. Deterministic and free —
+ * used as the fallback whenever no AI-generated title is available, and to tidy
+ * the instant (pre-AI) title. Never strips down to (near-)nothing: if cleaning
+ * would leave too little, the normalized original is returned unchanged.
+ */
+export function frontLoadTitle(value: string | null | undefined): string {
+  const normalized = normalizeHistoryTitlePart(value);
+  if (!normalized) return '';
+
+  let result = normalized;
+  for (let pass = 0; pass < 6; pass++) {
+    let changed = false;
+    for (const pattern of TITLE_LEAD_IN_PATTERNS) {
+      const stripped = result.replace(pattern, '');
+      if (stripped !== result) {
+        result = stripped.trimStart();
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) break;
+  }
+
+  result = shortenLeadingUrl(result);
+  result = shortenLeadingPath(result);
+  result = result.replace(/^[[(<"'\s:,.-]+/, '').trim();
+
+  // Guard against over-stripping (e.g. a message that was only filler).
+  if (result.length < 3) return normalized;
+
+  // Capitalize the first alphabetic character for a tidy rail title.
+  return result.replace(/^(\p{Ll})/u, (char) => char.toUpperCase());
 }
 
 function inferHistoryProviderFromRestoreId(
@@ -218,12 +308,17 @@ function inferHistoryProviderFromText(
 /**
  * Derive a stable thread title for workspace rails and restored sessions.
  *
- * When the user explicitly renamed the instance, honour that title.
- * Otherwise prefer the first user message so titles stay anchored to the
- * original task instead of drifting to short follow-up messages like "hi".
+ * Priority:
+ *   1. A user-set title (explicit rename) — always wins.
+ *   2. The cheap-AI title (`aiTitle`, e.g. Claude Haiku) — a real summary that
+ *      reads well in the narrow rail.
+ *   3. The first user message, front-loaded so the distinctive part of the task
+ *      lands in the first ~30 chars instead of generic lead-ins ("Please …",
+ *      "review this PR", a bare URL). Stays anchored to the original task
+ *      rather than drifting to short follow-ups like "hi".
  */
 export function getConversationHistoryTitle(
-  entry: Pick<ConversationHistoryEntry, 'displayName' | 'isRenamed' | 'firstUserMessage' | 'lastUserMessage'>
+  entry: Pick<ConversationHistoryEntry, 'displayName' | 'isRenamed' | 'aiTitle' | 'firstUserMessage' | 'lastUserMessage'>
 ): string {
   // User-set title always takes priority
   if (entry.isRenamed) {
@@ -232,8 +327,9 @@ export function getConversationHistoryTitle(
   }
 
   const candidates = [
-    normalizeHistoryTitlePart(entry.firstUserMessage),
-    normalizeHistoryTitlePart(entry.lastUserMessage),
+    normalizeHistoryTitlePart(entry.aiTitle),
+    frontLoadTitle(entry.firstUserMessage),
+    frontLoadTitle(entry.lastUserMessage),
     normalizeHistoryTitlePart(entry.displayName),
   ].filter(Boolean);
 
@@ -258,7 +354,7 @@ export function resolveEffectiveInstanceTitle(
   instance: { displayName: string; isRenamed?: boolean },
   matchingHistoryEntry?: Pick<
     ConversationHistoryEntry,
-    'displayName' | 'isRenamed' | 'firstUserMessage' | 'lastUserMessage'
+    'displayName' | 'isRenamed' | 'aiTitle' | 'firstUserMessage' | 'lastUserMessage'
   >
 ): string {
   // Live displayName wins whenever it has content. Auto-title (phase 1 + 2)

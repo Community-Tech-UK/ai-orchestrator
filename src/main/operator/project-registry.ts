@@ -37,11 +37,11 @@ interface RecentDirectoriesSource {
 }
 
 interface ConversationLedgerSource {
-  listConversations(query?: unknown): Array<{ workspacePath: string | null; updatedAt: number }>;
+  listConversations(query?: unknown): Promise<{ workspacePath: string | null; updatedAt: number }[]>;
 }
 
 interface InstanceManagerSource {
-  getAllInstances(): Array<Pick<Instance, 'workingDirectory' | 'lastActivity'>>;
+  getAllInstances(): Pick<Instance, 'workingDirectory' | 'lastActivity'>[];
 }
 
 export interface ProjectRegistryConfig {
@@ -172,7 +172,7 @@ export class ProjectRegistry {
 
   private async seedConversationLedger(): Promise<void> {
     if (!this.conversationLedger) return;
-    const threads = this.conversationLedger.listConversations({ limit: 500 });
+    const threads = await this.conversationLedger.listConversations({ limit: 500 });
     for (const thread of threads) {
       if (!thread.workspacePath) continue;
       await this.upsertProjectFromPath(thread.workspacePath, {
@@ -261,7 +261,7 @@ async function findRepositories(root: string): Promise<string[]> {
       repos.push(dirPath);
       return;
     }
-    let entries: Array<{ name: string; isDirectory(): boolean }>;
+    let entries: { name: string; isDirectory(): boolean }[];
     try {
       entries = await fs.readdir(dirPath, { withFileTypes: true });
     } catch {
@@ -352,7 +352,7 @@ function rankProjects(projects: OperatorProjectRecord[]): OperatorProjectRecord[
   });
 }
 
-function dedupeAliases(values: Array<string | null | undefined>): string[] {
+function dedupeAliases(values: (string | null | undefined)[]): string[] {
   const seen = new Set<string>();
   const aliases: string[] = [];
   for (const value of values) {

@@ -65,6 +65,7 @@ export interface AppSettings {
   showToolMessages: boolean;
   showThinking: boolean; // Display AI thinking process in collapsible panels
   thinkingDefaultExpanded: boolean; // Show thinking panels expanded instead of collapsed
+  showCost: boolean; // Display running cost estimates (per-instance and aggregated). Off = hide for managed setups.
 
   // Recent Directories
   maxRecentDirectories: number; // 5-500, max directories to remember
@@ -257,6 +258,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showToolMessages: true,
   showThinking: true,
   thinkingDefaultExpanded: false,
+  showCost: true,
 
   // Recent Directories
   maxRecentDirectories: 200,

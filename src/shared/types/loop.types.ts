@@ -31,6 +31,16 @@ export interface LoopHardCaps {
   maxCostCents: number | null;
   /** Per-iteration tool-call cap. Default 200. */
   maxToolCallsPerIteration: number;
+  /**
+   * LF-7: max number of completion attempts where verify PASSED but the
+   * `*_Completed.md` rename belt-and-braces gate kept blocking, before the
+   * loop stops oscillating and terminates as `cap-reached` with a clear
+   * reason. Bounds the "declare done → rename gate rejects → re-declare" spin
+   * (loopfixex §12.1) at this count instead of letting it run all the way to
+   * `maxIterations`. Optional; defaults to 3 via `defaultLoopConfig` and is
+   * read defensively (`?? 3`) so configs/tests that omit it still bound.
+   */
+  maxCompletionAttempts?: number;
 }
 
 export interface LoopProgressThresholds {
@@ -168,6 +178,38 @@ export function defaultCrossModelReviewConfig(): LoopCrossModelReviewConfig {
   };
 }
 
+/**
+ * LF-2 — result of a single semantic-progress check. Records whether the
+ * latest iteration measurably advanced the goal, a one-line explanation, and
+ * the reviewer's confidence (0..1). Confidence below the configured floor is
+ * ignored by the escalation logic, so a low-confidence guess never moves a
+ * verdict.
+ */
+export interface LoopSemanticProgressResult {
+  advanced: boolean;
+  whatChanged: string;
+  confidence: number;
+}
+
+/**
+ * LF-2 — configuration for the semantic-progress escalation modifier. Default
+ * OFF: a loop must opt in, and even then the signal only ever escalates a WARN
+ * (confirmed no-progress) or softens a churn-only CRITICAL (confirmed
+ * progress) — it is never the sole stop/continue authority.
+ */
+export interface LoopSemanticProgressConfig {
+  /** Master switch. Default false. */
+  enabled: boolean;
+  /** Periodic check cadence (iterations) while the structural verdict is OK. Default 5. */
+  cadence: number;
+  /** Minimum confidence for a verdict to modify escalation. Default 0.6. */
+  confidenceFloor: number;
+}
+
+export function defaultSemanticProgressConfig(): LoopSemanticProgressConfig {
+  return { enabled: false, cadence: 5, confidenceFloor: 0.6 };
+}
+
 export interface LoopConfig {
   /** The goal/ask. Sent on iteration 0 — anchors what the loop drives toward. */
   initialPrompt: string;
@@ -189,6 +231,8 @@ export interface LoopConfig {
   caps: LoopHardCaps;
   /** Progress detector thresholds. */
   progressThresholds: LoopProgressThresholds;
+  /** LF-2 semantic-progress signal (escalation modifier). Optional; default off. */
+  semanticProgress?: LoopSemanticProgressConfig;
   /** Completion detector config. */
   completion: LoopCompletionConfig;
   /** Allow destructive ops inside the loop (rm -rf, force-push). Default false. */
@@ -223,6 +267,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       maxTokens: 1_000_000,
       maxCostCents: null,
       maxToolCallsPerIteration: 200,
+      maxCompletionAttempts: 3,
     },
     progressThresholds: {
       identicalHashWarnConsecutive: 2,
@@ -249,6 +294,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       warnEscalationWindow: 5,
       warnEscalationCount: 3,
     },
+    semanticProgress: defaultSemanticProgressConfig(),
     completion: {
       completedFilenamePattern: '*_[Cc]ompleted.md',
       donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
@@ -341,6 +387,8 @@ export interface LoopIteration {
   completionSignalsFired: CompletionSignalEvidence[];
   verifyStatus: 'not-run' | 'passed' | 'failed';
   verifyOutputExcerpt: string;
+  /** LF-2 semantic-progress verdict for this iteration (present when the check ran). */
+  semanticProgress?: LoopSemanticProgressResult;
 }
 
 // ============ Progress (no-progress) detection ============
@@ -511,6 +559,14 @@ export interface LoopState {
   iterationsOnCurrentStage: number;
   /** WARN history for escalation logic — timestamps of recent WARN verdicts. */
   recentWarnIterationSeqs: number[];
+  /**
+   * LF-7: count of completion attempts where verify passed but the
+   * `*_Completed.md` rename gate blocked. When it reaches
+   * `caps.maxCompletionAttempts`, the loop terminates as `cap-reached`
+   * instead of oscillating. Initialised to 0; persisted with `.default(0)`
+   * for back-compat with rows written before the field existed.
+   */
+  completionAttempts: number;
 }
 
 // ============ Stream events (async generator) ============
@@ -527,7 +583,7 @@ export type LoopStreamEvent =
   | { type: 'intervention-applied'; loopRunId: string; message: string }
   | { type: 'completed'; loopRunId: string; signal: CompletionSignalId; verifyOutput: string }
   | { type: 'failed'; loopRunId: string; reason: string }
-  | { type: 'cap-reached'; loopRunId: string; cap: 'iterations' | 'wall-time' | 'tokens' | 'cost'; reason?: string }
+  | { type: 'cap-reached'; loopRunId: string; cap: 'iterations' | 'wall-time' | 'tokens' | 'cost' | 'completion-attempts'; reason?: string }
   | { type: 'cancelled'; loopRunId: string }
   | { type: 'error'; loopRunId: string; error: string };
 

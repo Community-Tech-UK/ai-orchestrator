@@ -107,6 +107,24 @@ export class InstanceQueries {
     };
   });
 
+  /**
+   * Running cost split by provider across all instances, highest first. Since
+   * sessions here can be mixed-provider, this powers the Amp-style breakdown
+   * ("$2.00 Anthropic + $0.50 OpenAI"). Only providers with non-zero cost are
+   * included.
+   */
+  readonly costByProvider = computed<{ provider: string; cost: number }[]>(() => {
+    const byProvider = new Map<string, number>();
+    for (const instance of this.instances()) {
+      const cost = instance.contextUsage.costEstimate || 0;
+      if (cost <= 0) continue;
+      byProvider.set(instance.provider, (byProvider.get(instance.provider) ?? 0) + cost);
+    }
+    return Array.from(byProvider, ([provider, cost]) => ({ provider, cost })).sort(
+      (a, b) => b.cost - a.cost,
+    );
+  });
+
   /** Root instances (no parent) */
   readonly rootInstances = computed(() =>
     this.instances().filter((i) => !i.parentId)

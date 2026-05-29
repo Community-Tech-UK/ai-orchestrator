@@ -6,6 +6,16 @@
 import { ChangeDetectionStrategy, Component, computed, inject, output } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { InstanceStore } from '../../core/state/instance.store';
+import { SettingsStore } from '../../core/state/settings.store';
+
+/** Display labels for the per-provider cost breakdown tooltip. */
+const PROVIDER_COST_LABELS: Record<string, string> = {
+  claude: 'Claude',
+  codex: 'Codex',
+  gemini: 'Gemini',
+  copilot: 'Copilot',
+  cursor: 'Cursor',
+};
 
 @Component({
   selector: 'app-sidebar-footer',
@@ -27,8 +37,8 @@ import { InstanceStore } from '../../core/state/instance.store';
                 {{ store.totalContextUsage().percentage | number: '1.0-0' }}% ctx
               </span>
             }
-            @if (store.totalContextUsage().costEstimate) {
-              <span class="stat cost-stat">
+            @if (showCost() && store.totalContextUsage().costEstimate) {
+              <span class="stat cost-stat" [title]="costBreakdown()">
                 ~\${{ store.totalContextUsage().costEstimate | number: '1.2-2' }}
               </span>
             }
@@ -51,14 +61,27 @@ import { InstanceStore } from '../../core/state/instance.store';
 })
 export class SidebarFooterComponent {
   store = inject(InstanceStore);
+  private settings = inject(SettingsStore);
+
+  /** Global cost-visibility toggle (hidden for managed setups). */
+  readonly showCost = computed(() => this.settings.showCost());
 
   readonly hasStats = computed(() =>
     this.store.instanceCount() > 0
       || this.store.totalContextUsage().total > 0
-      || !!this.store.totalContextUsage().costEstimate
+      || (this.showCost() && !!this.store.totalContextUsage().costEstimate)
   );
 
   readonly hasContent = computed(() => this.hasStats() || this.store.instanceCount() > 0);
+
+  /** Amp-style per-provider split, e.g. "Claude $2.00 + Codex $0.50". */
+  readonly costBreakdown = computed(() => {
+    const parts = this.store.costByProvider();
+    if (parts.length === 0) return '';
+    return parts
+      .map((p) => `${PROVIDER_COST_LABELS[p.provider] ?? p.provider} $${p.cost.toFixed(2)}`)
+      .join(' + ');
+  });
 
   closeAllClicked = output<void>();
 }

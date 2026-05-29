@@ -65,7 +65,7 @@ export function createOrchestratorToolDefinitions(
       },
       handler: async (args) => {
         const parsed = GitBatchPullArgsSchema.parse(args);
-        const source = resolveSourceContext({
+        const source = await resolveSourceContext({
           chatStore,
           ledger: context.ledger ?? null,
           instanceId: context.instanceId ?? null,
@@ -217,11 +217,11 @@ export function createLedgerForOrchestratorTools(dbPath: string): ConversationLe
   });
 }
 
-function resolveSourceContext(input: {
+async function resolveSourceContext(input: {
   chatStore: ChatStore;
   ledger: ConversationLedgerService | null;
   instanceId: string | null;
-}): SourceContext {
+}): Promise<SourceContext> {
   const chat = input.instanceId ? input.chatStore.getByInstanceId(input.instanceId) : null;
   const fallbackMessageId = `mcp-tool:${Date.now()}`;
   if (!chat) {
@@ -235,7 +235,7 @@ function resolveSourceContext(input: {
   let sourceMessageId = fallbackMessageId;
   if (input.ledger) {
     try {
-      const conversation = input.ledger.getConversation(chat.ledgerThreadId);
+      const conversation = await input.ledger.getConversation(chat.ledgerThreadId);
       const latestToolCall = findLatestMessage(conversation.messages, (message) =>
         message.phase === 'tool_call'
         || asRecord(message.rawJson?.['metadata'])?.['kind'] === 'tool_call'

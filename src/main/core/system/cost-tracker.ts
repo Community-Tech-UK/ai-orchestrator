@@ -5,7 +5,7 @@
  */
 
 import { EventEmitter } from 'events';
-import { MODEL_PRICING } from '../../../shared/types/provider.types';
+import { computeTokenCost } from '../../../shared/data/model-pricing';
 
 /**
  * Cost entry for a single API call
@@ -99,20 +99,14 @@ export class CostTracker extends EventEmitter {
     cacheReadTokens: number = 0,
     cacheWriteTokens: number = 0
   ): number {
-    const pricing = MODEL_PRICING[model];
-    if (!pricing) {
-      // Use default pricing if model not found
-      return (inputTokens * 3 + outputTokens * 15) / 1_000_000;
-    }
-
-    // Cache read tokens are typically 90% cheaper
-    // Cache write tokens have same cost as regular input
-    const inputCost = (inputTokens * pricing.input) / 1_000_000;
-    const outputCost = (outputTokens * pricing.output) / 1_000_000;
-    const cacheReadCost = (cacheReadTokens * pricing.input * 0.1) / 1_000_000;
-    const cacheWriteCost = (cacheWriteTokens * pricing.input) / 1_000_000;
-
-    return inputCost + outputCost + cacheReadCost + cacheWriteCost;
+    // Delegate to the shared pricing helper so every cost path (this tracker
+    // plus the provider adapters) uses one per-model input/output/cache table.
+    return computeTokenCost(model, {
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+    });
   }
 
   /**

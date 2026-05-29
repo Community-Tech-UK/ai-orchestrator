@@ -54,6 +54,14 @@ vi.mock('../../memory', () => ({
   getOutputStorageManager: vi.fn(() => ({ store: vi.fn(), getRecent: vi.fn() })),
 }));
 
+// instance-context deep-imports getUnifiedMemory from the controller module
+// (not the '../memory' barrel) so the context worker doesn't pull electron-coupled
+// modules. Mock the deep path too, or the real controller loads here.
+vi.mock('../../memory/unified-controller', () => ({
+  getUnifiedMemory: vi.fn(() => ({ retrieve: vi.fn(), processInput: vi.fn(), ingest: vi.fn() })),
+  UnifiedMemoryController: vi.fn(),
+}));
+
 vi.mock('../../context/jit-loader', () => ({
   getJITLoader: vi.fn(() => ({ registerLoader: vi.fn(), load: vi.fn() })),
   FileSystemLoader: vi.fn(),

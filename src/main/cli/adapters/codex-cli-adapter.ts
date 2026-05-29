@@ -40,6 +40,7 @@ import {
 } from './base-cli-adapter';
 import type { ContextUsage, FileAttachment, InstanceStatus, OutputMessage, ThinkingContent } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
+import { computeTokenCost } from '../../../shared/data/model-pricing';
 import { extractThinkingContent, type ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { buildMessageWithFiles, processAttachments, type ProcessedAttachment } from '../file-handler';
 import { getLogger } from '../../logging/logger';
@@ -229,6 +230,13 @@ export class CodexCliAdapter extends BaseCliAdapter {
   private isSpawned = false;
   /** Running total of tokens spent across all turns (for cost/spend tracking). */
   private cumulativeTokensUsed = 0;
+  /**
+   * Running USD cost across all turns. Codex's CLI does not report a dollar
+   * cost (unlike Claude's `total_cost_usd`), so we price the real per-turn
+   * input/output/cached token split with the shared pricing table and surface
+   * the cumulative total via `costEstimate` on context events.
+   */
+  private cumulativeCostUsd = 0;
   /** Per-turn token occupancy from the most recent API call (for context bar). */
   private lastTurnTokens = 0;
   /** Whether we've received a thread/tokenUsage/updated notification (accurate source). */
@@ -1043,6 +1051,14 @@ export class CodexCliAdapter extends BaseCliAdapter {
       const outputTokens = usage.output_tokens || 0;
       const turnTokens = inputTokens + outputTokens;
 
+      // Codex's CLI reports no dollar cost (unlike Claude's total_cost_usd), so
+      // price the real per-turn input/output split with the shared pricing
+      // table and accumulate it. Surfaced via costEstimate on context events.
+      this.cumulativeCostUsd += computeTokenCost(this.cliConfig.model, {
+        inputTokens,
+        outputTokens,
+      });
+
       if (!this.hasTokenUsageNotification) {
         // No accurate notification received — aggregate turn tokens are NOT
         // context-window occupancy (they sum across all internal sub-calls
@@ -1061,6 +1077,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
             total: contextWindow,
             percentage: contextWindow > 0 ? Math.min((this.lastTurnTokens / contextWindow) * 100, 100) : 0,
             cumulativeTokens: this.cumulativeTokensUsed,
+            costEstimate: this.cumulativeCostUsd,
           });
         } else {
           // No prior occupancy data — we genuinely don't know occupancy.
@@ -1072,6 +1089,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
             total: contextWindow,
             percentage: 0,
             cumulativeTokens: this.cumulativeTokensUsed,
+            costEstimate: this.cumulativeCostUsd,
             isEstimated: true,
           });
         }
@@ -1723,6 +1741,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
           total: contextWindow,
           percentage: Math.min((used / contextWindow) * 100, 100),
           cumulativeTokens: this.cumulativeTokensUsed,
+          costEstimate: this.cumulativeCostUsd,
           // If we don't have per-call occupancy AND no prior occupancy, flag it
           ...(!hasAccurateOccupancy && used === 0 ? { isEstimated: true } : {}),
         });
@@ -2226,6 +2245,11 @@ export class CodexCliAdapter extends BaseCliAdapter {
         : (response.usage.totalTokens || 0);
 
       this.cumulativeTokensUsed += turnTokens;
+      // Price the per-turn split with the shared table (Codex reports no $ cost).
+      this.cumulativeCostUsd += computeTokenCost(this.cliConfig.model, {
+        inputTokens: response.usage.inputTokens || 0,
+        outputTokens: response.usage.outputTokens || 0,
+      });
       const contextWindow = this.resolveContextWindow();
 
       const used = this.lastTurnTokens > 0 ? this.lastTurnTokens : 0;
@@ -2234,6 +2258,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
         total: contextWindow,
         percentage: contextWindow > 0 ? Math.min((used / contextWindow) * 100, 100) : 0,
         cumulativeTokens: this.cumulativeTokensUsed,
+        costEstimate: this.cumulativeCostUsd,
         isEstimated: true,
       };
       this.emit('context', contextUsage);

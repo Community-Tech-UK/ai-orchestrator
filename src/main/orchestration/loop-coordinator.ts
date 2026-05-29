@@ -28,6 +28,7 @@ import { getLogger } from '../logging/logger';
 import {
   defaultCrossModelReviewConfig,
   defaultLoopConfig,
+  defaultSemanticProgressConfig,
   type LoopConfig,
   type LoopErrorRecord,
   type LoopFileChange,
@@ -82,6 +83,13 @@ import {
   type FreshEyesReviewer,
   type FreshEyesReviewerResult,
 } from './loop-fresh-eyes-reviewer';
+import {
+  defaultSemanticProgressReviewer,
+  findPreviousSemanticResult,
+  reconcileSemanticVerdict,
+  shouldRunSemanticCheck,
+  type LoopSemanticProgressReviewer,
+} from './loop-semantic-progress';
 import { streamLoopEvents } from './loop-stream';
 
 export { computeWorkHash } from './loop-work-hash';
@@ -209,6 +217,18 @@ export class LoopCoordinator extends EventEmitter {
   /** Override the fresh-eyes reviewer (tests / DI). */
   setFreshEyesReviewer(reviewer: FreshEyesReviewer): void {
     this.freshEyesReviewer = reviewer;
+  }
+
+  /**
+   * LF-2 — semantic-progress reviewer. Injectable like the fresh-eyes
+   * reviewer; defaults to a cheap single-LLM-call implementation. Only invoked
+   * when `LoopConfig.semanticProgress.enabled` is true.
+   */
+  private semanticProgressReviewer: LoopSemanticProgressReviewer = defaultSemanticProgressReviewer;
+
+  /** Override the semantic-progress reviewer (tests / DI). */
+  setSemanticProgressReviewer(reviewer: LoopSemanticProgressReviewer): void {
+    this.semanticProgressReviewer = reviewer;
   }
 
   static getInstance(): LoopCoordinator {
@@ -522,6 +542,7 @@ export class LoopCoordinator extends EventEmitter {
       highestTestPassCount: 0,
       iterationsOnCurrentStage: 0,
       recentWarnIterationSeqs: [],
+      completionAttempts: 0,
     };
     this.active.set(id, state);
     this.histories.set(id, []);
@@ -881,6 +902,68 @@ export class LoopCoordinator extends EventEmitter {
       const evaluation = this.progressDetector.evaluate(state, history, iteration);
       iteration.progressVerdict = evaluation.verdict;
       iteration.progressSignals = evaluation.signals;
+
+      // -- LF-2: semantic progress signal (escalation modifier; default OFF) --
+      // A cheap model check that confirms/softens the structural verdict. It is
+      // cadence-gated, requires two consecutive confident checks to flip a
+      // verdict, and is NEVER a sole stop/continue authority. Runs BEFORE the
+      // WARN-tracking and CRITICAL-pause below so any flip propagates downstream.
+      const semCfg = state.config.semanticProgress ?? defaultSemanticProgressConfig();
+      if (
+        shouldRunSemanticCheck({
+          enabled: semCfg.enabled,
+          structuralVerdict: evaluation.verdict,
+          seq,
+          cadence: semCfg.cadence,
+        })
+      ) {
+        try {
+          const semantic = await this.semanticProgressReviewer({
+            goal: state.config.initialPrompt,
+            workspaceCwd: state.config.workspaceCwd,
+            filesChangedThisIteration: iteration.filesChanged.map((f) => f.path),
+            iterationOutput: iteration.outputExcerpt,
+            config: semCfg,
+          });
+          iteration.semanticProgress = semantic;
+          const reconciled = reconcileSemanticVerdict({
+            structuralVerdict: evaluation.verdict,
+            structuralSignals: evaluation.signals,
+            current: semantic,
+            previous: findPreviousSemanticResult(history),
+            confidenceFloor: semCfg.confidenceFloor,
+          });
+          if (reconciled.changed) {
+            logger.info('Loop semantic-progress modifier applied', {
+              loopRunId: state.id,
+              seq,
+              from: evaluation.verdict,
+              to: reconciled.verdict,
+              advanced: semantic.advanced,
+              confidence: semantic.confidence,
+              reason: reconciled.reason,
+            });
+            this.emit('loop:semantic-progress', {
+              loopRunId: state.id,
+              seq,
+              advanced: semantic.advanced,
+              confidence: semantic.confidence,
+              from: evaluation.verdict,
+              to: reconciled.verdict,
+              reason: reconciled.reason,
+            });
+            evaluation.verdict = reconciled.verdict;
+            iteration.progressVerdict = reconciled.verdict;
+          }
+        } catch (err) {
+          logger.warn('Semantic progress check failed; leaving structural verdict unchanged', {
+            loopRunId: state.id,
+            seq,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
       if (evaluation.verdict === 'WARN') {
         state.recentWarnIterationSeqs.push(seq);
         // keep last warnEscalationWindow + a few
@@ -904,6 +987,10 @@ export class LoopCoordinator extends EventEmitter {
       let stopWithSignal: CompletionSignalEvidence | null = null;
       let verifyOutputForEmit = '';
       let pauseBecauseCompletionCannotBeVerified = false;
+      // LF-7: set when the completion-attempt budget is exhausted (verify keeps
+      // passing but the rename gate never does). Acted on after the iteration
+      // is logged, so the terminal iteration still appears in history/log.
+      let completionCapReason: string | null = null;
       if (this.completionDetector.hasSufficientSignal(completionSignals)) {
         // Pick the highest-priority sufficient signal for the stop attempt.
         const sufficientList = completionSignals.filter((c) => c.sufficient);
@@ -1011,20 +1098,38 @@ export class LoopCoordinator extends EventEmitter {
               this.rejectPendingCompleteIntent(state, 'fresh-eyes review blocked completion');
             }
           } else if (v2.status === 'passed') {
-            this.rejectCompletionAttempt(
-              state,
-              'completed-file rename gate did not pass',
-              'Your completion was rejected because the completed-file rename gate did not pass. ' +
-                'A *_Completed.md rename is required before this loop can stop. ' +
-                'Rename the relevant plan file to *_Completed.md, then re-declare completion.',
-            );
-            // verify passes but belt-and-braces (rename) hasn't happened yet —
-            // surface so the agent can do the rename, but don't stop.
-            this.emit('loop:claimed-done-but-failed', {
-              loopRunId: state.id,
-              signal: candidate.id,
-              failure: 'Verify passed but no *_Completed.md rename observed. Rename the plan file to confirm.',
-            });
+            // LF-7: verify passed but the *_Completed.md rename gate has not.
+            // Count this verified-but-ungated attempt. If the loop keeps
+            // declaring done without ever renaming (the loopfixex §12.1
+            // oscillation), bound it at `maxCompletionAttempts` and stop as
+            // `cap-reached` with a clear reason rather than spinning all the
+            // way to `maxIterations`.
+            state.completionAttempts += 1;
+            const maxCompletionAttempts = state.config.caps.maxCompletionAttempts ?? 3;
+            if (state.completionAttempts >= maxCompletionAttempts) {
+              completionCapReason =
+                `Stopped after ${state.completionAttempts} completion attempts in which verify passed but the ` +
+                'required *_Completed.md rename never happened. Rename the plan file(s) to *_Completed.md and ' +
+                're-run, or accept/stop the loop manually.';
+              // Don't reject-and-continue; fall through to the post-log
+              // terminal handling so this final iteration is still recorded.
+            } else {
+              this.rejectCompletionAttempt(
+                state,
+                'completed-file rename gate did not pass',
+                'Your completion was rejected because the completed-file rename gate did not pass ' +
+                  `(attempt ${state.completionAttempts}/${maxCompletionAttempts}). ` +
+                  'A *_Completed.md rename is required before this loop can stop. ' +
+                  'Rename the relevant plan file to *_Completed.md, then re-declare completion.',
+              );
+              // verify passes but belt-and-braces (rename) hasn't happened yet —
+              // surface so the agent can do the rename, but don't stop.
+              this.emit('loop:claimed-done-but-failed', {
+                loopRunId: state.id,
+                signal: candidate.id,
+                failure: 'Verify passed but no *_Completed.md rename observed. Rename the plan file to confirm.',
+              });
+            }
           }
         }
       }
@@ -1043,7 +1148,17 @@ export class LoopCoordinator extends EventEmitter {
           tokens,
           durationMs: iterEnd - iterStart,
           filesChanged: iteration.filesChanged.length,
-          progressNotes: iteration.progressSignals.map((s) => `[${s.id}/${s.verdict}] ${s.message}`),
+          progressNotes: [
+            ...iteration.progressSignals.map((s) => `[${s.id}/${s.verdict}] ${s.message}`),
+            // LF-2: record the semantic-progress verdict in the durable log when
+            // the check ran this iteration, so done-vs-stuck decisions are auditable.
+            ...(iteration.semanticProgress
+              ? [
+                  `[semantic] advanced=${iteration.semanticProgress.advanced} ` +
+                    `conf=${iteration.semanticProgress.confidence.toFixed(2)} — ${iteration.semanticProgress.whatChanged}`,
+                ]
+              : []),
+          ],
           completionNotes: iteration.completionSignalsFired.map((c) => `[${c.id}] ${c.detail}`),
         });
       } catch (err) {
@@ -1081,6 +1196,18 @@ export class LoopCoordinator extends EventEmitter {
           verifyOutput: excerpt(verifyOutputForEmit, 4096),
         });
         this.terminate(state, 'completed', `signal=${stopWithSignal.id}`);
+        return;
+      }
+
+      // -- LF-7: completion-attempt budget exhausted → stop oscillating --
+      if (completionCapReason) {
+        // Resolve any pending loop-control `complete` intent as rejected (the
+        // completion was never gated through) so the terminal-intent audit
+        // trail isn't left dangling. No-op when there is no pending intent
+        // (e.g. the signal was a DONE.txt sentinel rather than a CLI intent).
+        this.rejectPendingCompleteIntent(state, completionCapReason);
+        this.emit('loop:cap-reached', { loopRunId: state.id, cap: 'completion-attempts', reason: completionCapReason });
+        this.terminate(state, 'cap-reached', completionCapReason);
         return;
       }
 
@@ -1677,6 +1804,7 @@ export class LoopCoordinator extends EventEmitter {
       config: { ...s.config },
       pendingInterventions: [...s.pendingInterventions],
       recentWarnIterationSeqs: [...s.recentWarnIterationSeqs],
+      completionAttempts: s.completionAttempts,
       loopControl: s.loopControl ? { ...s.loopControl } : undefined,
       terminalIntentPending: s.terminalIntentPending
         ? { ...s.terminalIntentPending, evidence: s.terminalIntentPending.evidence.map((item) => ({ ...item })) }

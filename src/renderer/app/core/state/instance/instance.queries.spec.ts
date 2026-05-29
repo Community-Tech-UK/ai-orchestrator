@@ -74,4 +74,34 @@ describe('InstanceQueries', () => {
 
     expect(queries.selectedInstance()?.id).toBe('replacement-1');
   });
+
+  it('groups cost by provider, summing per provider and sorting highest first', () => {
+    stateService.addInstance(createInstance({
+      id: 'c1', provider: 'claude',
+      contextUsage: { used: 0, total: 200000, percentage: 0, costEstimate: 1.5 },
+    }));
+    stateService.addInstance(createInstance({
+      id: 'c2', provider: 'claude',
+      contextUsage: { used: 0, total: 200000, percentage: 0, costEstimate: 0.5 },
+    }));
+    stateService.addInstance(createInstance({
+      id: 'x1', provider: 'codex',
+      contextUsage: { used: 0, total: 200000, percentage: 0, costEstimate: 0.25 },
+    }));
+    // Zero-cost instance must not appear.
+    stateService.addInstance(createInstance({
+      id: 'g1', provider: 'gemini',
+      contextUsage: { used: 0, total: 200000, percentage: 0, costEstimate: 0 },
+    }));
+
+    expect(queries.costByProvider()).toEqual([
+      { provider: 'claude', cost: 2 },
+      { provider: 'codex', cost: 0.25 },
+    ]);
+  });
+
+  it('returns an empty breakdown when no instance has a cost', () => {
+    stateService.addInstance(createInstance({ id: 'n1', provider: 'claude' }));
+    expect(queries.costByProvider()).toEqual([]);
+  });
 });

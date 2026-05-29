@@ -69,6 +69,19 @@ export function registerInfrastructureBootstrap(): void {
   });
 
   registerBootstrapModule({
+    name: 'Model pricing sync',
+    domain: 'infrastructure',
+    failureMode: 'degraded',
+    init: () => {
+      // Fire-and-forget: refresh() is fail-soft and never throws, so a slow or
+      // offline models.dev never blocks startup. Pricing falls back to the
+      // committed snapshot until the overlay populates.
+      const { getModelsDevService } = require('../providers/models-dev-service') as typeof import('../providers/models-dev-service');
+      void getModelsDevService().refresh();
+    },
+  });
+
+  registerBootstrapModule({
     name: 'Observability',
     domain: 'infrastructure',
     failureMode: 'degraded',

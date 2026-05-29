@@ -17,7 +17,8 @@ import type {
   ProviderSessionOptions,
   ProviderAttachment,
 } from '../../shared/types/provider.types';
-import { MODEL_PRICING, CLAUDE_MODELS, normalizeModelForProvider } from '../../shared/types/provider.types';
+import { CLAUDE_MODELS, normalizeModelForProvider } from '../../shared/types/provider.types';
+import { computeTokenCost } from '../../shared/data/model-pricing';
 import type { ContextUsage } from '../../shared/types/instance.types';
 import { isCliAvailable } from '../cli/cli-detection';
 import { checkClaudeCliAuthentication } from './claude-cli-auth';
@@ -185,23 +186,35 @@ export class ClaudeCliProvider extends BaseProvider {
    * Update usage statistics from context usage
    */
   private updateUsageFromContext(context: ContextUsage): void {
-    // Estimate cost based on model pricing
     const modelId = this.config.defaultModel || CLAUDE_MODELS.OPUS_1M;
-    const pricing = (MODEL_PRICING as Record<string, { input: number; output: number }>)[modelId] || { input: 3.0, output: 15.0 };
 
-    // Context usage gives us total tokens used, estimate input/output split
-    // This is approximate since we don't have exact breakdown
-    const estimatedInputTokens = Math.floor(context.used * 0.7);
-    const estimatedOutputTokens = context.used - estimatedInputTokens;
+    // Prefer the real input/output split the stream reports (Claude's
+    // stream-json result/usage carries it); only fall back to a coarse 70/30
+    // estimate when the provider didn't break tokens down.
+    const hasRealSplit =
+      context.inputTokens !== undefined || context.outputTokens !== undefined;
+    const inputTokens = hasRealSplit
+      ? context.inputTokens ?? 0
+      : Math.floor(context.used * 0.7);
+    const outputTokens = hasRealSplit
+      ? context.outputTokens ?? 0
+      : Math.max(0, context.used - Math.floor(context.used * 0.7));
+    const totalTokens = context.used || inputTokens + outputTokens;
 
-    const inputCost = (estimatedInputTokens / 1_000_000) * pricing.input;
-    const outputCost = (estimatedOutputTokens / 1_000_000) * pricing.output;
+    // Prefer the provider-reported dollar cost (Claude's `total_cost_usd`,
+    // surfaced as `costEstimate`) which already accounts for exact cache
+    // pricing; otherwise price the token split with the shared table rather
+    // than re-deriving cost by hand.
+    const estimatedCost =
+      context.costEstimate !== undefined
+        ? context.costEstimate
+        : computeTokenCost(modelId, { inputTokens, outputTokens });
 
     this.currentUsage = {
-      inputTokens: estimatedInputTokens,
-      outputTokens: estimatedOutputTokens,
-      totalTokens: context.used,
-      estimatedCost: inputCost + outputCost,
+      inputTokens,
+      outputTokens,
+      totalTokens,
+      estimatedCost,
     };
   }
 }
