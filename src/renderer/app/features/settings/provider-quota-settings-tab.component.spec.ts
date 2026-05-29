@@ -132,8 +132,8 @@ describe('ProviderQuotaSettingsTabComponent', () => {
       });
       fixture.detectChanges();
       const text = fixture.nativeElement.textContent ?? '';
-      expect(text).toContain('Numeric limits unavailable');
-      expect(text).toContain('account limits are not available headlessly');
+      expect(text).toContain('does not report account-level limits from the command line');
+      expect(text).toContain('Only your sign-in method is available here');
     });
 
     it('renders numeric quota windows when a snapshot provides them', () => {

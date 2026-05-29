@@ -5269,6 +5269,10 @@
       "lines": 879
     },
     {
+      "path": "src/worker-agent/worker-agent.ts",
+      "lines": 879
+    },
+    {
       "path": "src/main/security/sandbox-manager.ts",
       "lines": 877
     },
@@ -5403,10 +5407,6 @@
     {
       "path": "src/main/memory/procedural-store.ts",
       "lines": 802
-    },
-    {
-      "path": "src/worker-agent/worker-agent.ts",
-      "lines": 801
     }
   ]
 }

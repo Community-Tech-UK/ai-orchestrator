@@ -17,6 +17,7 @@ import {
   signal,
 } from '@angular/core';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
+import { CliUpdatePillStore } from '../../core/state/cli-update-pill.store';
 
 interface CliInstall {
   path: string;
@@ -258,6 +259,7 @@ interface CliUpdateResult {
 })
 export class CliHealthSettingsTabComponent implements OnInit {
   private readonly ipc = inject(ProviderIpcService);
+  private readonly cliUpdates = inject(CliUpdatePillStore);
 
   readonly entries = signal<CliDiagnosisEntry[]>([]);
   readonly loading = signal(false);
@@ -291,6 +293,14 @@ export class CliHealthSettingsTabComponent implements OnInit {
       }
       const data = response.data as { entries?: CliDiagnosisEntry[] } | undefined;
       this.entries.set(data?.entries ?? []);
+      // Re-sync the title-bar "Update CLIs" pill with what this page just
+      // computed. The poll service backing the pill otherwise only refreshes on
+      // launch and every 6h, so without this nudge the badge keeps showing a
+      // stale update count after the user updates a CLI here (or once everything
+      // is already current) — the "badge doesn't update even when everything is
+      // healthy" bug. Fire-and-forget: the pill updates asynchronously and
+      // must not gate this page's own loading state.
+      void this.cliUpdates.refresh();
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : String(err));
     } finally {

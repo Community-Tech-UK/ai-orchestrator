@@ -41,6 +41,7 @@ import type {
   SyncApplyDeltaParams,
   SyncDeleteFileParams
 } from '../shared/types/sync.types';
+import { WorkerTerminalHandler } from './worker-terminal-handler';
 
 const DEFAULT_CONFIG_PATH = path.join(
   os.homedir(),
@@ -83,6 +84,7 @@ export class WorkerAgent extends EventEmitter {
   private discoveryClient: DiscoveryClient | null = null;
   private fsHandler: NodeFilesystemHandler | null = null;
   private syncHandler: SyncHandler | null = null;
+  private terminalHandler: WorkerTerminalHandler | null = null;
 
   // Output batching
   private outputBuffer: { instanceId: string; message: unknown }[] = [];
@@ -197,6 +199,7 @@ export class WorkerAgent extends EventEmitter {
     this.flushOutputBuffer();
     await this.instanceManager.terminateAll();
     this.fsHandler?.cleanupAllWatchers();
+    this.terminalHandler?.killAll();
     if (this.ws) {
       this.ws.close(1000, 'Worker shutting down');
       this.ws = null;
@@ -401,6 +404,38 @@ export class WorkerAgent extends EventEmitter {
         case COORDINATOR_TO_NODE.NODE_PING:
           result = { pong: Date.now() };
           break;
+        case COORDINATOR_TO_NODE.TERMINAL_CREATE:
+          result = this.getTerminalHandler().create({
+            sessionId: params['sessionId'] as string,
+            cwd: params['cwd'] as string,
+            shell: params['shell'] as string | undefined,
+            env: params['env'] as Record<string, string> | undefined,
+            cols: params['cols'] as number | undefined,
+            rows: params['rows'] as number | undefined
+          });
+          break;
+        case COORDINATOR_TO_NODE.TERMINAL_INPUT:
+          this.getTerminalHandler().input(
+            params['sessionId'] as string,
+            params['data'] as string
+          );
+          result = { ok: true };
+          break;
+        case COORDINATOR_TO_NODE.TERMINAL_RESIZE:
+          this.getTerminalHandler().resize(
+            params['sessionId'] as string,
+            params['cols'] as number,
+            params['rows'] as number
+          );
+          result = { ok: true };
+          break;
+        case COORDINATOR_TO_NODE.TERMINAL_KILL:
+          this.getTerminalHandler().kill(
+            params['sessionId'] as string,
+            params['signal'] as string | undefined
+          );
+          result = { ok: true };
+          break;
         case COORDINATOR_TO_NODE.FS_READ_DIRECTORY:
           result = await this.fsHandler!.readDirectory(
             params as unknown as FsReadDirectoryParams
@@ -535,6 +570,49 @@ export class WorkerAgent extends EventEmitter {
       this.syncHandler = new SyncHandler(this.config.workingDirectories ?? []);
     }
     return this.syncHandler;
+  }
+
+  private getTerminalHandler(): WorkerTerminalHandler {
+    if (!this.terminalHandler) {
+      this.terminalHandler = new WorkerTerminalHandler(
+        this.config.workingDirectories ?? [],
+        {
+          onOutput: (sessionId, data) => this.sendTerminalOutput(sessionId, data),
+          onExit: (sessionId, exitCode, signal) =>
+            this.sendTerminalExit(sessionId, exitCode, signal)
+        }
+      );
+    }
+    return this.terminalHandler;
+  }
+
+  private sendTerminalOutput(sessionId: string, data: string): void {
+    this.send({
+      jsonrpc: '2.0',
+      method: NODE_TO_COORDINATOR.TERMINAL_OUTPUT,
+      params: {
+        sessionId,
+        data,
+        token: this.config.nodeToken ?? this.config.authToken
+      }
+    } as RpcMessage);
+  }
+
+  private sendTerminalExit(
+    sessionId: string,
+    exitCode: number | null,
+    signal: string | null
+  ): void {
+    this.send({
+      jsonrpc: '2.0',
+      method: NODE_TO_COORDINATOR.TERMINAL_EXIT,
+      params: {
+        sessionId,
+        exitCode,
+        signal,
+        token: this.config.nodeToken ?? this.config.authToken
+      }
+    } as RpcMessage);
   }
 
   private getRpcErrorCode(method: string | undefined, err: unknown): number {
