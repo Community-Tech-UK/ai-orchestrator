@@ -38,6 +38,10 @@ interface CliDiagnosisEntry {
   installs: CliInstall[];
   activePath?: string;
   activeVersion?: string;
+  /** Latest published version, when known (registry-backed). */
+  latestVersion?: string;
+  /** True when the active install is behind the latest published version. */
+  updateAvailable?: boolean;
   diagnosis: {
     provider: string;
     probes: ProbeResult[];
@@ -82,10 +86,11 @@ interface CliUpdateResult {
     <div class="cli-health-tab">
       <div class="tab-header">
         <div>
-          <h3 class="section-title">CLI Health</h3>
+          <h3 class="section-title">AI CLI health</h3>
           <p class="section-desc">
-            Which AI CLIs are installed, what versions they report, and whether
-            any stale duplicate copies are hiding behind them on PATH.
+            Shows each AI CLI (command-line tool) that is installed on this
+            machine: which copy is active, what version it reports, and whether
+            multiple conflicting copies are present on your system PATH.
           </p>
         </div>
         <div class="header-actions">
@@ -95,7 +100,7 @@ interface CliUpdateResult {
             (click)="updateAll()"
             [disabled]="loading() || anyUpdating()"
           >
-            {{ anyUpdating() ? 'Running updaters...' : 'Run installed CLI updaters' }}
+            {{ anyUpdating() ? 'Updating...' : 'Update all' }}
           </button>
           <button
             type="button"
@@ -117,7 +122,7 @@ interface CliUpdateResult {
       }
 
       @if (entries().length === 0 && !loading()) {
-        <p class="empty">No CLIs scanned yet.</p>
+        <p class="empty">No AI CLIs detected. Install Claude Code, Gemini, or another supported CLI and click Refresh.</p>
       }
 
       @for (entry of entries(); track entry.cli) {
@@ -128,6 +133,11 @@ interface CliUpdateResult {
               <span class="cli-badge" [attr.data-severity]="severity(entry)">
                 {{ severityLabel(severity(entry)) }}
               </span>
+              @if (entry.updateAvailable) {
+                <span class="update-badge" [title]="updateBadgeTooltip(entry)">
+                  Update available
+                </span>
+              }
             </div>
             <div class="card-actions">
               @if (entry.updatePlan?.supported) {
@@ -170,9 +180,12 @@ interface CliUpdateResult {
             <p class="muted">Not installed on PATH.</p>
           } @else {
             <div class="active-row">
-              <span class="label">Active:</span>
+              <span class="label">In use:</span>
               <code class="path">{{ entry.activePath }}</code>
               <span class="version">v{{ entry.activeVersion || '?' }}</span>
+              @if (entry.updateAvailable && entry.latestVersion) {
+                <span class="version-latest">→ v{{ entry.latestVersion }} available</span>
+              }
             </div>
 
             @if (entry.installs.length > 1) {
@@ -192,7 +205,7 @@ interface CliUpdateResult {
 
             @if (expanded().has(entry.cli)) {
               <div class="details">
-                <h4 class="details-title">All installs found</h4>
+                <h4 class="details-title">All copies found on PATH</h4>
                 <ul class="install-list">
                   @for (install of entry.installs; track install.path; let i = $index) {
                     <li>
@@ -214,12 +227,12 @@ interface CliUpdateResult {
                 }
 
                 @if (entry.updatePlan?.displayCommand) {
-                  <h4 class="details-title">Updater</h4>
+                  <h4 class="details-title">Update command</h4>
                   <pre class="rec-text">{{ entry.updatePlan?.displayCommand }}</pre>
                 }
 
                 @if (entry.diagnosis) {
-                  <h4 class="details-title">Probes</h4>
+                  <h4 class="details-title">Health checks</h4>
                   <table class="probe-table">
                     <tbody>
                       @for (probe of entry.diagnosis.probes; track probe.name) {
@@ -312,7 +325,7 @@ export class CliHealthSettingsTabComponent implements OnInit {
       .filter((entry) => entry.updatePlan?.supported)
       .map((entry) => entry.cli);
     if (updatable.length === 0) {
-      this.updateSummary.set('No installed CLIs have an automatic updater configured.');
+      this.updateSummary.set('None of the detected CLIs support automatic updates from here.');
       return;
     }
 
@@ -339,8 +352,8 @@ export class CliHealthSettingsTabComponent implements OnInit {
       const failed = results.filter((result) => result.status === 'failed').length;
       const skipped = results.filter((result) => result.status === 'skipped').length;
       this.updateSummary.set(
-        `CLI updater run complete: ${changed} version change${changed === 1 ? '' : 's'}, ` +
-        `${completed - changed} completed with no detected version change, ${failed} failed, ${skipped} skipped.`,
+        `Update run finished: ${changed} version${changed === 1 ? '' : 's'} changed, ` +
+        `${completed - changed} already up to date, ${failed} failed, ${skipped} skipped.`,
       );
       await this.refresh();
     } catch (err) {
@@ -364,6 +377,16 @@ export class CliHealthSettingsTabComponent implements OnInit {
     return this.displayNames[cli] ?? cli;
   }
 
+  updateBadgeTooltip(entry: CliDiagnosisEntry): string {
+    const action = entry.updatePlan?.supported
+      ? 'Click "Run updater" to upgrade.'
+      : 'Update it from where it was installed.';
+    if (entry.activeVersion && entry.latestVersion) {
+      return `${entry.activeVersion} → ${entry.latestVersion}. ${action}`;
+    }
+    return `A newer version is available. ${action}`;
+  }
+
   anyUpdating(): boolean {
     return this.updating().size > 0;
   }
@@ -378,8 +401,8 @@ export class CliHealthSettingsTabComponent implements OnInit {
 
   updateStatusLabel(status: CliUpdateResult['status']): string {
     switch (status) {
-      case 'updated': return 'Updater completed';
-      case 'failed': return 'Failed';
+      case 'updated': return 'Updated';
+      case 'failed': return 'Update failed';
       case 'skipped': return 'Skipped';
     }
   }

@@ -36,6 +36,8 @@ export const AutomationReasoningEffortSchema = z.enum([
   'medium',
   'high',
   'xhigh',
+  'max',
+  'workflow',
 ]);
 
 const AutomationFileAttachmentSchema = FileAttachmentSchema.extend({

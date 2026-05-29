@@ -92,6 +92,19 @@ When implementing features from `bigchange_*.md` files:
 - **Angular components**: Standalone, `OnPush` change detection, signals for state.
 - **Testing singletons**: Call `MyService._resetForTesting()` in `beforeEach`.
 
+## Scratch and archive directories
+
+We use these directory names by convention for non-code content. Codemem skips them when walking into a workspace.
+
+- `_scratch/` for short-lived dev cruft (PR review worktrees, investigation copies, experiments). Safe to delete without warning.
+- `_archive/` for kept-but-stale content (old snapshots, retired modules). Kept for reference; not actively maintained.
+
+Drop ad-hoc work into `_scratch/`. When we finish a feature and want to keep the investigation artefacts, we move them to `_archive/`. Don't put real source code in either; they're not indexed and search won't find them.
+
+If we deliberately open `_scratch/foo` as a workspace, AI Orchestrator still indexes it. The skip rule only applies to these names appearing as children of an opened workspace.
+
+The ignore list lives in `src/main/codemem/code-index-watcher.ts` (`DEFAULT_CODE_INDEX_IGNORES`).
+
 ## Packaging Gotchas
 
 The packaged DMG has silently broken twice via these two traps. The `prebuild`

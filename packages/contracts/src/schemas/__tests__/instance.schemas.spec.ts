@@ -6,11 +6,11 @@ describe('instance.schemas', () => {
     expect(InstanceChangeModelPayloadSchema.parse({
       instanceId: 'instance-1',
       model: 'sonnet[1m]',
-      reasoningEffort: 'high',
+      reasoningEffort: 'max',
     })).toEqual({
       instanceId: 'instance-1',
       model: 'sonnet[1m]',
-      reasoningEffort: 'high',
+      reasoningEffort: 'max',
     });
   });
 

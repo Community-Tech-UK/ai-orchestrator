@@ -212,8 +212,10 @@ export class ModelPickerController {
         ...defaults,
         { id: 'low', label: 'Low', description: 'Shorter thinking' },
         { id: 'medium', label: 'Medium', description: 'Balanced thinking' },
-        { id: 'high', label: 'High', description: 'Deeper thinking' },
-        { id: 'xhigh', label: 'Max', description: 'Largest thinking budget' },
+        { id: 'high', label: 'High', description: 'Claude default' },
+        { id: 'xhigh', label: 'XHigh', description: 'Deeper reasoning' },
+        { id: 'max', label: 'Max', description: 'Deepest session-only reasoning' },
+        { id: 'workflow', label: 'Workflow', description: 'Claude Code ultracode mode' },
       ];
     }
 

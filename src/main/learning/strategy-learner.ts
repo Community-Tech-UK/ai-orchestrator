@@ -284,37 +284,37 @@ export class StrategyLearner extends EventEmitter {
     const defaults: Record<string, { agent: string; model: string; workflow?: string }> = {
       'feature-development': {
         agent: 'default',
-        model: CLAUDE_MODELS.SONNET,
+        model: CLAUDE_MODELS.OPUS_1M,
         workflow: 'feature-development',
       },
       'bug-fix': {
         agent: 'default',
-        model: CLAUDE_MODELS.SONNET,
+        model: CLAUDE_MODELS.OPUS_1M,
         workflow: 'bug-investigation',
       },
       review: {
         agent: 'review-specialist',
-        model: CLAUDE_MODELS.SONNET,
+        model: CLAUDE_MODELS.OPUS_1M,
         workflow: 'code-review',
       },
       'security-review': {
         agent: 'security-specialist',
-        model: CLAUDE_MODELS.SONNET,
+        model: CLAUDE_MODELS.OPUS_1M,
       },
       refactor: {
         agent: 'default',
-        model: CLAUDE_MODELS.SONNET,
+        model: CLAUDE_MODELS.OPUS_1M,
         workflow: 'refactoring',
       },
       testing: {
         agent: 'test-specialist',
-        model: CLAUDE_MODELS.SONNET,
+        model: CLAUDE_MODELS.OPUS_1M,
       },
     };
 
     const defaultConfig = defaults[taskType] || {
       agent: 'default',
-      model: CLAUDE_MODELS.SONNET,
+      model: CLAUDE_MODELS.OPUS_1M,
     };
 
     return {

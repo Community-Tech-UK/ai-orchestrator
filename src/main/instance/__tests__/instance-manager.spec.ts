@@ -511,6 +511,27 @@ vi.mock('../../../shared/types/error-recovery.types', async (importOriginal) => 
 // Provider types mock
 // ---------------------------------------------------------------------------
 vi.mock('../../../shared/types/provider.types', () => ({
+  COPILOT_MODELS: {
+    AUTO: 'auto',
+    CLAUDE_SONNET_46: 'claude-sonnet-4.6',
+    CLAUDE_SONNET_45: 'claude-sonnet-4.5',
+    CLAUDE_HAIKU_45: 'claude-haiku-4.5',
+    CLAUDE_OPUS_47: 'claude-opus-4.7',
+    CLAUDE_OPUS_46: 'claude-opus-4.6',
+    CLAUDE_SONNET_4: 'claude-sonnet-4',
+    GPT55: 'gpt-5.5',
+    GPT53_CODEX: 'gpt-5.3-codex',
+    GPT52_CODEX: 'gpt-5.2-codex',
+    GPT52: 'gpt-5.2',
+    GPT55_MINI: 'gpt-5.5-mini',
+    GPT5_MINI: 'gpt-5-mini',
+    GPT41: 'gpt-4.1',
+    GEMINI_3_1_PRO: 'gemini-3.1-pro-preview',
+    GEMINI_3_PRO: 'gemini-3-pro-preview',
+    GEMINI_3_FLASH: 'gemini-3-flash-preview',
+    GEMINI_25_PRO: 'gemini-2.5-pro',
+    GEMINI_25_FLASH: 'gemini-2.5-flash',
+  },
   getModelsForProvider: vi.fn().mockReturnValue([]),
   getProviderModelContextWindow: vi.fn((provider: string, model?: string) => {
     if (provider === 'claude' && model?.endsWith('[1m]')) return 1000000;

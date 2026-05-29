@@ -43,7 +43,9 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
   low: 'Low',
   medium: 'Medium',
   high: 'High',
-  xhigh: 'Max',
+  xhigh: 'XHigh',
+  max: 'Max',
+  workflow: 'Workflow',
 };
 
 /**
@@ -343,26 +345,24 @@ export class CompactModelPickerComponent {
       const ok = await this.controller.commitSelection({
         provider: selection.provider,
         modelId: newDefaultModel,
-        reasoning: this.highestReasoningForProvider(selection.provider),
+        reasoning: null,
       });
       if (ok) this.flashStatus(`Provider: ${PROVIDER_MENU_LABELS[selection.provider]}`);
       return;
     }
 
     if (selection.kind === 'model') {
-      const highestReasoning = this.highestReasoningForProvider(selection.provider);
       const ok = await this.controller.commitSelection({
         provider: selection.provider,
         modelId: selection.modelId,
-        reasoning: highestReasoning,
+        reasoning: null,
       });
       if (ok) {
         const label =
           this.modelsForProviderFn(selection.provider).find((m) => m.id === selection.modelId)?.name
           ?? selection.modelId;
-        const reasoningSuffix = highestReasoning ? ` · ${REASONING_LABELS[highestReasoning]}` : '';
         const restartHint = this._chat()?.currentInstanceId ? ' — runtime restarting' : '';
-        this.flashStatus(`Switched to ${label}${reasoningSuffix}${restartHint}`);
+        this.flashStatus(`Switched to ${label}${restartHint}`);
       }
       return;
     }
@@ -397,15 +397,6 @@ export class CompactModelPickerComponent {
       this.statusPill.set(null);
       this.statusTimer = null;
     }, 2000);
-  }
-
-  private highestReasoningForProvider(provider: PickerProvider): ReasoningEffort | null {
-    const explicitLevels = this.controller
-      .reasoningOptionsForProvider(provider)
-      .map((opt) => opt.id)
-      .filter((id): id is ReasoningEffort => id !== 'default');
-
-    return explicitLevels[explicitLevels.length - 1] ?? null;
   }
 }
 

@@ -44,12 +44,12 @@ import type {
     <app-settings-card
       icon="display"
       title="Workspace appearance"
-      description="Preview theme, output font size, density, and sidebar layout before applying them."
+      description="Choose how the app looks. Changes are previewed live — nothing is saved until you click Apply."
     >
       <div class="field">
         <div class="field-text">
           <span class="field-label">Theme</span>
-          <span class="field-hint">Choose the app color theme.</span>
+          <span class="field-hint">Sets the overall color scheme of the app.</span>
         </div>
         <div class="field-control">
           <app-segmented-control
@@ -64,7 +64,7 @@ import type {
       <div class="field">
         <div class="field-text">
           <span class="field-label">Font size</span>
-          <span class="field-hint">Text size for agent responses and transcript output.</span>
+          <span class="field-hint">Controls how large text appears in agent responses and the transcript. The preview sentence below updates as you drag.</span>
         </div>
         <div class="field-control font-control">
           <input
@@ -83,7 +83,7 @@ import type {
       <div class="field">
         <div class="field-text">
           <span class="field-label">Density</span>
-          <span class="field-hint">Adjust spacing across settings and workspace surfaces.</span>
+          <span class="field-hint">Comfortable adds more breathing room between elements; Compact tightens everything up to fit more on screen.</span>
         </div>
         <div class="field-control">
           <app-segmented-control
@@ -98,7 +98,7 @@ import type {
       <div class="field">
         <div class="field-text">
           <span class="field-label">Sidebar</span>
-          <span class="field-hint">Choose the standard workspace sidebar or a tighter layout.</span>
+          <span class="field-hint">Standard shows the full sidebar with labels; Compact narrows it to icons only, freeing up horizontal space.</span>
         </div>
         <div class="field-control">
           <app-segmented-control
@@ -113,8 +113,10 @@ import type {
       <p class="font-preview">The quick brown fox jumps over the lazy dog.</p>
 
       <app-inline-help variant="tip">
-        These controls preview immediately. Apply changes to persist them across
-        restarts, or discard to return to the saved values.
+        All four controls above update the app instantly so you can see how they
+        look. Click <strong>Apply</strong> when you are happy to save them
+        permanently, or <strong>Discard</strong> to go back to what was saved
+        before.
       </app-inline-help>
 
       <app-save-state-banner
@@ -126,7 +128,7 @@ import type {
     </app-settings-card>
 
     <section class="output-section">
-      <h3 class="subsection-title">Transcript &amp; workspace history</h3>
+      <h3 class="subsection-title">Transcript and workspace history</h3>
       <div class="settings-list-card">
         @for (setting of outputSettings(); track setting.key) {
           <app-setting-row

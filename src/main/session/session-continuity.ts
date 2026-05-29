@@ -1110,7 +1110,7 @@ export class SessionContinuityManager extends EventEmitter {
       displayName: instance.displayName,
       isRenamed: instance.isRenamed,
       agentId: instance.agentId,
-      modelId: instance.currentModel || CLAUDE_MODELS.SONNET,
+      modelId: instance.currentModel || CLAUDE_MODELS.OPUS_1M,
       provider: instance.provider,
       workingDirectory: instance.workingDirectory,
       systemPrompt: undefined,

@@ -24,8 +24,24 @@ export interface FreshEyesReviewerInput {
   workspaceCwd: string;
   /** The user's actual goal — fed to the reviewer as taskDescription. */
   goal: string;
-  /** Excerpt of the iteration output that claimed completion. */
+  /**
+   * Excerpt of the iteration output that claimed completion.
+   *
+   * NB: this is the agent's own self-narration. The default reviewer
+   * deliberately does NOT forward it as review context — reviewers judge the
+   * actual `diff`, not the optimistic transcript. Retained on the input for
+   * observability and for alternate reviewer implementations.
+   */
   iterationOutput: string;
+  /**
+   * Unified git diff of the cumulative change under review (vs HEAD, plus
+   * untracked files). This is the *preferred* review payload — reviewers see
+   * ground truth instead of the parent transcript. Empty when the workspace
+   * is not a git repository (`diffSource === 'none'`).
+   */
+  diff?: string;
+  /** Where {@link diff} came from. 'none' means no git repo / no diff. */
+  diffSource?: 'git' | 'none';
   /** Files changed across the run (best-effort, can be empty). */
   filesChangedThisIteration: readonly string[];
   /** Plan files that started uncompleted in this run. */
@@ -70,7 +86,7 @@ export const defaultFreshEyesReviewer: FreshEyesReviewer = async (input) => {
 
   const filesBlock =
     input.filesChangedThisIteration.length > 0
-      ? `\n\nFiles changed in this iteration:\n${input.filesChangedThisIteration.slice(0, 50).map((f) => `  - ${f}`).join('\n')}`
+      ? `\n\nFiles changed during the run:\n${input.filesChangedThisIteration.slice(0, 50).map((f) => `  - ${f}`).join('\n')}`
       : '';
   const plansBlock =
     input.uncompletedPlanFilesAtStart.length > 0
@@ -80,20 +96,32 @@ export const defaultFreshEyesReviewer: FreshEyesReviewer = async (input) => {
     ? `\n\nExplicit terminal intent:\n  - kind: ${input.terminalIntent.kind}\n  - summary: ${input.terminalIntent.summary}\n`
     : '';
 
+  // The review payload is the *diff* + goal, NOT the agent's transcript. When
+  // no git diff is available, fall back to the changed-file list so the
+  // reviewer still has something concrete to anchor on.
+  const diffText = (input.diff ?? '').trim();
+  const hasDiff = diffText.length > 0;
+  const changeBlock = hasDiff
+    ? `## Change under review (git diff vs HEAD)\n${diffText}`
+    : `## Change under review\n(No git diff available — this workspace may not be a git repository. ` +
+      `Review against the goal and the changed-file list below.)${filesBlock}`;
+
   const content =
     `# Fresh-eyes review request\n\n` +
     `A long-running autonomous loop has signalled completion via "${input.signal}" and ` +
-    `verify passed. Before the loop terminates, please review the workspace with fresh eyes.\n\n` +
+    `verify (build/test/lint) passed. Before the loop terminates, review the actual change ` +
+    `below with fresh eyes — judge the diff itself, not any summary of it.\n\n` +
     `## What to look for\n` +
     `- Items the goal asked for that are NOT actually implemented in code (orphan modules, stubs returning constants, "completed" docs with no real wiring).\n` +
     `- Specs that say one thing but code does another.\n` +
     `- Half-done features or TODOs left behind.\n` +
-    `- Integration gaps: new code that is never imported or invoked outside its own tests.\n\n` +
-    `## What "ready_for_done" means here\n` +
+    `- Integration gaps: new code that is never imported or invoked outside its own tests.\n` +
+    `- Regressions or unsafe edits introduced by the change.\n\n` +
+    `## What blocks completion\n` +
     `Mark a finding as **critical** or **high** severity ONLY for blocking issues that would make a reasonable reviewer say "no, this isn't done yet."\n` +
     `Use **medium** or **low** for nice-to-haves, style nits, or follow-up suggestions — those do not block completion.\n\n` +
-    `## Iteration output (what the agent said it did)\n${input.iterationOutput}${filesBlock}${plansBlock}${intentBlock}\n\n` +
-    `## Verify output\n${input.verifyOutputExcerpt}\n`;
+    `${changeBlock}${hasDiff ? filesBlock : ''}${plansBlock}${intentBlock}\n\n` +
+    `## Verify output (already green — for context)\n${input.verifyOutputExcerpt}\n`;
 
   try {
     const result = await service.runHeadlessReview({

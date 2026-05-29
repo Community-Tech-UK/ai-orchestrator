@@ -18,8 +18,8 @@ interface KeybindingCategory {
   template: `
     <div class="keyboard-shortcuts-section">
       <p class="keyboard-intro">
-        These keyboard shortcuts help you work faster. Press the shortcut
-        combination shown to trigger the action.
+        A reference of all keyboard shortcuts in the app. Press the key
+        combination shown to trigger that action.
       </p>
       @for (category of keybindingCategories(); track category.name) {
         <div class="shortcut-category">

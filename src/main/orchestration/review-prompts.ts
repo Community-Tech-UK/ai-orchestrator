@@ -7,7 +7,58 @@
  * - Chain-of-Verification (Meta AI, ACL 2024)
  */
 
-export function buildStructuredReviewPrompt(taskDescription: string, primaryOutput: string): string {
+/**
+ * A "review angle" biases what a reviewer scrutinises hardest. When several
+ * reviewers run on the same change, giving each a different angle (and
+ * different phrasing) yields genuinely independent passes instead of N copies
+ * of the same opinion — addressing the "reviewers all get identical context"
+ * weakness. Reviewers still score every dimension; the angle only shifts
+ * emphasis.
+ */
+export interface ReviewAngle {
+  id: string;
+  title: string;
+  guidance: string;
+}
+
+export const REVIEW_ANGLES: readonly ReviewAngle[] = [
+  {
+    id: 'correctness',
+    title: 'Correctness & logic',
+    guidance:
+      'Hunt for logic errors, wrong assumptions, off-by-one and edge-case bugs, and whether the change actually achieves what the task asked.',
+  },
+  {
+    id: 'security',
+    title: 'Security & safety',
+    guidance:
+      'Hunt for injection, auth/authorization gaps, unsafe input handling, secret exposure, path traversal, and dangerous/destructive operations.',
+  },
+  {
+    id: 'completeness',
+    title: 'Completeness & integration',
+    guidance:
+      'Hunt for missing wiring, new code never imported or invoked, half-done features, leftover TODOs, and specs that say one thing while the code does another.',
+  },
+  {
+    id: 'regressions',
+    title: 'Regressions & side-effects',
+    guidance:
+      'Hunt for behaviour this change could break elsewhere: altered interfaces/contracts, unintended side-effects on existing callers, and removed safeguards.',
+  },
+];
+
+/** Deterministically assign an angle to the Nth reviewer (wraps around). */
+export function angleForReviewer(index: number): ReviewAngle {
+  return REVIEW_ANGLES[((index % REVIEW_ANGLES.length) + REVIEW_ANGLES.length) % REVIEW_ANGLES.length];
+}
+
+function angleSection(angle?: ReviewAngle): string {
+  if (!angle) return '';
+  return `\n## Your primary review angle: ${angle.title}\nYou must still score every dimension below, but scrutinise this angle hardest: ${angle.guidance}\n`;
+}
+
+export function buildStructuredReviewPrompt(taskDescription: string, primaryOutput: string, angle?: ReviewAngle): string {
   return `You are a verification agent reviewing another AI's output. Your job is NOT to re-solve the problem, but to verify the solution's correctness.
 
 ## Task Context
@@ -15,7 +66,7 @@ ${taskDescription}
 
 ## Output Under Review
 ${primaryOutput}
-
+${angleSection(angle)}
 ## Review Checklist
 Evaluate each dimension independently. For each, provide a brief justification BEFORE your score.
 
@@ -45,7 +96,7 @@ Respond ONLY with this JSON (no markdown fences, no preamble):
 Be rigorous but fair. Only flag genuine issues, not stylistic preferences.`;
 }
 
-export function buildTieredReviewPrompt(taskDescription: string, primaryOutput: string): string {
+export function buildTieredReviewPrompt(taskDescription: string, primaryOutput: string, angle?: ReviewAngle): string {
   return `You are a senior verification agent performing a deep review of another AI's output on a complex task. This is high-stakes — be thorough.
 
 ## Task Context
@@ -53,7 +104,7 @@ ${taskDescription}
 
 ## Output Under Review
 ${primaryOutput}
-
+${angleSection(angle)}
 ## Deep Verification Steps
 
 ### Step 1: Trace Through Execution

@@ -26,6 +26,7 @@ import { createHash, randomUUID } from 'crypto';
 import * as path from 'path';
 import { getLogger } from '../logging/logger';
 import {
+  defaultCrossModelReviewConfig,
   defaultLoopConfig,
   type LoopConfig,
   type LoopErrorRecord,
@@ -67,6 +68,8 @@ import {
   type LoopControlRuntime,
 } from './loop-control';
 import { computeWorkHash } from './loop-work-hash';
+import { detectConvergeUntilCleanIntent } from './loop-intent';
+import { collectWorkspaceDiff } from './loop-diff';
 import {
   completedPlanWatchDirs,
   excerpt,
@@ -169,6 +172,16 @@ export class LoopCoordinator extends EventEmitter {
   private pauseGates = new Map<string, PauseGate>();
   private cancelFlags = new Map<string, boolean>();
   private histories = new Map<string, LoopIteration[]>();
+  /**
+   * Why the loop most recently *failed to converge* on a stop, keyed by
+   * loopRunId. Set whenever a completion attempt is rejected (verify red,
+   * unverifiable, rename gate unmet) or blocked (fresh-eyes review). Cleared
+   * when a stop is accepted. Read when a hard cap fires so `cap-reached`
+   * reports *why* it stopped (e.g. "while verify was failing") instead of a
+   * bare `cap=iterations`. Held off-`LoopState` so no DB/schema column is
+   * needed for a purely diagnostic, in-memory hint.
+   */
+  private convergenceNotes = new Map<string, string>();
   private watchers = new Map<string, CompletedFileWatcher>();
   private runtimeContexts = new Map<string, LoopRuntimeContext>();
   private loopControls = new Map<string, LoopControlRuntime>();
@@ -214,6 +227,7 @@ export class LoopCoordinator extends EventEmitter {
       this.instance.pauseGates.clear();
       this.instance.cancelFlags.clear();
       this.instance.histories.clear();
+      this.instance.convergenceNotes.clear();
       this.instance.watchers.clear();
       this.instance.runtimeContexts.clear();
       this.instance.loopControls.clear();
@@ -346,6 +360,11 @@ export class LoopCoordinator extends EventEmitter {
     // rename gate when uncompleted plan files are found in the workspace.
     const userExplicitlySetCompletedRename =
       partialConfig.completion?.requireCompletedFileRename !== undefined;
+    // Likewise for the fresh-eyes cross-model review gate: distinguish
+    // "caller said nothing" (eligible for intent-based auto-enable) from
+    // "caller explicitly chose on/off" (their choice always wins).
+    const userExplicitlySetCrossModelReview =
+      partialConfig.completion?.crossModelReview !== undefined;
     const config = this.materializeConfig(partialConfig);
     if (!config.initialPrompt.trim()) throw new Error('initialPrompt is required');
     if (!config.workspaceCwd.trim()) throw new Error('workspaceCwd is required');
@@ -459,12 +478,24 @@ export class LoopCoordinator extends EventEmitter {
         { id, count: snapshot.uncompletedPlanFilesAtStart.length, files: snapshot.uncompletedPlanFilesAtStart.slice(0, 8) },
       );
     }
-    // NB: cross-model fresh-eyes review is opt-in. Earlier revisions
-    // auto-enabled it whenever the workspace had uncompleted plan files,
-    // but that surprised users with cross-CLI calls on every completion
-    // attempt — sometimes blocking valid completions for hours when a
-    // reviewer disagreed about style. Callers who want the gate must
-    // pass `completion.crossModelReview = { enabled: true, ... }`.
+    // Fresh-eyes cross-model review is normally opt-in (a reviewer that
+    // disagrees about style shouldn't block valid completions for hours).
+    // The exception is the "converge until clean" intent — e.g. "keep
+    // reviewing with fresh eyes and fix any issues until there are no
+    // issues." That intent's whole point is that completion must be
+    // confirmed by an *independent* reviewer, not the agent's own say-so,
+    // so we auto-enable the gate when the caller didn't configure it
+    // explicitly. An explicit `{ enabled: false }` (or `true`) always wins.
+    if (!userExplicitlySetCrossModelReview && !config.completion.crossModelReview) {
+      const intent = detectConvergeUntilCleanIntent(config.initialPrompt, config.iterationPrompt);
+      if (intent.matched) {
+        config.completion.crossModelReview = defaultCrossModelReviewConfig();
+        logger.info(
+          'Loop start: auto-enabled fresh-eyes cross-model review — converge-until-clean intent detected',
+          { id, reason: intent.reason },
+        );
+      }
+    }
 
     const state: LoopState = {
       id,
@@ -670,8 +701,9 @@ export class LoopCoordinator extends EventEmitter {
       }
       const capHit = this.checkHardCaps(state);
       if (capHit) {
-        this.emit('loop:cap-reached', { loopRunId: state.id, cap: capHit });
-        this.terminate(state, 'cap-reached', `cap=${capHit}`);
+        const reason = this.describeCapReason(state, capHit);
+        this.emit('loop:cap-reached', { loopRunId: state.id, cap: capHit, reason });
+        this.terminate(state, 'cap-reached', reason);
         return;
       }
       await this.importTerminalIntentsForBoundary(state, {
@@ -937,6 +969,7 @@ export class LoopCoordinator extends EventEmitter {
               'operator review because only the operator can decide whether your reported ' +
               'verification evidence is sufficient without an independent verify command.',
           );
+          this.convergenceNotes.set(state.id, 'completion was unverifiable (no verify command configured)');
           pauseBecauseCompletionCannotBeVerified = true;
           // do not stop; continue
         } else {
@@ -1095,6 +1128,17 @@ export class LoopCoordinator extends EventEmitter {
     if (!reviewCfg || !reviewCfg.enabled) return false;
 
     this.emit('loop:fresh-eyes-review-started', { loopRunId: state.id, signal: signalId });
+
+    // Scope the review to the actual change (git diff vs HEAD + untracked
+    // files), not the agent's transcript. This is the reviewer's ground
+    // truth and is far smaller than a full conversation, so it avoids the
+    // review-payload truncation that previously starved reviewers of context.
+    const workspaceDiff = collectWorkspaceDiff(state.config.workspaceCwd);
+    const iterationFiles = iteration.filesChanged.map((f) => f.path);
+    const filesChangedThisIteration = iterationFiles.length > 0
+      ? iterationFiles
+      : workspaceDiff.changedFiles;
+
     let reviewResult: FreshEyesReviewerResult;
     try {
       reviewResult = await this.freshEyesReviewer({
@@ -1102,7 +1146,9 @@ export class LoopCoordinator extends EventEmitter {
         workspaceCwd: state.config.workspaceCwd,
         goal: state.config.initialPrompt,
         iterationOutput: iteration.outputExcerpt,
-        filesChangedThisIteration: iteration.filesChanged.map((f) => f.path),
+        diff: workspaceDiff.diff,
+        diffSource: workspaceDiff.source,
+        filesChangedThisIteration,
         uncompletedPlanFilesAtStart: state.uncompletedPlanFilesAtStart,
         verifyOutputExcerpt: verifyOutput.slice(0, 4096),
         signal: signalId,
@@ -1163,6 +1209,11 @@ export class LoopCoordinator extends EventEmitter {
       `\n\nAddress each item, then re-attempt completion.`;
 
     state.pendingInterventions.push(interventionMessage);
+    this.convergenceNotes.set(
+      state.id,
+      `${blocking.length} blocking review finding(s) remained` +
+        (reviewResult.reviewersUsed.length > 0 ? ` (reviewers: ${reviewResult.reviewersUsed.join(', ')})` : ''),
+    );
     this.emit('loop:fresh-eyes-review-blocked', {
       loopRunId: state.id,
       signal: signalId,
@@ -1413,6 +1464,9 @@ export class LoopCoordinator extends EventEmitter {
   private rejectCompletionAttempt(state: LoopState, reason: string, intervention: string): void {
     this.rejectPendingCompleteIntent(state, reason);
     state.pendingInterventions.push(intervention);
+    // Record the obstacle so a later hard-cap stop can explain why the loop
+    // never converged (see describeCapReason).
+    this.convergenceNotes.set(state.id, reason);
   }
 
   private async pauseForBlockIntent(state: LoopState, intent: LoopTerminalIntent): Promise<void> {
@@ -1533,6 +1587,34 @@ export class LoopCoordinator extends EventEmitter {
     return null;
   }
 
+  /**
+   * Build a human-readable cap-stop reason that explains *why* the loop
+   * stopped without converging. Prefers the most recent convergence obstacle
+   * (verify red, unverifiable, rename gate unmet, blocking review findings);
+   * falls back to the last iteration's verify status so the operator can tell
+   * "capped while still red/blocking" from "capped while genuinely idle".
+   */
+  private describeCapReason(
+    state: LoopState,
+    cap: 'iterations' | 'wall-time' | 'tokens' | 'cost',
+  ): string {
+    const parts = [`cap=${cap}`, `after ${state.totalIterations} iteration(s)`];
+    const note = this.convergenceNotes.get(state.id);
+    if (note) {
+      parts.push(`stopped while ${note}`);
+    } else {
+      const verify = state.lastIteration?.verifyStatus;
+      if (verify === 'failed') {
+        parts.push('stopped while the last verify was FAILING');
+      } else if (verify === 'passed') {
+        parts.push('last verify passed but no clean completion was accepted');
+      } else {
+        parts.push('no completion was attempted (agent never reached a verifiable done state)');
+      }
+    }
+    return parts.join('; ');
+  }
+
   private terminate(state: LoopState, status: LoopState['status'], reason?: string): void {
     // Idempotent: if we're already in a terminal state we must not emit
     // duplicate cancelled/error events. Without this, a force-terminate from
@@ -1552,6 +1634,7 @@ export class LoopCoordinator extends EventEmitter {
       this.watchers.delete(state.id);
     }
     this.runtimeContexts.delete(state.id);
+    this.convergenceNotes.delete(state.id);
     const loopControl = this.loopControls.get(state.id);
     this.loopControls.delete(state.id);
     if (status === 'cancelled') this.emit('loop:cancelled', { loopRunId: state.id });

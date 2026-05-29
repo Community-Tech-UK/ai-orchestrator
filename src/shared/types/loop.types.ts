@@ -527,7 +527,7 @@ export type LoopStreamEvent =
   | { type: 'intervention-applied'; loopRunId: string; message: string }
   | { type: 'completed'; loopRunId: string; signal: CompletionSignalId; verifyOutput: string }
   | { type: 'failed'; loopRunId: string; reason: string }
-  | { type: 'cap-reached'; loopRunId: string; cap: 'iterations' | 'wall-time' | 'tokens' | 'cost' }
+  | { type: 'cap-reached'; loopRunId: string; cap: 'iterations' | 'wall-time' | 'tokens' | 'cost'; reason?: string }
   | { type: 'cancelled'; loopRunId: string }
   | { type: 'error'; loopRunId: string; error: string };
 

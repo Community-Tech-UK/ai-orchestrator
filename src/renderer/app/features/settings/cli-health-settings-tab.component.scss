@@ -172,6 +172,20 @@
   color: var(--pill-neutral-fg);
 }
 
+/* Distinct from the health-severity badge: accent tone signals an available
+   update (an action), not a health problem. */
+.update-badge {
+  font-size: 0.6875rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-full);
+  text-transform: uppercase;
+  letter-spacing: 0;
+  font-weight: 600;
+  background: var(--pill-accent-bg);
+  color: var(--pill-accent-fg);
+  cursor: default;
+}
+
 .active-row {
   display: flex;
   align-items: center;
@@ -195,6 +209,12 @@
 .version {
   color: var(--text-muted);
   font-size: 0.8125rem;
+}
+
+.version-latest {
+  color: var(--pill-accent-fg);
+  font-size: 0.8125rem;
+  font-weight: 600;
 }
 
 .shadow-warning {

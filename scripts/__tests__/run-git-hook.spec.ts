@@ -18,7 +18,7 @@ describe('run-git-hook', () => {
       { command: 'npm', args: ['run', 'generate:aliases'] },
       { command: 'npm', args: ['run', 'generate:ipc'] },
       { command: 'npm', args: ['run', 'generate:architecture'] },
-      { command: 'npm', args: ['run', 'check:ts-max-loc'] },
+      { command: 'npm', args: ['run', 'check:ts-max-loc', '--', '--warn'] },
       {
         command: 'git',
         args: [
@@ -35,7 +35,7 @@ describe('run-git-hook', () => {
     expect(getHookCommands('pre-push')).toEqual([
       { command: 'npm', args: ['run', 'verify:ipc'] },
       { command: 'npm', args: ['run', 'check:contracts'] },
-      { command: 'npm', args: ['run', 'check:ts-max-loc'] },
+      { command: 'npm', args: ['run', 'check:ts-max-loc', '--', '--warn'] },
       { command: 'npm', args: ['run', 'verify:architecture'] },
     ]);
   });

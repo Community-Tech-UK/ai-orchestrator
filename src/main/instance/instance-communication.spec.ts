@@ -775,6 +775,22 @@ describe('conversation-aware rewind points', () => {
     expect(calledTrigger).toBe('checkpoint');
   });
 
+  it('adds an ultrathink turn hint for Claude while plan mode is planning', async () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    instance.planMode = {
+      enabled: true,
+      state: 'planning',
+    };
+
+    await comm.sendInput(instance.id, 'draft the implementation plan');
+
+    expect(adapter.sendInput).toHaveBeenCalledWith(
+      'ultrathink\n\ndraft the implementation plan',
+      undefined,
+    );
+  });
+
   it('soft checkpoint after 6+ autonomous tool results', () => {
     // Add 7 tool_result messages without any user input
     for (let i = 0; i < 7; i++) {

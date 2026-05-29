@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -44,25 +44,22 @@ function createTrackedRepo(files: Record<string, number>): string {
   return repoDir;
 }
 
-function runLocCheck(cwd: string): CheckResult {
-  try {
-    const output = execFileSync(tsxBin, [scriptPath], {
-      cwd,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    return { exitCode: 0, output };
-  } catch (error) {
-    const { status, stderr, stdout } = error as {
-      status?: number;
-      stderr?: Buffer | string;
-      stdout?: Buffer | string;
-    };
-    return {
-      exitCode: status ?? 1,
-      output: `${String(stdout ?? '')}${String(stderr ?? '')}`,
-    };
-  }
+function runLocCheck(
+  cwd: string,
+  options: { args?: string[]; env?: Record<string, string> } = {},
+): CheckResult {
+  const { args = [], env = {} } = options;
+  // spawnSync (rather than execFileSync) so stdout AND stderr are captured
+  // regardless of exit code — warnings/notices go to stderr, the pass line to stdout.
+  const result = spawnSync(tsxBin, [scriptPath, ...args], {
+    cwd,
+    encoding: 'utf8',
+    env: { ...process.env, ...env },
+  });
+  return {
+    exitCode: result.status ?? 1,
+    output: `${result.stdout ?? ''}${result.stderr ?? ''}`,
+  };
 }
 
 afterEach(() => {
@@ -96,5 +93,47 @@ describe('check-ts-max-loc', () => {
     expect(result.output).toContain(
       'TOO LARGE: src/main/example/large.ts has 705 lines (limit: 700).',
     );
+  });
+
+  // The following tests use a real allowlisted path (preference-store.ts). They drive
+  // the slack band via CHECK_TS_MAX_LOC_SLACK so they stay robust to the exact recorded
+  // ceiling (they only assume the ceiling is below the 900-line fixture).
+  it('reports allowlisted growth within the slack tolerance as a non-failing notice', () => {
+    const repoDir = createTrackedRepo({
+      'src/main/learning/preference-store.ts': 900,
+    });
+
+    const result = runLocCheck(repoDir, { env: { CHECK_TS_MAX_LOC_SLACK: '100000' } });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain('within the');
+    expect(result.output).toContain('preference-store.ts');
+    expect(result.output).not.toContain('RATCHET EXCEEDED');
+  });
+
+  it('fails allowlisted files that grow beyond the slack tolerance', () => {
+    const repoDir = createTrackedRepo({
+      'src/main/learning/preference-store.ts': 900,
+    });
+
+    const result = runLocCheck(repoDir, { env: { CHECK_TS_MAX_LOC_SLACK: '0' } });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain('RATCHET EXCEEDED');
+    expect(result.output).toContain('preference-store.ts');
+  });
+
+  it('reports violations as warnings without failing when run with --warn', () => {
+    const repoDir = createTrackedRepo({
+      'src/main/example/large.ts': 705,
+    });
+
+    const result = runLocCheck(repoDir, { args: ['--warn'] });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain(
+      'TOO LARGE: src/main/example/large.ts has 705 lines (limit: 700).',
+    );
+    expect(result.output).toContain('warn-only mode');
   });
 });

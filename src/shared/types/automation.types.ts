@@ -5,7 +5,7 @@ export type AutomationMissedRunPolicy = 'skip' | 'notify' | 'runOnce';
 export type AutomationConcurrencyPolicy = 'skip' | 'queue';
 export type AutomationTrigger = 'scheduled' | 'catchUp' | 'manual' | 'webhook' | 'channel' | 'providerRuntime' | 'orchestrationEvent';
 export type AutomationRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'cancelled';
-export type AutomationReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type AutomationReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'workflow';
 export type AutomationDeliveryMode = 'notify' | 'silent' | 'localOnly';
 
 export interface AutomationTriggerSource {

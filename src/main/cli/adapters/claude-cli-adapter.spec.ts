@@ -123,7 +123,28 @@ describe('ClaudeCliAdapter reasoning effort', () => {
     const effortIndex = args.indexOf('--effort');
 
     expect(effortIndex).toBeGreaterThan(-1);
+    expect(args[effortIndex + 1]).toBe('xhigh');
+  });
+
+  it('passes max as a Claude CLI session-only effort', () => {
+    const adapter = createClaudeAdapter({ reasoningEffort: 'max' });
+    const args = getBuildArgs(adapter);
+    const effortIndex = args.indexOf('--effort');
+
+    expect(effortIndex).toBeGreaterThan(-1);
     expect(args[effortIndex + 1]).toBe('max');
+  });
+
+  it('passes workflow as ultracode settings instead of an effort flag', () => {
+    const adapter = createClaudeAdapter({ reasoningEffort: 'workflow' });
+    const args = getBuildArgs(adapter);
+
+    expect(args).not.toContain('--effort');
+    const settingsIndex = args.indexOf('--settings');
+    expect(settingsIndex).toBeGreaterThan(-1);
+    expect(JSON.parse(args[settingsIndex + 1] ?? '{}')).toMatchObject({
+      ultracode: true,
+    });
   });
 
   it('clamps unsupported lower effort levels to Claude low', () => {

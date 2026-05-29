@@ -128,7 +128,7 @@ export interface ProviderSessionOptions {
   yoloMode?: boolean;
 }
 
-export const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const;
+export const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow'] as const;
 export type ReasoningEffort = typeof REASONING_EFFORTS[number];
 
 /**
@@ -155,6 +155,7 @@ export const CLAUDE_MODELS = {
  * an explicit generation instead of provider-latest routing.
  */
 export const CLAUDE_PINNED_MODELS = {
+  OPUS_48: 'claude-opus-4-8',
   OPUS_47: 'claude-opus-4-7',
   OPUS_46: 'claude-opus-4-6-20260401',
   OPUS_45: 'claude-opus-4-5-20250918',
@@ -235,8 +236,8 @@ export const CURSOR_MODELS = {
  * Default models for each provider
  */
 export const DEFAULT_MODELS: Record<ProviderType, string> = {
-  'claude-cli': CLAUDE_MODELS.SONNET,
-  'anthropic-api': CLAUDE_MODELS.SONNET,
+  'claude-cli': CLAUDE_MODELS.OPUS_1M,
+  'anthropic-api': CLAUDE_MODELS.OPUS,
   'openai': OPENAI_MODELS.GPT55,
   'openai-compatible': OPENAI_MODELS.GPT55,
   'ollama': 'llama3',
@@ -277,6 +278,7 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   // dropped date suffixes from canonical IDs starting with 4.6).
   // Pricing identical to Opus 4.6. Note: new tokenizer uses up to ~35%
   // more tokens per char than 4.6, so effective cost may rise.
+  'claude-opus-4-8': { input: 5.0, output: 25.0 },
   'claude-opus-4-7': { input: 5.0, output: 25.0 },
   // Claude 4.5 models (previous generation)
   'claude-sonnet-4-5-20250929': { input: 3.0, output: 15.0 },
@@ -336,6 +338,7 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     // having to manually pick the [1m] variant every time.
     { id: CLAUDE_MODELS.OPUS_1M, name: 'Opus latest, 1M', tier: 'powerful', pinned: true, family: 'Opus' },
     { id: CLAUDE_MODELS.OPUS, name: 'Opus latest', tier: 'powerful', pinned: true, family: 'Opus' },
+    { id: CLAUDE_PINNED_MODELS.OPUS_48, name: 'Opus 4.8', tier: 'powerful', family: 'Opus' },
     { id: CLAUDE_PINNED_MODELS.OPUS_47, name: 'Opus 4.7', tier: 'powerful', family: 'Opus' },
     { id: CLAUDE_PINNED_MODELS.OPUS_46, name: 'Opus 4.6', tier: 'powerful', family: 'Opus' },
     { id: CLAUDE_PINNED_MODELS.OPUS_45, name: 'Opus 4.5', tier: 'powerful', family: 'Opus' },
@@ -568,13 +571,14 @@ export function getProviderModelContextWindow(
   // Bare "opus" / "sonnet" resolve server-side to the latest (4.6+),
   // which has native 1M support.
   //
-  // Opus 4.7: per Anthropic docs the default is 200k with 1M opt-in; this
-  // workspace is opted into the 1M context window, so 4.7 returns 1M here.
+  // Opus 4.8/4.7/4.6 and Sonnet 4.6 support 1M context at standard pricing.
   if (
     normalizedModel === 'opus' ||
     normalizedModel === 'sonnet' ||
     normalizedModel.includes('opus-4-6') ||
     normalizedModel.includes('opus-4.6') ||
+    normalizedModel.includes('opus-4-8') ||
+    normalizedModel.includes('opus-4.8') ||
     normalizedModel.includes('opus-4-7') ||
     normalizedModel.includes('opus-4.7') ||
     normalizedModel.includes('sonnet-4-6') ||

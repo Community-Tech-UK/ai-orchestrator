@@ -182,6 +182,24 @@ describe('ModelSelectionPanelComponent', () => {
     ]);
   });
 
+  it('shows provider default reasoning for non-current rows', () => {
+    setInputs({
+      selectedModelId: 'claude-sonnet-4-6',
+      selectedReasoning: 'medium',
+      reasoningOptionsForProvider: (provider) => provider === 'claude' ? REASONING_OPTIONS : [],
+    });
+
+    (fixture.nativeElement.querySelector('[data-provider="claude"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const rows = Array.from(fixture.nativeElement.querySelectorAll('.model-picker-row')) as HTMLElement[];
+    const opusRow = rows.find((el) => el.textContent?.includes('Claude Opus 4.7'))!;
+    const sonnetRow = rows.find((el) => el.textContent?.includes('Claude Sonnet 4.6'))!;
+
+    expect((opusRow.querySelector('.model-picker-row__reasoning') as HTMLSelectElement).value).toBe('default');
+    expect((sonnetRow.querySelector('.model-picker-row__reasoning') as HTMLSelectElement).value).toBe('medium');
+  });
+
   it('emits model selections from rows and keyboard shortcuts while respecting disabled providers', () => {
     setInputs({
       disabledReasonForProvider: (provider) =>

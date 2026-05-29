@@ -203,6 +203,7 @@ export const PROMPT_CACHING_MODELS = [
   'claude-haiku-4-6-20260401',
   // Opus 4.7 uses the undated alias form — Anthropic dropped date suffixes
   // from canonical IDs starting with 4.6. See platform.claude.com/docs models overview.
+  'claude-opus-4-8',
   'claude-opus-4-7',
 ] as const;
 
@@ -226,6 +227,7 @@ export const MIN_CACHEABLE_TOKENS: Record<string, number> = {
   'claude-haiku-4-6-20260401': 4096,
   // Opus 4.7 — Anthropic has not published an explicit minimum for 4.7.
   // Carrying forward the Opus-tier default (4096) used by 4.5 and 4.6.
+  'claude-opus-4-8': 1024,
   'claude-opus-4-7': 4096,
 };
 

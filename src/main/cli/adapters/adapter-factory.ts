@@ -21,6 +21,7 @@ import { CliDetectionService, CliType } from '../cli-detection';
 import { getDefaultCopilotCliLaunch } from '../copilot-cli-launch';
 import type { CliType as SettingsCliType } from '../../../shared/types/settings.types';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
+import type { CodexReasoningEffort } from './codex/app-server-types';
 import { getWorkerNodeConnectionServer } from '../../remote-node/worker-node-connection';
 import { getLogger } from '../../logging/logger';
 import { getPermissionRegistry } from '../../orchestration/permission-registry';
@@ -75,8 +76,8 @@ export interface UnifiedSpawnOptions {
   chrome?: boolean;
   /** JSON Schema object for structured output (Codex app-server mode). */
   outputSchema?: Record<string, unknown>;
-  /** Reasoning effort level for the model (Codex: none → xhigh, Claude: low → high). */
-  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  /** Reasoning effort level for the model. Claude also accepts session-only max/workflow. */
+  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'workflow';
   /** Minimal mode (Claude CLI only): skip hooks, LSP, plugins for faster startup.
    *  Requires explicit API key — OAuth/keychain auth is skipped. Defaults to false. */
   bare?: boolean;
@@ -223,6 +224,15 @@ function extendEnvWithRtk(
   }
   env['RTK_TELEMETRY_DISABLED'] = '1';
   return env;
+}
+
+function toCodexReasoningEffort(
+  reasoningEffort: UnifiedSpawnOptions['reasoningEffort'],
+): CodexReasoningEffort | undefined {
+  if (reasoningEffort === 'max' || reasoningEffort === 'workflow') {
+    return undefined;
+  }
+  return reasoningEffort;
 }
 
 function mergeSpawnEnv(options: UnifiedSpawnOptions, base: Record<string, string> = {}): Record<string, string> {
@@ -391,7 +401,7 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
     sandboxMode: options.yoloMode ? 'danger-full-access' : 'read-only',
     timeout: options.timeout,
     outputSchema: options.outputSchema,
-    reasoningEffort: options.reasoningEffort,
+    reasoningEffort: toCodexReasoningEffort(options.reasoningEffort),
     rtkEnabled: Boolean(options.rtk?.enabled && options.rtk.binaryPath),
     ...(Object.keys(codexEnv).length > 0 ? { env: codexEnv } : {}),
     ...(mcpServersConfigToml ? { mcpServersConfigToml } : {}),

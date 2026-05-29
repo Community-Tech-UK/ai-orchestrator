@@ -26,91 +26,12 @@ import { EventEmitter } from 'events';
 import { LLMService, getLLMService } from './llm-service';
 import { EmbeddingService, getEmbeddingService } from './embedding-service';
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
-
-export interface HyDEConfig {
-  enabled: boolean;
-  /** Minimum query length to trigger HyDE (very short queries work fine with direct embedding) */
-  minQueryLength: number;
-  /** Maximum tokens for the hypothetical document */
-  maxHypotheticalTokens: number;
-  /** Timeout for hypothetical generation in ms */
-  generationTimeout: number;
-  /** Cache hypothetical documents to avoid repeated LLM calls */
-  cacheEnabled: boolean;
-  /** Number of hypothetical documents to cache */
-  cacheSize: number;
-  /** Context type hints to include in generation prompt */
-  contextHints: 'code' | 'documentation' | 'mixed' | 'auto';
-  /** Generate multiple hypothetical docs and average embeddings (more expensive but more robust) */
-  multiHypothetical: boolean;
-  /** Number of hypothetical docs when multiHypothetical is true */
-  hypotheticalCount: number;
-}
-
-export interface HyDEResult {
-  /** The embedding to use for search */
-  embedding: number[];
-  /** The generated hypothetical document(s) */
-  hypotheticalDocuments: string[];
-  /** Whether HyDE was used (false if disabled or query was too short) */
-  hydeUsed: boolean;
-  /** Time spent generating hypothetical document(s) in ms */
-  generationTimeMs: number;
-  /** Whether result was from cache */
-  cached: boolean;
-  /** Original query */
-  query: string;
-}
-
-interface CacheEntry {
-  embedding: number[];
-  hypotheticalDocuments: string[];
-  timestamp: number;
-}
-
-const DEFAULT_CONFIG: HyDEConfig = {
-  enabled: true,
-  minQueryLength: 10,
-  maxHypotheticalTokens: 300,
-  generationTimeout: 15000,
-  cacheEnabled: true,
-  cacheSize: 500,
-  contextHints: 'auto',
-  multiHypothetical: false,
-  hypotheticalCount: 3
-};
-
-// System prompts for different context types
-const HYDE_PROMPTS: Record<string, string> = {
-  code: `You are a code documentation expert. Given a search query about code, generate a hypothetical code snippet or documentation that would answer the query.
-
-Rules:
-- Write actual code or technical documentation, not a meta-description
-- Include realistic function/variable names, types, and patterns
-- Keep it concise but representative of what real matching code would look like
-- Don't explain what you're doing, just write the hypothetical matching content
-- Use TypeScript/JavaScript unless the query suggests another language`,
-
-  documentation: `You are a documentation expert. Given a search query, generate a hypothetical documentation section that would answer the query.
-
-Rules:
-- Write actual documentation content, not a meta-description
-- Include realistic headings, explanations, and examples
-- Keep it concise but representative of what real matching docs would look like
-- Don't explain what you're doing, just write the hypothetical matching content`,
-
-  mixed: `You are a technical writer. Given a search query, generate a hypothetical document (code, documentation, or config) that would answer the query.
-
-Rules:
-- Write actual content, not a meta-description
-- If the query is about code, write code with comments
-- If the query is about concepts, write documentation
-- If the query is about configuration, write config examples
-- Keep it concise but representative
-- Don't explain what you're doing, just write the hypothetical matching content`
-};
-
 import { getLogger } from '../logging/logger';
+import type { HyDEConfig, HyDEResult, CacheEntry } from './hyde-service.types';
+import { DEFAULT_CONFIG, HYDE_PROMPTS } from './hyde-service.constants';
+
+// Re-export public types so importers of this module continue to work unchanged
+export type { HyDEConfig, HyDEResult } from './hyde-service.types';
 
 const logger = getLogger('HyDEService');
 
@@ -205,6 +126,7 @@ export class HyDEService extends EventEmitter {
       let embedding: number[];
       let hypotheticalDocuments: string[];
 
+      // TODO(perf): move HyDE embedding aggregation to the existing worker-thread pattern.
       if (this.config.multiHypothetical) {
         // Generate multiple hypothetical documents and average their embeddings
         const results = await this.generateMultipleHypotheticals(
@@ -250,7 +172,9 @@ export class HyDEService extends EventEmitter {
       };
     } catch (error) {
       logger.error('Failed to generate hypothetical document', error instanceof Error ? error : undefined, { query });
-      this.emit('error', { query, error });
+      if (this.listenerCount('error') > 0) {
+        this.emit('error', { query, error });
+      }
 
       // Fall back to direct embedding on error
       const directEmbedding = await this.embeddingService.embed(query);
@@ -419,18 +343,22 @@ Generate a hypothetical document that would perfectly match this query:`;
     }
 
     // Try Ollama
-    try {
-      return await this.callOllama(
-        systemPrompt,
-        userPrompt,
-        config.ollamaHost || 'http://localhost:11434'
-      );
-    } catch (error) {
-      logger.warn('Ollama call failed', { error: String(error) });
+    const providerStatus = this.llmService.getProviderStatus();
+    if (providerStatus.ollama !== false) {
+      try {
+        return await this.callOllama(
+          systemPrompt,
+          userPrompt,
+          config.ollamaHost || 'http://localhost:11434'
+        );
+      } catch (error) {
+        logger.warn('Ollama call failed', { error: String(error) });
+      }
+    } else {
+      logger.info('Skipping Ollama for HyDE because health check marked it unavailable');
     }
 
-    // Fall back to simple query expansion
-    return this.fallbackHypothetical(userPrompt);
+    throw new Error('No HyDE LLM provider returned a hypothetical document');
   }
 
   private async callAnthropic(

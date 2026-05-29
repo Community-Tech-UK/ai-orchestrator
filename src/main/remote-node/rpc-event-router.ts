@@ -25,6 +25,9 @@ export class RpcEventRouter {
     NODE_TO_COORDINATOR.INSTANCE_OUTPUT,
     NODE_TO_COORDINATOR.INSTANCE_OUTPUT_BATCH,
     NODE_TO_COORDINATOR.INSTANCE_CONTEXT,
+    // terminal.output is a high-frequency PTY stream; like instance.output it
+    // rides an already-authenticated WS, so we skip per-frame token checks.
+    NODE_TO_COORDINATOR.TERMINAL_OUTPUT,
   ]);
 
   /**
@@ -210,6 +213,14 @@ export class RpcEventRouter {
         this.handleInstanceContext(nodeId, notification);
         break;
       }
+      case NODE_TO_COORDINATOR.TERMINAL_OUTPUT: {
+        this.handleTerminalOutputNotification(nodeId, notification);
+        break;
+      }
+      case NODE_TO_COORDINATOR.TERMINAL_EXIT: {
+        this.handleTerminalExitNotification(nodeId, notification);
+        break;
+      }
       default:
         logger.warn('Unknown RPC notification method received', { nodeId, method: notification.method });
     }
@@ -308,6 +319,37 @@ export class RpcEventRouter {
       instanceId: params?.['instanceId'],
       usage: params?.['usage'],
     });
+  }
+
+  private handleTerminalOutputNotification(nodeId: string, notification: RpcNotification): void {
+    if (!this.registry.getNode(nodeId)) {
+      logger.warn('Terminal output notification from unknown node', { nodeId });
+      return;
+    }
+    const params = notification.params as Record<string, unknown> | undefined;
+    const sessionId = params?.['sessionId'];
+    const data = params?.['data'];
+    if (typeof sessionId !== 'string' || typeof data !== 'string') {
+      logger.warn('Malformed terminal.output notification', { nodeId });
+      return;
+    }
+    this.registry.emit('remote:terminal-output', { nodeId, sessionId, data });
+  }
+
+  private handleTerminalExitNotification(nodeId: string, notification: RpcNotification): void {
+    if (!this.registry.getNode(nodeId)) {
+      logger.warn('Terminal exit notification from unknown node', { nodeId });
+      return;
+    }
+    const params = notification.params as Record<string, unknown> | undefined;
+    const sessionId = params?.['sessionId'];
+    if (typeof sessionId !== 'string') {
+      logger.warn('Malformed terminal.exit notification', { nodeId });
+      return;
+    }
+    const exitCode = typeof params?.['exitCode'] === 'number' ? (params['exitCode'] as number) : null;
+    const signal = typeof params?.['signal'] === 'string' ? (params['signal'] as string) : null;
+    this.registry.emit('remote:terminal-exit', { nodeId, sessionId, exitCode, signal });
   }
 
   private handleInstanceStateChange(nodeId: string, request: RpcRequest): void {

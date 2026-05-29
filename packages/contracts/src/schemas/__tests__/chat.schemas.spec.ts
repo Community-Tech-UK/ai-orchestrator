@@ -50,7 +50,18 @@ describe('chat schemas', () => {
   });
 
   it('exposes the reasoning-effort enum for UI consumers', () => {
-    expect(ChatReasoningEffortSchema.options).toEqual(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+    expect(ChatReasoningEffortSchema.options).toEqual([
+      'none',
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max',
+      'workflow',
+    ]);
+    expect(ChatReasoningEffortSchema.safeParse('max').success).toBe(true);
+    expect(ChatReasoningEffortSchema.safeParse('workflow').success).toBe(true);
     expect(ChatReasoningEffortSchema.safeParse('extra').success).toBe(false);
   });
 

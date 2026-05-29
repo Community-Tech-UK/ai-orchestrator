@@ -38,198 +38,30 @@ import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { getDefaultCopilotCliLaunch } from '../copilot-cli-launch';
 
+// ============ Re-exports from extracted modules (public API preserved) ============
+
+export type { CopilotCliConfig, CopilotCliAdapterEvents, CopilotModelInfo } from './copilot-cli-adapter.types';
+export { COPILOT_AUTO_MODEL_ID } from './copilot-cli-adapter.types';
+export { COPILOT_DEFAULT_MODELS } from './copilot-cli-adapter.models';
+
+// ============ Internal imports from extracted modules ============
+
+import { COPILOT_AUTO_MODEL_ID } from './copilot-cli-adapter.types';
+import type { CopilotCliConfig, CopilotModelInfo } from './copilot-cli-adapter.types';
+import {
+  DEFAULT_CONTEXT_WINDOW,
+  COPILOT_MODEL_DISCOVERY_CACHE_TTL_MS,
+  toCopilotModelInfo,
+  ensureCopilotAutoModel,
+  parseCopilotModelIdsFromHelpConfig,
+  COPILOT_DEFAULT_MODELS,
+} from './copilot-cli-adapter.models';
+
 const logger = getLogger('CopilotCliAdapter');
-
-/**
- * Copilot CLI specific configuration
- */
-export interface CopilotCliConfig {
-  /** Model to use (e.g. 'claude-sonnet-4-6', 'gpt-5.5', 'gemini-2.5-pro'). */
-  model?: string;
-  /** Working directory for the CLI process. */
-  workingDir?: string;
-  /** System prompt / additional instructions.
-   *  The Copilot CLI does not expose a dedicated system-prompt flag in non-interactive
-   *  mode, so when set we prepend it to the user prompt. */
-  systemPrompt?: string;
-  /** YOLO mode — grant all permissions without prompting. Required for non-interactive
-   *  use; the CLI `-p` mode also requires `--allow-all-tools` which we always set.
-   *  `yoloMode` additionally passes `--yolo` which enables all path+URL permissions. */
-  yoloMode?: boolean;
-  /** Timeout in milliseconds for a single message call. */
-  timeout?: number;
-}
-
-/**
- * Events emitted by CopilotCliAdapter (preserved from CopilotSdkAdapter for
- * source-level compatibility with existing event wiring in CopilotCliProvider).
- */
-export interface CopilotCliAdapterEvents {
-  output: (message: OutputMessage) => void;
-  status: (status: InstanceStatus) => void;
-  context: (usage: ContextUsage) => void;
-  error: (error: Error) => void;
-  exit: (code: number | null, signal: string | null) => void;
-  spawned: (pid: number) => void;
-}
-
-/**
- * Simplified model info for orchestrator use.
- * Identical shape to the former SDK adapter's CopilotModelInfo so downstream
- * callers (settings UI, model picker, parity tests) don't need changes.
- */
-export interface CopilotModelInfo {
-  id: string;
-  name: string;
-  supportsVision: boolean;
-  contextWindow: number;
-  enabled: boolean;
-}
-
-export const COPILOT_AUTO_MODEL_ID = 'auto';
-
-const COPILOT_MODEL_DISCOVERY_CACHE_TTL_MS = 5 * 60_000;
 
 let cachedCopilotModels: CopilotModelInfo[] | null = null;
 let cachedCopilotModelsAt = 0;
 let copilotModelDiscoveryPromise: Promise<CopilotModelInfo[]> | null = null;
-
-/** Default context window when we don't know the model. Matches the old SDK adapter. */
-const DEFAULT_CONTEXT_WINDOW = 128_000;
-
-function toTitleCase(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function formatCopilotModelDisplayName(modelId: string): string {
-  const normalized = modelId.trim().toLowerCase();
-  if (!normalized) {
-    return modelId;
-  }
-
-  if (normalized === COPILOT_AUTO_MODEL_ID) {
-    return 'Auto';
-  }
-
-  if (normalized === 'o3') {
-    return 'OpenAI o3';
-  }
-
-  const parts = normalized.split('-');
-  if (parts.length === 0) {
-    return modelId;
-  }
-
-  if (parts[0] === 'gpt' && parts[1]) {
-    const [, version, ...rest] = parts;
-    return [`GPT-${version}`, ...rest.map(toTitleCase)].join(' ');
-  }
-
-  return parts
-    .map((part, index) => {
-      if (index > 0 && /^\d/.test(part)) {
-        return part;
-      }
-      return toTitleCase(part);
-    })
-    .join(' ');
-}
-
-function estimateCopilotModelContextWindow(modelId: string): number {
-  const normalized = modelId.trim().toLowerCase();
-  if (
-    normalized.includes('claude-sonnet-4.6')
-    || normalized.includes('claude-opus-4.6')
-    || normalized.includes('claude-opus-4.7')
-  ) {
-    return 1_000_000;
-  }
-
-  return DEFAULT_CONTEXT_WINDOW;
-}
-
-function toCopilotModelInfo(modelId: string): CopilotModelInfo {
-  return {
-    id: modelId,
-    name: formatCopilotModelDisplayName(modelId),
-    supportsVision: normalizedCopilotVisionModel(modelId),
-    contextWindow: estimateCopilotModelContextWindow(modelId),
-    enabled: true,
-  };
-}
-
-function normalizedCopilotVisionModel(modelId: string): boolean {
-  const normalized = modelId.trim().toLowerCase();
-  return normalized === COPILOT_AUTO_MODEL_ID
-    || normalized.startsWith('claude-')
-    || normalized.startsWith('gpt-')
-    || normalized.startsWith('gemini-')
-    || normalized === 'o3'
-    || normalized.startsWith('grok-')
-    || normalized.startsWith('goldeneye')
-    || normalized.startsWith('raptor');
-}
-
-function ensureCopilotAutoModel(models: CopilotModelInfo[]): CopilotModelInfo[] {
-  if (models.some(model => model.id === COPILOT_AUTO_MODEL_ID)) {
-    return models;
-  }
-
-  return [toCopilotModelInfo(COPILOT_AUTO_MODEL_ID), ...models];
-}
-
-function parseCopilotModelIdsFromHelpConfig(output: string): string[] {
-  const lines = output.split(/\r?\n/);
-  const modelIds: string[] = [];
-  let inModelSection = false;
-
-  for (const line of lines) {
-    if (!inModelSection) {
-      if (/^\s*`model`:\s+AI model to use for Copilot CLI/i.test(line)) {
-        inModelSection = true;
-      }
-      continue;
-    }
-
-    if (/^\s*`[^`]+`:/i.test(line)) {
-      break;
-    }
-
-    const match = line.match(/^\s*-\s+"([^"]+)"\s*$/);
-    if (match?.[1]) {
-      modelIds.push(match[1]);
-    }
-  }
-
-  return [...new Set(modelIds)];
-}
-
-/**
- * Default Copilot models (used as fallback when CLI runtime model listing
- * isn't reachable). This list mirrors the current stable `copilot help config`
- * output, with an explicit `auto` entry added because Copilot CLI accepts
- * `--model auto` even though `help config` does not list it.
- */
-export const COPILOT_DEFAULT_MODELS: CopilotModelInfo[] = [
-  'gemini-3.1-pro-preview',
-  'claude-sonnet-4.6',
-  'claude-sonnet-4.5',
-  'claude-haiku-4.5',
-  'claude-opus-4.7',
-  'claude-sonnet-4',
-  'gpt-5.5',
-  'gpt-5.3-codex',
-  'gpt-5.2-codex',
-  'gpt-5.2',
-  'gpt-5.5-mini',
-  'gpt-5-mini',
-  'gpt-4.1',
-  'gemini-3-pro-preview',
-  'gemini-3-flash-preview',
-  'gemini-2.5-pro',
-  'gemini-2.5-flash',
-  'auto',
-].map(toCopilotModelInfo);
 
 /**
  * Copilot CLI Adapter - Spawns the `copilot` binary per message.

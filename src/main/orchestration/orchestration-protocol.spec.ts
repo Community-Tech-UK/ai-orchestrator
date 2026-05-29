@@ -57,6 +57,32 @@ describe('generateOrchestrationPrompt', () => {
     expect(bare).toContain(`**Instance ID:** ${instanceId}`);
   });
 
+  describe('connected worker nodes snapshot', () => {
+    it('lists connected workers with the exact name to use as the node value', () => {
+      const withNodes = generateOrchestrationPrompt(instanceId, 'claude-sonnet-4', [
+        {
+          id: 'n1',
+          name: 'windows-pc',
+          platform: 'win32',
+          cpuCores: 32,
+          totalMemoryMB: 65536,
+          gpuName: 'RTX 5090',
+          supportedClis: ['claude', 'codex'],
+          activeInstances: 1,
+          maxConcurrentInstances: 4,
+        },
+      ]);
+      expect(withNodes).toContain('Workers connected right now');
+      expect(withNodes).toContain('`windows-pc`');
+      expect(withNodes).toContain('GPU: RTX 5090');
+      expect(withNodes).toContain('CLIs: claude/codex');
+    });
+
+    it('states explicitly when no workers are connected', () => {
+      expect(prompt).toContain('No worker nodes are connected right now');
+    });
+  });
+
   describe('delegation rules', () => {
     it('tells the parent to spawn children only for parallel or specialized work', () => {
       expect(prompt).toMatch(/Spawn children ONLY when:[\s\S]*2\+ independent tasks/);

@@ -41,7 +41,7 @@ export const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
     type: 'anthropic-api',
     name: 'Anthropic API',
     enabled: false,
-    defaultModel: CLAUDE_MODELS.SONNET,
+    defaultModel: CLAUDE_MODELS.OPUS,
   },
   'openai': DEFAULT_CODEX_CONFIG,
   'openai-compatible': {

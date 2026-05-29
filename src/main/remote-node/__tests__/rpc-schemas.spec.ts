@@ -2,6 +2,13 @@ import { describe, it, expect } from 'vitest';
 import {
   NodeRegisterParamsSchema,
   NodeHeartbeatParamsSchema,
+  TerminalCreateParamsSchema,
+  TerminalInputParamsSchema,
+  TerminalResizeParamsSchema,
+  TerminalKillParamsSchema,
+  TerminalOutputParamsSchema,
+  TerminalExitParamsSchema,
+  COORDINATOR_TO_NODE_PARAM_SCHEMAS,
   validateRpcParams,
 } from '../rpc-schemas';
 
@@ -32,6 +39,59 @@ describe('rpc-schemas', () => {
     it('rejects missing nodeId', () => {
       const result = NodeRegisterParamsSchema.safeParse({ name: 'test' });
       expect(result.success).toBe(false);
+    });
+  });
+
+  describe('terminal schemas', () => {
+    it('accepts a valid terminal.create with optional fields', () => {
+      const r = TerminalCreateParamsSchema.safeParse({
+        sessionId: 'term-1',
+        cwd: '/home/user/project',
+        shell: '/bin/zsh',
+        env: { PATH: '/usr/bin', TERM: 'xterm-256color' },
+        cols: 120,
+        rows: 40,
+      });
+      expect(r.success).toBe(true);
+    });
+
+    it('accepts a minimal terminal.create (just sessionId + cwd)', () => {
+      expect(TerminalCreateParamsSchema.safeParse({ sessionId: 't', cwd: '/x' }).success).toBe(true);
+    });
+
+    it('rejects terminal.create without a cwd', () => {
+      expect(TerminalCreateParamsSchema.safeParse({ sessionId: 't' }).success).toBe(false);
+    });
+
+    it('rejects non-string env values', () => {
+      expect(
+        TerminalCreateParamsSchema.safeParse({ sessionId: 't', cwd: '/x', env: { N: 5 } }).success,
+      ).toBe(false);
+    });
+
+    it('rejects absurd PTY dimensions', () => {
+      expect(TerminalResizeParamsSchema.safeParse({ sessionId: 't', cols: 999999, rows: 40 }).success).toBe(false);
+      expect(TerminalResizeParamsSchema.safeParse({ sessionId: 't', cols: 0, rows: 40 }).success).toBe(false);
+    });
+
+    it('accepts terminal.input / resize / kill', () => {
+      expect(TerminalInputParamsSchema.safeParse({ sessionId: 't', data: 'ls -la\n' }).success).toBe(true);
+      expect(TerminalResizeParamsSchema.safeParse({ sessionId: 't', cols: 80, rows: 24 }).success).toBe(true);
+      expect(TerminalKillParamsSchema.safeParse({ sessionId: 't' }).success).toBe(true);
+      expect(TerminalKillParamsSchema.safeParse({ sessionId: 't', signal: 'SIGTERM' }).success).toBe(true);
+    });
+
+    it('accepts terminal.output / exit notifications', () => {
+      expect(TerminalOutputParamsSchema.safeParse({ sessionId: 't', data: 'hi', seq: 3 }).success).toBe(true);
+      expect(TerminalExitParamsSchema.safeParse({ sessionId: 't', exitCode: 0, signal: null }).success).toBe(true);
+      expect(TerminalExitParamsSchema.safeParse({ sessionId: 't', exitCode: null }).success).toBe(true);
+    });
+
+    it('registers terminal methods in the coordinator->node schema map', () => {
+      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['terminal.create']).toBe(TerminalCreateParamsSchema);
+      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['terminal.input']).toBe(TerminalInputParamsSchema);
+      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['terminal.resize']).toBe(TerminalResizeParamsSchema);
+      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['terminal.kill']).toBe(TerminalKillParamsSchema);
     });
   });
 

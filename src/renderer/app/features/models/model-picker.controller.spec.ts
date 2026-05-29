@@ -46,7 +46,7 @@ describe('ModelPickerController', () => {
     controller.setChat(chatRecord({ provider: 'claude' }), false);
     TestBed.tick();
     expect(controller.reasoningOptions().map((o) => o.id)).toEqual([
-      'default', 'low', 'medium', 'high', 'xhigh',
+      'default', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow',
     ]);
 
     controller.setChat(chatRecord({ provider: 'codex' }), false);

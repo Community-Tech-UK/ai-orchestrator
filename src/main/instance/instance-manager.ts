@@ -21,6 +21,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getTaskManager } from '../orchestration/task-manager';
 import type { RoutingDecision } from '../routing';
 import type { SpawnChildCommand } from '../orchestration/orchestration-protocol';
+import { getWorkerNodeRegistry, resolveWorkerNodeTarget } from '../remote-node/worker-node-registry';
 import type {
   Instance,
   InstanceCreateConfig,
@@ -52,6 +53,11 @@ import type {
   InstanceSettledEvent,
   InstanceSettledWaitOptions,
 } from './instance-settled-tracker';
+import type {
+  ContextBudget,
+  RlmContextInfo,
+  UnifiedMemoryContextInfo,
+} from './instance-types';
 import { WarmStartManager } from './warm-start-manager';
 import { StuckProcessDetector } from './stuck-process-detector';
 import { StaleRuntimeReconciler } from './stale-runtime-reconciler';
@@ -96,6 +102,13 @@ import {
 const logger = getLogger('InstanceManager');
 const LOG_PREVIEW_LENGTH = 160;
 const CHILD_STARTUP_TIMEOUT_MS = 60_000;
+const INPUT_CONTEXT_DEADLINE_MS = 500;
+
+type InputContextBundle = {
+  rlmContext: RlmContextInfo | null;
+  unifiedMemoryContext: UnifiedMemoryContextInfo | null;
+  indexedCodebaseContext: IndexedCodebaseContextInfo | null;
+};
 
 export interface InstanceStateChangedEvent {
   instanceId: string;
@@ -1386,62 +1399,27 @@ export class InstanceManager extends EventEmitter {
     instance.requestCount++;
     instance.lastActivity = Date.now();
 
-    // Calculate context budget and build contexts
+    // Calculate context budget and build contexts. Context retrieval improves
+    // answer quality, but it must not hold the renderer's send acknowledgement.
+    // Anything slower than the deadline is queued for the next user turn.
     const budgets = this.context.calculateContextBudget(instance, resolvedMessage);
+    const contextPromise = this.buildInputContexts(instance, resolvedMessage, budgets);
+    const inputContexts = await this.resolveInputContextsBeforeDeadline(
+      instanceId,
+      contextPromise,
+    );
 
-    const [rlmContext, unifiedMemoryContext, indexedCodebaseContext] = await Promise.all([
-      this.context.buildRlmContext(instanceId, resolvedMessage, budgets.rlmMaxTokens, budgets.rlmTopK),
-      this.context.buildUnifiedMemoryContext(instance, resolvedMessage, generateId(), budgets.unifiedMaxTokens),
-      this.buildIndexedCodebaseContext(instance, resolvedMessage),
-    ]);
-
-    if (rlmContext) {
-      logger.info('RLM context injected', { instanceId, tokens: rlmContext.tokens, sections: rlmContext.sectionsAccessed.length, durationMs: rlmContext.durationMs });
-    }
-
-    if (unifiedMemoryContext) {
-      logger.info('UnifiedMemory context injected', { instanceId, tokens: unifiedMemoryContext.tokens, longTermCount: unifiedMemoryContext.longTermCount, proceduralCount: unifiedMemoryContext.proceduralCount, durationMs: unifiedMemoryContext.durationMs });
-    }
-
-    if (indexedCodebaseContext) {
-      logger.info('Indexed codebase context injected', {
+    if (inputContexts) {
+      this.logInputContexts(instanceId, inputContexts, 'current');
+    } else {
+      logger.info('Context generation exceeded send deadline; sending current turn without retrieved context', {
         instanceId,
-        tokens: indexedCodebaseContext.tokens,
-        resultCount: indexedCodebaseContext.results.length,
-        storeId: indexedCodebaseContext.storeId,
-        durationMs: indexedCodebaseContext.durationMs,
+        deadlineMs: INPUT_CONTEXT_DEADLINE_MS,
       });
+      this.queueDeferredInputContexts(instanceId, contextPromise);
     }
 
-    // Build metadata for user message
-    const metadata: Record<string, unknown> = {};
-    if (rlmContext) {
-      metadata['rlmContext'] = {
-        injected: true,
-        tokens: rlmContext.tokens,
-        sectionsAccessed: rlmContext.sectionsAccessed,
-        durationMs: rlmContext.durationMs,
-        source: rlmContext.source
-      };
-    }
-    if (unifiedMemoryContext) {
-      metadata['unifiedMemoryContext'] = {
-        injected: true,
-        tokens: unifiedMemoryContext.tokens,
-        longTermCount: unifiedMemoryContext.longTermCount,
-        proceduralCount: unifiedMemoryContext.proceduralCount,
-        durationMs: unifiedMemoryContext.durationMs
-      };
-    }
-    if (indexedCodebaseContext) {
-      metadata['indexedCodebaseContext'] = {
-        injected: true,
-        tokens: indexedCodebaseContext.tokens,
-        resultCount: indexedCodebaseContext.results.length,
-        storeId: indexedCodebaseContext.storeId,
-        durationMs: indexedCodebaseContext.durationMs,
-      };
-    }
+    const metadata = this.buildInputContextMetadata(inputContexts);
 
     // Add user message to output buffer
     const userMessage = {
@@ -1520,13 +1498,7 @@ export class InstanceManager extends EventEmitter {
       return;
     }
 
-    // Build context blocks
-    const contextBlocks = [
-      this.context.formatUnifiedMemoryContextBlock(unifiedMemoryContext),
-      this.formatIndexedCodebaseContextBlock(indexedCodebaseContext),
-      this.context.formatRlmContextBlock(rlmContext)
-    ].filter(Boolean) as string[];
-    let contextBlock = contextBlocks.length > 0 ? contextBlocks.join('\n\n') : null;
+    let contextBlock = this.buildContextBlock(inputContexts);
 
     const isFirstTrackedInput = !this.hasReceivedFirstMessage.has(instanceId);
     const hasPriorConversationHistory = instance.outputBuffer.some(
@@ -1580,6 +1552,170 @@ export class InstanceManager extends EventEmitter {
         success: hookError === undefined,
         error: hookError,
         timestamp: Date.now(),
+      });
+    }
+  }
+
+  private async buildInputContexts(
+    instance: Instance,
+    message: string,
+    budgets: ContextBudget,
+  ): Promise<InputContextBundle> {
+    const [rlmContext, unifiedMemoryContext, indexedCodebaseContext] = await Promise.all([
+      this.context.buildRlmContext(instance.id, message, budgets.rlmMaxTokens, budgets.rlmTopK),
+      this.context.buildUnifiedMemoryContext(instance, message, generateId(), budgets.unifiedMaxTokens),
+      this.buildIndexedCodebaseContext(instance, message),
+    ]);
+
+    return {
+      rlmContext,
+      unifiedMemoryContext,
+      indexedCodebaseContext,
+    };
+  }
+
+  private async resolveInputContextsBeforeDeadline(
+    instanceId: string,
+    contextPromise: Promise<InputContextBundle>,
+  ): Promise<InputContextBundle | null> {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<null>((resolve) => {
+      timeoutId = setTimeout(() => resolve(null), INPUT_CONTEXT_DEADLINE_MS);
+      if (
+        typeof timeoutId === 'object'
+        && timeoutId !== null
+        && 'unref' in timeoutId
+        && typeof timeoutId.unref === 'function'
+      ) {
+        timeoutId.unref();
+      }
+    });
+
+    try {
+      return await Promise.race([contextPromise, deadline]);
+    } catch (error) {
+      logger.warn('Context generation failed before send deadline; sending without retrieved context', {
+        instanceId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        rlmContext: null,
+        unifiedMemoryContext: null,
+        indexedCodebaseContext: null,
+      };
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
+  }
+
+  private queueDeferredInputContexts(
+    instanceId: string,
+    contextPromise: Promise<InputContextBundle>,
+  ): void {
+    void contextPromise
+      .then((contexts) => {
+        this.logInputContexts(instanceId, contexts, 'deferred');
+        const contextBlock = this.buildContextBlock(contexts);
+        if (contextBlock) {
+          this.communication.queueContinuityPreamble(instanceId, contextBlock);
+        }
+      })
+      .catch((error) => {
+        logger.warn('Deferred context generation failed', {
+          instanceId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+  }
+
+  private buildContextBlock(contexts: InputContextBundle | null): string | null {
+    if (!contexts) {
+      return null;
+    }
+
+    const contextBlocks = [
+      this.context.formatUnifiedMemoryContextBlock(contexts.unifiedMemoryContext),
+      this.formatIndexedCodebaseContextBlock(contexts.indexedCodebaseContext),
+      this.context.formatRlmContextBlock(contexts.rlmContext),
+    ].filter(Boolean) as string[];
+
+    return contextBlocks.length > 0 ? contextBlocks.join('\n\n') : null;
+  }
+
+  private buildInputContextMetadata(contexts: InputContextBundle | null): Record<string, unknown> {
+    const metadata: Record<string, unknown> = {};
+    if (!contexts) {
+      return metadata;
+    }
+
+    const { rlmContext, unifiedMemoryContext, indexedCodebaseContext } = contexts;
+    if (rlmContext) {
+      metadata['rlmContext'] = {
+        injected: true,
+        tokens: rlmContext.tokens,
+        sectionsAccessed: rlmContext.sectionsAccessed,
+        durationMs: rlmContext.durationMs,
+        source: rlmContext.source,
+      };
+    }
+    if (unifiedMemoryContext) {
+      metadata['unifiedMemoryContext'] = {
+        injected: true,
+        tokens: unifiedMemoryContext.tokens,
+        longTermCount: unifiedMemoryContext.longTermCount,
+        proceduralCount: unifiedMemoryContext.proceduralCount,
+        durationMs: unifiedMemoryContext.durationMs,
+      };
+    }
+    if (indexedCodebaseContext) {
+      metadata['indexedCodebaseContext'] = {
+        injected: true,
+        tokens: indexedCodebaseContext.tokens,
+        resultCount: indexedCodebaseContext.results.length,
+        storeId: indexedCodebaseContext.storeId,
+        durationMs: indexedCodebaseContext.durationMs,
+      };
+    }
+
+    return metadata;
+  }
+
+  private logInputContexts(
+    instanceId: string,
+    contexts: InputContextBundle,
+    phase: 'current' | 'deferred',
+  ): void {
+    const { rlmContext, unifiedMemoryContext, indexedCodebaseContext } = contexts;
+    const prefix = phase === 'deferred' ? 'Deferred ' : '';
+
+    if (rlmContext) {
+      logger.info(`${prefix}RLM context injected`, {
+        instanceId,
+        tokens: rlmContext.tokens,
+        sections: rlmContext.sectionsAccessed.length,
+        durationMs: rlmContext.durationMs,
+      });
+    }
+
+    if (unifiedMemoryContext) {
+      logger.info(`${prefix}UnifiedMemory context injected`, {
+        instanceId,
+        tokens: unifiedMemoryContext.tokens,
+        longTermCount: unifiedMemoryContext.longTermCount,
+        proceduralCount: unifiedMemoryContext.proceduralCount,
+        durationMs: unifiedMemoryContext.durationMs,
+      });
+    }
+
+    if (indexedCodebaseContext) {
+      logger.info(`${prefix}Indexed codebase context injected`, {
+        instanceId,
+        tokens: indexedCodebaseContext.tokens,
+        resultCount: indexedCodebaseContext.results.length,
+        storeId: indexedCodebaseContext.storeId,
+        durationMs: indexedCodebaseContext.durationMs,
       });
     }
   }
@@ -2012,12 +2148,10 @@ export class InstanceManager extends EventEmitter {
       }))
       .filter((msg) => msg.content.length > 0);
 
-    // Inherit execution location from parent so children of remote sessions
-    // also run on the same remote node (they share the same working directory
-    // and filesystem, which only exists on that node).
-    const forceNodeId = parent.executionLocation?.type === 'remote'
-      ? parent.executionLocation.nodeId
-      : undefined;
+    // Resolve the target worker node: an explicit `node` on the command (a
+    // connected worker's id or name) wins; otherwise inherit the parent's
+    // remote node so children of remote sessions stay on the same machine.
+    const forceNodeId = this.resolveChildNodeId(command, parent);
 
     const child = await this.createInstance({
       workingDirectory: command.workingDirectory || parent.workingDirectory,
@@ -2046,6 +2180,27 @@ export class InstanceManager extends EventEmitter {
     this.armChildStartupWatchdog(parentId, child.id, CHILD_STARTUP_TIMEOUT_MS);
 
     return child;
+  }
+
+  /**
+   * Resolve which worker node a child should run on.
+   * An explicit `node` (worker id or name) on the spawn command wins and must
+   * match a currently-connected worker; otherwise the child inherits the
+   * parent's remote node (so children of a remote session stay co-located).
+   */
+  private resolveChildNodeId(command: SpawnChildCommand, parent: Instance): string | undefined {
+    const requested = command.node?.trim();
+    if (requested) {
+      const connected = getWorkerNodeRegistry().getHealthyNodes();
+      const result = resolveWorkerNodeTarget(requested, connected);
+      if ('error' in result) {
+        throw new Error(result.error);
+      }
+      return result.nodeId;
+    }
+    return parent.executionLocation?.type === 'remote'
+      ? parent.executionLocation.nodeId
+      : undefined;
   }
 
   private armChildStartupWatchdog(parentId: string, childId: string, timeoutMs: number): void {

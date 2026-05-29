@@ -29,4 +29,15 @@ describe('adapter factory - codex', () => {
       sandboxMode: 'read-only',
     });
   });
+
+  it('does not forward Claude-only reasoning modes to Codex', () => {
+    const adapter = createCodexAdapter({
+      workingDirectory: '/tmp',
+      reasoningEffort: 'workflow',
+    });
+
+    expect((adapter as unknown as {
+      cliConfig: { reasoningEffort?: string };
+    }).cliConfig.reasoningEffort).toBeUndefined();
+  });
 });

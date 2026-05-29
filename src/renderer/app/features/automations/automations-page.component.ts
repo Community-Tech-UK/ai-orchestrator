@@ -241,6 +241,8 @@ function fromLocalDateInput(value: string): number {
                     <option value="medium">Medium</option>
                     <option value="high">High</option>
                     <option value="xhigh">XHigh</option>
+                    <option value="max">Max</option>
+                    <option value="workflow">Workflow</option>
                   </select>
                 </label>
               </div>

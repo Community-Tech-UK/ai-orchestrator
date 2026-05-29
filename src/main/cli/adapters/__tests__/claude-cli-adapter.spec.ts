@@ -306,6 +306,41 @@ describe('ClaudeCliAdapter', () => {
         Object.defineProperty(process, 'platform', { value: originalPlatform });
       }
     });
+
+    it('merges ultracode workflow with defer hook settings', () => {
+      const adapter = new ClaudeCliAdapter({
+        reasoningEffort: 'workflow',
+        permissionHookPath: '/tmp/defer-permission-hook.mjs',
+      });
+      (
+        adapter as unknown as {
+          cachedCliStatus: { available: boolean; version: string };
+        }
+      ).cachedCliStatus = { available: true, version: '2.1.98' };
+
+      const args = (
+        adapter as unknown as {
+          buildArgs(message: { role: 'user'; content: string }): string[];
+        }
+      ).buildArgs({ role: 'user', content: 'hello' });
+
+      expect(args).not.toContain('--effort');
+      const settingsIndex = args.indexOf('--settings');
+      expect(settingsIndex).toBeGreaterThan(-1);
+      const settings = JSON.parse(args[settingsIndex + 1] ?? '{}') as {
+        ultracode?: boolean;
+        hooks?: {
+          PreToolUse?: {
+            hooks?: { command?: string }[];
+          }[];
+        };
+      };
+
+      expect(settings.ultracode).toBe(true);
+      expect(settings.hooks?.PreToolUse?.[0]?.hooks?.[0]?.command).toBe(
+        "node '/tmp/defer-permission-hook.mjs'",
+      );
+    });
   });
 });
 

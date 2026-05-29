@@ -21,6 +21,7 @@
 import { Worker } from 'node:worker_threads';
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
+import { getLogger } from '../logging/logger';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type { RlmContextInfo, ContextBudget, UnifiedMemoryContextInfo } from './instance-types';
 import type { InstanceContextPort } from './instance-context-port';
@@ -40,9 +41,15 @@ import type {
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
+const logger = getLogger('ContextWorkerClient');
+
 const DEFAULT_RPC_TIMEOUT_MS = 5_000;
 const RESTART_BACKOFF_MS = 2_000;
-const MAX_RESTART_ATTEMPTS = 1;
+// Consecutive (not lifetime) crashes tolerated before the client stays degraded.
+// `restartAttempts` is reset to 0 by handleMessage() whenever the worker answers
+// an RPC, so a worker that crashes once, recovers, then crashes again much later
+// in a long session still gets restarted rather than being permanently disabled.
+const MAX_RESTART_ATTEMPTS = 3;
 const MAX_INFLIGHT_INGESTION = 1_000;
 
 // ── Budget calculation constants (mirrors InstanceContextManager defaults) ────
@@ -383,8 +390,11 @@ export class ContextWorkerClient implements InstanceContextPort {
         }
       });
       this.worker = w;
+      logger.info('Context worker started');
     } catch (err) {
-      this.markDegraded(err instanceof Error ? err.message : String(err));
+      const reason = err instanceof Error ? err.message : String(err);
+      logger.error('Failed to start context worker; context retrieval disabled until restart', err instanceof Error ? err : undefined);
+      this.markDegraded(reason);
     }
   }
 
@@ -395,6 +405,13 @@ export class ContextWorkerClient implements InstanceContextPort {
     clearTimeout(pending.timeout);
     this.pending.delete(msg.id);
     this.metrics.processed++;
+    // A successful response proves the (possibly just-restarted) worker is
+    // healthy, so clear the consecutive-crash counter. This makes the restart
+    // cap count consecutive crashes rather than lifetime crashes.
+    if (this.restartAttempts > 0) {
+      this.restartAttempts = 0;
+      logger.info('Context worker recovered after restart');
+    }
     if (msg.error) {
       pending.reject(new Error(msg.error));
     } else {
@@ -409,10 +426,21 @@ export class ContextWorkerClient implements InstanceContextPort {
     this.markDegraded(err.message);
     if (this.restartAttempts < MAX_RESTART_ATTEMPTS) {
       this.restartAttempts++;
+      logger.warn('Context worker crashed; scheduling restart', {
+        error: err.message,
+        attempt: this.restartAttempts,
+        maxAttempts: MAX_RESTART_ATTEMPTS,
+        backoffMs: RESTART_BACKOFF_MS,
+      });
       setTimeout(() => {
         this.isDegraded = false;
         this.startWorker();
       }, RESTART_BACKOFF_MS);
+    } else {
+      logger.error('Context worker exceeded restart attempts; staying degraded (memory/RLM context disabled this session)', undefined, {
+        error: err.message,
+        maxAttempts: MAX_RESTART_ATTEMPTS,
+      });
     }
   }
 

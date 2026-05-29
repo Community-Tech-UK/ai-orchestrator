@@ -424,6 +424,8 @@ export const DEFAULT_CODE_INDEX_IGNORES = [
   '.svelte-kit/',
   '.turbo/',
   '.venv/',
+  '_archive/',
+  '_scratch/',
   'build/',
   'cache/',
   'coverage/',

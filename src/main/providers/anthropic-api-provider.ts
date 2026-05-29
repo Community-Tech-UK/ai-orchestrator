@@ -109,7 +109,7 @@ export class AnthropicApiProvider extends BaseProvider {
   private client: Anthropic | null = null;
   private session: SessionState | null = null;
   private currentUsage: ProviderUsage | null = null;
-  private model: string = CLAUDE_MODELS.SONNET;
+  private model: string = CLAUDE_MODELS.OPUS;
   private maxTokens: number = 4096;
   private options: AnthropicApiProviderConfig;
 
@@ -191,7 +191,7 @@ export class AnthropicApiProvider extends BaseProvider {
     this.client = new Anthropic({ apiKey });
     this.sessionId = options.sessionId || generateId();
     this.instanceId = options.instanceId ?? (this.instanceId || this.sessionId);
-    this.model = options.model || this.config.defaultModel || CLAUDE_MODELS.SONNET;
+    this.model = options.model || this.config.defaultModel || CLAUDE_MODELS.OPUS;
     this.maxTokens = options.maxTokens || 4096;
 
     // Configure prompt cache manager for this model

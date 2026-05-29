@@ -104,6 +104,9 @@ describe('ChatStore reasoning_effort column', () => {
     const refetched = store.get('chat-1');
     expect(refetched?.reasoningEffort).toBe('high');
 
+    const workflow = store.update('chat-1', { reasoningEffort: 'workflow' });
+    expect(workflow.reasoningEffort).toBe('workflow');
+
     const cleared = store.update('chat-1', { reasoningEffort: null });
     expect(cleared.reasoningEffort).toBeNull();
   });

@@ -3,8 +3,8 @@ import type { SettingMetadata } from './settings-metadata.types';
 export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'outputBufferSize',
-    label: 'In-Memory Buffer Size',
-    description: 'Messages kept in memory per instance (older ones saved to disk)',
+    label: 'Messages kept in memory per agent',
+    description: 'How many recent messages stay in memory for each agent. Older ones move to disk (when disk storage is on).',
     type: 'number',
     category: 'memory',
     min: 100,
@@ -12,15 +12,15 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'enableDiskStorage',
-    label: 'Enable Disk Storage',
-    description: 'Save older output to disk to reduce memory usage',
+    label: 'Save older output to disk',
+    description: 'Move older transcript output out of memory and onto disk, so the app uses less RAM.',
     type: 'boolean',
     category: 'memory',
   },
   {
     key: 'maxDiskStorageMB',
-    label: 'Max Disk Storage (MB)',
-    description: 'Maximum disk space for output storage (0 = unlimited)',
+    label: 'Disk storage limit (MB)',
+    description: 'Most disk space to use for saved output, in megabytes. 0 means no limit.',
     type: 'number',
     category: 'memory',
     min: 0,
@@ -28,8 +28,8 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'memoryWarningThresholdMB',
-    label: 'Memory Warning Threshold (MB)',
-    description: 'Show warning when heap usage exceeds this (0 = disabled)',
+    label: 'Memory warning threshold (MB)',
+    description: "Warn when the app's memory use climbs above this many megabytes. 0 turns the warning off.",
     type: 'number',
     category: 'memory',
     min: 0,
@@ -37,23 +37,23 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'autoTerminateOnMemoryPressure',
-    label: 'Auto-terminate on Memory Pressure',
-    description: 'Terminate idle instances when memory is critical',
+    label: 'Close idle agents when memory runs low',
+    description: 'If the app is close to running out of memory, automatically shut down idle agents to recover.',
     type: 'boolean',
     category: 'memory',
   },
   {
     key: 'customModelOverride',
-    label: 'Custom Model Override',
-    description: 'Override the default model (leave empty for CLI default)',
+    label: 'Custom model override',
+    description: 'Force a specific model name for every new instance, ignoring the Default model setting. Leave empty to use the CLI\'s own default.',
     type: 'string',
     category: 'advanced',
     placeholder: 'e.g., claude-3-opus-20240229',
   },
   {
     key: 'parserBufferMaxKB',
-    label: 'Parser Buffer Max (KB)',
-    description: 'Maximum size for NDJSON parser buffer before reset',
+    label: 'Output parser buffer limit (KB)',
+    description: 'Largest chunk of streamed CLI output the parser holds before resetting. Raise it only if very long output lines get cut off.',
     type: 'number',
     category: 'advanced',
     min: 256,
@@ -61,37 +61,37 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'codememEnabled',
-    label: 'Enable Codemem',
-    description: 'Enable the codemem index and agent-facing code memory features',
+    label: 'Enable code memory',
+    description: 'Let agents look up symbols and structure from a lightweight index of your code ("codemem"). Turning this off disables all the code-memory options below.',
     type: 'boolean',
     category: 'advanced',
   },
   {
     key: 'codememIndexingEnabled',
-    label: 'Enable Codemem Indexing',
-    description: 'Maintain the persistent workspace symbol and merkle index',
+    label: 'Keep the code index up to date',
+    description: "Continuously index your project's symbols so code lookups stay accurate as files change.",
     type: 'boolean',
     category: 'advanced',
   },
   {
     key: 'codememLspWorkerEnabled',
-    label: 'Enable Codemem LSP Worker',
-    description: 'Start the background LSP worker used by codemem deep queries',
+    label: 'Enable deep code queries',
+    description: 'Run a background language server so agents can answer deeper questions like "who calls this?" or "where is this defined?". Uses more CPU and memory.',
     type: 'boolean',
     category: 'advanced',
   },
   {
     key: 'codememPrewarmEnabled',
-    label: 'Enable Codemem Pre-warm on Workspace Open',
+    label: 'Warm up the code index when a folder opens',
     description:
-      'Warm up codemem indexes the moment a workspace is opened in the UI, instead of waiting until a CLI is spawned against it',
+      'Start building the code index the moment you open a folder, instead of waiting for the first agent. Makes the first code lookup faster.',
     type: 'boolean',
     category: 'advanced',
   },
   {
     key: 'codememPrewarmMaxConcurrent',
-    label: 'Codemem Pre-warm Max Concurrency',
-    description: 'Maximum number of workspaces that can warm up simultaneously',
+    label: 'Index warm-ups at once',
+    description: 'How many folders can build their code index at the same time. Higher is faster but heavier on your machine.',
     type: 'number',
     category: 'advanced',
     min: 1,
@@ -99,9 +99,9 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'codememPrewarmDebounceMs',
-    label: 'Codemem Pre-warm Debounce (ms)',
+    label: 'Index warm-up delay (ms)',
     description:
-      'Debounce window per path for collapsing rapid-fire workspace-opened events into a single warm call',
+      "Wait this long after a folder opens before warming its index, so clicking quickly through folders doesn't kick off many warm-ups at once.",
     type: 'number',
     category: 'advanced',
     min: 0,
@@ -109,23 +109,23 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'codememPrewarmStartupHint',
-    label: 'Pre-warm Most-Recent Directory on Startup',
+    label: 'Warm up your last folder at launch',
     description:
-      "On app startup, automatically pre-warm the codemem index for the most recently opened local workspace",
+      'When the app starts, pre-build the code index for the folder you used most recently.',
     type: 'boolean',
     category: 'advanced',
   },
   {
     key: 'commandDiagnosticsAvailable',
-    label: 'Enable Command Diagnostics',
-    description: 'Show command registry diagnostics in Doctor reports',
+    label: 'Include command diagnostics in Doctor',
+    description: 'Add slash-command and command-registry checks to the Doctor diagnostics report.',
     type: 'boolean',
     category: 'advanced',
   },
   {
     key: 'broadRootFileThreshold',
-    label: 'Broad Instruction Scan Threshold',
-    description: 'Warn when project-level instruction files apply broadly above this file count',
+    label: 'Broad instruction-file warning',
+    description: 'Warn when a project instruction file (e.g. AGENTS.md) would apply to more than this many files — a sign its scope is too broad.',
     type: 'number',
     category: 'advanced',
     min: 0,
@@ -133,17 +133,17 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'codebaseAutoIndexEnabled',
-    label: 'Enable Legacy RLM Codebase Auto-Index',
+    label: 'Auto-run the legacy codebase index',
     description:
-      'Automatically run the older BM25 + embedding RLM codebase index when a workspace is opened. This is heavier than codemem and should stay off unless debugging the legacy search path',
+      "Automatically run the older, heavier full-text + embedding search index when a folder opens. Most people should leave this off — it's mainly for debugging the legacy search path.",
     type: 'boolean',
     category: 'advanced',
   },
   {
     key: 'codebaseAutoIndexMaxFiles',
-    label: 'Codebase Auto-Index Max Files',
+    label: 'Legacy index: skip folders over this many files',
     description:
-      'Skip auto-indexing workspaces with more files than this — the user can still trigger a full index manually',
+      "Don't auto-run the legacy index on folders with more files than this. You can still index them manually.",
     type: 'number',
     category: 'advanced',
     min: 100,
@@ -151,9 +151,9 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'codebaseAutoIndexMaxBytes',
-    label: 'Codebase Auto-Index Max Bytes',
+    label: 'Legacy index: skip folders over this size (bytes)',
     description:
-      'Skip auto-indexing workspaces whose total file size exceeds this many bytes',
+      "Don't auto-run the legacy index on folders whose files add up to more than this many bytes.",
     type: 'number',
     category: 'advanced',
     min: 1_048_576,
@@ -161,9 +161,9 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'codebaseAutoIndexConcurrent',
-    label: 'Codebase Auto-Index Max Concurrency',
+    label: 'Legacy index: runs at once',
     description:
-      'Maximum number of simultaneous codebase auto-index runs. Heavier than codemem — keep at 1 unless you understand the embedder load',
+      'How many folders the legacy index can process at the same time. Keep this at 1 — it is heavy.',
     type: 'number',
     category: 'advanced',
     min: 1,
@@ -171,9 +171,9 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'codebaseAutoIndexDebounceMs',
-    label: 'Codebase Auto-Index Debounce (ms)',
+    label: 'Legacy index: start delay (ms)',
     description:
-      'Debounce window per path for collapsing rapid-fire workspace-opened events into a single auto-index run',
+      'Wait this long after a folder opens before starting the legacy index, to batch rapid folder switches into one run.',
     type: 'number',
     category: 'advanced',
     min: 0,
@@ -181,25 +181,25 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'codebaseAutoIndexStartupHint',
-    label: 'Codebase Auto-Index Startup Hint',
+    label: 'Legacy index: run your last folder at launch',
     description:
-      'On app startup, auto-index the most-recent local workspace with the heavier embedding + BM25 pipeline',
+      'When the app starts, run the legacy codebase index for the folder you used most recently.',
     type: 'boolean',
     category: 'advanced',
   },
   {
     key: 'projectKnowledgeAutoMirrorEnabled',
-    label: 'Enable Project Knowledge Auto-Mirror on Workspace Open',
+    label: 'Build the Knowledge Graph when a folder opens',
     description:
-      'Mirror codemem snapshots into the RLM project-knowledge store the moment a workspace is opened, so the Knowledge Graph view and wake-context have code_file / code_symbol evidence without spawning a CLI first',
+      'Copy code structure into the project Knowledge Graph as soon as you open a folder, so the Knowledge view has data without running an agent first.',
     type: 'boolean',
     category: 'advanced',
   },
   {
     key: 'projectKnowledgeAutoMirrorDebounceMs',
-    label: 'Project Knowledge Auto-Mirror Debounce (ms)',
+    label: 'Knowledge Graph: start delay (ms)',
     description:
-      'Debounce window per path for collapsing rapid-fire workspace-opened events into a single mirror call',
+      'Wait this long after a folder opens before updating the Knowledge Graph, to batch rapid folder switches into one update.',
     type: 'number',
     category: 'advanced',
     min: 0,
@@ -207,9 +207,9 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'projectKnowledgeAutoMirrorMaxConcurrent',
-    label: 'Project Knowledge Auto-Mirror Max Concurrency',
+    label: 'Knowledge Graph: updates at once',
     description:
-      'Maximum number of simultaneous mirror runs. The bridge serialises on SQLite anyway; this cap protects against many cold codemem warm-ups in parallel',
+      'How many folders can update the Knowledge Graph at the same time.',
     type: 'number',
     category: 'advanced',
     min: 1,
@@ -217,9 +217,9 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'projectKnowledgeAutoMirrorSkipWithinMs',
-    label: 'Project Knowledge Auto-Mirror Skip Window (ms)',
+    label: 'Knowledge Graph: skip-if-recent window (ms)',
     description:
-      'Skip re-running the auto-mirror if the bridge\'s lastSyncedAt is within this window. Only applies to the auto-mirror — manual refresh and spawn-time always re-run',
+      'Skip the automatic update if the Knowledge Graph was already refreshed within this window. Manual refreshes always run.',
     type: 'number',
     category: 'advanced',
     min: 0,
@@ -227,9 +227,9 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'projectKnowledgeAutoMirrorStartupHint',
-    label: 'Project Knowledge Auto-Mirror Startup Hint',
+    label: 'Knowledge Graph: build your last folder at launch',
     description:
-      'On app startup, auto-mirror the most-recent local workspace so the Knowledge Graph view is populated when the user returns',
+      'When the app starts, build the Knowledge Graph for the folder you used most recently.',
     type: 'boolean',
     category: 'advanced',
   },

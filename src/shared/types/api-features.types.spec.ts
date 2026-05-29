@@ -143,6 +143,8 @@ describe('API Features Types', () => {
     it('should have PROMPT_CACHING_MODELS array', () => {
       expect(PROMPT_CACHING_MODELS.length).toBeGreaterThan(0);
       expect(PROMPT_CACHING_MODELS).toContain('claude-sonnet-4-5-20250929');
+      expect(PROMPT_CACHING_MODELS).toContain('claude-opus-4-8');
+      expect(MIN_CACHEABLE_TOKENS['claude-opus-4-8']).toBe(1024);
     });
 
     it('should define CacheControl type correctly', () => {

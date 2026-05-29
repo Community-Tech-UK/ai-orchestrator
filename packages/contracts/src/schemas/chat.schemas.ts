@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { FileAttachmentSchema } from './common.schemas';
 
 export const ChatProviderSchema = z.enum(['claude', 'codex', 'gemini', 'copilot']);
-export const ChatReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+export const ChatReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow']);
 const ChatFileAttachmentSchema = FileAttachmentSchema.extend({
   data: z.string(),
 });

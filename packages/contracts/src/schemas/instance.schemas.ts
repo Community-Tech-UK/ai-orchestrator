@@ -7,7 +7,7 @@ import {
   FileAttachmentSchema,
 } from './common.schemas';
 
-const ReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+const ReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow']);
 
 // ============ Instance Creation ============
 

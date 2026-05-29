@@ -15,6 +15,7 @@ import { getHabitTracker } from '../learning/habit-tracker';
 import { getPreferenceStore } from '../learning/preference-store';
 import { getAgentById, getDefaultAgent } from '../../shared/types/agent.types';
 import {
+  CLAUDE_MODELS,
   isModelTier,
   normalizeModelAliasForProvider,
   resolveModelForTier,
@@ -60,6 +61,21 @@ export interface OrchestrationDependencies {
 }
 
 const logger = getLogger('InstanceOrchestration');
+
+/**
+ * Map legacy Claude-3.x model ids (e.g. a stale `model.default` preference such
+ * as "claude-3-sonnet") to a current model alias the CLI accepts. Current model
+ * ids and aliases pass through unchanged.
+ */
+function normalizeLegacyClaudeModel(model: string): string {
+  const normalized = model.trim().toLowerCase();
+  if (normalized.startsWith('claude-3')) {
+    if (normalized.includes('opus')) return CLAUDE_MODELS.OPUS;
+    if (normalized.includes('haiku')) return CLAUDE_MODELS.HAIKU;
+    return CLAUDE_MODELS.SONNET;
+  }
+  return model;
+}
 
 function getChildRoutingAudit(child: Instance): PluginRoutingAudit | undefined {
   const orchestration = child.metadata?.['orchestration'];
@@ -181,6 +197,7 @@ export class InstanceOrchestrationManager {
           agentId: command.agentId,
           model: command.model,
           provider: command.provider,
+          node: command.node,
         });
         if (!validation.success) {
           const issue = validation.error.issues[0];
@@ -748,10 +765,11 @@ export class InstanceOrchestrationManager {
     try {
       const preferredModel = getPreferenceStore().get<string>('model.default');
       if (preferredModel) {
+        const model = normalizeLegacyClaudeModel(preferredModel);
         return {
-          model: preferredModel,
+          model,
           complexity: 'moderate',
-          tier: router.getModelTier(preferredModel),
+          tier: router.getModelTier(model),
           confidence: 0.5,
           reason: 'User preference store default model'
         };

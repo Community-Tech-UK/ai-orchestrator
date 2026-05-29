@@ -16,13 +16,17 @@ const HOOK_COMMANDS = {
     { command: 'npm', args: ['run', 'generate:aliases'] },
     { command: 'npm', args: ['run', 'generate:ipc'] },
     { command: 'npm', args: ['run', 'generate:architecture'] },
-    { command: 'npm', args: ['run', 'check:ts-max-loc'] },
+    // Warn-only locally so a commit/push is never blocked purely by file size.
+    // CI runs `npm run check:ts-max-loc` without --warn, so it stays the enforcing gate.
+    { command: 'npm', args: ['run', 'check:ts-max-loc', '--', '--warn'] },
     { command: 'git', args: ['add', ...GENERATED_ARTIFACTS] },
   ],
   'pre-push': [
     { command: 'npm', args: ['run', 'verify:ipc'] },
     { command: 'npm', args: ['run', 'check:contracts'] },
-    { command: 'npm', args: ['run', 'check:ts-max-loc'] },
+    // Warn-only locally so a commit/push is never blocked purely by file size.
+    // CI runs `npm run check:ts-max-loc` without --warn, so it stays the enforcing gate.
+    { command: 'npm', args: ['run', 'check:ts-max-loc', '--', '--warn'] },
     { command: 'npm', args: ['run', 'verify:architecture'] },
   ],
 };

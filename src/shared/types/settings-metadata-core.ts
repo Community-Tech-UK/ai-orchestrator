@@ -4,7 +4,7 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'defaultYoloMode',
     label: 'Auto-approve actions by default',
-    description: 'Start new instances in YOLO mode, auto-approving actions without prompts.',
+    description: 'New instances skip the approval prompts and act on their own. Faster, but riskier — only turn this on for trusted, sandboxed work.',
     type: 'boolean',
     category: 'general',
   },
@@ -18,8 +18,8 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'defaultCli',
-    label: 'Default CLI',
-    description: 'Provider CLI used when creating a new instance.',
+    label: 'Default AI CLI',
+    description: 'Which AI command-line tool a new instance uses. "Auto-detect" picks the first one you have installed.',
     type: 'select',
     category: 'general',
     options: [
@@ -34,7 +34,7 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'defaultModel',
     label: 'Default model',
-    description: 'Model passed to new instances when the selected CLI supports a model flag.',
+    description: 'Which model new instances start with, when the chosen CLI lets you pick one.',
     type: 'select',
     category: 'general',
     options: [
@@ -57,7 +57,7 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'theme',
     label: 'Theme',
-    description: 'Application color theme.',
+    description: 'Light, dark, or follow your operating system.',
     type: 'select',
     category: 'display',
     options: [
@@ -68,8 +68,8 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'maxChildrenPerParent',
-    label: 'Max Children per Parent',
-    description: 'Maximum child instances per parent (0 = unlimited)',
+    label: 'Maximum sub-agents per agent',
+    description: 'How many helper agents one agent may spawn to split up a task. 0 means no limit.',
     type: 'number',
     category: 'orchestration',
     min: 0,
@@ -77,8 +77,8 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'maxTotalInstances',
-    label: 'Max Total Instances',
-    description: 'Maximum total instances allowed (0 = unlimited)',
+    label: 'Maximum agents running at once',
+    description: 'Hard ceiling on how many agents can run at the same time across the whole app. 0 means no limit.',
     type: 'number',
     category: 'orchestration',
     min: 0,
@@ -86,8 +86,8 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'autoTerminateIdleMinutes',
-    label: 'Auto-terminate Idle Instances',
-    description: 'Terminate instances after N minutes of inactivity (0 = disabled)',
+    label: 'Close idle agents after',
+    description: 'Automatically shut down an agent after this many minutes with no activity, to free up resources. 0 keeps them running indefinitely.',
     type: 'number',
     category: 'orchestration',
     min: 0,
@@ -95,27 +95,27 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'allowNestedOrchestration',
-    label: 'Allow Nested Orchestration',
-    description: 'Allow child instances to spawn their own children',
+    label: 'Let sub-agents spawn their own sub-agents',
+    description: 'Allow helper agents to start their own helpers (deeper delegation). Off keeps the hierarchy one level deep.',
     type: 'boolean',
     category: 'orchestration',
   },
   {
     key: 'defaultMissedRunPolicy',
-    label: 'Default Missed Run Policy',
-    description: 'Default behavior when scheduled automation runs are missed',
+    label: 'When a scheduled run is missed',
+    description: 'What to do if a scheduled task was due while the app was closed or busy.',
     type: 'select',
     category: 'orchestration',
     options: [
-      { value: 'skip', label: 'Skip' },
-      { value: 'notify', label: 'Notify' },
-      { value: 'runOnce', label: 'Run Once' },
+      { value: 'skip', label: 'Skip it' },
+      { value: 'notify', label: 'Just notify me' },
+      { value: 'runOnce', label: 'Run it once on next launch' },
     ],
   },
   {
     key: 'persistSessionContent',
-    label: 'Persist Session Content',
-    description: 'Save conversation and tool output to disk for session continuity',
+    label: 'Save conversation history to disk',
+    description: "Keep each session's messages and tool output on disk so you can reopen and continue it later.",
     type: 'boolean',
     category: 'memory',
   },
@@ -131,7 +131,7 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'displayDensity',
     label: 'Display density',
-    description: 'Spacing density for settings, shell panels, and workspace rows.',
+    description: 'How tightly packed the interface is. "Compact" fits more on screen; "Comfortable" adds breathing room.',
     type: 'select',
     category: 'display',
     options: [
@@ -142,7 +142,7 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'sidebarStyle',
     label: 'Sidebar style',
-    description: 'Sidebar width behavior for the workspace shell.',
+    description: 'How wide the left sidebar is in the main workspace.',
     type: 'select',
     category: 'display',
     options: [
@@ -152,8 +152,8 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'contextWarningThreshold',
-    label: 'Context warning threshold',
-    description: 'Warn when a session reaches this percentage of its context window.',
+    label: 'Context-full warning at',
+    description: "Show a warning once a session has used this percentage of the model's context window (how much it can keep in mind at once).",
     type: 'number',
     category: 'display',
     min: 50,
@@ -162,14 +162,14 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'showToolMessages',
     label: 'Show tool activity',
-    description: 'Show tool calls and results in the transcript.',
+    description: 'Show tool calls and their results in the transcript.',
     type: 'boolean',
     category: 'display',
   },
   {
     key: 'showThinking',
     label: 'Show reasoning panels',
-    description: 'Show AI reasoning in collapsible transcript panels.',
+    description: "Show the AI's reasoning in collapsible panels in the transcript.",
     type: 'boolean',
     category: 'display',
   },
@@ -182,8 +182,8 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'maxRecentDirectories',
-    label: 'Recent workspace limit',
-    description: 'Number of recently opened directories to keep in workspace history.',
+    label: 'Recent folders to remember',
+    description: 'How many recently opened folders to keep in your workspace history.',
     type: 'number',
     category: 'display',
     min: 5,

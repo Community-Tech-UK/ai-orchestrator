@@ -38,7 +38,7 @@ export const DEFAULT_CLAUDE_CONFIG: ProviderConfig = {
   type: 'claude-cli',
   name: 'Claude Code CLI',
   enabled: true,
-  defaultModel: CLAUDE_MODELS.SONNET,
+  defaultModel: CLAUDE_MODELS.OPUS_1M,
 };
 
 export const CLAUDE_DESCRIPTOR: ProviderAdapterDescriptor = {
@@ -113,8 +113,8 @@ export class ClaudeCliProvider extends BaseProvider {
     const model = normalizeModelForProvider(
       'claude',
       options.model,
-      this.config.defaultModel || CLAUDE_MODELS.SONNET,
-    ) || this.config.defaultModel || CLAUDE_MODELS.SONNET;
+      this.config.defaultModel || CLAUDE_MODELS.OPUS_1M,
+    ) || this.config.defaultModel || CLAUDE_MODELS.OPUS_1M;
 
     this.adapter = new ClaudeCliAdapter({
       workingDirectory: options.workingDirectory,
@@ -186,7 +186,7 @@ export class ClaudeCliProvider extends BaseProvider {
    */
   private updateUsageFromContext(context: ContextUsage): void {
     // Estimate cost based on model pricing
-    const modelId = this.config.defaultModel || CLAUDE_MODELS.SONNET;
+    const modelId = this.config.defaultModel || CLAUDE_MODELS.OPUS_1M;
     const pricing = (MODEL_PRICING as Record<string, { input: number; output: number }>)[modelId] || { input: 3.0, output: 15.0 };
 
     // Context usage gives us total tokens used, estimate input/output split

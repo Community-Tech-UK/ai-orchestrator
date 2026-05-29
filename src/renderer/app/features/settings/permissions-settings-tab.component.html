@@ -1,6 +1,6 @@
 <div class="section">
   <div class="section-header">
-    <h4>Permission Preset</h4>
+    <h4>Default action for new requests</h4>
     <div class="header-actions">
       <button class="btn-secondary" (click)="loadPermissionPreset()" [disabled]="loading()">
         Refresh
@@ -9,25 +9,27 @@
   </div>
 
   <p class="section-description">
-    Choose how unmatched filesystem and network actions are handled before a rule or user decision applies.
+    When an agent tries to read or write files, or make a network request, and no specific rule
+    covers it yet, this setting decides what happens. <strong>Ask</strong> is the safest starting
+    point — you confirm each new action once, then the app remembers your answer.
   </p>
 
   <div class="preset-row">
     <label class="preset-field">
-      <span>Default preset</span>
+      <span>When no rule matches</span>
       <select
         class="scope-select"
         [value]="draftPermissionPreset()"
         (change)="setDraftPermissionPreset($any($event.target).value)"
       >
-        <option value="allow">Allow by default</option>
-        <option value="ask">Ask before action</option>
-        <option value="deny">Deny by default</option>
+        <option value="allow">Allow — permit automatically (least safe)</option>
+        <option value="ask">Ask — prompt me each time (recommended)</option>
+        <option value="deny">Deny — block automatically (most restrictive)</option>
       </select>
     </label>
 
     <div class="preset-meta">
-      <span class="stat-label">Current mode</span>
+      <span class="stat-label">Active setting</span>
       <strong>{{ permissionPreset() }}</strong>
     </div>
   </div>
@@ -43,9 +45,9 @@
       <app-task-preflight-card
         [report]="defaultWorkspacePreflight()"
         [loading]="presetLoading()"
-        title="Default Workspace Preflight"
-        subtitle="How the current preset and workspace defaults will affect a typical repo-backed task."
-        emptyMessage="Set a default working directory to inspect workspace readiness here."
+        title="Default workspace check"
+        subtitle="A preview of what your current setting will allow or block when an agent works in your default folder."
+        emptyMessage="Set a default working directory to preview what will be allowed or blocked."
       />
     </div>
   } @else if (store.defaultWorkingDirectory()) {
@@ -53,39 +55,39 @@
       <app-task-preflight-card
         [report]="defaultWorkspacePreflight()"
         [loading]="presetLoading()"
-        title="Default Workspace Preflight"
-        subtitle="How the current preset and workspace defaults will affect a typical repo-backed task."
-        emptyMessage="Checking the configured default workspace."
+        title="Default workspace check"
+        subtitle="A preview of what your current setting will allow or block when an agent works in your default folder."
+        emptyMessage="Checking the default workspace..."
       />
     </div>
   } @else {
-    <p class="section-description">Set a default working directory in general settings to preview policy impact here.</p>
+    <p class="section-description">Go to General settings and set a default working directory to preview what will be allowed or blocked.</p>
   }
 </div>
 
 <div class="section">
   <div class="section-header">
-    <h4>Browser Automation Permissions</h4>
+    <h4>Browser automation — things to know</h4>
   </div>
 
   <p class="section-description">
-    Browser automation uses an MCP server plus a local browser runtime. Expect broader filesystem
-    and network access than a normal read-only tool flow, especially when the browser is launched
-    with a reusable profile or remote debugging enabled.
+    When an agent controls a real web browser it can read pages, click buttons, and make network
+    requests — so it needs broader access than a typical read-only task. The tips below help you
+    stay in control.
   </p>
 
   <div class="permission-guidance">
     <div class="guidance-card">
       <strong>Use a separate browser profile</strong>
-      <span>Keep authenticated sessions isolated from your personal Chrome profile.</span>
+      <span>Keep the agent&apos;s browser sessions separate from your personal Chrome profile so your saved passwords and cookies stay private.</span>
     </div>
     <div class="guidance-card">
-      <strong>Prefer scoped MCP approvals</strong>
-      <span>Grant session-level approval first, then promote to a persistent rule only after review.</span>
+      <strong>Start with session-level approval</strong>
+      <span>Approve browser access for this session only first. Once you&apos;re happy it&apos;s working as expected, you can make it permanent.</span>
     </div>
     <div class="guidance-card">
-      <strong>Verify the MCP source</strong>
-      <span>Only approve browser servers you recognize, since they can navigate, click, and inspect page content.</span>
+      <strong>Only allow browser tools you recognise</strong>
+      <span>A browser tool can navigate, click, and read page content. Only approve tools from sources you trust.</span>
     </div>
   </div>
 </div>
@@ -93,7 +95,7 @@
 <!-- Pending Batch Permissions Section -->
 <div class="section">
   <div class="section-header">
-    <h4>Pending Permissions</h4>
+    <h4>Waiting for your approval</h4>
     <div class="header-actions">
       <button
         class="btn-secondary"
@@ -105,12 +107,17 @@
     </div>
   </div>
 
+  <p class="section-description">
+    These are actions an agent has paused on and is waiting for you to allow or block.
+    Use the scope dropdown to control how long your answer is remembered.
+  </p>
+
   @if (loading()) {
     <div class="loading-state">Loading...</div>
   } @else if (pendingPermissions().length === 0) {
     <div class="empty-state">
       <span class="empty-icon">&#10003;</span>
-      <span>No pending permissions</span>
+      <span>Nothing waiting for your approval</span>
     </div>
   } @else {
     <div class="batch-actions">
@@ -119,23 +126,23 @@
         (click)="handleBatchDecision('allow_all')"
         [disabled]="loading()"
       >
-        Allow All ({{ pendingPermissions().length }})
+        Allow all ({{ pendingPermissions().length }})
       </button>
       <button
         class="btn-deny"
         (click)="handleBatchDecision('deny_all')"
         [disabled]="loading()"
       >
-        Deny All
+        Block all
       </button>
       <select
         class="scope-select"
         [value]="batchScope()"
         (change)="batchScope.set($any($event.target).value)"
       >
-        <option value="once">This time only</option>
-        <option value="session">This session</option>
-        <option value="always">Always</option>
+        <option value="once">Just this once — ask me again next time</option>
+        <option value="session">For this session — forget when I close the app</option>
+        <option value="always">Always — remember permanently</option>
       </select>
     </div>
 
@@ -176,7 +183,7 @@
 <!-- Learned Patterns Section -->
 <div class="section">
   <div class="section-header">
-    <h4>Learned Patterns</h4>
+    <h4>Suggested automatic rules</h4>
     <div class="header-actions">
       <button
         class="btn-secondary"
@@ -189,8 +196,10 @@
   </div>
 
   <p class="section-description">
-    The system learns from your permission decisions to suggest automatic
-    rules. Review and approve patterns to reduce future prompts.
+    Each time you approve or block a request, the app looks for patterns in your answers.
+    When it spots one it thinks is reliable, it appears here as a suggested rule.
+    Approve a suggestion to have that action handled automatically in future —
+    no more prompts for that pattern. Dismiss it to keep being asked.
   </p>
 
   @if (loading()) {
@@ -198,7 +207,7 @@
   } @else if (learnedPatterns().length === 0) {
     <div class="empty-state">
       <span class="empty-icon">&#128218;</span>
-      <span>No patterns learned yet</span>
+      <span>No suggestions yet — answer a few prompts and they&apos;ll appear here</span>
     </div>
   } @else {
     <div class="patterns-list">
@@ -215,7 +224,7 @@
                 {{ pattern.recommendedAction }}
               </span>
               @if (pattern.approved) {
-                <span class="pattern-approved-badge">Approved</span>
+                <span class="pattern-approved-badge">Active</span>
               }
             </div>
             <div class="pattern-details">
@@ -225,7 +234,7 @@
               <span class="confidence">
                 {{ (pattern.confidence * 100).toFixed(0) }}% confidence
               </span>
-              <span class="samples">{{ pattern.sampleCount }} decisions</span>
+              <span class="samples">based on {{ pattern.sampleCount }} past decisions</span>
             </div>
           </div>
           <div class="pattern-actions">
@@ -234,7 +243,7 @@
                 class="btn-approve"
                 (click)="approvePattern(pattern.id)"
                 [disabled]="loading()"
-                title="Approve and create rule"
+                title="Turn this into an automatic rule"
               >
                 Approve
               </button>
@@ -242,12 +251,12 @@
                 class="btn-reject"
                 (click)="rejectPattern(pattern.id)"
                 [disabled]="loading()"
-                title="Reject pattern"
+                title="Dismiss this suggestion"
               >
-                Reject
+                Dismiss
               </button>
             } @else {
-              <span class="approved-text">Active as rule</span>
+              <span class="approved-text">Running as a rule</span>
             }
           </div>
         </div>
@@ -259,36 +268,36 @@
 <!-- Statistics Section -->
 <div class="section">
   <div class="section-header">
-    <h4>Permission Statistics</h4>
+    <h4>Activity summary</h4>
   </div>
 
   <div class="stats-grid">
     <div class="stat-card">
       <div class="stat-value">{{ stats().totalRules }}</div>
-      <div class="stat-label">Active Rules</div>
+      <div class="stat-label">Automatic rules</div>
     </div>
     <div class="stat-card">
       <div class="stat-value">{{ stats().cacheSize }}</div>
-      <div class="stat-label">Cached Decisions</div>
+      <div class="stat-label">Remembered decisions</div>
     </div>
     <div class="stat-card">
       <div class="stat-value">{{ stats().approvedPatterns }}</div>
-      <div class="stat-label">Learned Patterns</div>
+      <div class="stat-label">Approved suggestions</div>
     </div>
     <div class="stat-card">
       <div class="stat-value">
         {{ (stats().accuracyRate * 100).toFixed(0) }}%
       </div>
-      <div class="stat-label">Suggestion Accuracy</div>
+      <div class="stat-label">Suggestion accuracy</div>
     </div>
   </div>
 
   <div class="learning-progress">
     <div class="progress-header">
-      <span>Learning Progress</span>
+      <span>How well suggestions are landing</span>
       <span>
-        {{ stats().suggestionsAccepted }} / {{ stats().suggestionsMade }}
-        suggestions accepted
+        {{ stats().suggestionsAccepted }} of {{ stats().suggestionsMade }}
+        suggestions approved
       </span>
     </div>
     <div class="progress-bar">

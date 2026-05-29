@@ -153,7 +153,7 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
     changeModel: (payload: {
       instanceId: string;
       model: string;
-      reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | null;
+      reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'workflow' | null;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.INSTANCE_CHANGE_MODEL, payload);
     },

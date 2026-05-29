@@ -35,9 +35,9 @@ export interface UnifiedReasoningOption {
  * `ModelPickerController.commitSelection({ provider, modelId, reasoning })`.
  *
  *   - `kind: 'provider'` — user clicked a provider row body. The picker
- *     resets to the provider's primary default model and highest reasoning.
+ *     resets to the provider's primary default model and provider-default reasoning.
  *   - `kind: 'model'` — user clicked a model row body. Provider switches if
- *     needed; reasoning is set to the provider's highest supported level.
+ *     needed; reasoning returns to provider default.
  *   - `kind: 'reasoning'` — user clicked an Intelligence leaf. All three
  *     fields are committed atomically.
  */
@@ -184,8 +184,7 @@ export class UnifiedModelMenuComponent {
     if (!payload) return;
     if (payload.kind === 'provider') {
       // Treat row-body click on a provider as an explicit "switch provider"
-      // commit. The compact picker resets to the provider's primary default
-      // model and selects the highest supported reasoning level.
+      // commit. The compact picker resets to the provider's primary default.
       this.selection.emit(payload);
       return;
     }

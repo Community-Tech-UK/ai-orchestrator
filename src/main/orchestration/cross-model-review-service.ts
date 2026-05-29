@@ -13,10 +13,12 @@ import { CliDetectionService } from '../cli/cli-detection';
 import { OutputClassifier } from './output-classifier';
 import { ReviewerPool } from './reviewer-pool';
 import {
+  angleForReviewer,
   buildStructuredReviewPrompt,
   buildTieredReviewPrompt,
   truncateForReview,
 } from './review-prompts';
+import { aggregateReviewFindings, type AggregatableFinding } from './review-finding-aggregation';
 import {
   ReviewResultJsonSchema,
   TieredReviewResultJsonSchema,
@@ -32,14 +34,16 @@ import { reviewResultHasConcerns } from '../../shared/utils/cross-model-review-c
 import type { OutputBuffer, ReviewDispatchRequest } from './cross-model-review.types';
 import type { HeadlessReviewFinding, HeadlessReviewResult, HeadlessReviewReviewer } from '../cli-entrypoints/review-command-output';
 import type { HeadlessReviewRequest, ReviewExecutionHost } from '../review/review-execution-host';
+import {
+  MIN_COOLDOWN_MS,
+  MAX_REVIEW_HISTORY,
+  RATE_LIMIT_CHECK_INTERVAL_MS,
+  AVAILABILITY_REFRESH_INTERVAL_MS,
+  SUPPORTED_REVIEWER_CLIS,
+} from './cross-model-review-service.constants';
+import { extractJson } from './cross-model-review-service.helpers';
 
 const logger = getLogger('CrossModelReviewService');
-
-const MIN_COOLDOWN_MS = 10_000;
-const MAX_REVIEW_HISTORY = 50;
-const RATE_LIMIT_CHECK_INTERVAL_MS = 30_000;
-const AVAILABILITY_REFRESH_INTERVAL_MS = 5 * 60_000;
-const SUPPORTED_REVIEWER_CLIS = new Set(['gemini', 'codex', 'copilot', 'cursor']);
 
 function isCliAdapterLike(adapter: unknown): adapter is { sendMessage: (m: CliMessage) => Promise<CliResponse> } {
   return typeof (adapter as Record<string, unknown>)?.['sendMessage'] === 'function';
@@ -401,11 +405,16 @@ export class CrossModelReviewService extends EventEmitter {
 
     try {
       const reviewDepth = request.reviewDepth ?? 'structured';
-      const prompt = reviewDepth === 'tiered'
-        ? buildTieredReviewPrompt(request.taskDescription, request.content)
-        : buildStructuredReviewPrompt(request.taskDescription, request.content);
 
+      // Give each reviewer a different angle (and different phrasing) so N
+      // reviewers produce genuinely independent passes rather than N copies
+      // of the same opinion. Reviewers still score every dimension.
+      let reviewerIndex = 0;
       for (const reviewer of reviewers) {
+        const angle = angleForReviewer(reviewerIndex++);
+        const prompt = reviewDepth === 'tiered'
+          ? buildTieredReviewPrompt(request.taskDescription, request.content, angle)
+          : buildStructuredReviewPrompt(request.taskDescription, request.content, angle);
         try {
           const rawResponse = await host.dispatchReviewerPrompt(reviewer, prompt, request.cwd, abort.signal);
           const parsed = this.parseReviewResponse(reviewer, rawResponse, reviewDepth, 0);
@@ -427,7 +436,22 @@ export class CrossModelReviewService extends EventEmitter {
       clearTimeout(timeout);
     }
 
-    const findings = successfulReviews.flatMap((review) => this.toHeadlessFindings(review));
+    // Dedup + aggregate findings across reviewers ("N/M reviewers flagged X").
+    // With a single successful reviewer this is a pass-through (no merging,
+    // no agreement prefix), so single-reviewer output is unchanged.
+    const taggedFindings: AggregatableFinding[] = successfulReviews.flatMap((review) =>
+      this.toHeadlessFindings(review).map((finding) => ({ ...finding, reviewer: review.reviewerId })),
+    );
+    const findings: HeadlessReviewFinding[] = aggregateReviewFindings(taggedFindings, {
+      totalReviewers: successfulReviews.length,
+    }).map((finding) => ({
+      title: finding.title,
+      body: finding.body,
+      ...(finding.file ? { file: finding.file } : {}),
+      ...(typeof finding.line === 'number' ? { line: finding.line } : {}),
+      severity: finding.severity,
+      confidence: finding.confidence,
+    }));
     const failedReasons = reviewerStatuses
       .filter((reviewer) => reviewer.status === 'failed' && reviewer.reason)
       .map((reviewer) => `${reviewer.provider}: ${reviewer.reason}`);
@@ -522,7 +546,7 @@ export class CrossModelReviewService extends EventEmitter {
       durationMs,
     };
 
-    const parsed = this.extractJson(rawResponse);
+    const parsed = extractJson(rawResponse);
 
     if (!parsed) {
       logger.warn('Failed to extract JSON from review response', { reviewerId, responseLength: rawResponse.length });
@@ -564,73 +588,6 @@ export class CrossModelReviewService extends EventEmitter {
       integrationRisks: 'integration_risks' in data ? data.integration_risks : undefined,
       parseSuccess: true,
     } as ReviewResult;
-  }
-
-  /**
-   * Extract JSON from a reviewer response, handling common model output quirks:
-   * markdown fences, preamble text, trailing commentary, nested braces.
-   */
-  private extractJson(rawResponse: string): unknown | null {
-    let cleaned = rawResponse.trim();
-
-    // Strategy 1: Extract from markdown fences (```json ... ``` or ``` ... ```)
-    const fenceMatch = cleaned.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
-    if (fenceMatch) cleaned = fenceMatch[1].trim();
-
-    // Strategy 2: Direct parse (works when model follows instructions perfectly)
-    try {
-      return JSON.parse(cleaned);
-    } catch {
-      // continue to fallback strategies
-    }
-
-    // Strategy 3: Find the outermost balanced JSON object
-    const jsonStart = cleaned.indexOf('{');
-    if (jsonStart >= 0) {
-      const candidate = this.extractBalancedJson(cleaned, jsonStart);
-      if (candidate) {
-        try {
-          return JSON.parse(candidate);
-        } catch {
-          // continue
-        }
-      }
-
-      // Strategy 4: Greedy regex fallback (last resort)
-      const greedyMatch = cleaned.match(/\{[\s\S]*\}/);
-      if (greedyMatch) {
-        try {
-          return JSON.parse(greedyMatch[0]);
-        } catch {
-          // all strategies exhausted
-        }
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Extract a balanced JSON object starting at the given index.
-   * Tracks brace depth to avoid grabbing trailing text.
-   */
-  private extractBalancedJson(text: string, startIdx: number): string | null {
-    let depth = 0;
-    let inString = false;
-    let escaped = false;
-    for (let i = startIdx; i < text.length; i++) {
-      const ch = text[i];
-      if (escaped) { escaped = false; continue; }
-      if (ch === '\\' && inString) { escaped = true; continue; }
-      if (ch === '"') { inString = !inString; continue; }
-      if (inString) continue;
-      if (ch === '{') depth++;
-      else if (ch === '}') {
-        depth--;
-        if (depth === 0) return text.slice(startIdx, i + 1);
-      }
-    }
-    return null;
   }
 
   /**

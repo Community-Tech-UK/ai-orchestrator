@@ -122,7 +122,7 @@ interface FileReadTextResponse {
                 </button>
               }
               @if (commands().length === 0) {
-                <div class="empty">No file commands found</div>
+                <div class="empty">No commands yet — click New to create one</div>
               }
             </div>
           </div>
@@ -138,12 +138,12 @@ interface FileReadTextResponse {
                   class="item"
                   [class.active]="selectedKind() === 'agent' && selectedKey() === a.profile.id"
                   (click)="select('agent', a.profile.id, a.source === 'file' ? a.filePath : null)"
-                  title="{{ a.source === 'file' ? a.filePath : 'Built-in' }}"
+                  title="{{ a.source === 'file' ? a.filePath : 'Built in to the app' }}"
                 >
                   <div class="item-title">
                     {{ a.profile.name }}
                     <span class="pill" [class.builtin]="a.source === 'built-in'">{{
-                      a.source === 'built-in' ? 'built-in' : 'file'
+                      a.source === 'built-in' ? 'built-in' : 'custom'
                     }}</span>
                   </div>
                   <div class="item-sub">{{ a.profile.description }}</div>
@@ -173,7 +173,7 @@ interface FileReadTextResponse {
                 </button>
               }
               @if (tools().length === 0) {
-                <div class="empty">No tools found</div>
+                <div class="empty">No tools yet — click New to create one</div>
               }
             </div>
           </div>
@@ -193,12 +193,12 @@ interface FileReadTextResponse {
                 >
                   <div class="item-title">{{ basename(p.filePath) }}</div>
                   <div class="item-sub">
-                    {{ p.hookKeys.length }} hooks
+                    {{ p.hookKeys.length }} event {{ p.hookKeys.length === 1 ? 'handler' : 'handlers' }}
                   </div>
                 </button>
               }
               @if (plugins().length === 0) {
-                <div class="empty">No plugins found</div>
+                <div class="empty">No plugins yet — click New to create one</div>
               }
             </div>
           </div>
@@ -207,7 +207,7 @@ interface FileReadTextResponse {
         <div class="right">
           @if (!selectedKind()) {
             <div class="placeholder">
-              Select a command/agent/tool/plugin to inspect and edit.
+              Select an item on the left to view or edit it.
             </div>
           } @else {
             <div class="detail">
@@ -217,8 +217,8 @@ interface FileReadTextResponse {
                 </div>
                 <div class="detail-actions">
                   @if (selectedFilePath()) {
-                    <button class="btn" (click)="openPath(selectedFilePath()!)">Open</button>
-                    <button class="btn" (click)="openContainingFolder(selectedFilePath()!)">Open folder</button>
+                    <button class="btn" (click)="openPath(selectedFilePath()!)">Open file</button>
+                    <button class="btn" (click)="openContainingFolder(selectedFilePath()!)">Show in folder</button>
                     <button class="btn" (click)="loadSelectedFile()">Reload file</button>
                   }
                 </div>
@@ -227,12 +227,12 @@ interface FileReadTextResponse {
               <div class="meta">
                 <div class="row">
                   <span class="k">File</span>
-                  <span class="v">{{ selectedFilePath() || 'N/A' }}</span>
+                  <span class="v">{{ selectedFilePath() || 'No file (built-in)' }}</span>
                 </div>
 
                 @if (overrideFiles().length > 1) {
                   <div class="row">
-                    <span class="k">Overrides</span>
+                    <span class="k">Other versions</span>
                     <span class="v">
                       @for (f of overrideFiles(); track f) {
                         <button class="link" (click)="selectCandidateFile(f)">{{ f }}</button>
@@ -244,11 +244,11 @@ interface FileReadTextResponse {
 
               @if (!selectedFilePath()) {
                 <div class="placeholder small">
-                  Built-in item or missing file path; nothing to edit.
+                  This item is built into the app and cannot be edited here.
                 </div>
               } @else {
                 @if (fileTruncated()) {
-                  <div class="warn">File is large; editor loaded a truncated preview.</div>
+                  <div class="warn">This file is large — only the first portion is shown below.</div>
                 }
 
                 <textarea
@@ -263,13 +263,13 @@ interface FileReadTextResponse {
                     Save
                   </button>
                   <button class="btn" (click)="reload()" [disabled]="loading()">
-                    Reload list
+                    Refresh list
                   </button>
                 </div>
               }
 
               <div class="scan">
-                <div class="scan-title">Scan directories (in order)</div>
+                <div class="scan-title">Where the app looks for {{ selectedKind() === 'command' ? 'commands' : selectedKind() === 'agent' ? 'agents' : selectedKind() === 'tool' ? 'tools' : 'plugins' }}</div>
                 <div class="scan-list">
                   @for (d of scanDirsForSelectedKind(); track d) {
                     <div class="scan-item">{{ d }}</div>
@@ -279,7 +279,7 @@ interface FileReadTextResponse {
 
               @if ((ecosystem()?.tools?.errors?.length || 0) > 0 || (ecosystem()?.plugins?.errors?.length || 0) > 0) {
                 <div class="scan">
-                  <div class="scan-title">Load Errors</div>
+                  <div class="scan-title">Files that failed to load</div>
                   <div class="scan-list">
                     @for (e of (ecosystem()?.tools?.errors || []); track e.filePath) {
                       <div class="scan-item error-item">
@@ -407,7 +407,7 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
     try {
       const response = await this.ipc.getApi()?.ecosystemList({ workingDirectory: wd });
       if (!response?.success) {
-        this.error.set(response?.error?.message || 'Failed to load ecosystem');
+        this.error.set(response?.error?.message || 'Failed to load the ecosystem catalog');
         return;
       }
       this.ecosystem.set(response.data as unknown as EcosystemListResponse);
@@ -566,7 +566,7 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
     const wd = this.workingDirectory();
     if (!wd) return;
 
-    const input = prompt(`New ${kind} name (use ":" for nesting)`);
+    const input = prompt(`Name for new ${kind} (use ":" to create sub-folders, e.g. "utils:helper")`);
     const name = (input || '').trim();
     if (!name) return;
 

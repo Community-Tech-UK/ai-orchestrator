@@ -4,6 +4,7 @@ import type {
   WorkerNodeInfo,
   WorkerNodeCapabilities,
   NodePlacementPrefs,
+  NodePlatform,
 } from '../../shared/types/worker-node.types';
 
 const logger = getLogger('WorkerNodeRegistry');
@@ -162,4 +163,71 @@ export class WorkerNodeRegistry extends EventEmitter {
 
 export function getWorkerNodeRegistry(): WorkerNodeRegistry {
   return WorkerNodeRegistry.getInstance();
+}
+
+// ---------------------------------------------------------------------------
+// Node-target resolution (for `spawn_child { node }`)
+// ---------------------------------------------------------------------------
+
+const NODE_PLATFORM_ALIASES: Record<string, NodePlatform> = {
+  windows: 'win32', win: 'win32', win32: 'win32', pc: 'win32',
+  mac: 'darwin', macos: 'darwin', osx: 'darwin', darwin: 'darwin',
+  linux: 'linux',
+};
+
+/**
+ * Resolve a non-exact `node` value (a capability tag) to a connected worker.
+ * Supports gpu / browser / docker, platform aliases (windows/mac/linux), and
+ * CLI names (claude/codex/gemini/copilot/cursor). Prefers the node with the
+ * most spare instance capacity. Pure — operates only on the supplied list.
+ */
+export function matchNodeByCapabilityTag(
+  tag: string,
+  nodes: WorkerNodeInfo[],
+): WorkerNodeInfo | undefined {
+  if (nodes.length === 0) return undefined;
+  const t = tag.trim().toLowerCase();
+  // Prefer the node with the most spare instance slots.
+  const ranked = [...nodes].sort(
+    (a, b) =>
+      (b.capabilities.maxConcurrentInstances - b.activeInstances) -
+      (a.capabilities.maxConcurrentInstances - a.activeInstances),
+  );
+  if (t === 'gpu') return ranked.find((n) => !!n.capabilities.gpuName);
+  if (t === 'browser') return ranked.find((n) => n.capabilities.hasBrowserRuntime);
+  if (t === 'docker') return ranked.find((n) => n.capabilities.hasDocker);
+  const platform = NODE_PLATFORM_ALIASES[t];
+  if (platform) return ranked.find((n) => n.capabilities.platform === platform);
+  return ranked.find((n) => n.capabilities.supportedClis.some((c) => c.toLowerCase() === t));
+}
+
+/**
+ * Resolve a requested `node` (id, name, or capability tag) against the list of
+ * currently-connected workers. Returns the resolved node id, or an actionable
+ * error message listing what is available. Pure — does not touch the registry
+ * singleton, so it is trivially testable.
+ *
+ * Resolution order: exact id → exact name (case-insensitive) → capability tag.
+ */
+export function resolveWorkerNodeTarget(
+  requested: string,
+  connected: WorkerNodeInfo[],
+): { nodeId: string } | { error: string } {
+  const want = requested.trim();
+  // 1. Exact match on node id or name (case-insensitive).
+  const exact = connected.find((n) => {
+    if (n.id === want) return true;
+    return typeof n.name === 'string' && n.name.toLowerCase() === want.toLowerCase();
+  });
+  if (exact) return { nodeId: exact.id };
+  // 2. Capability-tag fallback.
+  const byCapability = matchNodeByCapabilityTag(want, connected);
+  if (byCapability) return { nodeId: byCapability.id };
+  // 3. No match — clear, actionable error.
+  const available = connected.map((n) => n.name || n.id);
+  return {
+    error: available.length > 0
+      ? `No connected worker node matching "${requested}". Available workers: ${available.join(', ')}. You can also target a capability: gpu, browser, docker, or a platform (windows/mac/linux).`
+      : `Cannot run child on "${requested}": no worker nodes are currently connected.`,
+  };
 }

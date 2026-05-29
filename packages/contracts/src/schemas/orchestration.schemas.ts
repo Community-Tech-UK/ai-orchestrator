@@ -16,6 +16,7 @@ export const SpawnChildPayloadSchema = z.object({
   agentId: z.string().max(100).optional(),
   model: z.string().max(100).optional(),
   provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor']).optional(),
+  node: z.string().max(200).optional(),
 });
 
 export type SpawnChildPayload = z.infer<typeof SpawnChildPayloadSchema>;

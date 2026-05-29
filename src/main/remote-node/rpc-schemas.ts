@@ -94,6 +94,58 @@ export const InstanceIdParamsSchema = z.object({
   instanceId: z.string().min(1),
 });
 
+// -- Terminal schemas (Piece C) -----------------------------------------------
+//
+// Coordinator -> Node requests. These are validated on the WORKER side before
+// touching node-pty. `cwd` MUST additionally be sandboxed by the worker to its
+// allowed working directories — the schema only enforces shape, not policy.
+// `cols`/`rows` are bounded to keep a hostile/buggy client from requesting an
+// absurd PTY size.
+
+const TERMINAL_DIMENSION = z.number().int().positive().max(10_000);
+
+export const TerminalCreateParamsSchema = z.object({
+  sessionId: z.string().min(1),
+  cwd: z.string().min(1),
+  shell: z.string().min(1).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  cols: TERMINAL_DIMENSION.optional(),
+  rows: TERMINAL_DIMENSION.optional(),
+});
+
+export const TerminalInputParamsSchema = z.object({
+  sessionId: z.string().min(1),
+  data: z.string(),
+});
+
+export const TerminalResizeParamsSchema = z.object({
+  sessionId: z.string().min(1),
+  cols: TERMINAL_DIMENSION,
+  rows: TERMINAL_DIMENSION,
+});
+
+export const TerminalKillParamsSchema = z.object({
+  sessionId: z.string().min(1),
+  signal: z.string().min(1).optional(),
+});
+
+// Node -> Coordinator notifications. `data` is raw PTY bytes decoded to a
+// string by the worker; `seq` lets the coordinator drop stale frames after a
+// reconnect (mirrors the instance.* seq guard).
+export const TerminalOutputParamsSchema = z.object({
+  sessionId: z.string().min(1),
+  data: z.string(),
+  seq: z.number().int().nonnegative().optional(),
+  token: z.string().optional(),
+});
+
+export const TerminalExitParamsSchema = z.object({
+  sessionId: z.string().min(1),
+  exitCode: z.number().int().nullable(),
+  signal: z.string().nullable().optional(),
+  token: z.string().optional(),
+});
+
 // -- Schema map for method-based lookup ---------------------------------------
 
 export const RPC_PARAM_SCHEMAS: Record<string, z.ZodType> = {
@@ -113,6 +165,26 @@ export const RPC_PARAM_SCHEMAS: Record<string, z.ZodType> = {
   'fs.watch': FsWatchParamsSchema,
   'fs.unwatch': FsUnwatchParamsSchema,
   'fs.event': FsEventParamsSchema,
+};
+
+/**
+ * Coordinator -> Node request param schemas, keyed by method. The worker-agent
+ * validates inbound requests against these before acting (the coordinator's own
+ * router uses RPC_PARAM_SCHEMAS above for node -> coordinator traffic). Terminal
+ * methods are safety-relevant — the worker MUST also sandbox `cwd` to its
+ * allowed directories after schema validation passes.
+ */
+export const COORDINATOR_TO_NODE_PARAM_SCHEMAS: Record<string, z.ZodType> = {
+  'instance.spawn': InstanceSpawnParamsSchema,
+  'instance.sendInput': InstanceSendInputParamsSchema,
+  'instance.terminate': InstanceIdParamsSchema,
+  'instance.interrupt': InstanceIdParamsSchema,
+  'instance.hibernate': InstanceIdParamsSchema,
+  'instance.wake': InstanceIdParamsSchema,
+  'terminal.create': TerminalCreateParamsSchema,
+  'terminal.input': TerminalInputParamsSchema,
+  'terminal.resize': TerminalResizeParamsSchema,
+  'terminal.kill': TerminalKillParamsSchema,
 };
 
 /**

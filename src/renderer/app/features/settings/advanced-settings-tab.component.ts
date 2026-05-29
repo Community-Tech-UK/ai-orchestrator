@@ -88,7 +88,7 @@ interface AdvancedSection {
       <div class="section-heading">
         <h3 id="mcp-safety-heading" class="subsection-title">MCP safety</h3>
         <p class="section-description">
-          Controls for provider config backups and filesystem write guards.
+          Safeguards for MCP (Model Context Protocol) tool use — config backups and filesystem write guards. Leave these on unless you have a reason to change them.
         </p>
       </div>
       <div class="settings-list-card">
@@ -110,8 +110,7 @@ interface AdvancedSection {
             Hook approvals
           </h3>
           <p class="section-description">
-            Review hooks that require approval before they run and manage
-            remembered approvals.
+            Hooks are actions the app runs automatically at certain points (for example, running a script after a task finishes). Some hooks ask for one-time approval before they run. Review and manage those approvals here.
           </p>
         </div>
         <div class="button-group section-actions">
@@ -134,13 +133,13 @@ interface AdvancedSection {
       <div class="settings-list-card hook-approvals-card">
         <div class="hook-approvals-list">
           @if (hookApprovalsLoading()) {
-            <div class="hook-approvals-empty">Loading approvals...</div>
+            <div class="hook-approvals-empty">Loading...</div>
           } @else if (hookApprovalsError()) {
             <div class="hook-approvals-empty error">
               {{ hookApprovalsError() }}
             </div>
           } @else if (hookApprovals().length === 0) {
-            <div class="hook-approvals-empty">No hook approvals to review.</div>
+            <div class="hook-approvals-empty">No hooks are waiting for approval.</div>
           } @else {
             @for (hook of hookApprovals(); track hook.id) {
               <div class="hook-approval-row">
@@ -189,14 +188,14 @@ interface AdvancedSection {
       <div class="section-heading">
         <h3 id="setup-guides-heading" class="subsection-title">Setup guides</h3>
         <p class="section-description">
-          Open setup docs for advanced integrations and local tooling.
+          Step-by-step guides for optional features that need extra setup on your machine.
         </p>
       </div>
       <div class="settings-list-card guide-card">
         <button
           class="guide-link"
           (click)="openDocsFile('BROWSER_AUTOMATION_SETUP.md')"
-          title="Learn how to enable browser automation for child instances"
+          title="How to let agents control a real web browser"
         >
           <span class="guide-icon">
             <app-settings-nav-icon name="network" />
@@ -204,7 +203,7 @@ interface AdvancedSection {
           <span class="guide-text">
             <span class="guide-title">Browser automation</span>
             <span class="guide-desc"
-              >Enable Chrome DevTools MCP for child instances</span
+              >Let agents control a real web browser using Chrome DevTools</span
             >
           </span>
         </button>
@@ -222,8 +221,7 @@ interface AdvancedSection {
           <div class="setting-info">
             <h3 class="setting-label">Export or import settings</h3>
             <p class="setting-description">
-              Back up your settings, channel credentials, paired senders, and remote
-              node identities to a JSON file. Restore them after reinstalling.
+              Save your settings, channel credentials, paired senders, and connected remote computers to a file. Import that file later to restore everything after reinstalling or moving to a new machine.
             </p>
           </div>
           <div class="setting-control button-group">
@@ -278,7 +276,7 @@ export class AdvancedSettingsTabComponent {
     {
       id: 'runtime-controls-heading',
       title: 'Runtime controls',
-      description: 'Low-level model, parser, diagnostics, and instruction-scan limits.',
+      description: 'Low-level tuning for the model, output parser, diagnostics, and how far instruction files scan. Leave these unless you\'re debugging a specific issue.',
       keys: [
         'customModelOverride',
         'parserBufferMaxKB',
@@ -288,8 +286,8 @@ export class AdvancedSettingsTabComponent {
     },
     {
       id: 'codemem-indexing-heading',
-      title: 'Codemem indexing',
-      description: 'Persistent code memory and workspace warm-up behavior.',
+      title: 'Code memory indexing',
+      description: 'Controls how agents look up symbols and structure in your code. Leave the defaults on unless the indexer is causing performance problems.',
       keys: [
         'codememEnabled',
         'codememIndexingEnabled',
@@ -302,8 +300,8 @@ export class AdvancedSettingsTabComponent {
     },
     {
       id: 'legacy-codebase-index-heading',
-      title: 'Legacy codebase auto-index',
-      description: 'Heavier BM25 and embedding indexing controls for the legacy search path.',
+      title: 'Legacy search index',
+      description: 'An older, heavier full-text and embedding index. Most people should leave this off — it\'s mainly useful when debugging the legacy search path.',
       keys: [
         'codebaseAutoIndexEnabled',
         'codebaseAutoIndexMaxFiles',
@@ -315,8 +313,8 @@ export class AdvancedSettingsTabComponent {
     },
     {
       id: 'project-knowledge-mirror-heading',
-      title: 'Project knowledge mirror',
-      description: 'Automatic mirroring from codemem into the project-knowledge graph.',
+      title: 'Knowledge Graph auto-build',
+      description: 'Keeps the Knowledge Graph up to date as you work by copying code structure into it automatically. Leave the defaults unless the auto-build is too slow on large projects.',
       keys: [
         'projectKnowledgeAutoMirrorEnabled',
         'projectKnowledgeAutoMirrorDebounceMs',
@@ -360,7 +358,7 @@ export class AdvancedSettingsTabComponent {
       {
         id: 'advanced-other-heading',
         title: 'Other advanced controls',
-        description: 'New advanced settings that have not been assigned to a subsection yet.',
+        description: 'Advanced settings not yet grouped into a section above.',
         settings: uncategorized,
       },
     ];

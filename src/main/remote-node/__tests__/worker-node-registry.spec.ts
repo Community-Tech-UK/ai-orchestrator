@@ -10,7 +10,11 @@ vi.mock('../../logging/logger', () => ({
   }),
 }));
 
-import { WorkerNodeRegistry } from '../worker-node-registry';
+import {
+  WorkerNodeRegistry,
+  resolveWorkerNodeTarget,
+  matchNodeByCapabilityTag,
+} from '../worker-node-registry';
 import type { WorkerNodeInfo, WorkerNodeCapabilities, NodePlacementPrefs } from '../../../shared/types/worker-node.types';
 
 // ---------------------------------------------------------------------------
@@ -365,6 +369,106 @@ describe('WorkerNodeRegistry', () => {
       }));
       const prefs: NodePlacementPrefs = { requiresWorkingDirectory: '/required' };
       expect(registry.selectNode(prefs)).toBeNull();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // resolveWorkerNodeTarget — used by spawn_child { node }
+  // -------------------------------------------------------------------------
+
+  describe('resolveWorkerNodeTarget', () => {
+    it('resolves an exact node id', () => {
+      const nodes = [makeNode('windows-pc'), makeNode('mac-mini')];
+      expect(resolveWorkerNodeTarget('windows-pc', nodes)).toEqual({ nodeId: 'windows-pc' });
+    });
+
+    it('resolves an exact node name case-insensitively', () => {
+      const nodes = [makeNode('n1', { name: 'Windows-PC' })];
+      expect(resolveWorkerNodeTarget('windows-pc', nodes)).toEqual({ nodeId: 'n1' });
+    });
+
+    it('trims whitespace around the requested value', () => {
+      const nodes = [makeNode('n1', { name: 'windows-pc' })];
+      expect(resolveWorkerNodeTarget('  windows-pc  ', nodes)).toEqual({ nodeId: 'n1' });
+    });
+
+    it('prefers an exact id/name over a capability match', () => {
+      // "linux" is also a platform alias, but an exact name match must win.
+      const nodes = [
+        makeNode('gpu-box', { name: 'linux', capabilities: makeCapabilities({ platform: 'win32' }) }),
+        makeNode('other', { capabilities: makeCapabilities({ platform: 'linux' }) }),
+      ];
+      expect(resolveWorkerNodeTarget('linux', nodes)).toEqual({ nodeId: 'gpu-box' });
+    });
+
+    it('falls back to a gpu capability tag', () => {
+      const nodes = [
+        makeNode('cpu-box', { capabilities: makeCapabilities({ gpuName: undefined }) }),
+        makeNode('gpu-box', { capabilities: makeCapabilities({ gpuName: 'RTX 5090' }) }),
+      ];
+      expect(resolveWorkerNodeTarget('gpu', nodes)).toEqual({ nodeId: 'gpu-box' });
+    });
+
+    it('falls back to a platform alias (windows -> win32)', () => {
+      const nodes = [
+        makeNode('mac', { capabilities: makeCapabilities({ platform: 'darwin' }) }),
+        makeNode('pc', { capabilities: makeCapabilities({ platform: 'win32' }) }),
+      ];
+      expect(resolveWorkerNodeTarget('windows', nodes)).toEqual({ nodeId: 'pc' });
+    });
+
+    it('falls back to a CLI capability tag', () => {
+      const nodes = [
+        makeNode('claude-only', { capabilities: makeCapabilities({ supportedClis: ['claude'] }) }),
+        makeNode('has-gemini', { capabilities: makeCapabilities({ supportedClis: ['claude', 'gemini'] }) }),
+      ];
+      expect(resolveWorkerNodeTarget('gemini', nodes)).toEqual({ nodeId: 'has-gemini' });
+    });
+
+    it('returns an error listing available workers when nothing matches', () => {
+      const nodes = [makeNode('a', { name: 'alpha' }), makeNode('b', { name: 'bravo' })];
+      const result = resolveWorkerNodeTarget('does-not-exist', nodes);
+      expect('error' in result).toBe(true);
+      if ('error' in result) {
+        expect(result.error).toContain('alpha');
+        expect(result.error).toContain('bravo');
+        expect(result.error).toContain('does-not-exist');
+      }
+    });
+
+    it('returns a no-workers-connected error when the list is empty', () => {
+      const result = resolveWorkerNodeTarget('windows-pc', []);
+      expect('error' in result).toBe(true);
+      if ('error' in result) {
+        expect(result.error).toContain('no worker nodes are currently connected');
+      }
+    });
+  });
+
+  describe('matchNodeByCapabilityTag', () => {
+    it('returns undefined for an empty node list', () => {
+      expect(matchNodeByCapabilityTag('gpu', [])).toBeUndefined();
+    });
+
+    it('prefers the node with the most spare instance slots', () => {
+      const nodes = [
+        makeNode('busy', { activeInstances: 3, capabilities: makeCapabilities({ platform: 'win32', maxConcurrentInstances: 4 }) }),
+        makeNode('idle', { activeInstances: 0, capabilities: makeCapabilities({ platform: 'win32', maxConcurrentInstances: 4 }) }),
+      ];
+      expect(matchNodeByCapabilityTag('windows', nodes)?.id).toBe('idle');
+    });
+
+    it('matches docker capability', () => {
+      const nodes = [
+        makeNode('no-docker', { capabilities: makeCapabilities({ hasDocker: false }) }),
+        makeNode('docker', { capabilities: makeCapabilities({ hasDocker: true }) }),
+      ];
+      expect(matchNodeByCapabilityTag('docker', nodes)?.id).toBe('docker');
+    });
+
+    it('returns undefined when no node advertises the capability', () => {
+      const nodes = [makeNode('no-gpu', { capabilities: makeCapabilities({ gpuName: undefined }) })];
+      expect(matchNodeByCapabilityTag('gpu', nodes)).toBeUndefined();
     });
   });
 });

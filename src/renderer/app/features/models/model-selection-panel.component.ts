@@ -847,11 +847,7 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
   ): string {
     if (reasoningOptions.length === 0) return 'default';
     if (selected) return selectedReasoning ?? 'default';
-
-    const explicitLevels = reasoningOptions
-      .map((option) => option.id)
-      .filter((id): id is ReasoningEffort => id !== 'default');
-    return explicitLevels[explicitLevels.length - 1] ?? 'default';
+    return 'default';
   }
 }
 

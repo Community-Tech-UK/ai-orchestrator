@@ -13,7 +13,7 @@
  * To update: regenerate by running `scripts/update-models-catalog.ts`
  * (or update manually when provider docs change).
  *
- * Catalog version: 2026-05-16
+ * Catalog version: 2026-05-29
  */
 
 export type ModelModality = 'text' | 'image' | 'audio' | 'video' | 'embedding' | 'code';
@@ -64,7 +64,7 @@ export interface ModelCatalogEntry {
   active: boolean;
 }
 
-const VERIFIED = '2026-05-16';
+const VERIFIED = '2026-05-29';
 
 /** Comprehensive static model catalog. */
 export const MODEL_CATALOG: ModelCatalogEntry[] = [
@@ -72,16 +72,40 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
   // Anthropic — Claude 4.x family
   // ─────────────────────────────────────────────────
   {
+    id: 'claude-opus-4-8',
+    name: 'Claude Opus 4.8',
+    provider: 'anthropic',
+    contextWindow: 1_000_000,
+    maxOutputTokens: 128_000,
+    pricing: {
+      inputPer1mTokens: 5.0,
+      outputPer1mTokens: 25.0,
+      cachePer1mWrite: 6.25,
+      cachePer1mRead: 0.5,
+    },
+    inputModalities: ['text', 'image'],
+    outputModalities: ['text'],
+    capabilities: {
+      functionCalling: true,
+      streaming: true,
+      promptCaching: true,
+      reasoning: true,
+      bestFor: ['complex reasoning', 'long-horizon coding', 'analysis', 'council'],
+    },
+    lastVerified: VERIFIED,
+    active: true,
+  },
+  {
     id: 'claude-opus-4-7',
     name: 'Claude Opus 4.7',
     provider: 'anthropic',
-    contextWindow: 200_000,
+    contextWindow: 1_000_000,
     maxOutputTokens: 32_000,
     pricing: {
-      inputPer1mTokens: 15.0,
-      outputPer1mTokens: 75.0,
-      cachePer1mWrite: 18.75,
-      cachePer1mRead: 1.5,
+      inputPer1mTokens: 5.0,
+      outputPer1mTokens: 25.0,
+      cachePer1mWrite: 6.25,
+      cachePer1mRead: 0.5,
     },
     inputModalities: ['text', 'image'],
     outputModalities: ['text'],

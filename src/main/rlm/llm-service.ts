@@ -13,85 +13,33 @@ import { getTokenCounter, TokenCounter } from './token-counter';
 import { CLAUDE_MODELS, OPENAI_MODELS } from '../../shared/types/provider.types';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
 import { getLogger } from '../logging/logger';
+import type {
+  LLMServiceConfig,
+  SummarizeRequest,
+  SummarizeResponse,
+  SubQueryRequest,
+  SubQueryResponse,
+  StreamChunk,
+  StreamCallback,
+} from './llm-service.types';
+import {
+  DEFAULT_CONFIG,
+  SUMMARIZE_SYSTEM_PROMPT,
+  SUBQUERY_SYSTEM_PROMPT,
+} from './llm-service.constants';
 
-const logger = getLogger('LLMService');
-
-export interface LLMServiceConfig {
-  provider: 'anthropic' | 'ollama' | 'openai' | 'local';
-  model?: string;
-  maxTokens?: number;
-  temperature?: number;
-  timeout?: number;
-  anthropicApiKey?: string;
-  openaiApiKey?: string;
-  ollamaHost?: string;
-}
-
-export interface SummarizeRequest {
-  requestId: string;
-  content: string;
-  targetTokens: number;
-  preserveKeyPoints?: boolean;
-}
-
-export interface SummarizeResponse {
-  requestId: string;
-  summary: string;
-  originalTokens: number;
-  summaryTokens: number;
-}
-
-export interface SubQueryRequest {
-  requestId: string;
-  prompt: string;
-  context: string;
-  depth: number;
-}
-
-export interface SubQueryResponse {
-  requestId: string;
-  response: string;
-  depth: number;
-  tokens: { input: number; output: number };
-}
-
-/**
- * Streaming chunk for real-time output
- */
-export interface StreamChunk {
-  requestId: string;
-  chunk: string;
-  done: boolean;
-  error?: string;
-}
-
-/**
- * Streaming callback type
- */
-export type StreamCallback = (chunk: StreamChunk) => void;
-
-const DEFAULT_CONFIG: LLMServiceConfig = {
-  provider: 'local', // Start with local fallback
-  maxTokens: 4096,
-  temperature: 0.3,
-  timeout: 60000,
-  ollamaHost: 'http://localhost:11434',
+// Re-export public API so existing importers are unaffected.
+export type {
+  LLMServiceConfig,
+  SummarizeRequest,
+  SummarizeResponse,
+  SubQueryRequest,
+  SubQueryResponse,
+  StreamChunk,
+  StreamCallback,
 };
 
-// System prompts
-const SUMMARIZE_SYSTEM_PROMPT = `You are a precise summarizer. Your task is to summarize the given content while:
-1. Preserving all key points, facts, and important details
-2. Maintaining technical accuracy
-3. Reducing the text to the target length
-4. Using clear, concise language
-5. Organizing information logically
-
-Do not add new information or opinions. Only summarize what is provided.`;
-
-const SUBQUERY_SYSTEM_PROMPT = `You are an intelligent assistant helping to answer questions about code and documentation.
-You have access to the following context. Use it to answer the user's question accurately.
-If the context doesn't contain enough information, say so clearly.
-Be concise but thorough.`;
+const logger = getLogger('LLMService');
 
 export class LLMService extends EventEmitter {
   private static instance: LLMService | null = null;
@@ -107,6 +55,7 @@ export class LLMService extends EventEmitter {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.tokenCounter = getTokenCounter();
     this.tokenCounter.setDefaultModel(this.config.model);
+    void this.checkOllamaHealth();
   }
 
   static getInstance(config?: Partial<LLMServiceConfig>): LLMService {
@@ -125,7 +74,10 @@ export class LLMService extends EventEmitter {
     // Reset availability checks when config changes
     if (config.anthropicApiKey !== undefined) this.anthropicAvailable = null;
     if (config.openaiApiKey !== undefined) this.openaiAvailable = null;
-    if (config.ollamaHost !== undefined) this.ollamaAvailable = null;
+    if (config.ollamaHost !== undefined) {
+      this.ollamaAvailable = null;
+      void this.checkOllamaHealth();
+    }
     // Update token counter model
     if (config.model) {
       this.tokenCounter.setDefaultModel(config.model);
@@ -958,15 +910,31 @@ Answer:`;
    * Check if Ollama is available
    */
   async checkOllamaAvailability(): Promise<boolean> {
+    return this.checkOllamaHealth();
+  }
+
+  async checkOllamaHealth(): Promise<boolean> {
+    const ollamaHost = this.config.ollamaHost ?? 'http://localhost:11434';
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1000);
     try {
-      const response = await fetch(`${this.config.ollamaHost}/api/tags`, {
+      const response = await fetch(`${ollamaHost}/api/tags`, {
         method: 'GET',
+        signal: controller.signal,
       });
       this.ollamaAvailable = response.ok;
+      if (!response.ok) {
+        logger.warn('Ollama health check returned non-200', { status: response.status });
+      }
       return this.ollamaAvailable;
-    } catch {
+    } catch (error) {
       this.ollamaAvailable = false;
+      logger.info('Ollama health check failed; will skip Ollama provider', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return false;
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 

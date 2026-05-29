@@ -24,7 +24,6 @@ import { buildDeferPermissionHookCommand } from '../hooks/hook-path-resolver';
 import type { CliStreamMessage } from '../../../shared/types/cli.types';
 import type {
   OutputMessage,
-  ContextUsage,
   InstanceStatus,
   ThinkingContent,
   FileAttachment
@@ -37,6 +36,18 @@ import {
   getProviderModelContextWindow
 } from '../../../shared/types/provider.types';
 import { classifyError } from '../cli-error-handler';
+import type {
+  RawCliPayload,
+  ClaudeCliReasoningEffort,
+  UnifiedReasoningEffort,
+  DeferredToolUse,
+  ClaudeCliSpawnOptions,
+} from './claude-cli-adapter.types';
+
+export type { DeferredToolUse } from './claude-cli-adapter.types';
+export type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
+export type { InputRequiredPayload } from './claude-cli-adapter.types';
+export type { ClaudeCliAdapterEvents } from './claude-cli-adapter.types';
 
 const logger = getLogger('ClaudeCliAdapter');
 
@@ -65,165 +76,6 @@ function isVersionAtLeast(version: string | undefined, minimumVersion: string): 
   }
 
   return true;
-}
-
-/**
- * Shape of a content block inside raw CLI NDJSON assistant/user messages.
- * The typed CliStreamMessage union is minimal — the actual CLI emits richer payloads.
- */
-interface RawContentBlock {
-  type: string;
-  text?: string;
-  id?: string;
-  name?: string;
-  input?: Record<string, unknown>;
-  content?: string | RawContentBlock[];
-  is_error?: boolean;
-  thinking?: string;
-  tool_use_id?: string;
-  [key: string]: unknown;
-}
-
-/** Raw assistant/user message payload from Claude CLI NDJSON stream */
-interface RawCliPayload {
-  type: string;
-  subtype?: string;
-  timestamp?: number;
-  message?: {
-    content?: RawContentBlock[];
-    usage?: {
-      input_tokens?: number;
-      output_tokens?: number;
-      cache_creation_input_tokens?: number;
-      cache_read_input_tokens?: number;
-    };
-    model?: string;
-    role?: string;
-  };
-  tool?: {
-    id?: string;
-    name?: string;
-    input?: Record<string, unknown>;
-  };
-  content?: string;
-  is_error?: boolean;
-  modelUsage?: Record<string, {
-    inputTokens?: number;
-    outputTokens?: number;
-    contextWindow?: number;
-  }>;
-  usage?: {
-    input_tokens?: number;
-    output_tokens?: number;
-    cache_creation_input_tokens?: number;
-    cache_read_input_tokens?: number;
-    total_tokens?: number;
-  };
-  total_cost_usd?: number;
-  session_id?: string;
-  error?: { code: string; message: string };
-  prompt?: string;
-  metadata?: Record<string, unknown>;
-  /** Present on result messages — indicates why the turn ended. */
-  stop_reason?: string;
-  /** Present when stop_reason is 'tool_deferred' — the deferred tool details. */
-  deferred_tool_use?: {
-    id: string;
-    name: string;
-    input: Record<string, unknown>;
-  };
-}
-
-/**
- * Represents a tool use that was deferred by a PreToolUse hook.
- * The CLI paused execution and exited; the orchestrator must surface
- * an approval dialog and resume the session with the user's decision.
- */
-export interface DeferredToolUse {
-  toolName: string;
-  toolInput: Record<string, unknown>;
-  toolUseId: string;
-  sessionId: string;
-  deferredAt: number;
-}
-
-type ClaudeCliReasoningEffort = 'low' | 'medium' | 'high' | 'max';
-type UnifiedReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-
-/**
- * Claude CLI specific spawn options
- */
-export interface ClaudeCliSpawnOptions {
-  sessionId?: string;
-  workingDirectory?: string;
-  model?: string;
-  maxTokens?: number;
-  timeout?: number;
-  env?: Record<string, string>;
-  yoloMode?: boolean;
-  resume?: boolean;
-  forkSession?: boolean; // When resuming, create a new session ID instead of reusing
-  allowedTools?: string[];
-  disallowedTools?: string[];
-  systemPrompt?: string;
-  mcpConfig?: string[];  // MCP server config file paths or inline JSON strings
-  /** Enable Claude in Chrome extension integration (--chrome flag).
-   *  This exposes legacy raw browser automation and must be explicitly requested. */
-  chrome?: boolean;
-  /** Beta headers for API requests (API key users only).
-   *  e.g. ['context-1m-2025-08-07'] to enable 1M context on eligible models. */
-  betas?: string[];
-  /** Cross-provider reasoning effort. Claude CLI supports low, medium, high, and max. */
-  reasoningEffort?: UnifiedReasoningEffort;
-  /** Minimal mode (--bare): skips hooks, LSP, plugins, auto-memory, CLAUDE.md
-   *  auto-discovery, and keychain reads for faster startup (~14% faster).
-   *  Requires explicit ANTHROPIC_API_KEY or apiKeyHelper — OAuth/keychain auth
-   *  is skipped. Defaults to false to preserve existing auth flows. */
-  bare?: boolean;
-  /** Display name for this session (--name / -n). Shown in /resume and terminal
-   *  title. If unset the CLI auto-generates a name from the first message. */
-  name?: string;
-  /** Move per-machine dynamic sections out of the system prompt into the first
-   *  user message to improve cross-user prompt-cache hit rates.
-   *  Only effective with the default system prompt (ignored with --system-prompt). */
-  excludeDynamicSystemPromptSections?: boolean;
-  /** Path to a PreToolUse hook script for defer-based permission approval.
-   *  When set, the adapter generates a settings overlay and passes it via --settings.
-   *  The hook intercepts dangerous tools (Bash, etc.) and returns `defer` to pause
-   *  execution, allowing the orchestrator to surface approval UI. */
-  permissionHookPath?: string;
-  /** RTK rewrite integration. When `enabled` is true and `binaryPath` resolves,
-   *  the spawned CLI receives ORCHESTRATOR_RTK_ENABLED=1 and ORCHESTRATOR_RTK_PATH
-   *  in its env, and the rtk-defer-hook.mjs variant is used (caller passes the
-   *  rtk hook path via permissionHookPath). The hook calls `rtk rewrite` on Bash
-   *  tool input and compresses output 60–90%. See bigchange_rtk_integration.md. */
-  rtk?: {
-    enabled: boolean;
-    binaryPath?: string;
-  };
-}
-
-/**
- * Input required event payload - for permission prompts and other input requests
- */
-export interface InputRequiredPayload {
-  id: string;
-  prompt: string;
-  timestamp: number;
-  metadata?: Record<string, unknown>;
-}
-
-/**
- * Events emitted by ClaudeCliAdapter (backward compatible)
- */
-export interface ClaudeCliAdapterEvents {
-  output: (message: OutputMessage) => void;
-  status: (status: InstanceStatus) => void;
-  context: (usage: ContextUsage) => void;
-  error: (error: Error) => void;
-  exit: (code: number | null, signal: string | null) => void;
-  spawned: (pid: number) => void;
-  input_required: (payload: InputRequiredPayload) => void;
 }
 
 /**
@@ -358,10 +210,45 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       case 'high':
         return 'high';
       case 'xhigh':
+        return 'xhigh';
+      case 'max':
         return 'max';
       default:
         return undefined;
     }
+  }
+
+  private buildSettingsOverlay(permissionHookEnabled: boolean): string | undefined {
+    const settings: {
+      ultracode?: true;
+      hooks?: {
+        PreToolUse: {
+          matcher: string;
+          hooks: {
+            type: 'command';
+            command: string;
+          }[];
+        }[];
+      };
+    } = {};
+
+    if (this.spawnOptions.reasoningEffort === 'workflow') {
+      settings.ultracode = true;
+    }
+
+    if (permissionHookEnabled && this.spawnOptions.permissionHookPath) {
+      settings.hooks = {
+        PreToolUse: [{
+          matcher: 'Bash',
+          hooks: [{
+            type: 'command',
+            command: buildDeferPermissionHookCommand(this.spawnOptions.permissionHookPath),
+          }],
+        }],
+      };
+    }
+
+    return Object.keys(settings).length > 0 ? JSON.stringify(settings) : undefined;
   }
 
   async checkStatus(): Promise<CliStatus> {
@@ -864,6 +751,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       args.push('--exclude-dynamic-system-prompt-sections');
     }
 
+    const permissionHookEnabled = !this.spawnOptions.yoloMode && this.shouldUsePermissionHook();
+
     // YOLO mode - auto-approve all permissions
     if (this.spawnOptions.yoloMode) {
       logger.warn('YOLO mode enabled for Claude CLI instance', {
@@ -872,8 +761,6 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       });
       args.push('--dangerously-skip-permissions');
     } else {
-      const permissionHookEnabled = this.shouldUsePermissionHook();
-
       // Use acceptEdits mode to auto-approve file operations (Read, Write, Edit, etc.)
       // while still requiring approval for potentially dangerous operations like Bash
       logger.debug('NON-YOLO mode: using --permission-mode acceptEdits');
@@ -883,20 +770,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       // The hook intercepts matched tools (Bash, etc.) and returns `defer` to pause
       // execution, allowing the orchestrator to surface approval UI.
       // VALIDATED: --permission-mode and PreToolUse hooks work simultaneously.
-      if (permissionHookEnabled && this.spawnOptions.permissionHookPath) {
-        const hookSettings = JSON.stringify({
-          hooks: {
-            PreToolUse: [{
-              matcher: 'Bash',
-              hooks: [{
-                type: 'command',
-                command: buildDeferPermissionHookCommand(this.spawnOptions.permissionHookPath)
-              }]
-            }]
-          }
-        });
-        args.push('--settings', hookSettings);
-      } else if (this.spawnOptions.permissionHookPath && this.cachedCliStatus?.version) {
+      if (!permissionHookEnabled && this.spawnOptions.permissionHookPath && this.cachedCliStatus?.version) {
         logger.info('Skipping defer permission hook for unsupported Claude CLI version', {
           version: this.cachedCliStatus.version,
           minimumVersion: DEFER_MIN_VERSION,
@@ -909,6 +783,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       if (this.spawnOptions.allowedTools && this.spawnOptions.allowedTools.length > 0) {
         args.push('--allowedTools', this.spawnOptions.allowedTools.join(','));
       }
+    }
+
+    const settingsOverlay = this.buildSettingsOverlay(permissionHookEnabled);
+    if (settingsOverlay) {
+      args.push('--settings', settingsOverlay);
     }
 
     if (this.spawnOptions.resume && this.sessionId) {
@@ -1515,7 +1394,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
       case 'system':
         if (message.subtype === 'context_usage' && message.usage) {
-          const modelId = this.spawnOptions.model || CLAUDE_MODELS.SONNET;
+          const modelId = this.spawnOptions.model || CLAUDE_MODELS.OPUS_1M;
           const pricing = MODEL_PRICING[modelId] || {
             input: 3.0,
             output: 15.0

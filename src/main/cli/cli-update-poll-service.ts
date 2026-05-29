@@ -3,8 +3,11 @@ import {
   CLI_REGISTRY,
   SUPPORTED_CLIS,
   getCliDetectionService,
+  type CliType,
 } from './cli-detection';
 import { getCliUpdateService } from './cli-update-service';
+import { getCliLatestVersionService } from './cli-latest-version';
+import { isUpdateAvailable } from './semver';
 import type {
   CliUpdatePillEntry,
   CliUpdatePillState,
@@ -13,7 +16,12 @@ import type {
 import { getLogger } from '../logging/logger';
 
 const logger = getLogger('CliUpdatePollService');
-const POLL_INTERVAL_MS = 24 * 60 * 60 * 1000;
+// Background cadence. The registry lookup is itself cached for 1h, so polling
+// more often than that only re-probes installed versions (cheap) and serves
+// cached "latest" values. 6h keeps the title-bar pill reasonably fresh without
+// spawning version probes constantly; an immediate refresh also runs on every
+// app launch (see start()) and on demand via CLI_UPDATE_PILL_REFRESH.
+const POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 export class CliUpdatePollService {
   private static instance: CliUpdatePollService | null = null;
@@ -87,8 +95,11 @@ export class CliUpdatePollService {
           .map((cli) => cli.name),
       );
       const detectedByName = new Map(detection.detected.map((cli) => [cli.name, cli]));
-      const entries: CliUpdatePillEntry[] = [];
 
+      // Collect installed CLIs that have a configured updater. Plans are built
+      // serially (each runs a detection probe with its own caching); the
+      // registry lookups that follow run in parallel and fail soft.
+      const supported: { cli: CliType; plan: CliUpdatePlanSummary; currentVersion?: string }[] = [];
       for (const cli of SUPPORTED_CLIS) {
         if (!installed.has(cli)) {
           continue;
@@ -99,19 +110,31 @@ export class CliUpdatePollService {
           continue;
         }
 
-        entries.push({
+        supported.push({
           cli,
-          displayName: CLI_REGISTRY[cli]?.displayName ?? cli,
+          plan,
           currentVersion: plan.currentVersion ?? detectedByName.get(cli)?.version,
-          // Outdated-detection (querying the registry/brew/etc. for a newer
-          // version) is not yet implemented. Until it is, no entry can claim
-          // an update is *needed* — only that an updater is configured. The
-          // pill's `count` is computed from this flag, so it stays at 0 and
-          // the title-bar pill stays hidden.
-          updateAvailable: false,
-          updatePlan: plan,
         });
       }
+
+      const entries: CliUpdatePillEntry[] = await Promise.all(
+        supported.map(async ({ cli, plan, currentVersion }) => {
+          // null when the provider has no npm package (Cursor/Ollama) or the
+          // registry was unreachable — treated as "unknown", never as an update.
+          const latestVersion =
+            (await getCliLatestVersionService().resolveLatestVersion(cli)) ?? undefined;
+          const updateAvailable = isUpdateAvailable(currentVersion, latestVersion);
+
+          return {
+            cli,
+            displayName: CLI_REGISTRY[cli]?.displayName ?? cli,
+            currentVersion,
+            latestVersion,
+            updateAvailable,
+            updatePlan: plan,
+          } satisfies CliUpdatePillEntry;
+        }),
+      );
 
       this.state = {
         generatedAt: Date.now(),

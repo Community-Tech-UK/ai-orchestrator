@@ -65,9 +65,9 @@ export async function* streamLoopEvents({
       if (resolve) { resolve(); resolve = null; }
     }
   };
-  const onCap = (d: { loopRunId: string; cap: 'iterations' | 'wall-time' | 'tokens' | 'cost' }) => {
+  const onCap = (d: { loopRunId: string; cap: 'iterations' | 'wall-time' | 'tokens' | 'cost'; reason?: string }) => {
     if (d.loopRunId === loopRunId) {
-      push({ type: 'cap-reached', loopRunId, cap: d.cap });
+      push({ type: 'cap-reached', loopRunId, cap: d.cap, reason: d.reason });
       done = true;
       if (resolve) { resolve(); resolve = null; }
     }

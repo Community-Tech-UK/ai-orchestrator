@@ -33,11 +33,13 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
     <section class="rtk-tab">
       <header class="rtk-header">
         <div>
-          <h3 class="section-title">Compression savings</h3>
+          <h3 class="section-title">Output compression savings</h3>
           <p class="section-desc">
-            Compresses LLM-bound shell command output via the
-            <a href="https://github.com/rtk-ai/rtk" target="_blank" rel="noopener">rtk</a>
-            CLI. Stats are read from rtk's local tracking database.
+            When an AI agent runs a shell command, the output can be very long.
+            <a href="https://github.com/rtk-ai/rtk" target="_blank" rel="noopener">RTK</a>
+            (Reduce Token Count) compresses that output before it is sent to the AI,
+            cutting down on tokens used — which lowers cost and speeds up responses.
+            The stats below come from RTK&apos;s local tracking file on this machine.
           </p>
         </div>
         <button type="button" class="btn" (click)="refresh()" [disabled]="loading()">
@@ -54,8 +56,8 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
           />
         }
         <p class="rtk-hint">
-          Changes take effect for newly spawned instances. Restart any running
-          instance to pick up a flipped flag.
+          Toggle changes apply to new AI sessions only. If a session is already
+          running, restart it to pick up the change.
         </p>
       </div>
 
@@ -66,28 +68,28 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
       @if (status(); as st) {
         <div class="status-grid">
           <div class="status-row">
-            <span class="status-label">Feature flag</span>
+            <span class="status-label">RTK enabled</span>
             <span class="status-value" [attr.data-state]="st.enabled ? 'on' : 'off'">
               {{ st.enabled ? 'Enabled' : 'Disabled' }}
             </span>
           </div>
           <div class="status-row">
-            <span class="status-label">Binary</span>
+            <span class="status-label">RTK program</span>
             <span class="status-value">
               @if (st.available) {
                 {{ st.binarySource }} · v{{ st.version }}
               } @else {
-                Not available
+                Not installed — RTK must be on your PATH for compression to work
               }
             </span>
           </div>
           <div class="status-row">
-            <span class="status-label">Tracking DB</span>
+            <span class="status-label">Savings log</span>
             <span class="status-value">
               @if (st.trackingDbAvailable) {
                 Found
               } @else {
-                Not present (rtk has not run yet)
+                Not found — RTK has not run a compression yet
               }
             </span>
           </div>
@@ -97,7 +99,7 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
       @if (summary(); as s) {
         <div class="summary-grid">
           <div class="summary-card">
-            <div class="summary-label">Commands rewritten</div>
+            <div class="summary-label">Shell commands compressed</div>
             <div class="summary-value">{{ s.commands | number }}</div>
           </div>
           <div class="summary-card">
@@ -115,14 +117,14 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
         </div>
 
         @if (s.byCommand.length > 0) {
-          <h4 class="section-subhead">Top commands by tokens saved</h4>
+          <h4 class="section-subhead">Top shell commands by tokens saved</h4>
           <table class="rtk-table">
             <thead>
               <tr>
-                <th>Command</th>
-                <th class="num">Count</th>
-                <th class="num">Saved</th>
-                <th class="num">Avg %</th>
+                <th>Shell command</th>
+                <th class="num">Runs</th>
+                <th class="num">Tokens saved</th>
+                <th class="num">Avg saving</th>
               </tr>
             </thead>
             <tbody>
@@ -138,12 +140,14 @@ import type { AppSettings } from '../../../../shared/types/settings.types';
           </table>
         } @else if (s.commands === 0) {
           <p class="empty">
-            No commands recorded yet. Enable the feature flag and run a Claude session
-            with a Bash tool call (e.g. ask it to run <code>git status</code>) to populate.
+            No compressions recorded yet. Make sure RTK is enabled above, then
+            start a Claude session and ask it to run a shell command
+            (for example: &ldquo;run git status&rdquo;). The table will fill in
+            as RTK compresses command output.
           </p>
         }
       } @else if (!loading() && !error()) {
-        <p class="empty">No data yet.</p>
+        <p class="empty">No savings data yet. Click Refresh to load the latest stats.</p>
       }
     </section>
   `,

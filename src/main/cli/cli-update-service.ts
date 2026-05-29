@@ -21,14 +21,14 @@ const logger = getLogger('CliUpdateService');
 const DEFAULT_UPDATE_TIMEOUT_MS = 300_000;
 const OUTPUT_PREVIEW_MAX_CHARS = 12_000;
 
-interface CliUpdateSpec {
+export interface CliUpdateSpec {
   npmPackage?: string;
   selfUpdateArgs?: string[];
   ghExtension?: string;
   brewFormula?: string;
 }
 
-const CLI_UPDATE_SPECS: Partial<Record<CliType, CliUpdateSpec>> = {
+export const CLI_UPDATE_SPECS: Partial<Record<CliType, CliUpdateSpec>> = {
   claude: {
     npmPackage: '@anthropic-ai/claude-code',
     selfUpdateArgs: ['update'],

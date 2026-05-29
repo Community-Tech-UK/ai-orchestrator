@@ -35,13 +35,21 @@ import { getTokenStatsService } from '../memory/token-stats';
 import { getTodoManager } from '../tasks/todo-manager';
 import type {
   ProviderName,
-  ProviderQuotaDiagnostics,
-  ProviderRateLimitDiagnostics,
   ProviderRuntimeEvent,
 } from '@contracts/types/provider-runtime-events';
 import { getPauseCoordinator } from '../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../pause/orchestrator-paused-error';
 import { extractTodoToolItems } from './todo-tool-parser';
+import { extractProviderErrorDiagnostics } from './instance-communication.diagnostics';
+import {
+  CIRCUIT_BREAKER_CONFIG,
+  ACTIVE_CHILD_TURN_STATUSES,
+  CHILD_TURN_COMPLETE_STATUSES,
+  RECENT_ADAPTER_ERROR_OUTPUT_DEDUP_MS,
+  summarizeInputResponse,
+  getAccumulatedStreamingContent,
+} from './instance-communication.constants';
+import type { CircuitBreakerState } from './instance-communication.constants';
 
 /**
  * Dependencies required by the communication manager
@@ -102,67 +110,7 @@ export interface CommunicationDependencies {
   ) => void;
 }
 
-/**
- * Circuit breaker configuration for detecting rapid empty responses
- */
-interface CircuitBreakerState {
-  consecutiveEmptyResponses: number;
-  lastResponseTimestamp: number;
-  isTripped: boolean;
-}
-
 const logger = getLogger('InstanceCommunication');
-const RESPONSE_PREVIEW_LENGTH = 120;
-const RECENT_ADAPTER_ERROR_OUTPUT_DEDUP_MS = 1_000;
-
-const CIRCUIT_BREAKER_CONFIG = {
-  maxConsecutiveEmpty: 3,          // Trip after 3 consecutive empty responses
-  minTimeBetweenResponses: 1000,   // Minimum expected time between responses (1s)
-  resetTimeoutMs: 30000,           // Reset circuit after 30s
-  cooldownMs: 5000                 // Wait 5s before allowing retry after trip
-};
-
-const ACTIVE_CHILD_TURN_STATUSES = new Set<InstanceStatus>([
-  'busy',
-  'processing',
-  'thinking_deeply',
-  'waiting_for_permission',
-]);
-
-const CHILD_TURN_COMPLETE_STATUSES = new Set<InstanceStatus>([
-  'idle',
-  'ready',
-  'waiting_for_input',
-]);
-
-function summarizeLogText(value: string, maxLength = RESPONSE_PREVIEW_LENGTH): string {
-  const normalized = value.replace(/\s+/g, ' ').trim();
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, maxLength)}... (${normalized.length} chars)`;
-}
-
-function summarizeInputResponse(response: string, permissionKey?: string): Record<string, unknown> {
-  const normalized = response.trim().toLowerCase();
-  return {
-    responseLength: response.length,
-    responsePreview: summarizeLogText(response),
-    isPermissionApproval: normalized.includes('permission granted')
-      || normalized.includes('allow')
-      || normalized.startsWith('y'),
-    isPermissionDenial: normalized.includes('permission denied')
-      || normalized.includes('do not perform')
-      || normalized.startsWith('n'),
-    permissionKey: permissionKey ?? null,
-  };
-}
-
-function getAccumulatedStreamingContent(message: OutputMessage): string {
-  const accumulated = message.metadata?.['accumulatedContent'];
-  return typeof accumulated === 'string' ? accumulated : message.content;
-}
 
 export class InstanceCommunicationManager extends EventEmitter {
   private settings = getSettingsManager();
@@ -532,6 +480,18 @@ export class InstanceCommunicationManager extends EventEmitter {
     }
   }
 
+  private applyPlanModeTurnHint(
+    instance: Instance,
+    message: string,
+    isAutoContinuation: boolean,
+  ): string {
+    if (isAutoContinuation) return message;
+    if (instance.provider !== 'claude') return message;
+    if (!instance.planMode.enabled || instance.planMode.state !== 'planning') return message;
+    if (/\bultrathink\b/i.test(message)) return message;
+    return `ultrathink\n\n${message}`;
+  }
+
   // ============================================
   // Message Sending
   // ============================================
@@ -649,7 +609,9 @@ export class InstanceCommunicationManager extends EventEmitter {
         : pendingPreambles.join('\n\n');
     }
 
-    const finalMessage = finalContextBlock ? `${finalContextBlock}\n\n${message}` : message;
+    const isAutoContinuation = options?.autoContinuation === true;
+    const finalMessageBase = finalContextBlock ? `${finalContextBlock}\n\n${message}` : message;
+    const finalMessage = this.applyPlanModeTurnHint(instance, finalMessageBase, isAutoContinuation);
 
     // Hard checkpoint: snapshot before user message
     if (this.deps.createSnapshot) {
@@ -667,7 +629,6 @@ export class InstanceCommunicationManager extends EventEmitter {
     // handles its own context and the CompactionCoordinator auto-compacts
     // at 80/95% thresholds. For auto-continuation loops we still hard-block
     // (agentic runaway protection), but silently — no user-visible message.
-    const isAutoContinuation = options?.autoContinuation === true;
     const budgetTracker = this.deps.getBudgetTracker?.(instanceId);
     if (budgetTracker) {
       const contextUsage = this.deps.getContextUsage?.(instanceId);
@@ -2157,79 +2118,3 @@ export class InstanceCommunicationManager extends EventEmitter {
   }
 }
 
-interface ProviderErrorDiagnostics {
-  requestId?: string;
-  stopReason?: string;
-  rateLimit?: ProviderRateLimitDiagnostics;
-  quota?: ProviderQuotaDiagnostics;
-}
-
-function extractProviderErrorDiagnostics(error: unknown): ProviderErrorDiagnostics {
-  const record = error && typeof error === 'object' ? error as Record<string, unknown> : undefined;
-  if (!record) {
-    return {};
-  }
-
-  const requestId = readDiagnosticString(record, ['requestId', 'request_id', 'x-request-id', 'anthropic-request-id']);
-  const stopReason = readDiagnosticString(record, ['stopReason', 'stop_reason']);
-  const rateLimit = normalizeRateLimitDiagnostics(record['rateLimit'] ?? record['rate_limit']);
-  const quota = normalizeQuotaDiagnostics(record['quota']);
-  return {
-    ...(requestId !== undefined ? { requestId } : {}),
-    ...(stopReason !== undefined ? { stopReason } : {}),
-    ...(rateLimit !== undefined ? { rateLimit } : {}),
-    ...(quota !== undefined ? { quota } : {}),
-  };
-}
-
-function normalizeRateLimitDiagnostics(value: unknown): ProviderRateLimitDiagnostics | undefined {
-  const record = value && typeof value === 'object' ? value as Record<string, unknown> : undefined;
-  if (!record) {
-    return undefined;
-  }
-
-  const rateLimit: ProviderRateLimitDiagnostics = {};
-  const limit = readDiagnosticNumber(record, ['limit']);
-  const remaining = readDiagnosticNumber(record, ['remaining']);
-  const resetAt = readDiagnosticNumber(record, ['resetAt', 'reset_at']);
-  if (limit !== undefined) rateLimit.limit = limit;
-  if (remaining !== undefined) rateLimit.remaining = remaining;
-  if (resetAt !== undefined) rateLimit.resetAt = resetAt;
-  return Object.keys(rateLimit).length > 0 ? rateLimit : undefined;
-}
-
-function normalizeQuotaDiagnostics(value: unknown): ProviderQuotaDiagnostics | undefined {
-  const record = value && typeof value === 'object' ? value as Record<string, unknown> : undefined;
-  if (!record) {
-    return undefined;
-  }
-
-  const quota: ProviderQuotaDiagnostics = {};
-  if (typeof record['exhausted'] === 'boolean') quota.exhausted = record['exhausted'];
-  const resetAt = readDiagnosticNumber(record, ['resetAt', 'reset_at']);
-  const message = readDiagnosticString(record, ['message']);
-  if (resetAt !== undefined) quota.resetAt = resetAt;
-  if (message !== undefined) quota.message = message;
-  return Object.keys(quota).length > 0 ? quota : undefined;
-}
-
-function readDiagnosticNumber(record: Record<string, unknown>, keys: string[]): number | undefined {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
-      return value;
-    }
-  }
-  return undefined;
-}
-
-function readDiagnosticString(record: Record<string, unknown>, keys: string[], maxLength = 300): string | undefined {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === 'string' && value.trim()) {
-      const trimmed = value.trim();
-      return trimmed.length <= maxLength ? trimmed : undefined;
-    }
-  }
-  return undefined;
-}

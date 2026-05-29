@@ -42,21 +42,18 @@ import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import type { LinkKind } from '../../../../shared/utils/link-detection';
 import { shouldCollapseUserMessage } from './output-stream-message-collapse';
 import { isLoopOriginatedUserMessage as detectLoopOriginatedUserMessage } from './loop-message-detection';
-
-type RenderedMarkdown = ReturnType<MarkdownService['render']>;
-
-/** Narrows DisplayItem's `unknown` rendered fields to RenderedMarkdown for template type safety */
-interface RenderedDisplayItem extends DisplayItem {
-  renderedMessage?: RenderedMarkdown;
-  renderedResponse?: RenderedMarkdown;
-}
-
-interface LinkedFileTarget {
-  rawPath: string;
-  resolvedPath: string;
-  displayPath: string;
-  canUseLocalFileActions: boolean;
-}
+import {
+  EMPTY_STABLE_DISPLAY_ITEMS_STATE,
+  computeStableDisplayItems,
+  type StableDisplayItemsState,
+} from './compute-stable-display-items';
+import type { RenderedMarkdown, RenderedDisplayItem, LinkedFileTarget } from './output-stream.types';
+import {
+  fileUrlToPath,
+  isAbsoluteFilePath,
+  joinAndNormalizePath,
+  getSystemFileManagerLabel,
+} from './output-stream.utils';
 
 @Component({
   selector: 'app-output-stream',
@@ -204,8 +201,9 @@ export class OutputStreamComponent {
 
   /** Display items filtered by tool call visibility. When tool calls are hidden
    *  we also strip them from work-cycle children so collapsed cycles don't
-   *  silently contain invisible entries. */
-  protected visibleItems = computed<RenderedDisplayItem[]>(() => {
+   *  silently contain invisible entries. This is the raw list; visibleItems()
+   *  stabilises its references before the template renders it. */
+  private readonly filteredItems = computed<RenderedDisplayItem[]>(() => {
     const items = this.displayItems();
     if (this.effectiveShowToolCalls()) return items;
     const result: RenderedDisplayItem[] = [];
@@ -220,6 +218,29 @@ export class OutputStreamComponent {
       }
     }
     return result;
+  });
+
+  /**
+   * Long-lived carrier for reference stabilisation. Mutated inside the
+   * visibleItems() computed below and read only on the next recompute; never
+   * exposed to other readers. See compute-stable-display-items.ts for the why.
+   */
+  private stableVisibleState: StableDisplayItemsState = EMPTY_STABLE_DISPLAY_ITEMS_STATE;
+
+  /**
+   * Display items handed to the template. Reference-stabilised so rows whose
+   * content has not changed keep their object identity across recomputes,
+   * letting OnPush child components skip change detection. When nothing changed
+   * we return the exact same array, so the @for and the deferred-highlight
+   * effect short-circuit. Keep `track item.id` in the template; this works with
+   * track-by, not instead of it.
+   */
+  protected readonly visibleItems = computed<RenderedDisplayItem[]>(() => {
+    this.stableVisibleState = computeStableDisplayItems(
+      this.filteredItems(),
+      this.stableVisibleState,
+    );
+    return this.stableVisibleState.result as RenderedDisplayItem[];
   });
 
   /** Count of hidden tool-group items (for the toggle bar), including those
@@ -846,7 +867,7 @@ export class OutputStreamComponent {
       },
       {
         id: 'open-file-manager',
-        label: `Open in ${this.getSystemFileManagerLabel()}`,
+        label: `Open in ${getSystemFileManagerLabel()}`,
         disabled: !target.canUseLocalFileActions,
         action: () => void this.openLinkedFileInFileManager(target),
       },
@@ -905,7 +926,7 @@ export class OutputStreamComponent {
   }
 
   private buildLinkedFileTarget(rawPath: string): LinkedFileTarget {
-    const path = this.fileUrlToPath(rawPath.trim());
+    const path = fileUrlToPath(rawPath.trim());
     const resolvedPath = this.resolvePathAgainstWorkingDirectory(path);
     return {
       rawPath: path,
@@ -950,11 +971,11 @@ export class OutputStreamComponent {
       return false;
     }
 
-    return this.isAbsoluteFilePath(path) || Boolean(instance?.workingDirectory?.trim());
+    return isAbsoluteFilePath(path) || Boolean(instance?.workingDirectory?.trim());
   }
 
   private resolvePathAgainstWorkingDirectory(path: string): string {
-    if (!path || this.isAbsoluteFilePath(path)) {
+    if (!path || isAbsoluteFilePath(path)) {
       return path;
     }
 
@@ -963,88 +984,7 @@ export class OutputStreamComponent {
       return path;
     }
 
-    return this.joinAndNormalizePath(workingDirectory, path);
-  }
-
-  private fileUrlToPath(path: string): string {
-    if (!path.startsWith('file://')) {
-      return path;
-    }
-
-    try {
-      const url = new URL(path);
-      if (url.protocol !== 'file:') {
-        return path;
-      }
-      return decodeURIComponent(url.pathname);
-    } catch {
-      return path;
-    }
-  }
-
-  private isAbsoluteFilePath(path: string): boolean {
-    return path.startsWith('/')
-      || path.startsWith('\\\\')
-      || path.startsWith('//')
-      || /^[A-Za-z]:[\\/]/.test(path);
-  }
-
-  private joinAndNormalizePath(base: string, relative: string): string {
-    const separator = this.pathSeparatorFor(base);
-    const joined = `${base.replace(/[\\/]+$/, '')}${separator}${relative}`;
-    return this.normalizePathLike(joined, separator);
-  }
-
-  private pathSeparatorFor(path: string): '/' | '\\' {
-    return /^[A-Za-z]:[\\/]/.test(path) || (path.includes('\\') && !path.includes('/'))
-      ? '\\'
-      : '/';
-  }
-
-  private normalizePathLike(path: string, separator: '/' | '\\'): string {
-    const driveMatch = /^([A-Za-z]:)[\\/](.*)$/.exec(path);
-    let prefix = '';
-    let rest = path;
-    const absolute = this.isAbsoluteFilePath(path);
-
-    if (driveMatch) {
-      prefix = `${driveMatch[1]}${separator}`;
-      rest = driveMatch[2];
-    } else if (path.startsWith('\\\\') || path.startsWith('//')) {
-      prefix = `${separator}${separator}`;
-      rest = path.replace(/^[\\/]+/, '');
-    } else if (path.startsWith('/')) {
-      prefix = separator;
-      rest = path.replace(/^[\\/]+/, '');
-    }
-
-    const segments: string[] = [];
-    for (const segment of rest.split(/[\\/]+/)) {
-      if (!segment || segment === '.') {
-        continue;
-      }
-      if (segment === '..') {
-        if (segments.length > 0 && segments[segments.length - 1] !== '..') {
-          segments.pop();
-        } else if (!absolute) {
-          segments.push(segment);
-        }
-        continue;
-      }
-      segments.push(segment);
-    }
-
-    return `${prefix}${segments.join(separator)}`;
-  }
-
-  private getSystemFileManagerLabel(): string {
-    if (navigator.userAgent.includes('Windows')) {
-      return 'Explorer';
-    }
-    if (navigator.userAgent.includes('Linux')) {
-      return 'Files';
-    }
-    return 'Finder';
+    return joinAndNormalizePath(workingDirectory, path);
   }
 
   private renderItemMarkdown(item: DisplayItem): void {

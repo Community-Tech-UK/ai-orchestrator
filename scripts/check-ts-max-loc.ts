@@ -4,11 +4,25 @@
  * Ratchet script that enforces TypeScript file size limits.
  *
  * - Test sources are skipped; broad behavior coverage should not be shaped by LOC ratchets.
- * - For production files NOT in the allowlist: fails if any file exceeds MAX_LINES (700).
- * - For production files IN the allowlist: fails if the file GROWS beyond its recorded ceiling
- *   (the ceiling must be reduced as the file is refactored down).
+ * - For production files NOT in the allowlist: a violation if the file exceeds MAX_LINES (700).
+ *   New large files must be added to the allowlist intentionally — SLACK does NOT apply here.
+ * - For production files IN the allowlist: a violation only once the file grows beyond its
+ *   recorded ceiling PLUS a small SLACK tolerance. The recorded ceiling still documents the
+ *   intended size and should be re-tightened opportunistically (e.g. after a refactor); the
+ *   slack just stops a one- or two-line edit from breaking the build during active work.
+ *   Files that have crept past their ceiling but are still within slack are reported as an
+ *   informational notice, not a violation.
  *
- * Usage: tsx scripts/check-ts-max-loc.ts
+ * Strictness:
+ * - By default violations FAIL the process (exit 1). This is what CI uses.
+ * - With `--warn` (or CHECK_TS_MAX_LOC_WARN=1) violations are printed but the process exits 0.
+ *   The local git hooks (pre-commit/pre-push) run in this warn-only mode so a commit or push is
+ *   never blocked purely by file size — CI remains the enforcing gate.
+ *
+ * Usage:
+ *   tsx scripts/check-ts-max-loc.ts            # strict (CI): violations fail
+ *   tsx scripts/check-ts-max-loc.ts --warn     # warn-only: violations reported, exit 0
+ *   CHECK_TS_MAX_LOC_SLACK=100 tsx scripts/check-ts-max-loc.ts   # widen the allowlist tolerance
  *
  * To add a new large file: run the script, note the count, add an entry below.
  * To tighten a ceiling after refactoring: lower the number.
@@ -19,6 +33,26 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
 const MAX_LINES = 700;
+
+/**
+ * Tolerance (in lines) added on top of each allowlisted file's recorded ceiling
+ * before growth is treated as a violation. Gives breathing room during active
+ * development so small edits to a large file don't break the build. Override with
+ * the CHECK_TS_MAX_LOC_SLACK env var (e.g. set to 0 for the old exact-ratchet
+ * behavior). Does NOT apply to the hard MAX_LINES limit for brand-new files.
+ */
+const SLACK = ((): number => {
+  const raw = Number(process.env.CHECK_TS_MAX_LOC_SLACK);
+  return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 50;
+})();
+
+/**
+ * When true, violations are reported but do NOT fail the process (exit 0).
+ * Enabled via the `--warn` flag or CHECK_TS_MAX_LOC_WARN=1. Local git hooks use
+ * this so commits/pushes are never blocked by size; CI runs strict (no flag).
+ */
+const WARN_ONLY =
+  process.argv.includes('--warn') || /^(1|true|yes)$/i.test(process.env.CHECK_TS_MAX_LOC_WARN ?? '');
 
 /**
  * Known large files and their current line-count ceilings.
@@ -43,9 +77,9 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — CLI adapters
   'src/main/cli/adapters/acp-cli-adapter.ts': 2142,
   'src/main/cli/adapters/base-cli-adapter.ts': 768,
-  'src/main/cli/adapters/claude-cli-adapter.ts': 2170,
+  'src/main/cli/adapters/claude-cli-adapter.ts': 2049,
   'src/main/cli/adapters/codex-cli-adapter.ts': 3004,
-  'src/main/cli/adapters/copilot-cli-adapter.ts': 1146,
+  'src/main/cli/adapters/copilot-cli-adapter.ts': 978,
   'src/main/cli/adapters/cursor-cli-adapter.ts': 1024,
   'src/main/cli/adapters/gemini-cli-adapter.ts': 873,
   // Main process — codemem
@@ -62,7 +96,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/indexing/benchmarks/benchmark-utils.ts': 820,
   'src/main/indexing/tree-sitter-chunker.ts': 716,
   // Main process — instance
-  'src/main/instance/instance-communication.ts': 2236,
+  'src/main/instance/instance-communication.ts': 2121,
   'src/main/instance/instance-context.ts': 1204,
   'src/main/instance/instance-lifecycle.ts': 3108,
   'src/main/instance/instance-manager.ts': 2508,
@@ -80,7 +114,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/learning/habit-tracker.ts': 733,
   'src/main/learning/metrics-collector.ts': 731,
   'src/main/learning/outcome-tracker.ts': 743,
-  'src/main/learning/preference-store.ts': 719,
+  'src/main/learning/preference-store.ts': 676,
   // Main process — MCP
   'src/main/mcp/mcp-manager.ts': 1025,
   'src/main/mcp/mcp-tool-search.ts': 842,
@@ -97,14 +131,14 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/orchestration/cli-verification-extension.ts': 973,
   'src/main/orchestration/consensus-coordinator.ts': 860,
   'src/main/orchestration/consensus.ts': 759,
-  'src/main/orchestration/cross-model-review-service.ts': 798,
+  'src/main/orchestration/cross-model-review-service.ts': 755,
   'src/main/orchestration/debate-coordinator.ts': 1196,
   'src/main/orchestration/default-invokers.ts': 1454,
   'src/main/orchestration/embedding-service.ts': 845,
   'src/main/orchestration/loop-coordinator.ts': 1766,
   'src/main/orchestration/loop-progress-detector.ts': 725,
   'src/main/orchestration/multi-verify-coordinator.ts': 1163,
-  'src/main/orchestration/orchestration-handler.ts': 1507,
+  'src/main/orchestration/orchestration-handler.ts': 1443,
   'src/main/orchestration/supervisor.ts': 735,
   'src/main/orchestration/voting.ts': 777,
   // Main process — persistence
@@ -112,7 +146,7 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — plugins
   'src/main/plugins/plugin-manager.ts': 1235,
   // Main process — providers
-  'src/main/providers/model-discovery.ts': 707,
+  'src/main/providers/model-discovery.ts': 552,
   // Main process — remote
   'src/main/remote/observer-server.ts': 864,
   // Main process — repo jobs
@@ -120,8 +154,8 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — RLM
   'src/main/rlm/ast-chunker.ts': 766,
   'src/main/rlm/episodic-rlm-store.ts': 765,
-  'src/main/rlm/hyde-service.ts': 788,
-  'src/main/rlm/llm-service.ts': 994,
+  'src/main/rlm/hyde-service.ts': 716,
+  'src/main/rlm/llm-service.ts': 962,
   'src/main/rlm/smart-compaction.ts': 879,
   // Main process — security
   'src/main/security/permission-manager.ts': 1560,
@@ -156,7 +190,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/hooks/hooks-page.component.ts': 767,
   'src/renderer/app/features/instance-detail/input-panel.component.ts': 1703,
   'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1491,
-  'src/renderer/app/features/instance-detail/output-stream.component.ts': 1113,
+  'src/renderer/app/features/instance-detail/output-stream.component.ts': 1053,
   'src/renderer/app/features/instance-detail/user-action-request.component.ts': 1015,
   'src/renderer/app/features/instance-list/instance-list.component.ts': 1767,
   'src/renderer/app/features/instance-list/instance-row.component.ts': 842,
@@ -229,6 +263,7 @@ function main(): void {
   const skippedTestFiles = trackedFiles.length - checkedFiles.length;
 
   const violations: string[] = [];
+  const nearLimit: string[] = [];
 
   for (const relPath of checkedFiles) {
     const absPath = resolve(repoRoot, relPath);
@@ -236,10 +271,15 @@ function main(): void {
 
     if (Object.prototype.hasOwnProperty.call(ALLOWLIST, relPath)) {
       const ceiling = ALLOWLIST[relPath];
-      if (lines > ceiling) {
+      const hardLimit = ceiling + SLACK;
+      if (lines > hardLimit) {
         violations.push(
-          `RATCHET EXCEEDED: ${relPath} has ${lines} lines (ceiling: ${ceiling}). ` +
-            `File grew — refactor it down or raise the ceiling intentionally.`,
+          `RATCHET EXCEEDED: ${relPath} has ${lines} lines (ceiling: ${ceiling}, tolerance: +${SLACK}). ` +
+            `File grew well past its ceiling — refactor it down or raise the ceiling intentionally.`,
+        );
+      } else if (lines > ceiling) {
+        nearLimit.push(
+          `${relPath} is ${lines} lines — ${lines - ceiling} over its ${ceiling} ceiling but within the +${SLACK} tolerance.`,
         );
       }
     } else {
@@ -252,19 +292,38 @@ function main(): void {
     }
   }
 
-  if (violations.length > 0) {
-    console.error('\nTypeScript file size ratchet FAILED:\n');
-    for (const v of violations) {
-      console.error(`  - ${v}`);
+  if (nearLimit.length > 0) {
+    console.warn(
+      `\nNote: ${nearLimit.length} allowlisted file(s) crept past their ceiling but stay within ` +
+        `the +${SLACK}-line tolerance — please re-tighten the ceiling when convenient:`,
+    );
+    for (const n of nearLimit) {
+      console.warn(`  - ${n}`);
     }
-    console.error(`\n${violations.length} violation(s) found.`);
+  }
+
+  if (violations.length > 0) {
+    const logViolation = WARN_ONLY ? console.warn : console.error;
+    logViolation(`\nTypeScript file size ratchet ${WARN_ONLY ? 'WARNING' : 'FAILED'}:\n`);
+    for (const v of violations) {
+      logViolation(`  - ${v}`);
+    }
+    logViolation(`\n${violations.length} violation(s) found.`);
+    if (WARN_ONLY) {
+      console.warn(`\n(warn-only mode: not failing. Set CHECK_TS_MAX_LOC_SLACK to adjust tolerance.)`);
+      process.exit(0);
+    }
+    console.error(
+      `\nThis check is warn-only in local git hooks but enforced here/in CI. ` +
+        `Refactor, raise the ceiling intentionally, or widen CHECK_TS_MAX_LOC_SLACK.`,
+    );
     process.exit(1);
   }
 
   console.log(
     `TypeScript file size ratchet passed. ` +
       `Checked ${checkedFiles.length} production files (limit: ${MAX_LINES} lines, ` +
-      `${Object.keys(ALLOWLIST).length} allowlisted legacy files, ` +
+      `${Object.keys(ALLOWLIST).length} allowlisted legacy files (+${SLACK} tolerance), ` +
       `${skippedTestFiles} test files skipped).`,
   );
   process.exit(0);

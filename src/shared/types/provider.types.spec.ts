@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CLAUDE_MODELS,
+  CLAUDE_PINNED_MODELS,
   COPILOT_MODELS,
   DEFAULT_MODELS,
+  MODEL_PRICING,
   PROVIDER_MODEL_LIST,
+  REASONING_EFFORTS,
+  getDefaultModelForCli,
   getPrimaryModelForProvider,
   getProviderModelContextWindow,
   normalizeModelAliasForProvider,
@@ -32,6 +36,7 @@ describe('provider type helpers', () => {
 
   it('returns 1M for 4.6+ models that natively support it', () => {
     expect(getProviderModelContextWindow('claude', 'claude-opus-4-6')).toBe(1000000);
+    expect(getProviderModelContextWindow('claude', 'claude-opus-4-8')).toBe(1000000);
     expect(getProviderModelContextWindow('claude-cli', 'claude-sonnet-4-6')).toBe(1000000);
   });
 
@@ -46,11 +51,39 @@ describe('provider type helpers', () => {
 });
 
 describe('provider model lists', () => {
+  it('defaults Claude CLI to Opus latest with 1M context', () => {
+    expect(DEFAULT_MODELS['claude-cli']).toBe(CLAUDE_MODELS.OPUS_1M);
+    expect(DEFAULT_MODELS['anthropic-api']).toBe(CLAUDE_MODELS.OPUS);
+    expect(getPrimaryModelForProvider('claude')).toBe(CLAUDE_MODELS.OPUS_1M);
+    expect(getDefaultModelForCli('claude')).toBe(CLAUDE_MODELS.OPUS_1M);
+  });
+
   it('exposes Claude 1M variants in the static Claude model list', () => {
     const claudeModels = PROVIDER_MODEL_LIST['claude'].map((model) => model.id);
 
     expect(claudeModels).toContain(CLAUDE_MODELS.SONNET_1M);
     expect(claudeModels).toContain(CLAUDE_MODELS.OPUS_1M);
+  });
+
+  it('exposes Opus 4.8 as the latest pinned Claude generation', () => {
+    const claudeModels = PROVIDER_MODEL_LIST['claude'].map((model) => model.id);
+
+    expect(CLAUDE_PINNED_MODELS.OPUS_48).toBe('claude-opus-4-8');
+    expect(claudeModels).toContain(CLAUDE_PINNED_MODELS.OPUS_48);
+    expect(MODEL_PRICING[CLAUDE_PINNED_MODELS.OPUS_48]).toEqual({ input: 5.0, output: 25.0 });
+  });
+
+  it('includes Claude Code session-only effort options in the shared reasoning set', () => {
+    expect(REASONING_EFFORTS).toEqual([
+      'none',
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max',
+      'workflow',
+    ]);
   });
 
   it('exposes Gemini models through the Copilot fallback model list', () => {

@@ -58,4 +58,15 @@ describe('models-catalog', () => {
     expect(m.capabilities.promptCaching).toBe(true);
     expect(m.pricing?.inputPer1mTokens).toBe(3.0);
   });
+
+  it('claude-opus-4-8 is active with 1M context and current pricing', () => {
+    const m = getModelCatalogEntry('claude-opus-4-8')!;
+    expect(m.name).toBe('Claude Opus 4.8');
+    expect(m.contextWindow).toBe(1_000_000);
+    expect(m.maxOutputTokens).toBe(128_000);
+    expect(m.capabilities.promptCaching).toBe(true);
+    expect(m.pricing?.inputPer1mTokens).toBe(5.0);
+    expect(m.pricing?.outputPer1mTokens).toBe(25.0);
+    expect(m.active).toBe(true);
+  });
 });

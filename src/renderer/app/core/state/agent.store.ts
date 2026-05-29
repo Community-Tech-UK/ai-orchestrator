@@ -35,7 +35,7 @@ const STORAGE_KEY = 'agent-store';
 const DEFAULT_PREFERENCES: Record<string, AgentPreference> = {
   claude: {
     command: 'claude',
-    defaultModel: CLAUDE_MODELS.SONNET,
+    defaultModel: CLAUDE_MODELS.OPUS_1M,
     defaultTimeout: 300,
     autoApprove: false,
     personality: 'methodical-analyst',

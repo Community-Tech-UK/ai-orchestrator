@@ -3,11 +3,13 @@
  * Handles CLI detection and multi-CLI verification
  */
 
-import { ipcMain, IpcMainInvokeEvent, BrowserWindow } from 'electron';
+import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { getLogger } from '../logging/logger';
 import { IpcResponse } from '../../shared/types/ipc.types';
 import { CliDetectionService, CliType, SUPPORTED_CLIS } from '../cli/cli-detection';
 import { getCliUpdateService } from '../cli/cli-update-service';
+import { getCliLatestVersionService } from '../cli/cli-latest-version';
+import { isUpdateAvailable } from '../cli/semver';
 import { getProviderDoctor } from '../providers/provider-doctor';
 import { getCliVerificationCoordinator, CliVerificationConfig } from '../orchestration/cli-verification-extension';
 import type { PersonalityType, SynthesisStrategy } from '../../shared/types/verification.types';
@@ -185,11 +187,21 @@ export function registerCliVerificationHandlers(
             const diagnosis = providerKey
               ? await doctor.diagnose(providerKey).catch(() => null)
               : null;
+            const activeVersion = installs[0]?.version;
+            // Only query the registry for CLIs that are actually installed.
+            // Shares the 1h-cached resolver with the update poller, so this is
+            // usually a cache hit and fails soft to undefined ("unknown").
+            const latestVersion =
+              installs.length > 0
+                ? (await getCliLatestVersionService().resolveLatestVersion(cliType)) ?? undefined
+                : undefined;
             return {
               cli: cliType,
               installs,
               activePath: installs[0]?.path,
-              activeVersion: installs[0]?.version,
+              activeVersion,
+              latestVersion,
+              updateAvailable: isUpdateAvailable(activeVersion, latestVersion),
               diagnosis,
               updatePlan,
             };

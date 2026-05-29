@@ -43,6 +43,18 @@ describe('AutomationCreatePayloadSchema destination', () => {
       reviveIfArchived: true,
     });
   });
+
+  it('accepts Claude session-only reasoning modes in automation actions', () => {
+    const parsed = AutomationCreatePayloadSchema.parse({
+      ...baseCreatePayload,
+      action: {
+        ...baseAction,
+        reasoningEffort: 'workflow',
+      },
+    });
+
+    expect(parsed.action.reasoningEffort).toBe('workflow');
+  });
 });
 
 describe('AutomationUpdatePayloadSchema destination', () => {

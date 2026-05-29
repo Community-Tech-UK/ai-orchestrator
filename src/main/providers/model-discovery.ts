@@ -12,53 +12,19 @@ import * as https from 'https';
 import * as http from 'http';
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import { getLogger } from '../logging/logger';
+import {
+  DEFAULT_CACHE_TTL_MS,
+  type CacheEntry,
+  type DiscoveredModel,
+  type ModelCapabilities,
+  type ModelPricing,
+  type ProviderModelConfig,
+} from './model-discovery.types';
+import { buildAnthropicKnownModels } from './model-discovery.catalog';
+
+export type { DiscoveredModel, ModelCapabilities, ModelPricing, ProviderModelConfig } from './model-discovery.types';
 
 const logger = getLogger('ModelDiscovery');
-
-export interface DiscoveredModel {
-  id: string;
-  name: string;
-  displayName?: string;
-  provider: string;
-  description?: string;
-  contextLength?: number;
-  maxOutputTokens?: number;
-  capabilities?: ModelCapabilities;
-  pricing?: ModelPricing;
-  isAvailable: boolean;
-  lastChecked: number;
-}
-
-export interface ModelCapabilities {
-  vision?: boolean;
-  functionCalling?: boolean;
-  streaming?: boolean;
-  json?: boolean;
-  systemMessage?: boolean;
-  maxTemperature?: number;
-}
-
-export interface ModelPricing {
-  inputPer1kTokens: number;
-  outputPer1kTokens: number;
-  cachePer1kTokens?: number;
-  currency: string;
-}
-
-export interface ProviderModelConfig {
-  type: string;
-  apiKey?: string;
-  baseUrl?: string;
-  organizationId?: string;
-}
-
-interface CacheEntry {
-  models: DiscoveredModel[];
-  timestamp: number;
-  expiresAt: number;
-}
-
-const DEFAULT_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 export class ModelDiscoveryService {
   private cache = new Map<string, CacheEntry>();
@@ -177,128 +143,7 @@ export class ModelDiscoveryService {
     // Anthropic models are relatively static, use known list.
     // Default context is 200k; Opus 4.6+/Sonnet 4.6+ natively support 1M.
     // The [1m] variants request extended context via beta header.
-    const knownModels: DiscoveredModel[] = [
-      {
-        id: CLAUDE_MODELS.OPUS,
-        name: 'Claude Opus (latest)',
-        displayName: 'Claude Opus (latest)',
-        provider: 'anthropic',
-        description: 'Most capable model for complex tasks',
-        contextLength: 1000000,
-        maxOutputTokens: 32000,
-        capabilities: {
-          vision: true,
-          functionCalling: true,
-          streaming: true,
-          json: true,
-          systemMessage: true,
-        },
-        pricing: {
-          inputPer1kTokens: 0.005,
-          outputPer1kTokens: 0.025,
-          cachePer1kTokens: 0.00625,
-          currency: 'USD',
-        },
-        isAvailable: true,
-        lastChecked: Date.now(),
-      },
-      {
-        id: CLAUDE_MODELS.OPUS_1M,
-        name: 'Claude Opus (latest, 1M)',
-        displayName: 'Claude Opus (latest, 1M)',
-        provider: 'anthropic',
-        description: 'Most capable model with extended 1M context',
-        contextLength: 1000000,
-        maxOutputTokens: 32000,
-        capabilities: {
-          vision: true,
-          functionCalling: true,
-          streaming: true,
-          json: true,
-          systemMessage: true,
-        },
-        pricing: {
-          inputPer1kTokens: 0.005,
-          outputPer1kTokens: 0.025,
-          cachePer1kTokens: 0.00625,
-          currency: 'USD',
-        },
-        isAvailable: true,
-        lastChecked: Date.now(),
-      },
-      {
-        id: CLAUDE_MODELS.SONNET,
-        name: 'Claude Sonnet (latest)',
-        displayName: 'Claude Sonnet (latest)',
-        provider: 'anthropic',
-        description: 'Balanced performance and cost',
-        contextLength: 1000000,
-        maxOutputTokens: 64000,
-        capabilities: {
-          vision: true,
-          functionCalling: true,
-          streaming: true,
-          json: true,
-          systemMessage: true,
-        },
-        pricing: {
-          inputPer1kTokens: 0.003,
-          outputPer1kTokens: 0.015,
-          cachePer1kTokens: 0.00375,
-          currency: 'USD',
-        },
-        isAvailable: true,
-        lastChecked: Date.now(),
-      },
-      {
-        id: CLAUDE_MODELS.SONNET_1M,
-        name: 'Claude Sonnet (latest, 1M)',
-        displayName: 'Claude Sonnet (latest, 1M)',
-        provider: 'anthropic',
-        description: 'Balanced performance with extended 1M context',
-        contextLength: 1000000,
-        maxOutputTokens: 64000,
-        capabilities: {
-          vision: true,
-          functionCalling: true,
-          streaming: true,
-          json: true,
-          systemMessage: true,
-        },
-        pricing: {
-          inputPer1kTokens: 0.003,
-          outputPer1kTokens: 0.015,
-          cachePer1kTokens: 0.00375,
-          currency: 'USD',
-        },
-        isAvailable: true,
-        lastChecked: Date.now(),
-      },
-      {
-        id: CLAUDE_MODELS.HAIKU,
-        name: 'Claude Haiku (latest)',
-        displayName: 'Claude Haiku (latest)',
-        provider: 'anthropic',
-        description: 'Fast and cost-effective',
-        contextLength: 200000,
-        maxOutputTokens: 8192,
-        capabilities: {
-          vision: true,
-          functionCalling: true,
-          streaming: true,
-          json: true,
-          systemMessage: true,
-        },
-        pricing: {
-          inputPer1kTokens: 0.001,
-          outputPer1kTokens: 0.005,
-          cachePer1kTokens: 0.00125,
-          currency: 'USD',
-        },
-        isAvailable: true,
-        lastChecked: Date.now(),
-      },
-    ];
+    const knownModels = buildAnthropicKnownModels();
 
     // Verify API key is valid by making a test request if available
     if (config.apiKey) {

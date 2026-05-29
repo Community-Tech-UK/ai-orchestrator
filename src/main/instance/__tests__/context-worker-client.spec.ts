@@ -8,6 +8,10 @@ vi.mock('electron', () => ({
   app: { getPath: vi.fn(() => '/tmp/test'), isPackaged: false },
 }));
 
+vi.mock('../../logging/logger', () => ({
+  getLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
+}));
+
 vi.mock('node:worker_threads', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:worker_threads')>();
   return { ...actual };
@@ -181,6 +185,53 @@ describe('ContextWorkerClient', () => {
     // Either rejected or resolved-null are both acceptable outcomes
     expect(r1.status === 'rejected' || (r1.status === 'fulfilled' && r1.value === null)).toBe(true);
     expect(r2.status === 'rejected' || (r2.status === 'fulfilled' && r2.value === null)).toBe(true);
+  });
+
+  it('restarts repeatedly across a session when the worker recovers between crashes', async () => {
+    // Regression guard: a healthy RPC response must reset the consecutive-crash
+    // counter so a worker that crashes, recovers, then crashes again later is
+    // still restarted instead of being permanently disabled. Without the reset
+    // the client would stay degraded after MAX_RESTART_ATTEMPTS lifetime crashes,
+    // silently killing memory/RLM context for the rest of the session.
+    vi.useFakeTimers();
+    try {
+      const { _resetContextWorkerClientForTesting, ContextWorkerClient } = await import('../context-worker-client');
+      _resetContextWorkerClientForTesting();
+
+      const workers: FakeWorker[] = [];
+      const recoveringClient = new ContextWorkerClient({
+        workerFactory: () => {
+          const w = createFakeWorker();
+          workers.push(w);
+          return w as unknown as Worker;
+        },
+        rpcTimeoutMs: 50,
+        userDataPath: '/tmp/test',
+      });
+
+      // Five crash/recover cycles — far beyond MAX_RESTART_ATTEMPTS (3).
+      for (let cycle = 0; cycle < 5; cycle++) {
+        const before = workers.length;
+        workers[before - 1].emit('error', new Error(`crash ${cycle}`));
+        expect(recoveringClient.getMetrics().degraded).toBe(true);
+
+        // Restart fires after the backoff and spawns a fresh worker.
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(workers.length).toBe(before + 1);
+        expect(recoveringClient.getMetrics().degraded).toBe(false);
+
+        // The new worker answers an RPC → client treats it as recovered.
+        const pending = recoveringClient.buildRlmContext('inst-1', 'q');
+        const posted = workers[workers.length - 1].postMessage.mock.calls.at(-1)?.[0] as { id: number };
+        workers[workers.length - 1].emit('message', { type: 'rpc-response', id: posted.id, result: null });
+        await pending;
+      }
+
+      // Still healthy after 5 crashes because each was followed by a recovery.
+      expect(recoveringClient.getMetrics().degraded).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // ── Synchronous in-process methods ──────────────────────────────────────────

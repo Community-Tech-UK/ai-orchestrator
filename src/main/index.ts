@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { WindowManager } from './window-manager';
 import { InstanceManager } from './instance/instance-manager';
+import { getContextWorkerClient } from './instance/context-worker-client';
 import { getLogger } from './logging/logger';
 import {
   getSessionContinuityManagerIfInitialized,
@@ -98,7 +99,13 @@ class AIOrchestratorApp {
 
   constructor() {
     this.windowManager = new WindowManager();
-    this.instanceManager = new InstanceManager(this.windowManager);
+    // Route all RLM / unified-memory context work (build, init, ingest, compact)
+    // through the context worker thread. Without this argument InstanceManager
+    // falls back to the in-process InstanceContextManager, which runs synchronous
+    // better-sqlite3 retrieval on the Electron main event loop and stalls the
+    // whole app on send / new session (observed: a single RLM build blocking the
+    // main thread for 38s, with multi-minute event-loop lag). Keep this wired.
+    this.instanceManager = new InstanceManager(this.windowManager, getContextWorkerClient());
   }
 
   async initialize(): Promise<void> {

@@ -52,10 +52,10 @@ const INTERVAL_OPTIONS: IntervalOption[] = [
 ];
 
 const LIMIT_UNAVAILABLE_TEXT: Record<ProviderId, string> = {
-  claude: 'Numeric limits unavailable. Claude Code currently exposes plan/sign-in only outside the interactive UI.',
-  codex: 'Numeric limits unavailable. Codex exposes login method only; account limits are not available headlessly.',
-  gemini: 'Numeric limits unavailable. Gemini exposes auth type only; quota stats are interactive-session data.',
-  copilot: 'Numeric limits unavailable. Copilot exposes sign-in only; /usage is current-session statistics.',
+  claude: 'Claude Code does not expose numeric limits when run outside its interactive terminal. Sign-in status is available but exact request counts are not.',
+  codex: 'OpenAI Codex does not report account-level limits from the command line. Only your sign-in method is available here.',
+  gemini: 'Google Gemini does not expose quota numbers in a background check — those figures are only available inside an interactive session.',
+  copilot: 'GitHub Copilot does not report account limits outside an active coding session. Sign-in status is available but usage totals are not.',
 };
 
 @Component({
@@ -66,10 +66,12 @@ const LIMIT_UNAVAILABLE_TEXT: Record<ProviderId, string> = {
   template: `
     <div class="quota-settings-tab">
       <div class="tab-header">
-        <h3 class="section-title">Usage probes</h3>
+        <h3 class="section-title">Provider usage</h3>
         <p class="section-desc">
-          Choose which provider quota probes refresh in the background. Polling
-          is off by default and only updates the title-bar chip for selected providers.
+          Shows how much of your AI provider quota (rate-limit allowance) you have
+          used and when it resets. Each provider can check your account in the
+          background on a schedule you choose — this is off by default to avoid
+          unexpected network activity.
         </p>
       </div>
 
@@ -77,9 +79,9 @@ const LIMIT_UNAVAILABLE_TEXT: Record<ProviderId, string> = {
         <thead>
           <tr>
             <th>Provider</th>
-            <th>Current state</th>
+            <th>Sign-in status</th>
             <th>Usage limits</th>
-            <th>Auto-refresh</th>
+            <th>Check automatically</th>
             <th></th>
           </tr>
         </thead>
@@ -131,8 +133,8 @@ const LIMIT_UNAVAILABLE_TEXT: Record<ProviderId, string> = {
           Refresh all providers
         </button>
         @if (lastWarning()) {
-          <span class="warning">⚠ {{ lastWarning()!.window.label }} at
-            {{ lastWarning()!.threshold }}%</span>
+          <span class="warning">Warning: {{ lastWarning()!.window.label }} is at
+            {{ lastWarning()!.threshold }}% of its limit</span>
         }
       </div>
     </div>
@@ -181,8 +183,8 @@ export class ProviderQuotaSettingsTabComponent implements OnInit {
 
   limitUnavailableText(provider: ProviderId): string {
     const snap: ProviderQuotaSnapshot | null = this.snapshots()[provider];
-    if (!snap) return 'No quota snapshot yet. Click refresh to run this provider probe.';
-    if (!snap.ok) return 'Probe failed before usage limits could be checked.';
+    if (!snap) return 'No data yet — click “Refresh now” to check this provider.';
+    if (!snap.ok) return 'The check failed before usage limits could be read. Try refreshing again.';
     return LIMIT_UNAVAILABLE_TEXT[provider];
   }
 

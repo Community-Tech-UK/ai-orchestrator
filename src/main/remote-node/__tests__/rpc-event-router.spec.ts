@@ -326,6 +326,90 @@ describe('RpcEventRouter', () => {
   });
 
   // -------------------------------------------------------------------------
+  // rpc:notification terminal.output / terminal.exit (Piece C)
+  // -------------------------------------------------------------------------
+
+  it('emits remote:terminal-output on registry for terminal.output notification', () => {
+    registry.registerNode(makeNode('node-t1'));
+    const handler = vi.fn();
+    registry.on('remote:terminal-output', handler);
+
+    mockConnection.emit('rpc:notification', 'node-t1', {
+      jsonrpc: '2.0',
+      method: 'terminal.output',
+      params: { sessionId: 'term-1', data: '$ ls\n' },
+    });
+
+    expect(handler).toHaveBeenCalledWith({ nodeId: 'node-t1', sessionId: 'term-1', data: '$ ls\n' });
+    expect(mockConnection.sendResponse).not.toHaveBeenCalled();
+  });
+
+  it('ignores terminal.output from an unknown node', () => {
+    const handler = vi.fn();
+    registry.on('remote:terminal-output', handler);
+
+    mockConnection.emit('rpc:notification', 'ghost', {
+      jsonrpc: '2.0',
+      method: 'terminal.output',
+      params: { sessionId: 'term-1', data: 'x' },
+    });
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('ignores malformed terminal.output (missing data)', () => {
+    registry.registerNode(makeNode('node-t1b'));
+    const handler = vi.fn();
+    registry.on('remote:terminal-output', handler);
+
+    mockConnection.emit('rpc:notification', 'node-t1b', {
+      jsonrpc: '2.0',
+      method: 'terminal.output',
+      params: { sessionId: 'term-1' },
+    });
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('emits remote:terminal-exit with normalized code/signal for terminal.exit notification', () => {
+    registry.registerNode(makeNode('node-t2'));
+    const handler = vi.fn();
+    registry.on('remote:terminal-exit', handler);
+
+    mockConnection.emit('rpc:notification', 'node-t2', {
+      jsonrpc: '2.0',
+      method: 'terminal.exit',
+      params: { sessionId: 'term-2', exitCode: 137, signal: 'SIGKILL' },
+    });
+
+    expect(handler).toHaveBeenCalledWith({
+      nodeId: 'node-t2',
+      sessionId: 'term-2',
+      exitCode: 137,
+      signal: 'SIGKILL',
+    });
+  });
+
+  it('normalizes a missing exit code/signal to null', () => {
+    registry.registerNode(makeNode('node-t3'));
+    const handler = vi.fn();
+    registry.on('remote:terminal-exit', handler);
+
+    mockConnection.emit('rpc:notification', 'node-t3', {
+      jsonrpc: '2.0',
+      method: 'terminal.exit',
+      params: { sessionId: 'term-3' },
+    });
+
+    expect(handler).toHaveBeenCalledWith({
+      nodeId: 'node-t3',
+      sessionId: 'term-3',
+      exitCode: null,
+      signal: null,
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // rpc:request instance.stateChange — emits remote:instance-state-change
   // -------------------------------------------------------------------------
 

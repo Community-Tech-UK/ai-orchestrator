@@ -18,8 +18,12 @@ import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="connections-tab">
-      <h3 class="section-title">Remote control channels</h3>
-      <p class="section-desc">Connect Discord or WhatsApp accounts that can message the Orchestrator.</p>
+      <h3 class="section-title">External connections</h3>
+      <p class="section-desc">
+        Connect a Discord bot or WhatsApp account so you can send instructions
+        to the app from your phone or another device, even when you are away
+        from your desk.
+      </p>
 
       <!-- Discord -->
       <div class="connection-card" [class.connected]="store.discord().status === 'connected'">
@@ -33,12 +37,16 @@ import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
         </div>
 
         @if (store.discord().status === 'connected') {
-          <p class="connected-detail">Bot: <strong>{{ store.discord().botUsername }}</strong></p>
+          <p class="connected-detail">Bot username: <strong>{{ store.discord().botUsername }}</strong></p>
 
           <!-- Pairing section -->
           <div class="pairing-section">
-            <label class="field-label" for="discord-pair">Pairing Code</label>
-            <p class="field-hint">DM the bot to get a code, then enter it here to authorize your account.</p>
+            <label class="field-label" for="discord-pair">Pairing code</label>
+            <p class="field-hint">
+              Send the bot a direct message (DM) saying <strong>pair</strong>
+              and it will reply with a short code. Enter that code here to
+              link your Discord account.
+            </p>
             <div class="pair-row">
               <input
                 id="discord-pair"
@@ -78,7 +86,13 @@ import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
           @if (store.discord().error) {
             <div class="error-msg">{{ store.discord().error }}</div>
           }
-          <label class="field-label" for="discord-token">Bot Token</label>
+          <label class="field-label" for="discord-token">Bot token</label>
+          <p class="field-hint">
+            Create a bot in the
+            <a href="https://discord.com/developers/applications" target="_blank" rel="noopener noreferrer">Discord Developer Portal</a>,
+            copy its token, and paste it here. The bot must be invited to the
+            server you want to use.
+          </p>
           <input
             id="discord-token"
             type="password"
@@ -110,7 +124,7 @@ import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
         </div>
 
         @if (store.whatsapp().status === 'connected') {
-          <p class="connected-detail">Phone: <strong>{{ store.whatsapp().phoneNumber }}</strong></p>
+          <p class="connected-detail">Connected number: <strong>{{ store.whatsapp().phoneNumber }}</strong></p>
           <button
             class="btn btn-danger"
             type="button"
@@ -125,7 +139,11 @@ import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
           }
           @if (store.whatsapp().qrCode) {
             <div class="qr-container">
-              <p>Scan with WhatsApp:</p>
+              <p class="field-hint">
+                Open WhatsApp on your phone, go to
+                <strong>Linked Devices</strong>, tap <strong>Link a Device</strong>,
+                and scan this code.
+              </p>
               <div class="qr-code">{{ store.whatsapp().qrCode }}</div>
             </div>
           }
@@ -135,7 +153,7 @@ import { ChannelIpcService } from '../../core/services/ipc/channel-ipc.service';
             (click)="store.connectWhatsApp()"
             [disabled]="store.loading()"
           >
-            {{ store.whatsapp().status === 'connecting' ? 'Waiting for QR scan...' : 'Connect' }}
+            {{ store.whatsapp().status === 'connecting' ? 'Waiting for you to scan...' : 'Connect via QR code' }}
           </button>
         }
       </div>

@@ -62,6 +62,7 @@ benchmarks/orchestrator-benchmark/dist/
 # Temporary JSON dumps (vitest session reviews, etc.)
 .tmp-*.json
 *.tmp.json
+_scratch/
 
 # Orphaned pre-migration JS copies
 cross-model-review-service.js
