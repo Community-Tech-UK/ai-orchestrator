@@ -42,7 +42,7 @@ const MAX_LINES = 700;
  * behavior). Does NOT apply to the hard MAX_LINES limit for brand-new files.
  */
 const SLACK = ((): number => {
-  const raw = Number(process.env.CHECK_TS_MAX_LOC_SLACK);
+  const raw = Number(process.env['CHECK_TS_MAX_LOC_SLACK']);
   return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 50;
 })();
 
@@ -52,7 +52,7 @@ const SLACK = ((): number => {
  * this so commits/pushes are never blocked by size; CI runs strict (no flag).
  */
 const WARN_ONLY =
-  process.argv.includes('--warn') || /^(1|true|yes)$/i.test(process.env.CHECK_TS_MAX_LOC_WARN ?? '');
+  process.argv.includes('--warn') || /^(1|true|yes)$/i.test(process.env['CHECK_TS_MAX_LOC_WARN'] ?? '');
 
 /**
  * Known large files and their current line-count ceilings.
