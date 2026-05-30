@@ -141,6 +141,38 @@ export class HistoryManager {
       const previousEntries = this.index.entries.filter(
         (existingEntry) => this.getEntryThreadKey(existingEntry) === threadKey
       );
+
+      // A superseded source must never overwrite the history entry its fork owns.
+      //
+      // Edit-and-resend forks inherit the source's historyThreadId, and the fork
+      // archives the full conversation. The dedup design (see instance-persistence
+      // .createFork) assumes the fork archives LAST and replaces the source's
+      // pre-fork stub. But a superseded source can be torn down *after* the fork —
+      // e.g. when it's stuck in a recovery-respawn loop — and then archive over the
+      // fork's complete transcript with its short stub, destroying the real thread.
+      // Guard against this regardless of archive ordering: if this instance was
+      // superseded and the thread is already represented by an entry from a
+      // different (fork) instance, the source is no longer authoritative — skip it.
+      const isSuperseded =
+        instance.status === 'superseded' || Boolean(instance.supersededBy);
+      if (isSuperseded) {
+        const forkOwnedEntry = previousEntries.find(
+          (existingEntry) => existingEntry.originalInstanceId !== instance.id
+        );
+        if (forkOwnedEntry) {
+          logger.info('Skipping archive - superseded source would clobber fork-owned thread entry', {
+            instanceId: instance.id,
+            status: instance.status,
+            supersededBy: instance.supersededBy,
+            threadKey,
+            forkOwnedEntryId: forkOwnedEntry.id,
+            forkMessageCount: forkOwnedEntry.messageCount,
+            incomingMessageCount: messages.length,
+          });
+          return;
+        }
+      }
+
       const entryId = previousEntries[0]?.id ?? crypto.randomUUID();
       const createdAt = previousEntries.reduce(
         (earliest, existingEntry) => Math.min(earliest, existingEntry.createdAt),

@@ -4835,6 +4835,10 @@
       "lines": 2659
     },
     {
+      "path": "src/main/orchestration/loop-coordinator.ts",
+      "lines": 2553
+    },
+    {
       "path": "src/main/channels/channel-message-router.ts",
       "lines": 2521
     },
@@ -4853,10 +4857,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
       "lines": 2339
-    },
-    {
-      "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 2277
     },
     {
       "path": "src/main/persistence/rlm/rlm-schema.ts",
@@ -5003,12 +5003,12 @@
       "lines": 1394
     },
     {
-      "path": "docs/superpowers/plans/2026-04-02-phase-a-type-safety-utilities.md",
-      "lines": 1344
+      "path": "src/main/history/history-manager.ts",
+      "lines": 1362
     },
     {
-      "path": "src/main/history/history-manager.ts",
-      "lines": 1330
+      "path": "docs/superpowers/plans/2026-04-02-phase-a-type-safety-utilities.md",
+      "lines": 1344
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-d-architecture-state.md",
@@ -5512,6 +5512,10 @@
     },
     {
       "path": "src/main/core/config/claude-md-loader.ts",
+      "lines": 804
+    },
+    {
+      "path": "src/main/history/history-manager.spec.ts",
       "lines": 804
     },
     {

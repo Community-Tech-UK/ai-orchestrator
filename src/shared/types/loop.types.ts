@@ -296,6 +296,20 @@ export function defaultLoopPlanConfig(): LoopPlanConfig {
   return { regenerateOnStall: false };
 }
 
+export interface LoopBlockSanityProbeConfig {
+  /** Master switch. Default true. */
+  enabled: boolean;
+  /** Probe timeout in ms. Default 5000. */
+  timeoutMs?: number;
+}
+
+export interface LoopDegradedIterationRetryConfig {
+  /** Master switch. Default true. */
+  enabled: boolean;
+  /** Max retries of the same iteration seq before accepting the result. Default 2. */
+  maxRetries: number;
+}
+
 /** LF-4 — max disposable-plan regenerations per stall streak before pausing. */
 export const LOOP_MAX_PLAN_REGENERATIONS = 2;
 
@@ -328,6 +342,15 @@ export interface LoopConfig {
   exploration?: LoopExplorationConfig;
   /** LF-4 disposable-plan behaviour (regenerate on stall). Optional; default off. */
   plan?: LoopPlanConfig;
+  /** Sanity gate: before honoring a toolchain/environment-class block intent or
+   *  BLOCKED.md, run a cheap liveness probe in the workspace. If the toolchain is
+   *  actually responsive, the block is self-refuting and is NOT honored. */
+  blockSanityProbe?: LoopBlockSanityProbeConfig;
+  /** Resilience: retry a transient invocation failure or a "void" iteration
+   *  (no output, no files, no tool calls) with a fresh session before counting
+   *  it — instead of killing the loop or miscounting it as no-progress.
+   *  Optional; default on with maxRetries=2. */
+  degradedIterationRetry?: LoopDegradedIterationRetryConfig;
   /** Completion detector config. */
   completion: LoopCompletionConfig;
   /** Allow destructive ops inside the loop (rm -rf, force-push). Default false. */
@@ -396,6 +419,8 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
     context: defaultLoopContextConfig(),
     exploration: defaultLoopExplorationConfig(),
     plan: defaultLoopPlanConfig(),
+    blockSanityProbe: { enabled: true, timeoutMs: 5000 },
+    degradedIterationRetry: { enabled: true, maxRetries: 2 },
     completion: {
       completedFilenamePattern: '*_[Cc]ompleted.md',
       donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',

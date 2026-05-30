@@ -102,4 +102,55 @@ describe('IdleMonitor', () => {
       category: 'process_exited_unexpected',
     }));
   });
+
+  it.each(['superseded', 'failed'] as const)(
+    'does not dispatch recovery for a %s instance whose process has exited',
+    async (status) => {
+      // Regression: a superseded source (edit/fork retry) keeps its dead CLI
+      // process around. Without this guard the monitor classified it as
+      // process_exited_unexpected and looped forever attempting an illegal
+      // superseded -> initializing RESTART transition.
+      const detector = {
+        setPid: vi.fn(),
+        detect: vi.fn(async () => ({
+          state: 'exited' as const,
+          confidence: 'low' as const,
+          staleAfterMs: 0,
+          source: 'test',
+        })),
+      } as unknown as ActivityStateDetector;
+      const recoveryEngine = {
+        handleFailure: vi.fn(async () => ({ status: 'recovered' as const })),
+      } as unknown as RecoveryRecipeEngine;
+      const dispatchRecovery = vi.fn(async () => undefined);
+
+      const monitor = new IdleMonitor({
+        getSettings: () => ({ autoTerminateIdleMinutes: 0 }),
+        getRecoveryEngine: () => recoveryEngine,
+        getActivityDetectors: () => new Map([['instance-1', detector]]),
+        getInstance: () => ({
+          id: 'instance-1',
+          status,
+          processId: null,
+          supersededBy: status === 'superseded' ? 'fork-1' : undefined,
+          executionLocation: { type: 'local' },
+        } as unknown as Instance),
+        forEachInstance: vi.fn(),
+        getAdapter: vi.fn(),
+        queueUpdate: vi.fn(),
+        deleteAdapter: vi.fn(),
+        transitionState: vi.fn(),
+        terminateInstance: vi.fn(async () => undefined),
+        hibernateInstance: vi.fn(async () => undefined),
+        dispatchRecovery,
+      });
+
+      monitor.check();
+      await flushAsyncWork();
+      await flushAsyncWork();
+
+      expect(recoveryEngine.handleFailure).not.toHaveBeenCalled();
+      expect(dispatchRecovery).not.toHaveBeenCalled();
+    },
+  );
 });

@@ -423,6 +423,7 @@ describe('LoopCoordinator terminal intents', () => {
       initialPrompt: 'do thing',
       workspaceCwd: workspace,
       caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1 },
+      blockSanityProbe: { enabled: false },
     });
 
     await paused;
@@ -546,6 +547,7 @@ describe('LoopCoordinator terminal intents', () => {
       initialPrompt: 'do thing',
       workspaceCwd: workspace,
       caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1 },
+      blockSanityProbe: { enabled: false },
     });
 
     await paused;

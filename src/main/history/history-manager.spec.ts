@@ -165,6 +165,73 @@ describe('HistoryManager', () => {
     expect(fs.existsSync(path.join(storageDir, `${entry.id}.json.gz`))).toBe(false);
   });
 
+  it('does not let a superseded source clobber the fork-owned thread entry', async () => {
+    // Regression: an edit-and-resend fork inherits the source's historyThreadId
+    // and archives the full conversation. If the superseded source later archives
+    // (e.g. after being torn down post-fork) it must NOT replace the fork's
+    // richer entry with its short pre-fork stub. See history-manager.archiveInstance.
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    fs.mkdirSync(storageDir, { recursive: true });
+
+    const forkEntry = {
+      id: 'entry-thread-1',
+      displayName: 'Prod readiness',
+      aiTitle: 'Prod readiness',
+      createdAt: 100,
+      endedAt: 5000,
+      historyThreadId: 'thread-1',
+      workingDirectory: '/tmp/project',
+      messageCount: 3,
+      firstUserMessage: 'full first',
+      lastUserMessage: 'full last',
+      status: 'completed' as const,
+      originalInstanceId: 'fork-1',
+      parentId: null,
+      sessionId: 'fork-session',
+      provider: 'claude' as const,
+      currentModel: 'opus',
+    };
+    const forkConversation = {
+      entry: forkEntry,
+      messages: [
+        { id: 'u1', timestamp: 1, type: 'user', content: 'full first' },
+        { id: 'a1', timestamp: 2, type: 'assistant', content: 'full answer' },
+        { id: 'u2', timestamp: 3, type: 'user', content: 'full last' },
+      ],
+    };
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({ version: 1, lastUpdated: Date.now(), entries: [forkEntry] })
+    );
+    fs.writeFileSync(
+      path.join(storageDir, `${forkEntry.id}.json.gz`),
+      zlib.gzipSync(JSON.stringify(forkConversation))
+    );
+
+    const { HistoryManager } = await import('./history-manager');
+    const manager = new HistoryManager();
+    await manager.startupTasks;
+
+    const supersededSource = makeInstance({
+      id: 'instance-1',
+      historyThreadId: 'thread-1',
+      status: 'superseded',
+      supersededBy: 'fork-1',
+      sessionId: 'source-session',
+      outputBuffer: [message('s1', 'user', 'short pre-fork stub', 1)],
+    });
+    await manager.archiveInstance(supersededSource, 'completed');
+
+    const entries = manager.getEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].id).toBe('entry-thread-1');
+    expect(entries[0].messageCount).toBe(3);
+    expect(entries[0].originalInstanceId).toBe('fork-1');
+
+    const conversation = await manager.loadConversation('entry-thread-1');
+    expect(conversation?.messages).toHaveLength(3);
+  });
+
   it('archives a history entry without deleting the conversation file', async () => {
     const storageDir = path.join(userDataDir, 'conversation-history');
     fs.mkdirSync(storageDir, { recursive: true });

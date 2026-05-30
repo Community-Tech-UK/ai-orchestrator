@@ -29,7 +29,9 @@
 
 import { EventEmitter } from 'events';
 import { createHash, randomUUID } from 'crypto';
+import { execFile } from 'node:child_process';
 import * as path from 'path';
+import { promisify } from 'node:util';
 import { getLogger } from '../logging/logger';
 import {
   defaultCrossModelReviewConfig,
@@ -46,6 +48,7 @@ import {
   type CompletionSignalEvidence,
   type ProgressSignalEvidence,
   type LoopTerminalIntent,
+  type LoopTerminalIntentEvidence,
 } from '../../shared/types/loop.types';
 import {
   LoopCompletionDetector,
@@ -118,6 +121,7 @@ export type {
 } from './loop-fresh-eyes-reviewer';
 
 const logger = getLogger('LoopCoordinator');
+const execFileAsync = promisify(execFile);
 
 /** Approximate Claude Sonnet cost in cents per 1M tokens, rounded up. */
 const COST_PER_M_TOKENS_CENTS = 1500;
@@ -941,16 +945,54 @@ export class LoopCoordinator extends EventEmitter {
       // banner so the operator can intervene with a hint.
       const blockedFile = await this.readBlockedFileIfPresent(state.config.workspaceCwd);
       if (blockedFile && state.status === 'running') {
+        const probeCfg = state.config.blockSanityProbe;
+        const probeEnabled = probeCfg?.enabled !== false; // default-on when undefined
+        let failedProbeDetail: string | undefined;
+        if (probeEnabled && this.isToolchainClassBlock(blockedFile.message, [])) {
+          const probe = await this.runWorkspaceLivenessProbe(
+            state.config.workspaceCwd,
+            probeCfg?.timeoutMs ?? 5000,
+          );
+          if (probe.alive) {
+            state.pendingInterventions.push(this.blockOverrideInterventionText());
+            this.convergenceNotes.set(state.id, 'BLOCKED.md overridden by liveness probe');
+            await this.moveBlockedFileAside(state);
+            this.emit('loop:activity', {
+              loopRunId: state.id,
+              seq: state.totalIterations,
+              stage: state.currentStage,
+              timestamp: Date.now(),
+              kind: 'status',
+              message: 'BLOCKED.md overridden: liveness probe confirmed toolchain responsive',
+              detail: { probe: probe.detail },
+            });
+            logger.info('BLOCKED.md override by liveness probe', {
+              loopRunId: state.id,
+              probe: probe.detail,
+            });
+            continue;
+          }
+          failedProbeDetail = probe.detail;
+        }
         state.status = 'paused';
         const signal: ProgressSignalEvidence = {
           id: 'BLOCKED',
           verdict: 'CRITICAL',
-          message: `BLOCKED.md present: ${blockedFile.message}`,
-          detail: { file: 'BLOCKED.md', excerpt: blockedFile.message },
+          message: failedProbeDetail
+            ? `BLOCKED.md present: ${blockedFile.message} (liveness probe failed: ${failedProbeDetail})`
+            : `BLOCKED.md present: ${blockedFile.message}`,
+          detail: {
+            file: 'BLOCKED.md',
+            excerpt: blockedFile.message,
+            ...(failedProbeDetail ? { probeDetail: failedProbeDetail } : {}),
+          },
         };
         this.emit('loop:paused-no-progress', { loopRunId: state.id, signal });
         this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
-        logger.info('Loop paused because the iteration wrote BLOCKED.md', { loopRunId: state.id });
+        logger.info('Loop paused because the iteration wrote BLOCKED.md', {
+          loopRunId: state.id,
+          probeDetail: failedProbeDetail,
+        });
         continue;
       }
 
@@ -1027,18 +1069,53 @@ export class LoopCoordinator extends EventEmitter {
       let childResult: LoopChildResult | null = null;
       let invocationError: string | null = null;
       // LF-4 RPI: consume a one-shot PLAN→IMPLEMENT context reset request.
-      const forceContextReset = this.pendingContextReset.delete(state.id);
-      try {
-        childResult = await this.invokeChild(state, prompt, stage, forceContextReset);
-      } catch (err) {
-        invocationError = err instanceof Error ? err.message : String(err);
-        logger.error('Iteration invocation failed', err instanceof Error ? err : new Error(invocationError), { loopRunId: state.id, seq });
-      } finally {
-        await this.importTerminalIntentsForBoundary(state, {
-          maxIterationSeq: seq,
-          exactIterationSeq: seq,
-          terminalEligible: state.status === 'running',
+      let forceContextReset = this.pendingContextReset.delete(state.id);
+
+      // Degraded-iteration resilience: a single transient invocation failure or a
+      // "void" iteration (no output, no files, no tool calls) should not kill a
+      // long loop or be miscounted as no-progress. Retry the SAME seq a bounded
+      // number of times with a fresh session before falling through to the
+      // existing error / normal-processing path. Disabled → exactly one attempt.
+      const retryCfg = state.config.degradedIterationRetry;
+      const maxRetries = retryCfg?.enabled === false ? 0 : Math.max(0, retryCfg?.maxRetries ?? 2);
+      for (let attempt = 0; ; attempt++) {
+        childResult = null;
+        invocationError = null;
+        try {
+          childResult = await this.invokeChild(state, prompt, stage, forceContextReset);
+        } catch (err) {
+          invocationError = err instanceof Error ? err.message : String(err);
+          logger.error('Iteration invocation failed', err instanceof Error ? err : new Error(invocationError), { loopRunId: state.id, seq, attempt });
+        } finally {
+          await this.importTerminalIntentsForBoundary(state, {
+            maxIterationSeq: seq,
+            exactIterationSeq: seq,
+            terminalEligible: state.status === 'running',
+          });
+        }
+
+        // Never retry over a filed terminal intent (block/complete/fail) — hand
+        // off to the normal terminal-intent flow. Also stop if the loop was
+        // cancelled/terminated mid-attempt, or the retry budget is spent.
+        if (state.terminalIntentPending) break;
+        if (this.isTerminalStatus(state.status) || this.cancelFlags.get(state.id)) break;
+        if (attempt >= maxRetries) break;
+
+        const degraded = this.classifyDegradedIteration(childResult, invocationError);
+        if (!degraded) break;
+
+        this.emit('loop:activity', {
+          loopRunId: state.id,
+          seq,
+          stage,
+          timestamp: Date.now(),
+          kind: 'status',
+          message: `Degraded iteration (${degraded}) — retrying with a fresh session (attempt ${attempt + 2}/${maxRetries + 1})`,
+          detail: { reason: degraded, invocationError: invocationError ?? undefined },
         });
+        logger.warn('Retrying degraded loop iteration', { loopRunId: state.id, seq, attempt, reason: degraded });
+        // Force a fresh session on retry so a wedged same-session adapter recycles.
+        forceContextReset = true;
       }
       if (!childResult) {
         if (state.terminalIntentPending) {
@@ -1965,7 +2042,132 @@ export class LoopCoordinator extends EventEmitter {
     this.convergenceNotes.set(state.id, reason);
   }
 
+  private blockOverrideInterventionText(): string {
+    // Follow-up (out of scope here): adapter-layer empty/batched tool-output
+    // detection + retry belongs in the CLI adapter path, not coordinator logic.
+    // Tracked: docs/plans/2026-05-30-loop-adapter-degraded-output-detection.md
+    return (
+      'Your block intent was NOT honored. A workspace liveness probe just confirmed the ' +
+      'toolchain is responsive (shell + file reads work). Your earlier "tooling is dead / ' +
+      'empty output" reading was almost certainly delayed/batched tool output or a stale/synthetic ' +
+      'read — NOT a real outage. Re-establish ground truth with SINGLE, exit-0 commands (no chained ' +
+      'commands, no parallel batches — one failed command can cancel a whole batch). Do not trust any ' +
+      'earlier file read; re-read fresh before concluding anything is missing or broken. Then continue the task.'
+    );
+  }
+
+  private isToolchainClassBlock(summary: string, evidence: LoopTerminalIntentEvidence[]): boolean {
+    if (evidence.length === 0) return true;
+
+    // Heuristics for "tooling/harness/environment looks broken" narratives.
+    const patterns: readonly RegExp[] = [
+      /\btoolchain\b/i,
+      /\btool(?:s|ing)?\b.*\b(?:non-?responsive|unresponsive|dead|not\s+working|return(?:ing)?\s+empty|empty\s+output)\b/i,
+      /\bcannot\s+(?:read|run|write|access)\b/i,
+      /\bharness\b/i,
+      /\bdegraded\b/i,
+      /\bsynthetic\b/i,
+      /\bhallucinat\w*\b/i,
+      /\bbash\b.*\bempty\b/i,
+      /\b(?:read|write|tool)\b.*\b(?:empty|returned\s+nothing|no\s+output)\b/i,
+    ];
+    return patterns.some((pattern) => pattern.test(summary));
+  }
+
+  private async runWorkspaceLivenessProbe(
+    workspaceCwd: string,
+    timeoutMs: number,
+  ): Promise<{ alive: boolean; detail: string }> {
+    const details: string[] = [];
+    let execOk = false;
+    let fsOk = false;
+
+    try {
+      const { stdout } = await execFileAsync(
+        process.execPath,
+        ['-e', "process.stdout.write('AIO_PROBE_OK')"],
+        {
+          cwd: workspaceCwd,
+          timeout: timeoutMs,
+          // In the packaged app `process.execPath` is the Electron binary, which
+          // only behaves as a plain Node interpreter when ELECTRON_RUN_AS_NODE is
+          // set. Without it the probe would spuriously fail in production, report
+          // the toolchain "dead", and honor exactly the hallucinated blocks this
+          // gate exists to override. (Under vitest execPath is already node, so
+          // this is a harmless no-op there.)
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+        },
+      );
+      execOk = stdout.includes('AIO_PROBE_OK');
+      details.push(execOk ? 'exec=ok' : 'exec=unexpected-output');
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      details.push(`exec=fail:${reason}`);
+    }
+
+    try {
+      const fs = await import('node:fs/promises');
+      const packageJsonPath = path.join(workspaceCwd, 'package.json');
+      try {
+        await fs.readFile(packageJsonPath, 'utf8');
+        fsOk = true;
+        details.push('fs=read:package.json');
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException | undefined)?.code;
+        if (code === 'ENOENT') {
+          const entries = await fs.readdir(workspaceCwd);
+          fsOk = entries.length > 0;
+          details.push(fsOk ? `fs=readdir:${entries.length}` : 'fs=readdir:empty');
+        } else {
+          throw err;
+        }
+      }
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      details.push(`fs=fail:${reason}`);
+    }
+
+    return { alive: execOk && fsOk, detail: details.join('; ') };
+  }
+
   private async pauseForBlockIntent(state: LoopState, intent: LoopTerminalIntent): Promise<void> {
+    const probeCfg = state.config.blockSanityProbe;
+    const probeEnabled = probeCfg?.enabled !== false; // default-on when undefined
+    let failedProbeDetail: string | undefined;
+    if (probeEnabled && this.isToolchainClassBlock(intent.summary, intent.evidence)) {
+      const probe = await this.runWorkspaceLivenessProbe(
+        state.config.workspaceCwd,
+        probeCfg?.timeoutMs ?? 5000,
+      );
+      if (probe.alive) {
+        this.transitionTerminalIntent(
+          state,
+          intent,
+          'rejected',
+          `block not honored — liveness probe passed (${probe.detail})`,
+        );
+        state.terminalIntentPending = undefined;
+        state.pendingInterventions.push(this.blockOverrideInterventionText());
+        this.convergenceNotes.set(state.id, 'block overridden by liveness probe');
+        this.emit('loop:activity', {
+          loopRunId: state.id,
+          seq: state.totalIterations,
+          stage: state.currentStage,
+          timestamp: Date.now(),
+          kind: 'status',
+          message: 'Block intent overridden: liveness probe confirmed toolchain responsive',
+          detail: { intentId: intent.id, probe: probe.detail },
+        });
+        logger.info('Block intent overridden by liveness probe', {
+          loopRunId: state.id,
+          intentId: intent.id,
+          probe: probe.detail,
+        });
+        return;
+      }
+      failedProbeDetail = probe.detail;
+    }
+
     this.transitionTerminalIntent(state, intent, 'accepted', 'block intent accepted');
     state.terminalIntentPending = undefined;
     await this.archiveBlockedFileForIntent(state, intent);
@@ -1973,12 +2175,22 @@ export class LoopCoordinator extends EventEmitter {
     const signal: ProgressSignalEvidence = {
       id: 'BLOCKED',
       verdict: 'CRITICAL',
-      message: `Loop-control block intent: ${intent.summary}`,
-      detail: { intentId: intent.id, evidence: intent.evidence },
+      message: failedProbeDetail
+        ? `Loop-control block intent: ${intent.summary} (liveness probe failed: ${failedProbeDetail})`
+        : `Loop-control block intent: ${intent.summary}`,
+      detail: {
+        intentId: intent.id,
+        evidence: intent.evidence,
+        ...(failedProbeDetail ? { probeDetail: failedProbeDetail } : {}),
+      },
     };
     this.emit('loop:paused-no-progress', { loopRunId: state.id, signal });
     this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
-    logger.info('Loop paused from loop-control block intent', { loopRunId: state.id, intentId: intent.id });
+    logger.info('Loop paused from loop-control block intent', {
+      loopRunId: state.id,
+      intentId: intent.id,
+      probeDetail: failedProbeDetail,
+    });
   }
 
   private syntheticChildResultFromTerminalIntent(
@@ -2002,6 +2214,32 @@ export class LoopCoordinator extends EventEmitter {
       testFailCount: null,
       exitedCleanly: false,
     };
+  }
+
+  /**
+   * Classify whether an iteration attempt is "degraded" and worth a bounded
+   * retry: a transient invocation failure, or a "void" iteration that produced
+   * no observable work (no output, no files changed, no tool calls). Returns a
+   * short reason, or null when the attempt should be accepted as-is.
+   *
+   * NOTE: a child whose *internal* tools returned empty/batched/synthetic
+   * results is NOT detectable here — the child still streams full narration so
+   * `output` is non-empty. That failure mode is mitigated in-child by the
+   * block-sanity gate + corrective intervention, not by this retry. True
+   * adapter-layer detection is tracked in
+   * docs/plans/2026-05-30-loop-adapter-degraded-output-detection.md.
+   */
+  private classifyDegradedIteration(
+    childResult: LoopChildResult | null,
+    invocationError: string | null,
+  ): 'invocation-error' | 'void-iteration' | null {
+    if (!childResult) {
+      return invocationError ? 'invocation-error' : null;
+    }
+    const noOutput = childResult.output.trim().length === 0;
+    const noWork = childResult.filesChanged.length === 0 && childResult.toolCalls.length === 0;
+    if (noOutput && noWork) return 'void-iteration';
+    return null;
   }
 
   private async archiveBlockedFileForIntent(state: LoopState, intent: LoopTerminalIntent): Promise<void> {
@@ -2038,6 +2276,44 @@ export class LoopCoordinator extends EventEmitter {
         loopRunId: state.id,
         signal: 'declared-complete',
         failure: `block intent recorded but BLOCKED.md could not be archived (${code ?? 'unknown'}): ${reason}. The next iteration will re-pause on the residual file until you resolve it manually.`,
+      });
+    }
+  }
+
+  private async moveBlockedFileAside(state: LoopState): Promise<void> {
+    const fs = await import('node:fs/promises');
+    const blockedPath = path.join(state.config.workspaceCwd, 'BLOCKED.md');
+    const loopControl = this.loopControls.get(state.id);
+    const preferredTarget = loopControl
+      ? path.join(loopControl.controlDir, `blocked-overridden-${state.totalIterations}.md`)
+      : path.join(state.config.workspaceCwd, 'BLOCKED.overridden.md');
+
+    try {
+      await fs.rename(blockedPath, preferredTarget);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException | undefined)?.code;
+      if (code === 'ENOENT') return;
+      if (!loopControl) {
+        logger.warn('Failed to move BLOCKED.md aside after override', {
+          loopRunId: state.id,
+          errorCode: code ?? null,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return;
+      }
+    }
+
+    const fallbackTarget = path.join(state.config.workspaceCwd, 'BLOCKED.overridden.md');
+    try {
+      await fs.rename(blockedPath, fallbackTarget);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException | undefined)?.code;
+      if (code === 'ENOENT') return;
+      logger.warn('Failed to move BLOCKED.md aside after override', {
+        loopRunId: state.id,
+        errorCode: code ?? null,
+        error: err instanceof Error ? err.message : String(err),
       });
     }
   }

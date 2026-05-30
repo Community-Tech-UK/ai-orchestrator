@@ -158,6 +158,11 @@ export class IdleMonitor {
           // - 'error': already failed, don't try to recover again
           // - 'initializing': still starting up
           // - 'terminated': intentionally stopped
+          // - 'superseded': replaced by an edit/fork retry; the fork owns the thread
+          //   now. The state machine only allows superseded -> terminated, so any
+          //   recovery RESTART (superseded -> initializing) is illegal and would loop
+          //   forever re-attempting respawn against the dead source process.
+          // - 'failed': unrecoverable init/wake failure; recovery cannot help.
           // Also skip remote instances for 'exited' detection — the local process
           // check cannot accurately determine if a remote process is alive.
           if (!recoveryEngine) return;
@@ -166,7 +171,9 @@ export class IdleMonitor {
             instance.status === 'respawning' ||
             instance.status === 'error' ||
             instance.status === 'initializing' ||
-            instance.status === 'terminated';
+            instance.status === 'terminated' ||
+            instance.status === 'superseded' ||
+            instance.status === 'failed';
           if (skipRecovery) return;
 
           const isRemote = instance.executionLocation?.type === 'remote';
