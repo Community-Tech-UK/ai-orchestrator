@@ -132,6 +132,19 @@ export const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'x
 export type ReasoningEffort = typeof REASONING_EFFORTS[number];
 
 /**
+ * The reasoning effort a provider runs at when the user hasn't picked one.
+ *
+ * Claude's CLI defaults to `high` (the "Default" the Claude app badges on the
+ * High row), so we surface it explicitly: the picker shows High as the default
+ * and a fresh Claude chat is pinned to it rather than leaning on an implicit
+ * CLI fallback. Every other provider stays provider-decided (`null` → no
+ * `--effort` flag).
+ */
+export function getDefaultReasoningEffort(provider: string | null | undefined): ReasoningEffort | null {
+  return provider === 'claude' ? 'high' : null;
+}
+
+/**
  * Claude model identifiers - bare shorthand names so the CLI always resolves to the latest version.
  * No need to update these when new models release.
  * All other files should import and reference these constants.

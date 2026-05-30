@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import {
+  getDefaultReasoningEffort,
   getPrimaryModelForProvider,
   normalizeModelForProvider,
   REASONING_EFFORTS,
@@ -163,7 +164,10 @@ export class NewSessionDraftService {
       }
 
       const sameProvider = draft.provider === provider;
-      const nextReasoning = sameProvider ? draft.reasoningEffort : null;
+      // Reasoning is per-provider. On a switch, reset to the new provider's
+      // default effort (High for Claude, provider-decided/null otherwise)
+      // rather than always clearing — keeps a fresh Claude chat pinned to High.
+      const nextReasoning = sameProvider ? draft.reasoningEffort : getDefaultReasoningEffort(provider);
       if (sameProvider && draft.model === nextModel && draft.reasoningEffort === nextReasoning) {
         return draft;
       }
@@ -172,7 +176,6 @@ export class NewSessionDraftService {
         ...draft,
         provider,
         model: nextModel,
-        // Reasoning is per-provider — wipe it on provider switch.
         reasoningEffort: nextReasoning,
         updatedAt: Date.now(),
       };

@@ -45,9 +45,13 @@ describe('ModelPickerController', () => {
     controller.setMode('live-instance');
     controller.setChat(chatRecord({ provider: 'claude' }), false);
     TestBed.tick();
+    // Claude has no separate "Default" row — High *is* the default, and
+    // `xhigh` is surfaced as "Extra" to match Claude's own picker.
     expect(controller.reasoningOptions().map((o) => o.id)).toEqual([
-      'default', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow',
+      'low', 'medium', 'high', 'xhigh', 'max', 'workflow',
     ]);
+    expect(controller.reasoningOptions().find((o) => o.id === 'high')?.isDefault).toBe(true);
+    expect(controller.reasoningOptions().find((o) => o.id === 'xhigh')?.label).toBe('Extra');
 
     controller.setChat(chatRecord({ provider: 'codex' }), false);
     TestBed.tick();

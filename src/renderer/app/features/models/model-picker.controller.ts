@@ -1,5 +1,6 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import {
+  getDefaultReasoningEffort,
   getModelsForProvider,
   type ReasoningEffort,
 } from '../../../../shared/types/provider.types';
@@ -16,6 +17,8 @@ export interface ModelPickerReasoningOption {
   id: 'default' | ReasoningEffort;
   label: string;
   description: string;
+  /** Marks the provider's default effort (e.g. Claude's High) for badging. */
+  isDefault?: boolean;
 }
 
 /**
@@ -203,32 +206,39 @@ export class ModelPickerController {
    * one) when the user hovers a non-current provider's model.
    */
   reasoningOptionsForProvider(provider: string): ModelPickerReasoningOption[] {
-    const defaults: ModelPickerReasoningOption[] = [
-      { id: 'default', label: 'Default', description: 'Let the provider decide' },
-    ];
+    const defaultEffort = getDefaultReasoningEffort(provider);
+    const markDefault = (options: ModelPickerReasoningOption[]): ModelPickerReasoningOption[] =>
+      options.map((option) =>
+        defaultEffort !== null && option.id === defaultEffort
+          ? { ...option, isDefault: true }
+          : option,
+      );
 
     if (provider === 'claude') {
-      return [
-        ...defaults,
+      // No separate "Default" row — High *is* the default (matches Claude's
+      // own picker, which badges High rather than offering a provider-decide
+      // entry). `xhigh` is surfaced as "Extra" to match Claude's UI label.
+      return markDefault([
         { id: 'low', label: 'Low', description: 'Shorter thinking' },
         { id: 'medium', label: 'Medium', description: 'Balanced thinking' },
-        { id: 'high', label: 'High', description: 'Claude default' },
-        { id: 'xhigh', label: 'XHigh', description: 'Deeper reasoning' },
+        { id: 'high', label: 'High', description: "Claude's standard depth" },
+        { id: 'xhigh', label: 'Extra', description: 'Deeper reasoning' },
         { id: 'max', label: 'Max', description: 'Deepest session-only reasoning' },
         { id: 'workflow', label: 'Workflow', description: 'Claude Code ultracode mode' },
-      ];
+      ]);
     }
 
     if (provider === 'codex') {
-      return [
-        ...defaults,
+      // Codex has no fixed default effort, so keep the provider-decide row.
+      return markDefault([
+        { id: 'default', label: 'Default', description: 'Let the provider decide' },
         { id: 'none', label: 'Off', description: 'No extra reasoning effort' },
         { id: 'minimal', label: 'Minimal', description: 'Light reasoning' },
         { id: 'low', label: 'Low', description: 'Shorter thinking' },
         { id: 'medium', label: 'Medium', description: 'Balanced thinking' },
         { id: 'high', label: 'High', description: 'Deeper thinking' },
         { id: 'xhigh', label: 'Max', description: 'Largest thinking budget' },
-      ];
+      ]);
     }
 
     return [];

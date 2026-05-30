@@ -60,3 +60,4 @@ export { registerChatHandlers } from './chat-handlers';
 export { registerRuntimePluginHandlers } from './runtime-plugin-handlers';
 export { registerRtkHandlers } from './rtk-handlers';
 export { registerLoopHandlers } from './loop-handlers';
+export { registerTerminalHandlers } from './terminal-handlers';

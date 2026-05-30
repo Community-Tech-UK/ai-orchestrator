@@ -37,6 +37,7 @@ import { createRuntimePluginDomain } from './domains/runtime-plugin.preload';
 import { createRtkDomain } from './domains/rtk.preload';
 import { createLoopDomain } from './domains/loop.preload';
 import { createMobileGatewayDomain } from './domains/mobile-gateway.preload';
+import { createTerminalDomain } from './domains/terminal.preload';
 import type { IpcResponse } from './domains/types';
 
 // --- Auth token shared across domains that need authenticated IPC calls ---
@@ -77,6 +78,7 @@ const electronAPI = {
   ...createRtkDomain(ipcRenderer, IPC_CHANNELS),
   ...createLoopDomain(ipcRenderer, IPC_CHANNELS),
   ...createMobileGatewayDomain(ipcRenderer, IPC_CHANNELS),
+  ...createTerminalDomain(ipcRenderer, IPC_CHANNELS),
 
   /**
    * Get current platform

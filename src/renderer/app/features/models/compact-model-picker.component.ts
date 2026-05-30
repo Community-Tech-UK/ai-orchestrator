@@ -244,7 +244,7 @@ export class CompactModelPickerComponent {
   ): UnifiedReasoningOption[] => {
     return this.controller
       .reasoningOptionsForProvider(provider)
-      .map((opt) => ({ id: opt.id, label: opt.label }));
+      .map((opt) => ({ id: opt.id, label: opt.label, isDefault: opt.isDefault }));
   };
 
   constructor() {

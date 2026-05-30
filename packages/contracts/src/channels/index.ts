@@ -29,6 +29,7 @@ import { RUNTIME_PLUGIN_CHANNELS } from './runtime-plugin.channels';
 import { RTK_CHANNELS } from './rtk.channels';
 import { LOOP_CHANNELS } from './loop.channels';
 import { MOBILE_GATEWAY_CHANNELS } from './mobile-gateway.channels';
+import { TERMINAL_CHANNELS } from './terminal.channels';
 
 export {
   INSTANCE_CHANNELS,
@@ -54,6 +55,7 @@ export {
   RTK_CHANNELS,
   LOOP_CHANNELS,
   MOBILE_GATEWAY_CHANNELS,
+  TERMINAL_CHANNELS,
 };
 
 /**
@@ -84,6 +86,7 @@ export const IPC_CHANNELS = {
   ...RTK_CHANNELS,
   ...LOOP_CHANNELS,
   ...MOBILE_GATEWAY_CHANNELS,
+  ...TERMINAL_CHANNELS,
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

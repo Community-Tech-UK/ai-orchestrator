@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "scripts/generate-architecture-inventory.js",
   "ipc": {
-    "channelCount": 932,
+    "channelCount": 939,
     "channels": [
       {
         "name": "INSTANCE_CREATE",
@@ -4663,11 +4663,46 @@
         "name": "MOBILE_GATEWAY_REVOKE_DEVICE",
         "value": "mobile-gateway:revoke-device",
         "line": 1167
+      },
+      {
+        "name": "TERMINAL_SPAWN",
+        "value": "terminal:spawn",
+        "line": 1170
+      },
+      {
+        "name": "TERMINAL_WRITE",
+        "value": "terminal:write",
+        "line": 1171
+      },
+      {
+        "name": "TERMINAL_RESIZE",
+        "value": "terminal:resize",
+        "line": 1172
+      },
+      {
+        "name": "TERMINAL_KILL",
+        "value": "terminal:kill",
+        "line": 1173
+      },
+      {
+        "name": "TERMINAL_OUTPUT",
+        "value": "terminal:output",
+        "line": 1176
+      },
+      {
+        "name": "TERMINAL_EXIT",
+        "value": "terminal:exit",
+        "line": 1177
+      },
+      {
+        "name": "TERMINAL_SPAWNED",
+        "value": "terminal:spawned",
+        "line": 1178
       }
     ]
   },
   "preload": {
-    "domainCount": 24,
+    "domainCount": 25,
     "domains": [
       "automation.preload.ts",
       "browser.preload.ts",
@@ -4690,6 +4725,7 @@
       "rtk.preload.ts",
       "runtime-plugin.preload.ts",
       "session.preload.ts",
+      "terminal.preload.ts",
       "voice.preload.ts",
       "workflow.preload.ts",
       "workspace.preload.ts"
@@ -5295,16 +5331,16 @@
       "lines": 938
     },
     {
+      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
+      "lines": 914
+    },
+    {
       "path": "src/main/instance/instance-communication.spec.ts",
       "lines": 912
     },
     {
       "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
       "lines": 908
-    },
-    {
-      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
-      "lines": 901
     },
     {
       "path": "src/main/workspace/lsp-manager.ts",

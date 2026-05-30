@@ -12,3 +12,8 @@
 @use './styles/code-content';
 @use './styles/component-utilities';
 @use './styles/workspace-overrides';
+
+// xterm.js terminal styles (remote terminal drawer — Piece C). Global on
+// purpose: xterm renders unscoped `.xterm` DOM, so its CSS must not be
+// component-scoped. esbuild inlines this bare node_modules specifier.
+@import '@xterm/xterm/css/xterm.css';

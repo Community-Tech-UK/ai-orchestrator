@@ -22,6 +22,8 @@
  */
 
 import * as os from 'os';
+import * as fs from 'fs';
+import * as path from 'path';
 import { isPathAllowed } from './path-sandbox';
 
 /**
@@ -84,11 +86,43 @@ interface ManagedSession {
 let cachedSpawn: PtySpawnFn | null = null;
 
 /**
+ * node-pty's macOS/Linux PTY fork shells out to a bundled `spawn-helper`
+ * binary (Windows uses ConPTY, no helper). Prebuilt node-pty packages sometimes
+ * ship `spawn-helper` without the execute bit (mode 0644), which makes the very
+ * first `pty.fork` fail with "posix_spawnp failed". Restore the execute bit on
+ * first use. Best-effort and idempotent: a no-op on Windows, when the helper is
+ * already executable, or when node-pty cannot be located (the `require` below
+ * then throws a clearer error).
+ */
+function ensureSpawnHelperExecutable(): void {
+  if (process.platform === 'win32') return;
+  try {
+    // node-pty resolves to `<root>/lib/index.js`; the prebuilt helper lives at
+    // `<root>/prebuilds/<platform>-<arch>/spawn-helper`, and a source build at
+    // `<root>/build/Release/spawn-helper`.
+    const root = path.join(path.dirname(require.resolve('node-pty')), '..');
+    const candidates = [
+      path.join(root, 'prebuilds', `${process.platform}-${process.arch}`, 'spawn-helper'),
+      path.join(root, 'build', 'Release', 'spawn-helper'),
+    ];
+    for (const helper of candidates) {
+      if (!fs.existsSync(helper)) continue;
+      if ((fs.statSync(helper).mode & 0o111) === 0) {
+        fs.chmodSync(helper, 0o755);
+      }
+    }
+  } catch {
+    // best-effort
+  }
+}
+
+/**
  * Lazily `require('node-pty')` on first use. Kept out of the module's import
  * graph so a worker without the native module starts normally.
  */
 function lazyDefaultSpawn(): PtySpawnFn {
   if (!cachedSpawn) {
+    ensureSpawnHelperExecutable();
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require('node-pty') as { spawn: PtySpawnFn };
     cachedSpawn = mod.spawn;

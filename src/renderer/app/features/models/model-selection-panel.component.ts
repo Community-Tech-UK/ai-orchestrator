@@ -187,7 +187,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
                         [value]="reasoningOptionValue(option)"
                         [selected]="row.reasoningValue === reasoningOptionValue(option)"
                       >
-                        {{ option.label }}
+                        {{ option.label }}{{ option.isDefault ? ' (default)' : '' }}
                       </option>
                     }
                   </select>
@@ -846,13 +846,26 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
     reasoningOptions: UnifiedReasoningOption[],
   ): string {
     if (reasoningOptions.length === 0) return 'default';
-    if (selected) return selectedReasoning ?? 'default';
-    return 'default';
+    const fallback = defaultReasoningOptionId(reasoningOptions);
+    if (selected) return selectedReasoning ?? fallback;
+    return fallback;
   }
 }
 
 function modelKey(provider: PickerProvider, modelId: string): string {
   return `${provider}:${modelId}`;
+}
+
+/**
+ * The select value to show when a row has no explicit effort. Prefers the
+ * option flagged `isDefault` (Claude's High), falls back to a provider-decide
+ * `default` row when present, else the first option.
+ */
+function defaultReasoningOptionId(options: UnifiedReasoningOption[]): string {
+  const flagged = options.find((option) => option.isDefault);
+  if (flagged) return flagged.id;
+  if (options.some((option) => option.id === 'default')) return 'default';
+  return options[0]?.id ?? 'default';
 }
 
 function loadFavoriteKeys(): { customized: boolean; keys: string[] } {

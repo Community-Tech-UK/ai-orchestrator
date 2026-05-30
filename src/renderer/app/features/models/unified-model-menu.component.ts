@@ -28,6 +28,8 @@ import { versionDescending } from './model-menu.component';
 export interface UnifiedReasoningOption {
   id: 'default' | ReasoningEffort;
   label: string;
+  /** Marks the provider's default effort (e.g. Claude's High) for badging. */
+  isDefault?: boolean;
 }
 
 /**

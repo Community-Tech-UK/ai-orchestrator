@@ -196,14 +196,24 @@ describe('NewSessionDraftService', () => {
     expect(service.reasoningEffort()).toBeNull();
   });
 
-  it('clears reasoningEffort when provider changes', () => {
+  it('resets reasoningEffort to the new provider default when provider changes', () => {
     const service = createService();
     service.setProvider('claude');
-    service.setReasoningEffort('high');
-    expect(service.reasoningEffort()).toBe('high');
+    service.setReasoningEffort('max');
+    expect(service.reasoningEffort()).toBe('max');
 
+    // Codex has no fixed default effort → provider-decided (null).
     service.setProvider('codex');
     expect(service.reasoningEffort()).toBeNull();
+  });
+
+  it('defaults reasoningEffort to High when switching to Claude', () => {
+    const service = createService();
+    service.setProvider('gemini');
+    expect(service.reasoningEffort()).toBeNull();
+
+    service.setProvider('claude');
+    expect(service.reasoningEffort()).toBe('high');
   });
 
   it('preserves reasoningEffort when re-setting the same provider', () => {
