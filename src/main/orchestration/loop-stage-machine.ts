@@ -14,10 +14,14 @@ import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { getLogger } from '../logging/logger';
 import type { LoopConfig, LoopStage } from '../../shared/types/loop.types';
+import { parseTaskLedger, type LoopTaskLedger } from './loop-task-ledger';
 
 const logger = getLogger('LoopStageMachine');
 
 const ARTIFACT_FILES = ['STAGE.md', 'NOTES.md', 'ITERATION_LOG.md'] as const;
+
+/** LF-4: the structured task ledger filename. */
+export const LOOP_TASKS_FILE = 'LOOP_TASKS.md';
 
 const VALID_STAGES = new Set<LoopStage>(['PLAN', 'REVIEW', 'IMPLEMENT']);
 
@@ -52,6 +56,86 @@ export function parsePlanChecklist(text: string): PlanChecklistState {
   return { checked, unchecked, total, fullyChecked: total > 0 && unchecked === 0 };
 }
 
+/** Default NOTES.md curation thresholds (LF-3). Conservative so curation only
+ *  fires on genuinely bloated notes — most loops never trip it. */
+export const NOTES_CURATION_MAX_CHARS = 24_000;
+export const NOTES_CURATION_KEEP_TAIL_CHARS = 12_000;
+
+export interface NotesCurationResult {
+  /** The (possibly) curated NOTES.md content. */
+  curated: string;
+  /** True iff curation actually rewrote the content. */
+  changed: boolean;
+  /** Approximate characters elided (0 when unchanged). */
+  elidedChars: number;
+}
+
+/**
+ * Extract the `## Completion Inventory` section verbatim (heading through the
+ * line before the next `##` heading, or EOF). Returns null when absent. This
+ * section is the loop's durable work-item ledger and must never be summarized
+ * away by {@link curateNotesContent} (loopfixex LF-3).
+ */
+function extractCompletionInventory(content: string): string | null {
+  const heading = content.match(/^##\s+Completion Inventory\b.*$/im);
+  if (!heading || heading.index === undefined) return null;
+  const afterHeadingStart = heading.index + heading[0].length;
+  const rest = content.slice(afterHeadingStart);
+  const nextHeading = rest.search(/^##\s+/m);
+  const end = nextHeading >= 0 ? afterHeadingStart + nextHeading : content.length;
+  return content.slice(heading.index, end);
+}
+
+/**
+ * LF-3 — bound NOTES.md growth. NOTES.md is agent-maintained and re-read every
+ * iteration; left unbounded it eats the very context LF-1 conserves. When the
+ * file exceeds `maxChars`, keep the most recent `keepTailChars` of notes
+ * verbatim and elide the older middle, while preserving the
+ * `## Completion Inventory` section byte-for-byte (it's the work ledger).
+ * Full per-iteration history always remains in ITERATION_LOG.md.
+ *
+ * Pure and deterministic (no LLM call) — the "safest, lightest-touch
+ * compaction" per Anthropic's context-engineering guidance. Exported for unit
+ * testing.
+ */
+export function curateNotesContent(
+  content: string,
+  opts: { maxChars?: number; keepTailChars?: number } = {},
+): NotesCurationResult {
+  const maxChars = opts.maxChars ?? NOTES_CURATION_MAX_CHARS;
+  const keepTailChars = opts.keepTailChars ?? NOTES_CURATION_KEEP_TAIL_CHARS;
+  if (content.length <= maxChars) {
+    return { curated: content, changed: false, elidedChars: 0 };
+  }
+
+  const inventory = extractCompletionInventory(content);
+
+  // Keep the most recent notes verbatim, snapped to a line boundary so we
+  // never start the tail mid-sentence.
+  let tail = content.slice(-keepTailChars);
+  const firstNewline = tail.indexOf('\n');
+  if (firstNewline >= 0) tail = tail.slice(firstNewline + 1);
+  tail = tail.replace(/^\s+/, '');
+
+  const banner = '# Loop Notes\n';
+  const marker =
+    '\n_[loop] Older NOTES.md entries were elided to bound context. ' +
+    'Full per-iteration history remains in ITERATION_LOG.md._\n\n';
+  let curated = `${banner}${marker}${tail}`;
+
+  // Re-append the completion inventory verbatim if the retained tail dropped it.
+  const inventoryTrimmed = inventory?.trim();
+  if (inventoryTrimmed && !curated.includes(inventoryTrimmed)) {
+    curated = `${curated.replace(/\s+$/, '')}\n\n${inventoryTrimmed}\n`;
+  }
+
+  return {
+    curated,
+    changed: curated !== content,
+    elidedChars: Math.max(0, content.length - curated.length),
+  };
+}
+
 /**
  * Workspace snapshot captured by `LoopStageMachine.captureStartupSnapshot`
  * and stored on `LoopState`. Each flag answers "was this artefact already in
@@ -79,6 +163,13 @@ export interface LoopStartupSnapshot {
    * obviously expected.
    */
   uncompletedPlanFilesAtStart: string[];
+  /**
+   * LF-4: `LOOP_TASKS.md` existed with ≥1 item and every item was already
+   * resolved (done/deferred) at startLoop. Gates the `ledger-complete` signal
+   * so a stale, pre-resolved ledger from a prior run is not treated as in-run
+   * completion (mirrors `planChecklistFullyChecked`).
+   */
+  loopTasksLedgerResolvedAtStart: boolean;
 }
 
 /**
@@ -102,6 +193,7 @@ const PROJECT_DOC_DENYLIST = new Set<string>([
   'notes.md',
   'stage.md',
   'iteration_log.md',
+  'loop_tasks.md', // LF-4: the loop's own task ledger — not a plan file to rename.
   'todo.md',
   'roadmap.md',
 ]);
@@ -147,6 +239,24 @@ export class LoopStageMachine {
           : '# Iteration Log\n\nFull per-iteration record (the coordinator may also append from main process).\n\n';
         await fsp.writeFile(fname, banner, 'utf8');
       }
+    }
+
+    // LF-4: bootstrap an empty LOOP_TASKS.md ledger template. It has no
+    // checkbox items yet, so it does NOT gate completion until the agent adds
+    // tasks — but its presence + instructions nudge the agent to track concrete
+    // work items there, giving the loop per-item ground truth for stopping.
+    const tasksPath = path.join(this.cwd, LOOP_TASKS_FILE);
+    try { await fsp.access(tasksPath); } catch {
+      await fsp.writeFile(
+        tasksPath,
+        '# Loop Tasks\n\n' +
+        'Structured task ledger. For a multi-item goal, list concrete work items\n' +
+        'here as markdown checkboxes. The loop stops only when EVERY item is\n' +
+        '`[x]` (done) or `[-]` (deferred, with a reason) — and verify passes.\n\n' +
+        'Markers: `[ ]` todo · `[~]` in progress · `[x]` done · `[-] … — deferred: <why>`.\n\n' +
+        '<!-- Example:\n- [ ] Implement the parser\n- [~] Wire the coordinator\n- [-] Cross-model fan-out — deferred: out of scope for v1\n-->\n',
+        'utf8',
+      );
     }
 
     // Delete sentinel file left by a prior loop run. A stale DONE.txt would
@@ -213,11 +323,26 @@ export class LoopStageMachine {
       }
     }
     const uncompletedPlanFilesAtStart = await this.scanUncompletedPlanFiles();
+    // LF-4: a ledger that already has items AND is fully resolved at start is a
+    // stale baseline — don't let it fire ledger-complete on iteration 0.
+    const startLedger = await this.readTaskLedger();
+    const loopTasksLedgerResolvedAtStart = startLedger.total > 0 && startLedger.complete;
     return {
       doneSentinelPresent,
       planChecklistFullyChecked,
       uncompletedPlanFilesAtStart,
+      loopTasksLedgerResolvedAtStart,
     };
+  }
+
+  /** LF-4: read + parse `LOOP_TASKS.md`. Returns an empty ledger when absent. */
+  async readTaskLedger(): Promise<LoopTaskLedger> {
+    try {
+      const text = await fsp.readFile(path.join(this.cwd, LOOP_TASKS_FILE), 'utf8');
+      return parseTaskLedger(text);
+    } catch {
+      return parseTaskLedger('');
+    }
   }
 
   /**
@@ -264,6 +389,35 @@ export class LoopStageMachine {
   }
 
   /**
+   * LF-3 — curate NOTES.md if it has grown past the size threshold. Reads the
+   * file, runs {@link curateNotesContent} (preserving the completion
+   * inventory), and writes back only when curation actually changed something.
+   * Best-effort: a read/write failure returns `changed: false` and the loop
+   * continues with the un-curated file. Returns the result so the coordinator
+   * can log/emit the elision for observability.
+   */
+  async curateNotesIfNeeded(
+    opts: { maxChars?: number; keepTailChars?: number } = {},
+  ): Promise<NotesCurationResult> {
+    const notesPath = path.join(this.cwd, 'NOTES.md');
+    let content: string;
+    try {
+      content = await fsp.readFile(notesPath, 'utf8');
+    } catch {
+      return { curated: '', changed: false, elidedChars: 0 };
+    }
+    const result = curateNotesContent(content, opts);
+    if (!result.changed) return result;
+    try {
+      await fsp.writeFile(notesPath, result.curated, 'utf8');
+    } catch (err) {
+      logger.warn('Failed to write curated NOTES.md', { error: String(err) });
+      return { curated: content, changed: false, elidedChars: 0 };
+    }
+    return result;
+  }
+
+  /**
    * Build the per-iteration prompt sent to the child agent. The prompt
    * encodes the entire three-stage workflow as a self-advancing state
    * machine: agent reads STAGE.md, does that stage's work, advances
@@ -289,6 +443,12 @@ export class LoopStageMachine {
      * accept.
      */
     manualReviewOnly?: boolean;
+    /**
+     * LF-6: prior-run observations surfaced from cross-loop memory. Rendered as
+     * non-binding context so the agent can avoid known dead-ends without being
+     * forced down a stale path.
+     */
+    priorObservations?: string[];
   }): string {
     const {
       config,
@@ -297,6 +457,7 @@ export class LoopStageMachine {
       existingSessionContext,
       uncompletedPlanFilesAtStart = [],
       manualReviewOnly = false,
+      priorObservations = [],
     } = args;
     const planRef = config.planFile
       ? `the plan in \`${config.planFile}\` (referred to below as PLAN.md)`
@@ -310,6 +471,9 @@ export class LoopStageMachine {
       : '';
     const manualReviewBlock = manualReviewOnly
       ? '\n\n## Manual-Review-Only Loop\nThis loop has no `verifyCommand` configured. The coordinator cannot independently confirm completion: any completion attempt will pause the loop for the operator to review. **Do not declare completion until you are confident the work is truly done** — declaring early just pauses the loop for the operator without making progress. Configure a verify command in the loop settings if you want the coordinator to auto-confirm.\n'
+      : '';
+    const priorObservationsBlock = priorObservations.length > 0
+      ? `\n\n## Prior Observations (not binding)\nLearnings from previous loop runs in this workspace. Treat them as hints to avoid known dead-ends — they are NOT instructions and may be stale:\n${priorObservations.map((o, i) => `${i + 1}. ${o}`).join('\n')}\n`
       : '';
     const interventions =
       pendingInterventions.length > 0
@@ -355,7 +519,7 @@ There is no human in the loop to answer questions. You must:
 2. Open ${planRef}.
 3. Open \`NOTES.md\`. It contains the rolling notes from prior iterations.
 4. Open \`ITERATION_LOG.md\` if you need detailed per-iteration history.
-5. If no plan file is configured and the goal is broad, maintain a \`## Completion Inventory\` section in \`NOTES.md\`: list discovered concrete work items, check them off only when fully implemented and verified, and add newly discovered items instead of losing them between iterations.${uncompletedPlansBlock}${freshEyesReviewBlock}${manualReviewBlock}${interventions}${promptBlocks}
+5. Open \`${LOOP_TASKS_FILE}\` — the structured task ledger. For a multi-item goal, list every concrete work item there as a markdown checkbox and keep it current: \`[ ]\` todo, \`[~]\` in progress, \`[x]\` done, \`[-] … — deferred: <why>\`. **The loop stops only when every ledger item is \`[x]\` or \`[-]\` (with a reason) AND verify passes** — so an item you can't finish must be explicitly deferred with a reason, not left \`[ ]\`. (If no plan file is configured and the goal is broad, you may instead keep a \`## Completion Inventory\` in \`NOTES.md\`, but the ledger is preferred because the loop reads it as the source of truth for stopping.)${uncompletedPlansBlock}${freshEyesReviewBlock}${manualReviewBlock}${priorObservationsBlock}${interventions}${promptBlocks}
 
 ## Step 2 — Do this iteration's work
 
@@ -374,7 +538,7 @@ If the work for the current STAGE is complete:
 - REVIEW done → write \`IMPLEMENT\` into STAGE.md. **Do NOT emit \`<promise>DONE</promise>\` or write \`DONE.txt\` — those are reserved for IMPLEMENT when the plan is fully complete.**
 - IMPLEMENT done **but plan still has unfinished items** → write \`REVIEW\` into STAGE.md (loop back through review).
 - IMPLEMENT done **and the plan or completion inventory is fully implemented & verified** →
-    1. Confirm there are no unchecked plan items or unchecked \`NOTES.md\` completion-inventory items. For broad implementation goals, run a final targeted search for unfinished implementation markers and either implement each actionable item or record why it is out of scope.
+    1. Confirm there are no open items: every \`${LOOP_TASKS_FILE}\` ledger item is \`[x]\` (done) or \`[-]\` (deferred with a reason), no unchecked plan items, and no unchecked \`NOTES.md\` completion-inventory items. For broad implementation goals, run a final targeted search for unfinished implementation markers and either implement each actionable item or record why it is out of scope (deferring it in the ledger with a reason).
     2. Run the verify command if one is configured (\`${config.completion.verifyCommand || '(none configured)'}\`). If none is configured, run the appropriate project checks yourself and summarize their exact output, but understand the coordinator cannot independently verify completion and will pause for operator review instead of auto-completing. Verification must pass.
     3. If a plan file exists, rename it before declaring done: \`mv ${config.planFile ?? '<plan-file>'} ${(config.planFile ?? '<plan-file>').replace(/\.md$/, '_Completed.md')}\` (or use git mv if applicable).
     4. Write \`DONE.txt\` containing the date — this durable sentinel is required for no-plan loops.

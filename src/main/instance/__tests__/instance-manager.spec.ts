@@ -980,6 +980,7 @@ describe('InstanceManager', () => {
           'Investigate the failed deployment and summarize the root cause.',
           expect.any(Function),
           undefined,
+          undefined, // no attachments on this initial prompt
         );
       });
       await vi.waitFor(() => {

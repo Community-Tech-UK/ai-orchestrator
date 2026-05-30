@@ -28,6 +28,7 @@ import { CHAT_CHANNELS } from './chat.channels';
 import { RUNTIME_PLUGIN_CHANNELS } from './runtime-plugin.channels';
 import { RTK_CHANNELS } from './rtk.channels';
 import { LOOP_CHANNELS } from './loop.channels';
+import { MOBILE_GATEWAY_CHANNELS } from './mobile-gateway.channels';
 
 export {
   INSTANCE_CHANNELS,
@@ -52,6 +53,7 @@ export {
   RUNTIME_PLUGIN_CHANNELS,
   RTK_CHANNELS,
   LOOP_CHANNELS,
+  MOBILE_GATEWAY_CHANNELS,
 };
 
 /**
@@ -81,6 +83,7 @@ export const IPC_CHANNELS = {
   ...RUNTIME_PLUGIN_CHANNELS,
   ...RTK_CHANNELS,
   ...LOOP_CHANNELS,
+  ...MOBILE_GATEWAY_CHANNELS,
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

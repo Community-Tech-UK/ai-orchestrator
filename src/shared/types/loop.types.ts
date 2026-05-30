@@ -27,7 +27,13 @@ export interface LoopHardCaps {
   maxWallTimeMs: number;
   /** Token spend cap (approx — measured per iteration). Default 1_000_000. */
   maxTokens: number;
-  /** Cost cap in cents. Null means unbounded. Default null for subscription usage. */
+  /**
+   * Cost cap in cents. Null means unbounded. Default 1000 ($10) so a loop
+   * started with no explicit spend config still has a ceiling (LF-3). Set to
+   * null only deliberately for unbounded subscription usage. A non-null cost
+   * cap is a precondition for operator-reviewed completion and branch-and-select
+   * exploration (LF-3a / LF-5) — both can sit paused/fan-out and burn spend.
+   */
   maxCostCents: number | null;
   /** Per-iteration tool-call cap. Default 200. */
   maxToolCallsPerIteration: number;
@@ -210,6 +216,89 @@ export function defaultSemanticProgressConfig(): LoopSemanticProgressConfig {
   return { enabled: false, cadence: 5, confidenceFloor: 0.6 };
 }
 
+/**
+ * LF-1 — context discipline. Same-session loops accumulate the whole transcript
+ * across iterations with no orchestrator compaction → context rot → thrash.
+ * This makes context management mandatory for the loop's own (non-borrowed)
+ * adapter: when utilization crosses `resetAtUtilization`, the loop recycles its
+ * persistent same-session adapter to a fresh session, re-anchoring from durable
+ * disk state (STAGE/NOTES/ITERATION_LOG/plan + the goal persisted every
+ * iteration). Borrowed *instance* adapters are never recycled here — the
+ * instance owns its own compaction lifecycle.
+ */
+export interface LoopContextCompactionConfig {
+  /** Master switch. Default true (one of the two default-on safety changes). */
+  enabled: boolean;
+  /**
+   * Utilization (0..1 of the loop context window) at which the loop recycles
+   * its own same-session adapter to a fresh session. Default 0.6 — conservative
+   * so subtle constraints aren't dropped, and well under the dual-threshold
+   * blocking band.
+   */
+  resetAtUtilization: number;
+  /**
+   * Hint that tool results may be cleared/offloaded to bound context. The
+   * fresh-session recycle already discards accumulated tool output, so this is
+   * secondary; reserved for finer-grained output-persistence offload.
+   */
+  clearToolResults: boolean;
+}
+
+export interface LoopContextConfig {
+  compaction: LoopContextCompactionConfig;
+}
+
+export function defaultLoopContextConfig(): LoopContextConfig {
+  return { compaction: { enabled: true, resetAtUtilization: 0.6, clearToolResults: true } };
+}
+
+/**
+ * LF-1 — approximate loop context window in tokens. Utilization is measured as
+ * cumulative same-session tokens / this window. ~200k mirrors a large Claude
+ * context; the point is a *relative* ceiling, not an exact match to any model.
+ */
+export const LOOP_CONTEXT_WINDOW_TOKENS = 200_000;
+
+/**
+ * LF-5 — branch-and-select (best-of-N) on stuck. When a CRITICAL no-progress
+ * would otherwise just pause for a human, fan out `fanout` candidate iterations
+ * in isolated worktrees, verify each, pick the best via list-wise comparison,
+ * adopt the winner and discard the losers. Opt-in (default OFF), and gated on a
+ * non-null cost cap because fan-out multiplies spend.
+ */
+export interface LoopExplorationConfig {
+  /** Master switch. Default false — pure no-op until a loop opts in. */
+  enabled: boolean;
+  /** Number of parallel candidate iterations. Default 3. */
+  fanout: number;
+  /** Fan out across providers (Claude + Codex) for diversity. Default false (Claude-only). */
+  crossModel: boolean;
+  /** Candidate selection strategy. Default verify+listwise. */
+  selector: 'verify' | 'verify+listwise';
+}
+
+export function defaultLoopExplorationConfig(): LoopExplorationConfig {
+  return { enabled: false, fanout: 3, crossModel: false, selector: 'verify+listwise' };
+}
+
+/**
+ * LF-4 — RPI "disposable plan" behaviour. When the loop stalls (repeated
+ * CRITICAL no-progress) instead of grinding, regenerate the plan from the goal:
+ * inject a directive telling the agent to throw out the current plan/ledger and
+ * re-derive it. Bounded (a few regenerations) so it can't loop forever; after
+ * the cap the loop pauses normally. Opt-in (default off).
+ */
+export interface LoopPlanConfig {
+  regenerateOnStall: boolean;
+}
+
+export function defaultLoopPlanConfig(): LoopPlanConfig {
+  return { regenerateOnStall: false };
+}
+
+/** LF-4 — max disposable-plan regenerations per stall streak before pausing. */
+export const LOOP_MAX_PLAN_REGENERATIONS = 2;
+
 export interface LoopConfig {
   /** The goal/ask. Sent on iteration 0 — anchors what the loop drives toward. */
   initialPrompt: string;
@@ -233,6 +322,12 @@ export interface LoopConfig {
   progressThresholds: LoopProgressThresholds;
   /** LF-2 semantic-progress signal (escalation modifier). Optional; default off. */
   semanticProgress?: LoopSemanticProgressConfig;
+  /** LF-1 context discipline (compaction/recycle). Optional; default on. */
+  context?: LoopContextConfig;
+  /** LF-5 branch-and-select on stuck (best-of-N). Optional; default off. */
+  exploration?: LoopExplorationConfig;
+  /** LF-4 disposable-plan behaviour (regenerate on stall). Optional; default off. */
+  plan?: LoopPlanConfig;
   /** Completion detector config. */
   completion: LoopCompletionConfig;
   /** Allow destructive ops inside the loop (rm -rf, force-push). Default false. */
@@ -265,7 +360,10 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       maxIterations: 50,
       maxWallTimeMs: 8 * 60 * 60 * 1000,
       maxTokens: 1_000_000,
-      maxCostCents: null,
+      // LF-3: default to a $10 ceiling. Previously null (unbounded), which the
+      // design docs flagged as a footgun — a runaway loop with no spend guard.
+      // Renderer surfaces this and lets the user clear it to null for no cap.
+      maxCostCents: 1000,
       maxToolCallsPerIteration: 200,
       maxCompletionAttempts: 3,
     },
@@ -295,6 +393,9 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       warnEscalationCount: 3,
     },
     semanticProgress: defaultSemanticProgressConfig(),
+    context: defaultLoopContextConfig(),
+    exploration: defaultLoopExplorationConfig(),
+    plan: defaultLoopPlanConfig(),
     completion: {
       completedFilenamePattern: '*_[Cc]ompleted.md',
       donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
@@ -322,16 +423,38 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
 export type LoopStage = 'PLAN' | 'REVIEW' | 'IMPLEMENT';
 
 export type LoopStatus =
-  | 'idle'
   | 'running'
   | 'paused'
   | 'completed'
+  /**
+   * LF-7: a *successful* terminal state meaning "work is done and was accepted,
+   * but a human should glance at it" — reached when an operator accepts a
+   * manual-review loop, or when verify kept passing but a secondary gate
+   * (the `*_Completed.md` rename) never did within `maxCompletionAttempts`.
+   * Distinct from `completed` (fully auto-verified) and from `cap-reached`
+   * (stopped without converging). NOT a failure state.
+   */
+  | 'completed-needs-review'
   | 'cancelled'
   | 'failed'
   | 'error'
   | 'no-progress'
-  | 'verify-failed'
   | 'cap-reached';
+// LF-8: `idle` and `verify-failed` were dead enum values — the coordinator
+// never emitted them (terminate() is only called with the states above), so
+// they implied lifecycle states the system never reached. Removed.
+
+/**
+ * LF-7: outcome of the most recent completion attempt. Drives the UI
+ * completion-gate stepper (LF-8) and the runbook's "why didn't it stop"
+ * diagnosis. Undefined until the first completion attempt.
+ */
+export type LoopCompletionOutcome =
+  | 'accepted'        // completion accepted → terminal completed / completed-needs-review
+  | 'verify-failed'   // verify (or quick-verify) failed → rejected, keep iterating
+  | 'unverifiable'    // no verify command → paused for operator review
+  | 'rename-gate'     // verify passed but the *_Completed.md rename gate blocked
+  | 'review-blocked'; // fresh-eyes cross-model review raised a blocking finding
 
 export type LoopVerdict = 'OK' | 'WARN' | 'CRITICAL';
 
@@ -424,7 +547,8 @@ export type CompletionSignalId =
   | 'all-green'          // verify command passes (transition from prev failing)
   | 'self-declared'      // "TASK COMPLETE" in output (auxiliary only)
   | 'plan-checklist'     // PLAN.md checkboxes 100%
-  | 'declared-complete'; // explicit loop-control complete intent
+  | 'declared-complete'  // explicit loop-control complete intent
+  | 'ledger-complete';   // LF-4: every LOOP_TASKS.md item is done/deferred
 
 export interface CompletionSignalEvidence {
   id: CompletionSignalId;
@@ -567,6 +691,19 @@ export interface LoopState {
    * for back-compat with rows written before the field existed.
    */
   completionAttempts: number;
+  /**
+   * LF-7: outcome of the most recent completion attempt, for observability +
+   * the UI completion-gate stepper. Undefined until the first attempt.
+   */
+  lastCompletionOutcome?: LoopCompletionOutcome;
+  /**
+   * LF-4: true iff `LOOP_TASKS.md` was already fully resolved (every item
+   * done/deferred) at startLoop. Like `planChecklistFullyCheckedAtStart`, this
+   * is a staleness guard — a pre-resolved ledger from a prior run is the
+   * baseline, not in-run completion, so `ledger-complete` only fires on an
+   * in-run transition. Defaults false (no ledger, or had open items at start).
+   */
+  loopTasksLedgerResolvedAtStart: boolean;
 }
 
 // ============ Stream events (async generator) ============
@@ -581,7 +718,9 @@ export type LoopStreamEvent =
   | { type: 'terminal-intent-recorded'; loopRunId: string; intent: LoopTerminalIntent }
   | { type: 'terminal-intent-rejected'; loopRunId: string; intent: LoopTerminalIntent; reason: string }
   | { type: 'intervention-applied'; loopRunId: string; message: string }
-  | { type: 'completed'; loopRunId: string; signal: CompletionSignalId; verifyOutput: string }
+  | { type: 'completed'; loopRunId: string; signal: CompletionSignalId; verifyOutput: string; acceptedByOperator?: boolean }
+  /** LF-7: terminal "done, needs a human glance" — operator-accepted or budget-exhausted-but-verified. */
+  | { type: 'completed-needs-review'; loopRunId: string; reason: string; acceptedByOperator: boolean }
   | { type: 'failed'; loopRunId: string; reason: string }
   | { type: 'cap-reached'; loopRunId: string; cap: 'iterations' | 'wall-time' | 'tokens' | 'cost' | 'completion-attempts'; reason?: string }
   | { type: 'cancelled'; loopRunId: string }

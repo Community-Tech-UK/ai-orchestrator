@@ -15,9 +15,12 @@ import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { LoopStore } from '../../core/state/loop.store';
 import {
   activityKindLabel,
+  completionGateSteps,
   formatCostCents,
   humanDuration,
   humanTokens,
+  loopPauseReason,
+  loopStatusPill,
   shortTime,
   terminalStatusLabel,
 } from './loop-formatters.util';
@@ -45,26 +48,45 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (banner(); as b) {
-      <div class="loop-banner" [class.warn]="b.kind === 'no-progress'" [class.danger]="b.kind === 'claimed-failed'">
-        @switch (b.kind) {
-          @case ('no-progress') {
-            <span class="loop-banner-title">Loop paused — no progress</span>
-            <span class="loop-banner-msg">{{ b.message }} <code>(signal {{ b.signalId }})</code></span>
-            <span class="loop-banner-actions">
-              <button type="button" (click)="onToggleInspector()">Inspect</button>
-              <button type="button" (click)="onInjectHint()">Inject hint</button>
-              <button type="button" (click)="onResumeAnyway()">Resume anyway</button>
-              <button type="button" (click)="onStop()">Stop</button>
-            </span>
-          }
-          @case ('claimed-failed') {
-            <span class="loop-banner-title">Completion not accepted</span>
-            <span class="loop-banner-msg">Loop reported done via <code>{{ b.signal }}</code>: {{ b.failure | slice:0:280 }}…</span>
-            <span class="loop-banner-actions">
-              <button type="button" (click)="onToggleInspector()">Inspect</button>
-              <button type="button" (click)="onInjectHint()">Inject hint</button>
-              <button type="button" (click)="onDismissBanner()">Dismiss</button>
-            </span>
+      <div
+        class="loop-banner"
+        [class.warn]="b.kind === 'no-progress' && pauseKind() !== 'awaiting-review'"
+        [class.review]="pauseKind() === 'awaiting-review'"
+        [class.danger]="b.kind === 'claimed-failed' && pauseKind() !== 'awaiting-review'"
+      >
+        @if (pauseKind() === 'awaiting-review') {
+          <span class="loop-banner-title">Awaiting your review — loop thinks it's done</span>
+          <span class="loop-banner-msg">
+            No verify command is configured, so the loop can't auto-confirm completion.
+            Review the work, then accept or keep iterating.
+          </span>
+          <span class="loop-banner-actions">
+            <button type="button" class="banner-accept" (click)="onAcceptCompletion()">Accept as complete</button>
+            <button type="button" (click)="onToggleInspector()">Inspect</button>
+            <button type="button" (click)="onInjectHint()">Keep iterating (hint)</button>
+            <button type="button" (click)="onStop()">Stop</button>
+          </span>
+        } @else {
+          @switch (b.kind) {
+            @case ('no-progress') {
+              <span class="loop-banner-title">{{ pauseKind() === 'blocked' ? 'Loop blocked — needs you' : 'Loop paused — no progress' }}</span>
+              <span class="loop-banner-msg">{{ b.message }} <code>(signal {{ b.signalId }})</code></span>
+              <span class="loop-banner-actions">
+                <button type="button" (click)="onToggleInspector()">Inspect</button>
+                <button type="button" (click)="onInjectHint()">Inject hint</button>
+                <button type="button" (click)="onResumeAnyway()">Resume anyway</button>
+                <button type="button" (click)="onStop()">Stop</button>
+              </span>
+            }
+            @case ('claimed-failed') {
+              <span class="loop-banner-title">Completion not accepted</span>
+              <span class="loop-banner-msg">Loop reported done via <code>{{ b.signal }}</code>: {{ b.failure | slice:0:280 }}…</span>
+              <span class="loop-banner-actions">
+                <button type="button" (click)="onToggleInspector()">Inspect</button>
+                <button type="button" (click)="onInjectHint()">Inject hint</button>
+                <button type="button" (click)="onDismissBanner()">Dismiss</button>
+              </span>
+            }
           }
         }
       </div>
@@ -72,9 +94,14 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
 
     @if (active(); as a) {
       <div class="loop-status" [class.paused]="a.status === 'paused'">
-        <span class="ls-icon">{{ a.status === 'paused' ? '⏸' : '🔁' }}</span>
+        @if (statusPill(); as pill) {
+          <span class="ls-pill" [attr.data-pill]="pill.kind">{{ pill.label }}</span>
+        }
+        @if (latestVerdict(); as verdict) {
+          <span class="ls-verdict" [attr.data-verdict]="verdict" title="Latest progress verdict">{{ verdict }}</span>
+        }
         <span class="ls-text">
-          Loop · {{ runningIteration() ? ('iter ' + runningIteration()!.seq + ' running') : ('iter ' + a.totalIterations + ' complete') }}/{{ a.config.caps.maxIterations }}
+          {{ runningIteration() ? ('iteration ' + runningIteration()!.seq + ' running') : (a.totalIterations + ' iterations run') }}/{{ a.config.caps.maxIterations }}
           · stage {{ runningIteration()?.stage ?? a.currentStage }}
           · current {{ runningIteration() ? duration(currentIterationElapsed()) : 'idle' }}
           · total {{ duration(elapsed()) }}
@@ -85,6 +112,9 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
           @if (a.status === 'running') {
             <button type="button" (click)="onPause()" title="Pause loop">Pause</button>
           } @else if (a.status === 'paused') {
+            @if (pauseKind() === 'awaiting-review') {
+              <button type="button" class="ls-accept" (click)="onAcceptCompletion()" title="Accept the work as complete">Accept as complete</button>
+            }
             <button type="button" (click)="onResumeAnyway()" title="Resume loop">Resume</button>
           }
           <button type="button" (click)="onToggleInspector()" title="Show loop trace">{{ inspectorExpanded() ? 'Hide trace' : 'Inspect' }}</button>
@@ -92,6 +122,28 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
           <button type="button" class="ls-stop" (click)="onStop()" title="Stop loop">Stop</button>
         </span>
       </div>
+
+      @if (showGate()) {
+        <div class="loop-gate" title="Completion gate — what the loop must clear to stop">
+          @for (step of gateSteps(); track step.key) {
+            @if (step.state !== 'skipped') {
+              <span class="lg-step" [attr.data-state]="step.state">{{ step.label }}</span>
+            }
+          }
+        </div>
+      }
+
+      <details class="loop-runcfg">
+        <summary>Run configuration</summary>
+        <div class="loop-runcfg-rows">
+          @for (row of runConfigSummary(); track row.label) {
+            <div class="lrc-row">
+              <span class="lrc-label">{{ row.label }}</span>
+              <span class="lrc-value">{{ row.value }}</span>
+            </div>
+          }
+        </div>
+      </details>
 
       <div class="loop-activity">
         <div class="la-title">
@@ -322,6 +374,78 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
       cursor: pointer;
     }
     .ls-stop { color: #f78c7c !important; }
+    .ls-accept {
+      color: #8edc8e !important;
+      font-weight: 600;
+      border-color: rgba(142,220,142,0.5) !important;
+      background: rgba(142,220,142,0.12) !important;
+    }
+
+    /* LF-8 status pill — the always-on "what state is this loop in" badge. */
+    .ls-pill {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+      padding: 2px 7px; border-radius: 3px; text-transform: uppercase;
+      background: rgba(255,255,255,0.08); white-space: nowrap;
+    }
+    .ls-pill[data-pill="running"]         { color: #8fb8ff; background: rgba(95,142,224,0.18); }
+    .ls-pill[data-pill="awaiting-review"],
+    .ls-pill[data-pill="needs-review"]    { color: #f7c07a; background: rgba(247,192,122,0.20); }
+    .ls-pill[data-pill="no-progress"]     { color: #f7c07a; background: rgba(247,192,122,0.16); }
+    .ls-pill[data-pill="blocked"]         { color: #f78c7c; background: rgba(247,140,124,0.20); }
+    .ls-pill[data-pill="paused"]          { color: #cfcfd6; background: rgba(255,255,255,0.10); }
+    .ls-pill[data-pill="done"]            { color: #8edc8e; background: rgba(142,220,142,0.18); }
+    .ls-pill[data-pill="stopped"]         { color: #f78c7c; background: rgba(247,140,124,0.16); }
+
+    /* LF-8 verdict chip — latest progress health, always visible. */
+    .ls-verdict {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+      padding: 2px 6px; border-radius: 3px;
+      font-family: var(--font-mono, monospace);
+    }
+    .ls-verdict[data-verdict="OK"]       { color: #8edc8e; background: rgba(142,220,142,0.14); }
+    .ls-verdict[data-verdict="WARN"]     { color: #f7c07a; background: rgba(247,192,122,0.14); }
+    .ls-verdict[data-verdict="CRITICAL"] { color: #f78c7c; background: rgba(247,140,124,0.16); }
+
+    /* LF-8 completion-gate stepper — declared → verify → rename → review → stop. */
+    .loop-gate {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+      margin: -2px 0 6px; padding: 5px 10px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.025);
+      border-radius: 6px; font-size: 10px;
+    }
+    .lg-step {
+      position: relative;
+      padding: 1px 8px; border-radius: 999px;
+      font-family: var(--font-mono, monospace);
+      text-transform: uppercase; letter-spacing: 0.04em;
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+    .lg-step:not(:last-child)::after {
+      content: '→'; position: absolute; right: -8px; top: 50%; transform: translateY(-50%);
+      opacity: 0.4; font-family: inherit;
+    }
+    .lg-step[data-state="done"]    { color: #8edc8e; border-color: rgba(142,220,142,0.4); background: rgba(142,220,142,0.10); }
+    .lg-step[data-state="blocked"] { color: #f78c7c; border-color: rgba(247,140,124,0.55); background: rgba(247,140,124,0.14); font-weight: 700; }
+    .lg-step[data-state="pending"] { color: rgba(231,231,234,0.55); }
+
+    /* LF-8 read-only run-config summary — what spawned the active run. */
+    .loop-runcfg {
+      margin: -2px 0 6px; padding: 4px 10px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.02);
+      border-radius: 6px; font-size: 11px;
+    }
+    .loop-runcfg > summary {
+      cursor: pointer; opacity: 0.7; font-weight: 600; list-style: revert;
+    }
+    .loop-runcfg-rows { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+    .lrc-row { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; line-height: 1.4; }
+    .lrc-label {
+      font-family: var(--font-mono, monospace); font-size: 10px;
+      letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.55;
+    }
+    .lrc-value { overflow-wrap: anywhere; opacity: 0.92; }
 
     .loop-activity {
       margin: -2px 0 6px;
@@ -496,6 +620,12 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
     }
     .loop-banner.warn { background: rgba(247,192,122,0.12); border-color: rgba(247,192,122,0.45); }
     .loop-banner.danger { background: rgba(247,124,124,0.12); border-color: rgba(247,124,124,0.45); }
+    .loop-banner.review { background: rgba(142,196,247,0.10); border-color: rgba(142,196,247,0.45); }
+    .banner-accept {
+      color: #8edc8e !important; font-weight: 600;
+      border-color: rgba(142,220,142,0.5) !important;
+      background: rgba(142,220,142,0.12) !important;
+    }
     .loop-banner-title { font-weight: 600; }
     .loop-banner-msg { flex: 1; }
     .loop-banner-actions { display: flex; gap: 4px; }
@@ -517,6 +647,10 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
     .loop-summary[data-status="completed"] {
       border-color: rgba(142, 220, 142, 0.45);
       background: rgba(142, 220, 142, 0.10);
+    }
+    .loop-summary[data-status="completed-needs-review"] {
+      border-color: rgba(142, 196, 247, 0.45);
+      background: rgba(142, 196, 247, 0.08);
     }
     .loop-summary[data-status="error"] {
       border-color: rgba(247, 140, 124, 0.45);
@@ -540,6 +674,7 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
       font-weight: 700;
     }
     .lsum-status-pill[data-status="completed"]   { color: #8edc8e; background: rgba(142,220,142,0.18); }
+    .lsum-status-pill[data-status="completed-needs-review"] { color: #8ec4f7; background: rgba(142,196,247,0.18); }
     .lsum-status-pill[data-status="cancelled"]   { color: #c8b482; background: rgba(200,180,130,0.16); }
     .lsum-status-pill[data-status="failed"]      { color: #f78c7c; background: rgba(247,140,124,0.18); }
     .lsum-status-pill[data-status="cap-reached"] { color: #f7c07a; background: rgba(247,192,122,0.18); }
@@ -694,6 +829,89 @@ export class LoopControlComponent implements OnDestroy {
   inspectableLoopId = computed(() => this.active()?.id ?? this.banner()?.loopRunId ?? this.summary()?.loopRunId ?? null);
   controlLoopId = computed(() => this.active()?.id ?? this.banner()?.loopRunId ?? null);
 
+  // ── LF-8: legible status model ─────────────────────────────────────────────
+  /** Always-on status pill (RUNNING / NEEDS REVIEW / PAUSED · NO PROGRESS / …). */
+  statusPill = computed(() => {
+    const a = this.active();
+    if (!a) return null;
+    const b = this.banner();
+    return loopStatusPill({
+      status: a.status,
+      manualReviewOnly: a.manualReviewOnly,
+      lastCompletionOutcome: a.lastCompletionOutcome,
+      bannerKind: b?.kind ?? null,
+      bannerSignalId: b?.kind === 'no-progress' ? b.signalId : null,
+    });
+  });
+
+  /** The reason a paused loop is paused (awaiting-review / no-progress / blocked / paused). */
+  pauseKind = computed(() => {
+    const a = this.active();
+    if (!a || a.status !== 'paused') return null;
+    const b = this.banner();
+    return loopPauseReason({
+      manualReviewOnly: a.manualReviewOnly,
+      lastCompletionOutcome: a.lastCompletionOutcome,
+      bannerKind: b?.kind ?? null,
+      bannerSignalId: b?.kind === 'no-progress' ? b.signalId : null,
+    });
+  });
+
+  /** Latest per-iteration progress verdict (OK / WARN / CRITICAL), or null. */
+  latestVerdict = computed(() => this.active()?.lastIteration?.progressVerdict ?? null);
+
+  /** Completion-gate stepper steps for the active loop. */
+  gateSteps = computed(() => {
+    const a = this.active();
+    if (!a) return [];
+    return completionGateSteps({
+      status: a.status,
+      verifyStatus: a.lastIteration?.verifyStatus,
+      renameObserved: a.completedFileRenameObserved,
+      requireRename: a.config.completion.requireCompletedFileRename,
+      manualReviewOnly: a.manualReviewOnly,
+      freshEyesEnabled: a.config.completion.crossModelReview?.enabled ?? false,
+      lastCompletionOutcome: a.lastCompletionOutcome,
+    });
+  });
+
+  /** Show the gate stepper once the loop has attempted completion or is paused. */
+  showGate = computed(() => {
+    const a = this.active();
+    if (!a) return false;
+    return a.status === 'paused' || a.lastCompletionOutcome !== undefined;
+  });
+
+  /**
+   * LF-8: a compact, read-only summary of the ACTIVE run's config — so the user
+   * can see what spawned the running loop (provider, context strategy, caps,
+   * verify, enabled options) without re-opening the start panel. Collapsed by
+   * default in the strip.
+   */
+  runConfigSummary = computed<{ label: string; value: string }[]>(() => {
+    const a = this.active();
+    if (!a) return [];
+    const c = a.config;
+    const cost = c.caps.maxCostCents === null ? 'no cap' : formatCostCents(c.caps.maxCostCents);
+    const flags: string[] = [];
+    if (c.completion.requireCompletedFileRename) flags.push('rename-gate');
+    if (c.completion.runVerifyTwice) flags.push('verify×2');
+    if (c.completion.crossModelReview?.enabled) flags.push('fresh-eyes');
+    if (c.context?.compaction.enabled) flags.push('context-recycle');
+    if (c.exploration?.enabled) flags.push('branch-select');
+    if (c.plan?.regenerateOnStall) flags.push('regen-on-stall');
+    if (c.semanticProgress?.enabled) flags.push('semantic-progress');
+    if (c.allowDestructiveOps) flags.push('destructive-ops');
+    return [
+      { label: 'Provider', value: c.provider },
+      { label: 'Context', value: c.contextStrategy },
+      { label: 'Start stage', value: c.initialStage },
+      { label: 'Caps', value: `${c.caps.maxIterations} iters · ${humanDuration(c.caps.maxWallTimeMs)} · ${cost} · ${humanTokens(c.caps.maxTokens)}` },
+      { label: 'Verify', value: c.completion.verifyCommand || (a.manualReviewOnly ? 'manual review (no command)' : 'auto-detected') },
+      { label: 'Options', value: flags.length ? flags.join(', ') : 'defaults' },
+    ];
+  });
+
   runningIteration = computed(() => {
     const id = this.chatId();
     return id ? this.store.runningIterationForChat(id)() : null;
@@ -838,6 +1056,12 @@ export class LoopControlComponent implements OnDestroy {
     await this.store.cancel(loopId);
   }
 
+  /** LF-8 → LF-7: accept a paused, done-but-ungated run in one click. */
+  async onAcceptCompletion(): Promise<void> {
+    const loopId = this.controlLoopId(); if (!loopId) return;
+    await this.store.acceptCompletion(loopId);
+  }
+
   async onInjectHint(): Promise<void> {
     const loopId = this.controlLoopId(); if (!loopId) return;
     const message = window.prompt('Inject a hint for the next iteration:');
@@ -923,7 +1147,7 @@ export class LoopControlComponent implements OnDestroy {
   protected cost(cents: number): string  { return formatCostCents(cents); }
   protected time(ts: number): string     { return shortTime(ts); }
   protected kindLabel(kind: string): string { return activityKindLabel(kind); }
-  protected summaryStatusLabel(status: 'completed' | 'cancelled' | 'failed' | 'cap-reached' | 'error' | 'no-progress'): string {
+  protected summaryStatusLabel(status: 'completed' | 'completed-needs-review' | 'cancelled' | 'failed' | 'cap-reached' | 'error' | 'no-progress'): string {
     return terminalStatusLabel(status);
   }
 }

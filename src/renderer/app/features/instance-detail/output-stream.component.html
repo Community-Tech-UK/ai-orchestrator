@@ -145,6 +145,32 @@
                 <div class="restore-notice-content" [innerHTML]="item.renderedMessage"></div>
               </div>
             } @else if (hasContent(item.message)) {
+              @if (item.message.type === 'user' && isEditingMessage(item.message.id)) {
+                <div class="inline-edit-container">
+                  <textarea
+                    class="inline-edit-textarea"
+                    [value]="editingDraft()"
+                    (input)="onEditDraftInput($event)"
+                    (keydown)="onEditKeydown($event)"
+                    rows="3"
+                    aria-label="Edit message"
+                  ></textarea>
+                </div>
+                <div class="inline-edit-actions">
+                  <span class="inline-edit-hint">Enter to resend · Esc to cancel</span>
+                  <button type="button" class="inline-edit-btn secondary" (click)="cancelEditingMessage()">
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-edit-btn primary"
+                    [disabled]="!editingDraft().trim()"
+                    (click)="resendEditedMessage()"
+                  >
+                    Resend
+                  </button>
+                </div>
+              } @else {
               <div class="message" [class]="'message-' + item.message.type"
                 [class.continuation]="item.showHeader === false"
                 [title]="item.message.timestamp | date: 'HH:mm:ss'">
@@ -216,7 +242,7 @@
                       [title]="isLoopOriginatedUserMessage(item.message)
                         ? 'Cannot edit a loop prompt — start a new loop to change it'
                         : 'Edit and resend'"
-                      (click)="editMessage.emit()">
+                      (click)="startEditingMessage(item.message)">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
@@ -232,6 +258,7 @@
                     </svg>
                   </button>
                 </div>
+              }
               }
             }
           }

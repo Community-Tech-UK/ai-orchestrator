@@ -15,6 +15,7 @@
 import { EventEmitter } from 'events';
 import type { CliAdapter, UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
 import { CliDetectionService, type CliType } from '../cli/cli-detection';
+import { isProviderNotice } from '../cli/provider-notice';
 import type {
   ConsensusOptions,
   ConsensusProviderSpec,
@@ -246,6 +247,33 @@ export class ConsensusCoordinator extends EventEmitter {
       const response = await this.collectResponse(adapter, prompt, timeoutMs, isAborted);
 
       const durationMs = Date.now() - providerStart;
+
+      // A throttled CLI streams a status notice ("You've hit your session limit
+      // · resets 6:30pm") and exits 0. Record it as a failed vote rather than a
+      // real opinion, so it can't pollute consensus aggregation with a
+      // mid-confidence junk vote (estimateVoteConfidence defaults to 0.5).
+      if (isProviderNotice(response)) {
+        logger.warn('Consensus provider returned a rate-limit/status notice; recording as a failed vote', {
+          provider: spec.provider,
+        });
+        this.emit('consensus:vote', {
+          queryId,
+          workingDirectory,
+          provider: spec.provider,
+          content: '[provider usage-limit notice]',
+          confidence: 0,
+          success: false,
+        });
+        return {
+          provider: spec.provider,
+          model: spec.model,
+          content: '',
+          success: false,
+          error: `[${ErrorCategory.RATE_LIMITED}] provider returned a usage-limit notice`,
+          durationMs,
+        };
+      }
+
       const consensusResponse: ConsensusProviderResponse = {
         provider: spec.provider,
         model: spec.model,

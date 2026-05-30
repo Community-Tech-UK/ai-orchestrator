@@ -15,9 +15,11 @@ import { initializePathValidator } from '../security/path-validator';
 import { getLogger } from '../logging/logger';
 import { initTruncationCleanup } from '../util/tool-output-truncation';
 import { getRemoteObserverServer } from '../remote/observer-server';
+import { getMobileGatewayServer } from '../mobile-gateway/mobile-gateway-server';
 import { getSessionContinuityManager } from '../session/session-continuity';
 import { registerCompactionSummaryRenderer } from '../display-items/compaction-summary-renderer';
 import { getResourceGovernor } from '../process/resource-governor';
+import { getCliAutoUpdateService } from '../cli/cli-auto-update-service';
 import { getHibernationManager } from '../process/hibernation-manager';
 import { getPoolManager } from '../process/pool-manager';
 import { getLoadBalancer } from '../process/load-balancer';
@@ -314,6 +316,18 @@ export function createInitializationSteps(
       },
     },
     {
+      // Phase 2 of the provider-model-auto-update plan: when the user opts into
+      // `cliUpdatePolicy: 'auto'`, apply safe CLI updates unattended. The active-
+      // instance count is injected (InstanceManager is intentionally not a
+      // singleton) so updates never run while a session is live.
+      name: 'CLI auto-update',
+      fn: () => {
+        getCliAutoUpdateService().start({
+          getActiveInstanceCount: () => instanceManager.getInstanceCount(),
+        });
+      },
+    },
+    {
       name: 'Hibernation manager',
       fn: () => {
         const hibernation = getHibernationManager();
@@ -397,6 +411,25 @@ export function createInitializationSteps(
       },
     },
     {
+      name: 'Mobile gateway',
+      fn: async () => {
+        const settings = getSettingsManager();
+        // Always initialize so the runtime start/stop IPC handlers work even
+        // when the gateway is toggled on later from Settings → Mobile.
+        const gateway = getMobileGatewayServer();
+        gateway.initialize({ instanceManager });
+        if (!settings.get('mobileGatewayEnabled')) {
+          logger.info('Mobile gateway disabled (initialized, not started)');
+          return;
+        }
+        await gateway.start({
+          port: settings.get('mobileGatewayPort'),
+          bindInterface: settings.get('mobileGatewayBindInterface'),
+        });
+        logger.info('Mobile gateway started from boot');
+      },
+    },
+    {
       name: 'Cross-model review',
       fn: async () => {
         const crossModelReview = getCrossModelReviewService();
@@ -464,6 +497,7 @@ export function createInitializationSteps(
               token: credential.token,
               allowedSenders: restoredSenders,
               allowedChats: [],
+              displayName: credential.display_name ?? undefined,
             }).catch((err) => {
               logger.warn('Auto-reconnect failed', { platform, error: String(err) });
             });

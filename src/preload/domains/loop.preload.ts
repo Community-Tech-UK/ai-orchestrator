@@ -35,6 +35,12 @@ export interface LoopConfigInput {
   iterationTimeoutMs?: number;
   /** Stream-idle threshold per iteration (ms). */
   streamIdleTimeoutMs?: number;
+  /** LF-1: context discipline block. */
+  context?: {
+    compaction: { enabled: boolean; resetAtUtilization: number; clearToolResults: boolean };
+  };
+  /** LF-4: disposable-plan behaviour. */
+  plan?: { regenerateOnStall: boolean };
 }
 
 export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNELS) {
@@ -59,12 +65,16 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
       ipcRenderer.invoke(ch.LOOP_INTERVENE, { loopRunId, message }),
     loopCancel: (loopRunId: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_CANCEL, { loopRunId }),
+    loopAcceptCompletion: (loopRunId: string): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.LOOP_ACCEPT_COMPLETION, { loopRunId }),
     loopGetState: (loopRunId: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_GET_STATE, { loopRunId }),
     loopListRunsForChat: (chatId: string, limit?: number): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_LIST_RUNS_FOR_CHAT, { chatId, limit }),
     loopGetIterations: (loopRunId: string, fromSeq?: number, toSeq?: number): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_GET_ITERATIONS, { loopRunId, fromSeq, toSeq }),
+    loopInferVerify: (workspaceCwd: string): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.LOOP_INFER_VERIFY, { workspaceCwd }),
 
     onLoopStateChanged: sub(ch.LOOP_STATE_CHANGED),
     onLoopStarted: sub(ch.LOOP_STARTED),
@@ -81,6 +91,8 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
     onLoopFreshEyesReviewBlocked: sub(ch.LOOP_FRESH_EYES_REVIEW_BLOCKED),
     onLoopInterventionApplied: sub(ch.LOOP_INTERVENTION_APPLIED),
     onLoopCompleted: sub(ch.LOOP_COMPLETED),
+    onLoopCompletedNeedsReview: sub(ch.LOOP_COMPLETED_NEEDS_REVIEW),
+    onLoopNotesCurated: sub(ch.LOOP_NOTES_CURATED),
     onLoopFailed: sub(ch.LOOP_FAILED),
     onLoopCapReached: sub(ch.LOOP_CAP_REACHED),
     onLoopCancelled: sub(ch.LOOP_CANCELLED),

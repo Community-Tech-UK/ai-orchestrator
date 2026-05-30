@@ -41,7 +41,15 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.completion?.allowOperatorReviewedCompletion).toBe(false);
   });
 
-  it('defaults to no spend cap', () => {
+  it('defaults to a $10 spend cap (LF-3)', () => {
+    const config = component.buildConfig();
+
+    expect(config?.caps?.maxCostCents).toBe(1000);
+  });
+
+  it('allows clearing the spend cap to null for an unbounded run', () => {
+    component.maxDollars.set(null);
+
     const config = component.buildConfig();
 
     expect(config?.caps?.maxCostCents).toBeNull();

@@ -19,6 +19,7 @@ describe('LoopStore', () => {
     freshEyesReviewFailed: Listener<{ loopRunId: string; signal: string; error: string }>[];
     freshEyesReviewBlocked: Listener<{ loopRunId: string; signal: string; reviewersUsed: string[]; blockingFindings: unknown[]; summary?: string }>[];
     completed: Listener<{ loopRunId: string; signal: string; verifyOutput: string }>[];
+    completedNeedsReview: Listener<{ loopRunId: string; reason: string; acceptedByOperator: boolean }>[];
     failed: Listener<{ loopRunId: string; reason: string }>[];
     capReached: Listener<{ loopRunId: string; cap: string }>[];
     error: Listener<{ loopRunId: string; error: string }>[];
@@ -44,9 +45,11 @@ describe('LoopStore', () => {
     onFreshEyesReviewFailed: ReturnType<typeof vi.fn>;
     onFreshEyesReviewBlocked: ReturnType<typeof vi.fn>;
     onCompleted: ReturnType<typeof vi.fn>;
+    onCompletedNeedsReview: ReturnType<typeof vi.fn>;
     onFailed: ReturnType<typeof vi.fn>;
     onCapReached: ReturnType<typeof vi.fn>;
     onError: ReturnType<typeof vi.fn>;
+    acceptCompletion: ReturnType<typeof vi.fn>;
   };
   let store: LoopStore;
 
@@ -66,6 +69,7 @@ describe('LoopStore', () => {
       freshEyesReviewFailed: [],
       freshEyesReviewBlocked: [],
       completed: [],
+      completedNeedsReview: [],
       failed: [],
       capReached: [],
       error: [],
@@ -91,9 +95,11 @@ describe('LoopStore', () => {
       onFreshEyesReviewFailed: vi.fn((cb) => subscribe(listeners.freshEyesReviewFailed, cb)),
       onFreshEyesReviewBlocked: vi.fn((cb) => subscribe(listeners.freshEyesReviewBlocked, cb)),
       onCompleted: vi.fn((cb) => subscribe(listeners.completed, cb)),
+      onCompletedNeedsReview: vi.fn((cb) => subscribe(listeners.completedNeedsReview, cb)),
       onFailed: vi.fn((cb) => subscribe(listeners.failed, cb)),
       onCapReached: vi.fn((cb) => subscribe(listeners.capReached, cb)),
       onError: vi.fn((cb) => subscribe(listeners.error, cb)),
+      acceptCompletion: vi.fn(),
     };
 
     TestBed.configureTestingModule({

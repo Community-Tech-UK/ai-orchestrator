@@ -106,6 +106,16 @@ import { ChannelIpcService } from '../../../../core/services/ipc/channel-ipc.ser
                 </div>
               }
               <div class="section-divider"></div>
+              <label class="input-label" for="discord-bot-name">Bot Name</label>
+              <input
+                id="discord-bot-name"
+                type="text"
+                class="token-input"
+                [value]="discordBotName()"
+                (input)="discordBotName.set($any($event.target).value)"
+                placeholder="e.g. Mac Bot — defaults to this machine's hostname"
+                maxlength="32"
+              />
               <label class="input-label" for="discord-token">Bot Token</label>
               <input
                 id="discord-token"
@@ -269,6 +279,7 @@ export class ChannelConnectionsComponent {
   private ipcService = inject(ChannelIpcService);
 
   protected discordToken = signal('');
+  protected discordBotName = signal('');
   protected discordPairCode = signal('');
   protected pairingWorking = signal(false);
   protected pairingMessage = signal<string | null>(null);
@@ -292,7 +303,7 @@ export class ChannelConnectionsComponent {
       return;
     }
 
-    await this.store.connectDiscord(token);
+    await this.store.connectDiscord(token, this.discordBotName());
   }
 
   async pairDiscord(): Promise<void> {

@@ -12,17 +12,23 @@ export interface SavedCredential {
   platform: string;
   token: string;
   saved_at: number;
+  /** Per-machine bot display name (e.g. "Mac Bot"); null when unset. */
+  display_name?: string | null;
 }
 
 export class ChannelCredentialStore {
   constructor(private db: SqliteDriver) {}
 
-  save(platform: string, token: string): void {
+  save(platform: string, token: string, displayName?: string | null): void {
+    const normalizedName = displayName?.trim() || null;
     this.db.prepare(`
-      INSERT INTO channel_credentials (platform, token, saved_at)
-      VALUES (?, ?, ?)
-      ON CONFLICT(platform) DO UPDATE SET token = excluded.token, saved_at = excluded.saved_at
-    `).run(platform, token, Date.now());
+      INSERT INTO channel_credentials (platform, token, display_name, saved_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(platform) DO UPDATE SET
+        token = excluded.token,
+        display_name = excluded.display_name,
+        saved_at = excluded.saved_at
+    `).run(platform, token, normalizedName, Date.now());
     logger.info('Credential saved', { platform });
   }
 

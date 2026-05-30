@@ -74,11 +74,12 @@ export function registerChannelHandlers(): void {
           token: validated.token,
           allowedSenders,
           allowedChats: [],
+          displayName: validated.displayName,
         });
-        // Persist token so we can auto-reconnect on restart
+        // Persist token (and per-machine bot name) so we auto-reconnect on restart
         if (validated.token) {
           try {
-            getCredentialStore().save(validated.platform, validated.token);
+            getCredentialStore().save(validated.platform, validated.token, validated.displayName);
           } catch (err) {
             logger.warn('Failed to persist channel credential', { platform: validated.platform, error: String(err) });
           }

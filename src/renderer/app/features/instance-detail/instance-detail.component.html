@@ -121,7 +121,7 @@
               [thinkingDefaultExpanded]="thinkingDefaultExpanded()"
               [showToolMessages]="showToolMessages()"
               [isChild]="!!inst.parentId"
-              (editMessage)="onEditLastMessage()"
+              (resendEdited)="onResendEdited($event)"
             />
             @if (inst.status === 'busy' || inst.status === 'processing' || inst.status === 'thinking_deeply' || inst.status === 'initializing') {
               <app-activity-status
@@ -335,7 +335,7 @@
               [thinkingDefaultExpanded]="thinkingDefaultExpanded()"
               [showToolMessages]="showToolMessages()"
               [isChild]="false"
-              (editMessage)="onEditLastMessage()"
+              (resendEdited)="onResendEdited($event)"
             />
           </div>
 

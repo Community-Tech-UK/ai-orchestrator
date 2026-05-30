@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { LoopStatusSchema } from '@contracts/schemas/loop';
 import {
   activityKindLabel,
+  completionGateSteps,
   formatCostCents,
   formatTimestamp,
   humanDuration,
   humanTokens,
+  loopPauseReason,
   loopStatusLabel,
+  loopStatusPill,
   relativeTime,
   shortTime,
   terminalStatusLabel,
@@ -72,6 +76,7 @@ describe('activityKindLabel', () => {
 describe('terminalStatusLabel', () => {
   it('renders each terminal status exactly once', () => {
     expect(terminalStatusLabel('completed')).toBe('completed ✓');
+    expect(terminalStatusLabel('completed-needs-review')).toBe('needs review');
     expect(terminalStatusLabel('cancelled')).toBe('cancelled');
     expect(terminalStatusLabel('failed')).toBe('failed');
     expect(terminalStatusLabel('cap-reached')).toBe('cap reached');
@@ -83,8 +88,8 @@ describe('terminalStatusLabel', () => {
 describe('loopStatusLabel', () => {
   it('handles terminal + intermediate statuses', () => {
     expect(loopStatusLabel('completed')).toBe('completed');
+    expect(loopStatusLabel('completed-needs-review')).toBe('needs review');
     expect(loopStatusLabel('cancelled')).toBe('cancelled');
-    expect(loopStatusLabel('failed')).toBe('failed');
     expect(loopStatusLabel('cap-reached')).toBe('cap');
     expect(loopStatusLabel('error')).toBe('error');
     expect(loopStatusLabel('no-progress')).toBe('no-progress');
@@ -94,6 +99,104 @@ describe('loopStatusLabel', () => {
 
   it('falls through unknown statuses verbatim (forward-compat)', () => {
     expect(loopStatusLabel('not-yet-defined')).toBe('not-yet-defined');
+  });
+});
+
+// LF-8 contract: every LoopStatus must resolve to a non-empty label so the UI
+// never renders a blank/garbled status cell, and every terminal status must
+// resolve via terminalStatusLabel.
+describe('LoopStatus label completeness (LF-8 contract)', () => {
+  const TERMINAL = new Set(['completed', 'completed-needs-review', 'cancelled', 'failed', 'cap-reached', 'error', 'no-progress']);
+
+  it('every LoopStatus resolves to a non-empty loopStatusLabel', () => {
+    for (const status of LoopStatusSchema.options) {
+      expect(loopStatusLabel(status), `loopStatusLabel(${status})`).toBeTruthy();
+    }
+  });
+
+  it('every terminal LoopStatus resolves to a non-empty terminalStatusLabel', () => {
+    for (const status of LoopStatusSchema.options) {
+      if (!TERMINAL.has(status)) continue;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect(terminalStatusLabel(status as any), `terminalStatusLabel(${status})`).toBeTruthy();
+    }
+  });
+
+  it('does not define the removed dead statuses idle / verify-failed', () => {
+    expect(LoopStatusSchema.options).not.toContain('idle');
+    expect(LoopStatusSchema.options).not.toContain('verify-failed');
+  });
+});
+
+describe('loopStatusPill (LF-8)', () => {
+  it('maps live + terminal statuses to legible pills', () => {
+    expect(loopStatusPill({ status: 'running' })).toEqual({ kind: 'running', label: 'RUNNING' });
+    expect(loopStatusPill({ status: 'completed' })).toEqual({ kind: 'done', label: 'DONE' });
+    expect(loopStatusPill({ status: 'completed-needs-review' })).toEqual({ kind: 'needs-review', label: 'NEEDS REVIEW' });
+    expect(loopStatusPill({ status: 'cancelled' }).kind).toBe('stopped');
+    expect(loopStatusPill({ status: 'cap-reached' }).label).toBe('CAP REACHED');
+  });
+
+  it('distinguishes the three pause flavours', () => {
+    expect(loopStatusPill({ status: 'paused', lastCompletionOutcome: 'unverifiable' }).kind).toBe('awaiting-review');
+    expect(loopStatusPill({ status: 'paused', manualReviewOnly: true }).kind).toBe('awaiting-review');
+    expect(loopStatusPill({ status: 'paused', bannerKind: 'no-progress', bannerSignalId: 'BLOCKED' }).kind).toBe('blocked');
+    expect(loopStatusPill({ status: 'paused', bannerKind: 'no-progress', bannerSignalId: 'A' }).kind).toBe('no-progress');
+    expect(loopStatusPill({ status: 'paused' }).kind).toBe('paused');
+  });
+});
+
+describe('loopPauseReason (LF-8)', () => {
+  it('prioritises BLOCKED, then unverifiable, then no-progress, then manual', () => {
+    expect(loopPauseReason({ bannerKind: 'no-progress', bannerSignalId: 'BLOCKED' })).toBe('blocked');
+    expect(loopPauseReason({ lastCompletionOutcome: 'unverifiable' })).toBe('awaiting-review');
+    expect(loopPauseReason({ bannerKind: 'no-progress', bannerSignalId: 'A' })).toBe('no-progress');
+    expect(loopPauseReason({ manualReviewOnly: true })).toBe('awaiting-review');
+    expect(loopPauseReason({})).toBe('paused');
+  });
+});
+
+describe('completionGateSteps (LF-8)', () => {
+  it('marks the rename step blocked when verify passed but the rename gate did not', () => {
+    const steps = completionGateSteps({
+      status: 'paused',
+      verifyStatus: 'passed',
+      requireRename: true,
+      renameObserved: false,
+      lastCompletionOutcome: 'rename-gate',
+    });
+    const byKey = Object.fromEntries(steps.map((s) => [s.key, s.state]));
+    expect(byKey['verify']).toBe('done');
+    expect(byKey['rename']).toBe('blocked');
+    expect(byKey['stop']).toBe('pending');
+  });
+
+  it('marks verify blocked when verify failed', () => {
+    const steps = completionGateSteps({ status: 'paused', verifyStatus: 'failed', lastCompletionOutcome: 'verify-failed' });
+    expect(steps.find((s) => s.key === 'verify')?.state).toBe('blocked');
+  });
+
+  it('skips verify for manual-review loops and marks review blocked while awaiting sign-off', () => {
+    const steps = completionGateSteps({
+      status: 'paused',
+      manualReviewOnly: true,
+      lastCompletionOutcome: 'unverifiable',
+    });
+    const byKey = Object.fromEntries(steps.map((s) => [s.key, s.state]));
+    expect(byKey['verify']).toBe('skipped');
+    expect(byKey['review']).toBe('blocked');
+  });
+
+  it('marks all gates done on a clean completion', () => {
+    const steps = completionGateSteps({
+      status: 'completed',
+      verifyStatus: 'passed',
+      requireRename: true,
+      renameObserved: true,
+      lastCompletionOutcome: 'accepted',
+    });
+    expect(steps.find((s) => s.key === 'stop')?.state).toBe('done');
+    expect(steps.find((s) => s.key === 'rename')?.state).toBe('done');
   });
 });
 

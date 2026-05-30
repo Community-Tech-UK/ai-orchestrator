@@ -213,6 +213,7 @@ export function createCommunicationDomain(
     channelConnect: (payload: {
       platform: string;
       token?: string;
+      displayName?: string;
     }): Promise<IpcResponse> => ipcRenderer.invoke(ch.CHANNEL_CONNECT, payload),
 
     channelDisconnect: (payload: { platform: string }): Promise<IpcResponse> =>

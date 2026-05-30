@@ -2382,7 +2382,6 @@ export class ChannelMessageRouter {
             'Output is still streaming. I will hold further live chunks and post the final update when the session settles.',
             {
               replyTo: ctx.messageId,
-              actions: this.buildSessionActions(instanceId),
             },
           ).catch((err: unknown) => {
             logger.error('Failed to send stream suppression notice', err instanceof Error ? err : new Error(String(err)));
@@ -2391,12 +2390,24 @@ export class ChannelMessageRouter {
         return;
       }
 
+      const isFirstFlush = tracker.flushCount === 0;
       tracker.flushCount += 1;
       const shouldCleanupAfterSend = tracker.pendingFinalization;
 
-      void adapter.sendMessage(ctx.chatId, bufferedContent, {
+      // In DMs the bot's global username can't be customised per machine, so
+      // tag the first message of a reply with the configured bot name ("Mac
+      // Bot") to show which machine is driving. Servers use the guild nickname
+      // instead, so they don't need the inline tag.
+      let outboundContent = bufferedContent;
+      if (isFirstFlush && ctx.isDM) {
+        const botName = adapter.getDisplayName?.();
+        if (botName) {
+          outboundContent = `**${botName}**\n${bufferedContent}`;
+        }
+      }
+
+      void adapter.sendMessage(ctx.chatId, outboundContent, {
         replyTo: ctx.messageId,
-        actions: this.buildSessionActions(instanceId),
       }).then((sentMessage) => {
         this.persistence.saveMessage({
           id: `out-${ctx.platform}-${sentMessage.messageId}`,
@@ -2444,7 +2455,15 @@ export class ChannelMessageRouter {
       if (envelope.instanceId !== instanceId) return;
 
       const message = toOutputMessageFromProviderEnvelope(envelope);
-      const content = message?.content;
+      if (!message) return;
+
+      // Only relay the agent's actual replies to the channel. Prompt echoes
+      // (`user`), tool invocations (`tool_use` → "Using tool: …"), tool output
+      // (`tool_result`), and system notices are internal chatter that turns a
+      // mobile channel into noise — drop them so the feed shows just answers.
+      if (message.type !== 'assistant') return;
+
+      const content = message.content;
       if (!content) return;
 
       tracker.content += content;

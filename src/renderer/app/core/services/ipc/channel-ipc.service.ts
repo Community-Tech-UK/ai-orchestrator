@@ -9,9 +9,9 @@ export class ChannelIpcService {
   private base = inject(ElectronIpcService);
   private get api() { return this.base.getApi(); }
 
-  async connect(platform: string, token?: string): Promise<IpcResponse> {
+  async connect(platform: string, token?: string, displayName?: string): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.channelConnect({ platform, token });
+    return this.api.channelConnect({ platform, token, displayName });
   }
 
   async disconnect(platform: string): Promise<IpcResponse> {

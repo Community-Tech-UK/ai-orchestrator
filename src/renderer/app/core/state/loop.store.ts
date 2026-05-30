@@ -54,7 +54,7 @@ export interface LoopFinalSummaryLastIteration {
 
 export interface LoopFinalSummary {
   loopRunId: string;
-  status: 'completed' | 'cancelled' | 'failed' | 'cap-reached' | 'error' | 'no-progress';
+  status: 'completed' | 'completed-needs-review' | 'cancelled' | 'failed' | 'cap-reached' | 'error' | 'no-progress';
   reason: string;
   iterations: number;
   tokens: number;
@@ -295,6 +295,13 @@ export class LoopStore {
       if (chatId) this.setBanner(chatId, null);
     });
 
+    // LF-7: clear any lingering banner when a loop lands needs-review (the
+    // terminal LoopState arrives via onStateChanged → applyState).
+    this.ipc.onCompletedNeedsReview(({ loopRunId }) => {
+      const chatId = this.findChatIdForLoop(loopRunId);
+      if (chatId) this.setBanner(chatId, null);
+    });
+
     this.ipc.onFailed(({ loopRunId }) => {
       const chatId = this.findChatIdForLoop(loopRunId);
       if (chatId) this.setBanner(chatId, null);
@@ -376,6 +383,32 @@ export class LoopStore {
       endedAt: Date.now(),
       endReason: 'user cancelled',
     });
+  }
+
+  /**
+   * LF-7: operator accepts a paused, done-but-ungated run. The main process
+   * runs verify if configured (pass → completed, fail → stays paused) or lands
+   * `completed-needs-review` when there is no verify command. The terminal
+   * state arrives via the normal `loop:state-changed` broadcast applied by
+   * `applyControlResponse`; we only surface a clear failure message when the
+   * accept was rejected (e.g. verify failed).
+   */
+  async acceptCompletion(loopRunId: string): Promise<{ ok: boolean }> {
+    const response = await this.ipc.acceptCompletion(loopRunId);
+    if (response.data?.state) this.applyState(response.data.state);
+    if (!response.success) {
+      this.addControlActivity(loopRunId, 'error', `Accept failed: ${response.error?.message ?? 'unknown error'}`);
+      return { ok: false };
+    }
+    if (response.data?.ok === false) {
+      this.addControlActivity(
+        loopRunId,
+        'status',
+        'Accept did not complete the loop — verify may have failed or the loop was not awaiting review.',
+      );
+      return { ok: false };
+    }
+    return { ok: true };
   }
 
   async refreshHistory(chatId: string, limit = 25): Promise<void> {
@@ -567,6 +600,7 @@ export class LoopStore {
   private isTerminalStatus(status: LoopStatePayload['status']): status is LoopFinalSummary['status'] {
     return (
       status === 'completed'
+      || status === 'completed-needs-review'
       || status === 'cancelled'
       || status === 'failed'
       || status === 'cap-reached'

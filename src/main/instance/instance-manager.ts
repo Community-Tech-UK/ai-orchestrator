@@ -11,7 +11,7 @@
  */
 
 import { EventEmitter } from 'events';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { ProviderRuntimeEventBus } from '../providers/provider-runtime-event-bus';
 import type { PendingEnvelope } from '../providers/provider-runtime-event-bus';
 import { getLogger } from '../logging/logger';
@@ -77,7 +77,6 @@ import { getCompactionCoordinator } from '../context/compaction-coordinator.js';
 import type {
   ProviderName,
   ProviderRuntimeEvent,
-  ProviderRuntimeEventEnvelope,
 } from '@contracts/types/provider-runtime-events';
 import { toProviderOutputEvent } from '../providers/provider-output-event';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
@@ -104,11 +103,11 @@ const LOG_PREVIEW_LENGTH = 160;
 const CHILD_STARTUP_TIMEOUT_MS = 60_000;
 const INPUT_CONTEXT_DEADLINE_MS = 500;
 
-type InputContextBundle = {
+interface InputContextBundle {
   rlmContext: RlmContextInfo | null;
   unifiedMemoryContext: UnifiedMemoryContextInfo | null;
   indexedCodebaseContext: IndexedCodebaseContextInfo | null;
-};
+}
 
 export interface InstanceStateChangedEvent {
   instanceId: string;
@@ -1530,6 +1529,7 @@ export class InstanceManager extends EventEmitter {
             }
           },
           instance.isRenamed,
+          attachments?.map((a) => a.name),
         ).catch(() => { /* non-critical */ });
       }
     }

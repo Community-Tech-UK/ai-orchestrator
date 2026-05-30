@@ -31,6 +31,7 @@ import { handleCoordinatorError } from './utils/coordinator-error-handler';
 import { getConfidenceFilter } from './confidence-filter';
 import { resolveCliType, type UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
+import { isProviderNotice } from '../cli/provider-notice';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { createAbortController, createChildAbortController } from '../util/abort-controller-tree';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
@@ -1011,6 +1012,14 @@ Provide your synthesized response:`;
       }
 
       const cliResponse = await sendMessage({ role: 'user', content: synthesisPrompt });
+      // A throttled CLI returns a status notice ("You've hit your session limit
+      // · resets 6:30pm") as content and exits 0. Don't present it as a confident
+      // synthesis — fall back to the deterministic, model-free consensus
+      // synthesis built from the analysis.
+      if (!cliResponse.content?.trim() || isProviderNotice(cliResponse.content)) {
+        logger.warn('Merge synthesis returned an empty or provider-notice response; using structural consensus fallback');
+        return this.synthesizeConsensus(responses, analysis);
+      }
       return {
         synthesizedResponse: cliResponse.content,
         confidence: Math.min(0.9, analysis.consensusStrength + 0.15),

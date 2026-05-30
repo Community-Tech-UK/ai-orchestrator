@@ -10,6 +10,13 @@ export interface ChannelConfig {
   token?: string;
   allowedSenders: string[];
   allowedChats: string[];
+  /**
+   * Human-friendly name for this machine's bot instance (e.g. "Mac Bot").
+   * Applied as the per-guild Discord nickname and used to tag DM replies so
+   * you can tell which machine is currently driving the shared bot token.
+   * When empty, the adapter falls back to the machine hostname.
+   */
+  displayName?: string;
 }
 
 export interface InboundChannelMessage {

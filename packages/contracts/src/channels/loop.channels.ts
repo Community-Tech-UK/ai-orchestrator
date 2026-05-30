@@ -5,9 +5,16 @@ export const LOOP_CHANNELS = {
   LOOP_RESUME: 'loop:resume',
   LOOP_INTERVENE: 'loop:intervene',
   LOOP_CANCEL: 'loop:cancel',
+  /** LF-7: operator accepts a paused-but-done run (manual-review or pending
+   *  complete intent). Runs verify if configured; lands completed /
+   *  completed-needs-review. */
+  LOOP_ACCEPT_COMPLETION: 'loop:accept-completion',
   LOOP_GET_STATE: 'loop:get-state',
   LOOP_LIST_RUNS_FOR_CHAT: 'loop:list-runs-for-chat',
   LOOP_GET_ITERATIONS: 'loop:get-iterations',
+  /** LF-3a: preview the verify command the loop would auto-infer for a
+   *  workspace, so the config panel can show "verify: <inferred>" before start. */
+  LOOP_INFER_VERIFY: 'loop:infer-verify',
 
   // Events (main → renderer)
   LOOP_STARTED: 'loop:started',
@@ -24,6 +31,16 @@ export const LOOP_CHANNELS = {
   LOOP_FRESH_EYES_REVIEW_BLOCKED: 'loop:fresh-eyes-review-blocked',
   LOOP_INTERVENTION_APPLIED: 'loop:intervention-applied',
   LOOP_COMPLETED: 'loop:completed',
+  /** LF-7: emitted when a loop terminates in the `completed-needs-review` state. */
+  LOOP_COMPLETED_NEEDS_REVIEW: 'loop:completed-needs-review',
+  /** LF-3: emitted when NOTES.md was curated to bound context. */
+  LOOP_NOTES_CURATED: 'loop:notes-curated',
+  /** LF-1: emitted when the loop recycled its persistent adapter to a fresh session. */
+  LOOP_CONTEXT_COMPACTED: 'loop:context-compacted',
+  /** LF-5: emitted with the outcome of a branch-and-select round. */
+  LOOP_BRANCH_SELECT: 'loop:branch-select',
+  /** LF-4: emitted when a disposable-plan regeneration was injected on stall. */
+  LOOP_PLAN_REGENERATED: 'loop:plan-regenerated',
   LOOP_FAILED: 'loop:failed',
   LOOP_CAP_REACHED: 'loop:cap-reached',
   LOOP_CANCELLED: 'loop:cancelled',

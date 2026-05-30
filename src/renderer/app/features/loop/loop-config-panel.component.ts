@@ -1,6 +1,6 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
+import { LoopIpcService, type LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 import { DEFAULT_LOOP_PROMPT, LoopPromptHistoryService } from './loop-prompt-history.service';
 
 // Defaults that match defaultLoopConfig() in src/shared/types/loop.types.ts.
@@ -121,7 +121,7 @@ const DEFAULT_PROGRESS_THRESHOLDS = {
       </section>
 
       <section class="row">
-        <label for="loop-cfg-verify">Verify command <span class="hint">(auto-detected if blank)</span></label>
+        <label for="loop-cfg-verify">Verify command <span class="hint">{{ verifyHint() }}</span></label>
         <input id="loop-cfg-verify" type="text" placeholder="Auto-detect" [ngModel]="verifyCommand()" (ngModelChange)="verifyCommand.set($event)" />
       </section>
 
@@ -244,10 +244,27 @@ const DEFAULT_PROGRESS_THRESHOLDS = {
               Run verify command twice (anti-flake)
             </label>
             <label>
+              <input type="checkbox" [checked]="compactContext()" (change)="compactContext.set(toggleEvent($event))" />
+              Recycle context on long runs
+              <span class="hint">(fresh session at {{ compactionThresholdPct() }}% — bounds context rot)</span>
+            </label>
+            <label>
+              <input type="checkbox" [checked]="regenerateOnStall()" (change)="regenerateOnStall.set(toggleEvent($event))" />
+              Regenerate the plan on stall
+              <span class="hint">(disposable plan — re-derive instead of grinding)</span>
+            </label>
+            <label>
               <input type="checkbox" [checked]="operatorReviewedCompletion()" (change)="operatorReviewedCompletion.set(toggleEvent($event))" />
               Operator-reviewed completion
               <span class="hint">(no auto-complete without verify)</span>
             </label>
+            @if (operatorReviewedCompletion()) {
+              <div class="cfg-inline-warn">
+                ⚠ This loop pauses for manual sign-off when it thinks it's done — there is no
+                auto-complete without a verify command. Finish it with <strong>Accept as complete</strong>
+                in the loop controls. Requires a spend cap.
+              </div>
+            }
             <label>
               <input type="checkbox" [checked]="pauseOnTokenBurn()" (change)="pauseOnTokenBurn.set(toggleEvent($event))" />
               Pause if many tokens spent without test progress
@@ -412,6 +429,16 @@ const DEFAULT_PROGRESS_THRESHOLDS = {
       margin: 8px 0;
       font-size: 12px;
     }
+    .cfg-inline-warn {
+      margin: 2px 0 4px 24px;
+      padding: 6px 9px;
+      border-left: 3px solid #f7c07a;
+      background: rgba(247, 192, 122, 0.08);
+      border-radius: 4px;
+      font-size: 11px;
+      line-height: 1.4;
+      opacity: 0.92;
+    }
     .send-hint {
       margin-top: 12px;
       padding-top: 10px;
@@ -457,14 +484,24 @@ export class LoopConfigPanelComponent {
   configChange = output<LoopStartConfigInput | null>();
 
   private history = inject(LoopPromptHistoryService);
+  private loopIpc = inject(LoopIpcService);
   recentPrompts = this.history.recent;
   defaultPrompt = DEFAULT_LOOP_PROMPT;
+
+  /** LF-3a: the verify command the loop would auto-infer for this workspace,
+   *  surfaced so the user knows what gates completion before they start. */
+  protected inferredVerify = signal<{ command: string; source: string } | null>(null);
+  protected inferLoading = signal(false);
+  private lastInferredWorkspace: string | null = null;
 
   prompt = signal('');
   planFile = signal('');
   maxIterations = signal(50);
   maxHours = signal(8);
-  maxDollars = signal<number | null>(null);
+  // LF-3: default to a $10 spend ceiling (mirrors defaultLoopConfig). Clear the
+  // field to null for an unbounded run. Operator-reviewed completion requires a
+  // non-null cap (LF-3a) — the validationError below enforces that.
+  maxDollars = signal<number | null>(10);
   verifyCommand = signal('');
   quickVerifyCommand = signal('');
   provider = signal<'claude' | 'codex'>('claude');
@@ -477,6 +514,13 @@ export class LoopConfigPanelComponent {
   streamIdleTimeoutSec = signal(300);
   requireRename = signal(false);
   runVerifyTwice = signal(true);
+  /** LF-1: recycle the same-session adapter to a fresh session on long runs. */
+  compactContext = signal(true);
+  /** LF-4: disposable plan — regenerate from the goal on repeated stall. */
+  regenerateOnStall = signal(false);
+  /** Reset threshold as a percentage (mirrors defaultLoopContextConfig 0.6). */
+  private readonly compactionResetUtilization = 0.6;
+  compactionThresholdPct = computed(() => Math.round(this.compactionResetUtilization * 100));
   operatorReviewedCompletion = signal(false);
   freshEyesReview = signal(false);
   /** Opt-in for signal F (token-burn-without-test-progress). Default off so
@@ -526,7 +570,38 @@ export class LoopConfigPanelComponent {
     effect(() => {
       this.configChange.emit(this.canSubmit() ? this.buildConfig() : null);
     });
+    // LF-3a: preview the auto-inferred verify command once per workspace so the
+    // verify field's hint shows what will gate completion. Keyed on
+    // workspaceCwd (stable) so it doesn't re-run on every prompt keystroke.
+    effect(() => {
+      const cwd = this.workspaceCwd();
+      if (!cwd || cwd === this.lastInferredWorkspace) return;
+      this.lastInferredWorkspace = cwd;
+      untracked(() => { void this.loadInferredVerify(cwd); });
+    });
   }
+
+  private async loadInferredVerify(workspaceCwd: string): Promise<void> {
+    this.inferLoading.set(true);
+    try {
+      const response = await this.loopIpc.inferVerify(workspaceCwd);
+      this.inferredVerify.set(response.success ? (response.data?.inferred ?? null) : null);
+    } catch {
+      this.inferredVerify.set(null);
+    } finally {
+      this.inferLoading.set(false);
+    }
+  }
+
+  /** Dynamic hint for the verify-command field: shows the auto-detected command
+   *  when the field is blank, so the user can see what will gate completion. */
+  verifyHint = computed<string>(() => {
+    if (this.verifyCommand().trim()) return '(custom command)';
+    if (this.inferLoading()) return '(detecting…)';
+    const inferred = this.inferredVerify();
+    if (inferred) return `(auto-detected: ${inferred.command})`;
+    return '(no verifier detected — set one or enable operator review)';
+  });
 
   validationError = computed(() => {
     if (!this.prompt().trim()) return 'Prompt is required.';
@@ -534,6 +609,11 @@ export class LoopConfigPanelComponent {
     if (this.maxHours() < 1) return 'Max wall time must be at least 1 hour.';
     const maxDollars = this.maxDollars();
     if (maxDollars !== null && maxDollars < 1) return 'Max spend must be at least $1, or blank for no cap.';
+    // LF-3a: operator-reviewed loops pause for manual sign-off and get resumed
+    // repeatedly — require a spend cap so an unbounded run can't sit and burn.
+    if (this.operatorReviewedCompletion() && maxDollars === null) {
+      return 'Operator-reviewed completion requires a spend cap ($). Set Max spend, or add a verify command.';
+    }
     return null;
   });
 
@@ -612,6 +692,14 @@ export class LoopConfigPanelComponent {
           }
         : {}),
       allowDestructiveOps: this.allowDestructive(),
+      context: {
+        compaction: {
+          enabled: this.compactContext(),
+          resetAtUtilization: this.compactionResetUtilization,
+          clearToolResults: true,
+        },
+      },
+      plan: { regenerateOnStall: this.regenerateOnStall() },
       iterationTimeoutMs: this.iterationTimeoutMin() * 60 * 1000,
       streamIdleTimeoutMs: this.streamIdleTimeoutSec() * 1000,
     };

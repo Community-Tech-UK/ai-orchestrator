@@ -67,6 +67,14 @@ export abstract class BaseChannelAdapter extends EventEmitter {
   abstract editMessage(chatId: string, messageId: string, content: string): Promise<void>;
   abstract addReaction(chatId: string, messageId: string, emoji: string): Promise<void>;
 
+  /**
+   * Human-friendly name for this machine's bot instance, if configured.
+   * Platforms that support it (Discord) override this; others return undefined.
+   */
+  getDisplayName(): string | undefined {
+    return undefined;
+  }
+
   // Access control
   getAccessPolicy(): AccessPolicy {
     return { ...this.accessPolicy };

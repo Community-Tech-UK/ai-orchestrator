@@ -8,12 +8,13 @@ import {
   LoopInterveneePayloadSchema,
   LoopListByChatPayloadSchema,
   LoopGetIterationsPayloadSchema,
-  type LoopConfigInput,
+  LoopInferVerifyPayloadSchema,
 } from '@contracts/schemas/loop';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getLoopCoordinator } from '../../orchestration/loop-coordinator';
 import { getLoopStore } from '../../orchestration/loop-store';
 import { inferLoopVerifyCommand } from '../../orchestration/loop-verify-command';
+import { prepareLoopStartConfig } from '../../orchestration/loop-start-config';
 import {
   buildLoopInterveneChatEvent,
   buildLoopStartChatEvent,
@@ -21,7 +22,7 @@ import {
 } from '../../orchestration/loop-chat-summary';
 import { getLogger } from '../../logging/logger';
 import type { WindowManager } from '../../window-manager';
-import { defaultLoopConfig, type LoopConfig, type LoopState } from '../../../shared/types/loop.types';
+import type { LoopState } from '../../../shared/types/loop.types';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { buildReplayContinuityMessage } from '../../session/replay-continuity';
 import { getChatService } from '../../chats';
@@ -111,6 +112,12 @@ export function registerLoopHandlers(deps: {
   coordinator.on('loop:fresh-eyes-review-blocked', (data: unknown) => send(IPC_CHANNELS.LOOP_FRESH_EYES_REVIEW_BLOCKED, data));
   coordinator.on('loop:intervention-applied', (data: unknown) => send(IPC_CHANNELS.LOOP_INTERVENTION_APPLIED, data));
   coordinator.on('loop:completed', (data: unknown) => send(IPC_CHANNELS.LOOP_COMPLETED, data));
+  // LF-7 / LF-3: new terminal + hygiene events.
+  coordinator.on('loop:completed-needs-review', (data: unknown) => send(IPC_CHANNELS.LOOP_COMPLETED_NEEDS_REVIEW, data));
+  coordinator.on('loop:notes-curated', (data: unknown) => send(IPC_CHANNELS.LOOP_NOTES_CURATED, data));
+  coordinator.on('loop:context-compacted', (data: unknown) => send(IPC_CHANNELS.LOOP_CONTEXT_COMPACTED, data));
+  coordinator.on('loop:branch-select', (data: unknown) => send(IPC_CHANNELS.LOOP_BRANCH_SELECT, data));
+  coordinator.on('loop:plan-regenerated', (data: unknown) => send(IPC_CHANNELS.LOOP_PLAN_REGENERATED, data));
   coordinator.on('loop:failed', (data: unknown) => send(IPC_CHANNELS.LOOP_FAILED, data));
   coordinator.on('loop:cap-reached', (data: unknown) => send(IPC_CHANNELS.LOOP_CAP_REACHED, data));
   coordinator.on('loop:cancelled', (data: unknown) => send(IPC_CHANNELS.LOOP_CANCELLED, data));
@@ -228,6 +235,19 @@ export function registerLoopHandlers(deps: {
     }
   });
 
+  // LF-7: operator accepts a paused, done-but-ungated run.
+  ipcMain.handle(IPC_CHANNELS.LOOP_ACCEPT_COMPLETION, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(LoopByIdPayloadSchema, payload, 'LOOP_ACCEPT_COMPLETION');
+      const ok = await coordinator.acceptCompletion(validated.loopRunId);
+      const state = coordinator.getLoop(validated.loopRunId);
+      if (state) try { store.upsertRun(state); } catch { /* noop */ }
+      return { success: true, data: { ok, state } };
+    } catch (error) {
+      return errorResponse('LOOP_ACCEPT_COMPLETION_FAILED', error);
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.LOOP_GET_STATE, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(LoopByIdPayloadSchema, payload, 'LOOP_GET_STATE');
@@ -259,38 +279,18 @@ export function registerLoopHandlers(deps: {
       return errorResponse('LOOP_GET_ITERATIONS_FAILED', error);
     }
   });
-}
 
-async function prepareLoopStartConfig(
-  config: LoopConfigInput,
-): Promise<Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string }> {
-  const verifyCommand = config.completion?.verifyCommand?.trim() ?? '';
-  if (verifyCommand || config.completion?.allowOperatorReviewedCompletion) {
-    return config;
-  }
-
-  const inferred = await inferLoopVerifyCommand(config.workspaceCwd);
-  if (inferred) {
-    logger.info('Inferred Loop Mode verify command at start', {
-      workspaceCwd: config.workspaceCwd,
-      command: inferred.command,
-      source: inferred.source,
-    });
-    return {
-      ...config,
-      completion: {
-        ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
-        ...(config.completion ?? {}),
-        verifyCommand: inferred.command,
-      },
-    };
-  }
-
-  throw new Error(
-    `Loop Mode could not infer a verify command for workspace "${config.workspaceCwd}". ` +
-    'Add one in Verify command, add a package.json "verify" script, ' +
-    'or enable operator-reviewed completion so the loop pauses when it thinks it is done.',
-  );
+  // LF-3a: preview the auto-inferred verify command so the config panel can
+  // show what will gate completion before the loop starts.
+  ipcMain.handle(IPC_CHANNELS.LOOP_INFER_VERIFY, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(LoopInferVerifyPayloadSchema, payload, 'LOOP_INFER_VERIFY');
+      const inferred = await inferLoopVerifyCommand(validated.workspaceCwd);
+      return { success: true, data: { inferred } };
+    } catch (error) {
+      return errorResponse('LOOP_INFER_VERIFY_FAILED', error);
+    }
+  });
 }
 
 export function buildExistingSessionContext(
@@ -338,12 +338,12 @@ function errorResponse(code: string, error: unknown): IpcResponse {
 function isTerminalLoopStatus(status: LoopState['status']): boolean {
   return (
     status === 'completed'
+    || status === 'completed-needs-review'
     || status === 'cancelled'
     || status === 'failed'
     || status === 'cap-reached'
     || status === 'error'
     || status === 'no-progress'
-    || status === 'verify-failed'
   );
 }
 

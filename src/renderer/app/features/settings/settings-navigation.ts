@@ -13,6 +13,7 @@ export type SettingsTab =
   | 'advanced'
   | 'keyboard'
   | 'remote-nodes'
+  | 'mobile'
   | 'doctor'
   | 'cli-health'
   | 'provider-quota'
@@ -185,6 +186,13 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Connect another computer to run browser, GPU, or extra CLI work for this app.',
     group: 'Network & Remote',
     keywords: 'remote nodes offload distributed gpu browser worker pair',
+  },
+  {
+    id: 'mobile',
+    label: 'Mobile',
+    summary: 'Control AI Orchestrator from your phone over Tailscale.',
+    group: 'Network & Remote',
+    keywords: 'phone mobile ios iphone app pair qr tailscale remote control gateway',
   },
   {
     id: 'remote-config',

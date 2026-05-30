@@ -4,9 +4,11 @@
  * Guards the oscillation where an agent repeatedly declares done and passes
  * verify, but never performs the required `*_Completed.md` rename, so the
  * belt-and-braces gate keeps rejecting completion and the loop spins until
- * `maxIterations`. With the budget, the loop instead stops as `cap-reached`
- * after `caps.maxCompletionAttempts` such verified-but-ungated attempts, with a
- * clear reason — no new terminal status required.
+ * `maxIterations`. With the budget, the loop instead stops after
+ * `caps.maxCompletionAttempts` verified-but-ungated attempts. Because verify
+ * is *passing* (the code is in a good state by the project's own definition),
+ * it terminates in the SUCCESSFUL `completed-needs-review` state — not the
+ * misleading `cap-reached` — so a human can do the bookkeeping rename / glance.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -44,14 +46,14 @@ function makeChildResultThatClaimsDone(): LoopChildResult {
 }
 
 describe('LoopCoordinator completion-attempt budget (LF-7)', () => {
-  it('stops as cap-reached after maxCompletionAttempts when verify passes but the *_Completed.md rename never happens', async () => {
+  it('stops as completed-needs-review after maxCompletionAttempts when verify passes but the *_Completed.md rename never happens', async () => {
     // A plan file is present (auto-enables requireCompletedFileRename), and the
     // agent declares done + writes DONE.txt each iteration but NEVER renames it.
     writeFileSync(join(workspace, 'plan.md'), '# Plan\n');
 
-    let capReached: { cap: string; reason?: string } | null = null;
-    coordinator.on('loop:cap-reached', (p: unknown) => {
-      capReached = p as { cap: string; reason?: string };
+    let needsReview: { reason?: string; acceptedByOperator?: boolean } | null = null;
+    coordinator.on('loop:completed-needs-review', (p: unknown) => {
+      needsReview = p as { reason?: string; acceptedByOperator?: boolean };
     });
     coordinator.on('loop:invoke-iteration', (payload: unknown) => {
       const p = payload as { callback: (r: LoopChildResult) => void };
@@ -81,21 +83,67 @@ describe('LoopCoordinator completion-attempt budget (LF-7)', () => {
       },
     });
 
-    // Poll for a terminal state (the budget terminates on the first attempt, so
-    // this resolves quickly without waiting on the per-iteration sleep guard).
     const live = () =>
       (coordinator as unknown as {
-        active: Map<string, { status: string; endReason?: string; completionAttempts: number }>;
+        active: Map<string, { status: string; endReason?: string; completionAttempts: number; lastCompletionOutcome?: string }>;
       }).active.get(state.id);
-    for (let i = 0; i < 60 && !capReached && live()?.status === 'running'; i++) {
+    for (let i = 0; i < 60 && !needsReview && live()?.status === 'running'; i++) {
       await new Promise((r) => setTimeout(r, 50));
     }
     if (live()?.status === 'running') coordinator.cancelLoop(state.id);
 
-    expect(capReached).not.toBeNull();
-    expect(capReached!.cap).toBe('completion-attempts');
-    expect(capReached!.reason ?? '').toContain('completion attempts');
-    expect(live()?.status).toBe('cap-reached');
+    expect(needsReview).not.toBeNull();
+    expect(needsReview!.acceptedByOperator).toBe(false);
+    expect(needsReview!.reason ?? '').toContain('rename');
+    expect(live()?.status).toBe('completed-needs-review');
     expect(live()?.completionAttempts).toBeGreaterThanOrEqual(1);
+    expect(live()?.lastCompletionOutcome).toBe('rename-gate');
+  });
+
+  it('does not pause for no-progress on a verified-done iteration (converging, not stuck)', async () => {
+    // verify always passes, rename never happens; identical work-hash every
+    // iteration would normally trip an A/CRITICAL no-progress pause. With the
+    // LF-7 guard, a verified-done iteration must never pause for no-progress —
+    // it terminates via the budget instead.
+    writeFileSync(join(workspace, 'plan.md'), '# Plan\n');
+
+    let pausedForNoProgress = false;
+    coordinator.on('loop:paused-no-progress', () => {
+      pausedForNoProgress = true;
+    });
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as { callback: (r: LoopChildResult) => void };
+      writeFileSync(join(workspace, 'DONE.txt'), 'done\n');
+      queueMicrotask(() => p.callback(makeChildResultThatClaimsDone()));
+    });
+
+    const state = await coordinator.startLoop('chat-budget-no-pause', {
+      initialPrompt: 'implement plan.md',
+      workspaceCwd: workspace,
+      caps: {
+        maxIterations: 50,
+        maxWallTimeMs: 60_000,
+        maxTokens: 1_000_000,
+        maxCostCents: 100,
+        maxToolCallsPerIteration: 200,
+        maxCompletionAttempts: 3,
+      },
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        verifyCommand: 'true',
+        runVerifyTwice: false,
+        requireCompletedFileRename: true,
+      },
+    });
+
+    const live = () =>
+      (coordinator as unknown as { active: Map<string, { status: string }> }).active.get(state.id);
+    for (let i = 0; i < 80 && live()?.status === 'running'; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    if (live()?.status === 'running') coordinator.cancelLoop(state.id);
+
+    expect(pausedForNoProgress).toBe(false);
+    expect(live()?.status).toBe('completed-needs-review');
   });
 });

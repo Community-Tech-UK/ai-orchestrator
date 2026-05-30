@@ -3,6 +3,7 @@
  */
 
 import * as crypto from 'crypto';
+import * as os from 'os';
 import { getLogger } from '../../logging/logger';
 import { BaseChannelAdapter } from '../channel-adapter';
 import type {
@@ -165,6 +166,8 @@ export class DiscordAdapter extends BaseChannelAdapter {
   private client: DiscordClient | null = null;
   private botUserId: string | null = null;
   private botUsername: string | undefined;
+  /** Per-machine bot name; defaults to the machine hostname when unset. */
+  private displayName: string | undefined;
   private lastConfig: ChannelConfig | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
@@ -185,6 +188,10 @@ export class DiscordAdapter extends BaseChannelAdapter {
       allowedSenders: [...config.allowedSenders],
       allowedChats: [...config.allowedChats],
     };
+    // Capture the explicitly-configured bot name (if any) before login so the
+    // `ready` handler can apply the guild nickname. An empty name means no DM
+    // tag, but the server nickname still falls back to the hostname.
+    this.displayName = config.displayName?.trim() || undefined;
     const previousStatus = this.status;
     const previousBotUsername = this.botUsername;
     const hadExistingClient = this.client !== null;
@@ -264,6 +271,14 @@ export class DiscordAdapter extends BaseChannelAdapter {
 
     client.on('ready', () => {
       this.lastGatewayEventAt = Date.now();
+      this.applyDisplayNameNickname(client);
+    });
+
+    client.on('guildCreate', (guild: unknown) => {
+      const nick = this.effectiveNickname();
+      if (nick) {
+        void this.setGuildNickname(guild, nick);
+      }
     });
 
     client.on('shardResume', () => {
@@ -377,6 +392,58 @@ export class DiscordAdapter extends BaseChannelAdapter {
       logger.info('Discord slash commands registered', { count: DISCORD_COMMANDS.length });
     } catch (err) {
       logger.warn('Failed to register Discord slash commands', { error: String(err) });
+    }
+  }
+
+  override getDisplayName(): string | undefined {
+    return this.displayName;
+  }
+
+  /**
+   * Nickname to apply in servers: the explicit bot name, else the machine
+   * hostname (with a trailing ".local" stripped). Capped at Discord's 32 chars.
+   */
+  private effectiveNickname(): string {
+    const base = this.displayName || os.hostname().replace(/\.local$/i, '');
+    return base.slice(0, 32);
+  }
+
+  /**
+   * Apply the configured bot name as this bot's nickname in every guild it's in.
+   * Best-effort and fully defensive — missing guild data or the Change Nickname
+   * permission must never break the connection.
+   */
+  private applyDisplayNameNickname(client: DiscordClient): void {
+    const nick = this.effectiveNickname();
+    if (!client || !nick) {
+      return;
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const guilds = (client as any).guilds?.cache;
+      if (!guilds?.forEach) {
+        return;
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      guilds.forEach((guild: any) => {
+        void this.setGuildNickname(guild, nick);
+      });
+    } catch (err) {
+      logger.warn('Failed to apply Discord nickname', { error: String(err) });
+    }
+  }
+
+  /** Set the bot's nickname in one guild. Requires the Change Nickname permission. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async setGuildNickname(guild: any, nick: string): Promise<void> {
+    try {
+      const me = guild?.members?.me
+        ?? (typeof guild?.members?.fetchMe === 'function' ? await guild.members.fetchMe() : null);
+      if (typeof me?.setNickname === 'function') {
+        await me.setNickname(nick);
+      }
+    } catch (err) {
+      logger.warn('Failed to set guild nickname', { guildId: guild?.id, error: String(err) });
     }
   }
 

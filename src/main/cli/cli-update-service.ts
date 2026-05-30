@@ -15,6 +15,7 @@ import {
   resolveCopilotCliLaunch,
   type CopilotCliLaunchConfig,
 } from './copilot-cli-launch';
+import type { CliUpdateStrategy } from '../../shared/types/diagnostics.types';
 
 const logger = getLogger('CliUpdateService');
 
@@ -52,6 +53,19 @@ export const CLI_UPDATE_SPECS: Partial<Record<CliType, CliUpdateSpec>> = {
   },
 };
 
+/**
+ * Strategies safe to apply unattended (policy `'auto'`): package-manager global
+ * installs and a CLI's own self-updater. Deliberately excludes `homebrew`
+ * (can trigger wide formula upgrades) and `gh-extension` — matching the plan's
+ * "npm / native self-update only, never an unattended brew/sudo".
+ */
+const AUTO_APPLY_SAFE_STRATEGIES: ReadonlySet<CliUpdateStrategy> = new Set([
+  'npm',
+  'bun',
+  'pnpm',
+  'self-update',
+]);
+
 export interface CliUpdatePlan {
   cli: CliType;
   displayName: string;
@@ -62,6 +76,24 @@ export interface CliUpdatePlan {
   activePath?: string;
   currentVersion?: string;
   reason?: string;
+  /** Present only on a `supported` plan. */
+  strategy?: CliUpdateStrategy;
+  /**
+   * Concurrency key: shared per package manager (so two npm updates serialise)
+   * and per-CLI for self-update/gh-extension. Present only on a supported plan.
+   */
+  lockKey?: string;
+}
+
+/**
+ * Whether a plan would be applied via an unattended-safe strategy. Accepts the
+ * serialisable summary shape (what the auto-update service sees via pill
+ * entries); an absent/unknown strategy is treated as NOT safe.
+ */
+export function isAutoApplySafe(
+  plan: { strategy?: string | null } | null | undefined,
+): boolean {
+  return Boolean(plan?.strategy && AUTO_APPLY_SAFE_STRATEGIES.has(plan.strategy as CliUpdateStrategy));
 }
 
 export type CliUpdateStatus = 'updated' | 'failed' | 'skipped';
@@ -118,6 +150,25 @@ function trimOutput(value: string): string | undefined {
   return `${trimmed.slice(-OUTPUT_PREVIEW_MAX_CHARS)}\n[truncated ${trimmed.length - OUTPUT_PREVIEW_MAX_CHARS} chars]`;
 }
 
+/**
+ * Concurrency key for an update strategy. Package-manager strategies share one
+ * key (so two npm/bun/pnpm global installs never run at once — they mutate the
+ * same global root); per-CLI strategies key by CLI (independent binaries).
+ */
+function lockKeyFor(strategy: CliUpdateStrategy, cli: CliType): string {
+  switch (strategy) {
+    case 'npm':
+    case 'bun':
+    case 'pnpm':
+      return `pm:${strategy}`;
+    case 'homebrew':
+      return 'pm:homebrew';
+    case 'self-update':
+    case 'gh-extension':
+      return `cli:${cli}`;
+  }
+}
+
 function formatDisplayCommand(command: string, args: string[]): string {
   return [command, ...args]
     .map((part) => /^[A-Za-z0-9_./:@=+-]+$/.test(part) ? part : JSON.stringify(part))
@@ -156,6 +207,8 @@ export class CliUpdateService {
   private readonly realpath: (path: string) => string;
   private readonly platform: NodeJS.Platform;
   private readonly resolveCopilotLaunch: NonNullable<CliUpdateServiceDeps['resolveCopilotLaunch']>;
+  /** Per-lockKey promise chain so same-key updates never run concurrently. */
+  private readonly locks = new Map<string, Promise<unknown>>();
 
   constructor(deps: CliUpdateServiceDeps = {}) {
     this.detection = deps.detection ?? CliDetectionService.getInstance();
@@ -204,53 +257,71 @@ export class CliUpdateService {
       beforeVersion: plan.currentVersion,
     });
 
-    try {
-      const output = await this.execFileAsync(
-        plan.command,
-        plan.args,
-        DEFAULT_UPDATE_TIMEOUT_MS,
-        this.env,
-        this.platform,
-      );
+    // Serialise updates that share a package manager (e.g. two npm globals) so
+    // concurrent "Update all" + auto-update passes can't corrupt a global root.
+    const command = plan.command;
+    const args = plan.args;
+    return this.runExclusive(plan.lockKey ?? `cli:${type}`, async () => {
+      try {
+        const output = await this.execFileAsync(
+          command,
+          args,
+          DEFAULT_UPDATE_TIMEOUT_MS,
+          this.env,
+          this.platform,
+        );
 
-      this.detection.clearCache();
-      const afterInfo = await this.detection.detectOne(type).catch(() => null);
-      const afterVersion = afterInfo?.version;
+        this.detection.clearCache();
+        const afterInfo = await this.detection.detectOne(type).catch(() => null);
+        const afterVersion = afterInfo?.version;
 
-      return {
-        cli: type,
-        displayName: plan.displayName,
-        status: 'updated',
-        command: plan.displayCommand,
-        beforeVersion: plan.currentVersion,
-        afterVersion,
-        message: afterVersion && afterVersion !== plan.currentVersion
-          ? `Updated from ${plan.currentVersion ?? '?'} to ${afterVersion}.`
-          : 'Update command completed.',
-        stdout: trimOutput(output.stdout),
-        stderr: trimOutput(output.stderr),
-        durationMs: Date.now() - startedAt,
-      };
-    } catch (error) {
-      const err = error as Error & { stdout?: string; stderr?: string };
-      logger.warn('CLI update failed', {
-        cli: type,
-        command: plan.command,
-        args: plan.args,
-        error: err.message,
-      });
-      return {
-        cli: type,
-        displayName: plan.displayName,
-        status: 'failed',
-        command: plan.displayCommand,
-        beforeVersion: plan.currentVersion,
-        message: err.message,
-        stdout: trimOutput(err.stdout ?? ''),
-        stderr: trimOutput(err.stderr ?? ''),
-        durationMs: Date.now() - startedAt,
-      };
-    }
+        return {
+          cli: type,
+          displayName: plan.displayName,
+          status: 'updated',
+          command: plan.displayCommand,
+          beforeVersion: plan.currentVersion,
+          afterVersion,
+          message: afterVersion && afterVersion !== plan.currentVersion
+            ? `Updated from ${plan.currentVersion ?? '?'} to ${afterVersion}.`
+            : 'Update command completed.',
+          stdout: trimOutput(output.stdout),
+          stderr: trimOutput(output.stderr),
+          durationMs: Date.now() - startedAt,
+        };
+      } catch (error) {
+        const err = error as Error & { stdout?: string; stderr?: string };
+        logger.warn('CLI update failed', {
+          cli: type,
+          command,
+          args,
+          error: err.message,
+        });
+        return {
+          cli: type,
+          displayName: plan.displayName,
+          status: 'failed',
+          command: plan.displayCommand,
+          beforeVersion: plan.currentVersion,
+          message: err.message,
+          stdout: trimOutput(err.stdout ?? ''),
+          stderr: trimOutput(err.stderr ?? ''),
+          durationMs: Date.now() - startedAt,
+        };
+      }
+    });
+  }
+
+  /**
+   * Serialise `fn` against others sharing `key` via a per-key promise chain.
+   * The stored handle swallows rejection so one failed update never rejects the
+   * next caller waiting on the same key.
+   */
+  private runExclusive<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const prior = this.locks.get(key) ?? Promise.resolve();
+    const run = prior.then(() => fn());
+    this.locks.set(key, run.then(() => undefined, () => undefined));
+    return run;
   }
 
   async updateAllInstalled(): Promise<CliUpdateResult[]> {
@@ -304,7 +375,7 @@ export class CliUpdateService {
 
     if (spec.selfUpdateArgs) {
       const command = this.resolveRunnableCommand(activePath, CLI_REGISTRY[type]?.command ?? type);
-      return this.withCommand(base, command, spec.selfUpdateArgs);
+      return this.withCommand(base, command, spec.selfUpdateArgs, 'self-update');
     }
 
     if (spec.npmPackage) {
@@ -313,7 +384,7 @@ export class CliUpdateService {
 
     if (spec.brewFormula && activePath && this.isHomebrewPath(activePath)) {
       const command = this.resolveHomebrewCommand(activePath);
-      return this.withCommand(base, command, ['upgrade', spec.brewFormula]);
+      return this.withCommand(base, command, ['upgrade', spec.brewFormula], 'homebrew');
     }
 
     return {
@@ -333,13 +404,18 @@ export class CliUpdateService {
       if (!extension) {
         return null;
       }
-      return this.withCommand(base, launch.command, ['extension', 'upgrade', extension]);
+      return this.withCommand(base, launch.command, ['extension', 'upgrade', extension], 'gh-extension');
     }
 
-    return this.withCommand(base, launch.command, CLI_UPDATE_SPECS.copilot?.selfUpdateArgs ?? ['update']);
+    return this.withCommand(base, launch.command, CLI_UPDATE_SPECS.copilot?.selfUpdateArgs ?? ['update'], 'self-update');
   }
 
-  private withCommand(base: CliUpdatePlan, command: string, args: string[]): CliUpdatePlan {
+  private withCommand(
+    base: CliUpdatePlan,
+    command: string,
+    args: string[],
+    strategy: CliUpdateStrategy,
+  ): CliUpdatePlan {
     return {
       ...base,
       supported: true,
@@ -347,6 +423,8 @@ export class CliUpdateService {
       args,
       displayCommand: formatDisplayCommand(command, args),
       reason: undefined,
+      strategy,
+      lockKey: lockKeyFor(strategy, base.cli),
     };
   }
 
@@ -389,14 +467,14 @@ export class CliUpdateService {
     const probePaths = [activePath, resolved].filter((p): p is string => Boolean(p));
 
     if (probePaths.some((p) => this.isBunGlobalPath(p))) {
-      return this.withCommand(base, this.resolveGlobalManager(activePath, 'bun'), ['add', '-g', `${npmPackage}@latest`]);
+      return this.withCommand(base, this.resolveGlobalManager(activePath, 'bun'), ['add', '-g', `${npmPackage}@latest`], 'bun');
     }
     if (probePaths.some((p) => this.isPnpmGlobalPath(p))) {
-      return this.withCommand(base, this.resolveGlobalManager(activePath, 'pnpm'), ['add', '-g', `${npmPackage}@latest`]);
+      return this.withCommand(base, this.resolveGlobalManager(activePath, 'pnpm'), ['add', '-g', `${npmPackage}@latest`], 'pnpm');
     }
     // Default: npm (unchanged behaviour). Prefer a sibling npm of the original
     // (un-resolved) path — npm's bin dir holds the global shims.
-    return this.withCommand(base, this.resolveSiblingNpm(activePath), ['install', '-g', `${npmPackage}@latest`]);
+    return this.withCommand(base, this.resolveSiblingNpm(activePath), ['install', '-g', `${npmPackage}@latest`], 'npm');
   }
 
   /** Resolve symlinks for an absolute path; returns the input on any failure. */

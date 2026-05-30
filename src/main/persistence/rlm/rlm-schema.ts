@@ -1795,6 +1795,16 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE orchestrator_mcp_servers DROP COLUMN headers_secrets_encrypted_json;
     `,
   },
+  // Migration 030: per-machine bot display name for channel connections.
+  {
+    name: '030_channel_display_name',
+    up: `
+      ALTER TABLE channel_credentials ADD COLUMN display_name TEXT;
+    `,
+    down: `
+      ALTER TABLE channel_credentials DROP COLUMN display_name;
+    `,
+  },
 ];
 
 /**

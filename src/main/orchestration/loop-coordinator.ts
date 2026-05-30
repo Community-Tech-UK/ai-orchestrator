@@ -1,9 +1,15 @@
 /**
  * Loop Coordinator
  *
- * Per-chat-session "Ralph loop" with fresh-context iterations, aggressive
- * no-progress detection, and verify-before-stop completion. The coordinator
- * itself never invokes LLMs — it emits an extensibility event
+ * Per-chat-session "Ralph loop" with aggressive no-progress detection and
+ * verify-before-stop completion. The default `contextStrategy` is
+ * `same-session` (one persistent child CLI reused across iterations); LF-1
+ * makes context discipline mandatory for it — the loop recycles its own
+ * persistent adapter to a fresh session once context utilization crosses
+ * `context.compaction.resetAtUtilization`, re-anchoring from durable disk
+ * state. `fresh-child` remains a supported, lowest-context-rot option.
+ * See docs/plans/loopfixex.md (LF-1). The coordinator itself never invokes
+ * LLMs — it emits an extensibility event
  * `loop:invoke-iteration` with a callback, and a handler registered in
  * `src/main/index.ts` performs the actual provider invocation. This mirrors
  * `DebateCoordinator`'s pattern.
@@ -90,6 +96,16 @@ import {
   shouldRunSemanticCheck,
   type LoopSemanticProgressReviewer,
 } from './loop-semantic-progress';
+import {
+  defaultBranchSelector,
+  type LoopBranchSelector,
+} from './loop-branch-select';
+import {
+  defaultLoopMemoryStore,
+  distillLearning,
+  type LoopMemoryStore,
+} from './loop-memory';
+import { defaultLoopExplorationConfig, LOOP_MAX_PLAN_REGENERATIONS } from '../../shared/types/loop.types';
 import { streamLoopEvents } from './loop-stream';
 
 export { computeWorkHash } from './loop-work-hash';
@@ -127,6 +143,13 @@ export interface LoopChildResult {
   testFailCount: number | null;
   /** Did the child exit cleanly? */
   exitedCleanly: boolean;
+  /**
+   * LF-1: set by the invoker when it recycled the loop's persistent
+   * same-session adapter to a fresh session after this iteration (context
+   * utilization crossed the configured threshold). The coordinator emits
+   * `loop:context-compacted` and records an ITERATION_LOG note.
+   */
+  contextCompacted?: { previousUtilization: number; newUtilization: number; reason: string };
 }
 
 interface PauseGate { resolve: () => void }
@@ -171,6 +194,11 @@ export interface LoopRuntimeContext {
    * goal or persisted as loop configuration.
    */
   existingSessionContext?: string;
+  /**
+   * LF-6: prior-run observations surfaced from cross-loop memory at startLoop,
+   * injected into each iteration prompt (token-bounded, "not binding").
+   */
+  priorObservations?: string[];
 }
 
 export class LoopCoordinator extends EventEmitter {
@@ -190,6 +218,18 @@ export class LoopCoordinator extends EventEmitter {
    * needed for a purely diagnostic, in-memory hint.
    */
   private convergenceNotes = new Map<string, string>();
+  /**
+   * LF-4: count of disposable-plan regenerations this stall streak, keyed by
+   * loopRunId. Held off-`LoopState` (in-memory, like `convergenceNotes`) — it's
+   * a transient control hint, not persisted run state. Bounded by
+   * `LOOP_MAX_PLAN_REGENERATIONS`.
+   */
+  private planRegenerations = new Map<string, number>();
+  /**
+   * LF-4: loopRunIds whose next iteration should start in a fresh context
+   * because the stage just transitioned PLAN→IMPLEMENT (RPI context reset).
+   */
+  private pendingContextReset = new Set<string>();
   private watchers = new Map<string, CompletedFileWatcher>();
   private runtimeContexts = new Map<string, LoopRuntimeContext>();
   private loopControls = new Map<string, LoopControlRuntime>();
@@ -231,6 +271,30 @@ export class LoopCoordinator extends EventEmitter {
     this.semanticProgressReviewer = reviewer;
   }
 
+  /**
+   * LF-5 — branch-and-select selector. Injectable like the reviewers; the
+   * default degrades to a normal pause unless the host wires a runtime fan-out.
+   * Only invoked when `LoopConfig.exploration.enabled` and a cost cap is set.
+   */
+  private branchSelector: LoopBranchSelector = defaultBranchSelector;
+
+  /** Override the branch-and-select selector (tests / runtime wiring). */
+  setBranchSelector(selector: LoopBranchSelector): void {
+    this.branchSelector = selector;
+  }
+
+  /**
+   * LF-6 — cross-loop memory store. Distilled learnings are written on
+   * terminal/CRITICAL and surfaced into the next run's prompt. Injectable so
+   * tests use a stub and the host can wire durable persistence.
+   */
+  private loopMemoryStore: LoopMemoryStore = defaultLoopMemoryStore;
+
+  /** Override the cross-loop memory store (tests / durable persistence). */
+  setLoopMemoryStore(store: LoopMemoryStore): void {
+    this.loopMemoryStore = store;
+  }
+
   static getInstance(): LoopCoordinator {
     if (!this.instance) this.instance = new LoopCoordinator();
     return this.instance;
@@ -248,6 +312,8 @@ export class LoopCoordinator extends EventEmitter {
       this.instance.cancelFlags.clear();
       this.instance.histories.clear();
       this.instance.convergenceNotes.clear();
+      this.instance.planRegenerations.clear();
+      this.instance.pendingContextReset.clear();
       this.instance.watchers.clear();
       this.instance.runtimeContexts.clear();
       this.instance.loopControls.clear();
@@ -537,6 +603,7 @@ export class LoopCoordinator extends EventEmitter {
       doneSentinelPresentAtStart: snapshot.doneSentinelPresent,
       planChecklistFullyCheckedAtStart: snapshot.planChecklistFullyChecked,
       uncompletedPlanFilesAtStart: snapshot.uncompletedPlanFilesAtStart,
+      loopTasksLedgerResolvedAtStart: snapshot.loopTasksLedgerResolvedAtStart,
       manualReviewOnly,
       tokensSinceLastTestImprovement: 0,
       highestTestPassCount: 0,
@@ -549,10 +616,25 @@ export class LoopCoordinator extends EventEmitter {
     this.watchers.set(id, watcher);
     this.loopControls.set(id, loopControl);
     this.cancelFlags.set(id, false);
-    if (runtimeContext?.existingSessionContext?.trim()) {
-      this.runtimeContexts.set(id, {
-        existingSessionContext: runtimeContext.existingSessionContext.trim(),
+    // LF-6: surface prior-run learnings for this workspace (best-effort,
+    // token-bounded). Injected into each iteration prompt as non-binding
+    // "prior observations".
+    let priorObservations: string[] | undefined;
+    try {
+      const surfaced = await this.loopMemoryStore.surfaceLearnings(config.workspaceCwd, 3);
+      if (surfaced.length > 0) {
+        priorObservations = surfaced;
+        logger.info('Loop start: surfaced prior-run observations', { id, count: surfaced.length });
+      }
+    } catch (err) {
+      logger.warn('Loop start: surfacing prior observations failed', {
+        id,
+        error: err instanceof Error ? err.message : String(err),
       });
+    }
+    const existingSessionContext = runtimeContext?.existingSessionContext?.trim() || undefined;
+    if (existingSessionContext || priorObservations) {
+      this.runtimeContexts.set(id, { existingSessionContext, priorObservations });
     }
 
     // Wire watcher to mutate state.
@@ -662,9 +744,118 @@ export class LoopCoordinator extends EventEmitter {
     return true;
   }
 
+  /**
+   * LF-7 — operator accepts a paused, done-but-ungated run. This is the missing
+   * "accept completion" action that previously left manual-review loops stuck
+   * paused forever (loopfixex §12.2 #1): the renderer only exposed
+   * start/pause/resume/intervene/cancel, so a loop with no verify command could
+   * never reach a clean terminal state from the UI.
+   *
+   * Valid only when the loop is `paused` AND it is awaiting review
+   * (`manualReviewOnly`) or has a pending `complete` terminal intent. When a
+   * verify command exists, it is run once: pass → terminate `completed`,
+   * fail → reject (stay paused, surface the failure). With no verify command,
+   * terminate `completed-needs-review`. Returns true iff the loop terminated.
+   */
+  async acceptCompletion(loopRunId: string): Promise<boolean> {
+    const state = this.active.get(loopRunId);
+    if (!state) return false;
+    if (state.status !== 'paused') {
+      logger.info('acceptCompletion ignored — loop is not paused', { loopRunId, status: state.status });
+      return false;
+    }
+    const eligible =
+      state.manualReviewOnly || state.terminalIntentPending?.kind === 'complete';
+    if (!eligible) {
+      logger.info('acceptCompletion ignored — loop is not awaiting review', {
+        loopRunId,
+        manualReviewOnly: state.manualReviewOnly,
+        pendingKind: state.terminalIntentPending?.kind,
+      });
+      return false;
+    }
+
+    const hasVerifyCommand = !!state.config.completion.verifyCommand.trim();
+    if (hasVerifyCommand) {
+      const verify = await this.completionDetector.runVerify(state.config);
+      // A re-entrant terminate (e.g. operator hit Stop while verify ran) means
+      // the loop is already gone — bail without overriding its terminal status.
+      if (this.isTerminalStatus(state.status)) return false;
+      if (verify.status === 'failed') {
+        state.lastCompletionOutcome = 'verify-failed';
+        this.convergenceNotes.set(state.id, 'operator-accept verify failed');
+        if (state.lastIteration) {
+          state.lastIteration.verifyStatus = 'failed';
+          state.lastIteration.verifyOutputExcerpt = excerpt(verify.output);
+        }
+        this.emit('loop:claimed-done-but-failed', {
+          loopRunId: state.id,
+          signal: 'declared-complete',
+          failure:
+            'Operator accept was rejected because the verify command failed:\n\n' +
+            (excerpt(verify.output, 8192) || '(verify produced no output)'),
+        });
+        this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
+        return false;
+      }
+      // verify passed → clean completion
+      if (state.terminalIntentPending?.kind === 'complete') {
+        this.transitionTerminalIntent(state, state.terminalIntentPending, 'accepted', 'operator accepted completion');
+        state.terminalIntentPending = undefined;
+      }
+      state.lastCompletionOutcome = 'accepted';
+      if (state.lastIteration) {
+        state.lastIteration.verifyStatus = 'passed';
+        state.lastIteration.verifyOutputExcerpt = excerpt(verify.output);
+      }
+      this.emit('loop:completed', {
+        loopRunId: state.id,
+        signal: 'declared-complete',
+        verifyOutput: excerpt(verify.output, 4096),
+        acceptedByOperator: true,
+      });
+      this.terminate(state, 'completed', 'operator accepted completion (verify passed)');
+    } else {
+      // No verify command — the operator vouches for the work; flag for review.
+      if (state.terminalIntentPending?.kind === 'complete') {
+        this.transitionTerminalIntent(state, state.terminalIntentPending, 'accepted', 'operator accepted completion (needs review)');
+        state.terminalIntentPending = undefined;
+      }
+      state.lastCompletionOutcome = 'accepted';
+      const reason = 'operator accepted completion; no verify command — needs review';
+      this.emit('loop:completed-needs-review', {
+        loopRunId: state.id,
+        reason,
+        acceptedByOperator: true,
+      });
+      this.terminate(state, 'completed-needs-review', reason);
+    }
+
+    // Wake the parked runLoop so it observes the now-terminal state and exits
+    // cleanly. terminate() already flipped the status; the cancel flag makes
+    // the post-pause check return, and its terminate('cancelled') no-ops
+    // because we are already terminal (idempotent guard).
+    this.cancelFlags.set(loopRunId, true);
+    const gate = this.pauseGates.get(loopRunId);
+    if (gate) {
+      gate.resolve();
+      this.pauseGates.delete(loopRunId);
+    }
+    try {
+      await this.awaitTerminalCleanup(loopRunId);
+    } catch (err) {
+      logger.warn('acceptCompletion: adapter cleanup hook rejected', {
+        loopRunId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return true;
+  }
+
   private isTerminalStatus(status: LoopState['status']): boolean {
     return (
       status === 'completed' ||
+      status === 'completed-needs-review' ||
       status === 'cancelled' ||
       status === 'failed' ||
       status === 'cap-reached' ||
@@ -767,17 +958,42 @@ export class LoopCoordinator extends EventEmitter {
       const history = this.histories.get(state.id) ?? [];
       const block = this.progressDetector.shouldRefuseToSpawnNext(state, history);
       if (block) {
-        // Pause and wait for user.
-        state.status = 'paused';
-        this.emit('loop:paused-no-progress', { loopRunId: state.id, signal: block });
-        this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
-        logger.info('Loop pre-iteration kill switch fired', { loopRunId: state.id, signal: block });
-        continue; // re-enter pause loop on next iteration
+        // LF-4: when disposable-plan regeneration is enabled and budget remains,
+        // bypass the kill switch (spawn an iteration so the post-iteration
+        // CRITICAL path can inject ONE regenerate directive) rather than pause.
+        // This is a READ-ONLY check — the single increment + directive happens
+        // in `maybeRegeneratePlanOnStall` at the post-iteration site, so a stall
+        // never burns two of the cap budget in one pass.
+        if (this.canRegeneratePlanOnStall(state)) {
+          logger.info('Loop kill switch bypassed for disposable-plan regeneration', {
+            loopRunId: state.id,
+            signal: block.id,
+          });
+          // fall through to spawn (do NOT pause/continue)
+        } else {
+          // Pause and wait for user.
+          state.status = 'paused';
+          this.emit('loop:paused-no-progress', { loopRunId: state.id, signal: block });
+          this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
+          logger.info('Loop pre-iteration kill switch fired', { loopRunId: state.id, signal: block });
+          continue; // re-enter pause loop on next iteration
+        }
       }
 
       // -- read current stage --
       const stage = await stageMachine.readStage(state.config);
       if (stage !== state.currentStage) {
+        // LF-4 RPI: on a PLAN→IMPLEMENT transition, reset context before the
+        // first IMPLEMENT iteration so it starts from a clean session anchored
+        // on the (now finalized) plan, not the planning transcript. Gated on
+        // context discipline being enabled (it reuses the LF-1 recycle path).
+        const contextEnabled = (state.config.context?.compaction.enabled) ?? true;
+        if (state.currentStage === 'PLAN' && stage === 'IMPLEMENT' && contextEnabled) {
+          this.pendingContextReset.add(state.id);
+          logger.info('Loop PLAN→IMPLEMENT: scheduling context reset for the first IMPLEMENT iteration', {
+            loopRunId: state.id,
+          });
+        }
         state.currentStage = stage;
         state.iterationsOnCurrentStage = 0;
       }
@@ -795,6 +1011,7 @@ export class LoopCoordinator extends EventEmitter {
         iterationSeq: seq,
         pendingInterventions: state.pendingInterventions,
         existingSessionContext: this.runtimeContexts.get(state.id)?.existingSessionContext,
+        priorObservations: this.runtimeContexts.get(state.id)?.priorObservations,
         uncompletedPlanFilesAtStart: state.uncompletedPlanFilesAtStart,
         manualReviewOnly: state.manualReviewOnly,
       }));
@@ -809,8 +1026,10 @@ export class LoopCoordinator extends EventEmitter {
 
       let childResult: LoopChildResult | null = null;
       let invocationError: string | null = null;
+      // LF-4 RPI: consume a one-shot PLAN→IMPLEMENT context reset request.
+      const forceContextReset = this.pendingContextReset.delete(state.id);
       try {
-        childResult = await this.invokeChild(state, prompt, stage);
+        childResult = await this.invokeChild(state, prompt, stage, forceContextReset);
       } catch (err) {
         invocationError = err instanceof Error ? err.message : String(err);
         logger.error('Iteration invocation failed', err instanceof Error ? err : new Error(invocationError), { loopRunId: state.id, seq });
@@ -918,11 +1137,20 @@ export class LoopCoordinator extends EventEmitter {
         })
       ) {
         try {
+          // LF-2: ground the reviewer in the loop's declared remaining work
+          // (NOTES.md tail — the completion inventory + recent summaries) so it
+          // compares against intent, not just the raw diff. Best-effort.
+          let progressContext: string | undefined;
+          try {
+            const notes = await stageMachine.readNotes();
+            if (notes.trim()) progressContext = notes.slice(-2000);
+          } catch { /* notes unreadable — reviewer still runs without grounding */ }
           const semantic = await this.semanticProgressReviewer({
             goal: state.config.initialPrompt,
             workspaceCwd: state.config.workspaceCwd,
             filesChangedThisIteration: iteration.filesChanged.map((f) => f.path),
             iterationOutput: iteration.outputExcerpt,
+            progressContext,
             config: semCfg,
           });
           iteration.semanticProgress = semantic;
@@ -989,12 +1217,20 @@ export class LoopCoordinator extends EventEmitter {
       let pauseBecauseCompletionCannotBeVerified = false;
       // LF-7: set when the completion-attempt budget is exhausted (verify keeps
       // passing but the rename gate never does). Acted on after the iteration
-      // is logged, so the terminal iteration still appears in history/log.
-      let completionCapReason: string | null = null;
+      // is logged so the terminal iteration still appears in history/log, and
+      // resolves to a SUCCESSFUL `completed-needs-review` terminal (verify is
+      // green) rather than a misleading `cap-reached`.
+      let completionNeedsReviewReason: string | null = null;
       if (this.completionDetector.hasSufficientSignal(completionSignals)) {
         // Pick the highest-priority sufficient signal for the stop attempt.
+        // LF-7: prefer the structured `declared-complete` terminal intent over
+        // the forensic signals (rename / sentinel / checklist) when present —
+        // it is the in-band "done tool" equivalent (loopfixex §16) and the
+        // authoritative completion signal. Forensic signals stay as fallbacks
+        // and corroboration.
         const sufficientList = completionSignals.filter((c) => c.sufficient);
-        const candidate = sufficientList[0]!;
+        const candidate =
+          sufficientList.find((c) => c.id === 'declared-complete') ?? sufficientList[0]!;
 
         // FU-6: optional quick-verify pre-flight. When configured, the
         // cheap check (typecheck, lint) runs FIRST so the loop can reject
@@ -1013,6 +1249,7 @@ export class LoopCoordinator extends EventEmitter {
         iteration.verifyOutputExcerpt = excerpt(v1.output);
         verifyOutputForEmit = v1.output;
         if (v1.status === 'failed') {
+          state.lastCompletionOutcome = 'verify-failed';
           this.rejectCompletionAttempt(
             state,
             `${verifyLabel} failed`,
@@ -1033,6 +1270,7 @@ export class LoopCoordinator extends EventEmitter {
           // checklist) is produced by the agent itself. Refuse to stop on an
           // unverified self-declaration: reject the pending completion,
           // surface why, and pause for operator review.
+          state.lastCompletionOutcome = 'unverifiable';
           this.rejectPendingCompleteIntent(
             state,
             'completion not verified — no verify command configured',
@@ -1065,6 +1303,7 @@ export class LoopCoordinator extends EventEmitter {
           if (state.config.completion.runVerifyTwice) {
             v2 = await this.completionDetector.runVerify(state.config);
             if (v2.status === 'failed') {
+              state.lastCompletionOutcome = 'verify-failed';
               this.rejectCompletionAttempt(
                 state,
                 'second verify failed',
@@ -1093,24 +1332,30 @@ export class LoopCoordinator extends EventEmitter {
             // becomes a user intervention and the loop continues.
             const reviewBlocked = await this.runFreshEyesReviewGate(state, candidate.id, iteration, verifyOutputForEmit);
             if (!reviewBlocked) {
+              state.lastCompletionOutcome = 'accepted';
               stopWithSignal = candidate;
             } else {
+              state.lastCompletionOutcome = 'review-blocked';
               this.rejectPendingCompleteIntent(state, 'fresh-eyes review blocked completion');
             }
           } else if (v2.status === 'passed') {
             // LF-7: verify passed but the *_Completed.md rename gate has not.
             // Count this verified-but-ungated attempt. If the loop keeps
             // declaring done without ever renaming (the loopfixex §12.1
-            // oscillation), bound it at `maxCompletionAttempts` and stop as
-            // `cap-reached` with a clear reason rather than spinning all the
-            // way to `maxIterations`.
+            // oscillation), bound it at `maxCompletionAttempts` and stop —
+            // since verify IS passing, the code is in a good state by the
+            // project's own definition, so we terminate `completed-needs-review`
+            // (a successful "have a human glance" state) rather than spinning to
+            // `maxIterations` or reporting a misleading `cap-reached`.
             state.completionAttempts += 1;
+            state.lastCompletionOutcome = 'rename-gate';
             const maxCompletionAttempts = state.config.caps.maxCompletionAttempts ?? 3;
             if (state.completionAttempts >= maxCompletionAttempts) {
-              completionCapReason =
-                `Stopped after ${state.completionAttempts} completion attempts in which verify passed but the ` +
-                'required *_Completed.md rename never happened. Rename the plan file(s) to *_Completed.md and ' +
-                're-run, or accept/stop the loop manually.';
+              completionNeedsReviewReason =
+                `Verify passed but the required *_Completed.md rename never happened across ` +
+                `${state.completionAttempts} completion attempt(s). The work verifies clean — ` +
+                'accepting as completed-needs-review for a human glance. Rename the plan file(s) ' +
+                'to *_Completed.md to auto-complete next time.';
               // Don't reject-and-continue; fall through to the post-log
               // terminal handling so this final iteration is still recorded.
             } else {
@@ -1132,6 +1377,26 @@ export class LoopCoordinator extends EventEmitter {
             }
           }
         }
+      }
+
+      // -- LF-1: context-discipline observability --
+      // The invoker recycles the loop's persistent same-session adapter when
+      // context utilization crosses the threshold and reports it here. Surface
+      // it as an event + an ITERATION_LOG note so long-run context management is
+      // auditable (never silent — a loop strength).
+      if (childResult.contextCompacted) {
+        this.emit('loop:context-compacted', {
+          loopRunId: state.id,
+          seq,
+          previousUtilization: childResult.contextCompacted.previousUtilization,
+          newUtilization: childResult.contextCompacted.newUtilization,
+          reason: childResult.contextCompacted.reason,
+        });
+        logger.info('Loop context recycled to fresh session', {
+          loopRunId: state.id,
+          seq,
+          previousUtilization: childResult.contextCompacted.previousUtilization,
+        });
       }
 
       // -- persist iteration in history (sliding window of last 50) --
@@ -1158,12 +1423,40 @@ export class LoopCoordinator extends EventEmitter {
                     `conf=${iteration.semanticProgress.confidence.toFixed(2)} — ${iteration.semanticProgress.whatChanged}`,
                 ]
               : []),
+            // LF-1: durable record of a context recycle this iteration.
+            ...(childResult.contextCompacted
+              ? [`[context] recycled to fresh session — ${childResult.contextCompacted.reason}`]
+              : []),
           ],
           completionNotes: iteration.completionSignalsFired.map((c) => `[${c.id}] ${c.detail}`),
         });
       } catch (err) {
         logger.warn('appendIterationLog failed', { error: String(err) });
       }
+
+      // -- LF-3: bound NOTES.md growth --
+      // NOTES.md is agent-maintained and re-read every iteration; left
+      // unbounded it eats the context LF-1 conserves. Curate older entries
+      // while preserving the completion inventory verbatim. Best-effort; never
+      // blocks the loop.
+      try {
+        const curated = await stageMachine.curateNotesIfNeeded();
+        if (curated.changed) {
+          logger.info('Curated NOTES.md to bound context', {
+            loopRunId: state.id,
+            seq,
+            elidedChars: curated.elidedChars,
+          });
+          this.emit('loop:notes-curated', {
+            loopRunId: state.id,
+            seq,
+            elidedChars: curated.elidedChars,
+          });
+        }
+      } catch (err) {
+        logger.warn('NOTES.md curation failed', { loopRunId: state.id, error: String(err) });
+      }
+
       for (const hook of this.iterationHooks) {
         try { await hook({ state, iteration }); } catch (err) {
           logger.warn('Iteration hook threw', { error: String(err) });
@@ -1199,15 +1492,22 @@ export class LoopCoordinator extends EventEmitter {
         return;
       }
 
-      // -- LF-7: completion-attempt budget exhausted → stop oscillating --
-      if (completionCapReason) {
-        // Resolve any pending loop-control `complete` intent as rejected (the
-        // completion was never gated through) so the terminal-intent audit
-        // trail isn't left dangling. No-op when there is no pending intent
-        // (e.g. the signal was a DONE.txt sentinel rather than a CLI intent).
-        this.rejectPendingCompleteIntent(state, completionCapReason);
-        this.emit('loop:cap-reached', { loopRunId: state.id, cap: 'completion-attempts', reason: completionCapReason });
-        this.terminate(state, 'cap-reached', completionCapReason);
+      // -- LF-7: completion-attempt budget exhausted → accept as needs-review --
+      // Verify is passing every attempt; only the *_Completed.md rename gate is
+      // unmet. Rather than oscillate to maxIterations or report a misleading
+      // `cap-reached`, accept the work as a SUCCESSFUL `completed-needs-review`
+      // terminal so a human can do the bookkeeping rename / glance.
+      if (completionNeedsReviewReason) {
+        if (state.terminalIntentPending?.kind === 'complete') {
+          this.transitionTerminalIntent(state, state.terminalIntentPending, 'accepted', completionNeedsReviewReason);
+          state.terminalIntentPending = undefined;
+        }
+        this.emit('loop:completed-needs-review', {
+          loopRunId: state.id,
+          reason: completionNeedsReviewReason,
+          acceptedByOperator: false,
+        });
+        this.terminate(state, 'completed-needs-review', completionNeedsReviewReason);
         return;
       }
 
@@ -1219,13 +1519,80 @@ export class LoopCoordinator extends EventEmitter {
       }
 
       // -- post-iteration: critical no-progress → pause --
-      if (evaluation.verdict === 'CRITICAL') {
+      // LF-7: a verified-done iteration (verify PASSED this iteration) must
+      // never fall through to a no-progress pause. The loopfixex §12.1 failure
+      // was "declare done + CRITICAL same iteration → pause forever". When
+      // verify passes the loop is converging, not stuck; the rename-gate budget
+      // above bounds any genuine oscillation. So only pause for no-progress
+      // when this iteration did NOT pass verify.
+      if (evaluation.verdict === 'CRITICAL' && iteration.verifyStatus !== 'passed') {
+        // -- LF-5: branch-and-select before pausing (opt-in, default off) --
+        // When exploration is enabled and a cost cap is set, fan out candidate
+        // iterations, verify + select the best, and adopt the winner instead of
+        // pausing. Any failure / no-winner / disabled path returns adopted:false
+        // and we fall through to the normal pause.
+        const explorationCfg = state.config.exploration ?? defaultLoopExplorationConfig();
+        if (explorationCfg.enabled) {
+          const branchResult = await this.branchSelector({
+            loopRunId: state.id,
+            workspaceCwd: state.config.workspaceCwd,
+            goal: state.config.initialPrompt,
+            exploration: explorationCfg,
+            caps: state.config.caps,
+            spentTokens: state.totalTokens,
+            spentCents: state.totalCostCents,
+            prompt,
+            provider: state.config.provider,
+            verifyCommand: state.config.completion.verifyCommand,
+            verifyTimeoutMs: state.config.completion.verifyTimeoutMs,
+            iterationTimeoutMs: state.config.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
+          }).catch((err) => {
+            logger.warn('Branch-select threw; falling back to pause', {
+              loopRunId: state.id,
+              error: err instanceof Error ? err.message : String(err),
+            });
+            return { adopted: false, reason: 'branch-select threw', candidateCount: 0 } as Awaited<ReturnType<LoopBranchSelector>>;
+          });
+          this.emit('loop:branch-select', { loopRunId: state.id, seq, ...branchResult });
+          logger.info('Loop branch-select outcome', {
+            loopRunId: state.id,
+            seq,
+            adopted: branchResult.adopted,
+            reason: branchResult.reason,
+            candidates: branchResult.candidateCount,
+          });
+          if (branchResult.adopted) {
+            // Winner adopted into the workspace — continue serially from it
+            // instead of pausing for a human.
+            await sleep(1500);
+            continue;
+          }
+        }
+
+        // -- LF-4: disposable plan — regenerate on stall before pausing --
+        // RPI: "if the plan is wrong, throw it out; regeneration is one planning
+        // loop, cheap vs. going in circles." Bounded so it can't loop forever.
+        if (this.maybeRegeneratePlanOnStall(state, seq)) {
+          await sleep(1500);
+          continue;
+        }
+
         const primary = evaluation.primary ?? evaluation.signals[0];
         state.status = 'paused';
+        // LF-6: capture the dead-end signal as a learning before pausing.
+        if (primary && !this.convergenceNotes.has(state.id)) {
+          this.convergenceNotes.set(state.id, `no-progress: ${primary.message}`);
+        }
+        this.recordLoopLearning(state, 'no-progress');
         this.emit('loop:paused-no-progress', { loopRunId: state.id, signal: primary });
         this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
         logger.info('Loop paused — no-progress CRITICAL', { loopRunId: state.id, signal: primary });
         // loop continues after user resumes/cancels
+      } else if (evaluation.verdict === 'CRITICAL') {
+        logger.info('Suppressed no-progress pause — iteration verify passed (converging, not stuck)', {
+          loopRunId: state.id,
+          seq,
+        });
       }
 
       // -- minimum sleep guard so the fs watcher can settle --
@@ -1359,7 +1726,7 @@ export class LoopCoordinator extends EventEmitter {
 
   // ============ Internal — child invocation (extensibility) ============
 
-  private invokeChild(state: LoopState, prompt: string, stage: LoopStage): Promise<LoopChildResult> {
+  private invokeChild(state: LoopState, prompt: string, stage: LoopStage, forceContextReset = false): Promise<LoopChildResult> {
     if (this.listenerCount('loop:invoke-iteration') === 0) {
       throw new Error(
         'No handler registered for loop:invoke-iteration. ' +
@@ -1394,6 +1761,8 @@ export class LoopCoordinator extends EventEmitter {
           : undefined,
         iterationTimeoutMs: state.config.iterationTimeoutMs,
         streamIdleTimeoutMs: state.config.streamIdleTimeoutMs,
+        // LF-4 RPI: recycle the same-session context before this iteration runs.
+        forceContextReset,
         callback: (result: LoopChildResult | { error: string }) => {
           if (settled) return;
           settled = true;
@@ -1755,6 +2124,8 @@ export class LoopCoordinator extends EventEmitter {
       lastIterationSeq: state.totalIterations - 1,
       terminalIntent: state.terminalIntentHistory?.at(-1),
     };
+    // LF-6: distill a terminal learning BEFORE the convergence note is cleared.
+    this.recordLoopLearning(state, status);
     const watcher = this.watchers.get(state.id);
     if (watcher) {
       void watcher.stop();
@@ -1762,6 +2133,8 @@ export class LoopCoordinator extends EventEmitter {
     }
     this.runtimeContexts.delete(state.id);
     this.convergenceNotes.delete(state.id);
+    this.planRegenerations.delete(state.id);
+    this.pendingContextReset.delete(state.id);
     const loopControl = this.loopControls.get(state.id);
     this.loopControls.delete(state.id);
     if (status === 'cancelled') this.emit('loop:cancelled', { loopRunId: state.id });
@@ -1794,6 +2167,87 @@ export class LoopCoordinator extends EventEmitter {
           }
         });
       this.terminalCleanupPromises.set(loopRunId, cleanupPromise);
+    }
+  }
+
+  /**
+   * LF-4 — disposable-plan regeneration on stall. When `plan.regenerateOnStall`
+   * is set and the per-streak cap isn't reached, inject a "throw out the plan
+   * and regenerate" directive, clear the WARN streak, and return true (the
+   * caller continues/bypasses the pause). Returns false when disabled or capped
+   * (the caller pauses normally). Bounded by `LOOP_MAX_PLAN_REGENERATIONS` so it
+   * can't loop forever.
+   */
+  /**
+   * LF-4 — read-only check: is the loop still eligible to regenerate its plan
+   * on stall (enabled + under the cap)? Used by the pre-iteration kill switch
+   * to decide bypass-vs-pause WITHOUT consuming budget; the actual increment +
+   * directive injection happens once per iteration in
+   * {@link maybeRegeneratePlanOnStall} at the post-iteration site.
+   */
+  private canRegeneratePlanOnStall(state: LoopState): boolean {
+    if (!state.config.plan?.regenerateOnStall) return false;
+    return (this.planRegenerations.get(state.id) ?? 0) < LOOP_MAX_PLAN_REGENERATIONS;
+  }
+
+  private maybeRegeneratePlanOnStall(state: LoopState, seq: number): boolean {
+    if (!state.config.plan?.regenerateOnStall) return false;
+    const done = this.planRegenerations.get(state.id) ?? 0;
+    if (done >= LOOP_MAX_PLAN_REGENERATIONS) {
+      logger.info('Loop disposable-plan regeneration cap reached — pausing', {
+        loopRunId: state.id,
+        attempts: done,
+      });
+      return false;
+    }
+    this.planRegenerations.set(state.id, done + 1);
+    // Clear the WARN/stall streak so the regenerated approach gets a clean slate.
+    state.recentWarnIterationSeqs = [];
+    state.pendingInterventions.push(
+      'The current plan/approach is STALLING (repeated no-progress). Treat the plan as ' +
+      'disposable: throw it out and regenerate it from the goal. Re-derive the task list in ' +
+      '`LOOP_TASKS.md` from scratch, pick a DIFFERENT approach for the stuck part, and proceed. ' +
+      `(disposable-plan regeneration ${done + 1}/${LOOP_MAX_PLAN_REGENERATIONS})`,
+    );
+    this.emit('loop:plan-regenerated', {
+      loopRunId: state.id,
+      seq,
+      attempt: done + 1,
+      max: LOOP_MAX_PLAN_REGENERATIONS,
+    });
+    logger.info('Loop disposable-plan regeneration injected on stall', {
+      loopRunId: state.id,
+      seq,
+      attempt: done + 1,
+    });
+    return true;
+  }
+
+  /**
+   * LF-6 — distill + persist a cross-loop learning record. Best-effort: any
+   * failure is logged and swallowed (memory must never break the loop). Reads
+   * the convergence note as the "why" / dead-end, so call it before that note
+   * is cleared in terminate().
+   */
+  private recordLoopLearning(state: LoopState, status: string): void {
+    try {
+      const note = this.convergenceNotes.get(state.id);
+      const record = distillLearning({
+        workspaceCwd: state.config.workspaceCwd,
+        goal: state.config.initialPrompt,
+        status,
+        reason: state.endReason ?? note ?? status,
+        lastCompletionOutcome: state.lastCompletionOutcome,
+        deadEnds: note ? [note] : [],
+      });
+      void Promise.resolve(this.loopMemoryStore.recordLearning(record)).catch((err) => {
+        logger.warn('recordLoopLearning persist failed', {
+          loopRunId: state.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    } catch (err) {
+      logger.warn('recordLoopLearning threw', { loopRunId: state.id, error: String(err) });
     }
   }
 

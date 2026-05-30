@@ -1,0 +1,33 @@
+{
+  "name": "ai-orchestrator-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI Orchestrator phone control app (Angular + Capacitor). Phase 0: connect to instances over Tailscale, view projects + live session status.",
+  "scripts": {
+    "start": "ng serve",
+    "build": "ng build",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit",
+    "sync": "npm run build && npx cap sync ios",
+    "ios": "npm run sync && npx cap open ios"
+  },
+  "dependencies": {
+    "@angular/common": "^21.2.13",
+    "@angular/compiler": "^21.2.13",
+    "@angular/core": "^21.2.13",
+    "@angular/forms": "^21.2.13",
+    "@angular/platform-browser": "^21.2.13",
+    "@angular/router": "^21.2.13",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/ios": "^7.0.0",
+    "@capacitor/preferences": "^7.0.0",
+    "rxjs": "^7.8.0",
+    "tslib": "^2.6.0"
+  },
+  "devDependencies": {
+    "@angular/build": "^21.2.13",
+    "@angular/cli": "^21.2.13",
+    "@angular/compiler-cli": "^21.2.13",
+    "@capacitor/cli": "^7.0.0",
+    "typescript": "~5.9.0"
+  }
+}

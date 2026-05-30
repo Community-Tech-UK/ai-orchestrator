@@ -37,6 +37,7 @@ import { EcosystemSettingsTabComponent } from './ecosystem-settings-tab.componen
 import { ReviewSettingsTabComponent } from './review-settings-tab.component';
 import { ConnectionsSettingsTabComponent } from './connections-settings-tab.component';
 import { RemoteNodesSettingsTabComponent } from './remote-nodes-settings-tab.component';
+import { MobileSettingsTabComponent } from './mobile-settings-tab.component';
 import { CliHealthSettingsTabComponent } from './cli-health-settings-tab.component';
 import { ProviderQuotaSettingsTabComponent } from './provider-quota-settings-tab.component';
 import { NetworkSettingsTabComponent } from './network-settings-tab.component';
@@ -80,6 +81,7 @@ import {
     NetworkSettingsTabComponent,
     DoctorSettingsTabComponent,
     RemoteNodesSettingsTabComponent,
+    MobileSettingsTabComponent,
     CliHealthSettingsTabComponent,
     ProviderQuotaSettingsTabComponent,
     RtkSavingsTabComponent,

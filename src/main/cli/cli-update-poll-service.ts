@@ -170,6 +170,7 @@ function toPlanSummary(plan: CliUpdatePlanSummary): CliUpdatePlanSummary {
     activePath: plan.activePath,
     currentVersion: plan.currentVersion,
     reason: plan.reason,
+    strategy: plan.strategy,
   };
 }
 

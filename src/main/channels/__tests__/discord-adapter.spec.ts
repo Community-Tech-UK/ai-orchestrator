@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, type MockInstance } from 'vitest';
 import { EventEmitter } from 'events';
+import * as os from 'os';
 
 // ---------- Mock discord.js BEFORE importing the adapter ----------
 
@@ -16,6 +17,7 @@ class MockClient extends EventEmitter {
   channels = {
     fetch: vi.fn(),
   };
+  guilds: { cache: Map<string, unknown> } = { cache: new Map() };
 
   override on(event: string, listener: (...args: unknown[]) => void): this {
     if (event === 'messageCreate') {
@@ -242,6 +244,34 @@ describe('DiscordAdapter', () => {
 
     const connectedEvent = statusEvents.find(e => e.status === 'connected');
     expect(connectedEvent?.botUsername).toBe('TestBot#0001');
+  });
+
+  it('exposes no DM display-name tag until one is explicitly configured', async () => {
+    await adapter.connect(makeConfig());
+    expect(adapter.getDisplayName()).toBeUndefined();
+  });
+
+  it('uses the configured bot display name (trimmed) for the DM tag', async () => {
+    await adapter.connect(makeConfig({ displayName: '  Mac Bot  ' }));
+    expect(adapter.getDisplayName()).toBe('Mac Bot');
+  });
+
+  it('sets the guild nickname to the configured bot name on ready', async () => {
+    const setNickname = vi.fn(async () => undefined);
+    await adapter.connect(makeConfig({ displayName: 'Mac Bot' }));
+    mockClientInstance.guilds.cache.set('g1', { id: 'g1', members: { me: { setNickname } } });
+    mockClientInstance.emit('ready');
+    await Promise.resolve();
+    expect(setNickname).toHaveBeenCalledWith('Mac Bot');
+  });
+
+  it('falls back to the hostname for the guild nickname when unnamed', async () => {
+    const setNickname = vi.fn(async () => undefined);
+    await adapter.connect(makeConfig());
+    mockClientInstance.guilds.cache.set('g1', { id: 'g1', members: { me: { setNickname } } });
+    mockClientInstance.emit('ready');
+    await Promise.resolve();
+    expect(setNickname).toHaveBeenCalledWith(os.hostname().replace(/\.local$/i, '').slice(0, 32));
   });
 
   it('throws and does not emit connecting when token is missing', async () => {

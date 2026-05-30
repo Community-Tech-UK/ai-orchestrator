@@ -15,6 +15,14 @@ export type CliType = CanonicalCliType | 'openai'; // legacy alias kept for pers
 export type ConfigSource = 'project' | 'user' | 'default';
 export type DefaultMissedRunPolicy = 'skip' | 'notify' | 'runOnce';
 export type PauseReachabilityProbeMode = 'disabled' | 'reachable-means-vpn' | 'unreachable-means-vpn';
+/**
+ * How AI Orchestrator handles newer versions of the CLI providers it wraps:
+ * - `'off'`    — don't check; hide the update pill.
+ * - `'notify'` — check + surface the pill/one-click update (t3code parity). Default.
+ * - `'auto'`   — additionally apply *safe* updates automatically (npm/self-update
+ *                only, never while a session is running). See cli-auto-update-service.
+ */
+export type CliUpdatePolicy = 'off' | 'notify' | 'auto';
 
 /**
  * Application settings that are persisted to disk
@@ -195,6 +203,13 @@ export interface AppSettings {
   remoteNodesTlsKeyPath: string;
   remoteNodesRegisteredNodes: string;
 
+  // Mobile Gateway (phone control app — see docs/mobile-app/)
+  mobileGatewayEnabled: boolean;
+  mobileGatewayPort: number;
+  mobileGatewayBindInterface: 'tailscale' | 'all';
+  /** JSON array of paired MobileDevice records. */
+  mobileGatewayDevices: string;
+
   // Network (Pause on VPN)
   pauseFeatureEnabled: boolean;
   pauseOnVpnEnabled: boolean;
@@ -221,6 +236,14 @@ export interface AppSettings {
   // Notifications
   /** Show a desktop notification when an agent transitions from busy to idle. Default: true. */
   notifyOnAgentCompletion: boolean;
+
+  // CLI Provider Updates
+  /**
+   * How to handle newer published versions of the wrapped CLI providers.
+   * `'notify'` (default) matches t3code: detect + one-click. `'auto'` applies
+   * safe updates unattended; `'off'` disables detection entirely.
+   */
+  cliUpdatePolicy: CliUpdatePolicy;
 }
 
 /**
@@ -313,6 +336,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   remoteNodesTlsKeyPath: '',
   remoteNodesRegisteredNodes: '{}',
 
+  // Mobile Gateway (phone control app)
+  mobileGatewayEnabled: false,
+  mobileGatewayPort: 4879,
+  mobileGatewayBindInterface: 'tailscale' as const,
+  mobileGatewayDevices: '[]',
+
   // Network (Pause on VPN)
   pauseFeatureEnabled: true,
   pauseOnVpnEnabled: true,
@@ -335,6 +364,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   // Notifications
   notifyOnAgentCompletion: true,
+
+  // CLI Provider Updates
+  cliUpdatePolicy: 'notify',
 };
 
 export { SETTINGS_METADATA } from './settings-metadata';

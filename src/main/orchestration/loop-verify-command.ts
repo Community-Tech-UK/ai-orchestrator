@@ -51,12 +51,12 @@ export async function inferLoopVerifyCommand(
 async function inferFromDescendantPackages(
   requestedWorkspace: string,
 ): Promise<InferredLoopVerifyCommand | null> {
-  const queue: Array<{ dir: string; depth: number }> = [{ dir: requestedWorkspace, depth: 0 }];
-  const candidates: Array<{
+  const queue: { dir: string; depth: number }[] = [{ dir: requestedWorkspace, depth: 0 }];
+  const candidates: {
     inferred: InferredLoopVerifyCommand;
     depth: number;
     packageDir: string;
-  }> = [];
+  }[] = [];
   let scannedDirs = 0;
 
   while (queue.length > 0 && scannedDirs < DESCENDANT_PACKAGE_SEARCH_MAX_DIRS) {

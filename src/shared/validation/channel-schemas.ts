@@ -8,6 +8,8 @@ const ChannelPlatformSchema = z.enum(['discord', 'whatsapp']);
 export const ChannelConnectPayloadSchema = z.object({
   platform: ChannelPlatformSchema,
   token: z.string().min(1).max(500).optional(),
+  // Per-machine bot name (e.g. "Mac Bot"). Discord nicknames cap at 32 chars.
+  displayName: z.string().trim().max(32).optional(),
 });
 
 export const ChannelDisconnectPayloadSchema = z.object({

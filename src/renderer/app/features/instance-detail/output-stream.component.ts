@@ -81,8 +81,23 @@ export class OutputStreamComponent {
   showToolMessages = input<boolean>(true);
   isChild = input<boolean>(false);
 
-  /** Emitted when the user clicks the edit button on the last user message. */
-  editMessage = output<void>();
+  /**
+   * Emitted when the user resends an inline-edited user message. The parent
+   * forks the session at this message and delivers the edited text, mirroring
+   * the composer's resend path (see InstanceDetailComponent.onResendEdited).
+   */
+  resendEdited = output<{
+    messageIndex: number;
+    messageId?: string;
+    text: string;
+    attachments?: OutputMessage['attachments'];
+    retryMode: 'transcript-only';
+  }>();
+
+  /** Id of the user message currently being edited in place, or null. */
+  protected editingMessageId = signal<string | null>(null);
+  /** Working text for the inline editor. */
+  protected editingDraft = signal('');
 
   /** ID of the last user message — used to show the edit button only on that message. */
   protected lastUserMessageId = computed(() => {
@@ -290,6 +305,9 @@ export class OutputStreamComponent {
       this.hasOlderMessages.set(false);
       this.isLoadingOlder.set(false);
       this.olderMessagesHiddenCount.set(0);
+      // Close any open inline message editor — it belonged to the old session.
+      this.editingMessageId.set(null);
+      this.editingDraft.set('');
       this.lastAutoScrollInstanceId = currentInstanceId;
       this.lastAutoScrollSignature = this.getMessageSignature(this.messages());
       // Drop any deferred restore from a prior switch — it's stale now.
@@ -810,6 +828,94 @@ export class OutputStreamComponent {
       }
       return next;
     });
+  }
+
+  // ---- Inline message editing (edit-in-place + resend) ----
+
+  protected isEditingMessage(messageId: string): boolean {
+    return this.editingMessageId() === messageId;
+  }
+
+  /**
+   * Begin editing a user message in place: swap the bubble for an inline
+   * textarea seeded with its content. Loop-originated prompts aren't editable
+   * (the loop owns their delivery), matching the edit button's disabled state.
+   */
+  protected startEditingMessage(message: OutputMessage): void {
+    if (this.isLoopOriginatedUserMessage(message)) return;
+    this.editingMessageId.set(message.id);
+    this.editingDraft.set(message.content);
+    this.focusEditTextarea(message.content);
+  }
+
+  protected onEditDraftInput(event: Event): void {
+    const textarea = event.target as HTMLTextAreaElement;
+    this.editingDraft.set(textarea.value);
+    this.autosizeEditTextarea(textarea);
+  }
+
+  protected onEditKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      this.resendEditedMessage();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      this.cancelEditingMessage();
+    }
+  }
+
+  protected cancelEditingMessage(): void {
+    this.editingMessageId.set(null);
+    this.editingDraft.set('');
+  }
+
+  /**
+   * Resend the inline-edited message. Resolves the in-memory buffer index by
+   * id — the index space InstanceDetailComponent.onResendEdited expects, which
+   * forks at that point and delivers the edited text. No-op on empty text.
+   */
+  protected resendEditedMessage(): void {
+    const messageId = this.editingMessageId();
+    if (messageId === null) return;
+
+    const text = this.editingDraft();
+    if (!text.trim()) return;
+
+    const msgs = this.messages();
+    const index = msgs.findIndex((m) => m.id === messageId);
+    if (index === -1) {
+      this.cancelEditingMessage();
+      return;
+    }
+
+    this.resendEdited.emit({
+      messageIndex: index,
+      messageId,
+      text,
+      attachments: msgs[index].attachments,
+      retryMode: 'transcript-only',
+    });
+
+    this.editingMessageId.set(null);
+    this.editingDraft.set('');
+  }
+
+  private focusEditTextarea(content: string): void {
+    requestAnimationFrame(() => {
+      const textarea = this.getViewportElement()?.querySelector<HTMLTextAreaElement>(
+        '.inline-edit-textarea',
+      );
+      if (!textarea) return;
+      textarea.focus();
+      textarea.selectionStart = content.length;
+      textarea.selectionEnd = content.length;
+      this.autosizeEditTextarea(textarea);
+    });
+  }
+
+  private autosizeEditTextarea(textarea: HTMLTextAreaElement): void {
+    textarea.style.height = 'auto';
+    textarea.style.height = `${textarea.scrollHeight}px`;
   }
 
   onContextMenu(event: MouseEvent, item: DisplayItem): void {

@@ -622,7 +622,7 @@ export class InstanceLifecycleManager extends EventEmitter {
   /**
    * Fire-and-forget auto-title generation from the first user message.
    */
-  private triggerAutoTitle(instance: Instance, message: string): void {
+  private triggerAutoTitle(instance: Instance, message: string, attachmentNames?: readonly string[]): void {
     getAutoTitleService().maybeGenerateTitle(
       instance.id,
       message,
@@ -638,6 +638,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         }
       },
       instance.isRenamed,
+      attachmentNames,
     ).catch(() => { /* non-critical */ });
   }
 
@@ -1022,14 +1023,20 @@ export class InstanceLifecycleManager extends EventEmitter {
     this.emit('created', this.deps.serializeForIpc(instance));
 
     // Initial prompts never flow through InstanceManager.sendInput(), so kick
-    // off title generation here before the background spawn/send pipeline.
-    if (typeof config.initialPrompt === 'string' && config.initialPrompt.trim().length > 0) {
-      this.triggerAutoTitle(instance, config.initialPrompt);
+    // off title generation here before the background spawn/send pipeline. Fire
+    // even when only a file is attached (no typed text) so the thread is titled
+    // from the attachment instead of a generic placeholder.
+    const initialPromptText = typeof config.initialPrompt === 'string' ? config.initialPrompt : '';
+    const initialAttachmentNames = config.attachments?.map((a) => a.name);
+    if (initialPromptText.trim().length > 0 || (initialAttachmentNames?.length ?? 0) > 0) {
+      this.triggerAutoTitle(instance, initialPromptText, initialAttachmentNames);
+    }
+    if (initialPromptText.trim().length > 0) {
       try {
         getPromptHistoryService().record({
           instanceId: instance.id,
           id: createPromptHistoryEntryId(),
-          text: config.initialPrompt.trim(),
+          text: initialPromptText.trim(),
           createdAt: Date.now(),
           projectPath: instance.workingDirectory,
           provider: config.provider,

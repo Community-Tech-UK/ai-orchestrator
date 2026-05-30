@@ -44,6 +44,13 @@ export interface CliInstallSummary {
   error?: string;
 }
 
+/**
+ * How a CLI update would be applied. Set at plan-build time. Drives the
+ * auto-apply safety gate (npm/bun/pnpm/self-update are unattended-safe) and the
+ * update concurrency lock.
+ */
+export type CliUpdateStrategy = 'npm' | 'bun' | 'pnpm' | 'self-update' | 'gh-extension' | 'homebrew';
+
 export interface CliUpdatePlanSummary {
   cli: string;
   displayName: string;
@@ -54,6 +61,8 @@ export interface CliUpdatePlanSummary {
   activePath?: string;
   currentVersion?: string;
   reason?: string;
+  /** Present only on a supported plan; absent ⇒ not auto-apply-safe. */
+  strategy?: CliUpdateStrategy;
 }
 
 export interface CliHealthEntry {

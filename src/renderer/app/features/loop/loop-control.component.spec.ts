@@ -35,9 +35,11 @@ describe('LoopControlComponent', () => {
     onFreshEyesReviewFailed: ReturnType<typeof vi.fn>;
     onFreshEyesReviewBlocked: ReturnType<typeof vi.fn>;
     onCompleted: ReturnType<typeof vi.fn>;
+    onCompletedNeedsReview: ReturnType<typeof vi.fn>;
     onFailed: ReturnType<typeof vi.fn>;
     onCapReached: ReturnType<typeof vi.fn>;
     onError: ReturnType<typeof vi.fn>;
+    acceptCompletion: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(async () => {
@@ -71,9 +73,11 @@ describe('LoopControlComponent', () => {
       onFreshEyesReviewFailed: vi.fn(() => noop),
       onFreshEyesReviewBlocked: vi.fn(() => noop),
       onCompleted: vi.fn(() => noop),
+      onCompletedNeedsReview: vi.fn(() => noop),
       onFailed: vi.fn(() => noop),
       onCapReached: vi.fn(() => noop),
       onError: vi.fn(() => noop),
+      acceptCompletion: vi.fn().mockResolvedValue({ success: true, data: { ok: true } }),
     };
 
     TestBed.overrideComponent(LoopControlComponent, {
@@ -137,6 +141,17 @@ describe('LoopControlComponent', () => {
 
     expect(ipc.pause).toHaveBeenCalledWith('loop-1');
     expect(fixture.nativeElement.textContent).toContain('Resume');
+  });
+
+  it('shows a read-only run-config summary while the loop is active (LF-8)', () => {
+    listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state: activeState() }));
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Run configuration');
+    expect(text).toContain('Provider');
+    expect(text).toContain('claude');           // provider value
+    expect(text).toContain('same-session');     // context strategy value
   });
 
   it('routes visible no-progress banner controls to the loop id', async () => {

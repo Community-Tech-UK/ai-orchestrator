@@ -748,6 +748,19 @@ import * as pathLoop from 'path';
 import { getLoopCoordinator } from './loop-coordinator';
 import type { LoopChildResult } from './loop-coordinator';
 import type { LoopErrorRecord, LoopFileChange, LoopToolCallRecord } from '../../shared/types/loop.types';
+import { defaultLoopContextConfig } from '../../shared/types/loop.types';
+import { shouldRecycleLoopContext } from './loop-context-discipline';
+import {
+  runBranchSelect,
+  pickCandidateProvider,
+  type BranchCandidate,
+  type BranchSelectDeps,
+  type BranchSelectInput,
+} from './loop-branch-select';
+import { collectWorkspaceDiff } from './loop-diff';
+import { DurableLoopMemoryStore } from './loop-memory';
+import { maybeExternalizeLoopOutput } from './loop-output-externalize';
+import { getWorktreeManager } from '../workspace/git/worktree-manager';
 
 interface WorkspaceSnapshotEntry {
   contentHash: string;
@@ -1094,6 +1107,193 @@ export function classifyIterationErrors(output: string): LoopErrorRecord[] {
   return records;
 }
 
+function branchSelectErr(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * LF-5 — run a verify command in a candidate worktree dir. Synchronous spawn
+ * (bounded by `timeoutMs`); returns true only on a clean exit. Never throws.
+ */
+function runVerifyInDir(cmd: string, cwd: string, timeoutMs: number): boolean {
+  const trimmed = cmd.trim();
+  if (!trimmed) return false;
+  try {
+    const result = spawnSync(trimmed, [], {
+      cwd,
+      shell: true,
+      timeout: Math.max(1, timeoutMs),
+      env: { ...process.env, CI: '1' },
+      stdio: 'ignore',
+    });
+    return result.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * LF-5 — commit a candidate worktree's working-tree changes onto its branch so
+ * `mergeWorktree` (which merges branch COMMITS, not the dirty working tree) can
+ * adopt them. Loop iterations don't commit, so without this the winner's edits
+ * would never reach the workspace. Passes an explicit committer identity so it
+ * succeeds even when global git config is absent (headless/CI). No-op when there
+ * is nothing to commit; best-effort.
+ */
+function commitWorktreeChanges(cwd: string): void {
+  try {
+    spawnSync('git', ['add', '-A'], { cwd, timeout: 30_000, stdio: 'ignore' });
+    spawnSync(
+      'git',
+      ['-c', 'user.email=loop-branch@local', '-c', 'user.name=Loop Branch-Select', 'commit', '-m', 'loop branch-select candidate', '--no-verify'],
+      { cwd, timeout: 30_000, stdio: 'ignore' },
+    );
+  } catch {
+    /* nothing to commit / git unavailable — best-effort */
+  }
+}
+
+/**
+ * LF-5 — list-wise LLM scoring of candidate diffs (best-effort). Returns a
+ * map of candidate id → score (0..1); `{}` on any failure so the caller falls
+ * back to the verify+heuristic ranking. Lazy-requires the LLM stack.
+ */
+async function scoreCandidatesListwise(
+  candidates: readonly BranchCandidate[],
+  goal: string,
+): Promise<Record<string, number>> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getLLMService } = require('../rlm/llm-service') as typeof import('../rlm/llm-service');
+    const llm = getLLMService();
+    if (!(await llm.isAvailable())) return {};
+    const context = candidates
+      .map((c, i) => `CANDIDATE id=${c.id} (#${i + 1}, verify=${c.verifyPassed ? 'PASS' : 'FAIL'}):\n${c.summary.slice(0, 1500)}`)
+      .join('\n\n');
+    const prompt =
+      'Several candidate diffs each attempt the GOAL in an isolated worktree. Score each ' +
+      '0..1 by how well its diff advances the goal (correct, complete, maintainable; prefer ' +
+      'candidates whose verify passed). Respond with ONLY a JSON object mapping candidate id ' +
+      'to score, e.g. {"abc":0.8,"def":0.3}. No other text.';
+    const raw = await llm.subQuery({
+      requestId: `loop-branch-listwise-${Date.now()}`,
+      prompt: `GOAL:\n${goal}\n\n${prompt}`,
+      context,
+      depth: 0,
+    });
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) return {};
+    const obj = JSON.parse(match[0]) as Record<string, unknown>;
+    const out: Record<string, number> = {};
+    for (const [id, value] of Object.entries(obj)) {
+      if (typeof value === 'number' && Number.isFinite(value)) out[id] = Math.max(0, Math.min(1, value));
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * LF-5 — real branch-and-select I/O deps: isolate each candidate in a git
+ * worktree, run a CLI turn there, verify it, then (on a winner) merge it back
+ * and tear down every worktree. The pure orchestration/selection lives in
+ * `runBranchSelect`/`selectWinner`; this is the thin runtime glue.
+ */
+export function buildLoopBranchSelectorDeps(instanceManager: InstanceManager): BranchSelectDeps {
+  return {
+    async fanout(input: BranchSelectInput): Promise<BranchCandidate[]> {
+      if (!input.verifyCommand.trim()) {
+        logger.info('Branch-select: no verify command — cannot rank candidates; skipping fan-out', {
+          loopRunId: input.loopRunId,
+        });
+        return [];
+      }
+      const wm = getWorktreeManager();
+      const candidates: BranchCandidate[] = [];
+      for (let i = 0; i < input.exploration.fanout; i++) {
+        const provider = pickCandidateProvider(input.provider, input.exploration.crossModel, i);
+        let session: { id: string; worktreePath: string };
+        try {
+          session = await wm.createWorktree(
+            `loop-branch-${input.loopRunId}`,
+            `branch-select candidate ${i + 1} (${provider})`,
+            { repoRoot: input.workspaceCwd, skipInstall: true, taskType: 'feature' },
+          );
+        } catch (err) {
+          logger.warn('Branch-select: createWorktree failed; skipping candidate', {
+            loopRunId: input.loopRunId, index: i, error: branchSelectErr(err),
+          });
+          continue;
+        }
+        let response = '';
+        try {
+          const result = await invokeCliTextResponse({
+            instanceManager,
+            workingDirectory: session.worktreePath,
+            requestedProvider: provider,
+            prompt:
+              `${input.prompt}\n\n## Branch-and-Select Candidate\nThe serial loop STALLED here. You are ` +
+              `candidate ${i + 1} of ${input.exploration.fanout} exploring in an isolated worktree. Take a ` +
+              `DIFFERENT approach to the stuck part than the obvious one, make the change, and ensure the ` +
+              `project's verify command passes.`,
+            breakerKey: `loop-branch:${provider}`,
+            correlationId: `${input.loopRunId}::branch::${i}`,
+            timeoutMs: input.iterationTimeoutMs,
+            yoloMode: true,
+            allowPartialOnTimeout: true,
+            continueWhileActiveOnTimeout: true,
+            autoAnswerInputRequired: true,
+          });
+          response = result.response;
+        } catch (err) {
+          logger.warn('Branch-select: candidate invocation failed', {
+            loopRunId: input.loopRunId, index: i, error: branchSelectErr(err),
+          });
+        }
+        const verifyPassed = runVerifyInDir(input.verifyCommand, session.worktreePath, input.verifyTimeoutMs);
+        let filesChanged = 0;
+        let summary = response.slice(0, 800);
+        try {
+          // Capture the diff BEFORE committing (git diff HEAD shows the
+          // still-uncommitted candidate edits + untracked files).
+          const diff = collectWorkspaceDiff(session.worktreePath, { maxChars: 4000 });
+          filesChanged = diff.changedFiles.length;
+          summary = `${summary}\n--- diff ---\n${diff.diff.slice(0, 2000)}`;
+        } catch { /* diff is best-effort */ }
+        // Commit the candidate's edits onto its branch so the winner is mergeable.
+        commitWorktreeChanges(session.worktreePath);
+        candidates.push({ id: session.id, provider, workdir: session.worktreePath, verifyPassed, filesChanged, summary });
+      }
+      return candidates;
+    },
+
+    async adopt(winner: BranchCandidate): Promise<void> {
+      const result = await getWorktreeManager().mergeWorktree(winner.id, {
+        strategy: 'auto',
+        commitMessage: `loop branch-select: adopt candidate (${winner.provider})`,
+        allowConflicts: false,
+      });
+      if (!result.success) {
+        throw new Error(`worktree merge failed: ${result.error ?? 'unknown'}`);
+      }
+    },
+
+    async cleanup(candidates: readonly BranchCandidate[]): Promise<void> {
+      const wm = getWorktreeManager();
+      for (const candidate of candidates) {
+        try {
+          await wm.abandonWorktree(candidate.id, 'branch-select cleanup');
+        } catch (err) {
+          logger.warn('Branch-select: abandonWorktree failed', { id: candidate.id, error: branchSelectErr(err) });
+        }
+      }
+    },
+
+    listwiseScore: (candidates, goal) => scoreCandidatesListwise(candidates, goal),
+  };
+}
+
 /**
  * Wire `loop:invoke-iteration` to the existing CLI adapter pipeline. The
  * prompt is sent as a single user message; the response text is captured
@@ -1113,6 +1313,9 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   const persistentLoopAdapters = new Map<string, unknown>();
   const activeLoopAdapters = new Map<string, Set<unknown>>();
   const terminatedAdapters = new WeakSet<object>();
+  // LF-1: cumulative same-session tokens per loop, used to decide when to
+  // recycle the persistent adapter to a fresh session (context discipline).
+  const loopContextTokens = new Map<string, number>();
 
   const terminateTrackedAdapter = async (adapter: unknown, graceful: boolean): Promise<void> => {
     if (adapter && typeof adapter === 'object') {
@@ -1137,8 +1340,35 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     };
   };
 
+  // LF-1: recycle a loop's persistent same-session adapter to a fresh session.
+  // Terminates the current adapter, drops it from both tracking maps, and zeroes
+  // the cumulative-token counter so the NEXT iteration creates a fresh adapter.
+  // Durable disk state (STAGE/NOTES/ITERATION_LOG/plan + the goal persisted each
+  // iteration) re-anchors the fresh session. terminateTrackedAdapter dedupes via
+  // a WeakSet so a later teardown of the same adapter is a no-op.
+  const recyclePersistentLoopAdapter = async (loopRunId: string): Promise<void> => {
+    const adapter = persistentLoopAdapters.get(loopRunId);
+    persistentLoopAdapters.delete(loopRunId);
+    loopContextTokens.delete(loopRunId);
+    if (adapter) {
+      const set = activeLoopAdapters.get(loopRunId);
+      if (set) {
+        set.delete(adapter);
+        if (set.size === 0) activeLoopAdapters.delete(loopRunId);
+      }
+      try {
+        await terminateTrackedAdapter(adapter, true);
+      } catch (err) {
+        logger.warn('LF-1 context recycle: adapter teardown failed', {
+          loopRunId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  };
+
   const isTerminalLoopStatus = (status: string): boolean =>
-    status === 'completed' || status === 'cancelled' || status === 'cap-reached'
+    status === 'completed' || status === 'completed-needs-review' || status === 'cancelled' || status === 'cap-reached'
     || status === 'failed' || status === 'error' || status === 'no-progress';
 
   // FU-8: cleanup function that tears down every adapter we own for a
@@ -1159,6 +1389,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     if (persistentAdapter) adapters.add(persistentAdapter);
     activeLoopAdapters.delete(loopRunId);
     persistentLoopAdapters.delete(loopRunId);
+    loopContextTokens.delete(loopRunId); // LF-1: drop cumulative-token tracking.
     if (adapters.size === 0) return Promise.resolve();
     const promise = Promise.allSettled(
       [...adapters].map(async (adapter) => {
@@ -1199,6 +1430,38 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     void cleanupLoopAdapters(payload.loopRunId);
   });
 
+  // LF-5: wire the real branch-and-select runtime fan-out (worktree-isolated
+  // candidates + verify + merge-winner). Opt-in via `LoopConfig.exploration`;
+  // the coordinator only invokes it on a CRITICAL when enabled + a cost cap is
+  // set, so the default config remains a no-op. Guarded for test stubs.
+  const setBranchSelector = (coordinator as {
+    setBranchSelector?: (s: (i: BranchSelectInput) => Promise<unknown>) => void;
+  }).setBranchSelector;
+  if (typeof setBranchSelector === 'function') {
+    const deps = buildLoopBranchSelectorDeps(instanceManager);
+    setBranchSelector.call(coordinator, (input: BranchSelectInput) => runBranchSelect(input, deps));
+  }
+
+  // LF-6: wire durable, cross-restart loop memory under the app's userData dir.
+  // Falls back to the in-memory default when electron's app path is unavailable
+  // (headless/test). Best-effort — never blocks invoker registration.
+  const setLoopMemoryStore = (coordinator as {
+    setLoopMemoryStore?: (s: DurableLoopMemoryStore) => void;
+  }).setLoopMemoryStore;
+  if (typeof setLoopMemoryStore === 'function') {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const electron = require('electron') as { app?: { getPath?: (n: string) => string } };
+      const userData = electron?.app?.getPath?.('userData');
+      if (userData) {
+        setLoopMemoryStore.call(coordinator, new DurableLoopMemoryStore(pathLoop.join(userData, 'loop-learnings.json')));
+        logger.info('Wired durable loop memory', { path: pathLoop.join(userData, 'loop-learnings.json') });
+      }
+    } catch (err) {
+      logger.info('Durable loop memory unavailable; using in-memory default', { error: branchSelectErr(err) });
+    }
+  }
+
   coordinator.on('loop:invoke-iteration', async (payload: unknown) => {
     interface Payload {
       correlationId: string;
@@ -1209,12 +1472,18 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       stage: string;
       seq: number;
       prompt: string;
-      config: { contextStrategy?: string };
+      config: {
+        contextStrategy?: string;
+        // LF-1 context-discipline block (optional; defaults applied below).
+        context?: { compaction?: { enabled: boolean; resetAtUtilization: number; clearToolResults: boolean } };
+      };
       callback: (result: LoopChildResult | { error: string }) => void;
       // Forwarded from LoopConfig — overrides the invoker's defaults.
       iterationTimeoutMs?: number;
       streamIdleTimeoutMs?: number;
       loopControlEnv?: Record<string, string>;
+      // LF-4 RPI: recycle the same-session adapter before this iteration runs.
+      forceContextReset?: boolean;
     }
     const p = payload as Payload;
     if (!p?.callback || typeof p.callback !== 'function') {
@@ -1329,6 +1598,13 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     }
 
     const sameSession = p.config?.contextStrategy === 'same-session';
+    // LF-4 RPI: a PLAN→IMPLEMENT context reset recycles the persistent adapter
+    // first, so the IMPLEMENT iteration starts from a fresh session anchored on
+    // the finalized plan (durable disk state) rather than the planning chatter.
+    if (sameSession && p.forceContextReset && persistentLoopAdapters.has(p.loopRunId)) {
+      await recyclePersistentLoopAdapter(p.loopRunId);
+      emitActivity({ kind: 'status', message: 'Context reset for PLAN→IMPLEMENT (fresh session)' });
+    }
     if (!reusedAdapter && sameSession) {
       const existing = persistentLoopAdapters.get(p.loopRunId);
       if (existing) {
@@ -1426,11 +1702,21 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       // testPassCount/testFailCount feeds the D / D-prime signals;
       // errors feeds the E signal; toolCalls (collected via the activity
       // stream above) feeds G.
+      // Parse structured signals from the FULL response first (so test-count /
+      // error detection never miss content elided by externalization below).
       const { pass: testPassCount, fail: testFailCount } = parseTestCounts(result.response);
       const errors: LoopErrorRecord[] = classifyIterationErrors(result.response);
+      // LF-1: when `clearToolResults` is enabled, offload an oversized full
+      // response to the output cache (retrievable) and keep a compact
+      // head+tail preview as the retained output — bounds peak memory + what
+      // the loop persists/re-surfaces on chatty iterations. Completion markers
+      // (the agent appends <promise>DONE</promise> at the END) survive in the
+      // preserved tail. Best-effort; never blocks the loop.
+      const ctxCompaction = p.config?.context?.compaction ?? defaultLoopContextConfig().compaction;
+      const retainedOutput = await maybeExternalizeLoopOutput(result.response, ctxCompaction.clearToolResults);
       const childResult: LoopChildResult = {
         childInstanceId: null,
-        output: result.response,
+        output: retainedOutput,
         tokens: result.tokens,
         filesChanged,
         toolCalls,
@@ -1439,6 +1725,37 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         testFailCount,
         exitedCleanly: true,
       };
+
+      // LF-1: context discipline for the loop's OWN persistent same-session
+      // adapter. Borrowed instance adapters are skipped — the instance owns its
+      // compaction lifecycle and must never be recycled here. Accumulate
+      // same-session tokens; when utilization crosses the configured reset
+      // threshold, recycle to a fresh session so the NEXT iteration starts
+      // clean (durable disk state re-anchors it).
+      if (sameSession && !borrowedFromInstance && persistentLoopAdapters.has(p.loopRunId)) {
+        const ctxCfg = p.config?.context?.compaction ?? defaultLoopContextConfig().compaction;
+        const cumulative = (loopContextTokens.get(p.loopRunId) ?? 0) + (result.tokens || 0);
+        loopContextTokens.set(p.loopRunId, cumulative);
+        const decision = shouldRecycleLoopContext({
+          enabled: ctxCfg.enabled,
+          cumulativeTokens: cumulative,
+          resetAtUtilization: ctxCfg.resetAtUtilization,
+        });
+        if (decision.recycle) {
+          await recyclePersistentLoopAdapter(p.loopRunId);
+          childResult.contextCompacted = {
+            previousUtilization: decision.utilization,
+            newUtilization: 0,
+            reason: decision.reason,
+          };
+          emitActivity({
+            kind: 'status',
+            message: `Context recycled to a fresh session (${decision.reason})`,
+            detail: { previousUtilization: decision.utilization },
+          });
+        }
+      }
+
       p.callback(childResult);
     } catch (err) {
       const message = logInvocationFailure({

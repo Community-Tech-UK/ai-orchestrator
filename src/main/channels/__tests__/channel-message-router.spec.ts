@@ -187,6 +187,7 @@ function makeMockAdapter() {
     setAccessPolicy: vi.fn((nextPolicy: AccessPolicy) => {
       accessPolicy = nextPolicy;
     }),
+    getDisplayName: vi.fn((): string | undefined => undefined),
   };
 }
 
@@ -941,6 +942,50 @@ describe('ChannelMessageRouter', () => {
         2,
         'c1',
         'Second burst',
+        expect.objectContaining({ replyTo: 'dm1' }),
+      );
+    });
+
+    it('tags only the first DM reply with the configured bot name', async () => {
+      vi.useFakeTimers();
+      adapter.getDisplayName.mockReturnValue('Mac Bot');
+
+      await router.handleInboundMessage(makeMessage({ id: 'tag-1', chatId: 'c1', messageId: 'dm1', isDM: true }));
+
+      instanceManager.emit('provider:normalized-event', makeOutputEnvelope('inst-1', 'First'));
+      await vi.advanceTimersByTimeAsync(2000);
+      instanceManager.emit('provider:normalized-event', makeOutputEnvelope('inst-1', 'Second'));
+      await vi.advanceTimersByTimeAsync(2000);
+
+      // First message of the reply is tagged; continuation messages are not.
+      expect(adapter.sendMessage).toHaveBeenNthCalledWith(
+        1,
+        'c1',
+        '**Mac Bot**\nFirst',
+        expect.objectContaining({ replyTo: 'dm1' }),
+      );
+      expect(adapter.sendMessage).toHaveBeenNthCalledWith(
+        2,
+        'c1',
+        'Second',
+        expect.objectContaining({ replyTo: 'dm1' }),
+      );
+    });
+
+    it('does not tag replies in a server channel (nickname covers that)', async () => {
+      vi.useFakeTimers();
+      adapter.getDisplayName.mockReturnValue('Mac Bot');
+
+      await router.handleInboundMessage(
+        makeMessage({ id: 'tag-2', chatId: 'c1', messageId: 'dm1', isDM: false, isGroup: true }),
+      );
+
+      instanceManager.emit('provider:normalized-event', makeOutputEnvelope('inst-1', 'Server reply'));
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(adapter.sendMessage).toHaveBeenCalledWith(
+        'c1',
+        'Server reply',
         expect.objectContaining({ replyTo: 'dm1' }),
       );
     });

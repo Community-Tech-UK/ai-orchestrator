@@ -121,4 +121,122 @@ describe('AutoTitleService', () => {
     const service = AutoTitleService.getInstance();
     expect(service.maybeGenerateTitle.length).toBeLessThanOrEqual(4);
   });
+
+  it('folds the attachment filename into a generic instant title', async () => {
+    // No CLI: only the instant (Phase 1) title is exercised.
+    mockIsCliAvailable.mockResolvedValue({ installed: false });
+
+    const applyTitle = vi.fn();
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      'Please fully implement this',
+      applyTitle,
+      false,
+      ['loopfixex.md'],
+    );
+
+    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Fully implement loopfixex.md', 'instant');
+    expect(mockCreateAdapter).not.toHaveBeenCalled();
+  });
+
+  it('titles from the attachment when there is no message text', async () => {
+    mockIsCliAvailable.mockResolvedValue({ installed: false });
+
+    const applyTitle = vi.fn();
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      '',
+      applyTitle,
+      false,
+      ['loopfixex.md'],
+    );
+
+    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'loopfixex.md', 'instant');
+  });
+
+  it('does not force the filename into an already-distinctive title', async () => {
+    mockIsCliAvailable.mockResolvedValue({ installed: false });
+
+    const applyTitle = vi.fn();
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      'Refactor the AuthService session cache',
+      applyTitle,
+      false,
+      ['loopfixex.md'],
+    );
+
+    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Refactor the AuthService session cache', 'instant');
+  });
+
+  it('discards an AI title that is actually a provider rate-limit notice', async () => {
+    mockIsCliAvailable.mockImplementation(async (type: string) => ({
+      installed: type === 'claude',
+    }));
+    mockResolveCliType.mockResolvedValue('claude');
+    mockSendMessage.mockResolvedValue({ content: "You've hit your session limit · resets 6:30pm" });
+
+    const applyTitle = vi.fn();
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      'Investigate the broken deployment and summarize the fix.',
+      applyTitle,
+      false,
+    );
+
+    // Phase 1 instant title still applies...
+    expect(applyTitle).toHaveBeenCalledWith(
+      'instance-1',
+      'Investigate the broken deployment and summarize the fix.',
+      'instant',
+    );
+    // ...but the limit notice must never be stamped as the AI title.
+    expect(applyTitle).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), 'ai');
+  });
+
+  it('keeps a legitimate AI title that merely mentions "limit"', async () => {
+    mockIsCliAvailable.mockImplementation(async (type: string) => ({
+      installed: type === 'claude',
+    }));
+    mockResolveCliType.mockResolvedValue('claude');
+    mockSendMessage.mockResolvedValue({ content: 'Session-limit retry bug' });
+
+    const applyTitle = vi.fn();
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      'Investigate the broken deployment and summarize the fix.',
+      applyTitle,
+      false,
+    );
+
+    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Session-limit retry bug', 'ai');
+  });
+
+  it('passes attachment names to the AI title prompt', async () => {
+    mockIsCliAvailable.mockImplementation(async (type: string) => ({
+      installed: type === 'claude',
+    }));
+    mockResolveCliType.mockResolvedValue('claude');
+
+    const applyTitle = vi.fn();
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      'Please fully implement this',
+      applyTitle,
+      false,
+      ['loopfixex.md'],
+    );
+
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining('loopfixex.md'),
+      }),
+    );
+  });
 });

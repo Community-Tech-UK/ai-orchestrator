@@ -25,7 +25,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { watch, type FSWatcher } from 'chokidar';
 import { getLogger } from '../logging/logger';
-import { parsePlanChecklist } from './loop-stage-machine';
+import { parsePlanChecklist, LOOP_TASKS_FILE } from './loop-stage-machine';
+import { parseTaskLedger } from './loop-task-ledger';
 import type {
   CompletionSignalEvidence,
   LoopConfig,
@@ -333,6 +334,45 @@ export class LoopCompletionDetector {
       } catch {
         // plan file missing or unreadable — fine
       }
+    }
+
+    // 7. LF-4: structured task ledger (LOOP_TASKS.md) — the per-item source of
+    //    truth for stopping. When the ledger has items it is the AUTHORITY:
+    //    while any item is open (todo/doing) NO completion signal is sufficient
+    //    (a premature DONE.txt / declared-complete can't stop a half-done run);
+    //    once every item is done/deferred, `ledger-complete` is the stop signal
+    //    (subject to verify-before-stop). A pre-resolved ledger from a prior run
+    //    is ignored (staleness guard), and an empty ledger (no items) is a no-op.
+    try {
+      const ledgerText = await fsp.readFile(path.resolve(config.workspaceCwd, LOOP_TASKS_FILE), 'utf8');
+      const ledger = parseTaskLedger(ledgerText);
+      if (ledger.total > 0) {
+        if (ledger.complete) {
+          if (!state.loopTasksLedgerResolvedAtStart) {
+            out.push({
+              id: 'ledger-complete',
+              sufficient: isImplement,
+              detail: isImplement
+                ? `All ${ledger.total} ${LOOP_TASKS_FILE} items resolved (done/deferred) during this run`
+                : `All ${ledger.total} ${LOOP_TASKS_FILE} items resolved, but stage is not IMPLEMENT — ignoring`,
+            });
+          }
+        } else {
+          // Open items remain → the ledger blocks completion. Demote every
+          // other signal so the loop keeps working the ledger, and record why.
+          const open = ledger.total - ledger.resolved;
+          for (const evidence of out) evidence.sufficient = false;
+          out.push({
+            id: 'ledger-complete',
+            sufficient: false,
+            detail: `${LOOP_TASKS_FILE} has ${open} open item(s)` +
+              (ledger.nextTodo ? ` — next: ${ledger.nextTodo}` : '') +
+              ' — completion blocked until every item is done or deferred (with a reason)',
+          });
+        }
+      }
+    } catch {
+      // No LOOP_TASKS.md (or unreadable) — ledger inactive, no effect.
     }
 
     return out;

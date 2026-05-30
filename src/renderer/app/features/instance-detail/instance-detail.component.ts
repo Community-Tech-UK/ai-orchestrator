@@ -832,10 +832,6 @@ export class InstanceDetailComponent {
     this.store.setSelectedInstance(data.id);
   }
 
-  onEditLastMessage(): void {
-    this.inputPanel()?.enterEditMode();
-  }
-
   onCancelQueuedMessage(index: number): void {
     this.restoreQueuedMessageToComposer(index);
   }

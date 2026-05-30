@@ -93,6 +93,12 @@ export interface LoopStartConfigInput {
   iterationTimeoutMs?: number;
   /** Stream-idle threshold per iteration (ms). */
   streamIdleTimeoutMs?: number;
+  /** LF-1: context discipline (recycle the same-session adapter on long runs). */
+  context?: {
+    compaction: { enabled: boolean; resetAtUtilization: number; clearToolResults: boolean };
+  };
+  /** LF-4: disposable-plan behaviour (regenerate the plan on stall). */
+  plan?: { regenerateOnStall: boolean };
 }
 
 @Injectable({ providedIn: 'root' })
@@ -145,6 +151,18 @@ export class LoopIpcService {
     return this.api.loopCancel(loopRunId) as Promise<IpcResponse<LoopControlResult>>;
   }
 
+  /** LF-7: operator accepts a paused, done-but-ungated run. */
+  async acceptCompletion(loopRunId: string): Promise<IpcResponse<LoopControlResult>> {
+    if (!this.api) return notInElectron();
+    const fn = (this.api as unknown as {
+      loopAcceptCompletion?: (id: string) => Promise<IpcResponse<LoopControlResult>>;
+    }).loopAcceptCompletion;
+    if (typeof fn !== 'function') {
+      return { success: false, error: { message: 'Accept-completion IPC bridge unavailable. Reload the app.' } };
+    }
+    return fn(loopRunId);
+  }
+
   async getState(loopRunId: string): Promise<IpcResponse<{ state: LoopStatePayload | null; summary?: LoopRunSummaryPayload | null; source: 'live' | 'store' }>> {
     if (!this.api) return notInElectron();
     return this.api.loopGetState(loopRunId) as Promise<IpcResponse<{ state: LoopStatePayload | null; summary?: LoopRunSummaryPayload | null; source: 'live' | 'store' }>>;
@@ -158,6 +176,18 @@ export class LoopIpcService {
   async getIterations(loopRunId: string, fromSeq?: number, toSeq?: number): Promise<IpcResponse<{ iterations: LoopIterationPayload[] }>> {
     if (!this.api) return notInElectron();
     return this.api.loopGetIterations(loopRunId, fromSeq, toSeq) as Promise<IpcResponse<{ iterations: LoopIterationPayload[] }>>;
+  }
+
+  /** LF-3a: preview the auto-inferred verify command for a workspace. */
+  async inferVerify(workspaceCwd: string): Promise<IpcResponse<{ inferred: { command: string; source: string } | null }>> {
+    if (!this.api) return notInElectron();
+    const fn = (this.api as unknown as {
+      loopInferVerify?: (cwd: string) => Promise<IpcResponse<{ inferred: { command: string; source: string } | null }>>;
+    }).loopInferVerify;
+    if (typeof fn !== 'function') {
+      return { success: false, error: { message: 'infer-verify bridge unavailable' } };
+    }
+    return fn(workspaceCwd);
   }
 
   onStateChanged(cb: (data: { loopRunId: string; state: LoopStatePayload }) => void): () => void {
@@ -212,9 +242,18 @@ export class LoopIpcService {
     if (!this.api) return () => { /* noop */ };
     return this.api.onLoopFreshEyesReviewBlocked((p) => this.ngZone.run(() => cb(p as { loopRunId: string; signal: string; reviewersUsed: string[]; blockingFindings: unknown[]; summary?: string })));
   }
-  onCompleted(cb: (data: { loopRunId: string; signal: string; verifyOutput: string }) => void): () => void {
+  onCompleted(cb: (data: { loopRunId: string; signal: string; verifyOutput: string; acceptedByOperator?: boolean }) => void): () => void {
     if (!this.api) return () => { /* noop */ };
-    return this.api.onLoopCompleted((p) => this.ngZone.run(() => cb(p as { loopRunId: string; signal: string; verifyOutput: string })));
+    return this.api.onLoopCompleted((p) => this.ngZone.run(() => cb(p as { loopRunId: string; signal: string; verifyOutput: string; acceptedByOperator?: boolean })));
+  }
+  /** LF-7: terminal "done, needs a human glance" event. */
+  onCompletedNeedsReview(cb: (data: { loopRunId: string; reason: string; acceptedByOperator: boolean }) => void): () => void {
+    if (!this.api) return () => { /* noop */ };
+    const subscribe = (this.api as unknown as {
+      onLoopCompletedNeedsReview?: (cb: (p: unknown) => void) => () => void;
+    }).onLoopCompletedNeedsReview;
+    if (typeof subscribe !== 'function') return () => { /* noop */ };
+    return subscribe((p) => this.ngZone.run(() => cb(p as { loopRunId: string; reason: string; acceptedByOperator: boolean })));
   }
   onFailed(cb: (data: { loopRunId: string; reason: string }) => void): () => void {
     if (!this.api) return () => { /* noop */ };

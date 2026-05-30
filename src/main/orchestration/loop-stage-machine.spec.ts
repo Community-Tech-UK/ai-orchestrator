@@ -309,6 +309,7 @@ describe('LoopStageMachine.captureStartupSnapshot', () => {
       doneSentinelPresent: false,
       planChecklistFullyChecked: false,
       uncompletedPlanFilesAtStart: [],
+      loopTasksLedgerResolvedAtStart: false,
     });
   });
 

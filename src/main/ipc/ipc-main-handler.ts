@@ -78,6 +78,7 @@ import {
   registerChannelHandlers,
   registerReactionHandlers,
   registerRemoteFsHandlers,
+  registerMobileGatewayHandlers,
   registerKnowledgeGraphHandlers,
   registerConversationMiningHandlers,
   registerWakeContextHandlers,
@@ -369,6 +370,9 @@ export class IpcMainHandler {
 
     // Remote filesystem handlers (read-dir, stat, search, watch, unwatch)
     registerRemoteFsHandlers();
+
+    // Mobile gateway handlers (phone control app — start/stop, pairing, devices)
+    registerMobileGatewayHandlers();
 
     // Channel handlers (Discord/WhatsApp messaging)
     registerChannelHandlers();

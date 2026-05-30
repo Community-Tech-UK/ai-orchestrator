@@ -9,6 +9,7 @@
 import { resolveCliType, type CliAdapter } from '../cli/adapters/adapter-factory';
 import type { CliMessage } from '../cli/adapters/base-cli-adapter';
 import { isCliAvailable } from '../cli/cli-detection';
+import { isProviderNotice } from '../cli/provider-notice';
 import { resolveModelForTier } from '../../shared/types/provider.types';
 import { frontLoadTitle } from '../../shared/types/history.types';
 import { getLogger } from '../logging/logger';
@@ -32,30 +33,96 @@ const AI_TITLE_TIMEOUT = 15_000;
 const FAST_PROVIDER_PREFERENCE = ['claude', 'gemini', 'copilot', 'codex'] as const;
 
 /**
- * Derive a short title from the raw first user message.
- * Takes the first line (or first sentence), trims, and truncates.
+ * A bare pointer at the end of a sentence ("…implement this", "…review these")
+ * carries no identifying information. When that's all the user typed and a file
+ * is attached, the filename is the real subject, so we swap it in.
  */
-function deriveInstantTitle(message: string): string | null {
+const TRAILING_POINTER_PATTERN = /\b(?:this|that|these|those|it|the\s+following)[\s:.!?-]*$/i;
+
+/**
+ * Words that, on their own, identify nothing — generic openers, instruction
+ * verbs, and pointers. A title built entirely from these is "low signal": it
+ * needs the attachment filename to become recognizable.
+ */
+const LOW_SIGNAL_TITLE_WORDS = new Set<string>([
+  'please', 'pls', 'plz', 'kindly', 'hey', 'hi', 'hello', 'yo',
+  'can', 'could', 'would', 'will', 'you', 'i', 'we', 'need', 'want', 'wanna', 'to',
+  'implement', 'fully', 'complete', 'completely', 'finish', 'do', 'make',
+  'fix', 'address', 'resolve', 'handle', 'investigate', 'debug', 'review',
+  'check', 'update', 'look', 'at', 'take', 'a', 'work', 'on', 'help', 'me', 'with',
+  'go', 'ahead', 'and', 'lets', 'let', 'just', 'now', 'all',
+  'this', 'that', 'these', 'those', 'it', 'them', 'the', 'following', 'everything',
+  'for', 'of', 'in',
+]);
+
+/** Reduce an attachment name to a clean basename for use in a title. */
+function attachmentLabel(name: string): string {
+  return (name.split(/[/\\]/).pop() ?? name).trim();
+}
+
+/** Map raw attachment names to clean, non-empty labels. */
+function attachmentLabels(names: readonly string[]): string[] {
+  return names.map(attachmentLabel).filter((label) => label.length > 0);
+}
+
+/** Build a title from attachment labels alone (used when there's no real text). */
+function titleFromAttachments(labels: readonly string[]): string | null {
+  if (labels.length === 0) return null;
+  if (labels.length === 1) return labels[0];
+  return `${labels[0]} +${labels.length - 1} more`;
+}
+
+/** True when a title is built entirely from generic filler words. */
+function isLowSignalTitle(title: string): boolean {
+  const words = title.toLowerCase().match(/[\p{L}\p{N}.+#-]+/gu) ?? [];
+  if (words.length === 0) return true;
+  return words.every((word) => LOW_SIGNAL_TITLE_WORDS.has(word));
+}
+
+/** Trim a long title down to the rail-visible length at a sentence/word boundary. */
+function truncateForRail(title: string): string {
+  if (title.length <= MAX_FALLBACK_TITLE_LENGTH) return title;
+  const sentenceEnd = title.search(/[.!?]\s/);
+  if (sentenceEnd > 0 && sentenceEnd <= MAX_FALLBACK_TITLE_LENGTH) {
+    return title.slice(0, sentenceEnd + 1);
+  }
+  // Truncate at word boundary
+  return title.slice(0, MAX_FALLBACK_TITLE_LENGTH).replace(/\s+\S*$/, '') + '...';
+}
+
+/**
+ * Derive a short title from the raw first user message.
+ * Takes the first line (or first sentence), trims, and truncates. When the
+ * message is generic filler ("please implement this") but a file is attached,
+ * the attachment filename is folded in so the title still identifies the task.
+ */
+function deriveInstantTitle(message: string, attachmentNames: readonly string[] = []): string | null {
+  const labels = attachmentLabels(attachmentNames);
   const trimmed = message.trim();
-  if (trimmed.length < MIN_MESSAGE_LENGTH) return null;
+
+  // No meaningful text — fall back to the attachment name(s) if we have them.
+  if (trimmed.length < MIN_MESSAGE_LENGTH) {
+    return titleFromAttachments(labels);
+  }
 
   // Take the first line, stripping generic lead-ins ("Please …", "review this
   // PR", a bare URL) so the distinctive part shows up front even before the AI
   // upgrade lands.
-  let title = frontLoadTitle(trimmed.split(/\r?\n/)[0]);
+  const firstLine = trimmed.split(/\r?\n/)[0];
+  let title = truncateForRail(frontLoadTitle(firstLine));
 
-  // If the first line is very long, take the first sentence
-  if (title.length > MAX_FALLBACK_TITLE_LENGTH) {
-    const sentenceEnd = title.search(/[.!?]\s/);
-    if (sentenceEnd > 0 && sentenceEnd <= MAX_FALLBACK_TITLE_LENGTH) {
-      title = title.slice(0, sentenceEnd + 1);
-    } else {
-      // Truncate at word boundary
-      title = title.slice(0, MAX_FALLBACK_TITLE_LENGTH).replace(/\s+\S*$/, '') + '...';
-    }
+  // The text alone identifies nothing ("Fully implement this") but a file is
+  // attached: rebuild the title around the filename. Swapping it into the raw
+  // line before re-stripping keeps lead-in removal clean ("Please implement
+  // this" + loopfixex.md → "Implement loopfixex.md").
+  if (labels.length > 0 && isLowSignalTitle(title)) {
+    const withFile = TRAILING_POINTER_PATTERN.test(firstLine)
+      ? firstLine.replace(TRAILING_POINTER_PATTERN, labels[0])
+      : `${firstLine} ${labels[0]}`;
+    title = truncateForRail(frontLoadTitle(withFile)) || titleFromAttachments(labels) || title;
   }
 
-  return title || null;
+  return title || titleFromAttachments(labels);
 }
 
 function hasSendMessage(adapter: CliAdapter): adapter is CliAdapter & { sendMessage: (m: CliMessage) => Promise<{ content: string }> } {
@@ -105,12 +172,16 @@ export class AutoTitleService {
    *   cheap-model summary — callers persist the `'ai'` title so closed threads
    *   keep an AI-chosen name.
    * @param isRenamed - Whether the user has already explicitly renamed
+   * @param attachmentNames - File names attached to the first message. Used to
+   *   title the thread when the typed text is generic filler ("implement this")
+   *   but the real subject is the attachment ("Implement loopfixex.md").
    */
   async maybeGenerateTitle(
     instanceId: string,
     message: string,
     applyTitle: (instanceId: string, title: string, source: 'instant' | 'ai') => void,
-    isRenamed?: boolean,
+    isRenamed = false,
+    attachmentNames: readonly string[] = [],
   ): Promise<void> {
     // Guard: already processed or in-flight
     if (this.processed.has(instanceId)) return;
@@ -119,11 +190,12 @@ export class AutoTitleService {
     // Guard: user already renamed
     if (isRenamed) return;
 
-    // Guard: message too short to meaningfully summarize
-    if (message.trim().length < MIN_MESSAGE_LENGTH) return;
+    // Guard: nothing to summarize — short message AND no attachment to fall back on
+    const hasAttachment = attachmentLabels(attachmentNames).length > 0;
+    if (message.trim().length < MIN_MESSAGE_LENGTH && !hasAttachment) return;
 
-    // Phase 1: Immediate fallback — truncated first message as title
-    const instantTitle = deriveInstantTitle(message);
+    // Phase 1: Immediate fallback — truncated first message (or attachment) title
+    const instantTitle = deriveInstantTitle(message, attachmentNames);
     if (instantTitle) {
       applyTitle(instanceId, instantTitle, 'instant');
       logger.info('Auto-titled instance (instant)', { instanceId, title: instantTitle });
@@ -132,7 +204,7 @@ export class AutoTitleService {
     // Phase 2: Upgrade with an AI-generated title via the fastest available CLI
     // (Haiku tier). Non-critical — on any failure the instant title remains.
     try {
-      const title = await this.generateTitle(message);
+      const title = await this.generateTitle(message, attachmentNames);
       if (title) {
         applyTitle(instanceId, title, 'ai');
         logger.info('Auto-titled instance (AI)', { instanceId, title });
@@ -148,12 +220,15 @@ export class AutoTitleService {
   /**
    * Generate a short, front-loaded title for arbitrary text using the fastest
    * available CLI (Haiku tier). Shared by live auto-titling and the history
-   * backfill. Returns null when no CLI is available, the adapter can't do a
-   * one-shot, the text is too short, or generation fails/times out.
+   * backfill. Attachment file names, when supplied, are given to the model so a
+   * generic message ("implement this") can still be titled from its attachment.
+   * Returns null when no CLI is available, the adapter can't do a one-shot, the
+   * text is too short with no attachment, or generation fails/times out.
    */
-  async generateTitle(text: string): Promise<string | null> {
+  async generateTitle(text: string, attachmentNames: readonly string[] = []): Promise<string | null> {
     const trimmed = text.trim();
-    if (trimmed.length < MIN_MESSAGE_LENGTH) {
+    const labels = attachmentLabels(attachmentNames);
+    if (trimmed.length < MIN_MESSAGE_LENGTH && labels.length === 0) {
       return null;
     }
 
@@ -186,7 +261,7 @@ export class AutoTitleService {
       options: {
         workingDirectory: process.cwd(),
         model,
-        systemPrompt: 'You generate very short tab titles (3-6 words) that summarize a task. The title is shown in a narrow sidebar and is realistically only legible by its first ~25 characters, so LEAD WITH THE MOST DISTINCTIVE, IDENTIFYING WORD — the project, feature, file, repo, or subject. Never start with generic filler ("Please", "Implement", "Fix", "Review this PR", "Help", "I need", "We need to") or a URL; drop it and open with what makes this task unique. Reply with ONLY the title — no quotes, no trailing punctuation, no explanation.',
+        systemPrompt: 'You generate very short tab titles (3-6 words) that summarize a task. The title is shown in a narrow sidebar and is realistically only legible by its first ~25 characters, so LEAD WITH THE MOST DISTINCTIVE, IDENTIFYING WORD — the project, feature, file, repo, or subject. Never start with generic filler ("Please", "Implement", "Fix", "Review this PR", "Help", "I need", "We need to") or a URL; drop it and open with what makes this task unique. If the message text is generic filler with no specific subject, build the title around the attached file name instead. Reply with ONLY the title — no quotes, no trailing punctuation, no explanation.',
         yoloMode: false,
         timeout: AI_TITLE_TIMEOUT,
       },
@@ -197,13 +272,31 @@ export class AutoTitleService {
       return null;
     }
 
+    const attachmentLine = labels.length > 0
+      ? `\n\nAttached file${labels.length > 1 ? 's' : ''}: ${labels.join(', ')}`
+      : '';
+    const messageBlock = truncatedMessage.length > 0
+      ? truncatedMessage
+      : '(no message text — the task is about the attached file)';
+
     const response = await adapter.sendMessage({
       role: 'user',
-      content: `Summarize this task in 3-6 words for a sidebar tab title. Put the most distinctive, identifying word first so it's recognizable from just the first ~25 characters:\n\n${truncatedMessage}`,
+      content: `Summarize this task in 3-6 words for a sidebar tab title. Put the most distinctive, identifying word first so it's recognizable from just the first ~25 characters. If the message text is generic filler with no specific subject, use the attached file name as the subject:\n\n${messageBlock}${attachmentLine}`,
     });
 
     const title = response.content?.trim();
-    return title && title.length > 0 && title.length <= 80 ? title : null;
+    if (!title || title.length === 0 || title.length > 80) {
+      return null;
+    }
+    // A throttled or errored one-shot can return a provider status notice
+    // ("You've hit your session limit · resets 6:30pm") instead of a title.
+    // Discard it so the instant first-message title stands rather than stamping
+    // the limit message on the session.
+    if (isProviderNotice(title)) {
+      logger.warn('Discarded AI title that looked like a provider limit/status notice', { title });
+      return null;
+    }
+    return title;
   }
 
   /**

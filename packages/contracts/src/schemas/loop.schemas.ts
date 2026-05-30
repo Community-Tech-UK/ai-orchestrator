@@ -4,16 +4,27 @@ import { z } from 'zod';
 
 export const LoopStageSchema = z.enum(['PLAN', 'REVIEW', 'IMPLEMENT']);
 export const LoopStatusSchema = z.enum([
-  'idle',
   'running',
   'paused',
   'completed',
+  // LF-7: successful "done but needs a human glance" terminal state.
+  'completed-needs-review',
   'cancelled',
   'failed',
   'error',
   'no-progress',
-  'verify-failed',
   'cap-reached',
+  // LF-8: `idle` / `verify-failed` removed — dead states the coordinator never emitted.
+]);
+
+/** LF-7: outcome of the most recent completion attempt. Mirrors
+ *  `LoopCompletionOutcome` in `src/shared/types/loop.types.ts`. */
+export const LoopCompletionOutcomeSchema = z.enum([
+  'accepted',
+  'verify-failed',
+  'unverifiable',
+  'rename-gate',
+  'review-blocked',
 ]);
 export const LoopVerdictSchema = z.enum(['OK', 'WARN', 'CRITICAL']);
 export const LoopProviderSchema = z.enum(['claude', 'codex']);
@@ -29,6 +40,8 @@ export const CompletionSignalIdSchema = z.enum([
   'self-declared',
   'plan-checklist',
   'declared-complete',
+  // LF-4: every LOOP_TASKS.md item resolved (done/deferred).
+  'ledger-complete',
 ]);
 
 // ============ Config ============
@@ -140,6 +153,37 @@ export const LoopSemanticProgressResultSchema = z.object({
   confidence: z.number().min(0).max(1),
 });
 
+/**
+ * LF-1 — context discipline config. Mirrors `LoopContextConfig` /
+ * `LoopContextCompactionConfig` in `src/shared/types/loop.types.ts`. Optional on
+ * LoopConfig; defaults to on via `defaultLoopContextConfig()`.
+ */
+export const LoopContextCompactionConfigSchema = z.object({
+  enabled: z.boolean(),
+  resetAtUtilization: z.number().min(0.1).max(0.95),
+  clearToolResults: z.boolean(),
+});
+
+export const LoopContextConfigSchema = z.object({
+  compaction: LoopContextCompactionConfigSchema,
+});
+
+/**
+ * LF-5 — branch-and-select (best-of-N) config. Mirrors `LoopExplorationConfig`
+ * in `src/shared/types/loop.types.ts`. Optional on LoopConfig; default off.
+ */
+export const LoopExplorationConfigSchema = z.object({
+  enabled: z.boolean(),
+  fanout: z.number().int().min(2).max(8),
+  crossModel: z.boolean(),
+  selector: z.enum(['verify', 'verify+listwise']),
+});
+
+/** LF-4 — disposable-plan config. Mirrors `LoopPlanConfig`. Optional; default off. */
+export const LoopPlanConfigSchema = z.object({
+  regenerateOnStall: z.boolean(),
+});
+
 export const LoopConfigSchema = z.object({
   /** The goal/ask. Sent on iteration 0 and is what the loop drives toward. */
   initialPrompt: z.string().min(1, 'initialPrompt cannot be empty'),
@@ -157,6 +201,9 @@ export const LoopConfigSchema = z.object({
   caps: LoopHardCapsSchema,
   progressThresholds: LoopProgressThresholdsSchema,
   semanticProgress: LoopSemanticProgressConfigSchema.optional(),
+  context: LoopContextConfigSchema.optional(),
+  exploration: LoopExplorationConfigSchema.optional(),
+  plan: LoopPlanConfigSchema.optional(),
   completion: LoopCompletionConfigSchema,
   allowDestructiveOps: z.boolean(),
   initialStage: LoopStageSchema,
@@ -324,6 +371,12 @@ export const LoopStateSchema = z.object({
   /** LF-7: verified-but-ungated completion-attempt counter. Defaults to 0 for
    *  back-compat with loop-state rows persisted before the field existed. */
   completionAttempts: z.number().int().nonnegative().default(0),
+  /** LF-7: outcome of the most recent completion attempt. Optional for
+   *  back-compat with rows persisted before the field existed. */
+  lastCompletionOutcome: LoopCompletionOutcomeSchema.optional(),
+  /** LF-4: LOOP_TASKS.md fully resolved at startLoop (staleness guard).
+   *  Defaults false for back-compat with rows written before the field. */
+  loopTasksLedgerResolvedAtStart: z.boolean().default(false),
 });
 
 export const LoopRunSummarySchema = z.object({
@@ -384,6 +437,11 @@ export const LoopGetIterationsPayloadSchema = z.object({
   toSeq: z.number().int().nonnegative().optional(),
 });
 
+/** LF-3a: preview the auto-inferred verify command for a workspace. */
+export const LoopInferVerifyPayloadSchema = z.object({
+  workspaceCwd: z.string().min(1),
+});
+
 // ============ Inferred types ============
 
 export type LoopConfigPayload = z.infer<typeof LoopConfigSchema>;
@@ -398,3 +456,4 @@ export type LoopByIdPayload = z.infer<typeof LoopByIdPayloadSchema>;
 export type LoopInterveneePayload = z.infer<typeof LoopInterveneePayloadSchema>;
 export type LoopListByChatPayload = z.infer<typeof LoopListByChatPayloadSchema>;
 export type LoopGetIterationsPayload = z.infer<typeof LoopGetIterationsPayloadSchema>;
+export type LoopInferVerifyPayload = z.infer<typeof LoopInferVerifyPayloadSchema>;

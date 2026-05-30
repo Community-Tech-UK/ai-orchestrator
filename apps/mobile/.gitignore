@@ -1,0 +1,8 @@
+/node_modules
+/www
+/out-tsc
+/.angular
+/ios/App/Pods
+/ios/App/App/public
+*.log
+.DS_Store

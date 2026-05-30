@@ -59,6 +59,7 @@ export function activityKindLabel(kind: string): string {
  */
 export type TerminalLoopStatus =
   | 'completed'
+  | 'completed-needs-review'
   | 'cancelled'
   | 'failed'
   | 'cap-reached'
@@ -67,12 +68,13 @@ export type TerminalLoopStatus =
 
 export function terminalStatusLabel(status: TerminalLoopStatus): string {
   switch (status) {
-    case 'completed':   return 'completed ✓';
-    case 'cancelled':   return 'cancelled';
-    case 'failed':      return 'failed';
-    case 'cap-reached': return 'cap reached';
-    case 'error':       return 'error';
-    case 'no-progress': return 'no progress';
+    case 'completed':              return 'completed ✓';
+    case 'completed-needs-review': return 'needs review';
+    case 'cancelled':              return 'cancelled';
+    case 'failed':                 return 'failed';
+    case 'cap-reached':            return 'cap reached';
+    case 'error':                  return 'error';
+    case 'no-progress':            return 'no progress';
   }
 }
 
@@ -85,16 +87,164 @@ export function terminalStatusLabel(status: TerminalLoopStatus): string {
  */
 export function loopStatusLabel(status: string): string {
   switch (status) {
-    case 'completed':   return 'completed';
-    case 'cancelled':   return 'cancelled';
-    case 'failed':      return 'failed';
-    case 'cap-reached': return 'cap';
-    case 'error':       return 'error';
-    case 'no-progress': return 'no-progress';
-    case 'paused':      return 'paused';
-    case 'running':     return 'running';
-    default:            return status;
+    case 'completed':              return 'completed';
+    case 'completed-needs-review': return 'needs review';
+    case 'cancelled':              return 'cancelled';
+    case 'failed':                 return 'failed';
+    case 'cap-reached':            return 'cap';
+    case 'error':                  return 'error';
+    case 'no-progress':            return 'no-progress';
+    case 'paused':                 return 'paused';
+    case 'running':                return 'running';
+    default:                       return status;
   }
+}
+
+// ============ LF-8: loop visual model ============
+
+/**
+ * The always-on status pill kind. Maps a live `LoopStatus` (plus, for paused
+ * loops, *why* it paused) to a small set of legible states so the user can
+ * answer "running / paused-and-why / done / needs-review / stopped" from the
+ * strip alone without opening the inspector.
+ */
+export type LoopStatusPillKind =
+  | 'running'
+  | 'awaiting-review'
+  | 'no-progress'
+  | 'blocked'
+  | 'paused'
+  | 'done'
+  | 'needs-review'
+  | 'stopped';
+
+export interface LoopStatusPill {
+  kind: LoopStatusPillKind;
+  /** Uppercase label, e.g. "RUNNING", "NEEDS REVIEW". */
+  label: string;
+}
+
+/**
+ * Derive the status pill for a live or terminal loop. `bannerKind`/`signalId`
+ * disambiguate the three pause flavours (awaiting operator review vs. structural
+ * no-progress vs. a BLOCKED.md / block intent) that previously all rendered as
+ * one ambiguous orange bar.
+ */
+export function loopStatusPill(input: {
+  status: string;
+  manualReviewOnly?: boolean;
+  lastCompletionOutcome?: string;
+  bannerKind?: 'no-progress' | 'claimed-failed' | null;
+  bannerSignalId?: string | null;
+}): LoopStatusPill {
+  switch (input.status) {
+    case 'running':                return { kind: 'running', label: 'RUNNING' };
+    case 'completed':              return { kind: 'done', label: 'DONE' };
+    case 'completed-needs-review': return { kind: 'needs-review', label: 'NEEDS REVIEW' };
+    case 'paused': {
+      const reason = loopPauseReason(input);
+      switch (reason) {
+        case 'awaiting-review': return { kind: 'awaiting-review', label: 'NEEDS REVIEW' };
+        case 'blocked':         return { kind: 'blocked', label: 'BLOCKED' };
+        case 'no-progress':     return { kind: 'no-progress', label: 'PAUSED · NO PROGRESS' };
+        default:                return { kind: 'paused', label: 'PAUSED' };
+      }
+    }
+    case 'cancelled':   return { kind: 'stopped', label: 'STOPPED' };
+    case 'failed':      return { kind: 'stopped', label: 'FAILED' };
+    case 'error':       return { kind: 'stopped', label: 'ERROR' };
+    case 'cap-reached': return { kind: 'stopped', label: 'CAP REACHED' };
+    case 'no-progress': return { kind: 'no-progress', label: 'NO PROGRESS' };
+    default:            return { kind: 'paused', label: String(input.status).toUpperCase() };
+  }
+}
+
+export type LoopPauseReason = 'awaiting-review' | 'no-progress' | 'blocked' | 'paused';
+
+/**
+ * Classify *why* a paused loop is paused, from data the store already has.
+ * A BLOCKED signal wins; an unverifiable completion (or a manual-review loop
+ * with no no-progress banner) is awaiting operator sign-off; a no-progress
+ * banner is structural; otherwise it's a plain manual pause.
+ */
+export function loopPauseReason(input: {
+  manualReviewOnly?: boolean;
+  lastCompletionOutcome?: string;
+  bannerKind?: 'no-progress' | 'claimed-failed' | null;
+  bannerSignalId?: string | null;
+}): LoopPauseReason {
+  if (input.bannerKind === 'no-progress' && input.bannerSignalId === 'BLOCKED') return 'blocked';
+  if (input.lastCompletionOutcome === 'unverifiable') return 'awaiting-review';
+  if (input.bannerKind === 'no-progress') return 'no-progress';
+  if (input.manualReviewOnly) return 'awaiting-review';
+  return 'paused';
+}
+
+export type GateStepState = 'done' | 'blocked' | 'pending' | 'skipped';
+
+export interface LoopGateStep {
+  key: 'declared' | 'verify' | 'rename' | 'review' | 'stop';
+  label: string;
+  state: GateStepState;
+}
+
+/**
+ * Compute the completion-gate stepper: declared → verify → rename → review →
+ * stop, with the blocked step highlighted. This is the single legible answer to
+ * "the loop says it's done — what is it waiting on?" (loopfixex §12.2 / LF-8).
+ * Derived purely from data the store already holds; no backend change.
+ */
+export function completionGateSteps(input: {
+  status: string;
+  verifyStatus?: 'not-run' | 'passed' | 'failed';
+  renameObserved?: boolean;
+  requireRename?: boolean;
+  manualReviewOnly?: boolean;
+  freshEyesEnabled?: boolean;
+  lastCompletionOutcome?: string;
+}): LoopGateStep[] {
+  const {
+    status,
+    verifyStatus = 'not-run',
+    renameObserved = false,
+    requireRename = false,
+    manualReviewOnly = false,
+    freshEyesEnabled = false,
+    lastCompletionOutcome,
+  } = input;
+  const terminalDone = status === 'completed' || status === 'completed-needs-review';
+  const attempted = terminalDone || lastCompletionOutcome !== undefined;
+
+  const declared: GateStepState = attempted ? 'done' : 'pending';
+
+  let verify: GateStepState;
+  if (manualReviewOnly) verify = 'skipped';
+  else if (verifyStatus === 'passed' || terminalDone) verify = 'done';
+  else if (lastCompletionOutcome === 'verify-failed' || verifyStatus === 'failed') verify = 'blocked';
+  else verify = 'pending';
+
+  let rename: GateStepState;
+  if (!requireRename) rename = 'skipped';
+  else if (renameObserved) rename = 'done';
+  else if (lastCompletionOutcome === 'rename-gate') rename = 'blocked';
+  else rename = 'pending';
+
+  let review: GateStepState;
+  if (!freshEyesEnabled && !manualReviewOnly) review = 'skipped';
+  else if (lastCompletionOutcome === 'review-blocked'
+           || (manualReviewOnly && status === 'paused' && lastCompletionOutcome === 'unverifiable')) review = 'blocked';
+  else if (terminalDone) review = 'done';
+  else review = 'pending';
+
+  const stop: GateStepState = terminalDone ? 'done' : 'pending';
+
+  return [
+    { key: 'declared', label: 'declared', state: declared },
+    { key: 'verify', label: 'verify', state: verify },
+    { key: 'rename', label: 'rename', state: rename },
+    { key: 'review', label: 'review', state: review },
+    { key: 'stop', label: 'stop', state: stop },
+  ];
 }
 
 /** "5s ago" / "2m ago" / "3h ago" / "4d ago" / "Apr 12". `now` exists for

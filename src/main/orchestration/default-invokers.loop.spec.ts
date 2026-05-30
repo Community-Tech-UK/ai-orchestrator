@@ -80,7 +80,33 @@ vi.mock('../core/circuit-breaker', () => ({
 vi.mock('../core/failover-error', () => ({ coerceToFailoverError: vi.fn(() => null) }));
 vi.mock('../../shared/types/provider.types', () => ({ getDefaultModelForCli: vi.fn(() => 'default-model') }));
 
-import { registerDefaultLoopInvoker } from './default-invokers';
+import { registerDefaultLoopInvoker, buildLoopBranchSelectorDeps } from './default-invokers';
+import type { BranchSelectInput } from './loop-branch-select';
+
+describe('LF-5 branch-select deps', () => {
+  function input(over: Partial<BranchSelectInput> = {}): BranchSelectInput {
+    return {
+      loopRunId: 'loop-1', workspaceCwd: '/ws', goal: 'g',
+      exploration: { enabled: true, fanout: 3, crossModel: false, selector: 'verify+listwise' },
+      caps: { maxIterations: 50, maxWallTimeMs: 1, maxTokens: 1_000_000, maxCostCents: 1000, maxToolCallsPerIteration: 200 },
+      spentTokens: 0, spentCents: 0, prompt: 'p', provider: 'claude',
+      verifyCommand: '', verifyTimeoutMs: 1000, iterationTimeoutMs: 1000, ...over,
+    };
+  }
+
+  it('exposes fanout/adopt/cleanup/listwiseScore', () => {
+    const deps = buildLoopBranchSelectorDeps({} as never);
+    expect(typeof deps.fanout).toBe('function');
+    expect(typeof deps.adopt).toBe('function');
+    expect(typeof deps.cleanup).toBe('function');
+    expect(typeof deps.listwiseScore).toBe('function');
+  });
+
+  it('fanout short-circuits to [] when there is no verify command (cannot rank)', async () => {
+    const deps = buildLoopBranchSelectorDeps({} as never);
+    await expect(deps.fanout(input({ verifyCommand: '' }))).resolves.toEqual([]);
+  });
+});
 
 describe('Loop Mode invoker plumbing', () => {
   beforeEach(() => {

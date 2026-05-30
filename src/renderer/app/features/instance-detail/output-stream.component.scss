@@ -308,6 +308,88 @@
         border: 1px solid rgba(34, 197, 94, 0.4);
       }
 
+      /* Inline edit-in-place editor — replaces the user bubble while editing */
+      .inline-edit-container {
+        width: 100%;
+        margin-left: auto;
+        padding: 10px 16px;
+        box-sizing: border-box;
+        background: rgba(255, 255, 255, 0.07);
+        border: 1px solid rgba(var(--primary-rgb), 0.28);
+        border-radius: 18px;
+      }
+
+      .inline-edit-textarea {
+        width: 100%;
+        box-sizing: border-box;
+        min-height: 60px;
+        max-height: 40vh;
+        padding: 0;
+        background: transparent;
+        border: none;
+        resize: none;
+        color: var(--text-primary);
+        font-family: var(--font-display);
+        font-size: var(--output-font-size, 15px);
+        line-height: 1.5;
+
+        &:focus {
+          outline: none;
+        }
+      }
+
+      .inline-edit-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 2px 0;
+      }
+
+      .inline-edit-hint {
+        margin-right: auto;
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.02em;
+        color: var(--text-muted);
+        opacity: 0.7;
+        user-select: none;
+      }
+
+      .inline-edit-btn {
+        padding: 5px 14px;
+        border-radius: var(--radius-sm);
+        border: 1px solid transparent;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all var(--transition-fast);
+
+        &.secondary {
+          background: transparent;
+          border-color: rgba(255, 255, 255, 0.12);
+          color: var(--text-muted);
+
+          &:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+          }
+        }
+
+        &.primary {
+          background: rgb(var(--primary-rgb));
+          color: #fff;
+
+          &:hover:not(:disabled) {
+            filter: brightness(1.08);
+          }
+
+          &:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+          }
+        }
+      }
+
       .message-content {
         line-height: 1.62;
         font-size: var(--output-font-size, 15px);
