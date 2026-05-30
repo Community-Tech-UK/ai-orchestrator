@@ -13,6 +13,31 @@ interface ProjectStateSummary {
 export class ProjectGroupComputationService {
   private newSessionDraft = inject(NewSessionDraftService);
 
+  /**
+   * Statuses that count as "Active" — a session that is live and engaged
+   * (running a turn, processing, or awaiting the user) as opposed to one that
+   * is sitting idle/ready, hibernated, or in a terminal/error state. Backs the
+   * "Active" option in the State filter, which is broader than the exact-match
+   * "Busy" option.
+   */
+  private static readonly ACTIVE_STATUSES: ReadonlySet<Instance['status']> = new Set([
+    'initializing',
+    'busy',
+    'processing',
+    'thinking_deeply',
+    'waiting_for_input',
+    'waiting_for_permission',
+    'interrupting',
+    'cancelling',
+    'interrupt-escalating',
+    'respawning',
+    'waking',
+  ]);
+
+  isActiveStatus(status: Instance['status']): boolean {
+    return ProjectGroupComputationService.ACTIVE_STATUSES.has(status);
+  }
+
   buildChildrenMap(instances: Instance[]): Map<string, string[]> {
     const childrenByParent = new Map<string, string[]>();
     for (const instance of instances) {
@@ -67,7 +92,11 @@ export class ProjectGroupComputationService {
     const textMatches = !context.filter ||
       context.projectMatches ||
       this.matchesInstanceText(instance, context.filter);
-    const statusMatches = context.status === 'all' || instance.status === context.status;
+    const statusMatches =
+      context.status === 'all' ||
+      (context.status === 'active'
+        ? this.isActiveStatus(instance.status)
+        : instance.status === context.status);
     const locationMatches =
       context.location === 'all' ||
       (context.location === 'remote' && instance.executionLocation?.type === 'remote') ||

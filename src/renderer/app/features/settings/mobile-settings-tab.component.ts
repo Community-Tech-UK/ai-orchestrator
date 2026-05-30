@@ -11,10 +11,12 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import {
   MobileGatewayIpcService,
   type MobilePairingResult,
 } from '../../core/services/ipc/mobile-gateway-ipc.service';
+import { SettingsIpcService } from '../../core/services/ipc/settings-ipc.service';
 import type {
   MobileGatewayStatus,
   MobileDeviceSummary,
@@ -24,6 +26,7 @@ import type {
   standalone: true,
   selector: 'app-mobile-settings-tab',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [FormsModule],
   template: `
     <section class="mobile-tab">
       @if (error()) {
@@ -48,6 +51,57 @@ import type {
 
         <button class="primary" (click)="toggle()" [disabled]="busy()">
           {{ busy() ? 'Working…' : status()?.running ? 'Stop gateway' : 'Start gateway' }}
+        </button>
+      </div>
+
+      <div class="card">
+        <div class="status-line">
+          <span class="dot" [class.on]="status()?.pushConfigured"></span>
+          <strong>Push notifications (APNs)</strong>
+        </div>
+        <p class="hint">
+          Get pinged on your phone when an agent needs approval — even when the app is closed.
+          Paste your Apple Push <code>.p8</code> Auth Key and IDs from the Apple Developer account.
+          Push delivers over Apple's network independently of Tailscale.
+        </p>
+
+        <label class="field">
+          <span>Auth Key (.p8 contents)</span>
+          <textarea
+            rows="4"
+            [ngModel]="apnsKeyP8()"
+            (ngModelChange)="apnsKeyP8.set($event)"
+            [placeholder]="apnsHasKey() ? '•••• key stored — paste a new one to replace ••••' : '-----BEGIN PRIVATE KEY-----\\n…'"
+          ></textarea>
+        </label>
+        <div class="grid">
+          <label class="field">
+            <span>Key ID</span>
+            <input [ngModel]="apnsKeyId()" (ngModelChange)="apnsKeyId.set($event)" placeholder="ABCDE12345" />
+          </label>
+          <label class="field">
+            <span>Team ID</span>
+            <input [ngModel]="apnsTeamId()" (ngModelChange)="apnsTeamId.set($event)" placeholder="TEAM123456" />
+          </label>
+        </div>
+        <label class="field">
+          <span>Bundle ID (APNs topic)</span>
+          <input
+            [ngModel]="apnsBundleId()"
+            (ngModelChange)="apnsBundleId.set($event)"
+            placeholder="com.shutupandshave.aiorchestrator"
+          />
+        </label>
+        <label class="checkbox">
+          <input
+            type="checkbox"
+            [ngModel]="apnsProduction()"
+            (ngModelChange)="apnsProduction.set($event)"
+          />
+          <span>Production APNs endpoint (uncheck while testing with a development build)</span>
+        </label>
+        <button (click)="saveApns()" [disabled]="apnsBusy()">
+          {{ apnsBusy() ? 'Saving…' : apnsSaved() ? 'Saved' : 'Save push settings' }}
         </button>
       </div>
 
@@ -154,11 +208,24 @@ import type {
       }
       .device-info { display: flex; flex-direction: column; gap: 2px; }
       .device-info .meta { color: var(--text-secondary, #8e8e93); font-size: 12px; }
+      .field { display: flex; flex-direction: column; gap: 4px; }
+      .field > span { font-size: 12px; color: var(--text-secondary, #8e8e93); }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      input[type='text'], input:not([type]), textarea {
+        background: var(--bg, #000); color: var(--text, #fff);
+        border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+        border-radius: 8px; padding: 8px 10px; font-size: 13px; width: 100%;
+        font-family: inherit;
+      }
+      textarea { font-family: 'SF Mono', ui-monospace, Menlo, monospace; resize: vertical; }
+      .checkbox { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary, #8e8e93); }
+      .checkbox input { width: auto; }
     `,
   ],
 })
 export class MobileSettingsTabComponent implements OnInit {
   private readonly ipc = inject(MobileGatewayIpcService);
+  private readonly settings = inject(SettingsIpcService);
 
   protected readonly status = signal<MobileGatewayStatus | null>(null);
   protected readonly devices = signal<MobileDeviceSummary[]>([]);
@@ -167,6 +234,16 @@ export class MobileSettingsTabComponent implements OnInit {
   protected readonly pairingBusy = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly copied = signal(false);
+
+  // APNs push config
+  protected readonly apnsKeyP8 = signal('');
+  protected readonly apnsKeyId = signal('');
+  protected readonly apnsTeamId = signal('');
+  protected readonly apnsBundleId = signal('');
+  protected readonly apnsProduction = signal(false);
+  protected readonly apnsHasKey = signal(false);
+  protected readonly apnsBusy = signal(false);
+  protected readonly apnsSaved = signal(false);
 
   protected readonly tailscaleReady = computed(() => Boolean(this.status()?.tailscaleIp));
 
@@ -191,6 +268,45 @@ export class MobileSettingsTabComponent implements OnInit {
   private async refresh(): Promise<void> {
     this.status.set(await this.ipc.getStatus());
     this.devices.set(await this.ipc.listDevices());
+    await this.loadApnsConfig();
+  }
+
+  private async loadApnsConfig(): Promise<void> {
+    const res = await this.settings.getSettings();
+    if (!res.success) return;
+    const s = (res.data ?? {}) as Record<string, unknown>;
+    this.apnsKeyId.set(typeof s['mobileGatewayApnsKeyId'] === 'string' ? (s['mobileGatewayApnsKeyId'] as string) : '');
+    this.apnsTeamId.set(typeof s['mobileGatewayApnsTeamId'] === 'string' ? (s['mobileGatewayApnsTeamId'] as string) : '');
+    this.apnsBundleId.set(
+      typeof s['mobileGatewayApnsBundleId'] === 'string' ? (s['mobileGatewayApnsBundleId'] as string) : '',
+    );
+    this.apnsProduction.set(Boolean(s['mobileGatewayApnsProduction']));
+    // Never echo the secret key back into the UI; just note whether one is stored.
+    this.apnsHasKey.set(typeof s['mobileGatewayApnsKeyP8'] === 'string' && (s['mobileGatewayApnsKeyP8'] as string).length > 0);
+    this.apnsKeyP8.set('');
+  }
+
+  protected async saveApns(): Promise<void> {
+    this.apnsBusy.set(true);
+    this.error.set(null);
+    try {
+      await this.settings.setSetting('mobileGatewayApnsKeyId', this.apnsKeyId().trim());
+      await this.settings.setSetting('mobileGatewayApnsTeamId', this.apnsTeamId().trim());
+      await this.settings.setSetting('mobileGatewayApnsBundleId', this.apnsBundleId().trim());
+      await this.settings.setSetting('mobileGatewayApnsProduction', this.apnsProduction());
+      // Only overwrite the key when the user pasted a new one.
+      const key = this.apnsKeyP8().trim();
+      if (key) {
+        await this.settings.setSetting('mobileGatewayApnsKeyP8', key);
+      }
+      this.apnsSaved.set(true);
+      setTimeout(() => this.apnsSaved.set(false), 2000);
+      await this.refresh();
+    } catch (err) {
+      this.error.set((err as Error).message);
+    } finally {
+      this.apnsBusy.set(false);
+    }
   }
 
   protected async toggle(): Promise<void> {

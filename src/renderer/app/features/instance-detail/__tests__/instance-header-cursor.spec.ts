@@ -44,7 +44,7 @@ function getProviderColor(provider: string): string {
     case 'copilot':
       return '#A855F7';
     case 'cursor':
-      return '#000000';
+      return '#E5E7EB';
     default:
       return '#888888';
   }
@@ -59,8 +59,10 @@ describe('InstanceHeaderComponent — cursor provider', () => {
     expect(getProviderColor('cursor')).toMatch(/^#|rgb|hsl|var\(/);
   });
 
-  it('getProviderColor returns #000000 for cursor (brand color)', () => {
-    expect(getProviderColor('cursor')).toBe('#000000');
+  it('getProviderColor returns a light neutral for cursor (visible on dark surfaces)', () => {
+    // Cursor's mark is monochrome; pure black (#000000) disappeared on the
+    // app's dark backgrounds, so the provider colour is a light neutral.
+    expect(getProviderColor('cursor')).toBe('#E5E7EB');
   });
 
   it('getProviderDisplayName still works for other providers', () => {

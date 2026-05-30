@@ -8,11 +8,24 @@ import { crossPlatformBasename } from '../../shared/utils/cross-platform-path';
 import { getLogger } from '../logging/logger';
 import { resolveBindHost } from './tailscale-interface';
 import { getMobileDeviceRegistry, type MobileDeviceRegistry } from './mobile-device-registry';
-import type { Instance } from '../../shared/types/instance.types';
+import { getMobileApnsSender, type MobileApnsSender } from './mobile-apns-sender';
+import { getPauseCoordinator } from '../pause/pause-coordinator';
+import { getRecentDirectoriesManager } from '../core/config/recent-directories-manager';
+import { toOutputMessageFromProviderEnvelope } from '../providers/provider-output-event';
+import type {
+  Instance,
+  OutputMessage,
+  FileAttachment,
+  InstanceCreateConfig,
+} from '../../shared/types/instance.types';
+import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import type {
   MobileGatewayStatus,
   MobileInstanceDto,
+  MobileMessageDto,
+  MobilePauseDto,
   MobileProjectDto,
+  MobilePromptDto,
   MobileServerEvent,
   MobileSnapshot,
 } from '../../shared/types/mobile-gateway.types';
@@ -20,8 +33,11 @@ import type {
 const logger = getLogger('MobileGateway');
 
 const NO_WORKSPACE_KEY = '__no_workspace__';
-const MAX_BODY_BYTES = 64 * 1024;
+const MAX_BODY_BYTES = 8 * 1024 * 1024; // generous: input may carry base64 attachments
 const SNAPSHOT_COALESCE_MS = 100;
+const MESSAGE_REPLAY_LIMIT = 300;
+
+const VALID_PROVIDERS = new Set(['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor']);
 
 /** Statuses that count as "actively working" for the project rollup. */
 const WORKING_STATUSES = new Set<string>([
@@ -36,21 +52,60 @@ const WORKING_STATUSES = new Set<string>([
   'waking',
 ]);
 
-/**
- * Minimal structural view of InstanceManager the gateway needs. The real
- * InstanceManager (an EventEmitter) satisfies this, and tests can pass a light
- * double without constructing the whole manager.
- */
-export interface GatewayInstanceSource {
-  getAllInstances(): Instance[];
+/** Statuses where an instance is blocked waiting on the user. */
+const WAITING_STATUSES = new Set<string>(['waiting_for_permission', 'waiting_for_input']);
+
+/** Minimal EventEmitter surface the gateway subscribes to / detaches from. */
+interface EmitterLike {
   on(event: string, listener: (...args: unknown[]) => void): unknown;
   removeListener(event: string, listener: (...args: unknown[]) => void): unknown;
 }
 
+/** Minimal pause-coordinator surface the gateway uses. */
+export interface GatewayPauseSource extends EmitterLike {
+  toPayload(): MobilePauseDto;
+  addReason(reason: 'user', meta?: Record<string, unknown>): void;
+  removeReason(reason: 'user'): void;
+}
+
+/** Minimal recent-directories surface the gateway uses. */
+export interface GatewayRecentDirsSource {
+  getDirectories(options?: { limit?: number }): Promise<
+    { path: string; displayName: string; lastAccessed: number; isPinned: boolean }[]
+  >;
+}
+
+/**
+ * Structural view of InstanceManager the gateway needs. The real InstanceManager
+ * (an EventEmitter) satisfies this; tests pass a light double. Command methods
+ * are called in-process — no IPC trust gate, no renderer refactor.
+ */
+export interface GatewayInstanceSource extends EmitterLike {
+  getAllInstances(): Instance[];
+  getInstance(id: string): Instance | undefined;
+  sendInput(instanceId: string, message: string, attachments?: FileAttachment[]): Promise<void>;
+  interruptInstance(instanceId: string): boolean;
+  terminateInstance(instanceId: string, graceful?: boolean): Promise<void>;
+  resumeAfterDeferredPermission(instanceId: string, approved: boolean): Promise<void>;
+  recordInputRequiredPermissionDecision(params: {
+    instanceId: string;
+    requestId: string;
+    action: 'allow' | 'deny';
+    scope: 'once' | 'session' | 'always';
+  }): void;
+  clearPendingInputRequiredPermission(instanceId: string, requestId: string): void;
+  renameInstance(instanceId: string, displayName: string): void;
+  createInstance(config: InstanceCreateConfig): Promise<Instance>;
+  getOrchestrationHandler(): EmitterLike;
+}
+
 export interface MobileGatewayDeps {
   instanceManager: GatewayInstanceSource;
-  /** Defaults to the settings-backed singleton; injectable for tests. */
+  /** Defaults to the settings-backed singletons; injectable for tests. */
   registry?: MobileDeviceRegistry;
+  pauseCoordinator?: GatewayPauseSource;
+  recentDirs?: GatewayRecentDirsSource;
+  apnsSender?: MobileApnsSender;
 }
 
 export interface MobileGatewayStartOptions {
@@ -73,12 +128,21 @@ export function serializeInstance(instance: Instance): MobileInstanceDto {
     createdAt: instance.createdAt,
     lastActivity: instance.lastActivity,
     parentId: instance.parentId ?? undefined,
-    // The backend Instance has no approval/unread fields (those are renderer-
-    // derived); Phase 0 infers approval from status. Phase 2 wires the real
-    // pending-prompt store.
-    pendingApprovalCount: instance.status === 'waiting_for_permission' ? 1 : 0,
+    // Status heuristic; the snapshot overrides this with the real prompt count.
+    pendingApprovalCount: WAITING_STATUSES.has(instance.status) ? 1 : 0,
     hasUnreadCompletion: false,
     contextPercentage: instance.contextUsage?.percentage,
+  };
+}
+
+export function serializeMessage(message: OutputMessage): MobileMessageDto {
+  return {
+    id: message.id,
+    timestamp: message.timestamp,
+    type: message.type,
+    content: message.content,
+    metadata: message.metadata,
+    hasAttachments: Boolean(message.attachments?.length),
   };
 }
 
@@ -119,7 +183,25 @@ export class MobileGatewayServer {
   private tailscaleIp: string | null = null;
   private startedAt = 0;
   private snapshotTimer: ReturnType<typeof setTimeout> | null = null;
-  private readonly onInstanceChange = () => this.scheduleSnapshotBroadcast();
+
+  /** Pending "needs you" prompts keyed by requestId. */
+  private readonly prompts = new Map<string, MobilePromptDto>();
+  /** The orchestration handler we attached to, for clean detach on stop. */
+  private orchestration: EmitterLike | null = null;
+  private attachedPause: GatewayPauseSource | null = null;
+
+  // Stable listener refs so we can detach exactly what we attached.
+  private readonly onInstanceCreated = () => this.scheduleSnapshotBroadcast();
+  private readonly onInstanceRemoved = (instanceId: unknown) =>
+    this.handleInstanceRemoved(String(instanceId));
+  private readonly onStateUpdate = (update: unknown) => this.handleStateUpdate(update);
+  private readonly onBatchUpdate = (updates: unknown) => this.handleBatchUpdate(updates);
+  private readonly onProviderEvent = (envelope: unknown) =>
+    this.handleProviderEvent(envelope as ProviderRuntimeEventEnvelope);
+  private readonly onInputRequired = (payload: unknown) => this.handleInputRequired(payload);
+  private readonly onUserAction = (request: unknown) => this.handleUserAction(request);
+  private readonly onPauseChange = () =>
+    this.broadcast({ type: 'pause-state', data: this.pauseState() });
 
   static getInstance(): MobileGatewayServer {
     if (!this.instance) {
@@ -141,6 +223,18 @@ export class MobileGatewayServer {
 
   private get registry(): MobileDeviceRegistry {
     return this.deps?.registry ?? getMobileDeviceRegistry();
+  }
+
+  private get pause(): GatewayPauseSource {
+    return this.deps?.pauseCoordinator ?? (getPauseCoordinator() as unknown as GatewayPauseSource);
+  }
+
+  private get recentDirs(): GatewayRecentDirsSource {
+    return this.deps?.recentDirs ?? getRecentDirectoriesManager();
+  }
+
+  private get apnsSender(): MobileApnsSender {
+    return this.deps?.apnsSender ?? getMobileApnsSender();
   }
 
   async start(options: MobileGatewayStartOptions): Promise<MobileGatewayStatus> {
@@ -175,16 +269,13 @@ export class MobileGatewayServer {
       });
     });
 
-    const { instanceManager } = this.deps;
-    instanceManager.on('instance:created', this.onInstanceChange);
-    instanceManager.on('instance:removed', this.onInstanceChange);
-    instanceManager.on('instance:state-update', this.onInstanceChange);
-    instanceManager.on('instance:batch-update', this.onInstanceChange);
+    this.attachListeners();
 
     logger.info('Mobile gateway started', {
       host: this.boundHost,
       port: this.boundPort,
       tailscaleIp: this.tailscaleIp,
+      pushConfigured: this.safeIsPushConfigured(),
     });
     return this.getStatus();
   }
@@ -194,13 +285,7 @@ export class MobileGatewayServer {
       clearTimeout(this.snapshotTimer);
       this.snapshotTimer = null;
     }
-    if (this.deps) {
-      const { instanceManager } = this.deps;
-      instanceManager.removeListener('instance:created', this.onInstanceChange);
-      instanceManager.removeListener('instance:removed', this.onInstanceChange);
-      instanceManager.removeListener('instance:state-update', this.onInstanceChange);
-      instanceManager.removeListener('instance:batch-update', this.onInstanceChange);
-    }
+    this.detachListeners();
 
     for (const client of this.clients) {
       try {
@@ -210,6 +295,7 @@ export class MobileGatewayServer {
       }
     }
     this.clients.clear();
+    this.prompts.clear();
 
     if (this.wss) {
       this.wss.close();
@@ -246,7 +332,236 @@ export class MobileGatewayServer {
       startedAt: running ? this.startedAt : undefined,
       connectedClientCount: this.clients.size,
       pairedDeviceCount: this.registry.deviceCount(),
+      pushConfigured: this.safeIsPushConfigured(),
     };
+  }
+
+  private safeIsPushConfigured(): boolean {
+    try {
+      return this.apnsSender.isConfigured();
+    } catch {
+      return false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Event subscription
+  // ---------------------------------------------------------------------------
+
+  private attachListeners(): void {
+    const { instanceManager } = this.deps!;
+    instanceManager.on('instance:created', this.onInstanceCreated);
+    instanceManager.on('instance:removed', this.onInstanceRemoved);
+    instanceManager.on('instance:state-update', this.onStateUpdate);
+    instanceManager.on('instance:batch-update', this.onBatchUpdate);
+    instanceManager.on('provider:normalized-event', this.onProviderEvent);
+    instanceManager.on('instance:input-required', this.onInputRequired);
+
+    try {
+      this.orchestration = instanceManager.getOrchestrationHandler();
+      this.orchestration.on('user-action-request', this.onUserAction);
+    } catch (err) {
+      logger.warn('Could not attach orchestration listener', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    try {
+      this.attachedPause = this.pause;
+      this.attachedPause.on('change', this.onPauseChange);
+    } catch (err) {
+      logger.warn('Could not attach pause listener', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  private detachListeners(): void {
+    if (!this.deps) return;
+    const { instanceManager } = this.deps;
+    instanceManager.removeListener('instance:created', this.onInstanceCreated);
+    instanceManager.removeListener('instance:removed', this.onInstanceRemoved);
+    instanceManager.removeListener('instance:state-update', this.onStateUpdate);
+    instanceManager.removeListener('instance:batch-update', this.onBatchUpdate);
+    instanceManager.removeListener('provider:normalized-event', this.onProviderEvent);
+    instanceManager.removeListener('instance:input-required', this.onInputRequired);
+    this.orchestration?.removeListener('user-action-request', this.onUserAction);
+    this.orchestration = null;
+    this.attachedPause?.removeListener('change', this.onPauseChange);
+    this.attachedPause = null;
+  }
+
+  private handleInstanceRemoved(instanceId: string): void {
+    this.clearPromptsForInstance(instanceId);
+    this.scheduleSnapshotBroadcast();
+  }
+
+  private handleStateUpdate(update: unknown): void {
+    const u = update as { instanceId?: string; status?: string };
+    if (u.instanceId && u.status && !WAITING_STATUSES.has(u.status)) {
+      this.clearPromptsForInstance(u.instanceId);
+    }
+    this.scheduleSnapshotBroadcast();
+  }
+
+  private handleBatchUpdate(updates: unknown): void {
+    const data = updates as { updates?: { instanceId?: string; status?: string }[] };
+    if (data.updates) {
+      for (const u of data.updates) {
+        if (u.instanceId && u.status && !WAITING_STATUSES.has(u.status)) {
+          this.clearPromptsForInstance(u.instanceId);
+        }
+      }
+    }
+    this.scheduleSnapshotBroadcast();
+  }
+
+  private handleProviderEvent(envelope: ProviderRuntimeEventEnvelope): void {
+    if (this.clients.size === 0) return;
+    const message = toOutputMessageFromProviderEnvelope(envelope);
+    if (!message) return;
+    this.broadcast({
+      type: 'instance-output',
+      data: {
+        instanceId: envelope.instanceId,
+        seq: envelope.seq,
+        message: serializeMessage(message),
+      },
+    });
+  }
+
+  private handleInputRequired(payload: unknown): void {
+    const p = payload as {
+      instanceId: string;
+      requestId: string;
+      prompt?: string;
+      timestamp?: number;
+      metadata?: Record<string, unknown>;
+    };
+    if (!p?.instanceId || !p?.requestId) return;
+    const meta = p.metadata ?? {};
+    const toolName =
+      (typeof meta['tool_name'] === 'string' && meta['tool_name']) ||
+      (typeof meta['toolName'] === 'string' && meta['toolName']) ||
+      undefined;
+    const toolInput =
+      meta['tool_input'] && typeof meta['tool_input'] === 'object'
+        ? (meta['tool_input'] as Record<string, unknown>)
+        : undefined;
+    this.addPrompt({
+      id: p.requestId,
+      instanceId: p.instanceId,
+      requestId: p.requestId,
+      kind: 'permission',
+      toolName: toolName || undefined,
+      toolInput,
+      title: toolName ? `${toolName} needs approval` : 'Permission required',
+      message: p.prompt || (toolName ? `Allow ${toolName}?` : 'An action needs your approval.'),
+      createdAt: p.timestamp || Date.now(),
+    });
+  }
+
+  private handleUserAction(request: unknown): void {
+    const r = request as {
+      id: string;
+      instanceId: string;
+      title?: string;
+      message?: string;
+      options?: { label: string }[];
+      questions?: string[];
+      createdAt?: number;
+    };
+    if (!r?.id || !r?.instanceId) return;
+    this.addPrompt({
+      id: r.id,
+      instanceId: r.instanceId,
+      requestId: r.id,
+      kind: 'user-action',
+      title: r.title || 'Input needed',
+      message: r.message || 'An AI instance is waiting for your response.',
+      options: r.options?.map((o) => o.label) ?? r.questions,
+      createdAt: r.createdAt || Date.now(),
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Prompt store
+  // ---------------------------------------------------------------------------
+
+  private addPrompt(prompt: MobilePromptDto): void {
+    this.prompts.set(prompt.id, prompt);
+    this.broadcast({ type: 'permission-prompt', data: prompt });
+    this.sendPush(prompt);
+    // The rollup counts changed; refresh the snapshot too.
+    this.scheduleSnapshotBroadcast();
+  }
+
+  private clearPrompt(requestId: string): void {
+    const prompt = this.prompts.get(requestId);
+    if (!prompt) return;
+    this.prompts.delete(requestId);
+    this.broadcast({
+      type: 'permission-cleared',
+      data: { requestId, instanceId: prompt.instanceId },
+    });
+    this.scheduleSnapshotBroadcast();
+  }
+
+  private clearPromptsForInstance(instanceId: string): void {
+    for (const [id, prompt] of this.prompts) {
+      if (prompt.instanceId === instanceId) {
+        this.prompts.delete(id);
+        this.broadcast({ type: 'permission-cleared', data: { requestId: id, instanceId } });
+      }
+    }
+  }
+
+  private sendPush(prompt: MobilePromptDto): void {
+    try {
+      const sender = this.apnsSender;
+      if (!sender.isConfigured()) return;
+      const tokens = this.registry.apnsTokens();
+      if (tokens.length === 0) return;
+      const instance = this.deps?.instanceManager.getInstance(prompt.instanceId);
+      const where = instance?.workingDirectory
+        ? crossPlatformBasename(instance.workingDirectory)
+        : '';
+      const agent = instance?.displayName || 'Agent';
+      const title =
+        prompt.kind === 'permission'
+          ? prompt.toolName
+            ? `${prompt.toolName} needs approval`
+            : 'Approval needed'
+          : prompt.title;
+      const body = where ? `${agent} · ${where}` : agent;
+      void sender
+        .send(tokens, {
+          title,
+          body,
+          category: 'AIO_APPROVAL',
+          threadId: prompt.instanceId,
+          data: {
+            instanceId: prompt.instanceId,
+            requestId: prompt.requestId,
+            kind: prompt.kind,
+          },
+        })
+        .catch((err) =>
+          logger.debug('APNs send failed', {
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+    } catch (err) {
+      logger.debug('sendPush threw', { error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  private pauseState(): MobilePauseDto {
+    try {
+      return this.pause.toPayload();
+    } catch {
+      return { isPaused: false, reasons: [], pausedAt: null, lastChange: 0 };
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -254,14 +569,25 @@ export class MobileGatewayServer {
   // ---------------------------------------------------------------------------
 
   buildSnapshot(): MobileSnapshot {
+    const promptCounts = new Map<string, number>();
+    for (const prompt of this.prompts.values()) {
+      promptCounts.set(prompt.instanceId, (promptCounts.get(prompt.instanceId) ?? 0) + 1);
+    }
     const instances = (this.deps?.instanceManager.getAllInstances() ?? [])
       .filter((instance) => instance.status !== 'terminated')
-      .map(serializeInstance);
+      .map(serializeInstance)
+      .map((dto) =>
+        promptCounts.has(dto.id)
+          ? { ...dto, pendingApprovalCount: promptCounts.get(dto.id)! }
+          : dto,
+      );
     return {
       hostName: os.hostname(),
       serverTime: Date.now(),
       instances,
       projects: buildProjects(instances),
+      prompts: [...this.prompts.values()],
+      pause: this.pauseState(),
     };
   }
 
@@ -326,8 +652,10 @@ export class MobileGatewayServer {
     ws.on('error', () => {
       this.clients.delete(ws);
     });
-    // Initial snapshot.
-    ws.send(JSON.stringify({ type: 'snapshot', data: this.buildSnapshot() } satisfies MobileServerEvent));
+    // Initial snapshot (includes pending prompts + pause state).
+    ws.send(
+      JSON.stringify({ type: 'snapshot', data: this.buildSnapshot() } satisfies MobileServerEvent),
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -336,8 +664,9 @@ export class MobileGatewayServer {
 
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url || '/', `http://${this.boundHost || 'localhost'}:${this.boundPort}`);
+    const method = req.method || 'GET';
 
-    if (req.method === 'OPTIONS') {
+    if (method === 'OPTIONS') {
       res.writeHead(204, corsHeaders());
       res.end();
       return;
@@ -348,7 +677,7 @@ export class MobileGatewayServer {
       return;
     }
 
-    if (url.pathname === '/pair' && req.method === 'POST') {
+    if (url.pathname === '/pair' && method === 'POST') {
       await this.handlePair(req, res);
       return;
     }
@@ -360,22 +689,271 @@ export class MobileGatewayServer {
       return;
     }
 
-    if (url.pathname === '/api/instances' && req.method === 'GET') {
-      this.sendJson(res, 200, this.buildSnapshot().instances);
+    const segments = url.pathname.split('/').filter(Boolean);
+
+    try {
+      // /api/...
+      if (segments[0] === 'api') {
+        // /api/instances ...
+        if (segments[1] === 'instances') {
+          if (segments.length === 2) {
+            if (method === 'GET') return this.sendJson(res, 200, this.buildSnapshot().instances);
+            if (method === 'POST') return await this.handleCreateInstance(req, res);
+          }
+          if (segments.length === 4) {
+            const instanceId = decodeURIComponent(segments[2]);
+            const action = segments[3];
+            if (action === 'messages' && method === 'GET') {
+              return this.handleMessages(res, instanceId);
+            }
+            if (action === 'input' && method === 'POST') {
+              return await this.handleInput(req, res, instanceId);
+            }
+            if (action === 'respond' && method === 'POST') {
+              return await this.handleRespond(req, res, instanceId);
+            }
+            if (action === 'interrupt' && method === 'POST') {
+              return this.handleInterrupt(res, instanceId);
+            }
+            if (action === 'terminate' && method === 'POST') {
+              return await this.handleTerminate(req, res, instanceId);
+            }
+            if (action === 'rename' && method === 'POST') {
+              return await this.handleRename(req, res, instanceId);
+            }
+          }
+        }
+
+        if (segments[1] === 'projects' && segments.length === 2 && method === 'GET') {
+          return this.sendJson(res, 200, this.buildSnapshot().projects);
+        }
+        if (segments[1] === 'snapshot' && segments.length === 2 && method === 'GET') {
+          return this.sendJson(res, 200, this.buildSnapshot());
+        }
+        if (segments[1] === 'prompts' && segments.length === 2 && method === 'GET') {
+          return this.sendJson(res, 200, [...this.prompts.values()]);
+        }
+        if (segments[1] === 'pause' && segments.length === 2) {
+          if (method === 'GET') return this.sendJson(res, 200, this.pauseState());
+          if (method === 'POST') return await this.handleSetPause(req, res);
+        }
+        if (segments[1] === 'recent-dirs' && segments.length === 2 && method === 'GET') {
+          return await this.handleRecentDirs(res);
+        }
+        if (
+          segments[1] === 'devices' &&
+          segments.length === 4 &&
+          segments[3] === 'apns-token' &&
+          method === 'POST'
+        ) {
+          return await this.handleApnsToken(req, res, decodeURIComponent(segments[2]), device.deviceId);
+        }
+      }
+
+      this.sendJson(res, 404, { error: 'Not found' });
+    } catch (err) {
+      logger.warn('Request handler error', {
+        path: url.pathname,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      this.sendJson(res, 500, { error: err instanceof Error ? err.message : 'Internal error' });
+    }
+  }
+
+  private source(): GatewayInstanceSource {
+    if (!this.deps) throw new Error('Gateway not initialized');
+    return this.deps.instanceManager;
+  }
+
+  private handleMessages(res: ServerResponse, instanceId: string): void {
+    const instance = this.source().getInstance(instanceId);
+    if (!instance) {
+      this.sendJson(res, 404, { error: 'Instance not found' });
+      return;
+    }
+    const messages = (instance.outputBuffer ?? [])
+      .slice(-MESSAGE_REPLAY_LIMIT)
+      .map(serializeMessage);
+    this.sendJson(res, 200, messages);
+  }
+
+  private async handleInput(
+    req: IncomingMessage,
+    res: ServerResponse,
+    instanceId: string,
+  ): Promise<void> {
+    const body = (await readJsonBody(req)) as {
+      message?: unknown;
+      attachments?: unknown;
+    };
+    const message = typeof body.message === 'string' ? body.message : '';
+    const attachments = Array.isArray(body.attachments)
+      ? (body.attachments as FileAttachment[])
+      : undefined;
+    if (!message && (!attachments || attachments.length === 0)) {
+      this.sendJson(res, 400, { error: 'message or attachments required' });
+      return;
+    }
+    if (!this.source().getInstance(instanceId)) {
+      this.sendJson(res, 404, { error: 'Instance not found' });
+      return;
+    }
+    await this.source().sendInput(instanceId, message, attachments);
+    this.sendJson(res, 200, { ok: true });
+  }
+
+  private async handleRespond(
+    req: IncomingMessage,
+    res: ServerResponse,
+    instanceId: string,
+  ): Promise<void> {
+    const body = (await readJsonBody(req)) as {
+      requestId?: unknown;
+      decisionAction?: unknown;
+      decisionScope?: unknown;
+    };
+    const requestId = typeof body.requestId === 'string' ? body.requestId : '';
+    const decisionAction = body.decisionAction === 'allow' || body.decisionAction === 'deny'
+      ? body.decisionAction
+      : null;
+    const decisionScope =
+      body.decisionScope === 'once' || body.decisionScope === 'session' || body.decisionScope === 'always'
+        ? body.decisionScope
+        : undefined;
+    if (!requestId || !decisionAction) {
+      this.sendJson(res, 400, { error: 'requestId and decisionAction (allow|deny) required' });
       return;
     }
 
-    if (url.pathname === '/api/projects' && req.method === 'GET') {
-      this.sendJson(res, 200, this.buildSnapshot().projects);
+    const approved = decisionAction === 'allow';
+    await this.source().resumeAfterDeferredPermission(instanceId, approved);
+    if (decisionScope) {
+      this.source().recordInputRequiredPermissionDecision({
+        instanceId,
+        requestId,
+        action: decisionAction,
+        scope: decisionScope,
+      });
+    } else {
+      this.source().clearPendingInputRequiredPermission(instanceId, requestId);
+    }
+    this.clearPrompt(requestId);
+    this.sendJson(res, 200, { ok: true, resumed: true });
+  }
+
+  private handleInterrupt(res: ServerResponse, instanceId: string): void {
+    if (!this.source().getInstance(instanceId)) {
+      this.sendJson(res, 404, { error: 'Instance not found' });
       return;
     }
+    const accepted = this.source().interruptInstance(instanceId);
+    this.sendJson(res, 200, { ok: true, accepted });
+  }
 
-    if (url.pathname === '/api/snapshot' && req.method === 'GET') {
-      this.sendJson(res, 200, this.buildSnapshot());
+  private async handleTerminate(
+    req: IncomingMessage,
+    res: ServerResponse,
+    instanceId: string,
+  ): Promise<void> {
+    const body = (await readJsonBody(req).catch(() => ({}))) as { graceful?: unknown };
+    const graceful = body.graceful !== false;
+    await this.source().terminateInstance(instanceId, graceful);
+    this.clearPromptsForInstance(instanceId);
+    this.sendJson(res, 200, { ok: true });
+  }
+
+  private async handleRename(
+    req: IncomingMessage,
+    res: ServerResponse,
+    instanceId: string,
+  ): Promise<void> {
+    const body = (await readJsonBody(req)) as { displayName?: unknown };
+    const displayName = typeof body.displayName === 'string' ? body.displayName.trim() : '';
+    if (!displayName) {
+      this.sendJson(res, 400, { error: 'displayName required' });
       return;
     }
+    if (!this.source().getInstance(instanceId)) {
+      this.sendJson(res, 404, { error: 'Instance not found' });
+      return;
+    }
+    this.source().renameInstance(instanceId, displayName.slice(0, 200));
+    this.sendJson(res, 200, { ok: true });
+  }
 
-    this.sendJson(res, 404, { error: 'Not found' });
+  private async handleCreateInstance(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const body = (await readJsonBody(req)) as {
+      workingDirectory?: unknown;
+      provider?: unknown;
+      model?: unknown;
+      initialPrompt?: unknown;
+    };
+    const workingDirectory =
+      typeof body.workingDirectory === 'string' ? body.workingDirectory.trim() : '';
+    if (!workingDirectory) {
+      this.sendJson(res, 400, { error: 'workingDirectory required' });
+      return;
+    }
+    const provider =
+      typeof body.provider === 'string' && VALID_PROVIDERS.has(body.provider)
+        ? (body.provider as InstanceCreateConfig['provider'])
+        : undefined;
+    const config: InstanceCreateConfig = {
+      workingDirectory,
+      initialPrompt: typeof body.initialPrompt === 'string' ? body.initialPrompt : undefined,
+      provider,
+      modelOverride: typeof body.model === 'string' ? body.model : undefined,
+    };
+    const instance = await this.source().createInstance(config);
+    this.sendJson(res, 200, serializeInstance(instance));
+  }
+
+  private async handleSetPause(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const body = (await readJsonBody(req)) as { paused?: unknown };
+    if (typeof body.paused !== 'boolean') {
+      this.sendJson(res, 400, { error: 'paused (boolean) required' });
+      return;
+    }
+    if (body.paused) {
+      this.pause.addReason('user', { source: 'mobile' });
+    } else {
+      this.pause.removeReason('user');
+    }
+    this.sendJson(res, 200, this.pauseState());
+  }
+
+  private async handleRecentDirs(res: ServerResponse): Promise<void> {
+    const entries = await this.recentDirs.getDirectories({ limit: 50 });
+    this.sendJson(
+      res,
+      200,
+      entries.map((e) => ({
+        path: e.path,
+        displayName: e.displayName,
+        lastAccessed: e.lastAccessed,
+        isPinned: e.isPinned,
+      })),
+    );
+  }
+
+  private async handleApnsToken(
+    req: IncomingMessage,
+    res: ServerResponse,
+    deviceId: string,
+    authedDeviceId: string,
+  ): Promise<void> {
+    if (deviceId !== authedDeviceId) {
+      this.sendJson(res, 403, { error: 'Can only set the APNs token for your own device' });
+      return;
+    }
+    const body = (await readJsonBody(req)) as { apnsToken?: unknown };
+    const apnsToken = typeof body.apnsToken === 'string' ? body.apnsToken.trim() : '';
+    if (!apnsToken) {
+      this.sendJson(res, 400, { error: 'apnsToken required' });
+      return;
+    }
+    const ok = this.registry.setApnsToken(deviceId, apnsToken);
+    this.sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'Device not found' });
   }
 
   private async handlePair(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -386,12 +964,14 @@ export class MobileGatewayServer {
       this.sendJson(res, 400, { error: err instanceof Error ? err.message : 'Invalid body' });
       return;
     }
-    const pairingToken = typeof (body as Record<string, unknown>)?.['pairingToken'] === 'string'
-      ? ((body as Record<string, unknown>)['pairingToken'] as string)
-      : '';
-    const label = typeof (body as Record<string, unknown>)?.['label'] === 'string'
-      ? ((body as Record<string, unknown>)['label'] as string)
-      : undefined;
+    const pairingToken =
+      typeof (body as Record<string, unknown>)?.['pairingToken'] === 'string'
+        ? ((body as Record<string, unknown>)['pairingToken'] as string)
+        : '';
+    const label =
+      typeof (body as Record<string, unknown>)?.['label'] === 'string'
+        ? ((body as Record<string, unknown>)['label'] as string)
+        : undefined;
 
     const result = this.registry.pair({ pairingToken, label });
     if (result.status === 'rejected') {

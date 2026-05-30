@@ -19,6 +19,7 @@ import {
 } from '../../shared/types/command.types';
 import { parseArgsFromQuery } from '../../shared/utils/command-args';
 import { getMarkdownCommandRegistry } from './markdown-command-registry';
+import { interpolateCommandTemplate } from './command-interpolation';
 
 interface CommandStoreSchema {
   customCommands: CommandTemplate[];
@@ -40,7 +41,7 @@ const store = new ElectronStore<CommandStoreSchema>({
 }) as unknown as Store<CommandStoreSchema>;
 
 class CommandManager {
-  private builtInCommands: Map<string, CommandTemplate> = new Map();
+  private builtInCommands = new Map<string, CommandTemplate>();
 
   constructor() {
     this.initializeBuiltInCommands();
@@ -247,10 +248,15 @@ class CommandManager {
     const command = await this.getCommand(commandId, workingDirectory);
     if (!command) return null;
 
+    // Interpolate dynamic !`shell` / @{file} placeholders on the raw template
+    // first (author-controlled), then substitute user/agent args. See
+    // command-interpolation.ts for the security rationale of this ordering.
+    const interpolated = await interpolateCommandTemplate(command.template, { cwd: workingDirectory });
+
     return {
       command,
       args,
-      resolvedPrompt: resolveTemplate(command.template, args),
+      resolvedPrompt: resolveTemplate(interpolated, args),
       execution: getCommandExecution(command),
     };
   }
@@ -262,10 +268,12 @@ class CommandManager {
     const resolved = await this.resolveCommand(input, workingDirectory);
     if (resolved.kind !== 'exact' && resolved.kind !== 'alias') return null;
 
+    const interpolated = await interpolateCommandTemplate(resolved.command.template, { cwd: workingDirectory });
+
     return {
       command: resolved.command,
       args: resolved.args,
-      resolvedPrompt: resolveTemplate(resolved.command.template, resolved.args),
+      resolvedPrompt: resolveTemplate(interpolated, resolved.args),
       execution: getCommandExecution(resolved.command),
     };
   }

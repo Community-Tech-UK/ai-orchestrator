@@ -172,6 +172,19 @@ export class MobileDeviceRegistry {
     return this.devicesByToken.size;
   }
 
+  /** APNs tokens of all non-expired paired devices that have registered one. */
+  apnsTokens(): string[] {
+    this.ensureLoaded();
+    const now = Date.now();
+    const tokens: string[] = [];
+    for (const device of this.devicesByToken.values()) {
+      if (device.apnsToken && device.expiresAt > now) {
+        tokens.push(device.apnsToken);
+      }
+    }
+    return tokens;
+  }
+
   // --- internals ---
 
   private ensureLoaded(): void {

@@ -349,7 +349,8 @@ export class ProviderSelectorComponent implements OnInit {
       id: 'cursor',
       name: 'Cursor CLI',
       description: 'Cursor CLI (cursor-agent)',
-      color: '#000000',
+      // Light neutral keeps Cursor's monochrome mark visible on dark surfaces.
+      color: '#E5E7EB',
       icon: 'cursor',
       available: true,
     },

@@ -2,7 +2,7 @@
   "name": "ai-orchestrator-mobile",
   "version": "0.1.0",
   "private": true,
-  "description": "AI Orchestrator phone control app (Angular + Capacitor). Phase 0: connect to instances over Tailscale, view projects + live session status.",
+  "description": "AI Orchestrator phone control app (Angular + Capacitor): connect to instances over Tailscale, read transcripts, send prompts, approve/deny, and get push alerts.",
   "scripts": {
     "start": "ng serve",
     "build": "ng build",
@@ -17,9 +17,11 @@
     "@angular/forms": "^21.2.13",
     "@angular/platform-browser": "^21.2.13",
     "@angular/router": "^21.2.13",
+    "@capacitor-mlkit/barcode-scanning": "^7.0.0",
     "@capacitor/core": "^7.0.0",
     "@capacitor/ios": "^7.0.0",
     "@capacitor/preferences": "^7.0.0",
+    "@capacitor/push-notifications": "^7.0.0",
     "rxjs": "^7.8.0",
     "tslib": "^2.6.0"
   },

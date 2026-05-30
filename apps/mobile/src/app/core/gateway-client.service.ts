@@ -1,16 +1,30 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { HostStore } from './host-store';
-import type { MobileServerEvent, MobileSnapshot, PairedHost } from './models';
+import type {
+  MobileAttachmentDto,
+  MobileCreateInstanceRequest,
+  MobileInstanceDto,
+  MobileMessageDto,
+  MobilePauseDto,
+  MobilePromptDto,
+  MobileRecentDirDto,
+  MobileRespondRequest,
+  MobileServerEvent,
+  MobileSnapshot,
+  PairedHost,
+} from './models';
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected';
 
 const RECONNECT_MS = 3000;
+const EMPTY_PAUSE: MobilePauseDto = { isPaused: false, reasons: [], pausedAt: null, lastChange: 0 };
 
 /**
- * Maintains a live WebSocket to the active host and exposes the latest snapshot
- * as a signal. Reconnects automatically (the WS link rides the Tailscale tunnel,
- * which can drop as the phone changes networks). Zoneless-friendly: socket
- * callbacks write signals, which drive change detection directly.
+ * Maintains a live WebSocket to the active host and exposes the latest snapshot,
+ * per-instance transcripts, pending prompts and pause state as signals. Reconnects
+ * automatically (the WS link rides the Tailscale tunnel, which can drop as the phone
+ * changes networks) and uses the per-instance `seq` to detect gaps and resync.
+ * Zoneless-friendly: socket callbacks write signals, which drive change detection.
  */
 @Injectable({ providedIn: 'root' })
 export class GatewayClient {
@@ -18,14 +32,21 @@ export class GatewayClient {
 
   private readonly _snapshot = signal<MobileSnapshot | null>(null);
   private readonly _state = signal<ConnectionState>('disconnected');
+  private readonly _transcripts = signal<Record<string, MobileMessageDto[]>>({});
+  private readonly _prompts = signal<MobilePromptDto[]>([]);
+  private readonly _pause = signal<MobilePauseDto>(EMPTY_PAUSE);
 
   readonly snapshot = this._snapshot.asReadonly();
   readonly state = this._state.asReadonly();
   readonly online = computed(() => this._state() === 'connected');
+  readonly transcripts = this._transcripts.asReadonly();
+  readonly prompts = this._prompts.asReadonly();
+  readonly pause = this._pause.asReadonly();
 
   private ws: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private currentHostId: string | null = null;
+  private readonly lastSeq = new Map<string, number>();
 
   constructor() {
     // (Re)connect whenever the active host changes.
@@ -37,10 +58,24 @@ export class GatewayClient {
     });
   }
 
+  /** The transcript for one instance (history + live), or []. */
+  messagesFor(instanceId: string): MobileMessageDto[] {
+    return this._transcripts()[instanceId] ?? [];
+  }
+
+  /** Pending prompts for one instance. */
+  promptsFor(instanceId: string): MobilePromptDto[] {
+    return this._prompts().filter((p) => p.instanceId === instanceId);
+  }
+
   private connect(host: PairedHost | null): void {
     this.teardown();
     this.currentHostId = host?.id ?? null;
     this._snapshot.set(null);
+    this._prompts.set([]);
+    this._pause.set(EMPTY_PAUSE);
+    this._transcripts.set({});
+    this.lastSeq.clear();
     if (!host) {
       this._state.set('disconnected');
       return;
@@ -63,10 +98,7 @@ export class GatewayClient {
     ws.onopen = () => this._state.set('connected');
     ws.onmessage = (ev: MessageEvent) => {
       try {
-        const event = JSON.parse(ev.data as string) as MobileServerEvent;
-        if (event.type === 'snapshot') {
-          this._snapshot.set(event.data);
-        }
+        this.handleEvent(JSON.parse(ev.data as string) as MobileServerEvent);
       } catch {
         /* ignore malformed frame */
       }
@@ -85,6 +117,68 @@ export class GatewayClient {
         /* ignore */
       }
     };
+  }
+
+  private handleEvent(event: MobileServerEvent): void {
+    switch (event.type) {
+      case 'snapshot':
+        this._snapshot.set(event.data);
+        this._prompts.set(event.data.prompts ?? []);
+        this._pause.set(event.data.pause ?? EMPTY_PAUSE);
+        break;
+      case 'instance-output':
+        this.applyOutput(event.data.instanceId, event.data.seq, event.data.message);
+        break;
+      case 'permission-prompt':
+        this.upsertPrompt(event.data);
+        break;
+      case 'permission-cleared':
+        this._prompts.set(this._prompts().filter((p) => p.requestId !== event.data.requestId));
+        break;
+      case 'pause-state':
+        this._pause.set(event.data);
+        break;
+      case 'instance-removed':
+        this.dropInstance(event.data.instanceId);
+        break;
+      // instance-created / instance-state are also delivered via the coalesced
+      // snapshot, which is the source of truth for the instance/project lists.
+      default:
+        break;
+    }
+  }
+
+  private applyOutput(instanceId: string, seq: number, message: MobileMessageDto): void {
+    const prev = this.lastSeq.get(instanceId);
+    this.lastSeq.set(instanceId, seq);
+    // Gap on a flaky link → pull authoritative history for this instance.
+    if (prev !== undefined && seq > prev + 1) {
+      void this.loadMessages(instanceId);
+    }
+    this.appendMessage(instanceId, message);
+  }
+
+  private appendMessage(instanceId: string, message: MobileMessageDto): void {
+    const map = this._transcripts();
+    const list = map[instanceId] ?? [];
+    const existing = list.findIndex((m) => m.id === message.id);
+    const next = existing >= 0
+      ? list.map((m, i) => (i === existing ? message : m))
+      : [...list, message];
+    this._transcripts.set({ ...map, [instanceId]: next });
+  }
+
+  private upsertPrompt(prompt: MobilePromptDto): void {
+    const others = this._prompts().filter((p) => p.id !== prompt.id);
+    this._prompts.set([...others, prompt]);
+  }
+
+  private dropInstance(instanceId: string): void {
+    const map = { ...this._transcripts() };
+    delete map[instanceId];
+    this._transcripts.set(map);
+    this._prompts.set(this._prompts().filter((p) => p.instanceId !== instanceId));
+    this.lastSeq.delete(instanceId);
   }
 
   private scheduleReconnect(host: PairedHost): void {
@@ -107,7 +201,6 @@ export class GatewayClient {
     const ws = this.ws;
     if (ws) {
       this.ws = null;
-      // Detach handlers so the close below doesn't trigger a reconnect.
       ws.onclose = null;
       ws.onerror = null;
       ws.onmessage = null;
@@ -118,6 +211,108 @@ export class GatewayClient {
         /* ignore */
       }
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // REST — every command goes to the active host with its bearer token.
+  // ---------------------------------------------------------------------------
+
+  private base(): { url: string; headers: Record<string, string> } | null {
+    const host = this.hostStore.activeHost();
+    if (!host) return null;
+    return {
+      url: `http://${host.host}:${host.port}`,
+      headers: { authorization: `Bearer ${host.token}`, 'content-type': 'application/json' },
+    };
+  }
+
+  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const base = this.base();
+    if (!base) throw new Error('No active host');
+    const res = await fetch(`${base.url}${path}`, {
+      method,
+      headers: base.headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    return (await res.json().catch(() => ({}))) as T;
+  }
+
+  /** Fetch and store the authoritative transcript for an instance. */
+  async loadMessages(instanceId: string): Promise<void> {
+    try {
+      const messages = await this.request<MobileMessageDto[]>(
+        'GET',
+        `/api/instances/${encodeURIComponent(instanceId)}/messages`,
+      );
+      this._transcripts.set({ ...this._transcripts(), [instanceId]: messages });
+    } catch {
+      /* leave any existing transcript in place */
+    }
+  }
+
+  async sendInput(
+    instanceId: string,
+    message: string,
+    attachments?: MobileAttachmentDto[],
+  ): Promise<void> {
+    // Optimistic echo so the user sees their message immediately.
+    this.appendMessage(instanceId, {
+      id: `local-${Date.now()}`,
+      timestamp: Date.now(),
+      type: 'user',
+      content: message,
+      hasAttachments: Boolean(attachments?.length),
+    });
+    await this.request('POST', `/api/instances/${encodeURIComponent(instanceId)}/input`, {
+      message,
+      attachments,
+    });
+    // Reconcile with the authoritative buffer (drops the optimistic temp id).
+    void this.loadMessages(instanceId);
+  }
+
+  async respond(instanceId: string, body: MobileRespondRequest): Promise<void> {
+    await this.request('POST', `/api/instances/${encodeURIComponent(instanceId)}/respond`, body);
+    this._prompts.set(this._prompts().filter((p) => p.requestId !== body.requestId));
+  }
+
+  async interrupt(instanceId: string): Promise<void> {
+    await this.request('POST', `/api/instances/${encodeURIComponent(instanceId)}/interrupt`);
+  }
+
+  async terminate(instanceId: string, graceful = true): Promise<void> {
+    await this.request('POST', `/api/instances/${encodeURIComponent(instanceId)}/terminate`, {
+      graceful,
+    });
+  }
+
+  async rename(instanceId: string, displayName: string): Promise<void> {
+    await this.request('POST', `/api/instances/${encodeURIComponent(instanceId)}/rename`, {
+      displayName,
+    });
+  }
+
+  async createInstance(body: MobileCreateInstanceRequest): Promise<MobileInstanceDto> {
+    return this.request<MobileInstanceDto>('POST', '/api/instances', body);
+  }
+
+  async recentDirs(): Promise<MobileRecentDirDto[]> {
+    return this.request<MobileRecentDirDto[]>('GET', '/api/recent-dirs');
+  }
+
+  async setPause(paused: boolean): Promise<void> {
+    const state = await this.request<MobilePauseDto>('POST', '/api/pause', { paused });
+    this._pause.set(state);
+  }
+
+  async registerApnsToken(deviceId: string, apnsToken: string): Promise<void> {
+    await this.request('POST', `/api/devices/${encodeURIComponent(deviceId)}/apns-token`, {
+      apnsToken,
+    });
   }
 
   /** REST: exchange a one-time pairing token for a long-lived device token. */

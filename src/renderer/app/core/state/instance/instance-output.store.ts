@@ -119,9 +119,16 @@ export class InstanceOutputStore implements ImageAttachmentSink {
           }
         }
 
-        // Keep buffer trimmed
+        // Keep buffer trimmed to the shared cap. The renderer previously
+        // hardcoded 1000, trimming more aggressively than the main process
+        // (which retains LIMITS.OUTPUT_BUFFER_MAX_SIZE) — so freshly streamed
+        // history vanished from the UI before it left the main buffer. The
+        // transcript is windowed (TranscriptScrollStrategy renders only the
+        // visible range), so a larger cap costs memory only, never DOM nodes;
+        // older messages beyond the cap reload from disk on scroll-up.
+        const max = LIMITS.OUTPUT_BUFFER_MAX_SIZE;
         const trimmed =
-          outputBuffer.length > 1000 ? outputBuffer.slice(-1000) : outputBuffer;
+          outputBuffer.length > max ? outputBuffer.slice(-max) : outputBuffer;
 
         newMap.set(instanceId, {
           ...instance,
@@ -255,24 +262,30 @@ export class InstanceOutputStore implements ImageAttachmentSink {
 
   markImagesResolved(instanceId: string, messageId: string): void {
     this.stateService.state.update((current) => {
-      const instances = new Map(current.instances);
-      const instance = instances.get(instanceId);
+      const instance = current.instances.get(instanceId);
       if (!instance) {
         return current;
       }
 
-      const outputBuffer = instance.outputBuffer.map((message) =>
-        message.id === messageId
-          ? {
-              ...message,
-              metadata: {
-                ...(message.metadata ?? {}),
-                imagesResolved: true,
-              },
-            }
-          : message
-      );
+      // No-op guard (#25): skip the write entirely when the target message is
+      // absent or already flagged resolved, so re-resolution passes don't churn
+      // the buffer array and wake every transcript subscriber.
+      const idx = instance.outputBuffer.findIndex((message) => message.id === messageId);
+      if (idx < 0 || instance.outputBuffer[idx].metadata?.['imagesResolved'] === true) {
+        return current;
+      }
 
+      const outputBuffer = instance.outputBuffer.slice();
+      const target = outputBuffer[idx];
+      outputBuffer[idx] = {
+        ...target,
+        metadata: {
+          ...(target.metadata ?? {}),
+          imagesResolved: true,
+        },
+      };
+
+      const instances = new Map(current.instances);
       instances.set(instanceId, {
         ...instance,
         outputBuffer,

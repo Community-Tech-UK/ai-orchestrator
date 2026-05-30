@@ -214,7 +214,10 @@ class AIOrchestratorApp {
     // Session state already saved synchronously in cleanupSync()
     await runCleanupFunctions();
     // Kill any orphaned child processes that were not cleaned up by terminateAll.
-    BaseCliAdapter.killAllActiveProcesses();
+    // Use the escalating drain (SIGTERM → grace → SIGKILL) so a wedged orphan
+    // CLI can't survive quit; the sync best-effort variant is reserved for the
+    // emergency cleanupSync() path that cannot await.
+    await BaseCliAdapter.killAllActiveProcessesGraceful();
     logger.info('Cleanup complete — all instances archived');
   }
 }

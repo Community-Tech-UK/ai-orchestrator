@@ -95,7 +95,7 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
               }
               @case ('cursor') {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                  <rect x="4" y="4" width="16" height="16" rx="2"/>
+                  <path d="M12 2 L20 7 L20 17 L12 22 L4 17 L4 7 Z"/>
                 </svg>
               }
             }
@@ -721,7 +721,8 @@ export class InstanceRowComponent {
       case 'ollama':
         return { icon: 'ollama', color: '#7dd3fc', label: 'Ollama' } as const;
       case 'cursor':
-        return { icon: 'cursor', color: '#000000', label: 'Cursor' } as const;
+        // Light neutral keeps Cursor's monochrome mark visible on dark surfaces.
+        return { icon: 'cursor', color: '#E5E7EB', label: 'Cursor' } as const;
     }
   });
   readonly needsAttention = computed(() =>

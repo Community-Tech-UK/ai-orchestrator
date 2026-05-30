@@ -20,5 +20,15 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/sessions/sessions.component').then((m) => m.SessionsComponent),
   },
+  {
+    path: 'projects/:projectKey/sessions/:instanceId',
+    loadComponent: () =>
+      import('./features/conversation/conversation.component').then((m) => m.ConversationComponent),
+  },
+  {
+    path: 'new-session',
+    loadComponent: () =>
+      import('./features/new-session/new-session.component').then((m) => m.NewSessionComponent),
+  },
   { path: '**', redirectTo: '' },
 ];

@@ -313,7 +313,9 @@ export class InstanceHeaderComponent implements OnInit {
       case 'copilot':
         return '#A855F7';
       case 'cursor':
-        return '#000000';
+        // Cursor's mark is monochrome; use a light neutral so it stays visible
+        // on dark surfaces rather than rendering black-on-black.
+        return '#E5E7EB';
       default:
         return '#888888';
     }

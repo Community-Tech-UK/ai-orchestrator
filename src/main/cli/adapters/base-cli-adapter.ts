@@ -263,12 +263,74 @@ export abstract class BaseCliAdapter extends EventEmitter {
   private static activeProcesses = new Set<ChildProcess>();
 
   /**
-   * Kill all active child processes. Called during app shutdown
-   * to prevent orphans when Electron exits.
+   * Kill all active child processes (synchronous, best-effort). Called from the
+   * emergency `cleanupSync()` path where we cannot await — sends a single
+   * SIGTERM to every tracked process group and forgets. Prefer
+   * `killAllActiveProcessesGraceful()` from the async shutdown path, which
+   * escalates to SIGKILL so a wedged CLI cannot orphan.
    */
   static killAllActiveProcesses(): void {
     for (const proc of BaseCliAdapter.activeProcesses) {
       BaseCliAdapter.killProcessGroup(proc.pid, 'SIGTERM');
+    }
+    BaseCliAdapter.activeProcesses.clear();
+  }
+
+  /**
+   * Drain every tracked child process group on app quit with escalation:
+   * SIGTERM the whole set, wait up to `graceMs` for natural exit, then SIGKILL
+   * any survivor (and its group). This is the no-zombie guarantee the bare
+   * synchronous variant lacks — a CLI ignoring SIGTERM (mid-flush, wedged MCP
+   * server, stuck language server) is force-killed rather than leaked.
+   */
+  static async killAllActiveProcessesGraceful(graceMs = 3000): Promise<void> {
+    const procs = Array.from(BaseCliAdapter.activeProcesses);
+    if (procs.length === 0) {
+      return;
+    }
+
+    // Only wait on processes that haven't already exited.
+    const pending = new Set(
+      procs.filter((proc) => proc.exitCode === null && proc.signalCode === null),
+    );
+
+    // Register exit listeners BEFORE signalling so we can't miss a fast exit.
+    const exitPromise = new Promise<void>((resolve) => {
+      if (pending.size === 0) {
+        resolve();
+        return;
+      }
+      let timer: NodeJS.Timeout | null = null;
+      const listeners = new Map<ChildProcess, () => void>();
+      const settle = () => {
+        if (timer) clearTimeout(timer);
+        for (const [proc, listener] of listeners) {
+          proc.removeListener('exit', listener);
+        }
+        resolve();
+      };
+      for (const proc of pending) {
+        const listener = () => {
+          pending.delete(proc);
+          if (pending.size === 0) settle();
+        };
+        listeners.set(proc, listener);
+        proc.once('exit', listener);
+      }
+      timer = setTimeout(settle, graceMs);
+    });
+
+    // Phase 1: polite signal to the whole set.
+    for (const proc of procs) {
+      BaseCliAdapter.killProcessGroup(proc.pid, 'SIGTERM');
+    }
+
+    // Phase 2: wait for natural exit or the grace deadline.
+    await exitPromise;
+
+    // Phase 3: hard-kill anything still standing.
+    for (const proc of pending) {
+      BaseCliAdapter.killProcessGroup(proc.pid, 'SIGKILL');
     }
     BaseCliAdapter.activeProcesses.clear();
   }

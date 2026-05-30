@@ -87,6 +87,7 @@
                   (change)="onStatusFilterChange($event)"
                 >
                   <option value="all">All</option>
+                  <option value="active">Active</option>
                   <option value="idle">Idle</option>
                   <option value="busy">Busy</option>
                   <option value="waiting_for_input">Waiting</option>
@@ -384,7 +385,7 @@
                                   }
                                   @case ('cursor') {
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                                      <rect x="4" y="4" width="16" height="16" rx="2"/>
+                                      <path d="M12 2 L20 7 L20 17 L12 22 L4 17 L4 7 Z"/>
                                     </svg>
                                   }
                                   @default {

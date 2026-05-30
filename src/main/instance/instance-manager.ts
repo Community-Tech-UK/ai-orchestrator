@@ -282,6 +282,24 @@ export class InstanceManager extends EventEmitter {
         const inst = this.state.getInstance(id);
         if (!inst) return;
         inst.processId = null;
+        // Surface WHY the instance died instead of leaving a bare "error" badge.
+        // The reconciler reached here because the CLI's PID is gone but no exit
+        // event fired (crash, OOM, machine sleep). A transcript system note turns
+        // the silent death into an actionable one. The status flip to `error`
+        // below removes `error` from the reconciler's live-status set, so this
+        // note is emitted exactly once.
+        const note = {
+          id: generateId(),
+          timestamp: Date.now(),
+          type: 'system' as const,
+          content:
+            '⚠️ Runtime lost — the CLI process exited unexpectedly without an exit event '
+            + '(likely a crash, out-of-memory, or the machine slept). Resume or restart this '
+            + 'session to continue.',
+          metadata: { runtimeLost: true },
+        };
+        this.communication.addToOutputBuffer(inst, note);
+        this.publishOutput(id, note);
         this.updateInstanceStatus(id, 'error', { reason: 'runtime_lost' });
       },
     });

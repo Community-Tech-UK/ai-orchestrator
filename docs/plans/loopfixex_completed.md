@@ -1,8 +1,9 @@
-# Loop Fixes — Executable Implementation Plan (`loopfixex.md`)
+# Loop Fixes — Executable Implementation Plan (`loopfixex_completed.md`)
 
-> **Status:** Draft for review (not yet approved; do not commit per AGENTS.md until implemented & verified, then rename `loopfixex_completed.md`).
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement task-by-task. Steps use checkbox (`- [ ]`) syntax. This file is also loop-executable: it is a valid plan file for AI Orchestrator's own Loop Mode (the stage machine reads `- [ ]`/`- [x]` items and renames the file to `*_completed.md` on completion).
-> **Companion doc (the "why"):** `docs/plans/2026-05-29-loop-intelligence-improvements-plan.md` holds the full rationale, research, and trade-offs. This file is the "how": decisions resolved, tasks concrete, acceptance criteria testable.
+> **Status:** ✅ IMPLEMENTED & VERIFIED (2026-05-30). LF-1…LF-8 all have code + specs in `src/main/orchestration/` (`loop-semantic-progress.ts`, `loop-branch-select.ts`, `loop-memory.ts`, `loop-output-externalize.ts`, ledger detector) and renderer (`loop-control.component.ts`, `loop-formatters.util.ts`); `acceptCompletion` / `completed-needs-review` / `maxCompletionAttempts` / `completionAttempts` are wired through coordinator → IPC → store; `maxCostCents` defaults to `1000`; `LoopConfig.context` reset block (`resetAtUtilization: 0.6`) present. The full loop suite is green: **29 spec files / 289 tests pass** (`npx vitest run src/main/orchestration/loop`, 2026-05-30). Renamed from `loopfixex.md` per AGENTS.md `_completed` convention. The checkbox `- [ ]` items below are retained as the historical task list; treat them as DONE.
+> **Completion-authority architecture (resolved 2026-05-30):** completion is now governed by a single **evidence-precedence ladder** — (1) runtime truth, (2) external ground-truth (verify/SCM/empty review-thread fingerprint), (3) structured in-band intent (`declared-complete`, this plan's LF-7), (4) forensic markers (corroboration only). `completed-needs-review` is the human-escalation terminal used **only when no external authority exists** (not "the agent self-declared"). The remaining net-new work to fully realize tier 2 (an `evidence-resolver.ts` spine + convergent fix→verify→review cycle + review-quality + remote-node diversity) lives in `2026-05-28-first-class-remote-orchestration-plan.md` **Piece B**, which layers on top of — does not replace — the LF-7 model shipped here. See `claude2_todo.md` #1.
+> **For agentic workers:** REQUIRED SUB-SKILL was `superpowers:executing-plans`. This file was loop-executable (the stage machine reads `- [ ]`/`- [x]` items). No further implementation work; future loop changes get a fresh plan.
+> **Companion doc (the "why"):** `docs/plans/2026-05-29-loop-intelligence-improvements-plan.md` holds the full rationale/research — now marked SUPERSEDED by this implemented plan.
 
 ---
 
@@ -216,7 +217,7 @@ These are the 4 open questions from the companion doc, resolved here so the plan
 
 ---
 
-# Part II — Reviewer addendum: completion + UX (added 2026-05-29, second pass)
+# Part II: Reviewer addendum: completion + UX (added 2026-05-29, second pass)
 
 > Part I (LF-1..LF-6) is strong on context/memory wiring but (a) under-weights the most direct cause of "loops never finish completely", and (b) does not touch the visual design, which is half the reported problem. Part II adds three tasks (**LF-3a, LF-7, LF-8**), corrects two claims from the first draft, and amends the cross-cutting sections (§3/§4/§7/§8/§9/§10). Every citation re-verified against current `main`. Same conventions as §5 apply (config in both `loop.types.ts` and `loop.schemas.ts`; `npm run check:contracts` + `verify:exports`; verify gate after each task).
 
@@ -245,7 +246,7 @@ Mechanically (`loop-coordinator.ts:896-1102`): completion is attempted first; if
 
 ## 13. Tasks (Part II)
 
-### LF-3a — Resolve the manual-review dead-end + verify-default polish (P0 hygiene)
+### LF-3a: Resolve the manual-review dead-end + verify-default polish (P0 hygiene)
 
 **Why:** see 12.2 #1. Operator-reviewed loops are a half-built feature: they are designed to pause for human sign-off but there is no way to give it. We either give the operator a real "accept" action (LF-7 does the command) or stop creating unresolvable loops by default.
 
@@ -258,7 +259,7 @@ Mechanically (`loop-coordinator.ts:896-1102`): completion is attempted first; if
 
 **Acceptance:** starting an operator-reviewed loop shows the manual-sign-off warning; a normal loop shows its inferred verify command; no loop can start in a state that can neither auto-complete nor be accepted. **Tests:** extend `loop-handlers` start tests (inferred command surfaced; operator-reviewed requires cost cap). **Risk:** low. **Effort: S.**
 
-### LF-7 — Operator accept-completion + completion-attempt budget + trust the structured terminal intent (P0)
+### LF-7: Operator accept-completion + completion-attempt budget + trust the structured terminal intent (P0)
 
 **Why:** see 12.1/12.2. This is the core "loops don't finish" fix. Three parts: (a) let an operator accept a paused-but-done run, (b) give the loop a way to *stop itself* when it is provably done but a secondary gate keeps it from a clean stop, (c) make the structured terminal intent we already built the primary completion path. We already have the right primitive: `LoopTerminalIntent` (`loop.types.ts:404-421`) surfaces as `declared-complete`, which is `sufficient: true` (`loop-completion-detector.ts:223-224`). This is our `stop_reason: end_turn` / "done tool" equivalent (see §16); today it is just one more forensic signal behind the same gates.
 
@@ -284,9 +285,9 @@ Mechanically (`loop-coordinator.ts:896-1102`): completion is attempted first; if
 - A converged run with passing verify ends `completed`, never `no-progress`.
 - `declared-complete` + passing verify stops on the first clean attempt.
 
-**Tests:** `acceptCompletion` happy/҂invalid-state paths; budget exhaustion -> `completed-needs-review`; verified-done + CRITICAL does not pause; intent-primary candidate selection; fresh-eyes error sets outcome but still completes. Extend `loop-coordinator-completion-seed.spec.ts`, `loop-completion-detector.spec.ts`, `loop-coordinator-fresh-eyes.spec.ts`, `loop-handlers.spec.ts`. **Risk:** changes completion semantics; all behind the new status + cap, forensic signals retained. **Effort: M.**
+**Tests:** `acceptCompletion` happy/invalid-state paths; budget exhaustion -> `completed-needs-review`; verified-done + CRITICAL does not pause; intent-primary candidate selection; fresh-eyes error sets outcome but still completes. Extend `loop-coordinator-completion-seed.spec.ts`, `loop-completion-detector.spec.ts`, `loop-coordinator-fresh-eyes.spec.ts`, `loop-handlers.spec.ts`. **Risk:** changes completion semantics; all behind the new status + cap, forensic signals retained. **Effort: M.**
 
-### LF-8 — Loop visual model (P0 for the reported UX bug)
+### LF-8: Loop visual model (P0 for the reported UX bug)
 
 **Why:** the first reported complaint ("the visual design is wrong, doesn't make sense") is not in Part I at all. It does not make sense because the UI shows the cosmetic axis (iteration counter, stage, tokens, cost) prominently while hiding the three things that actually decide whether the loop stops: lifecycle status, progress verdict, and completion-gate position. Good news: the data already exists, so this is renderer-only (no coordinator change beyond LF-7's status).
 
@@ -317,9 +318,9 @@ Mechanically (`loop-coordinator.ts:896-1102`): completion is attempted first; if
 ## 14. Amendments to Part I sections
 
 - **§3 Scope:** add **LF-3a (P0 hygiene)**, **LF-7 (P0)**, **LF-8 (P0)**. LF-7/LF-8/LF-3a are the actual fix for the reported bug; LF-1 stays P0 for long-run *quality* but is not the termination fix.
-- **§4 Decisions:** add **Decision 5** — completion's primary authority is the structured terminal intent (`declared-complete`) plus verify; forensic signals (rename/sentinel/regex) are corroboration. Add **Decision 6** — manual-review loops are resolvable (operator Accept) by design; they may terminate as `completed-needs-review`.
+- **§4 Decisions:** add **Decision 5**: completion's primary authority is the structured terminal intent (`declared-complete`) plus verify; forensic signals (rename/sentinel/regex) are corroboration. Add **Decision 6**: manual-review loops are resolvable (operator Accept) by design; they may terminate as `completed-needs-review`.
 - **§7 Sequencing:** insert **Milestone 0 (loops finish): LF-3a + LF-7 + LF-8**, before Milestone A. This is the smallest change that makes loops reach a clean terminal state and reads correctly in the UI. Milestone A (LF-1 + LF-3) then follows for long-run quality.
-- **§8 Test matrix:** add rows — *Manual-review run, operator accepts* (LF-7/LF-8: lands `completed-needs-review`), *Converged run, tests stable* (LF-7: completes, no false pause), *Completion-attempt budget exhausted* (LF-7: stops, not infinite), *Every LoopStatus has a label* (LF-8). Add LF-7 and LF-8 columns.
+- **§8 Test matrix:** add rows: *Manual-review run, operator accepts* (LF-7/LF-8: lands `completed-needs-review`), *Converged run, tests stable* (LF-7: completes, no false pause), *Completion-attempt budget exhausted* (LF-7: stops, not infinite), *Every LoopStatus has a label* (LF-8). Add LF-7 and LF-8 columns.
 - **§9 Rollout/flags:** LF-7 adds a terminal status, so include a back-compat note for persisted rows (treat unknown terminal status as terminal in the store reader); LF-8 is renderer-only and needs no migration. `maxCompletionAttempts` defaults to 3 for existing configs via `materializeConfig` merge.
 - **§10 Definition of done:** document the new status, `acceptCompletion`, the completion-attempt budget, and the gate stepper in `docs/runbooks/orchestration-hud-and-verdicts.md`; add the LoopStatus-label contract test to the verify gate.
 

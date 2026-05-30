@@ -162,6 +162,68 @@ describe('ProjectGroupComputationService filtering', () => {
     expect(service.countSessionsInTree(source, context.childrenByParent, context.instanceMap)).toBe(0);
   });
 
+  it('treats engaged statuses as active and idle/terminal ones as inactive', () => {
+    expect(service.isActiveStatus('busy')).toBe(true);
+    expect(service.isActiveStatus('waiting_for_input')).toBe(true);
+    expect(service.isActiveStatus('initializing')).toBe(true);
+    expect(service.isActiveStatus('idle')).toBe(false);
+    expect(service.isActiveStatus('ready')).toBe(false);
+    expect(service.isActiveStatus('error')).toBe(false);
+    expect(service.isActiveStatus('terminated')).toBe(false);
+  });
+
+  it('includes engaged sessions and excludes idle ones under the active state filter', () => {
+    const baseContext = {
+      filter: '',
+      location: 'all' as const,
+      projectMatches: false,
+      collapsed: new Set<string>(),
+      childrenByParent: new Map<string, string[]>(),
+      activityCutoff: null,
+    };
+
+    const busy = makeInstance({ id: 'busy-1', status: 'busy' });
+    const busyItems = service.buildVisibleItems(
+      busy,
+      { ...baseContext, status: 'active', instanceMap: new Map([[busy.id, busy]]) },
+      0,
+      [],
+      true
+    );
+    expect(busyItems.map((item) => item.instance.id)).toEqual(['busy-1']);
+
+    const idle = makeInstance({ id: 'idle-1', status: 'idle' });
+    const idleItems = service.buildVisibleItems(
+      idle,
+      { ...baseContext, status: 'active', instanceMap: new Map([[idle.id, idle]]) },
+      0,
+      [],
+      true
+    );
+    expect(idleItems).toEqual([]);
+  });
+
+  it('keeps an idle parent visible when a child is active under the active filter', () => {
+    const parent = makeInstance({ id: 'parent-1', status: 'idle' });
+    const child = makeInstance({ id: 'child-1', status: 'busy', parentId: 'parent-1', createdAt: 2 });
+    const context = {
+      filter: '',
+      status: 'active',
+      location: 'all' as const,
+      projectMatches: false,
+      collapsed: new Set<string>(),
+      childrenByParent: new Map<string, string[]>([['parent-1', ['child-1']]]),
+      instanceMap: new Map([
+        [parent.id, parent],
+        [child.id, child],
+      ]),
+      activityCutoff: null,
+    };
+
+    const items = service.buildVisibleItems(parent, context, 0, [], true);
+    expect(items.map((item) => item.instance.id)).toEqual(['parent-1', 'child-1']);
+  });
+
   it('matches history queries by provider, model, prompt text, and project fields', () => {
     expect(
       service.matchesHistoryText(

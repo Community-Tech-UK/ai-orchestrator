@@ -209,6 +209,14 @@ export interface AppSettings {
   mobileGatewayBindInterface: 'tailscale' | 'all';
   /** JSON array of paired MobileDevice records. */
   mobileGatewayDevices: string;
+  // APNs push (direct from Mac → Apple). Empty key => push disabled.
+  /** PEM contents of the APNs Auth Key (.p8). */
+  mobileGatewayApnsKeyP8: string;
+  mobileGatewayApnsKeyId: string;
+  mobileGatewayApnsTeamId: string;
+  mobileGatewayApnsBundleId: string;
+  /** true → api.push.apple.com, false → api.sandbox.push.apple.com. */
+  mobileGatewayApnsProduction: boolean;
 
   // Network (Pause on VPN)
   pauseFeatureEnabled: boolean;
@@ -341,6 +349,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mobileGatewayPort: 4879,
   mobileGatewayBindInterface: 'tailscale' as const,
   mobileGatewayDevices: '[]',
+  mobileGatewayApnsKeyP8: '',
+  mobileGatewayApnsKeyId: '',
+  mobileGatewayApnsTeamId: '',
+  mobileGatewayApnsBundleId: 'com.shutupandshave.aiorchestrator',
+  mobileGatewayApnsProduction: false,
 
   // Network (Pause on VPN)
   pauseFeatureEnabled: true,

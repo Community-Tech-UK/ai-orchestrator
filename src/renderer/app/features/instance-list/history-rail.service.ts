@@ -250,7 +250,10 @@ export class HistoryRailService {
       case 'copilot':
         return { icon: 'github', color: '#6e40c9', label: 'Copilot' };
       case 'cursor':
-        return { icon: 'cursor', color: '#000000', label: 'Cursor' };
+        // Cursor's brand mark is monochrome (black on light / white on dark).
+        // Use a light neutral so it stays visible on the app's dark surfaces
+        // instead of disappearing as a black-on-black square.
+        return { icon: 'cursor', color: '#E5E7EB', label: 'Cursor' };
       default:
         return { icon: 'generic', color: 'rgba(214, 221, 208, 0.76)', label: 'AI session' };
     }

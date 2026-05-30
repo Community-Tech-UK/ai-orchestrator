@@ -4847,12 +4847,12 @@
       "lines": 2507
     },
     {
-      "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
-      "lines": 2339
+      "path": "src/main/instance/instance-manager.ts",
+      "lines": 2348
     },
     {
-      "path": "src/main/instance/instance-manager.ts",
-      "lines": 2330
+      "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
+      "lines": 2339
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
@@ -5199,6 +5199,10 @@
       "lines": 1055
     },
     {
+      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
+      "lines": 1047
+    },
+    {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
       "lines": 1036
     },
@@ -5443,11 +5447,11 @@
       "lines": 845
     },
     {
-      "path": "src/main/mcp/mcp-tool-search.ts",
-      "lines": 842
+      "path": "src/renderer/app/features/instance-list/instance-row.component.ts",
+      "lines": 843
     },
     {
-      "path": "src/renderer/app/features/instance-list/instance-row.component.ts",
+      "path": "src/main/mcp/mcp-tool-search.ts",
       "lines": 842
     },
     {
@@ -5465,6 +5469,10 @@
     {
       "path": "src/main/learning/ab-testing.ts",
       "lines": 832
+    },
+    {
+      "path": "src/main/cli/adapters/base-cli-adapter.ts",
+      "lines": 830
     },
     {
       "path": "src/renderer/app/features/debate/enhanced-debate-visualization.component.ts",

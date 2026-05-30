@@ -85,12 +85,58 @@ export interface MobileProjectDto {
   lastActivity: number;
 }
 
+/**
+ * A single transcript message as the phone renders it. Structurally a subset of
+ * the main-process `OutputMessage` (instance.types.ts) so the gateway can pass
+ * buffered messages straight through. Heavy fields (attachment data, raw
+ * thinking) are deliberately omitted from the wire — `hasAttachments` flags
+ * their presence for the UI.
+ */
+export interface MobileMessageDto {
+  id: string;
+  timestamp: number;
+  type: 'assistant' | 'user' | 'system' | 'tool_use' | 'tool_result' | 'error';
+  content: string;
+  metadata?: Record<string, unknown>;
+  hasAttachments?: boolean;
+}
+
+/** A pending "needs you" prompt — a deferred permission or an orchestration question. */
+export interface MobilePromptDto {
+  /** Stable id (== requestId for permissions). */
+  id: string;
+  instanceId: string;
+  requestId: string;
+  kind: 'permission' | 'user-action';
+  /** For permissions: the tool awaiting approval (e.g. "Bash"). */
+  toolName?: string;
+  /** For permissions: the tool arguments (e.g. the command). */
+  toolInput?: Record<string, unknown>;
+  title: string;
+  message: string;
+  /** For user-action prompts: selectable option labels. */
+  options?: string[];
+  createdAt: number;
+}
+
+/** Global pause state — mirrors the desktop PauseStatePayload. */
+export interface MobilePauseDto {
+  isPaused: boolean;
+  reasons: string[];
+  pausedAt: number | null;
+  lastChange: number;
+}
+
 /** Snapshot sent to a phone on WebSocket connect (and on resync). */
 export interface MobileSnapshot {
   hostName: string;
   serverTime: number;
   instances: MobileInstanceDto[];
   projects: MobileProjectDto[];
+  /** Pending approval/question prompts at connect time. */
+  prompts: MobilePromptDto[];
+  /** Current global pause state at connect time. */
+  pause: MobilePauseDto;
 }
 
 /** Messages pushed down the WebSocket to the phone. */
@@ -98,7 +144,61 @@ export type MobileServerEvent =
   | { type: 'snapshot'; data: MobileSnapshot }
   | { type: 'instance-created'; data: MobileInstanceDto }
   | { type: 'instance-removed'; data: { instanceId: string } }
-  | { type: 'instance-state'; data: MobileInstanceDto[] };
+  | { type: 'instance-state'; data: MobileInstanceDto[] }
+  /** A live transcript frame for one instance. `seq` is the per-instance monotonic counter for gap detection. */
+  | { type: 'instance-output'; data: { instanceId: string; seq: number; message: MobileMessageDto } }
+  | { type: 'permission-prompt'; data: MobilePromptDto }
+  | { type: 'permission-cleared'; data: { requestId: string; instanceId?: string } }
+  | { type: 'pause-state'; data: MobilePauseDto };
+
+/** Request body for POST /api/instances/:id/input. */
+export interface MobileInputRequest {
+  message: string;
+  attachments?: MobileAttachmentDto[];
+}
+
+/** Mirrors the main-process FileAttachment (base64 data URL). */
+export interface MobileAttachmentDto {
+  name: string;
+  type: string;
+  size: number;
+  data: string;
+}
+
+/** Request body for POST /api/instances/:id/respond (answer a permission prompt). */
+export interface MobileRespondRequest {
+  requestId: string;
+  decisionAction: 'allow' | 'deny';
+  decisionScope?: 'once' | 'session' | 'always';
+  /** Optional free-text response (for user-action prompts). */
+  response?: string;
+}
+
+/** Request body for POST /api/instances (create a new session). */
+export interface MobileCreateInstanceRequest {
+  workingDirectory: string;
+  provider?: string;
+  model?: string;
+  initialPrompt?: string;
+}
+
+/** Request body for POST /api/instances/:id/rename. */
+export interface MobileRenameRequest {
+  displayName: string;
+}
+
+/** Request body for POST /api/devices/:id/apns-token. */
+export interface MobileApnsTokenRequest {
+  apnsToken: string;
+}
+
+/** A host recent directory offered to the phone's "new session" picker. */
+export interface MobileRecentDirDto {
+  path: string;
+  displayName: string;
+  lastAccessed: number;
+  isPinned: boolean;
+}
 
 /** Status of the gateway, surfaced to the desktop Settings → Mobile tab. */
 export interface MobileGatewayStatus {
@@ -112,4 +212,24 @@ export interface MobileGatewayStatus {
   startedAt?: number;
   connectedClientCount: number;
   pairedDeviceCount: number;
+  /** True when APNs push is fully configured (key + key id + team id + bundle id). */
+  pushConfigured: boolean;
+}
+
+/**
+ * APNs credentials for direct-from-Mac push (§4.4 of the plan). Sourced from
+ * settings; the gateway POSTs to Apple's HTTP/2 endpoint with a short-lived
+ * ES256 JWT. Empty `keyP8` => push disabled (the gateway no-ops).
+ */
+export interface MobileApnsConfig {
+  /** PEM contents of the APNs Auth Key (.p8). */
+  keyP8: string;
+  /** 10-char Key ID from the Apple Developer account. */
+  keyId: string;
+  /** 10-char Team ID. */
+  teamId: string;
+  /** App bundle id (APNs topic), e.g. com.shutupandshave.aiorchestrator. */
+  bundleId: string;
+  /** true → api.push.apple.com, false → api.sandbox.push.apple.com. */
+  production: boolean;
 }
