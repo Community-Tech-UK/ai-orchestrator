@@ -10,6 +10,7 @@ export const INFRASTRUCTURE_CHANNELS = {
   APP_GET_STARTUP_CAPABILITIES: 'app:get-startup-capabilities',
   APP_STARTUP_CAPABILITIES: 'app:startup-capabilities',
   APP_OPEN_DOCS: 'app:open-docs',
+  APP_GET_SCRATCH_DIRECTORY: 'app:get-scratch-directory',
 
   // Settings operations
   SETTINGS_GET_ALL: 'settings:get-all',
@@ -140,6 +141,18 @@ export const INFRASTRUCTURE_CHANNELS = {
   // Magic Prompts — schema-backed one-shot structured commands
   MAGIC_PROMPT_LIST: 'magic-prompt:list',
   MAGIC_PROMPT_RUN: 'magic-prompt:run',
+
+  // Multi-provider compare — ask N providers the same prompt
+  COMPARE_RUN: 'compare:run',
+  COMPARE_LIST_PROVIDERS: 'compare:list-providers',
+
+  // LSP post-edit feedback loop (opt-in)
+  LSP_FEEDBACK_GET: 'lsp-feedback:get',
+  LSP_FEEDBACK_SET: 'lsp-feedback:set',
+
+  // Action/cost circuit breaker — "check in after N actions or $X"
+  CIRCUIT_BREAKER_GET: 'circuit-breaker:get',
+  CIRCUIT_BREAKER_SET: 'circuit-breaker:set',
 
   // Auto-update (electron-updater)
   UPDATE_CHECK: 'update:check',

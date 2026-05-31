@@ -78,6 +78,27 @@ export class CompactionCoordinator extends EventEmitter {
   private autoCompactEnabled = true;
 
   /**
+   * Cumulative-input-token compaction trigger (claude2_todo #34b).
+   *
+   * A cost-proxy axis independent of window-%: when an instance's *lifetime*
+   * token spend since its last compaction exceeds this many tokens, a
+   * background compaction is triggered even if the context window is nowhere
+   * near full. This catches long-running sessions (especially self-managing
+   * adapters whose CLI keeps the *window* small while cumulative *cost* climbs)
+   * that the window-% thresholds never fire on.
+   *
+   * `0` = disabled (default), so there is no behavior change unless the user
+   * opts in via the `cumulativeTokenCompactionTrigger` setting. Deliberately
+   * NOT gated on `selfManagedAutoCompaction` — it is an explicit cost cap the
+   * user has chosen, so it applies to every adapter.
+   */
+  private cumulativeTokenTrigger = 0;
+
+  /** Per-instance `cumulativeTokens` snapshot taken at the last compaction,
+   *  so the trigger measures spend *since* that compaction (not lifetime). */
+  private cumulativeTokensAtLastCompaction = new Map<string, number>();
+
+  /**
    * Context token threshold above which compaction should be chunked
    * to prevent the compaction request itself from exceeding context limits.
    * Inspired by Claude Code 2.1.83/2.1.85 fixes for /compact on oversized conversations.
@@ -157,6 +178,27 @@ export class CompactionCoordinator extends EventEmitter {
   }
 
   /**
+   * Set the cumulative-input-token compaction trigger (claude2_todo #34b).
+   * `tokens <= 0` (or non-finite) disables it. Values are floored to integers.
+   */
+  setCumulativeTokenTrigger(tokens: number): void {
+    const next = typeof tokens === 'number' && Number.isFinite(tokens) && tokens > 0
+      ? Math.floor(tokens)
+      : 0;
+    if (next !== this.cumulativeTokenTrigger) {
+      this.cumulativeTokenTrigger = next;
+      logger.info('Cumulative-token compaction trigger set', {
+        threshold: next === 0 ? 'disabled' : next,
+      });
+    }
+  }
+
+  /** Current cumulative-token trigger (0 = disabled). Exposed for tests/telemetry. */
+  getCumulativeTokenTrigger(): number {
+    return this.cumulativeTokenTrigger;
+  }
+
+  /**
    * Called on every contextUsage update (from batch-update events).
    *
    * Dual-threshold compaction (inspired by Copilot SDK):
@@ -228,6 +270,32 @@ export class CompactionCoordinator extends EventEmitter {
         void this.triggerBackgroundCompact(instanceId, usage);
       }
       return;
+    }
+
+    // ── CUMULATIVE-TOKEN trigger (claude2_todo #34b) ──
+    // Cost-proxy axis, independent of window %: when lifetime spend since the
+    // last compaction crosses the configured threshold, compact in the
+    // background. Reached only when % < background threshold (the branches
+    // above return first, so window pressure always takes precedence). Default
+    // 0 = disabled. Not gated on `selfManaged` — it is an explicit cost cap.
+    if (
+      this.cumulativeTokenTrigger > 0
+      && this.autoCompactEnabled
+      && !this.compactingInstances.has(instanceId)
+      && !this.backgroundCompactingInstances.has(instanceId)
+    ) {
+      const baseline = this.cumulativeTokensAtLastCompaction.get(instanceId) ?? 0;
+      const sinceLastCompaction = (usage.cumulativeTokens ?? 0) - baseline;
+      if (sinceLastCompaction >= this.cumulativeTokenTrigger) {
+        logger.info('Cumulative-token compaction trigger fired', {
+          instanceId,
+          sinceLastCompaction,
+          threshold: this.cumulativeTokenTrigger,
+          percentage,
+        });
+        void this.triggerBackgroundCompact(instanceId, usage);
+        return;
+      }
     }
 
     // ── WARNING threshold (75%+) ──
@@ -316,6 +384,7 @@ export class CompactionCoordinator extends EventEmitter {
     this.lastCompactionTime.delete(instanceId);
     this.dismissedWarnings.delete(instanceId);
     this.latestUsage.delete(instanceId);
+    this.cumulativeTokensAtLastCompaction.delete(instanceId);
     this.budgetTrackers.delete(instanceId);
     this.epochTrackers.delete(instanceId);
     this.circuitBreakers.delete(instanceId);
@@ -501,6 +570,15 @@ export class CompactionCoordinator extends EventEmitter {
 
       this.warnedInstances.delete(instanceId);
       this.dismissedWarnings.delete(instanceId);
+
+      // Reset the cumulative-token baseline (claude2_todo #34b) so the trigger
+      // measures spend *since this compaction*, not lifetime. Prefer the latest
+      // observed usage; fall back to the pre-compaction snapshot.
+      const cumulativeNow = this.latestUsage.get(instanceId)?.cumulativeTokens
+        ?? previousUsage?.cumulativeTokens;
+      if (typeof cumulativeNow === 'number' && Number.isFinite(cumulativeNow)) {
+        this.cumulativeTokensAtLastCompaction.set(instanceId, cumulativeNow);
+      }
 
       const result: CompactionResult = { success: true, method, blocking, previousUsage };
       this.emit('compaction-completed', { instanceId, result });

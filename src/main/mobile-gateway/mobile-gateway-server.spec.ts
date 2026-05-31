@@ -6,6 +6,9 @@ import {
   MobileGatewayServer,
   serializeInstance,
   buildProjects,
+  serializeHistorySession,
+  serializeHistoryMessage,
+  serializeInstanceHistorySession,
   type GatewayInstanceSource,
   type GatewayPauseSource,
   type GatewayRecentDirsSource,
@@ -183,13 +186,91 @@ describe('serializeInstance / buildProjects', () => {
     expect(instances[0].projectName).toBe('alpha');
     expect(instances[1].pendingApprovalCount).toBe(1);
 
-    const projects = buildProjects(instances);
-    const alpha = projects.find((p) => p.path === '/repo/alpha');
+    const projectsList = buildProjects(instances);
+    const alpha = projectsList.find((p) => p.path === '/repo/alpha');
     expect(alpha?.sessionCount).toBe(2);
     expect(alpha?.busyCount).toBe(1);
     expect(alpha?.pendingApprovalCount).toBe(1);
     // beta has the most recent activity, so it sorts first
-    expect(projects[0].path).toBe('/repo/beta');
+    expect(projectsList[0].path).toBe('/repo/beta');
+  });
+});
+
+describe('history serializers', () => {
+  it('marks chat sessions archived vs live and derives the project name', () => {
+    const archived = serializeHistorySession({
+      id: 'c1',
+      name: 'Old refactor',
+      provider: 'claude',
+      model: 'opus',
+      currentCwd: '/repo/alpha',
+      createdAt: 10,
+      lastActiveAt: 20,
+      archivedAt: 30,
+      currentInstanceId: null,
+    });
+    expect(archived.archived).toBe(true);
+    expect(archived.live).toBe(false);
+    expect(archived.instanceId).toBeUndefined();
+    expect(archived.projectName).toBe('alpha');
+
+    const live = serializeHistorySession({
+      id: 'c2',
+      name: 'Active',
+      provider: 'codex',
+      model: null,
+      currentCwd: null,
+      createdAt: 1,
+      lastActiveAt: 2,
+      archivedAt: null,
+      currentInstanceId: 'i-live',
+    });
+    expect(live.live).toBe(true);
+    expect(live.archived).toBe(false);
+    expect(live.instanceId).toBe('i-live');
+    expect(live.workingDirectory).toBe('');
+    expect(live.projectName).toBe('No workspace');
+  });
+
+  it('maps ledger roles onto phone message types', () => {
+    expect(serializeHistoryMessage({ id: 'm1', role: 'assistant', content: 'hi', createdAt: 1 }).type).toBe('assistant');
+    expect(serializeHistoryMessage({ id: 'm2', role: 'user', content: 'yo', createdAt: 2 }).type).toBe('user');
+    expect(serializeHistoryMessage({ id: 'm3', role: 'tool', content: 'ran', createdAt: 3 }).type).toBe('tool_result');
+    expect(serializeHistoryMessage({ id: 'm4', role: 'event', content: 'x', createdAt: 4 }).type).toBe('system');
+    const mapped = serializeHistoryMessage({ id: 'm5', role: 'user', content: 'c', createdAt: 9 });
+    expect(mapped.timestamp).toBe(9);
+    expect(mapped.hasAttachments).toBe(false);
+  });
+
+  it('serializes an archived instance-history entry (always closed, title fallback)', () => {
+    const titled = serializeInstanceHistorySession({
+      id: 'e1',
+      displayName: 'Agent 3',
+      aiTitle: 'Fix the floor logic',
+      provider: 'claude',
+      currentModel: 'opus',
+      workingDirectory: '/repo/one-more-floor',
+      createdAt: 100,
+      endedAt: 200,
+    });
+    expect(titled.name).toBe('Fix the floor logic');
+    expect(titled.projectName).toBe('one-more-floor');
+    expect(titled.archived).toBe(true);
+    expect(titled.live).toBe(false);
+    expect(titled.lastActiveAt).toBe(200);
+
+    // Falls back displayName → firstUserMessage when no aiTitle.
+    const fallback = serializeInstanceHistorySession({
+      id: 'e2',
+      displayName: '',
+      firstUserMessage: 'add a lift',
+      workingDirectory: '',
+      createdAt: 1,
+      endedAt: 2,
+    });
+    expect(fallback.name).toBe('add a lift');
+    expect(fallback.projectName).toBe('No workspace');
+    expect(fallback.provider).toBeNull();
   });
 });
 

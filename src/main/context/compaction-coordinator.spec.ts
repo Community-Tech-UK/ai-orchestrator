@@ -176,3 +176,109 @@ describe('CompactionCoordinator self-managed auto-compaction', () => {
     expect(warnings.some((w) => w.level === 'emergency')).toBe(true);
   });
 });
+
+describe('CompactionCoordinator cumulative-token trigger (claude2_todo #34b)', () => {
+  beforeEach(() => {
+    CompactionCoordinator._resetForTesting();
+  });
+
+  // Background compaction is fire-and-forget; let its async chain settle.
+  const flush = async (): Promise<void> => {
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+
+  function configured() {
+    const coordinator = CompactionCoordinator.getInstance();
+    const nativeCompact = vi.fn(async () => true);
+    const restartCompact = vi.fn(async () => true);
+    coordinator.configure({
+      nativeCompact,
+      restartCompact,
+      supportsNativeCompaction: () => false, // force the restart path so we can assert on it
+    });
+    return { coordinator, nativeCompact, restartCompact };
+  }
+
+  it('normalizes the trigger value (negative/NaN/0 → disabled; positive → floored)', () => {
+    const { coordinator } = configured();
+    coordinator.setCumulativeTokenTrigger(-5);
+    expect(coordinator.getCumulativeTokenTrigger()).toBe(0);
+    coordinator.setCumulativeTokenTrigger(Number.NaN);
+    expect(coordinator.getCumulativeTokenTrigger()).toBe(0);
+    coordinator.setCumulativeTokenTrigger(250_000.9);
+    expect(coordinator.getCumulativeTokenTrigger()).toBe(250_000);
+  });
+
+  it('does NOT compact on cumulative spend when disabled (default 0), even far above any threshold', async () => {
+    const { coordinator, restartCompact } = configured();
+    coordinator.onContextUpdate('inst-a', {
+      used: 100_000,
+      total: 1_000_000,
+      percentage: 10,
+      cumulativeTokens: 5_000_000,
+    });
+    await flush();
+    expect(restartCompact).not.toHaveBeenCalled();
+  });
+
+  it('triggers a background compaction when cumulative spend crosses the threshold at low window %', async () => {
+    const { coordinator, restartCompact } = configured();
+    coordinator.setCumulativeTokenTrigger(100_000);
+    coordinator.onContextUpdate('inst-b', {
+      used: 120_000,
+      total: 1_000_000,
+      percentage: 12, // well below the 80% background threshold
+      cumulativeTokens: 150_000,
+    });
+    await flush();
+    expect(restartCompact).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT trigger when cumulative spend is below the threshold', async () => {
+    const { coordinator, restartCompact } = configured();
+    coordinator.setCumulativeTokenTrigger(100_000);
+    coordinator.onContextUpdate('inst-c', {
+      used: 50_000,
+      total: 1_000_000,
+      percentage: 5,
+      cumulativeTokens: 50_000,
+    });
+    await flush();
+    expect(restartCompact).not.toHaveBeenCalled();
+  });
+
+  it('respects the auto-compact master switch (no cumulative trigger when auto-compact is off)', async () => {
+    const { coordinator, restartCompact } = configured();
+    coordinator.setCumulativeTokenTrigger(100_000);
+    coordinator.setAutoCompact(false);
+    coordinator.onContextUpdate('inst-d', {
+      used: 120_000,
+      total: 1_000_000,
+      percentage: 12,
+      cumulativeTokens: 500_000,
+    });
+    await flush();
+    expect(restartCompact).not.toHaveBeenCalled();
+  });
+
+  it('does not fire a second time for the same spend after compacting (no compaction storm)', async () => {
+    const { coordinator, restartCompact } = configured();
+    coordinator.setCumulativeTokenTrigger(100_000);
+    const usage = {
+      used: 120_000,
+      total: 1_000_000,
+      percentage: 12,
+      cumulativeTokens: 150_000,
+    };
+    coordinator.onContextUpdate('inst-e', usage);
+    await flush();
+    expect(restartCompact).toHaveBeenCalledTimes(1);
+
+    // Same cumulative spend arrives again — baseline reset + guards must
+    // prevent a re-trigger.
+    coordinator.onContextUpdate('inst-e', usage);
+    await flush();
+    expect(restartCompact).toHaveBeenCalledTimes(1);
+  });
+});

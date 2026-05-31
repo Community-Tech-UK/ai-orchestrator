@@ -200,6 +200,29 @@ export interface MobileRecentDirDto {
   isPinned: boolean;
 }
 
+/**
+ * A persisted ("older") session as the phone's History view sees it. Sourced
+ * from the desktop ChatService (live + archived), so closed sessions that are
+ * no longer in InstanceManager still appear. `live` is true when the chat is
+ * still backed by a running instance; `archived` when it was explicitly closed.
+ */
+export interface MobileHistorySessionDto {
+  /** Chat id (use to fetch the transcript via /api/history/:id/messages). */
+  id: string;
+  name: string;
+  provider: string | null;
+  model: string | null;
+  workingDirectory: string;
+  /** basename of workingDirectory — the project label. */
+  projectName: string;
+  createdAt: number;
+  lastActiveAt: number;
+  archived: boolean;
+  live: boolean;
+  /** If still live, the instance id so the phone can deep-link to the live session. */
+  instanceId?: string;
+}
+
 /** Status of the gateway, surfaced to the desktop Settings → Mobile tab. */
 export interface MobileGatewayStatus {
   running: boolean;

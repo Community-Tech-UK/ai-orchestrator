@@ -30,6 +30,7 @@ import { resolveEffectiveInstanceTitle } from '../../../../shared/types/history.
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
 import type { RecentDirectoryEntry } from '../../../../shared/types/recent-directories.types';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
+import { ScratchDirectoryService } from '../../core/services/scratch-directory.service';
 import { ProjectGroupComputationService } from './project-group-computation.service';
 import { HistoryRailService } from './history-rail.service';
 import {
@@ -47,6 +48,10 @@ const SORT_MODE_STORAGE_KEY = 'instance-list-sort-mode';
 const HISTORY_VISIBILITY_STORAGE_KEY = 'instance-list-history-visibility';
 const HISTORY_TIME_WINDOW_STORAGE_KEY = 'instance-list-history-time-window';
 const NO_WORKSPACE_KEY = '__no_workspace__';
+// Stable group key for general (no-workspace) chats. Every session whose
+// working directory is the scratch folder collapses into this single "Chats"
+// rail group, pinned to the bottom of the list like Codex.
+const CHATS_KEY = '__chats__';
 type HistorySortMode = 'last-interacted' | 'created';
 
 export interface HierarchicalInstance {
@@ -111,6 +116,7 @@ export class InstanceListComponent implements OnDestroy {
   protected readonly projectGroupComputation = inject(ProjectGroupComputationService);
   protected readonly historyRail = inject(HistoryRailService);
   private newSessionDraft = inject(NewSessionDraftService);
+  private scratchDirectory = inject(ScratchDirectoryService);
   private visibleInstanceResolver = inject(VisibleInstanceResolver);
   private clipboard = inject(CLIPBOARD_SERVICE);
 
@@ -377,6 +383,10 @@ export class InstanceListComponent implements OnDestroy {
     }
 
     return Array.from(groups.values()).sort((left, right) => {
+      // General "Chats" always sinks to the bottom of the rail, like Codex.
+      if (left.key === CHATS_KEY !== (right.key === CHATS_KEY)) {
+        return left.key === CHATS_KEY ? 1 : -1;
+      }
       const leftOrder = recentDirectoryOrder.get(left.key);
       const rightOrder = recentDirectoryOrder.get(right.key);
       if (leftOrder !== undefined && rightOrder !== undefined) {
@@ -1403,11 +1413,17 @@ export class InstanceListComponent implements OnDestroy {
   }
 
   private getProjectKey(workingDirectory: string | null | undefined): string {
+    if (this.scratchDirectory.isScratch(workingDirectory)) {
+      return CHATS_KEY;
+    }
     const normalized = (workingDirectory ?? '').trim();
     return normalized ? normalized.toLowerCase() : NO_WORKSPACE_KEY;
   }
 
   private getProjectTitle(workingDirectory: string | null | undefined): string {
+    if (this.scratchDirectory.isScratch(workingDirectory)) {
+      return 'Chats';
+    }
     const normalized = (workingDirectory ?? '').trim();
     if (!normalized) {
       return 'No workspace';
@@ -1418,6 +1434,9 @@ export class InstanceListComponent implements OnDestroy {
   }
 
   private getProjectSubtitle(workingDirectory: string | null | undefined): string {
+    if (this.scratchDirectory.isScratch(workingDirectory)) {
+      return 'General chats';
+    }
     const normalized = (workingDirectory ?? '').trim();
     if (!normalized) {
       return 'Sessions without a working directory';

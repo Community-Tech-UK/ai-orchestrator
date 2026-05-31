@@ -92,6 +92,13 @@ export class LspFeedbackCoordinator {
     this.states.clear();
   }
 
+  /** Drop accumulated state for a terminated instance (prevents a slow leak). */
+  forgetInstance(instanceId: string): void {
+    const s = this.states.get(instanceId);
+    if (s?.timer) clearTimeout(s.timer);
+    this.states.delete(instanceId);
+  }
+
   private stateFor(instanceId: string): InstanceState {
     let s = this.states.get(instanceId);
     if (!s) {

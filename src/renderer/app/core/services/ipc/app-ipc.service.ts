@@ -31,6 +31,16 @@ export class AppIpcService {
     return response.success ? (response.data as string) : '0.0.0';
   }
 
+  /**
+   * Absolute path to the scratch directory used by general (no-workspace)
+   * chats. Returns null when not running inside Electron.
+   */
+  async getScratchDirectory(): Promise<string | null> {
+    if (!this.api) return null;
+    const response = await this.api.getScratchDirectory();
+    return response.success ? (response.data as string) : null;
+  }
+
   async getStartupCapabilities(): Promise<StartupCapabilityReport | null> {
     if (!this.api) return null;
     const response = await this.api.getStartupCapabilities();

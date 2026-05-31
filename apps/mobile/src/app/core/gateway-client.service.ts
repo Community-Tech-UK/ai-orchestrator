@@ -3,6 +3,7 @@ import { HostStore } from './host-store';
 import type {
   MobileAttachmentDto,
   MobileCreateInstanceRequest,
+  MobileHistorySessionDto,
   MobileInstanceDto,
   MobileMessageDto,
   MobilePauseDto,
@@ -37,6 +38,7 @@ export class GatewayClient {
   private readonly _transcripts = signal<Record<string, MobileMessageDto[]>>({});
   private readonly _prompts = signal<MobilePromptDto[]>([]);
   private readonly _pause = signal<MobilePauseDto>(EMPTY_PAUSE);
+  private readonly _history = signal<MobileHistorySessionDto[]>([]);
 
   readonly snapshot = this._snapshot.asReadonly();
   readonly state = this._state.asReadonly();
@@ -44,6 +46,8 @@ export class GatewayClient {
   readonly transcripts = this._transcripts.asReadonly();
   readonly prompts = this._prompts.asReadonly();
   readonly pause = this._pause.asReadonly();
+  /** Persisted sessions (chats + archived instance sessions), newest first. */
+  readonly historySessions = this._history.asReadonly();
 
   private ws: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -78,11 +82,22 @@ export class GatewayClient {
     this._pause.set(EMPTY_PAUSE);
     this._transcripts.set({});
     this.lastSeq.clear();
+    this._history.set([]);
     if (!host) {
       this._state.set('disconnected');
       return;
     }
     this.openSocket(host);
+    void this.loadHistory();
+  }
+
+  /** Fetch the persisted session list (best-effort; leaves the cache on failure). */
+  async loadHistory(): Promise<void> {
+    try {
+      this._history.set(await this.history());
+    } catch {
+      /* history is best-effort; the live snapshot still renders */
+    }
   }
 
   private openSocket(host: PairedHost): void {
@@ -304,6 +319,19 @@ export class GatewayClient {
 
   async recentDirs(): Promise<MobileRecentDirDto[]> {
     return this.request<MobileRecentDirDto[]>('GET', '/api/recent-dirs');
+  }
+
+  /** Persisted sessions (live + archived), newest first. */
+  async history(): Promise<MobileHistorySessionDto[]> {
+    return this.request<MobileHistorySessionDto[]>('GET', '/api/history');
+  }
+
+  /** Transcript of one persisted session. */
+  async historyMessages(chatId: string): Promise<MobileMessageDto[]> {
+    return this.request<MobileMessageDto[]>(
+      'GET',
+      `/api/history/${encodeURIComponent(chatId)}/messages`,
+    );
   }
 
   async setPause(paused: boolean): Promise<void> {

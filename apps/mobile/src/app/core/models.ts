@@ -109,6 +109,21 @@ export interface MobileRecentDirDto {
   isPinned: boolean;
 }
 
+/** A persisted ("older") session for the History view. Mirrors the gateway DTO. */
+export interface MobileHistorySessionDto {
+  id: string;
+  name: string;
+  provider: string | null;
+  model: string | null;
+  workingDirectory: string;
+  projectName: string;
+  createdAt: number;
+  lastActiveAt: number;
+  archived: boolean;
+  live: boolean;
+  instanceId?: string;
+}
+
 /** A paired host as stored on the phone. */
 export interface PairedHost {
   /** deviceId returned by /pair. */

@@ -24,6 +24,7 @@ export { registerSearchHandlers } from './search-handlers';
 export { registerStatsHandlers } from './stats-handlers';
 export { registerCommandHandlers } from './command-handlers';
 export { registerMagicPromptHandlers } from './magic-prompt-handlers';
+export { registerCompareHandlers } from './compare-handlers';
 export { registerUpdateHandlers } from './update-handlers';
 export { registerPromptHistoryHandlers } from './prompt-history-handlers';
 export { registerPauseHandlers } from './pause-handlers';

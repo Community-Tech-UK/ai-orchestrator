@@ -737,6 +737,16 @@ export function createInitializationSteps(
               messages,
             };
           },
+          // #18a/#19: strip the spawn-capable `run_on_node` tool from instances
+          // that have already reached the spawn-depth limit — defense-in-depth
+          // alongside the depth guard in the run_on_node handler.
+          resolveSpawnEligibility: (instanceId) => {
+            const max = getSettingsManager().get('maxSpawnDepth') ?? 0;
+            if (!max || max <= 0) return true; // unbounded → always eligible
+            const inst = instanceManager.getInstance(instanceId);
+            if (!inst) return true; // unknown instance → don't over-restrict
+            return effectiveSpawnDepth(inst) + 1 <= max;
+          },
         });
       },
     },

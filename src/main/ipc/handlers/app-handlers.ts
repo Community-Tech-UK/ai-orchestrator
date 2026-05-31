@@ -24,6 +24,7 @@ import {
   FileWriteTextPayloadSchema,
 } from '@contracts/schemas/file-operations';
 import { getCapabilityProbe } from '../../bootstrap/capability-probe';
+import { ensureScratchDirectory } from '../../util/scratch-directory';
 
 const execFileAsync = promisify(execFile);
 
@@ -247,6 +248,26 @@ export function registerAppHandlers(deps: AppHandlerDependencies): void {
           success: false,
           error: {
             code: 'APP_GET_STARTUP_CAPABILITIES_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  // Resolve (and lazily create) the scratch directory used by general chats —
+  // sessions that aren't tied to a project workspace. No payload.
+  ipcMain.handle(
+    IPC_CHANNELS.APP_GET_SCRATCH_DIRECTORY,
+    async (): Promise<IpcResponse> => {
+      try {
+        return { success: true, data: ensureScratchDirectory() };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'APP_GET_SCRATCH_DIRECTORY_FAILED',
             message: (error as Error).message,
             timestamp: Date.now(),
           },

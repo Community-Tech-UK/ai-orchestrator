@@ -40,19 +40,30 @@ describe('ActionCircuitBreaker', () => {
     expect(breaker.recordAction('b').tripped).toBe(true); // b hits 2 independently
   });
 
-  it('trips on accumulated cost when maxCostUsd is set', () => {
+  it('trips at the next action once accumulated cost crosses maxCostUsd', () => {
     breaker.configure({ maxCostUsd: 1.0 });
-    expect(breaker.recordCost('i1', 0.4).tripped).toBe(false);
-    expect(breaker.recordCost('i1', 0.4).tripped).toBe(false);
-    const trip = breaker.recordCost('i1', 0.4); // 1.2 >= 1.0
+    breaker.recordCost('i1', 0.4);
+    breaker.recordCost('i1', 0.4);
+    breaker.recordCost('i1', 0.4); // 1.2 accumulated — enforced at the action gate
+    const first = breaker.evaluate('i1');
+    expect(first.tripped).toBe(true);
+    expect(first.reason).toMatch(/\$1\.20 spent/);
+    expect(breaker.evaluate('i1').tripped).toBe(false); // resets after the trip
+  });
+
+  it('surfaces a cost checkpoint via recordAction', () => {
+    breaker.configure({ maxCostUsd: 1.0 });
+    breaker.recordCost('i1', 1.5);
+    const trip = breaker.recordAction('i1');
     expect(trip.tripped).toBe(true);
-    expect(trip.reason).toMatch(/\$1\.20 spent/);
+    expect(trip.reason).toMatch(/\$1\.50 spent/);
   });
 
   it('ignores non-positive cost', () => {
     breaker.configure({ maxCostUsd: 1.0 });
-    expect(breaker.recordCost('i1', 0).tripped).toBe(false);
-    expect(breaker.recordCost('i1', -5).tripped).toBe(false);
+    breaker.recordCost('i1', 0);
+    breaker.recordCost('i1', -5);
+    expect(breaker.evaluate('i1').tripped).toBe(false);
   });
 
   it('acknowledge and reset clear counters', () => {

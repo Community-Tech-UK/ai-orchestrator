@@ -390,6 +390,75 @@ describe('OrchestratorToolsRpcServer socket roundtrip', () => {
   });
 });
 
+describe('OrchestratorToolsRpcServer spawn-eligibility scoping (#18a/#19)', () => {
+  afterEach(() => {
+    _resetOrchestratorToolsRpcServerForTesting();
+  });
+
+  function threeToolServer(resolveSpawnEligibility?: (id: string) => boolean) {
+    const tools: McpServerToolDefinition[] = ['git_batch_pull', 'run_on_node', 'read_node_output'].map(
+      (name) => ({
+        name,
+        description: `test ${name}`,
+        inputSchema: { type: 'object' },
+        handler: vi.fn(async (args: unknown) => ({ name, args })),
+      }),
+    );
+    return new OrchestratorToolsRpcServer({
+      userDataPath: fs.mkdtempSync(path.join(os.tmpdir(), 'ot-rpc-scope-')),
+      isKnownLocalInstance: (id) => id === KNOWN_INSTANCE,
+      toolFactory: () => tools,
+      registerCleanup: () => undefined,
+      resolveSpawnEligibility,
+    });
+  }
+
+  it('strips run_on_node for an instance that is no longer spawn-eligible', async () => {
+    const server = threeToolServer(() => false);
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'orchestrator_tools.run_on_node',
+        params: { instanceId: KNOWN_INSTANCE, payload: { prompt: 'do a thing' } },
+      }),
+    ).rejects.toThrow(/run_on_node tool unavailable/);
+  });
+
+  it('still exposes the non-spawn tools to an ineligible instance', async () => {
+    const server = threeToolServer(() => false);
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'orchestrator_tools.read_node_output',
+      params: { instanceId: KNOWN_INSTANCE, payload: { instanceId: 'remote-1' } },
+    });
+    expect(result).toMatchObject({ name: 'read_node_output' });
+  });
+
+  it('keeps run_on_node when the instance is still spawn-eligible', async () => {
+    const server = threeToolServer(() => true);
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'orchestrator_tools.run_on_node',
+      params: { instanceId: KNOWN_INSTANCE, payload: { prompt: 'do a thing' } },
+    });
+    expect(result).toMatchObject({ name: 'run_on_node' });
+  });
+
+  it('keeps the full toolset when no eligibility resolver is wired', async () => {
+    const server = threeToolServer(undefined);
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 4,
+      method: 'orchestrator_tools.run_on_node',
+      params: { instanceId: KNOWN_INSTANCE, payload: { prompt: 'do a thing' } },
+    });
+    expect(result).toMatchObject({ name: 'run_on_node' });
+  });
+});
+
 describe('OrchestratorToolsRpcServer singleton', () => {
   afterEach(() => {
     _resetOrchestratorToolsRpcServerForTesting();

@@ -195,6 +195,7 @@ export const OPENAI_MODELS = {
  * Google model identifiers
  */
 export const GOOGLE_MODELS = {
+  GEMINI_35_FLASH: 'gemini-3.5-flash',
   GEMINI_3_1_PRO: 'gemini-3.1-pro-preview',
   GEMINI_3_PRO: 'gemini-3-pro-preview',
   GEMINI_3_FLASH: 'gemini-3-flash-preview',
@@ -212,24 +213,30 @@ export const COPILOT_MODELS = {
   CLAUDE_SONNET_46: 'claude-sonnet-4.6',
   CLAUDE_SONNET_45: 'claude-sonnet-4.5',
   CLAUDE_HAIKU_45: 'claude-haiku-4.5',
+  CLAUDE_OPUS_48: 'claude-opus-4.8',
   CLAUDE_OPUS_47: 'claude-opus-4.7',
   CLAUDE_OPUS_46: 'claude-opus-4.6',
   CLAUDE_OPUS_46_FAST: 'claude-opus-4.6-fast',
   CLAUDE_OPUS_45: 'claude-opus-4.5',
   CLAUDE_SONNET_4: 'claude-sonnet-4',
   GPT55: 'gpt-5.5',
+  GPT54: 'gpt-5.4',
   GPT53_CODEX: 'gpt-5.3-codex',
   GPT52_CODEX: 'gpt-5.2-codex',
   GPT52: 'gpt-5.2',
   GPT51: 'gpt-5.1',
   GPT55_MINI: 'gpt-5.5-mini',
+  GPT54_MINI: 'gpt-5.4-mini',
   GPT5_MINI: 'gpt-5-mini',
   GPT41: 'gpt-4.1',
+  GEMINI_35_FLASH: GOOGLE_MODELS.GEMINI_35_FLASH,
   GEMINI_3_1_PRO: GOOGLE_MODELS.GEMINI_3_1_PRO,
   GEMINI_3_PRO: GOOGLE_MODELS.GEMINI_3_PRO,
   GEMINI_3_FLASH: GOOGLE_MODELS.GEMINI_3_FLASH,
   GEMINI_25_PRO: GOOGLE_MODELS.GEMINI_25_PRO,
   GEMINI_25_FLASH: GOOGLE_MODELS.GEMINI_25_FLASH,
+  // GitHub's own fine-tuned model, surfaced only through the Copilot gateway.
+  RAPTOR_MINI: 'raptor-mini',
 } as const;
 
 /**
@@ -306,10 +313,15 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   // OpenAI / Codex models (GPT-5 family)
   [OPENAI_MODELS.GPT55]: { input: 5.0, output: 20.0 },
   [OPENAI_MODELS.GPT55_MINI]: { input: 1.5, output: 6.0 },
+  // GPT-5.4 family (added via Copilot CLI / GitHub Copilot, May 2026).
+  // Priced between 5.5 and 5.3-codex pending published per-token rates.
+  'gpt-5.4': { input: 4.0, output: 16.0 },
+  'gpt-5.4-mini': { input: 1.0, output: 4.0 },
   [OPENAI_MODELS.GPT53_CODEX]: { input: 2.5, output: 10.0 },
   [OPENAI_MODELS.GPT53_CODEX_SPARK]: { input: 0.5, output: 2.0 },
   [OPENAI_MODELS.GPT52]: { input: 2.0, output: 8.0 },
   // Google models
+  [GOOGLE_MODELS.GEMINI_35_FLASH]: { input: 0.15, output: 0.60 },
   [GOOGLE_MODELS.GEMINI_3_1_PRO]: { input: 1.25, output: 10.0 },
   [GOOGLE_MODELS.GEMINI_3_PRO]: { input: 1.25, output: 10.0 },
   [GOOGLE_MODELS.GEMINI_3_FLASH]: { input: 0.15, output: 0.60 },
@@ -391,6 +403,7 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     // Order matters: getPrimaryModelForProvider returns [0]; the entry at index 0
     // must be pinned to satisfy the pinned-default invariant.
     { id: COPILOT_MODELS.GEMINI_3_1_PRO, name: 'Gemini 3.1 Pro (Preview)', tier: 'powerful', pinned: true, family: 'Gemini' },
+    { id: COPILOT_MODELS.CLAUDE_OPUS_48, name: 'Claude Opus 4.8', tier: 'powerful', family: 'Claude' },
     { id: COPILOT_MODELS.CLAUDE_OPUS_47, name: 'Claude Opus 4.7', tier: 'powerful', family: 'Claude' },
     { id: COPILOT_MODELS.CLAUDE_OPUS_46, name: 'Claude Opus 4.6', tier: 'powerful', family: 'Claude' },
     { id: COPILOT_MODELS.CLAUDE_OPUS_46_FAST, name: 'Claude Opus 4.6 Fast', tier: 'powerful', family: 'Claude' },
@@ -398,19 +411,23 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: COPILOT_MODELS.CLAUDE_SONNET_46, name: 'Claude Sonnet 4.6', tier: 'balanced', pinned: true, family: 'Claude' },
     { id: COPILOT_MODELS.CLAUDE_SONNET_45, name: 'Claude Sonnet 4.5', tier: 'balanced', family: 'Claude' },
     { id: COPILOT_MODELS.CLAUDE_SONNET_4, name: 'Claude Sonnet 4', tier: 'balanced', family: 'Claude' },
+    { id: COPILOT_MODELS.GEMINI_35_FLASH, name: 'Gemini 3.5 Flash', tier: 'balanced', family: 'Gemini' },
     { id: COPILOT_MODELS.GEMINI_3_PRO, name: 'Gemini 3 Pro (Preview)', tier: 'powerful', family: 'Gemini' },
     { id: COPILOT_MODELS.GEMINI_3_FLASH, name: 'Gemini 3 Flash (Preview)', tier: 'balanced', family: 'Gemini' },
     { id: COPILOT_MODELS.GEMINI_25_PRO, name: 'Gemini 2.5 Pro', tier: 'powerful', family: 'Gemini' },
     { id: COPILOT_MODELS.GEMINI_25_FLASH, name: 'Gemini 2.5 Flash', tier: 'fast', family: 'Gemini' },
     { id: COPILOT_MODELS.GPT55, name: 'GPT-5.5', tier: 'balanced', pinned: true, family: 'GPT' },
+    { id: COPILOT_MODELS.GPT54, name: 'GPT-5.4', tier: 'balanced', family: 'GPT' },
     { id: COPILOT_MODELS.GPT53_CODEX, name: 'GPT-5.3 Codex', tier: 'balanced', family: 'GPT' },
     { id: COPILOT_MODELS.GPT52_CODEX, name: 'GPT-5.2 Codex', tier: 'balanced', family: 'GPT' },
     { id: COPILOT_MODELS.GPT52, name: 'GPT-5.2', tier: 'balanced', family: 'GPT' },
     { id: COPILOT_MODELS.GPT51, name: 'GPT-5.1', tier: 'balanced', family: 'GPT' },
     { id: COPILOT_MODELS.CLAUDE_HAIKU_45, name: 'Claude Haiku 4.5', tier: 'fast', family: 'Claude' },
     { id: COPILOT_MODELS.GPT55_MINI, name: 'GPT-5.5 Mini', tier: 'fast', family: 'GPT' },
+    { id: COPILOT_MODELS.GPT54_MINI, name: 'GPT-5.4 Mini', tier: 'fast', family: 'GPT' },
     { id: COPILOT_MODELS.GPT5_MINI, name: 'GPT-5 Mini', tier: 'fast', family: 'GPT' },
     { id: COPILOT_MODELS.GPT41, name: 'GPT-4.1', tier: 'fast', family: 'GPT' },
+    { id: COPILOT_MODELS.RAPTOR_MINI, name: 'Raptor Mini (Preview)', tier: 'fast', family: 'GitHub' },
     { id: COPILOT_MODELS.AUTO, name: 'Auto', tier: 'balanced', pinned: true, family: 'Auto' },
   ],
   ollama: [],

@@ -67,12 +67,15 @@ export class ActionCircuitBreaker {
     return this.evaluate(instanceId);
   }
 
-  /** Accumulate cost for an instance (e.g. from a usage/turn-completed event). */
-  recordCost(instanceId: string, costUsd: number): CircuitBreakerTrip {
-    if (!this.enabled || !(costUsd > 0)) return { tripped: false };
-    const c = this.counter(instanceId);
-    c.costUsd += costUsd;
-    return this.evaluate(instanceId);
+  /**
+   * Accumulate cost for an instance (e.g. from a usage/turn-completed event).
+   * This only accumulates — the threshold is enforced at the action gate
+   * (recordAction/evaluate) so a cost checkpoint surfaces as an `ask` on the next
+   * tool action rather than being swallowed by an immediate reset.
+   */
+  recordCost(instanceId: string, costUsd: number): void {
+    if (!this.enabled || !(costUsd > 0)) return;
+    this.counter(instanceId).costUsd += costUsd;
   }
 
   /** Check current state without mutating counters. */

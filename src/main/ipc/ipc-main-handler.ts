@@ -54,6 +54,7 @@ import {
   registerStatsHandlers,
   registerCommandHandlers,
   registerMagicPromptHandlers,
+  registerCompareHandlers,
   registerUpdateHandlers,
   registerPromptHistoryHandlers,
   registerPauseHandlers,
@@ -95,6 +96,9 @@ import {
   registerLoopHandlers,
   registerTerminalHandlers,
 } from './handlers';
+import { registerLspFeedback } from '../codemem/lsp-feedback-registration';
+import { registerCircuitBreaker } from '../security/circuit-breaker-registration';
+import { getCostTracker } from '../core/system/cost-tracker';
 
 const logger = getLogger('IpcMainHandler');
 
@@ -235,6 +239,9 @@ export class IpcMainHandler {
     // Command and plan mode handlers
     registerCommandHandlers(this.instanceManager);
     registerMagicPromptHandlers();
+    registerCompareHandlers();
+    registerLspFeedback({ instanceManager: this.instanceManager });
+    registerCircuitBreaker({ costTracker: getCostTracker() });
     registerUpdateHandlers({ windowManager: this.windowManager });
     getPromptHistoryService().pruneOnStart();
     registerPromptHistoryHandlers({ windowManager: this.windowManager });

@@ -30,5 +30,15 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/new-session/new-session.component').then((m) => m.NewSessionComponent),
   },
+  {
+    path: 'history',
+    loadComponent: () =>
+      import('./features/history/history.component').then((m) => m.HistoryComponent),
+  },
+  {
+    path: 'history/:chatId',
+    loadComponent: () =>
+      import('./features/history/history-detail.component').then((m) => m.HistoryDetailComponent),
+  },
   { path: '**', redirectTo: '' },
 ];

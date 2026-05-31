@@ -32,6 +32,9 @@ export function createInfrastructureDomain(
     getStartupCapabilities: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.APP_GET_STARTUP_CAPABILITIES);
     },
+    getScratchDirectory: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.APP_GET_SCRATCH_DIRECTORY);
+    },
     onStartupCapabilities: (callback: (data: unknown) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on(ch.APP_STARTUP_CAPABILITIES, handler);
@@ -430,6 +433,34 @@ export function createInfrastructureDomain(
     },
     sessionRecallResolveRef: (payload: { text: string }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.SESSION_RECALL_RESOLVE_REF, payload);
+    },
+
+    // Multi-provider compare — ask N providers the same prompt
+    compareListProviders: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.COMPARE_LIST_PROVIDERS);
+    },
+    compareRun: (payload: {
+      prompt: string;
+      providers: string[];
+      workingDirectory?: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.COMPARE_RUN, payload);
+    },
+
+    // LSP post-edit feedback loop (opt-in)
+    lspFeedbackGet: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.LSP_FEEDBACK_GET);
+    },
+    lspFeedbackSet: (enabled: boolean): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.LSP_FEEDBACK_SET, { enabled });
+    },
+
+    // Action/cost circuit breaker config
+    circuitBreakerGet: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.CIRCUIT_BREAKER_GET);
+    },
+    circuitBreakerSet: (config: { maxActions?: number; maxCostUsd?: number }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.CIRCUIT_BREAKER_SET, config);
     },
 
     // Auto-update (electron-updater)

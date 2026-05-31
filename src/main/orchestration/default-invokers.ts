@@ -746,6 +746,7 @@ import { createHash } from 'crypto';
 import * as fsLoop from 'fs';
 import * as pathLoop from 'path';
 import { getLoopCoordinator } from './loop-coordinator';
+import { registerLoopSafetyAdvisor } from './loop-safety-advisor';
 import type { LoopChildResult } from './loop-coordinator';
 import type { LoopErrorRecord, LoopFileChange, LoopToolCallRecord } from '../../shared/types/loop.types';
 import { defaultLoopContextConfig } from '../../shared/types/loop.types';
@@ -1306,6 +1307,10 @@ export function buildLoopBranchSelectorDeps(instanceManager: InstanceManager): B
 export function registerDefaultLoopInvoker(instanceManager: InstanceManager): void {
   const coordinator = getLoopCoordinator();
   if (coordinator.listenerCount('loop:invoke-iteration') > 0) return;
+
+  // claude2_todo #20: non-blocking post-iteration safety advisor. Guarded by
+  // the same once-per-coordinator gate above so it isn't double-registered.
+  registerLoopSafetyAdvisor(coordinator);
 
   // Per-loop persistent adapters for `contextStrategy: 'same-session'`. The
   // map is keyed by loopRunId; entries are torn down when the coordinator

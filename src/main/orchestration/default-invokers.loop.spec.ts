@@ -112,8 +112,11 @@ describe('Loop Mode invoker plumbing', () => {
   beforeEach(() => {
     // Fresh emitter per test; registerDefaultLoopInvoker bails if a listener
     // already exists, so we must reset both the coordinator mock and the
-    // listener registry.
-    hoisted.loopCoordinatorRef.current = new EventEmitter();
+    // listener registry. The fake also implements `registerIterationHook`
+    // (used by the #20 safety advisor) to match the real coordinator contract.
+    hoisted.loopCoordinatorRef.current = Object.assign(new EventEmitter(), {
+      registerIterationHook: vi.fn(() => () => {}),
+    });
     hoisted.sendMessage.mockReset();
     hoisted.sendRaw.mockReset().mockResolvedValue(undefined);
     hoisted.terminate.mockReset().mockResolvedValue(undefined);

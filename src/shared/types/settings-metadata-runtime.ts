@@ -43,6 +43,15 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'memory',
   },
   {
+    key: 'cumulativeTokenCompactionTrigger',
+    label: 'Compact after token spend',
+    description: 'Automatically compact an agent once it has spent this many tokens since its last compaction, regardless of how full its context window is — a cost cap for long sessions. 0 turns it off.',
+    type: 'number',
+    category: 'memory',
+    min: 0,
+    max: 10_000_000,
+  },
+  {
     key: 'customModelOverride',
     label: 'Custom model override',
     description: 'Force a specific model name for every new instance, ignoring the Default model setting. Leave empty to use the CLI\'s own default.',

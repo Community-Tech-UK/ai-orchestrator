@@ -194,6 +194,8 @@ export interface PermissionRequest {
     isChildInstance?: boolean;
     depth?: number;
     yoloMode?: boolean;
+    /** Agent identity making the request — enables per-agent rule overrides (#18). */
+    agentId?: string;
   };
   /** Timestamp */
   timestamp: number;
@@ -400,6 +402,7 @@ export class PermissionManager extends EventEmitter {
   private ruleSets: Map<string, RuleSet> = new Map();
   private decisionCache: Map<string, CachedDecision> = new Map();
   private sessionRules: Map<string, PermissionRule[]> = new Map(); // Per-session rules
+  private agentRules = new Map<string, PermissionRule[]>(); // Per-agent rules (#18)
   private loadedProjectRuleRoots: Set<string> = new Set();
   private matcherCache = new Map<string, CompiledMatcher>();
   private decisionStore?: PermissionDecisionStore;
@@ -549,6 +552,44 @@ export class PermissionManager extends EventEmitter {
 
     this.emit('session_rule:added', { sessionId, rule: fullRule });
     return fullRule;
+  }
+
+  /**
+   * Add a per-agent override rule (#18). Applies to any request whose
+   * context.agentId matches, at 'agent' priority (above user/project/default,
+   * below session). Glob/regex matching is identical to other rules.
+   */
+  addAgentRule(agentId: string, rule: Omit<PermissionRule, 'id' | 'source'>): PermissionRule {
+    // SECURITY: clamp to a priority floor of 20 so an agent override can never be
+    // evaluated before — and therefore never weaken — a built-in system security
+    // deny (SSH keys / credentials = 5, system dirs = 10, dangerous bash = 1).
+    // Agent rules can still override permissive 'allow' rules (priority 50–1000).
+    const AGENT_RULE_PRIORITY_FLOOR = 20;
+    const fullRule: PermissionRule = {
+      ...rule,
+      priority: Math.max(AGENT_RULE_PRIORITY_FLOOR, rule.priority),
+      id: `agent-rule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      source: 'agent',
+    };
+    let agentRules = this.agentRules.get(agentId);
+    if (!agentRules) {
+      agentRules = [];
+      this.agentRules.set(agentId, agentRules);
+    }
+    agentRules.push(fullRule);
+    this.emit('agent_rule:added', { agentId, rule: fullRule });
+    return fullRule;
+  }
+
+  /** Clear all override rules for an agent. */
+  clearAgentRules(agentId: string): void {
+    this.agentRules.delete(agentId);
+    this.emit('agent_rules:cleared', { agentId });
+  }
+
+  /** Snapshot of the override rules for an agent. */
+  getAgentRules(agentId: string): PermissionRule[] {
+    return [...(this.agentRules.get(agentId) ?? [])];
   }
 
   /**
@@ -915,6 +956,15 @@ export class PermissionManager extends EventEmitter {
     const sessionRules = this.sessionRules.get(request.instanceId);
     if (sessionRules) {
       rules.push(...sessionRules.filter((r) => r.scope === request.scope));
+    }
+
+    // Per-agent override rules (#18) — apply when the request carries an agentId.
+    const agentId = request.context?.agentId;
+    if (agentId) {
+      const agentRules = this.agentRules.get(agentId);
+      if (agentRules) {
+        rules.push(...agentRules.filter((r) => r.scope === request.scope));
+      }
     }
 
     // Add rules from all rule sets in priority order

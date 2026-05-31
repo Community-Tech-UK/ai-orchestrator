@@ -71,6 +71,14 @@ export interface AppSettings {
   memoryWarningThresholdMB: number; // warn when heap exceeds this (0 = disabled)
   autoTerminateOnMemoryPressure: boolean; // terminate idle instances when memory critical
   persistSessionContent: boolean; // persist session content (conversation/tool output) to disk
+  /**
+   * Cost-cap compaction trigger (claude2_todo #34b): auto-compact an instance
+   * once its cumulative token spend *since the last compaction* exceeds this
+   * many tokens, independent of context-window fill %. Catches long sessions
+   * (incl. self-managing CLIs that keep the window small while cost climbs).
+   * 0 = disabled.
+   */
+  cumulativeTokenCompactionTrigger: number;
 
   // Display
   fontSize: number; // 12-20
@@ -288,6 +296,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   memoryWarningThresholdMB: 1024, // warn at 1GB heap
   autoTerminateOnMemoryPressure: true,
   persistSessionContent: true,
+  cumulativeTokenCompactionTrigger: 0, // disabled by default (opt-in cost cap)
 
   // Display
   fontSize: 14,

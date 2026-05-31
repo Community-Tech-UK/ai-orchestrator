@@ -1,5 +1,6 @@
 import { ContextCompactor } from '../context/context-compactor';
 import { getCompactionCoordinator } from '../context/compaction-coordinator';
+import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
@@ -15,6 +16,21 @@ export function setupCompactionCoordinator(
   windowManager: WindowManager,
 ): void {
   const coordinator = getCompactionCoordinator();
+
+  // Cost-cap compaction trigger (claude2_todo #34b): apply the current setting
+  // and keep it live across changes. Default 0 = disabled.
+  const settings = getSettingsManager();
+  const applyCumulativeTrigger = () => {
+    try {
+      coordinator.setCumulativeTokenTrigger(settings.get('cumulativeTokenCompactionTrigger') ?? 0);
+    } catch (error) {
+      logger.warn('Failed to apply cumulative-token compaction trigger setting', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+  applyCumulativeTrigger();
+  settings.on('setting-changed', applyCumulativeTrigger);
 
   coordinator.configure({
     nativeCompact: async (instanceId: string) => {

@@ -89,3 +89,13 @@ export type UsageSnapshotPayload = z.infer<typeof UsageSnapshotPayloadSchema>;
 export type WorkspaceIsGitRepoPayload = z.infer<typeof WorkspaceIsGitRepoPayloadSchema>;
 export type MagicPromptListPayload = z.infer<typeof MagicPromptListPayloadSchema>;
 export type MagicPromptRunPayload = z.infer<typeof MagicPromptRunPayloadSchema>;
+
+// --- Multi-provider compare ---
+
+export const CompareRunPayloadSchema = z.object({
+  prompt: z.string().min(1).max(100_000),
+  providers: z.array(z.string().min(1).max(50)).min(1).max(8),
+  workingDirectory: z.string().min(1).max(10000).optional(),
+});
+
+export type CompareRunPayload = z.infer<typeof CompareRunPayloadSchema>;

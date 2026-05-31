@@ -1,9 +1,16 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { Router } from '@angular/router';
 import { GatewayClient } from '../../core/gateway-client.service';
 import { HostStore } from '../../core/host-store';
 import { statusColor, statusLabel } from '../../core/status';
-import type { MobileInstanceDto, MobileProjectDto } from '../../core/models';
+import type { MobileInstanceDto, MobileProjectDto, MobileRecentDirDto } from '../../core/models';
 
 type OrganizeMode = 'project' | 'chronological';
 
@@ -40,6 +47,7 @@ type OrganizeMode = 'project' | 'chronological';
         @if (promptCount() > 0) {
           <span class="pill attention">{{ promptCount() }} awaiting approval</span>
         }
+        <button class="pill" (click)="openHistory()">🕘 History</button>
       </div>
 
       @if (!online() && projects().length === 0) {
@@ -48,17 +56,19 @@ type OrganizeMode = 'project' | 'chronological';
 
       @if (mode() === 'project') {
         <h2 class="section">Projects</h2>
-        @if (projects().length === 0 && online()) {
-          <p class="muted">No active sessions. Start one below.</p>
+        @if (mergedProjects().length === 0 && online()) {
+          <p class="muted">No projects yet. Tap ＋ New to start one.</p>
         }
         <ul class="list">
-          @for (p of projects(); track p.key) {
+          @for (p of mergedProjects(); track p.key) {
             <li>
               <button class="row" (click)="openProject(p)">
                 <span class="folder">🗀</span>
                 <span class="info">
                   <span class="name">{{ p.name }}</span>
-                  <span class="meta">{{ p.sessionCount }} session{{ p.sessionCount === 1 ? '' : 's' }}</span>
+                  <span class="meta">
+                    {{ p.sessionCount === 0 ? 'No sessions · tap to start' : p.sessionCount + ' session' + (p.sessionCount === 1 ? '' : 's') }}
+                  </span>
                 </span>
                 @if (p.pendingApprovalCount > 0) {
                   <span class="badge attention">{{ p.pendingApprovalCount }} ⚠</span>
@@ -141,7 +151,7 @@ type OrganizeMode = 'project' | 'chronological';
     `,
   ],
 })
-export class ProjectsComponent {
+export class ProjectsComponent implements OnInit {
   private readonly gateway = inject(GatewayClient);
   private readonly hostStore = inject(HostStore);
   private readonly router = inject(Router);
@@ -153,7 +163,93 @@ export class ProjectsComponent {
   protected readonly color = statusColor;
   protected readonly label = statusLabel;
 
+  /** The host's recent directories, so projects with no live session still show. */
+  protected readonly recentDirs = signal<MobileRecentDirDto[]>([]);
+
   protected readonly projects = computed(() => this.gateway.snapshot()?.projects ?? []);
+
+  /** Persisted (history) sessions grouped per project key. */
+  private readonly historyByProject = computed(() => {
+    const map = new Map<string, { count: number; lastActivity: number }>();
+    for (const s of this.gateway.historySessions()) {
+      const key = s.workingDirectory || '__no_workspace__';
+      const prev = map.get(key) ?? { count: 0, lastActivity: 0 };
+      map.set(key, {
+        count: prev.count + 1,
+        lastActivity: Math.max(prev.lastActivity, s.lastActiveAt),
+      });
+    }
+    return map;
+  });
+
+  /**
+   * Project list shown on the home screen, merged from three sources so it
+   * matches the desktop: live instances (the snapshot), persisted history
+   * sessions (chats + archived instance sessions — so a project you ran but
+   * since closed still appears with its session count), and the host's recent
+   * directories (so even a project with no sessions at all can be opened to
+   * start work). Projects with live sessions sort first, then by activity.
+   */
+  protected readonly mergedProjects = computed<MobileProjectDto[]>(() => {
+    const byKey = new Map<string, MobileProjectDto>();
+    for (const p of this.projects()) {
+      byKey.set(p.key, { ...p });
+    }
+
+    // Fold in persisted history: bump session counts and surface
+    // history-only projects that have no live instance.
+    for (const [key, h] of this.historyByProject()) {
+      const existing = byKey.get(key);
+      if (existing) {
+        existing.sessionCount += h.count;
+        existing.lastActivity = Math.max(existing.lastActivity, h.lastActivity);
+      } else {
+        const path = key === '__no_workspace__' ? '' : key;
+        byKey.set(key, {
+          key,
+          path,
+          name: path ? path.split('/').filter(Boolean).pop() || path : 'No workspace',
+          sessionCount: h.count,
+          busyCount: 0,
+          pendingApprovalCount: 0,
+          lastActivity: h.lastActivity,
+        });
+      }
+    }
+
+    // Recent dirs fill in genuinely-empty projects (no live + no history).
+    for (const d of this.recentDirs()) {
+      if (!byKey.has(d.path)) {
+        byKey.set(d.path, {
+          key: d.path,
+          path: d.path,
+          name: d.displayName || d.path,
+          sessionCount: 0,
+          busyCount: 0,
+          pendingApprovalCount: 0,
+          lastActivity: d.lastAccessed,
+        });
+      }
+    }
+
+    // Active projects (with a live session) sort first, then by most-recent
+    // activity — so a project that's been idle "forever" can't outrank one
+    // with running work just because of a stale timestamp.
+    return [...byKey.values()].sort((a, b) => {
+      const aActive = a.busyCount > 0 ? 1 : 0;
+      const bActive = b.busyCount > 0 ? 1 : 0;
+      if (aActive !== bActive) return bActive - aActive;
+      return b.lastActivity - a.lastActivity;
+    });
+  });
+
+  async ngOnInit(): Promise<void> {
+    try {
+      this.recentDirs.set(await this.gateway.recentDirs());
+    } catch {
+      /* recent dirs are best-effort; live projects still render */
+    }
+  }
   protected readonly chronological = computed(() =>
     [...(this.gateway.snapshot()?.instances ?? [])].sort((a, b) => b.lastActivity - a.lastActivity),
   );
@@ -185,7 +281,16 @@ export class ProjectsComponent {
   }
 
   protected openProject(p: MobileProjectDto): void {
+    if (p.sessionCount === 0) {
+      // Empty project (from recent dirs) — jump straight to starting a session there.
+      void this.router.navigate(['/new-session'], { queryParams: { dir: p.path } });
+      return;
+    }
     void this.router.navigate(['/projects', p.key, 'sessions']);
+  }
+
+  protected openHistory(): void {
+    void this.router.navigate(['/history']);
   }
 
   protected openSession(s: MobileInstanceDto): void {

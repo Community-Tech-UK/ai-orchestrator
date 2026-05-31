@@ -28,8 +28,8 @@ import { ViewLayoutService, type WorkspacePresetId } from '../../core/services/v
 import { VisibleInstanceResolver } from '../../core/services/visible-instance-resolver.service';
 import { InstanceListComponent } from '../instance-list/instance-list.component';
 import { InstanceDetailComponent } from '../instance-detail/instance-detail.component';
-import { ChatSidebarComponent } from '../chats/chat-sidebar.component';
 import { ChatDetailComponent } from '../chats/chat-detail.component';
+import { ScratchDirectoryService } from '../../core/services/scratch-directory.service';
 import { CliErrorComponent } from '../cli-error/cli-error.component';
 import { HistorySidebarComponent } from '../history/history-sidebar.component';
 import { CommandPaletteComponent } from '../commands/command-palette.component';
@@ -57,7 +57,6 @@ import { SessionProgressPanelComponent } from '../instance-detail/session-progre
     NgTemplateOutlet,
     InstanceListComponent,
     InstanceDetailComponent,
-    ChatSidebarComponent,
     ChatDetailComponent,
     CliErrorComponent,
     HistorySidebarComponent,
@@ -92,6 +91,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   keybindingService = inject(KeybindingService);
   private viewLayoutService = inject(ViewLayoutService);
   private newSessionDraft = inject(NewSessionDraftService);
+  private scratchDirectory = inject(ScratchDirectoryService);
   private visibleInstanceResolver = inject(VisibleInstanceResolver);
   private modelPickerFocusService = inject(ModelPickerFocusService);
   sourceControlStore = inject(SourceControlStore);
@@ -490,6 +490,20 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.chatStore.deselect();
     this.historyStore.clearSelection();
     this.newSessionDraft.open(workingDirectory);
+    this.store.setSelectedInstance(null);
+  }
+
+  /**
+   * Start a general chat — a regular session that runs in the dedicated
+   * scratch directory rather than a project workspace. It renders exactly like
+   * any other session and is grouped under the "Chats" rail group.
+   */
+  async createGeneralChat(): Promise<void> {
+    await this.scratchDirectory.init();
+    const scratchDir = this.scratchDirectory.dir();
+    this.chatStore.deselect();
+    this.historyStore.clearSelection();
+    this.newSessionDraft.open(scratchDir);
     this.store.setSelectedInstance(null);
   }
 

@@ -28,6 +28,7 @@ import type {
   MobilePromptDto,
   MobileServerEvent,
   MobileSnapshot,
+  MobileHistorySessionDto,
 } from '../../shared/types/mobile-gateway.types';
 
 const logger = getLogger('MobileGateway');
@@ -75,6 +76,65 @@ export interface GatewayRecentDirsSource {
   >;
 }
 
+/** One persisted chat as the history source exposes it (structural view of ChatRecord). */
+export interface GatewayHistoryChat {
+  id: string;
+  name: string;
+  provider: string | null;
+  model: string | null;
+  currentCwd: string | null;
+  createdAt: number;
+  lastActiveAt: number;
+  archivedAt: number | null;
+  currentInstanceId: string | null;
+}
+
+/** One persisted transcript message (structural view of ConversationMessageRecord). */
+export interface GatewayHistoryMessage {
+  id: string;
+  role: string;
+  content: string;
+  createdAt: number;
+}
+
+/**
+ * Minimal persistent-history surface the gateway uses (structural view of
+ * ChatService). Kept structural so the gateway doesn't import ChatService
+ * directly (avoids a heavy/circular import); the real ChatService satisfies it.
+ */
+export interface GatewayChatHistorySource {
+  listChats(options: { includeArchived?: boolean }): GatewayHistoryChat[];
+  getChat(chatId: string): Promise<{ conversation: { messages: GatewayHistoryMessage[] } }>;
+}
+
+/** One archived instance session as the history manager exposes it (structural view of ConversationHistoryEntry). */
+export interface GatewayInstanceHistoryEntry {
+  id: string;
+  displayName: string;
+  aiTitle?: string;
+  firstUserMessage?: string;
+  provider?: string;
+  currentModel?: string;
+  workingDirectory: string;
+  createdAt: number;
+  endedAt: number;
+}
+
+/**
+ * Minimal persistent instance-history surface (structural view of HistoryManager).
+ * This is the archive of *closed* live agent sessions — the work you actually
+ * ran as instances — which the ChatService store does not cover. Kept structural
+ * so the gateway doesn't import HistoryManager directly.
+ */
+export interface GatewayInstanceHistorySource {
+  getEntries(options?: { limit?: number }): GatewayInstanceHistoryEntry[];
+  loadConversation(entryId: string): Promise<{ messages: OutputMessage[] } | null>;
+}
+
+/** id namespaces so /api/history/:id/messages can route to the right store. */
+const HISTORY_CHAT_PREFIX = 'chat:';
+const HISTORY_INSTANCE_PREFIX = 'inst:';
+
 /**
  * Structural view of InstanceManager the gateway needs. The real InstanceManager
  * (an EventEmitter) satisfies this; tests pass a light double. Command methods
@@ -105,6 +165,10 @@ export interface MobileGatewayDeps {
   registry?: MobileDeviceRegistry;
   pauseCoordinator?: GatewayPauseSource;
   recentDirs?: GatewayRecentDirsSource;
+  /** Persistent chat/session history. Defaults to the desktop ChatService. */
+  chatHistory?: GatewayChatHistorySource;
+  /** Persistent archive of closed instance sessions. Defaults to the HistoryManager. */
+  instanceHistory?: GatewayInstanceHistorySource;
   apnsSender?: MobileApnsSender;
   /**
    * Resolves a worker-node name or id to a node id for remote-targeted
@@ -177,6 +241,76 @@ export function buildProjects(instances: MobileInstanceDto[]): MobileProjectDto[
   return [...map.values()].sort((a, b) => b.lastActivity - a.lastActivity);
 }
 
+/** Map a persisted ledger message role onto the phone's message type. */
+function mapHistoryRole(role: string): MobileMessageDto['type'] {
+  switch (role) {
+    case 'assistant':
+      return 'assistant';
+    case 'user':
+      return 'user';
+    case 'tool':
+      return 'tool_result';
+    default:
+      // 'system', 'event', or anything unknown renders as a system line.
+      return 'system';
+  }
+}
+
+export function serializeHistorySession(chat: GatewayHistoryChat): MobileHistorySessionDto {
+  const workingDirectory = chat.currentCwd || '';
+  return {
+    id: chat.id,
+    name: chat.name,
+    provider: chat.provider,
+    model: chat.model,
+    workingDirectory,
+    projectName: workingDirectory
+      ? crossPlatformBasename(workingDirectory) || workingDirectory
+      : 'No workspace',
+    createdAt: chat.createdAt,
+    lastActiveAt: chat.lastActiveAt,
+    archived: chat.archivedAt != null,
+    live: chat.currentInstanceId != null,
+    instanceId: chat.currentInstanceId ?? undefined,
+  };
+}
+
+export function serializeHistoryMessage(message: GatewayHistoryMessage): MobileMessageDto {
+  return {
+    id: message.id,
+    timestamp: message.createdAt,
+    type: mapHistoryRole(message.role),
+    content: message.content,
+    hasAttachments: false,
+  };
+}
+
+/** Map an archived instance-history entry onto the phone's history DTO. */
+export function serializeInstanceHistorySession(
+  entry: GatewayInstanceHistoryEntry,
+): MobileHistorySessionDto {
+  const workingDirectory = entry.workingDirectory || '';
+  const name =
+    entry.aiTitle?.trim() ||
+    entry.displayName?.trim() ||
+    entry.firstUserMessage?.trim() ||
+    'Session';
+  return {
+    id: entry.id,
+    name,
+    provider: entry.provider ?? null,
+    model: entry.currentModel ?? null,
+    workingDirectory,
+    projectName: workingDirectory
+      ? crossPlatformBasename(workingDirectory) || workingDirectory
+      : 'No workspace',
+    createdAt: entry.createdAt,
+    lastActiveAt: entry.endedAt,
+    archived: true,
+    live: false,
+  };
+}
+
 export class MobileGatewayServer {
   private static instance: MobileGatewayServer | null = null;
 
@@ -237,6 +371,49 @@ export class MobileGatewayServer {
 
   private get recentDirs(): GatewayRecentDirsSource {
     return this.deps?.recentDirs ?? getRecentDirectoriesManager();
+  }
+
+  /**
+   * Persistent chat/session history. Uses the injected source when present,
+   * else lazily consults the desktop ChatService (guarded so a
+   * missing/uninitialized service yields null rather than throwing).
+   */
+  private get chatHistory(): GatewayChatHistorySource | null {
+    if (this.deps?.chatHistory) {
+      return this.deps.chatHistory;
+    }
+    if (!this.deps?.instanceManager) {
+      return null;
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { getChatService } = require('../chats') as typeof import('../chats');
+      return getChatService({
+        instanceManager: this.deps.instanceManager as unknown as Parameters<
+          typeof getChatService
+        >[0]['instanceManager'],
+      }) as unknown as GatewayChatHistorySource;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Persistent archive of closed instance sessions. Uses the injected source
+   * when present, else lazily consults the HistoryManager (guarded so a
+   * missing/uninitialized manager yields null rather than throwing).
+   */
+  private get instanceHistory(): GatewayInstanceHistorySource | null {
+    if (this.deps?.instanceHistory) {
+      return this.deps.instanceHistory;
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { getHistoryManager } = require('../history/history-manager') as typeof import('../history/history-manager');
+      return getHistoryManager() as unknown as GatewayInstanceHistorySource;
+    } catch {
+      return null;
+    }
   }
 
   private get apnsSender(): MobileApnsSender {
@@ -768,6 +945,14 @@ export class MobileGatewayServer {
         if (segments[1] === 'recent-dirs' && segments.length === 2 && method === 'GET') {
           return await this.handleRecentDirs(res);
         }
+        if (segments[1] === 'history' && method === 'GET') {
+          if (segments.length === 2) {
+            return this.handleHistory(res);
+          }
+          if (segments.length === 4 && segments[3] === 'messages') {
+            return await this.handleHistoryMessages(res, decodeURIComponent(segments[2]));
+          }
+        }
         if (
           segments[1] === 'devices' &&
           segments.length === 4 &&
@@ -984,6 +1169,86 @@ export class MobileGatewayServer {
         isPinned: e.isPinned,
       })),
     );
+  }
+
+  /**
+   * GET /api/history — persisted sessions, newest first. Merges two stores:
+   * the ChatService chats (live + archived) and the HistoryManager archive of
+   * closed instance sessions (the work run as live agents). Ids are namespaced
+   * (`chat:` / `inst:`) so the transcript route can dispatch to the right store.
+   * Either store being unavailable degrades to "just the other one".
+   */
+  private handleHistory(res: ServerResponse): void {
+    const sessions: MobileHistorySessionDto[] = [];
+
+    const chatSource = this.chatHistory;
+    if (chatSource) {
+      try {
+        for (const chat of chatSource.listChats({ includeArchived: true })) {
+          const dto = serializeHistorySession(chat);
+          sessions.push({ ...dto, id: `${HISTORY_CHAT_PREFIX}${dto.id}` });
+        }
+      } catch (err) {
+        logger.warn('Chat history list failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    const instanceSource = this.instanceHistory;
+    if (instanceSource) {
+      try {
+        for (const entry of instanceSource.getEntries({ limit: 500 })) {
+          const dto = serializeInstanceHistorySession(entry);
+          sessions.push({ ...dto, id: `${HISTORY_INSTANCE_PREFIX}${dto.id}` });
+        }
+      } catch (err) {
+        logger.warn('Instance history list failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    sessions.sort((a, b) => b.lastActiveAt - a.lastActiveAt);
+    this.sendJson(res, 200, sessions);
+  }
+
+  /** GET /api/history/:id/messages — transcript of one persisted session (chat or instance). */
+  private async handleHistoryMessages(res: ServerResponse, id: string): Promise<void> {
+    try {
+      if (id.startsWith(HISTORY_INSTANCE_PREFIX)) {
+        const source = this.instanceHistory;
+        if (!source) {
+          this.sendJson(res, 404, { error: 'History unavailable' });
+          return;
+        }
+        const data = await source.loadConversation(id.slice(HISTORY_INSTANCE_PREFIX.length));
+        if (!data) {
+          this.sendJson(res, 404, { error: 'Session not found' });
+          return;
+        }
+        const messages = (data.messages ?? []).slice(-MESSAGE_REPLAY_LIMIT).map(serializeMessage);
+        this.sendJson(res, 200, messages);
+        return;
+      }
+
+      // Default / `chat:` → the ChatService store.
+      const source = this.chatHistory;
+      if (!source) {
+        this.sendJson(res, 404, { error: 'History unavailable' });
+        return;
+      }
+      const chatId = id.startsWith(HISTORY_CHAT_PREFIX)
+        ? id.slice(HISTORY_CHAT_PREFIX.length)
+        : id;
+      const detail = await source.getChat(chatId);
+      const messages = (detail.conversation.messages ?? [])
+        .slice(-MESSAGE_REPLAY_LIMIT)
+        .map(serializeHistoryMessage);
+      this.sendJson(res, 200, messages);
+    } catch {
+      this.sendJson(res, 404, { error: 'Session not found' });
+    }
   }
 
   private async handleApnsToken(

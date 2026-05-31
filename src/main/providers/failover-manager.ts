@@ -17,6 +17,7 @@ import { CircuitBreaker, CircuitBreakerRegistry, CircuitState } from '../core/ci
 import { ErrorRecoveryManager } from '../core/error-recovery';
 import { ClassifiedError, ErrorCategory } from '../../shared/types/error-recovery.types';
 import { getProviderInstanceManager } from './provider-instance-manager';
+import { cooldownMsFor } from './failover-cooldown';
 
 /**
  * Provider health information
@@ -75,7 +76,10 @@ export const DEFAULT_FAILOVER_CONFIG: FailoverConfig = {
     ErrorCategory.SESSION_RESUME,
   ],
   maxProviderAttempts: 3,
-  providerCooldownMs: 60000, // 1 minute
+  // Derived from the rate-limit cooldown lane (claude2_todo #10) so the default
+  // stays in sync with the schedule; reason-scoped lanes (billing/auth → hours)
+  // live in `failover-cooldown.ts` for callers on the FailoverError path.
+  providerCooldownMs: cooldownMsFor('rate_limit', 1), // 1 minute
   preserveState: true,
   healthCheckIntervalMs: 30000, // 30 seconds
 };

@@ -38,6 +38,7 @@ const DEFAULT_COPILOT_MODEL_ID = COPILOT_MODELS.GEMINI_3_1_PRO;
 // Default fallback models (used when CLI discovery is unavailable).
 export const DEFAULT_COPILOT_MODELS: CopilotModel[] = [
   { id: DEFAULT_COPILOT_MODEL_ID, name: 'Gemini 3.1 Pro (Preview)', tier: 'flagship', supportsVision: true, contextWindow: 200000 },
+  { id: COPILOT_MODELS.CLAUDE_OPUS_48, name: 'Claude Opus 4.8', tier: 'flagship', supportsVision: true, contextWindow: 1000000 },
   { id: COPILOT_MODELS.CLAUDE_OPUS_47, name: 'Claude Opus 4.7', tier: 'flagship', supportsVision: true, contextWindow: 1000000 },
   { id: COPILOT_MODELS.CLAUDE_OPUS_46, name: 'Claude Opus 4.6', tier: 'flagship', supportsVision: true, contextWindow: 1000000 },
   { id: COPILOT_MODELS.CLAUDE_OPUS_46_FAST, name: 'Claude Opus 4.6 Fast', tier: 'flagship', supportsVision: true, contextWindow: 1000000 },
@@ -46,18 +47,22 @@ export const DEFAULT_COPILOT_MODELS: CopilotModel[] = [
   { id: COPILOT_MODELS.CLAUDE_SONNET_45, name: 'Claude Sonnet 4.5', tier: 'high', supportsVision: true, contextWindow: 200000 },
   { id: COPILOT_MODELS.CLAUDE_SONNET_4, name: 'Claude Sonnet 4', tier: 'high', supportsVision: true, contextWindow: 200000 },
   { id: COPILOT_MODELS.GPT55, name: 'GPT-5.5', tier: 'high', supportsVision: true, contextWindow: 200000 },
+  { id: COPILOT_MODELS.GPT54, name: 'GPT-5.4', tier: 'high', supportsVision: true, contextWindow: 200000 },
   { id: COPILOT_MODELS.GPT53_CODEX, name: 'GPT-5.3 Codex', tier: 'high', supportsVision: true, contextWindow: 200000 },
   { id: COPILOT_MODELS.GPT52_CODEX, name: 'GPT-5.2 Codex', tier: 'high', supportsVision: true, contextWindow: 200000 },
   { id: COPILOT_MODELS.GPT52, name: 'GPT-5.2', tier: 'high', supportsVision: true, contextWindow: 200000 },
   { id: COPILOT_MODELS.GPT51, name: 'GPT-5.1', tier: 'high', supportsVision: true, contextWindow: 200000 },
+  { id: COPILOT_MODELS.GEMINI_35_FLASH, name: 'Gemini 3.5 Flash', tier: 'high', supportsVision: true, contextWindow: 1000000 },
   { id: COPILOT_MODELS.GEMINI_3_PRO, name: 'Gemini 3 Pro (Preview)', tier: 'flagship', supportsVision: true, contextWindow: 200000 },
   { id: COPILOT_MODELS.GEMINI_3_FLASH, name: 'Gemini 3 Flash (Preview)', tier: 'high', supportsVision: true, contextWindow: 200000 },
   { id: COPILOT_MODELS.GEMINI_25_PRO, name: 'Gemini 2.5 Pro', tier: 'flagship', supportsVision: true, contextWindow: 200000 },
   { id: COPILOT_MODELS.GEMINI_25_FLASH, name: 'Gemini 2.5 Flash', tier: 'fast', supportsVision: true, contextWindow: 200000 },
   { id: COPILOT_MODELS.CLAUDE_HAIKU_45, name: 'Claude Haiku 4.5', tier: 'fast', supportsVision: true, contextWindow: 200000 },
   { id: COPILOT_MODELS.GPT55_MINI, name: 'GPT-5.5 Mini', tier: 'fast', supportsVision: true, contextWindow: 200000 },
+  { id: COPILOT_MODELS.GPT54_MINI, name: 'GPT-5.4 Mini', tier: 'fast', supportsVision: true, contextWindow: 200000 },
   { id: COPILOT_MODELS.GPT5_MINI, name: 'GPT-5 Mini', tier: 'fast', supportsVision: true, contextWindow: 200000 },
   { id: COPILOT_MODELS.GPT41, name: 'GPT-4.1', tier: 'fast', supportsVision: true, contextWindow: 200000 },
+  { id: COPILOT_MODELS.RAPTOR_MINI, name: 'Raptor Mini (Preview)', tier: 'fast', supportsVision: true, contextWindow: 200000 },
   AUTO_COPILOT_MODEL,
 ];
 

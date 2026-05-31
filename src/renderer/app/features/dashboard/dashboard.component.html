@@ -48,9 +48,11 @@
     <!-- Sidebar with instance list -->
     @if (showSidebar()) {
       <aside class="sidebar" [style.width.px]="effectiveSidebarWidth()">
-        <app-sidebar-header (createClicked)="createInstance()" />
+        <app-sidebar-header
+          (createClicked)="createInstance()"
+          (newChatClicked)="createGeneralChat()"
+        />
 
-        <app-chat-sidebar />
         <app-instance-list />
 
         <app-sidebar-footer (closeAllClicked)="closeAllInstances()" />

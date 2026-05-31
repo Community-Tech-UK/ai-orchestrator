@@ -2,7 +2,20 @@ import { ChangeDetectionStrategy, Component, computed, inject, input } from '@an
 import { Router } from '@angular/router';
 import { GatewayClient } from '../../core/gateway-client.service';
 import { statusColor, statusLabel } from '../../core/status';
-import type { MobileInstanceDto } from '../../core/models';
+
+/** A row in the session list — either a live instance or a persisted history session. */
+interface SessionRow {
+  /** Route target: instance id for live, or namespaced history id for past sessions. */
+  id: string;
+  name: string;
+  provider: string;
+  model?: string;
+  status: string;
+  pendingApprovalCount: number;
+  hasUnreadCompletion: boolean;
+  live: boolean;
+  lastActivity: number;
+}
 
 @Component({
   standalone: true,
@@ -28,13 +41,15 @@ import type { MobileInstanceDto } from '../../core/models';
               <span class="dot lg" [style.background]="color(s.status)"></span>
               <span class="info">
                 <span class="name">
-                  {{ s.displayName }}
+                  {{ s.name }}
                   @if (s.hasUnreadCompletion) { <span class="unread"></span> }
                 </span>
                 <span class="meta">{{ s.provider }}{{ s.model ? ' · ' + s.model : '' }}</span>
               </span>
               @if (s.pendingApprovalCount > 0) {
                 <span class="chip attention">Awaiting approval</span>
+              } @else if (!s.live) {
+                <span class="chip">past</span>
               } @else {
                 <span class="chip">{{ label(s.status) }}</span>
               }
@@ -90,20 +105,63 @@ export class SessionsComponent {
   protected readonly color = statusColor;
   protected readonly label = statusLabel;
 
-  protected readonly sessions = computed(() => {
+  protected readonly sessions = computed<SessionRow[]>(() => {
     const key = this.projectKey();
-    return (this.gateway.snapshot()?.instances ?? []).filter(
-      (i) => (i.workingDirectory || '__no_workspace__') === key,
-    );
+
+    const live: SessionRow[] = (this.gateway.snapshot()?.instances ?? [])
+      .filter((i) => (i.workingDirectory || '__no_workspace__') === key)
+      .map((i) => ({
+        id: i.id,
+        name: i.displayName,
+        provider: i.provider,
+        model: i.model,
+        status: i.status,
+        pendingApprovalCount: i.pendingApprovalCount,
+        hasUnreadCompletion: i.hasUnreadCompletion,
+        live: true,
+        lastActivity: i.lastActivity,
+      }));
+
+    // Persisted (closed) sessions for this project. A history session that is
+    // still live is already represented by the live instance above, so skip it.
+    const liveHistoryHandled = new Set(live.map((r) => r.id));
+    const past: SessionRow[] = this.gateway
+      .historySessions()
+      .filter((h) => (h.workingDirectory || '__no_workspace__') === key)
+      .filter((h) => !(h.live && h.instanceId && liveHistoryHandled.has(h.instanceId)))
+      .map((h) => ({
+        id: h.id,
+        name: h.name,
+        provider: h.provider ?? 'session',
+        model: h.model ?? undefined,
+        status: 'idle',
+        pendingApprovalCount: 0,
+        hasUnreadCompletion: false,
+        live: false,
+        lastActivity: h.lastActiveAt,
+      }));
+
+    return [...live, ...past].sort((a, b) => {
+      if (a.live !== b.live) return a.live ? -1 : 1;
+      return b.lastActivity - a.lastActivity;
+    });
   });
 
   protected readonly projectName = computed(() => {
     const project = this.gateway.snapshot()?.projects.find((p) => p.key === this.projectKey());
-    return project?.name ?? 'Sessions';
+    if (project) return project.name;
+    const key = this.projectKey();
+    if (key === '__no_workspace__') return 'No workspace';
+    return key.split('/').filter(Boolean).pop() || 'Sessions';
   });
 
-  protected open(session: MobileInstanceDto): void {
-    void this.router.navigate(['/projects', this.projectKey(), 'sessions', session.id]);
+  protected open(session: SessionRow): void {
+    if (session.live) {
+      void this.router.navigate(['/projects', this.projectKey(), 'sessions', session.id]);
+    } else {
+      // Past session → read-only transcript (history id is already namespaced).
+      void this.router.navigate(['/history', session.id]);
+    }
   }
 
   protected newSession(): void {

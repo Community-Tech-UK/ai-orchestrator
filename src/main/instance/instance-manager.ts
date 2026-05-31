@@ -17,6 +17,9 @@ import type { PendingEnvelope } from '../providers/provider-runtime-event-bus';
 import { getLogger } from '../logging/logger';
 import { generateChildPrompt, stripOrchestrationMarkers } from '../orchestration/orchestration-protocol';
 import { getCommandManager } from '../commands/command-manager';
+import { resolveSessionReferences } from '../session/session-reference-resolver';
+import { getActionCircuitBreaker } from '../security/action-circuit-breaker';
+import { forgetLspFeedbackInstance } from '../codemem/lsp-feedback-registration';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getTaskManager } from '../orchestration/task-manager';
 import type { RoutingDecision } from '../routing';
@@ -725,6 +728,7 @@ export class InstanceManager extends EventEmitter {
           isChildInstance: Boolean(instance?.parentId),
           depth: instance?.depth ?? 0,
           yoloMode: Boolean(instance?.yoloMode),
+          agentId: instance?.agentId,
         },
         timestamp: Date.now(),
       };
@@ -825,6 +829,7 @@ export class InstanceManager extends EventEmitter {
           isChildInstance: Boolean(instance?.parentId),
           depth: instance?.depth ?? 0,
           yoloMode: Boolean(instance?.yoloMode),
+          agentId: instance?.agentId,
         },
         timestamp: Date.now(),
       };
@@ -1208,6 +1213,9 @@ export class InstanceManager extends EventEmitter {
   async terminateInstance(instanceId: string, graceful = true): Promise<void> {
     const instance = this.state.getInstance(instanceId);
     getAutoTitleService().clearInstance(instanceId);
+    // Drop per-instance accumulated state so long-running daemons don't leak.
+    getActionCircuitBreaker().reset(instanceId);
+    forgetLspFeedbackInstance(instanceId);
     await this.lifecycle.terminateInstance(instanceId, graceful);
     emitPluginHook('session.terminated', {
       instanceId,
@@ -1392,6 +1400,18 @@ export class InstanceManager extends EventEmitter {
           ? resolvedCommand.execution.actionId
           : undefined,
       };
+    }
+
+    // Resolve @T-<id> session cross-references (backlog #31): pull the referenced
+    // session's title/summary into the prompt so the agent has that context.
+    // No-op (no search) unless the message contains an @T- token.
+    try {
+      const refResolution = await resolveSessionReferences(resolvedMessage);
+      if (refResolution.contextBlock) {
+        resolvedMessage = `${refResolution.contextBlock}\n\n${refResolution.annotatedText}`;
+      }
+    } catch (error) {
+      logger.debug('Session reference resolution failed', { instanceId, error: String(error) });
     }
 
     if (!options?.isRetry && message.trim()) {

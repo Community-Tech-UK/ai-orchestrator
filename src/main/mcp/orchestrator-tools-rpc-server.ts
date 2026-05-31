@@ -38,8 +38,20 @@ import {
   type SpawnRemoteInstanceFn,
 } from './orchestrator-tools';
 import type { McpServerToolDefinition } from './mcp-server-tools';
+import { createToolsetRegistry } from '../tools/toolsets';
 
 const logger = getLogger('OrchestratorToolsRpcServer');
+
+/**
+ * Per-surface tool scoping (claude2_todo #18a/#19): the `-leaf` toolset strips
+ * the spawn-capable `run_on_node` so an instance that has already reached the
+ * spawn-depth limit cannot recursively spawn further — defense-in-depth
+ * alongside the depth guard enforced in the `run_on_node` handler.
+ */
+const ORCHESTRATOR_TOOLSETS = createToolsetRegistry([
+  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'run_on_node', 'read_node_output'] },
+  { name: 'orchestrator-tools-leaf', includes: ['orchestrator-tools-full'], tools: ['!run_on_node'] },
+]);
 
 const DEFAULT_MAX_PAYLOAD_BYTES = 256 * 1024;
 const MAX_RPC_ENVELOPE_BYTES = 16 * 1024;
@@ -81,6 +93,13 @@ export interface OrchestratorToolsRpcServerOptions {
    * `read_node_output` rejects with an "unavailable" error.
    */
   readInstanceOutput?: ReadInstanceOutputFn | null;
+  /**
+   * Returns whether the given instance may still spawn (i.e. is below the
+   * configured spawn-depth limit). When it returns false, the spawn-capable
+   * `run_on_node` tool is stripped from that instance's tool list (#18a). When
+   * omitted, every instance keeps the full toolset.
+   */
+  resolveSpawnEligibility?: (instanceId: string) => boolean;
   /** Inject the tool factory in tests so we can avoid touching the real DB. */
   toolFactory?: (deps: {
     db: SqliteDriver;
@@ -100,6 +119,7 @@ export class OrchestratorToolsRpcServer {
   private readonly rateLimit: { maxRequests: number; windowMs: number };
   private readonly spawnRemoteInstance: SpawnRemoteInstanceFn | null;
   private readonly readInstanceOutput: ReadInstanceOutputFn | null;
+  private readonly resolveSpawnEligibility: ((instanceId: string) => boolean) | null;
   private readonly buckets = new Map<string, number[]>();
   private readonly toolFactory: NonNullable<OrchestratorToolsRpcServerOptions['toolFactory']>;
   /** True when callers provided their own toolFactory — usually tests that
@@ -120,6 +140,7 @@ export class OrchestratorToolsRpcServer {
     this.rateLimit = options.rateLimit ?? { maxRequests: 30, windowMs: 10_000 };
     this.spawnRemoteInstance = options.spawnRemoteInstance ?? null;
     this.readInstanceOutput = options.readInstanceOutput ?? null;
+    this.resolveSpawnEligibility = options.resolveSpawnEligibility ?? null;
     this.toolFactoryInjected = options.toolFactory !== undefined;
     this.toolFactory = options.toolFactory ?? createOrchestratorToolDefinitions;
     const register = options.registerCleanup ?? registerGlobalCleanup;
@@ -315,25 +336,46 @@ export class OrchestratorToolsRpcServer {
     if (this.toolFactoryInjected) {
       // Tests inject a factory that ignores its `db`/`ledger` args; opening
       // the real operator DB here would defeat the point of injection.
-      return this.toolFactory({
+      return this.scopeToolsForInstance(instanceId, this.toolFactory({
         db: null as unknown as SqliteDriver,
         ledger: null,
         instanceId,
         spawnRemoteInstance: this.spawnRemoteInstance,
         readInstanceOutput: this.readInstanceOutput,
-      });
+      }));
     }
     this.ensureRuntimeReady();
     if (!this.db) {
       throw new Error('Orchestrator-tools runtime failed to initialize');
     }
-    return this.toolFactory({
+    return this.scopeToolsForInstance(instanceId, this.toolFactory({
       db: this.db,
       ledger: this.ledger,
       instanceId,
       spawnRemoteInstance: this.spawnRemoteInstance,
       readInstanceOutput: this.readInstanceOutput,
-    });
+    }));
+  }
+
+  /**
+   * Strip spawn-capable tools (`run_on_node`) from instances that have reached
+   * the spawn-depth limit (#18a/#19). No-op when no eligibility resolver is
+   * wired or the instance is still allowed to spawn.
+   */
+  private scopeToolsForInstance(
+    instanceId: string,
+    tools: McpServerToolDefinition[],
+  ): McpServerToolDefinition[] {
+    if (!this.resolveSpawnEligibility || this.resolveSpawnEligibility(instanceId)) {
+      return tools;
+    }
+    // Strip exactly the tools that the leaf toolset removes from the full set
+    // (i.e. run_on_node) — never drop unrelated/future tools.
+    const leaf = new Set(ORCHESTRATOR_TOOLSETS.resolve('orchestrator-tools-leaf'));
+    const stripped = new Set(
+      ORCHESTRATOR_TOOLSETS.resolve('orchestrator-tools-full').filter((t) => !leaf.has(t)),
+    );
+    return tools.filter((tool) => !stripped.has(tool.name));
   }
 
   private createSocketPath(): string {

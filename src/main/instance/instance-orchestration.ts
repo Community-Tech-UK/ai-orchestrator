@@ -47,6 +47,11 @@ import type { IndexedCodebaseContextService } from '../indexing/indexed-codebase
 import { FastPathRetriever } from './orchestration/fast-path-retriever';
 import { OrchestrationMessageFormatter } from './orchestration/orchestration-message-formatter';
 import { evaluateSpawn } from '../orchestration/subagent-spawn-guard';
+import {
+  routeRole,
+  decideDelegation,
+  ROUTE_CONFIDENCE_THRESHOLD,
+} from '../orchestration/delegation-policy';
 
 /**
  * Dependencies required by the orchestration manager
@@ -270,6 +275,21 @@ export class InstanceOrchestrationManager {
             `Cannot spawn child: ${depthDecision.reason}`,
           );
           return;
+        }
+
+        // Cost-aware delegation advisory (claude2_todo #17): purely
+        // observational — flags when the lead delegated a trivial narrow task it
+        // could have done inline, and records the broad/narrow fan-out guidance.
+        // Non-blocking (the model already chose to spawn).
+        const delegation = decideDelegation(command.task, {
+          maxParallelCap: this.orchestrationSettings.maxChildrenPerParent,
+        });
+        if (!delegation.recommendDelegation) {
+          logger.debug('Delegation advisory: task may be cheaper done inline', {
+            parentId,
+            scope: delegation.scope,
+            reason: delegation.reason,
+          });
         }
 
         try {
@@ -829,6 +849,23 @@ export class InstanceOrchestrationManager {
       );
       if (recommendedAgentId) {
         return recommendedAgentId;
+      }
+    }
+
+    // Deterministic keyword→role router (claude2_todo #17): when no explicit
+    // agent, retrieval heuristic, or learned recommendation applies, route to a
+    // specialist role by intent — but only on a confident match so ambiguous
+    // tasks keep the default build agent. Saves a model call vs. LLM routing.
+    const route = routeRole(command.task);
+    if (route.confidence >= ROUTE_CONFIDENCE_THRESHOLD) {
+      const routedAgent = getAgentById(route.role);
+      if (routedAgent) {
+        logger.debug('Child agent routed by delegation policy', {
+          role: route.role,
+          confidence: Number(route.confidence.toFixed(2)),
+          reason: route.reason,
+        });
+        return routedAgent.id;
       }
     }
 
