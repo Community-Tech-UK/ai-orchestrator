@@ -492,6 +492,62 @@ describe('MobileGatewayServer', () => {
     expect(res.status).toBe(400);
   });
 
+  it('passes an explicit forceNodeId through to createInstance', async () => {
+    const token = await pairToken();
+    const res = await authed(token, '/api/instances', {
+      method: 'POST',
+      body: JSON.stringify({
+        workingDirectory: '/repo/gamma',
+        initialPrompt: 'run the tests',
+        forceNodeId: 'node-123',
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect(source.createInstance).toHaveBeenCalledWith(
+      expect.objectContaining({ workingDirectory: '/repo/gamma', forceNodeId: 'node-123' }),
+    );
+  });
+
+  it('resolves nodeName to a forceNodeId via the injected resolver', async () => {
+    const nodeResolver = vi.fn((nameOrId: string) =>
+      nameOrId === 'windows-pc' ? 'node-win' : null,
+    );
+    server.initialize({
+      instanceManager: source,
+      registry,
+      pauseCoordinator: pause,
+      recentDirs: fakeRecentDirs,
+      nodeResolver,
+    });
+    const token = await pairToken();
+    const res = await authed(token, '/api/instances', {
+      method: 'POST',
+      body: JSON.stringify({ workingDirectory: '/repo/gamma', nodeName: 'windows-pc' }),
+    });
+    expect(res.status).toBe(200);
+    expect(nodeResolver).toHaveBeenCalledWith('windows-pc');
+    expect(source.createInstance).toHaveBeenCalledWith(
+      expect.objectContaining({ forceNodeId: 'node-win' }),
+    );
+  });
+
+  it('returns 404 when nodeName cannot be resolved', async () => {
+    server.initialize({
+      instanceManager: source,
+      registry,
+      pauseCoordinator: pause,
+      recentDirs: fakeRecentDirs,
+      nodeResolver: () => null,
+    });
+    const token = await pairToken();
+    const res = await authed(token, '/api/instances', {
+      method: 'POST',
+      body: JSON.stringify({ workingDirectory: '/repo/gamma', nodeName: 'ghost-pc' }),
+    });
+    expect(res.status).toBe(404);
+    expect(source.createInstance).not.toHaveBeenCalled();
+  });
+
   it('renames an instance', async () => {
     const token = await pairToken();
     const res = await authed(token, '/api/instances/a/rename', {

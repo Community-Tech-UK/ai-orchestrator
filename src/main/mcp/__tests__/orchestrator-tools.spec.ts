@@ -177,6 +177,60 @@ describe('orchestrator MCP tools', () => {
     }));
   });
 
+  it('run_on_node forwards parsed args to the injected spawnRemoteInstance', async () => {
+    const db = createDb();
+    const calls: unknown[] = [];
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      spawnRemoteInstance: async (args) => {
+        calls.push(args);
+        return {
+          instanceId: 'inst-9',
+          nodeId: 'node-9',
+          nodeName: 'windows-pc',
+          workingDirectory: 'C:/work',
+          status: 'initializing',
+        };
+      },
+    });
+    const runOnNode = tools.find((t) => t.name === 'run_on_node');
+    expect(runOnNode).toBeDefined();
+
+    const result = await runOnNode!.handler({
+      node: 'windows-pc',
+      prompt: 'run the tests',
+      provider: 'claude',
+    });
+
+    expect(calls).toEqual([
+      { node: 'windows-pc', prompt: 'run the tests', provider: 'claude' },
+    ]);
+    expect(result).toMatchObject({ instanceId: 'inst-9', nodeId: 'node-9', status: 'initializing' });
+  });
+
+  it('run_on_node rejects when no spawnRemoteInstance is wired', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({ db, instanceId: null });
+    const runOnNode = tools.find((t) => t.name === 'run_on_node');
+
+    await expect(runOnNode!.handler({ prompt: 'do a thing' })).rejects.toThrow(/unavailable/);
+  });
+
+  it('run_on_node requires a prompt', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      spawnRemoteInstance: async () => {
+        throw new Error('should not be called');
+      },
+    });
+    const runOnNode = tools.find((t) => t.name === 'run_on_node');
+
+    await expect(runOnNode!.handler({ node: 'windows-pc' })).rejects.toThrow();
+  });
+
   function createDb(): SqliteDriver {
     const db = defaultDriverFactory(':memory:');
     createOperatorTables(db);

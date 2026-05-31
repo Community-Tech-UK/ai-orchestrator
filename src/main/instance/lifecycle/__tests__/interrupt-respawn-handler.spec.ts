@@ -4,6 +4,10 @@ import type { CliAdapter } from '../../../cli/adapters/adapter-factory';
 import { InterruptRespawnHandler } from '../interrupt-respawn-handler';
 import type { Instance, OutputMessage } from '../../../../shared/types/instance.types';
 
+const providerRuntime = vi.hoisted(() => ({
+  createAdapter: vi.fn(),
+}));
+
 vi.mock('../../../logging/logger', () => ({
   getLogger: () => ({
     info: vi.fn(),
@@ -11,6 +15,10 @@ vi.mock('../../../logging/logger', () => ({
     debug: vi.fn(),
     error: vi.fn(),
   }),
+}));
+
+vi.mock('../../../providers/provider-runtime-service', () => ({
+  getProviderRuntimeService: () => providerRuntime,
 }));
 
 function createInstance(status: Instance['status'] = 'busy'): Instance {
@@ -69,8 +77,28 @@ class InterruptProofAdapter extends EventEmitter {
     }),
   }));
   terminate = vi.fn().mockResolvedValue(undefined);
+  getName = vi.fn(() => 'claude-cli');
+  isRunning = vi.fn(() => true);
   removeAllListeners(): this {
     return super.removeAllListeners();
+  }
+}
+
+class RespawnReplacementAdapter extends EventEmitter {
+  spawn = vi.fn<() => Promise<number>>();
+  terminate = vi.fn().mockResolvedValue(undefined);
+  sendInput = vi.fn().mockResolvedValue(undefined);
+
+  getName(): string {
+    return 'claude-cli';
+  }
+
+  getSessionId(): string | null {
+    return null;
+  }
+
+  isRunning(): boolean {
+    return true;
   }
 }
 
@@ -84,6 +112,7 @@ describe('InterruptRespawnHandler', () => {
   let handler: InterruptRespawnHandler;
 
   beforeEach(() => {
+    providerRuntime.createAdapter.mockReset();
     instance = createInstance();
     adapter = new InterruptProofAdapter();
     queueUpdate = vi.fn();
@@ -172,5 +201,84 @@ describe('InterruptRespawnHandler', () => {
     expect(instance.interruptPhase).toBe('escalated');
     expect(instance.respawnPromise).toBeUndefined();
     expect(queueUpdate.mock.calls.map((call) => call[1])).toEqual(['interrupt-escalating', 'cancelled']);
+  });
+
+  it('cleans up a replacement adapter when auto-respawn races with termination', async () => {
+    instance = createInstance('respawning');
+    instance.parentId = null;
+    instance.outputBuffer = [{
+      id: 'user-1',
+      timestamp: Date.now(),
+      type: 'user',
+      content: 'continue',
+    }];
+
+    const previousAdapter = adapter as unknown as CliAdapter;
+    const replacement = new RespawnReplacementAdapter();
+    let resolveSpawn!: (pid: number) => void;
+    replacement.spawn.mockImplementation(() => new Promise<number>((resolve) => {
+      resolveSpawn = resolve;
+    }));
+    providerRuntime.createAdapter.mockReturnValue(replacement);
+
+    let currentAdapter: CliAdapter | undefined = previousAdapter;
+    const setAdapter = vi.fn((_id: string, next: CliAdapter) => {
+      currentAdapter = next;
+    });
+    const deleteAdapter = vi.fn(() => {
+      currentAdapter = undefined;
+    });
+    const setupAdapterEvents = vi.fn();
+
+    handler = new InterruptRespawnHandler({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: () => currentAdapter,
+      setAdapter,
+      deleteAdapter,
+      queueUpdate,
+      markInterrupted: vi.fn(),
+      clearInterrupted,
+      addToOutputBuffer,
+      setupAdapterEvents,
+      transitionState: (target, status) => {
+        target.status = status;
+      },
+      getAdapterRuntimeCapabilities: () => ({
+        supportsResume: false,
+        supportsForkSession: false,
+        supportsNativeCompaction: false,
+        supportsPermissionPrompts: false,
+        supportsDeferPermission: false,
+      }),
+      resolveCliTypeForInstance: vi.fn().mockResolvedValue('claude'),
+      getMcpConfig: () => [],
+      getPermissionHookPath: () => undefined,
+      waitForResumeHealth: vi.fn().mockResolvedValue(true),
+      waitForAdapterWritable: vi.fn().mockResolvedValue(undefined),
+      buildReplayContinuityMessage: () => 'replay continuity',
+      buildFallbackHistory: vi.fn(),
+      emitOutput,
+    });
+
+    const respawn = handler.respawnAfterUnexpectedExit(instance.id);
+    for (let attempt = 0; attempt < 5 && replacement.spawn.mock.calls.length === 0; attempt++) {
+      await Promise.resolve();
+    }
+    expect(replacement.spawn).toHaveBeenCalledTimes(1);
+
+    instance.status = 'terminated';
+    resolveSpawn(777);
+    await respawn;
+
+    expect(replacement.terminate).toHaveBeenCalledWith(false);
+    expect(deleteAdapter).toHaveBeenCalled();
+    expect(currentAdapter).toBeUndefined();
+    expect(instance.status).toBe('terminated');
+    expect(instance.processId).toBeNull();
+    expect(addToOutputBuffer).not.toHaveBeenCalledWith(
+      instance,
+      expect.objectContaining({ metadata: { autoRespawn: true } }),
+    );
+    expect(queueUpdate.mock.calls.map((call) => call[1])).not.toContain('idle');
   });
 });

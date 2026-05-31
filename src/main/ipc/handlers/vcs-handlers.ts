@@ -126,7 +126,7 @@ export function registerVcsHandlers(deps?: {
       try {
         const validated = validateIpcPayload(VcsGetStatusPayloadSchema, payload, 'VCS_GET_STATUS');
         const vcs = createVcsManager(validated.workingDirectory);
-        const status = vcs.getStatus();
+        const status = await vcs.getStatusAsync();
         return {
           success: true,
           data: status
@@ -362,7 +362,7 @@ export function registerVcsHandlers(deps?: {
             data: { repositories: [], gitAvailable: false },
           };
         }
-        const repositories = VcsManager.findRepositories(
+        const repositories = await VcsManager.findRepositoriesAsync(
           validated.rootPath,
           validated.ignorePatterns ?? []
         );
@@ -536,7 +536,7 @@ export function registerVcsHandlers(deps?: {
         }
 
         const vcs = createVcsManager(validated.workingDirectory);
-        const status = vcs.getStatus();
+        const status = await vcs.getStatusAsync();
 
         // Build the set of tracked paths visible to git (staged + unstaged).
         // The untracked list is path-only strings.

@@ -298,6 +298,15 @@ export class SourceControlStore {
       void this.vcs.vcsWatchRepos([]);
       return;
     }
+
+    // Dashboard effects can re-run when the selected instance object
+    // changes even if its working directory did not. Treat loadForRoot
+    // as a root-selection API; manual refresh and watcher-driven updates
+    // still go through refresh()/refreshOne().
+    if (root === this.activeRoot() && (this.isRefreshing() || this.lastRefreshedRoot === root)) {
+      return;
+    }
+
     this.activeRoot.set(root);
     return this.refresh(root);
   }

@@ -21,6 +21,7 @@ describe('VcsManager batch helpers', () => {
     await fs.mkdir(path.join(ignoredRepo, '.git'), { recursive: true });
 
     expect(VcsManager.findRepositories(root)).toEqual([repo]);
+    await expect(VcsManager.findRepositoriesAsync(root)).resolves.toEqual([repo]);
   });
 
   // Phase 2a (item 4 prologue) — the original implementation returned as
@@ -37,5 +38,23 @@ describe('VcsManager batch helpers', () => {
     const repos = VcsManager.findRepositories(root);
     expect(repos).toContain(root);
     expect(repos).toContain(child);
+
+    const asyncRepos = await VcsManager.findRepositoriesAsync(root);
+    expect(asyncRepos).toContain(root);
+    expect(asyncRepos).toContain(child);
+  });
+
+  it('skips scratch and archive directories during repository discovery', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'vcs-manager-ignored-'));
+    tempPaths.push(root);
+    const repo = path.join(root, 'app');
+    const scratchRepo = path.join(root, '_scratch', 'experiment');
+    const archiveRepo = path.join(root, '_archive', 'old');
+    await fs.mkdir(path.join(repo, '.git'), { recursive: true });
+    await fs.mkdir(path.join(scratchRepo, '.git'), { recursive: true });
+    await fs.mkdir(path.join(archiveRepo, '.git'), { recursive: true });
+
+    expect(VcsManager.findRepositories(root)).toEqual([repo]);
+    await expect(VcsManager.findRepositoriesAsync(root)).resolves.toEqual([repo]);
   });
 });

@@ -167,6 +167,61 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
     ).rejects.toThrow(/payload is required/);
   });
 
+  it('dispatches run_on_node to the matching tool with validated payload', async () => {
+    const runHandler = vi.fn(async (args: unknown) => ({ instanceId: 'inst-1', echoed: args }));
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'run_on_node',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: runHandler,
+        },
+      ],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 10,
+      method: 'orchestrator_tools.run_on_node',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: { node: 'windows-pc', prompt: 'run the tests' },
+      },
+    });
+
+    expect(runHandler).toHaveBeenCalledOnce();
+    expect(runHandler.mock.calls[0]?.[0]).toEqual({ node: 'windows-pc', prompt: 'run the tests' });
+    expect(result).toMatchObject({ instanceId: 'inst-1' });
+  });
+
+  it('rejects run_on_node payloads that fail the schema (missing prompt)', async () => {
+    const runHandler = vi.fn();
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'run_on_node',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: runHandler,
+        },
+      ],
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 11,
+        method: 'orchestrator_tools.run_on_node',
+        params: {
+          instanceId: KNOWN_INSTANCE,
+          payload: { node: 'windows-pc' },
+        },
+      }),
+    ).rejects.toThrow();
+    expect(runHandler).not.toHaveBeenCalled();
+  });
+
   it('rate-limits per instance', async () => {
     const { server } = makeServer({ rateLimit: { maxRequests: 2, windowMs: 60_000 } });
 

@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { HostStore } from '../../core/host-store';
 import { GatewayClient } from '../../core/gateway-client.service';
+import { AppLockService } from '../../core/app-lock.service';
 
 @Component({
   standalone: true,
@@ -39,6 +40,21 @@ import { GatewayClient } from '../../core/gateway-client.service';
           }
         </ul>
       }
+
+      <div class="settings">
+        <button
+          class="toggle"
+          (click)="toggleLock()"
+          [attr.aria-pressed]="lockEnabled()"
+          [disabled]="!lockAvailable()"
+        >
+          <span class="info">
+            <span class="name">App Lock</span>
+            <span class="addr">{{ lockSubtitle() }}</span>
+          </span>
+          <span class="switch" [class.on]="lockEnabled() && lockAvailable()"></span>
+        </button>
+      </div>
     </section>
   `,
   styles: [
@@ -67,6 +83,23 @@ import { GatewayClient } from '../../core/gateway-client.service';
         margin-top: 16px; background: #fff; color: #000; border: none;
         border-radius: var(--radius-pill); padding: 12px 24px; font-size: 16px; font-weight: 600;
       }
+      .settings { margin-top: 24px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 8px; }
+      .toggle {
+        width: 100%; display: flex; align-items: center; gap: 12px;
+        background: transparent; border: none; color: var(--text);
+        padding: 14px 8px; text-align: left;
+      }
+      .toggle:disabled { opacity: 0.5; }
+      .switch {
+        flex: none; width: 44px; height: 26px; border-radius: var(--radius-pill);
+        background: var(--surface-2); position: relative; transition: background 0.15s ease;
+      }
+      .switch::after {
+        content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px;
+        border-radius: 50%; background: #fff; transition: transform 0.15s ease;
+      }
+      .switch.on { background: var(--accent-online); }
+      .switch.on::after { transform: translateX(18px); }
     `,
   ],
 })
@@ -74,10 +107,26 @@ export class HostsComponent {
   private readonly hostStore = inject(HostStore);
   private readonly gateway = inject(GatewayClient);
   private readonly router = inject(Router);
+  private readonly appLock = inject(AppLockService);
 
   protected readonly hosts = this.hostStore.hosts;
   protected readonly activeId = this.hostStore.activeId;
   protected readonly online = this.gateway.online;
+  protected readonly lockEnabled = this.appLock.enabled;
+  protected readonly lockAvailable = this.appLock.available;
+
+  protected lockSubtitle(): string {
+    if (!this.lockAvailable()) {
+      return 'Biometrics unavailable on this device';
+    }
+    return this.lockEnabled()
+      ? `Require ${this.appLock.biometryLabel()} to open`
+      : 'Off';
+  }
+
+  protected toggleLock(): void {
+    void this.appLock.setEnabled(!this.lockEnabled());
+  }
 
   protected stateLabel(id: string): string {
     if (id !== this.activeId()) {

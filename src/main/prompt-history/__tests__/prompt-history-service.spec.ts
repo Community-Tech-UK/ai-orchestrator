@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PromptHistoryStoreV1 } from '../../../shared/types/prompt-history.types';
 import {
   PROMPT_HISTORY_MAX,
@@ -28,6 +28,13 @@ class MemoryPromptHistoryStore implements PromptHistoryStoreBackend {
     this.data = {
       ...this.data,
       [key]: value,
+    };
+  }
+
+  setMany(values: Partial<PromptHistoryStoreV1>): void {
+    this.data = {
+      ...this.data,
+      ...values,
     };
   }
 }
@@ -113,6 +120,31 @@ describe('PromptHistoryService', () => {
       'shared project prompt',
     ]);
   });
+
+  it('batches instance and project alias persistence when the store supports it', () => {
+    const store = new MemoryPromptHistoryStore();
+    const setMany = vi.spyOn(store, 'setMany');
+    const set = vi.spyOn(store, 'set');
+    const svc = new PromptHistoryService(store);
+    setMany.mockClear();
+    set.mockClear();
+
+    svc.record({
+      instanceId: 'inst-1',
+      id: 'a',
+      text: 'shared project prompt',
+      createdAt: 1,
+      projectPath: '/repo',
+    });
+
+    expect(setMany).toHaveBeenCalledTimes(1);
+    expect(setMany).toHaveBeenCalledWith(expect.objectContaining({
+      byInstance: expect.any(Object),
+      byProject: expect.any(Object),
+    }));
+    expect(set).not.toHaveBeenCalled();
+  });
+
 
   it('normalizes project aliases while preserving raw lookup compatibility', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-history-project-'));

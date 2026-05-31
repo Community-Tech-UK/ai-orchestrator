@@ -60,7 +60,9 @@ interface TestableSessionContinuityManager {
   getResumableSessions(): Promise<SessionState[]>;
   resumeSession(instanceId: string): Promise<SessionState | null>;
   importSession(data: { state: SessionState; snapshots?: unknown[] }, newInstanceId?: string): Promise<string>;
+  addConversationEntry(instanceId: string, entry: SessionState['conversationHistory'][number]): Promise<void>;
   createSnapshot(instanceId: string, name?: string, description?: string, trigger?: string): Promise<SessionSnapshot | null>;
+  exportSession(instanceId: string): Promise<{ state: SessionState; snapshots: SessionSnapshot[] } | null>;
   listSnapshots(instanceId?: string): SessionSnapshot[];
   updateState(instanceId: string, updates: Partial<SessionState>): Promise<void>;
   markNativeResumeFailed(instanceId: string, errorCode?: number): Promise<void>;
@@ -325,6 +327,139 @@ describe('SessionContinuityManager logging', () => {
     const recoveredState = await manager.resumeSession('thread-failure');
     expect(recoveredState?.sessionId).toBe('native-session-new');
     expect(recoveredState?.nativeResumeFailedAt).toBeNull();
+  });
+
+  it('coalesces repeated conversation entry ids before keeping them in continuity state', async () => {
+    const manager = createManager();
+    await manager.readyPromise;
+
+    const state = makeState('streaming-instance');
+    state.conversationHistory = [];
+    await manager.importSession({ state });
+
+    await manager.addConversationEntry('streaming-instance', {
+      id: 'assistant-stream-1',
+      role: 'assistant',
+      content: 'partial answer',
+      timestamp: 1,
+    });
+    await manager.addConversationEntry('streaming-instance', {
+      id: 'assistant-stream-1',
+      role: 'assistant',
+      content: 'final answer',
+      timestamp: 2,
+    });
+
+    const exported = await manager.exportSession('streaming-instance');
+
+    expect(exported?.state.conversationHistory).toEqual([
+      expect.objectContaining({
+        id: 'assistant-stream-1',
+        content: 'final answer',
+        timestamp: 2,
+      }),
+    ]);
+  });
+
+  it('normalizes legacy duplicated conversation entries when resuming from disk', async () => {
+    const stateDir = path.join(mockState.userDataDir, 'session-continuity', 'states');
+    await fs.promises.mkdir(stateDir, { recursive: true });
+
+    const state = makeState('legacy-duplicates');
+    state.conversationHistory = [
+      {
+        id: 'assistant-stream-1',
+        role: 'assistant',
+        content: 'partial answer',
+        timestamp: 1,
+      },
+      {
+        id: 'assistant-stream-1',
+        role: 'assistant',
+        content: 'final answer',
+        timestamp: 2,
+      },
+    ];
+
+    const stateFile = path.join(stateDir, 'legacy-duplicates.json');
+    await fs.promises.writeFile(stateFile, createEnvelope(state));
+
+    const manager = createManager();
+    await manager.readyPromise;
+
+    const resumed = await manager.resumeSession('legacy-duplicates');
+
+    expect(resumed?.conversationHistory).toEqual([
+      expect.objectContaining({
+        id: 'assistant-stream-1',
+        content: 'final answer',
+        timestamp: 2,
+      }),
+    ]);
+
+    const rewrittenEnvelope = JSON.parse(await fs.promises.readFile(stateFile, 'utf8')) as { data: string };
+    const rewrittenState = JSON.parse(rewrittenEnvelope.data) as SessionState;
+    expect(rewrittenState.conversationHistory).toEqual([
+      expect.objectContaining({
+        id: 'assistant-stream-1',
+        content: 'final answer',
+        timestamp: 2,
+      }),
+    ]);
+  });
+
+  it('redacts tool conversation entries before keeping them in continuity state', async () => {
+    const manager = createManager({
+      redactToolOutputs: true,
+    });
+    await manager.readyPromise;
+
+    const state = makeState('tool-redaction');
+    state.conversationHistory = [];
+    await manager.importSession({ state });
+
+    await manager.addConversationEntry('tool-redaction', {
+      id: 'tool-result-1',
+      role: 'tool',
+      content: 'x'.repeat(50_000),
+      timestamp: 1,
+    });
+
+    const exported = await manager.exportSession('tool-redaction');
+
+    expect(exported?.state.conversationHistory).toEqual([
+      expect.objectContaining({
+        id: 'tool-result-1',
+        content: '[REDACTED TOOL OUTPUT]',
+      }),
+    ]);
+  });
+
+  it('loads only the newest configured state files at startup without deleting older resumable files', async () => {
+    const stateDir = path.join(mockState.userDataDir, 'session-continuity', 'states');
+    await fs.promises.mkdir(stateDir, { recursive: true });
+
+    for (const [index, instanceId] of ['old-session', 'middle-session', 'new-session'].entries()) {
+      const stateFile = path.join(stateDir, `${instanceId}.json`);
+      await fs.promises.writeFile(stateFile, createEnvelope(makeState(instanceId)));
+      const mtime = new Date(1_000 + index * 1_000);
+      await fs.promises.utimes(stateFile, mtime, mtime);
+    }
+
+    const manager = createManager({
+      maxLoadedStateFiles: 2,
+    });
+    await manager.readyPromise;
+
+    const startupSessions = await manager.getResumableSessions();
+    expect(startupSessions.map((session) => session.instanceId).sort()).toEqual([
+      'middle-session',
+      'new-session',
+    ]);
+
+    const oldSession = await manager.resumeSession('old-session');
+    expect(oldSession?.instanceId).toBe('old-session');
+    await fs.promises.access(path.join(stateDir, 'old-session.json'));
   });
 
   it('quarantines state files whose envelope is structurally valid but whose contents cannot be decrypted', async () => {

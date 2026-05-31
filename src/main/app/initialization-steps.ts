@@ -575,6 +575,51 @@ export function createInitializationSteps(
             'conversation-ledger.db',
           ),
           isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
+          // Backs the `run_on_node` MCP tool: resolve the target worker node and
+          // spawn an agent on it via the already-deployed `instance.spawn` RPC.
+          // Mirrors the `/run-on` channel command (project-less default cwd).
+          spawnRemoteInstance: async (args) => {
+            const registry = getWorkerNodeRegistry();
+            const allNodes = registry.getAllNodes();
+            const connected = allNodes.filter(
+              (n) => n.status === 'connected' || n.status === 'degraded',
+            );
+            let node;
+            if (args.node) {
+              node = allNodes.find((n) => n.name === args.node || n.id === args.node);
+              if (!node) {
+                throw new Error(`Worker node not found: ${args.node}`);
+              }
+            } else if (connected.length === 1) {
+              node = connected[0];
+            } else if (connected.length === 0) {
+              throw new Error('No worker nodes are connected');
+            } else {
+              throw new Error(
+                `Multiple worker nodes connected (${connected
+                  .map((n) => n.name)
+                  .join(', ')}); specify one via "node"`,
+              );
+            }
+            const allowedDirs = node.capabilities?.workingDirectories ?? [];
+            const workingDirectory = args.workingDirectory || allowedDirs[0] || process.cwd();
+            const instance = await instanceManager.createInstance({
+              displayName: `run_on_node:${node.name}`,
+              workingDirectory,
+              initialPrompt: args.prompt,
+              yoloMode: true,
+              forceNodeId: node.id,
+              provider: args.provider,
+              modelOverride: args.model,
+            });
+            return {
+              instanceId: instance.id,
+              nodeId: node.id,
+              nodeName: node.name,
+              workingDirectory,
+              status: instance.status,
+            };
+          },
         });
       },
     },

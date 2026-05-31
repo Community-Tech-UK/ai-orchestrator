@@ -106,6 +106,12 @@ export interface MobileGatewayDeps {
   pauseCoordinator?: GatewayPauseSource;
   recentDirs?: GatewayRecentDirsSource;
   apnsSender?: MobileApnsSender;
+  /**
+   * Resolves a worker-node name or id to a node id for remote-targeted
+   * instance creation. Defaults to the worker-node registry; injectable so
+   * tests don't depend on the remote-node singletons.
+   */
+  nodeResolver?: (nameOrId: string) => string | null;
 }
 
 export interface MobileGatewayStartOptions {
@@ -235,6 +241,28 @@ export class MobileGatewayServer {
 
   private get apnsSender(): MobileApnsSender {
     return this.deps?.apnsSender ?? getMobileApnsSender();
+  }
+
+  /**
+   * Resolve a worker-node name or id to a node id. Uses the injected resolver
+   * when present; otherwise lazily consults the worker-node registry (guarded
+   * so a missing/uninitialized registry just yields null rather than throwing).
+   */
+  private resolveNodeId(nameOrId: string): string | null {
+    if (this.deps?.nodeResolver) {
+      return this.deps.nodeResolver(nameOrId);
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { getWorkerNodeRegistry } = require('../remote-node');
+      const registry = getWorkerNodeRegistry();
+      const node = registry
+        .getAllNodes()
+        .find((n: { id: string; name: string }) => n.id === nameOrId || n.name === nameOrId);
+      return node?.id ?? null;
+    } catch {
+      return null;
+    }
   }
 
   async start(options: MobileGatewayStartOptions): Promise<MobileGatewayStatus> {
@@ -887,6 +915,8 @@ export class MobileGatewayServer {
       provider?: unknown;
       model?: unknown;
       initialPrompt?: unknown;
+      forceNodeId?: unknown;
+      nodeName?: unknown;
     };
     const workingDirectory =
       typeof body.workingDirectory === 'string' ? body.workingDirectory.trim() : '';
@@ -898,11 +928,31 @@ export class MobileGatewayServer {
       typeof body.provider === 'string' && VALID_PROVIDERS.has(body.provider)
         ? (body.provider as InstanceCreateConfig['provider'])
         : undefined;
+
+    // Optional remote targeting: spawn on a specific worker node. Accept either
+    // an explicit node id (`forceNodeId`) or a human-friendly `nodeName` that we
+    // resolve to an id. An unresolvable target is a client error rather than a
+    // silent fall back to local execution (which would confuse "run on windows").
+    let forceNodeId =
+      typeof body.forceNodeId === 'string' && body.forceNodeId.trim()
+        ? body.forceNodeId.trim()
+        : undefined;
+    const nodeName = typeof body.nodeName === 'string' ? body.nodeName.trim() : '';
+    if (!forceNodeId && nodeName) {
+      const resolved = this.resolveNodeId(nodeName);
+      if (!resolved) {
+        this.sendJson(res, 404, { error: `Worker node not found: ${nodeName}` });
+        return;
+      }
+      forceNodeId = resolved;
+    }
+
     const config: InstanceCreateConfig = {
       workingDirectory,
       initialPrompt: typeof body.initialPrompt === 'string' ? body.initialPrompt : undefined,
       provider,
       modelOverride: typeof body.model === 'string' ? body.model : undefined,
+      forceNodeId,
     };
     const instance = await this.source().createInstance(config);
     this.sendJson(res, 200, serializeInstance(instance));

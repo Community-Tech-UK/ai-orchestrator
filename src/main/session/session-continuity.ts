@@ -203,6 +203,8 @@ export interface ContinuityConfig {
   preserveToolResults: boolean;
   /** Soft sizing hint for persisted history compaction, not a hard message cap. */
   maxConversationEntries: number;
+  /** Number of newest state files to load into the resumable-session index at startup. 0 means unlimited. */
+  maxLoadedStateFiles: number;
   encryptOnDisk: boolean;
   persistSessionContent: boolean;
   redactToolOutputs: boolean;
@@ -237,6 +239,7 @@ const DEFAULT_CONFIG: ContinuityConfig = {
   resumeOnStartup: true,
   preserveToolResults: true,
   maxConversationEntries: 1000,
+  maxLoadedStateFiles: 250,
   encryptOnDisk: false,
   persistSessionContent: true,
   redactToolOutputs: true
@@ -386,13 +389,78 @@ export class SessionContinuityManager extends EventEmitter {
       ?? this.getLastConversationTimestamp(state);
   }
 
-  private dehydrateLoadedState(state: SessionState): SessionState {
-    this.stateActivityTimestamps.set(
-      state.instanceId,
-      Math.max(state.lastWriteTimestamp ?? 0, this.getLastConversationTimestamp(state)),
-    );
+  private normalizeConversationEntryForPersistence(entry: ConversationEntry): ConversationEntry {
+    return {
+      ...entry,
+      content:
+        this.config.redactToolOutputs && entry.role === 'tool'
+          ? '[REDACTED TOOL OUTPUT]'
+          : entry.content,
+    };
+  }
+
+  private normalizeConversationHistory(entries: ConversationEntry[]): ConversationEntry[] {
+    const normalized: ConversationEntry[] = [];
+    const indexById = new Map<string, number>();
+
+    for (const rawEntry of entries) {
+      const entry = this.normalizeConversationEntryForPersistence(rawEntry);
+      if (!entry.id) {
+        normalized.push(entry);
+        continue;
+      }
+
+      const existingIndex = indexById.get(entry.id);
+      if (existingIndex !== undefined) {
+        normalized[existingIndex] = entry;
+        continue;
+      }
+
+      indexById.set(entry.id, normalized.length);
+      normalized.push(entry);
+    }
+
+    return normalized;
+  }
+
+  private normalizeStateForContinuity(state: SessionState): SessionState {
     return {
       ...state,
+      conversationHistory: this.normalizeConversationHistory(state.conversationHistory),
+    };
+  }
+
+  private shouldRewriteNormalizedState(original: SessionState, normalized: SessionState): boolean {
+    if (original.conversationHistory.length !== normalized.conversationHistory.length) {
+      return true;
+    }
+
+    for (let i = 0; i < original.conversationHistory.length; i++) {
+      const current = original.conversationHistory[i];
+      const next = normalized.conversationHistory[i];
+      if (
+        !next
+        || current.id !== next.id
+        || current.role !== next.role
+        || current.content !== next.content
+        || current.timestamp !== next.timestamp
+        || current.isCompacted !== next.isCompacted
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private dehydrateLoadedState(state: SessionState): SessionState {
+    const normalized = this.normalizeStateForContinuity(state);
+    this.stateActivityTimestamps.set(
+      normalized.instanceId,
+      Math.max(normalized.lastWriteTimestamp ?? 0, this.getLastConversationTimestamp(normalized)),
+    );
+    return {
+      ...normalized,
       conversationHistory: [],
     };
   }
@@ -408,13 +476,15 @@ export class SessionContinuityManager extends EventEmitter {
       return state;
     }
 
+    const normalized = this.normalizeStateForContinuity(loaded);
+
     this.sessionStates.delete(instanceId);
-    this.sessionStates.set(loaded.instanceId, loaded);
+    this.sessionStates.set(normalized.instanceId, normalized);
     this.dehydratedStateIds.delete(instanceId);
-    this.dehydratedStateIds.delete(loaded.instanceId);
+    this.dehydratedStateIds.delete(normalized.instanceId);
     this.stateActivityTimestamps.delete(instanceId);
-    this.stateActivityTimestamps.delete(loaded.instanceId);
-    return loaded;
+    this.stateActivityTimestamps.delete(normalized.instanceId);
+    return normalized;
   }
 
   private findTrackedStateByIdentifier(identifier: string): {
@@ -452,7 +522,7 @@ export class SessionContinuityManager extends EventEmitter {
     const directStateFile = path.join(this.stateDir, `${normalized}.json`);
     const direct = await this.readPayload<SessionState>(directStateFile);
     if (direct) {
-      return direct;
+      return this.normalizeStateForContinuity(direct);
     }
 
     let files: string[] = [];
@@ -473,11 +543,47 @@ export class SessionContinuityManager extends EventEmitter {
 
       const state: SessionState | null = await this.readPayload<SessionState>(path.join(this.stateDir, file));
       if (state && this.getStateLookupKeys(state).includes(normalized)) {
-        return state;
+        return this.normalizeStateForContinuity(state);
       }
     }
 
     return null;
+  }
+
+  private async selectStateFilesForStartup(files: string[]): Promise<string[]> {
+    const stateFiles = files.filter((file) => file.endsWith('.json'));
+    const maxLoadedStateFiles = Math.floor(this.config.maxLoadedStateFiles);
+    if (
+      !Number.isFinite(maxLoadedStateFiles)
+      || maxLoadedStateFiles <= 0
+      || stateFiles.length <= maxLoadedStateFiles
+    ) {
+      return stateFiles;
+    }
+
+    const metas = await Promise.all(
+      stateFiles.map(async (file) => {
+        try {
+          const stat = await fs.promises.stat(path.join(this.stateDir, file));
+          return { file, mtimeMs: stat.mtimeMs };
+        } catch {
+          return { file, mtimeMs: 0 };
+        }
+      }),
+    );
+
+    metas.sort((left, right) => {
+      const byMtime = right.mtimeMs - left.mtimeMs;
+      return byMtime !== 0 ? byMtime : left.file.localeCompare(right.file);
+    });
+
+    logger.info('Session state startup load capped', {
+      total: stateFiles.length,
+      loaded: maxLoadedStateFiles,
+      skipped: stateFiles.length - maxLoadedStateFiles,
+    });
+
+    return metas.slice(0, maxLoadedStateFiles).map((meta) => meta.file);
   }
 
   /**
@@ -494,23 +600,33 @@ export class SessionContinuityManager extends EventEmitter {
       return;
     }
 
+    const stateFiles = await this.selectStateFilesForStartup(files);
     let loaded = 0;
     let failed = 0;
-    for (const file of files) {
-      if (!file.endsWith('.json')) continue;
+    for (const file of stateFiles) {
       const filePath = path.join(this.stateDir, file);
       const data = await this.readPayload<SessionState>(filePath);
       if (data) {
-        this.sessionStates.set(data.instanceId, this.dehydrateLoadedState(data));
-        this.dehydratedStateIds.add(data.instanceId);
+        const normalized = this.normalizeStateForContinuity(data);
+        if (this.shouldRewriteNormalizedState(data, normalized)) {
+          await this.writePayload(filePath, normalized);
+          logger.info('Normalized legacy session state file', {
+            file,
+            instanceId: normalized.instanceId,
+            originalEntries: data.conversationHistory.length,
+            normalizedEntries: normalized.conversationHistory.length,
+          });
+        }
+        this.sessionStates.set(normalized.instanceId, this.dehydrateLoadedState(normalized));
+        this.dehydratedStateIds.add(normalized.instanceId);
         loaded++;
 
         // Diagnostic: warn if last write was very recent (possible crash during save)
-        if (data.lastWriteTimestamp && Date.now() - data.lastWriteTimestamp < 5000) {
+        if (normalized.lastWriteTimestamp && Date.now() - normalized.lastWriteTimestamp < 5000) {
           logger.warn('Session state has very recent write timestamp — possible crash during save', {
-            instanceId: data.instanceId,
-            lastWriteSource: data.lastWriteSource,
-            ageMs: Date.now() - data.lastWriteTimestamp,
+            instanceId: normalized.instanceId,
+            lastWriteSource: normalized.lastWriteSource,
+            ageMs: Date.now() - normalized.lastWriteTimestamp,
           });
         }
       } else {
@@ -780,7 +896,10 @@ export class SessionContinuityManager extends EventEmitter {
     if (!trackedState) return;
     const state = await this.hydrateTrackedState(instanceId, trackedState);
 
-    state.conversationHistory.push(entry);
+    state.conversationHistory = this.normalizeConversationHistory([
+      ...state.conversationHistory,
+      entry,
+    ]);
     this.stateActivityTimestamps.set(instanceId, entry.timestamp);
     this.appendSessionEvent(instanceId, 'conversation_entry', {
       role: entry.role,
@@ -1169,7 +1288,9 @@ export class SessionContinuityManager extends EventEmitter {
       state.lastWriteSource = 'auto-save';
 
       const stateFile = path.join(this.stateDir, `${instanceId}.json`);
-      await measureAsync('session.save', () => this.writePayload(stateFile, state));
+      const normalizedState = this.normalizeStateForContinuity(state);
+      this.sessionStates.set(instanceId, normalizedState);
+      await measureAsync('session.save', () => this.writePayload(stateFile, normalizedState));
       this.dirty.delete(instanceId);
       this.appendSessionEvent(instanceId, 'state_saved', {
         source: state.lastWriteSource ?? 'unknown',

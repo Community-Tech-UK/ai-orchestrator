@@ -40,6 +40,13 @@ class MemoryPromptHistoryStore implements PromptHistoryStoreBackend {
       [key]: value,
     };
   }
+
+  setMany(values: Partial<PromptHistoryStoreV1>): void {
+    this.data = {
+      ...this.data,
+      ...values,
+    };
+  }
 }
 
 function getHandler(channel: string): (...args: unknown[]) => unknown {

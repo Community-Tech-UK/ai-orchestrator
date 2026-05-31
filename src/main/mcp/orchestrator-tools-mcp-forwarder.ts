@@ -74,6 +74,47 @@ export function createOrchestratorToolsForwarderTools(
         return client.call('orchestrator_tools.git_batch_pull', args as Record<string, unknown>);
       },
     },
+    {
+      name: 'run_on_node',
+      description:
+        'Run a task on a connected remote worker node (e.g. "windows-pc") by spawning an AI agent there with the given prompt. The agent runs project-lessly using the node\'s default working directory unless one is provided. Returns immediately with the spawned instance id; output streams asynchronously and can be inspected from the app.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          node: {
+            type: 'string',
+            description:
+              'Target worker node by name (e.g. "windows-pc") or node id (UUID). Optional: when omitted and exactly one node is connected, that node is used.',
+          },
+          prompt: {
+            type: 'string',
+            description: 'Natural-language task / instruction for the agent on the node.',
+          },
+          workingDirectory: {
+            type: 'string',
+            description:
+              "Working directory on the node. Optional — defaults to the node's first advertised working directory (project-less spawn).",
+          },
+          provider: {
+            type: 'string',
+            enum: ['claude', 'codex', 'gemini', 'copilot', 'cursor'],
+            description: 'CLI provider to use on the node (defaults to the node/app default).',
+          },
+          model: {
+            type: 'string',
+            description: 'Optional model override.',
+          },
+        },
+        required: ['prompt'],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) {
+          throw new Error('run_on_node args must be an object');
+        }
+        return client.call('orchestrator_tools.run_on_node', args as Record<string, unknown>);
+      },
+    },
   ];
 }
 

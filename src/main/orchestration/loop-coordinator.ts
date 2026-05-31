@@ -87,6 +87,7 @@ import {
   sleep,
   type VerifyOutcomeLike,
 } from './loop-coordinator-utils';
+import { resolveCompletion } from './evidence-resolver';
 import {
   defaultFreshEyesReviewer,
   type FreshEyesReviewer,
@@ -1289,6 +1290,9 @@ export class LoopCoordinator extends EventEmitter {
       iteration.completionSignalsFired = completionSignals;
 
       // -- verify-before-stop --
+      // I/O (verify runs, fresh-eyes gate) is performed here as before;
+      // the pure resolveCompletion() function consumes those results and
+      // returns the decision, which we map onto the existing coordinator actions.
       let stopWithSignal: CompletionSignalEvidence | null = null;
       let verifyOutputForEmit = '';
       let pauseBecauseCompletionCannotBeVerified = false;
@@ -1325,29 +1329,72 @@ export class LoopCoordinator extends EventEmitter {
         iteration.verifyStatus = v1.status === 'skipped' ? 'not-run' : v1.status;
         iteration.verifyOutputExcerpt = excerpt(v1.output);
         verifyOutputForEmit = v1.output;
-        if (v1.status === 'failed') {
-          state.lastCompletionOutcome = 'verify-failed';
-          this.rejectCompletionAttempt(
-            state,
-            `${verifyLabel} failed`,
-            `Your completion was rejected because the ${verifyLabel} command failed. ` +
-              'Fix these errors before re-declaring completion:\n\n' +
-              (excerpt(v1.output, 8192) || `(${verifyLabel} produced no output)`),
-          );
-          this.emit('loop:claimed-done-but-failed', {
-            loopRunId: state.id,
-            signal: candidate.id,
-            failure: excerpt(v1.output, 4096),
-          });
-          // do not stop; continue
-        } else if (v1.status === 'skipped') {
-          // No verify command is configured, so the loop has NO independent
-          // way to confirm the work is done — every completion signal
-          // (declared-complete, *_Completed.md rename, DONE.txt, plan
-          // checklist) is produced by the agent itself. Refuse to stop on an
-          // unverified self-declaration: reject the pending completion,
-          // surface why, and pause for operator review.
-          state.lastCompletionOutcome = 'unverifiable';
+
+        // anti-flake: optionally run verify a second time before checking secondary gates
+        let v2: VerifyOutcomeLike = v1;
+        if (v1.status === 'passed' && state.config.completion.runVerifyTwice) {
+          v2 = await this.completionDetector.runVerify(state.config);
+          if (v2.status === 'failed') {
+            iteration.verifyStatus = 'failed';
+            iteration.verifyOutputExcerpt = excerpt(v2.output);
+            verifyOutputForEmit = v2.output;
+          }
+        }
+
+        // When v2 is 'passed', run the fresh-eyes gate and check belt-and-braces
+        // BEFORE calling the resolver, so the resolver only consumes results.
+        const beltAndBracesPassed = this.completionDetector.passesBeltAndBraces(state, state.config);
+        let freshEyesRan = false;
+        let freshEyesBlockingCount = 0;
+
+        // LF-7: increment the rename-gate attempt counter here so the resolver
+        // sees the updated count (it decides continue vs stop-needs-review based
+        // on completionAttempts >= maxCompletionAttempts). Only increment when we
+        // actually hit the rename gate (v2 passed but belt-and-braces failed).
+        if (v2.status === 'passed' && !beltAndBracesPassed) {
+          state.completionAttempts += 1;
+        }
+
+        if (v2.status === 'passed' && beltAndBracesPassed) {
+          // Fresh-eyes cross-model review gate. The previous loop bug was
+          // that DONE.txt + passing verify was enough to stop, even when
+          // the actual goal hadn't been substantively addressed (orphan
+          // code, missed renames, half-done specs). This hook calls a
+          // different CLI provider with the iteration output + workspace
+          // context and asks "is this really done?". Any blocking finding
+          // becomes a user intervention and the loop continues.
+          const reviewBlocked = await this.runFreshEyesReviewGate(state, candidate.id, iteration, verifyOutputForEmit);
+          freshEyesRan = true;
+          freshEyesBlockingCount = reviewBlocked ? 1 : 0;
+        }
+
+        // --- evidence-precedence resolution ---
+        const resolution = resolveCompletion({
+          signals: completionSignals,
+          candidate,
+          quickVerifyStatus: quick.status,
+          verifyStatus: v2.status,
+          verifyLabel: quick.status === 'failed' ? 'quick-verify' : v2 !== v1 && v2.status === 'failed' ? 'second-verify' : 'verify',
+          beltAndBracesPassed,
+          freshEyesRan,
+          freshEyesBlockingCount,
+          freshEyesErrored: false, // error path handled inside runFreshEyesReviewGate (returns false)
+          manualReviewOnly: state.manualReviewOnly,
+          allowOperatorReviewedCompletion: state.config.completion.allowOperatorReviewedCompletion,
+          completionAttempts: state.completionAttempts,
+          maxCompletionAttempts: state.config.caps.maxCompletionAttempts ?? 3,
+        });
+
+        // --- map resolution to coordinator actions ---
+        state.lastCompletionOutcome = resolution.outcome ?? state.lastCompletionOutcome;
+
+        if (resolution.decision === 'stop') {
+          stopWithSignal = candidate;
+        } else if (resolution.decision === 'stop-needs-review') {
+          // rename-gate budget exhausted; fall through to post-log terminal handling
+          completionNeedsReviewReason = resolution.needsReviewReason!;
+        } else if (resolution.decision === 'pause-operator-review') {
+          // verify was skipped — no verify command configured
           this.rejectPendingCompleteIntent(
             state,
             'completion not verified — no verify command configured',
@@ -1361,9 +1408,6 @@ export class LoopCoordinator extends EventEmitter {
               'command (your test / lint / build command) before starting a loop that should ' +
               'auto-complete, or inspect the reported evidence and stop the loop manually.',
           });
-          // Feed the rejection back to the agent: the next iteration must
-          // know its completion was not accepted, otherwise it may simply
-          // re-declare done each iteration and burn the run out at the cap.
           state.pendingInterventions.push(
             'Your completion was NOT accepted. This loop has no verify command configured, ' +
               'so it cannot independently confirm the work is finished. Do not simply ' +
@@ -1371,16 +1415,18 @@ export class LoopCoordinator extends EventEmitter {
               'operator review because only the operator can decide whether your reported ' +
               'verification evidence is sufficient without an independent verify command.',
           );
-          this.convergenceNotes.set(state.id, 'completion was unverifiable (no verify command configured)');
+          this.convergenceNotes.set(state.id, resolution.convergenceNote ?? 'completion was unverifiable (no verify command configured)');
           pauseBecauseCompletionCannotBeVerified = true;
-          // do not stop; continue
         } else {
-          // anti-flake: optionally run again
-          let v2: VerifyOutcomeLike = v1;
-          if (state.config.completion.runVerifyTwice) {
-            v2 = await this.completionDetector.runVerify(state.config);
-            if (v2.status === 'failed') {
-              state.lastCompletionOutcome = 'verify-failed';
+          // decision === 'continue' — map the specific outcome to the right rejection action
+          if (resolution.outcome === 'verify-failed') {
+            // Figure out which verify run produced the output for the intervention text
+            const failedVerifyOutput = (v2 !== v1 && v2.status === 'failed') ? v2.output : v1.output;
+            const friendlyLabel = quick.status === 'failed' ? 'quick verify'
+              : (v2 !== v1 && v2.status === 'failed') ? 'anti-flake second verify'
+              : verifyLabel;
+            if (v2 !== v1 && v2.status === 'failed') {
+              // Second verify failed
               this.rejectCompletionAttempt(
                 state,
                 'second verify failed',
@@ -1388,70 +1434,44 @@ export class LoopCoordinator extends EventEmitter {
                   'Fix these errors before re-declaring completion:\n\n' +
                   (excerpt(v2.output, 8192) || '(second verify produced no output)'),
               );
-              iteration.verifyStatus = 'failed';
-              iteration.verifyOutputExcerpt = excerpt(v2.output);
-              verifyOutputForEmit = v2.output;
               this.emit('loop:claimed-done-but-failed', {
                 loopRunId: state.id,
                 signal: candidate.id,
                 failure: 'verify flake suspected: ' + excerpt(v2.output, 4096),
               });
-              // do not stop
-            }
-          }
-          if (v2.status === 'passed' && this.completionDetector.passesBeltAndBraces(state, state.config)) {
-            // Fresh-eyes cross-model review gate. The previous loop bug was
-            // that DONE.txt + passing verify was enough to stop, even when
-            // the actual goal hadn't been substantively addressed (orphan
-            // code, missed renames, half-done specs). This hook calls a
-            // different CLI provider with the iteration output + workspace
-            // context and asks "is this really done?". Any blocking finding
-            // becomes a user intervention and the loop continues.
-            const reviewBlocked = await this.runFreshEyesReviewGate(state, candidate.id, iteration, verifyOutputForEmit);
-            if (!reviewBlocked) {
-              state.lastCompletionOutcome = 'accepted';
-              stopWithSignal = candidate;
-            } else {
-              state.lastCompletionOutcome = 'review-blocked';
-              this.rejectPendingCompleteIntent(state, 'fresh-eyes review blocked completion');
-            }
-          } else if (v2.status === 'passed') {
-            // LF-7: verify passed but the *_Completed.md rename gate has not.
-            // Count this verified-but-ungated attempt. If the loop keeps
-            // declaring done without ever renaming (the loopfixex §12.1
-            // oscillation), bound it at `maxCompletionAttempts` and stop —
-            // since verify IS passing, the code is in a good state by the
-            // project's own definition, so we terminate `completed-needs-review`
-            // (a successful "have a human glance" state) rather than spinning to
-            // `maxIterations` or reporting a misleading `cap-reached`.
-            state.completionAttempts += 1;
-            state.lastCompletionOutcome = 'rename-gate';
-            const maxCompletionAttempts = state.config.caps.maxCompletionAttempts ?? 3;
-            if (state.completionAttempts >= maxCompletionAttempts) {
-              completionNeedsReviewReason =
-                `Verify passed but the required *_Completed.md rename never happened across ` +
-                `${state.completionAttempts} completion attempt(s). The work verifies clean — ` +
-                'accepting as completed-needs-review for a human glance. Rename the plan file(s) ' +
-                'to *_Completed.md to auto-complete next time.';
-              // Don't reject-and-continue; fall through to the post-log
-              // terminal handling so this final iteration is still recorded.
             } else {
               this.rejectCompletionAttempt(
                 state,
-                'completed-file rename gate did not pass',
-                'Your completion was rejected because the completed-file rename gate did not pass ' +
-                  `(attempt ${state.completionAttempts}/${maxCompletionAttempts}). ` +
-                  'A *_Completed.md rename is required before this loop can stop. ' +
-                  'Rename the relevant plan file to *_Completed.md, then re-declare completion.',
+                `${friendlyLabel} failed`,
+                `Your completion was rejected because the ${friendlyLabel} command failed. ` +
+                  'Fix these errors before re-declaring completion:\n\n' +
+                  (excerpt(failedVerifyOutput, 8192) || `(${friendlyLabel} produced no output)`),
               );
-              // verify passes but belt-and-braces (rename) hasn't happened yet —
-              // surface so the agent can do the rename, but don't stop.
               this.emit('loop:claimed-done-but-failed', {
                 loopRunId: state.id,
                 signal: candidate.id,
-                failure: 'Verify passed but no *_Completed.md rename observed. Rename the plan file to confirm.',
+                failure: excerpt(failedVerifyOutput, 4096),
               });
             }
+          } else if (resolution.outcome === 'review-blocked') {
+            // Fresh-eyes review blocked — convergenceNote set by runFreshEyesReviewGate
+            this.rejectPendingCompleteIntent(state, 'fresh-eyes review blocked completion');
+          } else if (resolution.outcome === 'rename-gate') {
+            // Rename gate blocked, budget not exhausted
+            const maxCompletionAttempts = state.config.caps.maxCompletionAttempts ?? 3;
+            this.rejectCompletionAttempt(
+              state,
+              'completed-file rename gate did not pass',
+              'Your completion was rejected because the completed-file rename gate did not pass ' +
+                `(attempt ${state.completionAttempts}/${maxCompletionAttempts}). ` +
+                'A *_Completed.md rename is required before this loop can stop. ' +
+                'Rename the relevant plan file to *_Completed.md, then re-declare completion.',
+            );
+            this.emit('loop:claimed-done-but-failed', {
+              loopRunId: state.id,
+              signal: candidate.id,
+              failure: 'Verify passed but no *_Completed.md rename observed. Rename the plan file to confirm.',
+            });
           }
         }
       }

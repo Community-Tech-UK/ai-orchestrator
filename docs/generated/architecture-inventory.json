@@ -4836,7 +4836,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 2553
+      "lines": 2573
     },
     {
       "path": "src/main/channels/channel-message-router.ts",
@@ -4939,6 +4939,10 @@
       "lines": 1703
     },
     {
+      "path": "src/main/session/session-continuity.ts",
+      "lines": 1700
+    },
+    {
       "path": "src/main/instance/__tests__/instance-manager.spec.ts",
       "lines": 1647
     },
@@ -4953,10 +4957,6 @@
     {
       "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
       "lines": 1582
-    },
-    {
-      "path": "src/main/session/session-continuity.ts",
-      "lines": 1579
     },
     {
       "path": "docs/superpowers/specs/2026-04-16-ai-orchestrator-cross-repo-improvements-design.md",
@@ -5035,6 +5035,10 @@
       "lines": 1316
     },
     {
+      "path": "src/main/workspace/git/vcs-manager.ts",
+      "lines": 1280
+    },
+    {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
       "lines": 1272
     },
@@ -5103,15 +5107,15 @@
       "lines": 1186
     },
     {
+      "path": "src/renderer/app/core/state/source-control.store.spec.ts",
+      "lines": 1181
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-02-streaming-tool-executor.COMPLETED.md",
       "lines": 1177
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
-      "lines": 1174
-    },
-    {
-      "path": "src/main/workspace/git/vcs-manager.ts",
       "lines": 1174
     },
     {
@@ -5125,10 +5129,6 @@
     {
       "path": "docs/superpowers/specs/2026-04-28-wave3-workflow-resume-history-recovery-design_completed.md",
       "lines": 1165
-    },
-    {
-      "path": "src/renderer/app/core/state/source-control.store.spec.ts",
-      "lines": 1164
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
@@ -5187,6 +5187,14 @@
       "lines": 1104
     },
     {
+      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
+      "lines": 1097
+    },
+    {
+      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
+      "lines": 1071
+    },
+    {
       "path": "src/renderer/app/features/file-explorer/file-explorer.component.ts",
       "lines": 1069
     },
@@ -5197,10 +5205,6 @@
     {
       "path": "src/main/orchestration/__tests__/debate-coordinator.spec.ts",
       "lines": 1055
-    },
-    {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
-      "lines": 1047
     },
     {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
@@ -5255,6 +5259,10 @@
       "lines": 989
     },
     {
+      "path": "src/renderer/app/core/state/source-control.store.ts",
+      "lines": 982
+    },
+    {
       "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
       "lines": 978
     },
@@ -5272,10 +5280,6 @@
     },
     {
       "path": "src/main/orchestration/cli-verification-extension.ts",
-      "lines": 973
-    },
-    {
-      "path": "src/renderer/app/core/state/source-control.store.ts",
       "lines": 973
     },
     {
@@ -5317,10 +5321,6 @@
     {
       "path": "src/main/core/error-recovery.ts",
       "lines": 950
-    },
-    {
-      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
-      "lines": 941
     },
     {
       "path": "src/main/ipc/handlers/mcp-handlers.ts",

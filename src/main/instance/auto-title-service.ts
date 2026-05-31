@@ -51,9 +51,35 @@ const LOW_SIGNAL_TITLE_WORDS = new Set<string>([
   'fix', 'address', 'resolve', 'handle', 'investigate', 'debug', 'review',
   'check', 'update', 'look', 'at', 'take', 'a', 'work', 'on', 'help', 'me', 'with',
   'go', 'ahead', 'and', 'lets', 'let', 'just', 'now', 'all',
+  'be', 'stay', 'thorough', 'thoroughly', 'careful', 'carefully',
+  'proper', 'properly', 'correct', 'correctly', 'comprehensive',
+  'comprehensively', 'detailed', 'meticulous', 'rigorous', 'robust', 'well',
   'this', 'that', 'these', 'those', 'it', 'them', 'the', 'following', 'everything',
   'for', 'of', 'in',
 ]);
+
+const GENERIC_QUALITY_TAIL_PATTERN =
+  /(?:[,;:.!?-]\s*)?(?:and\s+)?(?:please\s+)?(?:(?:be|stay)\s+)?(?:thorough|thoroughly|careful|carefully|proper|properly|correct|correctly|comprehensive|comprehensively|detailed|meticulous|rigorous|robust|well)[\s.!?,-]*$/i;
+
+const GENERIC_ATTACHMENT_ACTIONS: readonly { pattern: RegExp; noun: string }[] = [
+  { pattern: /\b(?:implement|implementation|build|create|develop|ship|port)\b/i, noun: 'implementation' },
+  { pattern: /\b(?:review|audit)\b/i, noun: 'review' },
+  { pattern: /\b(?:fix|repair|debug|investigate|resolve|address)\b/i, noun: 'fix' },
+  { pattern: /\b(?:update|revise|change|modify)\b/i, noun: 'update' },
+];
+
+const DOCUMENT_TITLE_EXTENSIONS = new Set<string>([
+  '.md',
+  '.markdown',
+  '.txt',
+  '.doc',
+  '.docx',
+  '.pdf',
+  '.rtf',
+]);
+
+const IMPLEMENTATION_SUBJECT_SUFFIX_PATTERN =
+  /\b(?:implementation|implement|plan|spec|design|brief|proposal|notes?)\b$/i;
 
 /** Reduce an attachment name to a clean basename for use in a title. */
 function attachmentLabel(name: string): string {
@@ -70,6 +96,54 @@ function titleFromAttachments(labels: readonly string[]): string | null {
   if (labels.length === 0) return null;
   if (labels.length === 1) return labels[0];
   return `${labels[0]} +${labels.length - 1} more`;
+}
+
+function stripGenericQualityTail(value: string): string {
+  let result = value.trim();
+  for (let pass = 0; pass < 3; pass++) {
+    const stripped = result.replace(GENERIC_QUALITY_TAIL_PATTERN, '').trimEnd();
+    if (stripped === result || stripped.length < 3) break;
+    result = stripped.replace(/[\s,;:.-]+$/, '').trimEnd();
+  }
+  return result;
+}
+
+function inferGenericAttachmentAction(message: string): string | null {
+  for (const action of GENERIC_ATTACHMENT_ACTIONS) {
+    if (action.pattern.test(message)) {
+      return action.noun;
+    }
+  }
+  return null;
+}
+
+function attachmentSubjectForAction(label: string, action: string): string {
+  const withoutDatePrefix = label.replace(/^\d{4}-\d{2}-\d{2}[-_\s]+/, '');
+  const extension = withoutDatePrefix.match(/\.[A-Za-z0-9]{1,10}$/)?.[0]?.toLowerCase();
+  const isDocument = extension ? DOCUMENT_TITLE_EXTENSIONS.has(extension) : false;
+  const withoutExtension = isDocument && extension
+    ? withoutDatePrefix.slice(0, -extension.length)
+    : withoutDatePrefix;
+
+  let subject = (isDocument ? withoutExtension.replace(/[-_]+/g, ' ') : withoutExtension)
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (action === 'implementation') {
+    const withoutSuffix = subject.replace(IMPLEMENTATION_SUBJECT_SUFFIX_PATTERN, '').trim();
+    if (withoutSuffix.length >= 3) {
+      subject = withoutSuffix;
+    }
+  }
+
+  return (subject || label).replace(/^(\p{Ll})/u, (char) => char.toUpperCase());
+}
+
+function titleFromGenericAttachmentTask(message: string, labels: readonly string[]): string | null {
+  if (labels.length === 0) return null;
+  const action = inferGenericAttachmentAction(message);
+  if (!action) return titleFromAttachments(labels);
+  return truncateForRail(`${attachmentSubjectForAction(labels[0], action)} ${action}`);
 }
 
 /** True when a title is built entirely from generic filler words. */
@@ -116,9 +190,17 @@ function deriveInstantTitle(message: string, attachmentNames: readonly string[] 
   // line before re-stripping keeps lead-in removal clean ("Please implement
   // this" + loopfixex.md → "Implement loopfixex.md").
   if (labels.length > 0 && isLowSignalTitle(title)) {
-    const withFile = TRAILING_POINTER_PATTERN.test(firstLine)
-      ? firstLine.replace(TRAILING_POINTER_PATTERN, labels[0])
-      : `${firstLine} ${labels[0]}`;
+    const withoutQualityTail = stripGenericQualityTail(firstLine);
+    if (withoutQualityTail !== firstLine.trim()) {
+      const attachmentTaskTitle = titleFromGenericAttachmentTask(withoutQualityTail, labels);
+      if (attachmentTaskTitle) {
+        return attachmentTaskTitle;
+      }
+    }
+
+    const withFile = TRAILING_POINTER_PATTERN.test(withoutQualityTail)
+      ? withoutQualityTail.replace(TRAILING_POINTER_PATTERN, labels[0])
+      : `${withoutQualityTail} ${labels[0]}`;
     title = truncateForRail(frontLoadTitle(withFile)) || titleFromAttachments(labels) || title;
   }
 
@@ -296,7 +378,12 @@ export class AutoTitleService {
       logger.warn('Discarded AI title that looked like a provider limit/status notice', { title });
       return null;
     }
-    return title;
+    const frontLoadedTitle = truncateForRail(frontLoadTitle(title));
+    if (labels.length > 0 && isLowSignalTitle(frontLoadedTitle)) {
+      return titleFromGenericAttachmentTask(stripGenericQualityTail(truncatedMessage), labels)
+        ?? titleFromAttachments(labels);
+    }
+    return frontLoadedTitle;
   }
 
   /**

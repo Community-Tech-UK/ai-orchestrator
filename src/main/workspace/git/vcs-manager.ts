@@ -194,12 +194,21 @@ const DEFAULT_REPOSITORY_SCAN_IGNORES = new Set([
   'node_modules',
   '.pnpm-store',
   '.yarn',
+  '.angular',
   '.cache',
+  '.next',
+  '.nuxt',
+  '.turbo',
+  '.venv',
+  '__pycache__',
+  '_archive',
+  '_scratch',
   'dist',
   'build',
   'out',
   'target',
   'coverage',
+  'venv',
 ]);
 
 // ============================================
@@ -298,6 +307,18 @@ export class VcsManager {
     }
   }
 
+  private async execGitAsyncNullable(
+    args: string[],
+    options?: { cwd?: string; timeoutMs?: number; signal?: AbortSignal }
+  ): Promise<string | null> {
+    try {
+      const result = await this.execGitAsync(args, options);
+      return result.stdout;
+    } catch {
+      return null;
+    }
+  }
+
   private emitCommand(event: GitCommandAuditEvent): void {
     this.onCommand?.(event);
   }
@@ -349,6 +370,48 @@ export class VcsManager {
     return repositories.sort((a, b) => a.localeCompare(b));
   }
 
+  /**
+   * Async variant used by IPC handlers so large workspace scans cannot
+   * monopolize Electron's main event loop. It preserves the synchronous
+   * helper's repository and ignore semantics.
+   */
+  static async findRepositoriesAsync(root: string, ignorePatterns: string[] = []): Promise<string[]> {
+    const normalizedRoot = path.resolve(root);
+    const ignores = new Set([...DEFAULT_REPOSITORY_SCAN_IGNORES, ...ignorePatterns]);
+    const repositories: string[] = [];
+    const pendingDirs = [normalizedRoot];
+    let visitedDirs = 0;
+
+    while (pendingDirs.length > 0) {
+      const dirPath = pendingDirs.pop()!;
+      const basename = path.basename(dirPath);
+      if (ignores.has(basename)) continue;
+
+      let entries: fs.Dirent[];
+      try {
+        entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      if (entries.some(entry => entry.name === '.git')) {
+        repositories.push(dirPath);
+      }
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (ignores.has(entry.name)) continue;
+        pendingDirs.push(path.join(dirPath, entry.name));
+      }
+
+      if (++visitedDirs % 100 === 0) {
+        await yieldToEventLoop();
+      }
+    }
+
+    return repositories.sort((a, b) => a.localeCompare(b));
+  }
+
   // ============================================
   // Repository Detection
   // ============================================
@@ -384,6 +447,41 @@ export class VcsManager {
     const statusOutput = this.execGit(['status', '--porcelain=v2', '--branch', '-uno']) || '';
     const untrackedOutput = this.execGit(['ls-files', '--others', '--exclude-standard']) || '';
 
+    return this.parseStatusOutputs(branch, trackingStatus, statusOutput, untrackedOutput);
+  }
+
+  /**
+   * Async status variant for IPC call sites. Spawning git through
+   * `execFile` keeps Electron responsive even when git has to inspect a
+   * large worktree or waits until the command timeout.
+   */
+  async getStatusAsync(): Promise<GitStatus> {
+    const [
+      branchOutput,
+      trackingOutput,
+      statusOutput,
+      untrackedOutput,
+    ] = await Promise.all([
+      this.execGitAsyncNullable(['rev-parse', '--abbrev-ref', 'HEAD']),
+      this.execGitAsyncNullable(['rev-list', '--left-right', '--count', '@{upstream}...HEAD']),
+      this.execGitAsyncNullable(['status', '--porcelain=v2', '--branch', '-uno']),
+      this.execGitAsyncNullable(['ls-files', '--others', '--exclude-standard']),
+    ]);
+
+    return this.parseStatusOutputs(
+      branchOutput?.trim() || 'HEAD',
+      parseTrackingStatusOutput(trackingOutput),
+      statusOutput || '',
+      untrackedOutput || ''
+    );
+  }
+
+  private parseStatusOutputs(
+    branch: string,
+    trackingStatus: { ahead: number; behind: number },
+    statusOutput: string,
+    untrackedOutput: string
+  ): GitStatus {
     const staged: FileChange[] = [];
     const unstaged: FileChange[] = [];
     const untracked: string[] = untrackedOutput.split('\n').filter(Boolean);
@@ -470,12 +568,7 @@ export class VcsManager {
    */
   getTrackingStatus(): { ahead: number; behind: number } {
     const result = this.execGit(['rev-list', '--left-right', '--count', '@{upstream}...HEAD']);
-    if (!result) {
-      return { ahead: 0, behind: 0 };
-    }
-
-    const [behind, ahead] = result.trim().split('\t').map(Number);
-    return { ahead: ahead || 0, behind: behind || 0 };
+    return parseTrackingStatusOutput(result);
   }
 
   getUpstreamBranch(): string | null {
@@ -1147,6 +1240,19 @@ function commandOutput(error: unknown, key: 'stdout' | 'stderr'): string {
 function exitCodeFromError(error: unknown): number | null {
   const code = (error as { code?: unknown }).code;
   return typeof code === 'number' ? code : null;
+}
+
+function parseTrackingStatusOutput(result: string | null): { ahead: number; behind: number } {
+  if (!result) {
+    return { ahead: 0, behind: 0 };
+  }
+
+  const [behind, ahead] = result.trim().split('\t').map(Number);
+  return { ahead: ahead || 0, behind: behind || 0 };
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise(resolve => setImmediate(resolve));
 }
 
 // ============================================

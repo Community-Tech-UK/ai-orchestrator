@@ -32,6 +32,8 @@ import {
   createLedgerForOrchestratorTools,
   createOrchestratorToolDefinitions,
   GitBatchPullArgsSchema,
+  RunOnNodeArgsSchema,
+  type SpawnRemoteInstanceFn,
 } from './orchestrator-tools';
 import type { McpServerToolDefinition } from './mcp-server-tools';
 
@@ -64,11 +66,19 @@ export interface OrchestratorToolsRpcServerOptions {
     maxRequests: number;
     windowMs: number;
   };
+  /**
+   * Spawns an AI instance on a remote worker node (backs the `run_on_node`
+   * tool). Injected from main-process startup so this server never imports the
+   * instance manager / remote-node singletons directly. When omitted,
+   * `run_on_node` rejects with an "unavailable" error.
+   */
+  spawnRemoteInstance?: SpawnRemoteInstanceFn | null;
   /** Inject the tool factory in tests so we can avoid touching the real DB. */
   toolFactory?: (deps: {
     db: SqliteDriver;
     ledger: ConversationLedgerService | null;
     instanceId: string | null;
+    spawnRemoteInstance: SpawnRemoteInstanceFn | null;
   }) => McpServerToolDefinition[];
 }
 
@@ -79,6 +89,7 @@ export class OrchestratorToolsRpcServer {
   private readonly isKnownLocalInstance: (instanceId: string) => boolean;
   private readonly maxPayloadBytes: number;
   private readonly rateLimit: { maxRequests: number; windowMs: number };
+  private readonly spawnRemoteInstance: SpawnRemoteInstanceFn | null;
   private readonly buckets = new Map<string, number[]>();
   private readonly toolFactory: NonNullable<OrchestratorToolsRpcServerOptions['toolFactory']>;
   /** True when callers provided their own toolFactory — usually tests that
@@ -97,6 +108,7 @@ export class OrchestratorToolsRpcServer {
     this.isKnownLocalInstance = options.isKnownLocalInstance ?? (() => false);
     this.maxPayloadBytes = options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES;
     this.rateLimit = options.rateLimit ?? { maxRequests: 30, windowMs: 10_000 };
+    this.spawnRemoteInstance = options.spawnRemoteInstance ?? null;
     this.toolFactoryInjected = options.toolFactory !== undefined;
     this.toolFactory = options.toolFactory ?? createOrchestratorToolDefinitions;
     const register = options.registerCleanup ?? registerGlobalCleanup;
@@ -164,6 +176,15 @@ export class OrchestratorToolsRpcServer {
         const tool = tools.find((t) => t.name === 'git_batch_pull');
         if (!tool) {
           throw new Error('git_batch_pull tool unavailable');
+        }
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.run_on_node': {
+        const validated = RunOnNodeArgsSchema.parse(params.payload);
+        const tools = this.getToolsForInstance(params.instanceId);
+        const tool = tools.find((t) => t.name === 'run_on_node');
+        if (!tool) {
+          throw new Error('run_on_node tool unavailable');
         }
         return tool.handler(validated);
       }
@@ -278,6 +299,7 @@ export class OrchestratorToolsRpcServer {
         db: null as unknown as SqliteDriver,
         ledger: null,
         instanceId,
+        spawnRemoteInstance: this.spawnRemoteInstance,
       });
     }
     this.ensureRuntimeReady();
@@ -288,6 +310,7 @@ export class OrchestratorToolsRpcServer {
       db: this.db,
       ledger: this.ledger,
       instanceId,
+      spawnRemoteInstance: this.spawnRemoteInstance,
     });
   }
 

@@ -6,6 +6,7 @@ import {
   type PromptHistoryProjectAlias,
   type PromptHistoryRecord,
   type PromptHistorySnapshot,
+  type PromptHistoryStoreV1,
 } from '../../shared/types/prompt-history.types';
 import {
   createPromptHistoryElectronStore,
@@ -160,8 +161,8 @@ export class PromptHistoryService {
     };
 
     byInstance[instanceId] = nextRecord;
-    this.store.set('byInstance', byInstance);
-    this.rebuildProjectAliases(byInstance);
+    const byProject = this.buildProjectAliases(byInstance);
+    this.setStoreValues({ byInstance, byProject });
     this.emit({ instanceId, record: cloneRecord(nextRecord) });
     return cloneRecord(nextRecord);
   }
@@ -169,8 +170,8 @@ export class PromptHistoryService {
   clearForInstance(instanceId: string): PromptHistoryRecord {
     const byInstance = { ...this.store.get('byInstance') };
     delete byInstance[instanceId];
-    this.store.set('byInstance', byInstance);
-    this.rebuildProjectAliases(byInstance);
+    const byProject = this.buildProjectAliases(byInstance);
+    this.setStoreValues({ byInstance, byProject });
 
     const record = emptyRecord(instanceId);
     record.updatedAt = Date.now();
@@ -199,11 +200,12 @@ export class PromptHistoryService {
       }
     }
 
-    if (changed) {
-      this.store.set('byInstance', byInstance);
-    }
-    this.store.set('lastPrunedAt', Date.now());
-    this.rebuildProjectAliases(byInstance);
+    const values = {
+      ...(changed ? { byInstance } : {}),
+      byProject: this.buildProjectAliases(byInstance),
+      lastPrunedAt: Date.now(),
+    };
+    this.setStoreValues(values);
   }
 
   onChange(listener: (delta: PromptHistoryDelta) => void): () => void {
@@ -214,18 +216,42 @@ export class PromptHistoryService {
   }
 
   private ensureInitialized(): void {
+    const values: Partial<PromptHistoryStoreV1> = {};
     if (this.store.get('schemaVersion') !== 1) {
-      this.store.set('schemaVersion', 1);
+      values.schemaVersion = 1;
     }
     if (!this.store.get('byInstance')) {
-      this.store.set('byInstance', {});
+      values.byInstance = {};
     }
     if (!this.store.get('byProject')) {
-      this.store.set('byProject', {});
+      values.byProject = {};
+    }
+    if (Object.keys(values).length > 0) {
+      this.setStoreValues(values);
     }
   }
 
-  private rebuildProjectAliases(byInstance: Record<string, PromptHistoryRecord>): void {
+  private setStoreValues(values: Partial<PromptHistoryStoreV1>): void {
+    if (this.store.setMany) {
+      this.store.setMany(values);
+      return;
+    }
+
+    if (values.schemaVersion !== undefined) {
+      this.store.set('schemaVersion', values.schemaVersion);
+    }
+    if (values.byInstance !== undefined) {
+      this.store.set('byInstance', values.byInstance);
+    }
+    if (values.byProject !== undefined) {
+      this.store.set('byProject', values.byProject);
+    }
+    if (values.lastPrunedAt !== undefined) {
+      this.store.set('lastPrunedAt', values.lastPrunedAt);
+    }
+  }
+
+  private buildProjectAliases(byInstance: Record<string, PromptHistoryRecord>): Record<string, PromptHistoryProjectAlias> {
     const grouped = new Map<string, PromptHistoryEntry[]>();
 
     for (const record of Object.values(byInstance)) {
@@ -250,7 +276,7 @@ export class PromptHistoryService {
       };
     }
 
-    this.store.set('byProject', byProject);
+    return byProject;
   }
 
   private emit(delta: PromptHistoryDelta): void {

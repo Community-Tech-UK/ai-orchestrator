@@ -7,13 +7,44 @@ function stubClient(impl: OrchestratorToolsRpcClientLike['call']): OrchestratorT
 }
 
 describe('createOrchestratorToolsForwarderTools', () => {
-  it('exposes git_batch_pull as the only MCP tool', () => {
+  it('exposes git_batch_pull and run_on_node as the MCP tools', () => {
     const tools = createOrchestratorToolsForwarderTools(stubClient(async () => null));
-    expect(tools.map((t) => t.name)).toEqual(['git_batch_pull']);
+    expect(tools.map((t) => t.name)).toEqual(['git_batch_pull', 'run_on_node']);
+  });
+
+  it('forwards run_on_node invocations with the canonical method name', async () => {
+    const call = vi.fn(async () => ({
+      instanceId: 'inst-1',
+      nodeId: 'node-1',
+    }));
+    const runTool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'run_on_node',
+    );
+
+    const result = await runTool!.handler({ node: 'windows-pc', prompt: 'run the tests' });
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.run_on_node', {
+      node: 'windows-pc',
+      prompt: 'run the tests',
+    });
+    expect(result).toEqual({ instanceId: 'inst-1', nodeId: 'node-1' });
+  });
+
+  it('rejects malformed run_on_node args before contacting the parent', async () => {
+    const call = vi.fn();
+    const runTool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'run_on_node',
+    );
+
+    await expect(runTool!.handler(null)).rejects.toThrow(/must be an object/);
+    await expect(runTool!.handler('string')).rejects.toThrow(/must be an object/);
+    await expect(runTool!.handler([])).rejects.toThrow(/must be an object/);
+    expect(call).not.toHaveBeenCalled();
   });
 
   it('forwards tool invocations to the RPC client with the canonical method name', async () => {
-    const call = vi.fn(async (_method: string, _args: Record<string, unknown>) => ({ summary: 'ok' }));
+    const call = vi.fn(async () => ({ summary: 'ok' }));
     const [pullTool] = createOrchestratorToolsForwarderTools(stubClient(call));
 
     const result = await pullTool!.handler({ root: '/repo', concurrency: 2 });

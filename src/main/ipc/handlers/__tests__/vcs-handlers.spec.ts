@@ -75,6 +75,16 @@ const fakeManager = {
     hasChanges: true,
     isClean: false,
   })),
+  getStatusAsync: vi.fn(() => Promise.resolve({
+    branch: 'main',
+    ahead: 0,
+    behind: 0,
+    staged: [{ path: 'staged.txt', status: 'modified', staged: true }],
+    unstaged: [{ path: 'a.txt', status: 'modified', staged: false }],
+    untracked: ['new.txt'],
+    hasChanges: true,
+    isClean: false,
+  })),
   getBranches: vi.fn(),
   getRecentCommits: vi.fn(),
   getFileDiff: vi.fn(),
@@ -96,6 +106,7 @@ vi.mock('../../../workspace/git/vcs-manager', () => ({
   isGitAvailable: vi.fn(() => gitAvailable),
   VcsManager: {
     findRepositories: vi.fn(() => []),
+    findRepositoriesAsync: vi.fn(() => Promise.resolve([])),
   },
 }));
 
@@ -162,6 +173,7 @@ describe('vcs-handlers — stage / unstage (Phase 2d)', () => {
     fakeManager.pullFastForward.mockClear();
     fakeManager.push.mockClear();
     fakeManager.checkoutBranch.mockClear();
+    fakeManager.getStatusAsync.mockClear();
     fakeManager.stageFiles.mockResolvedValue({
       stdout: '',
       stderr: '',

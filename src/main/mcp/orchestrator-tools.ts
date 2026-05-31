@@ -17,11 +17,52 @@ export const GitBatchPullArgsSchema = z.object({
 
 export type GitBatchPullArgs = z.infer<typeof GitBatchPullArgsSchema>;
 
+export const RunOnNodeArgsSchema = z.object({
+  /**
+   * Target worker node by name (e.g. "windows-pc") or node id (UUID). Optional:
+   * when omitted and exactly one node is connected, that node is used.
+   */
+  node: z.string().min(1).optional(),
+  /** Natural-language task / instruction for the agent on the node. */
+  prompt: z.string().min(1),
+  /**
+   * Working directory on the node. Optional — when omitted, the node's first
+   * advertised working directory is used (project-less spawn), mirroring the
+   * `/run-on` channel command.
+   */
+  workingDirectory: z.string().min(1).optional(),
+  /** CLI provider to use on the node (defaults to the node/app default). */
+  provider: z.enum(['claude', 'codex', 'gemini', 'copilot', 'cursor']).optional(),
+  /** Optional model override. */
+  model: z.string().min(1).optional(),
+});
+
+export type RunOnNodeArgs = z.infer<typeof RunOnNodeArgsSchema>;
+
+export interface RunOnNodeResult {
+  instanceId: string;
+  nodeId: string;
+  nodeName: string;
+  workingDirectory: string;
+  status: string;
+}
+
+/**
+ * Injected by the parent process (see initialization-steps.ts). Resolves the
+ * target node, picks a working directory, and spawns an instance on it via the
+ * already-deployed `instance.spawn` worker RPC. Kept as an injected function so
+ * `orchestrator-tools.ts` never imports the instance manager / remote-node
+ * singletons directly (which would couple this module to heavy main-process
+ * subsystems).
+ */
+export type SpawnRemoteInstanceFn = (args: RunOnNodeArgs) => Promise<RunOnNodeResult>;
+
 export interface OrchestratorToolRuntimeContext {
   db: SqliteDriver;
   instanceId?: string | null;
   ledger?: ConversationLedgerService | null;
   gitBatchService?: GitBatchService;
+  spawnRemoteInstance?: SpawnRemoteInstanceFn | null;
 }
 
 interface SourceContext {
@@ -204,6 +245,50 @@ export function createOrchestratorToolDefinitions(
           }
           throw error;
         }
+      },
+    },
+    {
+      name: 'run_on_node',
+      description:
+        'Run a task on a connected remote worker node (e.g. "windows-pc") by spawning an AI agent there with the given prompt. The agent runs project-lessly using the node\'s default working directory unless one is provided. Returns immediately with the spawned instance id; output streams asynchronously and can be inspected from the app.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          node: {
+            type: 'string',
+            description:
+              'Target worker node by name (e.g. "windows-pc") or node id (UUID). Optional: when omitted and exactly one node is connected, that node is used.',
+          },
+          prompt: {
+            type: 'string',
+            description: 'Natural-language task / instruction for the agent on the node.',
+          },
+          workingDirectory: {
+            type: 'string',
+            description:
+              "Working directory on the node. Optional — defaults to the node's first advertised working directory (project-less spawn).",
+          },
+          provider: {
+            type: 'string',
+            enum: ['claude', 'codex', 'gemini', 'copilot', 'cursor'],
+            description: 'CLI provider to use on the node (defaults to the node/app default).',
+          },
+          model: {
+            type: 'string',
+            description: 'Optional model override.',
+          },
+        },
+        required: ['prompt'],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        const parsed = RunOnNodeArgsSchema.parse(args);
+        if (!context.spawnRemoteInstance) {
+          throw new Error(
+            'run_on_node is unavailable: remote instance spawning is not wired in this process',
+          );
+        }
+        return context.spawnRemoteInstance(parsed);
       },
     },
   ];

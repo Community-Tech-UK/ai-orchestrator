@@ -137,6 +137,50 @@ export interface InterruptRespawnDeps {
 export class InterruptRespawnHandler {
   constructor(private readonly deps: InterruptRespawnDeps) {}
 
+  private shouldAbortRespawn(instanceId: string, instance: Instance): boolean {
+    const current = this.deps.getInstance(instanceId);
+    if (!current || current !== instance) {
+      return true;
+    }
+
+    return current.status === 'terminated'
+      || current.status === 'failed'
+      || current.status === 'superseded'
+      || current.status === 'cancelled'
+      || current.status === 'error';
+  }
+
+  private async cleanupAbortedRespawnAdapter(
+    instanceId: string,
+    instance: Instance,
+    adapter: CliAdapter,
+    reason: string,
+  ): Promise<void> {
+    logger.info('Respawn aborted; cleaning up replacement adapter', {
+      instanceId,
+      status: this.deps.getInstance(instanceId)?.status,
+      reason,
+    });
+
+    adapter.removeAllListeners();
+    try {
+      await adapter.terminate(false);
+    } catch (error) {
+      logger.warn('Failed to terminate aborted respawn adapter', {
+        instanceId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    if (this.deps.getAdapter(instanceId) === adapter) {
+      this.deps.deleteAdapter(instanceId);
+    }
+
+    if (this.deps.getInstance(instanceId) === instance) {
+      instance.processId = null;
+    }
+  }
+
   private emitInterruptBoundary(instance: Instance, marker: InterruptBoundaryMarker): void {
     const addToOutputBuffer = this.deps.addToOutputBuffer;
     const emitOutput = this.deps.emitOutput;
@@ -444,6 +488,14 @@ export class InterruptRespawnHandler {
       adapterGeneration: instance.adapterGeneration,
     });
     try {
+      if (this.shouldAbortRespawn(instanceId, instance)) {
+        logger.info('Skipping respawn after interrupt because instance is no longer recoverable', {
+          instanceId,
+          status: this.deps.getInstance(instanceId)?.status,
+        });
+        return;
+      }
+
       if (triggeredByInterrupt && instance.status !== 'respawning') {
         this.deps.transitionState(instance, 'respawning');
         this.emitInterruptBoundary(instance, {
@@ -506,6 +558,13 @@ export class InterruptRespawnHandler {
       instance.sessionId = newSessionId;
 
       const cliType = await this.deps.resolveCliTypeForInstance(instance);
+      if (this.shouldAbortRespawn(instanceId, instance)) {
+        logger.info('Skipping respawn after interrupt after CLI resolution', {
+          instanceId,
+          status: this.deps.getInstance(instanceId)?.status,
+        });
+        return;
+      }
 
       const spawnOptions: UnifiedSpawnOptions = {
         instanceId: instance.id,
@@ -528,6 +587,11 @@ export class InterruptRespawnHandler {
       this.deps.setAdapter(instanceId, adapter);
 
       try {
+        if (this.shouldAbortRespawn(instanceId, instance)) {
+          await this.cleanupAbortedRespawnAdapter(instanceId, instance, adapter, 'pre-spawn interrupt respawn cancellation');
+          return;
+        }
+
         logger.debug('Spawning new process after interrupt', { instanceId });
         let pid: number;
         let actuallyResumed = shouldResume;
@@ -541,6 +605,11 @@ export class InterruptRespawnHandler {
           instance.providerSessionId = newSessionId;
           await this.deps.waitForAdapterWritable(instanceId, 3000);
         } catch (spawnError) {
+          if (this.shouldAbortRespawn(instanceId, instance)) {
+            await this.cleanupAbortedRespawnAdapter(instanceId, instance, adapter, 'interrupt respawn spawn cancelled');
+            return;
+          }
+
           // Resume failed (e.g., corrupted session with empty messages).
           // Fall back to a fresh session with replay continuity message.
           if (shouldResume) {
@@ -570,6 +639,11 @@ export class InterruptRespawnHandler {
             this.deps.setupAdapterEvents(instanceId, adapter);
             this.deps.setAdapter(instanceId, adapter);
 
+            if (this.shouldAbortRespawn(instanceId, instance)) {
+              await this.cleanupAbortedRespawnAdapter(instanceId, instance, adapter, 'pre-spawn interrupt fallback cancellation');
+              return;
+            }
+
             pid = await adapter.spawn();
             actuallyResumed = false;
             instance.processId = pid;
@@ -589,6 +663,11 @@ export class InterruptRespawnHandler {
             throw spawnError;
           }
         }
+        if (this.shouldAbortRespawn(instanceId, instance)) {
+          await this.cleanupAbortedRespawnAdapter(instanceId, instance, adapter, 'post-spawn interrupt respawn cancellation');
+          return;
+        }
+
         instance.recoveryMethod = actuallyResumed ? 'native' : (hasConversation ? 'replay' : 'fresh');
         if (actuallyResumed) {
           // Clear any stale blacklist — resume just succeeded against this id.
@@ -668,6 +747,14 @@ export class InterruptRespawnHandler {
         );
         logger.info('Respawn after interrupt complete', { instanceId });
       } catch (error) {
+        if (this.shouldAbortRespawn(instanceId, instance)) {
+          const currentAdapter = this.deps.getAdapter(instanceId);
+          if (currentAdapter) {
+            await this.cleanupAbortedRespawnAdapter(instanceId, instance, currentAdapter, 'interrupt respawn error after cancellation');
+          }
+          return;
+        }
+
         logger.error('Failed to spawn after interrupt', error instanceof Error ? error : undefined, { instanceId });
         this.deps.transitionState(instance, 'error');
         instance.processId = null;
@@ -731,6 +818,14 @@ export class InterruptRespawnHandler {
       adapterGeneration: instance.adapterGeneration,
     });
     try {
+      if (this.shouldAbortRespawn(instanceId, instance)) {
+        logger.info('Skipping auto-respawn because instance is no longer recoverable', {
+          instanceId,
+          status: this.deps.getInstance(instanceId)?.status,
+        });
+        return;
+      }
+
       // Read capabilities from the previous adapter BEFORE deleting it.
       // The exit handler in instance-communication.ts no longer calls deleteAdapter
       // so the adapter is still available here.
@@ -782,6 +877,13 @@ export class InterruptRespawnHandler {
       instance.sessionId = newSessionId;
 
       const cliType = await this.deps.resolveCliTypeForInstance(instance);
+      if (this.shouldAbortRespawn(instanceId, instance)) {
+        logger.info('Skipping auto-respawn after CLI resolution', {
+          instanceId,
+          status: this.deps.getInstance(instanceId)?.status,
+        });
+        return;
+      }
 
       const spawnOptions: UnifiedSpawnOptions = {
         instanceId: instance.id,
@@ -804,6 +906,11 @@ export class InterruptRespawnHandler {
       this.deps.setAdapter(instanceId, adapter);
 
       try {
+        if (this.shouldAbortRespawn(instanceId, instance)) {
+          await this.cleanupAbortedRespawnAdapter(instanceId, instance, adapter, 'pre-spawn auto-respawn cancellation');
+          return;
+        }
+
         let pid: number;
         let actuallyResumed = shouldResume;
         let recoveryInputSent = false;
@@ -816,6 +923,11 @@ export class InterruptRespawnHandler {
           instance.providerSessionId = newSessionId;
           await this.deps.waitForAdapterWritable(instanceId, 3000);
         } catch (spawnError) {
+          if (this.shouldAbortRespawn(instanceId, instance)) {
+            await this.cleanupAbortedRespawnAdapter(instanceId, instance, adapter, 'auto-respawn spawn cancelled');
+            return;
+          }
+
           if (shouldResume) {
             logger.warn('Resume failed during auto-respawn, falling back to fresh session', {
               instanceId,
@@ -842,6 +954,11 @@ export class InterruptRespawnHandler {
             this.deps.setupAdapterEvents(instanceId, adapter);
             this.deps.setAdapter(instanceId, adapter);
 
+            if (this.shouldAbortRespawn(instanceId, instance)) {
+              await this.cleanupAbortedRespawnAdapter(instanceId, instance, adapter, 'pre-spawn auto-respawn fallback cancellation');
+              return;
+            }
+
             pid = await adapter.spawn();
             actuallyResumed = false;
             instance.processId = pid;
@@ -856,6 +973,11 @@ export class InterruptRespawnHandler {
             throw spawnError;
           }
         }
+        if (this.shouldAbortRespawn(instanceId, instance)) {
+          await this.cleanupAbortedRespawnAdapter(instanceId, instance, adapter, 'post-spawn auto-respawn cancellation');
+          return;
+        }
+
         instance.recoveryMethod = actuallyResumed ? 'native' : (hasConversation ? 'replay' : 'fresh');
         if (actuallyResumed) {
           // Clear any stale blacklist — resume just succeeded against this id.
@@ -911,6 +1033,14 @@ export class InterruptRespawnHandler {
           }
         );
       } catch (error) {
+        if (this.shouldAbortRespawn(instanceId, instance)) {
+          const currentAdapter = this.deps.getAdapter(instanceId);
+          if (currentAdapter) {
+            await this.cleanupAbortedRespawnAdapter(instanceId, instance, currentAdapter, 'auto-respawn error after cancellation');
+          }
+          return;
+        }
+
         logger.error('Auto-respawn failed', error instanceof Error ? error : undefined, { instanceId });
         this.deps.transitionState(instance, 'error');
         instance.processId = null;

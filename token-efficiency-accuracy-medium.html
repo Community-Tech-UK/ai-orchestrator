@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token efficiency is an accuracy strategy</title>
+<style>
+  body { max-width: 720px; margin: 40px auto; padding: 0 20px;
+         font: 19px/1.6 Georgia, 'Times New Roman', serif; color: #222; }
+  h1 { font-size: 34px; line-height: 1.2; margin: 0 0 8px; }
+  .dek { font-style: italic; color: #555; font-size: 21px; margin: 0 0 32px; }
+  h2 { font-size: 26px; margin: 36px 0 12px; }
+  p { margin: 0 0 18px; }
+  code { font-family: Menlo, Consolas, monospace; font-size: 0.85em;
+         background: #f2f2f2; padding: 1px 5px; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<h1>Token efficiency is an accuracy strategy</h1>
+<p class="dek">Most of what runs up your token bill is also what makes your agent dumber. We stopped treating "cheaper" and "more accurate" as a tradeoff, and both numbers improved.</p>
+
+<p>There's a default assumption in agent engineering that goes like this. If you want better output, you feed the model more context and let it think harder, and that costs tokens. If you want to save money, you trim the context and cap the thinking, and you pay for it in quality. Efficiency on one axis, accuracy on the other, pick your spot on the line.</p>
+
+<p>We don't buy it anymore. After a long stretch of trying to get our token usage under control, the thing that surprised us was that almost every change that cut tokens also made the output better. Not as a happy accident. For a structural reason: most of what inflates a context window is noise, and models get worse when the signal is buried. A 12,000-token file dump. A wall of build output. A conversation that's been running for three hours and never been cleaned up. The model has to wade through all of it on every turn, and it makes mistakes it wouldn't make with a clean, relevant context.</p>
+
+<p>So here is what we actually do. None of it is exotic. The point is that you can chase the bill and the quality at the same time, and you should.</p>
+
+<h2>Stop putting junk in the context</h2>
+
+<p><strong>Compress tool output before it reaches the model.</strong> The biggest single source of garbage tokens is the output of shell commands the agent runs: build logs, test runners, dependency trees, a <code>cat</code> of a file it needed three lines from. We pass that output through a compressor that strips the noise and collapses repetition before it ever hits the context, and it comes out 60 to 90 percent smaller. The bill drops. Accuracy goes up too, because the model reads a clean result instead of scrolling past a thousand lines of build output to find the one error that matters.</p>
+
+<p><strong>Retrieve, don't dump.</strong> We index the codebase in the background: symbols, a syntax tree, a keyword search index, content-addressed chunks. When the agent needs context, we inject the handful of relevant snippets, not the whole file and definitely not the whole directory. A few hundred targeted tokens beat ten thousand tokens of "here's everything, good luck." The model finds the relevant code faster because we already found it.</p>
+
+<p><strong>Carry memory across sessions.</strong> Decisions, lessons, and handover notes get persisted and reloaded as small injections, a couple hundred tokens, instead of re-explaining the project from scratch every time. It saves the re-establishment cost on every new session, and it keeps the agent consistent with choices it already made instead of relitigating them.</p>
+
+<h2>Right-size the work</h2>
+
+<p><strong>Route by complexity.</strong> Most of what an agent does is mechanical: read this, rename that, run the tests, summarize the diff. That work does not need your most expensive model. We send simple subtasks to a small fast model and reserve the big one for actual reasoning. This split matters more than anything else on the bill, because the simple work is the bulk of the volume and a cheap model does it just as well. You keep the premium budget for the turns that are actually hard.</p>
+
+<p><strong>Isolate exploration in subagents.</strong> When the agent needs to read thirty files to answer one question, that happens in a subagent with its own context window. The subagent does the reading and hands back a summary. The thirty files never touch the main thread. The main reasoning context stays small and focused, which is both cheaper per turn and more accurate, because the model doing the real work isn't distracted by everything the search turned up.</p>
+
+<p><strong>Let effort be adaptive, and cap it.</strong> Modern models can decide how much to think per step. A trivial turn should think a little, a hard one should think more. The failure mode is pinning everything to maximum reasoning. The single most expensive mistake we made was running every turn at max effort without realizing it. We were paying for deep thinking on turns that didn't need it, and getting overthought, second-guessed answers on turns that were fine the first time. Right-sizing the effort fixed the bill and the quality in the same change. Max is not a quality setting. It's a "this specific problem is hard" setting.</p>
+
+<h2>Keep long sessions from rotting</h2>
+
+<p><strong>Compact before the window fills.</strong> A session that runs for hours accumulates tool output, dead ends, and stale state, and all of it gets re-sent on every turn. When the context crosses a threshold we summarize and compress it, targeting about a 50 percent reduction, rather than dragging the whole history forward. The token math is obvious. The quality reason is that old, irrelevant context actively degrades the next answer. Context rot is real, and compaction is the cure.</p>
+
+<p><strong>Respect the prompt cache.</strong> Keep the stable part of your prompt stable. We move the per-run dynamic bits out of the system prompt so the cached prefix actually hits on repeated calls. This is pure structure, it changes nothing about what the model sees, and it cuts input cost on repeated calls by a lot. If your system prompt rewrites a timestamp on every call, you are paying full freight every time for no reason.</p>
+
+<p><strong>Externalize big outputs.</strong> Large artifacts get written to disk and referenced by path, not held inline in the conversation. The agent can go read them if it needs to. It usually doesn't.</p>
+
+<h2>Only spend tokens that move the needle</h2>
+
+<p><strong>Detect when a run is spinning, and stop it.</strong> Autonomous loops have a characteristic failure: the agent makes the same edit, runs the same failing test, makes the same edit again. We watch for it, identical outputs, no movement in the test count, high churn with no progress, and we stop the run. There is a hard cost ceiling per run as a backstop. This kills the runaway-bill horror story, and it is also a quality move, because a stuck agent isn't producing anything worth keeping. Ending it early is mercy for both your wallet and your codebase.</p>
+
+<p><strong>Cache verification.</strong> If the work hasn't changed, we don't re-verify it. Obvious, and easy to forget.</p>
+
+<h2>Buy accuracy without paying the premium model for it</h2>
+
+<p><strong>Review with a different model than the one that wrote the code.</strong> A model is blind to its own blind spots. A different architecture catches things the original missed. As a bonus, the review runs on a separate, cheaper pool instead of burning the premium budget that produced the work. You get independent eyes, and you don't pay your most expensive model to grade its own homework.</p>
+
+<p><strong>Get more than one opinion where it pays.</strong> For high-stakes steps we take several independent passes and reconcile them, or bring in a reviewer with none of the prior conversation so it isn't anchored on the same assumptions. This costs more, so we do it only where being wrong is expensive, not on every turn.</p>
+
+<p><strong>Plan big, execute small.</strong> The reasoning-heavy part, working out the approach, runs on the premium model. The mechanical part, writing the code, runs on the cheap one. You pay for judgment where judgment matters and pay nothing extra for typing.</p>
+
+<h2>The throughline</h2>
+
+<p>Every one of these does two things at once. It lowers the token count and it raises the quality of the answer. That isn't luck. Token waste is mostly noise, and noise is the thing that makes models wrong. Whole-file dumps, uncompressed logs, three-hour-old context, maximum effort on a trivial task: these all cost money and degrade output in the same motion.</p>
+
+<p>So stop thinking of it as a tradeoff with a dial. Measure both numbers. Cut the noise. The cheaper system is usually the more accurate one, and the few places where accuracy actually costs more, independent review, multiple passes, you can pay for deliberately instead of by accident.</p>
+
+<p>Our biggest win was also the most embarrassing one. We were maxed out on reasoning effort the whole time and didn't know it, paying a premium to make the model overthink. Find your version of that before you do anything clever. It is usually a setting.</p>
+
+</body>
+</html>

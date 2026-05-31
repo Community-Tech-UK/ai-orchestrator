@@ -140,6 +140,27 @@ describe('AutoTitleService', () => {
     expect(mockCreateAdapter).not.toHaveBeenCalled();
   });
 
+  it('uses the attached plan subject instead of a trailing quality instruction', async () => {
+    // No CLI: only the instant (Phase 1) title is exercised.
+    mockIsCliAvailable.mockResolvedValue({ installed: false });
+
+    const applyTitle = vi.fn();
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      'Please implement this, be thorough',
+      applyTitle,
+      false,
+      ['2026-05-28-first-class-remote-orchestration-plan.md'],
+    );
+
+    expect(applyTitle).toHaveBeenCalledWith(
+      'instance-1',
+      'First class remote orchestration implementation',
+      'instant',
+    );
+  });
+
   it('titles from the attachment when there is no message text', async () => {
     mockIsCliAvailable.mockResolvedValue({ installed: false });
 
@@ -238,5 +259,20 @@ describe('AutoTitleService', () => {
         content: expect.stringContaining('loopfixex.md'),
       }),
     );
+  });
+
+  it('repairs a low-signal AI title using the attached plan subject', async () => {
+    mockIsCliAvailable.mockImplementation(async (type: string) => ({
+      installed: type === 'claude',
+    }));
+    mockResolveCliType.mockResolvedValue('claude');
+    mockSendMessage.mockResolvedValue({ content: 'Be thorough' });
+
+    const title = await AutoTitleService.getInstance().generateTitle(
+      'Please implement this, be thorough',
+      ['2026-05-28-first-class-remote-orchestration-plan.md'],
+    );
+
+    expect(title).toBe('First class remote orchestration implementation');
   });
 });

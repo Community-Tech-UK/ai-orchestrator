@@ -295,6 +295,23 @@ describe('SourceControlStore', () => {
       expect(store.isRefreshing()).toBe(false);
     });
 
+    it('does not start duplicate loads for the same active root', async () => {
+      const first = store.loadForRoot('/work/a');
+      const duplicateInFlight = store.loadForRoot('/work/a');
+      expect(pendingFinds.length).toBe(1);
+      await duplicateInFlight;
+
+      pendingFinds[0].resolve({ repositories: ['/work/a/repo1'], gitAvailable: true });
+      await Promise.resolve();
+      await Promise.resolve();
+      pendingStatuses[0].resolve(status('main', 1));
+      await first;
+
+      await store.loadForRoot('/work/a');
+      expect(pendingFinds.length).toBe(1);
+      expect(store.totalChangeCount()).toBe(1);
+    });
+
     it('auto-expands all repos on a new root', async () => {
       const promise = store.loadForRoot('/work/a');
       pendingFinds[0].resolve({
