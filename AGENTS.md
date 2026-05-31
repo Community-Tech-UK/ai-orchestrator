@@ -143,3 +143,33 @@ npm run rebuild:native
 `scripts/verify-native-abi.js` runs in `prebuild`/`prestart` and fails fast if
 the bundled `.node` binary's `NODE_MODULE_VERSION` doesn't match the installed
 Electron — catching the stale binary before it's packaged into a DMG.
+
+### 3. Adding a native (compiled) dependency
+
+`electron-builder.json` sets `"npmRebuild": false` — electron-builder does **not**
+recompile native modules at package time. (It still installs and bundles them;
+`npmRebuild` only controls the source recompile.) This is deliberate: native ABI
+is managed out-of-band, and `npmRebuild: true` would force a node-gyp source
+compile of every native dep — which needs an MSVC/C++ toolchain and breaks on
+hosts without one (e.g. `node-pty` failing with "Could not find any Visual Studio
+installation").
+
+This works because every current native dep is already covered without a compiler:
+
+- **N-API modules** (`node-pty`, `lmdb`, `msgpackr-extract`) ship ABI-stable
+  prebuilt binaries that load in both Node and Electron as-is. No rebuild needed.
+- **Non-N-API modules** (`better-sqlite3`) get an Electron-ABI binary from
+  `rebuild:native` (prebuild-install `--runtime electron`), guarded by
+  `verify-native-abi.js`.
+
+When adding a **new non-N-API native module**, do one of:
+
+1. Add it to `NATIVE_MODULES` in both `scripts/rebuild-native-modules.js` and
+   `scripts/verify-native-abi.js` (preferred — keeps the no-compiler strategy), or
+2. Re-enable `"npmRebuild": true` (reintroduces the MSVC toolchain requirement on
+   the build host).
+
+Check whether a module is N-API by looking for a `node-addon-api`/`node-gyp-build`
+dependency and a `prebuilds/` dir (or `@scope/<mod>-<platform>` prebuilt package).
+The `verify-native-abi.js` guard only checks `better-sqlite3`, so a new non-N-API
+module added without step 1 would ship a wrong-ABI binary **silently**.
