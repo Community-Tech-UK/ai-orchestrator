@@ -158,13 +158,13 @@ describe('ProviderConcurrencyLimiter', () => {
     expect(stats.waiting).toBe(0);
   });
 
-  it('applies tighter Copilot default than Claude/Codex/Gemini', () => {
+  it('applies a 10-slot Copilot default for higher parallel fan-out', () => {
     const limiter = ProviderConcurrencyLimiter.getInstance();
     const copilot = limiter.getStats('copilot');
     const claude = limiter.getStats('claude');
     const gemini = limiter.getStats('gemini');
 
-    expect(copilot.limit).toBe(3);
+    expect(copilot.limit).toBe(10);
     expect(claude.limit).toBe(6);
     expect(gemini.limit).toBe(6);
   });

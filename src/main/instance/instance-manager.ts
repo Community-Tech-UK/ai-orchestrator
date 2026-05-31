@@ -410,6 +410,9 @@ export class InstanceManager extends EventEmitter {
       initializeRlm: (inst) => this.context.initializeRlm(inst),
       endRlmSession: (id) => this.context.endRlmSession(id),
       ingestInitialOutputToRlm: (inst, msgs) => this.context.ingestInitialOutputToRlm(inst, msgs),
+      buildWakeContextText: (wing) => this.context.buildWakeContextText(wing),
+      buildMcpRuntimeToolContextSelection: (snapshot, query, maxTools) =>
+        this.context.buildMcpRuntimeToolContextSelection(snapshot, query, maxTools),
       registerOrchestration: (id, wd, pid) => this.orchestrationMgr.registerInstance(id, wd, pid),
       unregisterOrchestration: (id) => this.orchestrationMgr.unregisterInstance(id),
       markInterrupted: (id) => this.communication.markInterrupted(id),

@@ -70,6 +70,53 @@ describe('cli-environment', () => {
     );
   });
 
+  it('includes the nvm-windows active-version symlink so node/npm resolve on Windows', () => {
+    // nvm-windows exposes the active node via %NVM_SYMLINK% (a user-chosen
+    // path like C:\nvm4w\nodejs, NOT C:\Program Files\nodejs). It must be on
+    // PATH and must precede the WindowsApps Store-alias dir so bare `node`/
+    // `npm` resolve to the real interpreter. Observed live on windows-pc:
+    // node v24.11.0 was installed via nvm-windows but never on the worker PATH.
+    const env = {
+      LOCALAPPDATA: 'C:\\Users\\User\\AppData\\Local',
+      NVM_HOME: 'C:\\Users\\User\\AppData\\Local\\nvm',
+      NVM_SYMLINK: 'C:\\nvm4w\\nodejs',
+      USERPROFILE: 'C:\\Users\\User',
+    } as NodeJS.ProcessEnv;
+
+    const paths = getCliAdditionalPaths(env, 'win32');
+    const symlinkIdx = paths.indexOf('C:\\nvm4w\\nodejs');
+    const windowsAppsIdx = paths.indexOf('C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps');
+
+    expect(symlinkIdx).toBeGreaterThanOrEqual(0);
+    expect(windowsAppsIdx).toBeGreaterThanOrEqual(0);
+    expect(symlinkIdx).toBeLessThan(windowsAppsIdx);
+  });
+
+  it('includes core Windows system dirs so a minimal-PATH worker can resolve system tools', () => {
+    // Observed live on windows-pc: a detached worker inherited PATH of just
+    // `C:\Program Files\PowerShell\7`, so the spawned agent could not run
+    // cmd/where/reg/ipconfig. These dirs always exist on Windows; adding them
+    // makes the worker robust to a stripped launch PATH.
+    const env = {
+      ProgramFiles: 'C:\\Program Files',
+      USERPROFILE: 'C:\\Users\\User',
+      SystemRoot: 'C:\\Windows',
+    } as NodeJS.ProcessEnv;
+
+    expect(getCliAdditionalPaths(env, 'win32')).toEqual(
+      expect.arrayContaining([
+        'C:\\Windows\\System32',
+        'C:\\Windows\\System32\\Wbem',
+      ]),
+    );
+  });
+
+  it('falls back to C:\\Windows when SystemRoot/windir are unset on win32', () => {
+    const env = { USERPROFILE: 'C:\\Users\\User' } as NodeJS.ProcessEnv;
+
+    expect(getCliAdditionalPaths(env, 'win32')).toContain('C:\\Windows\\System32');
+  });
+
   it('uses standard POSIX search paths on Unix-like platforms', () => {
     const env = {
       HOME: '/Users/alice',

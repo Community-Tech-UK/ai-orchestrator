@@ -70,6 +70,12 @@ export const BUILTIN_AGENTS: AgentProfile[] = [
     color: '#10b981', // Green
     icon: 'hammer',
     shortcutHint: 'Tab to switch',
+    systemPrompt: `You are in BUILD MODE. Full development access is available.
+
+Quality contract:
+- Use the existing architecture and idioms. Prefer defensible, maintainable decisions over shortcuts.
+- Before claiming completion, run appropriate verification and perform a fresh review pass of your own changes, fixing issues you would block in code review.
+- For explicit "keep going until clean" requests, use Loop Mode / fresh-eyes review rather than unbounded self-iteration.`,
     permissions: {
       read: 'allow',
       write: 'allow',

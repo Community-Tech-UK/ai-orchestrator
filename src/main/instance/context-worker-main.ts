@@ -25,6 +25,8 @@ import { parentPort, isMainThread, workerData } from 'node:worker_threads';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { InstanceContextManager } from './instance-context';
+import { getWakeContextBuilder } from '../memory/wake-context-builder';
+import { buildMcpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-context';
 import { RLMDatabase } from '../persistence/rlm-database';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type {
@@ -161,6 +163,35 @@ async function handleMessage(msg: ContextWorkerInboundMsg): Promise<void> {
           msg.maxTokens,
         );
         respond(msg.id, result);
+      } catch {
+        respond(msg.id, null);
+      }
+      break;
+    }
+
+    case 'build-wake-context-text': {
+      try {
+        respond(
+          msg.id,
+          getWakeContextBuilder().getWakeUpText(msg.wing, {
+            bypassCache: msg.bypassCache ?? false,
+          }),
+        );
+      } catch {
+        respond(msg.id, null);
+      }
+      break;
+    }
+
+    case 'build-mcp-runtime-tool-context': {
+      try {
+        respond(
+          msg.id,
+          buildMcpRuntimeToolContextSelection(msg.snapshot, {
+            query: msg.query,
+            maxTools: msg.maxTools,
+          }),
+        );
       } catch {
         respond(msg.id, null);
       }

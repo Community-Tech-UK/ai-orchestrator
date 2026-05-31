@@ -26,6 +26,10 @@ import type { Instance, OutputMessage } from '../../shared/types/instance.types'
 import type { RlmContextInfo, ContextBudget, UnifiedMemoryContextInfo } from './instance-types';
 import type { InstanceContextPort } from './instance-context-port';
 import type {
+  MCPToolSearchSnapshot,
+  McpRuntimeToolContextSelection,
+} from '../mcp/mcp-runtime-tool-context';
+import type {
   ContextWorkerInboundMsg,
   ContextWorkerOutboundMsg,
   ContextWorkerInstanceSnapshot,
@@ -33,6 +37,8 @@ import type {
   InitializeRlmMsg,
   BuildRlmContextMsg,
   BuildUnifiedMemoryContextMsg,
+  BuildWakeContextTextMsg,
+  BuildMcpRuntimeToolContextMsg,
   CompactContextMsg,
   IngestInitialOutputMsg,
   GetStatsMsg,
@@ -73,6 +79,8 @@ type RpcMsgWithId =
   | InitializeRlmMsg
   | BuildRlmContextMsg
   | BuildUnifiedMemoryContextMsg
+  | BuildWakeContextTextMsg
+  | BuildMcpRuntimeToolContextMsg
   | CompactContextMsg
   | IngestInitialOutputMsg
   | GetStatsMsg
@@ -338,6 +346,35 @@ export class ContextWorkerClient implements InstanceContextPort {
       maxTokens,
     });
     return (result as UnifiedMemoryContextInfo | null) ?? null;
+  }
+
+  async buildWakeContextText(wing?: string): Promise<string | null> {
+    if (this.isDegraded) return null;
+    const id = this.nextId();
+    const result = await this.postRpc({
+      type: 'build-wake-context-text',
+      id,
+      wing,
+      bypassCache: true,
+    });
+    return typeof result === 'string' ? result : null;
+  }
+
+  async buildMcpRuntimeToolContextSelection(
+    snapshot: MCPToolSearchSnapshot,
+    query?: string,
+    maxTools?: number,
+  ): Promise<McpRuntimeToolContextSelection | null> {
+    if (this.isDegraded) return null;
+    const id = this.nextId();
+    const result = await this.postRpc({
+      type: 'build-mcp-runtime-tool-context',
+      id,
+      snapshot,
+      query,
+      maxTools,
+    });
+    return (result as McpRuntimeToolContextSelection | null) ?? null;
   }
 
   async compactContext(instanceId: string, instance: Instance): Promise<void> {

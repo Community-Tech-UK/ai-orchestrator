@@ -4871,7 +4871,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3172
+      "lines": 3219
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
@@ -4927,7 +4927,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2370
+      "lines": 2373
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
@@ -4952,6 +4952,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-13-codemem-phase1-index-and-lsp-facade_completed.md",
       "lines": 2091
+    },
+    {
+      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
+      "lines": 2087
     },
     {
       "path": "docs/codex_todo_completed.md",
@@ -5000,10 +5004,6 @@
     {
       "path": "docs/superpowers/plans/2026-03-21-discord-channels_completed.md",
       "lines": 1803
-    },
-    {
-      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
-      "lines": 1786
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
@@ -5158,12 +5158,12 @@
       "lines": 1231
     },
     {
-      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
-      "lines": 1227
+      "path": "src/main/instance/instance-context.ts",
+      "lines": 1228
     },
     {
-      "path": "src/main/instance/instance-context.ts",
-      "lines": 1210
+      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
+      "lines": 1227
     },
     {
       "path": "src/renderer/app/features/browser/browser-page.component.ts",
@@ -5326,6 +5326,10 @@
       "lines": 993
     },
     {
+      "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
+      "lines": 992
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-28-wave4-output-clipboard-theme-terminal-design_completed.md",
       "lines": 990
     },
@@ -5412,10 +5416,6 @@
     {
       "path": "src/preload/domains/orchestration.preload.ts",
       "lines": 940
-    },
-    {
-      "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
-      "lines": 938
     },
     {
       "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
@@ -5527,11 +5527,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-list/instance-row.component.ts",
-      "lines": 843
-    },
-    {
-      "path": "src/main/mcp/mcp-tool-search.ts",
-      "lines": 842
+      "lines": 845
     },
     {
       "path": "docs/superpowers/specs/2026-04-05-bash-validation-pipeline-design.md",

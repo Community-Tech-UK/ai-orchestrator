@@ -24,16 +24,16 @@ const logger = getLogger('ProviderConcurrencyLimiter');
 /**
  * Default concurrent child limit per provider.
  *
- * Copilot is capped tighter than the others because:
+ * Copilot is capped explicitly because:
  *   - Each ACP child holds a persistent GitHub API connection + MCP clients,
  *     so fan-out multiplies backend load non-linearly.
  *   - Copilot CLI on macOS 26 has observed instability (keychain SIGSEGV,
  *     orphaned tool-call hangs) that is amplified by concurrent starts.
- * Others (Claude, Codex, Gemini, Cursor) are capped looser because they're
- * more stable under concurrent spawn load in practice.
+ * The cap is higher than the original conservative value so active sessions
+ * plus warm starts do not starve normal Copilot launches.
  */
 export const DEFAULT_PROVIDER_LIMITS: Readonly<Record<string, number>> = Object.freeze({
-  copilot: 3,
+  copilot: 10,
   cursor: 3,
   claude: 6,
   codex: 6,

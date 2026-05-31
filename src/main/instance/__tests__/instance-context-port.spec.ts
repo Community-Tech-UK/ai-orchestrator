@@ -106,6 +106,8 @@ describe('InstanceContextPort', () => {
     expect(typeof port.calculateContextBudget).toBe('function');
     expect(typeof port.buildRlmContext).toBe('function');
     expect(typeof port.buildUnifiedMemoryContext).toBe('function');
+    expect(typeof port.buildWakeContextText).toBe('function');
+    expect(typeof port.buildMcpRuntimeToolContextSelection).toBe('function');
     expect(typeof port.formatRlmContextBlock).toBe('function');
     expect(typeof port.formatUnifiedMemoryContextBlock).toBe('function');
     expect(typeof port.compactContext).toBe('function');
@@ -126,6 +128,8 @@ describe('InstanceContextPort', () => {
       }),
       buildRlmContext: vi.fn().mockResolvedValue(null),
       buildUnifiedMemoryContext: vi.fn().mockResolvedValue(null),
+      buildWakeContextText: vi.fn().mockResolvedValue(null),
+      buildMcpRuntimeToolContextSelection: vi.fn().mockResolvedValue(null),
       formatRlmContextBlock: vi.fn().mockReturnValue(null),
       formatUnifiedMemoryContextBlock: vi.fn().mockReturnValue(null),
       compactContext: vi.fn().mockResolvedValue(undefined),

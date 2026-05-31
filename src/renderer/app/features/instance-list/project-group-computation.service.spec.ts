@@ -224,6 +224,88 @@ describe('ProjectGroupComputationService filtering', () => {
     expect(items.map((item) => item.instance.id)).toEqual(['parent-1', 'child-1']);
   });
 
+  it('keeps a parent visible and expandable when a matching completed child is nested under it', () => {
+    const parent = makeInstance({ id: 'parent-1', status: 'idle' });
+    const childHistory = makeHistoryEntry({
+      id: 'child-history-1',
+      originalInstanceId: 'child-1',
+      parentId: 'parent-1',
+      firstUserMessage: 'Run Windows PowerShell diagnostics',
+      sessionId: 'child-session-1',
+    });
+    const context = {
+      filter: 'powershell',
+      status: 'all',
+      location: 'all' as const,
+      projectMatches: false,
+      collapsed: new Set<string>(),
+      childrenByParent: new Map<string, string[]>(),
+      childHistoryByParent: new Map<string, ConversationHistoryEntry[]>([
+        ['parent-1', [childHistory]],
+      ]),
+      instanceMap: new Map([[parent.id, parent]]),
+      activityCutoff: null,
+    };
+
+    const items = service.buildVisibleItems(parent, context, 0, [], true);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].instance.id).toBe('parent-1');
+    expect(items[0].hasChildren).toBe(true);
+    expect(items[0].childrenCount).toBe(1);
+    expect(items[0].historyChildren.map((entry) => entry.id)).toEqual(['child-history-1']);
+  });
+
+  it('partitions history children by live/history parent and groups unresolved children as orphaned', () => {
+    const liveParent = makeInstance({ id: 'parent-1' });
+    const rootHistory = makeHistoryEntry({
+      id: 'root-history-1',
+      parentId: null,
+      originalInstanceId: 'root-1',
+      sessionId: 'root-session-1',
+    });
+    const nestedChild = makeHistoryEntry({
+      id: 'nested-child-history-1',
+      parentId: 'parent-1',
+      originalInstanceId: 'child-1',
+      sessionId: 'child-session-1',
+    });
+    const historyParent = makeHistoryEntry({
+      id: 'history-parent-1',
+      parentId: null,
+      originalInstanceId: 'history-parent-original-1',
+      sessionId: 'history-parent-session-1',
+    });
+    const historyChild = makeHistoryEntry({
+      id: 'history-child-1',
+      parentId: 'history-parent-original-1',
+      originalInstanceId: 'history-child-original-1',
+      sessionId: 'history-child-session-1',
+    });
+    const orphanedChild = makeHistoryEntry({
+      id: 'orphaned-child-history-1',
+      parentId: 'missing-parent',
+      originalInstanceId: 'child-2',
+      sessionId: 'child-session-2',
+    });
+
+    const partition = service.partitionHistoryEntriesByParent(
+      [rootHistory, nestedChild, historyParent, historyChild, orphanedChild],
+      new Map([[liveParent.id, liveParent]])
+    );
+
+    expect(partition.rootEntries.map((entry) => entry.id)).toEqual(['root-history-1', 'history-parent-1']);
+    expect(partition.childEntriesByLiveParent.get('parent-1')?.map((entry) => entry.id)).toEqual([
+      'nested-child-history-1',
+    ]);
+    expect(partition.childEntriesByHistoryParent.get('history-parent-original-1')?.map((entry) => entry.id)).toEqual([
+      'history-child-1',
+    ]);
+    expect(partition.orphanedChildEntries.map((entry) => entry.id)).toEqual([
+      'orphaned-child-history-1',
+    ]);
+  });
+
   it('matches history queries by provider, model, prompt text, and project fields', () => {
     expect(
       service.matchesHistoryText(

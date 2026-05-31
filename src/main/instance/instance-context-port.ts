@@ -8,6 +8,10 @@
 
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type { RlmContextInfo, ContextBudget, UnifiedMemoryContextInfo } from './instance-types';
+import type {
+  MCPToolSearchSnapshot,
+  McpRuntimeToolContextSelection,
+} from '../mcp/mcp-runtime-tool-context';
 
 /**
  * Clone-safe snapshot of the instance fields needed by context operations.
@@ -53,6 +57,12 @@ export interface InstanceContextPort {
     taskId: string,
     maxTokens?: number,
   ): Promise<UnifiedMemoryContextInfo | null>;
+  buildWakeContextText(wing?: string): Promise<string | null>;
+  buildMcpRuntimeToolContextSelection(
+    snapshot: MCPToolSearchSnapshot,
+    query?: string,
+    maxTools?: number,
+  ): Promise<McpRuntimeToolContextSelection | null>;
 
   // ── Formatting helpers ──────────────────────────────────────────────────────
   formatRlmContextBlock(context: RlmContextInfo | null): string | null;

@@ -20,6 +20,11 @@ import {
   type MCPServerSummary,
   type MCPTool,
 } from './mcp-tool-search';
+import {
+  buildMcpRuntimeToolContextSelection,
+  type MCPToolSearchSnapshot,
+  type McpRuntimeToolContextSelection,
+} from './mcp-runtime-tool-context';
 
 const logger = getLogger('McpManager');
 import {
@@ -458,38 +463,33 @@ export class McpManager extends EventEmitter {
   }
 
   async getRuntimeToolContext(options: McpRuntimeToolContextOptions = {}): Promise<McpRuntimeToolContext> {
+    const selection = buildMcpRuntimeToolContextSelection(
+      this.exportRuntimeToolContextSnapshot(),
+      options,
+    );
+    return this.hydrateRuntimeToolContextSelection(selection);
+  }
+
+  exportRuntimeToolContextSnapshot(): MCPToolSearchSnapshot {
+    return getMCPToolSearchService().exportSearchSnapshot();
+  }
+
+  async hydrateRuntimeToolContextSelection(
+    selection: McpRuntimeToolContextSelection,
+  ): Promise<McpRuntimeToolContext> {
     const search = getMCPToolSearchService();
-    const query = options.query?.trim() || null;
-    const maxTools = Math.max(0, Math.min(options.maxTools ?? 6, 20));
-    const serverSummaries = search.getServerSummaries();
-    const selectedToolIds: string[] = [];
+    await Promise.all(selection.selectedToolIds.map((toolId) => search.loadTool(toolId)));
 
-    if (query && maxTools > 0) {
-      const results = search.search({
-        query,
-        maxResults: maxTools,
-        minScore: 0.1,
-      });
-      await Promise.all(results.map((result) => search.loadTool(result.tool.id)));
-      for (const result of results) {
-        selectedToolIds.push(result.tool.id);
-      }
-    } else if (!query && maxTools > 0) {
-      selectedToolIds.push(...search.getLoadedTools().map((tool) => tool.id).slice(0, maxTools));
-    }
-
-    const selectedTools = selectedToolIds
+    const selectedTools = selection.selectedToolIds
       .map((toolId) => search.getTool(toolId))
-      .filter((tool): tool is MCPTool => tool !== undefined)
-      .slice(0, maxTools);
-    const deferredToolCount = Math.max(0, search.getAllTools().length - selectedTools.length);
+      .filter((tool): tool is MCPTool => tool !== undefined && search.isToolLoaded(tool.id));
 
     return {
-      serverSummaries,
+      serverSummaries: selection.serverSummaries,
       selectedTools,
       loadedToolIds: selectedTools.map((tool) => tool.id),
-      deferredToolCount,
-      query,
+      deferredToolCount: Math.max(0, selection.deferredToolCount),
+      query: selection.query,
     };
   }
 

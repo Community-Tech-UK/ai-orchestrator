@@ -9,6 +9,13 @@ interface ProjectStateSummary {
   projectStateTone: 'working' | 'attention' | 'connecting' | 'ready' | 'history';
 }
 
+export interface HistoryEntryParentPartition {
+  rootEntries: ConversationHistoryEntry[];
+  childEntriesByLiveParent: Map<string, ConversationHistoryEntry[]>;
+  childEntriesByHistoryParent: Map<string, ConversationHistoryEntry[]>;
+  orphanedChildEntries: ConversationHistoryEntry[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class ProjectGroupComputationService {
   private newSessionDraft = inject(NewSessionDraftService);
@@ -61,6 +68,7 @@ export class ProjectGroupComputationService {
       projectMatches: boolean;
       collapsed: Set<string>;
       childrenByParent: Map<string, string[]>;
+      childHistoryByParent?: Map<string, ConversationHistoryEntry[]>;
       instanceMap: Map<string, Instance>;
       activityCutoff: number | null;
     },
@@ -88,6 +96,7 @@ export class ProjectGroupComputationService {
         index === children.length - 1
       )
     );
+    const historyChildren = context.childHistoryByParent?.get(instance.id) ?? [];
 
     const textMatches = !context.filter ||
       context.projectMatches ||
@@ -106,11 +115,12 @@ export class ProjectGroupComputationService {
       Math.max(instance.lastActivity, instance.createdAt) >= context.activityCutoff;
     const selfVisible = textMatches && statusMatches && locationMatches && activityMatches;
 
-    if (!selfVisible && visibleChildren.length === 0) {
+    if (!selfVisible && visibleChildren.length === 0 && historyChildren.length === 0) {
       return [];
     }
 
-    const hasChildren = children.length > 0;
+    const childrenCount = children.length + historyChildren.length;
+    const hasChildren = childrenCount > 0;
     const isExpanded = !context.collapsed.has(instance.id);
     const currentItem: HierarchicalInstance = {
       instance: {
@@ -120,6 +130,8 @@ export class ProjectGroupComputationService {
       railTitle: instance.displayName,
       depth,
       hasChildren,
+      childrenCount,
+      historyChildren,
       isExpanded,
       isLastChild,
       parentChain,
@@ -130,6 +142,52 @@ export class ProjectGroupComputationService {
     }
 
     return [currentItem, ...visibleChildren];
+  }
+
+  partitionHistoryEntriesByParent(
+    entries: readonly ConversationHistoryEntry[],
+    instanceMap: ReadonlyMap<string, Instance>
+  ): HistoryEntryParentPartition {
+    const rootEntries: ConversationHistoryEntry[] = [];
+    const childEntriesByLiveParent = new Map<string, ConversationHistoryEntry[]>();
+    const childEntriesByHistoryParent = new Map<string, ConversationHistoryEntry[]>();
+    const orphanedChildEntries: ConversationHistoryEntry[] = [];
+    const historyParentIds = new Set(
+      entries
+        .map((entry) => entry.originalInstanceId.trim())
+        .filter((id) => id.length > 0)
+    );
+
+    for (const entry of entries) {
+      const parentId = entry.parentId?.trim() || null;
+      if (!parentId) {
+        rootEntries.push(entry);
+        continue;
+      }
+
+      if (instanceMap.has(parentId)) {
+        const siblings = childEntriesByLiveParent.get(parentId) ?? [];
+        siblings.push(entry);
+        childEntriesByLiveParent.set(parentId, siblings);
+        continue;
+      }
+
+      if (historyParentIds.has(parentId)) {
+        const siblings = childEntriesByHistoryParent.get(parentId) ?? [];
+        siblings.push(entry);
+        childEntriesByHistoryParent.set(parentId, siblings);
+        continue;
+      }
+
+      orphanedChildEntries.push(entry);
+    }
+
+    return {
+      rootEntries,
+      childEntriesByLiveParent,
+      childEntriesByHistoryParent,
+      orphanedChildEntries,
+    };
   }
 
   countSessionsInTree(

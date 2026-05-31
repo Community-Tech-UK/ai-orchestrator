@@ -117,7 +117,7 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
             <span class="approval-chip" title="This instance has a pending permission request">Awaiting approval</span>
           }
           @if (hasChildren() && !isExpanded()) {
-            <span class="collapsed-badge" title="Child instances (click arrow to expand)">+{{ instance().childrenIds.length }}</span>
+            <span class="collapsed-badge" title="Child instances (click arrow to expand)">+{{ resolvedChildCount() }}</span>
           }
         </div>
         @if (isRemote()) {
@@ -650,6 +650,7 @@ export class InstanceRowComponent {
   // Hierarchy inputs
   depth = input<number>(0);
   hasChildren = input<boolean>(false);
+  childCount = input<number | null>(null);
   isExpanded = input<boolean>(false);
   isLastChild = input<boolean>(false);
   parentChain = input<boolean[]>([]);
@@ -674,6 +675,7 @@ export class InstanceRowComponent {
   toggleExpand = output<string>();
   contextMenu = output<{ event: MouseEvent; instance: Instance; displayTitle: string }>();
   readonly resolvedDisplayTitle = computed(() => this.displayTitle()?.trim() || this.instance().displayName);
+  readonly resolvedChildCount = computed(() => this.childCount() ?? this.instance().childrenIds.length);
 
   readonly hasPendingApproval = computed(() =>
     (this.instance().pendingApprovalCount ?? 0) > 0

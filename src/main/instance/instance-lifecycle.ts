@@ -24,7 +24,6 @@ import {
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getHistoryManager } from '../history';
 import { getMemoryMonitor, getOutputStorageManager } from '../memory';
-import { getWakeContextBuilder } from '../memory/wake-context-builder';
 import { getProjectMemoryBriefService } from '../memory/project-memory-brief';
 import { getProjectKnowledgeCoordinator } from '../memory/project-knowledge-coordinator';
 import { getConversationMiner } from '../memory/conversation-miner';
@@ -98,6 +97,10 @@ import { getProviderRuntimeService } from '../providers/provider-runtime-service
 import { getPromptHistoryService } from '../prompt-history/prompt-history-service';
 import { summarizeCreateInstanceConfig } from './lifecycle/instance-create-logging';
 import { callWithDeadline } from '../util/deadline';
+import type {
+  MCPToolSearchSnapshot,
+  McpRuntimeToolContextSelection,
+} from '../mcp/mcp-runtime-tool-context';
 
 const logger = getLogger('InstanceLifecycle');
 
@@ -183,6 +186,12 @@ export interface LifecycleDependencies {
   initializeRlm: (instance: Instance) => Promise<void>;
   endRlmSession: (instanceId: string) => void;
   ingestInitialOutputToRlm: (instance: Instance, messages: OutputMessage[]) => Promise<void>;
+  buildWakeContextText: (wing?: string) => Promise<string | null>;
+  buildMcpRuntimeToolContextSelection: (
+    snapshot: MCPToolSearchSnapshot,
+    query?: string,
+    maxTools?: number,
+  ) => Promise<McpRuntimeToolContextSelection | null>;
   registerOrchestration: (instanceId: string, workingDirectory: string, parentId: string | null) => void;
   unregisterOrchestration: (instanceId: string) => void;
   markInterrupted: (instanceId: string) => void;
@@ -1192,7 +1201,22 @@ export class InstanceLifecycleManager extends EventEmitter {
         // Inject wake-up context (mempalace L0 identity + L1 essential story)
         if (instance.depth === 0) {
           try {
-            const wakeText = getWakeContextBuilder().getWakeUpText(instance.workingDirectory);
+            const wakeText = await callWithDeadline(
+              () => this.deps.buildWakeContextText(instance.workingDirectory),
+              {
+                ms: CREATE_ENRICHER_DEADLINE_MS,
+                fallback: null,
+                onTimeout: () =>
+                  logger.info('Wake context exceeded create deadline; continuing without it', {
+                    instanceId: instance.id,
+                  }),
+                onError: (error) =>
+                  logger.warn('Failed to build wake context off-thread', {
+                    instanceId: instance.id,
+                    error: error instanceof Error ? error.message : String(error),
+                  }),
+              },
+            );
             if (wakeText && wakeText.trim().length > 30) {
               systemPrompt = `${systemPrompt}\n\n---\n\n${wakeText}`;
               logger.info('Injected wake-up context into system prompt', {
@@ -1231,10 +1255,15 @@ export class InstanceLifecycleManager extends EventEmitter {
         // the first send.
         try {
           const mcpManager = getMcpManager();
-          const runtimeToolContext = await callWithDeadline<
-            Awaited<ReturnType<typeof mcpManager.getRuntimeToolContext>> | null
+          const runtimeToolSelection = await callWithDeadline<
+            McpRuntimeToolContextSelection | null
           >(
-            mcpManager.getRuntimeToolContext({ query: config.initialPrompt, maxTools: 6 }),
+            () =>
+              this.deps.buildMcpRuntimeToolContextSelection(
+                mcpManager.exportRuntimeToolContextSnapshot(),
+                config.initialPrompt,
+                6,
+              ),
             {
               ms: CREATE_ENRICHER_DEADLINE_MS,
               fallback: null,
@@ -1242,13 +1271,31 @@ export class InstanceLifecycleManager extends EventEmitter {
                 logger.info('MCP tool context exceeded create deadline; deferring to next turn', {
                   instanceId: instance.id,
                 }),
-              onLateResult: (ctx) => {
-                if (ctx) {
-                  this.deferEnricherPreamble(instance.id, 'mcp', mcpManager.formatRuntimeToolContext(ctx));
+              onLateResult: (selection) => {
+                if (!selection) {
+                  return;
                 }
+                void mcpManager
+                  .hydrateRuntimeToolContextSelection(selection)
+                  .then((ctx) => {
+                    this.deferEnricherPreamble(
+                      instance.id,
+                      'mcp',
+                      mcpManager.formatRuntimeToolContext(ctx),
+                    );
+                  })
+                  .catch((error) => {
+                    logger.warn('Failed to hydrate deferred MCP tool context', {
+                      instanceId: instance.id,
+                      error: error instanceof Error ? error.message : String(error),
+                    });
+                  });
               },
             },
           );
+          const runtimeToolContext = runtimeToolSelection
+            ? await mcpManager.hydrateRuntimeToolContextSelection(runtimeToolSelection)
+            : null;
           const mcpPrompt = runtimeToolContext
             ? mcpManager.formatRuntimeToolContext(runtimeToolContext)
             : null;

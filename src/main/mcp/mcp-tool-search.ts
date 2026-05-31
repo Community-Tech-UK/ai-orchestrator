@@ -10,6 +10,11 @@
  */
 
 import { EventEmitter } from 'events';
+import {
+  searchMcpToolsSnapshot,
+  type MCPToolSearchSnapshot,
+  type MCPToolUsageStats,
+} from './mcp-runtime-tool-context';
 
 /**
  * MCP Tool definition
@@ -324,158 +329,7 @@ export class MCPToolSearchService extends EventEmitter {
    * Search for tools
    */
   search(options: ToolSearchOptions): ToolSearchResult[] {
-    const {
-      query,
-      category,
-      tags,
-      serverId,
-      includeDeprecated = false,
-      includeExperimental = true,
-      maxResults = 20,
-      minScore = 0.1,
-    } = options;
-
-    let candidateIds: Set<string>;
-
-    // Start with all tools or filter by constraints
-    if (serverId) {
-      candidateIds = new Set(this.index.byServer.get(serverId) || []);
-    } else if (category) {
-      candidateIds = new Set(this.index.byCategory.get(category.toLowerCase()) || []);
-    } else if (tags && tags.length > 0) {
-      candidateIds = new Set();
-      for (const tag of tags) {
-        const tagTools = this.index.byTag.get(tag.toLowerCase()) || [];
-        for (const toolId of tagTools) {
-          candidateIds.add(toolId);
-        }
-      }
-    } else {
-      candidateIds = new Set(this.index.tools.keys());
-    }
-
-    // Score candidates
-    const results: ToolSearchResult[] = [];
-
-    for (const toolId of candidateIds) {
-      const tool = this.index.tools.get(toolId);
-      if (!tool) continue;
-
-      // Filter out deprecated/experimental if needed
-      if (!includeDeprecated && tool.metadata.deprecated) continue;
-      if (!includeExperimental && tool.metadata.experimental) continue;
-
-      // Calculate relevance score
-      const scoreResult = this.scoreTool(tool, query, tags);
-
-      if (scoreResult.score >= minScore) {
-        results.push({
-          tool,
-          score: scoreResult.score,
-          matchedFields: scoreResult.matchedFields,
-          highlights: scoreResult.highlights,
-        });
-      }
-    }
-
-    // Sort by score and limit results
-    results.sort((a, b) => b.score - a.score);
-    return results.slice(0, maxResults);
-  }
-
-  /**
-   * Score a tool against search criteria
-   */
-  private scoreTool(
-    tool: MCPTool,
-    query?: string,
-    tags?: string[]
-  ): { score: number; matchedFields: string[]; highlights: Record<string, string> } {
-    let score = 0;
-    const matchedFields: string[] = [];
-    const highlights: Record<string, string> = {};
-
-    if (!query && (!tags || tags.length === 0)) {
-      // No search criteria - return base score
-      return { score: 0.5, matchedFields: [], highlights: {} };
-    }
-
-    if (query) {
-      const queryLower = query.toLowerCase();
-      const queryTerms = queryLower.split(/\W+/).filter(t => t.length > 2);
-
-      // Exact name match
-      if (tool.name.toLowerCase() === queryLower) {
-        score += 1.0;
-        matchedFields.push('name');
-        highlights['name'] = tool.name;
-      } else if (tool.name.toLowerCase().includes(queryLower)) {
-        score += 0.7;
-        matchedFields.push('name');
-        highlights['name'] = this.highlight(tool.name, queryLower);
-      }
-
-      // Description match
-      if (tool.description.toLowerCase().includes(queryLower)) {
-        score += 0.5;
-        matchedFields.push('description');
-        highlights['description'] = this.highlight(tool.description, queryLower);
-      }
-
-      // Term-based scoring
-      let termMatches = 0;
-      for (const term of queryTerms) {
-        const termSet = this.index.termIndex.get(term);
-        if (termSet?.has(tool.id)) {
-          termMatches++;
-        }
-      }
-      if (termMatches > 0) {
-        score += 0.3 * (termMatches / queryTerms.length);
-      }
-
-      // Category match
-      if (tool.category?.toLowerCase().includes(queryLower)) {
-        score += 0.3;
-        matchedFields.push('category');
-      }
-    }
-
-    // Tag matching
-    if (tags && tags.length > 0) {
-      const toolTagsLower = tool.tags.map(t => t.toLowerCase());
-      let tagMatches = 0;
-
-      for (const tag of tags) {
-        if (toolTagsLower.includes(tag.toLowerCase())) {
-          tagMatches++;
-        }
-      }
-
-      if (tagMatches > 0) {
-        score += 0.4 * (tagMatches / tags.length);
-        matchedFields.push('tags');
-      }
-    }
-
-    // Boost for popular tools
-    const stats = this.toolUsageStats.get(tool.id);
-    if (stats) {
-      score += Math.min(0.2, stats.count * 0.01);
-    }
-
-    // Normalize score to 0-1 range
-    score = Math.min(1, score);
-
-    return { score, matchedFields, highlights };
-  }
-
-  /**
-   * Highlight matching text
-   */
-  private highlight(text: string, query: string): string {
-    const regex = new RegExp(`(${query})`, 'gi');
-    return text.replace(regex, '**$1**');
+    return searchMcpToolsSnapshot(this.exportSearchSnapshot(), options);
   }
 
   /**
@@ -791,7 +645,7 @@ export class MCPToolSearchService extends EventEmitter {
   exportIndex(): {
     tools: MCPTool[];
     servers: MCPServer[];
-    usageStats: Record<string, { count: number; lastUsed: number; avgDuration: number }>;
+    usageStats: Record<string, MCPToolUsageStats>;
   } {
     return {
       tools: Array.from(this.index.tools.values()),
@@ -823,6 +677,23 @@ export class MCPToolSearchService extends EventEmitter {
     }
 
     this.emit('index:imported');
+  }
+
+  exportSearchSnapshot(): MCPToolSearchSnapshot {
+    return {
+      tools: Array.from(this.index.tools.values()),
+      serverSummaries: this.getServerSummaries(),
+      loadedToolIds: Array.from(this.loadedTools),
+      usageStats: Object.fromEntries(this.toolUsageStats),
+      indices: {
+        byCategory: Object.fromEntries(this.index.byCategory),
+        byServer: Object.fromEntries(this.index.byServer),
+        byTag: Object.fromEntries(this.index.byTag),
+        termIndex: Object.fromEntries(
+          Array.from(this.index.termIndex.entries()).map(([term, toolIds]) => [term, Array.from(toolIds)]),
+        ),
+      },
+    };
   }
 }
 

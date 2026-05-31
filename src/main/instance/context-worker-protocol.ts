@@ -6,6 +6,11 @@
  * required by context operations are included in the snapshots.
  */
 
+import type {
+  MCPToolSearchSnapshot,
+  McpRuntimeToolContextSelection,
+} from '../mcp/mcp-runtime-tool-context';
+
 // ── Clone-safe snapshots ──────────────────────────────────────────────────────
 
 /** Clone-safe subset of Instance used by context operations in the worker. */
@@ -49,6 +54,21 @@ export interface BuildUnifiedMemoryContextMsg {
   query: string;
   taskId: string;
   maxTokens?: number;
+}
+
+export interface BuildWakeContextTextMsg {
+  type: 'build-wake-context-text';
+  id: number;
+  wing?: string;
+  bypassCache?: boolean;
+}
+
+export interface BuildMcpRuntimeToolContextMsg {
+  type: 'build-mcp-runtime-tool-context';
+  id: number;
+  snapshot: MCPToolSearchSnapshot;
+  query?: string;
+  maxTools?: number;
 }
 
 export interface CompactContextMsg {
@@ -97,6 +117,8 @@ export type ContextWorkerRpcMsg =
   | InitializeRlmMsg
   | BuildRlmContextMsg
   | BuildUnifiedMemoryContextMsg
+  | BuildWakeContextTextMsg
+  | BuildMcpRuntimeToolContextMsg
   | CompactContextMsg
   | IngestInitialOutputMsg
   | GetStatsMsg
@@ -125,3 +147,5 @@ export interface WorkerRpcResponseMsg {
 }
 
 export type ContextWorkerOutboundMsg = WorkerReadyMsg | WorkerRpcResponseMsg;
+
+export type { MCPToolSearchSnapshot, McpRuntimeToolContextSelection };

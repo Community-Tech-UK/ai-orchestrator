@@ -126,6 +126,91 @@ describe('ContextWorkerClient', () => {
     expect(result).toEqual(contextResult);
   });
 
+  it('posts wake-context RPC and resolves string results', async () => {
+    const promise = client.buildWakeContextText('/tmp/project');
+    const postedMsg = fakeWorker.postMessage.mock.calls[0]?.[0] as {
+      id: number;
+      type: string;
+      wing: string;
+      bypassCache: boolean;
+    };
+
+    expect(postedMsg.type).toBe('build-wake-context-text');
+    expect(postedMsg.wing).toBe('/tmp/project');
+    expect(postedMsg.bypassCache).toBe(true);
+
+    fakeWorker.emit('message', {
+      type: 'rpc-response',
+      id: postedMsg.id,
+      result: 'wake text',
+    });
+
+    await expect(promise).resolves.toBe('wake text');
+  });
+
+  it('posts MCP runtime-tool selection RPC and resolves snapshot results', async () => {
+    const snapshot = {
+      tools: [
+        {
+          id: 'tool-1',
+          name: 'search_docs',
+          description: 'Search project docs',
+          serverId: 'server-1',
+          serverName: 'Docs',
+          inputSchema: {},
+          tags: ['docs'],
+          metadata: {},
+        },
+      ],
+      serverSummaries: [
+        {
+          serverId: 'server-1',
+          serverName: 'Docs',
+          toolCount: 1,
+          resourceCount: 0,
+          promptCount: 0,
+          searchHint: 'Search docs',
+        },
+      ],
+      loadedToolIds: [],
+      usageStats: {},
+      indices: {
+        byCategory: {},
+        byServer: { 'server-1': ['tool-1'] },
+        byTag: { docs: ['tool-1'] },
+        termIndex: { search: ['tool-1'], docs: ['tool-1'] },
+      },
+    };
+    const selection = {
+      serverSummaries: snapshot.serverSummaries,
+      selectedToolIds: ['tool-1'],
+      deferredToolCount: 0,
+      query: 'docs',
+    };
+
+    const promise = client.buildMcpRuntimeToolContextSelection(snapshot, 'docs', 6);
+    const postedMsg = fakeWorker.postMessage.mock.calls[0]?.[0] as {
+      id: number;
+      type: string;
+      query: string;
+      maxTools: number;
+      snapshot: unknown;
+    };
+
+    expect(postedMsg.type).toBe('build-mcp-runtime-tool-context');
+    expect(postedMsg.query).toBe('docs');
+    expect(postedMsg.maxTools).toBe(6);
+    expect(postedMsg.snapshot).toEqual(snapshot);
+
+    fakeWorker.emit('message', {
+      type: 'rpc-response',
+      id: postedMsg.id,
+      result: selection,
+    });
+
+    await expect(promise).resolves.toEqual(selection);
+  });
+
   // ── No non-cloneable objects posted ────────────────────────────────────────
 
   it('does not include EventEmitter or functions in fire-and-forget message', () => {

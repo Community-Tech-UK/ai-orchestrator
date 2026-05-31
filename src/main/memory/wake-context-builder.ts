@@ -35,6 +35,10 @@ interface AddHintOptions {
   sourceSessionId?: string;
 }
 
+interface WakeContextBuildOptions {
+  bypassCache?: boolean;
+}
+
 export class WakeContextBuilder extends EventEmitter {
   private static instance: WakeContextBuilder | null = null;
   private config: WakeContextConfig;
@@ -254,12 +258,13 @@ export class WakeContextBuilder extends EventEmitter {
 
   // ============ Full Wake Context ============
 
-  generateWakeContext(wing?: string): WakeContext {
+  generateWakeContext(wing?: string, options: WakeContextBuildOptions = {}): WakeContext {
     // Check cache (keyed by wing to avoid cross-project contamination)
     const now = Date.now();
     const cacheKey = getWakeCacheKey(wing);
     const cached = this.contextCache.get(cacheKey);
-    if (cached && (now - cached.generatedAt) < this.config.regenerateIntervalMs) {
+    const bypassCache = options.bypassCache ?? false;
+    if (!bypassCache && cached && (now - cached.generatedAt) < this.config.regenerateIntervalMs) {
       return cached;
     }
 
@@ -274,7 +279,9 @@ export class WakeContextBuilder extends EventEmitter {
       generatedAt: now,
     };
 
-    this.contextCache.set(cacheKey, ctx);
+    if (!bypassCache) {
+      this.contextCache.set(cacheKey, ctx);
+    }
 
     this.emit('wake:context-generated', { totalTokens: ctx.totalTokens, wing });
     logger.debug('Wake context generated', { totalTokens: ctx.totalTokens });
@@ -286,8 +293,8 @@ export class WakeContextBuilder extends EventEmitter {
    * Get the wake-up context as a single injectable string.
    * This is what gets prepended to agent system prompts.
    */
-  getWakeUpText(wing?: string): string {
-    const ctx = this.generateWakeContext(wing);
+  getWakeUpText(wing?: string, options: WakeContextBuildOptions = {}): string {
+    const ctx = this.generateWakeContext(wing, options);
     return `${ctx.identity.content}\n\n${ctx.essentialStory.content}`;
   }
 }

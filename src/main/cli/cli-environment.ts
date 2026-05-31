@@ -52,6 +52,75 @@ function getNvmVersionBinPaths(homeDir: string): string[] {
   }
 }
 
+/**
+ * nvm-windows (coreybutler) layout — completely different from bash-nvm:
+ *   - versions live directly under %NVM_HOME% as `v<ver>\` and `node.exe` sits
+ *     at the version-dir ROOT (no `bin` subdir, unlike bash-nvm)
+ *   - the *active* version is exposed via a symlink at %NVM_SYMLINK%
+ *     (e.g. `C:\nvm4w\nodejs`, a user-chosen path — NOT necessarily
+ *     `C:\Program Files\nodejs`)
+ * We put the active symlink first (authoritative), then every installed
+ * version dir (newest first) as a fallback so `node`/`npm`/`npx` resolve even
+ * if the symlink is unset. Non-existent dirs are harmless on PATH.
+ */
+function getNvmWindowsNodePaths(env: NodeJS.ProcessEnv): string[] {
+  const paths: string[] = [];
+
+  const symlink = env['NVM_SYMLINK'] || '';
+  if (symlink) {
+    paths.push(symlink);
+  }
+
+  const nvmHome = env['NVM_HOME'] || '';
+  if (nvmHome && existsSync(nvmHome)) {
+    try {
+      readdirSync(nvmHome, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && parseNodeVersionParts(entry.name))
+        .map((entry) => entry.name)
+        .sort(compareNodeVersionNamesDesc)
+        .forEach((versionName) => paths.push(`${nvmHome}\\${versionName}`));
+    } catch {
+      // ignore unreadable NVM_HOME
+    }
+  }
+
+  return paths;
+}
+
+/**
+ * Per-user Python installs (python.org installer default) land under
+ * `%LOCALAPPDATA%\Programs\Python\Python<major><minor>\`, with scripts (pip,
+ * etc.) in the `Scripts` subdir. Newer versions first. The bare `python` on a
+ * stock box otherwise resolves to the Microsoft Store alias stub, which is not
+ * a real interpreter — so these dirs must precede WindowsApps on PATH.
+ */
+function getWindowsPythonPaths(env: NodeJS.ProcessEnv): string[] {
+  const localAppData = env['LOCALAPPDATA'] || '';
+  if (!localAppData) {
+    return [];
+  }
+
+  const pythonRoot = `${localAppData}\\Programs\\Python`;
+  if (!existsSync(pythonRoot)) {
+    return [];
+  }
+
+  try {
+    const paths: string[] = [];
+    readdirSync(pythonRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && /^Python\d+$/i.test(entry.name))
+      .map((entry) => entry.name)
+      .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }))
+      .forEach((name) => {
+        paths.push(`${pythonRoot}\\${name}`);
+        paths.push(`${pythonRoot}\\${name}\\Scripts`);
+      });
+    return paths;
+  } catch {
+    return [];
+  }
+}
+
 function getPathDelimiter(platform: NodeJS.Platform): string {
   return platform === 'win32' ? ';' : ':';
 }
@@ -65,6 +134,7 @@ export function getCliAdditionalPaths(
   const localAppData = env['LOCALAPPDATA'] || '';
   const programFiles = env['ProgramFiles'] || '';
   const programFilesX86 = env['ProgramFiles(x86)'] || '';
+  const systemRoot = env['SystemRoot'] || env['windir'] || 'C:\\Windows';
   const nvmVersionBinPaths = getNvmVersionBinPaths(homeDir);
 
   // Order matters: the first directory containing a given CLI wins.
@@ -95,9 +165,15 @@ export function getCliAdditionalPaths(
 
   const windowsPaths = [
     `${appData}\\npm`,
+    // nvm-windows: active-version symlink first, then all installed versions.
+    // node.exe lives at the version-dir root here (not in a `bin` subdir).
+    ...getNvmWindowsNodePaths(env),
     `${localAppData}\\Programs\\nodejs`,
     `${programFiles}\\nodejs`,
     `${programFilesX86}\\nodejs`,
+    // Per-user python.org installs (real interpreter + pip), ahead of the
+    // WindowsApps Store alias stub below.
+    ...getWindowsPythonPaths(env),
     // Git for Windows (system + per-user installs). git is required for the
     // loop's diff/verify/review flows on a worker, and is the toolchain dir
     // that was previously missing — the real defect this list fixes.
@@ -109,6 +185,16 @@ export function getCliAdditionalPaths(
     `${localAppData}\\Microsoft\\WindowsApps`,
     // Yarn classic global bin.
     `${localAppData}\\Yarn\\bin`,
+    // Core Windows system dirs. A worker launched detached (service / PM2 /
+    // pm-style supervisor) often inherits a minimal PATH that lacks these, so
+    // the spawned agent couldn't resolve `cmd`, `where`, `reg`, `ipconfig`,
+    // `tasklist`, or the legacy PowerShell — observed live on windows-pc where
+    // PATH was just `C:\Program Files\PowerShell\7`. These dirs always exist on
+    // Windows; adding them makes the worker robust to a stripped launch PATH.
+    `${systemRoot}\\System32`,
+    `${systemRoot}`,
+    `${systemRoot}\\System32\\Wbem`,
+    `${systemRoot}\\System32\\WindowsPowerShell\\v1.0`,
   ];
 
   const candidates = platform === 'win32'

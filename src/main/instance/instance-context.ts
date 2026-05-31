@@ -15,6 +15,7 @@ import { getLogger } from '../logging/logger';
 // The deep import keeps the worker's value-import closure slim (56 modules, 0
 // electron importers). See context-worker-import-isolation.spec.ts for the guard.
 import { getUnifiedMemory } from '../memory/unified-controller';
+import { getWakeContextBuilder } from '../memory/wake-context-builder';
 import {
   JITContextLoader,
   getJITLoader,
@@ -40,6 +41,11 @@ import type {
   UnifiedMemoryContextInfo
 } from './instance-types';
 import type { InstanceContextPort } from './instance-context-port';
+import {
+  buildMcpRuntimeToolContextSelection,
+  type MCPToolSearchSnapshot,
+  type McpRuntimeToolContextSelection,
+} from '../mcp/mcp-runtime-tool-context';
 
 const logger = getLogger('InstanceContext');
 
@@ -537,6 +543,18 @@ export class InstanceContextManager implements InstanceContextPort {
       logger.error('Failed to retrieve unified memory context', error instanceof Error ? error : undefined, { instanceId: instance.id });
       return null;
     }
+  }
+
+  async buildWakeContextText(wing?: string): Promise<string | null> {
+    return getWakeContextBuilder().getWakeUpText(wing, { bypassCache: true }) || null;
+  }
+
+  async buildMcpRuntimeToolContextSelection(
+    snapshot: MCPToolSearchSnapshot,
+    query?: string,
+    maxTools?: number,
+  ): Promise<McpRuntimeToolContextSelection | null> {
+    return buildMcpRuntimeToolContextSelection(snapshot, { query, maxTools });
   }
 
   /**
