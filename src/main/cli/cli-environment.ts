@@ -65,35 +65,6 @@ export function getCliAdditionalPaths(
   const localAppData = env['LOCALAPPDATA'] || '';
   const programFiles = env['ProgramFiles'] || '';
   const programFilesX86 = env['ProgramFiles(x86)'] || '';
-
-  if (platform === 'win32') {
-    // Windows-only search dirs. POSIX paths (/usr/local/bin, /opt/homebrew/bin,
-    // ~/.nvm/.../bin, …) are intentionally EXCLUDED here: they are meaningless
-    // on Windows and previously leaked into the spawned CLI's PATH on Windows
-    // worker nodes (a Mac-style PATH appearing on a Windows box), which both
-    // polluted PATH and gave the false impression the worker's own toolchain
-    // was being used. We instead cover the common Windows toolchain locations
-    // so git/node/python resolve even when the host process was launched (e.g.
-    // as a Windows service) with a minimal PATH. Order matters: first match wins.
-    const windowsPaths = [
-      `${appData}\\npm`,
-      `${localAppData}\\Programs\\nodejs`,
-      `${programFiles}\\nodejs`,
-      `${programFilesX86}\\nodejs`,
-      // Git for Windows (system + per-user installs). git is required for the
-      // loop's diff/verify/review flows on a worker.
-      `${programFiles}\\Git\\cmd`,
-      `${programFiles}\\Git\\bin`,
-      `${programFilesX86}\\Git\\cmd`,
-      `${localAppData}\\Programs\\Git\\cmd`,
-      // winget / Microsoft Store app execution aliases (Python launcher etc.).
-      `${localAppData}\\Microsoft\\WindowsApps`,
-      // Yarn classic global bin.
-      `${localAppData}\\Yarn\\bin`,
-    ];
-    return [...new Set(windowsPaths.filter(Boolean))];
-  }
-
   const nvmVersionBinPaths = getNvmVersionBinPaths(homeDir);
 
   // Order matters: the first directory containing a given CLI wins.
@@ -103,6 +74,14 @@ export function getCliAdditionalPaths(
   // nvm without realizing a forgotten Homebrew-npm copy still shadows it at
   // `/opt/homebrew/bin/<cli>`. When a user's shell has nvm active, that
   // version is their authoritative install and should take precedence.
+  //
+  // NOTE: these `$HOME`-relative entries are kept on Windows too. Windows
+  // accepts forward slashes, so `C:\Users\x/.nvm/versions/node/current/bin`
+  // resolves — and bash-style nvm is a common way to install node (and the
+  // agent CLI wrapper) on a dev Windows box. Dropping them here regressed
+  // worker spawn (node/claude unresolvable). The absolute Unix system paths
+  // (`/usr/local/bin` etc.) below are no-ops on Windows but harmless: the OS
+  // ignores non-existent PATH dirs during command resolution.
   const posixPaths = [
     `${homeDir}/.nvm/versions/node/current/bin`,
     ...nvmVersionBinPaths,
@@ -114,7 +93,29 @@ export function getCliAdditionalPaths(
     '/bin',
   ];
 
-  return [...new Set(posixPaths.filter(Boolean))];
+  const windowsPaths = [
+    `${appData}\\npm`,
+    `${localAppData}\\Programs\\nodejs`,
+    `${programFiles}\\nodejs`,
+    `${programFilesX86}\\nodejs`,
+    // Git for Windows (system + per-user installs). git is required for the
+    // loop's diff/verify/review flows on a worker, and is the toolchain dir
+    // that was previously missing — the real defect this list fixes.
+    `${programFiles}\\Git\\cmd`,
+    `${programFiles}\\Git\\bin`,
+    `${programFilesX86}\\Git\\cmd`,
+    `${localAppData}\\Programs\\Git\\cmd`,
+    // winget / Microsoft Store app execution aliases (Python launcher etc.).
+    `${localAppData}\\Microsoft\\WindowsApps`,
+    // Yarn classic global bin.
+    `${localAppData}\\Yarn\\bin`,
+  ];
+
+  const candidates = platform === 'win32'
+    ? [...windowsPaths, ...posixPaths]
+    : posixPaths;
+
+  return [...new Set(candidates.filter(Boolean))];
 }
 
 export function buildCliPath(

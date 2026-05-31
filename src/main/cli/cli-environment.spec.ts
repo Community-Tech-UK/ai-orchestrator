@@ -48,7 +48,11 @@ describe('cli-environment', () => {
     );
   });
 
-  it('does NOT leak POSIX paths into the Windows PATH (regression: Mac PATH on a Windows worker)', () => {
+  it('keeps $HOME-relative node/npm bin dirs on Windows (bash-style nvm installs node + the agent CLI there)', () => {
+    // Regression guard: dropping these on Windows broke worker spawn because
+    // `C:\Users\x/.nvm/versions/node/current/bin` (forward slashes resolve on
+    // Windows) is where node and the agent CLI wrapper actually live on a
+    // bash-nvm dev box. They must remain in the Windows search set.
     const env = {
       APPDATA: 'C:\\Users\\User\\AppData\\Roaming',
       LOCALAPPDATA: 'C:\\Users\\User\\AppData\\Local',
@@ -58,14 +62,12 @@ describe('cli-environment', () => {
       HOME: 'C:\\Users\\User',
     } as NodeJS.ProcessEnv;
 
-    const paths = getCliAdditionalPaths(env, 'win32');
-    expect(paths).not.toContain('/usr/local/bin');
-    expect(paths).not.toContain('/opt/homebrew/bin');
-    expect(paths).not.toContain('/usr/bin');
-    expect(paths).not.toContain('/bin');
-    // No forward-slash POSIX-style entries at all.
-    expect(paths.some((p) => p.startsWith('/'))).toBe(false);
-    expect(paths.some((p) => p.includes('/.nvm/'))).toBe(false);
+    expect(getCliAdditionalPaths(env, 'win32')).toEqual(
+      expect.arrayContaining([
+        'C:\\Users\\User/.nvm/versions/node/current/bin',
+        'C:\\Users\\User/.npm-global/bin',
+      ]),
+    );
   });
 
   it('uses standard POSIX search paths on Unix-like platforms', () => {
