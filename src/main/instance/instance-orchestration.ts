@@ -97,8 +97,8 @@ function getChildRoutingAudit(child: Instance): PluginRoutingAudit | undefined {
 
 export class InstanceOrchestrationManager {
   private orchestration: OrchestrationHandler;
-  private outcomeTracker = OutcomeTracker.getInstance();
-  private strategyLearner = StrategyLearner.getInstance();
+  private outcomeTracker: OutcomeTracker | null = null;
+  private strategyLearner: StrategyLearner | null = null;
   private unifiedMemory = getUnifiedMemory();
   private deps: OrchestrationDependencies;
   /** Per-instance write queues to prevent concurrent stdin writes */
@@ -924,7 +924,7 @@ export class InstanceOrchestrationManager {
 
   private getOutcomeRecommendation(task: string) {
     const taskType = this.classifyTaskType(task);
-    const recommendation = this.strategyLearner.getRecommendation(
+    const recommendation = this.getStrategyLearner().getRecommendation(
       taskType,
       task
     );
@@ -997,7 +997,7 @@ export class InstanceOrchestrationManager {
         : 0;
 
     try {
-      this.outcomeTracker.recordOutcome({
+      this.getOutcomeTracker().recordOutcome({
         instanceId: childId,
         taskType: 'orchestration-task',
         taskDescription: task?.task || error?.message || 'Orchestration task',
@@ -1046,6 +1046,16 @@ export class InstanceOrchestrationManager {
     const taskManager = getTaskManager();
     const history = taskManager.getTaskHistory(parentId);
     return history.recentTasks.find((task) => task.childId === childId);
+  }
+
+  private getOutcomeTracker(): OutcomeTracker {
+    this.outcomeTracker ??= OutcomeTracker.getInstance();
+    return this.outcomeTracker;
+  }
+
+  private getStrategyLearner(): StrategyLearner {
+    this.strategyLearner ??= StrategyLearner.getInstance();
+    return this.strategyLearner;
   }
 
   private buildToolUsage(instance?: Instance): ToolUsageRecord[] {

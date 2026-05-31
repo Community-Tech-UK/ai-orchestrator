@@ -44,7 +44,6 @@ import { getModelSwitchUnavailableReason } from '../../shared/types/instance-sta
 import { createPromptHistoryEntryId } from '../../shared/types/prompt-history.types';
 import { getLogger } from '../logging/logger';
 import type { CoreDeps } from './instance-deps';
-import { getPolicyAdapter } from '../observation/policy-adapter';
 import { resolveInstructionStack } from '../core/config/instruction-resolver';
 import { getHibernationManager } from '../process/hibernation-manager';
 import { getSessionContinuityManager } from '../session/session-continuity';
@@ -186,6 +185,7 @@ export interface LifecycleDependencies {
   initializeRlm: (instance: Instance) => Promise<void>;
   endRlmSession: (instanceId: string) => void;
   ingestInitialOutputToRlm: (instance: Instance, messages: OutputMessage[]) => Promise<void>;
+  buildObservationContext: (taskContext: string, instanceId?: string, taskType?: string) => Promise<string | null>;
   buildWakeContextText: (wing?: string) => Promise<string | null>;
   buildMcpRuntimeToolContextSelection: (
     snapshot: MCPToolSearchSnapshot,
@@ -1140,14 +1140,13 @@ export class InstanceLifecycleManager extends EventEmitter {
         }
 
         // Inject observation memory context (learned reflections from past sessions).
-        // Deadline-bounded: this query hits the vector store + RLM and is genuinely
-        // async, so a slow run is not waited on — it defers into the next turn.
+        // Deadline-bounded and off-thread via the context worker.
         try {
-          const observationContext = await callWithDeadline(
-            getPolicyAdapter().buildObservationContext(systemPrompt, instance.id, config.initialPrompt),
-            {
-              ms: CREATE_ENRICHER_DEADLINE_MS,
-              fallback: '',
+        const observationContext = await callWithDeadline(
+          this.deps.buildObservationContext(systemPrompt, instance.id, config.initialPrompt),
+          {
+            ms: CREATE_ENRICHER_DEADLINE_MS,
+            fallback: '',
               onTimeout: () =>
                 logger.info('Observation context exceeded create deadline; deferring to next turn', {
                   instanceId: instance.id,

@@ -4,6 +4,7 @@ import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   ChatCreatePayloadSchema,
   ChatIdPayloadSchema,
+  ChatLoadOlderMessagesPayloadSchema,
   ChatListPayloadSchema,
   ChatRenamePayloadSchema,
   ChatSendMessagePayloadSchema,
@@ -63,7 +64,7 @@ export function registerChatHandlers(deps: { instanceManager: InstanceManager })
   ipcMain.handle(IPC_CHANNELS.CHAT_ARCHIVE, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(ChatIdPayloadSchema, payload, 'CHAT_ARCHIVE');
-      return { success: true, data: service.archiveChat(validated.chatId) };
+      return { success: true, data: await service.archiveChat(validated.chatId) };
     } catch (error) {
       return chatError(error, 'CHAT_ARCHIVE_FAILED');
     }
@@ -111,6 +112,22 @@ export function registerChatHandlers(deps: { instanceManager: InstanceManager })
       return { success: true, data: await service.setYolo(validated.chatId, validated.yolo) };
     } catch (error) {
       return chatError(error, 'CHAT_SET_YOLO_FAILED');
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.CHAT_LOAD_OLDER_MESSAGES, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(
+        ChatLoadOlderMessagesPayloadSchema,
+        payload,
+        'CHAT_LOAD_OLDER_MESSAGES',
+      );
+      return {
+        success: true,
+        data: await service.loadOlderMessages(validated.chatId, validated),
+      };
+    } catch (error) {
+      return chatError(error, 'CHAT_LOAD_OLDER_MESSAGES_FAILED');
     }
   });
 

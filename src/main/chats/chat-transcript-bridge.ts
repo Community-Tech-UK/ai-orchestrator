@@ -66,8 +66,10 @@ export class ChatTranscriptBridge {
   // ── Deferred-write batching (off the event hot path) ──────────────────────────
   private readonly pendingByInstance = new Map<string, QueuedMessage[]>();
   private readonly pendingLastActiveByInstance = new Map<string, number>();
+  private readonly pendingUnlinkInstances = new Set<string>();
+  private readonly pendingTeardownFlushes = new Set<Promise<void>>();
   private flushTimer: NodeJS.Timeout | null = null;
-  private draining = false;
+  private flushPromise: Promise<void> | null = null;
   private stopped = false;
 
   constructor(config: ChatTranscriptBridgeConfig) {
@@ -89,8 +91,7 @@ export class ChatTranscriptBridge {
     this.instanceManager.on('instance:removed', (instanceId) => {
       if (typeof instanceId === 'string') {
         // Persist this instance's tail before forgetting the mapping.
-        void this.flush();
-        this.instanceToChat.delete(instanceId);
+        this.trackPendingTeardown(this.flushAndUnlink(instanceId));
       }
     });
   }
@@ -100,7 +101,40 @@ export class ChatTranscriptBridge {
   }
 
   unlink(instanceId: string): void {
-    this.instanceToChat.delete(instanceId);
+    this.finalizeUnlink(instanceId);
+  }
+
+  async flushAndUnlink(instanceId: string): Promise<void> {
+    this.pendingUnlinkInstances.add(instanceId);
+    if (!this.pendingByInstance.has(instanceId) && !this.flushPromise) {
+      this.finalizeUnlink(instanceId);
+      return;
+    }
+    await this.flush();
+    if (this.pendingUnlinkInstances.has(instanceId) && !this.pendingByInstance.has(instanceId)) {
+      this.finalizeUnlink(instanceId);
+    }
+  }
+
+  async drainForShutdown(timeoutMs = 2_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (this.flushPromise) {
+        await this.flushPromise;
+      } else if (this.pendingByInstance.size > 0) {
+        await this.flush();
+      }
+      if (this.pendingByInstance.size === 0 && this.pendingTeardownFlushes.size === 0) {
+        return;
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    }
+    if (this.pendingByInstance.size > 0 || this.pendingTeardownFlushes.size > 0) {
+      logger.warn('Timed out draining chat transcript bridge during shutdown', {
+        pendingInstances: this.pendingByInstance.size,
+        pendingTeardowns: this.pendingTeardownFlushes.size,
+      });
+    }
   }
 
   /**
@@ -166,29 +200,34 @@ export class ChatTranscriptBridge {
   /**
    * Drain queued transcript writes: one off-thread batched ledger write per
    * thread plus a coalesced operator-db touch. Safe to call any time (timer,
-   * instance teardown, shutdown). Serialized via `draining` so overlapping calls
-   * don't double-write; any items that arrive (or are re-queued) during a drain
-   * trigger a follow-up flush.
+   * instance teardown, shutdown). Serialized via `flushPromise` so overlapping
+   * calls don't double-write; any items that arrive (or are re-queued) during a
+   * drain trigger a follow-up flush.
    */
   async flush(): Promise<void> {
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
-    if (this.draining || this.stopped) {
+    if (this.stopped) {
       return;
     }
-    this.draining = true;
-    try {
-      const batches = this.drainPending();
-      for (const [instanceId, entry] of batches) {
-        await this.flushInstance(instanceId, entry.messages, entry.lastActiveAt);
-      }
-    } finally {
-      this.draining = false;
+    if (this.flushPromise) {
+      return this.flushPromise;
     }
-    if (this.pendingByInstance.size > 0) {
-      this.scheduleFlush();
+    this.flushPromise = this.runFlush().finally(() => {
+      this.flushPromise = null;
+      if (this.pendingByInstance.size > 0) {
+        this.scheduleFlush();
+      }
+    });
+    return this.flushPromise;
+  }
+
+  private async runFlush(): Promise<void> {
+    const batches = this.drainPending();
+    for (const [instanceId, entry] of batches) {
+      await this.flushInstance(instanceId, entry.messages, entry.lastActiveAt);
     }
   }
 
@@ -218,6 +257,7 @@ export class ChatTranscriptBridge {
       const chatId = this.resolveChatId(instanceId);
       if (!chatId) {
         // No chat linked to this instance — drop its transcript events.
+        this.finalizeUnlink(instanceId);
         return;
       }
       chat = this.chatStore.get(chatId);
@@ -231,7 +271,7 @@ export class ChatTranscriptBridge {
       return;
     }
     if (!chat) {
-      this.instanceToChat.delete(instanceId);
+      this.finalizeUnlink(instanceId);
       return;
     }
 
@@ -249,6 +289,9 @@ export class ChatTranscriptBridge {
       if (records.length > 0) {
         this.emitTranscriptAppended(updated, records);
       }
+      if (this.pendingUnlinkInstances.has(instanceId) && !this.pendingByInstance.has(instanceId)) {
+        this.finalizeUnlink(instanceId);
+      }
     } catch (error) {
       // The worker is likely restarting; re-queue and retry on the next flush.
       logger.warn('Failed to flush transcript batch to ledger; will retry', {
@@ -259,6 +302,20 @@ export class ChatTranscriptBridge {
       });
       this.requeue(instanceId, messages, lastActiveAt);
     }
+  }
+
+  private finalizeUnlink(instanceId: string): void {
+    this.pendingUnlinkInstances.delete(instanceId);
+    this.pendingByInstance.delete(instanceId);
+    this.pendingLastActiveByInstance.delete(instanceId);
+    this.instanceToChat.delete(instanceId);
+  }
+
+  private trackPendingTeardown(promise: Promise<void>): void {
+    this.pendingTeardownFlushes.add(promise);
+    void promise.finally(() => {
+      this.pendingTeardownFlushes.delete(promise);
+    });
   }
 
   private resolveChatId(instanceId: string): string | null {

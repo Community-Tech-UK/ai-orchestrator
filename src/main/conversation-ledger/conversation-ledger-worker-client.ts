@@ -137,6 +137,18 @@ export class ConversationLedgerWorkerClient implements LedgerStorePort {
     return (await this.call('getRecentMessages', [threadId, limit])) as ConversationMessageRecord[];
   }
 
+  async getMessagesBefore(
+    threadId: string,
+    beforeSequence: number,
+    limit: number,
+  ): Promise<ConversationMessageRecord[]> {
+    return (await this.call('getMessagesBefore', [
+      threadId,
+      beforeSequence,
+      limit,
+    ])) as ConversationMessageRecord[];
+  }
+
   async countMessages(threadId: string): Promise<number> {
     return (await this.call('countMessages', [threadId])) as number;
   }

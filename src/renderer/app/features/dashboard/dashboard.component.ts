@@ -49,6 +49,7 @@ import { SidebarFooterComponent } from './sidebar-footer.component';
 import { WorkspaceRailComponent } from './workspace-rail.component';
 import { BrowserPreviewNoticeComponent } from './browser-preview-notice.component';
 import { SessionProgressPanelComponent } from '../instance-detail/session-progress-panel.component';
+import { DEFAULT_KEYBINDING_ELIGIBILITY_STATE } from '../../../../shared/types/keybinding.types';
 
 @Component({
   selector: 'app-dashboard',
@@ -124,17 +125,26 @@ export class DashboardComponent implements OnInit, OnDestroy {
     || this.showHistory()
   );
 
-  // Computed: selected instance's working directory for file explorer
-  selectedInstanceWorkingDir = computed(() => {
+  // Workspace chrome should follow the active workspace context, which can be
+  // either a running instance or a draft session with a selected folder.
+  activeWorkspaceWorkingDir = computed(() => {
     const instance = this.store.selectedInstance();
-    return instance?.workingDirectory || null;
+    if (instance?.workingDirectory) {
+      return instance.workingDirectory;
+    }
+
+    return this.newSessionDraft.workingDirectory() || null;
   });
 
-  // Computed: selected instance's execution node ID (null for local)
-  selectedInstanceExecutionNodeId = computed(() => {
-    const inst = this.store.selectedInstance();
-    if (!inst?.executionLocation || inst.executionLocation.type === 'local') return null;
-    return inst.executionLocation.nodeId;
+  // Remote file browsing is available for draft sessions too, so mirror the
+  // selected execution node even before the first instance launches.
+  activeWorkspaceExecutionNodeId = computed(() => {
+    const instance = this.store.selectedInstance();
+    if (instance?.executionLocation?.type === 'remote') {
+      return instance.executionLocation.nodeId;
+    }
+
+    return this.newSessionDraft.nodeId();
   });
 
   // Selected instance for the floating session-progress HUD. Rendered at
@@ -154,27 +164,30 @@ export class DashboardComponent implements OnInit, OnDestroy {
   });
 
   canShowFileExplorer = computed(() =>
-    !!this.store.selectedInstance() && !this.chatStore.selectedChatId() && !this.isBenchmarkMode()
+    !!this.activeWorkspaceWorkingDir() && !this.chatStore.selectedChatId() && !this.isBenchmarkMode()
   );
 
   // Source Control has stricter eligibility than File Explorer: it also
-  // excludes remote instances (Tier D in the Phase 2 plan) and missing
+  // excludes remote workspaces (Tier D in the Phase 2 plan) and missing
   // working directories (panel would land on an empty state). Implemented
   // as a pure predicate in `source-control-eligibility.ts` so the rule is
   // unit-testable without Angular DI.
   canShowSourceControl = computed(() => {
     const instance = this.store.selectedInstance();
     return isSourceControlEligible({
-      hasSelectedInstance: !!instance,
+      hasSelectedInstance: !!this.activeWorkspaceWorkingDir(),
       hasSelectedChat: !!this.chatStore.selectedChatId(),
       isBenchmarkMode: this.isBenchmarkMode(),
-      isRemote: instance?.executionLocation?.type === 'remote',
-      workingDirectory: instance?.workingDirectory ?? null,
+      isRemote: instance?.executionLocation?.type === 'remote' || (!instance && !!this.newSessionDraft.nodeId()),
+      workingDirectory: this.activeWorkspaceWorkingDir(),
     });
   });
 
   hasWorkspaceSelection = computed(() =>
-    !!this.chatStore.selectedChatId() || !!this.store.selectedInstance() || !!this.historyStore.previewConversation()
+    !!this.chatStore.selectedChatId()
+    || !!this.store.selectedInstance()
+    || !!this.historyStore.previewConversation()
+    || !!this.activeWorkspaceWorkingDir()
   );
 
   showBrowserPreview = computed(() =>
@@ -192,6 +205,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   isResizing = signal(false);
   private resizeStartX = 0;
   private resizeStartWidth = 0;
+  private lastAutoOpenedDraftWorkspace = signal<string | null>(null);
 
   private actionCleanup: (() => void)[] = [];
 
@@ -208,16 +222,38 @@ export class DashboardComponent implements OnInit, OnDestroy {
       }
     });
 
-    // Eager-load source control state on every eligible instance change.
-    // This is what makes the header pip accurate before the user even
-    // opens the panel. The store has stale-response protection so rapid
-    // instance switches don't cause cross-contamination.
+    // Eager-load source control state for whichever workspace currently owns
+    // the shell, including fresh drafts with a selected working directory.
+    // The store has stale-response protection so rapid workspace switches
+    // don't cause cross-contamination.
     effect(() => {
       if (this.canShowSourceControl()) {
-        void this.sourceControlStore.loadForRoot(this.selectedInstanceWorkingDir());
+        void this.sourceControlStore.loadForRoot(this.activeWorkspaceWorkingDir());
       } else {
         void this.sourceControlStore.loadForRoot(null);
       }
+    });
+
+    effect(() => {
+      const workspacePath = this.activeWorkspaceWorkingDir();
+      const hasDraftWorkspace =
+        !this.store.selectedInstance()
+        && !this.chatStore.selectedChatId()
+        && !this.historyStore.previewConversation()
+        && !!workspacePath;
+
+      if (!hasDraftWorkspace) {
+        this.lastAutoOpenedDraftWorkspace.set(null);
+        return;
+      }
+
+      if (workspacePath === this.lastAutoOpenedDraftWorkspace()) {
+        return;
+      }
+
+      this.lastAutoOpenedDraftWorkspace.set(workspacePath);
+      this.showFileExplorer.set(true);
+      this.showSourceControl.set(this.canShowSourceControl());
     });
 
     effect(() => {
@@ -570,8 +606,11 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.router.navigate(['/rlm']);
   }
 
-  openBrowser(): void {
-    void this.router.navigate(['/browser']);
+  async openBrowser(): Promise<void> {
+    const navigated = await this.router.navigate(['/browser']);
+    if (!navigated) {
+      console.warn('[app.open-browser] Navigation to /browser was cancelled');
+    }
   }
 
   openDoctor(): void {
@@ -609,5 +648,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.actionCleanup.forEach((cleanup) => cleanup());
     this.actionCleanup = [];
+    this.keybindingService.setEligibilityState(DEFAULT_KEYBINDING_ELIGIBILITY_STATE);
   }
 }

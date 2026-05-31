@@ -60,6 +60,7 @@ export class AppComponent implements OnInit {
         requestId: prompt.requestId,
         decisionAction: decision.action,
         decisionScope: decision.scope,
+        response: decision.response,
       });
     } catch {
       /* the prompt stays if the call fails */

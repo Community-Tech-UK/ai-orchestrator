@@ -1,9 +1,18 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import type { ChatCreateInput, ChatDetail, ChatEvent, ChatRecord } from '../../../../shared/types/chat.types';
-import type { ConversationMessageRecord } from '../../../../shared/types/conversation-ledger.types';
+import type {
+  ConversationLedgerConversation,
+  ConversationMessageRecord,
+} from '../../../../shared/types/conversation-ledger.types';
 import type { FileAttachment } from '../../../../shared/types/instance.types';
 import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 import { ChatIpcService } from '../services/ipc/chat-ipc.service';
+
+export interface ChatOlderMessagesLoadResult {
+  prependedCount: number;
+  hasMore: boolean;
+  totalStored: number;
+}
 
 @Injectable({ providedIn: 'root' })
 export class ChatStore {
@@ -179,6 +188,57 @@ export class ChatStore {
     }
   }
 
+  async loadOlderMessages(limit = 200): Promise<ChatOlderMessagesLoadResult | null> {
+    const detail = this.selectedDetail();
+    const oldestSequence = detail?.conversation.window?.oldestSequence;
+    if (!detail || !detail.conversation.window?.hasOlder || oldestSequence == null) {
+      return null;
+    }
+
+    const response = await this.ipc.loadOlderMessages(detail.chat.id, oldestSequence, limit);
+    if (!response.success || !response.data) {
+      this._error.set(response.error?.message ?? 'Failed to load older messages');
+      return null;
+    }
+    const page = response.data;
+
+    const existing = this._details().get(detail.chat.id);
+    if (!existing) {
+      return null;
+    }
+
+    const incoming = page.messages;
+    const existingIds = new Set(existing.conversation.messages.map((message) => message.id));
+    const prependedCount = incoming.filter((message) => !existingIds.has(message.id)).length;
+    const messages = [...incoming, ...existing.conversation.messages]
+      .filter((message, index, all) => all.findIndex((candidate) => candidate.id === message.id) === index)
+      .sort((left, right) => left.sequence - right.sequence);
+
+    this._details.update((details) => {
+      const next = new Map(details);
+      next.set(detail.chat.id, {
+        ...existing,
+        conversation: {
+          ...existing.conversation,
+          messages,
+          window: {
+            totalMessages: page.totalMessages,
+            hasOlder: page.hasMore,
+            oldestSequence: messages[0]?.sequence ?? null,
+            newestSequence: messages[messages.length - 1]?.sequence ?? null,
+          },
+        },
+      });
+      return next;
+    });
+
+    return {
+      prependedCount,
+      hasMore: page.hasMore,
+      totalStored: page.totalMessages,
+    };
+  }
+
   disposeForTesting(): void {
     this.unsubscribeChatEvents?.();
     this.unsubscribeChatEvents = null;
@@ -302,9 +362,52 @@ export class ChatStore {
   private mergeDetail(detail: ChatDetail): void {
     this._details.update((details) => {
       const next = new Map(details);
-      next.set(detail.chat.id, detail);
+      const existing = next.get(detail.chat.id);
+      next.set(detail.chat.id, existing ? this.mergeChatDetail(existing, detail) : detail);
       return next;
     });
+  }
+
+  private mergeChatDetail(existing: ChatDetail, incoming: ChatDetail): ChatDetail {
+    const incomingWindow = incoming.conversation.window;
+    const oldestIncomingSequence = incomingWindow?.oldestSequence ?? incoming.conversation.messages[0]?.sequence ?? null;
+    if (oldestIncomingSequence === null) {
+      return incoming;
+    }
+
+    const preservedOlder = existing.conversation.messages.filter(
+      (message) => message.sequence < oldestIncomingSequence,
+    );
+    if (preservedOlder.length === 0) {
+      return incoming;
+    }
+
+    const messages = [...preservedOlder, ...this.mergeAppendedMessages([], incoming.conversation.messages)];
+    return {
+      ...incoming,
+      conversation: this.buildConversationWindow(
+        incoming.conversation,
+        messages,
+        incomingWindow?.totalMessages ?? messages.length,
+      ),
+    };
+  }
+
+  private buildConversationWindow(
+    conversation: ConversationLedgerConversation,
+    messages: ConversationMessageRecord[],
+    totalMessages: number,
+  ): ConversationLedgerConversation {
+    return {
+      ...conversation,
+      messages,
+      window: {
+        totalMessages,
+        hasOlder: totalMessages > messages.length,
+        oldestSequence: messages[0]?.sequence ?? null,
+        newestSequence: messages[messages.length - 1]?.sequence ?? null,
+      },
+    };
   }
 
   private mergeChat(chat: ChatRecord): void {

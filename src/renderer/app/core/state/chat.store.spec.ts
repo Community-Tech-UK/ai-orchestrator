@@ -19,6 +19,7 @@ describe('ChatStore', () => {
     setModel: vi.fn(),
     setReasoning: vi.fn(),
     setYolo: vi.fn(),
+    loadOlderMessages: vi.fn(),
     sendMessage: vi.fn(),
     onChatEvent: vi.fn((handler: (event: ChatEvent) => void) => {
       chatEventHandler = handler;
@@ -99,6 +100,82 @@ describe('ChatStore', () => {
     // Not selected and never loaded → no detail materialized (lazy hydrate).
     expect(store.selectedDetail()).toBeNull();
   });
+
+  it('preserves already-loaded older chat messages when a fresh tail detail replaces the cache', async () => {
+    const store = TestBed.inject(ChatStore);
+    const base = chatDetail(chatRecord('chat-1'));
+    base.conversation.messages = [messageRecord('m1', 1), messageRecord('m2', 2), messageRecord('m3', 3)];
+    base.conversation.window = {
+      totalMessages: 3,
+      hasOlder: false,
+      oldestSequence: 1,
+      newestSequence: 3,
+    };
+    ipc.get.mockResolvedValueOnce({ success: true, data: base });
+
+    await store.initialize();
+    await store.select('chat-1');
+
+    const tailOnly = chatDetail(chatRecord('chat-1'));
+    tailOnly.conversation.messages = [messageRecord('m2', 2), messageRecord('m3', 3)];
+    tailOnly.conversation.window = {
+      totalMessages: 3,
+      hasOlder: true,
+      oldestSequence: 2,
+      newestSequence: 3,
+    };
+    ipc.rename.mockResolvedValueOnce({ success: true, data: tailOnly });
+
+    await store.rename('chat-1', 'Renamed');
+
+    expect(store.selectedDetail()?.conversation.messages.map((message) => message.sequence)).toEqual([1, 2, 3]);
+    expect(store.selectedDetail()?.conversation.window).toMatchObject({
+      totalMessages: 3,
+      hasOlder: false,
+      oldestSequence: 1,
+      newestSequence: 3,
+    });
+  });
+
+  it('prepends older messages into the selected chat detail', async () => {
+    const store = TestBed.inject(ChatStore);
+    const base = chatDetail(chatRecord('chat-1'));
+    base.conversation.messages = [messageRecord('m3', 3), messageRecord('m4', 4)];
+    base.conversation.window = {
+      totalMessages: 4,
+      hasOlder: true,
+      oldestSequence: 3,
+      newestSequence: 4,
+    };
+    ipc.get.mockResolvedValueOnce({ success: true, data: base });
+    ipc.loadOlderMessages.mockResolvedValueOnce({
+      success: true,
+      data: {
+        threadId: 'thread-chat-1',
+        messages: [messageRecord('m1', 1), messageRecord('m2', 2)],
+        totalMessages: 4,
+        hasMore: false,
+        nextBeforeSequence: 1,
+      },
+    });
+
+    await store.initialize();
+    await store.select('chat-1');
+    const result = await store.loadOlderMessages();
+
+    expect(result).toEqual({
+      prependedCount: 2,
+      hasMore: false,
+      totalStored: 4,
+    });
+    expect(store.selectedDetail()?.conversation.messages.map((message) => message.sequence)).toEqual([1, 2, 3, 4]);
+    expect(store.selectedDetail()?.conversation.window).toMatchObject({
+      totalMessages: 4,
+      hasOlder: false,
+      oldestSequence: 1,
+      newestSequence: 4,
+    });
+  });
 });
 
 function chatRecord(id: string): ChatRecord {
@@ -163,6 +240,12 @@ function chatDetail(chat: ChatRecord): ChatDetail {
         metadata: { chatId: chat.id },
       } satisfies ConversationThreadRecord,
       messages: [],
+      window: {
+        totalMessages: 0,
+        hasOlder: false,
+        oldestSequence: null,
+        newestSequence: null,
+      },
     },
     currentInstance: null,
   };

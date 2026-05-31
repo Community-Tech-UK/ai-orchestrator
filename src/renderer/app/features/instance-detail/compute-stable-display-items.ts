@@ -154,6 +154,28 @@ function displayItemSignature(item: DisplayItem): string {
         item.timestamp ?? '',
       ].join('|');
 
+    case 'plan-update': {
+      const plan = item.planUpdate;
+      return [
+        'plan-update',
+        item.id,
+        item.timestamp ?? '',
+        plan?.totalCount ?? 0,
+        plan?.pendingCount ?? 0,
+        plan?.inProgressCount ?? 0,
+        plan?.completedCount ?? 0,
+        plan?.cancelledCount ?? 0,
+        plan?.unknownCount ?? 0,
+        plan?.entries.map((entry) => [
+          entry.content,
+          entry.statusKind,
+          entry.statusLabel,
+          entry.priorityKind,
+          entry.priorityLabel ?? '',
+        ].join('~')).join('||') ?? '',
+      ].join('|');
+    }
+
     case 'tool-group': {
       const tools = item.toolMessages;
       const last = tools && tools.length > 0 ? tools[tools.length - 1] : undefined;

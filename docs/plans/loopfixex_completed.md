@@ -3,7 +3,7 @@
 > **Status:** ✅ IMPLEMENTED & VERIFIED (2026-05-30). LF-1…LF-8 all have code + specs in `src/main/orchestration/` (`loop-semantic-progress.ts`, `loop-branch-select.ts`, `loop-memory.ts`, `loop-output-externalize.ts`, ledger detector) and renderer (`loop-control.component.ts`, `loop-formatters.util.ts`); `acceptCompletion` / `completed-needs-review` / `maxCompletionAttempts` / `completionAttempts` are wired through coordinator → IPC → store; `maxCostCents` defaults to `1000`; `LoopConfig.context` reset block (`resetAtUtilization: 0.6`) present. The full loop suite is green: **29 spec files / 289 tests pass** (`npx vitest run src/main/orchestration/loop`, 2026-05-30). Renamed from `loopfixex.md` per AGENTS.md `_completed` convention. The checkbox `- [ ]` items below are retained as the historical task list; treat them as DONE.
 > **Completion-authority architecture (resolved 2026-05-30):** completion is now governed by a single **evidence-precedence ladder** — (1) runtime truth, (2) external ground-truth (verify/SCM/empty review-thread fingerprint), (3) structured in-band intent (`declared-complete`, this plan's LF-7), (4) forensic markers (corroboration only). `completed-needs-review` is the human-escalation terminal used **only when no external authority exists** (not "the agent self-declared"). The remaining net-new work to fully realize tier 2 (an `evidence-resolver.ts` spine + convergent fix→verify→review cycle + review-quality + remote-node diversity) lives in `2026-05-28-first-class-remote-orchestration-plan.md` **Piece B**, which layers on top of — does not replace — the LF-7 model shipped here. See `claude2_todo.md` #1.
 > **For agentic workers:** REQUIRED SUB-SKILL was `superpowers:executing-plans`. This file was loop-executable (the stage machine reads `- [ ]`/`- [x]` items). No further implementation work; future loop changes get a fresh plan.
-> **Companion doc (the "why"):** `docs/plans/2026-05-29-loop-intelligence-improvements-plan.md` holds the full rationale/research — now marked SUPERSEDED by this implemented plan.
+> **Companion doc (the "why"):** `docs/plans/2026-05-29-loop-intelligence-improvements-plan_completed.md` holds the full rationale/research — now marked SUPERSEDED by this implemented plan.
 
 ---
 
@@ -206,7 +206,7 @@ These are the 4 open questions from the companion doc, resolved here so the plan
 
 ## 11. References
 
-- Companion rationale: `docs/plans/2026-05-29-loop-intelligence-improvements-plan.md`
+- Companion rationale: `docs/plans/2026-05-29-loop-intelligence-improvements-plan_completed.md`
 - Prior loop plans: `docs/plans/2026-05-26-loop-mode-reliability_completed.md`, `docs/plans/2026-05-12-loop-terminal-control-spec_completed.md`, `docs/plans/completed/plan_loop_mode_Completed.md`
 - Anthropic — Effective context engineering for AI agents: https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents
 - Huntley — Ralph: https://ghuntley.com/ralph/ · https://github.com/ghuntley/how-to-ralph-wiggum

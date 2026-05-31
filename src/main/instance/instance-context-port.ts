@@ -57,6 +57,11 @@ export interface InstanceContextPort {
     taskId: string,
     maxTokens?: number,
   ): Promise<UnifiedMemoryContextInfo | null>;
+  buildObservationContext(
+    taskContext: string,
+    instanceId?: string,
+    taskType?: string,
+  ): Promise<string | null>;
   buildWakeContextText(wing?: string): Promise<string | null>;
   buildMcpRuntimeToolContextSelection(
     snapshot: MCPToolSearchSnapshot,

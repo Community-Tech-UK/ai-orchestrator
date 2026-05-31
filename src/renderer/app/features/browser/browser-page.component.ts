@@ -25,6 +25,8 @@ import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 
 interface BrowserSnapshotView { title: string; url: string; text: string }
 
+const recentAuditWindowMs = 15 * 60 * 1000;
+
 @Component({
   selector: 'app-browser-page',
   standalone: true,
@@ -320,22 +322,71 @@ interface BrowserSnapshotView { title: string; url: string; text: string }
               }
             </div>
           </section>
-          <section>
-            <h2>Audit</h2>
+          <section class="audit-panel">
+            <div class="section-heading audit-heading">
+              <div>
+                <h2>Audit</h2>
+                <p class="section-subtitle">
+                  {{ recentAuditEntries().length }} recent · {{ olderAuditEntries().length }} older
+                </p>
+              </div>
+              @if (olderAuditEntries().length) {
+                <button
+                  class="btn small"
+                  data-testid="audit-history-toggle"
+                  type="button"
+                  [attr.aria-expanded]="showAuditHistory()"
+                  (click)="toggleAuditHistory()"
+                >
+                  {{ showAuditHistory() ? 'Hide' : 'Older events' }} ({{ olderAuditEntries().length }})
+                </button>
+              }
+            </div>
             <div class="audit-list">
-              @for (entry of auditEntries(); track entry.id) {
-                <article class="audit-row">
-                  <div>
-                    <span class="audit-action">{{ entry.action }}</span>
-                    <span class="audit-tool">{{ entry.toolName }}</span>
+              @for (entry of recentAuditEntries(); track entry.id) {
+                <article
+                  class="audit-row compact"
+                  [class.warning]="entry.decision !== 'allowed'"
+                  [class.failed]="entry.outcome === 'failed'"
+                >
+                  <div class="audit-row-header">
+                    <span class="audit-status-dot" aria-hidden="true"></span>
+                    <span class="audit-action">{{ formatAuditAction(entry.action) }}</span>
+                    <time>{{ formatAuditAge(entry.createdAt) }}</time>
                   </div>
                   <div class="audit-state">{{ entry.decision }} · {{ entry.outcome }}</div>
+                  <span class="audit-tool">{{ entry.toolName }}</span>
                   <p>{{ entry.summary }}</p>
                 </article>
               } @empty {
-                <div class="empty">No Browser Gateway audit entries.</div>
+                <div class="empty">
+                  {{ olderAuditEntries().length ? 'No recent Browser Gateway audit entries.' : 'No Browser Gateway audit entries.' }}
+                </div>
               }
             </div>
+            @if (showAuditHistory() && olderAuditEntries().length) {
+              <div class="audit-history">
+                <div class="audit-history-title">Older events</div>
+                <div class="audit-list">
+                  @for (entry of olderAuditEntries(); track entry.id) {
+                    <article
+                      class="audit-row compact muted"
+                      [class.warning]="entry.decision !== 'allowed'"
+                      [class.failed]="entry.outcome === 'failed'"
+                    >
+                      <div class="audit-row-header">
+                        <span class="audit-status-dot" aria-hidden="true"></span>
+                        <span class="audit-action">{{ formatAuditAction(entry.action) }}</span>
+                        <time>{{ formatAuditAge(entry.createdAt) }}</time>
+                      </div>
+                      <div class="audit-state">{{ entry.decision }} · {{ entry.outcome }}</div>
+                      <span class="audit-tool">{{ entry.toolName }}</span>
+                      <p>{{ entry.summary }}</p>
+                    </article>
+                  }
+                </div>
+              </div>
+            }
           </section>
         </aside>
       </main>
@@ -466,6 +517,16 @@ interface BrowserSnapshotView { title: string; url: string; text: string }
 
     .section-heading {
       justify-content: space-between;
+    }
+
+    .section-heading > div {
+      min-width: 0;
+    }
+
+    .section-subtitle {
+      margin-top: 2px;
+      font-size: 11px;
+      color: var(--text-muted);
     }
 
     .create-form,
@@ -636,6 +697,105 @@ interface BrowserSnapshotView { title: string; url: string; text: string }
       letter-spacing: 0.04em;
     }
 
+    .audit-heading {
+      align-items: flex-start;
+    }
+
+    .audit-panel {
+      display: grid;
+      gap: var(--spacing-sm);
+    }
+
+    .audit-row.compact {
+      gap: 5px;
+      padding: 9px 10px;
+      border-color: color-mix(in srgb, var(--success-color) 24%, var(--border-color));
+      background:
+        linear-gradient(90deg, color-mix(in srgb, var(--success-color) 9%, transparent), transparent 54%),
+        var(--bg-primary);
+    }
+
+    .audit-row.compact.muted {
+      border-color: var(--border-color);
+      background: var(--bg-primary);
+    }
+
+    .audit-row.compact.warning {
+      border-color: color-mix(in srgb, var(--warning-color) 42%, var(--border-color));
+      background:
+        linear-gradient(90deg, color-mix(in srgb, var(--warning-color) 11%, transparent), transparent 54%),
+        var(--bg-primary);
+    }
+
+    .audit-row.compact.failed {
+      border-color: color-mix(in srgb, var(--error-color) 42%, var(--border-color));
+      background:
+        linear-gradient(90deg, color-mix(in srgb, var(--error-color) 10%, transparent), transparent 54%),
+        var(--bg-primary);
+    }
+
+    .audit-row-header {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 8px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .audit-status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--success-color);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--success-color) 13%, transparent);
+    }
+
+    .audit-row.warning .audit-status-dot {
+      background: var(--warning-color);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning-color) 14%, transparent);
+    }
+
+    .audit-row.failed .audit-status-dot {
+      background: var(--error-color);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--error-color) 14%, transparent);
+    }
+
+    .audit-row.warning .audit-state {
+      color: var(--warning-color);
+    }
+
+    .audit-row.failed .audit-state {
+      color: var(--error-color);
+    }
+
+    .audit-row-header time {
+      color: var(--text-muted);
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    .audit-row.compact p {
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .audit-history {
+      display: grid;
+      gap: var(--spacing-xs);
+      padding-top: var(--spacing-xs);
+      border-top: 1px solid var(--border-color);
+    }
+
+    .audit-history-title {
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
     .row-actions.wrap {
       flex-wrap: wrap;
     }
@@ -790,6 +950,7 @@ export class BrowserPageComponent implements OnInit {
   readonly autonomousSubmitEnabled = signal(false);
   readonly autonomousDestructiveEnabled = signal(false);
   readonly autonomousConfirmation = signal('');
+  readonly showAuditHistory = signal(false);
 
   readonly runningProfileCount = computed(
     () => this.profiles().filter((profile) => profile.status === 'running').length,
@@ -813,6 +974,14 @@ export class BrowserPageComponent implements OnInit {
   );
 
   readonly healthJson = computed(() => JSON.stringify(this.health() ?? {}, null, 2));
+
+  readonly recentAuditEntries = computed(
+    () => this.auditEntries().filter((entry) => this.isRecentAuditEntry(entry)),
+  );
+
+  readonly olderAuditEntries = computed(
+    () => this.auditEntries().filter((entry) => !this.isRecentAuditEntry(entry)),
+  );
 
   readonly providerCapabilityRows = computed(() => {
     const details = (this.health() as {
@@ -1123,6 +1292,38 @@ export class BrowserPageComponent implements OnInit {
     return approval.proposedGrant.uploadRoots?.join(', ') ?? '';
   }
 
+  toggleAuditHistory(): void {
+    this.showAuditHistory.set(!this.showAuditHistory());
+  }
+
+  formatAuditAction(action: string): string {
+    return action
+      .split(/[_\s-]+/)
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  }
+
+  formatAuditAge(createdAt: number): string {
+    const elapsedMs = Math.max(0, Date.now() - createdAt);
+    if (elapsedMs < 60_000) {
+      return 'now';
+    }
+    const elapsedMinutes = Math.floor(elapsedMs / 60_000);
+    if (elapsedMinutes < 60) {
+      return `${elapsedMinutes}m`;
+    }
+    const elapsedHours = Math.floor(elapsedMinutes / 60);
+    if (elapsedHours < 24) {
+      return `${elapsedHours}h`;
+    }
+    const elapsedDays = Math.floor(elapsedHours / 24);
+    if (elapsedDays < 7) {
+      return `${elapsedDays}d`;
+    }
+    return new Date(createdAt).toLocaleDateString();
+  }
+
   private selectedTargetRequest(): { profileId: string; targetId: string } | null {
     const profileId = this.selectedProfileId();
     const targetId = this.selectedTargetId();
@@ -1182,6 +1383,10 @@ export class BrowserPageComponent implements OnInit {
           includeSubdomains: wildcard || entry.includes('*.'),
         };
       });
+  }
+
+  private isRecentAuditEntry(entry: BrowserAuditEntry): boolean {
+    return Date.now() - entry.createdAt <= recentAuditWindowMs;
   }
 
   private grantProposalForApproval(

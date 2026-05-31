@@ -98,16 +98,15 @@ describe('ProjectGroupComputationService filtering', () => {
         location: 'all',
         projectMatches: false,
         collapsed: new Set<string>(),
+        collapsedHistoryParentIds: new Set<string>(),
+        historySortMode: 'last-interacted',
         childrenByParent: new Map<string, string[]>(),
         instanceMap: new Map([[root.id, root]]),
         activityCutoff: null,
-      },
-      0,
-      [],
-      true
+      }
     );
 
-    expect(items.map((item) => item.instance.id)).toEqual(['inst-1']);
+    expect(items?.instance.id).toBe('inst-1');
   });
 
   it('filters live sessions older than the activity cutoff', () => {
@@ -121,14 +120,16 @@ describe('ProjectGroupComputationService filtering', () => {
       location: 'all' as const,
       projectMatches: false,
       collapsed: new Set<string>(),
+      collapsedHistoryParentIds: new Set<string>(),
+      historySortMode: 'last-interacted' as const,
       childrenByParent: new Map<string, string[]>(),
       instanceMap: new Map([[root.id, root]]),
       activityCutoff: 500,
     };
 
-    const items = service.buildVisibleItems(root, context, 0, [], true);
+    const items = service.buildVisibleItems(root, context);
 
-    expect(items).toEqual([]);
+    expect(items).toBeNull();
   });
 
   it('hides a superseded edit source when its replacement is present', () => {
@@ -150,6 +151,8 @@ describe('ProjectGroupComputationService filtering', () => {
       location: 'all' as const,
       projectMatches: false,
       collapsed: new Set<string>(),
+      collapsedHistoryParentIds: new Set<string>(),
+      historySortMode: 'last-interacted' as const,
       childrenByParent: new Map<string, string[]>(),
       instanceMap: new Map([
         [source.id, source],
@@ -158,7 +161,7 @@ describe('ProjectGroupComputationService filtering', () => {
       activityCutoff: null,
     };
 
-    expect(service.buildVisibleItems(source, context, 0, [], true)).toEqual([]);
+    expect(service.buildVisibleItems(source, context)).toBeNull();
     expect(service.countSessionsInTree(source, context.childrenByParent, context.instanceMap)).toBe(0);
   });
 
@@ -178,6 +181,8 @@ describe('ProjectGroupComputationService filtering', () => {
       location: 'all' as const,
       projectMatches: false,
       collapsed: new Set<string>(),
+      collapsedHistoryParentIds: new Set<string>(),
+      historySortMode: 'last-interacted' as const,
       childrenByParent: new Map<string, string[]>(),
       activityCutoff: null,
     };
@@ -185,22 +190,16 @@ describe('ProjectGroupComputationService filtering', () => {
     const busy = makeInstance({ id: 'busy-1', status: 'busy' });
     const busyItems = service.buildVisibleItems(
       busy,
-      { ...baseContext, status: 'active', instanceMap: new Map([[busy.id, busy]]) },
-      0,
-      [],
-      true
+      { ...baseContext, status: 'active', instanceMap: new Map([[busy.id, busy]]) }
     );
-    expect(busyItems.map((item) => item.instance.id)).toEqual(['busy-1']);
+    expect(busyItems?.instance.id).toBe('busy-1');
 
     const idle = makeInstance({ id: 'idle-1', status: 'idle' });
     const idleItems = service.buildVisibleItems(
       idle,
-      { ...baseContext, status: 'active', instanceMap: new Map([[idle.id, idle]]) },
-      0,
-      [],
-      true
+      { ...baseContext, status: 'active', instanceMap: new Map([[idle.id, idle]]) }
     );
-    expect(idleItems).toEqual([]);
+    expect(idleItems).toBeNull();
   });
 
   it('keeps an idle parent visible when a child is active under the active filter', () => {
@@ -212,6 +211,8 @@ describe('ProjectGroupComputationService filtering', () => {
       location: 'all' as const,
       projectMatches: false,
       collapsed: new Set<string>(),
+      collapsedHistoryParentIds: new Set<string>(),
+      historySortMode: 'last-interacted' as const,
       childrenByParent: new Map<string, string[]>([['parent-1', ['child-1']]]),
       instanceMap: new Map([
         [parent.id, parent],
@@ -220,8 +221,13 @@ describe('ProjectGroupComputationService filtering', () => {
       activityCutoff: null,
     };
 
-    const items = service.buildVisibleItems(parent, context, 0, [], true);
-    expect(items.map((item) => item.instance.id)).toEqual(['parent-1', 'child-1']);
+    const items = service.buildVisibleItems(parent, context);
+    expect(items?.instance.id).toBe('parent-1');
+    expect(items?.children).toHaveLength(1);
+    expect(items?.children[0]?.kind).toBe('live');
+    if (items?.children[0]?.kind === 'live') {
+      expect(items.children[0].instance.id).toBe('child-1');
+    }
   });
 
   it('keeps a parent visible and expandable when a matching completed child is nested under it', () => {
@@ -239,21 +245,68 @@ describe('ProjectGroupComputationService filtering', () => {
       location: 'all' as const,
       projectMatches: false,
       collapsed: new Set<string>(),
+      collapsedHistoryParentIds: new Set<string>(),
+      historySortMode: 'last-interacted' as const,
       childrenByParent: new Map<string, string[]>(),
-      childHistoryByParent: new Map<string, ConversationHistoryEntry[]>([
+      historyEntriesByParent: new Map<string, ConversationHistoryEntry[]>([
         ['parent-1', [childHistory]],
       ]),
       instanceMap: new Map([[parent.id, parent]]),
       activityCutoff: null,
     };
 
-    const items = service.buildVisibleItems(parent, context, 0, [], true);
+    const items = service.buildVisibleItems(parent, context);
 
-    expect(items).toHaveLength(1);
-    expect(items[0].instance.id).toBe('parent-1');
-    expect(items[0].hasChildren).toBe(true);
-    expect(items[0].childrenCount).toBe(1);
-    expect(items[0].historyChildren.map((entry) => entry.id)).toEqual(['child-history-1']);
+    expect(items?.instance.id).toBe('parent-1');
+    expect(items?.hasChildren).toBe(true);
+    expect(items?.childrenCount).toBe(1);
+    expect(items?.children).toHaveLength(1);
+    expect(items?.children[0]?.kind).toBe('history');
+    if (items?.children[0]?.kind === 'history') {
+      expect(items.children[0].entry.id).toBe('child-history-1');
+    }
+  });
+
+  it('keeps nested history descendants attached to a live parent', () => {
+    const parent = makeInstance({ id: 'parent-1', status: 'idle' });
+    const childHistory = makeHistoryEntry({
+      id: 'child-history-1',
+      originalInstanceId: 'child-original-1',
+      parentId: 'parent-1',
+      sessionId: 'child-session-1',
+    });
+    const grandchildHistory = makeHistoryEntry({
+      id: 'grandchild-history-1',
+      originalInstanceId: 'grandchild-original-1',
+      parentId: 'child-original-1',
+      sessionId: 'grandchild-session-1',
+    });
+    const context = {
+      filter: '',
+      status: 'all',
+      location: 'all' as const,
+      projectMatches: false,
+      collapsed: new Set<string>(),
+      collapsedHistoryParentIds: new Set<string>(),
+      historySortMode: 'last-interacted' as const,
+      childrenByParent: new Map<string, string[]>(),
+      historyEntriesByParent: new Map<string, ConversationHistoryEntry[]>([
+        ['parent-1', [childHistory]],
+        ['child-original-1', [grandchildHistory]],
+      ]),
+      instanceMap: new Map([[parent.id, parent]]),
+      activityCutoff: null,
+    };
+
+    const items = service.buildVisibleItems(parent, context);
+
+    expect(items?.childrenCount).toBe(1);
+    expect(items?.children).toHaveLength(1);
+    expect(items?.children[0]?.kind).toBe('history');
+    if (items?.children[0]?.kind === 'history') {
+      expect(items.children[0].entry.id).toBe('child-history-1');
+      expect(items.children[0].children.map((entry) => entry.entry.id)).toEqual(['grandchild-history-1']);
+    }
   });
 
   it('partitions history children by live/history parent and groups unresolved children as orphaned', () => {
@@ -303,6 +356,73 @@ describe('ProjectGroupComputationService filtering', () => {
     ]);
     expect(partition.orphanedChildEntries.map((entry) => entry.id)).toEqual([
       'orphaned-child-history-1',
+    ]);
+  });
+
+  it('collects nested history descendants under the visible root parent', () => {
+    const rootHistory = makeHistoryEntry({
+      id: 'root-history-1',
+      originalInstanceId: 'root-original-1',
+      parentId: null,
+      sessionId: 'root-session-1',
+    });
+    const childHistory = makeHistoryEntry({
+      id: 'child-history-1',
+      originalInstanceId: 'child-original-1',
+      parentId: 'root-original-1',
+      sessionId: 'child-session-1',
+    });
+    const grandchildHistory = makeHistoryEntry({
+      id: 'grandchild-history-1',
+      originalInstanceId: 'grandchild-original-1',
+      parentId: 'child-original-1',
+      sessionId: 'grandchild-session-1',
+    });
+
+    const collected = service.collectVisibleHistoryChildrenByParent(
+      [rootHistory],
+      new Map<string, ConversationHistoryEntry[]>([
+        ['root-original-1', [childHistory]],
+        ['child-original-1', [grandchildHistory]],
+      ])
+    );
+
+    expect(collected.get('root-original-1')?.map((entry) => entry.id)).toEqual([
+      'child-history-1',
+      'grandchild-history-1',
+    ]);
+  });
+
+  it('does not re-add an ancestor when history metadata contains a cycle', () => {
+    const rootHistory = makeHistoryEntry({
+      id: 'root-history-1',
+      originalInstanceId: 'root-original-1',
+      parentId: null,
+      sessionId: 'root-session-1',
+    });
+    const childHistory = makeHistoryEntry({
+      id: 'child-history-1',
+      originalInstanceId: 'child-original-1',
+      parentId: 'root-original-1',
+      sessionId: 'child-session-1',
+    });
+    const cyclicRootHistory = makeHistoryEntry({
+      id: 'root-cycle-history-1',
+      originalInstanceId: 'root-original-1',
+      parentId: 'child-original-1',
+      sessionId: 'root-cycle-session-1',
+    });
+
+    const collected = service.collectVisibleHistoryChildrenByParent(
+      [rootHistory],
+      new Map<string, ConversationHistoryEntry[]>([
+        ['root-original-1', [childHistory]],
+        ['child-original-1', [cyclicRootHistory]],
+      ])
+    );
+
+    expect(collected.get('root-original-1')?.map((entry) => entry.id)).toEqual([
+      'child-history-1',
     ]);
   });
 

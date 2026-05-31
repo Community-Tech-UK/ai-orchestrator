@@ -1,8 +1,11 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { BrowserAuditEntry } from '@contracts/types/browser';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BrowserPageComponent } from './browser-page.component';
 import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gateway-ipc.service';
+
+const now = 1_700_000_000_000;
 
 const gatewayResult = <T>(data: T) => ({
   success: true,
@@ -40,6 +43,9 @@ describe('BrowserPageComponent', () => {
   let router: { navigate: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
     service = {
       listProfiles: vi.fn().mockResolvedValue(gatewayResult([
         {
@@ -168,18 +174,14 @@ describe('BrowserPageComponent', () => {
       revokeGrant: vi.fn().mockResolvedValue(gatewayResult({ id: 'grant-1', revokedAt: 2 })),
       createGrant: vi.fn().mockResolvedValue(gatewayResult({ id: 'grant-created' })),
       getAuditLog: vi.fn().mockResolvedValue(gatewayResult([
-        {
+        auditEntry({
           id: 'audit-1',
-          provider: 'orchestrator',
           action: 'navigate',
           toolName: 'browser.navigate',
           actionClass: 'navigate',
-          decision: 'allowed',
-          outcome: 'succeeded',
           summary: 'Navigated',
-          redactionApplied: true,
-          createdAt: 1,
-        },
+          createdAt: now - 60_000,
+        }),
       ])),
       getHealth: vi.fn().mockResolvedValue(gatewayResult({
         status: 'ready',
@@ -223,6 +225,10 @@ describe('BrowserPageComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('renders Browser Gateway profiles', () => {
@@ -355,6 +361,42 @@ describe('BrowserPageComponent', () => {
     expect(text).toContain('succeeded');
   });
 
+  it('hides stale audit entries by default while keeping them available in history', () => {
+    fixture.componentInstance.auditEntries.set([
+      auditEntry({
+        id: 'recent-audit',
+        action: 'snapshot',
+        toolName: 'browser.snapshot',
+        actionClass: 'read',
+        summary: 'Captured a fresh snapshot',
+        createdAt: now - 60_000,
+      }),
+      auditEntry({
+        id: 'old-audit',
+        action: 'attach_existing_tab',
+        toolName: 'browser.extension_attach_tab',
+        actionClass: 'read',
+        summary: 'Attached an old Chrome tab',
+        createdAt: now - 3_600_000,
+      }),
+    ]);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Captured a fresh snapshot');
+    expect(fixture.nativeElement.textContent).not.toContain('Attached an old Chrome tab');
+
+    const toggle = fixture.nativeElement.querySelector(
+      '[data-testid="audit-history-toggle"]',
+    ) as HTMLButtonElement;
+    expect(toggle.textContent).toContain('Older events');
+    expect(toggle.textContent).toContain('1');
+
+    toggle.click();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Attached an old Chrome tab');
+  });
+
   it('renders pending approvals and active autonomous grants', () => {
     const text = fixture.nativeElement.textContent;
 
@@ -454,4 +496,20 @@ describe('BrowserPageComponent', () => {
 
 function inputEvent(value: string): Event {
   return { target: { value } } as unknown as Event;
+}
+
+function auditEntry(overrides: Partial<BrowserAuditEntry>): BrowserAuditEntry {
+  return {
+    id: 'audit',
+    provider: 'orchestrator',
+    action: 'navigate',
+    toolName: 'browser.navigate',
+    actionClass: 'navigate',
+    decision: 'allowed',
+    outcome: 'succeeded',
+    summary: 'Audit entry',
+    redactionApplied: true,
+    createdAt: now,
+    ...overrides,
+  };
 }

@@ -6,6 +6,7 @@ import type {
   ChatProvider,
   ChatRecord,
 } from '../../../../../shared/types/chat.types';
+import type { ConversationMessagePage } from '../../../../../shared/types/conversation-ledger.types';
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
 import type { FileAttachment } from '../../../../../shared/types/instance.types';
 import {
@@ -89,6 +90,21 @@ export class ChatIpcService {
       return { success: false, error: { message: 'Not in Electron' } };
     }
     return this.api.chatSetYolo({ chatId, yolo }) as Promise<IpcResponse<ChatDetail>>;
+  }
+
+  async loadOlderMessages(
+    chatId: string,
+    beforeSequence: number,
+    limit?: number,
+  ): Promise<IpcResponse<ConversationMessagePage>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.chatLoadOlderMessages({
+      chatId,
+      beforeSequence,
+      limit,
+    }) as Promise<IpcResponse<ConversationMessagePage>>;
   }
 
   async sendMessage(

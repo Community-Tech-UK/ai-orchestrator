@@ -6,6 +6,7 @@
   "scripts": {
     "start": "ng serve",
     "build": "ng build",
+    "lint": "npx eslint \"src/**/*.{ts,html}\"",
     "typecheck": "tsc -p tsconfig.app.json --noEmit",
     "sync": "npm run build && npx cap sync ios",
     "ios": "npm run sync && npx cap open ios"

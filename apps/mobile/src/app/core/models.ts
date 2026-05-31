@@ -40,17 +40,32 @@ export interface MobileMessageDto {
   hasAttachments?: boolean;
 }
 
+export type MobileUserActionRequestType =
+  | 'switch_mode'
+  | 'approve_action'
+  | 'confirm'
+  | 'select_option'
+  | 'ask_questions';
+
+export interface MobilePromptOptionDto {
+  id: string;
+  label: string;
+  description?: string;
+}
+
 /** A pending "needs you" prompt — a deferred permission or an orchestration question. */
 export interface MobilePromptDto {
   id: string;
   instanceId: string;
   requestId: string;
   kind: 'permission' | 'user-action';
+  requestType?: MobileUserActionRequestType;
   toolName?: string;
   toolInput?: Record<string, unknown>;
   title: string;
   message: string;
-  options?: string[];
+  options?: MobilePromptOptionDto[];
+  questions?: string[];
   createdAt: number;
 }
 
@@ -92,6 +107,7 @@ export interface MobileRespondRequest {
   requestId: string;
   decisionAction: 'allow' | 'deny';
   decisionScope?: 'once' | 'session' | 'always';
+  /** select_option id or ask_questions JSON payload. */
   response?: string;
 }
 

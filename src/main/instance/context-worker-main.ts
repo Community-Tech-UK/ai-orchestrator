@@ -28,6 +28,12 @@ import { InstanceContextManager } from './instance-context';
 import { getWakeContextBuilder } from '../memory/wake-context-builder';
 import { buildMcpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-context';
 import { RLMDatabase } from '../persistence/rlm-database';
+import { getPolicyAdapter } from '../observation/policy-adapter';
+import {
+  loadHabitTrackerStateSnapshot,
+  loadMetricsCollectorStateSnapshot,
+  loadOutcomeTrackerStateSnapshot,
+} from '../learning/learning-state-snapshots';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type {
   ContextWorkerInboundMsg,
@@ -183,6 +189,22 @@ async function handleMessage(msg: ContextWorkerInboundMsg): Promise<void> {
       break;
     }
 
+    case 'build-observation-context': {
+      try {
+        respond(
+          msg.id,
+          await getPolicyAdapter().buildObservationContext(
+            msg.taskContext,
+            msg.instanceId,
+            msg.taskType,
+          ),
+        );
+      } catch {
+        respond(msg.id, null);
+      }
+      break;
+    }
+
     case 'build-mcp-runtime-tool-context': {
       try {
         respond(
@@ -192,6 +214,33 @@ async function handleMessage(msg: ContextWorkerInboundMsg): Promise<void> {
             maxTools: msg.maxTools,
           }),
         );
+      } catch {
+        respond(msg.id, null);
+      }
+      break;
+    }
+
+    case 'load-outcome-tracker-state': {
+      try {
+        respond(msg.id, loadOutcomeTrackerStateSnapshot(msg.maxExperiences));
+      } catch {
+        respond(msg.id, null);
+      }
+      break;
+    }
+
+    case 'load-metrics-collector-state': {
+      try {
+        respond(msg.id, loadMetricsCollectorStateSnapshot());
+      } catch {
+        respond(msg.id, null);
+      }
+      break;
+    }
+
+    case 'load-habit-tracker-state': {
+      try {
+        respond(msg.id, loadHabitTrackerStateSnapshot(msg.trackingWindowDays));
       } catch {
         respond(msg.id, null);
       }

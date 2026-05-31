@@ -11,7 +11,10 @@ import type {
   ChatSendMessageInput,
 } from '../../shared/types/chat.types';
 import type { ReasoningEffort } from '../../shared/types/provider.types';
-import type { ConversationMessageRecord } from '../../shared/types/conversation-ledger.types';
+import type {
+  ConversationMessagePage,
+  ConversationMessageRecord,
+} from '../../shared/types/conversation-ledger.types';
 import type { ConversationLedgerService } from '../conversation-ledger';
 import {
   getConversationLedgerService,
@@ -31,6 +34,9 @@ const logger = getLogger('ChatService');
 const UNTITLED_CHAT = 'Untitled chat';
 const REPLAY_TURN_PAIR_LIMIT = 10;
 const REPLAY_CHAR_BUDGET = 24_000;
+const CHAT_DETAIL_MESSAGE_LIMIT = 200;
+const CHAT_LOAD_OLDER_LIMIT = 200;
+const CHAT_REPLAY_MESSAGE_LIMIT = (REPLAY_TURN_PAIR_LIMIT * 2) + 2;
 
 export interface ChatServiceConfig {
   db?: SqliteDriver;
@@ -78,6 +84,10 @@ export class ChatService {
     return this.instance;
   }
 
+  static getIfInitialized(): ChatService | null {
+    return this.instance;
+  }
+
   static _resetForTesting(): void {
     this.instance?.dispose();
     this.instance = null;
@@ -99,7 +109,7 @@ export class ChatService {
   /** Drain the transcript bridge's pending writes immediately (tests/shutdown).
    *  Normally writes flush on a short timer off the event hot path. */
   async flushTranscript(): Promise<void> {
-    await this.bridge.flush();
+    await this.bridge.drainForShutdown();
   }
 
   constructor(config: ChatServiceConfig) {
@@ -152,6 +162,19 @@ export class ChatService {
     return this.detailFor(this.requireChat(chatId));
   }
 
+  async loadOlderMessages(
+    chatId: string,
+    options: { beforeSequence: number; limit?: number },
+  ): Promise<ConversationMessagePage> {
+    this.initialize();
+    const chat = this.requireChat(chatId);
+    return this.ledger.getConversationPageBefore(
+      chat.ledgerThreadId,
+      options.beforeSequence,
+      Math.max(1, Math.min(options.limit ?? CHAT_LOAD_OLDER_LIMIT, 500)),
+    );
+  }
+
   async createChat(input: ChatCreateInput): Promise<ChatDetail> {
     this.initialize();
     const id = randomUUID();
@@ -192,13 +215,18 @@ export class ChatService {
     return this.detailFor(chat);
   }
 
-  archiveChat(chatId: string): ChatRecord {
+  async archiveChat(chatId: string): Promise<ChatRecord> {
     this.initialize();
+    const existing = this.requireChat(chatId);
+    const previousInstanceId = await this.terminateRuntimeIfRunning(existing, 'archive');
     const chat = this.store.update(chatId, {
       currentInstanceId: null,
       archivedAt: Date.now(),
       lastActiveAt: Date.now(),
     });
+    if (previousInstanceId) {
+      this.emit({ type: 'runtime-cleared', chatId: chat.id, previousInstanceId, chat });
+    }
     this.emit({ type: 'chat-archived', chatId: chat.id });
     return chat;
   }
@@ -206,8 +234,7 @@ export class ChatService {
   async setProvider(chatId: string, provider: ChatProvider): Promise<ChatDetail> {
     this.initialize();
     const chat = this.requireChat(chatId);
-    const messages = (await this.ledger.getConversation(chat.ledgerThreadId)).messages;
-    if (chat.provider && messages.length > 0) {
+    if (chat.provider && await this.ledger.hasMessages(chat.ledgerThreadId)) {
       throw new Error('Chat provider can only be changed before the first message');
     }
     const previousInstanceId = await this.terminateRuntimeIfRunning(chat, 'provider');
@@ -272,21 +299,14 @@ export class ChatService {
     const previousCwd = chat.currentCwd;
     addAllowedRoot(cwd);
     if (previousInstanceId) {
-      this.bridge.unlink(previousInstanceId);
-      await this.instanceManager.terminateInstance(previousInstanceId, true).catch((error) => {
-        logger.warn('Failed to terminate old chat runtime during cwd switch', {
-          chatId,
-          previousInstanceId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
+      await this.terminateRuntime(chat, previousInstanceId, 'cwd');
     }
     const updated = this.store.update(chat.id, {
       currentCwd: cwd,
       currentInstanceId: null,
       lastActiveAt: Date.now(),
     });
-    await this.ledger.appendMessage(updated.ledgerThreadId, {
+    await this.ledger.appendMessageReturningRecord(updated.ledgerThreadId, {
       nativeMessageId: `chat-cwd-switch:${Date.now()}:${randomUUID()}`,
       nativeTurnId: `chat-cwd-switch:${randomUUID()}`,
       role: 'system',
@@ -323,19 +343,22 @@ export class ChatService {
     const workingChat = named
       ? this.store.update(chat.id, { name: named, lastActiveAt: Date.now() })
       : chat;
-    const conversation = await this.ledger.appendMessage(workingChat.ledgerThreadId, createUserLedgerMessage({
+    const appended = await this.ledger.appendMessageReturningRecord(workingChat.ledgerThreadId, createUserLedgerMessage({
       text,
       chatId: workingChat.id,
       attachments: input.attachments,
     }));
+    const replayMessages = (await this.ledger.getRecentConversation(
+      workingChat.ledgerThreadId,
+      CHAT_REPLAY_MESSAGE_LIMIT,
+    )).messages;
     const instance = await this.ensureRuntime(workingChat);
-    const messageForRuntime = this.withReplayIfNeeded(workingChat, conversation, text);
+    const messageForRuntime = this.withReplayIfNeeded(workingChat, replayMessages, text);
     await this.instanceManager.sendInput(instance.id, messageForRuntime, input.attachments);
     const updated = this.store.update(workingChat.id, {
       currentInstanceId: instance.id,
       lastActiveAt: Date.now(),
     });
-    const appended = conversation.messages[conversation.messages.length - 1];
     this.emitAppended(updated, appended ? [appended] : []);
     return this.detailFor(updated);
   }
@@ -353,7 +376,7 @@ export class ChatService {
       ? this.store.update(chat.id, { name: autoNamed, lastActiveAt: Date.now() })
       : chat;
 
-    const conversation = await this.ledger.appendMessage(workingChat.ledgerThreadId, {
+    const appended = await this.ledger.appendMessageReturningRecord(workingChat.ledgerThreadId, {
       nativeMessageId: input.nativeMessageId,
       nativeTurnId: input.nativeTurnId,
       role: input.role ?? 'system',
@@ -366,7 +389,6 @@ export class ChatService {
       rawJson: input.metadata ? { metadata: input.metadata } : null,
       sourceChecksum: null,
     });
-    const appended = conversation.messages[conversation.messages.length - 1];
     const updated = this.store.update(workingChat.id, { lastActiveAt: Date.now() });
     if (autoNamed) {
       this.emit({ type: 'chat-updated', chatId: updated.id, chat: updated });
@@ -387,25 +409,36 @@ export class ChatService {
 
   private async terminateRuntimeIfRunning(
     chat: ChatRecord,
-    reason: 'provider' | 'model' | 'reasoning',
+    reason: 'provider' | 'model' | 'reasoning' | 'archive',
   ): Promise<string | null> {
     const previousInstanceId = chat.currentInstanceId;
     if (!previousInstanceId) {
       return null;
     }
-    this.bridge.unlink(previousInstanceId);
-    const inst = this.instanceManager.getInstance(previousInstanceId);
+    await this.terminateRuntime(chat, previousInstanceId, reason);
+    return previousInstanceId;
+  }
+
+  private async terminateRuntime(
+    chat: ChatRecord,
+    instanceId: string,
+    reason: 'provider' | 'model' | 'reasoning' | 'archive' | 'cwd',
+  ): Promise<void> {
+    const inst = this.instanceManager.getInstance(instanceId);
     if (inst && inst.status !== 'terminated') {
-      await this.instanceManager.terminateInstance(previousInstanceId, true).catch((error) => {
-        logger.warn('Failed to terminate chat runtime during config switch', {
+      try {
+        await this.instanceManager.terminateInstance(instanceId, true);
+      } catch (error) {
+        logger.warn('Failed to terminate chat runtime during transition', {
           chatId: chat.id,
-          previousInstanceId,
+          instanceId,
           reason,
           error: error instanceof Error ? error.message : String(error),
         });
-      });
+        throw error;
+      }
     }
-    return previousInstanceId;
+    await this.bridge.flushAndUnlink(instanceId);
   }
 
   private async ensureRuntime(chat: ChatRecord): Promise<Instance> {
@@ -443,10 +476,10 @@ export class ChatService {
 
   private withReplayIfNeeded(
     chat: ChatRecord,
-    conversation: ChatDetail['conversation'],
+    messages: ConversationMessageRecord[],
     text: string,
   ): string {
-    const messagesBeforeCurrent = conversation.messages.slice(0, -1);
+    const messagesBeforeCurrent = messages.slice(0, -1);
     const last = messagesBeforeCurrent[messagesBeforeCurrent.length - 1];
     const metadata = last?.rawJson?.['metadata'];
     if (
@@ -473,7 +506,10 @@ export class ChatService {
       : null;
     return {
       chat,
-      conversation: await this.ledger.getConversation(chat.ledgerThreadId),
+      conversation: await this.ledger.getRecentConversation(
+        chat.ledgerThreadId,
+        CHAT_DETAIL_MESSAGE_LIMIT,
+      ),
       currentInstance,
     };
   }
@@ -556,6 +592,10 @@ export class ChatService {
 
 export function getChatService(config: ChatServiceConfig): ChatService {
   return ChatService.getInstance(config);
+}
+
+export function getChatServiceIfInitialized(): ChatService | null {
+  return ChatService.getIfInitialized();
 }
 
 function normalizeChatName(name: string | undefined): string {

@@ -310,7 +310,7 @@ export class SessionContinuityManager extends EventEmitter {
       getDirtyIds: () => this.dirty,
       hasDirty: (instanceId) => this.dirty.has(instanceId),
       isLocked: (instanceId) => getSessionMutex().isLocked(instanceId),
-      saveState: (instanceId) => this.saveStateAsync(instanceId),
+      saveState: (instanceId) => this.queueStateSaveAsync(instanceId),
       onSaveError: (instanceId, error) => {
         logger.error('Auto-save failed', error instanceof Error ? error : undefined, { instanceId });
       },
@@ -1274,6 +1274,16 @@ export class SessionContinuityManager extends EventEmitter {
   /**
    * Async save with atomic write (tmp → fsync → rename → fsync parent)
    */
+  private queueStateSaveAsync(instanceId: string): Promise<void> {
+    return getSessionPersistenceQueue().enqueueSaveAndWait(
+      instanceId,
+      () => this.saveStateAsync(instanceId),
+      (error) => {
+        logger.error('Queued session save failed', error instanceof Error ? error : undefined, { instanceId });
+      },
+    );
+  }
+
   private async saveStateAsync(instanceId: string): Promise<void> {
     const trackedState = this.sessionStates.get(instanceId);
     if (!trackedState) return;

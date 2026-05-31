@@ -16,6 +16,9 @@ import { EventEmitter } from 'events';
 import * as crypto from 'crypto';
 import { RLMDatabase, getRLMDatabase } from '../persistence/rlm-database';
 import { getLogger } from '../logging/logger';
+import { loadHabitTrackerStateFromWorker } from './learning-state-loader';
+import { loadHabitTrackerStateSnapshot } from './learning-state-snapshots';
+import type { HabitTrackerStateSnapshot } from './learning-state.types';
 
 const logger = getLogger('HabitTracker');
 
@@ -97,6 +100,7 @@ export class HabitTracker extends EventEmitter {
   private config: HabitTrackerConfig;
   private db: RLMDatabase | null = null;
   private persistenceEnabled = true;
+  private hydrationPromise: Promise<void> | null = null;
 
   private defaultConfig: HabitTrackerConfig = {
     minObservations: 5,
@@ -131,7 +135,7 @@ export class HabitTracker extends EventEmitter {
     try {
       this.db = getRLMDatabase();
       this.ensureTables();
-      this.loadFromPersistence();
+      this.startBackgroundHydration();
       this.emit('persistence:initialized', { success: true });
     } catch (error) {
       logger.error('Failed to initialize persistence', error instanceof Error ? error : undefined);
@@ -189,52 +193,43 @@ export class HabitTracker extends EventEmitter {
    */
   private loadFromPersistence(): void {
     if (!this.db) return;
+    this.applyPersistenceSnapshot(
+      loadHabitTrackerStateSnapshot(this.config.trackingWindow, this.db),
+    );
+  }
 
-    const db = (this.db as any).db;
-    if (!db) return;
-
-    const cutoff = Date.now() - this.config.trackingWindow * 24 * 60 * 60 * 1000;
-    const actionStmt = db.prepare(`
-      SELECT * FROM user_actions
-      WHERE timestamp > ?
-      ORDER BY timestamp DESC
-      LIMIT 1000
-    `);
-    const actionRows = actionStmt.all(cutoff);
-
-    for (const row of actionRows) {
-      const action: UserAction = {
-        id: row.id,
-        type: row.type,
-        action: row.action,
-        timestamp: row.timestamp,
-        context: row.context_json ? JSON.parse(row.context_json) : {},
-        metadata: row.metadata_json ? JSON.parse(row.metadata_json) : undefined,
-      };
-      this.actions.push(action);
+  private startBackgroundHydration(): void {
+    if (!this.db || this.hydrationPromise) {
+      return;
     }
+    this.hydrationPromise = (async () => {
+      const snapshot = await loadHabitTrackerStateFromWorker(this.config.trackingWindow);
+      if (snapshot) {
+        this.applyPersistenceSnapshot(snapshot);
+        return;
+      }
+      this.loadFromPersistence();
+    })().catch((error) => {
+      logger.error('Failed to hydrate habit tracker state', error instanceof Error ? error : undefined);
+    });
+  }
 
-    const habitStmt = db.prepare(`SELECT * FROM user_habits ORDER BY confidence DESC`);
-    const habitRows = habitStmt.all();
-
-    for (const row of habitRows) {
-      const habit: UserHabit = {
-        id: row.id,
-        type: row.type as HabitType,
-        pattern: row.pattern,
-        frequency: row.frequency,
-        confidence: row.confidence,
-        context: row.context_json ? JSON.parse(row.context_json) : {},
-        observations: row.observations,
-        lastObserved: row.last_observed,
-        firstObserved: row.first_observed,
-      };
-      this.habits.set(habit.id, habit);
+  private applyPersistenceSnapshot(snapshot: HabitTrackerStateSnapshot): void {
+    const actionsById = new Map(snapshot.actions.map((action) => [action.id, action]));
+    for (const action of this.actions) {
+      actionsById.set(action.id, action);
     }
+    this.actions = Array.from(actionsById.values()).sort((left, right) => right.timestamp - left.timestamp);
+
+    const mergedHabits = new Map(snapshot.habits.map((habit) => [habit.id, habit] as const));
+    for (const [key, habit] of this.habits) {
+      mergedHabits.set(key, habit);
+    }
+    this.habits = mergedHabits;
 
     this.emit('persistence:loaded', {
-      actions: actionRows.length,
-      habits: habitRows.length,
+      actions: snapshot.actions.length,
+      habits: snapshot.habits.length,
     });
   }
 

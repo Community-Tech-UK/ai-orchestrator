@@ -771,6 +771,7 @@ export class InputPanelComponent implements OnDestroy {
       URL.revokeObjectURL(url);
     }
     this.filePreviewUrls.clear();
+    this.keybindingService.setContext('global');
     this.voice.stop();
   }
 

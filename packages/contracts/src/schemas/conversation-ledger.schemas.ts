@@ -35,6 +35,7 @@ export const ConversationLedgerListPayloadSchema = z.object({
 
 export const ConversationLedgerThreadIdPayloadSchema = z.object({
   threadId: z.string().min(1),
+  limit: z.number().int().positive().max(1000).optional(),
 });
 
 export const ConversationLedgerDiscoverPayloadSchema = z.object({

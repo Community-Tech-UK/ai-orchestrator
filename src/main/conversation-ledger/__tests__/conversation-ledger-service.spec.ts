@@ -88,6 +88,44 @@ describe('ConversationLedgerService', () => {
     });
   });
 
+  it('returns recent windows and older-message pages with window metadata', async () => {
+    const service = new ConversationLedgerService({
+      dbPath: ':memory:',
+      enableWAL: false,
+      registry: new NativeConversationRegistry(),
+    });
+    services.push(service);
+
+    const thread = await service.startConversation({
+      provider: 'orchestrator',
+      workspacePath: '/tmp/project',
+      title: 'Paged',
+    });
+
+    for (let index = 1; index <= 5; index += 1) {
+      await service.appendMessage(thread.id, {
+        role: index % 2 === 0 ? 'assistant' : 'user',
+        content: `message-${index}`,
+        createdAt: index,
+      });
+    }
+
+    const recent = await service.getRecentConversation(thread.id, 2);
+    expect(recent.messages.map((message) => message.sequence)).toEqual([4, 5]);
+    expect(recent.window).toEqual({
+      totalMessages: 5,
+      hasOlder: true,
+      oldestSequence: 4,
+      newestSequence: 5,
+    });
+
+    const older = await service.getConversationPageBefore(thread.id, 4, 2);
+    expect(older.messages.map((message) => message.sequence)).toEqual([2, 3]);
+    expect(older.totalMessages).toBe(5);
+    expect(older.hasMore).toBe(true);
+    expect(older.nextBeforeSequence).toBe(2);
+  });
+
   function createService(adapter: FakeAdapter): ConversationLedgerService {
     const service = new ConversationLedgerService({
       dbPath: ':memory:',

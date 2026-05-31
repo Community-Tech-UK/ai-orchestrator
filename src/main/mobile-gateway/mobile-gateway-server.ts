@@ -62,6 +62,10 @@ interface EmitterLike {
   removeListener(event: string, listener: (...args: unknown[]) => void): unknown;
 }
 
+interface GatewayOrchestrationSource extends EmitterLike {
+  respondToUserAction(requestId: string, approved: boolean, selectedOption?: string): void;
+}
+
 /** Minimal pause-coordinator surface the gateway uses. */
 export interface GatewayPauseSource extends EmitterLike {
   toPayload(): MobilePauseDto;
@@ -156,7 +160,7 @@ export interface GatewayInstanceSource extends EmitterLike {
   clearPendingInputRequiredPermission(instanceId: string, requestId: string): void;
   renameInstance(instanceId: string, displayName: string): void;
   createInstance(config: InstanceCreateConfig): Promise<Instance>;
-  getOrchestrationHandler(): EmitterLike;
+  getOrchestrationHandler(): GatewayOrchestrationSource;
 }
 
 export interface MobileGatewayDeps {
@@ -670,10 +674,11 @@ export class MobileGatewayServer {
     const r = request as {
       id: string;
       instanceId: string;
+      requestType?: unknown;
       title?: string;
       message?: string;
-      options?: { label: string }[];
-      questions?: string[];
+      options?: { id: string; label: string; description?: string }[];
+      questions?: unknown;
       createdAt?: number;
     };
     if (!r?.id || !r?.instanceId) return;
@@ -682,9 +687,31 @@ export class MobileGatewayServer {
       instanceId: r.instanceId,
       requestId: r.id,
       kind: 'user-action',
+      requestType:
+        r.requestType === 'switch_mode' ||
+        r.requestType === 'approve_action' ||
+        r.requestType === 'confirm' ||
+        r.requestType === 'select_option' ||
+        r.requestType === 'ask_questions'
+          ? r.requestType
+          : undefined,
       title: r.title || 'Input needed',
       message: r.message || 'An AI instance is waiting for your response.',
-      options: r.options?.map((o) => o.label) ?? r.questions,
+      options: Array.isArray(r.options)
+        ? r.options
+            .filter(
+              (o): o is { id: string; label: string; description?: string } =>
+                Boolean(o) && typeof o.id === 'string' && typeof o.label === 'string',
+            )
+            .map((o) => ({
+              id: o.id,
+              label: o.label,
+              description: typeof o.description === 'string' ? o.description : undefined,
+            }))
+        : undefined,
+      questions: Array.isArray(r.questions)
+        ? r.questions.filter((q): q is string => typeof q === 'string')
+        : undefined,
       createdAt: r.createdAt || Date.now(),
     });
   }
@@ -1024,6 +1051,7 @@ export class MobileGatewayServer {
       requestId?: unknown;
       decisionAction?: unknown;
       decisionScope?: unknown;
+      response?: unknown;
     };
     const requestId = typeof body.requestId === 'string' ? body.requestId : '';
     const decisionAction = body.decisionAction === 'allow' || body.decisionAction === 'deny'
@@ -1038,7 +1066,21 @@ export class MobileGatewayServer {
       return;
     }
 
+    const prompt = this.prompts.get(requestId);
+    if (!prompt || prompt.instanceId !== instanceId) {
+      this.sendJson(res, 404, { error: 'Prompt not found' });
+      return;
+    }
+
     const approved = decisionAction === 'allow';
+    if (prompt.kind === 'user-action') {
+      const response = typeof body.response === 'string' ? body.response : undefined;
+      this.source().getOrchestrationHandler().respondToUserAction(requestId, approved, response);
+      this.clearPrompt(requestId);
+      this.sendJson(res, 200, { ok: true, responded: true });
+      return;
+    }
+
     await this.source().resumeAfterDeferredPermission(instanceId, approved);
     if (decisionScope) {
       this.source().recordInputRequiredPermissionDecision({

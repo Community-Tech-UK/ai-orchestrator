@@ -10,6 +10,11 @@ import type {
   MCPToolSearchSnapshot,
   McpRuntimeToolContextSelection,
 } from '../mcp/mcp-runtime-tool-context';
+import type {
+  HabitTrackerStateSnapshot,
+  MetricsCollectorStateSnapshot,
+  OutcomeTrackerStateSnapshot,
+} from '../learning/learning-state.types';
 
 // ── Clone-safe snapshots ──────────────────────────────────────────────────────
 
@@ -63,12 +68,37 @@ export interface BuildWakeContextTextMsg {
   bypassCache?: boolean;
 }
 
+export interface BuildObservationContextMsg {
+  type: 'build-observation-context';
+  id: number;
+  taskContext: string;
+  instanceId?: string;
+  taskType?: string;
+}
+
 export interface BuildMcpRuntimeToolContextMsg {
   type: 'build-mcp-runtime-tool-context';
   id: number;
   snapshot: MCPToolSearchSnapshot;
   query?: string;
   maxTools?: number;
+}
+
+export interface LoadOutcomeTrackerStateMsg {
+  type: 'load-outcome-tracker-state';
+  id: number;
+  maxExperiences: number;
+}
+
+export interface LoadMetricsCollectorStateMsg {
+  type: 'load-metrics-collector-state';
+  id: number;
+}
+
+export interface LoadHabitTrackerStateMsg {
+  type: 'load-habit-tracker-state';
+  id: number;
+  trackingWindowDays: number;
 }
 
 export interface CompactContextMsg {
@@ -117,8 +147,12 @@ export type ContextWorkerRpcMsg =
   | InitializeRlmMsg
   | BuildRlmContextMsg
   | BuildUnifiedMemoryContextMsg
+  | BuildObservationContextMsg
   | BuildWakeContextTextMsg
   | BuildMcpRuntimeToolContextMsg
+  | LoadOutcomeTrackerStateMsg
+  | LoadMetricsCollectorStateMsg
+  | LoadHabitTrackerStateMsg
   | CompactContextMsg
   | IngestInitialOutputMsg
   | GetStatsMsg
@@ -148,4 +182,10 @@ export interface WorkerRpcResponseMsg {
 
 export type ContextWorkerOutboundMsg = WorkerReadyMsg | WorkerRpcResponseMsg;
 
-export type { MCPToolSearchSnapshot, McpRuntimeToolContextSelection };
+export type {
+  HabitTrackerStateSnapshot,
+  MCPToolSearchSnapshot,
+  McpRuntimeToolContextSelection,
+  MetricsCollectorStateSnapshot,
+  OutcomeTrackerStateSnapshot,
+};

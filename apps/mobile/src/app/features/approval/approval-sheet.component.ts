@@ -1,16 +1,18 @@
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, input, output, signal } from '@angular/core';
 import type { MobilePromptDto } from '../../core/models';
 
 export type ApprovalScope = 'once' | 'session' | 'always';
 export interface ApprovalDecision {
   action: 'allow' | 'deny';
   scope: ApprovalScope;
+  response?: string;
 }
 
 /**
  * Bottom-sheet for the highest-value action: answering an agent's approval
- * prompt. Permission prompts get Allow/Deny + a scope segmented control;
- * orchestration questions show the message with an "Open session" deep-link.
+ * prompt. Permission prompts get Allow/Deny + a scope segmented control; user
+ * actions can now be answered directly from the phone instead of only deep-linking
+ * into the session.
  */
 @Component({
   standalone: true,
@@ -42,17 +44,55 @@ export interface ApprovalDecision {
       } @else {
         <h2 class="title">{{ prompt().title }}</h2>
         <p class="msg">{{ prompt().message }}</p>
-        @if (prompt().options?.length) {
-          <ul class="options">
-            @for (o of prompt().options; track o) {
-              <li>{{ o }}</li>
+        <button type="button" class="secondary-link" (click)="open.emit()">Open session</button>
+
+        @if (prompt().requestType === 'select_option' && prompt().options?.length) {
+          <div class="option-list">
+            @for (option of prompt().options; track option.id) {
+              <button type="button" class="option-button" (click)="submitOption(option.id)">
+                <span class="option-label">{{ option.label }}</span>
+                @if (option.description) {
+                  <span class="option-description">{{ option.description }}</span>
+                }
+              </button>
             }
-          </ul>
+          </div>
+          <div class="actions">
+            <button class="deny" (click)="dismiss.emit()">Later</button>
+          </div>
+        } @else if (prompt().requestType === 'ask_questions' && prompt().questions?.length) {
+          <div class="question-list">
+            @for (question of prompt().questions; track $index) {
+              <label class="question">
+                <span class="question-title">{{ question }}</span>
+                <textarea
+                  class="question-input"
+                  rows="3"
+                  [value]="answerFor($index)"
+                  (input)="updateAnswer($index, $event)"
+                ></textarea>
+              </label>
+            }
+          </div>
+          <div class="actions">
+            <button class="deny" (click)="dismiss.emit()">Later</button>
+            <button class="allow" [disabled]="!canSubmitAnswers()" (click)="submitAnswers()">
+              Send answers
+            </button>
+          </div>
+        } @else {
+          @if (prompt().options?.length) {
+            <ul class="options">
+              @for (option of prompt().options; track option.id) {
+                <li>{{ option.label }}</li>
+              }
+            </ul>
+          }
+          <div class="actions">
+            <button class="deny" (click)="decide('deny')">Deny</button>
+            <button class="allow" (click)="decide('allow')">Allow</button>
+          </div>
         }
-        <div class="actions">
-          <button class="deny" (click)="dismiss.emit()">Later</button>
-          <button class="allow" (click)="open.emit()">Open session</button>
-        </div>
       }
     </div>
   `,
@@ -76,7 +116,26 @@ export interface ApprovalDecision {
         white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow: auto; margin: 0 0 16px;
       }
       .msg { color: var(--text-secondary, #8e8e93); margin: 0 0 16px; }
+      .secondary-link {
+        border: none; background: transparent; color: var(--accent-online, #34c759);
+        padding: 0; margin: 0 0 16px; font-size: 14px; font-weight: 600; text-align: left;
+      }
       .options { margin: 0 0 16px; padding-left: 18px; color: var(--text); }
+      .option-list, .question-list { display: grid; gap: 12px; margin-bottom: 16px; }
+      .option-button {
+        display: grid; gap: 4px; width: 100%; text-align: left;
+        border: none; border-radius: 14px; padding: 14px 16px;
+        background: var(--surface-3, #2c2c2e); color: var(--text, #fff);
+      }
+      .option-label { font-size: 16px; font-weight: 600; }
+      .option-description { color: var(--text-secondary, #8e8e93); font-size: 13px; }
+      .question { display: grid; gap: 8px; }
+      .question-title { font-size: 14px; font-weight: 600; color: var(--text, #fff); }
+      .question-input {
+        width: 100%; border: none; border-radius: 12px; padding: 12px;
+        background: var(--bg, #000); color: var(--text, #fff); resize: vertical;
+        font: inherit;
+      }
       .scope { display: flex; gap: 6px; background: var(--bg, #000); border-radius: 10px; padding: 4px; margin-bottom: 16px; }
       .seg {
         flex: 1; border: none; background: transparent; color: var(--text-secondary, #8e8e93);
@@ -85,6 +144,7 @@ export interface ApprovalDecision {
       .seg.active { background: var(--surface-3, #2c2c2e); color: var(--text, #fff); }
       .actions { display: flex; gap: 12px; }
       .actions button { flex: 1; border: none; border-radius: 14px; padding: 16px; font-size: 17px; font-weight: 600; }
+      .actions button:disabled { opacity: 0.5; }
       .deny { background: var(--surface-3, #2c2c2e); color: var(--accent-error, #ff453a); }
       .allow { background: var(--accent-online, #34c759); color: #fff; }
     `,
@@ -98,6 +158,7 @@ export class ApprovalSheetComponent {
 
   protected readonly scopes: ApprovalScope[] = ['once', 'session', 'always'];
   protected readonly scope = signal<ApprovalScope>('once');
+  protected readonly answers = signal<Record<number, string>>({});
 
   protected readonly commandText = computed(() => {
     const args = this.prompt().toolInput;
@@ -111,7 +172,40 @@ export class ApprovalSheetComponent {
     }
   });
 
+  protected readonly canSubmitAnswers = computed(() =>
+    Object.values(this.answers()).some((answer) => answer.trim().length > 0),
+  );
+
+  constructor() {
+    effect(() => {
+      void this.prompt().id;
+      this.scope.set('once');
+      this.answers.set({});
+    });
+  }
+
   protected decide(action: 'allow' | 'deny'): void {
     this.decision.emit({ action, scope: this.scope() });
+  }
+
+  protected submitOption(optionId: string): void {
+    this.decision.emit({ action: 'allow', scope: 'once', response: optionId });
+  }
+
+  protected updateAnswer(index: number, event: Event): void {
+    const value = (event.target as HTMLTextAreaElement).value;
+    this.answers.update((current) => ({ ...current, [index]: value }));
+  }
+
+  protected submitAnswers(): void {
+    const questions = this.prompt().questions ?? [];
+    const response = JSON.stringify(
+      Object.fromEntries(questions.map((question, index) => [question, this.answers()[index] ?? ''])),
+    );
+    this.decision.emit({ action: 'allow', scope: 'once', response });
+  }
+
+  protected answerFor(index: number): string {
+    return this.answers()[index] ?? '';
   }
 }

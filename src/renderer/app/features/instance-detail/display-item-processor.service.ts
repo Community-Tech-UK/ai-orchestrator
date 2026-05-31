@@ -8,11 +8,14 @@
 
 import type { OutputMessage } from '../../core/state/instance/instance.types';
 import type { ThinkingContent } from '../../../../shared/types/instance.types';
+import type { CopilotPlanUpdate } from './copilot-plan-update';
+import { parseCopilotPlanUpdate } from './copilot-plan-update';
 
 export interface DisplayItem {
   id: string;
   type:
     | 'message'
+    | 'plan-update'
     | 'tool-group'
     | 'thought-group'
     | 'work-cycle'
@@ -21,6 +24,7 @@ export interface DisplayItem {
     | 'compaction-summary';
   message?: OutputMessage;
   renderedMessage?: unknown;  // SafeHtml at runtime, set by consuming component
+  planUpdate?: CopilotPlanUpdate;
   toolMessages?: OutputMessage[];
   thinking?: ThinkingContent[];
   thoughts?: string[];
@@ -256,6 +260,7 @@ export class DisplayItemProcessor {
 
       const interruptBoundary = this.getInterruptBoundary(msg);
       const compactionSummary = this.getCompactionSummary(msg);
+      const planUpdate = this.getPlanUpdate(msg);
       if (interruptBoundary) {
         items.push({
           id: `interrupt-${msg.id}`,
@@ -272,6 +277,15 @@ export class DisplayItemProcessor {
           message: msg,
           compactionSummary,
           timestamp: compactionSummary.at,
+          bufferIndex,
+        });
+      } else if (planUpdate) {
+        items.push({
+          id: `plan-${msg.id}`,
+          type: 'plan-update',
+          message: msg,
+          planUpdate,
+          timestamp: msg.timestamp,
           bufferIndex,
         });
       } else if (isStreaming) {
@@ -367,6 +381,10 @@ export class DisplayItemProcessor {
       message.content?.trim()
       || (message.attachments && message.attachments.length > 0),
     );
+  }
+
+  private getPlanUpdate(message: OutputMessage): CopilotPlanUpdate | null {
+    return parseCopilotPlanUpdate(message);
   }
 
   private getInterruptBoundary(message: OutputMessage): InterruptBoundaryDisplay | null {
@@ -467,6 +485,24 @@ export class DisplayItemProcessor {
       // System notices (restore warnings, compaction boundaries, etc.) should
       // always appear individually so they aren't mistaken for duplicated noise.
       if (
+        item.type === 'plan-update' &&
+        item.message &&
+        item.planUpdate
+      ) {
+        const candidateIdx = this.findLastNonEmptyItemIndex();
+        const candidate = candidateIdx >= 0 ? this.items[candidateIdx] : undefined;
+
+        if (candidate?.type === 'plan-update') {
+          this.dropTrailingEmptyMessages(candidateIdx);
+          this.replacePlanUpdate(candidate, item.message, item.planUpdate, item.bufferIndex);
+          continue;
+        }
+
+        this.items.push(item);
+        continue;
+      }
+
+      if (
         item.type === 'message' &&
         last?.type === 'message' &&
         item.message &&
@@ -531,6 +567,7 @@ export class DisplayItemProcessor {
 
   private getItemSenderType(item: DisplayItem): string | null {
     if (item.type === 'message' && item.message) return item.message.type;
+    if (item.type === 'plan-update') return null;
     if (item.type === 'thought-group') return null;
     if (item.type === 'tool-group') return 'tool';
     if (item.type === 'system-event-group') return 'system';
@@ -592,6 +629,18 @@ export class DisplayItemProcessor {
     group.groupPreview = buildSystemGroupPreview(message.content);
     group.timestamp = message.timestamp;
     group.bufferIndex = bufferIndex ?? group.bufferIndex;
+  }
+
+  private replacePlanUpdate(
+    item: DisplayItem,
+    message: OutputMessage,
+    planUpdate: CopilotPlanUpdate,
+    bufferIndex?: number,
+  ): void {
+    item.message = message;
+    item.planUpdate = planUpdate;
+    item.timestamp = message.timestamp;
+    item.bufferIndex = bufferIndex ?? item.bufferIndex;
   }
 
   private createSystemEventGroup(

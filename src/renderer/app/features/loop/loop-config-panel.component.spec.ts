@@ -47,6 +47,12 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.caps?.maxCostCents).toBe(1000);
   });
 
+  it('defaults the context recycle threshold to 60%', () => {
+    const config = component.buildConfig();
+
+    expect(config?.context?.compaction.resetAtUtilization).toBe(0.6);
+  });
+
   it('allows clearing the spend cap to null for an unbounded run', () => {
     component.maxDollars.set(null);
 
@@ -97,5 +103,55 @@ describe('LoopConfigPanelComponent', () => {
       timeoutSeconds: 90,
       reviewDepth: 'structured',
     });
+  });
+
+  it('emits semantic-progress config only when explicitly enabled', () => {
+    expect(component.buildConfig()?.semanticProgress).toBeUndefined();
+
+    component.semanticProgress.set(true);
+    fixture.detectChanges();
+
+    const config = component.buildConfig();
+
+    expect(config?.semanticProgress).toEqual({
+      enabled: true,
+      cadence: 5,
+      confidenceFloor: 0.6,
+    });
+  });
+
+  it('emits branch-select config only when explicitly enabled', () => {
+    expect(component.buildConfig()?.exploration).toBeUndefined();
+
+    component.branchSelect.set(true);
+    component.branchFanout.set(4);
+    fixture.detectChanges();
+
+    const config = component.buildConfig();
+
+    expect(config?.exploration).toEqual({
+      enabled: true,
+      fanout: 4,
+      crossModel: false,
+      selector: 'verify+listwise',
+    });
+  });
+
+  it('requires a spend cap before enabling branch-select on stuck', () => {
+    component.branchSelect.set(true);
+    component.maxDollars.set(null);
+    fixture.detectChanges();
+
+    expect(component.validationError()).toBe('Branch-select on stuck requires a spend cap ($). Set Max spend.');
+    expect(component.buildConfig()).toBeNull();
+  });
+
+  it('updates the compaction threshold in the emitted config', () => {
+    component.onCompactionThresholdPctChange(75);
+    fixture.detectChanges();
+
+    const config = component.buildConfig();
+
+    expect(config?.context?.compaction.resetAtUtilization).toBe(0.75);
   });
 });

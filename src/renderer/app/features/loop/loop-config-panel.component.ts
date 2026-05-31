@@ -19,8 +19,8 @@ const DEFAULT_COMPLETION = {
   quickVerifyTimeoutMs: 120_000,
 };
 /** Mirrors defaultLoopConfig().progressThresholds. We only ever ship this
- *  to the main process when the user opts into a non-default toggle (today
- *  that's just `pauseOnTokenBurn`), because Zod requires the full strict
+ *  to the main process when the user opts into a non-default progress toggle,
+ *  because Zod requires the full strict
  *  shape if the field is present at all. */
 const DEFAULT_PROGRESS_THRESHOLDS = {
   identicalHashWarnConsecutive: 2,
@@ -43,6 +43,15 @@ const DEFAULT_PROGRESS_THRESHOLDS = {
   churnRatioCritical: 0.50,
   warnEscalationWindow: 5,
   warnEscalationCount: 3,
+};
+const DEFAULT_SEMANTIC_PROGRESS = {
+  cadence: 5,
+  confidenceFloor: 0.6,
+};
+const DEFAULT_EXPLORATION = {
+  fanout: 3,
+  crossModel: false as const,
+  selector: 'verify+listwise' as const,
 };
 
 /**
@@ -248,10 +257,30 @@ const DEFAULT_PROGRESS_THRESHOLDS = {
               Recycle context on long runs
               <span class="hint">(fresh session at {{ compactionThresholdPct() }}% — bounds context rot)</span>
             </label>
+            @if (compactContext()) {
+              <div class="cfg-inline-grid">
+                <label for="loop-cfg-compaction-threshold">
+                  Context recycle threshold (%)
+                  <input
+                    id="loop-cfg-compaction-threshold"
+                    type="number"
+                    min="10"
+                    max="95"
+                    [ngModel]="compactionThresholdPct()"
+                    (ngModelChange)="onCompactionThresholdPctChange($event)"
+                  />
+                </label>
+              </div>
+            }
             <label>
               <input type="checkbox" [checked]="regenerateOnStall()" (change)="regenerateOnStall.set(toggleEvent($event))" />
               Regenerate the plan on stall
               <span class="hint">(disposable plan — re-derive instead of grinding)</span>
+            </label>
+            <label>
+              <input type="checkbox" [checked]="semanticProgress()" (change)="semanticProgress.set(toggleEvent($event))" />
+              Semantic progress check
+              <span class="hint">(cheap model-based done-vs-stuck signal)</span>
             </label>
             <label>
               <input type="checkbox" [checked]="operatorReviewedCompletion()" (change)="operatorReviewedCompletion.set(toggleEvent($event))" />
@@ -275,6 +304,26 @@ const DEFAULT_PROGRESS_THRESHOLDS = {
               Fresh-eyes completion review
               <span class="hint">(blocks critical/high findings)</span>
             </label>
+            <label>
+              <input type="checkbox" [checked]="branchSelect()" (change)="branchSelect.set(toggleEvent($event))" />
+              Branch-select on stuck
+              <span class="hint">(fan out candidates before pausing; requires spend cap)</span>
+            </label>
+            @if (branchSelect()) {
+              <div class="cfg-inline-grid">
+                <label for="loop-cfg-branch-fanout">
+                  Branch fanout
+                  <input
+                    id="loop-cfg-branch-fanout"
+                    type="number"
+                    min="2"
+                    max="8"
+                    [ngModel]="branchFanout()"
+                    (ngModelChange)="onBranchFanoutChange($event)"
+                  />
+                </label>
+              </div>
+            }
             <label class="warn">
               <input type="checkbox" [checked]="allowDestructive()" (change)="allowDestructive.set(toggleEvent($event))" />
               Allow destructive ops (rm -rf, force-push)
@@ -439,6 +488,20 @@ const DEFAULT_PROGRESS_THRESHOLDS = {
       line-height: 1.4;
       opacity: 0.92;
     }
+    .cfg-inline-grid {
+      margin: 2px 0 4px 24px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 220px));
+      gap: 8px 12px;
+      align-items: end;
+    }
+    .cfg-inline-grid label {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 4px;
+      font-size: 11px;
+    }
     .send-hint {
       margin-top: 12px;
       padding-top: 10px;
@@ -518,9 +581,12 @@ export class LoopConfigPanelComponent {
   compactContext = signal(true);
   /** LF-4: disposable plan — regenerate from the goal on repeated stall. */
   regenerateOnStall = signal(false);
-  /** Reset threshold as a percentage (mirrors defaultLoopContextConfig 0.6). */
-  private readonly compactionResetUtilization = 0.6;
-  compactionThresholdPct = computed(() => Math.round(this.compactionResetUtilization * 100));
+  semanticProgress = signal(false);
+  branchSelect = signal(false);
+  branchFanout = signal(DEFAULT_EXPLORATION.fanout);
+  /** Reset threshold as a fraction (mirrors defaultLoopContextConfig 0.6). */
+  compactionResetUtilization = signal(0.6);
+  compactionThresholdPct = computed(() => Math.round(this.compactionResetUtilization() * 100));
   operatorReviewedCompletion = signal(false);
   freshEyesReview = signal(false);
   /** Opt-in for signal F (token-burn-without-test-progress). Default off so
@@ -609,6 +675,19 @@ export class LoopConfigPanelComponent {
     if (this.maxHours() < 1) return 'Max wall time must be at least 1 hour.';
     const maxDollars = this.maxDollars();
     if (maxDollars !== null && maxDollars < 1) return 'Max spend must be at least $1, or blank for no cap.';
+    if (this.compactContext()) {
+      const pct = this.compactionThresholdPct();
+      if (!Number.isFinite(pct) || pct < 10 || pct > 95) {
+        return 'Context recycle threshold must be between 10% and 95%.';
+      }
+    }
+    if (this.branchSelect()) {
+      if (maxDollars === null) return 'Branch-select on stuck requires a spend cap ($). Set Max spend.';
+      const fanout = this.branchFanout();
+      if (!Number.isFinite(fanout) || fanout < 2 || fanout > 8) {
+        return 'Branch fanout must be between 2 and 8.';
+      }
+    }
     // LF-3a: operator-reviewed loops pause for manual sign-off and get resumed
     // repeatedly — require a spend cap so an unbounded run can't sit and burn.
     if (this.operatorReviewedCompletion() && maxDollars === null) {
@@ -626,6 +705,16 @@ export class LoopConfigPanelComponent {
   onForgetPrompt(entry: string): void {
     this.history.forget(entry);
     if (this.prompt() === entry) this.prompt.set('');
+  }
+
+  onCompactionThresholdPctChange(value: number | string | null): void {
+    const numeric = typeof value === 'number' ? value : Number(value);
+    this.compactionResetUtilization.set(numeric / 100);
+  }
+
+  onBranchFanoutChange(value: number | string | null): void {
+    const numeric = typeof value === 'number' ? value : Number(value);
+    this.branchFanout.set(numeric);
   }
 
   /**
@@ -695,10 +784,29 @@ export class LoopConfigPanelComponent {
       context: {
         compaction: {
           enabled: this.compactContext(),
-          resetAtUtilization: this.compactionResetUtilization,
+          resetAtUtilization: this.compactionResetUtilization(),
           clearToolResults: true,
         },
       },
+      ...(this.semanticProgress()
+        ? {
+            semanticProgress: {
+              enabled: true,
+              cadence: DEFAULT_SEMANTIC_PROGRESS.cadence,
+              confidenceFloor: DEFAULT_SEMANTIC_PROGRESS.confidenceFloor,
+            },
+          }
+        : {}),
+      ...(this.branchSelect()
+        ? {
+            exploration: {
+              enabled: true,
+              fanout: this.branchFanout(),
+              crossModel: DEFAULT_EXPLORATION.crossModel,
+              selector: DEFAULT_EXPLORATION.selector,
+            },
+          }
+        : {}),
       plan: { regenerateOnStall: this.regenerateOnStall() },
       iterationTimeoutMs: this.iterationTimeoutMin() * 60 * 1000,
       streamIdleTimeoutMs: this.streamIdleTimeoutSec() * 1000,

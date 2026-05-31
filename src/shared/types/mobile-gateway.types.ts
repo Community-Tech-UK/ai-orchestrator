@@ -101,6 +101,19 @@ export interface MobileMessageDto {
   hasAttachments?: boolean;
 }
 
+export type MobileUserActionRequestType =
+  | 'switch_mode'
+  | 'approve_action'
+  | 'confirm'
+  | 'select_option'
+  | 'ask_questions';
+
+export interface MobilePromptOptionDto {
+  id: string;
+  label: string;
+  description?: string;
+}
+
 /** A pending "needs you" prompt — a deferred permission or an orchestration question. */
 export interface MobilePromptDto {
   /** Stable id (== requestId for permissions). */
@@ -108,14 +121,18 @@ export interface MobilePromptDto {
   instanceId: string;
   requestId: string;
   kind: 'permission' | 'user-action';
+  /** For user-action prompts: drives the phone UI layout. */
+  requestType?: MobileUserActionRequestType;
   /** For permissions: the tool awaiting approval (e.g. "Bash"). */
   toolName?: string;
   /** For permissions: the tool arguments (e.g. the command). */
   toolInput?: Record<string, unknown>;
   title: string;
   message: string;
-  /** For user-action prompts: selectable option labels. */
-  options?: string[];
+  /** For user-action prompts: selectable options with stable ids. */
+  options?: MobilePromptOptionDto[];
+  /** For ask_questions prompts: free-form questions to answer. */
+  questions?: string[];
   createdAt: number;
 }
 
@@ -170,7 +187,12 @@ export interface MobileRespondRequest {
   requestId: string;
   decisionAction: 'allow' | 'deny';
   decisionScope?: 'once' | 'session' | 'always';
-  /** Optional free-text response (for user-action prompts). */
+  /**
+   * Optional user-action payload:
+   * - select_option: the chosen option id
+   * - ask_questions: a JSON object string mapping question -> answer
+   * - confirm / approve_action / switch_mode: usually omitted
+   */
   response?: string;
 }
 

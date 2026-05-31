@@ -290,6 +290,15 @@ export class ConversationLedgerStore {
     return row?.count ?? 0;
   }
 
+  getMaxSequence(threadId: string): number {
+    const row = this.db.prepare(`
+      SELECT COALESCE(MAX(sequence), 0) AS maxSequence
+      FROM conversation_messages
+      WHERE thread_id = ?
+    `).get<{ maxSequence: number }>(threadId);
+    return row?.maxSequence ?? 0;
+  }
+
   getMessageById(id: string): ConversationMessageRecord | null {
     const row = this.db.prepare('SELECT * FROM conversation_messages WHERE id = ?')
       .get<MessageRow>(id);
@@ -337,12 +346,14 @@ export class ConversationLedgerStore {
     }
     const records: ConversationMessageRecord[] = [];
     const write = this.db.transaction(() => {
-      const base = this.countMessages(threadId);
-      inputs.forEach((input, index) => {
+      let nextSequence = this.getMaxSequence(threadId) + 1;
+      inputs.forEach((input) => {
+        const requestedSequence = input.sequence ?? nextSequence;
         const id = this.upsertMessage(threadId, {
           ...input,
-          sequence: input.sequence ?? base + index + 1,
+          sequence: requestedSequence,
         });
+        nextSequence = Math.max(nextSequence, requestedSequence + 1);
         const record = this.getMessageById(id);
         if (record) {
           records.push(record);
@@ -374,6 +385,23 @@ export class ConversationLedgerStore {
     return rows.map(messageRowToRecord);
   }
 
+  getMessagesBefore(
+    threadId: string,
+    beforeSequence: number,
+    limit: number,
+  ): ConversationMessageRecord[] {
+    const bounded = Math.max(1, Math.min(limit, 1000));
+    const rows = this.db.prepare(`
+      SELECT * FROM (
+        SELECT * FROM conversation_messages
+        WHERE thread_id = ? AND sequence < ?
+        ORDER BY sequence DESC
+        LIMIT ?
+      ) ORDER BY sequence ASC
+    `).all<MessageRow>(threadId, beforeSequence, bounded);
+    return rows.map(messageRowToRecord);
+  }
+
   /** Cheap existence check by native message id — avoids loading the transcript
    *  just to test whether a message was already appended (idempotent events). */
   hasMessageWithNativeId(threadId: string, nativeMessageId: string): boolean {
@@ -388,11 +416,12 @@ export class ConversationLedgerStore {
   private upsertMessage(threadId: string, input: ConversationMessageUpsertInput): string {
     const existing = input.nativeMessageId
       ? this.db.prepare(`
-          SELECT id FROM conversation_messages
+          SELECT id, sequence FROM conversation_messages
           WHERE thread_id = ? AND native_message_id = ?
-        `).get<{ id: string }>(threadId, input.nativeMessageId)
+        `).get<{ id: string; sequence: number }>(threadId, input.nativeMessageId)
       : undefined;
     const id = existing?.id ?? input.id ?? randomUUID();
+    const sequence = existing?.sequence ?? input.sequence;
     this.db.prepare(`
       INSERT INTO conversation_messages (
         id, thread_id, native_message_id, native_turn_id, role, phase, content,
@@ -427,7 +456,7 @@ export class ConversationLedgerStore {
       input.rawRef ?? null,
       input.rawJson ? stringifyJson(input.rawJson) : null,
       input.sourceChecksum ?? null,
-      input.sequence,
+      sequence,
     );
     return id;
   }

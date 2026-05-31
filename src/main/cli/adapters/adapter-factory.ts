@@ -260,6 +260,31 @@ function writeGeminiBrowserGatewaySettings(
   return settingsPath;
 }
 
+function buildCopilotAdditionalMcpConfig(
+  servers: AcpMcpServerConfig[],
+): string | undefined {
+  if (servers.length === 0) {
+    return undefined;
+  }
+
+  return JSON.stringify({
+    mcpServers: Object.fromEntries(
+      servers.map((server) => [
+        server.name,
+        {
+          command: server.command,
+          ...(server.args ? { args: server.args } : {}),
+          ...(server.env ? {
+            env: Object.fromEntries(
+              server.env.map(({ name, value }) => [name, value]),
+            ),
+          } : {}),
+        },
+      ]),
+    ),
+  });
+}
+
 /**
  * Adapter type union - the concrete adapter types
  */
@@ -473,6 +498,11 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
         withBrowserGatewayProvider(options.browserGatewayMcp, 'copilot'),
       )
     : [];
+  const copilotMcpServers = [
+    ...(options.mcpServers ?? []),
+    ...browserGatewayMcpServers,
+  ];
+  const additionalMcpConfig = buildCopilotAdditionalMcpConfig(copilotMcpServers);
   return new AcpCliAdapter({
     adapterName: 'copilot-acp',
     command: launch.command,
@@ -489,15 +519,13 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
       '--no-ask-user',
       ...providerStateArgs,
       ...modelArgs,
+      ...(additionalMcpConfig ? ['--additional-mcp-config', additionalMcpConfig] : []),
     ],
     workingDirectory: options.workingDirectory ?? process.cwd(),
     sessionId: options.sessionId,
     resume: options.resume,
     env,
-    mcpServers: [
-      ...(options.mcpServers ?? []),
-      ...browserGatewayMcpServers,
-    ],
+    mcpServers: [],
     model: options.model,
     systemPrompt: options.systemPrompt,
     rtkEnabled: Boolean(options.rtk?.enabled && options.rtk.binaryPath),

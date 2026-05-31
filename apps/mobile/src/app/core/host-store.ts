@@ -1,13 +1,26 @@
 import { Injectable, computed, signal } from '@angular/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
 import type { PairedHost } from './models';
 
 const HOSTS_KEY = 'aio.hosts';
 const ACTIVE_KEY = 'aio.activeHostId';
 
+interface SecureHostStoragePlugin {
+  get(options: { key: string }): Promise<{ value?: string | null }>;
+  set(options: { key: string; value: string }): Promise<void>;
+  remove(options: { key: string }): Promise<void>;
+}
+
+const SecureHostStorage = registerPlugin<SecureHostStoragePlugin>('SecureHostStorage');
+const usesSecureHostStorage = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios';
+
 /**
- * Persisted list of paired hosts + the active selection. Tokens live here
- * (via Capacitor Preferences / UserDefaults). Keychain hardening is a later phase.
+ * Persisted list of paired hosts + the active selection.
+ *
+ * On native iOS, the host list (including bearer tokens) is kept in Keychain via
+ * a local Capacitor plugin. Existing installs migrate once from Preferences.
+ * Browser/dev builds continue to use Preferences so the app stays easy to run locally.
  */
 @Injectable({ providedIn: 'root' })
 export class HostStore {
@@ -27,12 +40,12 @@ export class HostStore {
     }
     this.loaded = true;
     const [hostsRaw, active] = await Promise.all([
-      Preferences.get({ key: HOSTS_KEY }),
+      this.loadHostsValue(),
       Preferences.get({ key: ACTIVE_KEY }),
     ]);
-    if (hostsRaw.value) {
+    if (hostsRaw) {
       try {
-        const parsed = JSON.parse(hostsRaw.value) as PairedHost[];
+        const parsed = JSON.parse(hostsRaw) as PairedHost[];
         if (Array.isArray(parsed)) {
           this._hosts.set(parsed);
         }
@@ -65,12 +78,41 @@ export class HostStore {
   }
 
   private async persist(): Promise<void> {
-    await Preferences.set({ key: HOSTS_KEY, value: JSON.stringify(this._hosts()) });
+    await this.saveHostsValue(JSON.stringify(this._hosts()));
     const active = this._activeId();
     if (active) {
       await Preferences.set({ key: ACTIVE_KEY, value: active });
     } else {
       await Preferences.remove({ key: ACTIVE_KEY });
     }
+  }
+
+  private async loadHostsValue(): Promise<string | null> {
+    if (!usesSecureHostStorage) {
+      const stored = await Preferences.get({ key: HOSTS_KEY });
+      return stored.value;
+    }
+
+    const secure = await SecureHostStorage.get({ key: HOSTS_KEY });
+    if (typeof secure.value === 'string') {
+      return secure.value;
+    }
+
+    const legacy = await Preferences.get({ key: HOSTS_KEY });
+    if (legacy.value !== null) {
+      await SecureHostStorage.set({ key: HOSTS_KEY, value: legacy.value });
+      await Preferences.remove({ key: HOSTS_KEY });
+    }
+    return legacy.value;
+  }
+
+  private async saveHostsValue(value: string): Promise<void> {
+    if (!usesSecureHostStorage) {
+      await Preferences.set({ key: HOSTS_KEY, value });
+      return;
+    }
+
+    await SecureHostStorage.set({ key: HOSTS_KEY, value });
+    await Preferences.remove({ key: HOSTS_KEY });
   }
 }

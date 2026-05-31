@@ -19,7 +19,13 @@ interface EventEntry {
 
 type PersistenceTask =
   | { kind: 'event-batch'; entries: EventEntry[] }
-  | { kind: 'state-save'; instanceId: string; saveFn: () => Promise<void>; onError: (err: unknown) => void };
+  | {
+      kind: 'state-save';
+      instanceId: string;
+      saveFn: () => Promise<void>;
+      onError: (err: unknown) => void;
+      waiters: Array<{ resolve: () => void; reject: (err: unknown) => void }>;
+    };
 
 export class SessionPersistenceQueue {
   private readonly queue: BoundedAsyncQueue<PersistenceTask>;
@@ -28,6 +34,7 @@ export class SessionPersistenceQueue {
   private pendingSaves = new Map<string, {
     saveFn: () => Promise<void>;
     onError: (err: unknown) => void;
+    waiters: Array<{ resolve: () => void; reject: (err: unknown) => void }>;
   }>();
 
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -52,10 +59,31 @@ export class SessionPersistenceQueue {
     saveFn: () => Promise<void>,
     onError: (err: unknown) => void,
   ): void {
-    // Coalesce: replace any pending save for this instance — the in-memory
-    // state already holds the latest value, so a single save is sufficient.
-    this.pendingSaves.set(instanceId, { saveFn, onError });
-    this.scheduleFlush();
+    void this.enqueueSaveAndWait(instanceId, saveFn, onError).catch(() => {
+      // Fire-and-forget callers report errors via onError.
+    });
+  }
+
+  enqueueSaveAndWait(
+    instanceId: string,
+    saveFn: () => Promise<void>,
+    onError: (err: unknown) => void,
+  ): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const existing = this.pendingSaves.get(instanceId);
+      if (existing) {
+        existing.saveFn = saveFn;
+        existing.onError = onError;
+        existing.waiters.push({ resolve, reject });
+      } else {
+        this.pendingSaves.set(instanceId, {
+          saveFn,
+          onError,
+          waiters: [{ resolve, reject }],
+        });
+      }
+      this.scheduleFlush();
+    });
   }
 
   metrics() {
@@ -119,8 +147,14 @@ export class SessionPersistenceQueue {
     if (task.kind === 'state-save') {
       try {
         await task.saveFn();
+        for (const waiter of task.waiters) {
+          waiter.resolve();
+        }
       } catch (err) {
         task.onError(err);
+        for (const waiter of task.waiters) {
+          waiter.reject(err);
+        }
       }
     }
   }

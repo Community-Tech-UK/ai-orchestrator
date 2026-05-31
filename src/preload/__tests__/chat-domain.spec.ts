@@ -22,6 +22,7 @@ describe('chat preload domain', () => {
     await domain.chatSetModel({ chatId: 'chat-1', model: null });
     await domain.chatSetReasoning({ chatId: 'chat-1', reasoningEffort: 'high' });
     await domain.chatSetYolo({ chatId: 'chat-1', yolo: true });
+    await domain.chatLoadOlderMessages({ chatId: 'chat-1', beforeSequence: 20, limit: 10 });
     await domain.chatSendMessage({ chatId: 'chat-1', text: 'Hello' });
 
     expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(1, IPC_CHANNELS.CHAT_LIST, { includeArchived: true });
@@ -34,7 +35,8 @@ describe('chat preload domain', () => {
     expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(8, IPC_CHANNELS.CHAT_SET_MODEL, { chatId: 'chat-1', model: null });
     expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(9, IPC_CHANNELS.CHAT_SET_REASONING, { chatId: 'chat-1', reasoningEffort: 'high' });
     expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(10, IPC_CHANNELS.CHAT_SET_YOLO, { chatId: 'chat-1', yolo: true });
-    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(11, IPC_CHANNELS.CHAT_SEND_MESSAGE, { chatId: 'chat-1', text: 'Hello' });
+    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(11, IPC_CHANNELS.CHAT_LOAD_OLDER_MESSAGES, { chatId: 'chat-1', beforeSequence: 20, limit: 10 });
+    expect(ipcRenderer.invoke).toHaveBeenNthCalledWith(12, IPC_CHANNELS.CHAT_SEND_MESSAGE, { chatId: 'chat-1', text: 'Hello' });
   });
 
   it('subscribes and unsubscribes chat events using the contract channel', () => {

@@ -33,6 +33,7 @@ import { ThoughtProcessComponent } from '../../shared/components/thought-process
 import { ToolGroupComponent } from '../../shared/components/tool-group/tool-group.component';
 import { DisplayItemProcessor, DisplayItem } from './display-item-processor.service';
 import { ExpansionStateService } from './expansion-state.service';
+import { PlanUpdateCardComponent } from './plan-update-card.component';
 import { ContextMenuComponent, ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
 import { InstanceStore } from '../../core/state/instance/instance.store';
 import { MessageFormatService } from './message-format.service';
@@ -55,6 +56,17 @@ import {
   getSystemFileManagerLabel,
 } from './output-stream.utils';
 
+interface OlderMessagesLoadResult {
+  prependedCount: number;
+  hasMore: boolean;
+  totalStored: number;
+}
+
+interface OlderMessagesProbeResult {
+  hasMore: boolean;
+  totalStored: number;
+}
+
 @Component({
   selector: 'app-output-stream',
   standalone: true,
@@ -66,6 +78,7 @@ import {
     SystemEventGroupComponent,
     ThoughtProcessComponent,
     ToolGroupComponent,
+    PlanUpdateCardComponent,
     ContextMenuComponent,
   ],
   templateUrl: './output-stream.component.html',
@@ -80,6 +93,8 @@ export class OutputStreamComponent {
   thinkingDefaultExpanded = input<boolean>(false);
   showToolMessages = input<boolean>(true);
   isChild = input<boolean>(false);
+  olderMessagesLoader = input<(() => Promise<OlderMessagesLoadResult | null>) | null>(null);
+  olderMessagesProbe = input<(() => Promise<OlderMessagesProbeResult | null>) | null>(null);
 
   /**
    * Emitted when the user resends an inline-edited user message. The parent
@@ -511,6 +526,28 @@ export class OutputStreamComponent {
     this.isLoadingOlder.set(true);
 
     try {
+      const customLoader = this.olderMessagesLoader();
+      if (customLoader) {
+        const viewport = this.getViewportElement();
+        const scrollHeightBefore = viewport?.scrollHeight ?? 0;
+        const data = await customLoader();
+        if (data) {
+          this.hasOlderMessages.set(data.hasMore);
+          this.olderMessagesHiddenCount.set(Math.max(0, data.totalStored - this.messages().length));
+          if (data.prependedCount > 0) {
+            requestAnimationFrame(() => {
+              if (viewport) {
+                const scrollHeightAfter = viewport.scrollHeight;
+                viewport.scrollTop += scrollHeightAfter - scrollHeightBefore;
+              }
+            });
+          }
+        } else {
+          this.hasOlderMessages.set(false);
+        }
+        return;
+      }
+
       const beforeChunk = this.oldestChunkLoaded.get(instanceId);
       const result = await this.instanceIpc.loadOlderMessages(instanceId, {
         beforeChunk,
@@ -567,6 +604,15 @@ export class OutputStreamComponent {
    */
   private async probeForOlderMessages(instanceId: string): Promise<void> {
     try {
+      const customProbe = this.olderMessagesProbe();
+      if (customProbe) {
+        const data = await customProbe();
+        if (data) {
+          this.hasOlderMessages.set(data.hasMore);
+          this.olderMessagesHiddenCount.set(Math.max(0, data.totalStored - this.messages().length));
+        }
+        return;
+      }
       const result = await this.instanceIpc.loadOlderMessages(instanceId, {
         beforeChunk: undefined,
         limit: 1,

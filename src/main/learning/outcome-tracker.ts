@@ -26,6 +26,9 @@ import {
 } from '../../shared/types/self-improvement.types';
 import { RLMDatabase, getRLMDatabase } from '../persistence/rlm-database';
 import { getLogger } from '../logging/logger';
+import { loadOutcomeTrackerStateFromWorker } from './learning-state-loader';
+import { loadOutcomeTrackerStateSnapshot } from './learning-state-snapshots';
+import type { OutcomeTrackerStateSnapshot } from './learning-state.types';
 
 const logger = getLogger('OutcomeTracker');
 
@@ -38,6 +41,7 @@ export class OutcomeTracker extends EventEmitter {
   private config: SelfImprovementConfig;
   private db: RLMDatabase | null = null;
   private persistenceEnabled = true;
+  private hydrationPromise: Promise<void> | null = null;
 
   private defaultConfig: SelfImprovementConfig = {
     minSampleSize: 10,
@@ -74,7 +78,7 @@ export class OutcomeTracker extends EventEmitter {
   private initializePersistence(): void {
     try {
       this.db = getRLMDatabase();
-      this.loadFromPersistence();
+      this.startBackgroundHydration();
       this.emit('persistence:initialized', { success: true });
     } catch (error) {
       logger.error('Failed to initialize persistence', error instanceof Error ? error : undefined);
@@ -88,85 +92,60 @@ export class OutcomeTracker extends EventEmitter {
    */
   private loadFromPersistence(): void {
     if (!this.db) return;
+    this.applyPersistenceSnapshot(
+      loadOutcomeTrackerStateSnapshot(this.config.maxExperiences, this.db),
+    );
+  }
 
-    // Load outcomes
-    const outcomeRows = this.db.getOutcomes({ limit: this.config.maxExperiences });
-    for (const row of outcomeRows) {
-      const metadata = row.metadata_json ? JSON.parse(row.metadata_json) : {};
-      const toolsData = row.tools_json ? JSON.parse(row.tools_json) : [];
-      const outcome: TaskOutcome = {
-        id: row.id,
-        instanceId: metadata.instanceId || 'unknown',
-        taskType: row.task_type,
-        taskDescription: metadata.taskDescription || '',
-        prompt: row.prompt_hash || '',
-        context: undefined,
-        agentUsed: row.agent_id || 'unknown',
-        modelUsed: row.model || 'unknown',
-        toolsUsed: toolsData.map((t: string) => ({ tool: t, count: 1, avgDuration: 0, errorCount: 0 })),
-        success: row.success === 1,
-        errorType: row.error_type || undefined,
-        duration: row.duration_ms || 0,
-        tokensUsed: row.token_usage || 0,
-        timestamp: row.timestamp,
-        patterns: [],
-        userSatisfaction: metadata.userSatisfaction,
-      };
-      this.outcomes.push(outcome);
+  private startBackgroundHydration(): void {
+    if (!this.db || this.hydrationPromise) {
+      return;
     }
+    this.hydrationPromise = (async () => {
+      const snapshot = await loadOutcomeTrackerStateFromWorker(this.config.maxExperiences);
+      if (snapshot) {
+        this.applyPersistenceSnapshot(snapshot);
+        return;
+      }
+      this.loadFromPersistence();
+    })().catch((error) => {
+      logger.error('Failed to hydrate outcome tracker state', error instanceof Error ? error : undefined);
+    });
+  }
 
-    // Load patterns
-    const patternRows = this.db.getPatterns();
-    for (const row of patternRows) {
-      const pattern: TaskPattern = {
-        type: row.type as PatternType,
-        value: row.key,
-        effectiveness: row.effectiveness,
-        sampleSize: row.sample_size,
-        lastUpdated: row.last_updated,
-      };
-      this.patterns.set(`${row.type}:${row.key}`, pattern);
+  private applyPersistenceSnapshot(snapshot: OutcomeTrackerStateSnapshot): void {
+    const outcomesById = new Map(snapshot.outcomes.map((outcome) => [outcome.id, outcome]));
+    for (const outcome of this.outcomes) {
+      outcomesById.set(outcome.id, outcome);
     }
+    this.outcomes = Array.from(outcomesById.values()).sort((left, right) => left.timestamp - right.timestamp);
 
-    // Load experiences
-    const experienceRows = this.db.getAllExperiences();
-    for (const row of experienceRows) {
-      const experience: Experience = {
-        id: row.id,
-        taskType: row.task_type,
-        description: '',
-        successfulPatterns: row.success_patterns_json ? JSON.parse(row.success_patterns_json) : [],
-        failurePatterns: row.failure_patterns_json ? JSON.parse(row.failure_patterns_json) : [],
-        examplePrompts: row.example_prompts_json ? JSON.parse(row.example_prompts_json) : [],
-        sampleSize: row.success_count + row.failure_count,
-        avgSuccessRate: row.success_count / Math.max(1, row.success_count + row.failure_count),
-        lastUpdated: row.last_updated,
-      };
-      this.experiences.set(row.task_type, experience);
+    const mergedPatterns = new Map<string, TaskPattern>(this.patterns);
+    for (const pattern of snapshot.patterns) {
+      const key = `${pattern.type}:${pattern.value}`;
+      if (!mergedPatterns.has(key)) {
+        mergedPatterns.set(key, pattern);
+      }
     }
+    this.patterns = mergedPatterns;
 
-    // Load insights
-    const insightRows = this.db.getInsights();
-    for (const row of insightRows) {
-      const insight: LearningInsight = {
-        id: row.id,
-        type: row.type as LearningInsight['type'],
-        description: row.description || row.title,
-        confidence: row.confidence,
-        evidence: row.supporting_patterns_json ? JSON.parse(row.supporting_patterns_json) : [],
-        taskTypes: [],
-        createdAt: row.created_at,
-        appliedCount: 0,
-        successRate: 0,
-      };
-      this.insights.push(insight);
+    const mergedExperiences = new Map(snapshot.experiences.map((experience) => [experience.taskType, experience] as const));
+    for (const [key, experience] of this.experiences) {
+      mergedExperiences.set(key, experience);
     }
+    this.experiences = mergedExperiences;
+
+    const insightsById = new Map(snapshot.insights.map((insight) => [insight.id, insight]));
+    for (const insight of this.insights) {
+      insightsById.set(insight.id, insight);
+    }
+    this.insights = Array.from(insightsById.values()).sort((left, right) => left.createdAt - right.createdAt);
 
     this.emit('persistence:loaded', {
-      outcomes: outcomeRows.length,
-      patterns: patternRows.length,
-      experiences: experienceRows.length,
-      insights: insightRows.length,
+      outcomes: snapshot.outcomes.length,
+      patterns: snapshot.patterns.length,
+      experiences: snapshot.experiences.length,
+      insights: snapshot.insights.length,
     });
   }
 

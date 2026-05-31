@@ -121,12 +121,14 @@
     <div class="chat-output-section">
       <app-output-stream
         [messages]="messages()"
-        [instanceId]="streamInstanceId()"
+        [instanceId]="outputStreamId()"
         [provider]="providerForUi()"
         [showThinking]="showThinking()"
         [thinkingDefaultExpanded]="thinkingDefaultExpanded()"
         [showToolMessages]="showToolMessages()"
         [isChild]="false"
+        [olderMessagesLoader]="loadOlderMessagesForOutput"
+        [olderMessagesProbe]="probeOlderMessagesForOutput"
       />
       @if (statusForUi() === 'busy' || statusForUi() === 'processing' || statusForUi() === 'thinking_deeply' || statusForUi() === 'initializing' || statusForUi() === 'interrupting' || statusForUi() === 'cancelling' || statusForUi() === 'interrupt-escalating') {
         <app-activity-status

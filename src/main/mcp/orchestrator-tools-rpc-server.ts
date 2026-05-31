@@ -25,11 +25,10 @@ import { registerCleanup as registerGlobalCleanup } from '../util/cleanup-regist
 import { getLogger } from '../logging/logger';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
-import type { ConversationLedgerService } from '../conversation-ledger';
+import { getConversationLedgerService, type ConversationLedgerService } from '../conversation-ledger';
 import { createOperatorTables } from '../operator/operator-schema';
 import { defaultOperatorDbPath } from '../operator/operator-database';
 import {
-  createLedgerForOrchestratorTools,
   createOrchestratorToolDefinitions,
   GitBatchPullArgsSchema,
   ReadNodeOutputArgsSchema,
@@ -71,7 +70,6 @@ interface OrchestratorToolsRpcParams {
 
 export interface OrchestratorToolsRpcServerOptions {
   operatorDbPath?: string;
-  conversationLedgerDbPath?: string;
   userDataPath?: string;
   isKnownLocalInstance?: (instanceId: string) => boolean;
   registerCleanup?: (cleanup: () => void | Promise<void>) => void | (() => void);
@@ -112,7 +110,6 @@ export interface OrchestratorToolsRpcServerOptions {
 
 export class OrchestratorToolsRpcServer {
   private readonly operatorDbPath: string;
-  private readonly conversationLedgerDbPath: string | null;
   private readonly userDataPath: string;
   private readonly isKnownLocalInstance: (instanceId: string) => boolean;
   private readonly maxPayloadBytes: number;
@@ -133,7 +130,6 @@ export class OrchestratorToolsRpcServer {
 
   constructor(options: OrchestratorToolsRpcServerOptions = {}) {
     this.operatorDbPath = options.operatorDbPath ?? defaultOperatorDbPath();
-    this.conversationLedgerDbPath = options.conversationLedgerDbPath ?? null;
     this.userDataPath = options.userDataPath ?? app.getPath('userData');
     this.isKnownLocalInstance = options.isKnownLocalInstance ?? (() => false);
     this.maxPayloadBytes = options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES;
@@ -179,10 +175,7 @@ export class OrchestratorToolsRpcServer {
     if (socketDirToCleanup && fs.existsSync(socketDirToCleanup)) {
       fs.rmdirSync(socketDirToCleanup);
     }
-    if (this.ledger) {
-      this.ledger.close();
-      this.ledger = null;
-    }
+    this.ledger = null;
     if (this.db) {
       this.db.close();
       this.db = null;
@@ -327,9 +320,7 @@ export class OrchestratorToolsRpcServer {
     db.pragma('journal_mode = WAL');
     createOperatorTables(db);
     this.db = db;
-    if (this.conversationLedgerDbPath) {
-      this.ledger = createLedgerForOrchestratorTools(this.conversationLedgerDbPath);
-    }
+    this.ledger = getConversationLedgerService();
   }
 
   private getToolsForInstance(instanceId: string): McpServerToolDefinition[] {

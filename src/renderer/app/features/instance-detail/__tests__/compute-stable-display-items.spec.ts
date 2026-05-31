@@ -164,6 +164,46 @@ describe('computeStableDisplayItems', () => {
       expect(state2.result).not.toBe(firstResult);
     });
 
+    it('detects a merged plan-update rewritten in place and emits a new array', () => {
+      const item: DisplayItem = {
+        id: 'plan',
+        type: 'plan-update',
+        message: makeMessage({ type: 'system' }),
+        planUpdate: {
+          entries: [{ content: 'Audit', statusKind: 'in_progress', statusLabel: 'In progress', priorityKind: 'medium', priorityLabel: 'Medium' }],
+          totalCount: 1,
+          pendingCount: 0,
+          inProgressCount: 1,
+          completedCount: 0,
+          cancelledCount: 0,
+          unknownCount: 0,
+          preview: 'Audit',
+        },
+        timestamp: 1000,
+      };
+      const state1 = computeStableDisplayItems([item], emptyState());
+      const firstResult = state1.result;
+
+      item.planUpdate = {
+        entries: [
+          { content: 'Audit', statusKind: 'completed', statusLabel: 'Done', priorityKind: 'medium', priorityLabel: 'Medium' },
+          { content: 'Write tests', statusKind: 'in_progress', statusLabel: 'In progress', priorityKind: 'high', priorityLabel: 'High' },
+        ],
+        totalCount: 2,
+        pendingCount: 0,
+        inProgressCount: 1,
+        completedCount: 1,
+        cancelledCount: 0,
+        unknownCount: 0,
+        preview: 'Write tests',
+      };
+      item.timestamp = 2000;
+      const state2 = computeStableDisplayItems([item], state1);
+
+      expect(state2).not.toBe(state1);
+      expect(state2.result).not.toBe(firstResult);
+    });
+
     it('stabilises a work-cycle even though wrapForDisplay reslices its children', () => {
       const child = makeMessageItem('child', makeMessage());
       const cycle1: DisplayItem = { id: 'cycle', type: 'work-cycle', children: [child] };
@@ -219,6 +259,49 @@ describe('isDisplayItemUnchanged', () => {
           id: 'x',
           type: 'tool-group',
           toolMessages: [...toolMessages, makeMessage({ type: 'tool_result' })],
+        }),
+      ).toBe(false);
+    });
+
+    it('plan-update', () => {
+      const planUpdate = {
+        entries: [{ content: 'Audit', statusKind: 'in_progress' as const, statusLabel: 'In progress', priorityKind: 'medium' as const, priorityLabel: 'Medium' }],
+        totalCount: 1,
+        pendingCount: 0,
+        inProgressCount: 1,
+        completedCount: 0,
+        cancelledCount: 0,
+        unknownCount: 0,
+        preview: 'Audit',
+      };
+      const a: DisplayItem = {
+        id: 'x',
+        type: 'plan-update',
+        message: makeMessage({ type: 'system' }),
+        planUpdate,
+        timestamp: 1000,
+      };
+      const b: DisplayItem = {
+        id: 'x',
+        type: 'plan-update',
+        message: makeMessage({ type: 'system' }),
+        planUpdate: { ...planUpdate, entries: [...planUpdate.entries] },
+        timestamp: 1000,
+      };
+      expect(isDisplayItemUnchanged(a, b)).toBe(true);
+
+      expect(
+        isDisplayItemUnchanged(a, {
+          ...b,
+          planUpdate: {
+            ...planUpdate,
+            entries: [
+              ...planUpdate.entries,
+              { content: 'Write tests', statusKind: 'pending', statusLabel: 'Pending', priorityKind: 'high', priorityLabel: 'High' },
+            ],
+            totalCount: 2,
+            pendingCount: 1,
+          },
         }),
       ).toBe(false);
     });

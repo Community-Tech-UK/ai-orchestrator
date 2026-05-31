@@ -87,6 +87,17 @@ export interface LoopStartConfigInput {
     warnEscalationWindow: number;
     warnEscalationCount: number;
   };
+  semanticProgress?: {
+    enabled: boolean;
+    cadence: number;
+    confidenceFloor: number;
+  };
+  exploration?: {
+    enabled: boolean;
+    fanout: number;
+    crossModel: boolean;
+    selector: 'verify' | 'verify+listwise';
+  };
   initialStage?: 'PLAN' | 'REVIEW' | 'IMPLEMENT';
   allowDestructiveOps?: boolean;
   /** Wall-clock cap per iteration (ms). */

@@ -604,11 +604,6 @@ export function createInitializationSteps(
           new Promise((resolve) => setTimeout(resolve, ms));
         await initializeOrchestratorToolsRpcServer({
           operatorDbPath: defaultOperatorDbPath(),
-          conversationLedgerDbPath: path.join(
-            app.getPath('userData'),
-            'conversation-ledger',
-            'conversation-ledger.db',
-          ),
           isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
           // Backs the `run_on_node` MCP tool: resolve the target worker node and
           // spawn an agent on it via the already-deployed `instance.spawn` RPC.

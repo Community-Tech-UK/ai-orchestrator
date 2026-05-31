@@ -369,7 +369,7 @@ export class GatewayClient {
         body: JSON.stringify({ pairingToken, label }),
         signal: controller.signal,
       });
-    } catch (err) {
+    } catch {
       // AbortError (timeout) or a network failure both mean we never reached the
       // gateway — almost always Tailscale not being connected on the phone.
       throw new Error(

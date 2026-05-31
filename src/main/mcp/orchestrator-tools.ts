@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { NativeConversationRegistry } from '../conversation-ledger/native-conversation-registry';
 import { ConversationLedgerService } from '../conversation-ledger';
 import type { ConversationMessageRecord } from '../../shared/types/conversation-ledger.types';
 import type { OperatorRunStatus } from '../../shared/types/operator.types';
@@ -125,6 +124,8 @@ export interface OrchestratorToolRuntimeContext {
   spawnRemoteInstance?: SpawnRemoteInstanceFn | null;
   readInstanceOutput?: ReadInstanceOutputFn | null;
 }
+
+const SOURCE_CONTEXT_MESSAGE_LIMIT = 200;
 
 interface SourceContext {
   chatId: string | null;
@@ -401,14 +402,6 @@ export function createOrchestratorToolDefinitions(
   ];
 }
 
-export function createLedgerForOrchestratorTools(dbPath: string): ConversationLedgerService {
-  return new ConversationLedgerService({
-    dbPath,
-    enableWAL: false,
-    registry: new NativeConversationRegistry(),
-  });
-}
-
 async function resolveSourceContext(input: {
   chatStore: ChatStore;
   ledger: ConversationLedgerService | null;
@@ -427,7 +420,10 @@ async function resolveSourceContext(input: {
   let sourceMessageId = fallbackMessageId;
   if (input.ledger) {
     try {
-      const conversation = await input.ledger.getConversation(chat.ledgerThreadId);
+      const conversation = await input.ledger.getRecentConversation(
+        chat.ledgerThreadId,
+        SOURCE_CONTEXT_MESSAGE_LIMIT,
+      );
       const latestToolCall = findLatestMessage(conversation.messages, (message) =>
         message.phase === 'tool_call'
         || asRecord(message.rawJson?.['metadata'])?.['kind'] === 'tool_call'

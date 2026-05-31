@@ -65,6 +65,41 @@ function makeOutputMessage(overrides: Partial<{
   } as unknown as import('../../shared/types/instance.types').OutputMessage;
 }
 
+function makeMcpSnapshot() {
+  return {
+    tools: [
+      {
+        id: 'tool-1',
+        name: 'search_docs',
+        description: 'Search project docs',
+        serverId: 'server-1',
+        serverName: 'Docs',
+        inputSchema: {},
+        tags: ['docs'],
+        metadata: {},
+      },
+    ],
+    serverSummaries: [
+      {
+        serverId: 'server-1',
+        serverName: 'Docs',
+        toolCount: 1,
+        resourceCount: 0,
+        promptCount: 0,
+        searchHint: 'Search docs',
+      },
+    ],
+    loadedToolIds: [],
+    usageStats: {},
+    indices: {
+      byCategory: {},
+      byServer: { 'server-1': ['tool-1'] },
+      byTag: { docs: ['tool-1'] },
+      termIndex: { search: ['tool-1'], docs: ['tool-1'] },
+    },
+  };
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('ContextWorkerClient', () => {
@@ -149,38 +184,7 @@ describe('ContextWorkerClient', () => {
   });
 
   it('posts MCP runtime-tool selection RPC and resolves snapshot results', async () => {
-    const snapshot = {
-      tools: [
-        {
-          id: 'tool-1',
-          name: 'search_docs',
-          description: 'Search project docs',
-          serverId: 'server-1',
-          serverName: 'Docs',
-          inputSchema: {},
-          tags: ['docs'],
-          metadata: {},
-        },
-      ],
-      serverSummaries: [
-        {
-          serverId: 'server-1',
-          serverName: 'Docs',
-          toolCount: 1,
-          resourceCount: 0,
-          promptCount: 0,
-          searchHint: 'Search docs',
-        },
-      ],
-      loadedToolIds: [],
-      usageStats: {},
-      indices: {
-        byCategory: {},
-        byServer: { 'server-1': ['tool-1'] },
-        byTag: { docs: ['tool-1'] },
-        termIndex: { search: ['tool-1'], docs: ['tool-1'] },
-      },
-    };
+    const snapshot = makeMcpSnapshot();
     const selection = {
       serverSummaries: snapshot.serverSummaries,
       selectedToolIds: ['tool-1'],
@@ -209,6 +213,32 @@ describe('ContextWorkerClient', () => {
     });
 
     await expect(promise).resolves.toEqual(selection);
+  });
+
+  it('falls back to in-process MCP runtime-tool selection when the worker is degraded', async () => {
+    const snapshot = makeMcpSnapshot();
+
+    fakeWorker.emit('error', new Error('worker crashed'));
+
+    await expect(client.buildMcpRuntimeToolContextSelection(snapshot, 'docs', 6)).resolves.toEqual({
+      serverSummaries: snapshot.serverSummaries,
+      selectedToolIds: ['tool-1'],
+      deferredToolCount: 0,
+      query: 'docs',
+    });
+    expect(fakeWorker.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('falls back to in-process MCP runtime-tool selection when the worker times out', async () => {
+    const snapshot = makeMcpSnapshot();
+
+    await expect(client.buildMcpRuntimeToolContextSelection(snapshot, 'docs', 6)).resolves.toEqual({
+      serverSummaries: snapshot.serverSummaries,
+      selectedToolIds: ['tool-1'],
+      deferredToolCount: 0,
+      query: 'docs',
+    });
+    expect(fakeWorker.postMessage).toHaveBeenCalledTimes(1);
   });
 
   // ── No non-cloneable objects posted ────────────────────────────────────────

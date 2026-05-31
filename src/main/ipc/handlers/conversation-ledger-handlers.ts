@@ -35,7 +35,10 @@ export function registerConversationLedgerHandlers(): void {
         payload,
         'CONVERSATION_LEDGER_GET'
       );
-      return { success: true, data: await getConversationLedgerService().getConversation(validated.threadId) };
+      return {
+        success: true,
+        data: await getConversationLedgerService().getConversation(validated.threadId, validated.limit),
+      };
     } catch (error) {
       return conversationLedgerError(error, 'CONVERSATION_LEDGER_GET_FAILED');
     }

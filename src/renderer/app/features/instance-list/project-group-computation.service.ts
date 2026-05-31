@@ -2,7 +2,11 @@ import { Injectable, inject } from '@angular/core';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import type { Instance } from '../../core/state/instance.store';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
-import type { HierarchicalInstance } from './instance-list.component';
+import type {
+  HierarchicalHistoryItem,
+  HierarchicalInstance,
+  HierarchicalRailItem,
+} from './instance-list.component';
 
 interface ProjectStateSummary {
   projectStateLabel: string;
@@ -67,17 +71,16 @@ export class ProjectGroupComputationService {
       location: 'all' | 'local' | 'remote';
       projectMatches: boolean;
       collapsed: Set<string>;
+      collapsedHistoryParentIds: ReadonlySet<string>;
+      historySortMode: 'last-interacted' | 'created';
       childrenByParent: Map<string, string[]>;
-      childHistoryByParent?: Map<string, ConversationHistoryEntry[]>;
+      historyEntriesByParent?: ReadonlyMap<string, readonly ConversationHistoryEntry[]>;
       instanceMap: Map<string, Instance>;
       activityCutoff: number | null;
-    },
-    depth: number,
-    parentChain: boolean[],
-    isLastChild: boolean
-  ): HierarchicalInstance[] {
+    }
+  ): HierarchicalInstance | null {
     if (this.isSupersededEditSourceWithReplacement(instance, context.instanceMap)) {
-      return [];
+      return null;
     }
 
     const childrenIds = context.childrenByParent.get(instance.id) ?? [];
@@ -85,18 +88,12 @@ export class ProjectGroupComputationService {
       .map((childId) => context.instanceMap.get(childId))
       .filter((child): child is Instance => child !== undefined)
       .sort((left, right) => left.createdAt - right.createdAt);
-
-    const childParentChain = parentChain.concat(!isLastChild);
-    const visibleChildren = children.flatMap((child, index) =>
-      this.buildVisibleItems(
-        child,
-        context,
-        depth + 1,
-        childParentChain,
-        index === children.length - 1
-      )
-    );
-    const historyChildren = context.childHistoryByParent?.get(instance.id) ?? [];
+    const visibleLiveChildren = children
+      .map((child) => this.buildVisibleItems(child, context))
+      .filter((child): child is HierarchicalInstance => child !== null);
+    const visibleHistoryChildren = context.historyEntriesByParent
+      ? this.buildVisibleHistoryItems(instance.id, context.historyEntriesByParent, context.collapsedHistoryParentIds)
+      : [];
 
     const textMatches = !context.filter ||
       context.projectMatches ||
@@ -115,33 +112,45 @@ export class ProjectGroupComputationService {
       Math.max(instance.lastActivity, instance.createdAt) >= context.activityCutoff;
     const selfVisible = textMatches && statusMatches && locationMatches && activityMatches;
 
-    if (!selfVisible && visibleChildren.length === 0 && historyChildren.length === 0) {
-      return [];
+    if (!selfVisible && visibleLiveChildren.length === 0 && visibleHistoryChildren.length === 0) {
+      return null;
     }
 
-    const childrenCount = children.length + historyChildren.length;
-    const hasChildren = childrenCount > 0;
-    const isExpanded = !context.collapsed.has(instance.id);
-    const currentItem: HierarchicalInstance = {
+    const immediateChildren = this.sortRailChildren(
+      visibleLiveChildren,
+      visibleHistoryChildren,
+      context.historySortMode
+    );
+    return {
+      kind: 'live',
       instance: {
         ...instance,
         childrenIds,
       },
       railTitle: instance.displayName,
-      depth,
-      hasChildren,
-      childrenCount,
-      historyChildren,
-      isExpanded,
-      isLastChild,
-      parentChain,
+      hasChildren: immediateChildren.length > 0,
+      childrenCount: immediateChildren.length,
+      isExpanded: !context.collapsed.has(instance.id),
+      children: immediateChildren,
     };
+  }
 
-    if (!hasChildren || !isExpanded) {
-      return [currentItem];
-    }
+  buildVisibleHistoryItems(
+    parentKey: string,
+    source: ReadonlyMap<string, readonly ConversationHistoryEntry[]>,
+    collapsedHistoryParentIds: ReadonlySet<string>
+  ): HierarchicalHistoryItem[] {
+    return (source.get(parentKey) ?? []).map((entry) =>
+      this.buildVisibleHistoryItem(entry, source, collapsedHistoryParentIds)
+    );
+  }
 
-    return [currentItem, ...visibleChildren];
+  buildVisibleHistoryRoots(
+    roots: readonly ConversationHistoryEntry[],
+    source: ReadonlyMap<string, readonly ConversationHistoryEntry[]>,
+    collapsedHistoryParentIds: ReadonlySet<string>
+  ): HierarchicalHistoryItem[] {
+    return roots.map((entry) => this.buildVisibleHistoryItem(entry, source, collapsedHistoryParentIds));
   }
 
   partitionHistoryEntriesByParent(
@@ -188,6 +197,30 @@ export class ProjectGroupComputationService {
       childEntriesByHistoryParent,
       orphanedChildEntries,
     };
+  }
+
+  collectVisibleHistoryChildrenByParent(
+    parents: readonly ConversationHistoryEntry[],
+    source: ReadonlyMap<string, readonly ConversationHistoryEntry[]>
+  ): Map<string, ConversationHistoryEntry[]> {
+    const result = new Map<string, ConversationHistoryEntry[]>();
+    for (const parent of parents) {
+      const descendants = this.collectVisibleHistoryChildren(
+        this.getHistoryParentKey(parent),
+        source
+      );
+      if (descendants.length > 0) {
+        result.set(this.getHistoryParentKey(parent), descendants);
+      }
+    }
+    return result;
+  }
+
+  collectVisibleHistoryChildren(
+    parentKey: string,
+    source: ReadonlyMap<string, readonly ConversationHistoryEntry[]>
+  ): ConversationHistoryEntry[] {
+    return this.collectHistoryDescendants(parentKey, source, new Set<string>());
   }
 
   countSessionsInTree(
@@ -348,5 +381,112 @@ export class ProjectGroupComputationService {
       && instance.cancelledForEdit === true
       && typeof instance.supersededBy === 'string'
       && instanceMap.has(instance.supersededBy);
+  }
+
+  private buildVisibleHistoryItem(
+    entry: ConversationHistoryEntry,
+    source: ReadonlyMap<string, readonly ConversationHistoryEntry[]>,
+    collapsedHistoryParentIds: ReadonlySet<string>
+  ): HierarchicalHistoryItem {
+    const children = this.buildVisibleHistoryItems(
+      this.getHistoryParentKey(entry),
+      source,
+      collapsedHistoryParentIds
+    );
+    return {
+      kind: 'history',
+      entry,
+      hasChildren: children.length > 0,
+      childrenCount: children.length,
+      isExpanded: !collapsedHistoryParentIds.has(this.getHistoryCollapseKey(entry)),
+      children,
+    };
+  }
+
+  private sortRailChildren(
+    liveChildren: readonly HierarchicalInstance[],
+    historyChildren: readonly HierarchicalHistoryItem[],
+    historySortMode: 'last-interacted' | 'created'
+  ): HierarchicalRailItem[] {
+    return [...liveChildren, ...historyChildren].sort((left, right) => {
+      const timestampDelta =
+        this.getRailChildSortTimestamp(right, historySortMode) -
+        this.getRailChildSortTimestamp(left, historySortMode);
+      if (timestampDelta !== 0) {
+        return timestampDelta;
+      }
+      return left.kind === 'live' && right.kind === 'history'
+        ? -1
+        : left.kind === 'history' && right.kind === 'live'
+          ? 1
+          : 0;
+    });
+  }
+
+  private getRailChildSortTimestamp(
+    item: HierarchicalRailItem,
+    historySortMode: 'last-interacted' | 'created'
+  ): number {
+    if (item.kind === 'live') {
+      return historySortMode === 'created'
+        ? item.instance.createdAt
+        : item.instance.lastActivity ?? item.instance.createdAt;
+    }
+
+    return historySortMode === 'created' ? item.entry.createdAt : item.entry.endedAt;
+  }
+
+  private collectHistoryDescendants(
+    parentKey: string,
+    source: ReadonlyMap<string, readonly ConversationHistoryEntry[]>,
+    visitedParentKeys: ReadonlySet<string>
+  ): ConversationHistoryEntry[] {
+    if (visitedParentKeys.has(parentKey)) {
+      return [];
+    }
+
+    const nextVisitedParentKeys = new Set(visitedParentKeys);
+    nextVisitedParentKeys.add(parentKey);
+    const directChildren = source.get(parentKey) ?? [];
+    const descendants: ConversationHistoryEntry[] = [];
+    const seenEntryIds = new Set<string>();
+
+    for (const child of directChildren) {
+      const childParentKey = this.getHistoryParentKey(child);
+      if (nextVisitedParentKeys.has(childParentKey)) {
+        continue;
+      }
+      this.pushUniqueHistoryEntry(descendants, child, seenEntryIds);
+      const nestedChildren = this.collectHistoryDescendants(
+        childParentKey,
+        source,
+        nextVisitedParentKeys
+      );
+      for (const nestedChild of nestedChildren) {
+        this.pushUniqueHistoryEntry(descendants, nestedChild, seenEntryIds);
+      }
+    }
+
+    return descendants;
+  }
+
+  private pushUniqueHistoryEntry(
+    entries: ConversationHistoryEntry[],
+    entry: ConversationHistoryEntry,
+    seenEntryIds: Set<string>
+  ): void {
+    if (seenEntryIds.has(entry.id)) {
+      return;
+    }
+    seenEntryIds.add(entry.id);
+    entries.push(entry);
+  }
+
+  private getHistoryParentKey(entry: Pick<ConversationHistoryEntry, 'originalInstanceId' | 'id'>): string {
+    return entry.originalInstanceId.trim() || entry.id;
+  }
+
+  private getHistoryCollapseKey(entry: Pick<ConversationHistoryEntry, 'id'>): string {
+    return `history:${entry.id}`;
   }
 }

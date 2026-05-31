@@ -29,6 +29,9 @@ import type {
   DailyTrend,
   MemoryUtilizationMetrics,
 } from '../../shared/types/metrics.types';
+import { loadMetricsCollectorStateFromWorker } from './learning-state-loader';
+import { loadMetricsCollectorStateSnapshot } from './learning-state-snapshots';
+import type { MetricsCollectorStateSnapshot } from './learning-state.types';
 
 // ============================================
 // Default Configuration
@@ -53,6 +56,7 @@ export class MetricsCollector extends EventEmitter {
   private sessions: SessionMetrics[] = [];
   private baselines: Map<string, BaselineSnapshot> = new Map();
   private db: RLMDatabase | null = null;
+  private hydrationPromise: Promise<void> | null = null;
 
   // Current session tracking
   private currentSession: Partial<SessionMetrics> | null = null;
@@ -100,7 +104,7 @@ export class MetricsCollector extends EventEmitter {
 
     try {
       this.db = getRLMDatabase();
-      this.loadFromPersistence();
+      this.startBackgroundHydration();
     } catch (error) {
       logger.error('Failed to initialize persistence', error instanceof Error ? error : undefined);
     }
@@ -110,42 +114,45 @@ export class MetricsCollector extends EventEmitter {
     if (!this.db) return;
 
     try {
-      // Load sessions from patterns table with type='metrics_session'
-      const patterns = this.db.getPatterns('metrics_session');
-      for (const pattern of patterns) {
-        try {
-          const session = JSON.parse(pattern.metadata_json || '{}') as SessionMetrics;
-          if (session.sessionId) {
-            this.sessions.push(session);
-          }
-        } catch {
-          // Skip malformed entries
-        }
-      }
-
-      // Load baselines from patterns table with type='metrics_baseline'
-      const baselinePatterns = this.db.getPatterns('metrics_baseline');
-      for (const pattern of baselinePatterns) {
-        try {
-          const baseline = JSON.parse(pattern.metadata_json || '{}') as BaselineSnapshot;
-          if (baseline.id) {
-            this.baselines.set(baseline.id, baseline);
-          }
-        } catch {
-          // Skip malformed entries
-        }
-      }
-
-      // Sort sessions by timestamp
-      this.sessions.sort((a, b) => a.timestamp - b.timestamp);
-
-      this.emit('persistence:loaded', {
-        sessions: this.sessions.length,
-        baselines: this.baselines.size,
-      });
+      this.applyPersistenceSnapshot(loadMetricsCollectorStateSnapshot(this.db));
     } catch (error) {
       logger.error('Failed to load from persistence', error instanceof Error ? error : undefined);
     }
+  }
+
+  private startBackgroundHydration(): void {
+    if (!this.db || this.hydrationPromise) {
+      return;
+    }
+    this.hydrationPromise = (async () => {
+      const snapshot = await loadMetricsCollectorStateFromWorker();
+      if (snapshot) {
+        this.applyPersistenceSnapshot(snapshot);
+        return;
+      }
+      this.loadFromPersistence();
+    })().catch((error) => {
+      logger.error('Failed to hydrate metrics collector state', error instanceof Error ? error : undefined);
+    });
+  }
+
+  private applyPersistenceSnapshot(snapshot: MetricsCollectorStateSnapshot): void {
+    const sessionsById = new Map(snapshot.sessions.map((session) => [session.sessionId, session]));
+    for (const session of this.sessions) {
+      sessionsById.set(session.sessionId, session);
+    }
+    this.sessions = Array.from(sessionsById.values()).sort((left, right) => left.timestamp - right.timestamp);
+
+    const mergedBaselines = new Map(snapshot.baselines.map((baseline) => [baseline.id, baseline] as const));
+    for (const [key, baseline] of this.baselines) {
+      mergedBaselines.set(key, baseline);
+    }
+    this.baselines = mergedBaselines;
+
+    this.emit('persistence:loaded', {
+      sessions: snapshot.sessions.length,
+      baselines: snapshot.baselines.length,
+    });
   }
 
   private persistSession(session: SessionMetrics): void {
@@ -727,4 +734,3 @@ export class MetricsCollector extends EventEmitter {
 export function getMetricsCollector(config?: Partial<MetricsCollectorConfig>): MetricsCollector {
   return MetricsCollector.getInstance(config);
 }
-

@@ -7,6 +7,7 @@ import { getLogger } from '../logging/logger';
 import type {
   ConversationDiscoveryScope,
   ConversationLedgerConversation,
+  ConversationMessagePage,
   ConversationListQuery,
   ConversationMessageRecord,
   ConversationProvider,
@@ -29,6 +30,7 @@ import { CodexNativeConversationAdapter } from './codex/codex-native-conversatio
 import { InternalOrchestratorConversationAdapter } from './internal-orchestrator-conversation-adapter';
 
 const logger = getLogger('ConversationLedgerService');
+const DEFAULT_CONVERSATION_WINDOW_LIMIT = 200;
 
 export interface ConversationLedgerServiceConfig {
   dbPath?: string;
@@ -120,20 +122,68 @@ export class ConversationLedgerService {
     return this.port.listThreads(query);
   }
 
-  async getConversation(threadId: string): Promise<ConversationLedgerConversation> {
+  async getConversation(
+    threadId: string,
+    limit?: number,
+  ): Promise<ConversationLedgerConversation> {
+    if (typeof limit === 'number') {
+      return this.getRecentConversation(threadId, limit);
+    }
+    return this.getFullConversation(threadId);
+  }
+
+  async getFullConversation(threadId: string): Promise<ConversationLedgerConversation> {
     const thread = await this.port.findThreadById(threadId);
     if (!thread) {
       throw new ConversationLedgerServiceError(`Conversation ${threadId} not found`, 'CONVERSATION_NOT_FOUND');
     }
+    const messages = await this.port.getMessages(threadId);
+    return this.buildConversation(thread, messages, messages.length);
+  }
+
+  async getRecentConversation(
+    threadId: string,
+    limit: number = DEFAULT_CONVERSATION_WINDOW_LIMIT,
+  ): Promise<ConversationLedgerConversation> {
+    const thread = await this.port.findThreadById(threadId);
+    if (!thread) {
+      throw new ConversationLedgerServiceError(`Conversation ${threadId} not found`, 'CONVERSATION_NOT_FOUND');
+    }
+    const bounded = Math.max(1, Math.min(limit, 1000));
+    const [messages, totalMessages] = await Promise.all([
+      this.port.getRecentMessages(threadId, bounded),
+      this.port.countMessages(threadId),
+    ]);
+    return this.buildConversation(thread, messages, totalMessages);
+  }
+
+  async getConversationPageBefore(
+    threadId: string,
+    beforeSequence: number,
+    limit: number = DEFAULT_CONVERSATION_WINDOW_LIMIT,
+  ): Promise<ConversationMessagePage> {
+    const bounded = Math.max(1, Math.min(limit, 1000));
+    const [messages, totalMessages] = await Promise.all([
+      this.port.getMessagesBefore(threadId, beforeSequence, bounded),
+      this.port.countMessages(threadId),
+    ]);
+    const oldestSequence = messages[0]?.sequence ?? null;
     return {
-      thread,
-      messages: await this.port.getMessages(threadId),
+      threadId,
+      messages,
+      totalMessages,
+      hasMore: oldestSequence !== null && oldestSequence > 1,
+      nextBeforeSequence: oldestSequence,
     };
   }
 
   /** Fetch just a thread record — no messages. Cheap existence/metadata check. */
   async getThread(threadId: string): Promise<ConversationThreadRecord | null> {
     return this.port.findThreadById(threadId);
+  }
+
+  async hasMessages(threadId: string): Promise<boolean> {
+    return (await this.port.countMessages(threadId)) > 0;
   }
 
   /** Whether a message with the given native id already exists on a thread —
@@ -297,7 +347,7 @@ export class ConversationLedgerService {
     });
     return {
       ...result,
-      messages: await this.port.getMessages(threadId),
+      messages: (await this.getRecentConversation(threadId)).messages,
     };
   }
 
@@ -309,7 +359,7 @@ export class ConversationLedgerService {
     if (records === null) {
       throw new ConversationLedgerServiceError(`Conversation ${threadId} not found`, 'CONVERSATION_NOT_FOUND');
     }
-    return this.getConversation(threadId);
+    return this.getRecentConversation(threadId);
   }
 
   /**
@@ -354,6 +404,23 @@ export class ConversationLedgerService {
 
   async close(): Promise<void> {
     await this.port.close();
+  }
+
+  private buildConversation(
+    thread: ConversationThreadRecord,
+    messages: ConversationMessageRecord[],
+    totalMessages: number,
+  ): ConversationLedgerConversation {
+    return {
+      thread,
+      messages,
+      window: {
+        totalMessages,
+        hasOlder: totalMessages > messages.length,
+        oldestSequence: messages[0]?.sequence ?? null,
+        newestSequence: messages[messages.length - 1]?.sequence ?? null,
+      },
+    };
   }
 
   private getAdapter(provider: ConversationProvider): NativeConversationAdapter {

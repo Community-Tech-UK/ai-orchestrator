@@ -256,6 +256,57 @@ describe('ChatService', () => {
     ]);
   });
 
+  it('returns a recent tail by default and can load older chat messages explicitly', async () => {
+    const { service } = createHarness();
+    const created = await service.createChat({
+      provider: 'claude',
+      currentCwd: '/work/project',
+      name: 'Paged history',
+    });
+
+    for (let index = 1; index <= 4; index += 1) {
+      await service.appendSystemEvent({
+        chatId: created.chat.id,
+        nativeMessageId: `msg-${index}`,
+        content: `message-${index}`,
+      });
+    }
+
+    const detail = await service.getChat(created.chat.id);
+    expect(detail.conversation.messages.map((message) => message.sequence)).toEqual([1, 2, 3, 4]);
+    expect(detail.conversation.window).toMatchObject({
+      totalMessages: 4,
+      hasOlder: false,
+      oldestSequence: 1,
+      newestSequence: 4,
+    });
+
+    for (let index = 5; index <= 240; index += 1) {
+      await service.appendSystemEvent({
+        chatId: created.chat.id,
+        nativeMessageId: `msg-${index}`,
+        content: `message-${index}`,
+      });
+    }
+
+    const recent = await service.getChat(created.chat.id);
+    expect(recent.conversation.messages).toHaveLength(200);
+    expect(recent.conversation.messages[0]?.sequence).toBe(41);
+    expect(recent.conversation.messages.at(-1)?.sequence).toBe(240);
+    expect(recent.conversation.window).toMatchObject({
+      totalMessages: 240,
+      hasOlder: true,
+      oldestSequence: 41,
+      newestSequence: 240,
+    });
+
+    const older = await service.loadOlderMessages(created.chat.id, { beforeSequence: 41, limit: 25 });
+    expect(older.messages[0]?.sequence).toBe(16);
+    expect(older.messages.at(-1)?.sequence).toBe(40);
+    expect(older.totalMessages).toBe(240);
+    expect(older.hasMore).toBe(true);
+  });
+
   it('auto-renames an Untitled chat from a user-role synthetic event when autoName is true', async () => {
     const { service } = createHarness();
     const events: ChatEvent[] = [];

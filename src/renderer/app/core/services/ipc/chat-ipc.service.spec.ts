@@ -15,6 +15,7 @@ describe('ChatIpcService', () => {
     chatSetModel: vi.fn(),
     chatSetReasoning: vi.fn(),
     chatSetYolo: vi.fn(),
+    chatLoadOlderMessages: vi.fn(),
     chatSendMessage: vi.fn(),
     onChatEvent: vi.fn(),
   };
@@ -32,6 +33,7 @@ describe('ChatIpcService', () => {
       api.chatSetModel,
       api.chatSetReasoning,
       api.chatSetYolo,
+      api.chatLoadOlderMessages,
       api.chatSendMessage,
     ]) {
       method.mockResolvedValue({ success: true });
@@ -65,6 +67,7 @@ describe('ChatIpcService', () => {
     await service.setModel('chat-1', null);
     await service.setReasoning('chat-1', 'high');
     await service.setYolo('chat-1', true);
+    await service.loadOlderMessages('chat-1', 20, 10);
     await service.sendMessage('chat-1', 'Hello');
 
     expect(api.chatList).toHaveBeenCalledWith({ includeArchived: true });
@@ -77,6 +80,7 @@ describe('ChatIpcService', () => {
     expect(api.chatSetModel).toHaveBeenCalledWith({ chatId: 'chat-1', model: null });
     expect(api.chatSetReasoning).toHaveBeenCalledWith({ chatId: 'chat-1', reasoningEffort: 'high' });
     expect(api.chatSetYolo).toHaveBeenCalledWith({ chatId: 'chat-1', yolo: true });
+    expect(api.chatLoadOlderMessages).toHaveBeenCalledWith({ chatId: 'chat-1', beforeSequence: 20, limit: 10 });
     expect(api.chatSendMessage).toHaveBeenCalledWith({ chatId: 'chat-1', text: 'Hello', attachments: undefined });
   });
 

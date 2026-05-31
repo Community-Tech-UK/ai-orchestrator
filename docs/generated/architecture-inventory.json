@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "scripts/generate-architecture-inventory.js",
   "ipc": {
-    "channelCount": 954,
+    "channelCount": 955,
     "channels": [
       {
         "name": "INSTANCE_CREATE",
@@ -4480,299 +4480,304 @@
         "line": 1123
       },
       {
+        "name": "CHAT_LOAD_OLDER_MESSAGES",
+        "value": "chat:load-older-messages",
+        "line": 1124
+      },
+      {
         "name": "CHAT_SEND_MESSAGE",
         "value": "chat:send-message",
-        "line": 1124
+        "line": 1125
       },
       {
         "name": "CHAT_EVENT",
         "value": "chat:event",
-        "line": 1125
+        "line": 1126
       },
       {
         "name": "RUNTIME_PLUGINS_LIST",
         "value": "runtime-plugins:list",
-        "line": 1127
+        "line": 1128
       },
       {
         "name": "RUNTIME_PLUGINS_VALIDATE",
         "value": "runtime-plugins:validate",
-        "line": 1128
+        "line": 1129
       },
       {
         "name": "RUNTIME_PLUGINS_INSTALL",
         "value": "runtime-plugins:install",
-        "line": 1129
+        "line": 1130
       },
       {
         "name": "RUNTIME_PLUGINS_UPDATE",
         "value": "runtime-plugins:update",
-        "line": 1130
+        "line": 1131
       },
       {
         "name": "RUNTIME_PLUGINS_PRUNE",
         "value": "runtime-plugins:prune",
-        "line": 1131
+        "line": 1132
       },
       {
         "name": "RUNTIME_PLUGINS_UNINSTALL",
         "value": "runtime-plugins:uninstall",
-        "line": 1132
+        "line": 1133
       },
       {
         "name": "RTK_GET_SUMMARY",
         "value": "rtk:get-summary",
-        "line": 1134
+        "line": 1135
       },
       {
         "name": "RTK_GET_HISTORY",
         "value": "rtk:get-history",
-        "line": 1135
+        "line": 1136
       },
       {
         "name": "RTK_GET_STATUS",
         "value": "rtk:get-status",
-        "line": 1136
+        "line": 1137
       },
       {
         "name": "RTK_SAVINGS_DELTA",
         "value": "rtk:savings-delta",
-        "line": 1137
+        "line": 1138
       },
       {
         "name": "LOOP_START",
         "value": "loop:start",
-        "line": 1140
+        "line": 1141
       },
       {
         "name": "LOOP_PAUSE",
         "value": "loop:pause",
-        "line": 1141
+        "line": 1142
       },
       {
         "name": "LOOP_RESUME",
         "value": "loop:resume",
-        "line": 1142
+        "line": 1143
       },
       {
         "name": "LOOP_INTERVENE",
         "value": "loop:intervene",
-        "line": 1143
+        "line": 1144
       },
       {
         "name": "LOOP_CANCEL",
         "value": "loop:cancel",
-        "line": 1144
+        "line": 1145
       },
       {
         "name": "LOOP_ACCEPT_COMPLETION",
         "value": "loop:accept-completion",
-        "line": 1148
+        "line": 1149
       },
       {
         "name": "LOOP_GET_STATE",
         "value": "loop:get-state",
-        "line": 1149
+        "line": 1150
       },
       {
         "name": "LOOP_LIST_RUNS_FOR_CHAT",
         "value": "loop:list-runs-for-chat",
-        "line": 1150
+        "line": 1151
       },
       {
         "name": "LOOP_GET_ITERATIONS",
         "value": "loop:get-iterations",
-        "line": 1151
+        "line": 1152
       },
       {
         "name": "LOOP_INFER_VERIFY",
         "value": "loop:infer-verify",
-        "line": 1154
+        "line": 1155
       },
       {
         "name": "LOOP_STARTED",
         "value": "loop:started",
-        "line": 1157
+        "line": 1158
       },
       {
         "name": "LOOP_ITERATION_STARTED",
         "value": "loop:iteration-started",
-        "line": 1158
+        "line": 1159
       },
       {
         "name": "LOOP_ACTIVITY",
         "value": "loop:activity",
-        "line": 1159
+        "line": 1160
       },
       {
         "name": "LOOP_ITERATION_COMPLETE",
         "value": "loop:iteration-complete",
-        "line": 1160
+        "line": 1161
       },
       {
         "name": "LOOP_PAUSED_NO_PROGRESS",
         "value": "loop:paused-no-progress",
-        "line": 1161
+        "line": 1162
       },
       {
         "name": "LOOP_CLAIMED_DONE_BUT_FAILED",
         "value": "loop:claimed-done-but-failed",
-        "line": 1162
+        "line": 1163
       },
       {
         "name": "LOOP_TERMINAL_INTENT_RECORDED",
         "value": "loop:terminal-intent-recorded",
-        "line": 1163
+        "line": 1164
       },
       {
         "name": "LOOP_TERMINAL_INTENT_REJECTED",
         "value": "loop:terminal-intent-rejected",
-        "line": 1164
+        "line": 1165
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_STARTED",
         "value": "loop:fresh-eyes-review-started",
-        "line": 1165
+        "line": 1166
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_PASSED",
         "value": "loop:fresh-eyes-review-passed",
-        "line": 1166
+        "line": 1167
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_FAILED",
         "value": "loop:fresh-eyes-review-failed",
-        "line": 1167
+        "line": 1168
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_BLOCKED",
         "value": "loop:fresh-eyes-review-blocked",
-        "line": 1168
+        "line": 1169
       },
       {
         "name": "LOOP_INTERVENTION_APPLIED",
         "value": "loop:intervention-applied",
-        "line": 1169
+        "line": 1170
       },
       {
         "name": "LOOP_COMPLETED",
         "value": "loop:completed",
-        "line": 1170
+        "line": 1171
       },
       {
         "name": "LOOP_COMPLETED_NEEDS_REVIEW",
         "value": "loop:completed-needs-review",
-        "line": 1172
+        "line": 1173
       },
       {
         "name": "LOOP_NOTES_CURATED",
         "value": "loop:notes-curated",
-        "line": 1174
+        "line": 1175
       },
       {
         "name": "LOOP_CONTEXT_COMPACTED",
         "value": "loop:context-compacted",
-        "line": 1176
+        "line": 1177
       },
       {
         "name": "LOOP_BRANCH_SELECT",
         "value": "loop:branch-select",
-        "line": 1178
+        "line": 1179
       },
       {
         "name": "LOOP_PLAN_REGENERATED",
         "value": "loop:plan-regenerated",
-        "line": 1180
+        "line": 1181
       },
       {
         "name": "LOOP_FAILED",
         "value": "loop:failed",
-        "line": 1181
+        "line": 1182
       },
       {
         "name": "LOOP_CAP_REACHED",
         "value": "loop:cap-reached",
-        "line": 1182
+        "line": 1183
       },
       {
         "name": "LOOP_CANCELLED",
         "value": "loop:cancelled",
-        "line": 1183
+        "line": 1184
       },
       {
         "name": "LOOP_ERROR",
         "value": "loop:error",
-        "line": 1184
+        "line": 1185
       },
       {
         "name": "LOOP_STATE_CHANGED",
         "value": "loop:state-changed",
-        "line": 1185
+        "line": 1186
       },
       {
         "name": "MOBILE_GATEWAY_GET_STATUS",
         "value": "mobile-gateway:get-status",
-        "line": 1187
+        "line": 1188
       },
       {
         "name": "MOBILE_GATEWAY_START",
         "value": "mobile-gateway:start",
-        "line": 1188
+        "line": 1189
       },
       {
         "name": "MOBILE_GATEWAY_STOP",
         "value": "mobile-gateway:stop",
-        "line": 1189
+        "line": 1190
       },
       {
         "name": "MOBILE_GATEWAY_ISSUE_PAIRING",
         "value": "mobile-gateway:issue-pairing",
-        "line": 1190
+        "line": 1191
       },
       {
         "name": "MOBILE_GATEWAY_LIST_DEVICES",
         "value": "mobile-gateway:list-devices",
-        "line": 1191
+        "line": 1192
       },
       {
         "name": "MOBILE_GATEWAY_REVOKE_DEVICE",
         "value": "mobile-gateway:revoke-device",
-        "line": 1192
+        "line": 1193
       },
       {
         "name": "TERMINAL_SPAWN",
         "value": "terminal:spawn",
-        "line": 1195
+        "line": 1196
       },
       {
         "name": "TERMINAL_WRITE",
         "value": "terminal:write",
-        "line": 1196
+        "line": 1197
       },
       {
         "name": "TERMINAL_RESIZE",
         "value": "terminal:resize",
-        "line": 1197
+        "line": 1198
       },
       {
         "name": "TERMINAL_KILL",
         "value": "terminal:kill",
-        "line": 1198
+        "line": 1199
       },
       {
         "name": "TERMINAL_OUTPUT",
         "value": "terminal:output",
-        "line": 1201
+        "line": 1202
       },
       {
         "name": "TERMINAL_EXIT",
         "value": "terminal:exit",
-        "line": 1202
+        "line": 1203
       },
       {
         "name": "TERMINAL_SPAWNED",
         "value": "terminal:spawned",
-        "line": 1203
+        "line": 1204
       }
     ]
   },
@@ -4871,7 +4876,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3219
+      "lines": 3218
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
@@ -4927,7 +4932,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2373
+      "lines": 2375
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
@@ -4942,6 +4947,10 @@
       "lines": 2136
     },
     {
+      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
+      "lines": 2135
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-09-resilient-codex-resume-and-agent-observability_completed.md",
       "lines": 2117
     },
@@ -4952,10 +4961,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-13-codemem-phase1-index-and-lsp-facade_completed.md",
       "lines": 2091
-    },
-    {
-      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
-      "lines": 2087
     },
     {
       "path": "docs/codex_todo_completed.md",
@@ -5010,12 +5015,12 @@
       "lines": 1776
     },
     {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1703
+      "path": "src/main/session/session-continuity.ts",
+      "lines": 1710
     },
     {
-      "path": "src/main/session/session-continuity.ts",
-      "lines": 1700
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+      "lines": 1704
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.spec.ts",
@@ -5070,8 +5075,16 @@
       "lines": 1443
     },
     {
+      "path": "src/renderer/app/features/browser/browser-page.component.ts",
+      "lines": 1413
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency.md",
       "lines": 1411
+    },
+    {
+      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
+      "lines": 1404
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-cross-project-improvements_completed.md",
@@ -5079,10 +5092,6 @@
     },
     {
       "path": "src/main/history/history-manager.ts",
-      "lines": 1362
-    },
-    {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
       "lines": 1362
     },
     {
@@ -5150,6 +5159,10 @@
       "lines": 1239
     },
     {
+      "path": "src/main/instance/instance-context.ts",
+      "lines": 1237
+    },
+    {
       "path": "src/main/plugins/plugin-manager.ts",
       "lines": 1235
     },
@@ -5158,20 +5171,16 @@
       "lines": 1231
     },
     {
-      "path": "src/main/instance/instance-context.ts",
-      "lines": 1228
-    },
-    {
       "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
       "lines": 1227
     },
     {
-      "path": "src/renderer/app/features/browser/browser-page.component.ts",
+      "path": "src/renderer/app/features/plugins/plugins-page.component.ts",
       "lines": 1208
     },
     {
-      "path": "src/renderer/app/features/plugins/plugins-page.component.ts",
-      "lines": 1208
+      "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
+      "lines": 1205
     },
     {
       "path": "src/main/orchestration/debate-coordinator.ts",
@@ -5212,10 +5221,6 @@
     {
       "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
       "lines": 1163
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
-      "lines": 1159
     },
     {
       "path": "src/renderer/app/features/loop/loop-control.component.ts",
@@ -5267,7 +5272,7 @@
     },
     {
       "path": "src/main/instance/instance-orchestration.ts",
-      "lines": 1077
+      "lines": 1087
     },
     {
       "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
@@ -5450,12 +5455,12 @@
       "lines": 888
     },
     {
-      "path": "src/main/app/initialization-steps.ts",
+      "path": "src/main/cli/adapters/gemini-cli-adapter.ts",
       "lines": 887
     },
     {
-      "path": "src/main/cli/adapters/gemini-cli-adapter.ts",
-      "lines": 887
+      "path": "src/main/app/initialization-steps.ts",
+      "lines": 882
     },
     {
       "path": "src/main/rlm/smart-compaction.ts",
@@ -5571,6 +5576,10 @@
     },
     {
       "path": "docs/plans/2026-02-22-token-memory-optimization-design.md",
+      "lines": 816
+    },
+    {
+      "path": "src/renderer/app/features/loop/loop-config-panel.component.ts",
       "lines": 816
     },
     {

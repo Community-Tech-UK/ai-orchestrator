@@ -22,6 +22,7 @@ import { SessionArtifactsStripComponent } from './session-artifacts-strip.compon
 import { LoopStore } from '../../core/state/loop.store';
 import { LoopPromptHistoryService } from '../loop/loop-prompt-history.service';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
+import type { ChatOlderMessagesLoadResult } from '../../core/state/chat.store';
 
 @Component({
   selector: 'app-chat-detail',
@@ -97,6 +98,9 @@ export class ChatDetailComponent {
   readonly streamInstanceId = computed(() =>
     this.currentInstance()?.id ?? this.chat()?.id ?? 'chat'
   );
+  readonly outputStreamId = computed(() => this.chat()?.id ?? 'chat');
+  readonly loadOlderMessagesForOutput = () => this.loadOlderMessages();
+  readonly probeOlderMessagesForOutput = () => this.probeOlderMessages();
   readonly providerForUi = computed<ChatProvider>(() =>
     this.chat()?.provider ?? 'claude'
   );
@@ -359,6 +363,22 @@ export class ChatDetailComponent {
 
   async refreshRuns(): Promise<void> {
     await this.loadRunsForThread(this.chat()?.ledgerThreadId ?? null);
+  }
+
+  async loadOlderMessages(): Promise<ChatOlderMessagesLoadResult | null> {
+    return this.chatStore.loadOlderMessages();
+  }
+
+  async probeOlderMessages(): Promise<{ hasMore: boolean; totalStored: number } | null> {
+    const detail = this.detail();
+    const window = detail?.conversation.window;
+    if (!window) {
+      return null;
+    }
+    return {
+      hasMore: window.hasOlder,
+      totalStored: window.totalMessages,
+    };
   }
 
   async cancelRun(runId: string): Promise<void> {

@@ -36,7 +36,9 @@ function inst(partial: Partial<Instance>): Instance {
 
 class FakeInstanceSource extends EventEmitter implements GatewayInstanceSource {
   instances: Instance[] = [];
-  readonly orchestration = new EventEmitter();
+  readonly orchestration = new (class extends EventEmitter {
+    respondToUserAction = vi.fn();
+  })();
 
   sendInput = vi.fn(async () => undefined);
   interruptInstance = vi.fn(() => true);
@@ -64,7 +66,7 @@ class FakeInstanceSource extends EventEmitter implements GatewayInstanceSource {
   getInstance(id: string): Instance | undefined {
     return this.instances.find((i) => i.id === id);
   }
-  getOrchestrationHandler(): EventEmitter {
+  getOrchestrationHandler() {
     return this.orchestration;
   }
 }
@@ -484,6 +486,71 @@ describe('MobileGatewayServer', () => {
       });
       const cleared = await nextOfType(messages, 'permission-cleared');
       expect((cleared.data as { requestId: string }).requestId).toBe('req-2');
+    } finally {
+      ws.close();
+    }
+  });
+
+  it('preserves user-action option ids and routes responses to orchestration', async () => {
+    const token = await pairToken();
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${token}`);
+    const messages = collectMessages(ws);
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', resolve);
+      ws.once('error', reject);
+    });
+    try {
+      await nextOfType(messages, 'snapshot');
+      source.orchestration.emit('user-action-request', {
+        id: 'uar-1',
+        instanceId: 'a',
+        requestType: 'select_option',
+        title: 'Tool Permission Required',
+        message: 'Choose how to proceed',
+        options: [
+          { id: 'allow_session', label: 'Allow for session', description: 'Auto-allow in this session.' },
+          { id: 'deny_once', label: 'Deny once', description: 'Block this call one time.' },
+        ],
+      });
+
+      const promptFrame = await nextOfType(messages, 'permission-prompt');
+      const prompt = promptFrame.data as {
+        requestId: string;
+        requestType: string;
+        options: Array<{ id: string; label: string; description?: string }>;
+      };
+      expect(prompt.requestId).toBe('uar-1');
+      expect(prompt.requestType).toBe('select_option');
+      expect(prompt.options).toEqual([
+        {
+          id: 'allow_session',
+          label: 'Allow for session',
+          description: 'Auto-allow in this session.',
+        },
+        {
+          id: 'deny_once',
+          label: 'Deny once',
+          description: 'Block this call one time.',
+        },
+      ]);
+
+      const res = await authed(token, '/api/instances/a/respond', {
+        method: 'POST',
+        body: JSON.stringify({
+          requestId: 'uar-1',
+          decisionAction: 'allow',
+          response: 'allow_session',
+        }),
+      });
+      expect(res.status).toBe(200);
+      expect(source.orchestration.respondToUserAction).toHaveBeenCalledWith(
+        'uar-1',
+        true,
+        'allow_session',
+      );
+      expect(source.resumeAfterDeferredPermission).not.toHaveBeenCalledWith('a', true);
+      const cleared = await nextOfType(messages, 'permission-cleared');
+      expect((cleared.data as { requestId: string }).requestId).toBe('uar-1');
     } finally {
       ws.close();
     }

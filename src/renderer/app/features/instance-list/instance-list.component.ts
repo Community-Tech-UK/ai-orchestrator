@@ -56,16 +56,25 @@ const ORPHANED_CHILDREN_KEY = '__orphaned_children__';
 type HistorySortMode = 'last-interacted' | 'created';
 
 export interface HierarchicalInstance {
+  kind: 'live';
   instance: Instance;
   railTitle: string;
-  depth: number;
   hasChildren: boolean;
   childrenCount: number;
-  historyChildren: ConversationHistoryEntry[];
   isExpanded: boolean;
-  isLastChild: boolean;
-  parentChain: boolean[];
+  children: HierarchicalRailItem[];
 }
+
+export interface HierarchicalHistoryItem {
+  kind: 'history';
+  entry: ConversationHistoryEntry;
+  hasChildren: boolean;
+  childrenCount: number;
+  isExpanded: boolean;
+  children: HierarchicalHistoryItem[];
+}
+
+export type HierarchicalRailItem = HierarchicalInstance | HierarchicalHistoryItem;
 
 interface ProjectGroup {
   key: string;
@@ -84,9 +93,7 @@ interface ProjectGroup {
   projectStateTone: 'working' | 'attention' | 'connecting' | 'ready' | 'history';
   lastActivity: number;
   liveItems: HierarchicalInstance[];
-  historyItems: ConversationHistoryEntry[];
-  historyChildItemsByParent: ReadonlyMap<string, ConversationHistoryEntry[]>;
-  historyChildCount: number;
+  historyItems: HierarchicalHistoryItem[];
 }
 
 interface ProjectPathGroupIndex {
@@ -200,24 +207,22 @@ export class InstanceListComponent implements OnDestroy {
       historyEntries,
       instanceMap
     );
-    const childHistoryByParent = this.buildChildHistoryEntriesByParent(
-      historyPartition.childEntriesByLiveParent,
+    const visibleHistoryEntriesByParent = this.buildVisibleHistoryEntriesByParent(
+      this.mergeHistoryEntriesByParent(
+        historyPartition.childEntriesByLiveParent,
+        historyPartition.childEntriesByHistoryParent
+      ),
       filter,
       status,
       location,
       activityCutoff
     );
-    const historyChildItemsByParent = this.buildChildHistoryEntriesByParent(
-      historyPartition.childEntriesByHistoryParent,
-      filter,
-      status,
-      location,
-      activityCutoff
-    );
-    const forcedHistoryParentIds = new Set(historyChildItemsByParent.keys());
+    const forcedHistoryParentIds = new Set(visibleHistoryEntriesByParent.keys());
     const selectedId = this.selectedId();
     const collapsed = this.collapsedIds();
     const collapsedProjects = this.collapsedProjectKeys();
+    const collapsedHistoryParentIds = this.collapsedHistoryParentIds();
+    const historySortMode = this.historySortMode();
     const historyByProject = this.buildHistoryEntriesByProject(
       historyPartition.rootEntries,
       filter,
@@ -228,6 +233,7 @@ export class InstanceListComponent implements OnDestroy {
     );
     const orphanedChildHistoryItems = this.buildOrphanedChildHistoryItems(
       historyPartition.orphanedChildEntries,
+      forcedHistoryParentIds,
       filter,
       status,
       location,
@@ -248,11 +254,13 @@ export class InstanceListComponent implements OnDestroy {
       const projectMatches = !!filter && this.projectGroupComputation.matchesProjectText(title, subtitle, filter);
       const rawHistoryItems = historyByProject.get(projectKey) ?? [];
       const existingGroup = groups.get(projectKey);
-      const historyLookupItems = existingGroup?.historyItems ?? rawHistoryItems;
+      const historyLookupItems = existingGroup
+        ? this.flattenHistoryNodes(existingGroup.historyItems)
+        : rawHistoryItems;
       const historyByThreadId = new Map(
         historyLookupItems.map((entry) => [this.historyRail.getHistoryThreadId(entry), entry])
       );
-      const liveItems = this.projectGroupComputation.buildVisibleItems(
+      const liveRoot = this.projectGroupComputation.buildVisibleItems(
         root,
         {
           filter,
@@ -260,27 +268,26 @@ export class InstanceListComponent implements OnDestroy {
           location,
           projectMatches,
           collapsed,
+          collapsedHistoryParentIds,
+          historySortMode,
           childrenByParent,
-          childHistoryByParent,
+          historyEntriesByParent: visibleHistoryEntriesByParent,
           instanceMap,
           activityCutoff,
-        },
-        0,
-        [],
-        true
-      ).map((item) => ({
-        ...item,
-        railTitle: this.getLiveRailTitle(
-          item.instance,
-          historyByThreadId.get(this.getInstanceThreadId(item.instance))
-        ),
-      }));
+        }
+      );
+      const liveItems = liveRoot
+        ? [this.assignLiveRailTitles(liveRoot, historyByThreadId)]
+        : [];
+      const flatLiveItems = this.flattenLiveItems(liveItems);
       const liveThreadIds = new Set(
-        liveItems
+        flatLiveItems
           .map((item) => this.getInstanceThreadId(item.instance))
           .filter((threadId): threadId is string => threadId.trim().length > 0)
       );
-      const historySourceItems = existingGroup?.historyItems ?? rawHistoryItems;
+      const historySourceItems = existingGroup
+        ? this.flattenHistoryNodes(existingGroup.historyItems)
+        : rawHistoryItems;
       const historyItems = historySourceItems.filter(
         (entry) => !liveThreadIds.has(this.historyRail.getHistoryThreadId(entry))
       );
@@ -309,17 +316,13 @@ export class InstanceListComponent implements OnDestroy {
         lastActivity: recentDirectory?.lastAccessed ?? root.lastActivity ?? root.createdAt,
         liveItems: [],
         historyItems: [],
-        historyChildItemsByParent: new Map<string, ConversationHistoryEntry[]>(),
-        historyChildCount: 0,
       };
-      const previousHistoryCount = group.historyItems.length + group.historyChildCount;
-      const groupedHistoryChildItems = this.pickHistoryChildItemsByParent(
+      const previousHistoryCount = this.flattenHistoryNodes(group.historyItems).length;
+      const groupedHistoryItems = this.projectGroupComputation.buildVisibleHistoryRoots(
         historyItems,
-        historyChildItemsByParent
-      );
-      const historyChildCount = this.countHistoryChildItems(groupedHistoryChildItems);
-      const liveHistoryChildCount = this.countLiveHistoryChildren(liveItems);
-      const allHistoryItems = this.flattenHistoryItems(historyItems, groupedHistoryChildItems);
+        visibleHistoryEntriesByParent
+      , collapsedHistoryParentIds);
+      const allHistoryItems = this.flattenHistoryNodes(groupedHistoryItems);
 
       group.liveItems.push(...liveItems);
       group.createdAt = Math.max(
@@ -328,15 +331,11 @@ export class InstanceListComponent implements OnDestroy {
         ...rawHistoryItems.map((item) => item.createdAt),
         ...allHistoryItems.map((item) => item.createdAt)
       );
-      group.sessionCount +=
-        this.projectGroupComputation.countSessionsInTree(root, childrenByParent, instanceMap) +
-        liveHistoryChildCount;
+      group.sessionCount += this.flattenLiveItems(liveItems).length;
       group.busyCount += this.projectGroupComputation.countBusySessions(root, childrenByParent, instanceMap);
-      group.hasSelectedInstance = group.hasSelectedInstance || liveItems.some((item) => item.instance.id === selectedId);
+      group.hasSelectedInstance = group.hasSelectedInstance || flatLiveItems.some((item) => item.instance.id === selectedId);
       group.isExpanded = !collapsedProjects.has(projectKey);
-      group.historyItems = historyItems;
-      group.historyChildItemsByParent = groupedHistoryChildItems;
-      group.historyChildCount = historyChildCount;
+      group.historyItems = groupedHistoryItems;
       group.hasDraft = group.hasDraft || draftInfo.hasDraft;
       group.draftUpdatedAt = group.draftUpdatedAt ?? draftInfo.draftUpdatedAt;
       group.lastActivity = Math.max(
@@ -344,43 +343,54 @@ export class InstanceListComponent implements OnDestroy {
         root.lastActivity ?? root.createdAt,
         ...allHistoryItems.map((item) => item.endedAt)
       );
-      Object.assign(group, this.projectGroupComputation.getProjectStateSummary(group.liveItems, allHistoryItems, group.hasDraft));
-      group.sessionCount += historyItems.length + historyChildCount - previousHistoryCount;
+      Object.assign(
+        group,
+        this.projectGroupComputation.getProjectStateSummary(
+          this.flattenLiveItems(group.liveItems),
+          allHistoryItems,
+          group.hasDraft
+        )
+      );
+      group.sessionCount += allHistoryItems.length - previousHistoryCount;
       groups.set(projectKey, group);
       historyByProject.delete(projectKey);
       recentDirectoriesByKey.delete(projectKey);
     }
 
-    const orphanedLiveRoots = this.getOrderedOrphanedChildInstances(instances, instanceMap);
-    const orphanedLiveItems = orphanedLiveRoots.flatMap((root, index) =>
-      this.projectGroupComputation.buildVisibleItems(
-        root,
-        {
-          filter,
-          status,
-          location,
-          projectMatches: this.projectGroupComputation.matchesProjectText(
-            'Unlinked worker sessions',
-            'Child sessions without a visible parent',
-            filter
-          ),
-          collapsed,
-          childrenByParent,
-          childHistoryByParent,
-          instanceMap,
-          activityCutoff,
-        },
-        0,
-        [],
-        index === orphanedLiveRoots.length - 1
-      ).map((item) => ({
-        ...item,
-        railTitle: this.getLiveRailTitle(item.instance),
-      }))
+    const orphanedLiveRoots = this.getOrderedOrphanedChildInstances(instances, instanceMap)
+      .map((root) =>
+        this.projectGroupComputation.buildVisibleItems(
+          root,
+          {
+            filter,
+            status,
+            location,
+            projectMatches: this.projectGroupComputation.matchesProjectText(
+              'Unlinked worker sessions',
+              'Child sessions without a visible parent',
+              filter
+            ),
+            collapsed,
+            collapsedHistoryParentIds,
+            historySortMode,
+            childrenByParent,
+            historyEntriesByParent: visibleHistoryEntriesByParent,
+            instanceMap,
+            activityCutoff,
+          }
+        )
+      )
+      .filter((item): item is HierarchicalInstance => item !== null)
+      .map((item) => this.assignLiveRailTitles(item));
+    const orphanedFlatLiveItems = this.flattenLiveItems(orphanedLiveRoots);
+    const orphanedHistoryItems = this.projectGroupComputation.buildVisibleHistoryRoots(
+      orphanedChildHistoryItems,
+      visibleHistoryEntriesByParent,
+      collapsedHistoryParentIds
     );
-    const orphanedLiveHistoryChildCount = this.countLiveHistoryChildren(orphanedLiveItems);
+    const orphanedAllHistoryItems = this.flattenHistoryNodes(orphanedHistoryItems);
 
-    if (orphanedLiveItems.length > 0 || orphanedChildHistoryItems.length > 0) {
+    if (orphanedLiveRoots.length > 0 || orphanedHistoryItems.length > 0) {
       groups.set(ORPHANED_CHILDREN_KEY, {
         key: ORPHANED_CHILDREN_KEY,
         path: null,
@@ -388,35 +398,28 @@ export class InstanceListComponent implements OnDestroy {
         subtitle: 'Child sessions without a visible parent',
         createdAt: Math.max(
           0,
-          ...orphanedLiveItems.map((item) => item.instance.createdAt),
-          ...orphanedChildHistoryItems.map((item) => item.createdAt)
+          ...orphanedFlatLiveItems.map((item) => item.instance.createdAt),
+          ...orphanedAllHistoryItems.map((item) => item.createdAt)
         ),
-        sessionCount:
-          orphanedLiveRoots.reduce(
-            (count, root) =>
-              count + this.projectGroupComputation.countSessionsInTree(root, childrenByParent, instanceMap),
-            0
-          ) + orphanedLiveHistoryChildCount + orphanedChildHistoryItems.length,
+        sessionCount: orphanedFlatLiveItems.length + orphanedAllHistoryItems.length,
         busyCount: orphanedLiveRoots.reduce(
           (count, root) =>
-            count + this.projectGroupComputation.countBusySessions(root, childrenByParent, instanceMap),
+            count + this.projectGroupComputation.countBusySessions(root.instance, childrenByParent, instanceMap),
           0
         ),
-        hasSelectedInstance: orphanedLiveItems.some((item) => item.instance.id === selectedId),
+        hasSelectedInstance: orphanedFlatLiveItems.some((item) => item.instance.id === selectedId),
         isExpanded: !collapsedProjects.has(ORPHANED_CHILDREN_KEY),
         isPinned: false,
         hasDraft: false,
         draftUpdatedAt: null,
-        ...this.projectGroupComputation.getProjectStateSummary(orphanedLiveItems, orphanedChildHistoryItems, false),
+        ...this.projectGroupComputation.getProjectStateSummary(orphanedFlatLiveItems, orphanedAllHistoryItems, false),
         lastActivity: Math.max(
           0,
-          ...orphanedLiveItems.map((item) => item.instance.lastActivity ?? item.instance.createdAt),
-          ...orphanedChildHistoryItems.map((item) => item.endedAt)
+          ...orphanedFlatLiveItems.map((item) => item.instance.lastActivity ?? item.instance.createdAt),
+          ...orphanedAllHistoryItems.map((item) => item.endedAt)
         ),
-        liveItems: orphanedLiveItems,
-        historyItems: orphanedChildHistoryItems,
-        historyChildItemsByParent: new Map<string, ConversationHistoryEntry[]>(),
-        historyChildCount: 0,
+        liveItems: orphanedLiveRoots,
+        historyItems: orphanedHistoryItems,
       });
     }
 
@@ -428,12 +431,12 @@ export class InstanceListComponent implements OnDestroy {
       const recentDirectory = recentDirectoriesByKey.get(projectKey);
       const workingDirectory = recentDirectory?.path || historyItems[0].workingDirectory || null;
       const draftInfo = this.projectGroupComputation.getProjectDraftInfo(workingDirectory);
-      const groupedHistoryChildItems = this.pickHistoryChildItemsByParent(
+      const groupedHistoryItems = this.projectGroupComputation.buildVisibleHistoryRoots(
         historyItems,
-        historyChildItemsByParent
+        visibleHistoryEntriesByParent,
+        collapsedHistoryParentIds
       );
-      const historyChildCount = this.countHistoryChildItems(groupedHistoryChildItems);
-      const allHistoryItems = this.flattenHistoryItems(historyItems, groupedHistoryChildItems);
+      const allHistoryItems = this.flattenHistoryNodes(groupedHistoryItems);
       if (!shouldShowHistoryOnlyProject({
         mode: historyVisibility,
         hasTextFilter: filter.length > 0,
@@ -456,7 +459,7 @@ export class InstanceListComponent implements OnDestroy {
           recentDirectory?.lastAccessed ?? 0,
           ...allHistoryItems.map((item) => item.createdAt)
         ),
-        sessionCount: historyItems.length + historyChildCount,
+        sessionCount: allHistoryItems.length,
         busyCount: 0,
         hasSelectedInstance: false,
         isExpanded: !collapsedProjects.has(projectKey),
@@ -469,9 +472,7 @@ export class InstanceListComponent implements OnDestroy {
           ...allHistoryItems.map((item) => item.endedAt)
         ),
         liveItems: [],
-        historyItems,
-        historyChildItemsByParent: groupedHistoryChildItems,
-        historyChildCount,
+        historyItems: groupedHistoryItems,
       });
       recentDirectoriesByKey.delete(projectKey);
     }
@@ -511,8 +512,6 @@ export class InstanceListComponent implements OnDestroy {
           lastActivity: recentDirectory.lastAccessed,
           liveItems: [],
           historyItems: [],
-          historyChildItemsByParent: new Map<string, ConversationHistoryEntry[]>(),
-          historyChildCount: 0,
         });
       }
     }
@@ -1122,26 +1121,13 @@ export class InstanceListComponent implements OnDestroy {
 
   onDrop(event: CdkDragDrop<HierarchicalInstance[]>, group: ProjectGroup): void {
     const draggedItem = event.item.data as HierarchicalInstance;
-    if (draggedItem.depth > 0) {
-      return;
-    }
-
-    const groupRootIds = group.liveItems
-      .filter((item) => item.depth === 0)
-      .map((item) => item.instance.id);
+    const groupRootIds = group.liveItems.map((item) => item.instance.id);
     const fromRootIndex = groupRootIds.indexOf(draggedItem.instance.id);
     if (fromRootIndex === -1) {
       return;
     }
 
-    const visibleRootIds = group.liveItems
-      .map((item, index) => ({ item, index }))
-      .filter(({ item }) => item.depth === 0);
-
-    const currentVisibleRootIndex = visibleRootIds.findIndex(({ index }) => index === event.currentIndex);
-    const targetRootIndex = currentVisibleRootIndex === -1
-      ? groupRootIds.length - 1
-      : currentVisibleRootIndex;
+    const targetRootIndex = Math.max(0, Math.min(event.currentIndex, groupRootIds.length - 1));
 
     if (fromRootIndex === targetRootIndex) {
       return;
@@ -1436,7 +1422,7 @@ export class InstanceListComponent implements OnDestroy {
     status: string,
     location: 'all' | 'local' | 'remote' = 'all',
     activityCutoff: number | null = null,
-    forcedParentOriginalIds: ReadonlySet<string> = new Set<string>()
+    forcedParentKeys: ReadonlySet<string> = new Set<string>()
   ): Map<string, ConversationHistoryEntry[]> {
     const groups = new Map<string, ConversationHistoryEntry[]>();
     if (status !== 'all') {
@@ -1444,7 +1430,7 @@ export class InstanceListComponent implements OnDestroy {
     }
 
     for (const entry of entries) {
-      const forcedVisible = forcedParentOriginalIds.has(entry.originalInstanceId.trim());
+      const forcedVisible = forcedParentKeys.has(this.getHistoryParentKey(entry));
       if (!forcedVisible && !this.shouldIncludeHistoryEntry(entry, filter, status, location, activityCutoff)) {
         continue;
       }
@@ -1458,7 +1444,7 @@ export class InstanceListComponent implements OnDestroy {
     for (const projectEntries of groups.values()) {
       const forcedVisibleEntryIds = new Set(
         projectEntries
-          .filter((entry) => forcedParentOriginalIds.has(entry.originalInstanceId.trim()))
+          .filter((entry) => forcedParentKeys.has(this.getHistoryParentKey(entry)))
           .map((entry) => entry.id)
       );
       const visibleEntries = this.sortDedupeAndApplyArchiveFallback(projectEntries, forcedVisibleEntryIds);
@@ -1469,23 +1455,68 @@ export class InstanceListComponent implements OnDestroy {
     return groups;
   }
 
-  private buildChildHistoryEntriesByParent(
+  private buildVisibleHistoryEntriesByParent(
     entriesByParent: ReadonlyMap<string, ConversationHistoryEntry[]>,
     filter: string,
     status: string,
     location: 'all' | 'local' | 'remote',
     activityCutoff: number | null
   ): Map<string, ConversationHistoryEntry[]> {
-    const result = new Map<string, ConversationHistoryEntry[]>();
+    if (status !== 'all') {
+      return new Map<string, ConversationHistoryEntry[]>();
+    }
 
-    for (const [parentId, entries] of entriesByParent) {
-      const visibleEntries = entries.filter((entry) =>
-        this.shouldIncludeHistoryEntry(entry, filter, status, location, activityCutoff)
-      );
-      const sortedEntries = this.sortDedupeAndApplyArchiveFallback(visibleEntries);
-      if (sortedEntries.length > 0) {
+    const result = new Map<string, ConversationHistoryEntry[]>();
+    const visibilityCache = new Map<string, boolean>();
+
+    const collectVisibleEntries = (
+      parentId: string,
+      visitedParentIds: ReadonlySet<string>
+    ): boolean => {
+      if (visibilityCache.has(parentId)) {
+        return visibilityCache.get(parentId) ?? false;
+      }
+      if (visitedParentIds.has(parentId)) {
+        return false;
+      }
+
+      const entries = entriesByParent.get(parentId) ?? [];
+      if (entries.length === 0) {
+        visibilityCache.set(parentId, false);
+        return false;
+      }
+
+      const nextVisitedParentIds = new Set(visitedParentIds);
+      nextVisitedParentIds.add(parentId);
+      const visibleEntries: ConversationHistoryEntry[] = [];
+      const forcedVisibleEntryIds = new Set<string>();
+
+      for (const entry of entries) {
+        const selfVisible = this.shouldIncludeHistoryEntry(entry, filter, status, location, activityCutoff);
+        const descendantsVisible = collectVisibleEntries(
+          this.getHistoryParentKey(entry),
+          nextVisitedParentIds
+        );
+        if (!selfVisible && !descendantsVisible) {
+          continue;
+        }
+        visibleEntries.push(entry);
+        if (!selfVisible && descendantsVisible) {
+          forcedVisibleEntryIds.add(entry.id);
+        }
+      }
+
+      const sortedEntries = this.sortDedupeAndApplyArchiveFallback(visibleEntries, forcedVisibleEntryIds);
+      const hasVisibleEntries = sortedEntries.length > 0;
+      if (hasVisibleEntries) {
         result.set(parentId, sortedEntries);
       }
+      visibilityCache.set(parentId, hasVisibleEntries);
+      return hasVisibleEntries;
+    };
+
+    for (const parentId of entriesByParent.keys()) {
+      collectVisibleEntries(parentId, new Set<string>());
     }
 
     return result;
@@ -1493,27 +1524,33 @@ export class InstanceListComponent implements OnDestroy {
 
   private buildOrphanedChildHistoryItems(
     entries: readonly ConversationHistoryEntry[],
+    forcedParentKeys: ReadonlySet<string>,
     filter: string,
     status: string,
     location: 'all' | 'local' | 'remote',
     activityCutoff: number | null
   ): ConversationHistoryEntry[] {
     const visibleEntries = entries.filter((entry) =>
+      forcedParentKeys.has(this.getHistoryParentKey(entry)) ||
       this.shouldIncludeHistoryEntry(entry, filter, status, location, activityCutoff)
     );
-    return this.sortDedupeAndApplyArchiveFallback(visibleEntries);
+    const forcedVisibleEntryIds = new Set(
+      visibleEntries
+        .filter((entry) => forcedParentKeys.has(this.getHistoryParentKey(entry)))
+        .map((entry) => entry.id)
+    );
+    return this.sortDedupeAndApplyArchiveFallback(visibleEntries, forcedVisibleEntryIds);
   }
 
-  private pickHistoryChildItemsByParent(
-    parents: readonly ConversationHistoryEntry[],
-    source: ReadonlyMap<string, ConversationHistoryEntry[]>
+  private mergeHistoryEntriesByParent(
+    ...maps: readonly ReadonlyMap<string, ConversationHistoryEntry[]>[]
   ): Map<string, ConversationHistoryEntry[]> {
     const result = new Map<string, ConversationHistoryEntry[]>();
-    for (const parent of parents) {
-      const parentKey = this.getHistoryParentKey(parent);
-      const children = source.get(parentKey) ?? [];
-      if (children.length > 0) {
-        result.set(parentKey, children);
+    for (const map of maps) {
+      for (const [parentId, entries] of map) {
+        const siblings = result.get(parentId) ?? [];
+        siblings.push(...entries);
+        result.set(parentId, siblings);
       }
     }
     return result;
@@ -1529,26 +1566,29 @@ export class InstanceListComponent implements OnDestroy {
     return count;
   }
 
-  private countLiveHistoryChildren(items: readonly HierarchicalInstance[]): number {
-    return items.reduce((count, item) => count + item.historyChildren.length, 0);
+  private flattenLiveItems(items: readonly HierarchicalInstance[]): HierarchicalInstance[] {
+    return items.flatMap((item) => [
+      item,
+      ...this.flattenRailChildren(item.children).filter(
+        (child): child is HierarchicalInstance => child.kind === 'live'
+      ),
+    ]);
   }
 
-  private flattenHistoryItems(
-    rootItems: readonly ConversationHistoryEntry[],
-    childItemsByParent: ReadonlyMap<string, readonly ConversationHistoryEntry[]>
-  ): ConversationHistoryEntry[] {
-    const result: ConversationHistoryEntry[] = [];
-    for (const rootItem of rootItems) {
-      result.push(rootItem);
-      result.push(...(childItemsByParent.get(this.getHistoryParentKey(rootItem)) ?? []));
-    }
-    return result;
+  private flattenRailChildren(items: readonly HierarchicalRailItem[]): HierarchicalRailItem[] {
+    return items.flatMap((item) => [item, ...this.flattenRailChildren(item.children)]);
+  }
+
+  private flattenHistoryNodes(items: readonly HierarchicalHistoryItem[]): ConversationHistoryEntry[] {
+    return items.flatMap((item) => [item.entry, ...this.flattenHistoryNodes(item.children)]);
   }
 
   private getAllProjectHistoryItems(group: ProjectGroup): ConversationHistoryEntry[] {
     const items = [
-      ...this.flattenHistoryItems(group.historyItems, group.historyChildItemsByParent),
-      ...group.liveItems.flatMap((item) => item.historyChildren),
+      ...this.flattenHistoryNodes(group.historyItems),
+      ...this.flattenRailChildren(group.liveItems.flatMap((item) => item.children))
+        .filter((item): item is HierarchicalHistoryItem => item.kind === 'history')
+        .map((item) => item.entry),
     ];
     const seen = new Set<string>();
     return items.filter((item) => {
@@ -1565,7 +1605,7 @@ export class InstanceListComponent implements OnDestroy {
   }
 
   private getHistoryCollapseKey(entry: ConversationHistoryEntry): string {
-    return `history:${this.getHistoryParentKey(entry)}`;
+    return `history:${entry.id}`;
   }
 
   private shouldIncludeHistoryEntry(
@@ -1745,16 +1785,8 @@ export class InstanceListComponent implements OnDestroy {
     return this.selectedId() === null && this.historyStore.previewEntryId() === entryId;
   }
 
-  getVisibleHistoryItems(group: ProjectGroup): ConversationHistoryEntry[] {
+  getVisibleHistoryItems(group: ProjectGroup): HierarchicalHistoryItem[] {
     return this.historyRail.getVisibleHistoryItems(group);
-  }
-
-  getHistoryChildren(group: ProjectGroup, entry: ConversationHistoryEntry): ConversationHistoryEntry[] {
-    return group.historyChildItemsByParent.get(this.getHistoryParentKey(entry)) ?? [];
-  }
-
-  hasHistoryChildren(group: ProjectGroup, entry: ConversationHistoryEntry): boolean {
-    return this.getHistoryChildren(group, entry).length > 0;
   }
 
   isHistoryChildrenExpanded(entry: ConversationHistoryEntry): boolean {
@@ -1834,6 +1866,22 @@ export class InstanceListComponent implements OnDestroy {
     // `resolveEffectiveInstanceTitle` in shared/types/history.types.ts
     // for the priority rules.
     return resolveEffectiveInstanceTitle(instance, matchingHistoryEntry);
+  }
+
+  private assignLiveRailTitles(
+    item: HierarchicalInstance,
+    historyByThreadId: ReadonlyMap<string, ConversationHistoryEntry> = new Map()
+  ): HierarchicalInstance {
+    return {
+      ...item,
+      railTitle: this.getLiveRailTitle(
+        item.instance,
+        historyByThreadId.get(this.getInstanceThreadId(item.instance))
+      ),
+      children: item.children.map((child) =>
+        child.kind === 'live' ? this.assignLiveRailTitles(child, historyByThreadId) : child
+      ),
+    };
   }
 
   private getLatestHistoryEntriesByThread(

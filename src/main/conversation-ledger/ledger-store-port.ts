@@ -41,6 +41,11 @@ export interface LedgerStorePort {
     options?: ConversationMessagesQuery,
   ): Promise<ConversationMessageRecord[]>;
   getRecentMessages(threadId: string, limit: number): Promise<ConversationMessageRecord[]>;
+  getMessagesBefore(
+    threadId: string,
+    beforeSequence: number,
+    limit: number,
+  ): Promise<ConversationMessageRecord[]>;
   countMessages(threadId: string): Promise<number>;
   hasMessageWithNativeId(threadId: string, nativeMessageId: string): Promise<boolean>;
   upsertThread(input: ConversationThreadUpsertInput): Promise<ConversationThreadRecord>;
@@ -90,6 +95,14 @@ export class InProcessLedgerStorePort implements LedgerStorePort {
     return this.store.getRecentMessages(threadId, limit);
   }
 
+  async getMessagesBefore(
+    threadId: string,
+    beforeSequence: number,
+    limit: number,
+  ): Promise<ConversationMessageRecord[]> {
+    return this.store.getMessagesBefore(threadId, beforeSequence, limit);
+  }
+
   async countMessages(threadId: string): Promise<number> {
     return this.store.countMessages(threadId);
   }
@@ -135,6 +148,7 @@ export type LedgerStoreMethod =
   | 'listThreads'
   | 'getMessages'
   | 'getRecentMessages'
+  | 'getMessagesBefore'
   | 'countMessages'
   | 'hasMessageWithNativeId'
   | 'upsertThread'

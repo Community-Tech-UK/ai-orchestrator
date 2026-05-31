@@ -3,6 +3,7 @@ import {
   getConversationHistoryTitle,
   type ConversationHistoryEntry,
 } from '../../../../shared/types/history.types';
+import type { HierarchicalHistoryItem } from './instance-list.component';
 
 const PINNED_HISTORY_STORAGE_KEY = 'instance-list-pinned-history';
 const SEEN_HISTORY_THREADS_STORAGE_KEY = 'instance-list-seen-history-threads';
@@ -15,7 +16,7 @@ interface RailChangeSummary {
 
 interface ProjectGroupForHistory {
   key: string;
-  historyItems: ConversationHistoryEntry[];
+  historyItems: HierarchicalHistoryItem[];
 }
 
 @Injectable({ providedIn: 'root' })
@@ -152,7 +153,7 @@ export class HistoryRailService {
   // Visible items / expand state
   // -------------------------------------------------------------------------
 
-  getVisibleHistoryItems(group: ProjectGroupForHistory): ConversationHistoryEntry[] {
+  getVisibleHistoryItems(group: ProjectGroupForHistory): HierarchicalHistoryItem[] {
     if (this.expandedHistoryKeys().has(group.key)) {
       return group.historyItems;
     }

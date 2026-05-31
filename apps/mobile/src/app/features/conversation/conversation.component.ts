@@ -277,7 +277,7 @@ export class ConversationComponent {
     // Auto-scroll to the newest message — but only while the user is parked at
     // the bottom. If they've scrolled up to read history, leave them there.
     effect(() => {
-      this.messages().length;
+      void this.messages().length;
       // Track the viewChild too: on a one-shot history load the effect can fire
       // before the transcript element exists; re-run once it resolves so we still
       // scroll to the bottom and surface the floating buttons.

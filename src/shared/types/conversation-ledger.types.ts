@@ -146,6 +146,21 @@ export interface ConversationMessagesQuery {
   afterSequence?: number;
 }
 
+export interface ConversationWindowInfo {
+  totalMessages: number;
+  hasOlder: boolean;
+  oldestSequence: number | null;
+  newestSequence: number | null;
+}
+
+export interface ConversationMessagePage {
+  threadId: string;
+  messages: ConversationMessageRecord[];
+  totalMessages: number;
+  hasMore: boolean;
+  nextBeforeSequence: number | null;
+}
+
 export interface ConversationDiscoveryScope {
   provider?: ConversationProvider;
   workspacePath?: string | null;
@@ -269,4 +284,5 @@ export interface ReconciliationResult {
 export interface ConversationLedgerConversation {
   thread: ConversationThreadRecord;
   messages: ConversationMessageRecord[];
+  window?: ConversationWindowInfo;
 }

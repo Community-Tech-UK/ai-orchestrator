@@ -32,6 +32,7 @@ import { registerBuiltInProviders } from './providers/register-built-in-provider
 import { createInitializationSteps } from './app/initialization-steps';
 import { shutdownTracer } from './observability/otel-setup';
 import { shutdownMetrics } from './observability/otel-metrics';
+import { getChatServiceIfInitialized } from './chats';
 
 // Register built-in provider adapters once at startup so the instance
 // manager (and future consumers) can look them up by ProviderName.
@@ -206,6 +207,7 @@ class AIOrchestratorApp {
     // CRITICAL: await terminateAll so every instance is archived to history
     // before the process exits. Without this, conversations are lost on quit.
     await this.instanceManager.terminateAll();
+    await getChatServiceIfInitialized()?.flushTranscript();
     // Run registered domain teardowns before the generic cleanup registry so
     // teardown order remains explicit for bootstrap-managed services.
     await teardownAll();

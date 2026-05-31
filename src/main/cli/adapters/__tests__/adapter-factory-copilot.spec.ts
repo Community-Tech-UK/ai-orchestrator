@@ -7,8 +7,26 @@ import { PermissionRegistry } from '../../../orchestration/permission-registry';
 
 describe('adapter factory — copilot', () => {
   const testCopilotHome = join(tmpdir(), 'ai-orchestrator-test-copilot-home');
+  const testAioMcp = '/tmp/aio-mcp';
   const originalOrchestratorCopilotHome = process.env['AI_ORCHESTRATOR_COPILOT_HOME'];
   const originalCopilotHome = process.env['COPILOT_HOME'];
+
+  function browserGatewayMcp(provider?: string) {
+    return {
+      aioMcpCliPath: testAioMcp,
+      socketPath: '/tmp/browser-gateway.sock',
+      instanceId: 'instance-browser',
+      ...(provider ? { provider } : {}),
+      exists: () => true,
+    };
+  }
+
+  function readAdditionalMcpConfig(adapter: ReturnType<typeof createCliAdapter>) {
+    const args = adapter.getConfig().args ?? [];
+    const configIdx = args.indexOf('--additional-mcp-config');
+    expect(configIdx).toBeGreaterThanOrEqual(0);
+    return JSON.parse(args[configIdx + 1]);
+  }
 
   beforeEach(() => {
     process.env['AI_ORCHESTRATOR_COPILOT_HOME'] = testCopilotHome;
@@ -171,40 +189,28 @@ describe('adapter factory — copilot', () => {
     expect(env['NODE_OPTIONS']).toMatch(/--use-openssl-ca/);
   });
 
-  it('passes Browser Gateway MCP servers to Copilot ACP with array env entries', () => {
+  it('passes Browser Gateway MCP config to Copilot through --additional-mcp-config', () => {
     const adapter = createCliAdapter('copilot', {
       workingDirectory: '/tmp',
       instanceId: 'instance-browser',
-      browserGatewayMcp: {
-        currentDir: '/tmp/dist/main/instance',
-        execPath: '/Applications/App.app/Contents/MacOS/App',
-        isPackaged: false,
-        resourcesPath: '/tmp/resources',
-        socketPath: '/tmp/browser-gateway.sock',
-        instanceId: 'instance-browser',
-        exists: () => true,
-      },
+      browserGatewayMcp: browserGatewayMcp(),
     });
 
-    const mcpServers = (adapter as unknown as {
-      acpConfig: {
-        mcpServers?: Array<{
-          name: string;
-          command: string;
-          args?: string[];
-          env?: Array<{ name: string; value: string }>;
-        }>;
-      };
-    }).acpConfig.mcpServers ?? [];
+    const config = readAdditionalMcpConfig(adapter);
+    const browserGateway = config.mcpServers['browser-gateway'];
 
-    const browserGateway = mcpServers.find((server) => server.name === 'browser-gateway');
-    expect(browserGateway).toBeTruthy();
-    expect(browserGateway?.env).toEqual(
-      expect.arrayContaining([
-        { name: 'AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET', value: '/tmp/browser-gateway.sock' },
-        { name: 'AI_ORCHESTRATOR_BROWSER_INSTANCE_ID', value: 'instance-browser' },
-      ]),
-    );
+    expect(browserGateway).toMatchObject({
+      command: testAioMcp,
+      args: ['browser-gateway'],
+      env: {
+        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: '/tmp/browser-gateway.sock',
+        AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-browser',
+        AI_ORCHESTRATOR_BROWSER_PROVIDER: 'copilot',
+      },
+    });
+    expect((adapter as unknown as {
+      acpConfig: { mcpServers?: Array<{ name: string }> };
+    }).acpConfig.mcpServers).toEqual([]);
   });
 
   it('adds Browser Gateway usage guidance to provider system prompts when browser tools are enabled', () => {
@@ -212,15 +218,7 @@ describe('adapter factory — copilot', () => {
       workingDirectory: '/tmp',
       instanceId: 'instance-browser',
       systemPrompt: 'Base instructions.',
-      browserGatewayMcp: {
-        currentDir: '/tmp/dist/main/instance',
-        execPath: '/Applications/App.app/Contents/MacOS/App',
-        isPackaged: false,
-        resourcesPath: '/tmp/resources',
-        socketPath: '/tmp/browser-gateway.sock',
-        instanceId: 'instance-browser',
-        exists: () => true,
-      },
+      browserGatewayMcp: browserGatewayMcp(),
     });
 
     const systemPrompt = (adapter as unknown as {
@@ -234,7 +232,7 @@ describe('adapter factory — copilot', () => {
     expect(systemPrompt).toContain('Do not tell the user to open /browser');
   });
 
-  it('merges caller-provided ACP MCP servers with Browser Gateway', () => {
+  it('merges caller-provided Copilot MCP servers with Browser Gateway', () => {
     const adapter = createCliAdapter('copilot', {
       workingDirectory: '/tmp',
       mcpServers: [
@@ -242,40 +240,27 @@ describe('adapter factory — copilot', () => {
           name: 'existing',
           command: 'node',
           args: ['existing.js'],
+          env: [{ name: 'EXISTING_ENV', value: '1' }],
         },
       ],
-      browserGatewayMcp: {
-        currentDir: '/tmp/dist/main/instance',
-        execPath: '/Applications/App.app/Contents/MacOS/App',
-        isPackaged: false,
-        resourcesPath: '/tmp/resources',
-        socketPath: '/tmp/browser-gateway.sock',
-        instanceId: 'instance-browser',
-        exists: () => true,
-      },
+      browserGatewayMcp: browserGatewayMcp(),
     });
 
-    const names = ((adapter as unknown as {
-      acpConfig: { mcpServers?: Array<{ name: string }> };
-    }).acpConfig.mcpServers ?? []).map((server) => server.name);
+    const config = readAdditionalMcpConfig(adapter);
 
-    expect(names).toEqual(['existing', 'browser-gateway']);
+    expect(Object.keys(config.mcpServers)).toEqual(['existing', 'browser-gateway']);
+    expect(config.mcpServers.existing).toEqual({
+      command: 'node',
+      args: ['existing.js'],
+      env: { EXISTING_ENV: '1' },
+    });
   });
 
   it('passes Browser Gateway MCP config to Codex through generated TOML', () => {
     const adapter = createCliAdapter('codex', {
       workingDirectory: '/tmp',
       instanceId: 'instance-browser',
-      browserGatewayMcp: {
-        currentDir: '/tmp/dist/main/instance',
-        execPath: '/Applications/App.app/Contents/MacOS/App',
-        isPackaged: false,
-        resourcesPath: '/tmp/resources',
-        socketPath: '/tmp/browser-gateway.sock',
-        instanceId: 'instance-browser',
-        provider: 'codex',
-        exists: () => true,
-      },
+      browserGatewayMcp: browserGatewayMcp('codex'),
     });
 
     const mcpConfigToml = (adapter as unknown as {
@@ -290,16 +275,7 @@ describe('adapter factory — copilot', () => {
     const adapter = createCliAdapter('gemini', {
       workingDirectory: '/tmp',
       instanceId: 'instance-browser',
-      browserGatewayMcp: {
-        currentDir: '/tmp/dist/main/instance',
-        execPath: '/Applications/App.app/Contents/MacOS/App',
-        isPackaged: false,
-        resourcesPath: '/tmp/resources',
-        socketPath: '/tmp/browser-gateway.sock',
-        instanceId: 'instance-browser',
-        provider: 'gemini',
-        exists: () => true,
-      },
+      browserGatewayMcp: browserGatewayMcp('gemini'),
     });
 
     const settingsPath = adapter.getConfig().env?.['GEMINI_CLI_SYSTEM_SETTINGS_PATH'];
@@ -315,16 +291,7 @@ describe('adapter factory — copilot', () => {
     const adapter = createCliAdapter('cursor', {
       workingDirectory: '/tmp',
       instanceId: 'instance-browser',
-      browserGatewayMcp: {
-        currentDir: '/tmp/dist/main/instance',
-        execPath: '/Applications/App.app/Contents/MacOS/App',
-        isPackaged: false,
-        resourcesPath: '/tmp/resources',
-        socketPath: '/tmp/browser-gateway.sock',
-        instanceId: 'instance-browser',
-        provider: 'cursor',
-        exists: () => true,
-      },
+      browserGatewayMcp: browserGatewayMcp('cursor'),
     });
 
     const mcpServers = (adapter as unknown as {

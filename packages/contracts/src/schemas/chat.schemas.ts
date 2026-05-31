@@ -54,6 +54,12 @@ export const ChatSetYoloPayloadSchema = z.object({
   yolo: z.boolean(),
 });
 
+export const ChatLoadOlderMessagesPayloadSchema = z.object({
+  chatId: z.string().min(1).max(200),
+  beforeSequence: z.number().int().positive(),
+  limit: z.number().int().positive().max(500).optional(),
+});
+
 export const ChatSendMessagePayloadSchema = z.object({
   chatId: z.string().min(1).max(200),
   text: z.string().min(1).max(500000),
@@ -69,4 +75,5 @@ export type ChatSetProviderPayload = z.infer<typeof ChatSetProviderPayloadSchema
 export type ChatSetModelPayload = z.infer<typeof ChatSetModelPayloadSchema>;
 export type ChatSetReasoningPayload = z.infer<typeof ChatSetReasoningPayloadSchema>;
 export type ChatSetYoloPayload = z.infer<typeof ChatSetYoloPayloadSchema>;
+export type ChatLoadOlderMessagesPayload = z.infer<typeof ChatLoadOlderMessagesPayloadSchema>;
 export type ChatSendMessagePayload = z.infer<typeof ChatSendMessagePayloadSchema>;

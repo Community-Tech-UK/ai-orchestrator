@@ -92,6 +92,12 @@ function callStore(method: LedgerStoreMethod, args: unknown[]): unknown {
       return store.getMessages(args[0] as string, args[1] as ConversationMessagesQuery | undefined);
     case 'getRecentMessages':
       return store.getRecentMessages(args[0] as string, args[1] as number);
+    case 'getMessagesBefore':
+      return store.getMessagesBefore(
+        args[0] as string,
+        args[1] as number,
+        args[2] as number,
+      );
     case 'countMessages':
       return store.countMessages(args[0] as string);
     case 'hasMessageWithNativeId':

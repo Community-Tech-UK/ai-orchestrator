@@ -4,4 +4,9 @@ export {
   createUserLedgerMessage,
   type ChatTranscriptBridgeConfig,
 } from './chat-transcript-bridge';
-export { ChatService, getChatService, type ChatServiceConfig } from './chat-service';
+export {
+  ChatService,
+  getChatService,
+  getChatServiceIfInitialized,
+  type ChatServiceConfig,
+} from './chat-service';

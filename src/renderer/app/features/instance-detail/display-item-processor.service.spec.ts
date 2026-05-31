@@ -148,6 +148,147 @@ describe('DisplayItemProcessor', () => {
     expect(processor.newItemCount).toBe(1);
   });
 
+  it('converts ACP plan updates into compact plan-update items', () => {
+    const items = processor.process([
+      makeMsg({
+        id: 'plan-1',
+        type: 'system',
+        content: 'Plan:\n- Audit\n- Test',
+        timestamp: 1_000,
+        metadata: {
+          sessionUpdate: 'plan',
+          entries: [
+            { content: 'Audit controllers', status: 'completed', priority: 'medium' },
+            { content: 'Write tests', status: 'in_progress', priority: 'high' },
+          ],
+        },
+      }),
+    ]);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].type).toBe('plan-update');
+    expect(items[0].planUpdate).toMatchObject({
+      totalCount: 2,
+      completedCount: 1,
+      inProgressCount: 1,
+      preview: 'Write tests',
+    });
+  });
+
+  it('merges consecutive plan updates into the latest plan state', () => {
+    const first = makeMsg({
+      id: 'plan-1',
+      type: 'system',
+      content: 'Plan:\n- First',
+      timestamp: 1_000,
+      metadata: {
+        sessionUpdate: 'plan',
+        entries: [
+          { content: 'Audit controllers', status: 'in_progress', priority: 'medium' },
+        ],
+      },
+    });
+    const second = makeMsg({
+      id: 'plan-2',
+      type: 'system',
+      content: 'Plan:\n- First\n- Second',
+      timestamp: 2_000,
+      metadata: {
+        sessionUpdate: 'plan',
+        entries: [
+          { content: 'Audit controllers', status: 'completed', priority: 'medium' },
+          { content: 'Write tests', status: 'in_progress', priority: 'high' },
+        ],
+      },
+    });
+
+    processor.process([first]);
+    const items = processor.process([first, second]);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].type).toBe('plan-update');
+    expect(items[0].message?.id).toBe('plan-2');
+    expect(items[0].planUpdate).toMatchObject({
+      totalCount: 2,
+      completedCount: 1,
+      inProgressCount: 1,
+      preview: 'Write tests',
+    });
+  });
+
+  it('does not merge a later plan update across a real assistant reply', () => {
+    const items = processor.process([
+      makeMsg({
+        id: 'plan-1',
+        type: 'system',
+        content: 'Plan:\n- First',
+        timestamp: 1_000,
+        metadata: {
+          sessionUpdate: 'plan',
+          entries: [{ content: 'Audit controllers', status: 'in_progress' }],
+        },
+      }),
+      makeMsg({
+        id: 'reply-1',
+        type: 'assistant',
+        content: 'I found the main gap.',
+        timestamp: 1_500,
+      }),
+      makeMsg({
+        id: 'plan-2',
+        type: 'system',
+        content: 'Plan:\n- First\n- Second',
+        timestamp: 2_000,
+        metadata: {
+          sessionUpdate: 'plan',
+          entries: [
+            { content: 'Audit controllers', status: 'completed' },
+            { content: 'Write tests', status: 'in_progress' },
+          ],
+        },
+      }),
+    ]);
+
+    expect(items).toHaveLength(3);
+    expect(items[0].type).toBe('plan-update');
+    expect(items[1].type).toBe('message');
+    expect(items[2].type).toBe('plan-update');
+  });
+
+  it('keeps an empty structured plan update as the latest coalesced plan state', () => {
+    const first = makeMsg({
+      id: 'plan-1',
+      type: 'system',
+      content: 'Plan:\n- Audit controllers (in_progress / medium)',
+      timestamp: 1_000,
+      metadata: {
+        sessionUpdate: 'plan',
+        entries: [{ content: 'Audit controllers', status: 'in_progress', priority: 'medium' }],
+      },
+    });
+    const cleared = makeMsg({
+      id: 'plan-2',
+      type: 'system',
+      content: 'Plan: no entries advertised.',
+      timestamp: 2_000,
+      metadata: {
+        sessionUpdate: 'plan',
+        entries: [],
+      },
+    });
+
+    processor.process([first]);
+    const items = processor.process([first, cleared]);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].type).toBe('plan-update');
+    expect(items[0].message?.id).toBe('plan-2');
+    expect(items[0].planUpdate).toMatchObject({
+      totalCount: 0,
+      entries: [],
+    });
+  });
+
   it('should handle first-time streaming messages', () => {
     const msg = makeMsg({
       id: 'stream1',

@@ -16,6 +16,7 @@ import { getLogger } from '../logging/logger';
 // electron importers). See context-worker-import-isolation.spec.ts for the guard.
 import { getUnifiedMemory } from '../memory/unified-controller';
 import { getWakeContextBuilder } from '../memory/wake-context-builder';
+import { getPolicyAdapter } from '../observation/policy-adapter';
 import {
   JITContextLoader,
   getJITLoader,
@@ -547,6 +548,14 @@ export class InstanceContextManager implements InstanceContextPort {
 
   async buildWakeContextText(wing?: string): Promise<string | null> {
     return getWakeContextBuilder().getWakeUpText(wing, { bypassCache: true }) || null;
+  }
+
+  async buildObservationContext(
+    taskContext: string,
+    instanceId?: string,
+    taskType?: string,
+  ): Promise<string | null> {
+    return await getPolicyAdapter().buildObservationContext(taskContext, instanceId, taskType);
   }
 
   async buildMcpRuntimeToolContextSelection(

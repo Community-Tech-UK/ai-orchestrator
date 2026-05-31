@@ -37,6 +37,9 @@ export function createChatDomain(
     chatSetYolo: (payload: unknown): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.CHAT_SET_YOLO, payload),
 
+    chatLoadOlderMessages: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CHAT_LOAD_OLDER_MESSAGES, payload),
+
     chatSendMessage: (payload: unknown): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.CHAT_SEND_MESSAGE, payload),
 

@@ -25,11 +25,13 @@ import { getLogger } from '../logging/logger';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type { RlmContextInfo, ContextBudget, UnifiedMemoryContextInfo } from './instance-types';
 import type { InstanceContextPort } from './instance-context-port';
-import type {
+import {
+  buildMcpRuntimeToolContextSelection as selectMcpRuntimeToolContext,
   MCPToolSearchSnapshot,
   McpRuntimeToolContextSelection,
 } from '../mcp/mcp-runtime-tool-context';
 import type {
+  HabitTrackerStateSnapshot,
   ContextWorkerInboundMsg,
   ContextWorkerOutboundMsg,
   ContextWorkerInstanceSnapshot,
@@ -37,10 +39,16 @@ import type {
   InitializeRlmMsg,
   BuildRlmContextMsg,
   BuildUnifiedMemoryContextMsg,
+  BuildObservationContextMsg,
   BuildWakeContextTextMsg,
   BuildMcpRuntimeToolContextMsg,
   CompactContextMsg,
   IngestInitialOutputMsg,
+  LoadHabitTrackerStateMsg,
+  LoadMetricsCollectorStateMsg,
+  LoadOutcomeTrackerStateMsg,
+  MetricsCollectorStateSnapshot,
+  OutcomeTrackerStateSnapshot,
   GetStatsMsg,
   ShutdownMsg,
 } from './context-worker-protocol';
@@ -79,8 +87,12 @@ type RpcMsgWithId =
   | InitializeRlmMsg
   | BuildRlmContextMsg
   | BuildUnifiedMemoryContextMsg
+  | BuildObservationContextMsg
   | BuildWakeContextTextMsg
   | BuildMcpRuntimeToolContextMsg
+  | LoadOutcomeTrackerStateMsg
+  | LoadMetricsCollectorStateMsg
+  | LoadHabitTrackerStateMsg
   | CompactContextMsg
   | IngestInitialOutputMsg
   | GetStatsMsg
@@ -360,21 +372,54 @@ export class ContextWorkerClient implements InstanceContextPort {
     return typeof result === 'string' ? result : null;
   }
 
+  async buildObservationContext(
+    taskContext: string,
+    instanceId?: string,
+    taskType?: string,
+  ): Promise<string | null> {
+    if (this.isDegraded) {
+      return null;
+    }
+    const id = this.nextId();
+    const result = await this.postRpc({
+      type: 'build-observation-context',
+      id,
+      taskContext,
+      instanceId,
+      taskType,
+    });
+    return typeof result === 'string' ? result : null;
+  }
+
   async buildMcpRuntimeToolContextSelection(
     snapshot: MCPToolSearchSnapshot,
     query?: string,
     maxTools?: number,
   ): Promise<McpRuntimeToolContextSelection | null> {
-    if (this.isDegraded) return null;
+    if (this.isDegraded) {
+      return selectMcpRuntimeToolContext(snapshot, { query, maxTools });
+    }
+
     const id = this.nextId();
-    const result = await this.postRpc({
-      type: 'build-mcp-runtime-tool-context',
-      id,
-      snapshot,
-      query,
-      maxTools,
-    });
-    return (result as McpRuntimeToolContextSelection | null) ?? null;
+    try {
+      const result = await this.postRpc({
+        type: 'build-mcp-runtime-tool-context',
+        id,
+        snapshot,
+        query,
+        maxTools,
+      });
+      if (result) {
+        return result as McpRuntimeToolContextSelection;
+      }
+      logger.warn('Context worker timed out for MCP tool selection; falling back to main thread');
+      return selectMcpRuntimeToolContext(snapshot, { query, maxTools });
+    } catch (error) {
+      logger.warn('Context worker unavailable for MCP tool selection; falling back to main thread', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return selectMcpRuntimeToolContext(snapshot, { query, maxTools });
+    }
   }
 
   async compactContext(instanceId: string, instance: Instance): Promise<void> {
@@ -479,6 +524,44 @@ export class ContextWorkerClient implements InstanceContextPort {
         maxAttempts: MAX_RESTART_ATTEMPTS,
       });
     }
+  }
+
+  async loadOutcomeTrackerState(maxExperiences: number): Promise<OutcomeTrackerStateSnapshot | null> {
+    if (this.isDegraded) {
+      return null;
+    }
+    const id = this.nextId();
+    const result = await this.postRpc({
+      type: 'load-outcome-tracker-state',
+      id,
+      maxExperiences,
+    });
+    return (result as OutcomeTrackerStateSnapshot | null) ?? null;
+  }
+
+  async loadMetricsCollectorState(): Promise<MetricsCollectorStateSnapshot | null> {
+    if (this.isDegraded) {
+      return null;
+    }
+    const id = this.nextId();
+    const result = await this.postRpc({
+      type: 'load-metrics-collector-state',
+      id,
+    });
+    return (result as MetricsCollectorStateSnapshot | null) ?? null;
+  }
+
+  async loadHabitTrackerState(trackingWindowDays: number): Promise<HabitTrackerStateSnapshot | null> {
+    if (this.isDegraded) {
+      return null;
+    }
+    const id = this.nextId();
+    const result = await this.postRpc({
+      type: 'load-habit-tracker-state',
+      id,
+      trackingWindowDays,
+    });
+    return (result as HabitTrackerStateSnapshot | null) ?? null;
   }
 
   private markDegraded(reason: string): void {

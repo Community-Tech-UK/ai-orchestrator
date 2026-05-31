@@ -1,8 +1,10 @@
 /**
  * Learning & Self-Improvement Domain Bootstrap
  *
- * Initializes A/B testing, outcome tracking, prompt enhancement,
- * and strategy learning singletons.
+ * Historically this eagerly instantiated the learning stack at startup, which
+ * synchronously hydrated several persistence-backed singletons on the main
+ * thread. Keep the bootstrap registration so the domain remains visible in
+ * startup diagnostics, but defer singleton construction until first use.
  */
 
 import { registerBootstrapModule } from './index';
@@ -12,16 +14,6 @@ export function registerLearningBootstrap(): void {
     name: 'Learning singletons',
     domain: 'learning',
     failureMode: 'degraded',
-    init: () => {
-      const { getOutcomeTracker } = require('../learning/outcome-tracker') as typeof import('../learning/outcome-tracker');
-      const { getStrategyLearner } = require('../learning/strategy-learner') as typeof import('../learning/strategy-learner');
-      const { getPromptEnhancer } = require('../learning/prompt-enhancer') as typeof import('../learning/prompt-enhancer');
-      const { getABTestingEngine } = require('../learning/ab-testing') as typeof import('../learning/ab-testing');
-
-      getOutcomeTracker();
-      getStrategyLearner();
-      getPromptEnhancer();
-      getABTestingEngine();
-    },
+    init: () => undefined,
   });
 }

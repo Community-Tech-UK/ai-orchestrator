@@ -136,7 +136,7 @@
 
     <!-- Source Control (right side, sits LEFT of File Explorer).
          The store owns the working-directory state and is eagerly populated
-         by an effect above whenever a local instance is selected — the
+         by an effect above whenever the active local workspace changes — the
          panel is a pure view consuming the store. -->
     @if (canShowSourceControl() && showSourceControl()) {
       <app-source-control
@@ -144,11 +144,12 @@
       />
     }
 
-    <!-- File Explorer Sidebar (right side) - only show when an instance is selected -->
+    <!-- File Explorer sidebar (right side) for the active workspace, including
+         draft sessions that already have a selected working directory. -->
     @if (canShowFileExplorer() && showFileExplorer()) {
       <app-file-explorer
-        [initialPath]="selectedInstanceWorkingDir()"
-        [executionNodeId]="selectedInstanceExecutionNodeId()"
+        [initialPath]="activeWorkspaceWorkingDir()"
+        [executionNodeId]="activeWorkspaceExecutionNodeId()"
         (fileDragged)="onFileDragged($event)"
         (filesDragged)="onFilesDragged($event)"
       />
