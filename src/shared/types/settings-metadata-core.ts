@@ -101,6 +101,15 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'orchestration',
   },
   {
+    key: 'maxSpawnDepth',
+    label: 'Maximum delegation depth',
+    description: 'How many levels deep helper agents may nest (a helper of a helper is level 2). Caps runaway "agent-spawning-agent" chains, including agents run on remote nodes. 0 means no limit.',
+    type: 'number',
+    category: 'orchestration',
+    min: 0,
+    max: 10,
+  },
+  {
     key: 'defaultMissedRunPolicy',
     label: 'When a scheduled run is missed',
     description: 'What to do if a scheduled task was due while the app was closed or busy.',

@@ -25,6 +25,7 @@ import {
   PlanModeUpdatePayloadSchema,
 } from '@contracts/schemas/instance';
 import { getCommandManager } from '../../commands/command-manager';
+import { emitPluginHook } from '../../plugins/hook-emitter';
 import { getCompactionCoordinator } from '../../context/compaction-coordinator';
 import { isGitRepository } from '../../git/git-probe-service';
 import { InstanceManager } from '../../instance/instance-manager';
@@ -153,6 +154,18 @@ export function registerCommandHandlers(
             }
           };
         }
+
+        // Notify the plugin hook bus that a TUI/slash command is executing.
+        // Fired after resolution + applicability, before the type-specific effect.
+        emitPluginHook('tui.command.execute', {
+          instanceId: validated.instanceId,
+          commandId: executed.command.id,
+          commandName: executed.command.name,
+          args: validated.args || [],
+          executionType: executed.execution.type,
+          workingDirectory,
+          timestamp: Date.now(),
+        });
 
         // Special handling for /compact command — route to compaction coordinator
         if (executed.execution.type === 'compact') {

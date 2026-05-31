@@ -116,4 +116,44 @@ describe('emitHook', () => {
     expect(hook1).toHaveBeenCalledWith({ instanceId: 'i-1', sessionId: 's-1' });
     expect(hook2).toHaveBeenCalledWith({ instanceId: 'i-1', sessionId: 's-1' });
   });
+
+  it('dispatches the file.edited lifecycle event to subscribers', async () => {
+    const manager = OrchestratorPluginManager.getInstance();
+    const onFileEdited = vi.fn();
+    OrchestratorPluginManager._injectPluginForTesting(manager, '/project-a', {
+      'file.edited': onFileEdited,
+    });
+
+    const payload = {
+      instanceId: 'i-1',
+      filePath: '/project-a/src/main.ts',
+      toolName: 'Edit',
+      provider: 'claude',
+      timestamp: 1_717_000_000_000,
+    };
+    await manager.emitHook('file.edited', payload);
+
+    expect(onFileEdited).toHaveBeenCalledWith(payload);
+  });
+
+  it('dispatches the tui.command.execute lifecycle event to subscribers', async () => {
+    const manager = OrchestratorPluginManager.getInstance();
+    const onCommand = vi.fn();
+    OrchestratorPluginManager._injectPluginForTesting(manager, '/project-a', {
+      'tui.command.execute': onCommand,
+    });
+
+    const payload = {
+      instanceId: 'i-1',
+      commandId: 'cmd-review',
+      commandName: 'review',
+      args: ['focus', 'errors'],
+      executionType: 'prompt',
+      workingDirectory: '/project-a',
+      timestamp: 1_717_000_000_000,
+    };
+    await manager.emitHook('tui.command.execute', payload);
+
+    expect(onCommand).toHaveBeenCalledWith(payload);
+  });
 });

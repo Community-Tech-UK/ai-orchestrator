@@ -11,9 +11,11 @@ import {
   SearchBuildIndexPayloadSchema,
   SearchConfigureExaPayloadSchema,
   SessionRecallSearchPayloadSchema,
+  SessionRecallResolveRefPayloadSchema,
   SearchSemanticPayloadSchema,
 } from '@contracts/schemas/observability';
 import { getSessionRecallService } from '../../session/session-recall-service';
+import { resolveSessionReferences } from '../../session/session-reference-resolver';
 
 export function registerSearchHandlers(): void {
   const searchManager = getSemanticSearchManager();
@@ -203,6 +205,30 @@ export function registerSearchHandlers(): void {
           success: false,
           error: {
             code: 'SESSION_RECALL_SEARCH_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Resolve @T-<id> session cross-references in a prompt (backlog #31)
+  ipcMain.handle(
+    IPC_CHANNELS.SESSION_RECALL_RESOLVE_REF,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(SessionRecallResolveRefPayloadSchema, payload, 'SESSION_RECALL_RESOLVE_REF');
+        const resolution = await resolveSessionReferences(validated.text);
+        return { success: true, data: resolution };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'SESSION_RECALL_RESOLVE_REF_FAILED',
             message: (error as Error).message,
             timestamp: Date.now()
           }

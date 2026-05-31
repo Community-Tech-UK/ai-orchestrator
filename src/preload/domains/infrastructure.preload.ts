@@ -414,6 +414,57 @@ export function createInfrastructureDomain(
       return ipcRenderer.invoke(ch.SEARCH_GET_INDEX_STATS);
     },
 
+    // Session recall — cross-session search + @T-<id> reference resolution
+    sessionRecallSearch: (payload: {
+      query?: string;
+      intent?: string;
+      parentId?: string;
+      automationId?: string;
+      provider?: string;
+      model?: string;
+      repositoryPath?: string;
+      sources?: string[];
+      limit?: number;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SESSION_RECALL_SEARCH, payload);
+    },
+    sessionRecallResolveRef: (payload: { text: string }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.SESSION_RECALL_RESOLVE_REF, payload);
+    },
+
+    // Auto-update (electron-updater)
+    updateCheck: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.UPDATE_CHECK);
+    },
+    updateDownload: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.UPDATE_DOWNLOAD);
+    },
+    updateInstall: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.UPDATE_INSTALL);
+    },
+    updateGetStatus: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.UPDATE_GET_STATUS);
+    },
+    onUpdateStatusChanged: (callback: (data: unknown) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
+      ipcRenderer.on(ch.UPDATE_STATUS_CHANGED, handler);
+      return () => ipcRenderer.removeListener(ch.UPDATE_STATUS_CHANGED, handler);
+    },
+
+    // Magic prompts — schema-backed one-shot structured commands
+    magicPromptList: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MAGIC_PROMPT_LIST);
+    },
+    magicPromptRun: (payload: {
+      id: string;
+      text: string;
+      context?: string;
+      provider?: string;
+      workingDirectory?: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MAGIC_PROMPT_RUN, payload);
+    },
+
     codebaseIndexStore: (
       storeId: string,
       rootPath: string,

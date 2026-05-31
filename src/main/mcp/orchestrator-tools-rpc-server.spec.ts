@@ -222,6 +222,61 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
     expect(runHandler).not.toHaveBeenCalled();
   });
 
+  it('dispatches read_node_output to the matching tool with validated payload', async () => {
+    const readHandler = vi.fn(async (args: unknown) => ({ status: 'idle', done: true, echoed: args }));
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'read_node_output',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: readHandler,
+        },
+      ],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 12,
+      method: 'orchestrator_tools.read_node_output',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: { instanceId: 'inst-1', limit: 20 },
+      },
+    });
+
+    expect(readHandler).toHaveBeenCalledOnce();
+    expect(readHandler.mock.calls[0]?.[0]).toEqual({ instanceId: 'inst-1', limit: 20 });
+    expect(result).toMatchObject({ done: true });
+  });
+
+  it('rejects read_node_output payloads that fail the schema (missing instanceId)', async () => {
+    const readHandler = vi.fn();
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'read_node_output',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: readHandler,
+        },
+      ],
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 13,
+        method: 'orchestrator_tools.read_node_output',
+        params: {
+          instanceId: KNOWN_INSTANCE,
+          payload: { limit: 20 },
+        },
+      }),
+    ).rejects.toThrow();
+    expect(readHandler).not.toHaveBeenCalled();
+  });
+
   it('rate-limits per instance', async () => {
     const { server } = makeServer({ rateLimit: { maxRequests: 2, windowMs: 60_000 } });
 

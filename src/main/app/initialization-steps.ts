@@ -74,6 +74,8 @@ import { initializeMainProcessWatchdog } from '../runtime/main-process-watchdog'
 import { getEventLoopLagMonitor } from '../runtime/event-loop-lag-monitor';
 import { getContextWorkerClient } from '../instance/context-worker-client';
 import type { InstanceManager } from '../instance/instance-manager';
+import type { Instance } from '../../shared/types/instance.types';
+import { evaluateSpawn } from '../orchestration/subagent-spawn-guard';
 import type { WindowManager } from '../window-manager';
 import {
   createCodebaseAutoIndexCoordinatorStep,
@@ -82,6 +84,22 @@ import {
 } from './indexing-initialization-steps';
 
 const logger = getLogger('AppInitialization');
+
+/**
+ * Effective spawn depth of an instance for the recursion guard (claude2_todo
+ * #18). Unifies the two lineage systems: locally-orchestrated children carry a
+ * real `depth` (set from `parent.depth + 1`), while `run_on_node`-spawned
+ * instances record their depth in `metadata.spawnDepth` (they deliberately
+ * don't set `parentId`, to avoid coupling remote spawns to parent-termination
+ * / hibernation cascades). The larger of the two wins.
+ */
+function effectiveSpawnDepth(instance: Instance | undefined): number {
+  if (!instance) return 0;
+  const metaDepth = instance.metadata?.['spawnDepth'];
+  const fromMeta = typeof metaDepth === 'number' && Number.isFinite(metaDepth) ? metaDepth : 0;
+  const fromField = typeof instance.depth === 'number' && Number.isFinite(instance.depth) ? instance.depth : 0;
+  return Math.max(fromMeta, fromField, 0);
+}
 
 export interface AppInitializationStep {
   name: string;
@@ -567,6 +585,23 @@ export function createInitializationSteps(
       name: 'Orchestrator-tools RPC server',
       fn: async () => {
         const { app } = await import('electron');
+        // Statuses where the instance is still actively working a turn. Used to
+        // derive `done` for read_node_output. Mirrors the mobile gateway's
+        // WORKING_STATUSES.
+        const WORKING_STATUSES = new Set<string>([
+          'initializing',
+          'busy',
+          'processing',
+          'thinking_deeply',
+          'interrupting',
+          'interrupt-escalating',
+          'cancelling',
+          'respawning',
+          'waking',
+        ]);
+        const MAX_MESSAGE_CONTENT = 4000;
+        const sleep = (ms: number): Promise<void> =>
+          new Promise((resolve) => setTimeout(resolve, ms));
         await initializeOrchestratorToolsRpcServer({
           operatorDbPath: defaultOperatorDbPath(),
           conversationLedgerDbPath: path.join(
@@ -578,7 +613,42 @@ export function createInitializationSteps(
           // Backs the `run_on_node` MCP tool: resolve the target worker node and
           // spawn an agent on it via the already-deployed `instance.spawn` RPC.
           // Mirrors the `/run-on` channel command (project-less default cwd).
-          spawnRemoteInstance: async (args) => {
+          spawnRemoteInstance: async (args, meta) => {
+            // Recursion-depth guard (claude2_todo #18): a remote-spawned agent
+            // also receives the orchestrator MCP, so without a cap it could
+            // call run_on_node again and fork-bomb across nodes. Block spawns
+            // past the configured depth and beyond the global instance ceiling.
+            const callerInstance = meta?.callerInstanceId
+              ? instanceManager.getInstance(meta.callerInstanceId)
+              : undefined;
+            const guardSettings = getSettingsManager().getAll();
+            const activeSpawnedChildren = instanceManager
+              .getAllInstances()
+              .filter(
+                (i) =>
+                  i.status !== 'terminated' &&
+                  typeof i.metadata?.['spawnDepth'] === 'number',
+              ).length;
+            const spawnDecision = evaluateSpawn({
+              parentDepth: effectiveSpawnDepth(callerInstance),
+              activeChildCount: activeSpawnedChildren,
+              limits: {
+                maxDepth: guardSettings.maxSpawnDepth,
+                maxConcurrentChildren: guardSettings.maxTotalInstances,
+              },
+            });
+            if (!spawnDecision.allowed) {
+              logger.info('run_on_node blocked by spawn guard', {
+                callerInstanceId: meta?.callerInstanceId ?? null,
+                childDepth: spawnDecision.childDepth,
+                activeSpawnedChildren,
+                maxSpawnDepth: guardSettings.maxSpawnDepth,
+                maxTotalInstances: guardSettings.maxTotalInstances,
+                reason: spawnDecision.reason,
+              });
+              throw new Error(`run_on_node blocked: ${spawnDecision.reason}`);
+            }
+
             const registry = getWorkerNodeRegistry();
             const allNodes = registry.getAllNodes();
             const connected = allNodes.filter(
@@ -611,6 +681,14 @@ export function createInitializationSteps(
               forceNodeId: node.id,
               provider: args.provider,
               modelOverride: args.model,
+              // Record spawn lineage for the recursion guard so a child that
+              // itself calls run_on_node is seen at the next depth.
+              metadata: {
+                spawnDepth: spawnDecision.childDepth,
+                ...(meta?.callerInstanceId
+                  ? { spawnParentInstanceId: meta.callerInstanceId }
+                  : {}),
+              },
             });
             return {
               instanceId: instance.id,
@@ -618,6 +696,45 @@ export function createInitializationSteps(
               nodeName: node.name,
               workingDirectory,
               status: instance.status,
+            };
+          },
+          // Backs the `read_node_output` MCP tool: serialize a remote-spawned
+          // instance's output buffer + status so an external agent can read the
+          // results back. Optionally polls until the turn completes.
+          readInstanceOutput: async (args) => {
+            const deadline = Date.now() + (args.waitMs ?? 0);
+            let instance = instanceManager.getInstance(args.instanceId);
+            if (!instance) {
+              return null;
+            }
+            // Poll until the instance leaves a working state or the wait budget
+            // is exhausted. The first check happens before any sleep.
+            while (WORKING_STATUSES.has(instance.status) && Date.now() < deadline) {
+              await sleep(Math.min(500, Math.max(0, deadline - Date.now())));
+              instance = instanceManager.getInstance(args.instanceId);
+              if (!instance) {
+                return null;
+              }
+            }
+            const limit = args.limit ?? 100;
+            const buffer = instance.outputBuffer ?? [];
+            const sliced = buffer.slice(-limit);
+            let contentCapped = false;
+            const messages = sliced.map((m) => {
+              let content = m.content ?? '';
+              if (content.length > MAX_MESSAGE_CONTENT) {
+                content = `${content.slice(0, MAX_MESSAGE_CONTENT)}… [truncated]`;
+                contentCapped = true;
+              }
+              return { type: m.type, content, timestamp: m.timestamp };
+            });
+            return {
+              instanceId: instance.id,
+              status: instance.status,
+              done: !WORKING_STATUSES.has(instance.status),
+              messageCount: buffer.length,
+              truncated: contentCapped || sliced.length < buffer.length,
+              messages,
             };
           },
         });

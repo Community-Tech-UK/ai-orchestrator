@@ -95,3 +95,8 @@ export const SessionRecallSearchPayloadSchema = z.object({
   ])).max(10).optional(),
   limit: z.number().int().min(1).max(100).optional(),
 });
+
+/** Resolve `@T-<id>` session cross-references found in a prompt. */
+export const SessionRecallResolveRefPayloadSchema = z.object({
+  text: z.string().min(1).max(100_000),
+});

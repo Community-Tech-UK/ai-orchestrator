@@ -209,6 +209,54 @@ describe('orchestrator MCP tools', () => {
     expect(result).toMatchObject({ instanceId: 'inst-9', nodeId: 'node-9', status: 'initializing' });
   });
 
+  it('run_on_node threads the caller instance id to spawnRemoteInstance (spawn-depth guard lineage)', async () => {
+    const db = createDb();
+    const metas: unknown[] = [];
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: 'parent-instance-1',
+      spawnRemoteInstance: async (_args, meta) => {
+        metas.push(meta);
+        return {
+          instanceId: 'inst-10',
+          nodeId: 'node-10',
+          nodeName: 'linux-box',
+          workingDirectory: '/work',
+          status: 'initializing',
+        };
+      },
+    });
+    const runOnNode = tools.find((t) => t.name === 'run_on_node');
+
+    await runOnNode!.handler({ prompt: 'do work' });
+
+    expect(metas).toEqual([{ callerInstanceId: 'parent-instance-1' }]);
+  });
+
+  it('run_on_node passes a null caller id when no instance context is present', async () => {
+    const db = createDb();
+    const metas: unknown[] = [];
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      spawnRemoteInstance: async (_args, meta) => {
+        metas.push(meta);
+        return {
+          instanceId: 'inst-11',
+          nodeId: 'node-11',
+          nodeName: 'linux-box',
+          workingDirectory: '/work',
+          status: 'initializing',
+        };
+      },
+    });
+    const runOnNode = tools.find((t) => t.name === 'run_on_node');
+
+    await runOnNode!.handler({ prompt: 'do work' });
+
+    expect(metas).toEqual([{ callerInstanceId: null }]);
+  });
+
   it('run_on_node rejects when no spawnRemoteInstance is wired', async () => {
     const db = createDb();
     const tools = createOrchestratorToolDefinitions({ db, instanceId: null });
@@ -229,6 +277,67 @@ describe('orchestrator MCP tools', () => {
     const runOnNode = tools.find((t) => t.name === 'run_on_node');
 
     await expect(runOnNode!.handler({ node: 'windows-pc' })).rejects.toThrow();
+  });
+
+  it('read_node_output forwards parsed args to the injected reader', async () => {
+    const db = createDb();
+    const calls: unknown[] = [];
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      readInstanceOutput: async (args) => {
+        calls.push(args);
+        return {
+          instanceId: args.instanceId,
+          status: 'idle',
+          done: true,
+          messageCount: 1,
+          truncated: false,
+          messages: [{ type: 'assistant', content: 'Windows 11', timestamp: 1 }],
+        };
+      },
+    });
+    const readTool = tools.find((t) => t.name === 'read_node_output');
+    expect(readTool).toBeDefined();
+
+    const result = await readTool!.handler({ instanceId: 'inst-9', limit: 5 });
+
+    expect(calls).toEqual([{ instanceId: 'inst-9', limit: 5 }]);
+    expect(result).toMatchObject({ instanceId: 'inst-9', done: true });
+  });
+
+  it('read_node_output throws when the instance is unknown', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      readInstanceOutput: async () => null,
+    });
+    const readTool = tools.find((t) => t.name === 'read_node_output');
+
+    await expect(readTool!.handler({ instanceId: 'ghost' })).rejects.toThrow(/Instance not found/);
+  });
+
+  it('read_node_output rejects when no reader is wired', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({ db, instanceId: null });
+    const readTool = tools.find((t) => t.name === 'read_node_output');
+
+    await expect(readTool!.handler({ instanceId: 'inst-9' })).rejects.toThrow(/unavailable/);
+  });
+
+  it('read_node_output requires an instanceId', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      readInstanceOutput: async () => {
+        throw new Error('should not be called');
+      },
+    });
+    const readTool = tools.find((t) => t.name === 'read_node_output');
+
+    await expect(readTool!.handler({ limit: 5 })).rejects.toThrow();
   });
 
   function createDb(): SqliteDriver {

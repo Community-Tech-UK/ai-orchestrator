@@ -135,6 +135,18 @@ export const INFRASTRUCTURE_CHANNELS = {
   SEARCH_CONFIGURE_EXA: 'search:configure-exa',
   SEARCH_IS_EXA_CONFIGURED: 'search:is-exa-configured',
   SESSION_RECALL_SEARCH: 'session-recall:search',
+  SESSION_RECALL_RESOLVE_REF: 'session-recall:resolve-ref',
+
+  // Magic Prompts — schema-backed one-shot structured commands
+  MAGIC_PROMPT_LIST: 'magic-prompt:list',
+  MAGIC_PROMPT_RUN: 'magic-prompt:run',
+
+  // Auto-update (electron-updater)
+  UPDATE_CHECK: 'update:check',
+  UPDATE_DOWNLOAD: 'update:download',
+  UPDATE_INSTALL: 'update:install',
+  UPDATE_GET_STATUS: 'update:get-status',
+  UPDATE_STATUS_CHANGED: 'update:status-changed',
 
   // Recent Directories operations
   RECENT_DIRS_GET: 'recent-dirs:get',

@@ -23,6 +23,8 @@ export { registerRepoJobHandlers } from './repo-job-handlers';
 export { registerSearchHandlers } from './search-handlers';
 export { registerStatsHandlers } from './stats-handlers';
 export { registerCommandHandlers } from './command-handlers';
+export { registerMagicPromptHandlers } from './magic-prompt-handlers';
+export { registerUpdateHandlers } from './update-handlers';
 export { registerPromptHistoryHandlers } from './prompt-history-handlers';
 export { registerPauseHandlers } from './pause-handlers';
 export { registerHistorySearchHandlers } from './history-search-handlers';

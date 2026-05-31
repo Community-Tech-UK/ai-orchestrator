@@ -10,6 +10,8 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
 import { getOutputStorageManager } from '../memory';
 import { getHookManager } from '../hooks/hook-manager';
+import { emitPluginHook } from '../plugins/hook-emitter';
+import { getFileEditBus } from './file-edit-bus';
 import { getErrorRecoveryManager } from '../core/error-recovery';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import type {
@@ -1101,19 +1103,37 @@ export class InstanceCommunicationManager extends EventEmitter {
           }
         }
 
-        // Capture file baselines for diff tracking on file-modifying tool events
-        if (
-          (message.type === 'tool_use' || message.type === 'tool_result') &&
-          this.deps.getDiffTracker
-        ) {
-          const tracker = this.deps.getDiffTracker(instanceId);
-          if (tracker) {
-            const filePaths = this.toolOutputParser.extractFilePaths(message, instance.workingDirectory, instance.provider);
-            for (const fp of filePaths) {
-              try {
-                tracker.captureBaseline(fp);
-              } catch (err) {
-                logger.debug('Baseline capture failed', { instanceId, filePath: fp, error: String(err) });
+        // Capture file baselines for diff tracking + emit file.edited lifecycle hook
+        // on file-modifying tool events. extractFilePaths already excludes read-only
+        // tools, so every returned path is a mutation target.
+        if (message.type === 'tool_use' || message.type === 'tool_result') {
+          const filePaths = this.toolOutputParser.extractFilePaths(message, instance.workingDirectory, instance.provider);
+          if (filePaths.length > 0) {
+            const tracker = this.deps.getDiffTracker?.(instanceId);
+            if (tracker) {
+              for (const fp of filePaths) {
+                try {
+                  tracker.captureBaseline(fp);
+                } catch (err) {
+                  logger.debug('Baseline capture failed', { instanceId, filePath: fp, error: String(err) });
+                }
+              }
+            }
+            // Emit file.edited on the tool_use (the invocation carrying file_path);
+            // gating to tool_use keeps it to one event per mutation across providers.
+            if (message.type === 'tool_use') {
+              const meta = message.metadata as Record<string, unknown> | undefined;
+              const toolName = typeof meta?.['name'] === 'string' ? (meta['name'] as string) : 'unknown';
+              for (const fp of filePaths) {
+                emitPluginHook('file.edited', {
+                  instanceId,
+                  filePath: fp,
+                  toolName,
+                  provider: instance.provider,
+                  timestamp: Date.now(),
+                });
+                // Internal main-process bus for coordinators (e.g. LSP feedback).
+                getFileEditBus().emitEdited({ instanceId, filePath: fp, toolName, provider: instance.provider });
               }
             }
           }

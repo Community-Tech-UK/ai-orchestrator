@@ -53,6 +53,8 @@ import {
   registerSearchHandlers,
   registerStatsHandlers,
   registerCommandHandlers,
+  registerMagicPromptHandlers,
+  registerUpdateHandlers,
   registerPromptHistoryHandlers,
   registerPauseHandlers,
   registerHistorySearchHandlers,
@@ -232,6 +234,8 @@ export class IpcMainHandler {
 
     // Command and plan mode handlers
     registerCommandHandlers(this.instanceManager);
+    registerMagicPromptHandlers();
+    registerUpdateHandlers({ windowManager: this.windowManager });
     getPromptHistoryService().pruneOnStart();
     registerPromptHistoryHandlers({ windowManager: this.windowManager });
     registerHistorySearchHandlers();

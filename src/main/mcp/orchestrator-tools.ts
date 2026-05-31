@@ -48,14 +48,74 @@ export interface RunOnNodeResult {
 }
 
 /**
+ * Optional metadata threaded from the MCP tool call into the spawn so the
+ * parent process can enforce the recursion-depth guard (claude2_todo #18) and
+ * record spawn lineage. `callerInstanceId` is the instance whose agent invoked
+ * `run_on_node` (null when the call originates outside a known instance).
+ */
+export interface SpawnRemoteInstanceMeta {
+  callerInstanceId?: string | null;
+}
+
+/**
  * Injected by the parent process (see initialization-steps.ts). Resolves the
  * target node, picks a working directory, and spawns an instance on it via the
  * already-deployed `instance.spawn` worker RPC. Kept as an injected function so
  * `orchestrator-tools.ts` never imports the instance manager / remote-node
  * singletons directly (which would couple this module to heavy main-process
  * subsystems).
+ *
+ * The optional `meta` argument carries the calling instance id so the parent
+ * can apply the spawn-depth guard; implementations that don't enforce it may
+ * ignore it.
  */
-export type SpawnRemoteInstanceFn = (args: RunOnNodeArgs) => Promise<RunOnNodeResult>;
+export type SpawnRemoteInstanceFn = (
+  args: RunOnNodeArgs,
+  meta?: SpawnRemoteInstanceMeta,
+) => Promise<RunOnNodeResult>;
+
+export const ReadNodeOutputArgsSchema = z.object({
+  /** Instance id returned by `run_on_node`. */
+  instanceId: z.string().min(1),
+  /** Max number of most-recent messages to return (default 100). */
+  limit: z.number().int().min(1).max(500).optional(),
+  /**
+   * Optionally block up to this many milliseconds, polling until the instance
+   * finishes its turn (leaves a "working" state). 0/omitted returns immediately
+   * with whatever is buffered so far. Capped well under the RPC timeout.
+   */
+  waitMs: z.number().int().min(0).max(120_000).optional(),
+});
+
+export type ReadNodeOutputArgs = z.infer<typeof ReadNodeOutputArgsSchema>;
+
+export interface NodeOutputMessage {
+  type: 'assistant' | 'user' | 'system' | 'tool_use' | 'tool_result' | 'error';
+  content: string;
+  timestamp: number;
+}
+
+export interface ReadNodeOutputResult {
+  instanceId: string;
+  status: string;
+  /** True when the instance is no longer actively working (turn complete). */
+  done: boolean;
+  /** Total messages in the buffer (before the `limit` slice). */
+  messageCount: number;
+  /** True when older messages were dropped by `limit` or content was capped. */
+  truncated: boolean;
+  messages: NodeOutputMessage[];
+}
+
+/**
+ * Injected by the parent process (see initialization-steps.ts). Reads a
+ * remote-spawned instance's output buffer + status. Returns null when the
+ * instance id is unknown. Kept injected for the same reason as
+ * {@link SpawnRemoteInstanceFn}.
+ */
+export type ReadInstanceOutputFn = (
+  args: ReadNodeOutputArgs,
+) => Promise<ReadNodeOutputResult | null>;
 
 export interface OrchestratorToolRuntimeContext {
   db: SqliteDriver;
@@ -63,6 +123,7 @@ export interface OrchestratorToolRuntimeContext {
   ledger?: ConversationLedgerService | null;
   gitBatchService?: GitBatchService;
   spawnRemoteInstance?: SpawnRemoteInstanceFn | null;
+  readInstanceOutput?: ReadInstanceOutputFn | null;
 }
 
 interface SourceContext {
@@ -288,7 +349,53 @@ export function createOrchestratorToolDefinitions(
             'run_on_node is unavailable: remote instance spawning is not wired in this process',
           );
         }
-        return context.spawnRemoteInstance(parsed);
+        // Thread the calling instance id so the parent process can enforce the
+        // spawn-depth recursion guard and record lineage (claude2_todo #18).
+        return context.spawnRemoteInstance(parsed, {
+          callerInstanceId: context.instanceId ?? null,
+        });
+      },
+    },
+    {
+      name: 'read_node_output',
+      description:
+        'Read the output produced by an instance previously started with run_on_node. Returns the most recent messages (assistant text, tool calls/results, errors), the instance status, and a `done` flag indicating whether the turn has completed. Optionally waits a bounded time for the turn to finish.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          instanceId: {
+            type: 'string',
+            description: 'Instance id returned by run_on_node.',
+          },
+          limit: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 500,
+            description: 'Max number of most-recent messages to return (default 100).',
+          },
+          waitMs: {
+            type: 'integer',
+            minimum: 0,
+            maximum: 120000,
+            description:
+              'Optionally block up to this many milliseconds, polling until the turn completes. 0/omitted returns immediately.',
+          },
+        },
+        required: ['instanceId'],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        const parsed = ReadNodeOutputArgsSchema.parse(args);
+        if (!context.readInstanceOutput) {
+          throw new Error(
+            'read_node_output is unavailable: remote output reading is not wired in this process',
+          );
+        }
+        const result = await context.readInstanceOutput(parsed);
+        if (!result) {
+          throw new Error(`Instance not found: ${parsed.instanceId}`);
+        }
+        return result;
       },
     },
   ];

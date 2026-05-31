@@ -46,6 +46,7 @@ import type { PluginRoutingAudit } from '../../shared/types/plugin.types';
 import type { IndexedCodebaseContextService } from '../indexing/indexed-codebase-context';
 import { FastPathRetriever } from './orchestration/fast-path-retriever';
 import { OrchestrationMessageFormatter } from './orchestration/orchestration-message-formatter';
+import { evaluateSpawn } from '../orchestration/subagent-spawn-guard';
 
 /**
  * Dependencies required by the orchestration manager
@@ -98,7 +99,7 @@ export class InstanceOrchestrationManager {
   /** Per-instance write queues to prevent concurrent stdin writes */
   private writeQueues = new Map<string, Promise<void>>();
   /** Mutable settings ref — handlers read this, so they always see current values */
-  private orchestrationSettings = { maxTotalInstances: 0, maxChildrenPerParent: 0, allowNestedOrchestration: false };
+  private orchestrationSettings = { maxTotalInstances: 0, maxChildrenPerParent: 0, allowNestedOrchestration: false, maxSpawnDepth: 0 };
   /** Guard to prevent duplicate listener registration */
   private handlersRegistered = false;
   private readonly fastPathRetriever: FastPathRetriever;
@@ -166,7 +167,7 @@ export class InstanceOrchestrationManager {
    * Handlers read from this.orchestrationSettings so they always see current values.
    */
   setupOrchestrationHandlers(
-    settings: { maxTotalInstances: number; maxChildrenPerParent: number; allowNestedOrchestration: boolean },
+    settings: { maxTotalInstances: number; maxChildrenPerParent: number; allowNestedOrchestration: boolean; maxSpawnDepth: number },
     addToOutputBuffer: (instance: Instance, message: OutputMessage) => void,
     publishOutput: (instanceId: string, message: OutputMessage) => void,
   ): void {
@@ -246,6 +247,27 @@ export class InstanceOrchestrationManager {
           this.orchestration.notifyError(
             parentId,
             'Cannot spawn child: nested orchestration is not allowed'
+          );
+          return;
+        }
+
+        // Recursion-depth guard (claude2_todo #18): even when nested
+        // orchestration is allowed, cap how deep the spawn chain can go so an
+        // agent-spawning-agent loop can't run away. maxSpawnDepth = 0 disables.
+        const depthDecision = evaluateSpawn({
+          parentDepth: parent.depth,
+          limits: { maxDepth: this.orchestrationSettings.maxSpawnDepth },
+        });
+        if (!depthDecision.allowed) {
+          logger.info('Cannot spawn child: spawn-depth guard blocked', {
+            parentDepth: parent.depth,
+            childDepth: depthDecision.childDepth,
+            maxSpawnDepth: this.orchestrationSettings.maxSpawnDepth,
+            reason: depthDecision.reason,
+          });
+          this.orchestration.notifyError(
+            parentId,
+            `Cannot spawn child: ${depthDecision.reason}`,
           );
           return;
         }

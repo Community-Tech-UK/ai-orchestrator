@@ -62,9 +62,30 @@ export const WorkspaceIsGitRepoPayloadSchema = z.object({
   workingDirectory: z.string().min(1).max(10000),
 });
 
+// --- Magic Prompts (schema-backed one-shot structured commands) ---
+
+/** Identifier of a registered magic prompt (e.g. 'recap', 'commit-message'). */
+export const MagicPromptIdSchema = z.string().min(1).max(100);
+
+export const MagicPromptListPayloadSchema = z.object({}).optional();
+
+export const MagicPromptRunPayloadSchema = z.object({
+  id: MagicPromptIdSchema,
+  /** Primary text the prompt operates on — a transcript, a diff, etc. */
+  text: z.string().min(1).max(500_000),
+  /** Optional extra context appended to the prompt. */
+  context: z.string().max(100_000).optional(),
+  /** Preferred provider; falls back to the first available fast CLI. */
+  provider: z.string().min(1).max(100).optional(),
+  /** Working directory the one-shot adapter should run in. */
+  workingDirectory: z.string().min(1).max(10000).optional(),
+});
+
 export type CommandListPayload = z.infer<typeof CommandListPayloadSchema>;
 export type CommandResolvePayload = z.infer<typeof CommandResolvePayloadSchema>;
 export type CommandExecutePayload = z.infer<typeof CommandExecutePayloadSchema>;
 export type UsageRecordPayload = z.infer<typeof UsageRecordPayloadSchema>;
 export type UsageSnapshotPayload = z.infer<typeof UsageSnapshotPayloadSchema>;
 export type WorkspaceIsGitRepoPayload = z.infer<typeof WorkspaceIsGitRepoPayloadSchema>;
+export type MagicPromptListPayload = z.infer<typeof MagicPromptListPayloadSchema>;
+export type MagicPromptRunPayload = z.infer<typeof MagicPromptRunPayloadSchema>;

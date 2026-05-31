@@ -55,6 +55,13 @@ export interface AppSettings {
   maxTotalInstances: number; // 0 = unlimited
   autoTerminateIdleMinutes: number; // 0 = disabled
   allowNestedOrchestration: boolean;
+  /**
+   * Maximum hierarchy depth a spawned sub-agent may occupy (a child of a
+   * top-level agent is depth 1). Caps deep delegation chains even when nested
+   * orchestration is enabled, and is the recursion guard for the remote
+   * `run_on_node` spawn path. 0 = unbounded. See claude2_todo #18.
+   */
+  maxSpawnDepth: number;
   defaultMissedRunPolicy: DefaultMissedRunPolicy;
 
   // Memory Management
@@ -271,6 +278,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   maxTotalInstances: 20,
   autoTerminateIdleMinutes: 30,
   allowNestedOrchestration: false,
+  maxSpawnDepth: 3,
   defaultMissedRunPolicy: 'notify',
 
   // Memory Management

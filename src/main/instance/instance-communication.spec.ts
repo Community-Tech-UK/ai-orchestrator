@@ -26,6 +26,10 @@ vi.mock('../hooks/hook-manager', () => ({
   }),
 }));
 
+vi.mock('../plugins/hook-emitter', () => ({
+  emitPluginHook: vi.fn(),
+}));
+
 vi.mock('../core/error-recovery', () => ({
   getErrorRecoveryManager: () => ({
     classifyError: vi.fn(() => ({ category: 'unknown', technicalDetails: '' })),
@@ -35,6 +39,9 @@ vi.mock('../core/error-recovery', () => ({
 import { InstanceCommunicationManager } from './instance-communication';
 import { TokenBudgetTracker } from '../context/token-budget-tracker';
 import { AcpCliAdapter } from '../cli/adapters/acp-cli-adapter';
+import { emitPluginHook } from '../plugins/hook-emitter';
+
+const emitPluginHookMock = vi.mocked(emitPluginHook);
 
 class FakeAdapter extends EventEmitter {
   sendInput = vi.fn().mockResolvedValue(undefined);
@@ -326,6 +333,65 @@ describe('InstanceCommunicationManager', () => {
     await flushOutputHandlers();
 
     expect(captureBaseline).toHaveBeenCalledWith('/tmp/project/src/main.ts');
+  });
+
+  it('emits file.edited on a mutating tool_use, independent of a diff tracker', async () => {
+    emitPluginHookMock.mockClear();
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    // The default beforeEach manager has no getDiffTracker — proves file.edited
+    // is decoupled from diff tracking.
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('output', {
+      id: 'tool-use-1',
+      timestamp: Date.now(),
+      type: 'tool_use',
+      content: '',
+      metadata: {
+        name: 'Edit',
+        input: { file_path: '/tmp/project/src/main.ts', old_string: 'a', new_string: 'b' },
+      },
+    });
+    await flushOutputHandlers();
+
+    const fileEditedCalls = emitPluginHookMock.mock.calls.filter((c) => c[0] === 'file.edited');
+    expect(fileEditedCalls).toHaveLength(1);
+    expect(fileEditedCalls[0][1]).toMatchObject({
+      instanceId: instance.id,
+      filePath: '/tmp/project/src/main.ts',
+      toolName: 'Edit',
+      provider: 'claude',
+    });
+  });
+
+  it('does not emit file.edited for read-only tools or tool_result messages', async () => {
+    emitPluginHookMock.mockClear();
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    // Read-only tool → no mutation paths → no file.edited.
+    (adapter as unknown as EventEmitter).emit('output', {
+      id: 'tool-use-read',
+      timestamp: Date.now(),
+      type: 'tool_use',
+      content: '',
+      metadata: { name: 'Read', input: { file_path: '/tmp/project/src/main.ts' } },
+    });
+    // tool_result carrying a write path → baseline still captured elsewhere, but
+    // file.edited is gated to tool_use so it must NOT fire here.
+    (adapter as unknown as EventEmitter).emit('output', {
+      id: 'tool-result-write',
+      timestamp: Date.now(),
+      type: 'tool_result',
+      content: '',
+      metadata: { name: 'Write', input: { file_path: '/tmp/project/src/main.ts', content: 'x' } },
+    });
+    await flushOutputHandlers();
+
+    const fileEditedCalls = emitPluginHookMock.mock.calls.filter((c) => c[0] === 'file.edited');
+    expect(fileEditedCalls).toHaveLength(0);
   });
 
   it('stores diffStats on busy to idle transitions', () => {

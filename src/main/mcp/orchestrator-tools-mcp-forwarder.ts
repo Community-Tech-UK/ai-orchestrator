@@ -115,6 +115,41 @@ export function createOrchestratorToolsForwarderTools(
         return client.call('orchestrator_tools.run_on_node', args as Record<string, unknown>);
       },
     },
+    {
+      name: 'read_node_output',
+      description:
+        'Read the output produced by an instance previously started with run_on_node. Returns the most recent messages (assistant text, tool calls/results, errors), the instance status, and a `done` flag indicating whether the turn has completed. Optionally waits a bounded time for the turn to finish.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          instanceId: {
+            type: 'string',
+            description: 'Instance id returned by run_on_node.',
+          },
+          limit: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 500,
+            description: 'Max number of most-recent messages to return (default 100).',
+          },
+          waitMs: {
+            type: 'integer',
+            minimum: 0,
+            maximum: 120000,
+            description:
+              'Optionally block up to this many milliseconds, polling until the turn completes. 0/omitted returns immediately.',
+          },
+        },
+        required: ['instanceId'],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) {
+          throw new Error('read_node_output args must be an object');
+        }
+        return client.call('orchestrator_tools.read_node_output', args as Record<string, unknown>);
+      },
+    },
   ];
 }
 

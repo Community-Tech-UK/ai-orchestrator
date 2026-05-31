@@ -7,9 +7,37 @@ function stubClient(impl: OrchestratorToolsRpcClientLike['call']): OrchestratorT
 }
 
 describe('createOrchestratorToolsForwarderTools', () => {
-  it('exposes git_batch_pull and run_on_node as the MCP tools', () => {
+  it('exposes git_batch_pull, run_on_node and read_node_output as the MCP tools', () => {
     const tools = createOrchestratorToolsForwarderTools(stubClient(async () => null));
-    expect(tools.map((t) => t.name)).toEqual(['git_batch_pull', 'run_on_node']);
+    expect(tools.map((t) => t.name)).toEqual(['git_batch_pull', 'run_on_node', 'read_node_output']);
+  });
+
+  it('forwards read_node_output invocations with the canonical method name', async () => {
+    const call = vi.fn(async () => ({ status: 'idle', done: true, messages: [] }));
+    const readTool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'read_node_output',
+    );
+
+    const result = await readTool!.handler({ instanceId: 'inst-1', limit: 10 });
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.read_node_output', {
+      instanceId: 'inst-1',
+      limit: 10,
+    });
+    expect(result).toEqual({ status: 'idle', done: true, messages: [] });
+  });
+
+  it('rejects malformed read_node_output args before contacting the parent', async () => {
+    const call = vi.fn();
+    const readTool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'read_node_output',
+    );
+
+    await expect(readTool!.handler(null)).rejects.toThrow(/must be an object/);
+    await expect(readTool!.handler('string')).rejects.toThrow(/must be an object/);
+    await expect(readTool!.handler([])).rejects.toThrow(/must be an object/);
+    expect(call).not.toHaveBeenCalled();
   });
 
   it('forwards run_on_node invocations with the canonical method name', async () => {

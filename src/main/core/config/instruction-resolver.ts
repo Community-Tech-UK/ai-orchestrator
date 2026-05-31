@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { execFile } from 'child_process';
 import { getLogger } from '../../logging/logger';
+import { interpolateConfigString } from './config-interpolation';
 import type {
   InstructionMigrationDraft,
   InstructionResolution,
@@ -534,13 +535,20 @@ export async function resolveInstructionStack(
     mergedParts.push(contentWithoutFrontmatter);
   }
 
+  const mergedRaw = mergedParts.join('\n\n---\n\n');
+  // Resolve {env:VAR} / {file:path} at injection time so machine-local paths and
+  // secrets can stay out of committed CLAUDE.md / AGENTS.md (backlog #21). No-op
+  // (no I/O) when the content contains no such token — the common case.
+  const interpolated = await interpolateConfigString(mergedRaw, { cwd: workingDirectory });
+  const interpolationWarnings = interpolated.warnings.map((w) => `Instruction interpolation: ${w}`);
+
   return {
     projectRoot,
     workingDirectory,
     contextPaths: rawContextPaths.map(normalizePath),
-    mergedContent: mergedParts.join('\n\n---\n\n'),
+    mergedContent: interpolated.content,
     sources,
-    warnings: buildWarnings(sources),
+    warnings: [...buildWarnings(sources), ...interpolationWarnings],
     timestamp: Date.now(),
   };
 }

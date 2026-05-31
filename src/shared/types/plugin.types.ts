@@ -264,6 +264,35 @@ export interface PluginHookPayloads {
     result: unknown;
     durationMs: number;
   };
+  /**
+   * Emitted when an agent issues a file-mutating tool call (Write/Edit/MultiEdit,
+   * apply_patch, redirect/tee/sed/mv commands, …). Fired from the observed CLI
+   * stream, so it is a best-effort lifecycle signal — consumers (formatters,
+   * LSP-feedback loops) should re-verify the file rather than assume success.
+   * One event per resolved path; read-only tools never fire it.
+   */
+  'file.edited': {
+    instanceId: string;
+    filePath: string;
+    toolName: string;
+    provider: string;
+    timestamp: number;
+  };
+  /**
+   * Emitted when a slash/TUI command is executed against an instance, after the
+   * command has resolved and passed applicability checks but before its effect
+   * (prompt send / compaction / UI) runs. `executionType` mirrors the command's
+   * resolved execution kind ('prompt' | 'compact' | 'ui' | …).
+   */
+  'tui.command.execute': {
+    instanceId: string;
+    commandId: string;
+    commandName?: string;
+    args: string[];
+    executionType: string;
+    workingDirectory?: string;
+    timestamp: number;
+  };
   'session.created': {
     instanceId: string;
     sessionId: string;

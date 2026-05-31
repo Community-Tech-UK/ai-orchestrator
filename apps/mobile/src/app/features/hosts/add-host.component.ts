@@ -24,6 +24,11 @@ import type { PairingPayload } from '../../core/models';
         (or paste the connection code below).
       </p>
 
+      <p class="tailscale-note">
+        ⚠︎ Connect <strong>Tailscale</strong> on this phone first (same tailnet as the Mac) —
+        the host is only reachable over the tunnel.
+      </p>
+
       @if (scanAvailable) {
         <button class="scan" (click)="scan()" [disabled]="busy()">⛶ Scan QR code</button>
       }
@@ -62,6 +67,10 @@ import type { PairingPayload } from '../../core/models';
       .top { display: flex; align-items: center; justify-content: space-between; }
       .back { background: none; border: none; color: var(--accent-action); font-size: 17px; }
       .muted { color: var(--text-secondary); font-size: 15px; margin: 4px 0 8px; }
+      .tailscale-note {
+        color: var(--accent-attention); font-size: 13px; margin: 0 0 4px;
+        background: rgba(255, 159, 10, 0.12); border-radius: 10px; padding: 10px 12px;
+      }
       .scan {
         background: var(--surface); color: var(--text); border: 1px solid rgba(255,255,255,0.12);
         border-radius: 12px; padding: 14px; font-size: 16px; font-weight: 500;

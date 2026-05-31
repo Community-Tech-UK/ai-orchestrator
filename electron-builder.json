@@ -3,6 +3,12 @@
   "appId": "com.ai.orchestrator",
   "productName": "AI Orchestrator",
   "npmRebuild": true,
+  "publish": [
+    {
+      "provider": "generic",
+      "url": "https://REPLACE-WITH-YOUR-UPDATE-FEED.example.com/ai-orchestrator"
+    }
+  ],
   "directories": {
     "output": "release",
     "buildResources": "build"

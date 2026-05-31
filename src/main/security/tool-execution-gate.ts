@@ -7,6 +7,7 @@ import { getToolPermissionChecker } from './tool-permission-checker';
 import type { ToolPermissionResult } from '../../shared/types/tool-permission.types';
 import { getToolValidator } from './tool-validator';
 import type { ToolValidationResult } from './tool-validator';
+import { getActionCircuitBreaker } from './action-circuit-breaker';
 
 export interface ToolExecutionGateInput {
   request: PermissionRequest;
@@ -17,7 +18,7 @@ export interface ToolExecutionGateInput {
 export interface ToolExecutionGateDecision {
   action: 'allow' | 'deny' | 'ask';
   reason: string;
-  source: 'permission-rule' | 'tool-validator' | 'tool-checker' | 'bash-validation';
+  source: 'permission-rule' | 'tool-validator' | 'tool-checker' | 'bash-validation' | 'circuit-breaker';
   permission: EnforcementResult;
   toolPermission?: ToolPermissionResult;
   validation?: ToolValidationResult;
@@ -48,6 +49,34 @@ function shouldTryChildReadOnlyAutoAllow(
 
 export class ToolExecutionGate {
   evaluate(input: ToolExecutionGateInput): ToolExecutionGateDecision {
+    const decision = this.decide(input);
+    return this.applyCircuitBreaker(decision, input.request.instanceId);
+  }
+
+  /**
+   * After the base decision, count approved actions against the circuit breaker.
+   * When the breaker trips (N actions / $X since last check-in), an `allow` is
+   * downgraded to `ask` so a human re-confirms. No-op when the breaker is
+   * disabled (the default), so base behavior is unchanged.
+   */
+  private applyCircuitBreaker(
+    decision: ToolExecutionGateDecision,
+    instanceId: string,
+  ): ToolExecutionGateDecision {
+    if (decision.action !== 'allow') return decision;
+    const breaker = getActionCircuitBreaker();
+    if (!breaker.enabled) return decision;
+    const trip = breaker.recordAction(instanceId);
+    if (!trip.tripped) return decision;
+    return {
+      ...decision,
+      action: 'ask',
+      reason: trip.reason ?? 'Approval checkpoint reached',
+      source: 'circuit-breaker',
+    };
+  }
+
+  private decide(input: ToolExecutionGateInput): ToolExecutionGateDecision {
     const permission = getPermissionEnforcer().enforce(input.request);
     const validation = getToolValidator().validateInput(input.toolName, input.toolInput);
     if (!validation.valid) {

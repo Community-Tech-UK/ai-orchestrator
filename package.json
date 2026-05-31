@@ -112,6 +112,7 @@
     "dompurify": "^3.3.1",
     "echarts": "^6.0.0",
     "electron-store": "^11.0.2",
+    "electron-updater": "^6.8.3",
     "extract-zip": "^2.0.1",
     "file-saver": "^2.0.5",
     "glob": "^13.0.0",
