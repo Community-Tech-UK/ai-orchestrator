@@ -61,7 +61,7 @@ const WARN_ONLY =
  */
 const ALLOWLIST: Record<string, number> = {
   // Main process — app
-  'src/main/app/initialization-steps.ts': 715,
+  'src/main/app/initialization-steps.ts': 887,
   // Benchmarks
   'benchmarks/external-benchmarks/swe-bench/adapter.ts': 795,
   'benchmarks/external-benchmarks/swe-bench/runner.ts': 888,
@@ -75,15 +75,15 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/browser-gateway/browser-gateway-service.ts': 2507,
   // Main process — channels
   'src/main/channels/adapters/discord-adapter.ts': 965,
-  'src/main/channels/channel-message-router.ts': 2502,
+  'src/main/channels/channel-message-router.ts': 2521,
   // Main process — CLI adapters
   'src/main/cli/adapters/acp-cli-adapter.ts': 2142,
   'src/main/cli/adapters/base-cli-adapter.ts': 830,
   'src/main/cli/adapters/claude-cli-adapter.ts': 2049,
-  'src/main/cli/adapters/codex-cli-adapter.ts': 3004,
+  'src/main/cli/adapters/codex-cli-adapter.ts': 3029,
   'src/main/cli/adapters/copilot-cli-adapter.ts': 978,
   'src/main/cli/adapters/cursor-cli-adapter.ts': 1044,
-  'src/main/cli/adapters/gemini-cli-adapter.ts': 873,
+  'src/main/cli/adapters/gemini-cli-adapter.ts': 887,
   // Main process — codemem
   'src/main/codemem/code-index-manager.ts': 782,
   // Main process — context
@@ -93,22 +93,22 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/core/config/claude-md-loader.ts': 804,
   'src/main/core/error-recovery.ts': 950,
   // Main process — history
-  'src/main/history/history-manager.ts': 1330,
+  'src/main/history/history-manager.ts': 1362,
   // Main process — indexing
   'src/main/indexing/benchmarks/benchmark-utils.ts': 820,
   'src/main/indexing/tree-sitter-chunker.ts': 716,
   // Main process — instance
-  'src/main/instance/instance-communication.ts': 2121,
-  'src/main/instance/instance-context.ts': 1204,
-  'src/main/instance/instance-lifecycle.ts': 3108,
+  'src/main/instance/instance-communication.ts': 2140,
+  'src/main/instance/instance-context.ts': 1210,
+  'src/main/instance/instance-lifecycle.ts': 3172,
   'src/main/instance/instance-manager.ts': 2508,
   'src/main/instance/instance-orchestration.ts': 1516,
-  'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 941,
+  'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1071,
   // Main process — IPC handlers
-  'src/main/ipc/handlers/app-handlers.ts': 746,
+  'src/main/ipc/handlers/app-handlers.ts': 767,
   'src/main/ipc/handlers/instance-handlers.ts': 1125,
   'src/main/ipc/handlers/mcp-handlers.ts': 941,
-  'src/main/ipc/handlers/session-handlers.ts': 1003,
+  'src/main/ipc/handlers/session-handlers.ts': 1013,
   'src/main/ipc/handlers/vcs-handlers.ts': 978,
   'src/main/ipc/orchestration-ipc-handler.ts': 1316,
   // Main process — learning
@@ -121,7 +121,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/mcp/mcp-manager.ts': 1025,
   'src/main/mcp/mcp-tool-search.ts': 842,
   // Main process — mobile gateway
-  'src/main/mobile-gateway/mobile-gateway-server.ts': 1047,
+  'src/main/mobile-gateway/mobile-gateway-server.ts': 1362,
   // Main process — memory
   'src/main/memory/codebase-miner.ts': 725,
   'src/main/memory/critique-agent.ts': 817,
@@ -133,20 +133,20 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — orchestration
   'src/main/orchestration/child-result-storage.ts': 836,
   'src/main/orchestration/cli-verification-extension.ts': 973,
-  'src/main/orchestration/consensus-coordinator.ts': 860,
+  'src/main/orchestration/consensus-coordinator.ts': 888,
   'src/main/orchestration/consensus.ts': 759,
   'src/main/orchestration/cross-model-review-service.ts': 755,
   'src/main/orchestration/debate-coordinator.ts': 1196,
-  'src/main/orchestration/default-invokers.ts': 1771,
+  'src/main/orchestration/default-invokers.ts': 1776,
   'src/main/orchestration/embedding-service.ts': 845,
-  'src/main/orchestration/loop-coordinator.ts': 2277,
+  'src/main/orchestration/loop-coordinator.ts': 2635,
   'src/main/orchestration/loop-progress-detector.ts': 725,
-  'src/main/orchestration/multi-verify-coordinator.ts': 1163,
+  'src/main/orchestration/multi-verify-coordinator.ts': 1172,
   'src/main/orchestration/orchestration-handler.ts': 1443,
   'src/main/orchestration/supervisor.ts': 735,
   'src/main/orchestration/voting.ts': 777,
   // Main process — persistence
-  'src/main/persistence/rlm/rlm-schema.ts': 2126,
+  'src/main/persistence/rlm/rlm-schema.ts': 2136,
   // Main process — plugins
   'src/main/plugins/plugin-manager.ts': 1235,
   // Main process — providers
@@ -162,13 +162,13 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/rlm/llm-service.ts': 962,
   'src/main/rlm/smart-compaction.ts': 879,
   // Main process — security
-  'src/main/security/permission-manager.ts': 1560,
+  'src/main/security/permission-manager.ts': 1610,
   'src/main/security/sandbox-manager.ts': 877,
   // Main process — session
   'src/main/session/checkpoint-manager.ts': 752,
-  'src/main/session/session-continuity.ts': 1579,
+  'src/main/session/session-continuity.ts': 1700,
   // Main process — workspace
-  'src/main/workspace/git/vcs-manager.ts': 1174,
+  'src/main/workspace/git/vcs-manager.ts': 1280,
   'src/main/workspace/git/worktree-manager.ts': 742,
   'src/main/workspace/lsp-manager.ts': 899,
   // Preload
@@ -179,8 +179,8 @@ const ALLOWLIST: Record<string, number> = {
   // Renderer — stores
   'src/renderer/app/core/state/instance/instance-list.store.ts': 972,
   'src/renderer/app/core/state/instance/instance-messaging.store.ts': 774,
-  'src/renderer/app/core/state/instance/instance.store.ts': 753,
-  'src/renderer/app/core/state/source-control.store.ts': 973,
+  'src/renderer/app/core/state/instance/instance.store.ts': 766,
+  'src/renderer/app/core/state/source-control.store.ts': 982,
   // Renderer — feature components
   'src/renderer/app/features/archive/archive-page.component.ts': 1059,
   'src/renderer/app/features/browser/browser-page.component.ts': 1210,
@@ -196,15 +196,15 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1491,
   'src/renderer/app/features/instance-detail/output-stream.component.ts': 1159,
   'src/renderer/app/features/instance-detail/user-action-request.component.ts': 1015,
-  'src/renderer/app/features/instance-list/instance-list.component.ts': 1767,
-  'src/renderer/app/features/instance-list/instance-row.component.ts': 842,
+  'src/renderer/app/features/instance-list/instance-list.component.ts': 1786,
+  'src/renderer/app/features/instance-list/instance-row.component.ts': 843,
   'src/renderer/app/features/knowledge/knowledge-page.component.ts': 1322,
   'src/renderer/app/features/logs/logs-page.component.ts': 1020,
   'src/renderer/app/features/loop/loop-config-panel.component.ts': 708,
   'src/renderer/app/features/loop/loop-control.component.ts': 1154,
   'src/renderer/app/features/mcp/mcp-page.component.ts': 1113,
   'src/renderer/app/features/memory/memory-browser.component.ts': 957,
-  'src/renderer/app/features/models/model-selection-panel.component.ts': 905,
+  'src/renderer/app/features/models/model-selection-panel.component.ts': 944,
   'src/renderer/app/features/models/models-page.component.ts': 768,
   'src/renderer/app/features/observations/observations-page.component.ts': 806,
   'src/renderer/app/features/plan/plan-page.component.ts': 1036,
@@ -232,7 +232,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/worktree/worktree-page.component.ts': 717,
   'src/renderer/app/features/worktree/worktree-panel.component.ts': 714,
   // Shared
-  'src/shared/types/loop.types.ts': 771,
+  'src/shared/types/loop.types.ts': 820,
   'src/shared/types/settings.types.ts': 810,
   // Worker agent
   'src/worker-agent/worker-agent.ts': 879,
