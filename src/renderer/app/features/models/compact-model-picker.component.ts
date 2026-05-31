@@ -24,8 +24,8 @@ import {
   type UnifiedReasoningOption,
 } from './unified-model-menu.component';
 import { ModelSelectionPanelComponent } from './model-selection-panel.component';
+import { DynamicModelCatalogService } from './dynamic-model-catalog.service';
 import {
-  getModelsForProvider,
   getPrimaryModelForProvider,
   type ModelDisplayInfo,
   type ReasoningEffort,
@@ -174,6 +174,7 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
 export class CompactModelPickerComponent {
   protected readonly controller = inject(ModelPickerController);
   private readonly focusService = inject(ModelPickerFocusService);
+  private readonly dynamicCatalog = inject(DynamicModelCatalogService);
 
   protected readonly menuId = `compact-model-picker__menu-${idCounter++}`;
 
@@ -230,13 +231,13 @@ export class CompactModelPickerComponent {
   protected readonly providerLabels = PROVIDER_MENU_LABELS;
 
   /**
-   * Bound `[modelsForProvider]` callback for the selection panel. Always returns
-   * the static `getModelsForProvider` lookup — provider-specific dynamic
-   * model discovery already mutates `PROVIDER_MODEL_LIST` in place, so the
-   * lookup stays current.
+   * Bound `[modelsForProvider]` callback for the selection panel. Prefers the
+   * live CLI-discovered list (Copilot, Cursor) when available, falling back to
+   * the curated static catalog. Reads `DynamicModelCatalogService`'s internal
+   * signal, so the panel re-renders automatically once a refresh resolves.
    */
   protected readonly modelsForProviderFn = (provider: PickerProvider): ModelDisplayInfo[] =>
-    getModelsForProvider(provider);
+    this.dynamicCatalog.modelsFor(provider);
 
   /** Bound `[reasoningOptionsForProvider]` callback for the selection panel. */
   protected readonly reasoningOptionsForProviderFn = (
@@ -251,6 +252,15 @@ export class CompactModelPickerComponent {
     // Forward pending-create commits as `selectionChange` events.
     this.controller.setSelectionChangeCallback((sel) => {
       this.selectionChange.emit(sel);
+    });
+
+    // When the menu opens, refresh the live model lists for dynamic providers
+    // (Copilot, Cursor). Static providers are a no-op inside the service.
+    effect(() => {
+      if (!this.menuOpen()) return;
+      for (const provider of this.providerList()) {
+        this.dynamicCatalog.ensureLoaded(provider);
+      }
     });
 
     // mp keybinding — open the menu when requested.

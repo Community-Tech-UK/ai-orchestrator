@@ -4871,7 +4871,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3157
+      "lines": 3172
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
@@ -4911,7 +4911,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 2573
+      "lines": 2635
     },
     {
       "path": "src/main/channels/channel-message-router.ts",
@@ -4935,7 +4935,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2141
+      "lines": 2140
     },
     {
       "path": "src/main/persistence/rlm/rlm-schema.ts",
@@ -5286,6 +5286,10 @@
       "lines": 1055
     },
     {
+      "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
+      "lines": 1044
+    },
+    {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
       "lines": 1036
     },
@@ -5304,10 +5308,6 @@
     {
       "path": "src/main/mcp/mcp-manager.ts",
       "lines": 1025
-    },
-    {
-      "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
-      "lines": 1024
     },
     {
       "path": "src/renderer/app/features/logs/logs-page.component.ts",
@@ -5334,15 +5334,15 @@
       "lines": 989
     },
     {
+      "path": "src/main/instance/instance-communication.spec.ts",
+      "lines": 986
+    },
+    {
       "path": "src/renderer/app/core/state/source-control.store.ts",
       "lines": 982
     },
     {
       "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
-      "lines": 978
-    },
-    {
-      "path": "src/main/instance/instance-communication.spec.ts",
       "lines": 978
     },
     {
@@ -5402,6 +5402,10 @@
       "lines": 950
     },
     {
+      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
+      "lines": 944
+    },
+    {
       "path": "src/main/ipc/handlers/mcp-handlers.ts",
       "lines": 941
     },
@@ -5412,10 +5416,6 @@
     {
       "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
       "lines": 938
-    },
-    {
-      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
-      "lines": 914
     },
     {
       "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
@@ -5559,6 +5559,10 @@
     },
     {
       "path": "src/main/indexing/benchmarks/benchmark-utils.ts",
+      "lines": 820
+    },
+    {
+      "path": "src/shared/types/loop.types.ts",
       "lines": 820
     },
     {

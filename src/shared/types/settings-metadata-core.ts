@@ -67,6 +67,19 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
     ],
   },
   {
+    key: 'outputStyle',
+    label: 'Output style',
+    description: 'Adds a communication-style directive to new agents. Default makes no change; Explanatory adds teaching asides, Learning hands you small pieces to do, Concise trims prose.',
+    type: 'select',
+    category: 'display',
+    options: [
+      { value: 'default', label: 'Default' },
+      { value: 'explanatory', label: 'Explanatory' },
+      { value: 'learning', label: 'Learning' },
+      { value: 'concise', label: 'Concise' },
+    ],
+  },
+  {
     key: 'maxChildrenPerParent',
     label: 'Maximum sub-agents per agent',
     description: 'How many helper agents one agent may spawn to split up a task. 0 means no limit.',

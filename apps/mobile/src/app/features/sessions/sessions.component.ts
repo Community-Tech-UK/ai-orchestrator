@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { GatewayClient } from '../../core/gateway-client.service';
 import { statusColor, statusLabel } from '../../core/status';
@@ -35,7 +35,7 @@ interface SessionRow {
       }
 
       <ul class="list">
-        @for (s of sessions(); track s.id) {
+        @for (s of visibleSessions(); track s.id) {
           <li>
             <button class="row" (click)="open(s)">
               <span class="dot lg" [style.background]="color(s.status)"></span>
@@ -58,6 +58,10 @@ interface SessionRow {
           </li>
         }
       </ul>
+
+      @if (hiddenCount() > 0) {
+        <button class="show-more" (click)="showMore()">Show more ({{ hiddenCount() }})</button>
+      }
 
       <button class="fab" (click)="newSession()">＋ New</button>
     </section>
@@ -87,6 +91,10 @@ interface SessionRow {
       }
       .chip.attention { color: var(--accent-attention); background: rgba(255, 159, 10, 0.15); }
       .chevron { color: var(--text-secondary); font-size: 20px; }
+      .show-more {
+        width: 100%; background: transparent; border: none; color: var(--accent-action);
+        padding: 14px; font-size: 15px; margin-bottom: 80px;
+      }
       .fab {
         position: fixed; right: 20px; bottom: calc(20px + env(safe-area-inset-bottom));
         background: #fff; color: #000; border: none; border-radius: var(--radius-pill);
@@ -104,6 +112,10 @@ export class SessionsComponent {
   protected readonly online = this.gateway.online;
   protected readonly color = statusColor;
   protected readonly label = statusLabel;
+
+  /** Show the most recent sessions first; reveal the rest in pages via "Show more". */
+  private static readonly PAGE = 10;
+  protected readonly visibleCount = signal(SessionsComponent.PAGE);
 
   protected readonly sessions = computed<SessionRow[]>(() => {
     const key = this.projectKey();
@@ -146,6 +158,20 @@ export class SessionsComponent {
       return b.lastActivity - a.lastActivity;
     });
   });
+
+  /** The slice currently shown (most recent first), capped by visibleCount. */
+  protected readonly visibleSessions = computed<SessionRow[]>(() =>
+    this.sessions().slice(0, this.visibleCount()),
+  );
+
+  /** How many sessions are hidden behind "Show more". */
+  protected readonly hiddenCount = computed(() =>
+    Math.max(0, this.sessions().length - this.visibleCount()),
+  );
+
+  protected showMore(): void {
+    this.visibleCount.update((n) => n + SessionsComponent.PAGE);
+  }
 
   protected readonly projectName = computed(() => {
     const project = this.gateway.snapshot()?.projects.find((p) => p.key === this.projectKey());

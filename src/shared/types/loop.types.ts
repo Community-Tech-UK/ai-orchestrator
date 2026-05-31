@@ -729,6 +729,30 @@ export interface LoopState {
    * in-run transition. Defaults false (no ledger, or had open items at start).
    */
   loopTasksLedgerResolvedAtStart: boolean;
+  /**
+   * claude2_todo #1b: fingerprints of the BLOCKING review-thread IDs that the
+   * fresh-eyes gate has flagged and that remain unresolved. Persists across
+   * completion attempts and is emptied ONLY when a fresh-eyes review returns
+   * clean — so the loop "converges only when it empties", and a re-run that
+   * surfaces the same findings is recognized as the same unresolved thread
+   * (not fresh progress). In-memory only (not persisted). Undefined until the
+   * first blocking review.
+   */
+  unresolvedReviewThreads?: string[];
+  /**
+   * claude2_todo #1c: bounded ring buffer of recent completion-attempt
+   * evidence hashes (most-recent last). Used to detect when the agent
+   * re-presents identical, unchanged completion evidence. In-memory only.
+   */
+  recentEvidenceHashes?: string[];
+  /**
+   * claude2_todo #1c: number of consecutive completion attempts whose evidence
+   * hash was unchanged from the previous attempt (>=1 once any attempt has
+   * been made). Resets to 1 the moment the evidence actually changes — so
+   * "unchanged weak evidence can't reset counters", but genuine new evidence
+   * does. In-memory only.
+   */
+  repeatedEvidenceCount?: number;
 }
 
 // ============ Stream events (async generator) ============

@@ -1,8 +1,10 @@
 import { BaseCliAdapter, CliAdapterConfig, CliCapabilities, CliMessage, CliResponse, CliStatus, AdapterRuntimeCapabilities } from './base-cli-adapter';
 import { getLogger } from '../../logging/logger';
 import type { ContextUsage, FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
+import type { ModelDisplayInfo } from '../../../shared/types/provider.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
+import { CURSOR_DEFAULT_MODELS, discoverCursorModels } from './cursor-cli-adapter.models';
 
 const logger = getLogger('CursorCliAdapter');
 
@@ -226,6 +228,24 @@ export class CursorCliAdapter extends BaseCliAdapter {
         });
       });
     });
+  }
+
+  /**
+   * List the models the installed Cursor CLI exposes by running
+   * `cursor-agent --list-models` and parsing its plain-text output. Cached
+   * process-wide for {@link CURSOR_MODEL_DISCOVERY_CACHE_TTL_MS}. Falls back to
+   * the curated static list when the CLI is unavailable or the output can't be
+   * parsed, so callers always receive a usable list.
+   */
+  async listAvailableModels(): Promise<ModelDisplayInfo[]> {
+    try {
+      return await discoverCursorModels(() => this.spawnProcess(['--list-models']));
+    } catch (error) {
+      logger.warn('Falling back to default Cursor model list', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [...CURSOR_DEFAULT_MODELS];
+    }
   }
 
   override async sendMessage(message: CliMessage): Promise<CliResponse> {

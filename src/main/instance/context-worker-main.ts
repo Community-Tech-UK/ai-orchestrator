@@ -14,6 +14,13 @@
  *   2. Dev:    tsx execArgv
  */
 
+// Must be first — register @contracts/@sdk/@shared path aliases for THIS worker
+// thread. Worker threads are separate module realms, so they do not inherit the
+// main thread's Module._resolveFilename patch; without this, transitive
+// `@contracts/*` imports (e.g. via skill-loader) fail with "Cannot find module".
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+require('../register-aliases');
+
 import { parentPort, isMainThread, workerData } from 'node:worker_threads';
 import * as os from 'node:os';
 import * as path from 'node:path';

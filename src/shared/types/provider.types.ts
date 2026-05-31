@@ -432,8 +432,35 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
   ],
   ollama: [],
   cursor: [
+    // Cursor rotates its first-class list frequently, so the live picker surfaces
+    // (instance-detail dropdown, CLI settings) query `cursor-agent --list-models`
+    // dynamically via `provider:list-models`. This curated set is the static
+    // fallback AND the source for the compact model-selection panel (which reads
+    // the static catalog). Keep `auto` first + pinned; pinned set capped at 5.
     { id: CURSOR_MODELS.AUTO, name: 'Auto (let Cursor pick)', tier: 'balanced', pinned: true, family: 'Auto' },
-    // No hardcoded per-model entries — dynamic list populates later.
+    { id: 'composer-2.5', name: 'Composer 2.5', tier: 'balanced', pinned: true, family: 'Composer' },
+    { id: 'composer-2.5-fast', name: 'Composer 2.5 Fast', tier: 'fast', family: 'Composer' },
+    { id: 'claude-opus-4-8-thinking-high', name: 'Opus 4.8 Thinking', tier: 'powerful', pinned: true, family: 'Claude' },
+    { id: 'claude-opus-4-7-thinking-high', name: 'Opus 4.7 Thinking', tier: 'powerful', family: 'Claude' },
+    { id: 'claude-4.6-opus-high-thinking', name: 'Opus 4.6 Thinking', tier: 'powerful', family: 'Claude' },
+    { id: 'claude-4.5-opus-high', name: 'Opus 4.5', tier: 'powerful', family: 'Claude' },
+    { id: 'claude-4.5-sonnet', name: 'Sonnet 4.5', tier: 'balanced', family: 'Claude' },
+    { id: 'claude-4.5-sonnet-thinking', name: 'Sonnet 4.5 Thinking', tier: 'balanced', family: 'Claude' },
+    { id: 'claude-4-sonnet', name: 'Sonnet 4', tier: 'balanced', family: 'Claude' },
+    { id: 'gpt-5.5-high', name: 'GPT-5.5 High', tier: 'powerful', pinned: true, family: 'GPT' },
+    { id: 'gpt-5.4-high', name: 'GPT-5.4 High', tier: 'powerful', family: 'GPT' },
+    { id: 'gpt-5.2', name: 'GPT-5.2', tier: 'balanced', family: 'GPT' },
+    { id: 'gpt-5.2-high', name: 'GPT-5.2 High', tier: 'balanced', family: 'GPT' },
+    { id: 'gpt-5.1', name: 'GPT-5.1', tier: 'balanced', family: 'GPT' },
+    { id: 'gpt-5.3-codex', name: 'Codex 5.3', tier: 'balanced', family: 'Codex' },
+    { id: 'gpt-5.3-codex-high', name: 'Codex 5.3 High', tier: 'powerful', family: 'Codex' },
+    { id: 'gpt-5.2-codex', name: 'Codex 5.2', tier: 'balanced', family: 'Codex' },
+    { id: 'gpt-5.1-codex-max-medium', name: 'Codex 5.1 Max', tier: 'powerful', family: 'Codex' },
+    { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', tier: 'powerful', pinned: true, family: 'Gemini' },
+    { id: 'gemini-3-flash', name: 'Gemini 3 Flash', tier: 'fast', family: 'Gemini' },
+    { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', tier: 'fast', family: 'Gemini' },
+    { id: 'grok-4.3', name: 'Grok 4.3', tier: 'powerful', family: 'Grok' },
+    { id: 'kimi-k2.5', name: 'Kimi K2.5', tier: 'balanced', family: 'Kimi' },
   ],
 };
 

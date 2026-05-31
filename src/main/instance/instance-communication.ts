@@ -233,7 +233,7 @@ export class InstanceCommunicationManager extends EventEmitter {
    * input box in "instance is error" after a single hung turn.
    */
   private isRecoverableAcpPromptTurnError(errorMessage: string): boolean {
-    return /^ACP session\/prompt request timed out after \d+ms \(id=.+\)\./.test(errorMessage)
+    return /^ACP session\/prompt request timed out after \d+ms(?: without a session\/update)? \(id=.+\)\./.test(errorMessage)
       || errorMessage === 'ACP prompt turn was cancelled by the client.';
   }
 
@@ -2137,4 +2137,3 @@ export class InstanceCommunicationManager extends EventEmitter {
     return false;
   }
 }
-

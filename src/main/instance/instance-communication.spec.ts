@@ -256,13 +256,21 @@ describe('InstanceCommunicationManager', () => {
     }, undefined);
   });
 
-  it('keeps ACP session/prompt timeouts retryable instead of poisoning the instance', async () => {
+  it.each([
+    [
+      'legacy timeout text',
+      'ACP session/prompt request timed out after 600000ms (id=3). The agent may be stuck on an orphaned tool call or permission request.',
+    ],
+    [
+      'session/update timeout text',
+      'ACP session/prompt request timed out after 600000ms without a session/update (id=3). The agent may be stuck on an orphaned tool call or permission request.',
+    ],
+  ])('keeps ACP session/prompt %s retryable instead of poisoning the instance', async (_caseName, timeoutError) => {
     const adapter = new AcpCliAdapter({
       adapterName: 'copilot-acp',
       command: process.execPath,
       workingDirectory: '/tmp',
     });
-    const timeoutError = 'ACP session/prompt request timed out after 600000ms (id=3). The agent may be stuck on an orphaned tool call or permission request.';
     adapters.set(instance.id, adapter as unknown as CliAdapter);
     instance.status = 'busy';
 

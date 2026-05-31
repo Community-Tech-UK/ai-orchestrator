@@ -79,6 +79,12 @@ export interface AppSettings {
    * 0 = disabled.
    */
   cumulativeTokenCompactionTrigger: number;
+  /**
+   * Output style (claude2_todo #29): appends a communication-style directive to
+   * the system prompt of new root sessions ('default' = no change). Built-ins:
+   * default | explanatory | learning | concise.
+   */
+  outputStyle: string;
 
   // Display
   fontSize: number; // 12-20
@@ -297,6 +303,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoTerminateOnMemoryPressure: true,
   persistSessionContent: true,
   cumulativeTokenCompactionTrigger: 0, // disabled by default (opt-in cost cap)
+  outputStyle: 'default', // no style directive injected unless changed
 
   // Display
   fontSize: 14,

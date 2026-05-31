@@ -351,7 +351,37 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
     .model-picker-list {
       min-height: 0;
       overflow-y: auto;
+      /* Reserve the scrollbar gutter so the list width doesn't jump when a long
+         provider list (e.g. Cursor's ~129 models) makes the bar appear. */
+      scrollbar-gutter: stable;
+      /* Firefox / standards. */
+      scrollbar-width: thin;
+      scrollbar-color: var(--border-light, rgba(255, 255, 255, 0.28)) transparent;
       padding-right: 2px;
+    }
+
+    /* Always-visible styled scrollbar so it's obvious the list scrolls even on
+       macOS (where native overlay scrollbars stay hidden until you drag). */
+    .model-picker-list::-webkit-scrollbar {
+      width: 10px;
+    }
+
+    .model-picker-list::-webkit-scrollbar-track {
+      background: transparent;
+      margin: 2px 0;
+    }
+
+    .model-picker-list::-webkit-scrollbar-thumb {
+      background: var(--border-light, rgba(255, 255, 255, 0.28));
+      border-radius: 6px;
+      /* Inset the thumb so it reads as a pill rather than a full-width bar. */
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+
+    .model-picker-list::-webkit-scrollbar-thumb:hover {
+      background: var(--text-muted, rgba(255, 255, 255, 0.45));
+      background-clip: padding-box;
     }
 
     .model-picker-row {

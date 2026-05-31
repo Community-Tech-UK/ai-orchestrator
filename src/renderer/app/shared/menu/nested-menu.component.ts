@@ -110,7 +110,29 @@ import type { MenuItem, MenuModel } from './menu.types';
       box-shadow: 0 6px 24px rgba(0,0,0,0.32);
       max-height: 320px;
       overflow-y: auto;
+      /* Reserve gutter + show a clear scrollbar for long lists (e.g. Cursor's
+         ~129 models in a family submenu) — macOS overlay bars stay hidden. */
+      scrollbar-gutter: stable;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border-light, rgba(255,255,255,0.28)) transparent;
       outline: none;
+    }
+    .nested-menu::-webkit-scrollbar {
+      width: 10px;
+    }
+    .nested-menu::-webkit-scrollbar-track {
+      background: transparent;
+      margin: 4px 0;
+    }
+    .nested-menu::-webkit-scrollbar-thumb {
+      background: var(--border-light, rgba(255,255,255,0.28));
+      border-radius: 6px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+    .nested-menu::-webkit-scrollbar-thumb:hover {
+      background: var(--text-muted, rgba(255,255,255,0.45));
+      background-clip: padding-box;
     }
     .nested-menu__section-label {
       padding: 6px 12px 2px;

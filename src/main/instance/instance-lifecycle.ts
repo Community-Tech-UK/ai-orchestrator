@@ -66,6 +66,7 @@ import { getDeferDecisionStore } from '../cli/hooks/defer-decision-store';
 import { InstanceSpawner } from './lifecycle/instance-spawner';
 import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handler';
 import { buildInstanceRecord } from './lifecycle/instance-create-builder';
+import { applyOutputStyle, isOutputStyleInjectableProvider } from './output-style';
 import { PlanModeManager } from './lifecycle/plan-mode-manager';
 import { RestartPolicyHelpers } from './lifecycle/restart-policy-helpers';
 import {
@@ -1113,6 +1114,20 @@ export class InstanceLifecycleManager extends EventEmitter {
           const instructionSection = instructionPrompts.join('\n\n---\n\n');
           systemPrompt = `${instructionSection}\n\n---\n\n${systemPrompt}`;
           logger.info('Prepended instruction prompts to system prompt', { count: instructionPrompts.length });
+        }
+
+        // Output style (claude2_todo #29): append the selected communication-style
+        // directive for root sessions on system-prompt-injectable providers.
+        // Default 'default' is a no-op, so this is inert unless the user opts in.
+        if (instance.depth === 0) {
+          const outputStyle = this.settings.getAll().outputStyle;
+          if (outputStyle && outputStyle !== 'default' && isOutputStyleInjectableProvider(config.provider)) {
+            const styled = applyOutputStyle(systemPrompt, outputStyle);
+            if (styled !== systemPrompt) {
+              systemPrompt = styled;
+              logger.info('Applied output style to system prompt', { outputStyle });
+            }
+          }
         }
 
         // Inject observation memory context (learned reflections from past sessions).

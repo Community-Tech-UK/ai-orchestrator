@@ -232,13 +232,20 @@ export class ProjectsComponent implements OnInit {
       }
     }
 
-    // Active projects (with a live session) sort first, then by most-recent
-    // activity — so a project that's been idle "forever" can't outrank one
-    // with running work just because of a stale timestamp.
+    // Sort in tiers so empty recent-dir projects can't float above ones with
+    // real work just because their `lastAccessed` timestamp is newer:
+    //   1. projects with a live/busy session,
+    //   2. projects that have any sessions (live or historical),
+    //   3. everything else (empty recent dirs).
+    // Within each tier, most-recent activity first.
+    const rank = (p: MobileProjectDto): number => {
+      if (p.busyCount > 0) return 2;
+      if (p.sessionCount > 0) return 1;
+      return 0;
+    };
     return [...byKey.values()].sort((a, b) => {
-      const aActive = a.busyCount > 0 ? 1 : 0;
-      const bActive = b.busyCount > 0 ? 1 : 0;
-      if (aActive !== bActive) return bActive - aActive;
+      const rankDiff = rank(b) - rank(a);
+      if (rankDiff !== 0) return rankDiff;
       return b.lastActivity - a.lastActivity;
     });
   });

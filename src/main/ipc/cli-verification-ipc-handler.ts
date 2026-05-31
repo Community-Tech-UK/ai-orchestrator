@@ -15,6 +15,7 @@ import { getCliVerificationCoordinator, CliVerificationConfig } from '../orchest
 import type { PersonalityType, SynthesisStrategy } from '../../shared/types/verification.types';
 import type { WindowManager } from '../window-manager';
 import { CopilotCliAdapter, CopilotModelInfo, COPILOT_DEFAULT_MODELS } from '../cli/adapters/copilot-cli-adapter';
+import { CursorCliAdapter } from '../cli/adapters/cursor-cli-adapter';
 import { PROVIDER_MODEL_LIST } from '../../shared/types/provider.types';
 import type { ModelDisplayInfo } from '../../shared/types/provider.types';
 import { validateIpcPayload } from '@contracts/schemas/common';
@@ -396,7 +397,20 @@ export function registerCliVerificationHandlers(
           }
         }
 
-        // All other providers (and Copilot fallback): use static lists
+        // Cursor: dynamic listing via `cursor-agent --list-models`
+        if (provider === 'cursor') {
+          try {
+            const adapter = new CursorCliAdapter();
+            const models = await adapter.listAvailableModels();
+            logger.info('Fetched Cursor models dynamically', { count: models.length });
+            return { success: true, data: models };
+          } catch {
+            // Fall through to static list
+            logger.warn('Dynamic Cursor model fetch failed, using static list');
+          }
+        }
+
+        // All other providers (and Copilot/Cursor fallback): use static lists
         const staticModels = PROVIDER_MODEL_LIST[provider] ?? [];
         logger.info('Returning static models for provider', { provider, count: staticModels.length });
         return { success: true, data: staticModels };

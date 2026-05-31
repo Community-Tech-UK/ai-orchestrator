@@ -29,6 +29,45 @@ describe('cli-environment', () => {
     expect(buildCliPath(env, 'win32')).toContain(';C:\\Windows\\System32');
   });
 
+  it('includes the Git-for-Windows toolchain dirs on Windows', () => {
+    const env = {
+      APPDATA: 'C:\\Users\\User\\AppData\\Roaming',
+      LOCALAPPDATA: 'C:\\Users\\User\\AppData\\Local',
+      ProgramFiles: 'C:\\Program Files',
+      'ProgramFiles(x86)': 'C:\\Program Files (x86)',
+      PATH: 'C:\\Windows\\System32',
+      USERPROFILE: 'C:\\Users\\User',
+    } as NodeJS.ProcessEnv;
+
+    expect(getCliAdditionalPaths(env, 'win32')).toEqual(
+      expect.arrayContaining([
+        'C:\\Program Files\\Git\\cmd',
+        'C:\\Program Files\\Git\\bin',
+        'C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps',
+      ]),
+    );
+  });
+
+  it('does NOT leak POSIX paths into the Windows PATH (regression: Mac PATH on a Windows worker)', () => {
+    const env = {
+      APPDATA: 'C:\\Users\\User\\AppData\\Roaming',
+      LOCALAPPDATA: 'C:\\Users\\User\\AppData\\Local',
+      ProgramFiles: 'C:\\Program Files',
+      PATH: 'C:\\Windows\\System32',
+      USERPROFILE: 'C:\\Users\\User',
+      HOME: 'C:\\Users\\User',
+    } as NodeJS.ProcessEnv;
+
+    const paths = getCliAdditionalPaths(env, 'win32');
+    expect(paths).not.toContain('/usr/local/bin');
+    expect(paths).not.toContain('/opt/homebrew/bin');
+    expect(paths).not.toContain('/usr/bin');
+    expect(paths).not.toContain('/bin');
+    // No forward-slash POSIX-style entries at all.
+    expect(paths.some((p) => p.startsWith('/'))).toBe(false);
+    expect(paths.some((p) => p.includes('/.nvm/'))).toBe(false);
+  });
+
   it('uses standard POSIX search paths on Unix-like platforms', () => {
     const env = {
       HOME: '/Users/alice',

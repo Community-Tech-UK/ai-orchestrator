@@ -89,6 +89,12 @@ import {
 } from './loop-coordinator-utils';
 import { resolveCompletion } from './evidence-resolver';
 import {
+  computeReviewThreadSet,
+  diffReviewThreads,
+  computeCompletionEvidenceHash,
+  pushBoundedEvidence,
+} from './review-thread-fingerprint';
+import {
   defaultFreshEyesReviewer,
   type FreshEyesReviewer,
   type FreshEyesReviewerResult,
@@ -615,6 +621,9 @@ export class LoopCoordinator extends EventEmitter {
       iterationsOnCurrentStage: 0,
       recentWarnIterationSeqs: [],
       completionAttempts: 0,
+      unresolvedReviewThreads: [],
+      recentEvidenceHashes: [],
+      repeatedEvidenceCount: 0,
     };
     this.active.set(id, state);
     this.histories.set(id, []);
@@ -1388,6 +1397,35 @@ export class LoopCoordinator extends EventEmitter {
         // --- map resolution to coordinator actions ---
         state.lastCompletionOutcome = resolution.outcome ?? state.lastCompletionOutcome;
 
+        // claude2_todo #1c: record this attempt's *evidence hash* into a bounded
+        // ring buffer. Identical evidence (same trigger signal, same verify
+        // outcome, same belt-and-braces state, same unresolved review threads)
+        // re-presented across attempts climbs `repeatedEvidenceCount`; the count
+        // only resets when the evidence actually changes — so unchanged weak
+        // evidence can't masquerade as progress. We surface a stuck-evidence
+        // note (it feeds describeCapReason) when the same evidence repeats.
+        const evidenceHash = computeCompletionEvidenceHash({
+          candidateId: candidate.id,
+          verifyStatus: v2.status,
+          beltAndBracesPassed,
+          unresolvedReviewThreads: state.unresolvedReviewThreads ?? [],
+        });
+        const evidence = pushBoundedEvidence(state.recentEvidenceHashes, evidenceHash);
+        state.recentEvidenceHashes = evidence.buffer;
+        state.repeatedEvidenceCount = evidence.repeatCount;
+        if (resolution.decision === 'continue' && evidence.repeatCount >= 2) {
+          const stuck =
+            `the same completion evidence has now been presented ${evidence.repeatCount} times without change`;
+          const existingNote = this.convergenceNotes.get(state.id);
+          this.convergenceNotes.set(state.id, existingNote ? `${existingNote}; ${stuck}` : stuck);
+          logger.info('Loop completion attempt re-presented identical evidence', {
+            loopRunId: state.id,
+            signal: candidate.id,
+            repeatCount: evidence.repeatCount,
+            outcome: resolution.outcome,
+          });
+        }
+
         if (resolution.decision === 'stop') {
           stopWithSignal = candidate;
         } else if (resolution.decision === 'stop-needs-review') {
@@ -1769,6 +1807,9 @@ export class LoopCoordinator extends EventEmitter {
     );
 
     if (blocking.length === 0) {
+      // The unresolved-review-thread set has emptied — the ONLY condition under
+      // which the loop may converge on the review axis (claude2_todo #1b).
+      state.unresolvedReviewThreads = [];
       this.emit('loop:fresh-eyes-review-passed', {
         loopRunId: state.id,
         signal: signalId,
@@ -1786,6 +1827,23 @@ export class LoopCoordinator extends EventEmitter {
       return false;
     }
 
+    // claude2_todo #1b: fingerprint the blocking review threads so we can tell a
+    // PERSISTING issue (the agent failed to fix it across rounds) from a newly
+    // raised one, and so the unresolved set survives a re-run that surfaces the
+    // same findings. Persisted across attempts; only emptied on a clean review.
+    const prevThreads = state.unresolvedReviewThreads ?? [];
+    const currThreads = computeReviewThreadSet(blocking);
+    const threadDiff = diffReviewThreads(prevThreads, currThreads);
+    state.unresolvedReviewThreads = currThreads;
+
+    const persistenceNote =
+      threadDiff.persisted.length > 0
+        ? `\n\n⚠ ${threadDiff.persisted.length} of these ` +
+          `${threadDiff.persisted.length === 1 ? 'finding has' : 'findings have'} persisted UNRESOLVED ` +
+          'across review rounds. Re-running the same change will be rejected again — actually fix ' +
+          'them (or change approach) before re-declaring completion.'
+        : '';
+
     // Blocking findings — inject as interventions and continue the loop.
     const interventionMessage =
       `Fresh-eyes cross-model review (${reviewResult.reviewersUsed.join(', ') || 'reviewers'}) ` +
@@ -1797,12 +1855,16 @@ export class LoopCoordinator extends EventEmitter {
             `${i + 1}. [${f.severity.toUpperCase()}] ${f.title}${f.file ? ` (${f.file})` : ''}\n   ${f.body}`,
         )
         .join('\n\n') +
+      persistenceNote +
       `\n\nAddress each item, then re-attempt completion.`;
 
     state.pendingInterventions.push(interventionMessage);
     this.convergenceNotes.set(
       state.id,
       `${blocking.length} blocking review finding(s) remained` +
+        (threadDiff.persisted.length > 0
+          ? `, ${threadDiff.persisted.length} unresolved across multiple rounds`
+          : '') +
         (reviewResult.reviewersUsed.length > 0 ? ` (reviewers: ${reviewResult.reviewersUsed.join(', ')})` : ''),
     );
     this.emit('loop:fresh-eyes-review-blocked', {

@@ -4,6 +4,15 @@ import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 import { setupCompactionCoordinator } from './compaction-runtime';
 
+const settingsManagerMock = vi.hoisted(() => ({
+  get: vi.fn(() => 0),
+  on: vi.fn(),
+}));
+
+vi.mock('../core/config/settings-manager', () => ({
+  getSettingsManager: () => settingsManagerMock,
+}));
+
 function makeWindowManager(): WindowManager {
   return {
     sendToRenderer: vi.fn(),
@@ -13,6 +22,9 @@ function makeWindowManager(): WindowManager {
 describe('setupCompactionCoordinator', () => {
   beforeEach(() => {
     CompactionCoordinator._resetForTesting();
+    settingsManagerMock.get.mockReset();
+    settingsManagerMock.get.mockReturnValue(0);
+    settingsManagerMock.on.mockReset();
   });
 
   afterEach(() => {

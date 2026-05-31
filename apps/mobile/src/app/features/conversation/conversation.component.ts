@@ -16,6 +16,15 @@ import { statusColor, statusLabel } from '../../core/status';
 import type { MobileMessageDto } from '../../core/models';
 
 /**
+ * A rendered transcript row: either a single conversational message, or a
+ * collapsed run of consecutive tool calls (the "🔧 Using tool: …" noise),
+ * shown as one tappable "N tool calls" group that expands on demand.
+ */
+type DisplayItem =
+  | { kind: 'msg'; message: MobileMessageDto }
+  | { kind: 'tools'; id: string; items: MobileMessageDto[] };
+
+/**
  * One agent's live conversation: transcript (replayed history + live stream),
  * a status/context header, an input bar, and Stop/terminate controls. Approval
  * prompts surface through the global approval sheet (app.component).
@@ -54,17 +63,48 @@ import type { MobileMessageDto } from '../../core/models';
         </div>
       }
 
-      <div #scrollEl class="transcript">
-        @for (m of messages(); track m.id) {
-          <div class="msg" [class]="'t-' + m.type">
-            @if (m.type === 'tool_use') {
-              <span class="tool">🔧 {{ toolLabel(m) }}</span>
+      <div class="scroll-wrap">
+        <div #scrollEl class="transcript" (scroll)="onScroll()">
+          @for (item of displayItems(); track trackItem(item)) {
+            @if (item.kind === 'tools') {
+              <div class="tool-group">
+                <button class="tool-toggle" (click)="toggleTools(item.id)">
+                  <span class="tool-caret">{{ expandedTools().has(item.id) ? '▾' : '▸' }}</span>
+                  🔧 {{ item.items.length }} tool {{ item.items.length === 1 ? 'call' : 'calls' }}
+                </button>
+                @if (expandedTools().has(item.id)) {
+                  @for (t of item.items; track t.id) {
+                    <div class="tool-line">{{ toolLabel(t) }}</div>
+                  }
+                }
+              </div>
             } @else {
-              <span class="bubble">{{ m.content }}</span>
+              <div class="msg" [class]="'t-' + item.message.type">
+                <span class="bubble">{{ item.message.content }}</span>
+              </div>
+            }
+          } @empty {
+            <p class="muted center">{{ online() ? 'No messages yet.' : 'Connecting…' }}</p>
+          }
+        </div>
+
+        @if (messages().length > 0) {
+          <div class="scroll-btns">
+            @if (!atTop()) {
+              <button class="scroll-btn" (click)="scrollToTop()" aria-label="Scroll to top">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="18 15 12 9 6 15"></polyline>
+                </svg>
+              </button>
+            }
+            @if (!atBottom()) {
+              <button class="scroll-btn" (click)="scrollToBottom()" aria-label="Scroll to bottom">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </button>
             }
           </div>
-        } @empty {
-          <p class="muted center">{{ online() ? 'No messages yet.' : 'Connecting…' }}</p>
         }
       </div>
 
@@ -85,7 +125,16 @@ import type { MobileMessageDto } from '../../core/models';
   `,
   styles: [
     `
-      .screen { display: flex; flex-direction: column; height: 100%; }
+      /* Full-viewport shell so the transcript is a real internal scroll
+         container, independent of the ancestor height chain (app-root only
+         sets min-height, which would otherwise collapse height:100% here). */
+      :host {
+        position: fixed; inset: 0; z-index: 0;
+        display: flex; flex-direction: column; background: var(--bg);
+        padding: env(safe-area-inset-top) env(safe-area-inset-right)
+          env(safe-area-inset-bottom) env(safe-area-inset-left);
+      }
+      .screen { display: flex; flex-direction: column; flex: 1; min-height: 0; }
       .top { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
       .back { background: none; border: none; color: var(--accent-action); font-size: 26px; line-height: 1; }
       .title { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -101,7 +150,32 @@ import type { MobileMessageDto } from '../../core/models';
       }
       .popover button { background: none; border: none; color: var(--text); text-align: left; padding: 10px 16px; font-size: 15px; }
       .popover button.danger { color: var(--accent-error); }
+      .scroll-wrap { flex: 1; position: relative; min-height: 0; display: flex; }
       .transcript { flex: 1; overflow-y: auto; padding: 8px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
+      .scroll-btns {
+        position: absolute; right: 12px; bottom: 12px; z-index: 4;
+        display: flex; flex-direction: column; gap: 8px;
+      }
+      .scroll-btn {
+        width: 40px; height: 40px; border-radius: 50%;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(44, 44, 46, 0.92); color: var(--text);
+        display: flex; align-items: center; justify-content: center;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+      }
+      /* Collapsed tool-activity group — hides the "Using tool: …" junk. */
+      .tool-group { display: flex; flex-direction: column; gap: 4px; }
+      .tool-toggle {
+        align-self: flex-start; display: flex; align-items: center; gap: 6px;
+        background: none; border: none; color: var(--text-secondary);
+        font-size: 13px; padding: 2px 0;
+      }
+      .tool-caret { font-size: 11px; width: 10px; }
+      .tool-line {
+        color: var(--text-secondary); font-size: 13px; padding-left: 16px;
+        font-family: 'SF Mono', ui-monospace, monospace;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
       .msg { display: flex; }
       .bubble { white-space: pre-wrap; word-break: break-word; font-size: 15px; line-height: 1.4; }
       .t-user { justify-content: flex-end; }
@@ -140,6 +214,12 @@ export class ConversationComponent {
   protected readonly color = statusColor;
   protected readonly label = statusLabel;
 
+  /** Scroll-position flags driving the floating up/down buttons + auto-follow. */
+  protected readonly atTop = signal(true);
+  protected readonly atBottom = signal(true);
+  /** Don't auto-follow new messages while the user is reading scrolled-up history. */
+  private stickToBottom = true;
+
   private readonly scrollEl = viewChild<ElementRef<HTMLDivElement>>('scrollEl');
 
   protected readonly instance = computed(() =>
@@ -147,6 +227,44 @@ export class ConversationComponent {
   );
   protected readonly status = computed(() => this.instance()?.status ?? 'idle');
   protected readonly messages = computed(() => this.gateway.messagesFor(this.instanceId()));
+
+  /** Which collapsed tool groups the user has expanded (keyed by group id). */
+  protected readonly expandedTools = signal<Set<string>>(new Set());
+
+  /**
+   * Transcript rows with consecutive tool_use/tool_result messages folded into
+   * a single collapsible group, so the conversation isn't drowned in tool noise.
+   */
+  protected readonly displayItems = computed<DisplayItem[]>(() => {
+    const out: DisplayItem[] = [];
+    let bucket: MobileMessageDto[] | null = null;
+    for (const m of this.messages()) {
+      if (m.type === 'tool_use' || m.type === 'tool_result') {
+        if (!bucket) {
+          bucket = [];
+          out.push({ kind: 'tools', id: `tools-${m.id}`, items: bucket });
+        }
+        bucket.push(m);
+      } else {
+        bucket = null;
+        out.push({ kind: 'msg', message: m });
+      }
+    }
+    return out;
+  });
+
+  protected trackItem(item: DisplayItem): string {
+    return item.kind === 'tools' ? item.id : item.message.id;
+  }
+
+  protected toggleTools(id: string): void {
+    this.expandedTools.update((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   constructor() {
     // Load (and resync on reconnect) the transcript for the open instance.
@@ -156,14 +274,49 @@ export class ConversationComponent {
         void this.gateway.loadMessages(id);
       }
     });
-    // Auto-scroll to the newest message (read length synchronously to track it).
+    // Auto-scroll to the newest message — but only while the user is parked at
+    // the bottom. If they've scrolled up to read history, leave them there.
     effect(() => {
-      const count = this.messages().length;
+      this.messages().length;
+      // Track the viewChild too: on a one-shot history load the effect can fire
+      // before the transcript element exists; re-run once it resolves so we still
+      // scroll to the bottom and surface the floating buttons.
+      const el = this.scrollEl()?.nativeElement;
+      if (!el) return;
       queueMicrotask(() => {
-        const el = this.scrollEl()?.nativeElement;
-        if (el && count >= 0) el.scrollTop = el.scrollHeight;
+        if (this.stickToBottom) {
+          el.scrollTop = el.scrollHeight;
+        }
+        this.updateScrollFlags();
       });
     });
+  }
+
+  /** Recompute top/bottom flags + whether to keep following new messages. */
+  private updateScrollFlags(): void {
+    const el = this.scrollEl()?.nativeElement;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const bottom = distanceFromBottom < 80;
+    this.atBottom.set(bottom);
+    this.atTop.set(el.scrollTop < 40);
+    this.stickToBottom = bottom;
+  }
+
+  protected onScroll(): void {
+    this.updateScrollFlags();
+  }
+
+  protected scrollToTop(): void {
+    this.scrollEl()?.nativeElement.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  protected scrollToBottom(): void {
+    const el = this.scrollEl()?.nativeElement;
+    if (el) {
+      this.stickToBottom = true;
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    }
   }
 
   protected toolLabel(m: MobileMessageDto): string {
