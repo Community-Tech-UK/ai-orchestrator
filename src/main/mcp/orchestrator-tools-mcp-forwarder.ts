@@ -24,6 +24,9 @@ import {
 
 const logger = getLogger('OrchestratorToolsMcpForwarder');
 
+const REMOTE_NODE_DISCOVERY_HINT =
+  'AIO can use connected remote worker nodes, including Windows PCs, other machines, remote machines, and another computer, through list_remote_nodes, run_on_node, and read_node_output. Call list_remote_nodes first when reachability matters.';
+
 interface JsonRpcRequest {
   jsonrpc?: '2.0';
   id?: number | string | null;
@@ -75,9 +78,26 @@ export function createOrchestratorToolsForwarderTools(
       },
     },
     {
+      name: 'list_remote_nodes',
+      description:
+        `${REMOTE_NODE_DISCOVERY_HINT} Lists currently registered remote worker nodes with status, platform, supported CLIs, browser/GPU/Docker capabilities, active capacity, working directories, heartbeat, and latency. Read-only; does not spawn work.`,
+      inputSchema: {
+        type: 'object',
+        properties: {},
+        required: [],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) {
+          throw new Error('list_remote_nodes args must be an object');
+        }
+        return client.call('orchestrator_tools.list_remote_nodes', args as Record<string, unknown>);
+      },
+    },
+    {
       name: 'run_on_node',
       description:
-        'Run a task on a connected remote worker node (e.g. "windows-pc") by spawning an AI agent there with the given prompt. The agent runs project-lessly using the node\'s default working directory unless one is provided. Returns immediately with the spawned instance id; output streams asynchronously and can be inspected from the app.',
+        `${REMOTE_NODE_DISCOVERY_HINT} Run a task on a connected remote worker node, such as a Windows PC, other machine, remote machine, or another computer, by spawning an AI agent there with the given prompt. The agent runs project-lessly using the node's default working directory unless one is provided. Returns immediately with the spawned instance id; output streams asynchronously and can be inspected from the app or read with read_node_output.`,
       inputSchema: {
         type: 'object',
         properties: {

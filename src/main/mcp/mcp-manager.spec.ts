@@ -103,7 +103,7 @@ describe('McpManager', () => {
 
     const context = await (manager as unknown as {
       getRuntimeToolContext(options: { query: string; maxTools: number }): Promise<{
-        selectedTools: Array<{ id: string }>;
+        selectedTools: { id: string }[];
         deferredToolCount: number;
       }>;
       formatRuntimeToolContext(context: unknown): string | null;
@@ -170,6 +170,57 @@ describe('McpManager', () => {
     expect(search.isToolLoaded('data:query_database')).toBe(true);
     expect(prompt).toContain('query_database');
     expect(prompt).not.toContain('create_slides');
+  });
+
+  it('surfaces Orchestrator remote-node tools for Windows PC prompts with inspect-first guidance', async () => {
+    const search = getMCPToolSearchService();
+    search.registerServer({
+      id: 'orchestrator',
+      name: 'Orchestrator Tools',
+      description: 'AIO parent-side orchestration tools',
+      uri: 'stdio://aio-mcp/orchestrator-tools',
+      status: 'connected',
+      tools: [],
+      resources: [],
+      lastSeen: 1,
+      capabilities: {
+        tools: true,
+        resources: false,
+        prompts: false,
+        sampling: false,
+      },
+    });
+    search.indexTool({
+      id: 'orchestrator:list_remote_nodes',
+      name: 'list_remote_nodes',
+      description:
+        'Inspect connected remote worker nodes before using another machine, including Windows PCs, remote machines, and other computers.',
+      serverId: 'orchestrator',
+      serverName: 'Orchestrator Tools',
+      inputSchema: { type: 'object' },
+      tags: ['remote', 'worker-node'],
+      metadata: {},
+    });
+    search.indexTool({
+      id: 'orchestrator:run_on_node',
+      name: 'run_on_node',
+      description:
+        'Run a task on a connected remote worker node such as a Windows PC, remote machine, or other machine.',
+      serverId: 'orchestrator',
+      serverName: 'Orchestrator Tools',
+      inputSchema: { type: 'object' },
+      tags: ['remote', 'worker-node'],
+      metadata: {},
+    });
+
+    const context = await manager.getRuntimeToolContext({ query: 'use my Windows PC', maxTools: 1 });
+    const prompt = manager.formatRuntimeToolContext(context);
+
+    expect(context.selectedTools).toEqual([
+      expect.objectContaining({ id: 'orchestrator:list_remote_nodes' }),
+    ]);
+    expect(prompt).toContain('Windows PCs and other machines');
+    expect(prompt).toContain('Inspect nodes before claiming reachability');
   });
 });
 

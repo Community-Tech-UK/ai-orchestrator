@@ -250,6 +250,66 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
     expect(result).toMatchObject({ done: true });
   });
 
+  it('dispatches list_remote_nodes to the matching tool with validated payload', async () => {
+    const listHandler = vi.fn(async (args: unknown) => ({
+      connectedCount: 1,
+      totalCount: 1,
+      nodes: [],
+      echoed: args,
+    }));
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'list_remote_nodes',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: listHandler,
+        },
+      ],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 14,
+      method: 'orchestrator_tools.list_remote_nodes',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: {},
+      },
+    });
+
+    expect(listHandler).toHaveBeenCalledOnce();
+    expect(listHandler.mock.calls[0]?.[0]).toEqual({});
+    expect(result).toMatchObject({ connectedCount: 1, totalCount: 1, nodes: [] });
+  });
+
+  it('rejects list_remote_nodes payloads with unexpected properties', async () => {
+    const listHandler = vi.fn();
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'list_remote_nodes',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: listHandler,
+        },
+      ],
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 15,
+        method: 'orchestrator_tools.list_remote_nodes',
+        params: {
+          instanceId: KNOWN_INSTANCE,
+          payload: { includeSecrets: true },
+        },
+      }),
+    ).rejects.toThrow();
+    expect(listHandler).not.toHaveBeenCalled();
+  });
+
   it('rejects read_node_output payloads that fail the schema (missing instanceId)', async () => {
     const readHandler = vi.fn();
     const { server } = makeServer({
@@ -396,7 +456,7 @@ describe('OrchestratorToolsRpcServer spawn-eligibility scoping (#18a/#19)', () =
   });
 
   function threeToolServer(resolveSpawnEligibility?: (id: string) => boolean) {
-    const tools: McpServerToolDefinition[] = ['git_batch_pull', 'run_on_node', 'read_node_output'].map(
+    const tools: McpServerToolDefinition[] = ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'read_node_output'].map(
       (name) => ({
         name,
         description: `test ${name}`,
@@ -434,6 +494,17 @@ describe('OrchestratorToolsRpcServer spawn-eligibility scoping (#18a/#19)', () =
       params: { instanceId: KNOWN_INSTANCE, payload: { instanceId: 'remote-1' } },
     });
     expect(result).toMatchObject({ name: 'read_node_output' });
+  });
+
+  it('still exposes list_remote_nodes to an ineligible instance', async () => {
+    const server = threeToolServer(() => false);
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 5,
+      method: 'orchestrator_tools.list_remote_nodes',
+      params: { instanceId: KNOWN_INSTANCE, payload: {} },
+    });
+    expect(result).toMatchObject({ name: 'list_remote_nodes' });
   });
 
   it('keeps run_on_node when the instance is still spawn-eligible', async () => {

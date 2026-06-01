@@ -1,7 +1,7 @@
 /**
  * Orchestrator-Tools RPC Server (parent-side).
  *
- * Exposes the orchestrator-tools MCP surface (currently just `git_batch_pull`)
+ * Exposes the orchestrator-tools MCP surface
  * over a per-app Unix-domain socket. Thin stdio forwarders running inside the
  * `aio-mcp` Node SEA dispatch tool invocations here so that all database +
  * git work happens in the parent process — keeping native modules
@@ -12,7 +12,7 @@
  * JSON-RPC 2.0 over a 0700 Unix socket (or a Windows named pipe), per-instance
  * auth, payload-size and rate-limit caps. Tool handlers are reused as-is from
  * `createOrchestratorToolDefinitions` so the wire surface is one method per
- * MCP tool (currently `orchestrator_tools.git_batch_pull`).
+ * MCP tool.
  */
 
 import * as crypto from 'node:crypto';
@@ -31,8 +31,10 @@ import { defaultOperatorDbPath } from '../operator/operator-database';
 import {
   createOrchestratorToolDefinitions,
   GitBatchPullArgsSchema,
+  ListRemoteNodesArgsSchema,
   ReadNodeOutputArgsSchema,
   RunOnNodeArgsSchema,
+  type ListRemoteNodesFn,
   type ReadInstanceOutputFn,
   type SpawnRemoteInstanceFn,
 } from './orchestrator-tools';
@@ -48,7 +50,7 @@ const logger = getLogger('OrchestratorToolsRpcServer');
  * alongside the depth guard enforced in the `run_on_node` handler.
  */
 const ORCHESTRATOR_TOOLSETS = createToolsetRegistry([
-  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'run_on_node', 'read_node_output'] },
+  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'read_node_output'] },
   { name: 'orchestrator-tools-leaf', includes: ['orchestrator-tools-full'], tools: ['!run_on_node'] },
 ]);
 
@@ -79,6 +81,12 @@ export interface OrchestratorToolsRpcServerOptions {
     windowMs: number;
   };
   /**
+   * Lists registered remote worker node status and capabilities (backs the
+   * `list_remote_nodes` tool). Injected from main-process startup so this
+   * server never imports remote-node singletons directly.
+   */
+  listRemoteNodes?: ListRemoteNodesFn | null;
+  /**
    * Spawns an AI instance on a remote worker node (backs the `run_on_node`
    * tool). Injected from main-process startup so this server never imports the
    * instance manager / remote-node singletons directly. When omitted,
@@ -103,6 +111,7 @@ export interface OrchestratorToolsRpcServerOptions {
     db: SqliteDriver;
     ledger: ConversationLedgerService | null;
     instanceId: string | null;
+    listRemoteNodes: ListRemoteNodesFn | null;
     spawnRemoteInstance: SpawnRemoteInstanceFn | null;
     readInstanceOutput: ReadInstanceOutputFn | null;
   }) => McpServerToolDefinition[];
@@ -114,6 +123,7 @@ export class OrchestratorToolsRpcServer {
   private readonly isKnownLocalInstance: (instanceId: string) => boolean;
   private readonly maxPayloadBytes: number;
   private readonly rateLimit: { maxRequests: number; windowMs: number };
+  private readonly listRemoteNodes: ListRemoteNodesFn | null;
   private readonly spawnRemoteInstance: SpawnRemoteInstanceFn | null;
   private readonly readInstanceOutput: ReadInstanceOutputFn | null;
   private readonly resolveSpawnEligibility: ((instanceId: string) => boolean) | null;
@@ -134,6 +144,7 @@ export class OrchestratorToolsRpcServer {
     this.isKnownLocalInstance = options.isKnownLocalInstance ?? (() => false);
     this.maxPayloadBytes = options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES;
     this.rateLimit = options.rateLimit ?? { maxRequests: 30, windowMs: 10_000 };
+    this.listRemoteNodes = options.listRemoteNodes ?? null;
     this.spawnRemoteInstance = options.spawnRemoteInstance ?? null;
     this.readInstanceOutput = options.readInstanceOutput ?? null;
     this.resolveSpawnEligibility = options.resolveSpawnEligibility ?? null;
@@ -201,6 +212,15 @@ export class OrchestratorToolsRpcServer {
         const tool = tools.find((t) => t.name === 'git_batch_pull');
         if (!tool) {
           throw new Error('git_batch_pull tool unavailable');
+        }
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.list_remote_nodes': {
+        const validated = ListRemoteNodesArgsSchema.parse(params.payload);
+        const tools = this.getToolsForInstance(params.instanceId);
+        const tool = tools.find((t) => t.name === 'list_remote_nodes');
+        if (!tool) {
+          throw new Error('list_remote_nodes tool unavailable');
         }
         return tool.handler(validated);
       }
@@ -331,6 +351,7 @@ export class OrchestratorToolsRpcServer {
         db: null as unknown as SqliteDriver,
         ledger: null,
         instanceId,
+        listRemoteNodes: this.listRemoteNodes,
         spawnRemoteInstance: this.spawnRemoteInstance,
         readInstanceOutput: this.readInstanceOutput,
       }));
@@ -343,6 +364,7 @@ export class OrchestratorToolsRpcServer {
       db: this.db,
       ledger: this.ledger,
       instanceId,
+      listRemoteNodes: this.listRemoteNodes,
       spawnRemoteInstance: this.spawnRemoteInstance,
       readInstanceOutput: this.readInstanceOutput,
     }));
