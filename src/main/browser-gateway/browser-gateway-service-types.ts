@@ -1,0 +1,110 @@
+import type {
+  BrowserAttachExistingTabRequest,
+  BrowserCreateProfileRequest,
+  BrowserListAuditLogRequest,
+  BrowserScreenshotRequest,
+  BrowserUpdateProfileRequest,
+} from '@contracts/types/browser';
+import type { BrowserAuditStore } from './browser-audit-store';
+import type { BrowserApprovalStore } from './browser-approval-store';
+import type { BrowserAutoApprovePredicate } from './browser-auto-approve';
+import type { BrowserExtensionCommandStore } from './browser-extension-command-store';
+import type { BrowserExtensionTabStore } from './browser-extension-tab-store';
+import type { BrowserGrantStore } from './browser-grant-store';
+import type { BrowserHealthService } from './browser-health-service';
+import type { BrowserProfileRegistry } from './browser-profile-registry';
+import type { BrowserProfileStore } from './browser-profile-store';
+import type { BrowserTargetRegistry } from './browser-target-registry';
+import type { PuppeteerBrowserDriver } from './puppeteer-browser-driver';
+
+export interface BrowserGatewayContext {
+  instanceId?: string;
+  provider?: string;
+}
+
+export interface BrowserGatewayNavigateRequest extends BrowserGatewayContext {
+  profileId: string;
+  targetId: string;
+  url: string;
+}
+
+export interface BrowserGatewayTargetRequest extends BrowserGatewayContext {
+  profileId: string;
+  targetId: string;
+}
+
+export interface BrowserGatewayScreenshotRequest
+  extends BrowserGatewayContext,
+    BrowserScreenshotRequest {}
+
+export interface BrowserGatewayListTargetsRequest extends BrowserGatewayContext {
+  profileId?: string;
+}
+
+export interface BrowserGatewayAuditLogRequest
+  extends BrowserGatewayContext,
+    BrowserListAuditLogRequest {}
+
+export interface BrowserGatewayCreateProfileRequest
+  extends BrowserGatewayContext,
+    BrowserCreateProfileRequest {}
+
+export interface BrowserGatewayFindOrOpenRequest extends BrowserGatewayContext {
+  url?: string;
+  titleHint?: string;
+}
+
+export interface BrowserGatewayAttachExistingTabRequest
+  extends BrowserGatewayContext,
+    BrowserAttachExistingTabRequest {}
+
+export interface BrowserGatewayUpdateProfileRequest
+  extends BrowserGatewayContext,
+    BrowserUpdateProfileRequest {
+  profileId: string;
+}
+
+export interface BrowserGatewayMutatingActionRequest extends BrowserGatewayContext {
+  toolName: string;
+  action: string;
+  profileId?: string;
+  targetId?: string;
+}
+
+export interface BrowserGatewayServiceOptions {
+  profileStore?: Pick<
+    BrowserProfileStore,
+    'listProfiles' | 'getProfile' | 'updateProfile' | 'deleteProfile' | 'setRuntimeState'
+  >;
+  profileRegistry?: Pick<BrowserProfileRegistry, 'createProfile' | 'resolveProfileDir'>;
+  targetRegistry?: Pick<BrowserTargetRegistry, 'listTargets' | 'selectTarget'>;
+  driver?: Pick<
+    PuppeteerBrowserDriver,
+    | 'openProfile'
+    | 'closeProfile'
+    | 'listTargets'
+    | 'refreshTarget'
+    | 'navigate'
+    | 'snapshot'
+    | 'screenshot'
+    | 'consoleMessages'
+    | 'networkRequests'
+    | 'waitFor'
+    | 'inspectElement'
+    | 'click'
+    | 'type'
+    | 'fillForm'
+    | 'select'
+    | 'uploadFile'
+  >;
+  extensionTabStore?: Pick<
+    BrowserExtensionTabStore,
+    'attachTab' | 'getTab' | 'detachTab' | 'listTabs'
+  >;
+  extensionCommandStore?: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
+  auditStore?: Pick<BrowserAuditStore, 'record' | 'list'>;
+  grantStore?: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
+  approvalStore?: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
+  healthService?: Pick<BrowserHealthService, 'diagnose'>;
+  autoApproveRequests?: BrowserAutoApprovePredicate;
+}

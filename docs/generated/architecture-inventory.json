@@ -4916,10 +4916,6 @@
       "lines": 2695
     },
     {
-      "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2689
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase3-4-6-7.COMPLETED.md",
       "lines": 2659
     },
@@ -4938,6 +4934,10 @@
     {
       "path": "src/main/instance/instance-manager.ts",
       "lines": 2474
+    },
+    {
+      "path": "src/main/browser-gateway/browser-gateway-service.ts",
+      "lines": 2437
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",

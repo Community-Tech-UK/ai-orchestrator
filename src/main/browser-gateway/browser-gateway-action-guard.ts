@@ -1,8 +1,6 @@
 import type {
   BrowserActionClass,
   BrowserApprovalRequest,
-  BrowserGatewayDecision,
-  BrowserGatewayOutcome,
   BrowserGatewayResult,
   BrowserPermissionGrant,
   BrowserProvider,
@@ -13,7 +11,8 @@ import type { BrowserExistingTabAttachment, BrowserExtensionTabStore } from './b
 import type { BrowserGrantStore } from './browser-grant-store';
 import type { BrowserProfileStore } from './browser-profile-store';
 import type { BrowserTargetRegistry } from './browser-target-registry';
-import type { BrowserGatewayContext } from './browser-gateway-service';
+import type { BrowserGatewayResultInput } from './browser-gateway-result';
+import type { BrowserGatewayContext } from './browser-gateway-service-types';
 import type { PuppeteerBrowserDriver } from './puppeteer-browser-driver';
 import {
   autoApproveBrowserApproval,
@@ -23,25 +22,6 @@ import { classifyBrowserAction } from './browser-action-classifier';
 import { findMatchingBrowserGrant } from './browser-grant-policy';
 import { isOriginAllowed } from './browser-origin-policy';
 import { redactElementContext } from './browser-redaction';
-
-export interface BrowserGatewayResultInput<T> {
-  context: BrowserGatewayContext;
-  profileId?: string;
-  targetId?: string;
-  action: string;
-  toolName: string;
-  actionClass: BrowserActionClass;
-  decision: BrowserGatewayDecision;
-  outcome: BrowserGatewayOutcome;
-  summary: string;
-  reason?: string;
-  origin?: string;
-  url?: string;
-  data: T;
-  requestId?: string;
-  grantId?: string;
-  autonomous?: boolean;
-}
 
 export interface BrowserGatewayPreparedMutation {
   grant: BrowserPermissionGrant;

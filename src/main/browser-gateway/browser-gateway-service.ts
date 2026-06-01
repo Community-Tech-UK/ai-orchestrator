@@ -6,18 +6,12 @@ import type {
   BrowserApprovalRequestLookup,
   BrowserApprovalStatusRequest,
   BrowserApproveRequestPayload,
-  BrowserAttachExistingTabRequest,
   BrowserAuditEntry,
   BrowserClickRequest,
   BrowserCreateGrantRequest,
-  BrowserCreateProfileRequest,
   BrowserDenyRequestPayload,
   BrowserFillFormRequest,
-  BrowserGatewayDecision,
-  BrowserGatewayOutcome,
   BrowserGatewayResult,
-  BrowserGrantMode,
-  BrowserListAuditLogRequest,
   BrowserListApprovalRequestsRequest,
   BrowserListGrantsRequest,
   BrowserManualStepRequest,
@@ -27,17 +21,11 @@ import type {
   BrowserRevokeGrantRequest,
   BrowserSelectRequest,
   BrowserProfile,
-  BrowserScreenshotRequest,
   BrowserTypeRequest,
-  BrowserUpdateProfileRequest,
   BrowserUploadFileRequest,
   BrowserTarget,
 } from '@contracts/types/browser';
-import {
-  BrowserAuditStore,
-  type BrowserAuditEntryInput,
-  getBrowserAuditStore,
-} from './browser-audit-store';
+import { BrowserAuditStore, getBrowserAuditStore } from './browser-audit-store';
 import {
   BrowserApprovalStore,
   getBrowserApprovalStore,
@@ -67,13 +55,12 @@ import {
   BrowserHealthService,
   getBrowserHealthService,
 } from './browser-health-service';
-import { isOriginAllowed, normalizeOrigin } from './browser-origin-policy';
+import { isOriginAllowed } from './browser-origin-policy';
 import {
   toAgentSafeAudit,
   toAgentSafeHealth,
   toAgentSafeProfile,
   toAgentSafeTarget,
-  redactAgentString,
 } from './browser-safe-dto';
 import {
   redactBrowserNetworkRequests,
@@ -97,105 +84,54 @@ import {
 import {
   BrowserGatewayActionGuard,
   providerFromContext,
-  type BrowserGatewayResultInput,
 } from './browser-gateway-action-guard';
-import {
-  autoApproveBrowserApproval,
-  type BrowserAutoApprovePredicate,
-} from './browser-auto-approve';
+import { autoApproveBrowserApproval } from './browser-auto-approve';
 import { findMatchingBrowserGrant } from './browser-grant-policy';
+import {
+  allowedOriginFromUrl,
+  capGrantExpiresAt,
+  defaultGrantExpiresAt,
+  defaultManualStepPrompt,
+  extractTabPayload,
+  manualStepActionClass,
+  primaryActionClass,
+  proposedUploadRoots,
+  safeTargetFromExistingTab,
+  tryParseWebUrl,
+} from './browser-gateway-service-helpers';
+import {
+  BrowserGatewayResultRecorder,
+  type BrowserGatewayResultInput,
+} from './browser-gateway-result';
+import type {
+  BrowserGatewayAttachExistingTabRequest,
+  BrowserGatewayAuditLogRequest,
+  BrowserGatewayContext,
+  BrowserGatewayCreateProfileRequest,
+  BrowserGatewayFindOrOpenRequest,
+  BrowserGatewayListTargetsRequest,
+  BrowserGatewayMutatingActionRequest,
+  BrowserGatewayNavigateRequest,
+  BrowserGatewayScreenshotRequest,
+  BrowserGatewayServiceOptions,
+  BrowserGatewayTargetRequest,
+  BrowserGatewayUpdateProfileRequest,
+} from './browser-gateway-service-types';
 
-export interface BrowserGatewayContext {
-  instanceId?: string;
-  provider?: string;
-}
-
-export interface BrowserGatewayNavigateRequest extends BrowserGatewayContext {
-  profileId: string;
-  targetId: string;
-  url: string;
-}
-
-export interface BrowserGatewayTargetRequest extends BrowserGatewayContext {
-  profileId: string;
-  targetId: string;
-}
-
-export interface BrowserGatewayScreenshotRequest
-  extends BrowserGatewayContext,
-    BrowserScreenshotRequest {}
-
-export interface BrowserGatewayListTargetsRequest extends BrowserGatewayContext {
-  profileId?: string;
-}
-
-export interface BrowserGatewayAuditLogRequest
-  extends BrowserGatewayContext,
-    BrowserListAuditLogRequest {}
-
-export interface BrowserGatewayCreateProfileRequest
-  extends BrowserGatewayContext,
-    BrowserCreateProfileRequest {}
-
-export interface BrowserGatewayFindOrOpenRequest extends BrowserGatewayContext {
-  url?: string;
-  titleHint?: string;
-}
-
-export interface BrowserGatewayAttachExistingTabRequest
-  extends BrowserGatewayContext,
-    BrowserAttachExistingTabRequest {}
-
-export interface BrowserGatewayUpdateProfileRequest
-  extends BrowserGatewayContext,
-    BrowserUpdateProfileRequest {
-  profileId: string;
-}
-
-export interface BrowserGatewayMutatingActionRequest extends BrowserGatewayContext {
-  toolName: string;
-  action: string;
-  profileId?: string;
-  targetId?: string;
-}
-
-export interface BrowserGatewayServiceOptions {
-  profileStore?: Pick<
-    BrowserProfileStore,
-    'listProfiles' | 'getProfile' | 'updateProfile' | 'deleteProfile' | 'setRuntimeState'
-  >;
-  profileRegistry?: Pick<BrowserProfileRegistry, 'createProfile' | 'resolveProfileDir'>;
-  targetRegistry?: Pick<BrowserTargetRegistry, 'listTargets' | 'selectTarget'>;
-  driver?: Pick<
-    PuppeteerBrowserDriver,
-    | 'openProfile'
-    | 'closeProfile'
-    | 'listTargets'
-    | 'refreshTarget'
-    | 'navigate'
-    | 'snapshot'
-    | 'screenshot'
-    | 'consoleMessages'
-    | 'networkRequests'
-    | 'waitFor'
-    | 'inspectElement'
-    | 'click'
-    | 'type'
-    | 'fillForm'
-    | 'select'
-    | 'uploadFile'
-  >;
-  extensionTabStore?: Pick<
-    BrowserExtensionTabStore,
-    'attachTab' | 'getTab' | 'detachTab' | 'listTabs'
-  >;
-  extensionCommandStore?: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
-  auditStore?: Pick<BrowserAuditStore, 'record' | 'list'>;
-  grantStore?: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
-  approvalStore?: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
-  healthService?: Pick<BrowserHealthService, 'diagnose'>;
-  autoApproveRequests?: BrowserAutoApprovePredicate;
-}
+export type {
+  BrowserGatewayAttachExistingTabRequest,
+  BrowserGatewayAuditLogRequest,
+  BrowserGatewayContext,
+  BrowserGatewayCreateProfileRequest,
+  BrowserGatewayFindOrOpenRequest,
+  BrowserGatewayListTargetsRequest,
+  BrowserGatewayMutatingActionRequest,
+  BrowserGatewayNavigateRequest,
+  BrowserGatewayScreenshotRequest,
+  BrowserGatewayServiceOptions,
+  BrowserGatewayTargetRequest,
+  BrowserGatewayUpdateProfileRequest,
+} from './browser-gateway-service-types';
 
 export class BrowserGatewayService {
   private static instance: BrowserGatewayService | null = null;
@@ -233,8 +169,9 @@ export class BrowserGatewayService {
   private readonly grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
   private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
   private readonly healthService: Pick<BrowserHealthService, 'diagnose'>;
-  private readonly autoApproveRequests?: BrowserAutoApprovePredicate;
+  private readonly autoApproveRequests?: BrowserGatewayServiceOptions['autoApproveRequests'];
   private readonly actionGuard: BrowserGatewayActionGuard;
+  private readonly resultRecorder: BrowserGatewayResultRecorder;
 
   constructor(options: BrowserGatewayServiceOptions = {}) {
     this.profileStore = options.profileStore ?? getBrowserProfileStore();
@@ -248,6 +185,7 @@ export class BrowserGatewayService {
     this.approvalStore = options.approvalStore ?? getBrowserApprovalStore();
     this.healthService = options.healthService ?? getBrowserHealthService();
     this.autoApproveRequests = options.autoApproveRequests;
+    this.resultRecorder = new BrowserGatewayResultRecorder(this.auditStore);
     this.actionGuard = new BrowserGatewayActionGuard({
       profileStore: this.profileStore,
       targetRegistry: this.targetRegistry,
@@ -338,7 +276,7 @@ export class BrowserGatewayService {
         summary: `Attached existing Chrome tab ${attachment.title ?? attachment.url}`,
         origin: attachment.origin,
         url: attachment.url,
-        data: this.safeTargetFromExistingTab(attachment),
+        data: safeTargetFromExistingTab(attachment),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -540,7 +478,7 @@ export class BrowserGatewayService {
         summary: 'Selected an existing Chrome tab matching the browser task',
         origin: existing.origin,
         url: existing.url,
-        data: this.safeTargetFromExistingTab(existing),
+        data: safeTargetFromExistingTab(existing),
       });
     }
 
@@ -564,7 +502,7 @@ export class BrowserGatewayService {
         payload: { url },
         timeoutMs: 30_000,
       });
-      const tab = this.extractTabPayload(result);
+      const tab = extractTabPayload(result);
       const attachment = this.extensionTabStore.attachTab(tab);
       return this.result({
         context: request,
@@ -578,7 +516,7 @@ export class BrowserGatewayService {
         summary: 'Opened a new Chrome tab through the Browser Gateway extension',
         origin: attachment.origin,
         url: attachment.url,
-        data: this.safeTargetFromExistingTab(attachment),
+        data: safeTargetFromExistingTab(attachment),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1024,9 +962,9 @@ export class BrowserGatewayService {
       request,
       toolName: 'browser.pause_for_manual_step',
       action: 'pause_for_manual_step',
-      actionClass: this.manualStepActionClass(kind),
+      actionClass: manualStepActionClass(kind),
       resultReason: 'manual_step_required',
-      defaultPrompt: this.defaultManualStepPrompt(kind),
+      defaultPrompt: defaultManualStepPrompt(kind),
       summary: 'Browser Gateway manual step request requires user action',
     });
   }
@@ -1213,7 +1151,7 @@ export class BrowserGatewayService {
       autonomous: prepared.grant.autonomous,
     });
     if (!uploadDecision.allowed) {
-      const uploadRoots = this.proposedUploadRoots(
+      const uploadRoots = proposedUploadRoots(
         prepared.grant.uploadRoots,
         uploadDecision.resolvedPath,
       );
@@ -1474,7 +1412,7 @@ export class BrowserGatewayService {
       });
     }
 
-    const actionClass = this.primaryActionClass(request.proposedGrant.allowedActionClasses);
+    const actionClass = primaryActionClass(request.proposedGrant.allowedActionClasses);
     const approval = this.approvalStore.createRequest({
       instanceId: request.instanceId ?? 'unknown',
       provider: providerFromContext(request.provider),
@@ -1549,7 +1487,7 @@ export class BrowserGatewayService {
       });
     }
 
-    const actionClass = this.primaryActionClass(request.proposedGrant.allowedActionClasses);
+    const actionClass = primaryActionClass(request.proposedGrant.allowedActionClasses);
     const approval = this.approvalStore.createRequest({
       instanceId: request.instanceId ?? 'unknown',
       provider: providerFromContext(request.provider),
@@ -1732,7 +1670,7 @@ export class BrowserGatewayService {
       decidedBy: 'user',
       decision: 'allow',
       reason: request.reason,
-      expiresAt: this.defaultGrantExpiresAt(request.grant.mode, now),
+      expiresAt: defaultGrantExpiresAt(request.grant.mode, now),
     });
     this.approvalStore.resolveRequest(approval.requestId, {
       status: 'approved',
@@ -1824,7 +1762,7 @@ export class BrowserGatewayService {
       decidedBy: 'user',
       decision: 'allow',
       reason: request.reason,
-      expiresAt: this.capGrantExpiresAt(request.mode, request.expiresAt, now),
+      expiresAt: capGrantExpiresAt(request.mode, request.expiresAt, now),
     });
     return this.result({
       context: request,
@@ -1832,7 +1770,7 @@ export class BrowserGatewayService {
       targetId: grant.targetId,
       action: 'create_grant',
       toolName: 'browser.create_grant',
-      actionClass: this.primaryActionClass(grant.allowedActionClasses),
+      actionClass: primaryActionClass(grant.allowedActionClasses),
       decision: 'allowed',
       outcome: 'succeeded',
       summary: 'Created Browser Gateway grant',
@@ -2040,25 +1978,6 @@ export class BrowserGatewayService {
       : { error: 'no_allowed_origins_configured' };
   }
 
-  private manualStepActionClass(kind: BrowserManualStepRequest['kind']): BrowserActionClass {
-    return kind === 'login' || kind === 'captcha' || kind === 'two_factor'
-      ? 'credential'
-      : 'unknown';
-  }
-
-  private defaultManualStepPrompt(kind: BrowserManualStepRequest['kind']): string {
-    if (kind === 'login') {
-      return 'User login is required before Browser Gateway automation can continue.';
-    }
-    if (kind === 'captcha') {
-      return 'Complete the browser CAPTCHA challenge before Browser Gateway automation continues.';
-    }
-    if (kind === 'two_factor') {
-      return 'Complete the browser two-factor authentication step before Browser Gateway automation continues.';
-    }
-    return 'Manual browser review is required before Browser Gateway automation can continue.';
-  }
-
   private getTarget(profileId: string, targetId: string): BrowserTarget | null {
     return (
       this.targetRegistry
@@ -2093,7 +2012,7 @@ export class BrowserGatewayService {
     titleHint: string | undefined,
   ): BrowserExistingTabAttachment | null {
     const tabs = this.extensionTabStore.listTabs();
-    const parsedUrl = url ? this.tryParseWebUrl(url) : null;
+    const parsedUrl = url ? tryParseWebUrl(url) : null;
 
     if (parsedUrl && url) {
       const exactOrPrefix = tabs.find((tab) =>
@@ -2115,31 +2034,6 @@ export class BrowserGatewayService {
     }
 
     return null;
-  }
-
-  private tryParseWebUrl(url: string): URL | null {
-    try {
-      const parsed = new URL(url);
-      return parsed.protocol === 'http:' || parsed.protocol === 'https:'
-        ? parsed
-        : null;
-    } catch {
-      return null;
-    }
-  }
-
-  private allowedOriginFromUrl(url: string): BrowserAllowedOrigin | null {
-    const normalized = normalizeOrigin(url);
-    if (!normalized) {
-      return null;
-    }
-    const defaultPort = normalized.scheme === 'https' ? 443 : 80;
-    return {
-      scheme: normalized.scheme,
-      hostPattern: normalized.host,
-      ...(normalized.port === defaultPort ? {} : { port: normalized.port }),
-      includeSubdomains: false,
-    };
   }
 
   private async navigateExistingTab(
@@ -2182,7 +2076,7 @@ export class BrowserGatewayService {
       });
       grant = match.grant?.allowExternalNavigation ? match.grant : undefined;
       if (!grant) {
-        const allowedOrigin = this.allowedOriginFromUrl(request.url);
+        const allowedOrigin = allowedOriginFromUrl(request.url);
         if (!allowedOrigin) {
           return this.result({
             context: request,
@@ -2248,7 +2142,7 @@ export class BrowserGatewayService {
       });
       if (result) {
         try {
-          const tab = this.extractTabPayload(result);
+          const tab = extractTabPayload(result);
           this.extensionTabStore.attachTab(tab);
         } catch {
           // Navigation succeeded; stale metadata is less important than
@@ -2313,58 +2207,6 @@ export class BrowserGatewayService {
       },
       ...(payload ? { payload } : {}),
       timeoutMs: 30_000,
-    });
-  }
-
-  private extractTabPayload(result: unknown): BrowserAttachExistingTabRequest {
-    const value = this.isRecord(result) && this.isRecord(result['tab'])
-      ? result['tab']
-      : result;
-    if (!this.isRecord(value)) {
-      throw new Error('browser_extension_tab_result_invalid');
-    }
-    const tabId = value['tabId'];
-    const windowId = value['windowId'];
-    const url = value['url'];
-    if (
-      typeof tabId !== 'number' ||
-      typeof windowId !== 'number' ||
-      typeof url !== 'string'
-    ) {
-      throw new Error('browser_extension_tab_result_invalid');
-    }
-    return {
-      tabId,
-      windowId,
-      url,
-      ...(typeof value['title'] === 'string' ? { title: value['title'] } : {}),
-      ...(typeof value['text'] === 'string' ? { text: value['text'] } : {}),
-      ...(typeof value['screenshotBase64'] === 'string'
-        ? { screenshotBase64: value['screenshotBase64'] }
-        : {}),
-      ...(typeof value['capturedAt'] === 'number' ? { capturedAt: value['capturedAt'] } : {}),
-    };
-  }
-
-  private isRecord(value: unknown): value is Record<string, unknown> {
-    return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-  }
-
-  private safeTargetFromExistingTab(
-    attachment: BrowserExistingTabAttachment,
-  ): ReturnType<typeof toAgentSafeTarget> {
-    return toAgentSafeTarget({
-      id: attachment.targetId,
-      profileId: attachment.profileId,
-      pageId: String(attachment.tabId),
-      driverTargetId: `chrome-tab:${attachment.windowId}:${attachment.tabId}`,
-      mode: 'existing-tab',
-      title: attachment.title,
-      url: attachment.url,
-      origin: attachment.origin,
-      driver: 'extension',
-      status: 'selected',
-      lastSeenAt: attachment.updatedAt,
     });
   }
 
@@ -2549,61 +2391,8 @@ export class BrowserGatewayService {
     }
   }
 
-  private result<T>(params: {
-    context: BrowserGatewayContext;
-    profileId?: string;
-    targetId?: string;
-    action: string;
-    toolName: string;
-    actionClass: BrowserActionClass;
-    decision: BrowserGatewayDecision;
-    outcome: BrowserGatewayOutcome;
-    summary: string;
-    reason?: string;
-    origin?: string;
-    url?: string;
-    data: T;
-    requestId?: string;
-    grantId?: string;
-    autonomous?: boolean;
-  }): BrowserGatewayResult<T> {
-    const safeSummary = this.safeAgentString(params.summary, 2_000);
-    const safeReason = params.reason
-      ? this.safeAgentString(params.reason, 1_000)
-      : undefined;
-    const auditInput: BrowserAuditEntryInput = {
-      instanceId: params.context.instanceId,
-      provider: params.context.provider ?? 'orchestrator',
-      profileId: params.profileId,
-      targetId: params.targetId,
-      action: params.action,
-      toolName: params.toolName,
-      actionClass: params.actionClass,
-      origin: params.origin ? this.safeAgentString(params.origin, 2_000) : undefined,
-      url: params.url ? this.safeAgentString(params.url, 2_000) : undefined,
-      decision: params.decision,
-      outcome: params.outcome,
-      summary: safeSummary,
-      redactionApplied: true,
-      requestId: params.requestId,
-      grantId: params.grantId,
-      autonomous: params.autonomous,
-    };
-    const audit = this.auditStore.record(auditInput);
-    const result = {
-      decision: params.decision,
-      outcome: params.outcome,
-      data: params.data,
-      reason: safeReason,
-      auditId: audit.id,
-    };
-    return params.requestId
-      ? { ...result, requestId: params.requestId } as BrowserGatewayResult<T>
-      : result as BrowserGatewayResult<T>;
-  }
-
-  private safeAgentString(value: string, maxLength: number): string {
-    return redactAgentString(value).slice(0, maxLength);
+  private result<T>(params: BrowserGatewayResultInput<T>): BrowserGatewayResult<T> {
+    return this.resultRecorder.record(params);
   }
 
   private getScopedApprovalRequest(
@@ -2631,49 +2420,8 @@ export class BrowserGatewayService {
     }) ?? approval;
   }
 
-  private primaryActionClass(classes: BrowserActionClass[]): BrowserActionClass {
-    if (classes.includes('destructive')) {
-      return 'destructive';
-    }
-    if (classes.includes('submit')) {
-      return 'submit';
-    }
-    if (classes.includes('credential')) {
-      return 'credential';
-    }
-    if (classes.includes('file-upload')) {
-      return 'file-upload';
-    }
-    return classes[0] ?? 'unknown';
-  }
-
-  private defaultGrantExpiresAt(mode: BrowserGrantMode, now: number): number {
-    if (mode === 'per_action') {
-      return now + 30 * 60 * 1000;
-    }
-    return now + 8 * 60 * 60 * 1000;
-  }
-
-  private capGrantExpiresAt(mode: BrowserGrantMode, requestedExpiresAt: number, now: number): number {
-    const max = mode === 'autonomous'
-      ? now + 24 * 60 * 60 * 1000
-      : now + 24 * 60 * 60 * 1000;
-    return Math.min(requestedExpiresAt, max);
-  }
-
   private resolveProfileRoot(profile: BrowserProfile): string {
     return profile.userDataDir ?? this.profileRegistry.resolveProfileDir(profile.id);
-  }
-
-  private proposedUploadRoots(
-    currentRoots: string[] | undefined,
-    resolvedFilePath: string | undefined,
-  ): string[] | undefined {
-    const roots = [...(currentRoots ?? [])];
-    if (resolvedFilePath) {
-      roots.push(path.dirname(resolvedFilePath));
-    }
-    return roots.length > 0 ? Array.from(new Set(roots)) : undefined;
   }
 }
 
