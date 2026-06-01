@@ -5420,10 +5420,6 @@
       "lines": 940
     },
     {
-      "path": "src/worker-agent/worker-agent.ts",
-      "lines": 938
-    },
-    {
       "path": "src/main/app/initialization-steps.ts",
       "lines": 913
     },

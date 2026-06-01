@@ -4,71 +4,25 @@ import * as os from 'os';
 import * as path from 'path';
 import { reportCapabilities } from './capability-reporter';
 import { DiscoveryClient } from './discovery-client';
-import {
-  LocalInstanceManager,
-  type SpawnParams
-} from './local-instance-manager';
+import { LocalInstanceManager } from './local-instance-manager';
 import { nextReconnectDelayMs, RECONNECT_CONFIG } from './reconnect-backoff';
 import type { WorkerConfig } from './worker-config';
 import { persistConfig } from './worker-config';
 import type { WorkerNodeCapabilities } from '../shared/types/worker-node.types';
-import type { FileAttachment } from '../shared/types/instance.types';
-import type {
-  FsReadDirectoryParams,
-  FsReadFileParams,
-  FsSearchParams,
-  FsStatParams,
-  FsUnwatchParams,
-  FsWatchParams,
-  FsWriteFileParams
-} from '../shared/types/remote-fs.types';
-import {
-  COORDINATOR_TO_NODE,
-  NODE_TO_COORDINATOR,
-  RPC_ERROR_CODES
-} from '../main/remote-node/worker-node-rpc';
-import type { EnrollmentResult, RpcScope } from '../main/remote-node/worker-node-rpc';
-import { createServiceManager } from './service/manager-factory';
-import {
-  NodeFilesystemHandler,
-  FsRpcError
-} from '../main/remote-node/node-filesystem-handler';
+import { NODE_TO_COORDINATOR } from '../main/remote-node/worker-node-rpc';
+import type { EnrollmentResult } from '../main/remote-node/worker-node-rpc';
+import { NodeFilesystemHandler } from '../main/remote-node/node-filesystem-handler';
 import { SyncHandler } from './sync-handler';
-import type {
-  SyncScanParams,
-  SyncBlockSigParams,
-  SyncComputeDeltaParams,
-  SyncApplyDeltaParams,
-  SyncDeleteFileParams
-} from '../shared/types/sync.types';
 import { WorkerTerminalHandler } from './worker-terminal-handler';
-import {
-  diagnoseProviderRuntime,
-  isDiagnosableProvider
-} from './provider-runtime-diagnostics';
+import { WorkerInstanceNotifier } from './worker-instance-notifier';
+import { WorkerRpcDispatcher } from './worker-rpc-dispatcher';
+import type { RpcMessage } from './worker-rpc-types';
 
 const DEFAULT_CONFIG_PATH = path.join(
   os.homedir(),
   '.orchestrator',
   'worker-node.json'
 );
-
-interface RpcMessage {
-  jsonrpc: '2.0';
-  id?: string | number;
-  method?: string;
-  params?: unknown;
-  result?: unknown;
-  error?: { code: number; message: string };
-  scope?: RpcScope;
-}
-
-function validateScope(msg: RpcMessage, expected: RpcScope): string | null {
-  const scope = msg.scope ?? 'instance';
-  if (scope !== expected)
-    return `Method ${msg.method} requires scope=${expected} (received ${scope})`;
-  return null;
-}
 
 /**
  * Worker node agent — connects to coordinator, handles RPC commands,
@@ -89,21 +43,8 @@ export class WorkerAgent extends EventEmitter {
   private fsHandler: NodeFilesystemHandler | null = null;
   private syncHandler: SyncHandler | null = null;
   private terminalHandler: WorkerTerminalHandler | null = null;
-
-  // Output batching
-  private outputBuffer: { instanceId: string; message: unknown }[] = [];
-  private outputFlushTimer: ReturnType<typeof setTimeout> | null = null;
-  private static readonly OUTPUT_BATCH_INTERVAL_MS = 50;
-  private static readonly OUTPUT_BATCH_MAX_SIZE = 10;
-
-  // Critical message queue — buffers state changes, exits, and permission requests
-  // that must not be silently dropped when the WebSocket is temporarily unavailable.
-  private criticalMessageQueue: RpcMessage[] = [];
-  private static readonly CRITICAL_QUEUE_MAX_SIZE = 100;
-
-  // Monotonic sequence counter for critical messages. Allows the coordinator to
-  // detect and discard out-of-order state updates after reconnection.
-  private criticalSeq = 0;
+  private readonly notifier: WorkerInstanceNotifier;
+  private readonly rpcDispatcher: WorkerRpcDispatcher;
 
   constructor(private readonly config: WorkerConfig) {
     super();
@@ -111,6 +52,19 @@ export class WorkerAgent extends EventEmitter {
       config.workingDirectories,
       config.maxConcurrentInstances
     );
+    this.notifier = new WorkerInstanceNotifier({
+      getSocket: () => this.ws,
+      getToken: () => this.config.nodeToken ?? this.config.authToken,
+    });
+    this.rpcDispatcher = new WorkerRpcDispatcher({
+      config: this.config,
+      instanceManager: this.instanceManager,
+      getFilesystemHandler: () => this.fsHandler!,
+      getSyncHandler: () => this.getSyncHandler(),
+      getTerminalHandler: () => this.getTerminalHandler(),
+      sendResult: (id, result) => this.notifier.sendResult(id, result),
+      sendError: (id, code, message) => this.notifier.sendError(id, code, message),
+    });
     this.wireInstanceEvents();
   }
 
@@ -157,7 +111,7 @@ export class WorkerAgent extends EventEmitter {
           this.reconnectAttempt = 0;
           console.log(`Connected to coordinator at ${coordinatorUrl}`);
           this.sendRegistration();
-          this.flushCriticalQueue(); // Deliver any queued state changes from while disconnected
+          this.notifier.flushCriticalQueue(); // Deliver any queued state changes from while disconnected
           this.startHeartbeat();
           this.startContinuousDiscovery();
           resolve();
@@ -200,7 +154,7 @@ export class WorkerAgent extends EventEmitter {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
     }
-    this.flushOutputBuffer();
+    this.notifier.flushOutputBuffer();
     await this.instanceManager.terminateAll();
     this.fsHandler?.cleanupAllWatchers();
     this.terminalHandler?.killAll();
@@ -230,7 +184,7 @@ export class WorkerAgent extends EventEmitter {
   }
 
   private sendRegistration(): void {
-    this.send(this.buildRegistrationMessage());
+    this.notifier.send(this.buildRegistrationMessage());
   }
 
   private startHeartbeat(): void {
@@ -240,7 +194,7 @@ export class WorkerAgent extends EventEmitter {
         this.config.workingDirectories,
         this.config.maxConcurrentInstances
       );
-      this.send({
+      this.notifier.send({
         jsonrpc: '2.0',
         method: NODE_TO_COORDINATOR.HEARTBEAT,
         params: {
@@ -362,229 +316,7 @@ export class WorkerAgent extends EventEmitter {
   }
 
   private async handleRpcRequest(msg: RpcMessage): Promise<void> {
-    const params = (msg.params ?? {}) as Record<string, unknown>;
-
-    try {
-      let result: unknown;
-      switch (msg.method) {
-        case COORDINATOR_TO_NODE.INSTANCE_SPAWN:
-          await this.instanceManager.spawn(params as unknown as SpawnParams);
-          result = { instanceId: params['instanceId'] };
-          break;
-        case COORDINATOR_TO_NODE.INSTANCE_SEND_INPUT: {
-          const attachments = params['attachments'] as
-            | FileAttachment[]
-            | undefined;
-          console.log('[WorkerAgent] INSTANCE_SEND_INPUT received', {
-            instanceId: params['instanceId'],
-            messageLength: (params['message'] as string)?.length,
-            attachmentsCount: attachments?.length ?? 0,
-            attachmentNames: attachments?.map((a) => a.name)
-          });
-          await this.instanceManager.sendInput(
-            params['instanceId'] as string,
-            params['message'] as string,
-            attachments
-          );
-          result = { ok: true };
-          break;
-        }
-        case COORDINATOR_TO_NODE.INSTANCE_TERMINATE:
-          await this.instanceManager.terminate(params['instanceId'] as string);
-          result = { ok: true };
-          break;
-        case COORDINATOR_TO_NODE.INSTANCE_INTERRUPT:
-          await this.instanceManager.interrupt(params['instanceId'] as string);
-          result = { ok: true };
-          break;
-        case COORDINATOR_TO_NODE.INSTANCE_HIBERNATE:
-          await this.instanceManager.hibernate(params['instanceId'] as string);
-          result = { ok: true };
-          break;
-        case COORDINATOR_TO_NODE.INSTANCE_WAKE:
-          await this.instanceManager.wake(params['instanceId'] as string);
-          result = { ok: true };
-          break;
-        case COORDINATOR_TO_NODE.NODE_PING:
-          result = { pong: Date.now() };
-          break;
-        case COORDINATOR_TO_NODE.TERMINAL_CREATE:
-          result = this.getTerminalHandler().create({
-            sessionId: params['sessionId'] as string,
-            cwd: params['cwd'] as string,
-            shell: params['shell'] as string | undefined,
-            env: params['env'] as Record<string, string> | undefined,
-            cols: params['cols'] as number | undefined,
-            rows: params['rows'] as number | undefined
-          });
-          break;
-        case COORDINATOR_TO_NODE.TERMINAL_INPUT:
-          this.getTerminalHandler().input(
-            params['sessionId'] as string,
-            params['data'] as string
-          );
-          result = { ok: true };
-          break;
-        case COORDINATOR_TO_NODE.TERMINAL_RESIZE:
-          this.getTerminalHandler().resize(
-            params['sessionId'] as string,
-            params['cols'] as number,
-            params['rows'] as number
-          );
-          result = { ok: true };
-          break;
-        case COORDINATOR_TO_NODE.TERMINAL_KILL:
-          this.getTerminalHandler().kill(
-            params['sessionId'] as string,
-            params['signal'] as string | undefined
-          );
-          result = { ok: true };
-          break;
-        case COORDINATOR_TO_NODE.FS_READ_DIRECTORY:
-          result = await this.fsHandler!.readDirectory(
-            params as unknown as FsReadDirectoryParams
-          );
-          break;
-        case COORDINATOR_TO_NODE.FS_STAT:
-          result = await this.fsHandler!.stat(params as unknown as FsStatParams);
-          break;
-        case COORDINATOR_TO_NODE.FS_SEARCH:
-          result = await this.fsHandler!.search(params as unknown as FsSearchParams);
-          break;
-        case COORDINATOR_TO_NODE.FS_WATCH:
-          result = await this.fsHandler!.watch(params as unknown as FsWatchParams);
-          break;
-        case COORDINATOR_TO_NODE.FS_UNWATCH:
-          await this.fsHandler!.unwatch(params as unknown as FsUnwatchParams);
-          result = { ok: true };
-          break;
-        case COORDINATOR_TO_NODE.FS_READ_FILE:
-          result = await this.fsHandler!.readFile(
-            params as unknown as FsReadFileParams
-          );
-          break;
-        case COORDINATOR_TO_NODE.FS_WRITE_FILE:
-          result = await this.fsHandler!.writeFile(
-            params as unknown as FsWriteFileParams
-          );
-          break;
-        case COORDINATOR_TO_NODE.SYNC_SCAN_DIRECTORY:
-          result = await this.getSyncHandler().scanDirectory(
-            params as unknown as SyncScanParams
-          );
-          break;
-        case COORDINATOR_TO_NODE.SYNC_GET_BLOCK_SIGNATURES:
-          result = await this.getSyncHandler().getBlockSignatures(
-            params as unknown as SyncBlockSigParams
-          );
-          break;
-        case COORDINATOR_TO_NODE.SYNC_COMPUTE_DELTA:
-          result = await this.getSyncHandler().computeDelta(
-            params as unknown as SyncComputeDeltaParams
-          );
-          break;
-        case COORDINATOR_TO_NODE.SYNC_APPLY_DELTA:
-          result = await this.getSyncHandler().applyDelta(
-            params as unknown as SyncApplyDeltaParams
-          );
-          break;
-        case COORDINATOR_TO_NODE.SYNC_DELETE_FILE:
-          result = await this.getSyncHandler().deleteFile(
-            params as unknown as SyncDeleteFileParams
-          );
-          break;
-        case COORDINATOR_TO_NODE.PROVIDER_DIAGNOSE: {
-          const err = validateScope(msg, 'service');
-          if (err) {
-            this.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
-            return;
-          }
-          const provider = params['provider'];
-          if (!isDiagnosableProvider(provider)) {
-            this.sendError(
-              msg.id!,
-              RPC_ERROR_CODES.INVALID_PARAMS,
-              'provider.diagnose requires a concrete supported provider'
-            );
-            return;
-          }
-          result = await diagnoseProviderRuntime(provider);
-          break;
-        }
-        case COORDINATOR_TO_NODE.SERVICE_STATUS: {
-          const err = validateScope(msg, 'service');
-          if (err) {
-            this.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
-            return;
-          }
-          const mgr = await createServiceManager();
-          result = await mgr.status();
-          break;
-        }
-        case COORDINATOR_TO_NODE.SERVICE_RESTART: {
-          const err = validateScope(msg, 'service');
-          if (err) {
-            this.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
-            return;
-          }
-          this.sendResult(msg.id!, { scheduled: true });
-          setTimeout(async () => {
-            try {
-              const mgr = await createServiceManager();
-              await mgr.restart();
-            } catch (e) {
-              console.error('[WorkerAgent] service.restart failed', e);
-            }
-          }, 250);
-          return;
-        }
-        case COORDINATOR_TO_NODE.SERVICE_STOP: {
-          const err = validateScope(msg, 'service');
-          if (err) {
-            this.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
-            return;
-          }
-          this.sendResult(msg.id!, { scheduled: true });
-          setTimeout(async () => {
-            try {
-              const mgr = await createServiceManager();
-              await mgr.stop();
-            } catch (e) {
-              console.error('[WorkerAgent] service.stop failed', e);
-            }
-          }, 250);
-          return;
-        }
-        case COORDINATOR_TO_NODE.SERVICE_UNINSTALL: {
-          const err = validateScope(msg, 'service');
-          if (err) {
-            this.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
-            return;
-          }
-          this.sendResult(msg.id!, { scheduled: true });
-          setTimeout(async () => {
-            try {
-              const mgr = await createServiceManager();
-              await mgr.uninstall();
-            } catch (e) {
-              console.error('[WorkerAgent] service.uninstall failed', e);
-            }
-          }, 250);
-          return;
-        }
-        default:
-          this.sendError(
-            msg.id!,
-            RPC_ERROR_CODES.METHOD_NOT_FOUND,
-            `Unknown method: ${msg.method}`
-          );
-          return;
-      }
-      this.sendResult(msg.id!, result);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.sendError(msg.id!, this.getRpcErrorCode(msg.method, err), message);
-    }
+    return this.rpcDispatcher.handleRpcRequest(msg);
   }
 
   private getSyncHandler(): SyncHandler {
@@ -609,7 +341,7 @@ export class WorkerAgent extends EventEmitter {
   }
 
   private sendTerminalOutput(sessionId: string, data: string): void {
-    this.send({
+    this.notifier.send({
       jsonrpc: '2.0',
       method: NODE_TO_COORDINATOR.TERMINAL_OUTPUT,
       params: {
@@ -617,7 +349,7 @@ export class WorkerAgent extends EventEmitter {
         data,
         token: this.config.nodeToken ?? this.config.authToken
       }
-    } as RpcMessage);
+    });
   }
 
   private sendTerminalExit(
@@ -625,7 +357,7 @@ export class WorkerAgent extends EventEmitter {
     exitCode: number | null,
     signal: string | null
   ): void {
-    this.send({
+    this.notifier.send({
       jsonrpc: '2.0',
       method: NODE_TO_COORDINATOR.TERMINAL_EXIT,
       params: {
@@ -634,21 +366,7 @@ export class WorkerAgent extends EventEmitter {
         signal,
         token: this.config.nodeToken ?? this.config.authToken
       }
-    } as RpcMessage);
-  }
-
-  private getRpcErrorCode(method: string | undefined, err: unknown): number {
-    if (err instanceof FsRpcError) {
-      return RPC_ERROR_CODES.FILESYSTEM_ERROR;
-    }
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('Instance not found')) {
-      return RPC_ERROR_CODES.INSTANCE_NOT_FOUND;
-    }
-    if (method === COORDINATOR_TO_NODE.INSTANCE_SPAWN) {
-      return RPC_ERROR_CODES.SPAWN_FAILED;
-    }
-    return RPC_ERROR_CODES.INTERNAL_ERROR;
+    });
   }
 
   // -- Instance event forwarding ----------------------------------------------
@@ -657,281 +375,50 @@ export class WorkerAgent extends EventEmitter {
     this.instanceManager.on(
       'instance:output',
       (instanceId: string, message: unknown) => {
-        this.sendOutputNotification(instanceId, message);
+        this.notifier.sendOutputNotification(instanceId, message);
       }
     );
 
     this.instanceManager.on(
       'instance:heartbeat',
       (instanceId: string) => {
-        this.sendHeartbeatNotification(instanceId);
+        this.notifier.sendHeartbeatNotification(instanceId);
       }
     );
 
     this.instanceManager.on(
       'instance:complete',
       (instanceId: string, response: unknown) => {
-        this.sendCompleteNotification(instanceId, response);
+        this.notifier.sendCompleteNotification(instanceId, response);
       }
     );
 
     this.instanceManager.on(
       'instance:stateChange',
       (instanceId: string, state: unknown) => {
-        this.sendCritical({
-          jsonrpc: '2.0',
-          id: `sc-${++this.criticalSeq}`,
-          method: NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE,
-          params: {
-            instanceId,
-            state,
-            seq: this.criticalSeq,
-            token: this.config.nodeToken ?? this.config.authToken
-          }
-        });
+        this.notifier.sendStateChange(instanceId, state);
       }
     );
 
     this.instanceManager.on(
       'instance:exit',
       (instanceId: string, info: unknown) => {
-        this.sendCritical({
-          jsonrpc: '2.0',
-          id: `exit-${++this.criticalSeq}`,
-          method: NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE,
-          params: {
-            instanceId,
-            state: 'exited',
-            info,
-            seq: this.criticalSeq,
-            token: this.config.nodeToken ?? this.config.authToken
-          }
-        });
+        this.notifier.sendExit(instanceId, info);
       }
     );
 
     this.instanceManager.on(
       'instance:permissionRequest',
       (instanceId: string, permission: unknown) => {
-        this.sendCritical({
-          jsonrpc: '2.0',
-          id: `perm-${++this.criticalSeq}`,
-          method: NODE_TO_COORDINATOR.INSTANCE_PERMISSION_REQUEST,
-          params: {
-            instanceId,
-            permission,
-            seq: this.criticalSeq,
-            token: this.config.nodeToken ?? this.config.authToken
-          }
-        });
+        this.notifier.sendPermissionRequest(instanceId, permission);
       }
     );
 
     this.instanceManager.on(
       'instance:context',
       (instanceId: string, usage: unknown) => {
-        this.send({
-          jsonrpc: '2.0',
-          method: NODE_TO_COORDINATOR.INSTANCE_CONTEXT,
-          params: {
-            instanceId,
-            usage,
-            token: this.config.nodeToken ?? this.config.authToken
-          }
-        } as RpcMessage);
+        this.notifier.sendContextNotification(instanceId, usage);
       }
     );
-  }
-
-  // -- Transport helpers ------------------------------------------------------
-
-  private send(msg: RpcMessage): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      // Flush any previously queued critical messages first (FIFO order)
-      this.flushCriticalQueue();
-      this.ws.send(JSON.stringify(msg), (err) => {
-        if (err) console.error('Send error:', err.message);
-      });
-    } else {
-      console.warn('[WorkerAgent] Message dropped — WebSocket not open', {
-        method: msg.method,
-        readyState: this.ws?.readyState
-      });
-    }
-  }
-
-  /**
-   * Send a critical RPC message (state changes, exits, permission requests).
-   * Unlike regular send(), these are queued when the WebSocket is unavailable
-   * and flushed in order when the connection is restored.
-   */
-  private sendCritical(msg: RpcMessage): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.flushCriticalQueue();
-      this.ws.send(JSON.stringify(msg), (err) => {
-        if (err) {
-          // Send failed mid-flight — queue it for retry
-          console.warn(
-            '[WorkerAgent] Critical send failed, queueing for retry',
-            {
-              method: msg.method,
-              error: err.message
-            }
-          );
-          this.enqueueCriticalMessage(msg);
-        }
-      });
-    } else {
-      this.enqueueCriticalMessage(msg);
-    }
-  }
-
-  private enqueueCriticalMessage(msg: RpcMessage): void {
-    // For state-change messages, supersede any older queued state change for the
-    // same instance. This prevents the queue from wasting slots on outdated states
-    // and ensures the most recent state is what gets delivered after reconnect.
-    const msgParams = msg.params as Record<string, unknown> | undefined;
-    const msgInstanceId = msgParams?.['instanceId'];
-    if (
-      msg.method === NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE &&
-      msgInstanceId
-    ) {
-      const idx = this.criticalMessageQueue.findIndex((queued) => {
-        if (queued.method !== NODE_TO_COORDINATOR.INSTANCE_STATE_CHANGE)
-          return false;
-        const qp = queued.params as Record<string, unknown> | undefined;
-        return qp?.['instanceId'] === msgInstanceId;
-      });
-      if (idx !== -1) {
-        const superseded = this.criticalMessageQueue[idx];
-        this.criticalMessageQueue.splice(idx, 1);
-        console.debug('[WorkerAgent] Superseded older state-change in queue', {
-          instanceId: msgInstanceId,
-          oldState: (superseded.params as Record<string, unknown>)?.['state'],
-          newState: msgParams['state']
-        });
-      }
-    }
-
-    if (
-      this.criticalMessageQueue.length >= WorkerAgent.CRITICAL_QUEUE_MAX_SIZE
-    ) {
-      // Drop oldest to prevent unbounded growth
-      const dropped = this.criticalMessageQueue.shift();
-      console.warn(
-        '[WorkerAgent] Critical queue full, dropped oldest message',
-        {
-          method: dropped?.method
-        }
-      );
-    }
-    this.criticalMessageQueue.push(msg);
-  }
-
-  private flushCriticalQueue(): void {
-    if (this.criticalMessageQueue.length === 0) return;
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-
-    const queued = this.criticalMessageQueue;
-    this.criticalMessageQueue = [];
-    for (const msg of queued) {
-      this.ws.send(JSON.stringify(msg), (err) => {
-        if (err) {
-          // Re-queue failed messages so they aren't silently lost
-          console.warn(
-            '[WorkerAgent] Failed to flush critical message, re-queuing',
-            {
-              method: msg.method,
-              error: err.message
-            }
-          );
-          this.enqueueCriticalMessage(msg);
-        }
-      });
-    }
-  }
-
-  private sendResult(id: string | number, result: unknown): void {
-    this.send({ jsonrpc: '2.0', id, result } as RpcMessage);
-  }
-
-  private sendError(id: string | number, code: number, message: string): void {
-    this.send({ jsonrpc: '2.0', id, error: { code, message } } as RpcMessage);
-  }
-
-  private sendOutputNotification(instanceId: string, message: unknown): void {
-    this.outputBuffer.push({ instanceId, message });
-
-    // Flush immediately if buffer is full
-    if (this.outputBuffer.length >= WorkerAgent.OUTPUT_BATCH_MAX_SIZE) {
-      this.flushOutputBuffer();
-      return;
-    }
-
-    // Start flush timer if not already running
-    if (!this.outputFlushTimer) {
-      this.outputFlushTimer = setTimeout(() => {
-        this.flushOutputBuffer();
-      }, WorkerAgent.OUTPUT_BATCH_INTERVAL_MS);
-      if (this.outputFlushTimer.unref) {
-        this.outputFlushTimer.unref();
-      }
-    }
-  }
-
-  private sendHeartbeatNotification(instanceId: string): void {
-    this.send({
-      jsonrpc: '2.0',
-      method: NODE_TO_COORDINATOR.INSTANCE_HEARTBEAT,
-      params: {
-        instanceId,
-        token: this.config.nodeToken ?? this.config.authToken
-      }
-    } as RpcMessage);
-  }
-
-  private sendCompleteNotification(instanceId: string, response: unknown): void {
-    this.send({
-      jsonrpc: '2.0',
-      method: NODE_TO_COORDINATOR.INSTANCE_COMPLETE,
-      params: {
-        instanceId,
-        response,
-        token: this.config.nodeToken ?? this.config.authToken
-      }
-    } as RpcMessage);
-  }
-
-  private flushOutputBuffer(): void {
-    if (this.outputFlushTimer) {
-      clearTimeout(this.outputFlushTimer);
-      this.outputFlushTimer = null;
-    }
-
-    if (this.outputBuffer.length === 0) return;
-
-    const items = this.outputBuffer;
-    this.outputBuffer = [];
-    const token = this.config.nodeToken ?? this.config.authToken;
-
-    if (items.length === 1) {
-      // Single message — send as regular notification (no batch overhead)
-      this.send({
-        jsonrpc: '2.0',
-        method: NODE_TO_COORDINATOR.INSTANCE_OUTPUT,
-        params: {
-          instanceId: items[0].instanceId,
-          message: items[0].message,
-          token
-        }
-      } as RpcMessage);
-    } else {
-      // Multiple messages — send as batch notification
-      this.send({
-        jsonrpc: '2.0',
-        method: NODE_TO_COORDINATOR.INSTANCE_OUTPUT_BATCH,
-        params: { items, token }
-      } as RpcMessage);
-    }
   }
 }
