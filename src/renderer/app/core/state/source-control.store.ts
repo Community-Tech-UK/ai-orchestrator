@@ -29,115 +29,27 @@ import {
   readStorage,
   removeStorage,
   writeStorage,
-  type StorageField,
 } from '../../shared/utils/typed-storage';
 import type {
   BranchInfo,
   DiffViewerRequest,
   FileChange,
-  GitStatusResponse,
   RepoState,
 } from '../../features/source-control/source-control.types';
+import {
+  applyStatusResponseToRepo,
+  createRepoState,
+  deriveRepoVisibility,
+  generateOpId,
+  NESTED_REPO_VISIBILITY_FIELD,
+  normalizeRepoPath,
+  normalizeRootStorageKey,
+  type IpcWriteResult,
+  type LongOpState,
+} from './source-control-helpers';
 
-/**
- * Result envelope for the store's write-action methods (stageFiles,
- * unstageFiles, …). Keeps the renderer surface minimal — callers
- * primarily want "did it work, and if not, what's the user-visible
- * error".
- */
-export interface IpcWriteResult {
-  success: boolean;
-  error?: string;
-}
-
-/**
- * Per-repo state for an in-flight fetch / pull / push (Phase 2d item 10).
- * Powers the progress UI and the cancel button.
- */
-export interface LongOpState {
-  opId: string;
-  kind: 'fetch' | 'pull' | 'push';
-  phase: 'started' | 'running' | 'completed' | 'cancelled' | 'failed';
-  startedAt: number;
-}
-
-const NESTED_REPO_VISIBILITY_FIELD: StorageField<Record<string, boolean>> = {
-  key: 'source-control:nested-repos',
-  version: 1,
-  defaultValue: {},
-  validate: isBooleanRecord,
-};
-
-function isBooleanRecord(value: unknown): value is Record<string, boolean> {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-  return Object.values(value as Record<string, unknown>).every(entry => typeof entry === 'boolean');
-}
-
-function normalizeRepoPath(root: string): string {
-  const normalized = root.replace(/\\/g, '/').replace(/\/+$/, '');
-  return normalized || '/';
-}
-
-function normalizeRootStorageKey(root: string): string {
-  return normalizeRepoPath(root);
-}
-
-function deriveRepoVisibility(
-  root: string | null,
-  repos: RepoState[],
-  nestedRepoVisibilityPrefs: Record<string, boolean>
-): {
-    visibleRepos: RepoState[];
-    nestedRepoCount: number;
-    hiddenNestedRepoCount: number;
-    canToggleNestedRepos: boolean;
-    showingNestedRepos: boolean;
-  } {
-  if (!root || repos.length === 0) {
-    return {
-      visibleRepos: repos,
-      nestedRepoCount: 0,
-      hiddenNestedRepoCount: 0,
-      canToggleNestedRepos: false,
-      showingNestedRepos: true,
-    };
-  }
-
-  const normalizedRoot = normalizeRepoPath(root);
-  const rootRepo = repos.find(repo => normalizeRepoPath(repo.absolutePath) === normalizedRoot) ?? null;
-  if (!rootRepo) {
-    return {
-      visibleRepos: repos,
-      nestedRepoCount: 0,
-      hiddenNestedRepoCount: 0,
-      canToggleNestedRepos: false,
-      showingNestedRepos: true,
-    };
-  }
-
-  const nestedRepos = repos.filter(repo => repo.absolutePath !== rootRepo.absolutePath);
-  if (nestedRepos.length === 0) {
-    return {
-      visibleRepos: repos,
-      nestedRepoCount: 0,
-      hiddenNestedRepoCount: 0,
-      canToggleNestedRepos: false,
-      showingNestedRepos: true,
-    };
-  }
-
-  const rootKey = normalizeRootStorageKey(normalizedRoot);
-  const showingNestedRepos = nestedRepoVisibilityPrefs[rootKey] === true;
-  return {
-    visibleRepos: showingNestedRepos ? repos : [rootRepo],
-    nestedRepoCount: nestedRepos.length,
-    hiddenNestedRepoCount: showingNestedRepos ? 0 : nestedRepos.length,
-    canToggleNestedRepos: true,
-    showingNestedRepos,
-  };
-}
+export { relativeFromRoot } from './source-control-helpers';
+export type { IpcWriteResult, LongOpState } from './source-control-helpers';
 
 @Injectable({ providedIn: 'root' })
 export class SourceControlStore {
@@ -478,22 +390,9 @@ export class SourceControlStore {
         ? new Map<string, RepoState>()
         : new Map(this.repos().map(r => [r.absolutePath, r]));
 
-      const initialStates: RepoState[] = repoPaths.map(absolute => {
-        const previous = previousByPath.get(absolute);
-        if (previous) {
-          // Keep previous status visible during the refresh; mark loading
-          // so the per-row spinner is shown.
-          return { ...previous, loading: true };
-        }
-        return {
-          absolutePath: absolute,
-          name: absolute.split('/').filter(Boolean).pop() ?? absolute,
-          relativePath: relativeFromRoot(root, absolute),
-          status: null,
-          error: null,
-          loading: true,
-        };
-      });
+      const initialStates: RepoState[] = repoPaths.map(absolute =>
+        createRepoState(root, absolute, previousByPath.get(absolute))
+      );
       this.repos.set(initialStates);
 
       const initialVisibility = deriveRepoVisibility(
@@ -541,21 +440,7 @@ export class SourceControlStore {
             const next = [...current];
             const idx = next.findIndex(r => r.absolutePath === repoState.absolutePath);
             if (idx === -1) return current;
-            if (statusResponse.success) {
-              next[idx] = {
-                ...next[idx],
-                status: statusResponse.data as GitStatusResponse,
-                error: null,
-                loading: false,
-              };
-            } else {
-              next[idx] = {
-                ...next[idx],
-                status: null,
-                error: statusResponse.error?.message ?? 'git status failed',
-                loading: false,
-              };
-            }
+            next[idx] = applyStatusResponseToRepo(next[idx], statusResponse, { clearStatusOnError: true });
             return next;
           });
         })
@@ -595,20 +480,7 @@ export class SourceControlStore {
       const next = [...current];
       const idx = next.findIndex(r => r.absolutePath === repoPath);
       if (idx === -1) return current;
-      if (statusResponse.success) {
-        next[idx] = {
-          ...next[idx],
-          status: statusResponse.data as GitStatusResponse,
-          error: null,
-          loading: false,
-        };
-      } else {
-        next[idx] = {
-          ...next[idx],
-          error: statusResponse.error?.message ?? 'git status failed',
-          loading: false,
-        };
-      }
+      next[idx] = applyStatusResponseToRepo(next[idx], statusResponse);
       return next;
     });
   }
@@ -1100,31 +972,4 @@ export class SourceControlStore {
   _getPendingRefreshes(): string[] {
     return Array.from(this.pendingRefreshAfterWrite);
   }
-}
-
-/**
- * Generate a renderer-side operation id for fetch / pull / push so the
- * main-process progress events can correlate. Prefers `crypto.randomUUID()`
- * but degrades to a timestamp + random suffix if the API is absent
- * (older Electron renderers in tests).
- */
-export function generateOpId(prefix: string): string {
-  try {
-    const uuid = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto?.randomUUID?.();
-    if (uuid) return `${prefix}-${uuid}`;
-  } catch {
-    // fall through
-  }
-  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
-}
-
-/** Pure helper — exported only for tests. */
-export function relativeFromRoot(root: string, absolute: string): string {
-  const normalizedRoot = normalizeRepoPath(root);
-  const normalizedAbsolute = normalizeRepoPath(absolute);
-  if (normalizedAbsolute === normalizedRoot) return '.';
-  if (normalizedAbsolute.startsWith(normalizedRoot + '/')) {
-    return normalizedAbsolute.slice(normalizedRoot.length + 1);
-  }
-  return normalizedAbsolute;
 }

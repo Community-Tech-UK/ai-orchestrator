@@ -1,0 +1,561 @@
+:host {
+  display: flex;
+  height: 100%;
+}
+
+.source-control-wrapper {
+  display: flex;
+  height: 100%;
+  position: relative;
+}
+
+.source-control-wrapper.resizing {
+  user-select: none;
+  cursor: col-resize;
+}
+
+.resize-handle {
+  width: 4px;
+  height: 100%;
+  background: transparent;
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background var(--transition-fast);
+  z-index: 10;
+}
+
+.resize-handle:hover,
+.resize-handle.dragging {
+  background: var(--secondary-color);
+  box-shadow: 0 0 12px rgba(var(--secondary-rgb), 0.5);
+}
+
+.source-control {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-color);
+  min-width: 36px;
+  max-width: 500px;
+  overflow: hidden;
+  position: relative;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 10px;
+  border-bottom: 1px solid var(--border-color);
+  user-select: none;
+  flex-shrink: 0;
+  background: var(--bg-tertiary);
+}
+
+.collapse-icon {
+  font-size: 14px;
+  color: var(--text-muted);
+  width: 16px;
+  text-align: center;
+}
+
+.header-title {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex: 1;
+}
+
+.header-action {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  transition: all var(--transition-fast);
+}
+
+.header-action:hover:not(:disabled) {
+  color: var(--secondary-color);
+  background: var(--bg-hover);
+  border-color: var(--border-subtle);
+}
+
+.header-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.header-action .spinning {
+  display: inline-block;
+  animation: sc-spin 0.8s linear infinite;
+}
+
+@keyframes sc-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.header-close {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  transition: all var(--transition-fast);
+}
+
+.header-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--border-subtle);
+}
+
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--spacing-xs) 0;
+}
+
+.panel-body::-webkit-scrollbar { width: 8px; }
+.panel-body::-webkit-scrollbar-track {
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+}
+.panel-body::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: 4px;
+  border: 2px solid var(--bg-tertiary);
+}
+
+.empty-state {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.empty-state p {
+  margin: 0;
+  font-family: var(--font-display);
+}
+
+.empty-state .hint {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  opacity: 0.7;
+}
+
+.empty-state code {
+  font-family: var(--font-mono);
+  background: var(--bg-tertiary);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.loading, .error {
+  padding: 20px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.loading { color: var(--text-muted); }
+.error { color: var(--error-color); }
+
+.repo-visibility-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent);
+}
+
+.repo-visibility-toggle {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.repo-visibility-toggle:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--secondary-color);
+}
+
+.repo-visibility-hint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.repo {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.repo:last-child {
+  border-bottom: none;
+}
+
+.repo-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  user-select: none;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+
+.repo-header:hover {
+  background: var(--bg-hover);
+}
+
+.repo-chevron {
+  width: 12px;
+  font-size: 9px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.repo.expanded .repo-chevron {
+  color: var(--secondary-color);
+}
+
+.repo-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.repo-name {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.repo-branch {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* Ahead/behind chips (Phase 2a item 2) */
+.repo-track {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.repo-ahead {
+  color: #28c850;
+  background: rgba(40, 200, 80, 0.12);
+}
+
+.repo-behind {
+  color: #e1b400;
+  background: rgba(225, 180, 0, 0.12);
+}
+
+.repo-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-primary);
+  background: rgba(var(--secondary-rgb), 0.2);
+  padding: 2px 6px;
+  border-radius: 999px;
+  min-width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.repo-loading-spinner {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--border-subtle);
+  border-top-color: var(--secondary-color);
+  border-radius: 50%;
+  animation: sc-spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+.repo-body {
+  padding: 2px 0 6px;
+}
+
+.repo-error {
+  padding: 8px 16px;
+  color: var(--error-color);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.repo-clean {
+  padding: 8px 16px 12px 36px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-style: italic;
+}
+
+.change-group {
+  padding: 4px 0;
+}
+
+.change-group-title {
+  padding: 4px 16px 4px 28px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* File row container — wraps chevron + row line + (optional) inline diff. */
+.file-row-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.file-row-line {
+  display: flex;
+  align-items: center;
+}
+
+.file-expand-chevron {
+  width: 16px;
+  height: 22px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 9px;
+  margin-left: 12px;
+  border-radius: 3px;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.file-expand-chevron:hover {
+  color: var(--secondary-color);
+  background: var(--bg-hover);
+}
+
+.file-expand-chevron[aria-expanded="true"] {
+  color: var(--secondary-color);
+}
+
+/* Invisible spacer for untracked rows so they line up with chevron'd rows. */
+.file-expand-chevron-spacer {
+  width: 16px;
+  height: 22px;
+  flex-shrink: 0;
+  margin-left: 12px;
+  display: inline-block;
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 12px;
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: default;
+}
+
+.file-row-clickable {
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.file-row-clickable:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.status-badge {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.status-modified  { background: rgba(225, 180, 0, 0.18);  color: #e1b400; }
+.status-added     { background: rgba(40, 200, 80, 0.18);  color: #28c850; }
+.status-deleted   { background: rgba(232, 80, 80, 0.18);  color: #e85050; }
+.status-renamed   { background: rgba(120, 140, 220, 0.18); color: #8a9be8; }
+.status-copied    { background: rgba(120, 140, 220, 0.18); color: #8a9be8; }
+.status-untracked { background: rgba(160, 160, 160, 0.18); color: #a0a0a0; }
+.status-ignored   { background: rgba(120, 120, 120, 0.12); color: #888; }
+
+.file-name {
+  flex: 0 0 auto;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-dir {
+  flex: 1;
+  color: var(--text-muted);
+  opacity: 0.7;
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+/* Stage / unstage hover affordance (Phase 2d item 7). The action
+   button is visually quiet until the row is hovered, matching VS
+   Code's SCM panel pattern. */
+.file-action {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  margin-right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast),
+              color var(--transition-fast),
+              background var(--transition-fast),
+              border-color var(--transition-fast);
+}
+
+.file-row-line:hover .file-action,
+.file-action:focus,
+.file-action:focus-visible {
+  opacity: 1;
+}
+
+.file-action:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--border-subtle);
+}
+
+.file-action-stage:hover:not(:disabled) {
+  color: #28c850;
+}
+
+.file-action-unstage:hover:not(:disabled) {
+  color: #e85050;
+}
+
+/* Phase 2d item 8 — discard button. Warning color signals the
+   destructive nature; the actual destructive call routes tracked
+   paths through git restore --source=HEAD --staged --worktree, and
+   untracked paths through shell.trashItem (recoverable from Trash). */
+.file-action-discard:hover:not(:disabled) {
+  color: #e85050;
+  border-color: rgba(232, 80, 80, 0.4);
+}
+
+.file-action:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Group-level "Stage all" / "Unstage all" — appears at the bottom
+   of each change-group. Subdued visual until hovered. */
+.change-group-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 12px 4px 28px;
+}
+
+.group-action {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.group-action:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--secondary-color);
+}
+
+.group-action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

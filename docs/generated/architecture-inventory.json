@@ -5235,10 +5235,6 @@
       "lines": 1139
     },
     {
-      "path": "src/renderer/app/core/state/source-control.store.ts",
-      "lines": 1131
-    },
-    {
       "path": "docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md",
       "lines": 1127
     },
@@ -5272,10 +5268,6 @@
     },
     {
       "path": "src/main/instance/instance-orchestration.ts",
-      "lines": 1087
-    },
-    {
-      "path": "src/renderer/app/features/source-control/source-control.component.ts",
       "lines": 1087
     },
     {
@@ -5360,6 +5352,10 @@
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-system-infrastructure.COMPLETED.md",
+      "lines": 976
+    },
+    {
+      "path": "src/renderer/app/core/state/source-control.store.ts",
       "lines": 976
     },
     {

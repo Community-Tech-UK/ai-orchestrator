@@ -180,7 +180,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/core/state/instance/instance-list.store.ts': 972,
   'src/renderer/app/core/state/instance/instance-messaging.store.ts': 774,
   'src/renderer/app/core/state/instance/instance.store.ts': 766,
-  'src/renderer/app/core/state/source-control.store.ts': 982,
+  'src/renderer/app/core/state/source-control.store.ts': 976,
   // Renderer — feature components
   'src/renderer/app/features/archive/archive-page.component.ts': 1059,
   'src/renderer/app/features/chats/session-artifacts-strip.component.ts': 729,
@@ -217,7 +217,6 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/settings/ecosystem-settings-tab.component.ts': 999,
   'src/renderer/app/features/settings/permissions-settings-tab.component.ts': 1092,
   'src/renderer/app/features/skills/skill-browser.component.ts': 766,
-  'src/renderer/app/features/source-control/source-control.component.ts': 1034,
   'src/renderer/app/features/stats/stats-page.component.ts': 868,
   'src/renderer/app/features/tasks/tasks-page.component.ts': 977,
   'src/renderer/app/features/training/training-page.component.ts': 818,
