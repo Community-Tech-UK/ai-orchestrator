@@ -32,6 +32,11 @@ export const RemoteNodeServiceActionPayloadSchema = z.object({
   nodeId: z.string().uuid(),
 });
 
+export const RemoteNodeProviderDiagnosePayloadSchema = z.object({
+  nodeId: z.string().uuid(),
+  provider: z.enum(['claude', 'codex', 'gemini', 'copilot', 'cursor']),
+});
+
 export type ValidatedSetTokenPayload = z.infer<typeof RemoteNodeSetTokenPayloadSchema>;
 export type ValidatedIssuePairingPayload = z.infer<typeof RemoteNodeIssuePairingPayloadSchema>;
 export type ValidatedRevokePayload = z.infer<typeof RemoteNodeRevokePayloadSchema>;
@@ -39,3 +44,4 @@ export type ValidatedRevokePairingPayload = z.infer<typeof RemoteNodeRevokePairi
 export type ValidatedGetPayload = z.infer<typeof RemoteNodeGetPayloadSchema>;
 export type ValidatedStartServerPayload = z.infer<typeof RemoteNodeStartServerPayloadSchema>;
 export type ValidatedServiceActionPayload = z.infer<typeof RemoteNodeServiceActionPayloadSchema>;
+export type ValidatedProviderDiagnosePayload = z.infer<typeof RemoteNodeProviderDiagnosePayloadSchema>;

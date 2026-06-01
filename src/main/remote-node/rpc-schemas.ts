@@ -55,6 +55,17 @@ export const InstanceOutputParamsSchema = z.object({
   token: z.string().optional(),
 });
 
+export const InstanceHeartbeatParamsSchema = z.object({
+  instanceId: z.string().min(1),
+  token: z.string().optional(),
+});
+
+export const InstanceCompleteParamsSchema = z.object({
+  instanceId: z.string().min(1),
+  response: z.unknown(),
+  token: z.string().optional(),
+});
+
 export const InstanceStateChangeParamsSchema = z.object({
   instanceId: z.string().min(1),
   state: z.string().min(1),
@@ -146,11 +157,17 @@ export const TerminalExitParamsSchema = z.object({
   token: z.string().optional(),
 });
 
+export const ProviderDiagnoseParamsSchema = z.object({
+  provider: z.enum(['claude', 'codex', 'gemini', 'copilot', 'cursor']),
+});
+
 // -- Schema map for method-based lookup ---------------------------------------
 
 export const RPC_PARAM_SCHEMAS: Record<string, z.ZodType> = {
   'node.register': NodeRegisterParamsSchema,
   'node.heartbeat': NodeHeartbeatParamsSchema,
+  'instance.heartbeat': InstanceHeartbeatParamsSchema,
+  'instance.complete': InstanceCompleteParamsSchema,
   'instance.stateChange': InstanceStateChangeParamsSchema,
   'instance.permissionRequest': InstancePermissionRequestParamsSchema,
   'instance.spawn': InstanceSpawnParamsSchema,
@@ -185,6 +202,7 @@ export const COORDINATOR_TO_NODE_PARAM_SCHEMAS: Record<string, z.ZodType> = {
   'terminal.input': TerminalInputParamsSchema,
   'terminal.resize': TerminalResizeParamsSchema,
   'terminal.kill': TerminalKillParamsSchema,
+  'provider.diagnose': ProviderDiagnoseParamsSchema,
 };
 
 /**

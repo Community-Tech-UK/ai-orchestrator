@@ -124,13 +124,6 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     keywords: 'allow deny security tools approval rules',
   },
   {
-    id: 'connections',
-    label: 'Connections',
-    summary: 'Connect external services that can control Orchestrator remotely.',
-    group: 'Workspace tools',
-    keywords: 'providers accounts auth login',
-  },
-  {
     id: 'models',
     label: 'Models',
     summary: 'Choose provider models and per-model overrides.',
@@ -179,6 +172,13 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Configure VPN-aware pausing and outbound reachability checks.',
     group: 'Network & Remote',
     keywords: 'vpn pause proxy offline reachability probe',
+  },
+  {
+    id: 'connections',
+    label: 'Connections',
+    summary: 'Connect external services that can control Orchestrator remotely.',
+    group: 'Network & Remote',
+    keywords: 'providers accounts auth login',
   },
   {
     id: 'remote-nodes',

@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import type { WorkerConfig } from '../worker-config';
 
+const providerDiagnostics = vi.hoisted(() => ({
+  diagnoseProviderRuntime: vi.fn(),
+}));
+
 // Mock WebSocket
 vi.mock('ws', () => {
   class MockWebSocket {
@@ -66,6 +70,12 @@ vi.mock('../local-instance-manager', () => ({
   }),
 }));
 
+vi.mock('../provider-runtime-diagnostics', () => ({
+  diagnoseProviderRuntime: providerDiagnostics.diagnoseProviderRuntime,
+  isDiagnosableProvider: (value: unknown) =>
+    typeof value === 'string' && ['claude', 'codex', 'gemini', 'copilot', 'cursor'].includes(value),
+}));
+
 import { WorkerAgent } from '../worker-agent';
 
 const mockConfig: WorkerConfig = {
@@ -85,6 +95,7 @@ describe('WorkerAgent', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    providerDiagnostics.diagnoseProviderRuntime.mockReset();
     agent = new WorkerAgent(mockConfig);
     wsSend = vi.fn((_data: string, cb?: (err?: Error) => void) => cb?.());
     (agent as unknown as { ws: { readyState: number; send: typeof wsSend; close: ReturnType<typeof vi.fn> } }).ws = {
@@ -178,6 +189,42 @@ describe('WorkerAgent', () => {
     expect(payload.result).toEqual({ ok: true });
   });
 
+  it('handles service-scoped provider.diagnose RPC requests', async () => {
+    providerDiagnostics.diagnoseProviderRuntime.mockResolvedValueOnce({
+      ok: true,
+      platform: 'win32',
+      identity: {
+        username: 'DESKTOP\\james',
+        homeDir: 'C:\\Users\\james',
+        serviceAccountLikely: false,
+      },
+      provider: {
+        provider: 'copilot',
+        available: true,
+        authenticated: true,
+        version: '1.2.3',
+      },
+    });
+
+    await (agent as unknown as {
+      handleRpcRequest: (msg: unknown) => Promise<void>;
+    }).handleRpcRequest({
+      jsonrpc: '2.0',
+      id: 5,
+      method: 'provider.diagnose',
+      scope: 'service',
+      params: { provider: 'copilot' },
+    });
+
+    expect(providerDiagnostics.diagnoseProviderRuntime).toHaveBeenCalledWith('copilot');
+    const payload = JSON.parse(wsSend.mock.calls[0][0] as string);
+    expect(payload.result).toMatchObject({
+      ok: true,
+      identity: { username: 'DESKTOP\\james' },
+      provider: { provider: 'copilot', authenticated: true },
+    });
+  });
+
   it('forwards permission requests from the local instance manager', () => {
     mockInstanceManager.emit('instance:permissionRequest', 'inst-1', {
       id: 'perm-1',
@@ -253,5 +300,39 @@ describe('WorkerAgent', () => {
     expect(payload.method).toBe('instance.stateChange');
     expect(payload.id).toBeDefined(); // RPC request — has id
     expect(payload.params.state).toBe('processing');
+  });
+
+  it('sends instance.heartbeat as a notification when an adapter emits liveness', () => {
+    mockInstanceManager.emit('instance:heartbeat', 'inst-1');
+
+    expect(wsSend).toHaveBeenCalled();
+    const payload = JSON.parse(wsSend.mock.calls[0][0] as string);
+    expect(payload.method).toBe('instance.heartbeat');
+    expect(payload.id).toBeUndefined();
+    expect(payload.params).toMatchObject({
+      instanceId: 'inst-1',
+      token: 'test-token',
+    });
+  });
+
+  it('sends instance.complete as a notification with the adapter response payload', () => {
+    const response = {
+      id: 'response-1',
+      role: 'assistant',
+      content: 'done',
+      usage: { totalTokens: 42, duration: 500 },
+    };
+
+    mockInstanceManager.emit('instance:complete', 'inst-1', response);
+
+    expect(wsSend).toHaveBeenCalled();
+    const payload = JSON.parse(wsSend.mock.calls[0][0] as string);
+    expect(payload.method).toBe('instance.complete');
+    expect(payload.id).toBeUndefined();
+    expect(payload.params).toMatchObject({
+      instanceId: 'inst-1',
+      response,
+      token: 'test-token',
+    });
   });
 });

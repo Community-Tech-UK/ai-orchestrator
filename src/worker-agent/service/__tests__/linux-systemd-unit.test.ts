@@ -11,6 +11,9 @@ describe('generateSystemdUnit', () => {
       workingDirectory: '/var/lib/orchestrator',
       stateDirectory: 'orchestrator',
       logDirectory: 'orchestrator',
+      environment: {
+        GH_TOKEN: 'ghu token',
+      },
     });
     expect(unit).toContain('[Unit]');
     expect(unit).toContain('Description=AI Orchestrator Worker');
@@ -19,6 +22,7 @@ describe('generateSystemdUnit', () => {
     expect(unit).toContain('Group=orchestrator');
     expect(unit).toContain('ExecStart=/opt/orchestrator/bin/worker-agent');
     expect(unit).toContain('Restart=on-failure');
+    expect(unit).toContain('Environment="GH_TOKEN=ghu token"');
     expect(unit).toContain('RestartSec=10');
     expect(unit).toContain('NoNewPrivileges=yes');
     expect(unit).toContain('ProtectSystem=strict');

@@ -73,6 +73,9 @@ export function createCommunicationDomain(
     remoteNodeGetServerStatus: (): Promise<unknown> =>
       ipcRenderer.invoke(ch.REMOTE_NODE_GET_SERVER_STATUS),
 
+    remoteNodeProviderDiagnose: (nodeId: string, provider: string): Promise<unknown> =>
+      ipcRenderer.invoke(ch.REMOTE_NODE_PROVIDER_DIAGNOSE, { nodeId, provider }),
+
     remoteNodeServiceStatus: (nodeId: string): Promise<unknown> =>
       ipcRenderer.invoke(ch.REMOTE_NODE_SERVICE_STATUS, { nodeId }),
 

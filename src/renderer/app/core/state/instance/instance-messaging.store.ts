@@ -5,7 +5,7 @@
  */
 
 import { effect, Injectable, inject } from '@angular/core';
-import { ElectronIpcService } from '../../services/ipc';
+import { ElectronIpcService, type IpcResponse } from '../../services/ipc';
 import { DraftService } from '../../services/draft.service';
 import { InstanceStateService } from './instance-state.service';
 import { InstanceListStore } from './instance-list.store';
@@ -14,6 +14,7 @@ import { PauseStore } from '../pause/pause.store';
 
 /** Maximum number of transient-failure retries before dropping a queued message. */
 const MAX_QUEUE_RETRIES = 3;
+const SEND_INPUT_IPC_TIMEOUT_MS = 60_000;
 
 interface SendInputImmediateOptions {
   skipUserBubble?: boolean;
@@ -452,11 +453,13 @@ export class InstanceMessagingStore {
       });
     }
 
-    const result = await this.ipc.sendInput(
-      targetInstanceId,
-      message,
-      attachments,
-      retryCount > 0 || options.skipUserBubble === true
+    const result = await this.sendInputWithTimeout(
+      this.ipc.sendInput(
+        targetInstanceId,
+        message,
+        attachments,
+        retryCount > 0 || options.skipUserBubble === true
+      )
     );
 
     // If send failed, decide whether to retry or drop
@@ -585,6 +588,28 @@ export class InstanceMessagingStore {
   // Private Helpers
   // ============================================
 
+  private async sendInputWithTimeout(operation: Promise<IpcResponse>): Promise<IpcResponse> {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<IpcResponse>((resolve) => {
+      timeoutId = setTimeout(() => {
+        resolve({
+          success: false,
+          error: {
+            message: `Send input timed out after ${SEND_INPUT_IPC_TIMEOUT_MS / 1000}s. The app cleared the optimistic busy state; please retry after checking the session.`,
+          },
+        });
+      }, SEND_INPUT_IPC_TIMEOUT_MS);
+    });
+
+    try {
+      return await Promise.race([operation, timeout]);
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
+  }
+
   private resolveMessageTarget(
     instanceId: string
   ): { instanceId: string; instance: Instance } | null {
@@ -615,6 +640,10 @@ export class InstanceMessagingStore {
     errorMessage: string
   ): { shouldRetry: boolean; nextStatus?: InstanceStatus } {
     const normalized = errorMessage.toLowerCase();
+
+    if (normalized.includes('send input timed out')) {
+      return { shouldRetry: false, nextStatus: 'idle' };
+    }
 
     // Transient: instance is recovering from interrupt/respawn.
     if (

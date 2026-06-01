@@ -105,6 +105,42 @@ describe('LocalInstanceManager', () => {
     );
   });
 
+  it('forwards adapter heartbeat events as instance liveness events', async () => {
+    const heartbeatHandler = vi.fn();
+    manager.on('instance:heartbeat', heartbeatHandler);
+
+    await manager.spawn({
+      instanceId: 'test-heartbeat',
+      cliType: 'codex',
+      workingDirectory: '/tmp/allowed',
+    });
+
+    mockAdapter.emit('heartbeat');
+
+    expect(heartbeatHandler).toHaveBeenCalledWith('test-heartbeat');
+  });
+
+  it('forwards adapter complete events with the original response payload', async () => {
+    const completeHandler = vi.fn();
+    manager.on('instance:complete', completeHandler);
+
+    await manager.spawn({
+      instanceId: 'test-complete',
+      cliType: 'codex',
+      workingDirectory: '/tmp/allowed',
+    });
+
+    const response = {
+      id: 'response-1',
+      role: 'assistant' as const,
+      content: 'done',
+      usage: { totalTokens: 42, duration: 500 },
+    };
+    mockAdapter.emit('complete', response);
+
+    expect(completeHandler).toHaveBeenCalledWith('test-complete', response);
+  });
+
   it('hibernates an instance and wakes it with resume enabled', async () => {
     await manager.spawn({
       instanceId: 'test-4',

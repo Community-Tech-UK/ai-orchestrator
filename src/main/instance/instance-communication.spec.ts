@@ -232,6 +232,40 @@ describe('InstanceCommunicationManager', () => {
     }, undefined);
   });
 
+  it('forwards adapter complete events as provider runtime events', () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('complete', {
+      id: 'response-1',
+      role: 'assistant',
+      content: 'done',
+      usage: {
+        totalTokens: 42,
+        cost: 0.25,
+        duration: 500,
+      },
+      metadata: {
+        requestId: 'req_complete_123',
+        stopReason: 'end_turn',
+        rateLimit: { remaining: 9, resetAt: 1_717_000_060_000 },
+        quota: { exhausted: false, message: 'ok' },
+      },
+    });
+
+    expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(instance.id, {
+      kind: 'complete',
+      tokensUsed: 42,
+      costUsd: 0.25,
+      durationMs: 500,
+      requestId: 'req_complete_123',
+      stopReason: 'end_turn',
+      rateLimit: { remaining: 9, resetAt: 1_717_000_060_000 },
+      quota: { exhausted: false, message: 'ok' },
+    }, undefined);
+  });
+
   it('preserves provider diagnostics from adapter error objects', () => {
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
     adapters.set(instance.id, adapter);

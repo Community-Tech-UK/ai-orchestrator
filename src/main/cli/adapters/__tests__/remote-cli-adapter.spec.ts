@@ -248,16 +248,26 @@ describe('RemoteCliAdapter', () => {
       const stateChangeHandler = vi.fn();
       const statusHandler = vi.fn();
       const permissionHandler = vi.fn();
+      const heartbeatHandler = vi.fn();
+      const completeHandler = vi.fn();
 
       adapter.on('output', outputHandler);
       adapter.on('stateChange', stateChangeHandler);
       adapter.on('status', statusHandler);
       adapter.on('input_required', permissionHandler);
+      adapter.on('heartbeat', heartbeatHandler);
+      adapter.on('complete', completeHandler);
 
       await adapter.spawn();
 
       const message = { type: 'text', content: 'remote output', timestamp: 1234 };
       const permission = { tool: 'bash', command: 'pwd' };
+      const response = {
+        id: 'response-1',
+        role: 'assistant',
+        content: 'done',
+        usage: { totalTokens: 42, duration: 500 },
+      };
 
       mockRegistry.emit('remote:instance-output', {
         nodeId: TARGET_NODE_ID,
@@ -274,11 +284,22 @@ describe('RemoteCliAdapter', () => {
         instanceId: REMOTE_INSTANCE_ID,
         permission,
       });
+      mockRegistry.emit('remote:instance-heartbeat', {
+        nodeId: TARGET_NODE_ID,
+        instanceId: REMOTE_INSTANCE_ID,
+      });
+      mockRegistry.emit('remote:instance-complete', {
+        nodeId: TARGET_NODE_ID,
+        instanceId: REMOTE_INSTANCE_ID,
+        response,
+      });
 
       expect(outputHandler).toHaveBeenCalledWith(message);
       expect(stateChangeHandler).toHaveBeenCalledWith('busy');
       expect(statusHandler).toHaveBeenCalledWith('busy');
       expect(permissionHandler).toHaveBeenCalledWith(permission);
+      expect(heartbeatHandler).toHaveBeenCalledOnce();
+      expect(completeHandler).toHaveBeenCalledWith(response);
     });
 
     it('ignores registry events for other nodes or instances', async () => {

@@ -3,6 +3,9 @@ import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService } from './electron-ipc.service';
 import type { RemotePairingCredentialInfo, WorkerNodeInfo } from '../../../../../shared/types/worker-node.types';
 import type { ServiceStatus } from '../../../../../shared/types/service.types';
+import type { CanonicalCliType } from '../../../../../shared/types/settings.types';
+
+export type RemoteNodeDiagnosableProvider = Exclude<CanonicalCliType, 'auto'>;
 
 export interface RemoteNodeServerConfig {
   port?: number;
@@ -25,6 +28,25 @@ export interface RemoteNodeServerStatus {
   pendingPairingCount?: number;
   localIps?: string[];
   requireTls?: boolean;
+}
+
+export interface RemoteNodeProviderDiagnostic {
+  ok: boolean;
+  platform: NodeJS.Platform;
+  identity: {
+    username: string | null;
+    homeDir: string | null;
+    serviceAccountLikely: boolean;
+  };
+  provider: {
+    provider: RemoteNodeDiagnosableProvider;
+    available: boolean;
+    authenticated: boolean | null;
+    version?: string;
+    tokenEnv?: Record<string, boolean>;
+    error?: string;
+    remediation?: string;
+  };
 }
 
 interface IpcResult {
@@ -148,6 +170,16 @@ export class RemoteNodeIpcService {
     const result = await this.api.remoteNodeServiceStatus(nodeId) as IpcResult | null;
     if (!result?.success) return null;
     return (result.data ?? null) as ServiceStatus | null;
+  }
+
+  async diagnoseProvider(
+    nodeId: string,
+    provider: RemoteNodeDiagnosableProvider,
+  ): Promise<RemoteNodeProviderDiagnostic | null> {
+    if (!this.api) return null;
+    const result = await this.api.remoteNodeProviderDiagnose(nodeId, provider) as IpcResult | null;
+    if (!result?.success) return null;
+    return (result.data ?? null) as RemoteNodeProviderDiagnostic | null;
   }
 
   async restartService(nodeId: string): Promise<void> {

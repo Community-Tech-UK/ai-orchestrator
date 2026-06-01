@@ -12,7 +12,13 @@ import {
 } from '../worker-config';
 
 export type ServiceCommand =
-  | { kind: 'install'; coordinatorUrl: string; tokenOpts: TokenCliOpts }
+  | {
+      kind: 'install';
+      coordinatorUrl: string;
+      tokenOpts: TokenCliOpts;
+      serviceAccount?: string;
+      serviceEnv?: Record<string, string>;
+    }
   | { kind: 'uninstall' }
   | { kind: 'status' }
   | { kind: 'run' }
@@ -32,6 +38,16 @@ export function parseServiceArgs(argv: string[]): ServiceCommand | null {
     const i = argv.indexOf(flag);
     return i >= 0 ? argv[i + 1] : undefined;
   };
+  const valuesOf = (flag: string): string[] => {
+    const values: string[] = [];
+    for (let i = 0; i < argv.length; i++) {
+      if (argv[i] === flag && argv[i + 1]) {
+        values.push(argv[i + 1]);
+        i++;
+      }
+    }
+    return values;
+  };
 
   if (has('--install-service')) {
     const coordinatorUrl = valueOf('--coordinator-url');
@@ -45,6 +61,8 @@ export function parseServiceArgs(argv: string[]): ServiceCommand | null {
         fromStdin: has('--token-stdin'),
         interactive: has('--token-interactive'),
       },
+      serviceAccount: valueOf('--service-account'),
+      serviceEnv: parseServiceEnv(valuesOf('--service-env')),
     };
   }
   if (has('--uninstall-service')) return { kind: 'uninstall' };
@@ -86,6 +104,8 @@ export async function runServiceCommand(cmd: ServiceCommand): Promise<number> {
         coordinatorUrl: cmd.coordinatorUrl,
         enrollmentToken: token,
         logDir: paths.logDir,
+        serviceAccount: cmd.serviceAccount,
+        environment: cmd.serviceEnv,
       });
       process.stdout.write('Service installed and started.\n');
       return 0;
@@ -119,3 +139,22 @@ export async function runServiceCommand(cmd: ServiceCommand): Promise<number> {
   }
 }
 
+function parseServiceEnv(entries: string[]): Record<string, string> | undefined {
+  if (entries.length === 0) {
+    return undefined;
+  }
+  const env: Record<string, string> = {};
+  for (const entry of entries) {
+    const eq = entry.indexOf('=');
+    if (eq <= 0) {
+      throw new Error(`--service-env must be KEY=VALUE, got "${entry}"`);
+    }
+    const key = entry.slice(0, eq).trim();
+    const value = entry.slice(eq + 1);
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      throw new Error(`Invalid --service-env key "${key}"`);
+    }
+    env[key] = value;
+  }
+  return env;
+}

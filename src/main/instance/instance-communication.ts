@@ -4,7 +4,7 @@
 
 import { EventEmitter } from 'events';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
-import { BaseCliAdapter, type AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
+import { BaseCliAdapter, type AdapterRuntimeCapabilities, type CliResponse } from '../cli/adapters/base-cli-adapter';
 // History archiving moved exclusively to instance-lifecycle.ts terminateInstance()
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
@@ -279,6 +279,16 @@ export class InstanceCommunicationManager extends EventEmitter {
         adapterGeneration,
         ...(turnId ? { turnId } : {}),
       },
+    };
+  }
+
+  private toProviderCompleteEvent(response: CliResponse): ProviderRuntimeEvent {
+    return {
+      kind: 'complete',
+      ...(response.usage?.totalTokens !== undefined ? { tokensUsed: response.usage.totalTokens } : {}),
+      ...(response.usage?.cost !== undefined ? { costUsd: response.usage.cost } : {}),
+      ...(response.usage?.duration !== undefined ? { durationMs: response.usage.duration } : {}),
+      ...extractProviderErrorDiagnostics(response.metadata),
     };
   }
 
@@ -1372,6 +1382,14 @@ export class InstanceCommunicationManager extends EventEmitter {
         instance.contextUsage = { ...instance.contextUsage, costEstimate: cost.costEstimate };
         this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
       }
+    });
+
+    adapter.on('complete', (response: CliResponse) => {
+      if (isStaleAdapterEvent('complete')) {
+        return;
+      }
+      emitProviderRuntimeEvent(this.toProviderCompleteEvent(response));
+      this.deps.onToolStateChange?.(instanceId, 'idle');
     });
 
     adapter.on('input_required', (payload: { id: string; prompt: string; timestamp: number; metadata?: Record<string, unknown> }) => {

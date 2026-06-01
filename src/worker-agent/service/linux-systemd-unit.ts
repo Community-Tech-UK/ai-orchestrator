@@ -11,7 +11,9 @@ export interface SystemdUnitOptions {
 
 export function generateSystemdUnit(opts: SystemdUnitOptions): string {
   const envLines = opts.environment
-    ? Object.entries(opts.environment).map(([k, v]) => `Environment=${k}=${v}`).join('\n')
+    ? Object.entries(opts.environment)
+        .map(([k, v]) => `Environment="${escapeSystemdEnvironment(`${k}=${v}`)}"`)
+        .join('\n')
     : '';
   return `[Unit]
 Description=${opts.description}
@@ -53,4 +55,11 @@ ReadWritePaths=/var/log/orchestrator /var/lib/orchestrator
 [Install]
 WantedBy=multi-user.target
 `;
+}
+
+function escapeSystemdEnvironment(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/%/g, '%%');
 }

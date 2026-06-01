@@ -26,6 +26,7 @@ describe('COMMUNICATION_CHANNELS', () => {
     expect(COMMUNICATION_CHANNELS.REMOTE_NODE_NODES_CHANGED).toBe('remote-node:nodes-changed');
     expect(COMMUNICATION_CHANNELS.REMOTE_NODE_ISSUE_PAIRING).toBe('remote-node:issue-pairing');
     expect(COMMUNICATION_CHANNELS.REMOTE_NODE_LIST_PAIRINGS).toBe('remote-node:list-pairings');
+    expect(COMMUNICATION_CHANNELS.REMOTE_NODE_PROVIDER_DIAGNOSE).toBe('remote-node:provider:diagnose');
   });
 
   it('has remote filesystem channels', () => {

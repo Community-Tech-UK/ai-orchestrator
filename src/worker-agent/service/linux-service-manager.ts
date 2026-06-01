@@ -47,6 +47,7 @@ export class LinuxServiceManager implements ServiceManager {
       workingDirectory: '/var/lib/orchestrator',
       stateDirectory: 'orchestrator',
       logDirectory: 'orchestrator',
+      environment: opts.environment,
     });
     await fs.writeFile(UNIT_PATH, unit, { mode: 0o644 });
     await execFileCapture('systemctl', ['daemon-reload']);

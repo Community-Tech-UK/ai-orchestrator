@@ -14,6 +14,7 @@ import {
   RemoteNodeSetTokenPayloadSchema,
   RemoteNodeGetPayloadSchema,
   RemoteNodeStartServerPayloadSchema,
+  RemoteNodeProviderDiagnosePayloadSchema,
   RemoteNodeServiceActionPayloadSchema,
 } from '@contracts/schemas/remote-node';
 import { getSettingsManager } from '../../core/config/settings-manager';
@@ -273,6 +274,31 @@ export function registerRemoteNodeHandlers(): void {
           success: false,
           error: {
             code: 'REMOTE_NODE_GET_SERVER_STATUS_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.REMOTE_NODE_PROVIDER_DIAGNOSE,
+    async (_event, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = RemoteNodeProviderDiagnosePayloadSchema.parse(payload);
+        const data = await sendServiceRpc(
+          validated.nodeId,
+          COORDINATOR_TO_NODE.PROVIDER_DIAGNOSE,
+          { provider: validated.provider },
+          45_000,
+        );
+        return { success: true, data };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REMOTE_NODE_PROVIDER_DIAGNOSE_FAILED',
             message: (error as Error).message,
             timestamp: Date.now(),
           },

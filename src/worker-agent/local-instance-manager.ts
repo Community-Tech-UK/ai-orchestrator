@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import * as path from 'path';
 import type { CliType } from '../main/cli/cli-detection';
-import type { InterruptResult } from '../main/cli/adapters/base-cli-adapter';
+import type { CliResponse, InterruptResult } from '../main/cli/adapters/base-cli-adapter';
 import type { FileAttachment } from '../shared/types/instance.types';
 import { observeAdapterRuntimeEvents } from '../main/providers/adapter-runtime-event-bridge';
 import { toOutputMessageFromProviderOutputEvent } from '../main/providers/provider-output-event';
@@ -137,7 +137,7 @@ export class LocalInstanceManager extends EventEmitter {
     });
 
     let runtimeObserverCleanup: () => void = () => undefined;
-    runtimeObserverCleanup = observeAdapterRuntimeEvents(adapter, ({ event, eventId, timestamp }) => {
+    runtimeObserverCleanup = observeAdapterRuntimeEvents(adapter, ({ event, eventId, rawPayload, timestamp }) => {
       switch (event.kind) {
         case 'output': {
           const inst = this.instances.get(params.instanceId);
@@ -180,9 +180,21 @@ export class LocalInstanceManager extends EventEmitter {
             percentage: event.percentage,
           });
           break;
+        case 'complete':
+          this.emit('instance:complete', params.instanceId, rawPayload as CliResponse);
+          break;
         default:
           break;
       }
+    });
+
+    adapter.on('heartbeat', () => {
+      const inst = this.instances.get(params.instanceId);
+      if (!inst || inst.lastStatus === 'idle' || inst.lastStatus === 'ready' || inst.lastStatus === 'waiting_for_input') {
+        return;
+      }
+      this.resetWatchdog(params.instanceId);
+      this.emit('instance:heartbeat', params.instanceId);
     });
 
     adapter.on('input_required', (permission: unknown) => {

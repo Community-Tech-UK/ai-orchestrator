@@ -16,6 +16,9 @@ describe('generateLaunchdPlist', () => {
       stdoutPath: '/Library/Logs/Orchestrator/worker.out.log',
       stderrPath: '/Library/Logs/Orchestrator/worker.err.log',
       workingDirectory: '/usr/local/var/orchestrator',
+      environment: {
+        GH_TOKEN: 'ghu_test&token',
+      },
     });
     expect(xml).toContain('<?xml version="1.0"');
     expect(xml).toContain('<key>Label</key>');
@@ -24,5 +27,7 @@ describe('generateLaunchdPlist', () => {
     expect(xml).toContain('<key>KeepAlive</key>');
     expect(xml).toContain('<key>UserName</key>\n  <string>_orchestrator</string>');
     expect(xml).toContain('<key>StandardOutPath</key>');
+    expect(xml).toContain('<key>EnvironmentVariables</key>');
+    expect(xml).toContain('<key>GH_TOKEN</key>\n    <string>ghu_test&amp;token</string>');
   });
 });

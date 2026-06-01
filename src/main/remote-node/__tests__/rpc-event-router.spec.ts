@@ -271,6 +271,54 @@ describe('RpcEventRouter', () => {
     expect(outputHandler).not.toHaveBeenCalled();
   });
 
+  it('emits remote:instance-heartbeat on registry for instance.heartbeat notification', () => {
+    registry.registerNode(makeNode('node-hb'));
+    const heartbeatHandler = vi.fn();
+    registry.on('remote:instance-heartbeat', heartbeatHandler);
+
+    mockConnection.emit('rpc:notification', 'node-hb', {
+      jsonrpc: '2.0',
+      method: 'instance.heartbeat',
+      params: {
+        instanceId: 'inst-heartbeat',
+      },
+    });
+
+    expect(heartbeatHandler).toHaveBeenCalledWith({
+      nodeId: 'node-hb',
+      instanceId: 'inst-heartbeat',
+    });
+    expect(mockConnection.sendResponse).not.toHaveBeenCalled();
+  });
+
+  it('emits remote:instance-complete on registry for instance.complete notification', () => {
+    registry.registerNode(makeNode('node-complete'));
+    const completeHandler = vi.fn();
+    registry.on('remote:instance-complete', completeHandler);
+    const response = {
+      id: 'response-1',
+      role: 'assistant',
+      content: 'done',
+      usage: { totalTokens: 42, duration: 500 },
+    };
+
+    mockConnection.emit('rpc:notification', 'node-complete', {
+      jsonrpc: '2.0',
+      method: 'instance.complete',
+      params: {
+        instanceId: 'inst-complete',
+        response,
+      },
+    });
+
+    expect(completeHandler).toHaveBeenCalledWith({
+      nodeId: 'node-complete',
+      instanceId: 'inst-complete',
+      response,
+    });
+    expect(mockConnection.sendResponse).not.toHaveBeenCalled();
+  });
+
   // -------------------------------------------------------------------------
   // rpc:notification instance.outputBatch — emits per-item remote:instance-output
   // -------------------------------------------------------------------------

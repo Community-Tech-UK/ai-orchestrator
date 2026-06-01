@@ -43,6 +43,7 @@ export class MacosServiceManager implements ServiceManager {
       stdoutPath: `${paths.logDir}/worker.out.log`,
       stderrPath: `${paths.logDir}/worker.err.log`,
       workingDirectory: '/usr/local/var/orchestrator',
+      environment: opts.environment,
     });
     await fs.writeFile(PLIST_PATH, xml, { mode: 0o644 });
     await execFileCapture('chown', ['root:wheel', PLIST_PATH]);

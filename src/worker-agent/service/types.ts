@@ -17,6 +17,7 @@ export interface ServiceInstallOptions {
   coordinatorUrl: string;    // ws://host:port
   enrollmentToken: string;   // Already resolved from token-resolver
   serviceAccount?: string;   // Defaults per platform
+  environment?: Record<string, string>; // Provider/runtime env injected into service wrapper
   serviceName?: string;      // Defaults to 'ai-orchestrator-worker'
   logDir?: string;           // Defaults per platform
   version?: string;          // Semver; drop into <binDir>/versions/<version>/

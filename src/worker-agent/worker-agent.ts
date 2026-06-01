@@ -42,6 +42,10 @@ import type {
   SyncDeleteFileParams
 } from '../shared/types/sync.types';
 import { WorkerTerminalHandler } from './worker-terminal-handler';
+import {
+  diagnoseProviderRuntime,
+  isDiagnosableProvider
+} from './provider-runtime-diagnostics';
 
 const DEFAULT_CONFIG_PATH = path.join(
   os.homedir(),
@@ -489,6 +493,24 @@ export class WorkerAgent extends EventEmitter {
             params as unknown as SyncDeleteFileParams
           );
           break;
+        case COORDINATOR_TO_NODE.PROVIDER_DIAGNOSE: {
+          const err = validateScope(msg, 'service');
+          if (err) {
+            this.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
+            return;
+          }
+          const provider = params['provider'];
+          if (!isDiagnosableProvider(provider)) {
+            this.sendError(
+              msg.id!,
+              RPC_ERROR_CODES.INVALID_PARAMS,
+              'provider.diagnose requires a concrete supported provider'
+            );
+            return;
+          }
+          result = await diagnoseProviderRuntime(provider);
+          break;
+        }
         case COORDINATOR_TO_NODE.SERVICE_STATUS: {
           const err = validateScope(msg, 'service');
           if (err) {
@@ -636,6 +658,20 @@ export class WorkerAgent extends EventEmitter {
       'instance:output',
       (instanceId: string, message: unknown) => {
         this.sendOutputNotification(instanceId, message);
+      }
+    );
+
+    this.instanceManager.on(
+      'instance:heartbeat',
+      (instanceId: string) => {
+        this.sendHeartbeatNotification(instanceId);
+      }
+    );
+
+    this.instanceManager.on(
+      'instance:complete',
+      (instanceId: string, response: unknown) => {
+        this.sendCompleteNotification(instanceId, response);
       }
     );
 
@@ -841,6 +877,29 @@ export class WorkerAgent extends EventEmitter {
         this.outputFlushTimer.unref();
       }
     }
+  }
+
+  private sendHeartbeatNotification(instanceId: string): void {
+    this.send({
+      jsonrpc: '2.0',
+      method: NODE_TO_COORDINATOR.INSTANCE_HEARTBEAT,
+      params: {
+        instanceId,
+        token: this.config.nodeToken ?? this.config.authToken
+      }
+    } as RpcMessage);
+  }
+
+  private sendCompleteNotification(instanceId: string, response: unknown): void {
+    this.send({
+      jsonrpc: '2.0',
+      method: NODE_TO_COORDINATOR.INSTANCE_COMPLETE,
+      params: {
+        instanceId,
+        response,
+        token: this.config.nodeToken ?? this.config.authToken
+      }
+    } as RpcMessage);
   }
 
   private flushOutputBuffer(): void {

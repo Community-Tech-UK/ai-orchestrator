@@ -8,6 +8,7 @@ import {
   TerminalKillParamsSchema,
   TerminalOutputParamsSchema,
   TerminalExitParamsSchema,
+  ProviderDiagnoseParamsSchema,
   COORDINATOR_TO_NODE_PARAM_SCHEMAS,
   validateRpcParams,
 } from '../rpc-schemas';
@@ -92,6 +93,21 @@ describe('rpc-schemas', () => {
       expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['terminal.input']).toBe(TerminalInputParamsSchema);
       expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['terminal.resize']).toBe(TerminalResizeParamsSchema);
       expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['terminal.kill']).toBe(TerminalKillParamsSchema);
+    });
+  });
+
+  describe('provider diagnostics schema', () => {
+    it('accepts supported remote provider diagnostics requests', () => {
+      expect(ProviderDiagnoseParamsSchema.safeParse({ provider: 'copilot' }).success).toBe(true);
+      expect(ProviderDiagnoseParamsSchema.safeParse({ provider: 'cursor' }).success).toBe(true);
+    });
+
+    it('rejects auto because diagnostics need a concrete provider runtime', () => {
+      expect(ProviderDiagnoseParamsSchema.safeParse({ provider: 'auto' }).success).toBe(false);
+    });
+
+    it('registers provider.diagnose in the coordinator->node schema map', () => {
+      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['provider.diagnose']).toBe(ProviderDiagnoseParamsSchema);
     });
   });
 

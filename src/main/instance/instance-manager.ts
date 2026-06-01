@@ -104,12 +104,22 @@ import {
 const logger = getLogger('InstanceManager');
 const LOG_PREVIEW_LENGTH = 160;
 const CHILD_STARTUP_TIMEOUT_MS = 60_000;
+const INPUT_PREFLIGHT_DEADLINE_MS = 5_000;
 const INPUT_CONTEXT_DEADLINE_MS = 500;
 
 interface InputContextBundle {
   rlmContext: RlmContextInfo | null;
   unifiedMemoryContext: UnifiedMemoryContextInfo | null;
   indexedCodebaseContext: IndexedCodebaseContextInfo | null;
+}
+
+interface InputPreflightTimeoutOptions<T> {
+  instanceId: string;
+  phase: string;
+  timeoutMs: number;
+  operation: () => Promise<T>;
+  onTimeout?: () => T;
+  timeoutMessage?: string;
 }
 
 export interface InstanceStateChangedEvent {
@@ -1372,7 +1382,14 @@ export class InstanceManager extends EventEmitter {
       }
     }
 
-    if (await this.maybeHandleSwitchModeReply(instanceId, message)) {
+    const handledSwitchModeReply = await this.runInputPreflight({
+      instanceId,
+      phase: 'switch-mode-reply',
+      timeoutMs: INPUT_PREFLIGHT_DEADLINE_MS,
+      operation: () => this.maybeHandleSwitchModeReply(instanceId, message),
+      onTimeout: () => false,
+    });
+    if (handledSwitchModeReply) {
       return;
     }
 
@@ -1388,10 +1405,18 @@ export class InstanceManager extends EventEmitter {
       source?: string;
       uiActionId?: string;
     } | undefined;
-    const resolvedCommand = await getCommandManager().executeCommandString(
-      message,
-      instance.workingDirectory,
-    );
+    const isSlashCommandInput = message.trim().startsWith('/');
+    const resolvedCommand = await this.runInputPreflight({
+      instanceId,
+      phase: 'command-resolution',
+      timeoutMs: INPUT_PREFLIGHT_DEADLINE_MS,
+      operation: () => getCommandManager().executeCommandString(
+        message,
+        instance.workingDirectory,
+      ),
+      onTimeout: isSlashCommandInput ? undefined : () => null,
+      timeoutMessage: `Slash command resolution timed out after ${INPUT_PREFLIGHT_DEADLINE_MS}ms`,
+    });
     if (resolvedCommand) {
       resolvedCommandName = resolvedCommand.command.name;
       resolvedMessage = resolvedCommand.resolvedPrompt;
@@ -1411,7 +1436,17 @@ export class InstanceManager extends EventEmitter {
     // session's title/summary into the prompt so the agent has that context.
     // No-op (no search) unless the message contains an @T- token.
     try {
-      const refResolution = await resolveSessionReferences(resolvedMessage);
+      const refResolution = await this.runInputPreflight({
+        instanceId,
+        phase: 'session-reference-resolution',
+        timeoutMs: INPUT_PREFLIGHT_DEADLINE_MS,
+        operation: () => resolveSessionReferences(resolvedMessage),
+        onTimeout: () => ({
+          refs: [],
+          contextBlock: '',
+          annotatedText: resolvedMessage,
+        }),
+      });
       if (refResolution.contextBlock) {
         resolvedMessage = `${refResolution.contextBlock}\n\n${refResolution.annotatedText}`;
       }
@@ -1620,6 +1655,70 @@ export class InstanceManager extends EventEmitter {
       unifiedMemoryContext,
       indexedCodebaseContext,
     };
+  }
+
+  private async runInputPreflight<T>({
+    instanceId,
+    phase,
+    timeoutMs,
+    operation,
+    onTimeout,
+    timeoutMessage,
+  }: InputPreflightTimeoutOptions<T>): Promise<T> {
+    const startedAt = Date.now();
+    let timedOut = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<T>((resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        timedOut = true;
+        logger.warn('Input preflight exceeded deadline', {
+          instanceId,
+          phase,
+          timeoutMs,
+          durationMs: Date.now() - startedAt,
+        });
+
+        if (onTimeout) {
+          resolve(onTimeout());
+          return;
+        }
+
+        reject(new Error(timeoutMessage ?? `${phase} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      if (
+        typeof timeoutId === 'object'
+        && timeoutId !== null
+        && 'unref' in timeoutId
+        && typeof timeoutId.unref === 'function'
+      ) {
+        timeoutId.unref();
+      }
+    });
+
+    logger.debug('Input preflight started', { instanceId, phase, timeoutMs });
+
+    try {
+      const result = await Promise.race([operation(), deadline]);
+      logger.debug('Input preflight completed', {
+        instanceId,
+        phase,
+        durationMs: Date.now() - startedAt,
+        timedOut,
+      });
+      return result;
+    } catch (error) {
+      logger.warn('Input preflight failed', {
+        instanceId,
+        phase,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
   }
 
   private async resolveInputContextsBeforeDeadline(

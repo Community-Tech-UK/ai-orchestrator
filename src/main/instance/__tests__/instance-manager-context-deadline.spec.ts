@@ -8,6 +8,7 @@ const CONTEXT_DEADLINE_MS = 500;
 
 const {
   mockCommunicationSendInput,
+  mockCommandExecuteCommandString,
   mockIndexedBuildContext,
   mockIndexedFormatContextBlock,
   mockPromptHistoryRecord,
@@ -17,6 +18,7 @@ const {
   MockEmitter,
 } = vi.hoisted(() => ({
   mockCommunicationSendInput: vi.fn(),
+  mockCommandExecuteCommandString: vi.fn(),
   mockIndexedBuildContext: vi.fn(),
   mockIndexedFormatContextBlock: vi.fn(),
   mockPromptHistoryRecord: vi.fn(),
@@ -68,7 +70,7 @@ vi.mock('../../core/config/settings-manager', () => ({
 
 vi.mock('../../commands/command-manager', () => ({
   getCommandManager: vi.fn(() => ({
-    executeCommandString: vi.fn().mockResolvedValue(null),
+    executeCommandString: mockCommandExecuteCommandString,
   })),
 }));
 
@@ -194,17 +196,17 @@ vi.mock('../instance-state', () => {
       return undefined;
     }
 
-    setAdapter(): void {}
+    setAdapter(): void { return undefined; }
     deleteAdapter(): boolean { return true; }
     getDiffTracker(): undefined { return undefined; }
-    setDiffTracker(): void {}
-    deleteDiffTracker(): void {}
+    setDiffTracker(): void { return undefined; }
+    deleteDiffTracker(): void { return undefined; }
     getStateMachine(): undefined { return undefined; }
-    setStateMachine(): void {}
-    deleteStateMachine(): void {}
+    setStateMachine(): void { return undefined; }
+    deleteStateMachine(): void { return undefined; }
     setInstance(instance: Instance): void { mockStateInstances.set(instance.id, instance); }
     deleteInstance(id: string): boolean { return mockStateInstances.delete(id); }
-    destroy(): void {}
+    destroy(): void { return undefined; }
     serializeForIpc(instance: Instance): Record<string, unknown> { return { id: instance.id }; }
     getAllInstancesForIpc(): Record<string, unknown>[] { return []; }
     queueUpdate(...args: unknown[]): void { mockQueueUpdate(...args); }
@@ -217,11 +219,11 @@ vi.mock('../instance-communication', () => {
   class InstanceCommunicationManager extends MockEmitter {
     sendInput = mockCommunicationSendInput;
     queueContinuityPreamble = mockQueueContinuityPreamble;
-    setupAdapterEvents(): void {}
-    markInterrupted(): void {}
-    clearInterrupted(): void {}
-    cleanupCircuitBreaker(): void {}
-    cleanupToolResultDedup(): void {}
+    setupAdapterEvents(): void { return undefined; }
+    markInterrupted(): void { return undefined; }
+    clearInterrupted(): void { return undefined; }
+    cleanupCircuitBreaker(): void { return undefined; }
+    cleanupToolResultDedup(): void { return undefined; }
     sendInputResponse(): Promise<void> { return Promise.resolve(); }
     addToOutputBuffer(instance: Instance, message: OutputMessage): void {
       instance.outputBuffer.push(message);
@@ -242,7 +244,7 @@ vi.mock('../instance-lifecycle', () => {
     restartInstance(): Promise<void> { return Promise.resolve(); }
     restartFreshInstance(): Promise<void> { return Promise.resolve(); }
     terminateAll(): Promise<void> { return Promise.resolve(); }
-    renameInstance(): void {}
+    renameInstance(): void { return undefined; }
     changeAgentMode(): Promise<Instance> { return Promise.reject(new Error('not implemented')); }
     toggleYoloMode(): Promise<Instance> { return Promise.reject(new Error('not implemented')); }
     resumeAfterDeferredPermission(): Promise<void> { return Promise.resolve(); }
@@ -258,7 +260,7 @@ vi.mock('../instance-lifecycle', () => {
     respawnAfterInterrupt(): Promise<void> { return Promise.resolve(); }
     respawnAfterUnexpectedExit(): Promise<void> { return Promise.resolve(); }
     getMemoryStats(): Record<string, unknown> { return {}; }
-    destroy(): void {}
+    destroy(): void { return undefined; }
   }
 
   return { InstanceLifecycleManager };
@@ -266,10 +268,10 @@ vi.mock('../instance-lifecycle', () => {
 
 vi.mock('../instance-orchestration', () => {
   class InstanceOrchestrationManager {
-    setupOrchestrationHandlers(): void {}
-    processOrchestrationOutput(): void {}
-    registerInstance(): void {}
-    unregisterInstance(): void {}
+    setupOrchestrationHandlers(): void { return undefined; }
+    processOrchestrationOutput(): void { return undefined; }
+    registerInstance(): void { return undefined; }
+    unregisterInstance(): void { return undefined; }
     hasActiveWork(): boolean { return false; }
     getOrchestrationPrompt(): string { return '[ORCHESTRATION PROMPT]'; }
     getOrchestrationHandler(): Record<string, unknown> {
@@ -304,9 +306,9 @@ vi.mock('../instance-event-aggregator', () => ({
 
 vi.mock('../instance-settled-tracker', () => ({
   InstanceSettledTracker: class {
-    recordActivity(): void {}
-    clear(): void {}
-    destroy(): void {}
+    recordActivity(): void { return undefined; }
+    clear(): void { return undefined; }
+    destroy(): void { return undefined; }
     waitForSettled(): Promise<undefined> { return Promise.resolve(undefined); }
   },
 }));
@@ -323,10 +325,10 @@ vi.mock('../warm-start-manager', () => ({
 
 vi.mock('../stuck-process-detector', () => ({
   StuckProcessDetector: class extends MockEmitter {
-    recordOutput(): void {}
-    updateState(): void {}
-    startTracking(): void {}
-    stopTracking(): void {}
+    recordOutput(): void { return undefined; }
+    updateState(): void { return undefined; }
+    startTracking(): void { return undefined; }
+    stopTracking(): void { return undefined; }
   },
 }));
 
@@ -427,6 +429,8 @@ describe('InstanceManager context deadline', () => {
     vi.clearAllMocks();
     mockStateInstances.clear();
     mockCommunicationSendInput.mockResolvedValue(undefined);
+    mockCommandExecuteCommandString.mockReset();
+    mockCommandExecuteCommandString.mockResolvedValue(null);
     mockIndexedBuildContext.mockResolvedValue(null);
     mockIndexedFormatContextBlock.mockReturnValue('[Indexed]\nindex context');
   });
@@ -548,5 +552,34 @@ describe('InstanceManager context deadline', () => {
       instance.id,
       expect.stringContaining('late rlm context'),
     );
+  });
+
+  it('fails slash-command sends when command resolution exceeds the preflight deadline', async () => {
+    const { InstanceManager } = await import('../instance-manager');
+    mockCommandExecuteCommandString.mockImplementation(() => new Promise(() => undefined));
+    const instance = makeInstance();
+    mockStateInstances.set(instance.id, instance);
+    const manager = new InstanceManager(undefined, createContextPort());
+
+    const sendResult = manager
+      .sendInput(instance.id, '/explain src/main/index.ts')
+      .then(
+        () => ({ status: 'resolved' as const }),
+        (error: unknown) => ({ status: 'rejected' as const, error }),
+      );
+
+    await vi.advanceTimersByTimeAsync(5_100);
+    await flushMicrotasks();
+
+    const result = await Promise.race([
+      sendResult,
+      Promise.resolve({ status: 'pending' as const }),
+    ]);
+
+    expect(result.status).toBe('rejected');
+    expect(result.status === 'rejected' ? result.error : undefined).toMatchObject({
+      message: expect.stringContaining('Slash command resolution timed out'),
+    });
+    expect(mockCommunicationSendInput).not.toHaveBeenCalled();
   });
 });

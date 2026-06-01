@@ -11,11 +11,15 @@ describe('generateWinswXml', () => {
       arguments: ['--service-run', '--config', 'C:\\ProgramData\\Orchestrator\\worker-node.json'],
       logDir: 'C:\\ProgramData\\Orchestrator\\logs',
       serviceAccount: 'NT SERVICE\\ai-orchestrator-worker',
+      env: {
+        COPILOT_GITHUB_TOKEN: 'ghu_test&token',
+      },
     });
     expect(xml).toContain('<id>ai-orchestrator-worker</id>');
     expect(xml).toContain('<executable>C:\\Program Files\\Orchestrator\\bin\\worker-agent.exe</executable>');
     expect(xml).toContain('<argument>--service-run</argument>');
     expect(xml).toContain('<logpath>C:\\ProgramData\\Orchestrator\\logs</logpath>');
+    expect(xml).toContain('<env name="COPILOT_GITHUB_TOKEN" value="ghu_test&amp;token"/>');
     expect(xml).toContain('<serviceaccount>');
     expect(xml).toContain('<onfailure action="restart" delay="10 sec"/>');
   });

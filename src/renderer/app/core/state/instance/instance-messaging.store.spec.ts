@@ -132,6 +132,26 @@ describe('InstanceMessagingStore', () => {
     expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
   });
 
+  it('restores optimistic busy state when sendInput IPC never resolves', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ status: 'idle' }));
+    ipcMock.sendInput.mockImplementation(() => new Promise(() => undefined));
+
+    void currentStore.sendInput('inst-1', 'will hang');
+
+    expect(currentStateService.getInstance('inst-1')?.status).toBe('busy');
+
+    await vi.advanceTimersByTimeAsync(60_100);
+
+    const instance = currentStateService.getInstance('inst-1');
+    expect(instance?.status).toBe('idle');
+    expect(instance?.outputBuffer[instance.outputBuffer.length - 1]).toMatchObject({
+      type: 'error',
+      content: expect.stringContaining('timed out'),
+    });
+  });
+
   it('replays seeded queued initial prompts without adding a duplicate user bubble', async () => {
     const currentStore = store!;
     const currentStateService = stateService!;

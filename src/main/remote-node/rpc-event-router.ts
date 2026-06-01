@@ -24,6 +24,8 @@ export class RpcEventRouter {
   private readonly trustedNotificationMethods = new Set<string>([
     NODE_TO_COORDINATOR.INSTANCE_OUTPUT,
     NODE_TO_COORDINATOR.INSTANCE_OUTPUT_BATCH,
+    NODE_TO_COORDINATOR.INSTANCE_HEARTBEAT,
+    NODE_TO_COORDINATOR.INSTANCE_COMPLETE,
     NODE_TO_COORDINATOR.INSTANCE_CONTEXT,
     // terminal.output is a high-frequency PTY stream; like instance.output it
     // rides an already-authenticated WS, so we skip per-frame token checks.
@@ -209,6 +211,14 @@ export class RpcEventRouter {
         this.handleInstanceOutputBatch(nodeId, notification);
         break;
       }
+      case NODE_TO_COORDINATOR.INSTANCE_HEARTBEAT: {
+        this.handleInstanceHeartbeat(nodeId, notification);
+        break;
+      }
+      case NODE_TO_COORDINATOR.INSTANCE_COMPLETE: {
+        this.handleInstanceComplete(nodeId, notification);
+        break;
+      }
       case NODE_TO_COORDINATOR.INSTANCE_CONTEXT: {
         this.handleInstanceContext(nodeId, notification);
         break;
@@ -306,6 +316,31 @@ export class RpcEventRouter {
         message: entry['message'],
       });
     }
+  }
+
+  private handleInstanceHeartbeat(nodeId: string, notification: RpcNotification): void {
+    if (!this.registry.getNode(nodeId)) {
+      logger.warn('Heartbeat notification from unknown node', { nodeId });
+      return;
+    }
+    const params = notification.params as Record<string, unknown> | undefined;
+    this.registry.emit('remote:instance-heartbeat', {
+      nodeId,
+      instanceId: params?.['instanceId'],
+    });
+  }
+
+  private handleInstanceComplete(nodeId: string, notification: RpcNotification): void {
+    if (!this.registry.getNode(nodeId)) {
+      logger.warn('Complete notification from unknown node', { nodeId });
+      return;
+    }
+    const params = notification.params as Record<string, unknown> | undefined;
+    this.registry.emit('remote:instance-complete', {
+      nodeId,
+      instanceId: params?.['instanceId'],
+      response: params?.['response'],
+    });
   }
 
   private handleInstanceContext(nodeId: string, notification: RpcNotification): void {

@@ -40,6 +40,7 @@ export class WindowsServiceManager implements ServiceManager {
       arguments: ['--service-run', '--config', opts.configPath],
       logDir: opts.logDir ?? paths.logDir,
       serviceAccount: opts.serviceAccount ?? 'NT SERVICE\\' + SERVICE_ID,
+      env: opts.environment,
     });
     await fs.writeFile(winswXml, xml, 'utf8');
 

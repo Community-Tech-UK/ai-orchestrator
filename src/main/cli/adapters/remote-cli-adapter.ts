@@ -14,7 +14,7 @@ import type { WorkerNodeConnectionServer } from '../../remote-node/worker-node-c
 import { getWorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 import type { CliType } from '../cli-detection';
 import type { UnifiedSpawnOptions } from './adapter-factory';
-import type { AdapterRuntimeCapabilities, InterruptResult } from './base-cli-adapter';
+import type { AdapterRuntimeCapabilities, CliResponse, InterruptResult } from './base-cli-adapter';
 import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../../pause/orchestrator-paused-error';
@@ -48,6 +48,17 @@ interface RemoteContextEvent {
   nodeId: string;
   instanceId: string;
   usage: unknown;
+}
+
+interface RemoteHeartbeatEvent {
+  nodeId: string;
+  instanceId: string;
+}
+
+interface RemoteCompleteEvent {
+  nodeId: string;
+  instanceId: string;
+  response: CliResponse;
 }
 
 export class RemoteCliAdapter extends EventEmitter {
@@ -90,6 +101,18 @@ export class RemoteCliAdapter extends EventEmitter {
       return;
     }
     this.handleRemoteContext(event.usage);
+  };
+  private readonly onRemoteHeartbeatEvent = (event: RemoteHeartbeatEvent): void => {
+    if (!this.matchesRemoteInstance(event.nodeId, event.instanceId)) {
+      return;
+    }
+    this.handleRemoteHeartbeat();
+  };
+  private readonly onRemoteCompleteEvent = (event: RemoteCompleteEvent): void => {
+    if (!this.matchesRemoteInstance(event.nodeId, event.instanceId)) {
+      return;
+    }
+    this.handleRemoteComplete(event.response);
   };
 
   constructor(
@@ -358,6 +381,14 @@ export class RemoteCliAdapter extends EventEmitter {
     this.emit('context', usage);
   }
 
+  handleRemoteHeartbeat(): void {
+    this.emit('heartbeat');
+  }
+
+  handleRemoteComplete(response: CliResponse): void {
+    this.emit('complete', response);
+  }
+
   private matchesRemoteInstance(nodeId: string, instanceId: string): boolean {
     return (
       nodeId === this.targetNodeId &&
@@ -375,6 +406,8 @@ export class RemoteCliAdapter extends EventEmitter {
     this.registry.on('remote:instance-state-change', this.onRemoteStateChangeEvent);
     this.registry.on('remote:instance-permission-request', this.onRemotePermissionRequestEvent);
     this.registry.on('remote:instance-context', this.onRemoteContextEvent);
+    this.registry.on('remote:instance-heartbeat', this.onRemoteHeartbeatEvent);
+    this.registry.on('remote:instance-complete', this.onRemoteCompleteEvent);
     this.registryListenersAttached = true;
   }
 
@@ -387,6 +420,8 @@ export class RemoteCliAdapter extends EventEmitter {
     this.registry.off('remote:instance-state-change', this.onRemoteStateChangeEvent);
     this.registry.off('remote:instance-permission-request', this.onRemotePermissionRequestEvent);
     this.registry.off('remote:instance-context', this.onRemoteContextEvent);
+    this.registry.off('remote:instance-heartbeat', this.onRemoteHeartbeatEvent);
+    this.registry.off('remote:instance-complete', this.onRemoteCompleteEvent);
     this.registryListenersAttached = false;
   }
 }
