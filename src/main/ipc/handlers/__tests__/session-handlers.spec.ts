@@ -49,15 +49,25 @@ const mockLoadConversation = vi.fn();
 const mockMarkNativeResumeFailed = vi.fn();
 const mockDeleteEntry = vi.fn();
 const mockArchiveEntry = vi.fn();
+const mockGetEntries = vi.fn().mockReturnValue([]);
+const mockBackfillMissingAiTitles = vi.fn();
+const mockGenerateTitle = vi.fn();
 
 vi.mock('../../../history', () => ({
   getHistoryManager: () => ({
-    getEntries: vi.fn().mockReturnValue([]),
+    getEntries: mockGetEntries,
     loadConversation: mockLoadConversation,
     markNativeResumeFailed: mockMarkNativeResumeFailed,
     deleteEntry: mockDeleteEntry,
     archiveEntry: mockArchiveEntry,
     clearAll: vi.fn(),
+    backfillMissingAiTitles: mockBackfillMissingAiTitles,
+  }),
+}));
+
+vi.mock('../../../instance/auto-title-service', () => ({
+  getAutoTitleService: () => ({
+    generateTitle: mockGenerateTitle,
   }),
 }));
 
@@ -131,6 +141,10 @@ describe('session-handlers', () => {
     mockMarkNativeResumeFailed.mockReset();
     mockDeleteEntry.mockReset();
     mockArchiveEntry.mockReset();
+    mockGetEntries.mockReset();
+    mockGetEntries.mockReturnValue([]);
+    mockBackfillMissingAiTitles.mockReset();
+    mockGenerateTitle.mockReset();
     mockIsRemoteNodeReachable.mockReset();
 
     mockInstanceManager = makeMockInstanceManager();
@@ -142,6 +156,39 @@ describe('session-handlers', () => {
   });
 
   describe('history maintenance', () => {
+    it('does not start AI title backfill while listing history', async () => {
+      const originalVitest = process.env['VITEST'];
+      process.env['VITEST'] = 'false';
+      try {
+        const entries = [
+          {
+            id: 'entry-needs-title',
+            displayName: 'Please implement this',
+            createdAt: Date.now() - 10_000,
+            endedAt: Date.now(),
+            workingDirectory: '/tmp/project',
+            messageCount: 1,
+            firstUserMessage: 'Please implement this thoroughly',
+            lastUserMessage: 'Please implement this thoroughly',
+            status: 'completed',
+            originalInstanceId: 'instance-1',
+            parentId: null,
+            sessionId: 'session-1',
+          },
+        ];
+        mockGetEntries.mockReturnValue(entries);
+
+        const result = await invoke(IPC_CHANNELS.HISTORY_LIST, {});
+
+        expect(result.success).toBe(true);
+        expect(result.data).toBe(entries);
+        expect(mockBackfillMissingAiTitles).not.toHaveBeenCalled();
+        expect(mockGenerateTitle).not.toHaveBeenCalled();
+      } finally {
+        process.env['VITEST'] = originalVitest;
+      }
+    });
+
     it('registers archive and delete handlers', async () => {
       mockArchiveEntry.mockResolvedValue(true);
       mockDeleteEntry.mockResolvedValue(true);

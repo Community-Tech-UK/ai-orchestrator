@@ -45,38 +45,9 @@ describe('AutoTitleService', () => {
     AutoTitleService._resetForTesting();
   });
 
-  it('prefers claude for title generation even when codex is available', async () => {
+  it('prefers gemini for title generation even when copilot, claude, and codex are available', async () => {
     mockIsCliAvailable.mockImplementation(async (type: string) => ({
-      installed: type === 'claude' || type === 'codex',
-    }));
-    mockResolveCliType.mockResolvedValue('claude');
-
-    const applyTitle = vi.fn();
-
-    await AutoTitleService.getInstance().maybeGenerateTitle(
-      'instance-1',
-      'Investigate the broken deployment and summarize the fix.',
-      applyTitle,
-      false,
-    );
-
-    // Should resolve to claude (first in preference order), not codex
-    expect(mockResolveCliType).toHaveBeenCalledWith('claude');
-    expect(mockCreateAdapter).toHaveBeenCalledWith({
-      cliType: 'claude',
-      options: expect.objectContaining({
-        model: expect.any(String),
-      }),
-    });
-    // Phase 1 instant title
-    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Investigate the broken deployment and summarize the fix.', 'instant');
-    // Phase 2 AI title
-    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'AI generated title', 'ai');
-  });
-
-  it('falls back to gemini when claude is not available', async () => {
-    mockIsCliAvailable.mockImplementation(async (type: string) => ({
-      installed: type === 'gemini' || type === 'codex',
+      installed: ['gemini', 'copilot', 'claude', 'codex'].includes(type),
     }));
     mockResolveCliType.mockResolvedValue('gemini');
 
@@ -89,9 +60,44 @@ describe('AutoTitleService', () => {
       false,
     );
 
+    // Should resolve to gemini (first in preference order), not a later provider.
+    expect(mockIsCliAvailable).toHaveBeenCalledWith('gemini');
+    expect(mockIsCliAvailable).not.toHaveBeenCalledWith('copilot');
+    expect(mockIsCliAvailable).not.toHaveBeenCalledWith('claude');
+    expect(mockIsCliAvailable).not.toHaveBeenCalledWith('codex');
     expect(mockResolveCliType).toHaveBeenCalledWith('gemini');
     expect(mockCreateAdapter).toHaveBeenCalledWith({
       cliType: 'gemini',
+      options: expect.objectContaining({
+        model: expect.any(String),
+      }),
+    });
+    // Phase 1 instant title
+    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Investigate the broken deployment and summarize the fix.', 'instant');
+    // Phase 2 AI title
+    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'AI generated title', 'ai');
+  });
+
+  it('falls back to copilot when gemini is not available', async () => {
+    mockIsCliAvailable.mockImplementation(async (type: string) => ({
+      installed: type === 'copilot' || type === 'claude' || type === 'codex',
+    }));
+    mockResolveCliType.mockResolvedValue('copilot');
+
+    const applyTitle = vi.fn();
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      'Investigate the broken deployment and summarize the fix.',
+      applyTitle,
+      false,
+    );
+
+    expect(mockIsCliAvailable).toHaveBeenNthCalledWith(1, 'gemini');
+    expect(mockIsCliAvailable).toHaveBeenNthCalledWith(2, 'copilot');
+    expect(mockResolveCliType).toHaveBeenCalledWith('copilot');
+    expect(mockCreateAdapter).toHaveBeenCalledWith({
+      cliType: 'copilot',
       options: expect.objectContaining({
         model: expect.any(String),
       }),

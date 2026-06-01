@@ -521,7 +521,7 @@ export class FileExplorerComponent implements OnDestroy {
   filesDragged = output<{ paths: string[]; names: string[] }>();
 
   // State
-  isCollapsed = signal(true);  // Start collapsed by default
+  isCollapsed = signal(false);
   rootPath = signal<string | null>(null);
   showHidden = signal(false);
   isLoading = signal(false);

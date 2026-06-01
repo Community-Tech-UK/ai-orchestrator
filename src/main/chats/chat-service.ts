@@ -435,7 +435,6 @@ export class ChatService {
           reason,
           error: error instanceof Error ? error.message : String(error),
         });
-        throw error;
       }
     }
     await this.bridge.flushAndUnlink(instanceId);

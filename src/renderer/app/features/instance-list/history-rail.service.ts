@@ -3,7 +3,7 @@ import {
   getConversationHistoryTitle,
   type ConversationHistoryEntry,
 } from '../../../../shared/types/history.types';
-import type { HierarchicalHistoryItem } from './instance-list.component';
+import type { HierarchicalHistoryItem } from './instance-list.types';
 
 const PINNED_HISTORY_STORAGE_KEY = 'instance-list-pinned-history';
 const SEEN_HISTORY_THREADS_STORAGE_KEY = 'instance-list-seen-history-threads';

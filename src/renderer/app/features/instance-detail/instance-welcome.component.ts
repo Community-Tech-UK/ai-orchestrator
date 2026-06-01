@@ -83,6 +83,50 @@ interface WelcomeProjectContext {
                   </div>
                 }
               </div>
+
+              @if (canShowFileExplorer() || canShowSourceControl()) {
+                <div class="workspace-actions" aria-label="Workspace tools">
+                  @if (canShowFileExplorer()) {
+                    <button
+                      type="button"
+                      class="workspace-action-btn"
+                      [class.active]="isFileExplorerOpen()"
+                      [title]="isFileExplorerOpen() ? 'Hide file browser' : 'Open file browser'"
+                      (click)="toggleFileExplorer.emit()"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                        aria-hidden="true">
+                        <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H10l2 2h7.5A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5v-10Z"/>
+                      </svg>
+                      <span>Files</span>
+                    </button>
+                  }
+                  @if (canShowSourceControl()) {
+                    <button
+                      type="button"
+                      class="workspace-action-btn"
+                      [class.active]="isSourceControlOpen()"
+                      [title]="sourceControlButtonTitle()"
+                      (click)="toggleSourceControl.emit()"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                        aria-hidden="true">
+                        <circle cx="6" cy="6" r="2.2" />
+                        <circle cx="6" cy="18" r="2.2" />
+                        <circle cx="18" cy="6" r="2.2" />
+                        <line x1="6" y1="8.2" x2="6" y2="15.8" />
+                        <path d="M18 8.2c0 5.4-4.2 8.4-9 9.4" />
+                      </svg>
+                      <span>Git</span>
+                      @if (sourceControlChangeCount() > 0) {
+                        <span class="workspace-action-count">{{ sourceControlPipLabel() }}</span>
+                      }
+                    </button>
+                  }
+                </div>
+              }
             </div>
           </div>
 
@@ -238,6 +282,57 @@ interface WelcomeProjectContext {
         min-height: 32px;
       }
 
+      .workspace-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 6px;
+      }
+
+      .workspace-action-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 32px;
+        padding: 0 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--text-secondary);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: all var(--transition-fast);
+      }
+
+      .workspace-action-btn:hover {
+        color: var(--text-primary);
+        border-color: rgba(var(--primary-rgb), 0.22);
+        background: rgba(var(--primary-rgb), 0.08);
+      }
+
+      .workspace-action-btn.active {
+        color: var(--text-primary);
+        border-color: rgba(var(--primary-rgb), 0.3);
+        background: rgba(var(--primary-rgb), 0.12);
+      }
+
+      .workspace-action-count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        border-radius: 999px;
+        background: rgba(var(--primary-rgb), 0.18);
+        color: rgba(212, 233, 190, 0.92);
+        font-size: 10px;
+        letter-spacing: 0;
+      }
+
       .project-context-loading {
         font-family: var(--font-mono);
         font-size: 10px;
@@ -357,6 +452,11 @@ export class InstanceWelcomeComponent {
   projectContext = input<WelcomeProjectContext | null>(null);
   isProjectContextLoading = input(false);
   selectedCli = input<string>('auto');
+  canShowFileExplorer = input(false);
+  isFileExplorerOpen = input(false);
+  canShowSourceControl = input(false);
+  isSourceControlOpen = input(false);
+  sourceControlChangeCount = input(0);
 
   // Node picker state — synced from parent when the draft context changes,
   // but also writable locally when the user picks a node manually.
@@ -377,6 +477,8 @@ export class InstanceWelcomeComponent {
   sendMessage = output<string>();
   startSessionWithWorkflow = output<{ message: string; templateId: string }>();
   nodeChange = output<string | null>();
+  toggleFileExplorer = output<void>();
+  toggleSourceControl = output<void>();
   filesDropped = output<File[]>();
   imagesPasted = output<File[]>();
   folderDropped = output<string>();
@@ -397,6 +499,20 @@ export class InstanceWelcomeComponent {
   onNodeSelected(nodeId: string | null): void {
     this.selectedNodeId.set(nodeId);
     this.nodeChange.emit(nodeId);
+  }
+
+  sourceControlPipLabel(): string {
+    const n = this.sourceControlChangeCount();
+    if (n <= 0) return '';
+    return n > 99 ? '99+' : String(n);
+  }
+
+  sourceControlButtonTitle(): string {
+    const n = this.sourceControlChangeCount();
+    if (this.isSourceControlOpen()) return 'Hide source control';
+    if (n <= 0) return 'Open source control';
+    if (n === 1) return 'Open source control (1 change)';
+    return `Open source control (${n} changes)`;
   }
 
   formatRelativeTime(timestamp: number): string {

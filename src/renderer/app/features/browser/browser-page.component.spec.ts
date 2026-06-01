@@ -1,11 +1,28 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { Router } from '@angular/router';
 import type { BrowserAuditEntry } from '@contracts/types/browser';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BrowserPageComponent } from './browser-page.component';
 import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gateway-ipc.service';
 
 const now = 1_700_000_000_000;
+const specDirectory = dirname(fileURLToPath(import.meta.url));
+const template = readFileSync(resolve(specDirectory, './browser-page.component.html'), 'utf8');
+const styles = readFileSync(resolve(specDirectory, './browser-page.component.scss'), 'utf8');
+
+await resolveComponentResources((url) => {
+  if (url.endsWith('browser-page.component.html')) {
+    return Promise.resolve(template);
+  }
+  if (url.endsWith('browser-page.component.scss')) {
+    return Promise.resolve(styles);
+  }
+  return Promise.reject(new Error(`Unexpected resource: ${url}`));
+});
 
 const gatewayResult = <T>(data: T) => ({
   success: true,

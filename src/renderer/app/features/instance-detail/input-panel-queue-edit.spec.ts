@@ -36,6 +36,14 @@ const inputPanelStyles = readFileSync(
   resolve(specDirectory, './input-panel.component.scss'),
   'utf8',
 );
+const loopConfigPanelTemplate = readFileSync(
+  resolve(specDirectory, '../loop/loop-config-panel.component.html'),
+  'utf8',
+);
+const loopConfigPanelStyles = readFileSync(
+  resolve(specDirectory, '../loop/loop-config-panel.component.scss'),
+  'utf8',
+);
 
 await resolveComponentResources((url) => {
   if (url.endsWith('input-panel.component.html')) {
@@ -44,6 +52,14 @@ await resolveComponentResources((url) => {
 
   if (url.endsWith('input-panel.component.scss')) {
     return Promise.resolve(inputPanelStyles);
+  }
+
+  if (url.endsWith('loop-config-panel.component.html')) {
+    return Promise.resolve(loopConfigPanelTemplate);
+  }
+
+  if (url.endsWith('loop-config-panel.component.scss')) {
+    return Promise.resolve(loopConfigPanelStyles);
   }
 
   return Promise.reject(new Error(`Unexpected component resource: ${url}`));
@@ -101,6 +117,7 @@ class LoopToggleStubComponent {
 class LoopConfigPanelStubComponent {
   @Input() workspaceCwd = '';
   @Input() firstMessageHint = '';
+  @Input() seedPrompt: string | null = null;
   @Output() dismissed = new EventEmitter<void>();
   @Output() validityChange = new EventEmitter<boolean>();
   @Output() configChange = new EventEmitter<LoopStartConfigInput | null>();

@@ -1,6 +1,24 @@
+import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { LoopConfigPanelComponent } from './loop-config-panel.component';
+
+const specDirectory = dirname(fileURLToPath(import.meta.url));
+const template = readFileSync(resolve(specDirectory, './loop-config-panel.component.html'), 'utf8');
+const styles = readFileSync(resolve(specDirectory, './loop-config-panel.component.scss'), 'utf8');
+
+await resolveComponentResources((url) => {
+  if (url.endsWith('loop-config-panel.component.html')) {
+    return Promise.resolve(template);
+  }
+  if (url.endsWith('loop-config-panel.component.scss')) {
+    return Promise.resolve(styles);
+  }
+  return Promise.reject(new Error(`Unexpected resource: ${url}`));
+});
 
 describe('LoopConfigPanelComponent', () => {
   let fixture: ComponentFixture<LoopConfigPanelComponent>;

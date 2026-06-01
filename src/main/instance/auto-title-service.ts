@@ -30,7 +30,7 @@ const MAX_FALLBACK_TITLE_LENGTH = 60;
 const AI_TITLE_TIMEOUT = 15_000;
 
 /** Provider preference order for title generation (fastest first) */
-const FAST_PROVIDER_PREFERENCE = ['claude', 'gemini', 'copilot', 'codex'] as const;
+const FAST_PROVIDER_PREFERENCE = ['gemini', 'copilot', 'claude', 'codex'] as const;
 
 /**
  * A bare pointer at the end of a sentence ("…implement this", "…review these")

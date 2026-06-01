@@ -205,8 +205,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
   isResizing = signal(false);
   private resizeStartX = 0;
   private resizeStartWidth = 0;
-  private lastAutoOpenedDraftWorkspace = signal<string | null>(null);
-
   private actionCleanup: (() => void)[] = [];
 
   constructor() {
@@ -232,28 +230,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
       } else {
         void this.sourceControlStore.loadForRoot(null);
       }
-    });
-
-    effect(() => {
-      const workspacePath = this.activeWorkspaceWorkingDir();
-      const hasDraftWorkspace =
-        !this.store.selectedInstance()
-        && !this.chatStore.selectedChatId()
-        && !this.historyStore.previewConversation()
-        && !!workspacePath;
-
-      if (!hasDraftWorkspace) {
-        this.lastAutoOpenedDraftWorkspace.set(null);
-        return;
-      }
-
-      if (workspacePath === this.lastAutoOpenedDraftWorkspace()) {
-        return;
-      }
-
-      this.lastAutoOpenedDraftWorkspace.set(workspacePath);
-      this.showFileExplorer.set(true);
-      this.showSourceControl.set(this.canShowSourceControl());
     });
 
     effect(() => {

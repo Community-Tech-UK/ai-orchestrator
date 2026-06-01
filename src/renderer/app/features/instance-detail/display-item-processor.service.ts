@@ -7,167 +7,32 @@
  */
 
 import type { OutputMessage } from '../../core/state/instance/instance.types';
-import type { ThinkingContent } from '../../../../shared/types/instance.types';
 import type { CopilotPlanUpdate } from './copilot-plan-update';
 import { parseCopilotPlanUpdate } from './copilot-plan-update';
+import type { DisplayItem } from './display-item.types';
+import { parseCompactionSummary, parseInterruptBoundary } from './display-item-metadata-parsers';
+import {
+  ALWAYS_VISIBLE_SYSTEM_ACTIONS,
+  QUIET_INTERRUPT_SYSTEM_MESSAGES,
+  SYSTEM_GROUP_TIME_GAP_MS,
+  buildSystemGroupPreview,
+  resolveSystemActionLabel,
+} from './display-item-system-events';
 
-export interface DisplayItem {
-  id: string;
-  type:
-    | 'message'
-    | 'plan-update'
-    | 'tool-group'
-    | 'thought-group'
-    | 'work-cycle'
-    | 'system-event-group'
-    | 'interrupt-boundary'
-    | 'compaction-summary';
-  message?: OutputMessage;
-  renderedMessage?: unknown;  // SafeHtml at runtime, set by consuming component
-  planUpdate?: CopilotPlanUpdate;
-  toolMessages?: OutputMessage[];
-  thinking?: ThinkingContent[];
-  thoughts?: string[];
-  response?: OutputMessage;
-  renderedResponse?: unknown;  // SafeHtml at runtime, set by consuming component
-  timestamp?: number;
-  repeatCount?: number;
-  showHeader?: boolean;
-  bufferIndex?: number;
-  /** When type === 'work-cycle', the wrapped child items (thoughts/tools/errors). */
-  children?: DisplayItem[];
-  /** Non-empty orchestration system messages that make up this group. */
-  systemEvents?: OutputMessage[];
-  /** Shared orchestration action for a grouped run, e.g. 'get_children'. */
-  groupAction?: string;
-  /** Friendly label shown in the collapsed header. */
-  groupLabel?: string;
-  /** Single-line preview derived from the latest grouped event. */
-  groupPreview?: string;
-  interruptBoundary?: InterruptBoundaryDisplay;
-  compactionSummary?: CompactionSummaryDisplay;
-}
-
-export type InterruptDisplayPhase =
-  | 'requested'
-  | 'cancelling'
-  | 'escalated'
-  | 'respawning'
-  | 'completed';
-
-export type InterruptDisplayOutcome =
-  | 'cancelled'
-  | 'cancelled-for-edit'
-  | 'respawn-success'
-  | 'respawn-fallback'
-  | 'unresolved';
-
-export interface InterruptBoundaryDisplay {
-  phase: InterruptDisplayPhase;
-  requestId: string;
-  outcome: InterruptDisplayOutcome;
-  at: number;
-  reason?: string;
-  fallbackMode?: 'native-resume' | 'resume-unconfirmed' | 'replay-fallback';
-}
-
-export type CompactionFallbackMode =
-  | 'in-place'
-  | 'snapshot-restore'
-  | 'native-resume'
-  | 'replay-fallback';
-
-export interface CompactionSummaryDisplay {
-  reason: string;
-  beforeCount: number;
-  afterCount: number;
-  tokensReclaimed?: number;
-  fallbackMode?: CompactionFallbackMode;
-  at: number;
-}
+export type {
+  CompactionFallbackMode,
+  CompactionSummaryDisplay,
+  DisplayItem,
+  InterruptBoundaryDisplay,
+  InterruptDisplayOutcome,
+  InterruptDisplayPhase,
+} from './display-item.types';
+export {
+  buildSystemGroupPreview,
+  resolveSystemActionLabel,
+} from './display-item-system-events';
 
 const TIME_GAP_THRESHOLD = 2 * 60 * 1000; // 2 minutes
-const SYSTEM_GROUP_TIME_GAP_MS = 5 * 60 * 1000; // 5 minutes
-const SYSTEM_GROUP_PREVIEW_MAX_LEN = 120;
-const ALWAYS_VISIBLE_SYSTEM_ACTIONS: ReadonlySet<string> = new Set([
-  'task_complete',
-  'task_error',
-  'child_completed',
-  'all_children_completed',
-  'request_user_action',
-  'user_action_response',
-  'unknown',
-]);
-const SYSTEM_ACTION_LABELS: Readonly<Record<string, string>> = {
-  consensus_query: 'Consensus query',
-  get_children: 'Active children polled',
-  get_child_output: 'Child output fetched',
-  get_child_summary: 'Child summary fetched',
-  get_child_artifacts: 'Child artifacts fetched',
-  get_child_section: 'Child section fetched',
-  task_progress: 'Task progress',
-  call_tool: 'Tool calls',
-  message_child: 'Messages to children',
-  spawn_child: 'Child spawned',
-  terminate_child: 'Children terminated',
-};
-const QUIET_INTERRUPT_SYSTEM_MESSAGES = new Set<string>([
-  'Interrupted — waiting for input',
-  'Interrupted — session restarted (resume failed)',
-]);
-
-export function resolveSystemActionLabel(action: string): string {
-  const knownLabel = SYSTEM_ACTION_LABELS[action];
-  if (knownLabel) return knownLabel;
-
-  const humanized = action.replace(/_/g, ' ').trim();
-  if (!humanized) return 'System event';
-  return humanized.charAt(0).toUpperCase() + humanized.slice(1);
-}
-
-export function buildSystemGroupPreview(content: string): string {
-  if (!content) return '';
-
-  const cleaned = content
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/`([^`]*)`/g, '$1')
-    .replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, '$1')
-    .replace(/^\s*[-*#>]+\s*/gm, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  if (cleaned.length <= SYSTEM_GROUP_PREVIEW_MAX_LEN) return cleaned;
-  return `${cleaned.slice(0, SYSTEM_GROUP_PREVIEW_MAX_LEN - 3).trimEnd()}...`;
-}
-
-function isInterruptDisplayPhase(value: unknown): value is InterruptDisplayPhase {
-  return value === 'requested' ||
-    value === 'cancelling' ||
-    value === 'escalated' ||
-    value === 'respawning' ||
-    value === 'completed';
-}
-
-function isInterruptDisplayOutcome(value: unknown): value is InterruptDisplayOutcome {
-  return value === 'cancelled' ||
-    value === 'cancelled-for-edit' ||
-    value === 'respawn-success' ||
-    value === 'respawn-fallback' ||
-    value === 'unresolved';
-}
-
-function isInterruptFallbackMode(value: unknown): value is InterruptBoundaryDisplay['fallbackMode'] {
-  return value === 'native-resume' ||
-    value === 'resume-unconfirmed' ||
-    value === 'replay-fallback';
-}
-
-function isCompactionFallbackMode(value: unknown): value is CompactionFallbackMode {
-  return value === 'in-place' ||
-    value === 'snapshot-restore' ||
-    value === 'native-resume' ||
-    value === 'replay-fallback';
-}
 
 export class DisplayItemProcessor {
   private lastProcessedCount = 0;
@@ -258,8 +123,8 @@ export class DisplayItemProcessor {
         'streaming' in msg.metadata &&
         msg.metadata['streaming'] === true;
 
-      const interruptBoundary = this.getInterruptBoundary(msg);
-      const compactionSummary = this.getCompactionSummary(msg);
+      const interruptBoundary = parseInterruptBoundary(msg);
+      const compactionSummary = parseCompactionSummary(msg);
       const planUpdate = this.getPlanUpdate(msg);
       if (interruptBoundary) {
         items.push({
@@ -385,63 +250,6 @@ export class DisplayItemProcessor {
 
   private getPlanUpdate(message: OutputMessage): CopilotPlanUpdate | null {
     return parseCopilotPlanUpdate(message);
-  }
-
-  private getInterruptBoundary(message: OutputMessage): InterruptBoundaryDisplay | null {
-    if (message.type !== 'system' || message.metadata?.['kind'] !== 'interrupt-boundary') {
-      return null;
-    }
-
-    const phase = message.metadata['phase'];
-    const requestId = message.metadata['requestId'];
-    const outcome = message.metadata['outcome'];
-    const at = message.metadata['at'];
-    if (
-      !isInterruptDisplayPhase(phase) ||
-      typeof requestId !== 'string' ||
-      !isInterruptDisplayOutcome(outcome)
-    ) {
-      return null;
-    }
-
-    const fallbackMode = message.metadata['fallbackMode'];
-    return {
-      phase,
-      requestId,
-      outcome,
-      at: typeof at === 'number' ? at : message.timestamp,
-      reason: typeof message.metadata['reason'] === 'string' ? message.metadata['reason'] : undefined,
-      fallbackMode: isInterruptFallbackMode(fallbackMode) ? fallbackMode : undefined,
-    };
-  }
-
-  private getCompactionSummary(message: OutputMessage): CompactionSummaryDisplay | null {
-    if (message.type !== 'system' || message.metadata?.['kind'] !== 'compaction-summary') {
-      return null;
-    }
-
-    const reason = message.metadata['reason'];
-    const beforeCount = message.metadata['beforeCount'];
-    const afterCount = message.metadata['afterCount'];
-    const at = message.metadata['at'];
-    if (
-      typeof reason !== 'string' ||
-      typeof beforeCount !== 'number' ||
-      typeof afterCount !== 'number'
-    ) {
-      return null;
-    }
-
-    const fallbackMode = message.metadata['fallbackMode'];
-    const tokensReclaimed = message.metadata['tokensReclaimed'];
-    return {
-      reason,
-      beforeCount,
-      afterCount,
-      tokensReclaimed: typeof tokensReclaimed === 'number' ? tokensReclaimed : undefined,
-      fallbackMode: isCompactionFallbackMode(fallbackMode) ? fallbackMode : undefined,
-      at: typeof at === 'number' ? at : message.timestamp,
-    };
   }
 
   private mergeNewItems(newItems: DisplayItem[]): void {

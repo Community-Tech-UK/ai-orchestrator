@@ -34,7 +34,6 @@ import {
 import type { ExportedSession } from '../../../shared/types/instance.types';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getHistoryManager } from '../../history';
-import { getAutoTitleService } from '../../instance/auto-title-service';
 import { getSessionArchiveManager } from '../../session/session-archive';
 import { getSessionShareService } from '../../session/session-share-service';
 import { getSessionContinuityManager } from '../../session/session-continuity';
@@ -761,15 +760,6 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
       try {
         const validated = validateIpcPayload(HistoryListPayloadSchema, payload, 'HISTORY_LIST');
         const entries = history.getEntries(validated);
-        // Fire-and-forget: give the listed older threads an AI-chosen rail name
-        // (Haiku) on a future load. Bounded + deduped inside the manager; the
-        // front-loaded first message is shown until a title lands. Skipped under
-        // Vitest so test runs never spawn real CLI title processes.
-        if (process.env['VITEST'] !== 'true') {
-          void history.backfillMissingAiTitles(entries, (text) =>
-            getAutoTitleService().generateTitle(text)
-          );
-        }
         return {
           success: true,
           data: entries

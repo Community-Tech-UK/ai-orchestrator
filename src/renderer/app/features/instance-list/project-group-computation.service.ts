@@ -6,7 +6,7 @@ import type {
   HierarchicalHistoryItem,
   HierarchicalInstance,
   HierarchicalRailItem,
-} from './instance-list.component';
+} from './instance-list.types';
 
 interface ProjectStateSummary {
   projectStateLabel: string;
