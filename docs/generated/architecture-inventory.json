@@ -5419,6 +5419,10 @@
       "lines": 940
     },
     {
+      "path": "src/main/app/initialization-steps.ts",
+      "lines": 913
+    },
+    {
       "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
       "lines": 908
     },
@@ -5453,10 +5457,6 @@
     {
       "path": "src/main/cli/adapters/gemini-cli-adapter.ts",
       "lines": 887
-    },
-    {
-      "path": "src/main/app/initialization-steps.ts",
-      "lines": 882
     },
     {
       "path": "src/main/rlm/smart-compaction.ts",

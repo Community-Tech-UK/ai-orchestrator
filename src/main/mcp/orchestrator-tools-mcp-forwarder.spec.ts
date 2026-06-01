@@ -7,9 +7,27 @@ function stubClient(impl: OrchestratorToolsRpcClientLike['call']): OrchestratorT
 }
 
 describe('createOrchestratorToolsForwarderTools', () => {
-  it('exposes git_batch_pull, run_on_node and read_node_output as the MCP tools', () => {
+  it('exposes git_batch_pull, list_remote_nodes, run_on_node and read_node_output as the MCP tools', () => {
     const tools = createOrchestratorToolsForwarderTools(stubClient(async () => null));
-    expect(tools.map((t) => t.name)).toEqual(['git_batch_pull', 'run_on_node', 'read_node_output']);
+    expect(tools.map((t) => t.name)).toEqual([
+      'git_batch_pull',
+      'list_remote_nodes',
+      'run_on_node',
+      'read_node_output',
+    ]);
+  });
+
+  it('forwards list_remote_nodes invocations with the canonical method name', async () => {
+    const call = vi.fn(async () => ({ connectedCount: 1, totalCount: 1, nodes: [] }));
+    const listTool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'list_remote_nodes',
+    );
+
+    const result = await listTool!.handler({});
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.list_remote_nodes', {});
+    expect(result).toEqual({ connectedCount: 1, totalCount: 1, nodes: [] });
   });
 
   it('forwards read_node_output invocations with the canonical method name', async () => {

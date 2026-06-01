@@ -177,6 +177,107 @@ describe('orchestrator MCP tools', () => {
     }));
   });
 
+  it('list_remote_nodes returns sanitized remote worker status and capabilities', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      listRemoteNodes: async () => ({
+        connectedCount: 1,
+        totalCount: 2,
+        nodes: [
+          {
+            id: 'node-1',
+            name: 'windows-pc',
+            status: 'connected',
+            platform: 'win32',
+            arch: 'x64',
+            supportedClis: ['claude', 'codex'],
+            hasBrowserRuntime: true,
+            hasBrowserMcp: true,
+            hasDocker: false,
+            gpuName: 'NVIDIA RTX 4090',
+            gpuMemoryMB: 24576,
+            activeInstances: 1,
+            maxConcurrentInstances: 4,
+            workingDirectories: ['C:/Users/James/projects'],
+            lastHeartbeat: 1234,
+            latencyMs: 18,
+          },
+          {
+            id: 'node-2',
+            name: 'linux-box',
+            status: 'degraded',
+            platform: 'linux',
+            arch: 'arm64',
+            supportedClis: ['gemini'],
+            hasBrowserRuntime: false,
+            hasBrowserMcp: false,
+            hasDocker: true,
+            activeInstances: 0,
+            maxConcurrentInstances: 2,
+            workingDirectories: ['/work'],
+          },
+        ],
+      }),
+    } as Parameters<typeof createOrchestratorToolDefinitions>[0] & {
+      listRemoteNodes: () => Promise<unknown>;
+    });
+    const listTool = tools.find((t) => t.name === 'list_remote_nodes');
+
+    expect(listTool).toBeDefined();
+    const result = await listTool!.handler({});
+
+    expect(result).toEqual({
+      connectedCount: 1,
+      totalCount: 2,
+      nodes: [
+        {
+          id: 'node-1',
+          name: 'windows-pc',
+          status: 'connected',
+          platform: 'win32',
+          arch: 'x64',
+          supportedClis: ['claude', 'codex'],
+          hasBrowserRuntime: true,
+          hasBrowserMcp: true,
+          hasDocker: false,
+          gpuName: 'NVIDIA RTX 4090',
+          gpuMemoryMB: 24576,
+          activeInstances: 1,
+          maxConcurrentInstances: 4,
+          workingDirectories: ['C:/Users/James/projects'],
+          lastHeartbeat: 1234,
+          latencyMs: 18,
+        },
+        {
+          id: 'node-2',
+          name: 'linux-box',
+          status: 'degraded',
+          platform: 'linux',
+          arch: 'arm64',
+          supportedClis: ['gemini'],
+          hasBrowserRuntime: false,
+          hasBrowserMcp: false,
+          hasDocker: true,
+          activeInstances: 0,
+          maxConcurrentInstances: 2,
+          workingDirectories: ['/work'],
+        },
+      ],
+    });
+  });
+
+  it('describes remote worker tools with Windows PC and inspect-first language', () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({ db, instanceId: null });
+    const runOnNode = tools.find((t) => t.name === 'run_on_node');
+
+    expect(runOnNode?.description).toMatch(/Windows PC/i);
+    expect(runOnNode?.description).toMatch(/remote machine|other machine/i);
+    expect(runOnNode?.description).toMatch(/list_remote_nodes/i);
+  });
+
   it('run_on_node forwards parsed args to the injected spawnRemoteInstance', async () => {
     const db = createDb();
     const calls: unknown[] = [];

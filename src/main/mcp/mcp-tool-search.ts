@@ -133,6 +133,9 @@ interface ToolIndex {
  * Inspired by Claude Code 2.1.84 which caps descriptions at 2KB.
  */
 const MAX_TOOL_DESCRIPTION_LENGTH = 2048;
+const DEFAULT_SERVER_SEARCH_HINT = 'Use MCP tool search for detailed tool descriptions when needed.';
+const ORCHESTRATOR_REMOTE_TOOLS_SEARCH_HINT =
+  'AIO can use connected remote worker nodes, including Windows PCs and other machines, through list_remote_nodes, run_on_node, and read_node_output. Inspect nodes before claiming reachability.';
 
 /**
  * Truncate a tool description to the maximum allowed length.
@@ -149,10 +152,10 @@ function truncateDescription(description: string): string {
  * MCP Tool Search Service
  */
 export class MCPToolSearchService extends EventEmitter {
-  private servers: Map<string, MCPServer> = new Map();
+  private servers = new Map<string, MCPServer>();
   private index: ToolIndex;
-  private loadedTools: Set<string> = new Set();
-  private toolUsageStats: Map<string, { count: number; lastUsed: number; avgDuration: number }> = new Map();
+  private loadedTools = new Set<string>();
+  private toolUsageStats = new Map<string, { count: number; lastUsed: number; avgDuration: number }>();
 
   constructor() {
     super();
@@ -433,7 +436,7 @@ export class MCPToolSearchService extends EventEmitter {
       '.css': ['css', 'style', 'web'],
     };
 
-    const relevantTags: Set<string> = new Set();
+    const relevantTags = new Set<string>();
     for (const fileType of fileTypes) {
       const patterns = fileTypePatterns[fileType] || [];
       for (const pattern of patterns) {
@@ -457,8 +460,8 @@ export class MCPToolSearchService extends EventEmitter {
   private getComplementaryTools(recentToolIds: string[]): MCPTool[] {
     // Simple heuristic: tools from same server or same category
     const tools: MCPTool[] = [];
-    const seenServers: Set<string> = new Set();
-    const seenCategories: Set<string> = new Set();
+    const seenServers = new Set<string>();
+    const seenCategories = new Set<string>();
 
     for (const toolId of recentToolIds) {
       const tool = this.index.tools.get(toolId);
@@ -618,14 +621,25 @@ export class MCPToolSearchService extends EventEmitter {
   }
 
   getServerSummaries(): MCPServerSummary[] {
-    return Array.from(this.servers.values()).map((server) => ({
-      serverId: server.id,
-      serverName: server.name,
-      toolCount: this.index.byServer.get(server.id)?.length ?? 0,
-      resourceCount: server.resources.length,
-      promptCount: 0,
-      searchHint: 'Use MCP tool search for detailed tool descriptions when needed.',
-    }));
+    return Array.from(this.servers.values()).map((server) => {
+      const toolIds = this.index.byServer.get(server.id) ?? [];
+      return {
+        serverId: server.id,
+        serverName: server.name,
+        toolCount: toolIds.length,
+        resourceCount: server.resources.length,
+        promptCount: 0,
+        searchHint: this.getServerSearchHint(toolIds),
+      };
+    });
+  }
+
+  private getServerSearchHint(toolIds: string[]): string {
+    const hasRemoteNodeTools = toolIds.some((toolId) => {
+      const name = this.index.tools.get(toolId)?.name;
+      return name === 'list_remote_nodes' || name === 'run_on_node';
+    });
+    return hasRemoteNodeTools ? ORCHESTRATOR_REMOTE_TOOLS_SEARCH_HINT : DEFAULT_SERVER_SEARCH_HINT;
   }
 
   /**

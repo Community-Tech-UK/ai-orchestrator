@@ -16,6 +16,40 @@ export const GitBatchPullArgsSchema = z.object({
 
 export type GitBatchPullArgs = z.infer<typeof GitBatchPullArgsSchema>;
 
+export const ListRemoteNodesArgsSchema = z.object({}).strict();
+
+export type ListRemoteNodesArgs = z.infer<typeof ListRemoteNodesArgsSchema>;
+
+export interface RemoteNodeToolInfo {
+  id: string;
+  name: string;
+  status: 'connecting' | 'connected' | 'degraded' | 'disconnected';
+  platform: string;
+  arch: string;
+  supportedClis: string[];
+  hasBrowserRuntime: boolean;
+  hasBrowserMcp: boolean;
+  hasDocker: boolean;
+  gpuName?: string;
+  gpuMemoryMB?: number;
+  activeInstances: number;
+  maxConcurrentInstances: number;
+  workingDirectories: string[];
+  lastHeartbeat?: number;
+  latencyMs?: number;
+}
+
+export interface ListRemoteNodesResult {
+  connectedCount: number;
+  totalCount: number;
+  nodes: RemoteNodeToolInfo[];
+}
+
+export type ListRemoteNodesFn = () => Promise<ListRemoteNodesResult>;
+
+export const REMOTE_NODE_DISCOVERY_HINT =
+  'AIO can use connected remote worker nodes, including Windows PCs, other machines, remote machines, and another computer, through list_remote_nodes, run_on_node, and read_node_output. Call list_remote_nodes first when reachability matters.';
+
 export const RunOnNodeArgsSchema = z.object({
   /**
    * Target worker node by name (e.g. "windows-pc") or node id (UUID). Optional:
@@ -121,6 +155,7 @@ export interface OrchestratorToolRuntimeContext {
   instanceId?: string | null;
   ledger?: ConversationLedgerService | null;
   gitBatchService?: GitBatchService;
+  listRemoteNodes?: ListRemoteNodesFn | null;
   spawnRemoteInstance?: SpawnRemoteInstanceFn | null;
   readInstanceOutput?: ReadInstanceOutputFn | null;
 }
@@ -310,9 +345,29 @@ export function createOrchestratorToolDefinitions(
       },
     },
     {
+      name: 'list_remote_nodes',
+      description:
+        `${REMOTE_NODE_DISCOVERY_HINT} Lists currently registered remote worker nodes with status, platform, supported CLIs, browser/GPU/Docker capabilities, active capacity, working directories, heartbeat, and latency. Read-only; does not spawn work.`,
+      inputSchema: {
+        type: 'object',
+        properties: {},
+        required: [],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        ListRemoteNodesArgsSchema.parse(args);
+        if (!context.listRemoteNodes) {
+          throw new Error(
+            'list_remote_nodes is unavailable: remote node listing is not wired in this process',
+          );
+        }
+        return context.listRemoteNodes();
+      },
+    },
+    {
       name: 'run_on_node',
       description:
-        'Run a task on a connected remote worker node (e.g. "windows-pc") by spawning an AI agent there with the given prompt. The agent runs project-lessly using the node\'s default working directory unless one is provided. Returns immediately with the spawned instance id; output streams asynchronously and can be inspected from the app.',
+        `${REMOTE_NODE_DISCOVERY_HINT} Run a task on a connected remote worker node, such as a Windows PC, other machine, remote machine, or another computer, by spawning an AI agent there with the given prompt. The agent runs project-lessly using the node's default working directory unless one is provided. Returns immediately with the spawned instance id; output streams asynchronously and can be inspected from the app or read with read_node_output.`,
       inputSchema: {
         type: 'object',
         properties: {

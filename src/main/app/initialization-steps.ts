@@ -32,6 +32,7 @@ import {
   getRemoteNodeConfig,
   hydrateRemoteNodeConfig,
 } from '../remote-node';
+import { resolveWorkerNodeTarget } from '../remote-node/worker-node-registry';
 import { getCrossModelReviewService } from '../orchestration/cross-model-review-service';
 import { registerCrossModelReviewIpcHandlers } from '../ipc/cross-model-review-ipc';
 import {
@@ -584,7 +585,6 @@ export function createInitializationSteps(
       // bail out (and log a warning) if the socket path is missing.
       name: 'Orchestrator-tools RPC server',
       fn: async () => {
-        const { app } = await import('electron');
         // Statuses where the instance is still actively working a turn. Used to
         // derive `done` for read_node_output. Mirrors the mobile gateway's
         // WORKING_STATUSES.
@@ -605,6 +605,33 @@ export function createInitializationSteps(
         await initializeOrchestratorToolsRpcServer({
           operatorDbPath: defaultOperatorDbPath(),
           isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
+          // Backs the read-only `list_remote_nodes` MCP tool: expose only
+          // operational routing/status fields already advertised by workers.
+          listRemoteNodes: async () => {
+            const nodes = getWorkerNodeRegistry().getAllNodes();
+            return {
+              connectedCount: nodes.filter((node) => node.status === 'connected').length,
+              totalCount: nodes.length,
+              nodes: nodes.map((node) => ({
+                id: node.id,
+                name: node.name,
+                status: node.status,
+                platform: node.capabilities.platform,
+                arch: node.capabilities.arch,
+                supportedClis: [...node.capabilities.supportedClis],
+                hasBrowserRuntime: node.capabilities.hasBrowserRuntime,
+                hasBrowserMcp: node.capabilities.hasBrowserMcp,
+                hasDocker: node.capabilities.hasDocker,
+                ...(node.capabilities.gpuName ? { gpuName: node.capabilities.gpuName } : {}),
+                ...(node.capabilities.gpuMemoryMB ? { gpuMemoryMB: node.capabilities.gpuMemoryMB } : {}),
+                activeInstances: node.activeInstances,
+                maxConcurrentInstances: node.capabilities.maxConcurrentInstances,
+                workingDirectories: [...node.capabilities.workingDirectories],
+                ...(node.lastHeartbeat !== undefined ? { lastHeartbeat: node.lastHeartbeat } : {}),
+                ...(node.latencyMs !== undefined ? { latencyMs: node.latencyMs } : {}),
+              })),
+            };
+          },
           // Backs the `run_on_node` MCP tool: resolve the target worker node and
           // spawn an agent on it via the already-deployed `instance.spawn` RPC.
           // Mirrors the `/run-on` channel command (project-less default cwd).
@@ -651,7 +678,11 @@ export function createInitializationSteps(
             );
             let node;
             if (args.node) {
-              node = allNodes.find((n) => n.name === args.node || n.id === args.node);
+              const resolved = resolveWorkerNodeTarget(args.node, connected);
+              if ('error' in resolved) {
+                throw new Error(resolved.error);
+              }
+              node = connected.find((n) => n.id === resolved.nodeId);
               if (!node) {
                 throw new Error(`Worker node not found: ${args.node}`);
               }
