@@ -25,6 +25,12 @@
 
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { VcsIpcService } from '../services/ipc/vcs-ipc.service';
+import {
+  readStorage,
+  removeStorage,
+  writeStorage,
+  type StorageField,
+} from '../../shared/utils/typed-storage';
 import type {
   BranchInfo,
   DiffViewerRequest,
@@ -53,6 +59,84 @@ export interface LongOpState {
   kind: 'fetch' | 'pull' | 'push';
   phase: 'started' | 'running' | 'completed' | 'cancelled' | 'failed';
   startedAt: number;
+}
+
+const NESTED_REPO_VISIBILITY_FIELD: StorageField<Record<string, boolean>> = {
+  key: 'source-control:nested-repos',
+  version: 1,
+  defaultValue: {},
+  validate: isBooleanRecord,
+};
+
+function isBooleanRecord(value: unknown): value is Record<string, boolean> {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  return Object.values(value as Record<string, unknown>).every(entry => typeof entry === 'boolean');
+}
+
+function normalizeRepoPath(root: string): string {
+  const normalized = root.replace(/\\/g, '/').replace(/\/+$/, '');
+  return normalized || '/';
+}
+
+function normalizeRootStorageKey(root: string): string {
+  return normalizeRepoPath(root);
+}
+
+function deriveRepoVisibility(
+  root: string | null,
+  repos: RepoState[],
+  nestedRepoVisibilityPrefs: Record<string, boolean>
+): {
+    visibleRepos: RepoState[];
+    nestedRepoCount: number;
+    hiddenNestedRepoCount: number;
+    canToggleNestedRepos: boolean;
+    showingNestedRepos: boolean;
+  } {
+  if (!root || repos.length === 0) {
+    return {
+      visibleRepos: repos,
+      nestedRepoCount: 0,
+      hiddenNestedRepoCount: 0,
+      canToggleNestedRepos: false,
+      showingNestedRepos: true,
+    };
+  }
+
+  const normalizedRoot = normalizeRepoPath(root);
+  const rootRepo = repos.find(repo => normalizeRepoPath(repo.absolutePath) === normalizedRoot) ?? null;
+  if (!rootRepo) {
+    return {
+      visibleRepos: repos,
+      nestedRepoCount: 0,
+      hiddenNestedRepoCount: 0,
+      canToggleNestedRepos: false,
+      showingNestedRepos: true,
+    };
+  }
+
+  const nestedRepos = repos.filter(repo => repo.absolutePath !== rootRepo.absolutePath);
+  if (nestedRepos.length === 0) {
+    return {
+      visibleRepos: repos,
+      nestedRepoCount: 0,
+      hiddenNestedRepoCount: 0,
+      canToggleNestedRepos: false,
+      showingNestedRepos: true,
+    };
+  }
+
+  const rootKey = normalizeRootStorageKey(normalizedRoot);
+  const showingNestedRepos = nestedRepoVisibilityPrefs[rootKey] === true;
+  return {
+    visibleRepos: showingNestedRepos ? repos : [rootRepo],
+    nestedRepoCount: nestedRepos.length,
+    hiddenNestedRepoCount: showingNestedRepos ? 0 : nestedRepos.length,
+    canToggleNestedRepos: true,
+    showingNestedRepos,
+  };
 }
 
 @Injectable({ providedIn: 'root' })
@@ -109,6 +193,9 @@ export class SourceControlStore {
   // ---------------------------------------------------------------------
 
   readonly repos = signal<RepoState[]>([]);
+  private readonly nestedRepoVisibilityPrefs = signal<Record<string, boolean>>(
+    readStorage(NESTED_REPO_VISIBILITY_FIELD)
+  );
   readonly isRefreshing = signal(false);
   readonly initialLoad = signal(true);
   readonly loadError = signal<string | null>(null);
@@ -132,6 +219,16 @@ export class SourceControlStore {
    * state.
    */
   readonly activeRoot = signal<string | null>(null);
+  private readonly repoVisibility = computed(() => deriveRepoVisibility(
+    this.activeRoot(),
+    this.repos(),
+    this.nestedRepoVisibilityPrefs()
+  ));
+  readonly visibleRepos = computed(() => this.repoVisibility().visibleRepos);
+  readonly nestedRepoCount = computed(() => this.repoVisibility().nestedRepoCount);
+  readonly hiddenNestedRepoCount = computed(() => this.repoVisibility().hiddenNestedRepoCount);
+  readonly canToggleNestedRepos = computed(() => this.repoVisibility().canToggleNestedRepos);
+  readonly showingNestedRepos = computed(() => this.repoVisibility().showingNestedRepos);
 
   /**
    * Aggregate change count across all repos for the active root.
@@ -292,6 +389,7 @@ export class SourceControlStore {
       this.isRefreshing.set(false);
       this.lastRefreshedRoot = null;
       // Drop inline expansions and branch caches: they belonged to the now-defunct root.
+      this.expandedRepos.set(new Set());
       this.expandedFiles.set(new Set());
       this.availableBranchesByRepo.set({});
       // Stop main-process watchers — nothing to watch.
@@ -299,16 +397,21 @@ export class SourceControlStore {
       return;
     }
 
+    const normalizedRoot = normalizeRepoPath(root);
+
     // Dashboard effects can re-run when the selected instance object
     // changes even if its working directory did not. Treat loadForRoot
     // as a root-selection API; manual refresh and watcher-driven updates
     // still go through refresh()/refreshOne().
-    if (root === this.activeRoot() && (this.isRefreshing() || this.lastRefreshedRoot === root)) {
+    if (
+      normalizedRoot === this.activeRoot()
+      && (this.isRefreshing() || this.lastRefreshedRoot === normalizedRoot)
+    ) {
       return;
     }
 
-    this.activeRoot.set(root);
-    return this.refresh(root);
+    this.activeRoot.set(normalizedRoot);
+    return this.refresh(normalizedRoot);
   }
 
   /**
@@ -393,11 +496,29 @@ export class SourceControlStore {
       });
       this.repos.set(initialStates);
 
+      const initialVisibility = deriveRepoVisibility(
+        root,
+        initialStates,
+        this.nestedRepoVisibilityPrefs()
+      );
+      const visibleRepoPaths = new Set(initialVisibility.visibleRepos.map(repo => repo.absolutePath));
+      const trackedRepoPaths = new Set(initialStates.map(repo => repo.absolutePath));
+
       // Auto-expand all repos when the working directory changes (first
       // load OR project switch). Manual refresh of the same project
       // preserves the user's per-repo collapse choices.
       if (isNewRoot) {
-        this.expandedRepos.set(new Set(repoPaths));
+        this.expandedRepos.set(new Set(visibleRepoPaths));
+      } else {
+        this.expandedRepos.update(current => {
+          const next = new Set<string>();
+          for (const repoPath of current) {
+            if (!trackedRepoPaths.has(repoPath)) continue;
+            if (!initialVisibility.showingNestedRepos && !visibleRepoPaths.has(repoPath)) continue;
+            next.add(repoPath);
+          }
+          return next;
+        });
       }
       this.lastRefreshedRoot = root;
 
@@ -873,6 +994,30 @@ export class SourceControlStore {
     });
   }
 
+  toggleNestedRepoVisibility(): void {
+    const root = this.activeRoot();
+    if (!root || !this.canToggleNestedRepos()) {
+      return;
+    }
+    const rootKey = normalizeRootStorageKey(root);
+    const nextValue = !this.showingNestedRepos();
+
+    this.nestedRepoVisibilityPrefs.update(current => {
+      const next = {
+        ...current,
+        [rootKey]: nextValue,
+      };
+      writeStorage(NESTED_REPO_VISIBILITY_FIELD, next);
+      return next;
+    });
+
+    this.expandedRepos.set(
+      nextValue
+        ? new Set(this.repos().map(repo => repo.absolutePath))
+        : new Set([root])
+    );
+  }
+
   /**
    * Build the stable key for the inline-file expansion set. Staged
    * and unstaged variants of the same path are independent rows.
@@ -919,6 +1064,8 @@ export class SourceControlStore {
   _resetForTesting(): void {
     ++this.requestSeq; // abort any in-flight async work
     this.repos.set([]);
+    removeStorage(NESTED_REPO_VISIBILITY_FIELD.key);
+    this.nestedRepoVisibilityPrefs.set(NESTED_REPO_VISIBILITY_FIELD.defaultValue);
     this.isRefreshing.set(false);
     this.initialLoad.set(true);
     this.loadError.set(null);
@@ -973,9 +1120,11 @@ export function generateOpId(prefix: string): string {
 
 /** Pure helper — exported only for tests. */
 export function relativeFromRoot(root: string, absolute: string): string {
-  if (absolute === root) return '.';
-  if (absolute.startsWith(root + '/')) {
-    return absolute.slice(root.length + 1);
+  const normalizedRoot = normalizeRepoPath(root);
+  const normalizedAbsolute = normalizeRepoPath(absolute);
+  if (normalizedAbsolute === normalizedRoot) return '.';
+  if (normalizedAbsolute.startsWith(normalizedRoot + '/')) {
+    return normalizedAbsolute.slice(normalizedRoot.length + 1);
   }
-  return absolute;
+  return normalizedAbsolute;
 }

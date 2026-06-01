@@ -25,14 +25,15 @@ export class ProjectGroupComputationService {
   private newSessionDraft = inject(NewSessionDraftService);
 
   /**
-   * Statuses that count as "Active" — a session that is live and engaged
-   * (running a turn, processing, or awaiting the user) as opposed to one that
-   * is sitting idle/ready, hibernated, or in a terminal/error state. Backs the
-   * "Active" option in the State filter, which is broader than the exact-match
-   * "Busy" option.
+   * Statuses that count as "Active" in the State filter: live/current sessions
+   * that are not archived into hibernation or a terminal/error state. This is
+   * broader than the exact-match "Busy" option and intentionally includes idle
+   * sessions.
    */
   private static readonly ACTIVE_STATUSES: ReadonlySet<Instance['status']> = new Set([
     'initializing',
+    'ready',
+    'idle',
     'busy',
     'processing',
     'thinking_deeply',
@@ -42,7 +43,9 @@ export class ProjectGroupComputationService {
     'cancelling',
     'interrupt-escalating',
     'respawning',
+    'hibernating',
     'waking',
+    'degraded',
   ]);
 
   isActiveStatus(status: Instance['status']): boolean {

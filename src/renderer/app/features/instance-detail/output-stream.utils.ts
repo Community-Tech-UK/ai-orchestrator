@@ -3,6 +3,13 @@
  * None of these touch component state or Angular signals.
  */
 
+import type { LinkedFileTarget } from './output-stream.types';
+
+export interface BuildLinkedFileTargetOptions {
+  workingDirectory?: string | null;
+  isRemote?: boolean;
+}
+
 export function fileUrlToPath(path: string): string {
   if (!path.startsWith('file://')) {
     return path;
@@ -72,6 +79,50 @@ export function joinAndNormalizePath(base: string, relative: string): string {
   const separator = pathSeparatorFor(base);
   const joined = `${base.replace(/[\\/]+$/, '')}${separator}${relative}`;
   return normalizePathLike(joined, separator);
+}
+
+export function resolvePathAgainstWorkingDirectory(path: string, workingDirectory?: string | null): string {
+  if (!path || isAbsoluteFilePath(path)) {
+    return path;
+  }
+
+  const base = workingDirectory?.trim();
+  if (!base) {
+    return path;
+  }
+
+  return joinAndNormalizePath(base, path);
+}
+
+export function canUseLocalFileActions(
+  path: string,
+  workingDirectory?: string | null,
+  isRemote = false,
+): boolean {
+  if (isRemote) {
+    return false;
+  }
+
+  return isAbsoluteFilePath(path) || Boolean(workingDirectory?.trim());
+}
+
+export function buildLinkedFileTarget(
+  rawPath: string,
+  options: BuildLinkedFileTargetOptions = {},
+): LinkedFileTarget {
+  const path = fileUrlToPath(rawPath.trim());
+  const resolvedPath = resolvePathAgainstWorkingDirectory(path, options.workingDirectory);
+
+  return {
+    rawPath: path,
+    resolvedPath,
+    displayPath: path,
+    canUseLocalFileActions: canUseLocalFileActions(
+      path,
+      options.workingDirectory,
+      options.isRemote ?? false,
+    ),
+  };
 }
 
 export function getSystemFileManagerLabel(): string {

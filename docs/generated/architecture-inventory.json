@@ -5091,6 +5091,10 @@
       "lines": 1360
     },
     {
+      "path": "src/renderer/app/core/state/source-control.store.spec.ts",
+      "lines": 1345
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-02-phase-a-type-safety-utilities.md",
       "lines": 1344
     },
@@ -5175,10 +5179,6 @@
       "lines": 1208
     },
     {
-      "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
-      "lines": 1205
-    },
-    {
       "path": "src/main/orchestration/debate-coordinator.ts",
       "lines": 1196
     },
@@ -5191,8 +5191,8 @@
       "lines": 1186
     },
     {
-      "path": "src/renderer/app/core/state/source-control.store.spec.ts",
-      "lines": 1181
+      "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
+      "lines": 1178
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-streaming-tool-executor.COMPLETED.md",
@@ -5235,6 +5235,10 @@
       "lines": 1139
     },
     {
+      "path": "src/renderer/app/core/state/source-control.store.ts",
+      "lines": 1131
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md",
       "lines": 1127
     },
@@ -5271,6 +5275,10 @@
       "lines": 1087
     },
     {
+      "path": "src/renderer/app/features/source-control/source-control.component.ts",
+      "lines": 1087
+    },
+    {
       "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
       "lines": 1071
     },
@@ -5293,10 +5301,6 @@
     {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
       "lines": 1036
-    },
-    {
-      "path": "src/renderer/app/features/source-control/source-control.component.ts",
-      "lines": 1034
     },
     {
       "path": "docs/superpowers/plans/2026-03-14-worktree-safety-attention-cost.md",
@@ -5341,10 +5345,6 @@
     {
       "path": "src/main/instance/instance-communication.spec.ts",
       "lines": 986
-    },
-    {
-      "path": "src/renderer/app/core/state/source-control.store.ts",
-      "lines": 982
     },
     {
       "path": "src/main/cli/adapters/copilot-cli-adapter.ts",

@@ -50,9 +50,7 @@ import {
 } from './compute-stable-display-items';
 import type { RenderedMarkdown, RenderedDisplayItem, LinkedFileTarget } from './output-stream.types';
 import {
-  fileUrlToPath,
-  isAbsoluteFilePath,
-  joinAndNormalizePath,
+  buildLinkedFileTarget as createLinkedFileTarget,
   getSystemFileManagerLabel,
 } from './output-stream.utils';
 
@@ -1078,14 +1076,11 @@ export class OutputStreamComponent {
   }
 
   private buildLinkedFileTarget(rawPath: string): LinkedFileTarget {
-    const path = fileUrlToPath(rawPath.trim());
-    const resolvedPath = this.resolvePathAgainstWorkingDirectory(path);
-    return {
-      rawPath: path,
-      resolvedPath,
-      displayPath: resolvedPath,
-      canUseLocalFileActions: this.canUseLocalFileActions(path),
-    };
+    const instance = this.instanceStore.getInstance(this.instanceId());
+    return createLinkedFileTarget(rawPath, {
+      workingDirectory: instance?.workingDirectory,
+      isRemote: instance?.executionLocation?.type === 'remote',
+    });
   }
 
   private async copyLinkedFilePath(target: LinkedFileTarget): Promise<void> {
@@ -1115,28 +1110,6 @@ export class OutputStreamComponent {
     if (!response.success) {
       console.error('Failed to reveal linked file:', response.error?.message ?? 'Unknown error');
     }
-  }
-
-  private canUseLocalFileActions(path: string): boolean {
-    const instance = this.instanceStore.getInstance(this.instanceId());
-    if (instance?.executionLocation?.type === 'remote') {
-      return false;
-    }
-
-    return isAbsoluteFilePath(path) || Boolean(instance?.workingDirectory?.trim());
-  }
-
-  private resolvePathAgainstWorkingDirectory(path: string): string {
-    if (!path || isAbsoluteFilePath(path)) {
-      return path;
-    }
-
-    const workingDirectory = this.instanceStore.getInstance(this.instanceId())?.workingDirectory?.trim();
-    if (!workingDirectory) {
-      return path;
-    }
-
-    return joinAndNormalizePath(workingDirectory, path);
   }
 
   private renderItemMarkdown(item: DisplayItem): void {

@@ -165,17 +165,42 @@ describe('ProjectGroupComputationService filtering', () => {
     expect(service.countSessionsInTree(source, context.childrenByParent, context.instanceMap)).toBe(0);
   });
 
-  it('treats engaged statuses as active and idle/terminal ones as inactive', () => {
-    expect(service.isActiveStatus('busy')).toBe(true);
-    expect(service.isActiveStatus('waiting_for_input')).toBe(true);
-    expect(service.isActiveStatus('initializing')).toBe(true);
-    expect(service.isActiveStatus('idle')).toBe(false);
-    expect(service.isActiveStatus('ready')).toBe(false);
-    expect(service.isActiveStatus('error')).toBe(false);
-    expect(service.isActiveStatus('terminated')).toBe(false);
+  it('treats live non-hibernated statuses as active and archived statuses as inactive', () => {
+    const activeStatuses: Instance['status'][] = [
+      'initializing',
+      'ready',
+      'idle',
+      'busy',
+      'processing',
+      'thinking_deeply',
+      'waiting_for_input',
+      'waiting_for_permission',
+      'interrupting',
+      'cancelling',
+      'interrupt-escalating',
+      'respawning',
+      'hibernating',
+      'waking',
+      'degraded',
+    ];
+    const inactiveStatuses: Instance['status'][] = [
+      'cancelled',
+      'superseded',
+      'hibernated',
+      'error',
+      'failed',
+      'terminated',
+    ];
+
+    for (const status of activeStatuses) {
+      expect(service.isActiveStatus(status), status).toBe(true);
+    }
+    for (const status of inactiveStatuses) {
+      expect(service.isActiveStatus(status), status).toBe(false);
+    }
   });
 
-  it('includes engaged sessions and excludes idle ones under the active state filter', () => {
+  it('includes idle sessions and excludes hibernated sessions under the active state filter', () => {
     const baseContext = {
       filter: '',
       location: 'all' as const,
@@ -199,7 +224,14 @@ describe('ProjectGroupComputationService filtering', () => {
       idle,
       { ...baseContext, status: 'active', instanceMap: new Map([[idle.id, idle]]) }
     );
-    expect(idleItems).toBeNull();
+    expect(idleItems?.instance.id).toBe('idle-1');
+
+    const hibernated = makeInstance({ id: 'hibernated-1', status: 'hibernated' });
+    const hibernatedItems = service.buildVisibleItems(
+      hibernated,
+      { ...baseContext, status: 'active', instanceMap: new Map([[hibernated.id, hibernated]]) }
+    );
+    expect(hibernatedItems).toBeNull();
   });
 
   it('keeps an idle parent visible when a child is active under the active filter', () => {

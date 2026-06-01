@@ -329,6 +329,75 @@ describe('SourceControlStore', () => {
       await promise;
     });
 
+    it('shows only the workspace repo by default when the root is itself a repo', async () => {
+      const promise = store.loadForRoot('/work/project');
+      pendingFinds[0].resolve({
+        repositories: ['/work/project', '/work/project/nested-a', '/work/project/nested-b'],
+        gitAvailable: true,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(store.repos().map(repo => repo.absolutePath)).toEqual([
+        '/work/project',
+        '/work/project/nested-a',
+        '/work/project/nested-b',
+      ]);
+      expect(store.visibleRepos().map(repo => repo.absolutePath)).toEqual(['/work/project']);
+      expect(store.canToggleNestedRepos()).toBe(true);
+      expect(store.hiddenNestedRepoCount()).toBe(2);
+      expect(store.showingNestedRepos()).toBe(false);
+      expect(store.expandedRepos()).toEqual(new Set(['/work/project']));
+
+      pendingStatuses[0].resolve(status('main'));
+      pendingStatuses[1].resolve(status('nested-a'));
+      pendingStatuses[2].resolve(status('nested-b'));
+      await promise;
+    });
+
+    it('shows every discovered repo when the selected folder is not itself a repo', async () => {
+      const promise = store.loadForRoot('/work/container');
+      pendingFinds[0].resolve({
+        repositories: ['/work/container/repo-a', '/work/container/repo-b'],
+        gitAvailable: true,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(store.visibleRepos().map(repo => repo.absolutePath)).toEqual([
+        '/work/container/repo-a',
+        '/work/container/repo-b',
+      ]);
+      expect(store.canToggleNestedRepos()).toBe(false);
+      expect(store.hiddenNestedRepoCount()).toBe(0);
+      expect(store.showingNestedRepos()).toBe(true);
+      expect(store.expandedRepos()).toEqual(
+        new Set(['/work/container/repo-a', '/work/container/repo-b'])
+      );
+
+      pendingStatuses[0].resolve(status('main'));
+      pendingStatuses[1].resolve(status('main'));
+      await promise;
+    });
+
+    it('matches the workspace repo even when the selected root has a trailing slash', async () => {
+      const promise = store.loadForRoot('/work/project/');
+      pendingFinds[0].resolve({
+        repositories: ['/work/project', '/work/project/nested-a'],
+        gitAvailable: true,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(store.activeRoot()).toBe('/work/project');
+      expect(store.visibleRepos().map(repo => repo.absolutePath)).toEqual(['/work/project']);
+      expect(store.hiddenNestedRepoCount()).toBe(1);
+
+      pendingStatuses[0].resolve(status('main'));
+      pendingStatuses[1].resolve(status('nested-a'));
+      await promise;
+    });
+
     it('surfaces a non-Git environment as a load error', async () => {
       const promise = store.loadForRoot('/work/a');
       pendingFinds[0].resolve({ repositories: [], gitAvailable: false });
@@ -516,6 +585,101 @@ describe('SourceControlStore', () => {
       pendingStatuses[1].resolve(status('main', 0));
       await loadB;
       expect(store.totalChangeCount()).toBe(0);
+    });
+  });
+
+  describe('nested repo visibility toggling', () => {
+    it('reveals nested repos and expands them when toggled on', async () => {
+      const promise = store.loadForRoot('/work/project');
+      pendingFinds[0].resolve({
+        repositories: ['/work/project', '/work/project/nested-a', '/work/project/nested-b'],
+        gitAvailable: true,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      pendingStatuses[0].resolve(status('main'));
+      pendingStatuses[1].resolve(status('nested-a'));
+      pendingStatuses[2].resolve(status('nested-b'));
+      await promise;
+
+      store.toggleNestedRepoVisibility();
+
+      expect(store.showingNestedRepos()).toBe(true);
+      expect(store.hiddenNestedRepoCount()).toBe(0);
+      expect(store.visibleRepos().map(repo => repo.absolutePath)).toEqual([
+        '/work/project',
+        '/work/project/nested-a',
+        '/work/project/nested-b',
+      ]);
+      expect(store.expandedRepos()).toEqual(
+        new Set(['/work/project', '/work/project/nested-a', '/work/project/nested-b'])
+      );
+    });
+
+    it('rehides nested repos and collapses back to the workspace repo', async () => {
+      const promise = store.loadForRoot('/work/project');
+      pendingFinds[0].resolve({
+        repositories: ['/work/project', '/work/project/nested-a'],
+        gitAvailable: true,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      pendingStatuses[0].resolve(status('main'));
+      pendingStatuses[1].resolve(status('nested-a'));
+      await promise;
+
+      store.toggleNestedRepoVisibility();
+      store.toggleNestedRepoVisibility();
+
+      expect(store.showingNestedRepos()).toBe(false);
+      expect(store.visibleRepos().map(repo => repo.absolutePath)).toEqual(['/work/project']);
+      expect(store.hiddenNestedRepoCount()).toBe(1);
+      expect(store.expandedRepos()).toEqual(new Set(['/work/project']));
+    });
+
+    it('remembers the nested repo preference per root when switching away and back', async () => {
+      const firstLoad = store.loadForRoot('/work/project');
+      pendingFinds[0].resolve({
+        repositories: ['/work/project', '/work/project/nested-a'],
+        gitAvailable: true,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      pendingStatuses[0].resolve(status('main'));
+      pendingStatuses[1].resolve(status('nested-a'));
+      await firstLoad;
+
+      store.toggleNestedRepoVisibility();
+      expect(store.showingNestedRepos()).toBe(true);
+
+      const otherRootLoad = store.loadForRoot('/work/other');
+      pendingFinds[1].resolve({
+        repositories: ['/work/other'],
+        gitAvailable: true,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      pendingStatuses[2].resolve(status('other'));
+      await otherRootLoad;
+
+      expect(store.canToggleNestedRepos()).toBe(false);
+
+      const secondLoad = store.loadForRoot('/work/project');
+      pendingFinds[2].resolve({
+        repositories: ['/work/project', '/work/project/nested-a'],
+        gitAvailable: true,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      pendingStatuses[3].resolve(status('main'));
+      pendingStatuses[4].resolve(status('nested-a'));
+      await secondLoad;
+
+      expect(store.showingNestedRepos()).toBe(true);
+      expect(store.visibleRepos().map(repo => repo.absolutePath)).toEqual([
+        '/work/project',
+        '/work/project/nested-a',
+      ]);
     });
   });
 

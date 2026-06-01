@@ -90,7 +90,21 @@ import type {
                 <p class="hint">Nothing under <code>{{ rootName() }}</code> contains a <code>.git</code> folder.</p>
               </div>
             } @else {
-              @for (repo of store.repos(); track repo.absolutePath) {
+              @if (store.canToggleNestedRepos()) {
+                <div class="repo-visibility-bar">
+                  <button
+                    type="button"
+                    class="repo-visibility-toggle"
+                    (click)="store.toggleNestedRepoVisibility()"
+                  >
+                    {{ store.showingNestedRepos() ? 'Hide nested repos' : 'Show nested repos (' + store.hiddenNestedRepoCount() + ')' }}
+                  </button>
+                  @if (!store.showingNestedRepos()) {
+                    <span class="repo-visibility-hint">Showing workspace repo only</span>
+                  }
+                </div>
+              }
+              @for (repo of store.visibleRepos(); track repo.absolutePath) {
                 <section class="repo" [class.expanded]="store.isRepoExpanded(repo.absolutePath)">
                   <header
                     class="repo-header"
@@ -516,6 +530,45 @@ import type {
 
     .loading { color: var(--text-muted); }
     .error { color: var(--error-color); }
+
+    .repo-visibility-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 10px 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent);
+    }
+
+    .repo-visibility-toggle {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      padding: 0 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border-subtle);
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.03em;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+    }
+
+    .repo-visibility-toggle:hover {
+      color: var(--text-primary);
+      background: var(--bg-hover);
+      border-color: var(--secondary-color);
+    }
+
+    .repo-visibility-hint {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-muted);
+      text-align: right;
+    }
 
     .repo {
       border-bottom: 1px solid var(--border-subtle);
