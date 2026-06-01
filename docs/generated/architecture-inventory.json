@@ -4916,6 +4916,10 @@
       "lines": 2695
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-service.ts",
+      "lines": 2689
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase3-4-6-7.COMPLETED.md",
       "lines": 2659
     },
@@ -4930,10 +4934,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing.md",
       "lines": 2519
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2507
     },
     {
       "path": "src/main/instance/instance-manager.ts",

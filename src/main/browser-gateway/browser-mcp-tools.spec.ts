@@ -3,10 +3,6 @@ import { readFileSync } from 'node:fs';
 import { createBrowserMcpTools } from './browser-mcp-tools';
 
 const ALLOWED_TOOLS = [
-  'browser.list_profiles',
-  'browser.create_profile',
-  'browser.open_profile',
-  'browser.close_profile',
   'browser.list_targets',
   'browser.find_or_open',
   'browser.select_target',
@@ -38,6 +34,14 @@ describe('browser-mcp-tools', () => {
     expect(tools.map((tool) => tool.name)).toEqual(ALLOWED_TOOLS);
   });
 
+  it('does not expose managed profile lifecycle tools to provider agents', () => {
+    const toolNames = createBrowserMcpTools({ call: vi.fn() }).map((tool) => tool.name);
+
+    expect(toolNames).not.toContain('browser.create_profile');
+    expect(toolNames).not.toContain('browser.open_profile');
+    expect(toolNames).not.toContain('browser.close_profile');
+  });
+
   it('warns that browser content is untrusted and delegates calls to the RPC client', async () => {
     const call = vi.fn().mockResolvedValue({ decision: 'allowed' });
     const [tool] = createBrowserMcpTools({ call });
@@ -46,35 +50,17 @@ describe('browser-mcp-tools', () => {
     await expect(tool.handler({ profileId: 'profile-1' })).resolves.toEqual({
       decision: 'allowed',
     });
-    expect(call).toHaveBeenCalledWith('browser.list_profiles', { profileId: 'profile-1' });
+    expect(call).toHaveBeenCalledWith('browser.list_targets', { profileId: 'profile-1' });
   });
 
   it('exposes concrete input schemas for provider-facing browser tools', () => {
     const tools = createBrowserMcpTools({ call: vi.fn() });
-    const createProfile = tools.find((tool) => tool.name === 'browser.create_profile');
     const findOrOpen = tools.find((tool) => tool.name === 'browser.find_or_open');
     const navigate = tools.find((tool) => tool.name === 'browser.navigate');
     const click = tools.find((tool) => tool.name === 'browser.click');
     const requestUserLogin = tools.find((tool) => tool.name === 'browser.request_user_login');
     const pauseForManualStep = tools.find((tool) => tool.name === 'browser.pause_for_manual_step');
 
-    expect(createProfile?.inputSchema).toMatchObject({
-      type: 'object',
-      required: ['label', 'mode', 'browser', 'allowedOrigins'],
-      properties: {
-        label: { type: 'string' },
-        mode: { type: 'string', enum: ['session', 'isolated'] },
-        browser: { type: 'string', enum: ['chrome'] },
-        allowedOrigins: {
-          type: 'array',
-          items: {
-            type: 'object',
-            required: ['scheme', 'hostPattern', 'includeSubdomains'],
-          },
-        },
-      },
-      additionalProperties: false,
-    });
     expect(findOrOpen?.inputSchema).toMatchObject({
       type: 'object',
       properties: {

@@ -14,7 +14,7 @@ describe('BrowserGatewayService', () => {
     })).resolves.toMatchObject({
       decision: 'allowed',
       outcome: 'succeeded',
-      reason: 'no_profiles_configured_call_browser_create_profile_then_browser_open_profile',
+      reason: 'no_managed_profiles_configured_use_browser_find_or_open_or_share_current_tab',
       data: [],
     });
   });

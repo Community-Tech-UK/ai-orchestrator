@@ -228,6 +228,7 @@ describe('adapter factory — copilot', () => {
     expect(systemPrompt).toContain('Base instructions.');
     expect(systemPrompt).toContain('browser.find_or_open');
     expect(systemPrompt).toContain('authenticated Chrome tabs');
+    expect(systemPrompt).toContain('Do not use Browser Gateway managed profiles for authenticated user sessions.');
     expect(systemPrompt).toContain('ask the user to share the current tab');
     expect(systemPrompt).toContain('Do not tell the user to open /browser');
   });

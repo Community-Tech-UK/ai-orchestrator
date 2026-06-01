@@ -67,7 +67,7 @@ import {
   BrowserHealthService,
   getBrowserHealthService,
 } from './browser-health-service';
-import { isOriginAllowed } from './browser-origin-policy';
+import { isOriginAllowed, normalizeOrigin } from './browser-origin-policy';
 import {
   toAgentSafeAudit,
   toAgentSafeHealth,
@@ -103,6 +103,7 @@ import {
   autoApproveBrowserApproval,
   type BrowserAutoApprovePredicate,
 } from './browser-auto-approve';
+import { findMatchingBrowserGrant } from './browser-grant-policy';
 
 export interface BrowserGatewayContext {
   instanceId?: string;
@@ -284,7 +285,7 @@ export class BrowserGatewayService {
       toAgentSafeProfile(profile),
     );
     const noProfilesReason = profiles.length === 0
-      ? 'no_profiles_configured_call_browser_create_profile_then_browser_open_profile'
+      ? 'no_managed_profiles_configured_use_browser_find_or_open_or_share_current_tab'
       : undefined;
     return this.result({
       context,
@@ -295,7 +296,7 @@ export class BrowserGatewayService {
       outcome: 'succeeded',
       reason: noProfilesReason,
       summary: profiles.length === 0
-        ? 'No managed Browser Gateway profiles are configured; agents can create one with browser.create_profile, or call browser.list_targets to check for user-selected existing Chrome tabs.'
+        ? 'No managed Browser Gateway profiles are configured; use browser.find_or_open or ask the user to share the current Chrome tab through the Browser Gateway extension.'
         : `Listed ${profiles.length} browser profiles`,
       data: profiles,
     });
@@ -1426,6 +1427,11 @@ export class BrowserGatewayService {
   async requestGrant(
     request: BrowserGatewayContext & BrowserRequestGrantRequest,
   ): Promise<BrowserGatewayResult<null>> {
+    const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
+    if (existingTab) {
+      return this.requestGrantForExistingTab(request, existingTab);
+    }
+
     const profile = this.profileStore.getProfile(request.profileId);
     const { target, error } = profile
       ? await this.getLiveTarget(request.profileId, request.targetId)
@@ -1516,6 +1522,81 @@ export class BrowserGatewayService {
       summary: 'Browser grant request requires user approval',
       origin: originDecision.origin,
       url: currentUrl,
+      data: null,
+    });
+  }
+
+  private async requestGrantForExistingTab(
+    request: BrowserGatewayContext & BrowserRequestGrantRequest,
+    attachment: BrowserExistingTabAttachment,
+  ): Promise<BrowserGatewayResult<null>> {
+    const originDecision = isOriginAllowed(attachment.url, attachment.allowedOrigins);
+    if (!originDecision.allowed) {
+      return this.result({
+        context: request,
+        profileId: attachment.profileId,
+        targetId: attachment.targetId,
+        action: 'request_grant',
+        toolName: 'browser.request_grant',
+        actionClass: 'unknown',
+        decision: 'denied',
+        outcome: 'not_run',
+        reason: originDecision.reason,
+        summary: `Browser grant request denied by existing Chrome tab origin policy: ${originDecision.reason}`,
+        origin: originDecision.origin,
+        url: attachment.url,
+        data: null,
+      });
+    }
+
+    const actionClass = this.primaryActionClass(request.proposedGrant.allowedActionClasses);
+    const approval = this.approvalStore.createRequest({
+      instanceId: request.instanceId ?? 'unknown',
+      provider: providerFromContext(request.provider),
+      profileId: attachment.profileId,
+      targetId: attachment.targetId,
+      toolName: 'browser.request_grant',
+      action: 'request_grant',
+      actionClass,
+      origin: originDecision.origin,
+      url: attachment.url,
+      proposedGrant: request.proposedGrant,
+      expiresAt: Date.now() + 30 * 60 * 1000,
+    });
+    const autoGrant = this.autoApproveApproval(approval);
+    if (autoGrant) {
+      return this.result({
+        context: request,
+        profileId: attachment.profileId,
+        targetId: attachment.targetId,
+        action: 'request_grant',
+        toolName: 'browser.request_grant',
+        actionClass,
+        decision: 'allowed',
+        outcome: 'succeeded',
+        summary: 'Auto-approved Browser Gateway grant request for existing Chrome tab',
+        origin: originDecision.origin,
+        url: attachment.url,
+        grantId: autoGrant.id,
+        autonomous: autoGrant.autonomous,
+        data: null,
+      });
+    }
+
+    return this.result({
+      context: request,
+      profileId: attachment.profileId,
+      targetId: attachment.targetId,
+      action: 'request_grant',
+      toolName: 'browser.request_grant',
+      actionClass,
+      decision: 'requires_user',
+      outcome: 'not_run',
+      requestId: approval.requestId,
+      reason: request.reason ?? 'browser_grant_requires_user_approval',
+      summary: 'Browser grant request for existing Chrome tab requires user approval',
+      origin: originDecision.origin,
+      url: attachment.url,
       data: null,
     });
   }
@@ -2047,26 +2128,118 @@ export class BrowserGatewayService {
     }
   }
 
+  private allowedOriginFromUrl(url: string): BrowserAllowedOrigin | null {
+    const normalized = normalizeOrigin(url);
+    if (!normalized) {
+      return null;
+    }
+    const defaultPort = normalized.scheme === 'https' ? 443 : 80;
+    return {
+      scheme: normalized.scheme,
+      hostPattern: normalized.host,
+      ...(normalized.port === defaultPort ? {} : { port: normalized.port }),
+      includeSubdomains: false,
+    };
+  }
+
   private async navigateExistingTab(
     request: BrowserGatewayNavigateRequest,
     attachment: BrowserExistingTabAttachment,
   ): Promise<BrowserGatewayResult<null>> {
     const originDecision = isOriginAllowed(request.url, attachment.allowedOrigins);
+    let grant: BrowserPermissionGrant | undefined;
+    let origin = originDecision.origin;
     if (!originDecision.allowed) {
-      return this.result({
-        context: request,
+      if (!originDecision.origin) {
+        return this.result({
+          context: request,
+          profileId: attachment.profileId,
+          targetId: attachment.targetId,
+          action: 'navigate',
+          toolName: 'browser.navigate',
+          actionClass: 'navigate',
+          decision: 'denied',
+          outcome: 'not_run',
+          reason: originDecision.reason,
+          summary: `Existing Chrome tab navigation denied by Browser Gateway origin policy: ${originDecision.reason}`,
+          url: request.url,
+          data: null,
+        });
+      }
+      origin = originDecision.origin;
+      const grants = this.grantStore.listGrants({
+        instanceId: request.instanceId,
+        profileId: attachment.profileId,
+      });
+      const match = findMatchingBrowserGrant({
+        grants,
+        instanceId: request.instanceId ?? '',
+        provider: providerFromContext(request.provider),
         profileId: attachment.profileId,
         targetId: attachment.targetId,
-        action: 'navigate',
-        toolName: 'browser.navigate',
+        origin,
         actionClass: 'navigate',
-        decision: 'denied',
-        outcome: 'not_run',
-        reason: originDecision.reason,
-        summary: `Existing Chrome tab navigation denied by Browser Gateway origin policy: ${originDecision.reason}`,
-        url: request.url,
-        data: null,
       });
+      grant = match.grant?.allowExternalNavigation ? match.grant : undefined;
+      if (!grant) {
+        const allowedOrigin = this.allowedOriginFromUrl(request.url);
+        if (!allowedOrigin) {
+          return this.result({
+            context: request,
+            profileId: attachment.profileId,
+            targetId: attachment.targetId,
+            action: 'navigate',
+            toolName: 'browser.navigate',
+            actionClass: 'navigate',
+            decision: 'denied',
+            outcome: 'not_run',
+            reason: 'invalid_url',
+            summary: 'Existing Chrome tab navigation denied because the destination URL is invalid',
+            url: request.url,
+            data: null,
+          });
+        }
+        const approval = this.approvalStore.createRequest({
+          instanceId: request.instanceId ?? 'unknown',
+          provider: providerFromContext(request.provider),
+          profileId: attachment.profileId,
+          targetId: attachment.targetId,
+          toolName: 'browser.navigate',
+          action: 'navigate',
+          actionClass: 'navigate',
+          origin,
+          url: request.url,
+          proposedGrant: {
+            mode: 'per_action',
+            allowedOrigins: [allowedOrigin],
+            allowedActionClasses: ['navigate'],
+            allowExternalNavigation: true,
+            autonomous: false,
+          },
+          expiresAt: Date.now() + 30 * 60 * 1000,
+        });
+        const autoGrant = this.autoApproveApproval(approval);
+        if (autoGrant?.allowExternalNavigation) {
+          grant = autoGrant;
+        } else {
+          return this.result({
+            context: request,
+            profileId: attachment.profileId,
+            targetId: attachment.targetId,
+            action: 'navigate',
+            toolName: 'browser.navigate',
+            actionClass: 'navigate',
+            decision: 'requires_user',
+            outcome: 'not_run',
+            requestId: approval.requestId,
+            reason: 'cross_origin_navigation_requires_user_approval',
+            summary: `Existing Chrome tab navigation to ${origin} requires user approval`,
+            origin,
+            url: request.url,
+            data: null,
+          });
+        }
+      }
     }
 
     try {
@@ -2082,6 +2255,9 @@ export class BrowserGatewayService {
           // preserving the audited command result.
         }
       }
+      if (grant?.mode === 'per_action') {
+        this.grantStore.consumeGrant(grant.id);
+      }
       return this.result({
         context: request,
         profileId: attachment.profileId,
@@ -2091,9 +2267,13 @@ export class BrowserGatewayService {
         actionClass: 'navigate',
         decision: 'allowed',
         outcome: 'succeeded',
-        summary: 'Navigated existing Chrome tab within allowed origin',
-        origin: originDecision.origin,
+        summary: grant
+          ? 'Navigated existing Chrome tab using an approved cross-origin grant'
+          : 'Navigated existing Chrome tab within allowed origin',
+        origin,
         url: request.url,
+        grantId: grant?.id,
+        autonomous: grant?.autonomous,
         data: null,
       });
     } catch (error) {
@@ -2109,8 +2289,10 @@ export class BrowserGatewayService {
         outcome: 'failed',
         reason: message,
         summary: `Existing Chrome tab navigation failed: ${message}`,
-        origin: originDecision.origin,
+        origin,
         url: request.url,
+        grantId: grant?.id,
+        autonomous: grant?.autonomous,
         data: null,
       });
     }
