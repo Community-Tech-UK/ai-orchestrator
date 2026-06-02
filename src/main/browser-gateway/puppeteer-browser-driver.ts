@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import type { Browser, ConsoleMessage, HTTPRequest, Page } from 'puppeteer-core';
 import type {
   BrowserElementContext,
+  BrowserElementCandidate,
   BrowserDownloadFileResult,
   BrowserProfile,
   BrowserProfileMode,
@@ -216,6 +217,20 @@ export class PuppeteerBrowserDriver {
         args: [selectorOrText, timeoutMs],
       });
     }
+  }
+
+  async queryElements(
+    profileId: string,
+    targetId: string,
+    query?: string,
+    limit?: number,
+  ): Promise<BrowserElementCandidate[]> {
+    const page = this.getPage(profileId, targetId);
+    const result = await evaluatePageBridge(page, {
+      action: 'query_elements',
+      args: [query, limit],
+    });
+    return normalizeElementCandidates(result);
   }
 
   async inspectElement(
@@ -518,6 +533,73 @@ export class PuppeteerBrowserDriver {
       throw new Error('Browser target does not expose a CDP session for downloads.');
     }
     return session;
+  }
+}
+
+function normalizeElementCandidates(result: unknown): BrowserElementCandidate[] {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    return [];
+  }
+  const rawElements = (result as Record<string, unknown>)['elements'];
+  if (!Array.isArray(rawElements)) {
+    return [];
+  }
+  const candidates: BrowserElementCandidate[] = [];
+  for (const item of rawElements) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      continue;
+    }
+    const value = item as Record<string, unknown>;
+    const selector = value['selector'];
+    const tagName = value['tagName'];
+    if (typeof selector !== 'string' || !selector || typeof tagName !== 'string' || !tagName) {
+      continue;
+    }
+    candidates.push({
+      selector: selector.slice(0, 2_000),
+      tagName: tagName.slice(0, 120),
+      ...optionalString(value, 'role', 120),
+      ...optionalString(value, 'accessibleName', 500),
+      ...optionalText(value),
+      ...optionalString(value, 'inputType', 120),
+      ...optionalString(value, 'placeholder', 500),
+      ...optionalHref(value),
+    });
+  }
+  return candidates;
+}
+
+function optionalString(
+  value: Record<string, unknown>,
+  key: keyof BrowserElementCandidate,
+  maxLength: number,
+): Partial<BrowserElementCandidate> {
+  const item = value[key];
+  return typeof item === 'string' && item
+    ? { [key]: item.slice(0, maxLength) }
+    : {};
+}
+
+function optionalText(value: Record<string, unknown>): Partial<BrowserElementCandidate> {
+  const text = value['text'];
+  return typeof text === 'string' && text
+    ? { text: redactBrowserText(text).slice(0, 1_000) }
+    : {};
+}
+
+function optionalHref(value: Record<string, unknown>): Partial<BrowserElementCandidate> {
+  const href = value['href'];
+  if (typeof href !== 'string' || !href) {
+    return {};
+  }
+  try {
+    const parsed = new URL(href);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return {};
+    }
+    return { href: redactBrowserUrl(href).slice(0, 2_000) };
+  } catch {
+    return {};
   }
 }
 

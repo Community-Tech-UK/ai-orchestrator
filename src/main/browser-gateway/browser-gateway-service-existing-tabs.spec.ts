@@ -481,4 +481,96 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
       },
     }));
   });
+
+  it('waits for selectors in existing Chrome tabs through the extension command bridge', async () => {
+    const sendCommand = vi.fn(async () => ({
+      tagName: 'BUTTON',
+      text: 'New App',
+    }));
+    const { driver, service } = makeService({
+      profile: null,
+      profiles: [],
+      existingTab: appStoreConnectTab,
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.waitFor({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: appStoreConnectTab.profileId,
+      targetId: appStoreConnectTab.targetId,
+      selector: 'button[aria-label="New App"]',
+      timeoutMs: 5_000,
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+    });
+    expect(driver.waitFor).not.toHaveBeenCalled();
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'wait_for',
+      target: {
+        profileId: appStoreConnectTab.profileId,
+        targetId: appStoreConnectTab.targetId,
+        tabId: 42,
+        windowId: 7,
+      },
+      payload: {
+        selector: 'button[aria-label="New App"]',
+        timeoutMs: 5_000,
+      },
+    }));
+  });
+
+  it('queries selector candidates in existing Chrome tabs through the extension command bridge', async () => {
+    const sendCommand = vi.fn(async () => ({
+      elements: [{
+        selector: 'button[aria-label="New App"]',
+        tagName: 'BUTTON',
+        role: 'button',
+        accessibleName: 'New App',
+        text: '',
+      }],
+    }));
+    const { driver, service } = makeService({
+      profile: null,
+      profiles: [],
+      existingTab: appStoreConnectTab,
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.queryElements({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: appStoreConnectTab.profileId,
+      targetId: appStoreConnectTab.targetId,
+      query: 'New App',
+      limit: 10,
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: [{
+        selector: 'button[aria-label="New App"]',
+        tagName: 'BUTTON',
+        accessibleName: 'New App',
+      }],
+    });
+    expect(driver.waitFor).not.toHaveBeenCalled();
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'query_elements',
+      target: {
+        profileId: appStoreConnectTab.profileId,
+        targetId: appStoreConnectTab.targetId,
+        tabId: 42,
+        windowId: 7,
+      },
+      payload: {
+        query: 'New App',
+        limit: 10,
+      },
+    }));
+  });
 });

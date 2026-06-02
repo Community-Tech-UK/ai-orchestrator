@@ -98,6 +98,7 @@ export function makeService(overrides: {
     consoleMessages: vi.fn(async () => []),
     networkRequests: vi.fn(async () => []),
     waitFor: vi.fn(async () => undefined),
+    queryElements: vi.fn(async () => []),
     inspectElement: vi.fn(async () => ({
       role: 'button',
       accessibleName: 'Continue',

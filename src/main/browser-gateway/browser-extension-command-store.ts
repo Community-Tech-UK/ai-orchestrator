@@ -11,7 +11,8 @@ export type BrowserExtensionCommandName =
   | 'download_file'
   | 'snapshot'
   | 'screenshot'
-  | 'wait_for';
+  | 'wait_for'
+  | 'query_elements';
 
 export interface BrowserExtensionCommandTarget {
   profileId?: string;

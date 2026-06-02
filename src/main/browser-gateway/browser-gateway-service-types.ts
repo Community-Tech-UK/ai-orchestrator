@@ -90,6 +90,7 @@ export interface BrowserGatewayServiceOptions {
     | 'consoleMessages'
     | 'networkRequests'
     | 'waitFor'
+    | 'queryElements'
     | 'inspectElement'
     | 'click'
     | 'type'

@@ -4929,6 +4929,10 @@
       "lines": 2635
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-service.ts",
+      "lines": 2529
+    },
+    {
       "path": "src/main/channels/channel-message-router.ts",
       "lines": 2521
     },
@@ -4943,10 +4947,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
       "lines": 2339
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2319
     },
     {
       "path": "src/main/instance/instance-communication.ts",
@@ -5313,6 +5313,10 @@
       "lines": 1027
     },
     {
+      "path": "resources/browser-extension/background.js",
+      "lines": 1027
+    },
+    {
       "path": "src/renderer/app/features/hooks/hooks-config.component.ts",
       "lines": 1027
     },
@@ -5443,10 +5447,6 @@
     {
       "path": "src/renderer/app/features/replay/session-replay-page.component.ts",
       "lines": 893
-    },
-    {
-      "path": "resources/browser-extension/background.js",
-      "lines": 890
     },
     {
       "path": "src/renderer/app/features/verification/config/api-key-manager.component.ts",

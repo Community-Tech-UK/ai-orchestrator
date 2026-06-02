@@ -17,6 +17,7 @@ import {
   BrowserManualStepRequestSchema,
   BrowserNavigateRequestSchema,
   BrowserProfileRequestSchema,
+  BrowserQueryElementsRequestSchema,
   BrowserRequestGrantRequestSchema,
   BrowserRequestUserLoginRequestSchema,
   BrowserRevokeGrantRequestSchema,
@@ -226,6 +227,8 @@ export class BrowserGatewayRpcServer {
         return this.requireMethod('networkRequests')(withContext);
       case 'browser.wait_for':
         return this.requireMethod('waitFor')(withContext);
+      case 'browser.query_elements':
+        return this.requireMethod('queryElements')(withContext);
       case 'browser.health':
         return this.requireMethod('getHealth')(withContext);
       case 'browser.get_audit_log':
@@ -458,6 +461,8 @@ export class BrowserGatewayRpcServer {
           return BrowserTargetRequestSchema;
         case 'browser.wait_for':
           return BrowserWaitForRequestSchema;
+        case 'browser.query_elements':
+          return BrowserQueryElementsRequestSchema;
         case 'browser.get_audit_log':
           return BrowserListAuditLogRequestSchema;
         default:

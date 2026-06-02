@@ -24,6 +24,7 @@ const ALLOWED_TOOLS = [
   'browser.console_messages',
   'browser.network_requests',
   'browser.wait_for',
+  'browser.query_elements',
   'browser.health',
   'browser.get_audit_log',
 ];
@@ -59,6 +60,7 @@ describe('browser-mcp-tools', () => {
     const findOrOpen = tools.find((tool) => tool.name === 'browser.find_or_open');
     const navigate = tools.find((tool) => tool.name === 'browser.navigate');
     const click = tools.find((tool) => tool.name === 'browser.click');
+    const queryElements = tools.find((tool) => tool.name === 'browser.query_elements');
     const requestUserLogin = tools.find((tool) => tool.name === 'browser.request_user_login');
     const pauseForManualStep = tools.find((tool) => tool.name === 'browser.pause_for_manual_step');
 
@@ -87,6 +89,17 @@ describe('browser-mcp-tools', () => {
         profileId: { type: 'string' },
         targetId: { type: 'string' },
         selector: { type: 'string' },
+      },
+      additionalProperties: false,
+    });
+    expect(queryElements?.inputSchema).toMatchObject({
+      type: 'object',
+      required: ['profileId', 'targetId'],
+      properties: {
+        profileId: { type: 'string' },
+        targetId: { type: 'string' },
+        query: { type: 'string' },
+        limit: { type: 'number' },
       },
       additionalProperties: false,
     });

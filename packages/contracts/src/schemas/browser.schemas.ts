@@ -422,6 +422,26 @@ export const BrowserWaitForRequestSchema = BrowserTargetRequestSchema.extend({
 }).strict();
 export type BrowserWaitForRequest = z.infer<typeof BrowserWaitForRequestSchema>;
 
+export const BrowserQueryElementsRequestSchema = BrowserTargetRequestSchema.extend({
+  query: z.string().min(1).max(500).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+}).strict();
+export type BrowserQueryElementsRequest = z.infer<typeof BrowserQueryElementsRequestSchema>;
+
+export const BrowserElementCandidateSchema = z
+  .object({
+    selector: z.string().min(1).max(2000),
+    tagName: z.string().min(1).max(120),
+    role: z.string().min(1).max(120).optional(),
+    accessibleName: z.string().min(1).max(500).optional(),
+    text: z.string().max(1000).optional(),
+    inputType: z.string().min(1).max(120).optional(),
+    placeholder: z.string().min(1).max(500).optional(),
+    href: webUrlSchema.optional(),
+  })
+  .strict();
+export type BrowserElementCandidate = z.infer<typeof BrowserElementCandidateSchema>;
+
 export const BrowserClickRequestSchema = BrowserTargetRequestSchema.extend({
   selector: z.string().min(1).max(2000),
   actionHint: z.string().min(1).max(500).optional(),

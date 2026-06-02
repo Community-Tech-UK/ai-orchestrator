@@ -309,6 +309,11 @@ async function executeBrowserCommand(command) {
         typeof command.payload?.selector === 'string' ? command.payload.selector : 'body',
         typeof command.payload?.timeoutMs === 'number' ? command.payload.timeoutMs : 30000,
       ]);
+    case 'query_elements':
+      return runInTargetTab(command, 'query_elements', [
+        typeof command.payload?.query === 'string' ? command.payload.query : undefined,
+        typeof command.payload?.limit === 'number' ? command.payload.limit : undefined,
+      ]);
     default:
       throw new Error(`Unsupported browser command: ${command.command}`);
   }
@@ -770,11 +775,143 @@ function pageBridgeScript(action, args) {
     return describeElement(element);
   }
 
+  function cssAttr(value) {
+    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  }
+
+  function cssIdent(value) {
+    return CSS?.escape?.(value) ?? cssAttr(value);
+  }
+
+  function countMatches(selector) {
+    try {
+      return document.querySelectorAll(selector).length;
+    } catch {
+      return 0;
+    }
+  }
+
+  function tagName(element) {
+    return (element.tagName || 'div').toLowerCase();
+  }
+
+  function childIndex(element) {
+    const siblings = Array.from(element.parentElement?.children ?? []);
+    const sameTagBefore = siblings
+      .slice(0, siblings.indexOf(element))
+      .filter((item) => tagName(item) === tagName(element));
+    return sameTagBefore.length + 1;
+  }
+
+  function selectorForElement(element) {
+    if (element.id) {
+      const byId = `#${cssIdent(element.id)}`;
+      if (countMatches(byId) === 1) {
+        return byId;
+      }
+      const byIdAttr = `[id="${cssAttr(element.id)}"]`;
+      if (countMatches(byIdAttr) === 1) {
+        return byIdAttr;
+      }
+    }
+
+    for (const attr of ['data-testid', 'data-test', 'aria-label', 'name', 'title']) {
+      const value = element.getAttribute?.(attr);
+      if (!value) {
+        continue;
+      }
+      const selector = `${tagName(element)}[${attr}="${cssAttr(value)}"]`;
+      if (countMatches(selector) === 1) {
+        return selector;
+      }
+    }
+
+    const segments = [];
+    let current = element;
+    for (let depth = 0; current && current !== document.body && depth < 5; depth++) {
+      const segment = `${tagName(current)}:nth-of-type(${childIndex(current)})`;
+      segments.unshift(segment);
+      const selector = segments.join(' > ');
+      if (countMatches(selector) === 1) {
+        return selector;
+      }
+      current = current.parentElement;
+    }
+    return segments.join(' > ') || tagName(element);
+  }
+
+  function elementText(element) {
+    return (element.innerText || element.textContent || '').trim().slice(0, 1000);
+  }
+
+  function candidateText(element) {
+    return [
+      elementText(element),
+      element.getAttribute?.('aria-label') ?? '',
+      element.getAttribute?.('title') ?? '',
+      element.getAttribute?.('placeholder') ?? '',
+      element.getAttribute?.('name') ?? '',
+      element.getAttribute?.('data-testid') ?? '',
+      element.id ?? '',
+    ].join(' ').toLowerCase();
+  }
+
+  function collectCandidateElements(root = document) {
+    const selector = [
+      'a',
+      'button',
+      'input',
+      'select',
+      'textarea',
+      '[role]',
+      '[aria-label]',
+      '[title]',
+      '[data-testid]',
+      '[contenteditable="true"]',
+    ].join(',');
+    const direct = Array.from(root.querySelectorAll?.(selector) ?? []);
+    const nested = [];
+    for (const node of Array.from(root.querySelectorAll?.('*') ?? [])) {
+      if (node.shadowRoot) {
+        nested.push(...collectCandidateElements(node.shadowRoot));
+      }
+    }
+    return [...direct, ...nested];
+  }
+
+  function queryElements(query, limit) {
+    const normalizedQuery = query?.trim().toLowerCase();
+    const max = Math.max(1, Math.min(limit ?? 50, 100));
+    const elements = collectCandidateElements()
+      .filter((element) => !normalizedQuery || candidateText(element).includes(normalizedQuery))
+      .slice(0, max)
+      .map((element) => ({
+        selector: selectorForElement(element).slice(0, 2000),
+        tagName: element.tagName ?? tagName(element).toUpperCase(),
+        role: element.getAttribute?.('role') ?? tagName(element),
+        accessibleName:
+          element.getAttribute?.('aria-label') ??
+          element.getAttribute?.('title') ??
+          element.getAttribute?.('name') ??
+          undefined,
+        text: elementText(element),
+        inputType: element.type,
+        placeholder: element.placeholder,
+        href: element.href,
+      }));
+    return { elements };
+  }
+
   if (action === 'snapshot') {
     return {
       title: document.title,
       text: collectVisibleText().slice(0, 120000),
     };
+  }
+
+  if (action === 'query_elements') {
+    const [query, limit] = args;
+    return queryElements(query, limit);
   }
 
   if (action === 'click') {

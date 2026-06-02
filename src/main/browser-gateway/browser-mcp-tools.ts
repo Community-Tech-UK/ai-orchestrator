@@ -26,6 +26,7 @@ const TOOL_NAMES = [
   'browser.console_messages',
   'browser.network_requests',
   'browser.wait_for',
+  'browser.query_elements',
   'browser.health',
   'browser.get_audit_log',
 ] as const;
@@ -253,6 +254,15 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     targetId: targetIdProp,
     selector: selectorProp,
     timeoutMs: numberProp,
+  }, ['profileId', 'targetId']),
+  'browser.query_elements': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    query: {
+      ...stringProp,
+      description: 'Optional text, aria-label, title, placeholder, id, or test id filter for selector candidates.',
+    },
+    limit: numberProp,
   }, ['profileId', 'targetId']),
   'browser.health': objectSchema({}),
   'browser.get_audit_log': objectSchema({

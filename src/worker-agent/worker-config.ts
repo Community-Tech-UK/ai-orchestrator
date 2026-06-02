@@ -16,6 +16,13 @@ export interface WorkerConfig {
   heartbeatIntervalMs: number;
 }
 
+interface PairingConfigFile {
+  token?: unknown;
+  host?: unknown;
+  port?: unknown;
+  requireTls?: unknown;
+}
+
 export const DEFAULT_CONFIG_PATH = path.join(os.homedir(), '.orchestrator', 'worker-node.json');
 
 const DEFAULTS: WorkerConfig = {
@@ -40,7 +47,7 @@ export function loadWorkerConfig(configPath = DEFAULT_CONFIG_PATH): WorkerConfig
 
   if (fs.existsSync(configPath)) {
     const raw = fs.readFileSync(configPath, 'utf-8');
-    fileConfig = JSON.parse(raw) as Partial<WorkerConfig>;
+    fileConfig = normalizeFileConfig(JSON.parse(raw) as Partial<WorkerConfig> & PairingConfigFile);
   }
 
   const merged: WorkerConfig = { ...DEFAULTS, ...fileConfig };
@@ -72,6 +79,26 @@ export function loadWorkerConfig(configPath = DEFAULT_CONFIG_PATH): WorkerConfig
   persistConfig(configPath, merged);
 
   return merged;
+}
+
+function normalizeFileConfig(fileConfig: Partial<WorkerConfig> & PairingConfigFile): Partial<WorkerConfig> {
+  const normalized: Partial<WorkerConfig> = { ...fileConfig };
+
+  if (!normalized.authToken && typeof fileConfig.token === 'string') {
+    normalized.authToken = fileConfig.token;
+  }
+
+  if (
+    !normalized.coordinatorUrl &&
+    typeof fileConfig.host === 'string' &&
+    typeof fileConfig.port === 'number' &&
+    Number.isInteger(fileConfig.port)
+  ) {
+    const protocol = fileConfig.requireTls === true ? 'wss' : 'ws';
+    normalized.coordinatorUrl = `${protocol}://${fileConfig.host}:${fileConfig.port}`;
+  }
+
+  return normalized;
 }
 
 function parseCliArgs(argv: string[]): Record<string, string> {

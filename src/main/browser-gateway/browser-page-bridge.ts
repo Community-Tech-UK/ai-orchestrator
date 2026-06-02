@@ -27,10 +27,20 @@ interface PageBridgeRoot {
 
 interface PageBridgeElement extends PageBridgeRoot {
   tagName?: string;
+  id?: string;
+  className?: string;
   innerText?: string;
   value?: string;
+  type?: string;
+  name?: string;
+  placeholder?: string;
+  href?: string;
   isContentEditable?: boolean;
+  parentElement?: PageBridgeElement | null;
+  children?: ArrayLike<PageBridgeElement>;
   shadowRoot?: PageBridgeRoot | null;
+  getAttribute?: (name: string) => string | null;
+  getAttributeNames?: () => string[];
   scrollIntoView?: (options?: unknown) => void;
   focus?: () => void;
   click?: () => void;
@@ -45,6 +55,9 @@ interface PageBridgeDocument extends PageBridgeRoot {
 
 interface PageBridgeGlobal {
   document: PageBridgeDocument;
+  CSS?: {
+    escape?: (value: string) => string;
+  };
   InputEvent: new (type: string, options?: Record<string, unknown>) => unknown;
   Event: new (type: string, options?: Record<string, unknown>) => unknown;
   MutationObserver: new (callback: () => void) => {
@@ -147,11 +160,143 @@ function pageBridgeScript(input: PageBridgeInput): unknown {
     return describeElement(element);
   }
 
+  function cssAttr(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  }
+
+  function cssIdent(value: string): string {
+    return pageGlobal.CSS?.escape?.(value) ?? cssAttr(value);
+  }
+
+  function countMatches(selector: string): number {
+    try {
+      return documentRef.querySelectorAll?.(selector).length ?? 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  function tagName(element: PageBridgeElement): string {
+    return (element.tagName || 'div').toLowerCase();
+  }
+
+  function childIndex(element: PageBridgeElement): number {
+    const siblings = Array.from(element.parentElement?.children ?? []);
+    const sameTagBefore = siblings
+      .slice(0, siblings.indexOf(element))
+      .filter((item) => tagName(item) === tagName(element));
+    return sameTagBefore.length + 1;
+  }
+
+  function selectorForElement(element: PageBridgeElement): string {
+    if (element.id) {
+      const byId = `#${cssIdent(element.id)}`;
+      if (countMatches(byId) === 1) {
+        return byId;
+      }
+      const byIdAttr = `[id="${cssAttr(element.id)}"]`;
+      if (countMatches(byIdAttr) === 1) {
+        return byIdAttr;
+      }
+    }
+
+    for (const attr of ['data-testid', 'data-test', 'aria-label', 'name', 'title']) {
+      const value = element.getAttribute?.(attr);
+      if (!value) {
+        continue;
+      }
+      const selector = `${tagName(element)}[${attr}="${cssAttr(value)}"]`;
+      if (countMatches(selector) === 1) {
+        return selector;
+      }
+    }
+
+    const segments = [];
+    let current: PageBridgeElement | null | undefined = element;
+    for (let depth = 0; current && current !== documentRef.body && depth < 5; depth++) {
+      const segment = `${tagName(current)}:nth-of-type(${childIndex(current)})`;
+      segments.unshift(segment);
+      const selector = segments.join(' > ');
+      if (countMatches(selector) === 1) {
+        return selector;
+      }
+      current = current.parentElement;
+    }
+    return segments.join(' > ') || tagName(element);
+  }
+
+  function elementText(element: PageBridgeElement): string {
+    return (element.innerText || element.textContent || '').trim().slice(0, 1000);
+  }
+
+  function candidateText(element: PageBridgeElement): string {
+    return [
+      elementText(element),
+      element.getAttribute?.('aria-label') ?? '',
+      element.getAttribute?.('title') ?? '',
+      element.getAttribute?.('placeholder') ?? '',
+      element.getAttribute?.('name') ?? '',
+      element.getAttribute?.('data-testid') ?? '',
+      element.id ?? '',
+    ].join(' ').toLowerCase();
+  }
+
+  function collectCandidateElements(root: PageBridgeRoot = documentRef): PageBridgeElement[] {
+    const selector = [
+      'a',
+      'button',
+      'input',
+      'select',
+      'textarea',
+      '[role]',
+      '[aria-label]',
+      '[title]',
+      '[data-testid]',
+      '[contenteditable="true"]',
+    ].join(',');
+    const direct = Array.from(root.querySelectorAll?.(selector) ?? []) as PageBridgeElement[];
+    const nested = [];
+    for (const node of Array.from(root.querySelectorAll?.('*') ?? []) as PageBridgeElement[]) {
+      if (node.shadowRoot) {
+        nested.push(...collectCandidateElements(node.shadowRoot));
+      }
+    }
+    return [...direct, ...nested];
+  }
+
+  function queryElements(query: string | undefined, limit: number | undefined): unknown {
+    const normalizedQuery = query?.trim().toLowerCase();
+    const max = Math.max(1, Math.min(limit ?? 50, 100));
+    const elements = collectCandidateElements()
+      .filter((element) => !normalizedQuery || candidateText(element).includes(normalizedQuery))
+      .slice(0, max)
+      .map((element) => ({
+        selector: selectorForElement(element).slice(0, 2000),
+        tagName: element.tagName ?? tagName(element).toUpperCase(),
+        role: element.getAttribute?.('role') ?? tagName(element),
+        accessibleName:
+          element.getAttribute?.('aria-label') ??
+          element.getAttribute?.('title') ??
+          element.getAttribute?.('name') ??
+          undefined,
+        text: elementText(element),
+        inputType: element.type,
+        placeholder: element.placeholder,
+        href: element.href,
+      }));
+    return { elements };
+  }
+
   if (action === 'snapshot') {
     return {
       title: documentRef.title,
       text: collectVisibleText().slice(0, 120_000),
     };
+  }
+
+  if (action === 'query_elements') {
+    const [query, limit] = args as [string | undefined, number | undefined];
+    return queryElements(query, limit);
   }
 
   if (action === 'click') {

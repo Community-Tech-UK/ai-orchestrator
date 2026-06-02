@@ -275,6 +275,22 @@ export interface BrowserWaitForRequest extends BrowserTargetRequest {
   timeoutMs?: number;
 }
 
+export interface BrowserQueryElementsRequest extends BrowserTargetRequest {
+  query?: string;
+  limit?: number;
+}
+
+export interface BrowserElementCandidate {
+  selector: string;
+  tagName: string;
+  role?: string;
+  accessibleName?: string;
+  text?: string;
+  inputType?: string;
+  placeholder?: string;
+  href?: string;
+}
+
 export interface BrowserClickRequest extends BrowserTargetRequest {
   selector: string;
   actionHint?: string;
