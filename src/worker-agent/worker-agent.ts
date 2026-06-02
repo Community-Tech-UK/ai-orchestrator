@@ -308,6 +308,11 @@ export class WorkerAgent extends EventEmitter {
 
     // Response to one of our requests
     if (msg.result !== undefined || msg.error !== undefined) {
+      if (msg.id !== undefined && msg.id === this.pendingRegistrationId && msg.error) {
+        this.handleRegistrationError(msg.error);
+        return;
+      }
+
       // Enrollment token is only issued on first registration. Subsequent
       // reconnects reuse the persisted nodeToken, and the coordinator
       // responds with { ok: true } — no new token is issued.
@@ -331,6 +336,25 @@ export class WorkerAgent extends EventEmitter {
     if (msg.method && msg.id !== undefined) {
       this.handleRpcRequest(msg);
     }
+  }
+
+  private handleRegistrationError(error: unknown): void {
+    const message = error && typeof error === 'object' && 'message' in error
+      ? String((error as { message: unknown }).message)
+      : 'registration rejected';
+    this.pendingRegistrationId = null;
+
+    if (this.config.nodeToken && this.config.authToken) {
+      console.warn(
+        `Registration rejected (${message}); clearing persisted node token and retrying with pairing token`
+      );
+      this.config.nodeToken = undefined;
+      persistConfig(DEFAULT_CONFIG_PATH, this.config);
+      this.ws?.close(4001, 'Retry registration with pairing token');
+      return;
+    }
+
+    console.warn(`Registration rejected (${message})`);
   }
 
   private async handleRpcRequest(msg: RpcMessage): Promise<void> {

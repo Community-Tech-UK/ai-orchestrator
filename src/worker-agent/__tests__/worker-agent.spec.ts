@@ -24,6 +24,10 @@ const discoveryMockState = vi.hoisted(() => ({
   }) => void),
 }));
 
+const workerConfigMockState = vi.hoisted(() => ({
+  persistConfig: vi.fn(),
+}));
+
 // Mock WebSocket
 vi.mock('ws', () => {
   class MockWebSocket {
@@ -65,6 +69,11 @@ vi.mock('../discovery-client', () => ({
     }),
     stopContinuous: vi.fn(),
   })),
+}));
+
+vi.mock('../worker-config', () => ({
+  DEFAULT_CONFIG_PATH: '/tmp/aio-worker-node-test.json',
+  persistConfig: workerConfigMockState.persistConfig,
 }));
 
 // Mock capability-reporter
@@ -131,6 +140,7 @@ describe('WorkerAgent', () => {
     vi.useFakeTimers();
     wsMockState.instances.length = 0;
     discoveryMockState.onUp = null;
+    workerConfigMockState.persistConfig.mockClear();
     providerDiagnostics.diagnoseProviderRuntime.mockReset();
     agent = new WorkerAgent(mockConfig);
     wsSend = vi.fn((_data: string, cb?: (err?: Error) => void) => cb?.());
@@ -179,6 +189,44 @@ describe('WorkerAgent', () => {
     await Promise.resolve();
 
     expect(wsMockState.instances[1].url).toBe('ws://192.168.1.99:4878');
+  });
+
+  it('falls back to the pairing token when a persisted node token is rejected', async () => {
+    const config: WorkerConfig = {
+      ...mockConfig,
+      authToken: 'fresh-pairing-token',
+      nodeToken: 'stale-node-token',
+      reconnectIntervalMs: 1000,
+    };
+    agent = new WorkerAgent(config);
+
+    const connect = agent.connect();
+    await Promise.resolve();
+    wsMockState.instances[0].emit('open');
+    await connect;
+
+    const firstRegistration = JSON.parse(wsMockState.instances[0].send.mock.calls[0][0] as string) as {
+      id: string;
+      params: { token: string };
+    };
+    expect(firstRegistration.params.token).toBe('stale-node-token');
+
+    wsMockState.instances[0].emit('message', JSON.stringify({
+      jsonrpc: '2.0',
+      id: firstRegistration.id,
+      error: { code: -32001, message: 'Invalid or expired pairing token' },
+    }));
+    wsMockState.instances[0].emit('close');
+
+    await vi.advanceTimersByTimeAsync(1000);
+    wsMockState.instances[1].emit('open');
+
+    const secondRegistration = JSON.parse(wsMockState.instances[1].send.mock.calls[0][0] as string) as {
+      params: { token: string };
+    };
+    expect(secondRegistration.params.token).toBe('fresh-pairing-token');
+    expect(config.nodeToken).toBeUndefined();
+    expect(workerConfigMockState.persistConfig).toHaveBeenCalled();
   });
 
   it('builds registration message with correct fields', () => {
