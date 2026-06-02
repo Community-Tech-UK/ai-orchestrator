@@ -10,7 +10,6 @@ import {
   type CliAdapter
 } from '../cli/adapters/adapter-factory';
 import type { CliType } from '../cli/cli-detection';
-import { CopilotCliAdapter } from '../cli/adapters/copilot-cli-adapter';
 import type { ResumeAttemptResult } from '../cli/adapters/base-cli-adapter';
 import type { ExecutionLocation } from '../../shared/types/worker-node.types';
 import {
@@ -23,7 +22,7 @@ import {
 } from '../../shared/types/provider.types';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getHistoryManager } from '../history';
-import { getMemoryMonitor, getOutputStorageManager } from '../memory';
+import { getOutputStorageManager } from '../memory';
 import { getProjectMemoryBriefService } from '../memory/project-memory-brief';
 import { getProjectKnowledgeCoordinator } from '../memory/project-knowledge-coordinator';
 import { getConversationMiner } from '../memory/conversation-miner';
@@ -96,6 +95,8 @@ import { getProviderRuntimeService } from '../providers/provider-runtime-service
 import { getPromptHistoryService } from '../prompt-history/prompt-history-service';
 import { summarizeCreateInstanceConfig } from './lifecycle/instance-create-logging';
 import { callWithDeadline } from '../util/deadline';
+import { LifecycleMemoryPressureMonitor } from './lifecycle/memory-pressure-monitor';
+import { getKnownModelsForCli, isRestoreOrReplayContinuity } from './lifecycle/create-validation-helpers';
 import type {
   MCPToolSearchSnapshot,
   McpRuntimeToolContextSelection,
@@ -112,35 +113,6 @@ const logger = getLogger('InstanceLifecycle');
  * deadline — those need an off-thread move, tracked separately.)
  */
 const CREATE_ENRICHER_DEADLINE_MS = 600;
-
-async function getKnownModelsForCli(cliType: string): Promise<string[]> {
-  if (cliType === 'copilot') {
-    try {
-      const models = await new CopilotCliAdapter().listAvailableModels();
-      return models.map(model => model.id);
-    } catch (error) {
-      logger.warn('Falling back to static Copilot model list during validation', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  return getModelsForProvider(cliType).map(model => model.id);
-}
-
-function isRestoreOrReplayContinuity(config: InstanceCreateConfig): boolean {
-  const hasInitialPrompt =
-    typeof config.initialPrompt === 'string'
-    && config.initialPrompt.trim().length > 0;
-  const hasInitialContextBlock =
-    typeof config.initialContextBlock === 'string'
-    && config.initialContextBlock.trim().length > 0;
-  const hasSeededConversation = config.initialOutputBuffer?.some(
-    (message) => message.type === 'user' || message.type === 'assistant'
-  ) ?? false;
-
-  return Boolean(config.resume || hasInitialContextBlock || (hasSeededConversation && !hasInitialPrompt));
-}
 
 /**
  * Dependencies required by the lifecycle manager
@@ -229,7 +201,6 @@ export interface LifecycleDependencies {
 
 export class InstanceLifecycleManager extends EventEmitter {
   private settings = getSettingsManager();
-  private memoryMonitor = getMemoryMonitor();
   private outputStorage = getOutputStorageManager();
   private deps: LifecycleDependencies;
   private activityDetectors = new Map<string, ActivityStateDetector>();
@@ -252,6 +223,9 @@ export class InstanceLifecycleManager extends EventEmitter {
 
   /** Extracted interrupt + post-interrupt/unexpected-exit respawn flows. */
   private readonly interruptRespawn: InterruptRespawnHandler;
+
+  /** Extracted memory-pressure listener and stats bridge. */
+  private readonly memoryPressureMonitor: LifecycleMemoryPressureMonitor;
 
   /**
    * Focused spawner for isolated CLI process spawn operations (e.g. test harnesses,
@@ -517,7 +491,14 @@ export class InstanceLifecycleManager extends EventEmitter {
         this.emit('output', { instanceId: instance.id, message });
       },
     });
-    this.setupMemoryMonitoring();
+    this.memoryPressureMonitor = new LifecycleMemoryPressureMonitor({
+      settings: this.settings,
+      outputStorage: this.outputStorage,
+      idleMonitor: this.idleMonitor,
+      warmStartManager: deps.warmStartManager,
+      emit: (eventName, stats) => { this.emit(eventName, stats); },
+    });
+    this.memoryPressureMonitor.start();
   }
 
   // ============================================
@@ -3169,56 +3150,11 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
     }
   }
 
-  // ============================================
-  // Memory Monitoring
-  // ============================================
-
-  private setupMemoryMonitoring(): void {
-    this.memoryMonitor.on('warning', (stats) => {
-      logger.warn('Memory warning', stats as Record<string, unknown>);
-      this.emit('memory:warning', stats);
-    });
-
-    this.memoryMonitor.on('critical', (stats) => {
-      logger.error('Memory critical', undefined, stats as Record<string, unknown>);
-      this.emit('memory:critical', stats);
-
-      // Disable warm-start under critical memory pressure to free resources.
-      if (this.deps.warmStartManager) {
-        logger.info('Disabling warm-start due to critical memory pressure');
-        this.deps.warmStartManager.setEnabled(false);
-      }
-
-      const settingsAll = this.settings.getAll();
-      if (settingsAll.autoTerminateOnMemoryPressure) {
-        this.idleMonitor.terminateIdleHalf();
-      }
-    });
-
-    this.memoryMonitor.on('normal', () => {
-      // Re-enable warm-start once pressure returns to normal.
-      if (this.deps.warmStartManager) {
-        logger.info('Re-enabling warm-start after memory pressure resolved');
-        this.deps.warmStartManager.setEnabled(true);
-      }
-    });
-
-    this.memoryMonitor.on('stats', (stats) => {
-      this.emit('memory:stats', stats);
-    });
-
-    this.memoryMonitor.start();
-  }
-
   /**
    * Get memory statistics
    */
   getMemoryStats() {
-    return {
-      process: this.memoryMonitor.getStats(),
-      storage: this.outputStorage.getTotalStats(),
-      pressureLevel: this.memoryMonitor.getPressureLevel()
-    };
+    return this.memoryPressureMonitor.getStats();
   }
 
   // ============================================
@@ -3230,6 +3166,6 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
    */
   destroy(): void {
     this.idleMonitor.stop();
-    this.memoryMonitor.stop();
+    this.memoryPressureMonitor.stop();
   }
 }

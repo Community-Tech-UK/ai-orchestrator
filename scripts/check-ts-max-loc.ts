@@ -72,7 +72,7 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — automations
   'src/main/automations/automation-store.ts': 847,
   // Main process — browser gateway
-  'src/main/browser-gateway/browser-gateway-service.ts': 2507,
+  'src/main/browser-gateway/browser-gateway-service.ts': 2319,
   // Main process — channels
   'src/main/channels/adapters/discord-adapter.ts': 965,
   'src/main/channels/channel-message-router.ts': 2521,
