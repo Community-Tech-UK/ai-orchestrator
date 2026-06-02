@@ -130,6 +130,15 @@
                   </select>
                 </label>
               }
+              <label class="filter-checkbox-group">
+                <input
+                  type="checkbox"
+                  class="filter-checkbox"
+                  [checked]="showEmptyProjects()"
+                  (change)="onShowEmptyProjectsChange($event)"
+                />
+                <span class="filter-select-label">Show empty projects</span>
+              </label>
             </div>
           }
         </div>

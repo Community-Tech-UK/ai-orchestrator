@@ -5073,10 +5073,6 @@
       "lines": 1478
     },
     {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
-      "lines": 1465
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-08-phase2-provider-tool-sdk_completed.md",
       "lines": 1457
     },
@@ -5098,7 +5094,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
-      "lines": 1363
+      "lines": 1389
     },
     {
       "path": "src/main/history/history-manager.ts",
@@ -5139,6 +5135,10 @@
     {
       "path": "src/main/workspace/git/vcs-manager.ts",
       "lines": 1296
+    },
+    {
+      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
+      "lines": 1291
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
@@ -5309,16 +5309,16 @@
       "lines": 1049
     },
     {
+      "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
+      "lines": 1047
+    },
+    {
       "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
       "lines": 1044
     },
     {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
       "lines": 1036
-    },
-    {
-      "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
-      "lines": 1030
     },
     {
       "path": "docs/superpowers/plans/2026-03-14-worktree-safety-attention-cost.md",
@@ -5431,10 +5431,6 @@
     {
       "path": "src/preload/domains/orchestration.preload.ts",
       "lines": 940
-    },
-    {
-      "path": "src/main/automations/automation-store.ts",
-      "lines": 939
     },
     {
       "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",

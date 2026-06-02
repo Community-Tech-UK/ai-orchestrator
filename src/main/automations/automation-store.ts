@@ -2,15 +2,10 @@ import type { SqliteDriver } from '../db/sqlite-driver';
 import { generateId } from '../../shared/utils/id-generator';
 import type {
   Automation,
-  AutomationAction,
-  AutomationConfigSnapshot,
-  AutomationConcurrencyPolicy,
   AutomationDeliveryMode,
   AutomationDestination,
-  AutomationMissedRunPolicy,
   AutomationRun,
   AutomationRunStatus,
-  AutomationSchedule,
   AutomationTrigger,
   AutomationTriggerSource,
   ClaimedAutomationRun,
@@ -18,6 +13,19 @@ import type {
   UpdateAutomationInput,
 } from '../../shared/types/automation.types';
 import { AutomationAttachmentService } from './automation-attachment-service';
+import {
+  mapAutomationRow,
+  mapRunRow,
+  normalizeDestination,
+  stripAttachmentData,
+  toSnapshot,
+} from './automation-store-mappers';
+import type {
+  AutomationRow,
+  AutomationRunRow,
+  AutomationThreadDestinationRow,
+  RunInsertExtras,
+} from './automation-store-records';
 
 /**
  * Default number of consecutive failed runs after which an automation is
@@ -26,123 +34,16 @@ import { AutomationAttachmentService } from './automation-attachment-service';
  */
 export const DEFAULT_MAX_CONSECUTIVE_FAILURES = 5;
 
-interface AutomationRow {
-  id: string;
-  name: string;
-  description: string | null;
-  enabled: number;
-  active: number;
-  schedule_type: 'cron' | 'oneTime';
-  schedule_json: string;
-  missed_run_policy: AutomationMissedRunPolicy;
-  concurrency_policy: AutomationConcurrencyPolicy;
-  action_json: string;
-  next_fire_at: number | null;
-  last_fired_at: number | null;
-  last_run_id: string | null;
-  created_at: number;
-  updated_at: number;
-  unread_run_count?: number;
-  consecutive_failures?: number;
-  last_failure_at?: number | null;
-  last_failure_reason?: string | null;
-}
-
-interface AutomationRunRow {
-  id: string;
-  automation_id: string;
-  status: AutomationRunStatus;
-  trigger: AutomationTrigger;
-  scheduled_at: number;
-  started_at: number | null;
-  finished_at: number | null;
-  instance_id: string | null;
-  error: string | null;
-  output_summary: string | null;
-  output_full_ref: string | null;
-  idempotency_key: string | null;
-  trigger_source_json: string | null;
-  delivery_mode: AutomationDeliveryMode;
-  seen_at: number | null;
-  config_snapshot_json: string | null;
-  created_at: number;
-  updated_at: number;
-}
-
-interface AutomationThreadDestinationRow {
-  automation_id: string;
-  instance_id: string;
-  session_id: string | null;
-  history_entry_id: string | null;
-  revive_if_archived: number;
-}
-
 type FireDecision =
   | { kind: 'missing'; reason: string }
   | { kind: 'skipped'; reason: string; run?: AutomationRun }
   | { kind: 'queued'; run: AutomationRun }
   | { kind: 'started'; run: AutomationRun };
 
-interface RunInsertExtras {
-  startedAt?: number;
-  finishedAt?: number;
-  error?: string;
-  idempotencyKey?: string;
-  triggerSource?: AutomationTriggerSource;
-  deliveryMode?: AutomationDeliveryMode;
-}
-
-type PersistedAutomationConfigSnapshot = Omit<AutomationConfigSnapshot, 'destination'> & {
-  destination?: AutomationDestination;
-};
-
 export interface AutomationRunDecisionOptions {
   idempotencyKey?: string;
   triggerSource?: AutomationTriggerSource;
   deliveryMode?: AutomationDeliveryMode;
-}
-
-function stripAttachmentData(action: AutomationAction): AutomationAction {
-  const { attachments, ...rest } = action;
-  void attachments;
-  return rest;
-}
-
-function toSnapshot(automation: Automation): AutomationConfigSnapshot {
-  return {
-    name: automation.name,
-    schedule: automation.schedule,
-    missedRunPolicy: automation.missedRunPolicy,
-    concurrencyPolicy: automation.concurrencyPolicy,
-    destination: automation.destination,
-    action: automation.action,
-  };
-}
-
-function normalizeDestination(destination?: AutomationDestination | null): AutomationDestination {
-  if (!destination || destination.kind === 'newInstance') {
-    return { kind: 'newInstance' };
-  }
-
-  const normalized: Extract<AutomationDestination, { kind: 'thread' }> = {
-    kind: 'thread',
-    instanceId: destination.instanceId,
-    reviveIfArchived: destination.reviveIfArchived ?? true,
-  };
-  if (destination.sessionId !== undefined) {
-    normalized.sessionId = destination.sessionId;
-  }
-  if (destination.historyEntryId !== undefined) {
-    normalized.historyEntryId = destination.historyEntryId;
-  }
-  return normalized;
-}
-
-function normalizeSnapshot(snapshot: PersistedAutomationConfigSnapshot): AutomationConfigSnapshot {
-  return {
-    ...snapshot,
-    destination: normalizeDestination(snapshot.destination),
-  };
 }
 
 export class AutomationStore {
@@ -886,53 +787,10 @@ export class AutomationStore {
   }
 
   private mapAutomationSync(row: AutomationRow): Automation {
-    return {
-      id: row.id,
-      name: row.name,
-      description: row.description ?? undefined,
-      enabled: row.enabled === 1,
-      active: row.active === 1,
-      schedule: JSON.parse(row.schedule_json) as AutomationSchedule,
-      missedRunPolicy: row.missed_run_policy,
-      concurrencyPolicy: row.concurrency_policy,
-      destination: this.getDestination(row.id),
-      action: JSON.parse(row.action_json) as AutomationAction,
-      nextFireAt: row.next_fire_at,
-      lastFiredAt: row.last_fired_at,
-      lastRunId: row.last_run_id,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      unreadRunCount: row.unread_run_count ?? 0,
-      consecutiveFailures: row.consecutive_failures ?? 0,
-      lastFailureAt: row.last_failure_at ?? null,
-      lastFailureReason: row.last_failure_reason ?? null,
-    };
+    return mapAutomationRow(row, this.getDestination(row.id));
   }
 
   private mapRun(row: AutomationRunRow): AutomationRun {
-    return {
-      id: row.id,
-      automationId: row.automation_id,
-      status: row.status,
-      trigger: row.trigger,
-      scheduledAt: row.scheduled_at,
-      startedAt: row.started_at,
-      finishedAt: row.finished_at,
-      instanceId: row.instance_id,
-      error: row.error,
-      outputSummary: row.output_summary,
-      outputFullRef: row.output_full_ref,
-      idempotencyKey: row.idempotency_key,
-      triggerSource: row.trigger_source_json
-        ? JSON.parse(row.trigger_source_json) as AutomationTriggerSource
-        : null,
-      deliveryMode: row.delivery_mode ?? 'notify',
-      seenAt: row.seen_at,
-      configSnapshot: row.config_snapshot_json
-        ? normalizeSnapshot(JSON.parse(row.config_snapshot_json) as PersistedAutomationConfigSnapshot)
-        : null,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
+    return mapRunRow(row);
   }
 }

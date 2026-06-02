@@ -44,6 +44,7 @@ export interface ProjectRailBuildInput {
   collapsedHistoryParentIds: Set<string>;
   historySortMode: HistorySortMode;
   rootInstanceOrder: string[];
+  showEmptyProjects: boolean;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -343,6 +344,13 @@ export class ProjectRailBuilderService {
 
         const projectKey = this.paths.getProjectKey(recentDirectory.path);
         const draftInfo = this.projectGroupComputation.getProjectDraftInfo(recentDirectory.path);
+        // These recent directories have no live sessions and no visible history,
+        // so they render as "No threads yet". Hide them unless the user opts in,
+        // but always keep pinned projects and projects with an unsent draft —
+        // those are intentional, not empty-list noise.
+        if (!input.showEmptyProjects && !recentDirectory.isPinned && !draftInfo.hasDraft) {
+          continue;
+        }
         const recentActivity = Math.max(
           recentDirectory.lastAccessed,
           draftInfo.draftUpdatedAt ?? 0,

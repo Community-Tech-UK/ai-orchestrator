@@ -45,6 +45,7 @@ import {
   HISTORY_TIME_WINDOW_STORAGE_KEY,
   HISTORY_VISIBILITY_STORAGE_KEY,
   ORDER_STORAGE_KEY,
+  SHOW_EMPTY_PROJECTS_STORAGE_KEY,
   SORT_MODE_STORAGE_KEY,
   getInstanceThreadId,
   type HierarchicalHistoryItem,
@@ -93,6 +94,7 @@ export class InstanceListComponent implements OnDestroy {
   historySortMode = signal<HistorySortMode>(this.loadSortMode());
   historyVisibilityMode = signal<HistoryVisibilityMode>(this.loadHistoryVisibilityMode());
   historyTimeWindow = signal<HistoryTimeWindow>(this.loadHistoryTimeWindow());
+  showEmptyProjects = signal<boolean>(this.loadShowEmptyProjects());
   openProjectMenuKey = signal<string | null>(null);
   preferredEditorLabel = signal('Editor');
   lastVisitedHistoryThreadId = signal<string | null>(null);
@@ -119,6 +121,7 @@ export class InstanceListComponent implements OnDestroy {
       || this.historySortMode() !== 'last-interacted'
       || this.historyVisibilityMode() !== 'relevant'
       || this.historyTimeWindow() !== 'all'
+      || this.showEmptyProjects()
   );
   readonly systemFileManagerLabel = this.getSystemFileManagerLabel();
   private projectMenuTrigger: HTMLButtonElement | null = null;
@@ -156,6 +159,7 @@ export class InstanceListComponent implements OnDestroy {
       collapsedHistoryParentIds: this.collapsedHistoryParentIds(),
       historySortMode: this.historySortMode(),
       rootInstanceOrder: this.rootInstanceOrder(),
+      showEmptyProjects: this.showEmptyProjects(),
     });
   });
 
@@ -335,6 +339,12 @@ export class InstanceListComponent implements OnDestroy {
     this.historyTimeWindow.set(value);
     this.saveHistoryTimeWindow(value);
     this.closeProjectMenu({ restoreFocus: false });
+  }
+
+  onShowEmptyProjectsChange(event: Event): void {
+    const value = (event.target as HTMLInputElement).checked;
+    this.showEmptyProjects.set(value);
+    this.saveShowEmptyProjects(value);
   }
 
   onSelectInstance(instanceId: string): void {
@@ -1282,6 +1292,22 @@ export class InstanceListComponent implements OnDestroy {
   private saveHistoryTimeWindow(mode: HistoryTimeWindow): void {
     try {
       localStorage.setItem(HISTORY_TIME_WINDOW_STORAGE_KEY, mode);
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+
+  private loadShowEmptyProjects(): boolean {
+    try {
+      return localStorage.getItem(SHOW_EMPTY_PROJECTS_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  private saveShowEmptyProjects(value: boolean): void {
+    try {
+      localStorage.setItem(SHOW_EMPTY_PROJECTS_STORAGE_KEY, value ? 'true' : 'false');
     } catch {
       // Ignore storage errors.
     }

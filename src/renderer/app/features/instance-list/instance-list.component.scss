@@ -176,6 +176,23 @@
       color: var(--text-muted);
     }
 
+    .filter-checkbox-group {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      cursor: pointer;
+    }
+
+    .filter-checkbox {
+      flex: 0 0 auto;
+      width: 14px;
+      height: 14px;
+      accent-color: var(--primary-color, var(--text-primary));
+      cursor: pointer;
+    }
+
     .filter-input,
     .sort-filter,
     .status-filter {

@@ -5,6 +5,7 @@ export const ORDER_STORAGE_KEY = 'instance-list-order';
 export const SORT_MODE_STORAGE_KEY = 'instance-list-sort-mode';
 export const HISTORY_VISIBILITY_STORAGE_KEY = 'instance-list-history-visibility';
 export const HISTORY_TIME_WINDOW_STORAGE_KEY = 'instance-list-history-time-window';
+export const SHOW_EMPTY_PROJECTS_STORAGE_KEY = 'instance-list-show-empty-projects';
 export const NO_WORKSPACE_KEY = '__no_workspace__';
 export const CHATS_KEY = '__chats__';
 export const ORPHANED_CHILDREN_KEY = '__orphaned_children__';
