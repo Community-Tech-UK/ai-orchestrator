@@ -100,6 +100,10 @@ Field reference:
 | `coordinatorUrl` | Recommended | WebSocket URL of the coordinator (e.g. `"ws://192.168.0.15:4878"`). Without this, the worker relies on mDNS auto-discovery, which is unreliable on Windows. Use `wss://` if TLS is enabled on the coordinator. |
 | `heartbeatIntervalMs` | No | Interval for heartbeat + capability refresh (default 10000ms). |
 
+The copied UI config may instead contain `token`, `host`, `port`, and
+`requireTls`. The worker accepts that shape too: it treats `token` as the
+first-run enrollment token and derives `coordinatorUrl` from `host`/`port`.
+
 When Tailscale is running on the coordinator, the generated pairing config prefers
 the coordinator's Tailscale MagicDNS name when the Tailscale CLI exposes it, then
 falls back to the coordinator's `100.x.y.z` Tailscale IP, then to a normal LAN IP.

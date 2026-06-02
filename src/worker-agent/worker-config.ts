@@ -88,17 +88,16 @@ function normalizeFileConfig(fileConfig: Partial<WorkerConfig> & PairingConfigFi
     normalized.authToken = fileConfig.token;
   }
 
-  if (
-    !normalized.coordinatorUrl &&
-    typeof fileConfig.host === 'string' &&
-    typeof fileConfig.port === 'number' &&
-    Number.isInteger(fileConfig.port)
-  ) {
+  if (typeof fileConfig.host === 'string' && isValidPort(fileConfig.port)) {
     const protocol = fileConfig.requireTls === true ? 'wss' : 'ws';
     normalized.coordinatorUrl = `${protocol}://${fileConfig.host}:${fileConfig.port}`;
   }
 
   return normalized;
+}
+
+function isValidPort(port: unknown): port is number {
+  return typeof port === 'number' && Number.isInteger(port) && port > 0 && port <= 65535;
 }
 
 function parseCliArgs(argv: string[]): Record<string, string> {

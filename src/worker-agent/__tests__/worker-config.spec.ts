@@ -63,4 +63,23 @@ describe('loadWorkerConfig', () => {
 
     expect(config.coordinatorUrl).toBe('wss://100.68.10.5:4878');
   });
+
+  it('lets copied UI host and port replace a stale persisted coordinatorUrl', () => {
+    const configPath = path.join(tempDir, 'worker-node.json');
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        token: 'pair-token',
+        authToken: 'pair-token',
+        host: 'macbook-pro.tail4fc107.ts.net',
+        port: 4878,
+        requireTls: false,
+        coordinatorUrl: 'ws://192.168.0.156:4878',
+      }),
+    );
+
+    const config = loadWorkerConfig(configPath);
+
+    expect(config.coordinatorUrl).toBe('ws://macbook-pro.tail4fc107.ts.net:4878');
+  });
 });
