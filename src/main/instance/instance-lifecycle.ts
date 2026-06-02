@@ -2634,14 +2634,31 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
     }
+    return this.setYoloMode(instanceId, !instance.yoloMode);
+  }
+
+  /**
+   * Set YOLO mode for an instance to an explicit target value, respawning the
+   * CLI (with resume) so the new permission posture takes effect immediately.
+   * No-ops when the instance is already in the desired mode. Throws if the
+   * instance is busy, mirroring {@link toggleYoloMode}.
+   */
+  async setYoloMode(instanceId: string, desiredYoloMode: boolean): Promise<Instance> {
+    const instance = this.deps.getInstance(instanceId);
+    if (!instance) {
+      throw new Error(`Instance ${instanceId} not found`);
+    }
+    if (instance.yoloMode === desiredYoloMode) {
+      return instance;
+    }
 
     const release = await getSessionMutex().acquire(instanceId, 'yolo-toggle');
     try {
       if (instance.status === 'busy') {
-        throw new Error('Cannot toggle YOLO mode while instance is busy. Please wait for the current operation to complete.');
+        throw new Error('Cannot change YOLO mode while instance is busy. Please wait for the current operation to complete.');
       }
 
-      const newYoloMode = !instance.yoloMode;
+      const newYoloMode = desiredYoloMode;
       logger.info('Toggling YOLO mode', {
         instanceId,
         currentYoloMode: instance.yoloMode,

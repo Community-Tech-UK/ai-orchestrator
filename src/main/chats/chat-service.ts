@@ -288,6 +288,31 @@ export class ChatService {
       yolo,
       lastActiveAt: Date.now(),
     });
+    // Propagate to the live instance so the new mode takes effect immediately.
+    // `instance.yoloMode` is the single source of truth consulted by the
+    // Browser Gateway auto-approve, the permission enforcer and the bash
+    // validators — without this, toggling YOLO mid-chat only updated the stored
+    // record and left the running instance (and its browser prompts) unchanged.
+    const instanceId = chat.currentInstanceId;
+    if (instanceId) {
+      const inst = this.instanceManager.getInstance(instanceId);
+      if (inst && inst.status !== 'terminated' && inst.yoloMode !== yolo) {
+        try {
+          await this.instanceManager.setYoloMode(instanceId, yolo);
+        } catch (error) {
+          // Respawn can fail (e.g. the instance is busy). Still flip the flag so
+          // approval gates honor YOLO right away; the CLI's own spawn flags catch
+          // up on the next respawn.
+          inst.yoloMode = yolo;
+          logger.warn('Could not respawn instance for chat YOLO change; updated flag in place', {
+            chatId,
+            instanceId,
+            yolo,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    }
     this.emit({ type: 'chat-updated', chatId: chat.id, chat });
     return this.detailFor(chat);
   }

@@ -1805,6 +1805,21 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE channel_credentials DROP COLUMN display_name;
     `,
   },
+  // Migration 031: automation failure tracking for resilience (auto-disable
+  // after repeated failures + a per-automation last-failure summary).
+  {
+    name: '031_automation_failure_tracking',
+    up: `
+      ALTER TABLE automations ADD COLUMN consecutive_failures INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE automations ADD COLUMN last_failure_at INTEGER;
+      ALTER TABLE automations ADD COLUMN last_failure_reason TEXT;
+    `,
+    down: `
+      ALTER TABLE automations DROP COLUMN last_failure_reason;
+      ALTER TABLE automations DROP COLUMN last_failure_at;
+      ALTER TABLE automations DROP COLUMN consecutive_failures;
+    `,
+  },
 ];
 
 /**

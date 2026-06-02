@@ -81,6 +81,16 @@ export interface Automation {
   createdAt: number;
   updatedAt: number;
   unreadRunCount?: number;
+  /**
+   * Number of consecutive failed runs since the last success. Reset to 0 on any
+   * successful run and when the automation is re-enabled. Used to auto-disable a
+   * persistently-failing automation so it stops firing on every schedule tick.
+   */
+  consecutiveFailures?: number;
+  /** Epoch ms of the most recent failed run, if any. */
+  lastFailureAt?: number | null;
+  /** Error message from the most recent failed run, if any. */
+  lastFailureReason?: string | null;
 }
 
 export interface AutomationRun {

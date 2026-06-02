@@ -1944,6 +1944,11 @@ export class BrowserGatewayService {
       expiresAt: Date.now() + 30 * 60 * 1000,
     });
 
+    // Note: manual-handoff prompts (login / captcha / 2FA / pause-for-manual-step)
+    // are intentionally NOT auto-approved, even under YOLO mode. These represent a
+    // genuine human task the agent cannot perform itself, so auto-approving them
+    // would let the agent proceed as if the human had acted — silently breaking the
+    // flow. YOLO auto-approves permission gates, not human-in-the-loop handoffs.
     return this.result({
       context: params.request,
       profileId: params.request.profileId,

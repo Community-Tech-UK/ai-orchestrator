@@ -4886,7 +4886,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3182
+      "lines": 3199
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
@@ -4921,12 +4921,12 @@
       "lines": 2695
     },
     {
-      "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase3-4-6-7.COMPLETED.md",
-      "lines": 2659
+      "path": "src/main/orchestration/loop-coordinator.ts",
+      "lines": 2670
     },
     {
-      "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 2635
+      "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase3-4-6-7.COMPLETED.md",
+      "lines": 2659
     },
     {
       "path": "src/main/channels/channel-message-router.ts",
@@ -4938,7 +4938,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2475
+      "lines": 2479
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
@@ -4946,7 +4946,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2202
+      "lines": 2207
     },
     {
       "path": "src/main/instance/instance-communication.ts",
@@ -4954,7 +4954,7 @@
     },
     {
       "path": "src/main/persistence/rlm/rlm-schema.ts",
-      "lines": 2136
+      "lines": 2151
     },
     {
       "path": "docs/superpowers/plans/2026-04-09-resilient-codex-resume-and-agent-observability_completed.md",
@@ -5057,12 +5057,12 @@
       "lines": 1540
     },
     {
-      "path": "docs/superpowers/plans/2026-04-02-phase-e-developer-experience.md",
-      "lines": 1517
+      "path": "resources/browser-extension/background.js",
+      "lines": 1539
     },
     {
-      "path": "resources/browser-extension/background.js",
-      "lines": 1502
+      "path": "docs/superpowers/plans/2026-04-02-phase-e-developer-experience.md",
+      "lines": 1517
     },
     {
       "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
@@ -5071,6 +5071,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-audit-phase2.COMPLETED.md",
       "lines": 1478
+    },
+    {
+      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
+      "lines": 1465
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase2-provider-tool-sdk_completed.md",
@@ -5087,10 +5091,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency.md",
       "lines": 1411
-    },
-    {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
-      "lines": 1404
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-cross-project-improvements_completed.md",
@@ -5141,6 +5141,10 @@
       "lines": 1296
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
+      "lines": 1280
+    },
+    {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
       "lines": 1272
     },
@@ -5155,10 +5159,6 @@
     {
       "path": "docs/_archive/2026-06-01-remote-workspace-browser-bridge-design.md",
       "lines": 1263
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
-      "lines": 1260
     },
     {
       "path": "docs/plans/2026-03-02-architectural-remediation-plan.md",
@@ -5433,6 +5433,10 @@
       "lines": 940
     },
     {
+      "path": "src/main/automations/automation-store.ts",
+      "lines": 939
+    },
+    {
       "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
       "lines": 908
     },
@@ -5521,10 +5525,6 @@
       "lines": 850
     },
     {
-      "path": "src/main/automations/automation-store.ts",
-      "lines": 847
-    },
-    {
       "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
       "lines": 846
     },
@@ -5555,6 +5555,14 @@
     {
       "path": "src/main/cli/adapters/base-cli-adapter.ts",
       "lines": 830
+    },
+    {
+      "path": "src/main/chats/chat-service.spec.ts",
+      "lines": 829
+    },
+    {
+      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
+      "lines": 826
     },
     {
       "path": "src/renderer/app/features/debate/enhanced-debate-visualization.component.ts",

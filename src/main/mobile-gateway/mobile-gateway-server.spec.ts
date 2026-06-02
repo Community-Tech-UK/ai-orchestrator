@@ -517,7 +517,7 @@ describe('MobileGatewayServer', () => {
       const prompt = promptFrame.data as {
         requestId: string;
         requestType: string;
-        options: Array<{ id: string; label: string; description?: string }>;
+        options: { id: string; label: string; description?: string }[];
       };
       expect(prompt.requestId).toBe('uar-1');
       expect(prompt.requestType).toBe('select_option');
@@ -773,5 +773,53 @@ describe('MobileGatewayServer', () => {
     expect(posts).toHaveLength(1);
     expect(posts[0].deviceToken).toBe('apns-device-1');
     expect(JSON.parse(posts[0].payload).aps.alert.title).toContain('Bash');
+  });
+
+  async function setupPushDevice(): Promise<{ posts: { deviceToken: string; payload: string }[] }> {
+    await server.stop();
+    const result = initServer(true);
+    const status = await server.start({ port: 0, bindInterface: 'all' });
+    port = status.port!;
+    const token = await pairToken();
+    const device = registry.listDevices()[0];
+    await authed(token, `/api/devices/${device.deviceId}/apns-token`, {
+      method: 'POST',
+      body: JSON.stringify({ apnsToken: 'apns-device-1' }),
+    });
+    return result;
+  }
+
+  it('sends a completion push when an instance transitions from working to idle', async () => {
+    const { posts } = await setupPushDevice();
+
+    source.emit('instance:state-update', { instanceId: 'a', status: 'busy' });
+    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(posts).toHaveLength(1);
+    const payload = JSON.parse(posts[0].payload);
+    expect(payload.aps.alert.title).toContain('finished');
+    expect(payload.aps.category).toBe('AIO_COMPLETE');
+    expect(payload.kind).toBe('completion');
+  });
+
+  it('does not send a completion push for idle without a prior working status', async () => {
+    const { posts } = await setupPushDevice();
+
+    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(posts).toHaveLength(0);
+  });
+
+  it('does not send a completion push when work pauses for user input', async () => {
+    const { posts } = await setupPushDevice();
+
+    source.emit('instance:state-update', { instanceId: 'a', status: 'busy' });
+    source.emit('instance:state-update', { instanceId: 'a', status: 'waiting_for_input' });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(posts).toHaveLength(0);
   });
 });

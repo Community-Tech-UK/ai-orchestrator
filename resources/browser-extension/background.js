@@ -865,16 +865,30 @@ async function markControlledTabGroup(tabId) {
   }
 
   const tab = await chrome.tabs.get(tabId).catch(() => null);
-  const noGroupId = chrome.tabGroups.TAB_GROUP_ID_NONE ?? -1;
-  let groupId = typeof tab?.groupId === 'number' ? tab.groupId : noGroupId;
-  if (groupId !== noGroupId) {
-    const group = await chrome.tabGroups.get(groupId).catch(() => null);
-    if (group?.title !== CONTROL_GROUP_TITLE) {
-      groupId = await chrome.tabs.group({ tabIds: tabId }).catch(() => groupId);
-    }
-  } else {
-    groupId = await chrome.tabs.group({ tabIds: tabId }).catch(() => noGroupId);
+  if (!tab) {
+    return;
   }
+  const noGroupId = chrome.tabGroups.TAB_GROUP_ID_NONE ?? -1;
+  const currentGroupId = typeof tab.groupId === 'number' ? tab.groupId : noGroupId;
+
+  // Reuse the single canonical "AI Orchestrator" control group in this tab's
+  // window so every controlled tab collapses into one group instead of spawning
+  // a new group per tab. Tab groups are window-scoped, so this is constrained to
+  // the tab's own window. The canonical group is the oldest matching group
+  // (smallest id), which is deterministic and lets a tab stuck in a stale
+  // duplicate group migrate back into the shared one when re-controlled.
+  const canonicalGroupId = await findControlGroupId(tab.windowId, noGroupId);
+
+  // Already homed in the canonical control group — nothing to (re)group.
+  if (currentGroupId !== noGroupId && currentGroupId === canonicalGroupId) {
+    return;
+  }
+
+  const groupId = await chrome.tabs.group(
+    canonicalGroupId !== noGroupId
+      ? { tabIds: tabId, groupId: canonicalGroupId }
+      : { tabIds: tabId },
+  ).catch(() => noGroupId);
 
   if (typeof groupId === 'number' && groupId !== noGroupId) {
     await chrome.tabGroups.update(groupId, {
@@ -883,6 +897,29 @@ async function markControlledTabGroup(tabId) {
       collapsed: false,
     }).catch(() => undefined);
   }
+}
+
+async function findControlGroupId(windowId, noGroupId) {
+  if (!chrome.tabGroups?.query) {
+    return noGroupId;
+  }
+  const query = typeof windowId === 'number'
+    ? { windowId, title: CONTROL_GROUP_TITLE }
+    : { title: CONTROL_GROUP_TITLE };
+  const groups = await chrome.tabGroups.query(query).catch(() => []);
+  // Pick the oldest matching group (smallest id) so the canonical group is
+  // stable regardless of query ordering, avoiding group-thrash when multiple
+  // tabs are controlled at once.
+  let canonicalId = noGroupId;
+  for (const group of groups) {
+    if (typeof group?.id !== 'number') {
+      continue;
+    }
+    if (canonicalId === noGroupId || group.id < canonicalId) {
+      canonicalId = group.id;
+    }
+  }
+  return canonicalId;
 }
 
 async function installControlGlow(tabId) {

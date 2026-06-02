@@ -10,6 +10,7 @@ import type {
   ProviderRuntimeEvent,
 } from '@contracts/types/provider-runtime-events';
 import { getLogger } from '../logging/logger';
+import { normalizeUsage, type UsageLike } from '../../shared/util/usage-normalization';
 
 const bridgeLogger = getLogger('AdapterRuntimeEventBridge');
 
@@ -253,14 +254,18 @@ function normalizeContextUsage(usage: unknown): ContextUsage | null {
     normalized.cumulativeTokens = usageRecord['cumulativeTokens'];
   }
 
-  const inputTokens = readNumber(usageRecord, ['inputTokens', 'input_tokens']);
-  if (inputTokens !== undefined) {
-    normalized.inputTokens = inputTokens;
+  // Resolve input/output token counts through the shared usage normalizer so the
+  // context ring reflects whichever of the 15+ provider field conventions a
+  // provider emitted (input_tokens / promptTokens / prompt_tokens / completion_tokens
+  // / …), not just the snake/camel pair this bridge originally handled. Behavior is
+  // unchanged for `inputTokens`/`outputTokens`; only `used`/`total` (context-window
+  // metrics, not token-usage fields) are intentionally read separately above.
+  const usageTokens = normalizeUsage(usageRecord as unknown as UsageLike);
+  if (usageTokens?.input !== undefined) {
+    normalized.inputTokens = usageTokens.input;
   }
-
-  const outputTokens = readNumber(usageRecord, ['outputTokens', 'output_tokens']);
-  if (outputTokens !== undefined) {
-    normalized.outputTokens = outputTokens;
+  if (usageTokens?.output !== undefined) {
+    normalized.outputTokens = usageTokens.output;
   }
 
   const source = readString(usageRecord, ['source'], 100);

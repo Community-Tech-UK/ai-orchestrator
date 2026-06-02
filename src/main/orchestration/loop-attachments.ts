@@ -1,6 +1,7 @@
 import { mkdir, writeFile, rm, readFile, appendFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getLogger } from '../logging/logger';
+import { ATTACHMENT_PREAMBLE_HEADER } from '../../shared/types/title-derivation';
 import type { LoopAttachment } from '@contracts/schemas/loop';
 
 const logger = getLogger('LoopAttachments');
@@ -111,7 +112,7 @@ export async function cleanupLoopAttachments(workspaceCwd: string, loopRunId: st
  */
 export function renderAttachmentBlock(saved: SavedAttachment[]): string {
   if (saved.length === 0) return '';
-  const lines = ['Attached files (relative to workspace; use your file-read tools):'];
+  const lines = [ATTACHMENT_PREAMBLE_HEADER];
   for (const s of saved) {
     if (s.skipped) {
       lines.push(`- ${s.relativePath} (skipped: too large or unwritable)`);

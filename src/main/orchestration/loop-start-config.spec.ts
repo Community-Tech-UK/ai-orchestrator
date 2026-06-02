@@ -1,8 +1,9 @@
 /**
  * LF-3a (loopfixex §13) — loop start-config preparation.
  *
- * Verifies the two start-time safety rules: verify-command inference (surfaced
- * back so the renderer shows what gates completion) and the cost-cap
+ * Verifies the two start-time safety rules: the default completion authority
+ * (fresh-eyes cross-model review when no verify command is supplied — we no
+ * longer infer/force a heavy machine verify command) and the cost-cap
  * precondition for operator-reviewed loops.
  */
 
@@ -36,17 +37,20 @@ function mkConfig(overrides: Partial<LoopConfigInput> = {}): LoopConfigInput {
 }
 
 describe('prepareLoopStartConfig (LF-3a)', () => {
-  it('surfaces the inferred verify command when none is supplied', async () => {
+  it('defaults the completion gate to fresh-eyes cross-model review when no verify command is supplied (no longer infers npm run verify)', async () => {
+    // Even with a package.json "verify" script present, we no longer infer or
+    // force it — the default authority is the fresh-eyes review.
     writeFileSync(join(workspace, 'package.json'), JSON.stringify({ scripts: { verify: 'npm test' } }));
 
     const prepared = await prepareLoopStartConfig(mkConfig({
       completion: { ...defaultLoopConfig(workspace, 'g').completion, verifyCommand: '' },
     }));
 
-    expect(prepared.completion?.verifyCommand).toBe('npm run verify');
+    expect(prepared.completion?.verifyCommand ?? '').toBe('');
+    expect(prepared.completion?.crossModelReview?.enabled).toBe(true);
   });
 
-  it('keeps an explicit verify command untouched (no inference)', async () => {
+  it('keeps an explicit verify command untouched (no inference, no review default)', async () => {
     const prepared = await prepareLoopStartConfig(mkConfig({
       completion: { ...defaultLoopConfig(workspace, 'g').completion, verifyCommand: 'make check' },
     }));
@@ -54,13 +58,27 @@ describe('prepareLoopStartConfig (LF-3a)', () => {
     expect(prepared.completion?.verifyCommand).toBe('make check');
   });
 
-  it('throws when no verify command can be inferred and the loop is not operator-reviewed', async () => {
-    // No package.json / verifier in the workspace.
-    await expect(
-      prepareLoopStartConfig(mkConfig({
-        completion: { ...defaultLoopConfig(workspace, 'g').completion, verifyCommand: '' },
-      })),
-    ).rejects.toThrow(/could not infer a verify command/i);
+  it('does not throw when no verify command and not operator-reviewed — defaults to fresh-eyes review', async () => {
+    // No package.json / verifier in the workspace: previously this threw; now
+    // the loop can start with the fresh-eyes review as its completion authority.
+    const prepared = await prepareLoopStartConfig(mkConfig({
+      completion: { ...defaultLoopConfig(workspace, 'g').completion, verifyCommand: '' },
+    }));
+
+    expect(prepared.completion?.crossModelReview?.enabled).toBe(true);
+    expect(prepared.completion?.verifyCommand ?? '').toBe('');
+  });
+
+  it('preserves an explicit crossModelReview choice (disabled) without forcing the default', async () => {
+    const prepared = await prepareLoopStartConfig(mkConfig({
+      completion: {
+        ...defaultLoopConfig(workspace, 'g').completion,
+        verifyCommand: '',
+        crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 60, reviewDepth: 'structured' },
+      },
+    }));
+
+    expect(prepared.completion?.crossModelReview?.enabled).toBe(false);
   });
 
   it('rejects operator-reviewed completion without a spend cap', async () => {

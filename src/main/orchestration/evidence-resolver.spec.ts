@@ -9,13 +9,15 @@
  *   1. No sufficient signal      → continue / null tier
  *   2. quick-verify failed       → continue / verify-failed
  *   3. full verify failed        → continue / verify-failed
- *   4. verify skipped (no cmd)   → pause-operator-review / unverifiable
- *   5a. verify passed + rename gate fails + budget remaining → continue / rename-gate
- *   5b. verify passed + rename gate fails + budget exhausted → stop-needs-review / rename-gate
- *   6. verify passed + b&b ok + fresh-eyes blocking → continue / review-blocked
- *   7. verify passed + b&b ok + fresh-eyes clean    → stop / accepted (tier 2)
+ *   4. verify skipped + no clean review verdict → pause-operator-review / unverifiable
+ *   4b. verify skipped + fresh-eyes review ran clean → stop / accepted (review is authority)
+ *   5a. authority + rename gate fails + budget remaining → continue / rename-gate
+ *   5b. authority + rename gate fails + budget exhausted → stop-needs-review / rename-gate
+ *   6. authority + b&b ok + fresh-eyes blocking → continue / review-blocked
+ *   7. authority + b&b ok + fresh-eyes clean    → stop / accepted (tier 2)
  *
- * Anti-case: forensic-only signals (no verify) must NEVER produce 'stop'.
+ * Anti-case: forensic-only signals with NO independent authority (no verify,
+ * no clean review verdict) must NEVER produce 'stop'.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -147,14 +149,77 @@ describe('resolveCompletion — verify skipped', () => {
     expect(r.authorityTier).toBe(3);
   });
 
-  it('NEVER returns stop when verify is skipped — agent cannot self-declare terminal state', () => {
+  it('NEVER returns stop when verify is skipped AND no review verdict — agent cannot self-declare terminal state', () => {
     // This is the critical anti-case: forensic or in-band signals alone
-    // must NOT produce a 'stop' decision without tier-2 authority.
+    // (with no verify AND no fresh-eyes review verdict) must NOT produce a
+    // 'stop' decision — there is no independent completion authority.
     const forensicSignals = [renameSig, sentinelSig, declaredSig];
     for (const candidate of forensicSignals) {
-      const r = resolveCompletion(base({ candidate, verifyStatus: 'skipped' }));
+      const r = resolveCompletion(base({ candidate, verifyStatus: 'skipped', freshEyesRan: false }));
       expect(r.decision).not.toBe('stop');
     }
+  });
+});
+
+// ============ Verify skipped, fresh-eyes review IS the authority (Option B) ============
+
+describe('resolveCompletion — verify skipped, fresh-eyes review as completion authority', () => {
+  it('stops/accepted when verify is skipped but a fresh-eyes review ran clean', () => {
+    const r = resolveCompletion(base({
+      candidate: declaredSig,
+      verifyStatus: 'skipped',
+      manualReviewOnly: true,
+      freshEyesRan: true,
+      freshEyesBlockingCount: 0,
+      freshEyesErrored: false,
+    }));
+    expect(r.decision).toBe('stop');
+    expect(r.outcome).toBe('accepted');
+    expect(r.authorityTier).toBe(2);
+    expect(r.reason).toContain('fresh-eyes review');
+  });
+
+  it('continues/review-blocked when verify is skipped and the review raised a blocking finding', () => {
+    const r = resolveCompletion(base({
+      candidate: declaredSig,
+      verifyStatus: 'skipped',
+      manualReviewOnly: true,
+      freshEyesRan: true,
+      freshEyesBlockingCount: 1,
+      freshEyesErrored: false,
+    }));
+    expect(r.decision).toBe('continue');
+    expect(r.outcome).toBe('review-blocked');
+  });
+
+  it('pauses for operator when verify is skipped and the reviewer errored (no rubber-stamp)', () => {
+    // A reviewer infra failure must NOT be mistaken for a clean pass when there
+    // is no verify authority — otherwise the loop would stop with zero evidence.
+    const r = resolveCompletion(base({
+      candidate: declaredSig,
+      verifyStatus: 'skipped',
+      manualReviewOnly: true,
+      freshEyesRan: true,
+      freshEyesBlockingCount: 0,
+      freshEyesErrored: true,
+    }));
+    expect(r.decision).toBe('pause-operator-review');
+    expect(r.outcome).toBe('unverifiable');
+  });
+
+  it('still honours the rename gate when review is the authority (belt-and-braces required but unmet)', () => {
+    const r = resolveCompletion(base({
+      candidate: renameSig,
+      verifyStatus: 'skipped',
+      freshEyesRan: true,
+      freshEyesBlockingCount: 0,
+      freshEyesErrored: false,
+      beltAndBracesPassed: false,
+      completionAttempts: 1,
+      maxCompletionAttempts: 3,
+    }));
+    expect(r.decision).toBe('continue');
+    expect(r.outcome).toBe('rename-gate');
   });
 });
 

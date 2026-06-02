@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { CompletedFileWatcher, LoopCompletionDetector } from './loop-completion-detector';
+import { CompletedFileWatcher, LoopCompletionDetector, buildVerifyInvocation } from './loop-completion-detector';
 import { defaultLoopConfig, type LoopIteration, type LoopState } from '../../shared/types/loop.types';
 
 let tmpDir: string;
@@ -476,5 +476,38 @@ describe('LoopCompletionDetector.runVerify', () => {
     cfg.completion.verifyTimeoutMs = 5000;
     const r = await det.runVerify(cfg);
     expect(r.status).toBe('failed');
+  });
+});
+
+describe('buildVerifyInvocation', () => {
+  // Regression guard for the `npm: command not found` verify failure: a
+  // GUI/launchd-launched app has a minimal PATH, so the verify gate must run
+  // through a *login* shell to recover the user's real (nvm/homebrew) PATH.
+  it('runs through a login shell on macOS/Linux to source the user profile', () => {
+    const inv = buildVerifyInvocation('npm run verify', 'darwin', '/bin/zsh');
+    expect(inv.useShellOption).toBe(false);
+    expect(inv.file).toBe('/bin/zsh');
+    // login (`-l`) but NOT interactive (`-i`): no escape-sequence noise / hangs.
+    expect(inv.args).toEqual(['-lc', 'npm run verify']);
+  });
+
+  it('honors $SHELL when provided', () => {
+    const inv = buildVerifyInvocation('echo hi', 'linux', '/usr/bin/fish');
+    expect(inv.file).toBe('/usr/bin/fish');
+    expect(inv.args).toEqual(['-lc', 'echo hi']);
+  });
+
+  it('falls back to /bin/bash when $SHELL is empty or blank', () => {
+    // (An explicit `undefined` would re-trigger the `process.env.SHELL` default,
+    // so the empty/blank string is the meaningful fallback case to assert.)
+    expect(buildVerifyInvocation('x', 'darwin', '').file).toBe('/bin/bash');
+    expect(buildVerifyInvocation('x', 'linux', '   ').file).toBe('/bin/bash');
+  });
+
+  it('keeps shell:true behavior on Windows (GUI PATH is usable there)', () => {
+    const inv = buildVerifyInvocation('npm run verify', 'win32', undefined);
+    expect(inv.useShellOption).toBe(true);
+    expect(inv.file).toBe('npm run verify');
+    expect(inv.args).toEqual([]);
   });
 });

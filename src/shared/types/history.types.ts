@@ -4,6 +4,7 @@
 
 import type { InstanceProvider, OutputMessage } from './instance.types';
 import type { SessionRecallResult } from './session-recall.types';
+import { deriveAttachmentTaskTitle, extractAttachmentPreamble } from './title-derivation';
 import type { ExecutionLocation } from './worker-node.types';
 
 /**
@@ -200,6 +201,17 @@ function shortenLeadingUrl(text: string): string {
  * would leave too little, the normalized original is returned unchanged.
  */
 export function frontLoadTitle(value: string | null | undefined): string {
+  // A loop started with attachments prepends an injected "Attached files …"
+  // block whose header carries no per-task signal. When the text leads with it,
+  // the attached files are the real subject — title from their names instead of
+  // letting the boilerplate header become the title. Run on the raw value so the
+  // line-structured block is still intact (normalization collapses newlines).
+  const preamble = extractAttachmentPreamble(value);
+  if (preamble) {
+    const attachmentTitle = deriveAttachmentTaskTitle(preamble.remainder, preamble.paths);
+    if (attachmentTitle) return attachmentTitle;
+  }
+
   const normalized = normalizeHistoryTitlePart(value);
   if (!normalized) return '';
 

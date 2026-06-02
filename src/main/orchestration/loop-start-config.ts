@@ -4,15 +4,20 @@
  * Extracted from `loop-handlers.ts` so it can be unit-tested without importing
  * `electron` (the handler module pulls in `ipcMain` at the top level). Owns the
  * two start-time safety rules:
- *   1. infer a verify command from the workspace when none was supplied, and
- *      throw if none can be inferred and the loop isn't operator-reviewed;
+ *   1. when no verify command is supplied (and the loop isn't operator-reviewed),
+ *      default the completion authority to the fresh-eyes cross-model review
+ *      instead of forcing a heavy machine verify command; an explicit
+ *      `crossModelReview` choice from the caller is preserved;
  *   2. require a non-null cost cap for operator-reviewed loops, which sit
  *      paused awaiting a human Accept and get resumed repeatedly.
  */
 
 import { getLogger } from '../logging/logger';
-import { inferLoopVerifyCommand } from './loop-verify-command';
-import { defaultLoopConfig, type LoopConfig } from '../../shared/types/loop.types';
+import {
+  defaultCrossModelReviewConfig,
+  defaultLoopConfig,
+  type LoopConfig,
+} from '../../shared/types/loop.types';
 import type { LoopConfigInput } from '@contracts/schemas/loop';
 
 const logger = getLogger('LoopStartConfig');
@@ -39,26 +44,32 @@ export async function prepareLoopStartConfig(
     return config;
   }
 
-  const inferred = await inferLoopVerifyCommand(config.workspaceCwd);
-  if (inferred) {
-    logger.info('Inferred Loop Mode verify command at start', {
-      workspaceCwd: config.workspaceCwd,
-      command: inferred.command,
-      source: inferred.source,
-    });
-    return {
-      ...config,
-      completion: {
-        ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
-        ...(config.completion ?? {}),
-        verifyCommand: inferred.command,
-      },
-    };
+  // No verify command and not operator-reviewed. We deliberately do NOT infer
+  // and force a machine verify command (e.g. `npm run verify`) anymore — that
+  // gate is heavy, environment-fragile (it needs node/npm on the launched
+  // process's PATH), and ran BEFORE the fresh-eyes review so a broken verify
+  // environment starved the review gate entirely. Instead the default
+  // completion authority is the fresh-eyes cross-model review: the loop
+  // auto-completes when an independent model review comes back clean, keeps
+  // iterating on blocking findings, and only pauses for an operator when no
+  // review verdict is available. A machine verify command is still fully
+  // supported — it's now opt-in (set it in the Verify field / loop config).
+  //
+  // An explicit `crossModelReview: { enabled: false }` from the caller is
+  // honoured; we only fill in the default when it was left unset.
+  if (config.completion?.crossModelReview !== undefined) {
+    return config;
   }
 
-  throw new Error(
-    `Loop Mode could not infer a verify command for workspace "${config.workspaceCwd}". ` +
-    'Add one in Verify command, add a package.json "verify" script, ' +
-    'or enable operator-reviewed completion so the loop pauses when it thinks it is done.',
-  );
+  logger.info('No verify command configured — defaulting completion gate to fresh-eyes cross-model review', {
+    workspaceCwd: config.workspaceCwd,
+  });
+  return {
+    ...config,
+    completion: {
+      ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
+      ...(config.completion ?? {}),
+      crossModelReview: defaultCrossModelReviewConfig(),
+    },
+  };
 }

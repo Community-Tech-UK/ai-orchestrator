@@ -92,6 +92,7 @@ describe('AutomationRunner thread wakeups', () => {
     decideAndInsertRun: vi.fn(),
     claimNextPending: vi.fn(),
     failRunningRuns: vi.fn(),
+    recordRunOutcome: vi.fn(),
   } as unknown as AutomationStore;
   const manager = Object.assign(new EventEmitter(), {
     createInstance: vi.fn(),
@@ -114,6 +115,7 @@ describe('AutomationRunner thread wakeups', () => {
     vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
     vi.mocked(store.claimNextPending).mockReturnValue(null);
     vi.mocked(store.failRunningRuns).mockReturnValue([]);
+    vi.mocked(store.recordRunOutcome).mockReturnValue({ automation: null, autoDisabled: false });
     fireThreadWakeup.mockResolvedValue(completed);
     threadWakeupFactory.mockReturnValue({ fireThreadWakeup });
   });

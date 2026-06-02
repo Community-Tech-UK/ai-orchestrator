@@ -1,5 +1,23 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createCodexAdapter, createCliAdapter } from '../adapter-factory';
+
+const codexTmpDirs: string[] = [];
+function writeStaticMcpConfig(contents: string): string {
+  const dir = mkdtempSync(join(tmpdir(), 'aio-codex-static-mcp-'));
+  const path = join(dir, 'mcp-servers.json');
+  writeFileSync(path, contents, 'utf8');
+  codexTmpDirs.push(dir);
+  return path;
+}
+
+afterEach(() => {
+  for (const dir of codexTmpDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 describe('adapter factory - codex', () => {
   it('maps yolo Codex instances to danger-full-access sandbox', () => {
@@ -75,5 +93,27 @@ describe('adapter factory - codex', () => {
 
     expect(toml).toContain('[mcp_servers."browser-gateway"]');
     expect(toml).toContain('[mcp_servers."chrome-devtools"]');
+  });
+
+  it('injects static config/mcp-servers.json servers (e.g. imap) into the Codex TOML', () => {
+    const staticConfig = writeStaticMcpConfig(
+      JSON.stringify({
+        mcpServers: {
+          imap: { command: 'node', args: ['/x/imap-mcp-server/dist/index.js'] },
+        },
+      }),
+    );
+
+    const adapter = createCodexAdapter({
+      workingDirectory: '/tmp',
+      mcpConfig: [staticConfig],
+    });
+
+    const toml = (adapter as unknown as {
+      cliConfig: { mcpServersConfigToml?: string };
+    }).cliConfig.mcpServersConfigToml ?? '';
+
+    expect(toml).toContain('[mcp_servers.imap]');
+    expect(toml).toContain('args = ["/x/imap-mcp-server/dist/index.js"]');
   });
 });

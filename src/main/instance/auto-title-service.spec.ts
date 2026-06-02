@@ -199,6 +199,55 @@ describe('AutoTitleService', () => {
     expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Refactor the AuthService session cache', 'instant');
   });
 
+  it('titles a loop-with-attachments kickoff from its files, not the injected header', async () => {
+    // No CLI: only the instant (Phase 1) title is exercised.
+    mockIsCliAvailable.mockResolvedValue({ installed: false });
+
+    const applyTitle = vi.fn();
+
+    const prompt = [
+      'Attached files (relative to workspace; use your file-read tools):',
+      '- .aio-loop-attachments/loop-1780437789286-a99d95f2/2026-05-30-mobile-control-app-plan.md',
+      '- .aio-loop-attachments/loop-1780437789286-a99d95f2/2026-06-02-chrome-devtools-managed-profile-attach.md',
+      '- .aio-loop-attachments/loop-1780437789286-a99d95f2/2026-06-02-outstanding-work-master-backlog.md',
+      '',
+      'Please work these files and implement them. Be thorough.',
+    ].join('\n');
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      prompt,
+      applyTitle,
+      false,
+    );
+
+    // Before the fix this stamped "Attached files (relative to workspace; use…".
+    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Mobile control app implementation', 'instant');
+    expect(mockCreateAdapter).not.toHaveBeenCalled();
+  });
+
+  it('strips the attachment preamble before sending the AI title prompt', async () => {
+    mockIsCliAvailable.mockImplementation(async (type: string) => ({
+      installed: type === 'claude',
+    }));
+    mockResolveCliType.mockResolvedValue('claude');
+
+    const prompt = [
+      'Attached files (relative to workspace; use your file-read tools):',
+      '- .aio-loop-attachments/loop-x/2026-05-30-mobile-control-app-plan.md',
+      '',
+      'Please work these files and implement them. Be thorough.',
+    ].join('\n');
+
+    await AutoTitleService.getInstance().generateTitle(prompt);
+
+    const sent = mockSendMessage.mock.calls[0][0].content as string;
+    // The injected boilerplate header must not reach the model...
+    expect(sent).not.toContain('relative to workspace');
+    // ...but the real file name should, as the attachment subject.
+    expect(sent).toContain('2026-05-30-mobile-control-app-plan.md');
+  });
+
   it('discards an AI title that is actually a provider rate-limit notice', async () => {
     mockIsCliAvailable.mockImplementation(async (type: string) => ({
       installed: type === 'claude',

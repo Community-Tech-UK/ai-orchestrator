@@ -3,6 +3,10 @@
     "lsp": {
       "command": "node",
       "args": ["/Users/suas/work/mcp/lsp-mcp-server/dist/index.js"]
+    },
+    "imap": {
+      "command": "node",
+      "args": ["/Users/suas/work/mcp/imap-mcp-server/dist/index.js"]
     }
   }
 }

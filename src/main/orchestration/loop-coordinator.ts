@@ -166,6 +166,22 @@ export interface LoopChildResult {
 interface PauseGate { resolve: () => void }
 
 /**
+ * Result of the fresh-eyes cross-model review gate. `ran`/`errored` let the
+ * evidence resolver tell a clean review verdict apart from a reviewer that was
+ * never run (disabled) or whose infrastructure failed — the distinction is
+ * load-bearing for no-verify loops, where the review IS the completion
+ * authority and an infra failure must not be mistaken for a clean pass.
+ */
+interface FreshEyesGateResult {
+  /** A blocking finding was raised — the loop must continue. */
+  blocked: boolean;
+  /** The reviewer was invoked (review enabled and attempted). */
+  ran: boolean;
+  /** The reviewer threw / infrastructure was unavailable. */
+  errored: boolean;
+}
+
+/**
  * Listener-of-listeners for completed loops. Allows callers (e.g. the
  * persistence layer) to react after an iteration is fully recorded but
  * before the loop emits its public events.
@@ -1058,6 +1074,13 @@ export class LoopCoordinator extends EventEmitter {
         await writeLoopControlFile(loopControl, seq);
         state.loopControl = publicLoopControlMetadata(loopControl);
       }
+      // The "manual-review-only → completion will pause for the operator"
+      // prompt block only applies when there is NO independent completion
+      // authority. When fresh-eyes cross-model review is enabled it IS the
+      // authority for a no-verify loop (the loop auto-completes on a clean
+      // review), so showing the pause warning would be misleading — the
+      // separate fresh-eyes review block already explains that path.
+      const crossModelReviewEnabled = !!state.config.completion.crossModelReview?.enabled;
       const prompt = this.appendLoopControlPrompt(state, stageMachine.buildPrompt({
         config: state.config,
         iterationSeq: seq,
@@ -1065,7 +1088,7 @@ export class LoopCoordinator extends EventEmitter {
         existingSessionContext: this.runtimeContexts.get(state.id)?.existingSessionContext,
         priorObservations: this.runtimeContexts.get(state.id)?.priorObservations,
         uncompletedPlanFilesAtStart: state.uncompletedPlanFilesAtStart,
-        manualReviewOnly: state.manualReviewOnly,
+        manualReviewOnly: state.manualReviewOnly && !crossModelReviewEnabled,
       }));
       // The buildPrompt() call above embedded the pending interventions into
       // the iteration prompt, so we can clear the queue. (Previous revisions
@@ -1350,21 +1373,26 @@ export class LoopCoordinator extends EventEmitter {
           }
         }
 
-        // When v2 is 'passed', run the fresh-eyes gate and check belt-and-braces
-        // BEFORE calling the resolver, so the resolver only consumes results.
+        // Run the fresh-eyes gate and check belt-and-braces BEFORE calling the
+        // resolver, so the resolver only consumes results. We run the gate when
+        // verify PASSED *or* was SKIPPED: for a no-verify loop the fresh-eyes
+        // review is the completion authority (Option B default), so it must run
+        // for the loop to be able to converge at all.
         const beltAndBracesPassed = this.completionDetector.passesBeltAndBraces(state, state.config);
+        const verifyOkOrSkipped = v2.status === 'passed' || v2.status === 'skipped';
         let freshEyesRan = false;
         let freshEyesBlockingCount = 0;
+        let freshEyesErrored = false;
 
         // LF-7: increment the rename-gate attempt counter here so the resolver
         // sees the updated count (it decides continue vs stop-needs-review based
         // on completionAttempts >= maxCompletionAttempts). Only increment when we
-        // actually hit the rename gate (v2 passed but belt-and-braces failed).
-        if (v2.status === 'passed' && !beltAndBracesPassed) {
+        // actually hit the rename gate (verify passed/skipped but belt-and-braces failed).
+        if (verifyOkOrSkipped && !beltAndBracesPassed) {
           state.completionAttempts += 1;
         }
 
-        if (v2.status === 'passed' && beltAndBracesPassed) {
+        if (verifyOkOrSkipped && beltAndBracesPassed) {
           // Fresh-eyes cross-model review gate. The previous loop bug was
           // that DONE.txt + passing verify was enough to stop, even when
           // the actual goal hadn't been substantively addressed (orphan
@@ -1372,9 +1400,10 @@ export class LoopCoordinator extends EventEmitter {
           // different CLI provider with the iteration output + workspace
           // context and asks "is this really done?". Any blocking finding
           // becomes a user intervention and the loop continues.
-          const reviewBlocked = await this.runFreshEyesReviewGate(state, candidate.id, iteration, verifyOutputForEmit);
-          freshEyesRan = true;
-          freshEyesBlockingCount = reviewBlocked ? 1 : 0;
+          const review = await this.runFreshEyesReviewGate(state, candidate.id, iteration, verifyOutputForEmit);
+          freshEyesRan = review.ran;
+          freshEyesBlockingCount = review.blocked ? 1 : 0;
+          freshEyesErrored = review.errored;
         }
 
         // --- evidence-precedence resolution ---
@@ -1387,7 +1416,7 @@ export class LoopCoordinator extends EventEmitter {
           beltAndBracesPassed,
           freshEyesRan,
           freshEyesBlockingCount,
-          freshEyesErrored: false, // error path handled inside runFreshEyesReviewGate (returns false)
+          freshEyesErrored,
           manualReviewOnly: state.manualReviewOnly,
           allowOperatorReviewedCompletion: state.config.completion.allowOperatorReviewedCompletion,
           completionAttempts: state.completionAttempts,
@@ -1752,9 +1781,11 @@ export class LoopCoordinator extends EventEmitter {
     signalId: string,
     iteration: LoopIteration,
     verifyOutput: string,
-  ): Promise<boolean> {
+  ): Promise<FreshEyesGateResult> {
     const reviewCfg = state.config.completion.crossModelReview;
-    if (!reviewCfg || !reviewCfg.enabled) return false;
+    if (!reviewCfg || !reviewCfg.enabled) {
+      return { blocked: false, ran: false, errored: false };
+    }
 
     this.emit('loop:fresh-eyes-review-started', { loopRunId: state.id, signal: signalId });
 
@@ -1799,7 +1830,11 @@ export class LoopCoordinator extends EventEmitter {
         signal: signalId,
         error: err instanceof Error ? err.message : String(err),
       });
-      return false;
+      // ran=true but errored=true: a verify-gated loop treats this as
+      // non-blocking (verify carries completion), but a no-verify loop has no
+      // independent authority, so the resolver pauses for an operator instead
+      // of stopping on self-declared evidence.
+      return { blocked: false, ran: true, errored: true };
     }
 
     const blocking = reviewResult.findings.filter((f) =>
@@ -1824,7 +1859,7 @@ export class LoopCoordinator extends EventEmitter {
         reviewersUsed: reviewResult.reviewersUsed,
         findings: reviewResult.findings.length,
       });
-      return false;
+      return { blocked: false, ran: true, errored: false };
     }
 
     // claude2_todo #1b: fingerprint the blocking review threads so we can tell a
@@ -1880,7 +1915,7 @@ export class LoopCoordinator extends EventEmitter {
       blocking: blocking.length,
       severities: [...new Set(blocking.map((f) => f.severity))],
     });
-    return true;
+    return { blocked: true, ran: true, errored: false };
   }
 
   // ============ Internal — child invocation (extensibility) ============

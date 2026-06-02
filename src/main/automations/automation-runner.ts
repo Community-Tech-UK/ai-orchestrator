@@ -585,6 +585,26 @@ export class AutomationRunner {
         timestamp: Date.now(),
       });
     }
+    // Resilience: track consecutive failures so a persistently-failing automation
+    // is auto-disabled instead of re-firing on every schedule tick. Success resets
+    // the streak. Skipped/cancelled outcomes are intentionally ignored.
+    if (run.status === 'succeeded' || run.status === 'failed') {
+      const outcome = this.store.recordRunOutcome(
+        run.automationId,
+        run.status,
+        run.error ?? undefined,
+        this.now(),
+      );
+      if (outcome.autoDisabled) {
+        logger.warn('Automation auto-disabled after repeated failures', {
+          automationId: run.automationId,
+          consecutiveFailures: outcome.automation?.consecutiveFailures,
+          lastFailureReason: run.error ?? undefined,
+        });
+        this.emitAutomationState(run.automationId);
+        this.events.emitScheduleDeactivated({ automationId: run.automationId });
+      }
+    }
     if (this.isOneTimeRun(run)) {
       this.emitAutomationState(run.automationId);
       this.events.emitScheduleDeactivated({ automationId: run.automationId });

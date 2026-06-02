@@ -78,6 +78,7 @@ export class ChatSidebarComponent implements OnInit {
       model: sel.model ?? null,
       reasoningEffort: sel.reasoning,
       currentCwd: this.cwd().trim(),
+      yolo: this.settingsStore.defaultYoloMode(),
     });
     if (!this.chatStore.error()) {
       this.showCreate.set(false);

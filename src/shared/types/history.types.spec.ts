@@ -144,6 +144,19 @@ describe('frontLoadTitle', () => {
     expect(frontLoadTitle('   ')).toBe('');
     expect(frontLoadTitle(undefined)).toBe('');
   });
+
+  it('titles a loop-with-attachments prompt from its files, not the injected header', () => {
+    const prompt = [
+      'Attached files (relative to workspace; use your file-read tools):',
+      '- .aio-loop-attachments/loop-1780437789286-a99d95f2/2026-05-30-mobile-control-app-plan.md',
+      '- .aio-loop-attachments/loop-1780437789286-a99d95f2/2026-06-02-chrome-devtools-managed-profile-attach.md',
+      '- .aio-loop-attachments/loop-1780437789286-a99d95f2/2026-06-02-outstanding-work-master-backlog.md',
+      '',
+      'Please work these files and implement them. Be thorough.',
+    ].join('\n');
+    // Before the fix this returned "Attached files (relative to workspace; use…".
+    expect(frontLoadTitle(prompt)).toBe('Mobile control app implementation');
+  });
 });
 
 describe('resolveEffectiveInstanceTitle', () => {

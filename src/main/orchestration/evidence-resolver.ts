@@ -180,12 +180,14 @@ function signalTier(id: CompletionSignalId): 3 | 4 {
  *   1. No sufficient signal → continue (no-op).
  *   2. quick-verify failed → continue (verify-failed).
  *   3. full verify failed → continue (verify-failed).
- *   4. verify skipped → pause-operator-review (unverifiable).
- *   5. verify passed + belt-and-braces failed:
+ *   4. verify skipped AND no clean fresh-eyes verdict (review disabled or
+ *      reviewer unavailable) → pause-operator-review (unverifiable).
+ *   5. authority present (verify passed, OR verify skipped + a fresh-eyes
+ *      review that ran without infra error) + belt-and-braces failed:
  *        budget remaining → continue (rename-gate).
  *        budget exhausted → stop-needs-review (rename-gate).
- *   6. verify passed + belt-and-braces passed + fresh-eyes blocking → continue (review-blocked).
- *   7. verify passed + belt-and-braces passed + fresh-eyes clean → stop (accepted).
+ *   6. authority present + belt-and-braces passed + fresh-eyes blocking → continue (review-blocked).
+ *   7. authority present + belt-and-braces passed + fresh-eyes clean → stop (accepted).
  */
 export function resolveCompletion(input: EvidenceInput): EvidenceResolution {
   // --- No sufficient signal: nothing to decide ---
@@ -231,21 +233,41 @@ export function resolveCompletion(input: EvidenceInput): EvidenceResolution {
     };
   }
 
-  // --- Verify skipped (no verifyCommand) ---
-  if (input.verifyStatus === 'skipped') {
-    // No tier-2 authority available — cannot auto-complete. Pause for operator.
+  // --- Determine the independent completion authority ---
+  //
+  // Tier-2 authority is EITHER a passing verify command OR a fresh-eyes
+  // cross-model review that actually produced a verdict (it ran AND the
+  // reviewer infrastructure did not error out). Without one of those, the
+  // agent's completion signal is self-declared only and we must NOT
+  // auto-terminate — pausing for an operator is the safe terminal.
+  //
+  // A reviewer-infra error is deliberately NOT an authority: for a verify-gated
+  // loop a failed reviewer is non-blocking (verify carries the completion), but
+  // for a no-verify loop it would mean stopping with zero independent evidence
+  // — exactly the rubber-stamp the ladder exists to prevent.
+  const verifyPassed = input.verifyStatus === 'passed';
+  const reviewIsAuthority =
+    input.verifyStatus === 'skipped' && input.freshEyesRan && !input.freshEyesErrored;
+
+  if (!verifyPassed && !reviewIsAuthority) {
+    // verifyStatus === 'skipped' and the review did not provide a verdict
+    // (cross-model review disabled, or the reviewer was unavailable).
     return {
       decision: 'pause-operator-review',
       authorityTier: tier,
       outcome: 'unverifiable',
       signalId: candidate.id,
-      reason: 'completion not verified — no verify command configured',
+      reason: input.freshEyesErrored
+        ? 'completion not independently confirmed — no verify command and the fresh-eyes review was unavailable'
+        : 'completion not verified — no verify command configured and fresh-eyes review is not enabled',
       needsReviewReason: null,
-      convergenceNote: 'completion was unverifiable (no verify command configured)',
+      convergenceNote: input.freshEyesErrored
+        ? 'completion unverifiable (no verify command; fresh-eyes review unavailable)'
+        : 'completion was unverifiable (no verify command configured)',
     };
   }
 
-  // --- Verify passed ---
+  // --- Independent authority present (verify passed, or a clean review verdict) ---
   // Now check the secondary gates (belt-and-braces, then fresh-eyes).
 
   // Belt-and-braces gate (rename gate)
@@ -253,8 +275,8 @@ export function resolveCompletion(input: EvidenceInput): EvidenceResolution {
     // The coordinator already incremented completionAttempts before calling us.
     if (input.completionAttempts >= input.maxCompletionAttempts) {
       const needsReviewReason =
-        `Verify passed but the required *_Completed.md rename never happened across ` +
-        `${input.completionAttempts} completion attempt(s). The work verifies clean — ` +
+        `Completion checks passed but the required *_Completed.md rename never happened across ` +
+        `${input.completionAttempts} completion attempt(s). The work checks out clean — ` +
         'accepting as completed-needs-review for a human glance. Rename the plan file(s) ' +
         'to *_Completed.md to auto-complete next time.';
       return {
@@ -297,7 +319,9 @@ export function resolveCompletion(input: EvidenceInput): EvidenceResolution {
     authorityTier: 2,
     outcome: 'accepted',
     signalId: candidate.id,
-    reason: `completion accepted via ${candidate.id}`,
+    reason: verifyPassed
+      ? `completion accepted via ${candidate.id}`
+      : `completion accepted via fresh-eyes review (${candidate.id}; no verify command)`,
     needsReviewReason: null,
     convergenceNote: null,
   };

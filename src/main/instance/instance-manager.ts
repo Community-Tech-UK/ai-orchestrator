@@ -1269,6 +1269,10 @@ export class InstanceManager extends EventEmitter {
     return this.lifecycle.toggleYoloMode(instanceId);
   }
 
+  async setYoloMode(instanceId: string, desiredYoloMode: boolean): Promise<Instance> {
+    return this.lifecycle.setYoloMode(instanceId, desiredYoloMode);
+  }
+
   /**
    * Resume a Claude CLI session after the user approves or denies a deferred tool use.
    * Writes the decision to a file, then resumes the CLI with --resume.

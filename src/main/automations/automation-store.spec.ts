@@ -6,7 +6,7 @@ import {
   createTables,
   runMigrations,
 } from '../persistence/rlm/rlm-schema';
-import { AutomationStore } from './automation-store';
+import { AutomationStore, DEFAULT_MAX_CONSECUTIVE_FAILURES } from './automation-store';
 import type { AutomationAttachmentService } from './automation-attachment-service';
 import type { FileAttachment } from '../../shared/types/instance.types';
 
@@ -320,5 +320,95 @@ describe('AutomationStore', () => {
 
     expect(completed?.outputFullRef).toBe('/tmp/automation-output.json');
     expect(completed?.outputSummary).toBe('summary');
+  });
+
+  describe('recordRunOutcome (failure tracking + auto-disable)', () => {
+    async function makeAutomation(target: AutomationStore = store): Promise<string> {
+      const automation = await target.create({
+        name: 'Flaky job',
+        schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+        missedRunPolicy: 'notify',
+        concurrencyPolicy: 'skip',
+        action: { prompt: 'Do thing', workingDirectory: '/tmp' },
+      }, 1_000, 100);
+      return automation.id;
+    }
+
+    it('increments the streak and records the failure summary, staying enabled below threshold', async () => {
+      const id = await makeAutomation();
+
+      const first = store.recordRunOutcome(id, 'failed', 'boom', 5_000);
+      expect(first.autoDisabled).toBe(false);
+      expect(first.automation?.consecutiveFailures).toBe(1);
+      expect(first.automation?.lastFailureReason).toBe('boom');
+      expect(first.automation?.lastFailureAt).toBe(5_000);
+      expect(first.automation?.enabled).toBe(true);
+
+      const second = store.recordRunOutcome(id, 'failed', 'boom again', 6_000);
+      expect(second.autoDisabled).toBe(false);
+      expect(second.automation?.consecutiveFailures).toBe(2);
+      expect(second.automation?.lastFailureReason).toBe('boom again');
+    });
+
+    it('resets the streak and clears the failure summary on success', async () => {
+      const id = await makeAutomation();
+      store.recordRunOutcome(id, 'failed', 'boom', 5_000);
+      store.recordRunOutcome(id, 'failed', 'boom', 6_000);
+
+      const ok = store.recordRunOutcome(id, 'succeeded', undefined, 7_000);
+      expect(ok.autoDisabled).toBe(false);
+      expect(ok.automation?.consecutiveFailures).toBe(0);
+      expect(ok.automation?.lastFailureAt).toBeNull();
+      expect(ok.automation?.lastFailureReason).toBeNull();
+    });
+
+    it('auto-disables once the consecutive-failure threshold is reached', async () => {
+      const lowThresholdStore = new AutomationStore(db, fakeAttachmentService(), 3);
+      const id = await makeAutomation(lowThresholdStore);
+
+      expect(lowThresholdStore.recordRunOutcome(id, 'failed', 'e', 1).autoDisabled).toBe(false);
+      expect(lowThresholdStore.recordRunOutcome(id, 'failed', 'e', 2).autoDisabled).toBe(false);
+      const third = lowThresholdStore.recordRunOutcome(id, 'failed', 'e', 3);
+      expect(third.autoDisabled).toBe(true);
+      expect(third.automation?.enabled).toBe(false);
+      expect(third.automation?.consecutiveFailures).toBe(3);
+
+      // Already disabled — does not re-report autoDisabled on the next failure.
+      const fourth = lowThresholdStore.recordRunOutcome(id, 'failed', 'e', 4);
+      expect(fourth.autoDisabled).toBe(false);
+      expect(fourth.automation?.enabled).toBe(false);
+      expect(fourth.automation?.consecutiveFailures).toBe(4);
+    });
+
+    it('ignores skipped and cancelled outcomes (they do not break the streak)', async () => {
+      const id = await makeAutomation();
+      store.recordRunOutcome(id, 'failed', 'boom', 5_000);
+
+      const skipped = store.recordRunOutcome(id, 'skipped', 'concurrency', 6_000);
+      expect(skipped.automation).toBeNull();
+      expect(skipped.autoDisabled).toBe(false);
+
+      const after = await store.get(id);
+      expect(after?.consecutiveFailures).toBe(1);
+      expect(after?.lastFailureReason).toBe('boom');
+    });
+
+    it('clears the failure streak when a disabled automation is re-enabled', async () => {
+      const lowThresholdStore = new AutomationStore(db, fakeAttachmentService(), 2);
+      const id = await makeAutomation(lowThresholdStore);
+      lowThresholdStore.recordRunOutcome(id, 'failed', 'e', 1);
+      const disabled = lowThresholdStore.recordRunOutcome(id, 'failed', 'e', 2);
+      expect(disabled.autoDisabled).toBe(true);
+
+      const reEnabled = await lowThresholdStore.update(id, { enabled: true }, undefined, 9_000);
+      expect(reEnabled.enabled).toBe(true);
+      expect(reEnabled.consecutiveFailures).toBe(0);
+      expect(reEnabled.lastFailureAt).toBeNull();
+      expect(reEnabled.lastFailureReason).toBeNull();
+    });
+
+    it('uses a sane default threshold', () => {
+      expect(DEFAULT_MAX_CONSECUTIVE_FAILURES).toBeGreaterThan(0);
+    });
   });
 	});

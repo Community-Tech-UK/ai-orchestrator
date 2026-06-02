@@ -563,6 +563,61 @@ describe('ChatService', () => {
       expect(events.indexOf(runtimeCleared!)).toBeLessThan(events.indexOf(chatUpdated!));
     });
 
+    it('propagates a YOLO toggle to the live instance so it takes effect immediately', async () => {
+      const { service, instanceManager } = createHarness();
+      const chat = await service.createChat({
+        provider: 'claude',
+        currentCwd: '/work/project',
+        name: 'Yolo toggle',
+        yolo: false,
+      });
+      await service.sendMessage({ chatId: chat.chat.id, text: 'Hi' });
+      const runningId = (await service.getChat(chat.chat.id)).chat.currentInstanceId!;
+      expect(instanceManager.getInstance(runningId)!.yoloMode).toBe(false);
+
+      const after = await service.setYolo(chat.chat.id, true);
+
+      expect(after.chat.yolo).toBe(true);
+      expect(instanceManager.yoloChanges).toEqual([{ instanceId: runningId, yolo: true }]);
+      expect(instanceManager.getInstance(runningId)!.yoloMode).toBe(true);
+    });
+
+    it('does not touch the instance when the YOLO state is unchanged', async () => {
+      const { service, instanceManager } = createHarness();
+      const chat = await service.createChat({
+        provider: 'claude',
+        currentCwd: '/work/project',
+        name: 'Yolo no-op',
+        yolo: true,
+      });
+      await service.sendMessage({ chatId: chat.chat.id, text: 'Hi' });
+
+      await service.setYolo(chat.chat.id, true);
+
+      expect(instanceManager.yoloChanges).toEqual([]);
+    });
+
+    it('still persists the chat YOLO change and flips the flag when respawn rejects', async () => {
+      const { service, instanceManager } = createHarness();
+      const chat = await service.createChat({
+        provider: 'claude',
+        currentCwd: '/work/project',
+        name: 'Yolo respawn fails',
+        yolo: false,
+      });
+      await service.sendMessage({ chatId: chat.chat.id, text: 'Hi' });
+      const runningId = (await service.getChat(chat.chat.id)).chat.currentInstanceId!;
+      instanceManager.setYoloMode = async () => {
+        throw new Error('instance busy');
+      };
+
+      const after = await service.setYolo(chat.chat.id, true);
+
+      expect(after.chat.yolo).toBe(true);
+      // Fallback path: flag flipped in place so approval gates honor YOLO now.
+      expect(instanceManager.getInstance(runningId)!.yoloMode).toBe(true);
+    });
+
     it('does not call terminateInstance on setModel when no runtime is linked', async () => {
       const { service, instanceManager } = createHarness();
       const chat = await service.createChat({
@@ -727,6 +782,7 @@ class FakeInstanceManager extends EventEmitter {
     attachments?: FileAttachment[];
   }[] = [];
   readonly terminations: (string | null)[] = [];
+  readonly yoloChanges: { instanceId: string; yolo: boolean }[] = [];
   private readonly instances = new Map<string, Instance>();
 
   async createInstance(config: InstanceCreateConfig): Promise<Instance> {
@@ -758,5 +814,15 @@ class FakeInstanceManager extends EventEmitter {
     if (instance) {
       instance.status = 'terminated';
     }
+  }
+
+  async setYoloMode(instanceId: string, desiredYoloMode: boolean): Promise<Instance> {
+    const instance = this.instances.get(instanceId);
+    if (!instance) {
+      throw new Error(`Instance ${instanceId} not found`);
+    }
+    instance.yoloMode = desiredYoloMode;
+    this.yoloChanges.push({ instanceId, yolo: desiredYoloMode });
+    return instance;
   }
 }

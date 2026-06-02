@@ -12,6 +12,7 @@ import {
   containsIgnore,
   LOOP_ATTACHMENT_ROOT,
 } from './loop-attachments';
+import { extractAttachmentPreamble } from '../../shared/types/title-derivation';
 
 describe('sanitizeAttachmentFilename', () => {
   it('keeps simple filenames intact', () => {
@@ -81,6 +82,23 @@ describe('renderAttachmentBlock', () => {
       { filename: 'huge.bin', relativePath: '.aio-loop-attachments/r1/huge.bin', size: 0, skipped: true },
     ]);
     expect(block).toContain('skipped: too large or unwritable');
+  });
+
+  // Guard the producer/parser coupling: the auto-title parser
+  // (extractAttachmentPreamble) must be able to read back exactly what
+  // renderAttachmentBlock emits, including the "(skipped: …)" annotation.
+  it('produces a block that the title parser can read back', () => {
+    const block = renderAttachmentBlock([
+      { filename: 'a.png', relativePath: '.aio-loop-attachments/r1/a.png', size: 100, skipped: false },
+      { filename: 'huge.bin', relativePath: '.aio-loop-attachments/r1/huge.bin', size: 0, skipped: true },
+    ]);
+    const parsed = extractAttachmentPreamble(`${block}\n\nDo the thing`);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.paths).toEqual([
+      '.aio-loop-attachments/r1/a.png',
+      '.aio-loop-attachments/r1/huge.bin',
+    ]);
+    expect(parsed!.remainder).toBe('Do the thing');
   });
 });
 

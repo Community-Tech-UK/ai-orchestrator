@@ -936,6 +936,26 @@ describe('BrowserGatewayService', () => {
     });
   });
 
+  it('does not auto-approve manual login handoffs even for YOLO instances', async () => {
+    const { service } = makeService({
+      autoApproveRequests: ({ instanceId }) => instanceId === 'instance-1',
+    });
+
+    const result = await service.requestUserLogin({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+      reason: 'Sign in required.',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'requires_user',
+      outcome: 'not_run',
+      reason: 'manual_login_required',
+    });
+  });
+
   it('creates manual-step approval requests for captcha and two-factor pauses', async () => {
     const { service, approvalRequests } = makeService();
 

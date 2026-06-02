@@ -37,6 +37,12 @@ describe('browser extension assets', () => {
     expect(background).toContain('installControlGlowScript');
     expect(background).toContain('removeControlGlowScript');
     expect(background).toContain('aio-browser-control-glow');
+    // Controlled tabs must collapse into a single per-window control group
+    // rather than spawning a new group per tab, so an existing control group is
+    // reused via chrome.tabGroups.query before falling back to a fresh group.
+    expect(background).toContain('chrome.tabGroups.query');
+    expect(background).toContain('function findControlGroupId');
+    expect(background).toContain('tabIds: tabId, groupId: canonicalGroupId');
   });
 
   it('uses open-shadow traversal for snapshots and selector actions', () => {

@@ -157,6 +157,27 @@ describe('observeAdapterRuntimeEvents', () => {
     });
   });
 
+  it('surfaces input/output tokens from alternate provider field conventions (prompt_tokens/completion_tokens)', () => {
+    const adapter = new EventEmitter();
+    const events: NormalizedAdapterRuntimeEvent[] = [];
+    observeAdapterRuntimeEvents(adapter, (event) => events.push(event));
+
+    // OpenAI-style snake_case usage fields that the previous two-variant reader
+    // ignored — these must now flow through to the context ring.
+    adapter.emit('context', {
+      used: 50,
+      total: 200,
+      percentage: 25,
+      prompt_tokens: 40,
+      completion_tokens: 10,
+    });
+
+    const ctx = events[0]?.event as { kind: string; inputTokens?: number; outputTokens?: number };
+    expect(ctx.kind).toBe('context');
+    expect(ctx.inputTokens).toBe(40);
+    expect(ctx.outputTokens).toBe(10);
+  });
+
   it('drops overlong provider diagnostic strings that would violate the runtime contract', () => {
     const adapter = new EventEmitter();
     const events: NormalizedAdapterRuntimeEvent[] = [];

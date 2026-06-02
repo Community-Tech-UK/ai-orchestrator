@@ -19,6 +19,13 @@ import type {
 } from '../../shared/types/automation.types';
 import { AutomationAttachmentService } from './automation-attachment-service';
 
+/**
+ * Default number of consecutive failed runs after which an automation is
+ * automatically disabled so it stops firing on every schedule tick. A
+ * successful run (or re-enabling the automation) resets the counter.
+ */
+export const DEFAULT_MAX_CONSECUTIVE_FAILURES = 5;
+
 interface AutomationRow {
   id: string;
   name: string;
@@ -36,6 +43,9 @@ interface AutomationRow {
   created_at: number;
   updated_at: number;
   unread_run_count?: number;
+  consecutive_failures?: number;
+  last_failure_at?: number | null;
+  last_failure_reason?: string | null;
 }
 
 interface AutomationRunRow {
@@ -139,6 +149,7 @@ export class AutomationStore {
   constructor(
     private readonly db: SqliteDriver,
     private readonly attachmentService = new AutomationAttachmentService(db),
+    private readonly maxConsecutiveFailures = DEFAULT_MAX_CONSECUTIVE_FAILURES,
   ) {}
 
   async create(input: CreateAutomationInput, nextFireAt: number | null, now = Date.now()): Promise<Automation> {
@@ -236,6 +247,18 @@ export class AutomationStore {
       this.writeDestination(id, destination);
       if (prepared) {
         this.attachmentService.replacePrepared(id, prepared);
+      }
+      // Re-enabling a previously-disabled automation clears its failure streak so
+      // an auto-disabled automation gets a clean slate when the operator turns it
+      // back on.
+      if (updates.enabled === true && !existing.enabled) {
+        this.db.prepare(`
+          UPDATE automations
+          SET consecutive_failures = 0,
+              last_failure_at = NULL,
+              last_failure_reason = NULL
+          WHERE id = ?
+        `).run(id);
       }
     });
     write();
@@ -428,6 +451,72 @@ export class AutomationStore {
       }
 
       return this.getRun(runId);
+    });
+    return tx();
+  }
+
+  /**
+   * Records the terminal execution outcome of an automation run for resilience
+   * tracking.
+   *
+   * - `succeeded` → resets the consecutive-failure counter and clears the
+   *   last-failure summary.
+   * - `failed` → increments the consecutive-failure counter and records the
+   *   failure summary; when the counter reaches `maxConsecutiveFailures` (and the
+   *   automation is still enabled), the automation is auto-disabled so it stops
+   *   firing on every schedule tick.
+   *
+   * Non-execution statuses (skipped/cancelled/pending/running) are ignored so a
+   * skipped concurrency collision never breaks the failure streak.
+   */
+  recordRunOutcome(
+    automationId: string,
+    status: AutomationRunStatus,
+    reason: string | undefined,
+    now = Date.now(),
+  ): { automation: Automation | null; autoDisabled: boolean } {
+    if (status !== 'succeeded' && status !== 'failed') {
+      return { automation: null, autoDisabled: false };
+    }
+
+    const tx = this.db.transaction((): { automation: Automation | null; autoDisabled: boolean } => {
+      const row = this.getAutomationRow(automationId);
+      if (!row) {
+        return { automation: null, autoDisabled: false };
+      }
+
+      if (status === 'succeeded') {
+        this.db.prepare(`
+          UPDATE automations
+          SET consecutive_failures = 0,
+              last_failure_at = NULL,
+              last_failure_reason = NULL,
+              updated_at = ?
+          WHERE id = ?
+        `).run(now, automationId);
+      } else {
+        const nextCount = (row.consecutive_failures ?? 0) + 1;
+        const wasEnabled = row.enabled === 1;
+        const shouldDisable =
+          wasEnabled && this.maxConsecutiveFailures > 0 && nextCount >= this.maxConsecutiveFailures;
+        this.db.prepare(`
+          UPDATE automations
+          SET consecutive_failures = ?,
+              last_failure_at = ?,
+              last_failure_reason = ?,
+              enabled = ?,
+              updated_at = ?
+          WHERE id = ?
+        `).run(nextCount, now, reason ?? null, shouldDisable ? 0 : row.enabled, now, automationId);
+        const updated = this.getAutomationRow(automationId);
+        return {
+          automation: updated ? this.mapAutomationSync(updated) : null,
+          autoDisabled: shouldDisable,
+        };
+      }
+
+      const updated = this.getAutomationRow(automationId);
+      return { automation: updated ? this.mapAutomationSync(updated) : null, autoDisabled: false };
     });
     return tx();
   }
@@ -814,6 +903,9 @@ export class AutomationStore {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       unreadRunCount: row.unread_run_count ?? 0,
+      consecutiveFailures: row.consecutive_failures ?? 0,
+      lastFailureAt: row.last_failure_at ?? null,
+      lastFailureReason: row.last_failure_reason ?? null,
     };
   }
 

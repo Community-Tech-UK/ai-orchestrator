@@ -37,6 +37,39 @@ import type {
 const logger = getLogger('LoopCompletionDetector');
 
 /**
+ * Build the spawn invocation for a verify command.
+ *
+ * The loop coordinator usually runs inside a GUI/launchd-launched Electron
+ * process whose PATH is the minimal macOS default `/usr/bin:/bin:/usr/sbin:/sbin`
+ * — it does NOT include nvm / homebrew / volta node locations. A bare
+ * `spawn(cmd, { shell: true })` therefore fails the verify gate with
+ * `npm: command not found` even though the user's terminal runs the exact same
+ * command fine.
+ *
+ * Running through a *login* shell (`-lc`) sources the user's profile
+ * (`.zprofile` / `.profile` / `/etc/paths`), restoring the same PATH the command
+ * would see in their terminal. We deliberately use login but NOT interactive
+ * (`-i`) mode: interactive shells emit prompt / shell-integration escape
+ * sequences into the captured verify output and can hang when there is no TTY.
+ *
+ * Windows GUI launches inherit a usable PATH, so there we keep the original
+ * `shell: true` behavior.
+ *
+ * Pure + exported for unit testing.
+ */
+export function buildVerifyInvocation(
+  cmd: string,
+  platform: NodeJS.Platform = process.platform,
+  shellPath: string | undefined = process.env['SHELL'],
+): { file: string; args: string[]; useShellOption: boolean } {
+  if (platform === 'win32') {
+    return { file: cmd, args: [], useShellOption: true };
+  }
+  const shell = shellPath && shellPath.trim() ? shellPath.trim() : '/bin/bash';
+  return { file: shell, args: ['-lc', cmd], useShellOption: false };
+}
+
+/**
  * Watches a workspace for `*_Completed.md` files. Fires `onCompleted` only on
  * NEW appearances during the run — chokidar's `ignoreInitial: true` ensures
  * pre-existing matches are not reported. This is intentional: many workspaces
@@ -423,9 +456,13 @@ export class LoopCompletionDetector {
   ): Promise<VerifyOutcome> {
     const started = Date.now();
     return new Promise<VerifyOutcome>((resolve) => {
-      const child = spawn(cmd, [], {
+      const inv = buildVerifyInvocation(cmd);
+      const child = spawn(inv.file, inv.args, {
         cwd: workspaceCwd,
-        shell: true,
+        // On non-Windows we invoke the user's login shell directly (`-lc`), so
+        // `shell` must stay off — `inv.file` already IS the shell. On Windows
+        // `useShellOption` is true and we fall back to the prior `shell: true`.
+        shell: inv.useShellOption,
         env: { ...process.env, CI: '1' },
       });
       let stdout = '';

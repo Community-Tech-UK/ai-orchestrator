@@ -330,6 +330,11 @@ export class MobileGatewayServer {
 
   /** Pending "needs you" prompts keyed by requestId. */
   private readonly prompts = new Map<string, MobilePromptDto>();
+  /**
+   * Last observed status per instance, used to detect the working→idle
+   * transition that fires a "agent finished" completion push. Pruned on removal.
+   */
+  private readonly lastStatusByInstance = new Map<string, string>();
   /** The orchestration handler we attached to, for clean detach on stop. */
   private orchestration: EmitterLike | null = null;
   private attachedPause: GatewayPauseSource | null = null;
@@ -602,13 +607,17 @@ export class MobileGatewayServer {
 
   private handleInstanceRemoved(instanceId: string): void {
     this.clearPromptsForInstance(instanceId);
+    this.lastStatusByInstance.delete(instanceId);
     this.scheduleSnapshotBroadcast();
   }
 
   private handleStateUpdate(update: unknown): void {
     const u = update as { instanceId?: string; status?: string };
-    if (u.instanceId && u.status && !WAITING_STATUSES.has(u.status)) {
-      this.clearPromptsForInstance(u.instanceId);
+    if (u.instanceId && u.status) {
+      if (!WAITING_STATUSES.has(u.status)) {
+        this.clearPromptsForInstance(u.instanceId);
+      }
+      this.notifyCompletionOnIdle(u.instanceId, u.status);
     }
     this.scheduleSnapshotBroadcast();
   }
@@ -617,12 +626,30 @@ export class MobileGatewayServer {
     const data = updates as { updates?: { instanceId?: string; status?: string }[] };
     if (data.updates) {
       for (const u of data.updates) {
-        if (u.instanceId && u.status && !WAITING_STATUSES.has(u.status)) {
-          this.clearPromptsForInstance(u.instanceId);
+        if (u.instanceId && u.status) {
+          if (!WAITING_STATUSES.has(u.status)) {
+            this.clearPromptsForInstance(u.instanceId);
+          }
+          this.notifyCompletionOnIdle(u.instanceId, u.status);
         }
       }
     }
     this.scheduleSnapshotBroadcast();
+  }
+
+  /**
+   * Sends a non-approval "agent finished" push when an instance transitions out
+   * of a working status into `idle` (a completed turn awaiting the user's next
+   * message). Only the working→idle edge fires — repeated idle heartbeats and the
+   * first-ever status for an instance are ignored — so the user is pinged once per
+   * completed turn, not on every snapshot.
+   */
+  private notifyCompletionOnIdle(instanceId: string, status: string): void {
+    const prev = this.lastStatusByInstance.get(instanceId);
+    this.lastStatusByInstance.set(instanceId, status);
+    if (prev && WORKING_STATUSES.has(prev) && status === 'idle') {
+      this.sendCompletionPush(instanceId);
+    }
   }
 
   private handleProviderEvent(envelope: ProviderRuntimeEventEnvelope): void {
@@ -785,6 +812,40 @@ export class MobileGatewayServer {
         );
     } catch (err) {
       logger.debug('sendPush threw', { error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  private sendCompletionPush(instanceId: string): void {
+    try {
+      const sender = this.apnsSender;
+      if (!sender.isConfigured()) return;
+      const tokens = this.registry.apnsTokens();
+      if (tokens.length === 0) return;
+      const instance = this.deps?.instanceManager.getInstance(instanceId);
+      const where = instance?.workingDirectory
+        ? crossPlatformBasename(instance.workingDirectory)
+        : '';
+      const agent = instance?.displayName || 'Agent';
+      void sender
+        .send(tokens, {
+          title: `${agent} finished`,
+          body: where ? `Idle · ${where}` : 'Ready for your next message',
+          category: 'AIO_COMPLETE',
+          threadId: instanceId,
+          data: {
+            instanceId,
+            kind: 'completion',
+          },
+        })
+        .catch((err) =>
+          logger.debug('APNs completion send failed', {
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+    } catch (err) {
+      logger.debug('sendCompletionPush threw', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

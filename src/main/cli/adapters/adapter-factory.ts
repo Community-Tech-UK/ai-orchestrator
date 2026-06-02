@@ -35,6 +35,7 @@ import {
   buildChromeDevtoolsCodexConfigToml,
 } from '../../browser-gateway/chrome-devtools-mcp-config';
 import type { UnifiedSpawnOptions, CliAdapter } from './adapter-factory.types';
+import { buildStaticMcpServersCodexConfigToml } from './static-mcp-codex-config';
 import {
   acpEphemeralInstanceId,
   buildClaudeMcpConfig,
@@ -179,6 +180,9 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
     options.chromeDevtoolsMcp
       ? buildChromeDevtoolsCodexConfigToml(options.chromeDevtoolsMcp)
       : null,
+    // Static, user-managed servers from config/mcp-servers.json (lsp, imap, …).
+    // Claude/Copilot get these via --mcp-config; Codex needs them as TOML.
+    buildStaticMcpServersCodexConfigToml(options.mcpConfig),
   ].filter((block): block is string => Boolean(block));
   const mcpServersConfigToml = codexTomlBlocks.length > 0
     ? codexTomlBlocks.join('\n\n')
