@@ -349,10 +349,20 @@ export class BrowserExistingTabOperations {
     }
 
     try {
+      const screenshotPayload: Record<string, unknown> = {};
+      if (typeof request.maxWidth === 'number') {
+        screenshotPayload['maxWidth'] = request.maxWidth;
+      }
+      if (typeof request.maxHeight === 'number') {
+        screenshotPayload['maxHeight'] = request.maxHeight;
+      }
+      if (typeof request.fullPage === 'boolean') {
+        screenshotPayload['fullPage'] = request.fullPage;
+      }
       const result = await this.sendCommand(
         attachment,
         'screenshot',
-        undefined,
+        Object.keys(screenshotPayload).length > 0 ? screenshotPayload : undefined,
         attachment.screenshotBase64 ? 1_000 : 30_000,
       );
       const value = extractScreenshotBase64(result);
@@ -436,7 +446,9 @@ function extractScreenshotBase64(result: unknown): string {
   if (typeof value !== 'string' || !value) {
     throw new Error('browser_extension_screenshot_result_invalid');
   }
-  return value.replace(/^data:image\/png;base64,/i, '').slice(0, 2_000_000);
+  // The extension now returns raw base64 (CDP), but tolerate a data: URL prefix
+  // for any image mime type for backwards/forwards compatibility.
+  return value.replace(/^data:image\/[a-z0-9.+-]+;base64,/i, '').slice(0, 2_000_000);
 }
 
 export function normalizeDownloadFileResult(result: unknown): BrowserDownloadFileResult {

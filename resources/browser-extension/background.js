@@ -2,13 +2,20 @@ const HOST_NAME = 'com.ai_orchestrator.browser_gateway';
 const INVENTORY_ALARM = 'browser-gateway-inventory';
 const POLL_TIMEOUT_MS = 10000;
 const POLL_IDLE_DELAY_MS = 250;
-const POLL_ERROR_DELAY_MS = 5000;
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 30000;
+const MAX_OUTBOX = 50;
 const MAX_INVENTORY_TABS = 40;
 const CONTROL_GROUP_TITLE = 'AI Orchestrator';
 
 let nativePort = null;
 let pollInFlight = false;
 let inventoryInFlight = false;
+let reconnectAttempts = 0;
+let reconnectTimer = null;
+// Buffer for non-poll messages (command results, tab attachments) so a brief
+// native-host disconnect does not silently drop them — they flush on reconnect.
+const outbox = [];
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create(INVENTORY_ALARM, { periodInMinutes: 1 });
@@ -61,12 +68,63 @@ async function startBridge() {
   pollForCommand();
 }
 
+function reconnectDelayMs() {
+  const base = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** reconnectAttempts);
+  // ±20% jitter so many extensions/tabs don't reconnect in lockstep.
+  const jitter = base * 0.2 * (Math.random() * 2 - 1);
+  return Math.max(RECONNECT_BASE_MS, Math.round(base + jitter));
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer) {
+    return;
+  }
+  const wait = reconnectDelayMs();
+  reconnectAttempts += 1;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    void startBridge().catch(() => undefined);
+  }, wait);
+}
+
+function enqueueOutbox(message) {
+  outbox.push(message);
+  // Drop the oldest buffered messages if the host stays down for a long time.
+  while (outbox.length > MAX_OUTBOX) {
+    outbox.shift();
+  }
+}
+
+function flushOutbox() {
+  if (!nativePort || outbox.length === 0) {
+    return;
+  }
+  const pending = outbox.splice(0, outbox.length);
+  for (let index = 0; index < pending.length; index++) {
+    try {
+      nativePort.postMessage(pending[index]);
+    } catch {
+      // Re-buffer this and the remaining messages; the disconnect handler will
+      // schedule another reconnect+flush.
+      for (let rest = pending.length - 1; rest >= index; rest--) {
+        outbox.unshift(pending[rest]);
+      }
+      nativePort = null;
+      pollInFlight = false;
+      scheduleReconnect();
+      return;
+    }
+  }
+}
+
 function connectNativePort() {
   if (nativePort) {
     return nativePort;
   }
   nativePort = chrome.runtime.connectNative(HOST_NAME);
   nativePort.onMessage.addListener((message) => {
+    // Inbound traffic means the channel is healthy again.
+    reconnectAttempts = 0;
     void handleNativeMessage(message);
   });
   nativePort.onDisconnect.addListener(() => {
@@ -74,22 +132,25 @@ function connectNativePort() {
     void chrome.runtime.lastError?.message;
     nativePort = null;
     pollInFlight = false;
-    setTimeout(() => {
-      void startBridge().catch(() => undefined);
-    }, POLL_ERROR_DELAY_MS);
+    scheduleReconnect();
   });
+  flushOutbox();
   return nativePort;
 }
 
 function postNativeMessage(message) {
+  // Poll requests are transient — never buffer/replay them (a stale poll would
+  // just confuse the host). Everything else is queued if the channel is down.
+  const isPoll = message?.type === 'poll_command';
   try {
     connectNativePort().postMessage(message);
   } catch {
     nativePort = null;
     pollInFlight = false;
-    setTimeout(() => {
-      void startBridge().catch(() => undefined);
-    }, POLL_ERROR_DELAY_MS);
+    if (!isPoll) {
+      enqueueOutbox(message);
+    }
+    scheduleReconnect();
   }
 }
 
@@ -294,21 +355,29 @@ async function executeBrowserCommand(command) {
       const tabId = requireTargetTabId(command);
       await startControlledTab(tabId);
       try {
-        const tab = await chrome.tabs.get(tabId);
-        await focusTab(tab);
         return {
-          screenshotBase64: await captureScreenshot(tab.windowId),
+          screenshotBase64: await captureTabScreenshot(tabId, {
+            fullPage: command.payload?.fullPage === true,
+            maxWidth: command.payload?.maxWidth,
+            maxHeight: command.payload?.maxHeight,
+          }),
           capturedAt: Date.now(),
         };
       } finally {
         await stopControlledTab(tabId);
       }
     }
-    case 'wait_for':
-      return runInTargetTab(command, 'wait_for', [
-        typeof command.payload?.selector === 'string' ? command.payload.selector : 'body',
-        typeof command.payload?.timeoutMs === 'number' ? command.payload.timeoutMs : 30000,
-      ]);
+    case 'wait_for': {
+      const tabId = requireTargetTabId(command);
+      const selector = typeof command.payload?.selector === 'string' ? command.payload.selector : 'body';
+      const timeoutMs = typeof command.payload?.timeoutMs === 'number' ? command.payload.timeoutMs : 30000;
+      await startControlledTab(tabId);
+      try {
+        return await waitForSelectorAcrossFrames(tabId, selector, timeoutMs);
+      } finally {
+        await stopControlledTab(tabId);
+      }
+    }
     case 'query_elements':
       return runInTargetTab(command, 'query_elements', [
         typeof command.payload?.query === 'string' ? command.payload.query : undefined,
@@ -515,19 +584,102 @@ function sanitizeDownloadFilename(value) {
   return normalized;
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+}
+
 async function runInTargetTab(command, action, args) {
   const tabId = requireTargetTabId(command);
   await startControlledTab(tabId);
   try {
-    const [result] = await chrome.scripting.executeScript({
-      target: { tabId },
+    // Inject into every frame so elements inside <iframe>s are reachable. Each
+    // frame returns a not-found sentinel when it lacks the element; we merge and
+    // pick whichever frame actually matched.
+    const injectionResults = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
       func: pageBridgeScript,
       args: [action, args],
     });
+    const frameResults = (injectionResults ?? [])
+      .map((entry) => entry?.result)
+      .filter((value) => value != null);
+    const merged = mergeFrameResults(action, frameResults, args);
     await reportTab(await chrome.tabs.get(tabId));
-    return result?.result ?? null;
+    return merged;
   } finally {
     await stopControlledTab(tabId);
+  }
+}
+
+// Reduce per-frame page-bridge results to a single value. For mutating actions
+// this also enforces that the selector matched in at least one frame, so the
+// gateway reports failure (#10) instead of a misleading success when nothing
+// was clicked/typed.
+function mergeFrameResults(action, frameResults, args) {
+  if (action === 'query_elements') {
+    const limit = typeof args?.[1] === 'number' ? args[1] : 50;
+    const elements = [];
+    for (const result of frameResults) {
+      if (result && Array.isArray(result.elements)) {
+        elements.push(...result.elements);
+      }
+    }
+    return { elements: elements.slice(0, Math.max(1, Math.min(limit, 100))) };
+  }
+
+  if (action === 'fill_form') {
+    const fields = Array.isArray(args?.[0]) ? args[0] : [];
+    const merged = fields.map((field, index) => {
+      for (const result of frameResults) {
+        const perField = result && Array.isArray(result.__fields) ? result.__fields[index] : undefined;
+        if (perField?.invalid) {
+          throw new Error('Invalid form field selector.');
+        }
+        if (perField?.__found) {
+          const { __found, ...rest } = perField;
+          return rest;
+        }
+      }
+      throw new Error(`No element matches selector: ${field?.selector ?? '(unknown)'}`);
+    });
+    return merged;
+  }
+
+  // click / type / select: take the first frame that found the element.
+  const hit = frameResults.find((result) => result && result.__found === true);
+  if (hit) {
+    const { __found, ...rest } = hit;
+    return rest;
+  }
+  const selector = typeof args?.[0] === 'string' ? args[0] : '(unknown)';
+  throw new Error(`No element matches selector: ${selector}`);
+}
+
+// Poll every frame for a selector until it appears or the timeout elapses.
+// Polling (rather than a per-frame MutationObserver) avoids blocking on frames
+// that never contain the selector, which would otherwise hold the whole call
+// open until the timeout on every navigation.
+async function waitForSelectorAcrossFrames(tabId, selector, timeoutMs) {
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  const pollIntervalMs = 250;
+  for (;;) {
+    const injectionResults = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: pageBridgeScript,
+      args: ['find', [selector]],
+    }).catch(() => []);
+    const hit = (injectionResults ?? [])
+      .map((entry) => entry?.result)
+      .find((value) => value && value.__found === true);
+    if (hit) {
+      await reportTab(await chrome.tabs.get(tabId));
+      const { __found, ...rest } = hit;
+      return rest;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for selector: ${selector}`);
+    }
+    await delay(Math.min(pollIntervalMs, Math.max(0, deadline - Date.now())));
   }
 }
 
@@ -539,7 +691,7 @@ async function buildTabPayload(tab, options = {}) {
     ? await capturePageText(tab.id).catch(() => ({ title: tab.title, text: '' }))
     : { title: tab.title, text: '' };
   const screenshotBase64 = options.includeScreenshot
-    ? await captureScreenshot(tab.windowId).catch(() => undefined)
+    ? await captureTabScreenshot(tab.id, { fullPage: false }).catch(() => undefined)
     : undefined;
 
   return {
@@ -554,17 +706,116 @@ async function buildTabPayload(tab, options = {}) {
 }
 
 async function capturePageText(tabId) {
-  const [result] = await chrome.scripting.executeScript({
-    target: { tabId },
+  // Inject into every frame so iframe content (e.g. portals embedded in an
+  // <iframe>) is included instead of only the top frame's header/footer.
+  const results = await chrome.scripting.executeScript({
+    target: { tabId, allFrames: true },
     func: pageBridgeScript,
     args: ['snapshot', []],
-  });
-  return result?.result || { title: '', text: '' };
+  }).catch(() => []);
+
+  let title = '';
+  const texts = [];
+  for (const entry of results ?? []) {
+    const value = entry?.result;
+    if (!value || typeof value !== 'object') {
+      continue;
+    }
+    // The top frame is reported first, so prefer its document.title.
+    if (!title && typeof value.title === 'string' && value.title) {
+      title = value.title;
+    }
+    if (typeof value.text === 'string' && value.text) {
+      texts.push(value.text);
+    }
+  }
+  return { title, text: texts.join('\n').slice(0, 120000) };
 }
 
-async function captureScreenshot(windowId) {
-  const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: 'png' });
-  return dataUrl.replace(/^data:image\/png;base64,/i, '');
+const SCREENSHOT_DEFAULT_MAX_WIDTH = 1280;
+const SCREENSHOT_DEFAULT_QUALITY = 60;
+const SCREENSHOT_MAX_DIMENSION = 8192;
+
+function clampNumber(value, min, max, fallback) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, value));
+}
+
+function readLayoutSize(metrics, fullPage) {
+  if (!metrics || typeof metrics !== 'object') {
+    return null;
+  }
+  if (fullPage) {
+    const content = metrics.cssContentSize || metrics.contentSize;
+    if (content && content.width > 0 && content.height > 0) {
+      return { width: Math.ceil(content.width), height: Math.ceil(content.height) };
+    }
+  }
+  const viewport = metrics.cssLayoutViewport || metrics.layoutViewport;
+  if (viewport && viewport.clientWidth > 0 && viewport.clientHeight > 0) {
+    return { width: Math.ceil(viewport.clientWidth), height: Math.ceil(viewport.clientHeight) };
+  }
+  return null;
+}
+
+function computeDownscale(width, height, maxWidth, maxHeight) {
+  let scale = 1;
+  if (maxWidth && width > maxWidth) {
+    scale = Math.min(scale, maxWidth / width);
+  }
+  if (maxHeight && height > maxHeight) {
+    scale = Math.min(scale, maxHeight / height);
+  }
+  return scale > 0 && scale <= 1 ? scale : 1;
+}
+
+// Capture via the DevTools protocol so the screenshot does not depend on the
+// tab being the active/focused tab of a focused OS window. Defaults to a
+// downscaled JPEG so the base64 payload stays within the MCP inline budget.
+async function captureTabScreenshot(tabId, options = {}) {
+  if (typeof tabId !== 'number') {
+    throw new Error('Browser screenshot requires a Chrome tab id.');
+  }
+  const format = options.format === 'png' ? 'png' : 'jpeg';
+  const quality = clampNumber(options.quality, 1, 100, SCREENSHOT_DEFAULT_QUALITY);
+  const fullPage = options.fullPage === true;
+  const maxWidth = clampNumber(options.maxWidth, 1, SCREENSHOT_MAX_DIMENSION, SCREENSHOT_DEFAULT_MAX_WIDTH);
+  const maxHeight = clampNumber(options.maxHeight, 1, SCREENSHOT_MAX_DIMENSION, undefined);
+
+  return withDebugger(tabId, async (debuggee) => {
+    const metrics = await chrome.debugger
+      .sendCommand(debuggee, 'Page.getLayoutMetrics')
+      .catch(() => null);
+
+    const params = {
+      format,
+      fromSurface: true,
+      captureBeyondViewport: fullPage,
+    };
+    if (format === 'jpeg') {
+      params.quality = quality;
+    }
+
+    const layout = readLayoutSize(metrics, fullPage);
+    if (layout) {
+      params.clip = {
+        x: 0,
+        y: 0,
+        width: layout.width,
+        height: layout.height,
+        scale: computeDownscale(layout.width, layout.height, maxWidth, maxHeight),
+      };
+    }
+
+    const shot = await chrome.debugger.sendCommand(debuggee, 'Page.captureScreenshot', params);
+    const data = shot?.data;
+    if (typeof data !== 'string' || !data) {
+      throw new Error('Browser screenshot capture returned no image data.');
+    }
+    return data;
+  });
 }
 
 async function waitForTabComplete(tabId, timeoutMs = 15000) {
@@ -589,15 +840,6 @@ async function waitForTabComplete(tabId, timeoutMs = 15000) {
     }
     chrome.tabs.onUpdated.addListener(listener);
   });
-}
-
-async function focusTab(tab) {
-  if (typeof tab.windowId === 'number') {
-    await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined);
-  }
-  if (typeof tab.id === 'number') {
-    await chrome.tabs.update(tab.id, { active: true }).catch(() => undefined);
-  }
 }
 
 async function startControlledTab(tabId) {
@@ -761,18 +1003,195 @@ function pageBridgeScript(action, args) {
     };
   }
 
-  function typeIntoElement(selector, value) {
-    const element = requireElement(selector);
+  // React (and other controlled inputs) track the *native* value setter, so a
+  // plain `element.value = ...` assignment is dropped. Call the prototype setter
+  // directly so the framework's value tracker observes the change.
+  function setNativeValue(element, value) {
+    const prototype = typeof HTMLTextAreaElement !== 'undefined' && element instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : typeof HTMLInputElement !== 'undefined' && element instanceof HTMLInputElement
+        ? HTMLInputElement.prototype
+        : typeof HTMLSelectElement !== 'undefined' && element instanceof HTMLSelectElement
+          ? HTMLSelectElement.prototype
+          : null;
+    const descriptor = prototype && Object.getOwnPropertyDescriptor(prototype, 'value');
+    if (descriptor && typeof descriptor.set === 'function') {
+      descriptor.set.call(element, value);
+    } else {
+      element.value = value;
+    }
+  }
+
+  // Synthetic element.click() is ignored by many SPA/web-component controls that
+  // only react to a real pointer/mouse sequence. Dispatch the full sequence so
+  // those controls (and React's delegated click listener) fire.
+  function dispatchRealClick(element) {
+    const rect = element.getBoundingClientRect?.() ?? { left: 0, top: 0, width: 0, height: 0 };
+    const clientX = rect.left + rect.width / 2;
+    const clientY = rect.top + rect.height / 2;
+    const mouseInit = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      clientX,
+      clientY,
+      button: 0,
+    };
+    const pointerInit = {
+      ...mouseInit,
+      pointerId: 1,
+      pointerType: 'mouse',
+      isPrimary: true,
+      width: 1,
+      height: 1,
+    };
+    try {
+      element.focus?.();
+    } catch {
+      // Some elements are not focusable; ignore.
+    }
+    const PointerEventCtor = typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
+    element.dispatchEvent(new PointerEventCtor('pointerover', { ...pointerInit, buttons: 0 }));
+    element.dispatchEvent(new PointerEventCtor('pointerenter', { ...pointerInit, bubbles: false, buttons: 0 }));
+    element.dispatchEvent(new MouseEvent('mouseover', { ...mouseInit, buttons: 0 }));
+    element.dispatchEvent(new PointerEventCtor('pointerdown', { ...pointerInit, buttons: 1 }));
+    element.dispatchEvent(new MouseEvent('mousedown', { ...mouseInit, buttons: 1 }));
+    element.dispatchEvent(new PointerEventCtor('pointerup', { ...pointerInit, buttons: 0 }));
+    element.dispatchEvent(new MouseEvent('mouseup', { ...mouseInit, buttons: 0 }));
+    // The dispatched click event drives the element's default activation
+    // behaviour, so element.click() is intentionally NOT also called (that would
+    // double-fire and cancel out toggles such as checkboxes).
+    element.dispatchEvent(new MouseEvent('click', { ...mouseInit, buttons: 0 }));
+  }
+
+  // Non-throwing lookup used by per-frame action handlers: a frame that does not
+  // contain the element returns a not-found sentinel instead of throwing, so the
+  // background script can pick whichever frame actually matched.
+  function findElement(selector) {
+    return deepQuerySelector(selector);
+  }
+
+  function isVisible(element) {
+    if (!element || typeof element.getBoundingClientRect !== 'function') {
+      return false;
+    }
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 && rect.height <= 0) {
+      return false;
+    }
+    const style = typeof getComputedStyle === 'function' ? getComputedStyle(element) : null;
+    if (style && (style.visibility === 'hidden' || style.display === 'none')) {
+      return false;
+    }
+    return true;
+  }
+
+  function applyType(element, value) {
     element.scrollIntoView({ block: 'center', inline: 'center' });
     element.focus();
     if (element.isContentEditable) {
       element.textContent = value;
     } else {
-      element.value = value;
+      setNativeValue(element, value);
     }
     element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
     element.dispatchEvent(new Event('change', { bubbles: true }));
-    return describeElement(element);
+    const valueAfter = element.isContentEditable
+      ? (element.textContent || '')
+      : (typeof element.value === 'string' ? element.value : '');
+    return {
+      ...describeElement(element),
+      // Evidence for callers (#10): masked/formatted inputs may legitimately
+      // transform the value, so valueApplied is informational, not a hard check.
+      valueAfter: String(valueAfter).slice(0, 1000),
+      valueApplied: valueAfter === value,
+      disabled: Boolean(element.disabled),
+      readOnly: Boolean(element.readOnly),
+    };
+  }
+
+  // Match an option for a custom (non-<select>) dropdown by visible text, then
+  // by accessible name. Searches role=option/menuitem first, then list items.
+  function findOptionByText(value) {
+    const wanted = String(value).trim().toLowerCase();
+    if (!wanted) {
+      return null;
+    }
+    const optionSelector = '[role="option"],[role="menuitem"],[role="menuitemradio"],[role="treeitem"],li,option';
+    const candidates = [];
+    const collect = (root) => {
+      if (!root) {
+        return;
+      }
+      for (const node of Array.from(root.querySelectorAll?.(optionSelector) ?? [])) {
+        candidates.push(node);
+      }
+      for (const node of Array.from(root.querySelectorAll?.('*') ?? [])) {
+        if (node.shadowRoot) {
+          collect(node.shadowRoot);
+        }
+      }
+    };
+    collect(document);
+    const visible = candidates.filter(isVisible);
+    const exact = visible.find((node) =>
+      (node.innerText || node.textContent || '').trim().toLowerCase() === wanted
+      || (node.getAttribute?.('aria-label') ?? '').trim().toLowerCase() === wanted);
+    if (exact) {
+      return exact;
+    }
+    return visible.find((node) =>
+      (node.innerText || node.textContent || '').trim().toLowerCase().includes(wanted)) ?? null;
+  }
+
+  function selectValue(element, value) {
+    element.scrollIntoView({ block: 'center', inline: 'center' });
+    // Native <select>: match by value, then label, then visible option text.
+    if (element.tagName === 'SELECT') {
+      element.focus();
+      const options = Array.from(element.options || []);
+      const match = options.find((option) => option.value === value)
+        || options.find((option) => (option.label || '').trim() === String(value).trim())
+        || options.find((option) => (option.textContent || '').trim().toLowerCase() === String(value).trim().toLowerCase());
+      setNativeValue(element, match ? match.value : value);
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+      return {
+        ...describeElement(element),
+        selectedValue: typeof element.value === 'string' ? element.value : undefined,
+        matchedOption: match ? (match.label || match.textContent || match.value || '').trim().slice(0, 200) : null,
+      };
+    }
+
+    // Custom dropdown: open it, then wait briefly for async-rendered options.
+    dispatchRealClick(element);
+    return new Promise((resolve) => {
+      const deadline = Date.now() + 2000;
+      const attempt = () => {
+        const option = findOptionByText(value);
+        if (option) {
+          dispatchRealClick(option);
+          resolve({
+            ...describeElement(element),
+            selectedOption: (option.innerText || option.textContent || '').trim().slice(0, 200),
+            matchedOption: (option.innerText || option.textContent || '').trim().slice(0, 200),
+          });
+          return;
+        }
+        if (Date.now() >= deadline) {
+          resolve({
+            ...describeElement(element),
+            selectedOption: null,
+            matchedOption: null,
+            note: 'custom_select_option_not_found',
+          });
+          return;
+        }
+        setTimeout(attempt, 100);
+      };
+      attempt();
+    });
   }
 
   function cssAttr(value) {
@@ -914,63 +1333,65 @@ function pageBridgeScript(action, args) {
     return queryElements(query, limit);
   }
 
+  // Per-frame existence probe used by the background all-frames wait_for poll.
+  if (action === 'find') {
+    const [selector] = args;
+    const element = findElement(selector);
+    return element
+      ? { __found: true, ...describeElement(element) }
+      : { __found: false };
+  }
+
   if (action === 'click') {
     const [selector] = args;
-    const element = requireElement(selector);
+    const element = findElement(selector);
+    if (!element) {
+      return { __found: false };
+    }
     element.scrollIntoView({ block: 'center', inline: 'center' });
-    element.click();
-    return describeElement(element);
+    dispatchRealClick(element);
+    return {
+      __found: true,
+      ...describeElement(element),
+      disabled: Boolean(element.disabled),
+      connected: element.isConnected !== false,
+    };
   }
 
   if (action === 'type') {
     const [selector, value] = args;
-    return typeIntoElement(selector, value);
+    const element = findElement(selector);
+    if (!element) {
+      return { __found: false };
+    }
+    return { __found: true, ...applyType(element, value) };
   }
 
   if (action === 'fill_form') {
     const [fields] = args;
-    return fields.map((field) => {
+    const fieldResults = (Array.isArray(fields) ? fields : []).map((field) => {
       if (!field || typeof field.selector !== 'string') {
-        throw new Error('Invalid form field selector.');
+        return { __found: false, invalid: true };
       }
-      return typeIntoElement(field.selector, String(field.value ?? ''));
+      const element = findElement(field.selector);
+      if (!element) {
+        return { __found: false, selector: field.selector };
+      }
+      return { __found: true, selector: field.selector, ...applyType(element, String(field.value ?? '')) };
     });
+    return { __fields: fieldResults };
   }
 
   if (action === 'select') {
     const [selector, value] = args;
-    const element = requireElement(selector);
-    element.scrollIntoView({ block: 'center', inline: 'center' });
-    element.focus();
-    element.value = value;
-    element.dispatchEvent(new Event('input', { bubbles: true }));
-    element.dispatchEvent(new Event('change', { bubbles: true }));
-    return describeElement(element);
-  }
-
-  if (action === 'wait_for') {
-    const [selector, timeoutMs] = args;
-    return new Promise((resolve, reject) => {
-      const existing = deepQuerySelector(selector);
-      if (existing) {
-        resolve(describeElement(existing));
-        return;
-      }
-      const timeout = setTimeout(() => {
-        observer.disconnect();
-        reject(new Error(`Timed out waiting for selector: ${selector}`));
-      }, timeoutMs);
-      const observer = new MutationObserver(() => {
-        const element = deepQuerySelector(selector);
-        if (!element) {
-          return;
-        }
-        clearTimeout(timeout);
-        observer.disconnect();
-        resolve(describeElement(element));
-      });
-      observer.observe(document.documentElement, { childList: true, subtree: true });
-    });
+    const element = findElement(selector);
+    if (!element) {
+      return { __found: false };
+    }
+    return Promise.resolve(selectValue(element, value)).then((result) => ({
+      __found: true,
+      ...result,
+    }));
   }
 
   throw new Error(`Unsupported page bridge action: ${action}`);

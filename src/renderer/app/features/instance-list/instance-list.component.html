@@ -15,6 +15,28 @@
           [value]="filterInput()"
           (input)="onFilterChange($event)"
         />
+        <div class="state-quick-filters" role="group" aria-label="Filter by state">
+          <button
+            type="button"
+            class="state-quick-btn"
+            [class.active]="statusFilter() === 'all'"
+            [attr.aria-pressed]="statusFilter() === 'all'"
+            title="Show all sessions"
+            (click)="setStatusFilter('all')"
+          >
+            All
+          </button>
+          <button
+            type="button"
+            class="state-quick-btn"
+            [class.active]="statusFilter() === 'active'"
+            [attr.aria-pressed]="statusFilter() === 'active'"
+            title="Show active sessions only"
+            (click)="setStatusFilter('active')"
+          >
+            Active
+          </button>
+        </div>
         <div class="filters-anchor">
           <button
             type="button"

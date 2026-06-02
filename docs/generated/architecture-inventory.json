@@ -5077,6 +5077,10 @@
       "lines": 1456
     },
     {
+      "path": "resources/browser-extension/background.js",
+      "lines": 1448
+    },
+    {
       "path": "src/main/orchestration/orchestration-handler.ts",
       "lines": 1443
     },
@@ -5093,12 +5097,12 @@
       "lines": 1394
     },
     {
-      "path": "src/main/history/history-manager.ts",
-      "lines": 1362
+      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
+      "lines": 1363
     },
     {
-      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
-      "lines": 1360
+      "path": "src/main/history/history-manager.ts",
+      "lines": 1362
     },
     {
       "path": "src/renderer/app/core/state/source-control.store.spec.ts",
@@ -5309,11 +5313,11 @@
       "lines": 1036
     },
     {
-      "path": "docs/superpowers/plans/2026-03-14-worktree-safety-attention-cost.md",
-      "lines": 1027
+      "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
+      "lines": 1030
     },
     {
-      "path": "resources/browser-extension/background.js",
+      "path": "docs/superpowers/plans/2026-03-14-worktree-safety-attention-cost.md",
       "lines": 1027
     },
     {
@@ -5339,10 +5343,6 @@
     {
       "path": "src/renderer/app/features/debate/debate-visualization.component.ts",
       "lines": 993
-    },
-    {
-      "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
-      "lines": 992
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-wave4-output-clipboard-theme-terminal-design_completed.md",

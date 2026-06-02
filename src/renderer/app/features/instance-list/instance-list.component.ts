@@ -301,8 +301,11 @@ export class InstanceListComponent implements OnDestroy {
   }
 
   onStatusFilterChange(event: Event): void {
-    const select = event.target as HTMLSelectElement;
-    this.statusFilter.set(select.value);
+    this.setStatusFilter((event.target as HTMLSelectElement).value);
+  }
+
+  setStatusFilter(value: string): void {
+    this.statusFilter.set(value);
     this.closeProjectMenu({ restoreFocus: false });
   }
 
