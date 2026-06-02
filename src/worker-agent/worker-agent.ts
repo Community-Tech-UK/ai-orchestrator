@@ -25,6 +25,26 @@ const DEFAULT_CONFIG_PATH = path.join(
   'worker-node.json'
 );
 
+/** Per-candidate connection timeout so a dead address fails over quickly. */
+const CONNECT_TIMEOUT_MS = 8_000;
+
+/** Bounded mDNS re-probe after every known address fails. */
+const REDISCOVERY_TIMEOUT_MS = 4_000;
+
+/**
+ * Ordered, de-duplicated list of coordinator URLs to try: the most recently
+ * discovered address first, then the paired primary, then static fallbacks.
+ * Empty strings/nullish entries are dropped.
+ */
+export function buildCoordinatorCandidates(
+  active: string | null | undefined,
+  primary: string | undefined,
+  fallbacks: string[] | undefined,
+): string[] {
+  const ordered = [active, primary, ...(fallbacks ?? [])];
+  return [...new Set(ordered.filter((url): url is string => typeof url === 'string' && url.length > 0))];
+}
+
 /**
  * Worker node agent — connects to coordinator, handles RPC commands,
  * manages local CLI instances, sends heartbeats.
@@ -85,70 +105,124 @@ export class WorkerAgent extends EventEmitter {
       );
       this.startContinuousDiscovery();
 
-      // Resolve coordinator URL — prefer explicit config, fall back to mDNS.
-      let coordinatorUrl = this.activeCoordinatorUrl ?? this.config.coordinatorUrl;
-      if (!coordinatorUrl) {
-        const discovery = new DiscoveryClient();
-        const found = await discovery.discover(this.config.namespace, 10_000);
+      // Resolve the addresses to try. Prefer the configured/discovered
+      // candidates; only fall back to a blocking mDNS lookup when nothing is
+      // configured at all (first run before pairing has persisted a URL).
+      let candidates = this.getCandidateUrls();
+      if (candidates.length === 0) {
+        const found = await new DiscoveryClient().discover(this.config.namespace, 10_000);
         if (!found) {
           console.warn(
             `mDNS discovery found no coordinator for namespace "${this.config.namespace}" — will retry`
           );
-          this.startContinuousDiscovery();
           this.scheduleReconnect();
           return;
         }
-        coordinatorUrl = this.buildDiscoveredCoordinatorUrl(found);
-        this.activeCoordinatorUrl = coordinatorUrl;
+        candidates = [this.buildDiscoveredCoordinatorUrl(found)];
       }
 
       const token = this.config.nodeToken ?? this.config.authToken;
 
-      await new Promise<void>((resolve) => {
-        const ws = new WebSocket(coordinatorUrl as string, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+      // Try each known address in order, failing over on timeout/refusal. This
+      // is what lets the worker recover when the host's LAN IP changes but a
+      // stable fallback (e.g. a Tailscale name) is still reachable.
+      for (const url of candidates) {
+        if (await this.tryConnect(url, token)) {
+          return;
+        }
+        console.warn(`Coordinator candidate unreachable: ${url}`);
+      }
 
-        ws.on('open', () => {
-          this.ws = ws;
-          this.connectedAt = Date.now();
-          this.reconnectAttempt = 0;
-          this.activeCoordinatorUrl = coordinatorUrl as string;
-          console.log(`Connected to coordinator at ${coordinatorUrl}`);
-          this.sendRegistration();
-          this.notifier.flushCriticalQueue(); // Deliver any queued state changes from while disconnected
-          this.startHeartbeat();
-          this.startContinuousDiscovery();
-          resolve();
-        });
-
-        ws.on('message', (data: Buffer | string) => {
-          this.handleMessage(data.toString());
-        });
-
-        ws.on('close', () => {
-          this.stopHeartbeat();
-          this.ws = null;
-          if (!this.isShuttingDown) {
-            this.scheduleReconnect();
-          }
-        });
-
-        ws.on('error', (err) => {
-          if (!this.ws) {
-            // Initial connection failed — let the close handler trigger reconnect.
-            console.warn(
-              `Connection failed: ${err instanceof Error ? err.message : err}`
-            );
-            resolve();
-          } else {
-            this.emit('error', err);
-          }
-        });
-      });
+      // Every known address failed — re-probe mDNS in case the host moved and
+      // is advertising a fresh address, then retry on the usual backoff.
+      const rediscovered = await new DiscoveryClient().discover(
+        this.config.namespace,
+        REDISCOVERY_TIMEOUT_MS
+      );
+      if (rediscovered) {
+        this.activeCoordinatorUrl = this.buildDiscoveredCoordinatorUrl(rediscovered);
+      }
+      this.scheduleReconnect();
     } finally {
       this.connecting = false;
     }
+  }
+
+  private getCandidateUrls(): string[] {
+    return buildCoordinatorCandidates(
+      this.activeCoordinatorUrl,
+      this.config.coordinatorUrl,
+      this.config.coordinatorUrls
+    );
+  }
+
+  /**
+   * Attempt a single coordinator connection. Resolves `true` once the socket
+   * opens (registration is sent synchronously on `open`), or `false` on
+   * error/close/timeout so the caller can fail over to the next candidate.
+   * Never rejects.
+   */
+  private tryConnect(url: string, token: string): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      let opened = false;
+      const ws = new WebSocket(url, { headers: { Authorization: `Bearer ${token}` } });
+
+      const timer = setTimeout(() => {
+        if (opened) return;
+        console.warn(`Connection to ${url} timed out after ${CONNECT_TIMEOUT_MS}ms`);
+        const closable = ws as unknown as { terminate?: () => void; close?: () => void };
+        if (typeof closable.terminate === 'function') {
+          closable.terminate();
+        } else if (typeof closable.close === 'function') {
+          closable.close();
+        }
+        resolve(false);
+      }, CONNECT_TIMEOUT_MS);
+
+      ws.on('open', () => {
+        opened = true;
+        clearTimeout(timer);
+        this.ws = ws;
+        this.connectedAt = Date.now();
+        this.reconnectAttempt = 0;
+        this.activeCoordinatorUrl = url;
+        console.log(`Connected to coordinator at ${url}`);
+        this.sendRegistration();
+        this.notifier.flushCriticalQueue(); // Deliver any queued state changes from while disconnected
+        this.startHeartbeat();
+        this.startContinuousDiscovery();
+        resolve(true);
+      });
+
+      ws.on('message', (data: Buffer | string) => {
+        this.handleMessage(data.toString());
+      });
+
+      ws.on('close', () => {
+        if (!opened) {
+          clearTimeout(timer);
+          resolve(false);
+          return;
+        }
+        this.stopHeartbeat();
+        this.ws = null;
+        if (!this.isShuttingDown) {
+          this.scheduleReconnect();
+        }
+      });
+
+      ws.on('error', (err) => {
+        if (!opened) {
+          console.warn(
+            `Connection to ${url} failed: ${err instanceof Error ? err.message : err}`
+          );
+          clearTimeout(timer);
+          resolve(false);
+          return;
+        }
+        this.emit('error', err);
+      });
+    });
   }
 
   async disconnect(): Promise<void> {

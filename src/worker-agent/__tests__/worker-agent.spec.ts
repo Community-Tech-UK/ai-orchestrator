@@ -119,7 +119,7 @@ vi.mock('../provider-runtime-diagnostics', () => ({
     typeof value === 'string' && ['claude', 'codex', 'gemini', 'copilot', 'cursor'].includes(value),
 }));
 
-import { WorkerAgent } from '../worker-agent';
+import { WorkerAgent, buildCoordinatorCandidates } from '../worker-agent';
 
 const mockConfig: WorkerConfig = {
   nodeId: 'test-node-1',
@@ -191,6 +191,36 @@ describe('WorkerAgent', () => {
     expect(wsMockState.instances[1].url).toBe('ws://192.168.1.99:4878');
   });
 
+  it('fails over to a fallback URL when the primary coordinator is unreachable', async () => {
+    const config: WorkerConfig = {
+      ...mockConfig,
+      coordinatorUrl: 'ws://192.168.0.156:4878',
+      coordinatorUrls: ['ws://macbook-pro.tail4fc107.ts.net:4878'],
+      namespace: 'default',
+    };
+    agent = new WorkerAgent(config);
+
+    const connect = agent.connect();
+    await Promise.resolve();
+
+    // Primary LAN address is tried first.
+    expect(wsMockState.instances[0].url).toBe('ws://192.168.0.156:4878');
+
+    // Primary fails — worker should fail over to the stable fallback.
+    wsMockState.instances[0].emit('error', new Error('ETIMEDOUT'));
+    wsMockState.instances[0].emit('close');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(wsMockState.instances[1].url).toBe('ws://macbook-pro.tail4fc107.ts.net:4878');
+
+    wsMockState.instances[1].emit('open');
+    await connect;
+
+    // Registration is sent over the surviving connection.
+    expect(wsMockState.instances[1].send).toHaveBeenCalled();
+  });
+
   it('falls back to the pairing token when a persisted node token is rejected', async () => {
     const config: WorkerConfig = {
       ...mockConfig,
@@ -227,6 +257,22 @@ describe('WorkerAgent', () => {
     expect(secondRegistration.params.token).toBe('fresh-pairing-token');
     expect(config.nodeToken).toBeUndefined();
     expect(workerConfigMockState.persistConfig).toHaveBeenCalled();
+  });
+
+  it('builds an ordered, de-duplicated candidate URL list', () => {
+    expect(
+      buildCoordinatorCandidates(
+        'ws://discovered:4878',
+        'ws://primary:4878',
+        ['ws://fallback:4878', 'ws://primary:4878'],
+      ),
+    ).toEqual(['ws://discovered:4878', 'ws://primary:4878', 'ws://fallback:4878']);
+
+    // Nullish/empty entries are dropped; a lone primary still works.
+    expect(buildCoordinatorCandidates(null, 'ws://primary:4878', undefined)).toEqual([
+      'ws://primary:4878',
+    ]);
+    expect(buildCoordinatorCandidates(undefined, undefined, [])).toEqual([]);
   });
 
   it('builds registration message with correct fields', () => {

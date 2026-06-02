@@ -7,6 +7,12 @@ export interface WorkerConfig {
   nodeId: string;
   name: string;
   coordinatorUrl?: string;
+  /**
+   * Additional coordinator URLs tried, in order, when `coordinatorUrl` is
+   * unreachable. Lets a worker survive the host's LAN IP changing by pairing a
+   * stable Tailscale name alongside the LAN address, without relying on mDNS.
+   */
+  coordinatorUrls?: string[];
   authToken: string;
   nodeToken?: string;
   namespace: string;
