@@ -92,6 +92,9 @@ export function classifyBrowserAction(
   if (input.toolName === 'browser.upload_file') {
     return { actionClass: 'file-upload', hardStop: false };
   }
+  if (input.toolName === 'browser.download_file') {
+    return { actionClass: 'file-download', hardStop: false };
+  }
   if (
     input.toolName === 'browser.click' ||
     input.toolName === 'browser.type' ||

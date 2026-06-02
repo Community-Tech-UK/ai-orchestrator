@@ -107,6 +107,12 @@ export function makeService(overrides: {
     fillForm: vi.fn(async () => undefined),
     select: vi.fn(async () => undefined),
     uploadFile: vi.fn(async () => undefined),
+    downloadFile: vi.fn(async () => ({
+      id: 'download-1',
+      url: 'http://localhost:4567/download',
+      filename: '/tmp/browser-profiles/profile-1/Downloads/download.bin',
+      state: 'complete',
+    })),
   };
   const auditStore = {
     record: vi.fn((entry: Omit<BrowserAuditEntry, 'id' | 'createdAt'>) => {

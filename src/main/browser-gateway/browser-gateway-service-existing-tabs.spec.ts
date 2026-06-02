@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { makeGrant, makeService } from './browser-gateway-service.test-helpers';
 
@@ -14,6 +17,19 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
       {
         scheme: 'https' as const,
         hostPattern: 'appstoreconnect.apple.com',
+        includeSubdomains: false,
+      },
+    ],
+  };
+  const appleDeveloperTab = {
+    ...appStoreConnectTab,
+    title: 'Certificates, Identifiers & Profiles',
+    url: 'https://developer.apple.com/account/resources/identifiers/list',
+    origin: 'https://developer.apple.com',
+    allowedOrigins: [
+      {
+        scheme: 'https' as const,
+        hostPattern: 'developer.apple.com',
         includeSubdomains: false,
       },
     ],
@@ -73,6 +89,117 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
       },
       payload: {
         selector: '#continue',
+      },
+    }));
+  });
+
+  it('uploads files in existing Chrome tabs through the extension command bridge after upload approval', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-browser-upload-'));
+    const filePath = path.join(tempDir, 'app.ipa');
+    fs.writeFileSync(filePath, 'fake app');
+    const resolvedFilePath = fs.realpathSync(filePath);
+    const sendCommand = vi.fn(async () => ({ uploaded: true, selector: 'input[type=file]' }));
+    const existingTab = {
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      tabId: 42,
+      windowId: 7,
+      title: 'App Store Connect',
+      url: 'https://appstoreconnect.apple.com/apps',
+      origin: 'https://appstoreconnect.apple.com',
+      allowedOrigins: appStoreConnectTab.allowedOrigins,
+    };
+    const { driver, service } = makeService({
+      profile: null,
+      profiles: [],
+      existingTab,
+      extensionCommandStore: { sendCommand },
+      grants: [
+        makeGrant({
+          profileId: existingTab.profileId,
+          targetId: existingTab.targetId,
+          provider: 'claude',
+          allowedOrigins: existingTab.allowedOrigins,
+          allowedActionClasses: ['file-upload'],
+          uploadRoots: [tempDir],
+        }),
+      ],
+    });
+
+    const result = await service.uploadFile({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      selector: 'input[type=file]',
+      filePath,
+      actionHint: 'Upload app binary',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+    });
+    expect(driver.uploadFile).not.toHaveBeenCalled();
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'upload_file',
+      payload: {
+        selector: 'input[type=file]',
+        filePath: resolvedFilePath,
+      },
+    }));
+  });
+
+  it('downloads files in existing Chrome tabs through the extension and returns the completed file record', async () => {
+    const sendCommand = vi.fn(async () => ({
+      id: 14,
+      url: 'https://appstoreconnect.apple.com/download/report.csv',
+      finalUrl: 'https://appstoreconnect.apple.com/download/report.csv',
+      filename: '/Users/james/Downloads/report.csv',
+      mime: 'text/csv',
+      bytesReceived: 128,
+      totalBytes: 128,
+      state: 'complete',
+      startedAt: '2026-06-02T10:00:00.000Z',
+      endedAt: '2026-06-02T10:00:01.000Z',
+    }));
+    const { service } = makeService({
+      existingTab: appStoreConnectTab,
+      extensionCommandStore: { sendCommand },
+      grants: [
+        makeGrant({
+          profileId: appStoreConnectTab.profileId,
+          targetId: appStoreConnectTab.targetId,
+          provider: 'claude',
+          allowedOrigins: appStoreConnectTab.allowedOrigins,
+          allowedActionClasses: ['file-download'],
+        }),
+      ],
+    });
+
+    const result = await service.downloadFile({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: appStoreConnectTab.profileId,
+      targetId: appStoreConnectTab.targetId,
+      selector: 'a.download',
+      actionHint: 'Download report',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: {
+        filename: '/Users/james/Downloads/report.csv',
+        state: 'complete',
+        bytesReceived: 128,
+      },
+    });
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'download_file',
+      payload: {
+        selector: 'a.download',
+        timeoutMs: 60_000,
       },
     }));
   });
@@ -269,5 +396,89 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
         }],
       },
     });
+  });
+
+  it('captures a fresh existing-tab snapshot through the extension command bridge', async () => {
+    const sendCommand = vi.fn(async () => ({
+      tabId: 42,
+      windowId: 7,
+      title: 'Certificates, Identifiers & Profiles',
+      url: 'https://developer.apple.com/account/resources/identifiers/list',
+      text: 'token=abc123 Identifiers App IDs',
+    }));
+    const { extensionTabStore, service } = makeService({
+      existingTab: {
+        ...appleDeveloperTab,
+        title: 'Stale Developer Portal',
+        text: 'stale cache',
+      },
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.snapshot({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: appleDeveloperTab.profileId,
+      targetId: appleDeveloperTab.targetId,
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: {
+        title: 'Certificates, Identifiers & Profiles',
+        url: 'https://developer.apple.com/account/resources/identifiers/list',
+        text: 'token=[REDACTED] Identifiers App IDs',
+      },
+    });
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'snapshot',
+      target: {
+        profileId: appleDeveloperTab.profileId,
+        targetId: appleDeveloperTab.targetId,
+        tabId: 42,
+        windowId: 7,
+      },
+    }));
+    expect(extensionTabStore.attachTab).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Certificates, Identifiers & Profiles',
+      text: 'token=abc123 Identifiers App IDs',
+    }));
+  });
+
+  it('captures a fresh existing-tab screenshot instead of requiring cached attachment data', async () => {
+    const sendCommand = vi.fn(async () => ({
+      screenshotBase64: 'ZnJlc2gtcG5n',
+      capturedAt: 1_700_000_000_000,
+    }));
+    const { service } = makeService({
+      existingTab: {
+        ...appStoreConnectTab,
+        screenshotBase64: undefined,
+      },
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.screenshot({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: appStoreConnectTab.profileId,
+      targetId: appStoreConnectTab.targetId,
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: 'ZnJlc2gtcG5n',
+    });
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'screenshot',
+      target: {
+        profileId: appStoreConnectTab.profileId,
+        targetId: appStoreConnectTab.targetId,
+        tabId: 42,
+        windowId: 7,
+      },
+    }));
   });
 });

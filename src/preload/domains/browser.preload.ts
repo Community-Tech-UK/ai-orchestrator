@@ -13,7 +13,7 @@ type BrowserGrantProposalPayload = {
     includeSubdomains: boolean;
   }>;
   allowedActionClasses: Array<
-    'read' | 'navigate' | 'input' | 'credential' | 'file-upload' | 'submit' | 'destructive' | 'unknown'
+    'read' | 'navigate' | 'input' | 'credential' | 'file-upload' | 'file-download' | 'submit' | 'destructive' | 'unknown'
   >;
   allowExternalNavigation: boolean;
   uploadRoots?: string[];
@@ -105,6 +105,16 @@ export function createBrowserDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
       requestId?: string;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.BROWSER_UPLOAD_FILE, payload);
+    },
+    browserDownloadFile: (payload: BrowserTargetPayload & {
+      selector?: string;
+      url?: string;
+      suggestedFilename?: string;
+      timeoutMs?: number;
+      actionHint?: string;
+      requestId?: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_DOWNLOAD_FILE, payload);
     },
     browserRequestUserLogin: (payload: BrowserProfilePayload & {
       targetId?: string;

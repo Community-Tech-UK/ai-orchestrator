@@ -12,6 +12,7 @@ const ALLOWED_TOOLS = [
   'browser.fill_form',
   'browser.select',
   'browser.upload_file',
+  'browser.download_file',
   'browser.request_user_login',
   'browser.pause_for_manual_step',
   'browser.request_grant',

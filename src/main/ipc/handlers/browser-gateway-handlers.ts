@@ -9,6 +9,7 @@ import {
   BrowserCreateGrantRequestSchema,
   BrowserCreateProfileRequestSchema,
   BrowserDenyRequestPayloadSchema,
+  BrowserDownloadFileRequestSchema,
   BrowserFillFormRequestSchema,
   BrowserListAuditLogRequestSchema,
   BrowserListApprovalRequestsRequestSchema,
@@ -128,6 +129,12 @@ export function registerBrowserGatewayHandlers(
     IPC_CHANNELS.BROWSER_UPLOAD_FILE,
     BrowserUploadFileRequestSchema,
     (service, payload) => service.uploadFile(payload),
+    deps,
+  );
+  register(
+    IPC_CHANNELS.BROWSER_DOWNLOAD_FILE,
+    BrowserDownloadFileRequestSchema,
+    (service, payload) => service.downloadFile(payload),
     deps,
   );
   register(

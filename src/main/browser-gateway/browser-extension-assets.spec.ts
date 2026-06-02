@@ -39,6 +39,16 @@ describe('browser extension assets', () => {
     expect(background).toContain('aio-browser-control-glow');
   });
 
+  it('uses open-shadow traversal for snapshots and selector actions', () => {
+    const background = readFileSync('resources/browser-extension/background.js', 'utf-8');
+
+    expect(background).toContain('function deepQuerySelector');
+    expect(background).toContain('function collectVisibleText');
+    expect(background).toContain('node.shadowRoot');
+    expect(background).toContain('const element = deepQuerySelector(selector)');
+    expect(background).toContain('text: collectVisibleText().slice(0, 120000)');
+  });
+
   it('shows a dev-only extension reload action in the popup', () => {
     const popupHtml = readFileSync('resources/browser-extension/popup.html', 'utf-8');
     const popup = readFileSync('resources/browser-extension/popup.js', 'utf-8');

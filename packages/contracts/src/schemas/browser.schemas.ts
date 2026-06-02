@@ -18,6 +18,7 @@ export const BrowserActionClassSchema = z.enum([
   'input',
   'credential',
   'file-upload',
+  'file-download',
   'submit',
   'destructive',
   'unknown',
@@ -466,6 +467,40 @@ export const BrowserUploadFileRequestSchema = BrowserTargetRequestSchema.extend(
   requestId: idSchema.optional(),
 }).strict();
 export type BrowserUploadFileRequest = z.infer<typeof BrowserUploadFileRequestSchema>;
+
+export const BrowserDownloadFileRequestSchema = BrowserTargetRequestSchema.extend({
+  selector: z.string().min(1).max(2000).optional(),
+  url: webUrlSchema.optional(),
+  suggestedFilename: z.string().min(1).max(255).optional(),
+  timeoutMs: z.number().int().min(1).max(120_000).optional(),
+  actionHint: z.string().min(1).max(500).optional(),
+  requestId: idSchema.optional(),
+}).strict().superRefine((value, ctx) => {
+  if (!value.selector && !value.url) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['selector'],
+      message: 'browser.download_file requires either selector or url.',
+    });
+  }
+});
+export type BrowserDownloadFileRequest = z.infer<typeof BrowserDownloadFileRequestSchema>;
+
+export const BrowserDownloadFileResultSchema = z
+  .object({
+    id: z.union([z.number().int(), z.string()]).optional(),
+    url: webUrlSchema.optional(),
+    finalUrl: webUrlSchema.optional(),
+    filename: z.string().min(1).max(4000).optional(),
+    mime: z.string().min(1).max(300).optional(),
+    bytesReceived: z.number().int().nonnegative().optional(),
+    totalBytes: z.number().int().optional(),
+    state: z.string().min(1).max(120).optional(),
+    startedAt: z.string().min(1).max(120).optional(),
+    endedAt: z.string().min(1).max(120).optional(),
+  })
+  .strict();
+export type BrowserDownloadFileResult = z.infer<typeof BrowserDownloadFileResultSchema>;
 
 export const BrowserRequestUserLoginRequestSchema = BrowserProfileRequestSchema.extend({
   targetId: idSchema.optional(),

@@ -197,6 +197,72 @@ describe('BrowserGatewayService', () => {
     });
   });
 
+  it('downloads files from managed profiles through the driver under a download grant', async () => {
+    const { service, driver } = makeService({
+      grants: [
+        makeGrant({
+          allowedActionClasses: ['file-download'],
+        }),
+      ],
+    });
+    driver.downloadFile.mockResolvedValue({
+      id: 'download-1',
+      url: 'http://localhost:4567/report.csv',
+      finalUrl: 'http://localhost:4567/report.csv',
+      filename: '/tmp/browser-profiles/profile-1/Downloads/report.csv',
+      mime: 'text/csv',
+      bytesReceived: 42,
+      totalBytes: 42,
+      state: 'complete',
+    });
+
+    const result = await service.downloadFile({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      selector: 'a.download',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: {
+        filename: '/tmp/browser-profiles/profile-1/Downloads/report.csv',
+        state: 'complete',
+      },
+    });
+    expect(driver.downloadFile).toHaveBeenCalledWith('profile-1', 'target-1', {
+      selector: 'a.download',
+      timeoutMs: 60_000,
+    });
+  });
+
+  it('denies direct download URLs outside the approved grant origins', async () => {
+    const { service, driver } = makeService({
+      grants: [
+        makeGrant({
+          allowedActionClasses: ['file-download'],
+        }),
+      ],
+    });
+
+    const result = await service.downloadFile({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      url: 'https://example.com/report.csv',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'download_url_origin_not_allowed',
+    });
+    expect(driver.downloadFile).not.toHaveBeenCalled();
+  });
+
   it('denies opening a profile when its default URL is outside allowed origins', async () => {
     const { service, driver } = makeService({
       profile: makeProfile({

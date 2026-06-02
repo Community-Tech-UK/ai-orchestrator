@@ -8,6 +8,7 @@ import {
   BrowserAttachExistingTabRequestSchema,
   BrowserClickRequestSchema,
   BrowserCreateProfileRequestSchema,
+  BrowserDownloadFileRequestSchema,
   BrowserFindOrOpenRequestSchema,
   BrowserFillFormRequestSchema,
   BrowserListAuditLogRequestSchema,
@@ -201,6 +202,8 @@ export class BrowserGatewayRpcServer {
         return this.requireMethod('select')(withContext);
       case 'browser.upload_file':
         return this.requireMethod('uploadFile')(withContext);
+      case 'browser.download_file':
+        return this.requireMethod('downloadFile')(withContext);
       case 'browser.request_user_login':
         return this.requireMethod('requestUserLogin')(withContext);
       case 'browser.pause_for_manual_step':
@@ -427,6 +430,8 @@ export class BrowserGatewayRpcServer {
           return BrowserSelectRequestSchema;
         case 'browser.upload_file':
           return BrowserUploadFileRequestSchema;
+        case 'browser.download_file':
+          return BrowserDownloadFileRequestSchema;
         case 'browser.request_user_login':
           return BrowserRequestUserLoginRequestSchema;
         case 'browser.pause_for_manual_step':

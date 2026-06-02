@@ -1,13 +1,15 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { Browser, ConsoleMessage, HTTPRequest, Page } from 'puppeteer-core';
 import type {
   BrowserElementContext,
+  BrowserDownloadFileResult,
   BrowserProfile,
   BrowserProfileMode,
   BrowserTarget,
 } from '@contracts/types/browser';
 import {
   BrowserProcessLauncher,
-  type BrowserProcessRuntime,
 } from './browser-process-launcher';
 import {
   BrowserTargetRegistry,
@@ -50,6 +52,12 @@ export interface BrowserFillFieldInput {
   value: string;
 }
 
+export interface BrowserDownloadFileInput {
+  selector?: string;
+  url?: string;
+  timeoutMs?: number;
+}
+
 export interface PuppeteerBrowserDriverOptions {
   launcher?: Pick<
     BrowserProcessLauncher,
@@ -69,6 +77,7 @@ export class PuppeteerBrowserDriver {
   private readonly networkByTargetId = new Map<string, BrowserNetworkRequestEntry[]>();
   private readonly instrumentedTargetIds = new Set<string>();
   private readonly profileModesById = new Map<string, BrowserProfileMode>();
+  private readonly profileDownloadDirsById = new Map<string, string>();
 
   constructor(options: PuppeteerBrowserDriverOptions = {}) {
     this.launcher = options.launcher ?? new BrowserProcessLauncher();
@@ -83,6 +92,10 @@ export class PuppeteerBrowserDriver {
       throw new Error(`Browser profile ${profile.id} has no userDataDir`);
     }
     this.profileModesById.set(profile.id, profile.mode);
+    this.profileDownloadDirsById.set(
+      profile.id,
+      path.join(profile.userDataDir ?? profile.id, 'Downloads'),
+    );
     try {
       await this.launcher.launchProfile({
         profile,
@@ -99,6 +112,7 @@ export class PuppeteerBrowserDriver {
   async closeProfile(profileId: string): Promise<void> {
     await this.launcher.closeProfile(profileId);
     this.profileModesById.delete(profileId);
+    this.profileDownloadDirsById.delete(profileId);
     this.targetRegistry.clearProfile(profileId);
     for (const targetId of Array.from(this.pagesByTargetId.keys())) {
       if (targetId.startsWith(`${profileId}:`)) {
@@ -131,12 +145,15 @@ export class PuppeteerBrowserDriver {
 
   async snapshot(profileId: string, targetId: string): Promise<BrowserSnapshot> {
     const page = this.getPage(profileId, targetId);
-    const text = await page.evaluate(() => {
-      const pageGlobal = globalThis as unknown as {
-        document?: { body?: { innerText?: string } };
-      };
-      return pageGlobal.document?.body?.innerText?.slice(0, 12_000) ?? '';
+    const result = await evaluatePageBridge(page, {
+      action: 'snapshot',
+      args: [],
     });
+    const text = typeof result === 'string'
+      ? result
+      : isPageBridgeSnapshot(result)
+        ? result.text
+        : '';
     return {
       title: await page.title(),
       url: page.url(),
@@ -183,7 +200,14 @@ export class PuppeteerBrowserDriver {
     timeoutMs: number,
   ): Promise<void> {
     const page = this.getPage(profileId, targetId);
-    await page.waitForSelector(selectorOrText, { timeout: timeoutMs });
+    try {
+      await page.waitForSelector(selectorOrText, { timeout: timeoutMs });
+    } catch {
+      await evaluatePageBridge(page, {
+        action: 'wait_for',
+        args: [selectorOrText, timeoutMs],
+      });
+    }
   }
 
   async inspectElement(
@@ -237,7 +261,14 @@ export class PuppeteerBrowserDriver {
 
   async click(profileId: string, targetId: string, selector: string): Promise<void> {
     const page = this.getPage(profileId, targetId);
-    await page.click(selector);
+    try {
+      await page.click(selector);
+    } catch {
+      await evaluatePageBridge(page, {
+        action: 'click',
+        args: [selector],
+      });
+    }
     await this.refreshPageTarget(profileId, targetId, page);
   }
 
@@ -248,7 +279,14 @@ export class PuppeteerBrowserDriver {
     value: string,
   ): Promise<void> {
     const page = this.getPage(profileId, targetId);
-    await page.type(selector, value);
+    try {
+      await page.type(selector, value);
+    } catch {
+      await evaluatePageBridge(page, {
+        action: 'type',
+        args: [selector, value],
+      });
+    }
     await this.refreshPageTarget(profileId, targetId, page);
   }
 
@@ -259,7 +297,14 @@ export class PuppeteerBrowserDriver {
   ): Promise<void> {
     const page = this.getPage(profileId, targetId);
     for (const field of fields) {
-      await page.type(field.selector, field.value);
+      try {
+        await page.type(field.selector, field.value);
+      } catch {
+        await evaluatePageBridge(page, {
+          action: 'type',
+          args: [field.selector, field.value],
+        });
+      }
     }
     await this.refreshPageTarget(profileId, targetId, page);
   }
@@ -271,7 +316,14 @@ export class PuppeteerBrowserDriver {
     value: string,
   ): Promise<void> {
     const page = this.getPage(profileId, targetId);
-    await page.select(selector, value);
+    try {
+      await page.select(selector, value);
+    } catch {
+      await evaluatePageBridge(page, {
+        action: 'select',
+        args: [selector, value],
+      });
+    }
     await this.refreshPageTarget(profileId, targetId, page);
   }
 
@@ -288,6 +340,50 @@ export class PuppeteerBrowserDriver {
     }
     await handle.uploadFile(filePath);
     await this.refreshPageTarget(profileId, targetId, page);
+  }
+
+  async downloadFile(
+    profileId: string,
+    targetId: string,
+    input: BrowserDownloadFileInput,
+  ): Promise<BrowserDownloadFileResult> {
+    const page = this.getPage(profileId, targetId);
+    const downloadDir = this.profileDownloadDirsById.get(profileId)
+      ?? path.join(process.cwd(), '.aio-browser-downloads', profileId);
+    await fs.promises.mkdir(downloadDir, { recursive: true });
+    const session = await this.createPageSession(page);
+    await session.send('Page.enable');
+    await session.send('Page.setDownloadBehavior', {
+      behavior: 'allow',
+      downloadPath: downloadDir,
+    });
+
+    const waitForDownload = waitForCdpDownload(
+      session,
+      downloadDir,
+      input.timeoutMs ?? 60_000,
+    );
+    if (input.url) {
+      await page.goto(input.url, {
+        waitUntil: 'domcontentloaded',
+        timeout: input.timeoutMs ?? 60_000,
+      });
+    } else if (input.selector) {
+      try {
+        await page.click(input.selector);
+      } catch {
+        await evaluatePageBridge(page, {
+          action: 'click',
+          args: [input.selector],
+        });
+      }
+    } else {
+      throw new Error('Browser download requires selector or url.');
+    }
+
+    const download = await waitForDownload;
+    await this.refreshPageTarget(profileId, targetId, page);
+    return download;
   }
 
   private async indexPages(profileId: string): Promise<BrowserTarget[]> {
@@ -399,6 +495,348 @@ export class PuppeteerBrowserDriver {
       return undefined;
     }
   }
+
+  private async createPageSession(page: Page): Promise<BrowserCdpSession> {
+    const candidate = page as unknown as {
+      createCDPSession?: () => Promise<BrowserCdpSession>;
+      target?: () => {
+        createCDPSession?: () => Promise<BrowserCdpSession>;
+      };
+    };
+    const session = candidate.createCDPSession
+      ? await candidate.createCDPSession()
+      : await candidate.target?.().createCDPSession?.();
+    if (!session) {
+      throw new Error('Browser target does not expose a CDP session for downloads.');
+    }
+    return session;
+  }
+}
+
+interface BrowserCdpSession {
+  send(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  on?(event: string, handler: (payload: unknown) => void): unknown;
+  off?(event: string, handler: (payload: unknown) => void): unknown;
+  removeListener?(event: string, handler: (payload: unknown) => void): unknown;
+}
+
+interface CdpDownloadStarted {
+  guid: string;
+  url?: string;
+  suggestedFilename?: string;
+}
+
+interface CdpDownloadProgress {
+  guid: string;
+  state?: string;
+  receivedBytes?: number;
+  totalBytes?: number;
+}
+
+function waitForCdpDownload(
+  session: BrowserCdpSession,
+  downloadDir: string,
+  timeoutMs: number,
+): Promise<BrowserDownloadFileResult> {
+  return new Promise<BrowserDownloadFileResult>((resolve, reject) => {
+    let started: CdpDownloadStarted | null = null;
+    const startedAt = new Date().toISOString();
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('browser_download_timeout'));
+    }, timeoutMs);
+
+    const cleanup = (): void => {
+      clearTimeout(timeout);
+      removeSessionListener(session, 'Page.downloadWillBegin', handleBegin);
+      removeSessionListener(session, 'Page.downloadProgress', handleProgress);
+    };
+    const finish = (progress: CdpDownloadProgress): void => {
+      cleanup();
+      const suggestedFilename = started?.suggestedFilename || 'download';
+      resolve({
+        id: progress.guid,
+        url: started?.url,
+        finalUrl: started?.url,
+        filename: path.join(downloadDir, suggestedFilename),
+        bytesReceived: progress.receivedBytes,
+        totalBytes: progress.totalBytes,
+        state: 'complete',
+        startedAt,
+        endedAt: new Date().toISOString(),
+      });
+    };
+    function handleBegin(payload: unknown): void {
+      if (!payload || typeof payload !== 'object') {
+        return;
+      }
+      const value = payload as Partial<CdpDownloadStarted>;
+      if (typeof value.guid !== 'string') {
+        return;
+      }
+      started = {
+        guid: value.guid,
+        ...(typeof value.url === 'string' ? { url: value.url } : {}),
+        ...(typeof value.suggestedFilename === 'string'
+          ? { suggestedFilename: value.suggestedFilename }
+          : {}),
+      };
+    }
+    function handleProgress(payload: unknown): void {
+      if (!payload || typeof payload !== 'object') {
+        return;
+      }
+      const value = payload as Partial<CdpDownloadProgress>;
+      if (typeof value.guid !== 'string' || started && value.guid !== started.guid) {
+        return;
+      }
+      if (value.state === 'canceled') {
+        cleanup();
+        reject(new Error('browser_download_canceled'));
+        return;
+      }
+      if (value.state === 'completed') {
+        finish({
+          guid: value.guid,
+          state: value.state,
+          receivedBytes: typeof value.receivedBytes === 'number' ? value.receivedBytes : undefined,
+          totalBytes: typeof value.totalBytes === 'number' ? value.totalBytes : undefined,
+        });
+      }
+    }
+
+    addSessionListener(session, 'Page.downloadWillBegin', handleBegin);
+    addSessionListener(session, 'Page.downloadProgress', handleProgress);
+  });
+}
+
+function addSessionListener(
+  session: BrowserCdpSession,
+  event: string,
+  handler: (payload: unknown) => void,
+): void {
+  session.on?.(event, handler);
+}
+
+function removeSessionListener(
+  session: BrowserCdpSession,
+  event: string,
+  handler: (payload: unknown) => void,
+): void {
+  if (session.off) {
+    session.off(event, handler);
+    return;
+  }
+  session.removeListener?.(event, handler);
+}
+
+interface PageBridgeSnapshot {
+  title: string;
+  text: string;
+}
+
+function isPageBridgeSnapshot(value: unknown): value is PageBridgeSnapshot {
+  return Boolean(
+    value
+      && typeof value === 'object'
+      && !Array.isArray(value)
+      && typeof (value as Partial<PageBridgeSnapshot>).text === 'string',
+  );
+}
+
+interface PageBridgeInput {
+  action: string;
+  args: unknown[];
+}
+
+interface PageBridgeRoot {
+  textContent?: string | null;
+  querySelector?: (selector: string) => PageBridgeElement | null;
+  querySelectorAll?: (selector: string) => ArrayLike<PageBridgeElement>;
+}
+
+interface PageBridgeElement extends PageBridgeRoot {
+  tagName?: string;
+  innerText?: string;
+  value?: string;
+  isContentEditable?: boolean;
+  shadowRoot?: PageBridgeRoot | null;
+  scrollIntoView?: (options?: unknown) => void;
+  focus?: () => void;
+  click?: () => void;
+  dispatchEvent?: (event: unknown) => boolean;
+}
+
+interface PageBridgeDocument extends PageBridgeRoot {
+  title: string;
+  body?: PageBridgeElement;
+  documentElement: PageBridgeElement;
+}
+
+interface PageBridgeGlobal {
+  document: PageBridgeDocument;
+  InputEvent: new (type: string, options?: Record<string, unknown>) => unknown;
+  Event: new (type: string, options?: Record<string, unknown>) => unknown;
+  MutationObserver: new (callback: () => void) => {
+    observe: (target: PageBridgeElement, options: Record<string, unknown>) => void;
+    disconnect: () => void;
+  };
+}
+
+function evaluatePageBridge(page: Page, input: PageBridgeInput): Promise<unknown> {
+  const evaluate = page.evaluate as unknown as (
+    fn: (payload: PageBridgeInput) => unknown,
+    payload: PageBridgeInput,
+  ) => Promise<unknown>;
+  return evaluate.call(page, pageBridgeScript, input);
+}
+
+function pageBridgeScript(input: PageBridgeInput): unknown {
+  const { action, args } = input;
+  const pageGlobal = globalThis as unknown as PageBridgeGlobal;
+  const documentRef = pageGlobal.document;
+
+  function deepQuerySelector(
+    selector: string,
+    root: PageBridgeRoot = documentRef,
+  ): PageBridgeElement | null {
+    const direct = root.querySelector?.(selector);
+    if (direct) {
+      return direct;
+    }
+    const nodes = root.querySelectorAll?.('*') ?? [];
+    for (const node of Array.from(nodes as ArrayLike<PageBridgeElement>)) {
+      if (!node.shadowRoot) {
+        continue;
+      }
+      const found = deepQuerySelector(selector, node.shadowRoot);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }
+
+  function collectVisibleText(
+    root: PageBridgeRoot = documentRef,
+    seen = new Set<PageBridgeRoot>(),
+  ): string {
+    if (seen.has(root)) {
+      return '';
+    }
+    seen.add(root);
+    const parts = [];
+    if (root === documentRef) {
+      parts.push(documentRef.body?.innerText || '');
+    } else {
+      parts.push(root.textContent || '');
+    }
+    const nodes = root.querySelectorAll?.('*') ?? [];
+    for (const node of Array.from(nodes as ArrayLike<PageBridgeElement>)) {
+      if (node.shadowRoot) {
+        parts.push(collectVisibleText(node.shadowRoot, seen));
+      }
+    }
+    return parts
+      .map((part) => String(part).trim())
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  function requireElement(selector: string): PageBridgeElement {
+    const element = deepQuerySelector(selector);
+    if (!element) {
+      throw new Error(`No element matches selector: ${selector}`);
+    }
+    return element;
+  }
+
+  function describeElement(element: PageBridgeElement): Record<string, string | undefined> {
+    return {
+      tagName: element.tagName,
+      text: (element.innerText || element.textContent || '').slice(0, 1000),
+      value: typeof element.value === 'string' ? element.value.slice(0, 1000) : undefined,
+    };
+  }
+
+  function typeIntoElement(selector: string, value: string): Record<string, string | undefined> {
+    const element = requireElement(selector);
+    element.scrollIntoView?.({ block: 'center', inline: 'center' });
+    element.focus?.();
+    if (element.isContentEditable) {
+      element.textContent = value;
+    } else {
+      element.value = value;
+    }
+    element.dispatchEvent?.(new pageGlobal.InputEvent('input', {
+      bubbles: true,
+      inputType: 'insertText',
+      data: value,
+    }));
+    element.dispatchEvent?.(new pageGlobal.Event('change', { bubbles: true }));
+    return describeElement(element);
+  }
+
+  if (action === 'snapshot') {
+    return {
+      title: documentRef.title,
+      text: collectVisibleText().slice(0, 120_000),
+    };
+  }
+
+  if (action === 'click') {
+    const [selector] = args as [string];
+    const element = requireElement(selector);
+    element.scrollIntoView?.({ block: 'center', inline: 'center' });
+    element.click?.();
+    return describeElement(element);
+  }
+
+  if (action === 'type') {
+    const [selector, value] = args as [string, string];
+    return typeIntoElement(selector, value);
+  }
+
+  if (action === 'select') {
+    const [selector, value] = args as [string, string];
+    const element = requireElement(selector);
+    element.scrollIntoView?.({ block: 'center', inline: 'center' });
+    element.focus?.();
+    element.value = value;
+    element.dispatchEvent?.(new pageGlobal.Event('input', { bubbles: true }));
+    element.dispatchEvent?.(new pageGlobal.Event('change', { bubbles: true }));
+    return describeElement(element);
+  }
+
+  if (action === 'wait_for') {
+    const [selector, timeoutMs] = args as [string, number];
+    return new Promise((resolve, reject) => {
+      const existing = deepQuerySelector(selector);
+      if (existing) {
+        resolve(describeElement(existing));
+        return;
+      }
+      const observer = new pageGlobal.MutationObserver(() => {
+        const element = deepQuerySelector(selector);
+        if (!element) {
+          return;
+        }
+        clearTimeout(timeout);
+        observer.disconnect();
+        resolve(describeElement(element));
+      });
+      const timeout = setTimeout(() => {
+        observer.disconnect();
+        reject(new Error(`Timed out waiting for selector: ${selector}`));
+      }, timeoutMs);
+      observer.observe(documentRef.documentElement, {
+        childList: true,
+        subtree: true,
+      });
+    });
+  }
+
+  throw new Error(`Unsupported page bridge action: ${action}`);
 }
 
 let puppeteerBrowserDriver: PuppeteerBrowserDriver | null = null;

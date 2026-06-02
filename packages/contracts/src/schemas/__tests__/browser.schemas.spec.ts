@@ -4,6 +4,7 @@ import {
   BrowserApprovalRequestSchema,
   BrowserAttachExistingTabRequestSchema,
   BrowserCreateProfileRequestSchema,
+  BrowserDownloadFileRequestSchema,
   BrowserGatewayResultSchema,
   BrowserPermissionGrantSchema,
   BrowserClickRequestSchema,
@@ -322,6 +323,20 @@ describe('browser.schemas', () => {
         filePath: '/workspace/app/build.aab',
       }).success,
     ).toBe(true);
+    expect(
+      BrowserDownloadFileRequestSchema.safeParse({
+        profileId: 'profile-1',
+        targetId: 'target-1',
+        selector: 'a.download',
+        timeoutMs: 60_000,
+      }).success,
+    ).toBe(true);
+    expect(
+      BrowserDownloadFileRequestSchema.safeParse({
+        profileId: 'profile-1',
+        targetId: 'target-1',
+      }).success,
+    ).toBe(false);
   });
 
   it('validates human handoff browser payloads', () => {

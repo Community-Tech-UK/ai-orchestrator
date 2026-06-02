@@ -4,6 +4,7 @@ export type BrowserActionClass =
   | 'input'
   | 'credential'
   | 'file-upload'
+  | 'file-download'
   | 'submit'
   | 'destructive'
   | 'unknown';
@@ -310,6 +311,28 @@ export interface BrowserUploadFileRequest extends BrowserTargetRequest {
   filePath: string;
   actionHint?: string;
   requestId?: string;
+}
+
+export interface BrowserDownloadFileRequest extends BrowserTargetRequest {
+  selector?: string;
+  url?: string;
+  suggestedFilename?: string;
+  timeoutMs?: number;
+  actionHint?: string;
+  requestId?: string;
+}
+
+export interface BrowserDownloadFileResult {
+  id?: number | string;
+  url?: string;
+  finalUrl?: string;
+  filename?: string;
+  mime?: string;
+  bytesReceived?: number;
+  totalBytes?: number;
+  state?: string;
+  startedAt?: string;
+  endedAt?: string;
 }
 
 export interface BrowserRequestUserLoginRequest extends BrowserProfileRequest {

@@ -14,6 +14,7 @@ const TOOL_NAMES = [
   'browser.fill_form',
   'browser.select',
   'browser.upload_file',
+  'browser.download_file',
   'browser.request_user_login',
   'browser.pause_for_manual_step',
   'browser.request_grant',
@@ -97,6 +98,7 @@ const grantProposalSchema = objectSchema({
         'input',
         'credential',
         'file-upload',
+        'file-download',
         'submit',
         'destructive',
         'unknown',
@@ -182,6 +184,22 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     actionHint: stringProp,
     requestId: requestIdProp,
   }, ['profileId', 'targetId', 'selector', 'filePath']),
+  'browser.download_file': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    selector: selectorProp,
+    url: {
+      ...stringProp,
+      description: 'Optional direct http(s) URL to download. If omitted, Browser Gateway clicks selector and waits for the resulting download.',
+    },
+    suggestedFilename: {
+      ...stringProp,
+      description: 'Optional relative filename suggestion for extension-initiated direct downloads.',
+    },
+    timeoutMs: numberProp,
+    actionHint: stringProp,
+    requestId: requestIdProp,
+  }, ['profileId', 'targetId']),
   'browser.request_user_login': objectSchema({
     profileId: profileIdProp,
     targetId: targetIdProp,

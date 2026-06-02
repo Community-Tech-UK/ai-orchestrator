@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "scripts/generate-architecture-inventory.js",
   "ipc": {
-    "channelCount": 956,
+    "channelCount": 957,
     "channels": [
       {
         "name": "INSTANCE_CREATE",
@@ -4290,499 +4290,504 @@
         "line": 1082
       },
       {
+        "name": "BROWSER_DOWNLOAD_FILE",
+        "value": "browser:download-file",
+        "line": 1083
+      },
+      {
         "name": "BROWSER_REQUEST_USER_LOGIN",
         "value": "browser:request-user-login",
-        "line": 1083
+        "line": 1084
       },
       {
         "name": "BROWSER_PAUSE_FOR_MANUAL_STEP",
         "value": "browser:pause-for-manual-step",
-        "line": 1084
+        "line": 1085
       },
       {
         "name": "BROWSER_REQUEST_GRANT",
         "value": "browser:request-grant",
-        "line": 1085
+        "line": 1086
       },
       {
         "name": "BROWSER_GET_APPROVAL_STATUS",
         "value": "browser:get-approval-status",
-        "line": 1086
+        "line": 1087
       },
       {
         "name": "BROWSER_LIST_APPROVAL_REQUESTS",
         "value": "browser:list-approval-requests",
-        "line": 1087
+        "line": 1088
       },
       {
         "name": "BROWSER_GET_APPROVAL_REQUEST",
         "value": "browser:get-approval-request",
-        "line": 1088
+        "line": 1089
       },
       {
         "name": "BROWSER_APPROVE_REQUEST",
         "value": "browser:approve-request",
-        "line": 1089
+        "line": 1090
       },
       {
         "name": "BROWSER_DENY_REQUEST",
         "value": "browser:deny-request",
-        "line": 1090
+        "line": 1091
       },
       {
         "name": "BROWSER_CREATE_GRANT",
         "value": "browser:create-grant",
-        "line": 1091
+        "line": 1092
       },
       {
         "name": "BROWSER_LIST_GRANTS",
         "value": "browser:list-grants",
-        "line": 1092
+        "line": 1093
       },
       {
         "name": "BROWSER_REVOKE_GRANT",
         "value": "browser:revoke-grant",
-        "line": 1093
+        "line": 1094
       },
       {
         "name": "BROWSER_SNAPSHOT",
         "value": "browser:snapshot",
-        "line": 1094
+        "line": 1095
       },
       {
         "name": "BROWSER_SCREENSHOT",
         "value": "browser:screenshot",
-        "line": 1095
+        "line": 1096
       },
       {
         "name": "BROWSER_CONSOLE_MESSAGES",
         "value": "browser:console-messages",
-        "line": 1096
+        "line": 1097
       },
       {
         "name": "BROWSER_NETWORK_REQUESTS",
         "value": "browser:network-requests",
-        "line": 1097
+        "line": 1098
       },
       {
         "name": "BROWSER_WAIT_FOR",
         "value": "browser:wait-for",
-        "line": 1098
+        "line": 1099
       },
       {
         "name": "BROWSER_GET_AUDIT_LOG",
         "value": "browser:get-audit-log",
-        "line": 1099
+        "line": 1100
       },
       {
         "name": "BROWSER_GET_HEALTH",
         "value": "browser:get-health",
-        "line": 1100
+        "line": 1101
       },
       {
         "name": "BROWSER_CHANGED",
         "value": "browser:changed",
-        "line": 1101
+        "line": 1102
       },
       {
         "name": "CONVERSATION_LEDGER_LIST",
         "value": "conversation-ledger:list",
-        "line": 1103
+        "line": 1104
       },
       {
         "name": "CONVERSATION_LEDGER_GET",
         "value": "conversation-ledger:get",
-        "line": 1104
+        "line": 1105
       },
       {
         "name": "CONVERSATION_LEDGER_DISCOVER",
         "value": "conversation-ledger:discover",
-        "line": 1105
+        "line": 1106
       },
       {
         "name": "CONVERSATION_LEDGER_RECONCILE",
         "value": "conversation-ledger:reconcile",
-        "line": 1106
+        "line": 1107
       },
       {
         "name": "CONVERSATION_LEDGER_START",
         "value": "conversation-ledger:start",
-        "line": 1107
+        "line": 1108
       },
       {
         "name": "CONVERSATION_LEDGER_SEND_TURN",
         "value": "conversation-ledger:send-turn",
-        "line": 1108
+        "line": 1109
       },
       {
         "name": "OPERATOR_LIST_RUNS",
         "value": "operator:list-runs",
-        "line": 1110
+        "line": 1111
       },
       {
         "name": "OPERATOR_GET_RUN",
         "value": "operator:get-run",
-        "line": 1111
+        "line": 1112
       },
       {
         "name": "OPERATOR_CANCEL_RUN",
         "value": "operator:cancel-run",
-        "line": 1112
+        "line": 1113
       },
       {
         "name": "OPERATOR_EVENT",
         "value": "operator:event",
-        "line": 1113
+        "line": 1114
       },
       {
         "name": "CHAT_LIST",
         "value": "chat:list",
-        "line": 1115
+        "line": 1116
       },
       {
         "name": "CHAT_GET",
         "value": "chat:get",
-        "line": 1116
+        "line": 1117
       },
       {
         "name": "CHAT_CREATE",
         "value": "chat:create",
-        "line": 1117
+        "line": 1118
       },
       {
         "name": "CHAT_RENAME",
         "value": "chat:rename",
-        "line": 1118
+        "line": 1119
       },
       {
         "name": "CHAT_ARCHIVE",
         "value": "chat:archive",
-        "line": 1119
+        "line": 1120
       },
       {
         "name": "CHAT_SET_CWD",
         "value": "chat:set-cwd",
-        "line": 1120
+        "line": 1121
       },
       {
         "name": "CHAT_SET_PROVIDER",
         "value": "chat:set-provider",
-        "line": 1121
+        "line": 1122
       },
       {
         "name": "CHAT_SET_MODEL",
         "value": "chat:set-model",
-        "line": 1122
+        "line": 1123
       },
       {
         "name": "CHAT_SET_REASONING",
         "value": "chat:set-reasoning",
-        "line": 1123
+        "line": 1124
       },
       {
         "name": "CHAT_SET_YOLO",
         "value": "chat:set-yolo",
-        "line": 1124
+        "line": 1125
       },
       {
         "name": "CHAT_LOAD_OLDER_MESSAGES",
         "value": "chat:load-older-messages",
-        "line": 1125
+        "line": 1126
       },
       {
         "name": "CHAT_SEND_MESSAGE",
         "value": "chat:send-message",
-        "line": 1126
+        "line": 1127
       },
       {
         "name": "CHAT_EVENT",
         "value": "chat:event",
-        "line": 1127
+        "line": 1128
       },
       {
         "name": "RUNTIME_PLUGINS_LIST",
         "value": "runtime-plugins:list",
-        "line": 1129
+        "line": 1130
       },
       {
         "name": "RUNTIME_PLUGINS_VALIDATE",
         "value": "runtime-plugins:validate",
-        "line": 1130
+        "line": 1131
       },
       {
         "name": "RUNTIME_PLUGINS_INSTALL",
         "value": "runtime-plugins:install",
-        "line": 1131
+        "line": 1132
       },
       {
         "name": "RUNTIME_PLUGINS_UPDATE",
         "value": "runtime-plugins:update",
-        "line": 1132
+        "line": 1133
       },
       {
         "name": "RUNTIME_PLUGINS_PRUNE",
         "value": "runtime-plugins:prune",
-        "line": 1133
+        "line": 1134
       },
       {
         "name": "RUNTIME_PLUGINS_UNINSTALL",
         "value": "runtime-plugins:uninstall",
-        "line": 1134
+        "line": 1135
       },
       {
         "name": "RTK_GET_SUMMARY",
         "value": "rtk:get-summary",
-        "line": 1136
+        "line": 1137
       },
       {
         "name": "RTK_GET_HISTORY",
         "value": "rtk:get-history",
-        "line": 1137
+        "line": 1138
       },
       {
         "name": "RTK_GET_STATUS",
         "value": "rtk:get-status",
-        "line": 1138
+        "line": 1139
       },
       {
         "name": "RTK_SAVINGS_DELTA",
         "value": "rtk:savings-delta",
-        "line": 1139
+        "line": 1140
       },
       {
         "name": "LOOP_START",
         "value": "loop:start",
-        "line": 1142
+        "line": 1143
       },
       {
         "name": "LOOP_PAUSE",
         "value": "loop:pause",
-        "line": 1143
+        "line": 1144
       },
       {
         "name": "LOOP_RESUME",
         "value": "loop:resume",
-        "line": 1144
+        "line": 1145
       },
       {
         "name": "LOOP_INTERVENE",
         "value": "loop:intervene",
-        "line": 1145
+        "line": 1146
       },
       {
         "name": "LOOP_CANCEL",
         "value": "loop:cancel",
-        "line": 1146
+        "line": 1147
       },
       {
         "name": "LOOP_ACCEPT_COMPLETION",
         "value": "loop:accept-completion",
-        "line": 1150
+        "line": 1151
       },
       {
         "name": "LOOP_GET_STATE",
         "value": "loop:get-state",
-        "line": 1151
+        "line": 1152
       },
       {
         "name": "LOOP_LIST_RUNS_FOR_CHAT",
         "value": "loop:list-runs-for-chat",
-        "line": 1152
+        "line": 1153
       },
       {
         "name": "LOOP_GET_ITERATIONS",
         "value": "loop:get-iterations",
-        "line": 1153
+        "line": 1154
       },
       {
         "name": "LOOP_INFER_VERIFY",
         "value": "loop:infer-verify",
-        "line": 1156
+        "line": 1157
       },
       {
         "name": "LOOP_STARTED",
         "value": "loop:started",
-        "line": 1159
+        "line": 1160
       },
       {
         "name": "LOOP_ITERATION_STARTED",
         "value": "loop:iteration-started",
-        "line": 1160
+        "line": 1161
       },
       {
         "name": "LOOP_ACTIVITY",
         "value": "loop:activity",
-        "line": 1161
+        "line": 1162
       },
       {
         "name": "LOOP_ITERATION_COMPLETE",
         "value": "loop:iteration-complete",
-        "line": 1162
+        "line": 1163
       },
       {
         "name": "LOOP_PAUSED_NO_PROGRESS",
         "value": "loop:paused-no-progress",
-        "line": 1163
+        "line": 1164
       },
       {
         "name": "LOOP_CLAIMED_DONE_BUT_FAILED",
         "value": "loop:claimed-done-but-failed",
-        "line": 1164
+        "line": 1165
       },
       {
         "name": "LOOP_TERMINAL_INTENT_RECORDED",
         "value": "loop:terminal-intent-recorded",
-        "line": 1165
+        "line": 1166
       },
       {
         "name": "LOOP_TERMINAL_INTENT_REJECTED",
         "value": "loop:terminal-intent-rejected",
-        "line": 1166
+        "line": 1167
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_STARTED",
         "value": "loop:fresh-eyes-review-started",
-        "line": 1167
+        "line": 1168
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_PASSED",
         "value": "loop:fresh-eyes-review-passed",
-        "line": 1168
+        "line": 1169
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_FAILED",
         "value": "loop:fresh-eyes-review-failed",
-        "line": 1169
+        "line": 1170
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_BLOCKED",
         "value": "loop:fresh-eyes-review-blocked",
-        "line": 1170
+        "line": 1171
       },
       {
         "name": "LOOP_INTERVENTION_APPLIED",
         "value": "loop:intervention-applied",
-        "line": 1171
+        "line": 1172
       },
       {
         "name": "LOOP_COMPLETED",
         "value": "loop:completed",
-        "line": 1172
+        "line": 1173
       },
       {
         "name": "LOOP_COMPLETED_NEEDS_REVIEW",
         "value": "loop:completed-needs-review",
-        "line": 1174
+        "line": 1175
       },
       {
         "name": "LOOP_NOTES_CURATED",
         "value": "loop:notes-curated",
-        "line": 1176
+        "line": 1177
       },
       {
         "name": "LOOP_CONTEXT_COMPACTED",
         "value": "loop:context-compacted",
-        "line": 1178
+        "line": 1179
       },
       {
         "name": "LOOP_BRANCH_SELECT",
         "value": "loop:branch-select",
-        "line": 1180
+        "line": 1181
       },
       {
         "name": "LOOP_PLAN_REGENERATED",
         "value": "loop:plan-regenerated",
-        "line": 1182
+        "line": 1183
       },
       {
         "name": "LOOP_FAILED",
         "value": "loop:failed",
-        "line": 1183
+        "line": 1184
       },
       {
         "name": "LOOP_CAP_REACHED",
         "value": "loop:cap-reached",
-        "line": 1184
+        "line": 1185
       },
       {
         "name": "LOOP_CANCELLED",
         "value": "loop:cancelled",
-        "line": 1185
+        "line": 1186
       },
       {
         "name": "LOOP_ERROR",
         "value": "loop:error",
-        "line": 1186
+        "line": 1187
       },
       {
         "name": "LOOP_STATE_CHANGED",
         "value": "loop:state-changed",
-        "line": 1187
+        "line": 1188
       },
       {
         "name": "MOBILE_GATEWAY_GET_STATUS",
         "value": "mobile-gateway:get-status",
-        "line": 1189
+        "line": 1190
       },
       {
         "name": "MOBILE_GATEWAY_START",
         "value": "mobile-gateway:start",
-        "line": 1190
+        "line": 1191
       },
       {
         "name": "MOBILE_GATEWAY_STOP",
         "value": "mobile-gateway:stop",
-        "line": 1191
+        "line": 1192
       },
       {
         "name": "MOBILE_GATEWAY_ISSUE_PAIRING",
         "value": "mobile-gateway:issue-pairing",
-        "line": 1192
+        "line": 1193
       },
       {
         "name": "MOBILE_GATEWAY_LIST_DEVICES",
         "value": "mobile-gateway:list-devices",
-        "line": 1193
+        "line": 1194
       },
       {
         "name": "MOBILE_GATEWAY_REVOKE_DEVICE",
         "value": "mobile-gateway:revoke-device",
-        "line": 1194
+        "line": 1195
       },
       {
         "name": "TERMINAL_SPAWN",
         "value": "terminal:spawn",
-        "line": 1197
+        "line": 1198
       },
       {
         "name": "TERMINAL_WRITE",
         "value": "terminal:write",
-        "line": 1198
+        "line": 1199
       },
       {
         "name": "TERMINAL_RESIZE",
         "value": "terminal:resize",
-        "line": 1199
+        "line": 1200
       },
       {
         "name": "TERMINAL_KILL",
         "value": "terminal:kill",
-        "line": 1200
+        "line": 1201
       },
       {
         "name": "TERMINAL_OUTPUT",
         "value": "terminal:output",
-        "line": 1203
+        "line": 1204
       },
       {
         "name": "TERMINAL_EXIT",
         "value": "terminal:exit",
-        "line": 1204
+        "line": 1205
       },
       {
         "name": "TERMINAL_SPAWNED",
         "value": "terminal:spawned",
-        "line": 1205
+        "line": 1206
       }
     ]
   },
@@ -4904,6 +4909,10 @@
       "lines": 2829
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-service.ts",
+      "lines": 2749
+    },
+    {
       "path": "docs/superpowers/plans/2026-03-20-cross-model-review_completed.md",
       "lines": 2734
     },
@@ -4934,10 +4943,6 @@
     {
       "path": "src/main/instance/instance-manager.ts",
       "lines": 2474
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2437
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
@@ -5176,6 +5181,10 @@
       "lines": 1231
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
+      "lines": 1229
+    },
+    {
       "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
       "lines": 1227
     },
@@ -5218,10 +5227,6 @@
     {
       "path": "docs/superpowers/specs/2026-04-28-wave3-workflow-resume-history-recovery-design_completed.md",
       "lines": 1165
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
-      "lines": 1163
     },
     {
       "path": "src/renderer/app/features/loop/loop-control.component.ts",
@@ -5440,6 +5445,10 @@
       "lines": 893
     },
     {
+      "path": "resources/browser-extension/background.js",
+      "lines": 890
+    },
+    {
       "path": "src/renderer/app/features/verification/config/api-key-manager.component.ts",
       "lines": 890
     },
@@ -5501,6 +5510,10 @@
     },
     {
       "path": "docs/superpowers/specs/2026-04-17-wave2-provider-normalization-design.md",
+      "lines": 854
+    },
+    {
+      "path": "src/main/browser-gateway/puppeteer-browser-driver.ts",
       "lines": 854
     },
     {

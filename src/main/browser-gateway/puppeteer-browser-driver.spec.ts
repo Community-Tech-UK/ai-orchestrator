@@ -149,6 +149,39 @@ describe('PuppeteerBrowserDriver', () => {
     });
   });
 
+  it('falls back to an open-shadow selector script when Puppeteer CSS click misses', async () => {
+    const click = vi.fn(async () => {
+      throw new Error('No element found for selector');
+    });
+    const evaluate = vi.fn(async () => ({ tagName: 'BUTTON', text: 'Register' }));
+    const page = {
+      url: () => 'http://localhost:4567',
+      title: async () => 'Local',
+      click,
+      evaluate,
+    };
+    const browser = {
+      pages: async () => [page],
+    };
+    const driver = new PuppeteerBrowserDriver({
+      launcher: {
+        launchProfile: vi.fn().mockResolvedValue({}),
+        getBrowser: () => browser,
+        closeProfile: vi.fn(),
+      },
+      targetRegistry: new BrowserTargetRegistry(),
+    });
+    const [target] = await driver.openProfile(makeProfile());
+
+    await driver.click('profile-1', target.id, 'button.register');
+
+    expect(click).toHaveBeenCalledWith('button.register');
+    expect(evaluate).toHaveBeenCalledWith(expect.any(Function), {
+      action: 'click',
+      args: ['button.register'],
+    });
+  });
+
   it('captures bounded redacted console messages and network requests', async () => {
     const handlers = new Map<string, (value: unknown) => void>();
     const page = {
@@ -347,5 +380,72 @@ describe('PuppeteerBrowserDriver', () => {
       url: 'http://localhost:4567/mutated',
       title: 'Mutated',
     });
+  });
+
+  it('uses browser download events and returns completed download metadata', async () => {
+    let currentUrl = 'http://localhost:4567';
+    const handlers = new Map<string, (value: unknown) => void>();
+    const cdpSession = {
+      send: vi.fn(),
+      on: vi.fn((event: string, handler: (value: unknown) => void) => {
+        handlers.set(event, handler);
+        return cdpSession;
+      }),
+      off: vi.fn((event: string) => {
+        handlers.delete(event);
+        return cdpSession;
+      }),
+    };
+    const page = {
+      url: () => currentUrl,
+      title: async () => 'Local',
+      createCDPSession: vi.fn(async () => cdpSession),
+      click: vi.fn(async () => {
+        currentUrl = 'http://localhost:4567/downloaded';
+        queueMicrotask(() => {
+          handlers.get('Page.downloadWillBegin')?.({
+            guid: 'guid-1',
+            url: 'http://localhost:4567/report.csv',
+            suggestedFilename: 'report.csv',
+          });
+          handlers.get('Page.downloadProgress')?.({
+            guid: 'guid-1',
+            state: 'completed',
+            receivedBytes: 42,
+            totalBytes: 42,
+          });
+        });
+      }),
+    };
+    const browser = {
+      pages: async () => [page],
+    };
+    const driver = new PuppeteerBrowserDriver({
+      launcher: {
+        launchProfile: vi.fn().mockResolvedValue({}),
+        getBrowser: () => browser,
+        closeProfile: vi.fn(),
+      },
+      targetRegistry: new BrowserTargetRegistry(),
+    });
+    const [target] = await driver.openProfile(makeProfile());
+
+    const result = await driver.downloadFile('profile-1', target.id, {
+      selector: 'a.download',
+      timeoutMs: 60_000,
+    });
+
+    expect(result).toMatchObject({
+      url: 'http://localhost:4567/report.csv',
+      filename: '/tmp/browser-profile/Downloads/report.csv',
+      state: 'complete',
+      bytesReceived: 42,
+    });
+    expect(cdpSession.send).toHaveBeenCalledWith('Page.enable');
+    expect(cdpSession.send).toHaveBeenCalledWith('Page.setDownloadBehavior', {
+      behavior: 'allow',
+      downloadPath: '/tmp/browser-profile/Downloads',
+    });
+    expect(page.click).toHaveBeenCalledWith('a.download');
   });
 });

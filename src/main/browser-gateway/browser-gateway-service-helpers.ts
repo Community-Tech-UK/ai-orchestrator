@@ -116,6 +116,9 @@ export function primaryActionClass(classes: BrowserActionClass[]): BrowserAction
   if (classes.includes('file-upload')) {
     return 'file-upload';
   }
+  if (classes.includes('file-download')) {
+    return 'file-download';
+  }
   return classes[0] ?? 'unknown';
 }
 

@@ -96,6 +96,7 @@ export interface BrowserGatewayServiceOptions {
     | 'fillForm'
     | 'select'
     | 'uploadFile'
+    | 'downloadFile'
   >;
   extensionTabStore?: Pick<
     BrowserExtensionTabStore,

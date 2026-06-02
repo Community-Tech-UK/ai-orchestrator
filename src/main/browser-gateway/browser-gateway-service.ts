@@ -10,6 +10,8 @@ import type {
   BrowserClickRequest,
   BrowserCreateGrantRequest,
   BrowserDenyRequestPayload,
+  BrowserDownloadFileRequest,
+  BrowserDownloadFileResult,
   BrowserFillFormRequest,
   BrowserGatewayResult,
   BrowserListApprovalRequestsRequest,
@@ -159,6 +161,7 @@ export class BrowserGatewayService {
     | 'fillForm'
     | 'select'
     | 'uploadFile'
+    | 'downloadFile'
   >;
   private readonly extensionTabStore: Pick<
     BrowserExtensionTabStore,
@@ -1125,7 +1128,46 @@ export class BrowserGatewayService {
     if (recheck) {
       return recheck;
     }
+    const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
     const profile = this.profileStore.getProfile(request.profileId);
+    if (existingTab) {
+      const uploadDecision = validateBrowserUploadPath({
+        filePath: request.filePath,
+        workspaceRoots: [],
+        approvedRoots: prepared.grant.uploadRoots ?? [],
+        userDataPath: this.placeholderExistingTabProfileRoot(request.filePath),
+        profileRoot: this.placeholderExistingTabProfileRoot(request.filePath),
+        autonomous: prepared.grant.autonomous,
+      });
+      if (!uploadDecision.allowed) {
+        return this.result({
+          context: request,
+          profileId: request.profileId,
+          targetId: request.targetId,
+          action: 'upload_file',
+          toolName: 'browser.upload_file',
+          actionClass: 'file-upload',
+          decision: 'requires_user',
+          outcome: 'not_run',
+          requestId: `browser-${Date.now()}`,
+          reason: uploadDecision.reason,
+          summary: `browser.upload_file requires user approval: ${uploadDecision.reason}`,
+          origin: prepared.origin,
+          url: prepared.url,
+          data: null,
+        });
+      }
+      try {
+        await this.sendExistingTabCommand(existingTab, 'upload_file', {
+          selector: request.selector,
+          filePath: uploadDecision.resolvedPath ?? request.filePath,
+        });
+        return this.actionGuard.mutationSucceeded(request, 'upload_file', 'browser.upload_file', prepared);
+      } catch (error) {
+        return this.actionGuard.mutationFailed(request, 'upload_file', 'browser.upload_file', prepared, error);
+      }
+    }
+
     if (!profile) {
       return this.result({
         context: request,
@@ -1215,6 +1257,102 @@ export class BrowserGatewayService {
       return this.actionGuard.mutationSucceeded(request, 'upload_file', 'browser.upload_file', prepared);
     } catch (error) {
       return this.actionGuard.mutationFailed(request, 'upload_file', 'browser.upload_file', prepared, error);
+    }
+  }
+
+  async downloadFile(
+    request: BrowserGatewayContext & BrowserDownloadFileRequest,
+  ): Promise<BrowserGatewayResult<BrowserDownloadFileResult | null>> {
+    const selector = request.selector ?? 'body';
+    const prepared = await this.actionGuard.prepareMutatingAction(
+      request,
+      'download_file',
+      'browser.download_file',
+      selector,
+      request.actionHint,
+      {
+        actionClass: 'file-download',
+        hardStop: false,
+      },
+    );
+    if (prepared.result) {
+      return prepared.result as BrowserGatewayResult<BrowserDownloadFileResult | null>;
+    }
+    const recheck = this.actionGuard.recheckPreparedGrant(
+      request,
+      'download_file',
+      'browser.download_file',
+      prepared,
+    );
+    if (recheck) {
+      return recheck as BrowserGatewayResult<BrowserDownloadFileResult | null>;
+    }
+    if (request.url) {
+      const downloadOriginDecision = isOriginAllowed(
+        request.url,
+        prepared.grant.allowedOrigins,
+      );
+      if (!downloadOriginDecision.allowed) {
+        return this.result({
+          context: request,
+          profileId: request.profileId,
+          targetId: request.targetId,
+          action: 'download_file',
+          toolName: 'browser.download_file',
+          actionClass: 'file-download',
+          decision: 'denied',
+          outcome: 'not_run',
+          reason: 'download_url_origin_not_allowed',
+          summary: `browser.download_file denied because the direct download URL is outside the approved grant origins: ${downloadOriginDecision.reason}`,
+          origin: prepared.origin,
+          url: request.url,
+          grantId: prepared.grant.id,
+          autonomous: prepared.grant.autonomous,
+          data: null,
+        });
+      }
+    }
+
+    try {
+      const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
+      const download = existingTab
+        ? this.normalizeDownloadFileResult(await this.sendExistingTabCommand(existingTab, 'download_file', {
+          ...(request.selector ? { selector: request.selector } : {}),
+          ...(request.url ? { url: request.url } : {}),
+          ...(request.suggestedFilename ? { suggestedFilename: request.suggestedFilename } : {}),
+          timeoutMs: request.timeoutMs ?? 60_000,
+        }, request.timeoutMs ?? 60_000))
+        : await this.driver.downloadFile(request.profileId, request.targetId, {
+          ...(request.selector ? { selector: request.selector } : {}),
+          ...(request.url ? { url: request.url } : {}),
+          timeoutMs: request.timeoutMs ?? 60_000,
+        });
+
+      return this.result({
+        context: request,
+        profileId: request.profileId,
+        targetId: request.targetId,
+        action: 'download_file',
+        toolName: 'browser.download_file',
+        actionClass: prepared.actionClass,
+        decision: 'allowed',
+        outcome: 'succeeded',
+        summary: 'browser.download_file completed under approved grant',
+        origin: prepared.origin,
+        url: prepared.url,
+        grantId: prepared.grant.id,
+        autonomous: prepared.grant.autonomous,
+        data: download,
+      });
+    } catch (error) {
+      const failed = this.actionGuard.mutationFailed(
+        request,
+        'download_file',
+        'browser.download_file',
+        prepared,
+        error,
+      );
+      return failed as BrowserGatewayResult<BrowserDownloadFileResult | null>;
     }
   }
 
@@ -2196,6 +2334,7 @@ export class BrowserGatewayService {
     attachment: BrowserExistingTabAttachment,
     command: BrowserExtensionCommandName,
     payload?: Record<string, unknown>,
+    timeoutMs = 30_000,
   ): Promise<unknown> {
     return this.extensionCommandStore.sendCommand({
       command,
@@ -2206,14 +2345,14 @@ export class BrowserGatewayService {
         windowId: attachment.windowId,
       },
       ...(payload ? { payload } : {}),
-      timeoutMs: 30_000,
+      timeoutMs,
     });
   }
 
-  private snapshotExistingTab(
+  private async snapshotExistingTab(
     request: BrowserGatewayTargetRequest,
     attachment: BrowserExistingTabAttachment,
-  ): BrowserGatewayResult<(BrowserSnapshot & { text: string }) | null> {
+  ): Promise<BrowserGatewayResult<(BrowserSnapshot & { text: string }) | null>> {
     const originDecision = isOriginAllowed(attachment.url, attachment.allowedOrigins);
     if (!originDecision.allowed) {
       return this.result({
@@ -2230,6 +2369,75 @@ export class BrowserGatewayService {
         url: attachment.url,
         data: null,
       });
+    }
+
+    try {
+      const result = await this.sendExistingTabCommand(
+        attachment,
+        'snapshot',
+        undefined,
+        attachment.text ? 1_000 : 30_000,
+      );
+      const tab = extractTabPayload(result);
+      const fresh = this.extensionTabStore.attachTab({
+        ...tab,
+        allowedOrigins: attachment.allowedOrigins,
+      });
+      const freshOriginDecision = isOriginAllowed(fresh.url, fresh.allowedOrigins);
+      if (!freshOriginDecision.allowed) {
+        return this.result({
+          context: request,
+          profileId: attachment.profileId,
+          targetId: attachment.targetId,
+          action: 'snapshot',
+          toolName: 'browser.snapshot',
+          actionClass: 'read',
+          decision: 'denied',
+          outcome: 'not_run',
+          reason: freshOriginDecision.reason,
+          summary: `Existing-tab snapshot denied after live refresh by Browser Gateway origin policy: ${freshOriginDecision.reason}`,
+          origin: freshOriginDecision.origin,
+          url: fresh.url,
+          data: null,
+        });
+      }
+      return this.result({
+        context: request,
+        profileId: fresh.profileId,
+        targetId: fresh.targetId,
+        action: 'snapshot',
+        toolName: 'browser.snapshot',
+        actionClass: 'read',
+        decision: 'allowed',
+        outcome: 'succeeded',
+        summary: 'Captured fresh snapshot from selected existing Chrome tab',
+        origin: freshOriginDecision.origin,
+        url: fresh.url,
+        data: {
+          title: fresh.title ?? '',
+          url: fresh.url,
+          text: redactBrowserText(fresh.text ?? '').slice(0, 12_000),
+        },
+      });
+    } catch (error) {
+      if (!attachment.text) {
+        const message = error instanceof Error ? error.message : String(error);
+        return this.result({
+          context: request,
+          profileId: attachment.profileId,
+          targetId: attachment.targetId,
+          action: 'snapshot',
+          toolName: 'browser.snapshot',
+          actionClass: 'read',
+          decision: 'allowed',
+          outcome: 'failed',
+          reason: message,
+          summary: `Existing-tab live snapshot failed and no cached snapshot is available: ${message}`,
+          origin: originDecision.origin,
+          url: attachment.url,
+          data: null,
+        });
+      }
     }
 
     return this.result({
@@ -2252,10 +2460,10 @@ export class BrowserGatewayService {
     });
   }
 
-  private screenshotExistingTab(
+  private async screenshotExistingTab(
     request: BrowserGatewayScreenshotRequest,
     attachment: BrowserExistingTabAttachment,
-  ): BrowserGatewayResult<string | null> {
+  ): Promise<BrowserGatewayResult<string | null>> {
     const originDecision = isOriginAllowed(attachment.url, attachment.allowedOrigins);
     if (!originDecision.allowed) {
       return this.result({
@@ -2273,6 +2481,52 @@ export class BrowserGatewayService {
         data: null,
       });
     }
+
+    try {
+      const result = await this.sendExistingTabCommand(
+        attachment,
+        'screenshot',
+        undefined,
+        attachment.screenshotBase64 ? 1_000 : 30_000,
+      );
+      const value = this.extractScreenshotBase64(result);
+      return this.result({
+        context: request,
+        profileId: attachment.profileId,
+        targetId: attachment.targetId,
+        action: 'screenshot',
+        toolName: 'browser.screenshot',
+        actionClass: 'read',
+        decision: 'allowed',
+        outcome: 'succeeded',
+        summary: 'Captured fresh screenshot from selected existing Chrome tab',
+        origin: originDecision.origin,
+        url: attachment.url,
+        data: value,
+      });
+    } catch (error) {
+      if (!attachment.screenshotBase64) {
+        const message = error instanceof Error ? error.message : String(error);
+        return this.result({
+          context: request,
+          profileId: attachment.profileId,
+          targetId: attachment.targetId,
+          action: 'screenshot',
+          toolName: 'browser.screenshot',
+          actionClass: 'read',
+          decision: 'allowed',
+          outcome: 'failed',
+          reason: message === 'browser_extension_screenshot_result_invalid'
+            ? 'existing_tab_screenshot_unavailable'
+            : message,
+          summary: `Existing-tab live screenshot failed and no cached screenshot is available: ${message}`,
+          origin: originDecision.origin,
+          url: attachment.url,
+          data: null,
+        });
+      }
+    }
+
     if (!attachment.screenshotBase64) {
       return this.result({
         context: request,
@@ -2305,6 +2559,59 @@ export class BrowserGatewayService {
       url: attachment.url,
       data: attachment.screenshotBase64,
     });
+  }
+
+  private extractScreenshotBase64(result: unknown): string {
+    if (!result || typeof result !== 'object' || Array.isArray(result)) {
+      throw new Error('browser_extension_screenshot_result_invalid');
+    }
+    const value = (result as Record<string, unknown>)['screenshotBase64'];
+    if (typeof value !== 'string' || !value) {
+      throw new Error('browser_extension_screenshot_result_invalid');
+    }
+    return value.replace(/^data:image\/png;base64,/i, '').slice(0, 2_000_000);
+  }
+
+  private normalizeDownloadFileResult(result: unknown): BrowserDownloadFileResult {
+    if (!result || typeof result !== 'object' || Array.isArray(result)) {
+      throw new Error('browser_download_result_invalid');
+    }
+    const value = result as Record<string, unknown>;
+    const download: BrowserDownloadFileResult = {};
+    if (typeof value['id'] === 'number' || typeof value['id'] === 'string') {
+      download.id = value['id'];
+    }
+    if (typeof value['url'] === 'string') {
+      download.url = value['url'];
+    }
+    if (typeof value['finalUrl'] === 'string') {
+      download.finalUrl = value['finalUrl'];
+    }
+    if (typeof value['filename'] === 'string') {
+      download.filename = value['filename'];
+    }
+    if (typeof value['mime'] === 'string') {
+      download.mime = value['mime'];
+    }
+    if (typeof value['bytesReceived'] === 'number') {
+      download.bytesReceived = value['bytesReceived'];
+    }
+    if (typeof value['totalBytes'] === 'number') {
+      download.totalBytes = value['totalBytes'];
+    }
+    if (typeof value['state'] === 'string') {
+      download.state = value['state'];
+    }
+    if (typeof value['startedAt'] === 'string') {
+      download.startedAt = value['startedAt'];
+    }
+    if (typeof value['endedAt'] === 'string') {
+      download.endedAt = value['endedAt'];
+    }
+    if (!download.filename && !download.url) {
+      throw new Error('browser_download_result_invalid');
+    }
+    return download;
   }
 
   private async readTargetData<T>(
@@ -2422,6 +2729,11 @@ export class BrowserGatewayService {
 
   private resolveProfileRoot(profile: BrowserProfile): string {
     return profile.userDataDir ?? this.profileRegistry.resolveProfileDir(profile.id);
+  }
+
+  private placeholderExistingTabProfileRoot(filePath: string): string {
+    const root = path.parse(path.resolve(filePath)).root;
+    return path.join(root, '.aio-browser-gateway-existing-tab-profile');
   }
 }
 

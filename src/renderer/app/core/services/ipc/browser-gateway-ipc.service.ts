@@ -9,6 +9,8 @@ import type {
   BrowserCreateGrantRequest,
   BrowserAuditEntry,
   BrowserDenyRequestPayload,
+  BrowserDownloadFileRequest,
+  BrowserDownloadFileResult,
   BrowserFillFormRequest,
   BrowserGatewayResult,
   BrowserListApprovalRequestsRequest,
@@ -104,6 +106,12 @@ export class BrowserGatewayIpcService {
 
   async uploadFile(payload: BrowserUploadFileRequest): Promise<BrowserGatewayIpcResponse<null>> {
     return this.call(() => this.api?.browserUploadFile(payload));
+  }
+
+  async downloadFile(
+    payload: BrowserDownloadFileRequest,
+  ): Promise<BrowserGatewayIpcResponse<BrowserDownloadFileResult>> {
+    return this.call(() => this.api?.browserDownloadFile(payload));
   }
 
   async requestUserLogin(

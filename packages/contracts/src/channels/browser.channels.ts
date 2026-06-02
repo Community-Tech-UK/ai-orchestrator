@@ -17,6 +17,7 @@ export const BROWSER_CHANNELS = {
   BROWSER_FILL_FORM: 'browser:fill-form',
   BROWSER_SELECT: 'browser:select',
   BROWSER_UPLOAD_FILE: 'browser:upload-file',
+  BROWSER_DOWNLOAD_FILE: 'browser:download-file',
   BROWSER_REQUEST_USER_LOGIN: 'browser:request-user-login',
   BROWSER_PAUSE_FOR_MANUAL_STEP: 'browser:pause-for-manual-step',
   BROWSER_REQUEST_GRANT: 'browser:request-grant',

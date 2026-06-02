@@ -7,6 +7,8 @@ export type BrowserExtensionCommandName =
   | 'type'
   | 'fill_form'
   | 'select'
+  | 'upload_file'
+  | 'download_file'
   | 'snapshot'
   | 'screenshot'
   | 'wait_for';
