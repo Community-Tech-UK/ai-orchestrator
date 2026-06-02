@@ -55,7 +55,7 @@ describe('Browser Gateway RPC integration', () => {
     });
   });
 
-  it('returns unavailable when the server rejects the instance id', async () => {
+  it('returns the parent-side reason when the server rejects the instance id', async () => {
     const getHealth = vi.fn();
     const server = await startServer({
       service: { getHealth },
@@ -72,7 +72,10 @@ describe('Browser Gateway RPC integration', () => {
     await expect(client.call('browser.health', {})).resolves.toMatchObject({
       decision: 'denied',
       outcome: 'not_run',
-      reason: 'browser_gateway_unavailable',
+      reason: 'unknown_browser_gateway_instance',
+      data: {
+        message: 'unknown browser gateway instance',
+      },
     });
     expect(getHealth).not.toHaveBeenCalled();
   });

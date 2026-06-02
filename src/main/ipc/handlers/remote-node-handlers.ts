@@ -4,7 +4,7 @@ import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getWorkerNodeRegistry, getWorkerNodeConnectionServer } from '../../remote-node';
 import { COORDINATOR_TO_NODE } from '../../remote-node/worker-node-rpc';
 import { sendServiceRpc } from '../../remote-node/service-rpc-client';
-import { getRemoteNodeConfig, updateRemoteNodeConfig } from '../../remote-node/remote-node-config';
+import { getRemoteNodeConfig } from '../../remote-node/remote-node-config';
 import { getDiscoveryService } from '../../remote-node/discovery-service';
 import { generateAuthToken } from '../../remote-node/auth-validator';
 import {
@@ -19,7 +19,11 @@ import {
 } from '@contracts/schemas/remote-node';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getLogger } from '../../logging/logger';
-import { getLocalIpv4Addresses } from '../../util/network-addresses';
+import {
+  getLocalIpv4Addresses,
+  getTailscaleIpv4Address,
+  getTailscaleMagicDnsName,
+} from '../../util/network-addresses';
 import { getRemoteAuthService } from '../../auth/remote-auth';
 
 const logger = getLogger('RemoteNodeHandlers');
@@ -266,6 +270,8 @@ export function registerRemoteNodeHandlers(): void {
                 }
               : null,
             localIps: getLocalIpv4Addresses(),
+            tailscaleIp: getTailscaleIpv4Address(),
+            tailscaleDnsName: getTailscaleMagicDnsName(),
             requireTls: Boolean(config.tlsCertPath && config.tlsKeyPath),
           },
         };

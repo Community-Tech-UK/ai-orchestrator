@@ -599,6 +599,24 @@ export class InstanceLifecycleManager extends EventEmitter {
     return getProviderRuntimeService().createAdapter({ cliType, options, executionLocation });
   }
 
+  async refreshAdapterRuntimeConfig(instanceId: string): Promise<void> {
+    const instance = this.deps.getInstance(instanceId);
+    const adapter = this.deps.getAdapter(instanceId);
+    if (!instance || !adapter) {
+      return;
+    }
+    const maybeMcpConfigurable = adapter as {
+      updateMcpConfig?: (mcpConfig: string[]) => void;
+    };
+    if (typeof maybeMcpConfigurable.updateMcpConfig !== 'function') {
+      return;
+    }
+    const cliType = await this.resolveCliTypeForInstance(instance);
+    maybeMcpConfigurable.updateMcpConfig(
+      this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
+    );
+  }
+
   private isSessionBoundaryMessage(message: OutputMessage): boolean {
     return (
       message.type === 'system'

@@ -11,12 +11,50 @@ export interface BrowserGatewayRpcClientLike {
 
 let nextRequestId = 1;
 
+class BrowserGatewayRpcError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BrowserGatewayRpcError';
+  }
+}
+
 function unavailable(): Record<string, unknown> {
   return {
     decision: 'denied',
     outcome: 'not_run',
     reason: 'browser_gateway_unavailable',
   };
+}
+
+function deniedForRpcError(error: BrowserGatewayRpcError): Record<string, unknown> {
+  return {
+    decision: 'denied',
+    outcome: 'not_run',
+    reason: normalizeRpcErrorReason(error.message),
+    data: {
+      message: error.message,
+    },
+  };
+}
+
+function normalizeRpcErrorReason(message: string): string {
+  const normalized = message.toLowerCase();
+  if (normalized.includes('unknown browser gateway instance')) {
+    return 'unknown_browser_gateway_instance';
+  }
+  if (normalized.includes('invalid browser gateway rpc payload')) {
+    return 'invalid_browser_gateway_rpc_payload';
+  }
+  if (normalized.includes('payload too large')) {
+    return 'browser_gateway_rpc_payload_too_large';
+  }
+  if (normalized.includes('rate limit')) {
+    return 'browser_gateway_rpc_rate_limited';
+  }
+  if (normalized.includes('service method unavailable')) {
+    return 'browser_gateway_service_method_unavailable';
+  }
+  return 'browser_gateway_rpc_error';
 }
 
 export class BrowserGatewayRpcClient implements BrowserGatewayRpcClientLike {
@@ -47,7 +85,10 @@ export class BrowserGatewayRpcClient implements BrowserGatewayRpcClientLike {
           payload,
         },
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof BrowserGatewayRpcError) {
+        return deniedForRpcError(error);
+      }
       return unavailable();
     }
   }
@@ -78,7 +119,7 @@ export class BrowserGatewayRpcClient implements BrowserGatewayRpcClientLike {
           error?: { message?: string };
         };
         if (response.error) {
-          reject(new Error(response.error.message ?? 'Browser Gateway RPC failed'));
+          reject(new BrowserGatewayRpcError(response.error.message ?? 'Browser Gateway RPC failed'));
           return;
         }
         resolve(response.result);

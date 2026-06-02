@@ -27,6 +27,8 @@ export interface RemoteNodeServerStatus {
   registeredCount?: number;
   pendingPairingCount?: number;
   localIps?: string[];
+  tailscaleIp?: string | null;
+  tailscaleDnsName?: string | null;
   requireTls?: boolean;
 }
 
@@ -85,6 +87,8 @@ export class RemoteNodeIpcService {
       pendingPairingCount?: number;
       runningConfig?: { port?: number; host?: string; namespace?: string } | null;
       localIps?: string[];
+      tailscaleIp?: string | null;
+      tailscaleDnsName?: string | null;
       requireTls?: boolean;
     } | undefined;
     return {
@@ -96,6 +100,8 @@ export class RemoteNodeIpcService {
       registeredCount: data?.registeredCount ?? 0,
       pendingPairingCount: data?.pendingPairingCount ?? 0,
       localIps: data?.localIps ?? [],
+      tailscaleIp: data?.tailscaleIp ?? null,
+      tailscaleDnsName: data?.tailscaleDnsName ?? null,
       requireTls: data?.requireTls ?? false,
     };
   }

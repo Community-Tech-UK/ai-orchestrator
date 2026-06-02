@@ -364,6 +364,7 @@ export class InstanceManager extends EventEmitter {
           await this.context.compactContext(id, instance);
         }
       },
+      refreshAdapterRuntimeConfig: (id) => this.lifecycle.refreshAdapterRuntimeConfig(id),
       onChildExit: (childId, child, exitCode) => this.handleChildExit(childId, child, exitCode),
       onOutput: (id) => this.stuckDetector.recordOutput(id),
       onToolStateChange: (id, state) => this.stuckDetector.updateState(id, state),

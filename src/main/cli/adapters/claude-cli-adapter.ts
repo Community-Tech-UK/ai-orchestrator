@@ -197,6 +197,14 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     logger.debug('Resume mode set', { resume, sessionId: this.sessionId });
   }
 
+  updateMcpConfig(mcpConfig: string[]): void {
+    this.spawnOptions.mcpConfig = [...mcpConfig];
+    logger.debug('MCP config refreshed for Claude CLI adapter', {
+      sessionId: this.sessionId,
+      mcpConfigCount: this.spawnOptions.mcpConfig.length,
+    });
+  }
+
   private mapReasoningEffort(
     reasoningEffort: UnifiedReasoningEffort | undefined
   ): ClaudeCliReasoningEffort | undefined {

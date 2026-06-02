@@ -17,6 +17,7 @@ import { WorkerTerminalHandler } from './worker-terminal-handler';
 import { WorkerInstanceNotifier } from './worker-instance-notifier';
 import { WorkerRpcDispatcher } from './worker-rpc-dispatcher';
 import type { RpcMessage } from './worker-rpc-types';
+import type { DiscoveredCoordinator } from './discovery-client';
 
 const DEFAULT_CONFIG_PATH = path.join(
   os.homedir(),
@@ -45,6 +46,7 @@ export class WorkerAgent extends EventEmitter {
   private terminalHandler: WorkerTerminalHandler | null = null;
   private readonly notifier: WorkerInstanceNotifier;
   private readonly rpcDispatcher: WorkerRpcDispatcher;
+  private activeCoordinatorUrl: string | null = null;
 
   constructor(private readonly config: WorkerConfig) {
     super();
@@ -81,9 +83,10 @@ export class WorkerAgent extends EventEmitter {
       this.fsHandler = new NodeFilesystemHandler(
         this.config.workingDirectories
       );
+      this.startContinuousDiscovery();
 
       // Resolve coordinator URL — prefer explicit config, fall back to mDNS.
-      let coordinatorUrl = this.config.coordinatorUrl;
+      let coordinatorUrl = this.activeCoordinatorUrl ?? this.config.coordinatorUrl;
       if (!coordinatorUrl) {
         const discovery = new DiscoveryClient();
         const found = await discovery.discover(this.config.namespace, 10_000);
@@ -95,7 +98,8 @@ export class WorkerAgent extends EventEmitter {
           this.scheduleReconnect();
           return;
         }
-        coordinatorUrl = `ws://${found.host}:${found.port}`;
+        coordinatorUrl = this.buildDiscoveredCoordinatorUrl(found);
+        this.activeCoordinatorUrl = coordinatorUrl;
       }
 
       const token = this.config.nodeToken ?? this.config.authToken;
@@ -109,6 +113,7 @@ export class WorkerAgent extends EventEmitter {
           this.ws = ws;
           this.connectedAt = Date.now();
           this.reconnectAttempt = 0;
+          this.activeCoordinatorUrl = coordinatorUrl as string;
           console.log(`Connected to coordinator at ${coordinatorUrl}`);
           this.sendRegistration();
           this.notifier.flushCriticalQueue(); // Deliver any queued state changes from while disconnected
@@ -247,17 +252,24 @@ export class WorkerAgent extends EventEmitter {
 
   /**
    * Keep mDNS browser running so the worker detects coordinator restarts
-   * or IP changes. Only used when coordinatorUrl is not explicitly set.
-   * Reuses the existing DiscoveryClient if already running.
+   * or IP changes. Reuses the existing DiscoveryClient if already running.
    */
   private startContinuousDiscovery(): void {
-    if (this.config.coordinatorUrl) return; // explicit URL — skip mDNS
     if (this.discoveryClient) return; // already running
 
     this.discoveryClient = new DiscoveryClient();
     this.discoveryClient.startContinuous(
       this.config.namespace,
       (coordinator) => {
+        const discoveredUrl = this.buildDiscoveredCoordinatorUrl(coordinator);
+        const currentUrl = this.activeCoordinatorUrl ?? this.config.coordinatorUrl;
+        if (discoveredUrl !== currentUrl) {
+          this.activeCoordinatorUrl = discoveredUrl;
+          console.log(
+            `Coordinator discovered at ${discoveredUrl}; future reconnects will use it`
+          );
+        }
+
         // Coordinator re-appeared or changed IP — reconnect if we're disconnected
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
           console.log(
@@ -270,6 +282,12 @@ export class WorkerAgent extends EventEmitter {
         console.warn(`Coordinator ${name} disappeared from mDNS`);
       }
     );
+  }
+
+  private buildDiscoveredCoordinatorUrl(coordinator: DiscoveredCoordinator): string {
+    const currentUrl = this.activeCoordinatorUrl ?? this.config.coordinatorUrl;
+    const protocol = currentUrl?.startsWith('wss://') ? 'wss' : 'ws';
+    return `${protocol}://${coordinator.host}:${coordinator.port}`;
   }
 
   private stopContinuousDiscovery(): void {

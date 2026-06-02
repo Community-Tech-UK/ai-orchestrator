@@ -488,8 +488,17 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   }
 
   private getConnectionHost(): string {
-    const configuredHost = this.serverStatus().host ?? this.store.remoteNodesServerHost();
-    const localIps = this.serverStatus().localIps ?? [];
+    const status = this.serverStatus();
+    const configuredHost = status.host ?? this.store.remoteNodesServerHost();
+    if (configuredHost === '0.0.0.0' && status.tailscaleDnsName) {
+      return status.tailscaleDnsName;
+    }
+
+    if (configuredHost === '0.0.0.0' && status.tailscaleIp) {
+      return status.tailscaleIp;
+    }
+
+    const localIps = status.localIps ?? [];
     return configuredHost === '0.0.0.0' && localIps.length > 0
       ? localIps[0]
       : configuredHost;

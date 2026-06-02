@@ -185,6 +185,34 @@ describe('CodeIndexManager (cold index)', () => {
       await rm(workDir, { recursive: true, force: true });
     }
   });
+
+  it('coldIndex stops scanning when cancellation is requested during discovery', async () => {
+    const workDir = join(tmpdir(), `codemem-scan-cancel-${Date.now()}-${Math.random()}`);
+    await mkdir(join(workDir, 'src'), { recursive: true });
+    await writeFile(
+      join(workDir, 'src', 'entry.ts'),
+      'export function entry(): string { return "entry"; }\n',
+    );
+
+    const workspaceHash = workspaceHashForPath(workDir);
+
+    try {
+      mgr.on('index:progress', (status: { state: string; phase: string }) => {
+        if (status.state === 'running' && status.phase === 'scanning') {
+          store.requestCancel(workspaceHash);
+        }
+      });
+
+      await mgr.coldIndex(workDir);
+
+      const status = store.getIndexStatus(workspaceHash);
+      expect(status?.state).toBe('cancelled');
+      expect(status?.totalFiles).toBe(0);
+      expect(status?.processedFiles).toBe(0);
+    } finally {
+      await rm(workDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('CodeIndexManager (incremental)', () => {

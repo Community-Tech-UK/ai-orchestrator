@@ -232,6 +232,35 @@ describe('InstanceCommunicationManager', () => {
     }, undefined);
   });
 
+  it('refreshes adapter runtime config before sending normal user input', async () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+    const refreshAdapterRuntimeConfig = vi.fn().mockResolvedValue(undefined);
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, currentAdapter) => {
+        adapters.set(id, currentAdapter);
+      },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      refreshAdapterRuntimeConfig,
+      emitProviderRuntimeEvent,
+    });
+
+    await manager.sendInput(instance.id, 'click the button');
+
+    expect(refreshAdapterRuntimeConfig).toHaveBeenCalledWith(instance.id);
+    expect((adapter as unknown as FakeAdapter).sendInput).toHaveBeenCalledWith(
+      'click the button',
+      undefined,
+    );
+  });
+
   it('forwards adapter complete events as provider runtime events', () => {
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
     adapters.set(instance.id, adapter);

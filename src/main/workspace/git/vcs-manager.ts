@@ -189,8 +189,12 @@ const BINARY_EXTENSIONS = new Set([
 /** Pattern git emits for binary files in unified diffs. */
 const BINARY_DIFF_MARKER = /^Binary files .+ and .+ differ$/m;
 const execFileAsync = promisify(execFile);
+const MAX_REPOSITORY_DISCOVERY_RESULTS = 50;
 const DEFAULT_REPOSITORY_SCAN_IGNORES = new Set([
   '.git',
+  '.agents',
+  '.claude',
+  '.codex',
   'node_modules',
   '.pnpm-store',
   '.yarn',
@@ -203,6 +207,9 @@ const DEFAULT_REPOSITORY_SCAN_IGNORES = new Set([
   '__pycache__',
   '_archive',
   '_scratch',
+  'external-benchmarks',
+  'fixtures',
+  'test-fixtures',
   'dist',
   'build',
   'out',
@@ -347,6 +354,9 @@ export class VcsManager {
 
       if (fs.existsSync(path.join(dirPath, '.git'))) {
         repositories.push(dirPath);
+        if (repositories.length >= MAX_REPOSITORY_DISCOVERY_RESULTS) {
+          return;
+        }
         // Fall through and continue walking — nested repos / submodules
         // are valid and must be surfaced too. The `.git` entry itself
         // is in `ignores` so we won't descend into git internals.
@@ -363,6 +373,9 @@ export class VcsManager {
         if (!entry.isDirectory()) continue;
         if (ignores.has(entry.name)) continue;
         walk(path.join(dirPath, entry.name));
+        if (repositories.length >= MAX_REPOSITORY_DISCOVERY_RESULTS) {
+          return;
+        }
       }
     }
 
@@ -396,6 +409,9 @@ export class VcsManager {
 
       if (entries.some(entry => entry.name === '.git')) {
         repositories.push(dirPath);
+        if (repositories.length >= MAX_REPOSITORY_DISCOVERY_RESULTS) {
+          break;
+        }
       }
 
       for (const entry of entries) {

@@ -220,6 +220,32 @@ describe('ProjectKnowledgeAutoMirrorCoordinator', () => {
     expect(knowledge.target.ensureProjectKnown).not.toHaveBeenCalled();
   });
 
+  it('skips broad filesystem roots during automatic mirror', async () => {
+    const coordinator = new ProjectKnowledgeAutoMirrorCoordinator({
+      recentDirectoriesManager: emitter,
+      knowledge: knowledge.target,
+      bridge,
+      codemem,
+      registry,
+      settings: createSettings({ projectKnowledgeAutoMirrorDebounceMs: 0 }),
+      projectKeyResolver: (p) => path.resolve(p),
+    });
+    coordinator.start();
+
+    emitter.emit('directory-added', {
+      path: '/',
+      displayName: '/',
+      lastAccessed: Date.now(),
+      accessCount: 1,
+      isPinned: false,
+    } satisfies RecentDirectoryEntry);
+
+    await flushMicrotasks();
+
+    expect(knowledge.target.ensureProjectKnown).not.toHaveBeenCalled();
+    coordinator.stop();
+  });
+
   // ── Disabled paths ──────────────────────────────────────────────────────
 
   it('does nothing when projectKnowledgeAutoMirrorEnabled is false', async () => {

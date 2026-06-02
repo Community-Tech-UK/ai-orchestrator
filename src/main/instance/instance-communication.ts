@@ -96,6 +96,7 @@ export interface CommunicationDependencies {
   ingestToRLM: (instanceId: string, message: OutputMessage) => void;
   ingestToUnifiedMemory: (instance: Instance, message: OutputMessage) => void;
   compactContext?: (instanceId: string) => Promise<void>;
+  refreshAdapterRuntimeConfig?: (instanceId: string) => Promise<void>;
   onOutput?: (instanceId: string) => void;
   onToolStateChange?: (instanceId: string, state: 'generating' | 'tool_executing' | 'idle') => void;
   createSnapshot?: (instanceId: string, name: string, description: string | undefined, trigger: 'checkpoint' | 'auto') => void;
@@ -526,7 +527,7 @@ export class InstanceCommunicationManager extends EventEmitter {
   ): Promise<void> {
     logger.info('sendInput called', { instanceId, autoContinuation: options?.autoContinuation === true });
     const instance = this.deps.getInstance(instanceId);
-    const adapter = this.deps.getAdapter(instanceId);
+    let adapter = this.deps.getAdapter(instanceId);
 
     logger.info('sendInput state check', { instanceId, instanceExists: !!instance, adapterExists: !!adapter, status: instance?.status });
 
@@ -586,6 +587,20 @@ export class InstanceCommunicationManager extends EventEmitter {
       this.transitionInstanceStatus(instance, 'error');
       this.deps.queueUpdate(instanceId, 'error');
       throw new Error(`Instance ${instanceId} is in an inconsistent state (no adapter). Please restart the instance.`);
+    }
+
+    if (this.deps.refreshAdapterRuntimeConfig) {
+      await this.deps.refreshAdapterRuntimeConfig(instanceId);
+      adapter = this.deps.getAdapter(instanceId);
+      if (!adapter) {
+        logger.error('Adapter disappeared after runtime config refresh', undefined, {
+          instanceId,
+          status: instance.status,
+        });
+        this.transitionInstanceStatus(instance, 'error');
+        this.deps.queueUpdate(instanceId, 'error');
+        throw new Error(`Instance ${instanceId} lost its adapter while refreshing runtime config. Please restart the instance.`);
+      }
     }
 
     // Validate that the final message will be non-empty.

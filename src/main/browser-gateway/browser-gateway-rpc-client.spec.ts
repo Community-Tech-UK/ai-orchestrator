@@ -66,4 +66,41 @@ describe('BrowserGatewayRpcClient', () => {
       },
     });
   });
+
+  it('returns parent-side RPC errors without masking them as unavailable', async () => {
+    const socketPath = path.join(os.tmpdir(), `browser-gateway-error-${process.pid}.sock`);
+    const server = net.createServer((socket) => {
+      socket.on('data', (chunk) => {
+        const request = JSON.parse(chunk.toString('utf-8'));
+        socket.end(
+          `${JSON.stringify({
+            jsonrpc: '2.0',
+            id: request.id,
+            error: {
+              code: -32000,
+              message: 'Invalid browser gateway RPC payload',
+            },
+          })}\n`,
+        );
+      });
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+
+    const client = new BrowserGatewayRpcClient({
+      env: {
+        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: socketPath,
+        AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+      },
+    });
+
+    await expect(client.call('browser.navigate', { profileId: 'profile-1' })).resolves.toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'invalid_browser_gateway_rpc_payload',
+      data: {
+        message: 'Invalid browser gateway RPC payload',
+      },
+    });
+  });
 });

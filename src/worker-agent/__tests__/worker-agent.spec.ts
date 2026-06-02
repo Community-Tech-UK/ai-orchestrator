@@ -6,14 +6,38 @@ const providerDiagnostics = vi.hoisted(() => ({
   diagnoseProviderRuntime: vi.fn(),
 }));
 
+const wsMockState = vi.hoisted(() => ({
+  instances: [] as {
+    url: string;
+    emit: (event: string, ...args: unknown[]) => boolean;
+    send: ReturnType<typeof vi.fn>;
+    close: ReturnType<typeof vi.fn>;
+  }[],
+}));
+
+const discoveryMockState = vi.hoisted(() => ({
+  onUp: null as null | ((coordinator: {
+    host: string;
+    port: number;
+    namespace: string;
+    version: string;
+  }) => void),
+}));
+
 // Mock WebSocket
 vi.mock('ws', () => {
   class MockWebSocket {
     static OPEN = 1;
     readyState = 1;
     private listeners = new Map<string, ((...args: unknown[]) => void)[]>();
+    url: string;
     send = vi.fn((_data: string, cb?: (err?: Error) => void) => cb?.());
     close = vi.fn();
+
+    constructor(url: string) {
+      this.url = url;
+      wsMockState.instances.push(this);
+    }
 
     on(event: string, listener: (...args: unknown[]) => void): this {
       const handlers = this.listeners.get(event) ?? [];
@@ -32,6 +56,16 @@ vi.mock('ws', () => {
   }
   return { WebSocket: MockWebSocket, default: { WebSocket: MockWebSocket } };
 });
+
+vi.mock('../discovery-client', () => ({
+  DiscoveryClient: vi.fn().mockImplementation(() => ({
+    discover: vi.fn(async () => null),
+    startContinuous: vi.fn((_namespace, onUp) => {
+      discoveryMockState.onUp = onUp;
+    }),
+    stopContinuous: vi.fn(),
+  })),
+}));
 
 // Mock capability-reporter
 vi.mock('../capability-reporter', () => ({
@@ -95,6 +129,8 @@ describe('WorkerAgent', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    wsMockState.instances.length = 0;
+    discoveryMockState.onUp = null;
     providerDiagnostics.diagnoseProviderRuntime.mockReset();
     agent = new WorkerAgent(mockConfig);
     wsSend = vi.fn((_data: string, cb?: (err?: Error) => void) => cb?.());
@@ -112,6 +148,37 @@ describe('WorkerAgent', () => {
 
   it('creates without error', () => {
     expect(agent).toBeDefined();
+  });
+
+  it('uses a re-discovered coordinator IP when an explicit LAN IP stops connecting', async () => {
+    const config: WorkerConfig = {
+      ...mockConfig,
+      coordinatorUrl: 'ws://192.168.1.50:4878',
+      namespace: 'default',
+    };
+    agent = new WorkerAgent(config);
+
+    const connect = agent.connect();
+    await Promise.resolve();
+
+    expect(wsMockState.instances[0].url).toBe('ws://192.168.1.50:4878');
+    expect(discoveryMockState.onUp).not.toBeNull();
+
+    wsMockState.instances[0].emit('error', new Error('ECONNREFUSED'));
+    wsMockState.instances[0].emit('close');
+    await connect;
+
+    discoveryMockState.onUp?.({
+      host: '192.168.1.99',
+      port: 4878,
+      namespace: 'default',
+      version: '1.0',
+    });
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+
+    expect(wsMockState.instances[1].url).toBe('ws://192.168.1.99:4878');
   });
 
   it('builds registration message with correct fields', () => {

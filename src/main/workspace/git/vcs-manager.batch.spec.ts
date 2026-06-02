@@ -57,4 +57,18 @@ describe('VcsManager batch helpers', () => {
     expect(VcsManager.findRepositories(root)).toEqual([repo]);
     await expect(VcsManager.findRepositoriesAsync(root)).resolves.toEqual([repo]);
   });
+
+  it('skips generated benchmark and agent plugin repositories during discovery', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'vcs-manager-generated-'));
+    tempPaths.push(root);
+    const repo = path.join(root, 'app');
+    const benchmarkFixtureRepo = path.join(root, 'benchmarks', 'external-benchmarks', 'swe-bench', 'workdir', 'fixture');
+    const pluginRepo = path.join(root, 'data', 'sessions', 'chat', '.claude', 'plugins', 'marketplaces', 'official');
+    await fs.mkdir(path.join(repo, '.git'), { recursive: true });
+    await fs.mkdir(path.join(benchmarkFixtureRepo, '.git'), { recursive: true });
+    await fs.mkdir(path.join(pluginRepo, '.git'), { recursive: true });
+
+    expect(VcsManager.findRepositories(root)).toEqual([repo]);
+    await expect(VcsManager.findRepositoriesAsync(root)).resolves.toEqual([repo]);
+  });
 });

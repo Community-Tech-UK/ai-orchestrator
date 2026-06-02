@@ -91,7 +91,37 @@ export class CodeIndexManager extends EventEmitter {
 
     try {
       const ig = await this.loadIgnoreRules(absoluteWorkspacePath);
-      const files = await this.walkFiles(absoluteWorkspacePath, absoluteWorkspacePath, ig);
+      const files = await this.walkFiles(
+        absoluteWorkspacePath,
+        absoluteWorkspacePath,
+        ig,
+        () => this.opts.store.isCancelRequested(workspaceHash),
+      );
+
+      if (this.opts.store.isCancelRequested(workspaceHash)) {
+        const completedAt = Date.now();
+        const merkleRootHash =
+          this.opts.store.getWorkspaceRoot(workspaceHash)?.merkleRootHash ?? EMPTY_ROOT_HASH;
+        this.writeIndexStatus({
+          ...this.currentIndexStatus(workspaceHash, absoluteWorkspacePath, startedAt),
+          state: 'cancelled',
+          phase: 'none',
+          totalFiles: files.length,
+          processedFiles: 0,
+          totalChunks: 0,
+          processedChunks: 0,
+          currentPath: null,
+          updatedAt: completedAt,
+          completedAt,
+          cancelRequested: true,
+        });
+        return {
+          workspaceHash,
+          fileCount: 0,
+          chunkCount: 0,
+          merkleRootHash,
+        };
+      }
 
       for (const entry of this.opts.store.listManifestEntries(workspaceHash)) {
         this.opts.store.deleteManifestEntry(workspaceHash, entry.pathFromRoot);
@@ -222,11 +252,24 @@ export class CodeIndexManager extends EventEmitter {
     this.emit('code-index:changed', { workspaceHash, paths: [changedPath] });
   }
 
-  protected async walkFiles(rootPath: string, dirPath: string, ig: Ignore): Promise<string[]> {
+  protected async walkFiles(
+    rootPath: string,
+    dirPath: string,
+    ig: Ignore,
+    shouldStop?: () => boolean,
+  ): Promise<string[]> {
+    if (shouldStop?.()) {
+      return [];
+    }
+
     const entries = await fs.readdir(dirPath, { withFileTypes: true });
     const files: string[] = [];
 
     for (const entry of entries) {
+      if (shouldStop?.()) {
+        return files.sort();
+      }
+
       const absolutePath = path.join(dirPath, entry.name);
       const relativePath = this.toRelativePath(rootPath, absolutePath);
       const candidate = entry.isDirectory() ? `${relativePath}/` : relativePath;
@@ -236,7 +279,7 @@ export class CodeIndexManager extends EventEmitter {
       }
 
       if (entry.isDirectory()) {
-        files.push(...await this.walkFiles(rootPath, absolutePath, ig));
+        files.push(...await this.walkFiles(rootPath, absolutePath, ig, shouldStop));
         continue;
       }
 

@@ -32,6 +32,7 @@
 
 import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
 import { getCodemem, type CodememService } from '../codemem';
@@ -212,6 +213,10 @@ export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
 
     if (!this.isEnabled()) return;
     if (!this.pathExistsAsDirectory(normalized)) return;
+    if (this.isBroadAutoMirrorRoot(normalized)) {
+      logger.info('Project knowledge auto-mirror skipped broad filesystem root', { rootPath: normalized });
+      return;
+    }
     if (!this.registry.canAutoMine(normalized)) return;
 
     // Cancel any debounce: we'll act immediately.
@@ -281,6 +286,10 @@ export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
     if (!normalized) return;
 
     if (!this.pathExistsAsDirectory(normalized)) return;
+    if (this.isBroadAutoMirrorRoot(normalized)) {
+      logger.info('Project knowledge auto-mirror skipped broad filesystem root', { rootPath: normalized });
+      return;
+    }
     if (!this.registry.canAutoMine(normalized)) return;
 
     this.scheduleDebounce(normalized);
@@ -296,6 +305,10 @@ export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
 
     if (!this.isEnabled()) return;
     if (!this.pathExistsAsDirectory(normalized)) return;
+    if (this.isBroadAutoMirrorRoot(normalized)) {
+      logger.info('Project knowledge auto-mirror skipped broad filesystem root', { rootPath: normalized });
+      return;
+    }
     if (!this.registry.canAutoMine(normalized)) return;
 
     this.scheduleDebounce(normalized, true);
@@ -472,6 +485,23 @@ export class ProjectKnowledgeAutoMirrorCoordinator extends EventEmitter {
     } catch {
       return false;
     }
+  }
+
+  private isBroadAutoMirrorRoot(rootPath: string): boolean {
+    const normalized = path.resolve(rootPath);
+    const root = path.parse(normalized).root;
+    if (normalized === root) {
+      return true;
+    }
+
+    const home = path.resolve(os.homedir());
+    const workRoot = path.join(home, 'work');
+    return (
+      normalized === home
+      || normalized === path.dirname(home)
+      || normalized === workRoot
+      || normalized === '/private/tmp'
+    );
   }
 }
 

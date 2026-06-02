@@ -9,6 +9,7 @@ vi.mock('../../../logging/logger', () => ({
   }),
 }));
 
+import { createClaudeAdapter } from '../adapter-factory';
 import { ClaudeCliAdapter } from '../claude-cli-adapter';
 
 function buildArgs(adapter: ClaudeCliAdapter): string[] {
@@ -30,5 +31,42 @@ describe('Claude CLI browser gate', () => {
     const adapter = new ClaudeCliAdapter({ chrome: true });
 
     expect(buildArgs(adapter)).toContain('--chrome');
+  });
+
+  it('injects Browser Gateway MCP config for Claude when bridge options are supplied', () => {
+    const adapter = createClaudeAdapter({
+      browserGatewayMcp: {
+        aioMcpCliPath: '/tmp/aio-mcp',
+        socketPath: '/tmp/browser-gateway.sock',
+        instanceId: 'instance-browser',
+        exists: () => true,
+      },
+    });
+
+    const args = buildArgs(adapter);
+    const mcpConfigIndex = args.indexOf('--mcp-config');
+    expect(mcpConfigIndex).toBeGreaterThanOrEqual(0);
+    const config = JSON.parse(args[mcpConfigIndex + 1]);
+    expect(config.mcpServers['browser-gateway']).toMatchObject({
+      command: '/tmp/aio-mcp',
+      args: ['browser-gateway'],
+      env: {
+        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: '/tmp/browser-gateway.sock',
+        AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-browser',
+        AI_ORCHESTRATOR_BROWSER_PROVIDER: 'claude',
+      },
+    });
+  });
+
+  it('refreshes MCP config on existing Claude adapters', () => {
+    const adapter = new ClaudeCliAdapter({
+      mcpConfig: ['{"mcpServers":{"old":{}}}'],
+    });
+
+    adapter.updateMcpConfig(['{"mcpServers":{"browser-gateway":{}}}']);
+
+    const args = buildArgs(adapter);
+    const mcpConfigIndex = args.indexOf('--mcp-config');
+    expect(args[mcpConfigIndex + 1]).toBe('{"mcpServers":{"browser-gateway":{}}}');
   });
 });

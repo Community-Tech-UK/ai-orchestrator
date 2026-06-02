@@ -30,6 +30,7 @@ import {
   buildBrowserGatewayAcpMcpServers,
   buildBrowserGatewayCodexConfigToml,
   buildBrowserGatewayGeminiSettingsJson,
+  buildBrowserGatewayMcpConfigJson,
   type BrowserGatewayMcpConfigOptions,
 } from '../../browser-gateway/browser-mcp-config';
 import type { AcpMcpServerConfig } from '../../../shared/types/cli.types';
@@ -286,6 +287,22 @@ function buildCopilotAdditionalMcpConfig(
   });
 }
 
+function buildClaudeMcpConfig(options: UnifiedSpawnOptions): string[] | undefined {
+  const configs = [...(options.mcpConfig ?? [])];
+  const browserGatewayConfig = options.browserGatewayMcp
+    ? buildBrowserGatewayMcpConfigJson(
+        withBrowserGatewayProvider(options.browserGatewayMcp, 'claude'),
+      )
+    : null;
+  if (
+    browserGatewayConfig
+    && !configs.some((config) => config.includes('"browser-gateway"'))
+  ) {
+    configs.push(browserGatewayConfig);
+  }
+  return configs.length > 0 ? configs : undefined;
+}
+
 /**
  * Adapter type union - the concrete adapter types
  */
@@ -387,7 +404,7 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     disallowedTools: options.disallowedTools,
     resume: options.resume,
     forkSession: options.forkSession,
-    mcpConfig: options.mcpConfig,
+    mcpConfig: buildClaudeMcpConfig(options),
     reasoningEffort: options.reasoningEffort,
     bare: options.bare,
     name: options.name,

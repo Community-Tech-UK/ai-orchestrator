@@ -4886,7 +4886,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3218
+      "lines": 3236
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
@@ -4942,7 +4942,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2474
+      "lines": 2475
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
@@ -4950,7 +4950,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2158
+      "lines": 2173
     },
     {
       "path": "src/main/persistence/rlm/rlm-schema.ts",
@@ -4986,7 +4986,7 @@
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2049
+      "lines": 2057
     },
     {
       "path": "docs/superpowers/plans/2026-04-17-wave1-contracts-subpath-exports.md",
@@ -5134,7 +5134,7 @@
     },
     {
       "path": "src/main/workspace/git/vcs-manager.ts",
-      "lines": 1280
+      "lines": 1296
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
@@ -5297,6 +5297,10 @@
       "lines": 1055
     },
     {
+      "path": "src/main/instance/instance-communication.spec.ts",
+      "lines": 1049
+    },
+    {
       "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
       "lines": 1044
     },
@@ -5315,10 +5319,6 @@
     {
       "path": "src/main/mcp/mcp-manager.ts",
       "lines": 1025
-    },
-    {
-      "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 1020
     },
     {
       "path": "src/renderer/app/features/logs/logs-page.component.ts",
