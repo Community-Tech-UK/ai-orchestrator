@@ -100,6 +100,12 @@ Field reference:
 | `coordinatorUrl` | Recommended | WebSocket URL of the coordinator (e.g. `"ws://192.168.0.15:4878"`). Without this, the worker relies on mDNS auto-discovery, which is unreliable on Windows. Use `wss://` if TLS is enabled on the coordinator. |
 | `heartbeatIntervalMs` | No | Interval for heartbeat + capability refresh (default 10000ms). |
 
+When Tailscale is running on the coordinator, the generated pairing config prefers
+the coordinator's Tailscale MagicDNS name when the Tailscale CLI exposes it, then
+falls back to the coordinator's `100.x.y.z` Tailscale IP, then to a normal LAN IP.
+This avoids stale LAN addresses when the Mac changes networks. Keep the server
+host set to `0.0.0.0` so it accepts connections on the Tailscale interface.
+
 **Auto-generated fields** (don't set these manually):
 - `nodeId` — UUID generated on first run, persisted to this file
 - `nodeToken` — unique per-node token received after enrollment, persisted automatically
@@ -183,6 +189,22 @@ If you need to re-enroll a worker (e.g. after revocation), delete the `nodeToken
 ## Network Considerations
 
 **Same LAN (recommended):** Both machines on the same network, Mac firewall allows port 4878 inbound. mDNS handles discovery. This is the simplest setup.
+
+**Tailscale (recommended across changing networks):** Install Tailscale on both
+machines, sign them into the same tailnet, and keep MagicDNS enabled. When the
+Remote Nodes server is bound to `0.0.0.0`, the generated pairing config/link
+will prefer the Mac's MagicDNS name if available, then its stable `100.x.y.z`
+Tailscale IP. If you create the worker config manually, use:
+
+```json
+"coordinatorUrl": "ws://<mac-machine-name>.<tailnet>.ts.net:4878"
+```
+
+or:
+
+```json
+"coordinatorUrl": "ws://100.x.y.z:4878"
+```
 
 **Different networks / SSH tunnel:** If the machines aren't on the same LAN, set up an SSH tunnel from Windows to Mac:
 

@@ -65,15 +65,20 @@ sudo ufw allow 3001/tcp
 
 ### Tailscale
 
-Replace the LAN IP with the Tailscale IP (`100.x.y.z`). No firewall rules
-needed — Tailscale manages the overlay.
+Replace the LAN IP with the Tailscale MagicDNS name or Tailscale IP
+(`100.x.y.z`). No firewall rules needed — Tailscale manages the overlay.
 
 ```bash
+AIO_WORKER_TOKEN=<token> ./start-worker.sh --coordinator ws://<mac-name>.<tailnet>.ts.net:3001
+# or:
 AIO_WORKER_TOKEN=<token> ./start-worker.sh --coordinator ws://100.x.y.z:3001
 ```
 
 Run `tailscale status` on both machines to confirm connectivity before starting
-the worker.
+the worker. In the app's generated pairing config/link, AI Orchestrator prefers
+the coordinator's Tailscale MagicDNS name when available, then its `100.x.y.z`
+Tailscale IP, then a normal LAN IP. Keep the coordinator bound to `0.0.0.0` so
+it accepts connections on the Tailscale interface.
 
 ### SSH Tunnel (port forwarding)
 
