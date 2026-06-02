@@ -213,6 +213,37 @@ describe('adapter factory — copilot', () => {
     }).acpConfig.mcpServers).toEqual([]);
   });
 
+  it('passes chrome-devtools attach config to Copilot through --additional-mcp-config', () => {
+    const adapter = createCliAdapter('copilot', {
+      workingDirectory: '/tmp',
+      instanceId: 'instance-browser',
+      chromeDevtoolsMcp: { browserUrl: 'http://127.0.0.1:31234' },
+    });
+
+    const config = readAdditionalMcpConfig(adapter);
+    expect(config.mcpServers['chrome-devtools']).toMatchObject({
+      command: 'npx',
+      args: ['-y', 'chrome-devtools-mcp@latest', '--browserUrl', 'http://127.0.0.1:31234'],
+    });
+  });
+
+  it('adds the chrome-devtools attach workflow guidance to the system prompt when attach is set', () => {
+    const adapter = createCliAdapter('copilot', {
+      workingDirectory: '/tmp',
+      instanceId: 'instance-browser',
+      systemPrompt: 'Base instructions.',
+      chromeDevtoolsMcp: { browserUrl: 'http://127.0.0.1:31234' },
+    });
+
+    const systemPrompt = (adapter as unknown as {
+      acpConfig: { systemPrompt?: string };
+    }).acpConfig.systemPrompt ?? '';
+
+    expect(systemPrompt).toContain('Base instructions.');
+    expect(systemPrompt).toContain('chrome-devtools attached to a managed browser profile');
+    expect(systemPrompt).toContain('open and sign into the managed profile');
+  });
+
   it('adds Browser Gateway usage guidance to provider system prompts when browser tools are enabled', () => {
     const adapter = createCliAdapter('copilot', {
       workingDirectory: '/tmp',

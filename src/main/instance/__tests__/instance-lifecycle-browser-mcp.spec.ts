@@ -125,6 +125,52 @@ describe('SpawnConfigBuilder — Browser Gateway MCP config', () => {
     expect(browserGatewayMocks.buildBrowserGatewayMcpConfigJson).not.toHaveBeenCalled();
   });
 
+  it('adds chrome-devtools attach config when attach is enabled with a profile id', () => {
+    const builder = makeBuilder({
+      chromeDevtoolsAttachEnabled: true,
+      chromeDevtoolsAttachProfileId: 'profile-attach',
+    });
+
+    const configs = builder.getMcpConfig({ type: 'local' }, 'instance-browser', 'claude');
+
+    expect(configs).toContain('{"mcpServers":{"chrome-devtools":{}}}');
+    expect(browserGatewayMocks.resolveChromeDevtoolsBrowserUrl).toHaveBeenCalledWith('profile-attach');
+    expect(browserGatewayMocks.buildChromeDevtoolsMcpConfigJson).toHaveBeenCalledWith({
+      browserUrl: 'http://127.0.0.1:31234',
+    });
+  });
+
+  it('omits chrome-devtools attach config when attach is disabled', () => {
+    const builder = makeBuilder({ chromeDevtoolsAttachEnabled: false });
+
+    const configs = builder.getMcpConfig({ type: 'local' }, 'instance-browser', 'claude');
+
+    expect(configs).not.toContain('{"mcpServers":{"chrome-devtools":{}}}');
+    expect(browserGatewayMocks.buildChromeDevtoolsMcpConfigJson).not.toHaveBeenCalled();
+  });
+
+  it('omits chrome-devtools attach config when enabled but no profile id is set', () => {
+    const builder = makeBuilder({
+      chromeDevtoolsAttachEnabled: true,
+      chromeDevtoolsAttachProfileId: '   ',
+    });
+
+    builder.getMcpConfig({ type: 'local' }, 'instance-browser', 'claude');
+
+    expect(browserGatewayMocks.buildChromeDevtoolsMcpConfigJson).not.toHaveBeenCalled();
+  });
+
+  it('does not add chrome-devtools attach config for remote instances', () => {
+    const builder = makeBuilder({
+      chromeDevtoolsAttachEnabled: true,
+      chromeDevtoolsAttachProfileId: 'profile-attach',
+    });
+
+    builder.getMcpConfig({ type: 'remote', nodeId: 'node-1' }, 'instance-browser', 'claude');
+
+    expect(browserGatewayMocks.buildChromeDevtoolsMcpConfigJson).not.toHaveBeenCalled();
+  });
+
   it('adds Orchestrator-scoped inline MCP configs for supported local providers', () => {
     const builder = makeBuilder();
 

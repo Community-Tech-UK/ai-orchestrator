@@ -69,6 +69,21 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     max: 10240,
   },
   {
+    key: 'chromeDevtoolsAttachEnabled',
+    label: 'Attach chrome-devtools to a managed browser profile',
+    description: 'Give agents a chrome-devtools MCP server wired to a managed browser profile, so they can drive the same authenticated browser they open with the browser tools. When this is on, AI Orchestrator owns the single "chrome-devtools" server — do not also add a separate chrome-devtools MCP server, or their tools will collide.',
+    type: 'boolean',
+    category: 'advanced',
+  },
+  {
+    key: 'chromeDevtoolsAttachProfileId',
+    label: 'chrome-devtools managed profile id',
+    description: 'The managed browser profile id chrome-devtools attaches to. Copy it from the Browser screen. Only used when the attach toggle above is on.',
+    type: 'string',
+    category: 'advanced',
+    placeholder: 'managed browser profile id',
+  },
+  {
     key: 'codememEnabled',
     label: 'Enable code memory',
     description: 'Let agents look up symbols and structure from a lightweight index of your code ("codemem"). Turning this off disables all the code-memory options below.',

@@ -284,6 +284,37 @@ describe('BrowserGatewayService', () => {
     expect(driver.openProfile).not.toHaveBeenCalled();
   });
 
+  it('passes the resolved preferred debug port to the driver when opening a profile', async () => {
+    const { service, driver } = makeService({
+      resolvePreferredDebugPort: (profileId) => (profileId === 'profile-1' ? 31234 : undefined),
+    });
+
+    const result = await service.openProfile({
+      profileId: 'profile-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+    });
+
+    expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded' });
+    const call = driver.openProfile.mock.calls[0];
+    expect(call[0]).toMatchObject({ id: 'profile-1' });
+    expect(call[2]).toBe(31234);
+  });
+
+  it('passes undefined debug port to the driver when no attach resolver is configured', async () => {
+    const { service, driver } = makeService();
+
+    await service.openProfile({
+      profileId: 'profile-1',
+      instanceId: 'instance-1',
+      provider: 'claude',
+    });
+
+    const call = driver.openProfile.mock.calls[0];
+    expect(call[0]).toMatchObject({ id: 'profile-1' });
+    expect(call[2]).toBeUndefined();
+  });
+
   it('denies blocked navigation without calling the driver', async () => {
     const { service, audits, driver } = makeService();
 

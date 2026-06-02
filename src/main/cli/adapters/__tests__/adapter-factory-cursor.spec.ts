@@ -27,4 +27,18 @@ describe('adapter factory — cursor', () => {
       sessionId: 'cursor-session-1',
     });
   });
+
+  it('adds the chrome-devtools attach server to the Cursor ACP mcpServers list', () => {
+    const adapter = createCliAdapter('cursor', {
+      workingDirectory: '/tmp',
+      chromeDevtoolsMcp: { browserUrl: 'http://127.0.0.1:31234' },
+    });
+    const servers = (adapter as unknown as {
+      acpConfig: { mcpServers?: { name: string; args?: string[] }[] };
+    }).acpConfig.mcpServers ?? [];
+    const chromeDevtools = servers.find((server) => server.name === 'chrome-devtools');
+    expect(chromeDevtools).toBeDefined();
+    expect(chromeDevtools?.args).toContain('--browserUrl');
+    expect(chromeDevtools?.args).toContain('http://127.0.0.1:31234');
+  });
 });

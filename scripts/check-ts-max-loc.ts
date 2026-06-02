@@ -61,7 +61,7 @@ const WARN_ONLY =
  */
 const ALLOWLIST: Record<string, number> = {
   // Main process — app
-  'src/main/app/initialization-steps.ts': 887,
+  'src/main/app/initialization-steps.ts': 696,
   // Benchmarks
   'benchmarks/external-benchmarks/swe-bench/adapter.ts': 795,
   'benchmarks/external-benchmarks/swe-bench/runner.ts': 888,
@@ -72,7 +72,7 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — automations
   'src/main/automations/automation-store.ts': 847,
   // Main process — browser gateway
-  'src/main/browser-gateway/browser-gateway-service.ts': 2264,
+  'src/main/browser-gateway/browser-gateway-service.ts': 2202,
   // Main process — channels
   'src/main/channels/adapters/discord-adapter.ts': 965,
   'src/main/channels/channel-message-router.ts': 2521,

@@ -285,6 +285,15 @@ export class AdvancedSettingsTabComponent {
       ],
     },
     {
+      id: 'chrome-devtools-attach-heading',
+      title: 'Browser DevTools attach',
+      description: 'Let agents drive a managed browser profile with the richer chrome-devtools tools after they sign in through the browser tools. Open and log into the managed profile first, then chrome-devtools connects to that same browser.',
+      keys: [
+        'chromeDevtoolsAttachEnabled',
+        'chromeDevtoolsAttachProfileId',
+      ],
+    },
+    {
       id: 'codemem-indexing-heading',
       title: 'Code memory indexing',
       description: 'Controls how agents look up symbols and structure in your code. Leave the defaults on unless the indexer is causing performance problems.',

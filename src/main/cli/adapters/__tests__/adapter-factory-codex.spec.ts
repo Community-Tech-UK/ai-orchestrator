@@ -40,4 +40,40 @@ describe('adapter factory - codex', () => {
       cliConfig: { reasoningEffort?: string };
     }).cliConfig.reasoningEffort).toBeUndefined();
   });
+
+  it('includes the chrome-devtools attach server block in the Codex TOML', () => {
+    const adapter = createCodexAdapter({
+      workingDirectory: '/tmp',
+      chromeDevtoolsMcp: { browserUrl: 'http://127.0.0.1:31234' },
+    });
+
+    const toml = (adapter as unknown as {
+      cliConfig: { mcpServersConfigToml?: string };
+    }).cliConfig.mcpServersConfigToml ?? '';
+
+    expect(toml).toContain('[mcp_servers."chrome-devtools"]');
+    expect(toml).toContain('--browserUrl');
+    expect(toml).toContain('http://127.0.0.1:31234');
+  });
+
+  it('concatenates browser-gateway and chrome-devtools TOML blocks when both are set', () => {
+    const adapter = createCodexAdapter({
+      workingDirectory: '/tmp',
+      instanceId: 'instance-browser',
+      browserGatewayMcp: {
+        aioMcpCliPath: '/tmp/aio-mcp',
+        socketPath: '/tmp/browser-gateway.sock',
+        instanceId: 'instance-browser',
+        exists: () => true,
+      },
+      chromeDevtoolsMcp: { browserUrl: 'http://127.0.0.1:31234' },
+    });
+
+    const toml = (adapter as unknown as {
+      cliConfig: { mcpServersConfigToml?: string };
+    }).cliConfig.mcpServersConfigToml ?? '';
+
+    expect(toml).toContain('[mcp_servers."browser-gateway"]');
+    expect(toml).toContain('[mcp_servers."chrome-devtools"]');
+  });
 });

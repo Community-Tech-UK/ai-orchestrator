@@ -58,6 +58,32 @@ describe('Claude CLI browser gate', () => {
     });
   });
 
+  it('injects chrome-devtools attach MCP config for Claude from the dedicated option', () => {
+    const adapter = createClaudeAdapter({
+      chromeDevtoolsMcp: { browserUrl: 'http://127.0.0.1:31234' },
+    });
+
+    const args = buildArgs(adapter);
+    const mcpConfigIndex = args.indexOf('--mcp-config');
+    expect(mcpConfigIndex).toBeGreaterThanOrEqual(0);
+    const config = JSON.parse(args[mcpConfigIndex + 1]);
+    expect(config.mcpServers['chrome-devtools']).toEqual({
+      command: 'npx',
+      args: ['-y', 'chrome-devtools-mcp@latest', '--browserUrl', 'http://127.0.0.1:31234'],
+    });
+  });
+
+  it('does not double-add chrome-devtools when it is already present in mcpConfig', () => {
+    const adapter = createClaudeAdapter({
+      mcpConfig: ['{"mcpServers":{"chrome-devtools":{"command":"npx"}}}'],
+      chromeDevtoolsMcp: { browserUrl: 'http://127.0.0.1:31234' },
+    });
+
+    const args = buildArgs(adapter);
+    const chromeDevtoolsConfigs = args.filter((arg) => arg.includes('"chrome-devtools"'));
+    expect(chromeDevtoolsConfigs).toHaveLength(1);
+  });
+
   it('refreshes MCP config on existing Claude adapters', () => {
     const adapter = new ClaudeCliAdapter({
       mcpConfig: ['{"mcpServers":{"old":{}}}'],

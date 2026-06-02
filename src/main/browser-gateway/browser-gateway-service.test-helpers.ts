@@ -74,6 +74,7 @@ export function makeService(overrides: {
     allowedOrigins: BrowserProfile['allowedOrigins'];
   };
   extensionCommandStore?: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
+  resolvePreferredDebugPort?: (profileId: string) => number | undefined;
 } = {}) {
   const audits: BrowserAuditEntry[] = [];
   const approvalRequests: BrowserApprovalRequest[] = [];
@@ -250,6 +251,7 @@ export function makeService(overrides: {
     grantStore,
     approvalStore,
     autoApproveRequests: overrides.autoApproveRequests,
+    resolvePreferredDebugPort: overrides.resolvePreferredDebugPort,
     healthService: {
       diagnose: async (): Promise<BrowserGatewayHealthReport> => ({
         status: 'ready',
