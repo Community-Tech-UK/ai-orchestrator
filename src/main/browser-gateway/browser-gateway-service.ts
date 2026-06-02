@@ -23,6 +23,7 @@ import type {
   BrowserRequestUserLoginRequest,
   BrowserRevokeGrantRequest,
   BrowserQueryElementsRequest,
+  BrowserSelectOption,
   BrowserSelectRequest,
   BrowserProfile,
   BrowserTypeRequest,
@@ -177,6 +178,7 @@ export class BrowserGatewayService {
   private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
   private readonly healthService: Pick<BrowserHealthService, 'diagnose'>;
   private readonly autoApproveRequests?: BrowserGatewayServiceOptions['autoApproveRequests'];
+  private readonly resolvePreferredDebugPort?: BrowserGatewayServiceOptions['resolvePreferredDebugPort'];
   private readonly actionGuard: BrowserGatewayActionGuard;
   private readonly resultRecorder: BrowserGatewayResultRecorder;
   private readonly existingTabOperations: BrowserExistingTabOperations;
@@ -194,6 +196,7 @@ export class BrowserGatewayService {
     this.approvalStore = options.approvalStore ?? getBrowserApprovalStore();
     this.healthService = options.healthService ?? getBrowserHealthService();
     this.autoApproveRequests = options.autoApproveRequests;
+    this.resolvePreferredDebugPort = options.resolvePreferredDebugPort;
     this.resultRecorder = new BrowserGatewayResultRecorder(this.auditStore);
     this.existingTabOperations = new BrowserExistingTabOperations({
       extensionCommandStore: this.extensionCommandStore,
@@ -393,12 +396,14 @@ export class BrowserGatewayService {
     }
 
     try {
+      const preferredDebugPort = this.resolvePreferredDebugPort?.(profile.id);
       const targets = await this.driver.openProfile(
         {
           ...profile,
           userDataDir: profile.userDataDir ?? this.profileRegistry.resolveProfileDir(profile.id),
         },
         profile.defaultUrl,
+        preferredDebugPort,
       );
       return this.result({
         context: request,
@@ -2214,9 +2219,66 @@ function normalizeElementCandidates(result: unknown): BrowserElementCandidate[] 
       ...optionalElementString(value, 'inputType', 120),
       ...optionalElementString(value, 'placeholder', 500),
       ...optionalElementHref(value),
+      ...optionalElementControlValue(value),
+      ...optionalElementBoolean(value, 'checked'),
+      ...optionalElementBoolean(value, 'disabled'),
+      ...optionalElementBoolean(value, 'expanded'),
+      ...optionalElementOptions(value),
     });
   }
   return candidates;
+}
+
+function optionalElementControlValue(
+  value: Record<string, unknown>,
+): Partial<BrowserElementCandidate> {
+  const out: Partial<BrowserElementCandidate> = {};
+  const raw = value['value'];
+  if (typeof raw === 'string') {
+    out.value = redactBrowserText(raw).slice(0, 1_000);
+  }
+  const selectedOption = value['selectedOption'];
+  if (typeof selectedOption === 'string' && selectedOption) {
+    out.selectedOption = redactBrowserText(selectedOption).slice(0, 200);
+  }
+  return out;
+}
+
+function optionalElementBoolean(
+  value: Record<string, unknown>,
+  key: 'checked' | 'disabled' | 'expanded',
+): Partial<BrowserElementCandidate> {
+  return typeof value[key] === 'boolean' ? { [key]: value[key] as boolean } : {};
+}
+
+function optionalElementOptions(
+  value: Record<string, unknown>,
+): Partial<BrowserElementCandidate> {
+  const raw = value['options'];
+  if (!Array.isArray(raw)) {
+    return {};
+  }
+  const options: BrowserSelectOption[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      continue;
+    }
+    const option = item as Record<string, unknown>;
+    const optionValue = option['value'];
+    const optionLabel = option['label'];
+    if (typeof optionValue !== 'string' && typeof optionLabel !== 'string') {
+      continue;
+    }
+    options.push({
+      value: typeof optionValue === 'string' ? redactBrowserText(optionValue).slice(0, 200) : '',
+      label: typeof optionLabel === 'string' ? redactBrowserText(optionLabel).slice(0, 200) : '',
+      selected: option['selected'] === true,
+    });
+    if (options.length >= 50) {
+      break;
+    }
+  }
+  return options.length ? { options } : {};
 }
 
 function optionalElementString(

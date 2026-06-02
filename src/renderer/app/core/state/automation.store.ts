@@ -22,6 +22,22 @@ interface AutomationRunChangedEvent {
   run: AutomationRun;
 }
 
+/** Structured automation draft parsed from a natural-language request. */
+export interface AutomationDraft {
+  name: string;
+  description?: string;
+  scheduleType: 'cron' | 'oneTime';
+  cronExpression?: string;
+  runAtIso?: string;
+  timezone?: string;
+  prompt: string;
+  provider?: 'auto' | 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor';
+}
+
+export type AutomationDraftOutcome =
+  | { ok: true; draft: AutomationDraft }
+  | { ok: false; error: string };
+
 export interface CreateThreadWakeupInput {
   instanceId: string;
   sessionId?: string;
@@ -143,6 +159,41 @@ export class AutomationStore implements OnDestroy {
 
   clearPreflight(): void {
     this._preflight.set(null);
+  }
+
+  /**
+   * Parse a natural-language request into a structured automation draft using
+   * the one-shot `automation-draft` magic prompt. Returns a discriminated
+   * outcome so the caller can show a friendly error without throwing.
+   */
+  async draftFromText(text: string, opts: { workingDirectory?: string } = {}): Promise<AutomationDraftOutcome> {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return { ok: false, error: 'Describe the automation you want to create.' };
+    }
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    const context = [
+      `Current time: ${new Date().toISOString()}`,
+      `User timezone: ${timezone}`,
+      opts.workingDirectory ? `Default working directory: ${opts.workingDirectory}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const response = await this.ipc.draftFromText({
+      text: trimmed,
+      context,
+      workingDirectory: opts.workingDirectory || undefined,
+    });
+    if (!response.success) {
+      return { ok: false, error: response.error?.message ?? 'Failed to draft the automation.' };
+    }
+
+    const result = response.data as { ok?: boolean; data?: AutomationDraft; error?: string } | undefined;
+    if (!result?.ok || !result.data) {
+      return { ok: false, error: result?.error ?? 'Could not turn that into an automation.' };
+    }
+    return { ok: true, draft: result.data };
   }
 
   async createThreadWakeup(input: CreateThreadWakeupInput): Promise<boolean> {

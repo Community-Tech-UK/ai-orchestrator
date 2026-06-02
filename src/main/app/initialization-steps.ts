@@ -61,7 +61,10 @@ import { getPermissionManager } from '../security/permission-manager';
 import { PermissionDecisionStore } from '../security/permission-decision-store';
 import { WorkflowPersistence } from '../workflows/workflow-persistence';
 import { initializeCodemem, getCodemem } from '../codemem';
-import { initializeAutomations } from '../automations';
+import { initializeAutomations, getAutomationStore } from '../automations';
+import { createAutomationWithScheduling } from '../automations/automation-create-service';
+import { validateCronExpression } from '../automations/automation-schedule';
+import type { AutomationSchedule, CreateAutomationInput } from '../../shared/types/automation.types';
 import { initializeBrowserGatewayRuntime } from '../browser-gateway';
 import { initializeCodememRpcServer } from '../codemem/codemem-rpc-server';
 import { initializeOrchestratorToolsRpcServer } from '../mcp/orchestrator-tools-rpc-server';
@@ -761,6 +764,99 @@ export function createInitializationSteps(
               messageCount: buffer.length,
               truncated: contentCapped || sliced.length < buffer.length,
               messages,
+            };
+          },
+          // Backs the `create_automation` MCP tool: build a CreateAutomationInput
+          // from the agent-supplied args and route it through the same
+          // create+schedule service the IPC handler uses (so events fire and the
+          // Automations UI updates live). Working directory defaults to the
+          // calling chat's project when the agent omits it.
+          createAutomation: async (args, meta) => {
+            const callerInstance = meta?.callerInstanceId
+              ? instanceManager.getInstance(meta.callerInstanceId)
+              : undefined;
+            const workingDirectory =
+              args.workingDirectory?.trim() || callerInstance?.workingDirectory?.trim() || '';
+            if (!workingDirectory) {
+              throw new Error(
+                'create_automation requires a workingDirectory; this session has no project folder set.',
+              );
+            }
+            const timezone =
+              args.timezone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+            let schedule: AutomationSchedule;
+            if (args.cron?.trim()) {
+              const expression = args.cron.trim();
+              try {
+                const next = validateCronExpression(expression, timezone);
+                if (!next) {
+                  throw new Error('no upcoming run time');
+                }
+              } catch (error) {
+                throw new Error(
+                  `Invalid cron expression "${expression}" (${timezone}): ${
+                    error instanceof Error ? error.message : String(error)
+                  }`,
+                );
+              }
+              schedule = { type: 'cron', expression, timezone };
+            } else {
+              const runAt = Date.parse(args.runAt ?? '');
+              if (Number.isNaN(runAt)) {
+                throw new Error('runAt must be an ISO-8601 timestamp.');
+              }
+              schedule = { type: 'oneTime', runAt, timezone };
+            }
+
+            const input: CreateAutomationInput = {
+              name: args.name,
+              description: args.description,
+              enabled: args.enabled ?? true,
+              schedule,
+              concurrencyPolicy: 'skip',
+              action: {
+                prompt: args.prompt,
+                workingDirectory,
+                provider: args.provider,
+              },
+            };
+
+            const automation = await createAutomationWithScheduling(input);
+            if (!automation) {
+              throw new Error('Failed to create automation.');
+            }
+            const scheduleSummary =
+              schedule.type === 'cron'
+                ? `cron ${schedule.expression} (${timezone})`
+                : `once at ${new Date(schedule.runAt).toISOString()}`;
+            return {
+              id: automation.id,
+              name: automation.name,
+              scheduleSummary,
+              nextRunAt: automation.nextFireAt,
+              enabled: automation.enabled,
+              workingDirectory,
+            };
+          },
+          // Backs the read-only `list_automations` MCP tool.
+          listAutomations: async () => {
+            const automations = await getAutomationStore().list();
+            return {
+              count: automations.length,
+              automations: automations.map((a) => ({
+                id: a.id,
+                name: a.name,
+                ...(a.description ? { description: a.description } : {}),
+                scheduleSummary:
+                  a.schedule.type === 'cron'
+                    ? `cron ${a.schedule.expression} (${a.schedule.timezone})`
+                    : `once at ${new Date(a.schedule.runAt).toISOString()}`,
+                enabled: a.enabled && a.active,
+                nextRunAt: a.nextFireAt,
+                lastRunAt: a.lastFiredAt,
+                workingDirectory: a.action.workingDirectory,
+              })),
             };
           },
           // #18a/#19: strip the spawn-capable `run_on_node` tool from instances

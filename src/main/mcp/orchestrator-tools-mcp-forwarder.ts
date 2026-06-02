@@ -170,6 +170,74 @@ export function createOrchestratorToolsForwarderTools(
         return client.call('orchestrator_tools.read_node_output', args as Record<string, unknown>);
       },
     },
+    {
+      name: 'create_automation',
+      description:
+        'Create a scheduled automation in AIO: a recurring (cron) or one-time prompt that runs an autonomous agent on a schedule. Use this when the user asks to "set up an automation", "run this every day/week", "schedule this", or "remind me to…". Provide a 5-field cron expression for recurring schedules, or an ISO-8601 runAt for a one-time run. The working directory defaults to the current chat\'s project. Returns the created automation\'s id, schedule summary, and next run time.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Short title for the automation.' },
+          prompt: {
+            type: 'string',
+            description: 'The instruction the scheduled agent runs each time it fires.',
+          },
+          cron: {
+            type: 'string',
+            description:
+              'Standard 5-field cron expression for a recurring schedule (minute hour day-of-month month day-of-week). Provide this OR runAt. E.g. daily at 8pm = "0 20 * * *"; weekdays at 9am = "0 9 * * 1-5".',
+          },
+          runAt: {
+            type: 'string',
+            description: 'ISO-8601 timestamp for a one-time automation. Provide this OR cron.',
+          },
+          timezone: {
+            type: 'string',
+            description: 'IANA timezone (e.g. "America/New_York"). Defaults to the app timezone.',
+          },
+          workingDirectory: {
+            type: 'string',
+            description:
+              "Absolute working directory the automation runs in. Optional — defaults to the calling chat's project folder.",
+          },
+          description: { type: 'string', description: 'Optional human-readable description.' },
+          provider: {
+            type: 'string',
+            enum: ['claude', 'codex', 'gemini', 'copilot', 'cursor'],
+            description: 'CLI provider to run with (defaults to the app default).',
+          },
+          enabled: {
+            type: 'boolean',
+            description: 'Whether the automation is active immediately. Defaults to true.',
+          },
+        },
+        required: ['name', 'prompt'],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) {
+          throw new Error('create_automation args must be an object');
+        }
+        return client.call('orchestrator_tools.create_automation', args as Record<string, unknown>);
+      },
+    },
+    {
+      name: 'list_automations',
+      description:
+        'List the scheduled automations configured in AIO, with their schedule, enabled state, next/last run times, and working directory. Read-only. Use this to check what automations already exist before creating or describing them.',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+        required: [],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) {
+          throw new Error('list_automations args must be an object');
+        }
+        return client.call('orchestrator_tools.list_automations', args as Record<string, unknown>);
+      },
+    },
   ];
 }
 

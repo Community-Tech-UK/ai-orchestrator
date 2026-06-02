@@ -125,9 +125,72 @@ const summarizeDiff: MagicPromptDefinition<DiffSummaryResult> = {
     '{\n  "summary": string,\n  "files": { "path": string, "summary": string }[],\n  "risk": "low" | "medium" | "high"\n}',
 };
 
+// --- automation-draft ------------------------------------------------------
+
+const AutomationDraftSchema = z
+  .object({
+    name: z.string().min(1),
+    description: z.string().optional().default(''),
+    scheduleType: z.enum(['cron', 'oneTime']),
+    /** Required when scheduleType === 'cron'. Standard 5-field expression. */
+    cronExpression: z.string().optional(),
+    /** Required when scheduleType === 'oneTime'. ISO-8601 timestamp. */
+    runAtIso: z.string().optional(),
+    timezone: z.string().optional(),
+    prompt: z.string().min(1),
+    provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor']).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.scheduleType === 'cron' && !value.cronExpression?.trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['cronExpression'], message: 'cronExpression is required for a recurring schedule' });
+    }
+    if (value.scheduleType === 'oneTime' && !value.runAtIso?.trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['runAtIso'], message: 'runAtIso is required for a one-time schedule' });
+    }
+  });
+export type AutomationDraftResult = z.infer<typeof AutomationDraftSchema>;
+
+const automationDraft: MagicPromptDefinition<AutomationDraftResult> = {
+  id: 'automation-draft',
+  title: 'Draft automation',
+  description: 'Turn a natural-language request into a scheduled automation configuration.',
+  inputLabel: 'automation request',
+  systemPrompt: JSON_ONLY_SYSTEM,
+  buildPrompt: ({ text, context }) =>
+    `Convert the following request into a single scheduled automation configuration. ` +
+    `An automation runs an autonomous AI coding/agent session on a schedule.\n\n` +
+    `Rules:\n` +
+    `- "scheduleType" is "cron" for anything recurring (daily, weekly, hourly, every N minutes, ` +
+    `weekdays, weekends, etc.) or "oneTime" for a single future moment.\n` +
+    `- For cron, "cronExpression" MUST be a standard 5-field expression ` +
+    `(minute hour day-of-month month day-of-week). ` +
+    `Examples: daily at 8pm = "0 20 * * *"; weekdays at 9am = "0 9 * * 1-5"; ` +
+    `every 30 minutes = "*/30 * * * *"; Mondays at 5am = "0 5 * * 1".\n` +
+    `- For oneTime, set "runAtIso" to a future ISO-8601 timestamp.\n` +
+    `- "timezone" should be an IANA timezone; default to the user's timezone from the context.\n` +
+    `- "name" is a short title (3-6 words).\n` +
+    `- "prompt" is a clear, self-contained instruction the agent executes every run; ` +
+    `expand the request into explicit steps and the desired output, but do not invent unrelated work.\n` +
+    `- Set "provider" only if the user explicitly names one ` +
+    `(claude/codex/gemini/copilot/cursor); otherwise use "auto".` +
+    `${context ? `\n\nContext:\n${context}` : ''}\n\nRequest:\n${text}`,
+  schema: AutomationDraftSchema,
+  schemaHint:
+    '{\n' +
+    '  "name": string,\n' +
+    '  "description": string,\n' +
+    '  "scheduleType": "cron" | "oneTime",\n' +
+    '  "cronExpression": string,   // required when scheduleType is "cron" (5 fields)\n' +
+    '  "runAtIso": string,         // required when scheduleType is "oneTime" (ISO-8601)\n' +
+    '  "timezone": string,         // IANA timezone\n' +
+    '  "prompt": string,\n' +
+    '  "provider": "auto" | "claude" | "codex" | "gemini" | "copilot" | "cursor"\n' +
+    '}',
+};
+
 // --- registry --------------------------------------------------------------
 
-const DEFINITIONS: readonly MagicPromptDefinition[] = [recap, commitMessage, summarizeDiff];
+const DEFINITIONS: readonly MagicPromptDefinition[] = [recap, commitMessage, summarizeDiff, automationDraft];
 
 const BY_ID = new Map<string, MagicPromptDefinition>(DEFINITIONS.map((d) => [d.id, d]));
 

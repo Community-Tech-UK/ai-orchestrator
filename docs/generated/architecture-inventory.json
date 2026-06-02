@@ -4886,7 +4886,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3172
+      "lines": 3182
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
@@ -4946,7 +4946,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2264
+      "lines": 2326
     },
     {
       "path": "src/main/instance/instance-communication.ts",
@@ -5061,6 +5061,10 @@
       "lines": 1517
     },
     {
+      "path": "resources/browser-extension/background.js",
+      "lines": 1502
+    },
+    {
       "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
       "lines": 1487
     },
@@ -5075,10 +5079,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-04-agentic-harness-hardening_completed.md",
       "lines": 1456
-    },
-    {
-      "path": "resources/browser-extension/background.js",
-      "lines": 1448
     },
     {
       "path": "src/main/orchestration/orchestration-handler.ts",
@@ -5151,6 +5151,10 @@
     {
       "path": "docs/superpowers/plans/2026-03-14-instance-startup-optimization.md",
       "lines": 1267
+    },
+    {
+      "path": "docs/_archive/2026-06-01-remote-workspace-browser-bridge-design.md",
+      "lines": 1263
     },
     {
       "path": "docs/plans/2026-03-02-architectural-remediation-plan.md",
@@ -5286,7 +5290,7 @@
     },
     {
       "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
-      "lines": 1071
+      "lines": 1077
     },
     {
       "path": "src/renderer/app/features/file-explorer/file-explorer.component.ts",
@@ -5331,6 +5335,10 @@
     {
       "path": "src/renderer/app/features/logs/logs-page.component.ts",
       "lines": 1020
+    },
+    {
+      "path": "src/main/app/initialization-steps.ts",
+      "lines": 1009
     },
     {
       "path": "src/main/ipc/handlers/session-handlers.ts",
@@ -5427,10 +5435,6 @@
     {
       "path": "src/preload/domains/orchestration.preload.ts",
       "lines": 940
-    },
-    {
-      "path": "src/main/app/initialization-steps.ts",
-      "lines": 913
     },
     {
       "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",

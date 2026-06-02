@@ -430,6 +430,14 @@
   color: var(--text-primary);
 }
 
+/* Multi-select highlight (cmd/ctrl/shift-click). Wins over the plain hover
+   so a selected row stays visibly selected while the pointer is over it. */
+.file-row.selected,
+.file-row.selected:hover {
+  background: rgba(var(--primary-rgb), 0.18);
+  color: var(--text-primary);
+}
+
 .status-badge {
   width: 14px;
   height: 14px;

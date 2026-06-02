@@ -81,7 +81,10 @@ export function buildBrowserGatewayCodexConfigToml(
     'enabled = true',
     'required = false',
     'startup_timeout_sec = 10',
-    'tool_timeout_sec = 60',
+    // Browser tools can intentionally wait (wait_for ≤120s, downloads ≤60s);
+    // keep the host tool timeout above those budgets so slow-but-valid calls
+    // are not cut off with a misleading failure.
+    'tool_timeout_sec = 130',
     '',
     '[mcp_servers."browser-gateway".env]',
     ...Object.entries(bridge.env).map(([name, value]) =>
@@ -103,7 +106,8 @@ export function buildBrowserGatewayGeminiSettingsJson(
         command: bridge.command,
         args: bridge.args,
         env: bridge.env,
-        timeout: 30_000,
+        // Above wait_for (≤120s) / download (≤60s) budgets — see Codex config.
+        timeout: 130_000,
         trust: false,
       },
     },

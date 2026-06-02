@@ -24,6 +24,9 @@ import {
   buildBrowserGatewayMcpConfigJson,
   getBrowserGatewayRpcSocketPath,
   type BrowserGatewayMcpConfigOptions,
+  buildChromeDevtoolsMcpConfigJson,
+  resolveChromeDevtoolsBrowserUrl,
+  type ChromeDevtoolsMcpConfigOptions,
 } from '../../browser-gateway';
 import { ensureHookScript, ensureRtkDeferHookScript } from '../../cli/hooks/hook-path-resolver';
 import { getRtkRuntime } from '../../cli/rtk/rtk-runtime';
@@ -139,6 +142,16 @@ export class SpawnConfigBuilder {
       }
     }
 
+    // chrome-devtools attach (Claude consumes inline JSON via --mcp-config;
+    // other providers receive it through UnifiedSpawnOptions.chromeDevtoolsMcp).
+    const chromeDevtoolsOptions = this.getChromeDevtoolsMcpOptions(executionLocation);
+    if (chromeDevtoolsOptions) {
+      const chromeDevtoolsConfig = buildChromeDevtoolsMcpConfigJson(chromeDevtoolsOptions);
+      if (chromeDevtoolsConfig) {
+        configs.push(chromeDevtoolsConfig);
+      }
+    }
+
     configs.push(...this.getOrchestratorMcpConfigs(provider, instanceId));
 
     if (configs.length === 0) {
@@ -235,6 +248,28 @@ export class SpawnConfigBuilder {
       instanceId,
       ...(provider ? { provider } : {}),
     };
+  }
+
+  /**
+   * Resolve chrome-devtools attach options from settings, or null when attach is
+   * disabled, no profile is designated, or the instance runs on a remote node
+   * (the managed Chrome and its CDP port are local to this machine).
+   */
+  getChromeDevtoolsMcpOptions(
+    executionLocation?: ExecutionLocation,
+  ): ChromeDevtoolsMcpConfigOptions | null {
+    if (executionLocation?.type === 'remote') {
+      return null;
+    }
+    const settings = this.settings.getAll();
+    if (!settings.chromeDevtoolsAttachEnabled) {
+      return null;
+    }
+    const profileId = settings.chromeDevtoolsAttachProfileId?.trim();
+    if (!profileId) {
+      return null;
+    }
+    return { browserUrl: resolveChromeDevtoolsBrowserUrl(profileId) };
   }
 
   /**

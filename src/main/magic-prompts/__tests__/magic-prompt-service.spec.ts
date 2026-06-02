@@ -66,6 +66,39 @@ describe('MagicPromptService', () => {
     expect(ids).toContain('recap');
     expect(ids).toContain('commit-message');
     expect(ids).toContain('summarize-diff');
+    expect(ids).toContain('automation-draft');
+  });
+
+  it('parses a valid automation-draft response', async () => {
+    const draft = JSON.stringify({
+      name: 'Daily PR sweep',
+      description: 'Review open PRs',
+      scheduleType: 'cron',
+      cronExpression: '0 9 * * 1-5',
+      timezone: 'UTC',
+      prompt: 'Review open pull requests and summarise what needs attention.',
+      provider: 'auto',
+    });
+    const { service } = makeService(draft);
+    const result = await service.run({ id: 'automation-draft', text: 'every weekday at 9am review open PRs' });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const data = result.data as { scheduleType: string; cronExpression: string };
+      expect(data.scheduleType).toBe('cron');
+      expect(data.cronExpression).toBe('0 9 * * 1-5');
+    }
+  });
+
+  it('rejects an automation-draft missing the cron expression', async () => {
+    const draft = JSON.stringify({
+      name: 'Broken',
+      scheduleType: 'cron',
+      timezone: 'UTC',
+      prompt: 'do something',
+    });
+    const { service } = makeService(draft);
+    const result = await service.run({ id: 'automation-draft', text: 'recurring task' });
+    expect(result.ok).toBe(false);
   });
 
   it('returns typed data on a valid recap response', async () => {

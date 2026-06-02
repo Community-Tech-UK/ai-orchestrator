@@ -11,7 +11,10 @@ import type {
 } from '../../../../shared/types/automation.types';
 import type { FileAttachment } from '../../../../shared/types/instance.types';
 import type { AutomationPreflightReport, AutomationTemplate } from '../../../../shared/types/task-preflight.types';
-import { AutomationStore } from '../../core/state/automation.store';
+import { AutomationStore, type AutomationDraft } from '../../core/state/automation.store';
+import { describeSchedule } from './schedule-format';
+
+type OverlayMode = 'detail' | 'form' | 'chat' | null;
 
 interface AutomationFormModel {
   id?: string;
@@ -74,373 +77,30 @@ function fromLocalDateInput(value: string): number {
   standalone: true,
   imports: [CommonModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `
-    <div class="page">
-      <header class="toolbar">
-        <div class="toolbar-title">
-          <button class="btn" type="button" (click)="goBack()">← Back</button>
-          <div>
-            <h1>Automations</h1>
-            <span class="muted">{{ store.automations().length }} schedules</span>
-          </div>
-        </div>
-        <div class="toolbar-actions">
-          <button class="btn" type="button" (click)="store.refresh()">Refresh</button>
-          <button class="btn btn--primary" type="button" (click)="startCreate()">New</button>
-        </div>
-      </header>
-
-      @if (store.error()) {
-        <div class="error">{{ store.error() }}</div>
-      }
-
-      <main class="layout">
-        <section class="list" aria-label="Automations">
-          @if (store.loading()) {
-            <div class="empty">Loading...</div>
-          } @else if (store.automations().length === 0) {
-            <div class="empty">No automations configured.</div>
-          } @else {
-            @for (automation of store.automations(); track automation.id) {
-              <button
-                type="button"
-                class="automation-row"
-                [class.selected]="selectedId() === automation.id"
-                (click)="select(automation)"
-              >
-                <span class="row-main">
-                  <span class="row-title">{{ automation.name }}</span>
-                  <span class="row-subtitle">{{ scheduleLabel(automation) }}</span>
-                </span>
-                <span class="row-meta">
-                  @if ((automation.unreadRunCount ?? 0) > 0) {
-                    <span class="badge">{{ automation.unreadRunCount }}</span>
-                  }
-                  <span class="pill" [class.off]="!automation.enabled || !automation.active">
-                    {{ automation.enabled && automation.active ? 'on' : 'off' }}
-                  </span>
-                </span>
-              </button>
-            }
-          }
-        </section>
-
-        <section class="detail" aria-label="Automation detail">
-          @if (editing()) {
-            <form class="form" (ngSubmit)="save()">
-              <div class="form-grid">
-                <label>
-                  <span>Name</span>
-                  <input name="name" [ngModel]="form().name" (ngModelChange)="patchForm({ name: $event })" required />
-                </label>
-                <label>
-                  <span>Working Directory</span>
-                  <input name="workingDirectory" [ngModel]="form().workingDirectory" (ngModelChange)="patchForm({ workingDirectory: $event })" required />
-                </label>
-              </div>
-
-              <label>
-                <span>Description</span>
-                <input name="description" [ngModel]="form().description" (ngModelChange)="patchForm({ description: $event })" />
-              </label>
-
-              <div class="form-grid">
-                <label>
-                  <span>Template</span>
-                  <select name="template" [ngModel]="selectedTemplateId()" (ngModelChange)="selectedTemplateId.set($event)">
-                    <option value="">None</option>
-                    @for (template of store.templates(); track template.id) {
-                      <option [value]="template.id">{{ template.name }}</option>
-                    }
-                  </select>
-                </label>
-                <div class="template-actions">
-                  <button class="btn" type="button" [disabled]="!selectedTemplateId()" (click)="applySelectedTemplate()">Apply</button>
-                  <button class="btn" type="button" [disabled]="!canRunPreflight()" (click)="runPreflight()">
-                    {{ store.preflightLoading() ? 'Running...' : 'Preflight' }}
-                  </button>
-                </div>
-              </div>
-
-              <div class="form-grid">
-                <label>
-                  <span>Schedule</span>
-                  <select name="scheduleType" [ngModel]="form().scheduleType" (ngModelChange)="patchForm({ scheduleType: $event })">
-                    <option value="cron">Cron</option>
-                    <option value="oneTime">One time</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Timezone</span>
-                  <input name="timezone" [ngModel]="form().timezone" (ngModelChange)="patchForm({ timezone: $event })" />
-                </label>
-              </div>
-
-              @if (form().scheduleType === 'cron') {
-                <label>
-                  <span>Cron Expression</span>
-                  <input name="cronExpression" [ngModel]="form().cronExpression" (ngModelChange)="patchForm({ cronExpression: $event })" required />
-                </label>
-              } @else {
-                <label>
-                  <span>Run At</span>
-                  <input name="runAtLocal" type="datetime-local" [ngModel]="form().runAtLocal" (ngModelChange)="patchForm({ runAtLocal: $event })" required />
-                </label>
-              }
-
-              <div class="form-grid">
-                <label>
-                  <span>Missed Runs</span>
-                  <select name="missedRunPolicy" [ngModel]="form().missedRunPolicy" (ngModelChange)="patchForm({ missedRunPolicy: $event })">
-                    <option value="skip">Skip</option>
-                    <option value="notify">Notify</option>
-                    <option value="runOnce">Run once</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Concurrency</span>
-                  <select name="concurrencyPolicy" [ngModel]="form().concurrencyPolicy" (ngModelChange)="patchForm({ concurrencyPolicy: $event })">
-                    <option value="skip">Skip</option>
-                    <option value="queue">Queue</option>
-                  </select>
-                </label>
-              </div>
-
-              <label>
-                <span>Prompt</span>
-                <textarea name="prompt" rows="8" [ngModel]="form().prompt" (ngModelChange)="patchForm({ prompt: $event })" required></textarea>
-              </label>
-
-              <div class="form-grid">
-                <label>
-                  <span>Provider</span>
-                  <select name="provider" [ngModel]="form().provider" (ngModelChange)="patchForm({ provider: $event })">
-                    <option value="auto">Auto</option>
-                    <option value="claude">Claude</option>
-                    <option value="codex">Codex</option>
-                    <option value="gemini">Gemini</option>
-                    <option value="copilot">Copilot</option>
-                    <option value="cursor">Cursor</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Model</span>
-                  <input name="model" [ngModel]="form().model" (ngModelChange)="patchForm({ model: $event })" />
-                </label>
-                <label>
-                  <span>Agent</span>
-                  <input name="agentId" [ngModel]="form().agentId" (ngModelChange)="patchForm({ agentId: $event })" />
-                </label>
-                <label>
-                  <span>Reasoning</span>
-                  <select name="reasoningEffort" [ngModel]="form().reasoningEffort" (ngModelChange)="patchForm({ reasoningEffort: $event })">
-                    <option value="">Default</option>
-                    <option value="none">None</option>
-                    <option value="minimal">Minimal</option>
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                    <option value="xhigh">XHigh</option>
-                    <option value="max">Max</option>
-                    <option value="workflow">Workflow</option>
-                  </select>
-                </label>
-              </div>
-
-              <div class="form-grid form-grid--compact">
-                <label class="checkbox">
-                  <input name="enabled" type="checkbox" [ngModel]="form().enabled" (ngModelChange)="patchForm({ enabled: $event })" />
-                  <span>Enabled</span>
-                </label>
-                <label class="checkbox">
-                  <input name="yoloMode" type="checkbox" [ngModel]="form().yoloMode" (ngModelChange)="patchForm({ yoloMode: $event })" />
-                  <span>YOLO</span>
-                </label>
-              </div>
-
-              <label>
-                <span>Attachments</span>
-                <input type="file" multiple (change)="onFiles($event)" />
-              </label>
-
-              @if (form().attachments.length > 0) {
-                <div class="attachments">
-                  @for (attachment of form().attachments; track attachment.name + attachment.size) {
-                    <span>{{ attachment.name }}</span>
-                  }
-                </div>
-              }
-
-              @if (store.preflight(); as report) {
-                <div class="preflight" [class.preflight--blocked]="!report.okToSave">
-                  <div class="preflight-header">
-                    <strong>{{ preflightLabel(report) }}</strong>
-                    @if (report.warnings.length > 0 && report.okToSave) {
-                      <button class="btn" type="button" (click)="acknowledgePreflight()">Acknowledge</button>
-                    }
-                  </div>
-
-                  @if (report.blockers.length > 0) {
-                    <div class="preflight-group">
-                      <span>Blockers</span>
-                      <ul>
-                        @for (blocker of report.blockers; track blocker) {
-                          <li>{{ blocker }}</li>
-                        }
-                      </ul>
-                    </div>
-                  }
-
-                  @if (report.warnings.length > 0) {
-                    <div class="preflight-group">
-                      <span>Warnings</span>
-                      <ul>
-                        @for (warning of report.warnings; track warning) {
-                          <li>{{ warning }}</li>
-                        }
-                      </ul>
-                    </div>
-                  }
-
-                  @if (report.suggestedPermissionRules.length > 0) {
-                    <div class="preflight-group">
-                      <span>Suggested Rules</span>
-                      @for (rule of report.suggestedPermissionRules; track rule.id) {
-                        <code>{{ rule.permission }} {{ rule.action }} {{ rule.pattern }}</code>
-                      }
-                    </div>
-                  }
-
-                  @if (report.suggestedPromptEdits.length > 0) {
-                    <div class="preflight-group">
-                      <span>Prompt Edits</span>
-                      @for (edit of report.suggestedPromptEdits; track edit.id) {
-                        <button class="btn" type="button" (click)="applyPromptEdit(edit.replacementPrompt)">{{ edit.reason }}</button>
-                      }
-                    </div>
-                  }
-                </div>
-              }
-
-              <div class="actions">
-                <button class="btn btn--primary" type="submit" [disabled]="!canSave()">Save</button>
-                <button class="btn" type="button" (click)="cancelEdit()">Cancel</button>
-              </div>
-            </form>
-          } @else if (selected()) {
-            <div class="summary">
-              <div class="summary-header">
-                <div>
-                  <h2>{{ selected()!.name }}</h2>
-                  <span class="muted">{{ selected()!.description || 'No description' }}</span>
-                </div>
-                <div class="actions">
-                  <button class="btn" type="button" (click)="editSelected()">Edit</button>
-                  <button class="btn" type="button" (click)="store.runNow(selected()!.id)">Run</button>
-                  <button class="btn" type="button" (click)="store.cancelPending(selected()!.id)">Cancel Pending</button>
-                  <button class="btn btn--danger" type="button" (click)="deleteSelected()">Delete</button>
-                </div>
-              </div>
-
-              <div class="stats">
-                <div><span>Next</span><strong>{{ formatTime(selected()!.nextFireAt) }}</strong></div>
-                <div><span>Last Scheduled</span><strong>{{ formatTime(selected()!.lastFiredAt) }}</strong></div>
-                <div><span>Policy</span><strong>{{ selected()!.missedRunPolicy }}</strong></div>
-                <div><span>Concurrency</span><strong>{{ selected()!.concurrencyPolicy }}</strong></div>
-              </div>
-
-              <pre class="prompt">{{ selected()!.action.prompt }}</pre>
-
-              <h3>Recent Runs</h3>
-              <div class="runs">
-                @for (run of selectedRuns(); track run.id) {
-                  <div class="run-row" [class]="'run-row run-row--' + run.status">
-                    <span>{{ run.status }}</span>
-                    <span>{{ run.trigger }}</span>
-                    <span>{{ formatTime(run.scheduledAt) }}</span>
-                    <span class="run-error">{{ run.error || run.outputSummary || '' }}</span>
-                  </div>
-                } @empty {
-                  <div class="empty">No runs yet.</div>
-                }
-              </div>
-            </div>
-          } @else {
-            <div class="empty">Select an automation or create a new one.</div>
-          }
-        </section>
-      </main>
-    </div>
-  `,
-  styles: [`
-    :host { display: block; width: 100%; height: 100%; }
-    .page { display: flex; flex-direction: column; height: 100%; padding: 16px; gap: 12px; color: var(--text-primary); background: var(--bg-primary); }
-    .toolbar, .summary-header, .actions, .toolbar-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-    .toolbar-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
-    h1, h2, h3 { margin: 0; letter-spacing: 0; }
-    h1 { font-size: 20px; }
-    h2 { font-size: 18px; }
-    h3 { font-size: 14px; margin-top: 16px; }
-    .muted { color: var(--text-muted); font-size: 12px; }
-    .layout { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 12px; }
-    .list, .detail { min-height: 0; overflow: auto; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); }
-    .list { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
-    .detail { padding: 14px; }
-    .automation-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 10px; text-align: left; border-radius: 6px; border: 1px solid transparent; background: transparent; color: inherit; cursor: pointer; }
-    .automation-row:hover, .automation-row.selected { background: var(--bg-tertiary); border-color: var(--border-color); }
-    .row-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-    .row-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .row-subtitle { color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .row-meta { display: flex; align-items: center; gap: 6px; }
-    .pill, .badge { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 6px; border-radius: 999px; font-size: 11px; background: var(--success-color); color: #fff; }
-    .pill.off { background: var(--text-muted); }
-    .badge { background: var(--warning-color); }
-    .form, .summary { display: flex; flex-direction: column; gap: 12px; }
-    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-    .form-grid--compact { grid-template-columns: repeat(4, max-content); }
-    .template-actions { display: flex; align-items: end; gap: 8px; }
-    label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--text-muted); }
-    .checkbox { flex-direction: row; align-items: center; color: var(--text-primary); }
-    input, select, textarea { width: 100%; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); padding: 8px; font: inherit; font-size: 12px; }
-    textarea { resize: vertical; min-height: 140px; }
-    .btn { border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-tertiary); color: var(--text-primary); padding: 7px 10px; cursor: pointer; font-size: 12px; }
-    .btn--primary { background: var(--primary-color); border-color: var(--primary-color); color: #fff; }
-    .btn--danger { color: var(--error-color); }
-    .btn:disabled { opacity: .55; cursor: not-allowed; }
-    .error { border: 1px solid color-mix(in srgb, var(--error-color) 60%, transparent); color: var(--error-color); border-radius: 6px; padding: 8px 10px; font-size: 12px; }
-    .empty { color: var(--text-muted); padding: 18px; text-align: center; font-size: 12px; }
-    .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-    .stats div { border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 4px; }
-    .stats span { color: var(--text-muted); font-size: 11px; }
-    .stats strong { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
-    .prompt { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; max-height: 240px; overflow: auto; background: var(--bg-primary); font-size: 12px; }
-    .runs { display: flex; flex-direction: column; gap: 6px; }
-    .run-row { display: grid; grid-template-columns: 90px 80px 180px minmax(0, 1fr); gap: 8px; align-items: center; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color); font-size: 12px; }
-    .run-row--failed { border-color: color-mix(in srgb, var(--error-color) 45%, var(--border-color)); }
-    .run-row--succeeded { border-color: color-mix(in srgb, var(--success-color) 45%, var(--border-color)); }
-    .run-error { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .attachments { display: flex; flex-wrap: wrap; gap: 6px; }
-    .attachments span { border: 1px solid var(--border-color); border-radius: 999px; padding: 3px 8px; font-size: 11px; }
-    .preflight { display: flex; flex-direction: column; gap: 10px; border: 1px solid color-mix(in srgb, var(--warning-color) 45%, var(--border-color)); border-radius: 6px; padding: 10px; background: var(--bg-primary); }
-    .preflight--blocked { border-color: color-mix(in srgb, var(--error-color) 55%, var(--border-color)); }
-    .preflight-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-    .preflight-header strong { font-size: 12px; }
-    .preflight-group { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
-    .preflight-group > span { color: var(--text-muted); font-size: 11px; }
-    .preflight-group ul { margin: 0; padding-left: 18px; }
-    .preflight-group li { margin: 3px 0; overflow-wrap: anywhere; }
-    .preflight-group code { border: 1px solid var(--border-color); border-radius: 4px; padding: 5px 6px; background: var(--bg-secondary); overflow-wrap: anywhere; font-size: 11px; }
-    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .stats, .form-grid { grid-template-columns: 1fr; } .template-actions { align-items: stretch; } .run-row { grid-template-columns: 1fr; } }
-  `],
+  host: { '(document:keydown.escape)': 'onEscape()' },
+  templateUrl: './automations-page.component.html',
+  styleUrl: './automations-page.component.css',
 })
 export class AutomationsPageComponent {
   private readonly router = inject(Router);
   store = inject(AutomationStore);
+
   selectedId = signal<string | null>(null);
   selectedTemplateId = signal('');
-  editing = signal(false);
+  overlay = signal<OverlayMode>(null);
+  menuOpen = signal(false);
   preflightAcknowledged = signal(false);
   form = signal<AutomationFormModel>(emptyForm());
+
+  // Chat-composer state
+  chatText = signal('');
+  chatWorkingDir = signal('');
+  chatBusy = signal(false);
+  chatError = signal<string | null>(null);
+  chatDraft = signal<AutomationDraft | null>(null);
+
+  current = computed(() => this.store.automations().filter((a) => a.enabled && a.active));
+  paused = computed(() => this.store.automations().filter((a) => !(a.enabled && a.active)));
 
   selected = computed(() =>
     this.store.automations().find((automation) => automation.id === this.selectedId()) ?? null
@@ -453,31 +113,123 @@ export class AutomationsPageComponent {
     void this.store.loadTemplates();
   }
 
+  goBack(): void {
+    void this.router.navigate(['/']);
+  }
+
+  closeOverlay(): void {
+    this.overlay.set(null);
+    this.preflightAcknowledged.set(false);
+    this.store.clearPreflight();
+  }
+
+  onEscape(): void {
+    if (this.menuOpen()) {
+      this.menuOpen.set(false);
+      return;
+    }
+    if (this.overlay() !== null) {
+      this.closeOverlay();
+    }
+  }
+
+  // --- Chat composer ---------------------------------------------------------
+
+  startChat(): void {
+    this.chatText.set('');
+    this.chatError.set(null);
+    this.chatDraft.set(null);
+    this.chatBusy.set(false);
+    this.chatWorkingDir.set(this.suggestWorkingDirectory());
+    this.overlay.set('chat');
+  }
+
+  canGenerate(): boolean {
+    return Boolean(this.chatText().trim()) && !this.chatBusy();
+  }
+
+  async generateDraft(): Promise<void> {
+    if (!this.canGenerate()) return;
+    this.chatBusy.set(true);
+    this.chatError.set(null);
+    try {
+      const outcome = await this.store.draftFromText(this.chatText(), {
+        workingDirectory: this.chatWorkingDir().trim() || undefined,
+      });
+      if (outcome.ok) {
+        this.chatDraft.set(outcome.draft);
+      } else {
+        this.chatDraft.set(null);
+        this.chatError.set(outcome.error);
+      }
+    } finally {
+      this.chatBusy.set(false);
+    }
+  }
+
+  /** Move the parsed draft into the standard form, then auto-run preflight. */
+  useDraft(): void {
+    const draft = this.chatDraft();
+    if (!draft) return;
+    this.selectedId.set(null);
+    this.selectedTemplateId.set('');
+    this.preflightAcknowledged.set(false);
+    this.store.clearPreflight();
+    this.form.set(this.draftToForm(draft));
+    this.overlay.set('form');
+    if (this.canRunPreflight()) {
+      void this.runPreflightForForm();
+    }
+  }
+
+  draftScheduleLabel(draft: AutomationDraft): string {
+    if (draft.scheduleType === 'oneTime' && draft.runAtIso) {
+      const ts = Date.parse(draft.runAtIso);
+      if (!Number.isNaN(ts)) {
+        return describeSchedule({ type: 'oneTime', runAt: ts, timezone: draft.timezone });
+      }
+      return 'Once';
+    }
+    if (draft.cronExpression) {
+      return describeSchedule({ type: 'cron', expression: draft.cronExpression, timezone: draft.timezone || 'UTC' });
+    }
+    return 'Schedule';
+  }
+
+  // --- List ------------------------------------------------------------------
+
+  scheduleLabel(automation: Automation): string {
+    return describeSchedule(automation.schedule);
+  }
+
+  byline(automation: Automation): string {
+    if (automation.description?.trim()) {
+      return automation.description.trim();
+    }
+    const wd = automation.action.workingDirectory;
+    if (wd) {
+      return wd.split('/').filter(Boolean).pop() ?? wd;
+    }
+    return '';
+  }
+
+  select(automation: Automation): void {
+    this.selectedId.set(automation.id);
+    this.overlay.set('detail');
+    if ((automation.unreadRunCount ?? 0) > 0) {
+      void this.store.markSeen(automation.id);
+    }
+  }
+
+  // --- Create / edit ---------------------------------------------------------
+
   startCreate(): void {
     this.selectedId.set(null);
     this.selectedTemplateId.set('');
     this.preflightAcknowledged.set(false);
     this.store.clearPreflight();
     this.form.set(emptyForm());
-    this.editing.set(true);
-  }
-
-  goBack(): void {
-    void this.router.navigate(['/']);
-  }
-
-  patchForm(patch: Partial<AutomationFormModel>): void {
-    this.form.update((current) => ({ ...current, ...patch }));
-    this.preflightAcknowledged.set(false);
-    this.store.clearPreflight();
-  }
-
-  select(automation: Automation): void {
-    this.selectedId.set(automation.id);
-    this.editing.set(false);
-    if ((automation.unreadRunCount ?? 0) > 0) {
-      void this.store.markSeen(automation.id);
-    }
+    this.overlay.set('form');
   }
 
   editSelected(): void {
@@ -487,12 +239,13 @@ export class AutomationsPageComponent {
     this.preflightAcknowledged.set(false);
     this.store.clearPreflight();
     this.form.set(this.toForm(automation));
-    this.editing.set(true);
+    this.overlay.set('form');
   }
 
-  cancelEdit(): void {
-    this.editing.set(false);
+  patchForm(patch: Partial<AutomationFormModel>): void {
+    this.form.update((current) => ({ ...current, ...patch }));
     this.preflightAcknowledged.set(false);
+    this.store.clearPreflight();
   }
 
   async save(): Promise<void> {
@@ -536,7 +289,7 @@ export class AutomationsPageComponent {
         });
 
     if (ok) {
-      this.editing.set(false);
+      this.closeOverlay();
     }
   }
 
@@ -585,6 +338,7 @@ export class AutomationsPageComponent {
     if (!automation) return;
     void this.store.delete(automation.id);
     this.selectedId.set(null);
+    this.closeOverlay();
   }
 
   onFiles(event: Event): void {
@@ -595,15 +349,54 @@ export class AutomationsPageComponent {
     });
   }
 
-  scheduleLabel(automation: Automation): string {
-    if (automation.schedule.type === 'cron') {
-      return `${automation.schedule.expression} (${automation.schedule.timezone})`;
-    }
-    return `once at ${this.formatTime(automation.schedule.runAt)}`;
+  formCronLabel(): string {
+    const model = this.form();
+    if (model.scheduleType !== 'cron') return '';
+    return describeSchedule({ type: 'cron', expression: model.cronExpression, timezone: model.timezone || 'UTC' });
   }
 
   formatTime(timestamp: number | null): string {
     return timestamp ? new Date(timestamp).toLocaleString() : 'None';
+  }
+
+  private suggestWorkingDirectory(): string {
+    // Prefer the most common working directory across existing automations so a
+    // chat-created automation lands in a familiar workspace by default.
+    const counts = new Map<string, number>();
+    for (const automation of this.store.automations()) {
+      const wd = automation.action.workingDirectory?.trim();
+      if (wd) {
+        counts.set(wd, (counts.get(wd) ?? 0) + 1);
+      }
+    }
+    let best = '';
+    let bestCount = 0;
+    for (const [wd, count] of counts) {
+      if (count > bestCount) {
+        best = wd;
+        bestCount = count;
+      }
+    }
+    return best;
+  }
+
+  private draftToForm(draft: AutomationDraft): AutomationFormModel {
+    const base = emptyForm();
+    const oneTimeTs = draft.runAtIso ? Date.parse(draft.runAtIso) : NaN;
+    return {
+      ...base,
+      name: draft.name,
+      description: draft.description ?? '',
+      workingDirectory: this.chatWorkingDir().trim(),
+      scheduleType: draft.scheduleType,
+      cronExpression: draft.scheduleType === 'cron' && draft.cronExpression ? draft.cronExpression : base.cronExpression,
+      timezone: draft.timezone || base.timezone,
+      runAtLocal: draft.scheduleType === 'oneTime' && !Number.isNaN(oneTimeTs)
+        ? toLocalDateInput(oneTimeTs)
+        : base.runAtLocal,
+      prompt: draft.prompt,
+      provider: (draft.provider ?? 'auto') as AutomationFormModel['provider'],
+    };
   }
 
   private async runPreflightForForm(): Promise<AutomationPreflightReport | null> {

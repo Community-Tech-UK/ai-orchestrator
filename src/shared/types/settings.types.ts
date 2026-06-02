@@ -129,6 +129,16 @@ export interface AppSettings {
   commandDiagnosticsAvailable: boolean;
   broadRootFileThreshold: number;
 
+  /**
+   * Attach the `chrome-devtools` MCP server to an AIO-managed browser profile.
+   * When enabled, spawned agents get a chrome-devtools server configured with
+   * `--browserUrl` pointing at the managed profile's CDP endpoint, so they can
+   * drive the same authenticated browser they opened via `browser.*`.
+   */
+  chromeDevtoolsAttachEnabled: boolean;
+  /** Managed browser profile id chrome-devtools attaches to (empty = none). */
+  chromeDevtoolsAttachProfileId: string;
+
   // Codebase auto-index (separate, heavier pipeline from codemem: BM25 +
   // vector embeddings + Merkle change detection + hybrid search). Auto-runs
   // incrementally whenever a workspace enters the app. See
@@ -330,6 +340,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   codememPrewarmStartupHint: true,
   commandDiagnosticsAvailable: true,
   broadRootFileThreshold: 100,
+  chromeDevtoolsAttachEnabled: false,
+  chromeDevtoolsAttachProfileId: '',
 
   // Codebase auto-index defaults
   codebaseAutoIndexEnabled: false,

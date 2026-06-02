@@ -54,6 +54,7 @@ import type { ActivityState } from '../../../shared/types/activity.types';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import type { ErrorInfo } from '../../../shared/types/ipc.types';
 import type { BrowserGatewayMcpConfigOptions } from '../../browser-gateway/browser-mcp-config';
+import type { ChromeDevtoolsMcpConfigOptions } from '../../browser-gateway/chrome-devtools-mcp-config';
 import { getProviderRuntimeService } from '../../providers/provider-runtime-service';
 
 const logger = getLogger('InterruptRespawn');
@@ -120,6 +121,9 @@ export interface InterruptRespawnDeps {
     instanceId?: string,
     provider?: CliType,
   ) => BrowserGatewayMcpConfigOptions | null;
+  getChromeDevtoolsMcpOptions?: (
+    location?: ExecutionLocation,
+  ) => ChromeDevtoolsMcpConfigOptions | null;
   getPermissionHookPath: (yoloMode: boolean) => string | undefined;
   waitForResumeHealth: (instanceId: string, timeoutMs?: number) => Promise<boolean>;
   waitForAdapterWritable: (instanceId: string, timeoutMs: number) => Promise<boolean>;
@@ -575,6 +579,7 @@ export class InterruptRespawnHandler {
         resume: shouldResume,
         forkSession: shouldForkSession,
         mcpConfig: this.deps.getMcpConfig(instance.executionLocation, instance.id, cliType),
+        chromeDevtoolsMcp: this.deps.getChromeDevtoolsMcpOptions?.(instance.executionLocation) ?? undefined,
         browserGatewayMcp: this.deps.getBrowserGatewayMcpOptions?.(
           instance.executionLocation,
           instance.id,
@@ -894,6 +899,7 @@ export class InterruptRespawnHandler {
         resume: shouldResume,
         forkSession: shouldForkSession,
         mcpConfig: this.deps.getMcpConfig(instance.executionLocation, instance.id, cliType),
+        chromeDevtoolsMcp: this.deps.getChromeDevtoolsMcpOptions?.(instance.executionLocation) ?? undefined,
         browserGatewayMcp: this.deps.getBrowserGatewayMcpOptions?.(
           instance.executionLocation,
           instance.id,

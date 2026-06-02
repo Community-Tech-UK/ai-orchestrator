@@ -150,6 +150,90 @@ export type ReadInstanceOutputFn = (
   args: ReadNodeOutputArgs,
 ) => Promise<ReadNodeOutputResult | null>;
 
+export const CreateAutomationArgsSchema = z
+  .object({
+    /** Short title for the automation (e.g. "Daily PR review"). */
+    name: z.string().min(1).max(200),
+    /** The instruction the scheduled agent runs each time it fires. */
+    prompt: z.string().min(1).max(100_000),
+    /**
+     * Standard 5-field cron expression (minute hour day-of-month month
+     * day-of-week) for a recurring automation. Provide this OR `runAt`.
+     * Examples: daily at 8pm = "0 20 * * *"; weekdays at 9am = "0 9 * * 1-5".
+     */
+    cron: z.string().min(1).max(200).optional(),
+    /** ISO-8601 timestamp for a one-time automation. Provide this OR `cron`. */
+    runAt: z.string().min(1).max(100).optional(),
+    /** IANA timezone (e.g. "America/New_York"). Defaults to the app's timezone. */
+    timezone: z.string().min(1).max(100).optional(),
+    /**
+     * Absolute working directory the automation runs in. Optional — defaults to
+     * the calling chat's project folder.
+     */
+    workingDirectory: z.string().min(1).max(10_000).optional(),
+    /** Optional human-readable description. */
+    description: z.string().max(2000).optional(),
+    /** CLI provider to run with (defaults to the app default). */
+    provider: z.enum(['claude', 'codex', 'gemini', 'copilot', 'cursor']).optional(),
+    /** Whether the automation is active immediately. Defaults to true. */
+    enabled: z.boolean().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.cron?.trim() && !value.runAt?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['cron'],
+        message: 'Provide either "cron" (recurring) or "runAt" (one-time ISO-8601 timestamp).',
+      });
+    }
+  });
+
+export type CreateAutomationArgs = z.infer<typeof CreateAutomationArgsSchema>;
+
+export interface CreateAutomationResult {
+  id: string;
+  name: string;
+  /** Human-readable schedule summary, e.g. "cron 0 20 * * * (UTC)". */
+  scheduleSummary: string;
+  /** Epoch ms of the next scheduled run, or null when disabled/none. */
+  nextRunAt: number | null;
+  enabled: boolean;
+  workingDirectory: string;
+}
+
+/**
+ * Injected by the parent process (see initialization-steps.ts). Creates a
+ * scheduled automation via the shared create+schedule service. Kept injected so
+ * `orchestrator-tools.ts` never imports the automation store/scheduler
+ * singletons directly (consistent with {@link SpawnRemoteInstanceFn}).
+ */
+export type CreateAutomationFn = (
+  args: CreateAutomationArgs,
+  meta?: SpawnRemoteInstanceMeta,
+) => Promise<CreateAutomationResult>;
+
+export const ListAutomationsArgsSchema = z.object({}).strict();
+
+export type ListAutomationsArgs = z.infer<typeof ListAutomationsArgsSchema>;
+
+export interface AutomationSummaryToolInfo {
+  id: string;
+  name: string;
+  description?: string;
+  scheduleSummary: string;
+  enabled: boolean;
+  nextRunAt: number | null;
+  lastRunAt: number | null;
+  workingDirectory: string;
+}
+
+export interface ListAutomationsResult {
+  count: number;
+  automations: AutomationSummaryToolInfo[];
+}
+
+export type ListAutomationsFn = () => Promise<ListAutomationsResult>;
+
 export interface OrchestratorToolRuntimeContext {
   db: SqliteDriver;
   instanceId?: string | null;
@@ -158,6 +242,8 @@ export interface OrchestratorToolRuntimeContext {
   listRemoteNodes?: ListRemoteNodesFn | null;
   spawnRemoteInstance?: SpawnRemoteInstanceFn | null;
   readInstanceOutput?: ReadInstanceOutputFn | null;
+  createAutomation?: CreateAutomationFn | null;
+  listAutomations?: ListAutomationsFn | null;
 }
 
 const SOURCE_CONTEXT_MESSAGE_LIMIT = 200;
@@ -452,6 +538,82 @@ export function createOrchestratorToolDefinitions(
           throw new Error(`Instance not found: ${parsed.instanceId}`);
         }
         return result;
+      },
+    },
+    {
+      name: 'create_automation',
+      description:
+        'Create a scheduled automation in AIO: a recurring (cron) or one-time prompt that runs an autonomous agent on a schedule. Use this when the user asks to "set up an automation", "run this every day/week", "schedule this", or "remind me to…". Provide a 5-field cron expression for recurring schedules, or an ISO-8601 runAt for a one-time run. The working directory defaults to the current chat\'s project. Returns the created automation\'s id, schedule summary, and next run time.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Short title for the automation.' },
+          prompt: {
+            type: 'string',
+            description: 'The instruction the scheduled agent runs each time it fires.',
+          },
+          cron: {
+            type: 'string',
+            description:
+              'Standard 5-field cron expression for a recurring schedule (minute hour day-of-month month day-of-week). Provide this OR runAt. E.g. daily at 8pm = "0 20 * * *"; weekdays at 9am = "0 9 * * 1-5".',
+          },
+          runAt: {
+            type: 'string',
+            description: 'ISO-8601 timestamp for a one-time automation. Provide this OR cron.',
+          },
+          timezone: {
+            type: 'string',
+            description: 'IANA timezone (e.g. "America/New_York"). Defaults to the app timezone.',
+          },
+          workingDirectory: {
+            type: 'string',
+            description:
+              "Absolute working directory the automation runs in. Optional — defaults to the calling chat's project folder.",
+          },
+          description: { type: 'string', description: 'Optional human-readable description.' },
+          provider: {
+            type: 'string',
+            enum: ['claude', 'codex', 'gemini', 'copilot', 'cursor'],
+            description: 'CLI provider to run with (defaults to the app default).',
+          },
+          enabled: {
+            type: 'boolean',
+            description: 'Whether the automation is active immediately. Defaults to true.',
+          },
+        },
+        required: ['name', 'prompt'],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        const parsed = CreateAutomationArgsSchema.parse(args);
+        if (!context.createAutomation) {
+          throw new Error(
+            'create_automation is unavailable: automation creation is not wired in this process',
+          );
+        }
+        return context.createAutomation(parsed, {
+          callerInstanceId: context.instanceId ?? null,
+        });
+      },
+    },
+    {
+      name: 'list_automations',
+      description:
+        'List the scheduled automations configured in AIO, with their schedule, enabled state, next/last run times, and working directory. Read-only. Use this to check what automations already exist before creating or describing them.',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+        required: [],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        ListAutomationsArgsSchema.parse(args);
+        if (!context.listAutomations) {
+          throw new Error(
+            'list_automations is unavailable: automation listing is not wired in this process',
+          );
+        }
+        return context.listAutomations();
       },
     },
   ];

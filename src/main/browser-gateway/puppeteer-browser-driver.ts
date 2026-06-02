@@ -4,6 +4,7 @@ import type { Browser, ConsoleMessage, HTTPRequest, Page } from 'puppeteer-core'
 import type {
   BrowserElementContext,
   BrowserElementCandidate,
+  BrowserSelectOption,
   BrowserDownloadFileResult,
   BrowserProfile,
   BrowserProfileMode,
@@ -96,6 +97,7 @@ export class PuppeteerBrowserDriver {
   async openProfile(
     profile: BrowserProfile,
     startUrl?: string,
+    preferredDebugPort?: number,
   ): Promise<BrowserTarget[]> {
     if (!profile.userDataDir && profile.mode !== 'isolated') {
       throw new Error(`Browser profile ${profile.id} has no userDataDir`);
@@ -110,6 +112,7 @@ export class PuppeteerBrowserDriver {
         profile,
         userDataDir: profile.userDataDir ?? profile.id,
         startUrl,
+        ...(typeof preferredDebugPort === 'number' ? { preferredDebugPort } : {}),
       });
       return this.indexPages(profile.id);
     } catch (error) {
@@ -564,9 +567,62 @@ function normalizeElementCandidates(result: unknown): BrowserElementCandidate[] 
       ...optionalString(value, 'inputType', 120),
       ...optionalString(value, 'placeholder', 500),
       ...optionalHref(value),
+      ...optionalControlValue(value),
+      ...optionalBoolean(value, 'checked'),
+      ...optionalBoolean(value, 'disabled'),
+      ...optionalBoolean(value, 'expanded'),
+      ...optionalOptions(value),
     });
   }
   return candidates;
+}
+
+function optionalControlValue(value: Record<string, unknown>): Partial<BrowserElementCandidate> {
+  const out: Partial<BrowserElementCandidate> = {};
+  const raw = value['value'];
+  if (typeof raw === 'string') {
+    out.value = redactBrowserText(raw).slice(0, 1_000);
+  }
+  const selectedOption = value['selectedOption'];
+  if (typeof selectedOption === 'string' && selectedOption) {
+    out.selectedOption = redactBrowserText(selectedOption).slice(0, 200);
+  }
+  return out;
+}
+
+function optionalBoolean(
+  value: Record<string, unknown>,
+  key: 'checked' | 'disabled' | 'expanded',
+): Partial<BrowserElementCandidate> {
+  return typeof value[key] === 'boolean' ? { [key]: value[key] as boolean } : {};
+}
+
+function optionalOptions(value: Record<string, unknown>): Partial<BrowserElementCandidate> {
+  const raw = value['options'];
+  if (!Array.isArray(raw)) {
+    return {};
+  }
+  const options: BrowserSelectOption[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      continue;
+    }
+    const option = item as Record<string, unknown>;
+    const optionValue = option['value'];
+    const optionLabel = option['label'];
+    if (typeof optionValue !== 'string' && typeof optionLabel !== 'string') {
+      continue;
+    }
+    options.push({
+      value: typeof optionValue === 'string' ? redactBrowserText(optionValue).slice(0, 200) : '',
+      label: typeof optionLabel === 'string' ? redactBrowserText(optionLabel).slice(0, 200) : '',
+      selected: option['selected'] === true,
+    });
+    if (options.length >= 50) {
+      break;
+    }
+  }
+  return options.length ? { options } : {};
 }
 
 function optionalString(

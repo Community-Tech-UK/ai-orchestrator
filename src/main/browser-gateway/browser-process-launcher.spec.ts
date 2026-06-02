@@ -295,6 +295,60 @@ describe('BrowserProcessLauncher', () => {
     });
   });
 
+  it('pins the preferred debug port (and skips random allocation) when it is free', async () => {
+    mocks.launch.mockResolvedValue({
+      wsEndpoint: () => 'ws://127.0.0.1:31234/devtools/browser/test',
+      process: () => ({ pid: 999 }),
+      pages: async () => [],
+      newPage: vi.fn(),
+      close: vi.fn(),
+    });
+    const allocatePort = vi.fn(async () => 45678);
+    const isPortAvailable = vi.fn(async () => true);
+    const launcher = new BrowserProcessLauncher({
+      exists: async (candidate) => candidate === 'chrome',
+      allocatePort,
+      isPortAvailable,
+      profileStore: { setRuntimeState: () => makeProfile() },
+      env: {},
+    });
+
+    const runtime = await launcher.launchProfile({
+      profile: makeProfile(),
+      userDataDir: '/tmp/browser-profile',
+      preferredDebugPort: 31234,
+    });
+
+    expect(isPortAvailable).toHaveBeenCalledWith(31234);
+    expect(allocatePort).not.toHaveBeenCalled();
+    expect(runtime.debugPort).toBe(31234);
+    expect(mocks.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: expect.arrayContaining(['--remote-debugging-port=31234']),
+      }),
+    );
+  });
+
+  it('hard-fails the launch when the preferred debug port is already in use', async () => {
+    const isPortAvailable = vi.fn(async () => false);
+    const launcher = new BrowserProcessLauncher({
+      exists: async (candidate) => candidate === 'chrome',
+      allocatePort: vi.fn(async () => 45678),
+      isPortAvailable,
+      profileStore: { setRuntimeState: () => makeProfile() },
+      env: {},
+    });
+
+    await expect(
+      launcher.launchProfile({
+        profile: makeProfile(),
+        userDataDir: '/tmp/browser-profile',
+        preferredDebugPort: 31234,
+      }),
+    ).rejects.toThrow(/debug port 31234 is already in use/);
+    expect(mocks.launch).not.toHaveBeenCalled();
+  });
+
   it('uses a disposable user data dir for isolated profiles and removes it on close', async () => {
     const close = vi.fn();
     mocks.launch.mockResolvedValue({

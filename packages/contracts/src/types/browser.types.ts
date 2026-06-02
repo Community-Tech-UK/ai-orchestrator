@@ -280,6 +280,12 @@ export interface BrowserQueryElementsRequest extends BrowserTargetRequest {
   limit?: number;
 }
 
+export interface BrowserSelectOption {
+  value: string;
+  label: string;
+  selected: boolean;
+}
+
 export interface BrowserElementCandidate {
   selector: string;
   tagName: string;
@@ -289,6 +295,18 @@ export interface BrowserElementCandidate {
   inputType?: string;
   placeholder?: string;
   href?: string;
+  /** Current value of an input/textarea/select (password values are omitted). */
+  value?: string;
+  /** Visible label of the currently selected option(s) for a <select>. */
+  selectedOption?: string;
+  /** Checked state for checkbox/radio inputs and aria-checked controls. */
+  checked?: boolean;
+  /** Whether the control is disabled. */
+  disabled?: boolean;
+  /** aria-expanded state for comboboxes/disclosure controls. */
+  expanded?: boolean;
+  /** Available options for a native <select>. */
+  options?: BrowserSelectOption[];
 }
 
 export interface BrowserClickRequest extends BrowserTargetRequest {

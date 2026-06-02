@@ -413,6 +413,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         getMcpConfig: (loc, instanceId, provider) => this.spawnConfigBuilder.getMcpConfig(loc, instanceId, provider),
         getBrowserGatewayMcpOptions: (loc, instanceId, provider) =>
           this.spawnConfigBuilder.getBrowserGatewayMcpOptions(loc, instanceId, provider),
+        getChromeDevtoolsMcpOptions: (loc) => this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(loc),
         getPermissionHookPath: (yolo) => this.spawnConfigBuilder.getPermissionHookPath(yolo),
         waitForResumeHealth: (id) => this.waitForResumeHealth(id),
         createCliAdapter: (cliType, options, loc) => this.createRuntimeAdapter(cliType as CliType, options, loc),
@@ -479,6 +480,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       getMcpConfig: (loc, instanceId, provider) => this.spawnConfigBuilder.getMcpConfig(loc, instanceId, provider),
       getBrowserGatewayMcpOptions: (loc, instanceId, provider) =>
         this.spawnConfigBuilder.getBrowserGatewayMcpOptions(loc, instanceId, provider),
+      getChromeDevtoolsMcpOptions: (loc) => this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(loc),
       getPermissionHookPath: (yolo) => this.spawnConfigBuilder.getPermissionHookPath(yolo),
       waitForResumeHealth: (id, timeoutMs) => this.waitForResumeHealth(id, timeoutMs),
       waitForAdapterWritable: (id, timeoutMs) => this.waitForAdapterWritable(id, timeoutMs),
@@ -1410,6 +1412,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           disallowedTools: toolPermissions.disallowedToolsForSpawn,
           resume: config.resume,
           mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, resolvedCliType),
+          chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
           browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
             instance.executionLocation,
             instance.id,
@@ -1870,6 +1873,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           model: instance.currentModel,
           resume: canAttemptNativeResume,
           mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
+          chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
           browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
             instance.executionLocation,
             instance.id,
@@ -2057,6 +2061,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         resume: true,
         forkSession: false,
         mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
+        chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
         browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
           instance.executionLocation,
           instance.id,
@@ -2129,6 +2134,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         resume: false,
         forkSession: false,
         mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
+        chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
         browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
           instance.executionLocation,
           instance.id,
@@ -2369,6 +2375,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           resume: false,
           forkSession: false,
           mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
+          chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
           browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
             instance.executionLocation,
             instance.id,
@@ -2525,6 +2532,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         resume: shouldResume,
         forkSession: shouldForkSession,
         mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
+        chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
         browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
           instance.executionLocation,
           instance.id,
@@ -2702,6 +2710,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         resume: shouldResume,
         forkSession: shouldForkSession,
         mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
+        chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
         browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
           instance.executionLocation,
           instance.id,
@@ -2935,6 +2944,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         resume: shouldResume,
         forkSession: shouldForkSession,
         mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
+        chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
         browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(
           instance.executionLocation,
           instance.id,

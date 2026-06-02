@@ -20,6 +20,7 @@ export interface BrowserProcessRuntime {
 export interface BrowserProcessLauncherOptions {
   exists?: (candidate: string) => boolean | Promise<boolean>;
   allocatePort?: () => Promise<number>;
+  isPortAvailable?: (port: number) => Promise<boolean>;
   createTempDir?: (prefix: string) => Promise<string>;
   removeDir?: (dir: string) => Promise<void>;
   profileStore?: Pick<BrowserProfileStore, 'setRuntimeState'>;
@@ -31,6 +32,13 @@ export interface BrowserLaunchProfileOptions {
   profile: BrowserProfile;
   userDataDir: string;
   startUrl?: string;
+  /**
+   * Pin the CDP remote-debugging port (used when chrome-devtools attach is
+   * enabled for this profile so the spawn-time `--browserUrl` always matches).
+   * Hard-fails the launch if the port is already in use rather than drifting to
+   * a different port. When omitted, a random free port is allocated.
+   */
+  preferredDebugPort?: number;
 }
 
 const CHROME_COMMANDS = [
@@ -81,6 +89,16 @@ async function defaultRemoveDir(dir: string): Promise<void> {
   await fsp.rm(dir, { recursive: true, force: true });
 }
 
+async function defaultIsPortAvailable(port: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.listen(port, '127.0.0.1', () => {
+      server.close((error) => resolve(!error));
+    });
+  });
+}
+
 export async function allocateLocalhostPort(): Promise<number> {
   return new Promise<number>((resolve, reject) => {
     const server = net.createServer();
@@ -107,6 +125,7 @@ export async function allocateLocalhostPort(): Promise<number> {
 export class BrowserProcessLauncher {
   private readonly exists: (candidate: string) => boolean | Promise<boolean>;
   private readonly allocatePort: () => Promise<number>;
+  private readonly isPortAvailable: (port: number) => Promise<boolean>;
   private readonly createTempDir: (prefix: string) => Promise<string>;
   private readonly removeDir: (dir: string) => Promise<void>;
   private readonly profileStore: Pick<BrowserProfileStore, 'setRuntimeState'>;
@@ -117,6 +136,7 @@ export class BrowserProcessLauncher {
   constructor(options: BrowserProcessLauncherOptions = {}) {
     this.exists = options.exists ?? defaultExists;
     this.allocatePort = options.allocatePort ?? allocateLocalhostPort;
+    this.isPortAvailable = options.isPortAvailable ?? defaultIsPortAvailable;
     this.createTempDir = options.createTempDir ?? defaultCreateTempDir;
     this.removeDir = options.removeDir ?? defaultRemoveDir;
     this.profileStore = options.profileStore ?? getBrowserProfileStore();
@@ -131,7 +151,7 @@ export class BrowserProcessLauncher {
     }
 
     const executablePath = await this.findChromeExecutable();
-    const debugPort = await this.allocatePort();
+    const debugPort = await this.resolveDebugPort(options.preferredDebugPort);
     const userDataDir = await this.userDataDirForLaunch(options.profile, options.userDataDir);
     let browser: Browser | null = null;
     try {
@@ -204,6 +224,27 @@ export class BrowserProcessLauncher {
       }
       throw error;
     }
+  }
+
+  /**
+   * Resolve the CDP debug port for a launch. With a preferred (pinned) port we
+   * require it to be free and fail loudly otherwise — silently drifting to a
+   * different port would invalidate the chrome-devtools `--browserUrl` that was
+   * baked into the agent's MCP config at spawn time.
+   */
+  private async resolveDebugPort(preferredDebugPort?: number): Promise<number> {
+    if (typeof preferredDebugPort === 'number') {
+      const available = await this.isPortAvailable(preferredDebugPort);
+      if (!available) {
+        throw new Error(
+          `Managed profile debug port ${preferredDebugPort} is already in use, so chrome-devtools `
+          + `cannot attach to this profile. Free 127.0.0.1:${preferredDebugPort} (close the process `
+          + 'using it) and relaunch the profile.',
+        );
+      }
+      return preferredDebugPort;
+    }
+    return this.allocatePort();
   }
 
   getBrowser(profileId: string): Browser | null {

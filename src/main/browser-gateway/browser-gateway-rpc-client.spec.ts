@@ -67,6 +67,47 @@ describe('BrowserGatewayRpcClient', () => {
     });
   });
 
+  it('extends the socket timeout for waiting operations beyond the base timeout', async () => {
+    // A server that replies after a short delay. With a deliberately tiny base
+    // timeout, a normal call must give up, but wait_for must extend its budget
+    // (payload.timeoutMs + buffer) and succeed — guarding the timeout-cascade
+    // fix where a flat 15s client timeout cut off slow-but-valid operations.
+    const socketPath = path.join(os.tmpdir(), `browser-gateway-slow-${process.pid}.sock`);
+    const server = net.createServer((socket) => {
+      socket.on('data', (chunk) => {
+        const request = JSON.parse(chunk.toString('utf-8'));
+        setTimeout(() => {
+          socket.end(
+            `${JSON.stringify({
+              jsonrpc: '2.0',
+              id: request.id,
+              result: { method: request.method },
+            })}\n`,
+          );
+        }, 150);
+      });
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+
+    const client = new BrowserGatewayRpcClient({
+      env: {
+        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: socketPath,
+        AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+      },
+      timeoutMs: 50,
+    });
+
+    // Non-waiting call uses the (tiny) base timeout and gives up.
+    await expect(client.call('browser.navigate', {})).resolves.toMatchObject({
+      reason: 'browser_gateway_unavailable',
+    });
+    // wait_for extends to payload.timeoutMs + buffer, so 150ms is well within budget.
+    await expect(
+      client.call('browser.wait_for', { timeoutMs: 1_000 }),
+    ).resolves.toMatchObject({ method: 'browser.wait_for' });
+  });
+
   it('returns parent-side RPC errors without masking them as unavailable', async () => {
     const socketPath = path.join(os.tmpdir(), `browser-gateway-error-${process.pid}.sock`);
     const server = net.createServer((socket) => {

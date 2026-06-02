@@ -122,8 +122,11 @@
                               <button
                                 type="button"
                                 class="file-row file-row-clickable"
-                                (click)="store.openDiff(repo, file, true)"
-                                [title]="file.path + ' — click to open full diff modal'"
+                                [class.selected]="isSelected(repo, file.path)"
+                                draggable="true"
+                                (dragstart)="onFileDragStart($event, repo, file.path)"
+                                (click)="onFileRowClick($event, repo, file.path, { file: file, staged: true })"
+                                [title]="file.path + ' — click to open diff · ⌘/⇧-click to multi-select · drag to attach'"
                               >
                                 <span
                                   class="status-badge"
@@ -187,8 +190,11 @@
                               <button
                                 type="button"
                                 class="file-row file-row-clickable"
-                                (click)="store.openDiff(repo, file, false)"
-                                [title]="file.path + ' — click to open full diff modal'"
+                                [class.selected]="isSelected(repo, file.path)"
+                                draggable="true"
+                                (dragstart)="onFileDragStart($event, repo, file.path)"
+                                (click)="onFileRowClick($event, repo, file.path, { file: file, staged: false })"
+                                [title]="file.path + ' — click to open diff · ⌘/⇧-click to multi-select · drag to attach'"
                               >
                                 <span
                                   class="status-badge"
@@ -245,11 +251,19 @@
                                  chevron'd staged/unstaged rows. Untracked
                                  files have no diff to expand. -->
                             <span class="file-expand-chevron-spacer" aria-hidden="true"></span>
-                            <div class="file-row" [title]="path">
+                            <button
+                              type="button"
+                              class="file-row file-row-clickable"
+                              [class.selected]="isSelected(repo, path)"
+                              draggable="true"
+                              (dragstart)="onFileDragStart($event, repo, path)"
+                              (click)="onFileRowClick($event, repo, path, null)"
+                              [title]="path + ' — ⌘/⇧-click to multi-select · drag to attach'"
+                            >
                               <span class="status-badge status-untracked" title="Untracked">?</span>
                               <span class="file-name">{{ fileBasename(path) }}</span>
                               <span class="file-dir">{{ fileDirname(path) }}</span>
-                            </div>
+                            </button>
                             <button
                               type="button"
                               class="file-action file-action-discard"

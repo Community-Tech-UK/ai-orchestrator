@@ -441,6 +441,115 @@ describe('orchestrator MCP tools', () => {
     await expect(readTool!.handler({ limit: 5 })).rejects.toThrow();
   });
 
+  it('create_automation forwards parsed args + caller id to the injected creator', async () => {
+    const db = createDb();
+    const calls: { args: unknown; meta: unknown }[] = [];
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: 'chat-instance-1',
+      createAutomation: async (args, meta) => {
+        calls.push({ args, meta });
+        return {
+          id: 'auto-1',
+          name: args.name,
+          scheduleSummary: `cron ${args.cron} (UTC)`,
+          nextRunAt: 123,
+          enabled: true,
+          workingDirectory: '/repo',
+        };
+      },
+    });
+    const tool = tools.find((t) => t.name === 'create_automation');
+    expect(tool).toBeDefined();
+
+    const result = await tool!.handler({
+      name: 'Daily PR sweep',
+      prompt: 'Review open PRs',
+      cron: '0 9 * * 1-5',
+    });
+
+    expect(calls).toEqual([
+      {
+        args: { name: 'Daily PR sweep', prompt: 'Review open PRs', cron: '0 9 * * 1-5' },
+        meta: { callerInstanceId: 'chat-instance-1' },
+      },
+    ]);
+    expect(result).toMatchObject({ id: 'auto-1', name: 'Daily PR sweep', enabled: true });
+  });
+
+  it('create_automation requires a cron or runAt', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      createAutomation: async () => {
+        throw new Error('should not be called');
+      },
+    });
+    const tool = tools.find((t) => t.name === 'create_automation');
+
+    await expect(tool!.handler({ name: 'X', prompt: 'do a thing' })).rejects.toThrow();
+  });
+
+  it('create_automation requires a name and prompt', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      createAutomation: async () => {
+        throw new Error('should not be called');
+      },
+    });
+    const tool = tools.find((t) => t.name === 'create_automation');
+
+    await expect(tool!.handler({ cron: '0 9 * * *' })).rejects.toThrow();
+  });
+
+  it('create_automation rejects when no creator is wired', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({ db, instanceId: null });
+    const tool = tools.find((t) => t.name === 'create_automation');
+
+    await expect(
+      tool!.handler({ name: 'X', prompt: 'do a thing', cron: '0 9 * * *' }),
+    ).rejects.toThrow(/unavailable/);
+  });
+
+  it('list_automations forwards to the injected lister', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      listAutomations: async () => ({
+        count: 1,
+        automations: [
+          {
+            id: 'auto-1',
+            name: 'Daily PR sweep',
+            scheduleSummary: 'cron 0 9 * * 1-5 (UTC)',
+            enabled: true,
+            nextRunAt: 123,
+            lastRunAt: null,
+            workingDirectory: '/repo',
+          },
+        ],
+      }),
+    });
+    const tool = tools.find((t) => t.name === 'list_automations');
+    expect(tool).toBeDefined();
+
+    const result = await tool!.handler({});
+    expect(result).toMatchObject({ count: 1 });
+  });
+
+  it('list_automations rejects when no lister is wired', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({ db, instanceId: null });
+    const tool = tools.find((t) => t.name === 'list_automations');
+
+    await expect(tool!.handler({})).rejects.toThrow(/unavailable/);
+  });
+
   function createDb(): SqliteDriver {
     const db = defaultDriverFactory(':memory:');
     createOperatorTables(db);

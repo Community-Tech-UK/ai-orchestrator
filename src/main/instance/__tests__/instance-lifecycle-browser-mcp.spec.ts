@@ -21,6 +21,8 @@ vi.mock('electron', () => ({
 const browserGatewayMocks = vi.hoisted(() => ({
   buildBrowserGatewayMcpConfigJson: vi.fn(() => '{"mcpServers":{"browser-gateway":{}}}'),
   getBrowserGatewayRpcSocketPath: vi.fn(() => '/tmp/browser-gateway.sock'),
+  buildChromeDevtoolsMcpConfigJson: vi.fn(() => '{"mcpServers":{"chrome-devtools":{}}}'),
+  resolveChromeDevtoolsBrowserUrl: vi.fn(() => 'http://127.0.0.1:31234'),
 }));
 
 const mcpInjectionMocks = vi.hoisted(() => ({
@@ -47,6 +49,8 @@ const aioMcpPathMocks = vi.hoisted(() => ({
 vi.mock('../../browser-gateway', () => ({
   buildBrowserGatewayMcpConfigJson: browserGatewayMocks.buildBrowserGatewayMcpConfigJson,
   getBrowserGatewayRpcSocketPath: browserGatewayMocks.getBrowserGatewayRpcSocketPath,
+  buildChromeDevtoolsMcpConfigJson: browserGatewayMocks.buildChromeDevtoolsMcpConfigJson,
+  resolveChromeDevtoolsBrowserUrl: browserGatewayMocks.resolveChromeDevtoolsBrowserUrl,
 }));
 
 vi.mock('../../mcp/mcp-multi-provider-singletons', () => ({
@@ -240,9 +244,19 @@ describe('SpawnConfigBuilder — MCP configs route through the aio-mcp SEA + RPC
   });
 });
 
-function makeBuilder(overrides: { codememEnabled?: boolean } = {}): SpawnConfigBuilder {
+function makeBuilder(
+  overrides: {
+    codememEnabled?: boolean;
+    chromeDevtoolsAttachEnabled?: boolean;
+    chromeDevtoolsAttachProfileId?: string;
+  } = {},
+): SpawnConfigBuilder {
   const settings = {
-    getAll: () => ({ codememEnabled: overrides.codememEnabled ?? false }),
+    getAll: () => ({
+      codememEnabled: overrides.codememEnabled ?? false,
+      chromeDevtoolsAttachEnabled: overrides.chromeDevtoolsAttachEnabled ?? false,
+      chromeDevtoolsAttachProfileId: overrides.chromeDevtoolsAttachProfileId ?? '',
+    }),
     get: () => undefined,
   } as unknown as SettingsManager;
   return new SpawnConfigBuilder({ settings });

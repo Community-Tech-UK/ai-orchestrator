@@ -260,7 +260,11 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     targetId: targetIdProp,
     query: {
       ...stringProp,
-      description: 'Optional text, aria-label, title, placeholder, id, or test id filter for selector candidates.',
+      description:
+        'Optional text, aria-label, title, placeholder, id, or test id filter for selector candidates. '
+        + 'Each result also reports the control\'s current state — input/textarea/select value, the '
+        + 'selected option label (selectedOption) and full option list for a <select>, and checked for '
+        + 'checkbox/radio — so this tool can be used to read back and verify a dropdown or field value.',
     },
     limit: numberProp,
   }, ['profileId', 'targetId']),

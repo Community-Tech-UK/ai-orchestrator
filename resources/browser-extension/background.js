@@ -1298,6 +1298,59 @@ function pageBridgeScript(action, args) {
     return [...direct, ...nested];
   }
 
+  // Read back the current state of a form control so the agent can verify
+  // dropdowns, checkboxes, and inputs without acting. Native <select>s expose
+  // value + selected option label + the full option list; password values are
+  // never surfaced.
+  function controlState(element) {
+    const state = {};
+    const tag = (element.tagName || '').toUpperCase();
+    const type = (element.type || '').toLowerCase();
+    if (tag === 'SELECT') {
+      const options = Array.from(element.options || []);
+      if (typeof element.value === 'string') {
+        state.value = element.value.slice(0, 1000);
+      }
+      const selectedLabel = options
+        .filter((option) => option.selected)
+        .map((option) => (option.label || option.textContent || option.value || '').trim())
+        .filter(Boolean)
+        .join(', ');
+      if (selectedLabel) {
+        state.selectedOption = selectedLabel.slice(0, 200);
+      }
+      state.options = options.slice(0, 50).map((option) => ({
+        value: String(option.value ?? '').slice(0, 200),
+        label: (option.label || option.textContent || '').trim().slice(0, 200),
+        selected: Boolean(option.selected),
+      }));
+    } else if (type === 'checkbox' || type === 'radio') {
+      state.checked = Boolean(element.checked);
+      if (typeof element.value === 'string' && element.value && element.value !== 'on') {
+        state.value = element.value.slice(0, 200);
+      }
+    } else if (type === 'password') {
+      // Never surface secret input values to the agent.
+    } else if (typeof element.value === 'string') {
+      state.value = element.value.slice(0, 1000);
+    } else if (element.isContentEditable) {
+      state.value = (element.textContent || '').slice(0, 1000);
+    }
+
+    if (element.disabled === true) {
+      state.disabled = true;
+    }
+    const ariaExpanded = element.getAttribute?.('aria-expanded');
+    if (ariaExpanded === 'true' || ariaExpanded === 'false') {
+      state.expanded = ariaExpanded === 'true';
+    }
+    const ariaChecked = element.getAttribute?.('aria-checked');
+    if (state.checked === undefined && (ariaChecked === 'true' || ariaChecked === 'false')) {
+      state.checked = ariaChecked === 'true';
+    }
+    return state;
+  }
+
   function queryElements(query, limit) {
     const normalizedQuery = query?.trim().toLowerCase();
     const max = Math.max(1, Math.min(limit ?? 50, 100));
@@ -1317,6 +1370,7 @@ function pageBridgeScript(action, args) {
         inputType: element.type,
         placeholder: element.placeholder,
         href: element.href,
+        ...controlState(element),
       }));
     return { elements };
   }

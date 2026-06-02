@@ -428,6 +428,15 @@ export const BrowserQueryElementsRequestSchema = BrowserTargetRequestSchema.exte
 }).strict();
 export type BrowserQueryElementsRequest = z.infer<typeof BrowserQueryElementsRequestSchema>;
 
+export const BrowserSelectOptionSchema = z
+  .object({
+    value: z.string().max(200),
+    label: z.string().max(200),
+    selected: z.boolean(),
+  })
+  .strict();
+export type BrowserSelectOption = z.infer<typeof BrowserSelectOptionSchema>;
+
 export const BrowserElementCandidateSchema = z
   .object({
     selector: z.string().min(1).max(2000),
@@ -438,6 +447,12 @@ export const BrowserElementCandidateSchema = z
     inputType: z.string().min(1).max(120).optional(),
     placeholder: z.string().min(1).max(500).optional(),
     href: webUrlSchema.optional(),
+    value: z.string().max(1000).optional(),
+    selectedOption: z.string().max(200).optional(),
+    checked: z.boolean().optional(),
+    disabled: z.boolean().optional(),
+    expanded: z.boolean().optional(),
+    options: z.array(BrowserSelectOptionSchema).max(50).optional(),
   })
   .strict();
 export type BrowserElementCandidate = z.infer<typeof BrowserElementCandidateSchema>;

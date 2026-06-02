@@ -10,7 +10,9 @@ import {
 } from './browser-gateway-rpc-server';
 import { prepareBrowserExtensionNativeHostRuntime } from './browser-extension-native-runtime';
 import { setBrowserGatewayMcpBridgeAvailabilityProvider } from './browser-health-service';
+import { deriveManagedDebugPort } from './chrome-devtools-attach';
 import { getLogger } from '../logging/logger';
+import { getSettingsManager } from '../core/config/settings-manager';
 import { resolveAioMcpCliPath } from '../util/aio-mcp-cli-path';
 
 const logger = getLogger('BrowserGatewayRuntime');
@@ -19,6 +21,8 @@ export * from './browser-audit-store';
 export * from './browser-action-classifier';
 export * from './browser-auto-approve';
 export * from './browser-approval-store';
+export * from './chrome-devtools-attach';
+export * from './chrome-devtools-mcp-config';
 export * from './browser-gateway-service';
 export * from './browser-gateway-rpc-client';
 export * from './browser-gateway-rpc-server';
@@ -51,6 +55,25 @@ export async function initializeBrowserGatewayRuntime(
 ): Promise<void> {
   const service = initializeBrowserGatewayService({
     autoApproveRequests: options.autoApproveRequests,
+    // Pin the managed profile's CDP port to the derived value when it is the
+    // designated chrome-devtools attach profile, so the agent's spawn-time
+    // `--browserUrl` matches the live port. Otherwise use a random free port.
+    resolvePreferredDebugPort: (profileId) => {
+      try {
+        const settings = getSettingsManager().getAll();
+        if (
+          settings.chromeDevtoolsAttachEnabled
+          && settings.chromeDevtoolsAttachProfileId?.trim() === profileId
+        ) {
+          return deriveManagedDebugPort(profileId);
+        }
+      } catch (error) {
+        logger.warn('Failed to resolve chrome-devtools attach debug port; using a random port', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return undefined;
+    },
   });
   const server = await initializeBrowserGatewayRpcServer({
     ...options,

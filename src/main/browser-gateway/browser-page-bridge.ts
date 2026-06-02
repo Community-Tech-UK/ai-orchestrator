@@ -25,6 +25,13 @@ interface PageBridgeRoot {
   querySelectorAll?: (selector: string) => ArrayLike<PageBridgeElement>;
 }
 
+interface PageBridgeOption {
+  value?: string;
+  label?: string;
+  textContent?: string | null;
+  selected?: boolean;
+}
+
 interface PageBridgeElement extends PageBridgeRoot {
   tagName?: string;
   id?: string;
@@ -35,6 +42,10 @@ interface PageBridgeElement extends PageBridgeRoot {
   name?: string;
   placeholder?: string;
   href?: string;
+  checked?: boolean;
+  disabled?: boolean;
+  selectedIndex?: number;
+  options?: ArrayLike<PageBridgeOption>;
   isContentEditable?: boolean;
   parentElement?: PageBridgeElement | null;
   children?: ArrayLike<PageBridgeElement>;
@@ -45,6 +56,15 @@ interface PageBridgeElement extends PageBridgeRoot {
   focus?: () => void;
   click?: () => void;
   dispatchEvent?: (event: unknown) => boolean;
+}
+
+interface PageBridgeControlState {
+  value?: string;
+  selectedOption?: string;
+  checked?: boolean;
+  disabled?: boolean;
+  expanded?: boolean;
+  options?: { value: string; label: string; selected: boolean }[];
 }
 
 interface PageBridgeDocument extends PageBridgeRoot {
@@ -264,6 +284,55 @@ function pageBridgeScript(input: PageBridgeInput): unknown {
     return [...direct, ...nested];
   }
 
+  function controlState(element: PageBridgeElement): PageBridgeControlState {
+    const state: PageBridgeControlState = {};
+    const tag = (element.tagName || '').toUpperCase();
+    const type = (element.type || '').toLowerCase();
+    if (tag === 'SELECT') {
+      const options = Array.from(element.options ?? []);
+      if (typeof element.value === 'string') {
+        state.value = element.value.slice(0, 1000);
+      }
+      const selectedLabel = options
+        .filter((option) => option.selected)
+        .map((option) => (option.label || option.textContent || option.value || '').trim())
+        .filter(Boolean)
+        .join(', ');
+      if (selectedLabel) {
+        state.selectedOption = selectedLabel.slice(0, 200);
+      }
+      state.options = options.slice(0, 50).map((option) => ({
+        value: String(option.value ?? '').slice(0, 200),
+        label: (option.label || option.textContent || '').trim().slice(0, 200),
+        selected: Boolean(option.selected),
+      }));
+    } else if (type === 'checkbox' || type === 'radio') {
+      state.checked = Boolean(element.checked);
+      if (typeof element.value === 'string' && element.value && element.value !== 'on') {
+        state.value = element.value.slice(0, 200);
+      }
+    } else if (type === 'password') {
+      // Never surface secret input values to the agent.
+    } else if (typeof element.value === 'string') {
+      state.value = element.value.slice(0, 1000);
+    } else if (element.isContentEditable) {
+      state.value = (element.textContent || '').slice(0, 1000);
+    }
+
+    if (element.disabled === true) {
+      state.disabled = true;
+    }
+    const ariaExpanded = element.getAttribute?.('aria-expanded');
+    if (ariaExpanded === 'true' || ariaExpanded === 'false') {
+      state.expanded = ariaExpanded === 'true';
+    }
+    const ariaChecked = element.getAttribute?.('aria-checked');
+    if (state.checked === undefined && (ariaChecked === 'true' || ariaChecked === 'false')) {
+      state.checked = ariaChecked === 'true';
+    }
+    return state;
+  }
+
   function queryElements(query: string | undefined, limit: number | undefined): unknown {
     const normalizedQuery = query?.trim().toLowerCase();
     const max = Math.max(1, Math.min(limit ?? 50, 100));
@@ -283,6 +352,7 @@ function pageBridgeScript(input: PageBridgeInput): unknown {
         inputType: element.type,
         placeholder: element.placeholder,
         href: element.href,
+        ...controlState(element),
       }));
     return { elements };
   }

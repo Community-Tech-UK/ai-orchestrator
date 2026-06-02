@@ -231,6 +231,9 @@ describe('adapter factory — copilot', () => {
     expect(systemPrompt).toContain('Do not use Browser Gateway managed profiles for authenticated user sessions.');
     expect(systemPrompt).toContain('ask the user to share the current tab');
     expect(systemPrompt).toContain('Do not tell the user to open /browser');
+    expect(systemPrompt).toContain('browser.query_elements');
+    expect(systemPrompt).toContain('chrome-devtools.*');
+    expect(systemPrompt).toContain('cannot see the user\'s shared authenticated tabs');
   });
 
   it('merges caller-provided Copilot MCP servers with Browser Gateway', () => {

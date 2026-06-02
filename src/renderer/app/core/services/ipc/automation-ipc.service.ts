@@ -77,6 +77,21 @@ export class AutomationIpcService {
     return this.api.automationTemplatesList() as Promise<IpcResponse<AutomationTemplate[]>>;
   }
 
+  /**
+   * Parse a natural-language description into an automation draft via the
+   * schema-backed `automation-draft` magic prompt (one-shot, no interactive
+   * instance). The inner result carries its own ok/error discriminator.
+   */
+  async draftFromText(payload: {
+    text: string;
+    context?: string;
+    provider?: string;
+    workingDirectory?: string;
+  }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.magicPromptRun({ id: 'automation-draft', ...payload });
+  }
+
   onChanged(callback: (event: unknown) => void): () => void {
     if (!this.api) return () => { /* noop */ };
     return this.api.onAutomationChanged((event) => {

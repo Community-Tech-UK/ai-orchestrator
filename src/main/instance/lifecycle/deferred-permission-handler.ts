@@ -14,6 +14,7 @@ import type { UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
 import type { ClaudeCliAdapter } from '../../cli/adapters/claude-cli-adapter';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
 import type { BrowserGatewayMcpConfigOptions } from '../../browser-gateway/browser-mcp-config';
+import type { ChromeDevtoolsMcpConfigOptions } from '../../browser-gateway/chrome-devtools-mcp-config';
 import { getLogger } from '../../logging/logger';
 import { planSessionRecovery } from './session-recovery';
 
@@ -45,6 +46,9 @@ export interface DeferredPermissionLifecycleOps {
     instanceId?: string,
     provider?: string,
   ) => BrowserGatewayMcpConfigOptions | null;
+  getChromeDevtoolsMcpOptions?: (
+    executionLocation?: ExecutionLocation,
+  ) => ChromeDevtoolsMcpConfigOptions | null;
   getPermissionHookPath: (yoloMode: boolean) => string | undefined;
   waitForResumeHealth: (instanceId: string) => Promise<boolean>;
   createCliAdapter: (cliType: string, options: UnifiedSpawnOptions, executionLocation?: ExecutionLocation) => CliAdapter;
@@ -160,6 +164,7 @@ export class DeferredPermissionHandler {
         model: instance.currentModel,
         resume: true,
         mcpConfig: this.ops.getMcpConfig(instance.executionLocation, instance.id, cliType),
+        chromeDevtoolsMcp: this.ops.getChromeDevtoolsMcpOptions?.(instance.executionLocation) ?? undefined,
         browserGatewayMcp: this.ops.getBrowserGatewayMcpOptions?.(
           instance.executionLocation,
           instance.id,

@@ -7,14 +7,46 @@ function stubClient(impl: OrchestratorToolsRpcClientLike['call']): OrchestratorT
 }
 
 describe('createOrchestratorToolsForwarderTools', () => {
-  it('exposes git_batch_pull, list_remote_nodes, run_on_node and read_node_output as the MCP tools', () => {
+  it('exposes the orchestrator MCP tools', () => {
     const tools = createOrchestratorToolsForwarderTools(stubClient(async () => null));
     expect(tools.map((t) => t.name)).toEqual([
       'git_batch_pull',
       'list_remote_nodes',
       'run_on_node',
       'read_node_output',
+      'create_automation',
+      'list_automations',
     ]);
+  });
+
+  it('forwards create_automation invocations with the canonical method name', async () => {
+    const call = vi.fn(async () => ({ id: 'auto-1', name: 'Daily sweep' }));
+    const tool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'create_automation',
+    );
+
+    const result = await tool!.handler({ name: 'Daily sweep', prompt: 'Review PRs', cron: '0 9 * * 1-5' });
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.create_automation', {
+      name: 'Daily sweep',
+      prompt: 'Review PRs',
+      cron: '0 9 * * 1-5',
+    });
+    expect(result).toEqual({ id: 'auto-1', name: 'Daily sweep' });
+  });
+
+  it('forwards list_automations invocations with the canonical method name', async () => {
+    const call = vi.fn(async () => ({ count: 0, automations: [] }));
+    const tool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'list_automations',
+    );
+
+    const result = await tool!.handler({});
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.list_automations', {});
+    expect(result).toEqual({ count: 0, automations: [] });
   });
 
   it('forwards list_remote_nodes invocations with the canonical method name', async () => {

@@ -11,6 +11,21 @@ export interface BrowserGatewayRpcClientLike {
 
 let nextRequestId = 1;
 
+// The bridge sits between the MCP host (≥30s tool timeout) and the parent
+// gateway, whose extension command store waits up to 30s — and far longer for
+// operations that intentionally wait (`wait_for` ≤120s, `download_file` ≤60s).
+// The previous flat 15s socket timeout was SHORTER than every layer it wrapped,
+// so any operation that legitimately took >15s surfaced as a misleading
+// `browser_gateway_unavailable` (observed live on `navigate`/`click`/
+// `query_elements`). A dead parent still fails fast via a socket error, so a
+// larger timeout costs nothing in the unavailable case — it only stops cutting
+// off slow-but-valid work.
+const DEFAULT_RPC_TIMEOUT_MS = 45_000;
+const MAX_RPC_TIMEOUT_MS = 130_000;
+const LONG_OP_TIMEOUT_BUFFER_MS = 15_000;
+const WAIT_FOR_DEFAULT_BUDGET_MS = 30_000;
+const DOWNLOAD_DEFAULT_BUDGET_MS = 60_000;
+
 class BrowserGatewayRpcError extends Error {
   constructor(message: string) {
     super(message);
@@ -63,7 +78,7 @@ export class BrowserGatewayRpcClient implements BrowserGatewayRpcClientLike {
 
   constructor(options: BrowserGatewayRpcClientOptions = {}) {
     this.env = options.env ?? process.env;
-    this.timeoutMs = options.timeoutMs ?? 15_000;
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_RPC_TIMEOUT_MS;
   }
 
   async call(method: string, payload: Record<string, unknown>): Promise<unknown> {
@@ -84,7 +99,7 @@ export class BrowserGatewayRpcClient implements BrowserGatewayRpcClientLike {
           ...(provider ? { provider } : {}),
           payload,
         },
-      });
+      }, this.resolveTimeoutMs(method, payload));
     } catch (error) {
       if (error instanceof BrowserGatewayRpcError) {
         return deniedForRpcError(error);
@@ -93,14 +108,32 @@ export class BrowserGatewayRpcClient implements BrowserGatewayRpcClientLike {
     }
   }
 
-  private send(socketPath: string, request: Record<string, unknown>): Promise<unknown> {
+  // Operations that intentionally wait carry their own budget; the socket must
+  // outlive that budget (plus overhead) or the wait can never report success.
+  private resolveTimeoutMs(method: string, payload: Record<string, unknown>): number {
+    if (method === 'browser.wait_for' || method === 'browser.download_file') {
+      const requested = typeof payload['timeoutMs'] === 'number' ? payload['timeoutMs'] : undefined;
+      const fallback = method === 'browser.wait_for'
+        ? WAIT_FOR_DEFAULT_BUDGET_MS
+        : DOWNLOAD_DEFAULT_BUDGET_MS;
+      const budget = (requested ?? fallback) + LONG_OP_TIMEOUT_BUFFER_MS;
+      return Math.min(MAX_RPC_TIMEOUT_MS, Math.max(this.timeoutMs, budget));
+    }
+    return this.timeoutMs;
+  }
+
+  private send(
+    socketPath: string,
+    request: Record<string, unknown>,
+    timeoutMs: number,
+  ): Promise<unknown> {
     return new Promise<unknown>((resolve, reject) => {
       const socket = net.connect(socketPath);
       let buffer = '';
       const timeout = setTimeout(() => {
         socket.destroy();
         reject(new Error('Browser Gateway RPC request timed out'));
-      }, this.timeoutMs);
+      }, timeoutMs);
 
       socket.on('connect', () => {
         socket.write(`${JSON.stringify(request)}\n`);

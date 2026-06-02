@@ -30,10 +30,14 @@ import { createOperatorTables } from '../operator/operator-schema';
 import { defaultOperatorDbPath } from '../operator/operator-database';
 import {
   createOrchestratorToolDefinitions,
+  CreateAutomationArgsSchema,
   GitBatchPullArgsSchema,
+  ListAutomationsArgsSchema,
   ListRemoteNodesArgsSchema,
   ReadNodeOutputArgsSchema,
   RunOnNodeArgsSchema,
+  type CreateAutomationFn,
+  type ListAutomationsFn,
   type ListRemoteNodesFn,
   type ReadInstanceOutputFn,
   type SpawnRemoteInstanceFn,
@@ -50,7 +54,7 @@ const logger = getLogger('OrchestratorToolsRpcServer');
  * alongside the depth guard enforced in the `run_on_node` handler.
  */
 const ORCHESTRATOR_TOOLSETS = createToolsetRegistry([
-  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'read_node_output'] },
+  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'read_node_output', 'create_automation', 'list_automations'] },
   { name: 'orchestrator-tools-leaf', includes: ['orchestrator-tools-full'], tools: ['!run_on_node'] },
 ]);
 
@@ -100,6 +104,19 @@ export interface OrchestratorToolsRpcServerOptions {
    */
   readInstanceOutput?: ReadInstanceOutputFn | null;
   /**
+   * Creates a scheduled automation (backs the `create_automation` tool).
+   * Injected from main-process startup so this server never imports the
+   * automation store/scheduler singletons directly. When omitted,
+   * `create_automation` rejects with an "unavailable" error.
+   */
+  createAutomation?: CreateAutomationFn | null;
+  /**
+   * Lists configured automations (backs the read-only `list_automations`
+   * tool). Injected from main-process startup. When omitted, `list_automations`
+   * rejects with an "unavailable" error.
+   */
+  listAutomations?: ListAutomationsFn | null;
+  /**
    * Returns whether the given instance may still spawn (i.e. is below the
    * configured spawn-depth limit). When it returns false, the spawn-capable
    * `run_on_node` tool is stripped from that instance's tool list (#18a). When
@@ -114,6 +131,8 @@ export interface OrchestratorToolsRpcServerOptions {
     listRemoteNodes: ListRemoteNodesFn | null;
     spawnRemoteInstance: SpawnRemoteInstanceFn | null;
     readInstanceOutput: ReadInstanceOutputFn | null;
+    createAutomation: CreateAutomationFn | null;
+    listAutomations: ListAutomationsFn | null;
   }) => McpServerToolDefinition[];
 }
 
@@ -126,6 +145,8 @@ export class OrchestratorToolsRpcServer {
   private readonly listRemoteNodes: ListRemoteNodesFn | null;
   private readonly spawnRemoteInstance: SpawnRemoteInstanceFn | null;
   private readonly readInstanceOutput: ReadInstanceOutputFn | null;
+  private readonly createAutomation: CreateAutomationFn | null;
+  private readonly listAutomations: ListAutomationsFn | null;
   private readonly resolveSpawnEligibility: ((instanceId: string) => boolean) | null;
   private readonly buckets = new Map<string, number[]>();
   private readonly toolFactory: NonNullable<OrchestratorToolsRpcServerOptions['toolFactory']>;
@@ -147,6 +168,8 @@ export class OrchestratorToolsRpcServer {
     this.listRemoteNodes = options.listRemoteNodes ?? null;
     this.spawnRemoteInstance = options.spawnRemoteInstance ?? null;
     this.readInstanceOutput = options.readInstanceOutput ?? null;
+    this.createAutomation = options.createAutomation ?? null;
+    this.listAutomations = options.listAutomations ?? null;
     this.resolveSpawnEligibility = options.resolveSpawnEligibility ?? null;
     this.toolFactoryInjected = options.toolFactory !== undefined;
     this.toolFactory = options.toolFactory ?? createOrchestratorToolDefinitions;
@@ -239,6 +262,24 @@ export class OrchestratorToolsRpcServer {
         const tool = tools.find((t) => t.name === 'read_node_output');
         if (!tool) {
           throw new Error('read_node_output tool unavailable');
+        }
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.create_automation': {
+        const validated = CreateAutomationArgsSchema.parse(params.payload);
+        const tools = this.getToolsForInstance(params.instanceId);
+        const tool = tools.find((t) => t.name === 'create_automation');
+        if (!tool) {
+          throw new Error('create_automation tool unavailable');
+        }
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.list_automations': {
+        const validated = ListAutomationsArgsSchema.parse(params.payload);
+        const tools = this.getToolsForInstance(params.instanceId);
+        const tool = tools.find((t) => t.name === 'list_automations');
+        if (!tool) {
+          throw new Error('list_automations tool unavailable');
         }
         return tool.handler(validated);
       }
@@ -354,6 +395,8 @@ export class OrchestratorToolsRpcServer {
         listRemoteNodes: this.listRemoteNodes,
         spawnRemoteInstance: this.spawnRemoteInstance,
         readInstanceOutput: this.readInstanceOutput,
+        createAutomation: this.createAutomation,
+        listAutomations: this.listAutomations,
       }));
     }
     this.ensureRuntimeReady();
@@ -367,6 +410,8 @@ export class OrchestratorToolsRpcServer {
       listRemoteNodes: this.listRemoteNodes,
       spawnRemoteInstance: this.spawnRemoteInstance,
       readInstanceOutput: this.readInstanceOutput,
+      createAutomation: this.createAutomation,
+      listAutomations: this.listAutomations,
     }));
   }
 

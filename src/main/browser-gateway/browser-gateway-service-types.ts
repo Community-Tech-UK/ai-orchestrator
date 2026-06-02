@@ -109,4 +109,10 @@ export interface BrowserGatewayServiceOptions {
   approvalStore?: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
   healthService?: Pick<BrowserHealthService, 'diagnose'>;
   autoApproveRequests?: BrowserAutoApprovePredicate;
+  /**
+   * Resolve a pinned CDP debug port for a profile launch, or undefined to use a
+   * random free port. Wired at the app root to consult chrome-devtools attach
+   * settings; left undefined in tests (no pinning).
+   */
+  resolvePreferredDebugPort?: (profileId: string) => number | undefined;
 }

@@ -33,6 +33,13 @@ import {
   buildBrowserGatewayMcpConfigJson,
   type BrowserGatewayMcpConfigOptions,
 } from '../../browser-gateway/browser-mcp-config';
+import {
+  buildChromeDevtoolsAcpMcpServers,
+  buildChromeDevtoolsCodexConfigToml,
+  buildChromeDevtoolsGeminiSettingsJson,
+  buildChromeDevtoolsMcpConfigJson,
+  type ChromeDevtoolsMcpConfigOptions,
+} from '../../browser-gateway/chrome-devtools-mcp-config';
 import type { AcpMcpServerConfig } from '../../../shared/types/cli.types';
 
 const logger = getLogger('AdapterFactory');
@@ -47,8 +54,19 @@ const BROWSER_GATEWAY_SYSTEM_PROMPT = [
   'If the user says the authenticated page is already open but Browser Gateway cannot see it, ask the user to share the current tab through the Browser Gateway extension, then retry browser.find_or_open or browser.list_targets.',
   'Do not ask the user to copy/paste page content, take screenshots, or gather browser data manually until the share-tab handoff has been tried.',
   'Then use browser.snapshot, browser.screenshot, browser.wait_for, browser.click, browser.type, browser.fill_form, and browser.select as needed.',
+  'To read back the current state of a control (e.g. verify which option a <select> dropdown shows, or whether a checkbox is checked), use browser.query_elements: each candidate reports its current value, the selected option label, the full option list for a <select>, and checked state.',
   'For login, captcha, two-factor, destructive, submit, credential, or unclear actions, use the Browser Gateway approval/manual-step tools instead of guessing.',
   'Do not tell the user to open /browser. /browser is only a Browser Gateway diagnostics and approval page, not the user browser.',
+  'Tool routing: browser.* is the ONLY way to reach the user\'s real authenticated everyday Chrome tabs (it shares their real cookies). Use it for any task that needs the user\'s existing logged-in session.',
+  'If chrome-devtools.* tools are available, prefer them for work that does NOT need the user\'s existing session — throwaway automation, sites where you can sign in yourself, or deep inspection (exact DOM values, accessibility tree, console, network, performance). They expose richer read-back (take_snapshot from the a11y tree, evaluate_script, network/console/perf) than browser.*.',
+  'chrome-devtools.* drives a SEPARATE Chrome instance and cannot see the user\'s shared authenticated tabs, so never try to hand a browser.* authenticated tab over to chrome-devtools.*. The two tools control different browsers.',
+].join('\n');
+
+const CHROME_DEVTOOLS_ATTACH_PROMPT = [
+  '[chrome-devtools attached to a managed browser profile]',
+  'The chrome-devtools.* tools are attached to an AIO-managed Chrome profile — the SAME browser the browser.* tools open and control. This is the one case where browser.* and chrome-devtools.* share a browser.',
+  'Workflow: first open and sign into the managed profile with browser.find_or_open (complete any login), THEN use chrome-devtools.* — it connects to that same live browser on first tool use, so the profile must be open first.',
+  'If a chrome-devtools.* tool reports it cannot connect to a browser, the managed profile is not running yet: open it via browser.* first, then retry.',
 ].join('\n');
 
 /**
@@ -73,6 +91,12 @@ export interface UnifiedSpawnOptions {
   mcpServers?: AcpMcpServerConfig[];
   /** Browser Gateway bridge options used to build provider-specific MCP config. */
   browserGatewayMcp?: BrowserGatewayMcpConfigOptions;
+  /**
+   * chrome-devtools attach options. When set, each provider gets a
+   * `chrome-devtools` MCP server configured with `--browserUrl` pointing at a
+   * managed profile's CDP endpoint (see chrome-devtools-mcp-config).
+   */
+  chromeDevtoolsMcp?: ChromeDevtoolsMcpConfigOptions;
   /** Enable Chrome extension integration (Claude CLI only).
    *  Defaults to false; managed browser access is exposed through Browser Gateway MCP. */
   chrome?: boolean;
@@ -188,18 +212,23 @@ function withBrowserGatewayProvider(
 }
 
 function withBrowserGatewaySystemPrompt(options: UnifiedSpawnOptions): UnifiedSpawnOptions {
-  if (!options.browserGatewayMcp) {
+  if (!options.browserGatewayMcp && !options.chromeDevtoolsMcp) {
     return options;
   }
   const existingPrompt = options.systemPrompt?.trim() ?? '';
   if (existingPrompt.includes('browser.find_or_open')) {
     return options;
   }
+  const sections = [existingPrompt];
+  if (options.browserGatewayMcp) {
+    sections.push(BROWSER_GATEWAY_SYSTEM_PROMPT);
+  }
+  if (options.chromeDevtoolsMcp) {
+    sections.push(CHROME_DEVTOOLS_ATTACH_PROMPT);
+  }
   return {
     ...options,
-    systemPrompt: [existingPrompt, BROWSER_GATEWAY_SYSTEM_PROMPT]
-      .filter(Boolean)
-      .join('\n\n---\n\n'),
+    systemPrompt: sections.filter(Boolean).join('\n\n---\n\n'),
   };
 }
 
@@ -244,21 +273,38 @@ function mergeSpawnEnv(options: UnifiedSpawnOptions, base: Record<string, string
   };
 }
 
-function writeGeminiBrowserGatewaySettings(
-  options: BrowserGatewayMcpConfigOptions | undefined,
-): string | undefined {
-  if (!options) {
-    return undefined;
+function mergeGeminiMcpServers(json: string | null, into: Record<string, unknown>): void {
+  if (!json) {
+    return;
   }
-  const settingsJson = buildBrowserGatewayGeminiSettingsJson(
-    withBrowserGatewayProvider(options, 'gemini'),
-  );
-  if (!settingsJson) {
+  const parsed = JSON.parse(json) as { mcpServers?: Record<string, unknown> };
+  Object.assign(into, parsed.mcpServers ?? {});
+}
+
+function writeGeminiBrowserGatewaySettings(
+  options: UnifiedSpawnOptions,
+): string | undefined {
+  const mcpServers: Record<string, unknown> = {};
+  if (options.browserGatewayMcp) {
+    mergeGeminiMcpServers(
+      buildBrowserGatewayGeminiSettingsJson(
+        withBrowserGatewayProvider(options.browserGatewayMcp, 'gemini'),
+      ),
+      mcpServers,
+    );
+  }
+  if (options.chromeDevtoolsMcp) {
+    mergeGeminiMcpServers(
+      buildChromeDevtoolsGeminiSettingsJson(options.chromeDevtoolsMcp),
+      mcpServers,
+    );
+  }
+  if (Object.keys(mcpServers).length === 0) {
     return undefined;
   }
   const dir = mkdtempSync(join(tmpdir(), 'ai-orchestrator-gemini-browser-mcp-'));
   const settingsPath = join(dir, 'settings.json');
-  writeFileSync(settingsPath, settingsJson, 'utf-8');
+  writeFileSync(settingsPath, JSON.stringify({ mcpServers }), 'utf-8');
   return settingsPath;
 }
 
@@ -299,6 +345,18 @@ function buildClaudeMcpConfig(options: UnifiedSpawnOptions): string[] | undefine
     && !configs.some((config) => config.includes('"browser-gateway"'))
   ) {
     configs.push(browserGatewayConfig);
+  }
+  // chrome-devtools attach is normally already present via getMcpConfig() (the
+  // spawn config builder pushes the inline JSON). Add it from the dedicated
+  // option as a fallback, deduping on the server key so it is never doubled.
+  const chromeDevtoolsConfig = options.chromeDevtoolsMcp
+    ? buildChromeDevtoolsMcpConfigJson(options.chromeDevtoolsMcp)
+    : null;
+  if (
+    chromeDevtoolsConfig
+    && !configs.some((config) => config.includes('"chrome-devtools"'))
+  ) {
+    configs.push(chromeDevtoolsConfig);
   }
   return configs.length > 0 ? configs : undefined;
 }
@@ -423,10 +481,18 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
  * Creates a Codex CLI adapter
  */
 export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapter {
-  const mcpServersConfigToml = options.browserGatewayMcp
-    ? buildBrowserGatewayCodexConfigToml(
-        withBrowserGatewayProvider(options.browserGatewayMcp, 'codex'),
-      )
+  const codexTomlBlocks = [
+    options.browserGatewayMcp
+      ? buildBrowserGatewayCodexConfigToml(
+          withBrowserGatewayProvider(options.browserGatewayMcp, 'codex'),
+        )
+      : null,
+    options.chromeDevtoolsMcp
+      ? buildChromeDevtoolsCodexConfigToml(options.chromeDevtoolsMcp)
+      : null,
+  ].filter((block): block is string => Boolean(block));
+  const mcpServersConfigToml = codexTomlBlocks.length > 0
+    ? codexTomlBlocks.join('\n\n')
     : null;
   const codexEnv = mergeSpawnEnv(options);
   extendEnvWithRtk(codexEnv, options.rtk);
@@ -456,7 +522,7 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
  * Creates a Gemini CLI adapter
  */
 export function createGeminiAdapter(options: UnifiedSpawnOptions): GeminiCliAdapter {
-  const browserGatewaySettingsPath = writeGeminiBrowserGatewaySettings(options.browserGatewayMcp);
+  const browserGatewaySettingsPath = writeGeminiBrowserGatewaySettings(options);
   const env = mergeSpawnEnv(options);
   if (browserGatewaySettingsPath) {
     env['GEMINI_CLI_SYSTEM_SETTINGS_PATH'] = browserGatewaySettingsPath;
@@ -516,9 +582,13 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
         withBrowserGatewayProvider(options.browserGatewayMcp, 'copilot'),
       )
     : [];
+  const chromeDevtoolsMcpServers = options.chromeDevtoolsMcp
+    ? buildChromeDevtoolsAcpMcpServers(options.chromeDevtoolsMcp)
+    : [];
   const copilotMcpServers = [
     ...(options.mcpServers ?? []),
     ...browserGatewayMcpServers,
+    ...chromeDevtoolsMcpServers,
   ];
   const additionalMcpConfig = buildCopilotAdditionalMcpConfig(copilotMcpServers);
   return new AcpCliAdapter({
@@ -576,6 +646,9 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
         withBrowserGatewayProvider(options.browserGatewayMcp, 'cursor'),
       )
     : [];
+  const chromeDevtoolsMcpServers = options.chromeDevtoolsMcp
+    ? buildChromeDevtoolsAcpMcpServers(options.chromeDevtoolsMcp)
+    : [];
   const env = mergeSpawnEnv(options);
   extendEnvWithRtk(env, options.rtk);
   return new AcpCliAdapter({
@@ -589,6 +662,7 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
     mcpServers: [
       ...(options.mcpServers ?? []),
       ...browserGatewayMcpServers,
+      ...chromeDevtoolsMcpServers,
     ],
     model: options.model,
     systemPrompt: options.systemPrompt,

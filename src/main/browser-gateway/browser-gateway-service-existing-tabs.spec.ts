@@ -573,4 +573,76 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
       },
     }));
   });
+
+  it('reports <select>, checkbox, and input control state so dropdowns can be verified', async () => {
+    const sendCommand = vi.fn(async () => ({
+      elements: [
+        {
+          selector: '#environment-select',
+          tagName: 'SELECT',
+          role: 'select',
+          value: 'sandbox_production',
+          selectedOption: 'Sandbox & Production',
+          disabled: false,
+          options: [
+            { value: 'sandbox', label: 'Sandbox', selected: false },
+            { value: 'sandbox_production', label: 'Sandbox & Production', selected: true },
+          ],
+        },
+        {
+          selector: '#agree',
+          tagName: 'INPUT',
+          inputType: 'checkbox',
+          checked: true,
+        },
+        {
+          selector: '#secret',
+          tagName: 'INPUT',
+          inputType: 'password',
+        },
+      ],
+    }));
+    const { service } = makeService({
+      profile: null,
+      profiles: [],
+      existingTab: appStoreConnectTab,
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.queryElements({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: appStoreConnectTab.profileId,
+      targetId: appStoreConnectTab.targetId,
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      data: [
+        {
+          selector: '#environment-select',
+          tagName: 'SELECT',
+          value: 'sandbox_production',
+          selectedOption: 'Sandbox & Production',
+          options: [
+            { value: 'sandbox', label: 'Sandbox', selected: false },
+            { value: 'sandbox_production', label: 'Sandbox & Production', selected: true },
+          ],
+        },
+        {
+          selector: '#agree',
+          tagName: 'INPUT',
+          checked: true,
+        },
+        {
+          selector: '#secret',
+          tagName: 'INPUT',
+        },
+      ],
+    });
+    // Password inputs must never leak a value back to the agent.
+    const passwordCandidate = (result.data as Array<Record<string, unknown>>)[2];
+    expect(passwordCandidate['value']).toBeUndefined();
+  });
 });
