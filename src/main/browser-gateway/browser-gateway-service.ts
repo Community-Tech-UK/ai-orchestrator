@@ -91,8 +91,6 @@ import {
 } from './browser-gateway-action-guard';
 import { autoApproveBrowserApproval } from './browser-auto-approve';
 import {
-  capGrantExpiresAt,
-  defaultGrantExpiresAt,
   defaultManualStepPrompt,
   extractTabPayload,
   manualStepActionClass,
@@ -109,6 +107,7 @@ import {
   BrowserExistingTabOperations,
   normalizeDownloadFileResult,
 } from './browser-existing-tab-operations';
+import { BrowserGatewayApprovalOperations } from './browser-gateway-approval-operations';
 import type {
   BrowserGatewayAttachExistingTabRequest,
   BrowserGatewayAuditLogRequest,
@@ -181,6 +180,7 @@ export class BrowserGatewayService {
   private readonly actionGuard: BrowserGatewayActionGuard;
   private readonly resultRecorder: BrowserGatewayResultRecorder;
   private readonly existingTabOperations: BrowserExistingTabOperations;
+  private readonly approvalOperations: BrowserGatewayApprovalOperations;
 
   constructor(options: BrowserGatewayServiceOptions = {}) {
     this.profileStore = options.profileStore ?? getBrowserProfileStore();
@@ -202,6 +202,12 @@ export class BrowserGatewayService {
       approvalStore: this.approvalStore,
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
       autoApproveApproval: (approval) => this.autoApproveApproval(approval),
+    });
+    this.approvalOperations = new BrowserGatewayApprovalOperations({
+      approvalStore: this.approvalStore,
+      grantStore: this.grantStore,
+      profileStore: this.profileStore,
+      result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
     });
     this.actionGuard = new BrowserGatewayActionGuard({
       profileStore: this.profileStore,
@@ -1834,304 +1840,49 @@ export class BrowserGatewayService {
   async getApprovalStatus(
     request: BrowserGatewayContext & BrowserApprovalStatusRequest,
   ): Promise<BrowserGatewayResult<BrowserApprovalRequest | null>> {
-    const approval = this.getScopedApprovalRequest(request.requestId, request.instanceId);
-    if (!approval) {
-      return this.result({
-        context: request,
-        action: 'get_approval_status',
-        toolName: 'browser.get_approval_status',
-        actionClass: 'read',
-        decision: 'denied',
-        outcome: 'not_run',
-        reason: 'approval_request_not_found',
-        summary: 'Browser approval request was not found for this instance',
-        data: null,
-      });
-    }
-
-    const current = this.expireApprovalIfNeeded(approval);
-    return this.result({
-      context: request,
-      profileId: current.profileId,
-      targetId: current.targetId,
-      action: 'get_approval_status',
-      toolName: 'browser.get_approval_status',
-      actionClass: 'read',
-      decision: 'allowed',
-      outcome: 'succeeded',
-      summary: 'Read Browser Gateway approval request status',
-      data: current,
-    });
+    return this.approvalOperations.getApprovalStatus(request);
   }
 
   async listApprovalRequests(
     request: BrowserGatewayContext & BrowserListApprovalRequestsRequest = {},
   ): Promise<BrowserGatewayResult<BrowserApprovalRequest[]>> {
-    const approvals = this.approvalStore.listRequests({
-      instanceId: request.instanceId,
-      status: request.status,
-      limit: request.limit ?? 100,
-    }).map((approval) => this.expireApprovalIfNeeded(approval));
-    return this.result({
-      context: request,
-      action: 'list_approval_requests',
-      toolName: 'browser.list_approval_requests',
-      actionClass: 'read',
-      decision: 'allowed',
-      outcome: 'succeeded',
-      summary: `Listed ${approvals.length} Browser Gateway approval requests`,
-      data: approvals,
-    });
+    return this.approvalOperations.listApprovalRequests(request);
   }
 
   async getApprovalRequest(
     request: BrowserGatewayContext & BrowserApprovalRequestLookup,
   ): Promise<BrowserGatewayResult<BrowserApprovalRequest | null>> {
-    const approval = this.getScopedApprovalRequest(request.requestId, request.instanceId);
-    if (!approval) {
-      return this.result({
-        context: request,
-        action: 'get_approval_request',
-        toolName: 'browser.get_approval_request',
-        actionClass: 'read',
-        decision: 'denied',
-        outcome: 'not_run',
-        reason: 'approval_request_not_found',
-        summary: 'Browser approval request was not found',
-        data: null,
-      });
-    }
-    const current = this.expireApprovalIfNeeded(approval);
-    return this.result({
-      context: request,
-      profileId: current.profileId,
-      targetId: current.targetId,
-      action: 'get_approval_request',
-      toolName: 'browser.get_approval_request',
-      actionClass: 'read',
-      decision: 'allowed',
-      outcome: 'succeeded',
-      summary: 'Read Browser Gateway approval request',
-      data: current,
-    });
+    return this.approvalOperations.getApprovalRequest(request);
   }
 
   async approveRequest(
     request: BrowserGatewayContext & BrowserApproveRequestPayload,
   ): Promise<BrowserGatewayResult<BrowserPermissionGrant | null>> {
-    const approval = this.getScopedApprovalRequest(request.requestId, request.instanceId);
-    if (!approval) {
-      return this.result({
-        context: request,
-        action: 'approve_request',
-        toolName: 'browser.approve_request',
-        actionClass: 'read',
-        decision: 'denied',
-        outcome: 'not_run',
-        reason: 'approval_request_not_found',
-        summary: 'Browser approval request could not be approved because it was not found',
-        data: null,
-      });
-    }
-    if (approval.status !== 'pending' || approval.expiresAt <= Date.now()) {
-      const current = this.expireApprovalIfNeeded(approval);
-      return this.result({
-        context: request,
-        profileId: approval.profileId,
-        targetId: approval.targetId,
-        action: 'approve_request',
-        toolName: 'browser.approve_request',
-        actionClass: approval.actionClass,
-        decision: 'denied',
-        outcome: 'not_run',
-        reason: `approval_request_${current.status}`,
-        summary: 'Browser approval request is no longer pending',
-        data: null,
-      });
-    }
-
-    const now = Date.now();
-    const grant = this.grantStore.createGrant({
-      ...request.grant,
-      autonomous: request.grant.mode === 'autonomous' && request.grant.autonomous,
-      instanceId: approval.instanceId,
-      provider: approval.provider,
-      profileId: approval.profileId,
-      targetId: approval.targetId,
-      requestedBy: approval.instanceId,
-      decidedBy: 'user',
-      decision: 'allow',
-      reason: request.reason,
-      expiresAt: defaultGrantExpiresAt(request.grant.mode, now),
-    });
-    this.approvalStore.resolveRequest(approval.requestId, {
-      status: 'approved',
-      grantId: grant.id,
-    });
-    if (approval.toolName === 'browser.request_user_login') {
-      try {
-        if (this.profileStore.getProfile(approval.profileId)) {
-          this.profileStore.setRuntimeState(approval.profileId, {
-            lastLoginCheckAt: now,
-          });
-        }
-      } catch {
-        // Existing-tab login handoffs do not have managed profile runtime state.
-      }
-    }
-
-    return this.result({
-      context: request,
-      profileId: approval.profileId,
-      targetId: approval.targetId,
-      action: 'approve_request',
-      toolName: 'browser.approve_request',
-      actionClass: approval.actionClass,
-      decision: 'allowed',
-      outcome: 'succeeded',
-      summary: 'Approved Browser Gateway request and created grant',
-      origin: approval.origin,
-      url: approval.url,
-      requestId: undefined,
-      grantId: grant.id,
-      autonomous: grant.autonomous,
-      data: grant,
-    });
+    return this.approvalOperations.approveRequest(request);
   }
 
   async denyRequest(
     request: BrowserGatewayContext & BrowserDenyRequestPayload,
   ): Promise<BrowserGatewayResult<BrowserApprovalRequest | null>> {
-    const approval = this.getScopedApprovalRequest(request.requestId, request.instanceId);
-    if (!approval) {
-      return this.result({
-        context: request,
-        action: 'deny_request',
-        toolName: 'browser.deny_request',
-        actionClass: 'read',
-        decision: 'denied',
-        outcome: 'not_run',
-        reason: 'approval_request_not_found',
-        summary: 'Browser approval request could not be denied because it was not found',
-        data: null,
-      });
-    }
-    const denied = this.approvalStore.resolveRequest(approval.requestId, {
-      status: 'denied',
-    });
-    return this.result({
-      context: request,
-      profileId: approval.profileId,
-      targetId: approval.targetId,
-      action: 'deny_request',
-      toolName: 'browser.deny_request',
-      actionClass: approval.actionClass,
-      decision: 'allowed',
-      outcome: 'succeeded',
-      summary: 'Denied Browser Gateway approval request',
-      origin: approval.origin,
-      url: approval.url,
-      data: denied,
-    });
+    return this.approvalOperations.denyRequest(request);
   }
 
   async createGrant(
     request: BrowserGatewayContext & BrowserCreateGrantRequest,
   ): Promise<BrowserGatewayResult<BrowserPermissionGrant>> {
-    const now = Date.now();
-    const grant = this.grantStore.createGrant({
-      mode: request.mode,
-      instanceId: request.instanceId,
-      provider: request.provider,
-      profileId: request.profileId,
-      targetId: request.targetId,
-      allowedOrigins: request.allowedOrigins,
-      allowedActionClasses: request.allowedActionClasses,
-      allowExternalNavigation: request.allowExternalNavigation,
-      uploadRoots: request.uploadRoots,
-      autonomous: request.mode === 'autonomous' && request.autonomous,
-      requestedBy: request.requestedBy,
-      decidedBy: 'user',
-      decision: 'allow',
-      reason: request.reason,
-      expiresAt: capGrantExpiresAt(request.mode, request.expiresAt, now),
-    });
-    return this.result({
-      context: request,
-      profileId: grant.profileId,
-      targetId: grant.targetId,
-      action: 'create_grant',
-      toolName: 'browser.create_grant',
-      actionClass: primaryActionClass(grant.allowedActionClasses),
-      decision: 'allowed',
-      outcome: 'succeeded',
-      summary: 'Created Browser Gateway grant',
-      grantId: grant.id,
-      autonomous: grant.autonomous,
-      data: grant,
-    });
+    return this.approvalOperations.createGrant(request);
   }
 
   async listGrants(
     request: BrowserGatewayContext & BrowserListGrantsRequest = {},
   ): Promise<BrowserGatewayResult<BrowserPermissionGrant[]>> {
-    const grants = this.grantStore.listGrants({
-      instanceId: request.instanceId,
-      profileId: request.profileId,
-      includeExpired: request.includeExpired,
-      limit: request.limit ?? 100,
-    });
-    return this.result({
-      context: request,
-      profileId: request.profileId,
-      action: 'list_grants',
-      toolName: 'browser.list_grants',
-      actionClass: 'read',
-      decision: 'allowed',
-      outcome: 'succeeded',
-      summary: `Listed ${grants.length} Browser Gateway grants`,
-      data: grants,
-    });
+    return this.approvalOperations.listGrants(request);
   }
 
   async revokeGrant(
     request: BrowserGatewayContext & BrowserRevokeGrantRequest,
   ): Promise<BrowserGatewayResult<BrowserPermissionGrant | null>> {
-    if (request.instanceId) {
-      const ownGrant = this.grantStore.listGrants({
-        instanceId: request.instanceId,
-        includeExpired: true,
-      }).find((grant) => grant.id === request.grantId);
-      if (!ownGrant) {
-        return this.result({
-          context: request,
-          action: 'revoke_grant',
-          toolName: 'browser.revoke_grant',
-          actionClass: 'read',
-          decision: 'denied',
-          outcome: 'not_run',
-          reason: 'grant_not_found_for_instance',
-          summary: 'Browser grant was not found for this instance',
-          data: null,
-        });
-      }
-    }
-    const revoked = this.grantStore.revokeGrant(request.grantId, request.reason);
-    return this.result({
-      context: request,
-      profileId: revoked?.profileId,
-      targetId: revoked?.targetId,
-      action: 'revoke_grant',
-      toolName: 'browser.revoke_grant',
-      actionClass: 'read',
-      decision: revoked ? 'allowed' : 'denied',
-      outcome: revoked ? 'succeeded' : 'not_run',
-      reason: revoked ? undefined : 'grant_not_found',
-      summary: revoked ? 'Revoked Browser Gateway grant' : 'Browser grant was not found',
-      grantId: revoked?.id,
-      autonomous: revoked?.autonomous,
-      data: revoked,
-    });
+    return this.approvalOperations.revokeGrant(request);
   }
 
   private async createManualHandoffApproval(params: {
@@ -2416,13 +2167,6 @@ export class BrowserGatewayService {
     return this.resultRecorder.record(params);
   }
 
-  private getScopedApprovalRequest(
-    requestId: string,
-    instanceId?: string,
-  ): BrowserApprovalRequest | null {
-    return this.approvalStore.getRequest(requestId, instanceId);
-  }
-
   private autoApproveApproval(approval: BrowserApprovalRequest): BrowserPermissionGrant | null {
     return autoApproveBrowserApproval({
       approval,
@@ -2430,15 +2174,6 @@ export class BrowserGatewayService {
       grantStore: this.grantStore,
       autoApproveRequests: this.autoApproveRequests,
     });
-  }
-
-  private expireApprovalIfNeeded(approval: BrowserApprovalRequest): BrowserApprovalRequest {
-    if (approval.status !== 'pending' || approval.expiresAt > Date.now()) {
-      return approval;
-    }
-    return this.approvalStore.resolveRequest(approval.requestId, {
-      status: 'expired',
-    }) ?? approval;
   }
 
   private resolveProfileRoot(profile: BrowserProfile): string {
