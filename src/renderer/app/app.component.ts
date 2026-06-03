@@ -13,6 +13,7 @@ import { UsageStore } from './core/state/usage.store';
 import { PromptHistoryStore } from './core/state/prompt-history.store';
 import { ProviderQuotaChipComponent } from './shared/components/provider-quota-chip/provider-quota-chip.component';
 import { CliUpdatePillComponent } from './features/title-bar/cli-update-pill.component';
+import { TerminalDrawerComponent } from './features/terminal-drawer/terminal-drawer.component';
 import { SettingsStore } from './core/state/settings.store';
 import { PauseRendererController } from './core/state/pause/pause-renderer-controller.service';
 import { PauseStore, type ResumeEvent } from './core/state/pause/pause.store';
@@ -43,6 +44,7 @@ declare global {
     PauseToggleComponent,
     PauseBannerComponent,
     PauseDetectorErrorModalComponent,
+    TerminalDrawerComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './app.component.html',
@@ -89,6 +91,13 @@ export class AppComponent implements OnInit, OnDestroy {
   protected readonly startupStatusChipReport = computed(() => this.startupCapabilities());
 
   protected readonly resumeToast = signal<ResumeEvent | null>(null);
+
+  /** C2: remote-terminal drawer visibility (xterm.js ⇄ node-pty on a worker). */
+  protected readonly terminalOpen = signal(false);
+
+  protected toggleTerminal(): void {
+    this.terminalOpen.update((open) => !open);
+  }
 
   constructor() {
     effect(() => {
