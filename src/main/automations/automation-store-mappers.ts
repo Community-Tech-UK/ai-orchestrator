@@ -7,6 +7,7 @@ import type {
   AutomationSchedule,
   AutomationTriggerSource,
 } from '../../shared/types/automation.types';
+import { toWorkspaceId } from '../../shared/utils/workspace-key';
 import type { AutomationRow, AutomationRunRow } from './automation-store-records';
 
 type PersistedAutomationConfigSnapshot = Omit<AutomationConfigSnapshot, 'destination'> & {
@@ -57,17 +58,21 @@ export function normalizeSnapshot(snapshot: PersistedAutomationConfigSnapshot): 
 }
 
 export function mapAutomationRow(row: AutomationRow, destination: AutomationDestination): Automation {
+  const action = JSON.parse(row.action_json) as AutomationAction;
   return {
     id: row.id,
     name: row.name,
     description: row.description ?? undefined,
     enabled: row.enabled === 1,
     active: row.active === 1,
+    // Fall back to deriving from the action for rows read before migration 034
+    // backfilled the column (defensive — backfill makes this rare).
+    workspaceId: row.workspace_id ?? toWorkspaceId(action.workingDirectory),
     schedule: JSON.parse(row.schedule_json) as AutomationSchedule,
     missedRunPolicy: row.missed_run_policy,
     concurrencyPolicy: row.concurrency_policy,
     destination,
-    action: JSON.parse(row.action_json) as AutomationAction,
+    action,
     nextFireAt: row.next_fire_at,
     lastFiredAt: row.last_fired_at,
     lastRunId: row.last_run_id,
@@ -104,5 +109,7 @@ export function mapRunRow(row: AutomationRunRow): AutomationRun {
       : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    attempt: row.attempt ?? 1,
+    maxAttempts: row.max_attempts ?? 1,
   };
 }

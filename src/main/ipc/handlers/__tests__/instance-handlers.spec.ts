@@ -673,6 +673,7 @@ describe('instance-handlers', () => {
       expect(mockInstanceManager.resumeAfterDeferredPermission).toHaveBeenCalledWith(
         'inst-56',
         true,
+        undefined,
       );
       expect(mockInstanceManager.recordInputRequiredPermissionDecision).toHaveBeenCalledWith({
         instanceId: 'inst-56',
@@ -840,6 +841,113 @@ describe('instance-handlers', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('INPUT_REQUIRED_RESPOND_FAILED');
       expect(mockInstanceManager.sendInputResponse).not.toHaveBeenCalled();
+    });
+
+    // ----------------------------------------------------------
+    // modify decision — updatedInput threading + fail-safe guard
+    // ----------------------------------------------------------
+
+    it('threads updatedInput to resumeAfterDeferredPermission on modify decision', async () => {
+      vi.mocked(mockInstanceManager.resumeAfterDeferredPermission).mockResolvedValue(undefined);
+      const replacement = { command: 'echo safe' };
+
+      const result = await invoke(IPC_CHANNELS.INPUT_REQUIRED_RESPOND, {
+        instanceId: 'inst-60',
+        requestId: 'req-modify-1',
+        response: 'approved',
+        decisionAction: 'modify',
+        decisionScope: 'once',
+        metadata: { type: 'deferred_permission' },
+        updatedInput: replacement,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ requestId: 'req-modify-1', responded: true, resumed: true });
+      expect(mockInstanceManager.resumeAfterDeferredPermission).toHaveBeenCalledWith(
+        'inst-60',
+        true, // approved (modify is not deny)
+        replacement,
+      );
+      // 'modify' maps to 'allow' for PermissionManager
+      expect(mockInstanceManager.recordInputRequiredPermissionDecision).toHaveBeenCalledWith({
+        instanceId: 'inst-60',
+        requestId: 'req-modify-1',
+        action: 'allow',
+        scope: 'once',
+      });
+    });
+
+    it('rejects modify decision without updatedInput (fail-safe: no silent degrade to allow)', async () => {
+      // Schema-level: updatedInput required when decisionAction is 'modify'
+      const result = await invoke(IPC_CHANNELS.INPUT_REQUIRED_RESPOND, {
+        instanceId: 'inst-60',
+        requestId: 'req-modify-bad',
+        response: 'approved',
+        decisionAction: 'modify',
+        decisionScope: 'once',
+        metadata: { type: 'deferred_permission' },
+        // updatedInput intentionally absent
+      });
+
+      expect(result.success).toBe(false);
+      // Either schema validation or the defensive handler check fires
+      expect(result.error).toBeDefined();
+      expect(mockInstanceManager.resumeAfterDeferredPermission).not.toHaveBeenCalled();
+    });
+
+    it('rejects modify decision with empty updatedInput object (fail-safe)', async () => {
+      const result = await invoke(IPC_CHANNELS.INPUT_REQUIRED_RESPOND, {
+        instanceId: 'inst-60',
+        requestId: 'req-modify-empty',
+        response: 'approved',
+        decisionAction: 'modify',
+        decisionScope: 'once',
+        metadata: { type: 'deferred_permission' },
+        updatedInput: {}, // empty — invalid
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(mockInstanceManager.resumeAfterDeferredPermission).not.toHaveBeenCalled();
+    });
+
+    it('schema accepts allow with no updatedInput (backward-compat)', async () => {
+      vi.mocked(mockInstanceManager.resumeAfterDeferredPermission).mockResolvedValue(undefined);
+
+      const result = await invoke(IPC_CHANNELS.INPUT_REQUIRED_RESPOND, {
+        instanceId: 'inst-61',
+        requestId: 'req-allow-plain',
+        response: 'approved',
+        decisionAction: 'allow',
+        decisionScope: 'session',
+        metadata: { type: 'deferred_permission' },
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockInstanceManager.resumeAfterDeferredPermission).toHaveBeenCalledWith(
+        'inst-61',
+        true,
+        undefined, // no updatedInput for plain allow
+      );
+    });
+
+    it('schema accepts deny with no updatedInput (backward-compat)', async () => {
+      vi.mocked(mockInstanceManager.resumeAfterDeferredPermission).mockResolvedValue(undefined);
+
+      const result = await invoke(IPC_CHANNELS.INPUT_REQUIRED_RESPOND, {
+        instanceId: 'inst-62',
+        requestId: 'req-deny-plain',
+        response: 'denied',
+        decisionAction: 'deny',
+        metadata: { type: 'deferred_permission' },
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockInstanceManager.resumeAfterDeferredPermission).toHaveBeenCalledWith(
+        'inst-62',
+        false, // denied
+        undefined,
+      );
     });
   });
 });

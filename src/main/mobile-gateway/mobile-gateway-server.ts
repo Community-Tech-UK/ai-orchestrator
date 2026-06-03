@@ -113,7 +113,7 @@ export interface GatewayInstanceSource extends EmitterLike {
   sendInput(instanceId: string, message: string, attachments?: FileAttachment[]): Promise<void>;
   interruptInstance(instanceId: string): boolean;
   terminateInstance(instanceId: string, graceful?: boolean): Promise<void>;
-  resumeAfterDeferredPermission(instanceId: string, approved: boolean): Promise<void>;
+  resumeAfterDeferredPermission(instanceId: string, approved: boolean, updatedInput?: Record<string, unknown>): Promise<void>;
   recordInputRequiredPermissionDecision(params: {
     instanceId: string;
     requestId: string;
@@ -1047,18 +1047,56 @@ export class MobileGatewayServer {
       decisionAction?: unknown;
       decisionScope?: unknown;
       response?: unknown;
+      updatedInput?: unknown;
     };
     const requestId = typeof body.requestId === 'string' ? body.requestId : '';
-    const decisionAction = body.decisionAction === 'allow' || body.decisionAction === 'deny'
-      ? body.decisionAction
-      : null;
+    const decisionAction =
+      body.decisionAction === 'allow' || body.decisionAction === 'deny' || body.decisionAction === 'modify'
+        ? (body.decisionAction as 'allow' | 'deny' | 'modify')
+        : null;
     const decisionScope =
       body.decisionScope === 'once' || body.decisionScope === 'session' || body.decisionScope === 'always'
-        ? body.decisionScope
+        ? (body.decisionScope as 'once' | 'session' | 'always')
         : undefined;
+
+    // Parse and validate updatedInput: must be a plain non-empty object when present.
+    let updatedInput: Record<string, unknown> | undefined;
+    if (body.updatedInput !== undefined) {
+      if (
+        typeof body.updatedInput !== 'object' ||
+        body.updatedInput === null ||
+        Array.isArray(body.updatedInput) ||
+        Object.keys(body.updatedInput as object).length === 0
+      ) {
+        this.sendJson(res, 400, { error: 'updatedInput must be a non-empty plain object' });
+        return;
+      }
+      updatedInput = body.updatedInput as Record<string, unknown>;
+    }
+
     if (!requestId || !decisionAction) {
-      this.sendJson(res, 400, { error: 'requestId and decisionAction (allow|deny) required' });
+      this.sendJson(res, 400, { error: 'requestId and decisionAction (allow|deny|modify) required' });
       return;
+    }
+
+    // Fail-safe: 'modify' without updatedInput must never silently degrade to a
+    // plain allow of the original input.
+    if (decisionAction === 'modify' && !updatedInput) {
+      this.sendJson(res, 400, {
+        error: "decisionAction 'modify' requires a non-empty updatedInput object",
+      });
+      return;
+    }
+
+    // WARN: 'modify' depends on the installed Claude CLI honouring updatedInput in
+    // its PreToolUse hook reply.  If the CLI version does not support it, the tool
+    // will run with the ORIGINAL (unmodified) input.
+    if (decisionAction === 'modify') {
+      logger.warn('Mobile: deferred permission modify decision — CLI support unverified', {
+        instanceId,
+        requestId,
+        updatedInputKeys: Object.keys(updatedInput!),
+      });
     }
 
     const prompt = this.prompts.get(requestId);
@@ -1067,7 +1105,7 @@ export class MobileGatewayServer {
       return;
     }
 
-    const approved = decisionAction === 'allow';
+    const approved = decisionAction !== 'deny';
     if (prompt.kind === 'user-action') {
       const response = typeof body.response === 'string' ? body.response : undefined;
       this.source().getOrchestrationHandler().respondToUserAction(requestId, approved, response);
@@ -1076,12 +1114,16 @@ export class MobileGatewayServer {
       return;
     }
 
-    await this.source().resumeAfterDeferredPermission(instanceId, approved);
+    const resumeUpdatedInput = decisionAction === 'modify' ? updatedInput : undefined;
+    await this.source().resumeAfterDeferredPermission(instanceId, approved, resumeUpdatedInput);
     if (decisionScope) {
+      // Map 'modify' to 'allow' for permission record keeping — the modify semantics
+      // live at the orchestrator layer; PermissionManager only knows allow/deny.
+      const recordAction = decisionAction === 'modify' ? 'allow' : decisionAction;
       this.source().recordInputRequiredPermissionDecision({
         instanceId,
         requestId,
-        action: decisionAction,
+        action: recordAction,
         scope: decisionScope,
       });
     } else {

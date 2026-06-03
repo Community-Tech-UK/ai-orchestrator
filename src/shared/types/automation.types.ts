@@ -70,6 +70,14 @@ export interface Automation {
   description?: string;
   enabled: boolean;
   active: boolean;
+  /**
+   * Stable workspace/project identifier derived from `action.workingDirectory`
+   * (normalized: trimmed + lowercased; blank -> `'__no_workspace__'`). Lets the
+   * UI group automations by the project they target. Kept in sync with
+   * `action.workingDirectory` by the store on create/update; never set by
+   * callers. See `toWorkspaceId` in `shared/utils/workspace-key.ts`.
+   */
+  workspaceId: string;
   schedule: AutomationSchedule;
   missedRunPolicy: AutomationMissedRunPolicy;
   concurrencyPolicy: AutomationConcurrencyPolicy;
@@ -112,6 +120,10 @@ export interface AutomationRun {
   createdAt: number;
   updatedAt: number;
   configSnapshot: AutomationConfigSnapshot | null;
+  /** 1-based attempt number; 1 = first try, 2 = first retry, etc. */
+  attempt: number;
+  /** Maximum number of attempts allowed (including the first try). */
+  maxAttempts: number;
 }
 
 export interface CreateAutomationInput {

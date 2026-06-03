@@ -69,4 +69,8 @@ export const PROVIDER_CHANNELS = {
 
   // Provider runtime event forwarding (main -> renderer)
   PROVIDER_RUNTIME_EVENT: 'provider:runtime-event',
+
+  // Unified model catalog (main-process read-only catalog, renderer-pushed CLI discovery)
+  MODELS_UNIFIED_CATALOG: 'models:unified-catalog',
+  MODELS_CLI_PUSH: 'models:cli-push',
 } as const;

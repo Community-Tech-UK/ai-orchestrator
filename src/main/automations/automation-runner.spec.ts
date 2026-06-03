@@ -28,6 +28,7 @@ function makeAutomation(): Automation {
     name: 'Wake thread',
     enabled: true,
     active: true,
+    workspaceId: '/repo/current',
     schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
     missedRunPolicy: 'notify',
     concurrencyPolicy: 'skip',

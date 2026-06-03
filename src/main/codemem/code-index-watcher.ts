@@ -412,6 +412,10 @@ export class CodeIndexWatcher {
 
 export const DEFAULT_CODE_INDEX_IGNORES = [
   '.git/',
+  // Loop Mode runtime scratch (per-run state/attachments/control) — not source.
+  '.aio-loop-attachments/',
+  '.aio-loop-control/',
+  '.aio-loop-state/',
   '.angular/',
   '.cache/',
   '.gradle/',

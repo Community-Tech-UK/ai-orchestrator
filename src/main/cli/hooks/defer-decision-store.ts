@@ -48,22 +48,39 @@ export class DeferDecisionStore {
    *
    * VALIDATED: The hook receives tool_use_id on both initial invocation and resume.
    * Using tool_use_id as the filename ensures exact matching on resume.
+   *
+   * decision='modify': stored as permissionDecision='allow' with an additional
+   * `updatedInput` field carrying the replacement tool input. The CLI hook emits
+   * this field in its reply so that (when/if the Claude CLI honors updatedInput in
+   * a PreToolUse hook reply) the tool runs with the modified input instead of the
+   * original. Absent CLI support, the hook degrades to a plain allow.
    */
   writeDecision(
     toolUseId: string,
-    decision: 'allow' | 'deny',
-    reason?: string
+    decision: 'allow' | 'deny' | 'modify',
+    reason?: string,
+    updatedInput?: Record<string, unknown>,
   ): void {
     this.ensureDecisionDir();
     const filePath = join(this.decisionDir, `${toolUseId}.json`);
-    const content = JSON.stringify({
-      permissionDecision: decision,
-      reason: reason || (decision === 'allow' ? 'User approved' : 'User denied'),
-      timestamp: Date.now(),
-    });
 
-    writeFileSync(filePath, content, 'utf-8');
-    logger.info('Decision file written', { toolUseId, decision, filePath });
+    // 'modify' is expressed to the hook as 'allow' + updatedInput. The modify
+    // semantics live at the orchestrator layer; the CLI only understands allow/deny.
+    const storedDecision = decision === 'modify' ? 'allow' : decision;
+    const defaultReason =
+      decision === 'allow' || decision === 'modify' ? 'User approved' : 'User denied';
+
+    const payload: Record<string, unknown> = {
+      permissionDecision: storedDecision,
+      reason: reason ?? defaultReason,
+      timestamp: Date.now(),
+    };
+    if (decision === 'modify' && updatedInput !== undefined) {
+      payload['updatedInput'] = updatedInput;
+    }
+
+    writeFileSync(filePath, JSON.stringify(payload), 'utf-8');
+    logger.info('Decision file written', { toolUseId, decision: storedDecision, filePath });
   }
 
   /**

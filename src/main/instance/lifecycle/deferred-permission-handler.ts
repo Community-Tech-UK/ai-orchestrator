@@ -57,7 +57,12 @@ export interface DeferredPermissionLifecycleOps {
 
 /** External services injected for the decision-writing step. */
 export interface DeferredPermissionServices {
-  writeDecision: (toolUseId: string, decision: 'allow' | 'deny', reason: string) => void;
+  writeDecision: (
+    toolUseId: string,
+    decision: 'allow' | 'deny' | 'modify',
+    reason: string,
+    updatedInput?: Record<string, unknown>,
+  ) => void;
   getDecisionDir: () => string;
   createDiffTracker: (workingDirectory: string) => unknown;
 }
@@ -76,12 +81,17 @@ export class DeferredPermissionHandler {
    * 1. Write the user's decision to a file keyed by tool_use_id
    * 2. Terminate the old (exited) adapter
    * 3. Spawn a new adapter with --resume pointing to the same session
-   * 4. The hook is re-invoked, reads the decision file, returns allow/deny
+   * 4. The hook is re-invoked, reads the decision file, returns allow/deny (+ updatedInput)
    * 5. Claude CLI continues or receives a denial tool_result
+   *
+   * @param updatedInput - Optional replacement tool input for a 'modify' decision.
+   *   When supplied, the decision stored is 'modify' (written as 'allow' + updatedInput
+   *   in the decision file). Absent means a plain allow/deny with no input replacement.
    */
   async resumeAfterDeferredPermission(
     instanceId: string,
     approved: boolean,
+    updatedInput?: Record<string, unknown>,
   ): Promise<void> {
     const instance = this.deps.getInstance(instanceId);
     if (!instance) {
@@ -141,11 +151,16 @@ export class DeferredPermissionHandler {
         throw new Error(`Deferred permission recovery cannot continue: ${recoveryPlan.kind === 'failed' ? recoveryPlan.reason : recoveryPlan.reason}`);
       }
 
-      // 1. Write decision file for the hook to read on resume
+      // 1. Write decision file for the hook to read on resume.
+      // When updatedInput is supplied and approved, store a 'modify' decision so
+      // the hook can forward the replacement input to the CLI.
+      const decisionVerb: 'allow' | 'deny' | 'modify' =
+        !approved ? 'deny' : updatedInput !== undefined ? 'modify' : 'allow';
       this.services.writeDecision(
         deferred.toolUseId,
-        approved ? 'allow' : 'deny',
+        decisionVerb,
         approved ? 'User approved via orchestrator UI' : 'User denied via orchestrator UI',
+        updatedInput,
       );
 
       // 2. Terminate old adapter (process already exited, but clean up state)

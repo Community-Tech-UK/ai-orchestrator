@@ -4,11 +4,20 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
+import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import { defaultLoopConfig, LOOP_MAX_PLAN_REGENERATIONS } from '../../shared/types/loop.types';
+
+/** Write a loop-state file into the run's per-run state dir (.aio-loop-state/<runId>/). */
+function writeRunState(payload: unknown, name: string, content: string): void {
+  const p = payload as { loopRunId: string; workspaceCwd: string };
+  const paths = resolveLoopArtifactPaths(p.workspaceCwd, p.loopRunId);
+  mkdirSync(paths.dir, { recursive: true });
+  writeFileSync(loopStateFile(paths, name), content);
+}
 
 let workspace: string;
 let coordinator: LoopCoordinator;
@@ -34,13 +43,13 @@ function noOp(): LoopChildResult {
 
 describe('LF-4 RPI — PLAN→IMPLEMENT context reset', () => {
   it('requests a context reset on the first IMPLEMENT iteration after PLAN', async () => {
-    writeFileSync(join(workspace, 'STAGE.md'), 'PLAN\n');
     const resetFlags: boolean[] = [];
     coordinator.on('loop:invoke-iteration', (payload: unknown) => {
       const p = payload as { seq: number; forceContextReset?: boolean; callback: (r: LoopChildResult) => void };
       resetFlags[p.seq] = !!p.forceContextReset;
-      // After the PLAN iteration, advance STAGE.md to IMPLEMENT (the agent owns STAGE.md).
-      if (p.seq === 0) writeFileSync(join(workspace, 'STAGE.md'), 'IMPLEMENT\n');
+      // After the PLAN iteration, advance STAGE.md to IMPLEMENT (the agent owns
+      // STAGE.md — written into the run's per-run state dir).
+      if (p.seq === 0) writeRunState(payload, 'STAGE.md', 'IMPLEMENT\n');
       queueMicrotask(() => p.callback(noOp()));
     });
 
@@ -49,6 +58,7 @@ describe('LF-4 RPI — PLAN→IMPLEMENT context reset', () => {
       initialPrompt: 'plan then implement',
       workspaceCwd: workspace,
       contextStrategy: 'same-session',
+      initialStage: 'PLAN',
       completion: { ...base.completion, verifyCommand: 'true' },
       caps: { ...base.caps, maxCostCents: 100, maxWallTimeMs: 60_000 },
       // context discipline on (default) gates the reset

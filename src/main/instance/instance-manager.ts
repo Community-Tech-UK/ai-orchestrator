@@ -1276,9 +1276,16 @@ export class InstanceManager extends EventEmitter {
   /**
    * Resume a Claude CLI session after the user approves or denies a deferred tool use.
    * Writes the decision to a file, then resumes the CLI with --resume.
+   *
+   * @param updatedInput - Optional replacement tool input. When supplied, the decision
+   *   is stored as 'modify' (allow + updatedInput) so the hook can forward it to the CLI.
    */
-  async resumeAfterDeferredPermission(instanceId: string, approved: boolean): Promise<void> {
-    return this.lifecycle.resumeAfterDeferredPermission(instanceId, approved);
+  async resumeAfterDeferredPermission(
+    instanceId: string,
+    approved: boolean,
+    updatedInput?: Record<string, unknown>,
+  ): Promise<void> {
+    return this.lifecycle.resumeAfterDeferredPermission(instanceId, approved, updatedInput);
   }
 
   async changeModel(

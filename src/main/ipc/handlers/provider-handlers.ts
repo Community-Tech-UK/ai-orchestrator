@@ -8,9 +8,11 @@ import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import type { ProviderType } from '../../../shared/types/provider.types';
 import { getProviderInstanceManager } from '../../providers';
 import { getProviderPluginsManager } from '../../providers/provider-plugins';
+import { getUnifiedModelCatalog } from '../../providers/unified-model-catalog-service';
 import type { WindowManager } from '../../window-manager';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
+  ModelsCLIPushPayloadSchema,
   PluginsCreateTemplatePayloadSchema,
   PluginsGetMetaPayloadSchema,
   PluginsGetPayloadSchema,
@@ -415,6 +417,60 @@ export function registerProviderHandlers(
             message: (error as Error).message,
             timestamp: Date.now()
           }
+        };
+      }
+    }
+  );
+
+  // ============================================
+  // Unified Model Catalog
+  // ============================================
+
+  // Read the full unified catalog (static + models.dev + any CLI-pushed models).
+  ipcMain.handle(
+    IPC_CHANNELS.MODELS_UNIFIED_CATALOG,
+    (): IpcResponse => {
+      try {
+        const catalog = getUnifiedModelCatalog();
+        return {
+          success: true,
+          data: {
+            models: catalog.getAllModels(),
+            status: catalog.getCatalogStatus(),
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MODELS_UNIFIED_CATALOG_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    }
+  );
+
+  // Push renderer-side CLI-discovered models into the backend catalog.
+  // The renderer runs dynamic-model-catalog.service; this bridges its results
+  // into the main-process unified catalog so backend services (routing, cost
+  // accounting) can see live models without querying the renderer.
+  ipcMain.handle(
+    IPC_CHANNELS.MODELS_CLI_PUSH,
+    (_event: IpcMainInvokeEvent, payload: unknown): IpcResponse => {
+      try {
+        const validated = validateIpcPayload(ModelsCLIPushPayloadSchema, payload, 'MODELS_CLI_PUSH');
+        getUnifiedModelCatalog().onCliDiscoveryRefreshed(validated.provider, validated.models);
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MODELS_CLI_PUSH_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
         };
       }
     }

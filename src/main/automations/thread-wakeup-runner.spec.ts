@@ -15,6 +15,7 @@ function makeAutomation(destination: AutomationDestination): Automation {
     name: 'Wake thread',
     enabled: true,
     active: true,
+    workspaceId: '/repo',
     schedule: { type: 'oneTime', runAt: 2_000, timezone: 'UTC' },
     missedRunPolicy: 'notify',
     concurrencyPolicy: 'skip',

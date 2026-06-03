@@ -12,11 +12,20 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
+import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
+
+/** Write a loop-state file into the run's per-run state dir (.aio-loop-state/<runId>/). */
+function writeRunState(payload: unknown, name: string, content: string): void {
+  const p = payload as { loopRunId: string; workspaceCwd: string };
+  const paths = resolveLoopArtifactPaths(p.workspaceCwd, p.loopRunId);
+  mkdirSync(paths.dir, { recursive: true });
+  writeFileSync(loopStateFile(paths, name), content);
+}
 
 let workspace: string;
 let coordinator: LoopCoordinator;
@@ -58,7 +67,7 @@ describe('LoopCoordinator completion-attempt budget (LF-7)', () => {
     coordinator.on('loop:invoke-iteration', (payload: unknown) => {
       const p = payload as { callback: (r: LoopChildResult) => void };
       // Declare done (DONE.txt) but do NOT rename plan.md → rename gate blocks.
-      writeFileSync(join(workspace, 'DONE.txt'), `${new Date().toISOString()}\n`);
+      writeRunState(payload, 'DONE.txt', `${new Date().toISOString()}\n`);
       queueMicrotask(() => p.callback(makeChildResultThatClaimsDone()));
     });
 
@@ -113,7 +122,7 @@ describe('LoopCoordinator completion-attempt budget (LF-7)', () => {
     });
     coordinator.on('loop:invoke-iteration', (payload: unknown) => {
       const p = payload as { callback: (r: LoopChildResult) => void };
-      writeFileSync(join(workspace, 'DONE.txt'), 'done\n');
+      writeRunState(payload, 'DONE.txt', 'done\n');
       queueMicrotask(() => p.callback(makeChildResultThatClaimsDone()));
     });
 

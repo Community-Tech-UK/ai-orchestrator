@@ -411,4 +411,138 @@ describe('AutomationStore', () => {
       expect(DEFAULT_MAX_CONSECUTIVE_FAILURES).toBeGreaterThan(0);
     });
   });
+
+  describe('insertRetryRun (B10b retry tracking)', () => {
+    async function makeAutomation(): Promise<ReturnType<AutomationStore['decideAndInsertRun']> & { kind: 'started'; automationId: string }> {
+      const automation = await store.create({
+        name: 'Retry job',
+        schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+        missedRunPolicy: 'notify',
+        concurrencyPolicy: 'skip',
+        action: { prompt: 'Do thing', workingDirectory: '/tmp' },
+      }, 1_000, 100);
+      const decision = store.decideAndInsertRun(automation, 'scheduled', 1_000, 1_000, { maxAttempts: 3, attempt: 1 });
+      return { ...decision, automationId: automation.id } as ReturnType<AutomationStore['decideAndInsertRun']> & { kind: 'started'; automationId: string };
+    }
+
+    it('creates a new run record with incremented attempt number', async () => {
+      const decision = await makeAutomation();
+      expect(decision.kind).toBe('started');
+      if (decision.kind !== 'started') return;
+      const original = decision.run;
+      expect(original.attempt).toBe(1);
+      expect(original.maxAttempts).toBe(3);
+
+      // Terminalize as failed
+      store.terminalizeRun(original.id, 'failed', 'transient error', undefined, 2_000);
+
+      const retryRun = store.insertRetryRun(original, 2, 3, 3_000, 3_000);
+      expect(retryRun).not.toBeNull();
+      expect(retryRun?.attempt).toBe(2);
+      expect(retryRun?.maxAttempts).toBe(3);
+      expect(retryRun?.automationId).toBe(original.automationId);
+      expect(retryRun?.status).toBe('running');
+      expect(retryRun?.trigger).toBe('scheduled');
+    });
+
+    it('preserves the original config snapshot in the retry run', async () => {
+      const decision = await makeAutomation();
+      if (decision.kind !== 'started') return;
+      const original = decision.run;
+      store.terminalizeRun(original.id, 'failed', 'boom', undefined, 2_000);
+
+      const retryRun = store.insertRetryRun(original, 2, 3, 3_000, 3_000);
+      expect(retryRun?.configSnapshot?.action.prompt).toBe('Do thing');
+      expect(retryRun?.configSnapshot?.action.workingDirectory).toBe('/tmp');
+    });
+
+    it('returns null when the automation no longer exists', async () => {
+      const decision = await makeAutomation();
+      if (decision.kind !== 'started') return;
+      const original = decision.run;
+      store.terminalizeRun(original.id, 'failed', 'boom', undefined, 2_000);
+      db.prepare('DELETE FROM automations WHERE id = ?').run(original.automationId);
+
+      const retryRun = store.insertRetryRun(original, 2, 3, 3_000, 3_000);
+      expect(retryRun).toBeNull();
+    });
+  });
+
+  describe('attempt and maxAttempts columns on runs', () => {
+    it('defaults to attempt=1 maxAttempts=1 when not specified', async () => {
+      const automation = await store.create({
+        name: 'Default run',
+        schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+        missedRunPolicy: 'notify',
+        concurrencyPolicy: 'skip',
+        action: { prompt: 'Go', workingDirectory: '/tmp' },
+      }, 1_000, 100);
+      const decision = store.decideAndInsertRun(automation, 'scheduled', 1_000, 1_000);
+      expect(decision.kind).toBe('started');
+      if (decision.kind !== 'started') return;
+      expect(decision.run.attempt).toBe(1);
+      expect(decision.run.maxAttempts).toBe(1);
+    });
+
+    it('persists custom attempt and maxAttempts values', async () => {
+      const automation = await store.create({
+        name: 'Custom attempt',
+        schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+        missedRunPolicy: 'notify',
+        concurrencyPolicy: 'skip',
+        action: { prompt: 'Go', workingDirectory: '/tmp' },
+      }, 1_000, 100);
+      const decision = store.decideAndInsertRun(automation, 'manual', 1_000, 1_000, {
+        attempt: 2,
+        maxAttempts: 5,
+      });
+      expect(decision.kind).toBe('started');
+      if (decision.kind !== 'started') return;
+      expect(decision.run.attempt).toBe(2);
+      expect(decision.run.maxAttempts).toBe(5);
+    });
+  });
+
+  describe('workspace id', () => {
+    it('derives a normalized workspace id from the working directory', async () => {
+      const automation = await store.create({
+        name: 'Cased dir',
+        schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+        missedRunPolicy: 'notify',
+        concurrencyPolicy: 'skip',
+        action: { prompt: 'Go', workingDirectory: '/Users/James/Repo' },
+      }, 1_000, 100);
+      expect(automation.workspaceId).toBe('/users/james/repo');
+
+      const reread = await store.get(automation.id);
+      expect(reread?.workspaceId).toBe('/users/james/repo');
+    });
+
+    it('uses the no-workspace sentinel when the directory is blank', async () => {
+      const automation = await store.create({
+        name: 'No dir',
+        schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+        missedRunPolicy: 'notify',
+        concurrencyPolicy: 'skip',
+        action: { prompt: 'Go', workingDirectory: '   ' },
+      }, 1_000, 100);
+      expect(automation.workspaceId).toBe('__no_workspace__');
+    });
+
+    it('re-syncs the workspace id when the working directory changes', async () => {
+      const automation = await store.create({
+        name: 'Movable',
+        schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+        missedRunPolicy: 'notify',
+        concurrencyPolicy: 'skip',
+        action: { prompt: 'Go', workingDirectory: '/tmp/a' },
+      }, 1_000, 100);
+      expect(automation.workspaceId).toBe('/tmp/a');
+
+      const updated = await store.update(automation.id, {
+        action: { prompt: 'Go', workingDirectory: '/tmp/B' },
+      }, 1_000);
+      expect(updated.workspaceId).toBe('/tmp/b');
+    });
+  });
 	});

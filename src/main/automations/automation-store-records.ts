@@ -13,6 +13,8 @@ export interface AutomationRow {
   description: string | null;
   enabled: number;
   active: number;
+  /** Normalized working-directory project key (migration 034). */
+  workspace_id: string;
   schedule_type: 'cron' | 'oneTime';
   schedule_json: string;
   missed_run_policy: AutomationMissedRunPolicy;
@@ -48,6 +50,19 @@ export interface AutomationRunRow {
   config_snapshot_json: string | null;
   created_at: number;
   updated_at: number;
+  /** 1-based attempt number; 1 = first try, 2 = first retry, etc. */
+  attempt: number;
+  /** Maximum number of attempts allowed (including the first try). */
+  max_attempts: number;
+  /**
+   * Pending-retry durability fields (migration 033).
+   * When a retry timer is armed, these are written so the scheduler can
+   * re-arm the timer after a restart.  Cleared when the retry actually fires
+   * or is cancelled.
+   */
+  next_retry_at: number | null;
+  next_retry_attempt: number | null;
+  next_retry_max_attempts: number | null;
 }
 
 export interface AutomationThreadDestinationRow {
@@ -65,4 +80,8 @@ export interface RunInsertExtras {
   idempotencyKey?: string;
   triggerSource?: AutomationTriggerSource;
   deliveryMode?: AutomationDeliveryMode;
+  /** 1-based attempt number (default 1 = first try). */
+  attempt?: number;
+  /** Maximum attempts allowed for this run (default 1 = no retries). */
+  maxAttempts?: number;
 }

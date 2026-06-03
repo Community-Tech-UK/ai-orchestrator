@@ -482,7 +482,7 @@ describe('MobileGatewayServer', () => {
         body: JSON.stringify({ requestId: 'req-2', decisionAction: 'allow', decisionScope: 'once' }),
       });
       expect(res.status).toBe(200);
-      expect(source.resumeAfterDeferredPermission).toHaveBeenCalledWith('a', true);
+      expect(source.resumeAfterDeferredPermission).toHaveBeenCalledWith('a', true, undefined);
       expect(source.recordInputRequiredPermissionDecision).toHaveBeenCalledWith({
         instanceId: 'a',
         requestId: 'req-2',
@@ -568,6 +568,89 @@ describe('MobileGatewayServer', () => {
       body: JSON.stringify({ requestId: 'x' }),
     });
     expect(res.status).toBe(400);
+  });
+
+  // ---- modify decision: updatedInput threading + fail-safe guard ----
+
+  it('threads updatedInput to resumeAfterDeferredPermission on modify decision', async () => {
+    const token = await pairToken();
+    const replacement = { command: 'echo safe' };
+    // Register a deferred_permission prompt so handleRespond can look it up
+    source.emit('instance:input-required', {
+      instanceId: 'a',
+      requestId: 'req-modify-1',
+      prompt: 'Allow Bash?',
+      metadata: { type: 'deferred_permission', tool_name: 'Bash', tool_input: { command: 'rm -rf /' } },
+    });
+
+    const res = await authed(token, '/api/instances/a/respond', {
+      method: 'POST',
+      body: JSON.stringify({
+        requestId: 'req-modify-1',
+        decisionAction: 'modify',
+        decisionScope: 'once',
+        updatedInput: replacement,
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect(source.resumeAfterDeferredPermission).toHaveBeenCalledWith('a', true, replacement);
+    // 'modify' maps to 'allow' for PermissionManager
+    expect(source.recordInputRequiredPermissionDecision).toHaveBeenCalledWith({
+      instanceId: 'a',
+      requestId: 'req-modify-1',
+      action: 'allow',
+      scope: 'once',
+    });
+  });
+
+  it('rejects modify without updatedInput (fail-safe: no silent degrade to allow)', async () => {
+    const token = await pairToken();
+    source.emit('instance:input-required', {
+      instanceId: 'a',
+      requestId: 'req-modify-bad',
+      metadata: { type: 'deferred_permission', tool_name: 'Bash' },
+    });
+
+    const res = await authed(token, '/api/instances/a/respond', {
+      method: 'POST',
+      body: JSON.stringify({ requestId: 'req-modify-bad', decisionAction: 'modify' }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain('updatedInput');
+    expect(source.resumeAfterDeferredPermission).not.toHaveBeenCalled();
+  });
+
+  it('rejects modify with an empty updatedInput object (fail-safe)', async () => {
+    const token = await pairToken();
+    source.emit('instance:input-required', {
+      instanceId: 'a',
+      requestId: 'req-modify-empty',
+      metadata: { type: 'deferred_permission', tool_name: 'Bash' },
+    });
+
+    const res = await authed(token, '/api/instances/a/respond', {
+      method: 'POST',
+      body: JSON.stringify({ requestId: 'req-modify-empty', decisionAction: 'modify', updatedInput: {} }),
+    });
+    expect(res.status).toBe(400);
+    expect(source.resumeAfterDeferredPermission).not.toHaveBeenCalled();
+  });
+
+  it('rejects modify with a non-object updatedInput (fail-safe)', async () => {
+    const token = await pairToken();
+    source.emit('instance:input-required', {
+      instanceId: 'a',
+      requestId: 'req-modify-arr',
+      metadata: { type: 'deferred_permission', tool_name: 'Bash' },
+    });
+
+    const res = await authed(token, '/api/instances/a/respond', {
+      method: 'POST',
+      body: JSON.stringify({ requestId: 'req-modify-arr', decisionAction: 'modify', updatedInput: ['not', 'an', 'object'] }),
+    });
+    expect(res.status).toBe(400);
+    expect(source.resumeAfterDeferredPermission).not.toHaveBeenCalled();
   });
 
   it('clears prompts when the instance leaves a waiting status', async () => {

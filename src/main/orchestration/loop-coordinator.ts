@@ -53,9 +53,11 @@ import {
 import {
   LoopCompletionDetector,
   CompletedFileWatcher,
+  isCompletedRenameForPlan,
 } from './loop-completion-detector';
 import { LoopProgressDetector } from './loop-progress-detector';
 import { LoopStageMachine } from './loop-stage-machine';
+import { resolveLoopArtifactPaths } from './loop-artifact-paths';
 import {
   saveLoopAttachments,
   cleanupLoopAttachments,
@@ -507,6 +509,28 @@ export class LoopCoordinator extends EventEmitter {
       }
     }
 
+    // Refuse a second concurrent loop driving the SAME plan file in the same
+    // workspace (even from a different chat). The loop-owned state files are now
+    // per-run isolated and the completed-rename signal is matched to each loop's
+    // OWN plan, so loops on DISTINCT plans (or no-plan loops) coexist safely —
+    // but two loops sharing one plan file would both watch it and both complete
+    // on its single `_completed` rename, which is inherently ambiguous.
+    if (config.planFile) {
+      const thisPlan = path.resolve(config.workspaceCwd, config.planFile);
+      for (const existing of this.active.values()) {
+        if (existing.status !== 'running' && existing.status !== 'paused') continue;
+        if (!existing.config.planFile) continue;
+        const otherPlan = path.resolve(existing.config.workspaceCwd, existing.config.planFile);
+        if (otherPlan === thisPlan) {
+          throw new Error(
+            `Another loop (id ${existing.id}) is already ${existing.status} on the same plan file ` +
+            `(${config.planFile}) in this workspace. Concurrent loops on one plan file collide on its ` +
+            'completion rename — cancel the other loop or point this one at a separate plan file.',
+          );
+        }
+      }
+    }
+
     const id = `loop-${Date.now()}-${randomUUID().slice(0, 8)}`;
     const loopControl = await prepareLoopControl(
       config.workspaceCwd,
@@ -551,7 +575,7 @@ export class LoopCoordinator extends EventEmitter {
       );
     }
 
-    const stageMachine = new LoopStageMachine(config.workspaceCwd);
+    const stageMachine = new LoopStageMachine(config.workspaceCwd, id);
     const initialStage = await stageMachine.bootstrap(config);
 
     // Snapshot the workspace's "starting state" so completion signals can
@@ -667,8 +691,24 @@ export class LoopCoordinator extends EventEmitter {
       this.runtimeContexts.set(id, { existingSessionContext, priorObservations });
     }
 
-    // Wire watcher to mutate state.
+    // Wire watcher to mutate state. The watcher fires for ANY `*_completed.md`
+    // rename in the workspace, but a rename only counts as THIS loop finishing
+    // when it is THIS loop's configured plan file being renamed. Accepting any
+    // matching rename was a real defect: (a) an agent could "complete" the loop
+    // by renaming an unrelated doc (the incident — renaming two
+    // `token-efficiency-accuracy-*.md` blog drafts to `_completed.md` ended the
+    // run via this signal), and (b) a concurrent loop in the same workspace
+    // renaming ITS plan would falsely complete this loop. Gating on the
+    // configured plan's expected completed-name fixes both. A loop with no
+    // planFile has no file to rename — it must complete via DONE.txt + verify +
+    // ledger, never an arbitrary rename — so such renames are ignored here.
     watcher.onCompleted((filePath) => {
+      if (!isCompletedRenameForPlan(state.config, filePath)) {
+        logger.info('CompletedFileWatcher ignored a *_completed.md rename not matching this loop\'s plan', {
+          id, filePath, planFile: state.config.planFile ?? null,
+        });
+        return;
+      }
       state.completedFileRenameObserved = true;
       logger.info('CompletedFileWatcher fired', { id, filePath });
       this.emit('loop:completed-file-observed', { loopRunId: id, filePath });
@@ -679,6 +719,7 @@ export class LoopCoordinator extends EventEmitter {
     // by an undo leaves the loop convinced completion already happened.
     watcher.onUndone((filePath) => {
       if (!state.completedFileRenameObserved) return;
+      if (!isCompletedRenameForPlan(state.config, filePath)) return;
       state.completedFileRenameObserved = false;
       logger.info('CompletedFileWatcher undone', { id, filePath });
       this.emit('loop:completed-file-undone', { loopRunId: id, filePath });
@@ -969,7 +1010,7 @@ export class LoopCoordinator extends EventEmitter {
       // when it genuinely cannot proceed. Honor that contract: if we find
       // one in the workspace, pause the loop and surface it as a no-progress
       // banner so the operator can intervene with a hint.
-      const blockedFile = await this.readBlockedFileIfPresent(state.config.workspaceCwd);
+      const blockedFile = await this.readBlockedFileIfPresent(state);
       if (blockedFile && state.status === 'running') {
         const probeCfg = state.config.blockSanityProbe;
         const probeEnabled = probeCfg?.enabled !== false; // default-on when undefined
@@ -2363,7 +2404,12 @@ export class LoopCoordinator extends EventEmitter {
     const loopControl = this.loopControls.get(state.id);
     if (!loopControl) return;
     const fs = await import('node:fs/promises');
-    const blockedPath = path.join(state.config.workspaceCwd, 'BLOCKED.md');
+    const blockedPath = await this.firstExistingBlockedFile(state);
+    if (!blockedPath) {
+      // Operator (or another process) removed it between the iteration ending
+      // and this archive running. The structured intent path proceeds unchanged.
+      return;
+    }
     const target = path.join(loopControl.controlDir, `blocked-handled-${intent.iterationSeq}.md`);
     try {
       await fs.rename(blockedPath, target);
@@ -2399,7 +2445,8 @@ export class LoopCoordinator extends EventEmitter {
 
   private async moveBlockedFileAside(state: LoopState): Promise<void> {
     const fs = await import('node:fs/promises');
-    const blockedPath = path.join(state.config.workspaceCwd, 'BLOCKED.md');
+    const blockedPath = await this.firstExistingBlockedFile(state);
+    if (!blockedPath) return;
     const loopControl = this.loopControls.get(state.id);
     const preferredTarget = loopControl
       ? path.join(loopControl.controlDir, `blocked-overridden-${state.totalIterations}.md`)
@@ -2436,19 +2483,46 @@ export class LoopCoordinator extends EventEmitter {
   }
 
   /**
-   * Read `BLOCKED.md` from the workspace if it exists. Returns the trimmed
-   * contents (truncated to a reasonable size) so it can be surfaced to the
-   * operator. Returns null when the file is absent or unreadable.
+   * Candidate BLOCKED.md locations, in priority order: the per-run state dir
+   * (where the prompt instructs the agent to write it) first, then the
+   * workspace root (tolerant fallback — the agent may write there out of habit,
+   * and a false-positive here only *pauses* the loop, never falsely completes
+   * it). Scoping the read to the state dir is what keeps two concurrent loops
+   * in one workspace from pausing each other.
+   */
+  private blockedFileCandidates(state: LoopState): string[] {
+    const scoped = resolveLoopArtifactPaths(state.config.workspaceCwd, state.id).blocked;
+    return [scoped, path.join(state.config.workspaceCwd, 'BLOCKED.md')];
+  }
+
+  /** First existing BLOCKED.md across the candidate locations, or null. */
+  private async firstExistingBlockedFile(state: LoopState): Promise<string | null> {
+    const fs = await import('node:fs/promises');
+    for (const candidate of this.blockedFileCandidates(state)) {
+      try {
+        await fs.access(candidate);
+        return candidate;
+      } catch {
+        // Not at this location — try the next.
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Read `BLOCKED.md` (per-run state dir, then workspace root) if it exists.
+   * Returns the trimmed contents (truncated to a reasonable size) so it can be
+   * surfaced to the operator. Returns null when absent or unreadable.
    *
    * The convention is: the AI writes BLOCKED.md when genuinely stuck, then
    * exits. We pause the loop and let the operator intervene. After the
    * operator resumes, the file is left alone — they can delete it manually
    * if it's no longer relevant; otherwise the next iteration will trip again.
    */
-  private async readBlockedFileIfPresent(workspaceCwd: string): Promise<{ message: string } | null> {
+  private async readBlockedFileIfPresent(state: LoopState): Promise<{ message: string } | null> {
     const fs = await import('node:fs/promises');
-    const path = await import('node:path');
-    const target = path.join(workspaceCwd, 'BLOCKED.md');
+    const target = await this.firstExistingBlockedFile(state);
+    if (!target) return null;
     try {
       const raw = await fs.readFile(target, 'utf8');
       const trimmed = raw.trim();

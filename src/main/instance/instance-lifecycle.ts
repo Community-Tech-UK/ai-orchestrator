@@ -428,8 +428,8 @@ export class InstanceLifecycleManager extends EventEmitter {
         },
       },
       {
-        writeDecision: (toolUseId, decision, reason) =>
-          getDeferDecisionStore().writeDecision(toolUseId, decision, reason),
+        writeDecision: (toolUseId, decision, reason, updatedInput) =>
+          getDeferDecisionStore().writeDecision(toolUseId, decision, reason, updatedInput),
         getDecisionDir: () => getDeferDecisionStore().getDecisionDir(),
         createDiffTracker: (workDir) => new SessionDiffTracker(workDir),
       },
@@ -2832,8 +2832,9 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
   async resumeAfterDeferredPermission(
     instanceId: string,
     approved: boolean,
+    updatedInput?: Record<string, unknown>,
   ): Promise<void> {
-    return this.deferredPermission.resumeAfterDeferredPermission(instanceId, approved);
+    return this.deferredPermission.resumeAfterDeferredPermission(instanceId, approved, updatedInput);
   }
 
   // ============================================

@@ -25,14 +25,26 @@ const AUTO_APPROVE_TOOLS = new Set([
   'WebFetch', 'WebSearch',
 ]);
 
-const reply = (decision, reason) => {
-  process.stdout.write(JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: 'PreToolUse',
-      permissionDecision: decision,
-      ...(reason ? { permissionDecisionReason: reason } : {}),
-    }
-  }));
+// NOTE — updatedInput caveat:
+// Whether the installed Claude CLI honors an `updatedInput` field in a PreToolUse
+// hook reply is version-dependent and cannot be validated headlessly here.
+// We emit it under hookSpecificOutput.updatedInput AND at the top level so the
+// plumbing is in place for whichever shape a future CLI version expects.
+// When the CLI does not support it, the call degrades to a plain 'allow' with the
+// original tool input unchanged.  Do NOT assume end-to-end modify works until it
+// has been validated against a live Claude CLI build that documents this feature.
+const reply = (decision, reason, updatedInput) => {
+  const hookSpecificOutput = {
+    hookEventName: 'PreToolUse',
+    permissionDecision: decision,
+    ...(reason ? { permissionDecisionReason: reason } : {}),
+    ...(updatedInput !== undefined ? { updatedInput } : {}),
+  };
+  const response = {
+    hookSpecificOutput,
+    ...(updatedInput !== undefined ? { updatedInput } : {}),
+  };
+  process.stdout.write(JSON.stringify(response));
 };
 
 const input = JSON.parse(readFileSync(0, 'utf8'));
@@ -45,7 +57,7 @@ if (DECISION_DIR && toolUseId) {
   const decisionFile = join(DECISION_DIR, `${toolUseId}.json`);
   if (existsSync(decisionFile)) {
     const decision = JSON.parse(readFileSync(decisionFile, 'utf8'));
-    reply(decision.permissionDecision, decision.reason);
+    reply(decision.permissionDecision, decision.reason, decision.updatedInput);
     process.exit(0);
   }
 }

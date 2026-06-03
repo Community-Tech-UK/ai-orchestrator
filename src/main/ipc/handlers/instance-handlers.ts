@@ -942,17 +942,50 @@ export function registerInstanceHandlers(deps: {
 
         // Route deferred permission responses to the resume flow instead of stdin
         if (validatedPayload.metadata?.['type'] === 'deferred_permission') {
-          const approved = validatedPayload.decisionAction === 'allow';
+          const action = validatedPayload.decisionAction;
+
+          // Fail-safe: 'modify' without updatedInput must never silently degrade to
+          // a plain allow of the original input.  The schema cross-refine catches
+          // this at validation time, but guard again here defensively.
+          if (action === 'modify' && !validatedPayload.updatedInput) {
+            return {
+              success: false,
+              error: {
+                code: 'MODIFY_WITHOUT_UPDATED_INPUT',
+                message: "decisionAction 'modify' requires a non-empty updatedInput object",
+                timestamp: Date.now(),
+              },
+            };
+          }
+
+          // WARN: 'modify' depends on the installed Claude CLI honouring updatedInput
+          // in its PreToolUse hook reply.  If the CLI version does not support it,
+          // the tool will run with the ORIGINAL (unmodified) input.  This is a known
+          // correctness/safety gap until live-CLI support is confirmed.
+          if (action === 'modify') {
+            logger.warn('Deferred permission modify decision — CLI support unverified', {
+              instanceId: validatedPayload.instanceId,
+              requestId: validatedPayload.requestId,
+              updatedInputKeys: Object.keys(validatedPayload.updatedInput!),
+            });
+          }
+
+          const approved = action !== 'deny';
+          const updatedInput = action === 'modify' ? validatedPayload.updatedInput : undefined;
           await instanceManager.resumeAfterDeferredPermission(
             validatedPayload.instanceId,
-            approved
+            approved,
+            updatedInput,
           );
 
           if (validatedPayload.decisionAction && validatedPayload.decisionScope) {
+            // Map 'modify' to 'allow' for PermissionManager — it only knows allow/deny.
+            const recordAction: 'allow' | 'deny' =
+              validatedPayload.decisionAction === 'deny' ? 'deny' : 'allow';
             instanceManager.recordInputRequiredPermissionDecision({
               instanceId: validatedPayload.instanceId,
               requestId: validatedPayload.requestId,
-              action: validatedPayload.decisionAction,
+              action: recordAction,
               scope: validatedPayload.decisionScope,
             });
           } else {
@@ -1091,10 +1124,13 @@ export function registerInstanceHandlers(deps: {
 
         // If the renderer attached a permission decision, persist it via PermissionManager.
         if (validatedPayload.decisionAction && validatedPayload.decisionScope) {
+          // Map 'modify' to 'allow' for PermissionManager — it only knows allow/deny.
+          const stdRecordAction: 'allow' | 'deny' =
+            validatedPayload.decisionAction === 'deny' ? 'deny' : 'allow';
           instanceManager.recordInputRequiredPermissionDecision({
             instanceId: validatedPayload.instanceId,
             requestId: validatedPayload.requestId,
-            action: validatedPayload.decisionAction,
+            action: stdRecordAction,
             scope: validatedPayload.decisionScope,
           });
         } else {

@@ -10,16 +10,17 @@
     .icon-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); }
 
     /* Split create button */
-    .create { position: relative; display: inline-flex; align-items: stretch; }
-    .create-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-    .create-caret { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid color-mix(in srgb, #000 25%, var(--primary-color)); padding: 7px 9px; }
+    .create { position: relative; display: inline-flex; align-items: stretch; border-radius: 9px; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+    .create-main { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: none; }
+    .create-caret { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid color-mix(in srgb, #000 18%, var(--primary-color)); padding: 8px 0; min-width: 32px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1; }
     .menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; display: flex; flex-direction: column; min-width: 180px; padding: 6px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-secondary); box-shadow: 0 12px 32px rgba(0,0,0,.35); }
     .menu button { text-align: left; background: transparent; border: none; color: var(--text-primary); padding: 9px 10px; border-radius: 7px; cursor: pointer; font-size: 13px; }
     .menu button:hover { background: var(--bg-tertiary); }
 
     .content { flex: 1; min-height: 0; overflow: auto; padding: 4px 28px 32px; max-width: 1100px; width: 100%; margin: 0 auto; }
     .group { margin-top: 22px; }
-    .group-title { font-size: 15px; font-weight: 600; color: var(--text-primary); margin: 0 0 6px; }
+    .group-title { font-size: 15px; font-weight: 600; color: var(--text-primary); margin: 0 0 6px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .group-subtitle { font-size: 12px; font-weight: 400; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .group + .group { margin-top: 30px; }
     .rows { display: flex; flex-direction: column; }
     .row { display: flex; align-items: center; gap: 14px; width: 100%; padding: 14px 8px; text-align: left; border: none; border-bottom: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent); background: transparent; color: inherit; cursor: pointer; }
@@ -39,8 +40,11 @@
     .error { border: 1px solid color-mix(in srgb, var(--error-color) 60%, transparent); color: var(--error-color); border-radius: 8px; padding: 9px 12px; font-size: 12px; margin: 8px 28px 0; }
 
     /* Buttons */
-    .btn { border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-tertiary); color: var(--text-primary); padding: 8px 14px; cursor: pointer; font-size: 13px; }
+    .btn { border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-tertiary); color: var(--text-primary); padding: 8px 14px; cursor: pointer; font-size: 13px; transition: background .15s ease, border-color .15s ease; }
+    .btn:hover { background: var(--bg-secondary); }
     .btn--primary { background: var(--primary-color); border-color: var(--primary-color); color: #fff; font-weight: 500; }
+    .btn--primary:hover { background: color-mix(in srgb, #000 10%, var(--primary-color)); border-color: color-mix(in srgb, #000 10%, var(--primary-color)); }
+    .btn--primary:active { background: color-mix(in srgb, #000 18%, var(--primary-color)); }
     .btn--danger { color: var(--error-color); }
     .btn:disabled { opacity: .55; cursor: not-allowed; }
 

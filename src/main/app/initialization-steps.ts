@@ -71,6 +71,8 @@ import { initializePauseFeatureRuntime } from './pause-feature-bootstrap';
 import { initializeMainProcessWatchdog } from '../runtime/main-process-watchdog';
 import { getEventLoopLagMonitor } from '../runtime/event-loop-lag-monitor';
 import { getContextWorkerClient } from '../instance/context-worker-client';
+import { getUnifiedModelCatalog } from '../providers/unified-model-catalog-service';
+import { getModelsDevService } from '../providers/models-dev-service';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 import {
@@ -139,6 +141,27 @@ export function createInitializationSteps(
           getChatService({ instanceManager }).initialize();
         } catch (error) {
           logger.warn('Chat service initialization failed; chat IPC handlers will report degraded errors', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+    },
+    {
+      // Initialise the unified model catalog and kick off a background models.dev
+      // sync.  The catalog is populated from static data immediately (constructor)
+      // so this step is fail-soft: a network failure just leaves the static snapshot
+      // in place.  models.dev's doRefresh() calls onModelsDevRefreshed() on the
+      // catalog when it succeeds, so no further wiring is needed here.
+      name: 'Unified model catalog',
+      fn: () => {
+        try {
+          getUnifiedModelCatalog(); // ensure singleton is constructed
+          // Fire-and-forget — never throws (fail-soft by design).
+          getModelsDevService().refresh().catch(() => {
+            // Suppressed; failure is already logged inside ModelsDevService.
+          });
+        } catch (error) {
+          logger.warn('Unified model catalog initialization failed; catalog will use static fallback', {
             error: error instanceof Error ? error.message : String(error),
           });
         }

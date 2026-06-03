@@ -27,6 +27,7 @@ import { watch, type FSWatcher } from 'chokidar';
 import { getLogger } from '../logging/logger';
 import { parsePlanChecklist, LOOP_TASKS_FILE } from './loop-stage-machine';
 import { parseTaskLedger } from './loop-task-ledger';
+import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import type {
   CompletionSignalEvidence,
   LoopConfig,
@@ -251,6 +252,10 @@ export class LoopCompletionDetector {
   async observe(input: CompletionObservationInput): Promise<CompletionSignalEvidence[]> {
     const { iteration, config, state } = input;
     const out: CompletionSignalEvidence[] = [];
+    // Loop-owned state files (DONE sentinel, LOOP_TASKS.md) live in this run's
+    // per-run dir, not the workspace root — keyed by the run id so concurrent
+    // loops in the same workspace never read each other's completion state.
+    const artifactPaths = resolveLoopArtifactPaths(config.workspaceCwd, state.id);
 
     if (state.terminalIntentPending?.kind === 'complete' && state.terminalIntentPending.status === 'pending') {
       out.push({
@@ -316,7 +321,7 @@ export class LoopCompletionDetector {
     // intentionally not treated as evidence; the agent should delete and
     // re-create it if they really mean a fresh signal.)
     if (config.completion.doneSentinelFile && !state.doneSentinelPresentAtStart) {
-      const sentinel = path.resolve(config.workspaceCwd, config.completion.doneSentinelFile);
+      const sentinel = loopStateFile(artifactPaths, config.completion.doneSentinelFile);
       try {
         await fsp.access(sentinel);
         out.push({
@@ -377,7 +382,7 @@ export class LoopCompletionDetector {
     //    (subject to verify-before-stop). A pre-resolved ledger from a prior run
     //    is ignored (staleness guard), and an empty ledger (no items) is a no-op.
     try {
-      const ledgerText = await fsp.readFile(path.resolve(config.workspaceCwd, LOOP_TASKS_FILE), 'utf8');
+      const ledgerText = await fsp.readFile(artifactPaths.tasks, 'utf8');
       const ledger = parseTaskLedger(ledgerText);
       if (ledger.total > 0) {
         if (ledger.complete) {
@@ -570,6 +575,28 @@ export function completedPlanFileCandidates(config: Pick<LoopConfig, 'workspaceC
   if (ext.toLowerCase() !== '.md') return [];
   const stem = original.slice(0, -ext.length);
   return [...new Set([`${stem}_Completed.md`, `${stem}_completed.md`])];
+}
+
+/**
+ * True iff `filePath` is THIS loop's configured plan file renamed to its
+ * `_completed.md` form. The `CompletedFileWatcher` fires for ANY `*_completed.md`
+ * rename in the workspace, but a rename is only evidence THIS loop finished when
+ * it renamed ITS OWN plan — accepting any rename let an agent complete by
+ * renaming an unrelated doc, and let a concurrent loop's plan rename falsely
+ * complete this one. Returns false when no plan file is configured (a no-plan
+ * loop has nothing to rename and must complete via DONE.txt + verify + ledger).
+ * Case-insensitive to match macOS/Windows filesystems and the `[Cc]ompleted`
+ * pattern.
+ */
+export function isCompletedRenameForPlan(
+  config: Pick<LoopConfig, 'workspaceCwd' | 'planFile'>,
+  filePath: string,
+): boolean {
+  if (!config.planFile) return false;
+  const resolved = path.resolve(filePath).toLowerCase();
+  return completedPlanFileCandidates(config).some(
+    (candidate) => path.resolve(candidate).toLowerCase() === resolved,
+  );
 }
 
 function isInsideOrEqual(parent: string, child: string): boolean {

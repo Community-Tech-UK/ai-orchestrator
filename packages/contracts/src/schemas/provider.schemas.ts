@@ -225,6 +225,26 @@ export const SkillsMatchPayloadSchema = z.object({
   text: z.string().min(1).max(1000000),
 });
 
+// ============ Unified Model Catalog Payloads ============
+
+/**
+ * Payload for the renderer to push CLI-discovered models into the main-process
+ * unified catalog.  The renderer runs CLI discovery (dynamic-model-catalog.service);
+ * this channel bridges the result into the backend catalog.
+ */
+export const ModelsCLIPushPayloadSchema = z.object({
+  /** Normalised provider namespace (e.g. `copilot`, `cursor`). */
+  provider: z.string().min(1).max(100),
+  /** Discovered model list. */
+  models: z.array(z.object({
+    id: z.string().min(1).max(200),
+    name: z.string().min(1).max(200),
+    tier: z.enum(['fast', 'balanced', 'powerful']),
+    pinned: z.boolean().optional(),
+    family: z.string().max(100).optional(),
+  })).max(500),
+});
+
 // ============ Ecosystem Payloads ============
 
 export const EcosystemListPayloadSchema = z.object({

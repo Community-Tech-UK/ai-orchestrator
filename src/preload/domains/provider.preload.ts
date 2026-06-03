@@ -294,5 +294,32 @@ export function createProviderDomain(
 
     hotSwitchGetStats: (): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.HOT_SWITCH_GET_STATS),
+
+    // ============================================
+    // Unified Model Catalog
+    // ============================================
+
+    /**
+     * Read the full unified model catalog from the main process.
+     * Returns static + models.dev-enriched entries (and any CLI-pushed models).
+     * Does not require authentication — catalog data is not sensitive.
+     */
+    getUnifiedModelCatalog: (): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.MODELS_UNIFIED_CATALOG),
+
+    /**
+     * Push CLI-discovered models from the renderer into the main-process catalog.
+     * Call this after `dynamic-model-catalog.service` finishes discovery for a
+     * provider so backend services (routing, cost accounting) see live models.
+     *
+     * NOTE: End-to-end CLI-discovery wiring requires a renderer-side call from
+     * `dynamic-model-catalog.service.ts` into this method.  That renderer change
+     * is out of scope here and must be implemented separately.
+     */
+    pushCliDiscoveredModels: (
+      provider: string,
+      models: { id: string; name: string; tier: 'fast' | 'balanced' | 'powerful'; pinned?: boolean; family?: string }[]
+    ): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.MODELS_CLI_PUSH, { provider, models }),
   };
 }

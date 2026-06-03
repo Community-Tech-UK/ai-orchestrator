@@ -1820,6 +1820,66 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE automations DROP COLUMN consecutive_failures;
     `,
   },
+  // Migration 032: per-run retry tracking for exponential backoff (B10b).
+  // attempt   — 1-based attempt number for this run record (1 = first try).
+  // max_attempts — maximum attempts allowed for this run's automation action.
+  //               Stored on the run so retries inherit the config snapshot.
+  {
+    name: '032_automation_run_retry_tracking',
+    up: `
+      ALTER TABLE automation_runs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE automation_runs ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 1;
+    `,
+    down: `
+      ALTER TABLE automation_runs DROP COLUMN max_attempts;
+      ALTER TABLE automation_runs DROP COLUMN attempt;
+    `,
+  },
+  // Migration 033: durable pending-retry state for automation runs (B10b).
+  //
+  // When a retry timer is armed in AutomationScheduler, these three fields are
+  // written to the failed run so the scheduler can re-arm the timer after an
+  // app restart.  They are cleared when the retry fires or is cancelled.
+  //
+  //   next_retry_at           — epoch ms when the retry should fire
+  //   next_retry_attempt      — the 1-based attempt number of the planned retry
+  //   next_retry_max_attempts — max attempts (carried from original run)
+  {
+    name: '033_automation_run_pending_retry_durability',
+    up: `
+      ALTER TABLE automation_runs ADD COLUMN next_retry_at INTEGER;
+      ALTER TABLE automation_runs ADD COLUMN next_retry_attempt INTEGER;
+      ALTER TABLE automation_runs ADD COLUMN next_retry_max_attempts INTEGER;
+    `,
+    down: `
+      ALTER TABLE automation_runs DROP COLUMN next_retry_max_attempts;
+      ALTER TABLE automation_runs DROP COLUMN next_retry_attempt;
+      ALTER TABLE automation_runs DROP COLUMN next_retry_at;
+    `,
+  },
+  // Migration 034: per-automation workspace id so automations can be grouped and
+  // filtered by the project (working directory) they target. The value mirrors
+  // the renderer's normalized project key (trim + lowercase; blank -> sentinel).
+  // Keep the backfill in sync with `toWorkspaceId` in shared/utils/workspace-key.ts.
+  {
+    name: '034_automation_workspace_id',
+    up: `
+      ALTER TABLE automations ADD COLUMN workspace_id TEXT NOT NULL DEFAULT '__no_workspace__';
+
+      UPDATE automations
+      SET workspace_id = COALESCE(
+        NULLIF(lower(trim(json_extract(action_json, '$.workingDirectory'))), ''),
+        '__no_workspace__'
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_automations_workspace
+        ON automations(workspace_id);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_automations_workspace;
+      ALTER TABLE automations DROP COLUMN workspace_id;
+    `,
+  },
 ];
 
 /**

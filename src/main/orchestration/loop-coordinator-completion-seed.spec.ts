@@ -136,11 +136,11 @@ describe('LoopCoordinator materializeConfig — requireCompletedFileRename defau
 });
 
 describe('LoopCoordinator startup workspace snapshot', () => {
-  it('LoopStageMachine.bootstrap deletes a pre-existing DONE.txt so the snapshot lands at false', async () => {
-    // Bootstrap actively unlinks stale sentinels (see loop-stage-machine.ts).
-    // The snapshot captured *after* bootstrap therefore lands at false even
-    // when the test workspace had a leftover DONE.txt — that's the layered
-    // defence working: bootstrap clears + snapshot agrees.
+  it('ignores a pre-existing workspace-root DONE.txt — the sentinel is now scoped to the per-run dir', async () => {
+    // Loop state files live under .aio-loop-state/<runId>/, not the workspace
+    // root. A leftover ROOT DONE.txt is therefore irrelevant to a new run: it
+    // can't be inherited (the per-run dir starts empty) so the snapshot lands
+    // at false, and the loop does not touch the root file (it's not loop-owned).
     writeFileSync(join(workspace, 'DONE.txt'), 'leftover\n');
     expect(existsSync(join(workspace, 'DONE.txt'))).toBe(true);
 
@@ -151,8 +151,8 @@ describe('LoopCoordinator startup workspace snapshot', () => {
 
     try {
       expect(state.doneSentinelPresentAtStart).toBe(false);
-      // Bootstrap should have removed the file:
-      expect(existsSync(join(workspace, 'DONE.txt'))).toBe(false);
+      // The root DONE.txt is left untouched — it is no longer a loop artifact.
+      expect(existsSync(join(workspace, 'DONE.txt'))).toBe(true);
     } finally {
       coordinator.cancelLoop(state.id);
     }
@@ -478,4 +478,49 @@ describe('LoopCoordinator skipped-verify completion gate', () => {
       coordinator.cancelLoop(state.id);
     }
   }, 20_000);
+});
+
+describe('LoopCoordinator same-plan concurrent-loop policy', () => {
+  it('refuses a second concurrent loop driving the SAME plan file (cross-chat)', async () => {
+    writeFileSync(join(workspace, 'plan.md'), '# Plan\n- [ ] item\n');
+    const a = await coordinator.startLoop('chat-a', {
+      initialPrompt: 'implement plan.md',
+      workspaceCwd: workspace,
+      planFile: 'plan.md',
+    });
+    try {
+      await expect(
+        coordinator.startLoop('chat-b', {
+          initialPrompt: 'also implement plan.md',
+          workspaceCwd: workspace,
+          planFile: 'plan.md',
+        }),
+      ).rejects.toThrow(/same plan file/i);
+    } finally {
+      coordinator.cancelLoop(a.id);
+    }
+  });
+
+  it('ALLOWS concurrent loops on DISTINCT plan files in the same workspace', async () => {
+    writeFileSync(join(workspace, 'plan-a.md'), '# A\n- [ ] a\n');
+    writeFileSync(join(workspace, 'plan-b.md'), '# B\n- [ ] b\n');
+    const a = await coordinator.startLoop('chat-a', {
+      initialPrompt: 'implement plan-a.md',
+      workspaceCwd: workspace,
+      planFile: 'plan-a.md',
+    });
+    const b = await coordinator.startLoop('chat-b', {
+      initialPrompt: 'implement plan-b.md',
+      workspaceCwd: workspace,
+      planFile: 'plan-b.md',
+    });
+    try {
+      expect(a.id).not.toBe(b.id);
+      expect(a.config.planFile).toBe('plan-a.md');
+      expect(b.config.planFile).toBe('plan-b.md');
+    } finally {
+      coordinator.cancelLoop(a.id);
+      coordinator.cancelLoop(b.id);
+    }
+  });
 });

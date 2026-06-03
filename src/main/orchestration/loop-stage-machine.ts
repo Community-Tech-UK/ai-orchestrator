@@ -15,6 +15,7 @@ import * as path from 'path';
 import { getLogger } from '../logging/logger';
 import type { LoopConfig, LoopStage } from '../../shared/types/loop.types';
 import { parseTaskLedger, type LoopTaskLedger } from './loop-task-ledger';
+import { resolveLoopArtifactPaths, loopStateFile, type LoopArtifactPaths } from './loop-artifact-paths';
 
 const logger = getLogger('LoopStageMachine');
 
@@ -22,6 +23,15 @@ const ARTIFACT_FILES = ['STAGE.md', 'NOTES.md', 'ITERATION_LOG.md'] as const;
 
 /** LF-4: the structured task ledger filename. */
 export const LOOP_TASKS_FILE = 'LOOP_TASKS.md';
+
+/** The fresh, item-less ledger template written at the start of every run. */
+const LOOP_TASKS_TEMPLATE =
+  '# Loop Tasks\n\n' +
+  'Structured task ledger. For a multi-item goal, list concrete work items\n' +
+  'here as markdown checkboxes. The loop stops only when EVERY item is\n' +
+  '`[x]` (done) or `[-]` (deferred, with a reason) — and verify passes.\n\n' +
+  'Markers: `[ ]` todo · `[~]` in progress · `[x]` done · `[-] … — deferred: <why>`.\n\n' +
+  '<!-- Example:\n- [ ] Implement the parser\n- [~] Wire the coordinator\n- [-] Cross-model fan-out — deferred: out of scope for v1\n-->\n';
 
 const VALID_STAGES = new Set<LoopStage>(['PLAN', 'REVIEW', 'IMPLEMENT']);
 
@@ -209,8 +219,33 @@ function isPlanLikeMarkdown(basename: string): boolean {
   return true;
 }
 
+/**
+ * Filenames that read like a planning document — used (together with a
+ * checkbox-content check) to decide whether a root `.md` is a plan the loop may
+ * tell the agent to rename `_completed`. Without this, prose docs that merely
+ * happen to be root-level `.md` (e.g. a published blog draft) were classified
+ * as plans, and the agent renamed them to satisfy the rename gate. Keyword OR
+ * checkbox keeps genuine plan docs in (e.g. `claude-review.md`, `my-plan.md`)
+ * while excluding unrelated prose.
+ */
+const PLAN_NAME_HINT_RE = /(plan|backlog|roadmap|todo|review|spec|task|milestone|checklist|implementation)/i;
+
 export class LoopStageMachine {
-  constructor(public readonly cwd: string) {}
+  /**
+   * Per-run state-file paths under `<cwd>/.aio-loop-state/<loopRunId>/`. All
+   * loop-owned scaffolding (STAGE/NOTES/ITERATION_LOG/LOOP_TASKS/DONE/BLOCKED)
+   * lives here so concurrent loops in the same workspace never collide.
+   * `this.cwd` stays the workspace root for user artefacts (planFile, the
+   * `*_completed.md` rename scan).
+   */
+  readonly paths: LoopArtifactPaths;
+
+  constructor(
+    public readonly cwd: string,
+    public readonly loopRunId: string,
+  ) {
+    this.paths = resolveLoopArtifactPaths(cwd, loopRunId);
+  }
 
   /**
    * Bootstrap loop artifacts on disk. Idempotent — won't overwrite existing
@@ -218,9 +253,17 @@ export class LoopStageMachine {
    * containing).
    */
   async bootstrap(config: LoopConfig): Promise<LoopStage> {
-    const stagePath = path.join(this.cwd, 'STAGE.md');
-    const notesPath = path.join(this.cwd, 'NOTES.md');
-    const logPath = path.join(this.cwd, 'ITERATION_LOG.md');
+    // Every loop-owned state file lives in this per-run directory. Because the
+    // directory is keyed by the unique loopRunId, a brand-new run always gets a
+    // FRESH, empty dir — a prior run's STAGE/LOOP_TASKS/DONE can never be
+    // inherited, and two concurrent loops in the same workspace never collide.
+    // bootstrap runs once per run (only from startLoop; recovery never
+    // re-bootstraps), so the only way the dir pre-exists is same-run recovery —
+    // in which case the existing files are real in-progress state and the
+    // idempotent "write only if absent" below correctly preserves them.
+    await fsp.mkdir(this.paths.dir, { recursive: true });
+
+    const { stage: stagePath, notes: notesPath, iterationLog: logPath, tasks: tasksPath } = this.paths;
 
     let resolvedStage: LoopStage = config.initialStage;
     try {
@@ -241,31 +284,21 @@ export class LoopStageMachine {
       }
     }
 
-    // LF-4: bootstrap an empty LOOP_TASKS.md ledger template. It has no
-    // checkbox items yet, so it does NOT gate completion until the agent adds
-    // tasks — but its presence + instructions nudge the agent to track concrete
-    // work items there, giving the loop per-item ground truth for stopping.
-    const tasksPath = path.join(this.cwd, LOOP_TASKS_FILE);
+    // LF-4: bootstrap an empty LOOP_TASKS.md ledger template (write only if
+    // absent — a present file is in-progress recovery state, not stale). It has
+    // no checkbox items yet, so it does NOT gate completion until the agent adds
+    // tasks — but its presence + instructions nudge per-item tracking.
     try { await fsp.access(tasksPath); } catch {
-      await fsp.writeFile(
-        tasksPath,
-        '# Loop Tasks\n\n' +
-        'Structured task ledger. For a multi-item goal, list concrete work items\n' +
-        'here as markdown checkboxes. The loop stops only when EVERY item is\n' +
-        '`[x]` (done) or `[-]` (deferred, with a reason) — and verify passes.\n\n' +
-        'Markers: `[ ]` todo · `[~]` in progress · `[x]` done · `[-] … — deferred: <why>`.\n\n' +
-        '<!-- Example:\n- [ ] Implement the parser\n- [~] Wire the coordinator\n- [-] Cross-model fan-out — deferred: out of scope for v1\n-->\n',
-        'utf8',
-      );
+      await fsp.writeFile(tasksPath, LOOP_TASKS_TEMPLATE, 'utf8');
     }
 
-    // Delete sentinel file left by a prior loop run. A stale DONE.txt would
-    // immediately fire the done-sentinel completion signal on the first
-    // IMPLEMENT iteration of the new run, stopping the loop before it does
-    // any work.
+    // Delete a done sentinel left inside this run's dir. Only reachable on
+    // same-run recovery (a fresh dir has none); a stale sentinel would
+    // otherwise fire the done-sentinel completion signal on the first IMPLEMENT
+    // iteration before the run does any work.
     if (config.completion.doneSentinelFile) {
       try {
-        await fsp.unlink(path.join(this.cwd, config.completion.doneSentinelFile));
+        await fsp.unlink(loopStateFile(this.paths, config.completion.doneSentinelFile));
       } catch {
         // Not present — fine.
       }
@@ -277,7 +310,7 @@ export class LoopStageMachine {
   /** Read STAGE.md. Returns initialStage from config if missing/invalid. */
   async readStage(config: LoopConfig): Promise<LoopStage> {
     try {
-      const text = (await fsp.readFile(path.join(this.cwd, 'STAGE.md'), 'utf8')).trim();
+      const text = (await fsp.readFile(this.paths.stage, 'utf8')).trim();
       const parsed = this.parseStage(text);
       if (parsed) return parsed;
       logger.warn('STAGE.md unparseable; defaulting to initialStage', { content: text.slice(0, 80) });
@@ -313,7 +346,7 @@ export class LoopStageMachine {
    */
   async captureStartupSnapshot(config: LoopConfig): Promise<LoopStartupSnapshot> {
     const doneSentinelPresent = config.completion.doneSentinelFile
-      ? await this.fileExists(config.completion.doneSentinelFile)
+      ? await this.pathExists(loopStateFile(this.paths, config.completion.doneSentinelFile))
       : false;
     let planChecklistFullyChecked = false;
     if (config.planFile) {
@@ -338,7 +371,7 @@ export class LoopStageMachine {
   /** LF-4: read + parse `LOOP_TASKS.md`. Returns an empty ledger when absent. */
   async readTaskLedger(): Promise<LoopTaskLedger> {
     try {
-      const text = await fsp.readFile(path.join(this.cwd, LOOP_TASKS_FILE), 'utf8');
+      const text = await fsp.readFile(this.paths.tasks, 'utf8');
       return parseTaskLedger(text);
     } catch {
       return parseTaskLedger('');
@@ -356,7 +389,8 @@ export class LoopStageMachine {
       const out: string[] = [];
       for (const entry of entries) {
         if (!entry.isFile()) continue;
-        if (isPlanLikeMarkdown(entry.name)) out.push(entry.name);
+        if (!isPlanLikeMarkdown(entry.name)) continue;
+        if (await this.looksLikePlanDoc(entry.name)) out.push(entry.name);
       }
       out.sort();
       return out;
@@ -366,13 +400,26 @@ export class LoopStageMachine {
   }
 
   /**
-   * Internal helper — workspace-relative existence check. Kept private so
-   * callers go through `captureStartupSnapshot` rather than re-implementing
-   * the path-resolution boilerplate.
+   * A root `.md` (already past the name denylist / completed-suffix checks) is
+   * only treated as an uncompleted PLAN — which the loop will tell the agent to
+   * rename `_completed` — when it actually looks like one: a plan-ish filename
+   * OR a body containing a markdown checklist. Prose docs (e.g. blog drafts)
+   * are not plans, so the loop never demands they be renamed.
    */
-  private async fileExists(relativePath: string): Promise<boolean> {
+  private async looksLikePlanDoc(basename: string): Promise<boolean> {
+    if (PLAN_NAME_HINT_RE.test(basename)) return true;
     try {
-      await fsp.access(path.join(this.cwd, relativePath));
+      const text = await fsp.readFile(path.join(this.cwd, basename), 'utf8');
+      return parsePlanChecklist(text).total > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Internal helper — absolute-path existence check. */
+  private async pathExists(absPath: string): Promise<boolean> {
+    try {
+      await fsp.access(absPath);
       return true;
     } catch {
       return false;
@@ -382,7 +429,7 @@ export class LoopStageMachine {
   /** Read NOTES.md. Empty string if missing. */
   async readNotes(): Promise<string> {
     try {
-      return await fsp.readFile(path.join(this.cwd, 'NOTES.md'), 'utf8');
+      return await fsp.readFile(this.paths.notes, 'utf8');
     } catch {
       return '';
     }
@@ -399,7 +446,7 @@ export class LoopStageMachine {
   async curateNotesIfNeeded(
     opts: { maxChars?: number; keepTailChars?: number } = {},
   ): Promise<NotesCurationResult> {
-    const notesPath = path.join(this.cwd, 'NOTES.md');
+    const notesPath = this.paths.notes;
     let content: string;
     try {
       content = await fsp.readFile(notesPath, 'utf8');
@@ -459,12 +506,24 @@ export class LoopStageMachine {
       manualReviewOnly = false,
       priorObservations = [],
     } = args;
+    // All loop-owned state files live in this per-run directory (relative to
+    // the agent's working directory = the workspace root). The agent MUST
+    // read/write them at these exact paths — the coordinator reads the same
+    // paths, and using the workspace root instead would collide with any other
+    // loop running in this workspace.
+    const sd = this.paths.relDir;
+    const stageRel = `${sd}/STAGE.md`;
+    const notesRel = `${sd}/NOTES.md`;
+    const logRel = `${sd}/ITERATION_LOG.md`;
+    const tasksRel = `${sd}/${LOOP_TASKS_FILE}`;
+    const doneRel = `${sd}/${config.completion.doneSentinelFile || 'DONE.txt'}`;
+    const blockedRel = `${sd}/BLOCKED.md`;
     const planRef = config.planFile
       ? `the plan in \`${config.planFile}\` (referred to below as PLAN.md)`
       : 'the prompt below';
     const uncompletedPlansBlock =
       uncompletedPlanFilesAtStart.length > 0
-        ? `\n\n## Uncompleted Plan Files Detected\nThe workspace root contained these uncompleted plan-like markdown files when the loop started:\n${uncompletedPlanFilesAtStart.map((f) => `  - \`${f}\``).join('\n')}\n\nThe loop coordinator has auto-enabled the \`requireCompletedFileRename\` gate. Writing \`DONE.txt\` alone is **not sufficient** — at least one of these files must be renamed to \`<name>_completed.md\` during the run before the loop will accept a stop signal. When you finish implementing all addressable items in a file, perform the rename (\`mv <name>.md <name>_completed.md\` or \`git mv\` if tracked). Items explicitly deferred to future architectural specs do not block the rename — document them in NOTES.md and rename anyway.\n`
+        ? `\n\n## Uncompleted Plan Files Detected\nThe workspace root contained these uncompleted plan-like markdown files when the loop started:\n${uncompletedPlanFilesAtStart.map((f) => `  - \`${f}\``).join('\n')}\n\nThe loop coordinator has auto-enabled the \`requireCompletedFileRename\` gate. Writing \`${doneRel}\` alone is **not sufficient** — at least one of these files must be renamed to \`<name>_completed.md\` during the run before the loop will accept a stop signal. When you finish implementing all addressable items in a file, perform the rename (\`mv <name>.md <name>_completed.md\` or \`git mv\` if tracked). Items explicitly deferred to future architectural specs do not block the rename — document them in \`${notesRel}\` and rename anyway.\n`
         : '';
     const freshEyesReviewBlock = config.completion.crossModelReview?.enabled
       ? `\n\n## Fresh-Eyes Review Gate\nFresh-eyes review is enabled: when you declare done, the coordinator will run an independent cross-model review. Any ${config.completion.crossModelReview.blockingSeverities.join('/')} severity finding is automatically injected as a user intervention here in the prompt, and the loop continues with you addressing it. If you address every intervention and the reviewer has no further blocking findings, the loop accepts completion.\n`
@@ -510,16 +569,19 @@ ${contextModeLine}
 
 There is no human in the loop to answer questions. You must:
 
-1. **Make decisions.** If you are uncertain, choose the option a senior engineer would defend in code review. Document your reasoning in \`NOTES.md\`.
+1. **Make decisions.** If you are uncertain, choose the option a senior engineer would defend in code review. Document your reasoning in \`${notesRel}\`.
 2. **Do not ask clarifying questions.** They will not be answered — the next iteration is a fresh process and will not see them.
-3. **If you are genuinely blocked** (missing credentials, ambiguous requirements that cannot be resolved by best-judgement, hardware/network you cannot access): write \`BLOCKED.md\` describing exactly what you need, then exit. The loop will pause and wait for the operator.
+3. **If you are genuinely blocked** (missing credentials, ambiguous requirements that cannot be resolved by best-judgement, hardware/network you cannot access): write \`${blockedRel}\` describing exactly what you need, then exit. The loop will pause and wait for the operator.
+
+## Step 0 — Loop state directory
+All loop-owned state files for THIS run live in \`${sd}/\` (relative to your working directory). Always read and write them at the exact paths given below — never at the workspace root, because another loop may be running in this same workspace and would collide. (Your code changes, the plan file, and any \`_completed\` renames still happen in the normal project tree — only the loop's own bookkeeping files live under \`${sd}/\`.)
 
 ## Step 1 — Read your state
-1. Open \`STAGE.md\`. It contains exactly one of: PLAN, REVIEW, IMPLEMENT.
+1. Open \`${stageRel}\`. It contains exactly one of: PLAN, REVIEW, IMPLEMENT.
 2. Open ${planRef}.
-3. Open \`NOTES.md\`. It contains the rolling notes from prior iterations.
-4. Open \`ITERATION_LOG.md\` if you need detailed per-iteration history.
-5. Open \`${LOOP_TASKS_FILE}\` — the structured task ledger. For a multi-item goal, list every concrete work item there as a markdown checkbox and keep it current: \`[ ]\` todo, \`[~]\` in progress, \`[x]\` done, \`[-] … — deferred: <why>\`. **The loop stops only when every ledger item is \`[x]\` or \`[-]\` (with a reason) AND verify passes** — so an item you can't finish must be explicitly deferred with a reason, not left \`[ ]\`. (If no plan file is configured and the goal is broad, you may instead keep a \`## Completion Inventory\` in \`NOTES.md\`, but the ledger is preferred because the loop reads it as the source of truth for stopping.)${uncompletedPlansBlock}${freshEyesReviewBlock}${manualReviewBlock}${priorObservationsBlock}${interventions}${promptBlocks}
+3. Open \`${notesRel}\`. It contains the rolling notes from prior iterations.
+4. Open \`${logRel}\` if you need detailed per-iteration history.
+5. Open \`${tasksRel}\` — the structured task ledger. For a multi-item goal, list every concrete work item there as a markdown checkbox and keep it current: \`[ ]\` todo, \`[~]\` in progress, \`[x]\` done, \`[-] … — deferred: <why>\`. **The loop stops only when every ledger item is \`[x]\` or \`[-]\` (with a reason) AND verify passes** — so an item you can't finish must be explicitly deferred with a reason, not left \`[ ]\`. (If no plan file is configured and the goal is broad, you may instead keep a \`## Completion Inventory\` in \`${notesRel}\`, but the ledger is preferred because the loop reads it as the source of truth for stopping.)${uncompletedPlansBlock}${freshEyesReviewBlock}${manualReviewBlock}${priorObservationsBlock}${interventions}${promptBlocks}
 
 ## Step 2 — Do this iteration's work
 
@@ -527,28 +589,28 @@ Based on the value of STAGE.md:
 
 - **PLAN** — Continue or improve the plan. Choose the best architectural decisions. Do not take shortcuts. If a plan does not exist yet, draft one.
 - **REVIEW** — Re-read the plan with completely fresh eyes. Treat the plan as if a stranger wrote it. Identify and fix issues. Improve clarity, completeness, and correctness. If the plan is sound, say so explicitly.
-- **IMPLEMENT** — Implement the next concrete chunk toward the goal. If a plan exists, follow it. If no plan exists, inspect the code and make progress directly rather than drafting a new plan unless the user explicitly asked for planning. For broad goals such as "implement everything", first build or update the \`NOTES.md\` completion inventory by searching for unfinished implementations (for example TODO/FIXME, "not implemented", placeholder, stub, fake/mock behavior in production paths, constant returns standing in for real logic). Use maintainable architecture. After implementing, re-review your code with completely fresh eyes and fix anything you'd reject in code review. Run appropriate verification if you can.
+- **IMPLEMENT** — Implement the next concrete chunk toward the goal. If a plan exists, follow it. If no plan exists, inspect the code and make progress directly rather than drafting a new plan unless the user explicitly asked for planning. For broad goals such as "implement everything", first build or update the \`${notesRel}\` completion inventory by searching for unfinished implementations (for example TODO/FIXME, "not implemented", placeholder, stub, fake/mock behavior in production paths, constant returns standing in for real logic). Use maintainable architecture. After implementing, re-review your code with completely fresh eyes and fix anything you'd reject in code review. Run appropriate verification if you can.
 
 Honor every safety rail: do not run destructive operations (\`rm -rf\`, \`git push --force\`, schema drops) unless the loop config explicitly allows them — this loop ${config.allowDestructiveOps ? 'DOES' : 'DOES NOT'} allow destructive operations.
 
 ## Step 3 — Advance state at the end of the iteration
 
 If the work for the current STAGE is complete:
-- PLAN done → write \`REVIEW\` into STAGE.md. **Do NOT emit \`<promise>DONE</promise>\` or write \`DONE.txt\` — those are reserved for IMPLEMENT when the plan is fully complete.**
-- REVIEW done → write \`IMPLEMENT\` into STAGE.md. **Do NOT emit \`<promise>DONE</promise>\` or write \`DONE.txt\` — those are reserved for IMPLEMENT when the plan is fully complete.**
-- IMPLEMENT done **but plan still has unfinished items** → write \`REVIEW\` into STAGE.md (loop back through review).
+- PLAN done → write \`REVIEW\` into \`${stageRel}\`. **Do NOT emit \`<promise>DONE</promise>\` or write \`${doneRel}\` — those are reserved for IMPLEMENT when the plan is fully complete.**
+- REVIEW done → write \`IMPLEMENT\` into \`${stageRel}\`. **Do NOT emit \`<promise>DONE</promise>\` or write \`${doneRel}\` — those are reserved for IMPLEMENT when the plan is fully complete.**
+- IMPLEMENT done **but plan still has unfinished items** → write \`REVIEW\` into \`${stageRel}\` (loop back through review).
 - IMPLEMENT done **and the plan or completion inventory is fully implemented & verified** →
-    1. Confirm there are no open items: every \`${LOOP_TASKS_FILE}\` ledger item is \`[x]\` (done) or \`[-]\` (deferred with a reason), no unchecked plan items, and no unchecked \`NOTES.md\` completion-inventory items. For broad implementation goals, run a final targeted search for unfinished implementation markers and either implement each actionable item or record why it is out of scope (deferring it in the ledger with a reason).
+    1. Confirm there are no open items: every \`${tasksRel}\` ledger item is \`[x]\` (done) or \`[-]\` (deferred with a reason), no unchecked plan items, and no unchecked \`${notesRel}\` completion-inventory items. For broad implementation goals, run a final targeted search for unfinished implementation markers and either implement each actionable item or record why it is out of scope (deferring it in the ledger with a reason).
     2. Run the verify command if one is configured (\`${config.completion.verifyCommand || '(none configured)'}\`). If none is configured, run the appropriate project checks yourself and summarize their exact output, but understand the coordinator cannot independently verify completion and will pause for operator review instead of auto-completing. Verification must pass.
     3. If a plan file exists, rename it before declaring done: \`mv ${config.planFile ?? '<plan-file>'} ${(config.planFile ?? '<plan-file>').replace(/\.md$/, '_Completed.md')}\` (or use git mv if applicable).
-    4. Write \`DONE.txt\` containing the date — this durable sentinel is required for no-plan loops.
+    4. Write \`${doneRel}\` containing the date — this durable sentinel is required for no-plan loops.
     5. Append \`<promise>DONE</promise>\` on its own line at the end of your output only after the durable marker above exists.
 
-If you are blocked and need a human, write \`BLOCKED.md\` describing what you need, then exit.
+If you are blocked and need a human, write \`${blockedRel}\` describing what you need, then exit.
 
 ## Step 4 — Update notes
 
-Append a one-paragraph summary of this iteration to \`NOTES.md\`. Keep it terse — what changed, what's next.
+Append a one-paragraph summary of this iteration to \`${notesRel}\`. Keep it terse — what changed, what's next.
 
 ## Step 5 — Exit
 
@@ -580,7 +642,7 @@ Begin.`;
     progressNotes: string[];
     completionNotes: string[];
   }): Promise<void> {
-    const logPath = path.join(this.cwd, 'ITERATION_LOG.md');
+    const logPath = this.paths.iterationLog;
     const lines = [
       `## Iteration ${entry.seq} — ${entry.stage} — ${entry.verdict}`,
       `- duration: ${(entry.durationMs / 1000).toFixed(1)}s`,

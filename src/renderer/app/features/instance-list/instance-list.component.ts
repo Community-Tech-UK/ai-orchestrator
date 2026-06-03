@@ -42,11 +42,14 @@ import { ProjectRailBuilderService } from './project-rail-builder.service';
 import { ProjectRailPathService } from './project-rail-path.service';
 import { getAllProjectHistoryItems, getOrderedRootIds } from './project-rail-tree.utils';
 import {
+  FILTER_TEXT_STORAGE_KEY,
   HISTORY_TIME_WINDOW_STORAGE_KEY,
   HISTORY_VISIBILITY_STORAGE_KEY,
+  LOCATION_FILTER_STORAGE_KEY,
   ORDER_STORAGE_KEY,
   SHOW_EMPTY_PROJECTS_STORAGE_KEY,
   SORT_MODE_STORAGE_KEY,
+  STATUS_FILTER_STORAGE_KEY,
   getInstanceThreadId,
   type HierarchicalHistoryItem,
   type HierarchicalInstance,
@@ -80,10 +83,10 @@ export class InstanceListComponent implements OnDestroy {
   private visibleInstanceResolver = inject(VisibleInstanceResolver);
   private clipboard = inject(CLIPBOARD_SERVICE);
 
-  filterInput = signal('');
-  filterText = signal('');
-  statusFilter = signal<string>('all');
-  locationFilter = signal<'all' | 'local' | 'remote'>('all');
+  filterInput = signal(this.loadFilterText());
+  filterText = signal(this.loadFilterText());
+  statusFilter = signal<string>(this.loadStatusFilter());
+  locationFilter = signal<'all' | 'local' | 'remote'>(this.loadLocationFilter());
   filtersOpen = signal(false);
   pendingArchiveId = signal<string | null>(null);
   collapsedIds = signal<Set<string>>(new Set());
@@ -287,6 +290,7 @@ export class InstanceListComponent implements OnDestroy {
 
   setFilterText(value: string): void {
     this.filterInput.set(value);
+    this.saveFilterText(value);
     if (this.filterDebounceTimer) {
       clearTimeout(this.filterDebounceTimer);
     }
@@ -310,11 +314,14 @@ export class InstanceListComponent implements OnDestroy {
 
   setStatusFilter(value: string): void {
     this.statusFilter.set(value);
+    this.saveStatusFilter(value);
     this.closeProjectMenu({ restoreFocus: false });
   }
 
   onLocationFilterChange(event: Event): void {
-    this.locationFilter.set((event.target as HTMLSelectElement).value as 'all' | 'local' | 'remote');
+    const value = (event.target as HTMLSelectElement).value as 'all' | 'local' | 'remote';
+    this.locationFilter.set(value);
+    this.saveLocationFilter(value);
   }
 
   onSortModeChange(event: Event): void {
@@ -1308,6 +1315,59 @@ export class InstanceListComponent implements OnDestroy {
   private saveShowEmptyProjects(value: boolean): void {
     try {
       localStorage.setItem(SHOW_EMPTY_PROJECTS_STORAGE_KEY, value ? 'true' : 'false');
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+
+  private loadStatusFilter(): string {
+    try {
+      return localStorage.getItem(STATUS_FILTER_STORAGE_KEY) === 'active' ? 'active' : 'all';
+    } catch {
+      return 'all';
+    }
+  }
+
+  private saveStatusFilter(value: string): void {
+    try {
+      localStorage.setItem(STATUS_FILTER_STORAGE_KEY, value);
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+
+  private loadLocationFilter(): 'all' | 'local' | 'remote' {
+    try {
+      const saved = localStorage.getItem(LOCATION_FILTER_STORAGE_KEY);
+      return saved === 'local' || saved === 'remote' ? saved : 'all';
+    } catch {
+      return 'all';
+    }
+  }
+
+  private saveLocationFilter(value: 'all' | 'local' | 'remote'): void {
+    try {
+      localStorage.setItem(LOCATION_FILTER_STORAGE_KEY, value);
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+
+  private loadFilterText(): string {
+    try {
+      return localStorage.getItem(FILTER_TEXT_STORAGE_KEY) ?? '';
+    } catch {
+      return '';
+    }
+  }
+
+  private saveFilterText(value: string): void {
+    try {
+      if (value) {
+        localStorage.setItem(FILTER_TEXT_STORAGE_KEY, value);
+      } else {
+        localStorage.removeItem(FILTER_TEXT_STORAGE_KEY);
+      }
     } catch {
       // Ignore storage errors.
     }

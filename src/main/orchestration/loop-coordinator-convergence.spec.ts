@@ -16,9 +16,10 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import {
   LoopCoordinator,
   type FreshEyesReviewerInput,
@@ -26,6 +27,14 @@ import {
   type LoopChildResult,
 } from './loop-coordinator';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
+
+/** Write a loop-state file into the run's per-run state dir (.aio-loop-state/<runId>/). */
+function writeRunState(payload: unknown, name: string, content: string): void {
+  const p = payload as { loopRunId: string; workspaceCwd: string };
+  const paths = resolveLoopArtifactPaths(p.workspaceCwd, p.loopRunId);
+  mkdirSync(paths.dir, { recursive: true });
+  writeFileSync(loopStateFile(paths, name), content);
+}
 
 let workspace: string;
 let coordinator: LoopCoordinator;
@@ -99,7 +108,7 @@ describe('LoopCoordinator convergence (Piece B)', () => {
       if (p.seq >= 1) {
         writeFileSync(join(workspace, 'app.js'), 'const x = 1;\n'); // remove BUG → verify passes
       }
-      writeFileSync(join(workspace, 'DONE.txt'), `done at ${p.seq}\n`);
+      writeRunState(payload, 'DONE.txt', `done at ${p.seq}\n`);
       queueMicrotask(() => p.callback(childResult(p.seq)));
     });
 
@@ -166,7 +175,7 @@ describe('LoopCoordinator convergence (Piece B)', () => {
     // Agent always claims done but never fixes the bug → verify stays red.
     coordinator.on('loop:invoke-iteration', (payload: unknown) => {
       const p = payload as { seq: number; callback: (r: LoopChildResult) => void };
-      writeFileSync(join(workspace, 'DONE.txt'), `done at ${p.seq}\n`);
+      writeRunState(payload, 'DONE.txt', `done at ${p.seq}\n`);
       queueMicrotask(() => p.callback(childResult(p.seq)));
     });
     // Reviewer should never even run (verify never passes); make it loud if it does.

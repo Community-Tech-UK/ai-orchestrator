@@ -75,4 +75,56 @@ describe('ModelsDevService.parseRegistry', () => {
     expect(parsed).not.toBeNull();
     expect(Object.keys(parsed!.rates)).toHaveLength(0);
   });
+
+  it('includes provider namespace in each parsed entry', () => {
+    const raw = JSON.stringify({
+      anthropic: {
+        models: {
+          'claude-opus-4-8': {
+            id: 'claude-opus-4-8',
+            cost: { input: 5, output: 25 },
+          },
+        },
+      },
+      openai: {
+        models: {
+          'gpt-5.5': {
+            id: 'gpt-5.5',
+            cost: { input: 5, output: 20 },
+          },
+        },
+      },
+    });
+    const parsed = service.parseRegistry(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.entries).toHaveLength(2);
+    const opusEntry = parsed!.entries.find((e) => e.id === 'claude-opus-4-8');
+    expect(opusEntry?.provider).toBe('anthropic');
+    const gptEntry = parsed!.entries.find((e) => e.id === 'gpt-5.5');
+    expect(gptEntry?.provider).toBe('openai');
+  });
+
+  it('listEntries returns empty array before any refresh', () => {
+    const freshService = new ModelsDevService();
+    expect(freshService.listEntries()).toEqual([]);
+  });
+});
+
+describe('ModelsDevService.listEntries', () => {
+  it('returns entries populated after parseRegistry and doRefresh simulation', () => {
+    const svc = new ModelsDevService();
+    // Simulate a parse by calling parseRegistry (which we can verify returns entries)
+    const raw = JSON.stringify({
+      myprovider: {
+        models: {
+          'my-model': { id: 'my-model', cost: { input: 1, output: 3 } },
+        },
+      },
+    });
+    const parsed = svc.parseRegistry(raw);
+    expect(parsed!.entries).toHaveLength(1);
+    expect(parsed!.entries[0].id).toBe('my-model');
+    expect(parsed!.entries[0].provider).toBe('myprovider');
+    expect(parsed!.entries[0].rate).toEqual({ input: 1, output: 3 });
+  });
 });

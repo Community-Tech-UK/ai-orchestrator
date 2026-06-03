@@ -158,3 +158,13 @@ unilaterally.
    (they are finished blog drafts describing shipped features — complete as content).
    Optionally rename the three attached plan docs once their open slices are closed.
 4. Write `DONE.txt`.
+
+## DONE — completion gate satisfied (2026-06-03)
+1. [x] `npm run verify` GREEN — 818 test files / 7688 tests passed; lint, lint:fast,
+   typecheck, typecheck:spec, verify:ipc, verify:exports, check:contracts,
+   verify:architecture, rebuild:native, smoke:electron all passed (electron smoke
+   check passed; codesign valid). Full log: /tmp/verify_full.log (exit 0).
+2. [x] Every active-queue item [x] or [-] with a reason; all backlog sections mapped.
+3. [x] Flagged root files renamed: token-efficiency-accuracy-linkedin.md and
+   -medium.md → *_completed.md (finished content drafts describing shipped features).
+4. [x] DONE.txt written.

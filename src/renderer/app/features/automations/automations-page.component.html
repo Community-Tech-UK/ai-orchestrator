@@ -32,13 +32,20 @@
             <button class="btn btn--primary" type="button" (click)="startChat()">Create via chat</button>
           </div>
         } @else {
-          @if (current().length > 0) {
-            <section class="group" aria-label="Current automations">
-              <h2 class="group-title">Current</h2>
+          @for (group of groups(); track group.key) {
+            <section class="group" [attr.aria-label]="'Automations for ' + group.title">
+              <h2 class="group-title">
+                {{ group.title }}
+                <span class="group-subtitle">{{ group.subtitle }}</span>
+              </h2>
               <div class="rows">
-                @for (automation of current(); track automation.id) {
+                @for (automation of group.automations; track automation.id) {
                   <button type="button" class="row" (click)="select(automation)">
-                    <span class="status status--on" aria-hidden="true"></span>
+                    @if (isActive(automation)) {
+                      <span class="status status--on" aria-hidden="true"></span>
+                    } @else {
+                      <span class="status status--paused" aria-hidden="true">⏸</span>
+                    }
                     <span class="row-main">
                       <span class="row-name">{{ automation.name }}</span>
                       @if (byline(automation); as text) {
@@ -49,29 +56,11 @@
                       @if ((automation.unreadRunCount ?? 0) > 0) {
                         <span class="badge">{{ automation.unreadRunCount }}</span>
                       }
-                      <span class="row-schedule">{{ scheduleLabel(automation) }}</span>
-                    </span>
-                  </button>
-                }
-              </div>
-            </section>
-          }
-
-          @if (paused().length > 0) {
-            <section class="group" aria-label="Paused automations">
-              <h2 class="group-title">Paused</h2>
-              <div class="rows">
-                @for (automation of paused(); track automation.id) {
-                  <button type="button" class="row" (click)="select(automation)">
-                    <span class="status status--paused" aria-hidden="true">⏸</span>
-                    <span class="row-main">
-                      <span class="row-name">{{ automation.name }}</span>
-                      @if (byline(automation); as text) {
-                        <span class="row-byline">{{ text }}</span>
+                      @if (isActive(automation)) {
+                        <span class="row-schedule">{{ scheduleLabel(automation) }}</span>
+                      } @else {
+                        <span class="row-schedule muted">Paused</span>
                       }
-                    </span>
-                    <span class="row-right">
-                      <span class="row-schedule muted">Paused</span>
                     </span>
                   </button>
                 }

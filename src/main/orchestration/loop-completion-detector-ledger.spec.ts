@@ -6,17 +6,23 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCompletionDetector } from './loop-completion-detector';
+import { resolveLoopArtifactPaths, loopStateFile, type LoopArtifactPaths } from './loop-artifact-paths';
 import { defaultLoopConfig, type LoopIteration, type LoopState } from '../../shared/types/loop.types';
 
+const RUN_ID = 'loop-1';
 let tmpDir: string;
+let paths: LoopArtifactPaths;
 let det: LoopCompletionDetector;
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'loop-ledger-'));
+  // The detector reads loop state from the per-run dir keyed by state.id.
+  paths = resolveLoopArtifactPaths(tmpDir, RUN_ID);
+  mkdirSync(paths.dir, { recursive: true });
   det = new LoopCompletionDetector();
 });
 afterEach(() => {
@@ -52,8 +58,8 @@ function makeIteration(over: Partial<LoopIteration> = {}): LoopIteration {
 
 describe('LoopCompletionDetector — LOOP_TASKS.md ledger (LF-4)', () => {
   it('blocks completion while the ledger has open items (demotes other signals)', async () => {
-    writeFileSync(join(tmpDir, 'DONE.txt'), 'done\n'); // a normally-sufficient signal
-    writeFileSync(join(tmpDir, 'LOOP_TASKS.md'), '- [x] one\n- [ ] two\n');
+    writeFileSync(loopStateFile(paths, 'DONE.txt'), 'done\n'); // a normally-sufficient signal
+    writeFileSync(paths.tasks, '- [x] one\n- [ ] two\n');
     const state = makeState();
 
     const sigs = await det.observe({ iteration: makeIteration(), config: state.config, state });
@@ -68,7 +74,7 @@ describe('LoopCompletionDetector — LOOP_TASKS.md ledger (LF-4)', () => {
   });
 
   it('fires ledger-complete (sufficient) once every item is done/deferred', async () => {
-    writeFileSync(join(tmpDir, 'LOOP_TASKS.md'), '- [x] one\n- [-] two — deferred: out of scope\n');
+    writeFileSync(paths.tasks, '- [x] one\n- [-] two — deferred: out of scope\n');
     const state = makeState();
 
     const sigs = await det.observe({ iteration: makeIteration(), config: state.config, state });
@@ -80,8 +86,8 @@ describe('LoopCompletionDetector — LOOP_TASKS.md ledger (LF-4)', () => {
   });
 
   it('ignores a ledger that was already fully resolved at start (stale)', async () => {
-    writeFileSync(join(tmpDir, 'DONE.txt'), 'done\n'); // normal sufficient signal
-    writeFileSync(join(tmpDir, 'LOOP_TASKS.md'), '- [x] one\n- [x] two\n');
+    writeFileSync(loopStateFile(paths, 'DONE.txt'), 'done\n'); // normal sufficient signal
+    writeFileSync(paths.tasks, '- [x] one\n- [x] two\n');
     const state = makeState({ loopTasksLedgerResolvedAtStart: true });
 
     const sigs = await det.observe({ iteration: makeIteration(), config: state.config, state });
@@ -93,8 +99,8 @@ describe('LoopCompletionDetector — LOOP_TASKS.md ledger (LF-4)', () => {
   });
 
   it('is a no-op when LOOP_TASKS.md is absent or has no items', async () => {
-    writeFileSync(join(tmpDir, 'DONE.txt'), 'done\n');
-    writeFileSync(join(tmpDir, 'LOOP_TASKS.md'), '# Loop Tasks\n\njust a heading, no checkboxes\n');
+    writeFileSync(loopStateFile(paths, 'DONE.txt'), 'done\n');
+    writeFileSync(paths.tasks, '# Loop Tasks\n\njust a heading, no checkboxes\n');
     const state = makeState();
 
     const sigs = await det.observe({ iteration: makeIteration(), config: state.config, state });

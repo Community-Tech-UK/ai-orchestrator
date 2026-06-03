@@ -104,11 +104,42 @@ export const InputRequiredResponsePayloadSchema = z.object({
   requestId: z.string().min(1).max(100),
   response: z.string().min(1).max(10000),
   permissionKey: z.string().max(200).optional(),
-  decisionAction: z.enum(['allow', 'deny']).optional(),
+  /**
+   * 'modify' indicates the user approves the tool call but wants to replace the
+   * tool input with `updatedInput`.  When action is 'modify', `updatedInput` MUST
+   * be present and non-empty; the handler will reject the payload with an explicit
+   * error rather than silently falling back to a plain allow of the original input.
+   *
+   * NOTE: whether the installed Claude CLI actually honours `updatedInput` in a
+   * PreToolUse hook reply is version-dependent.  The orchestrator writes the field
+   * into the decision file and the hook emits it, but end-to-end modify support
+   * requires live-CLI validation before it can be considered reliable.
+   */
+  decisionAction: z.enum(['allow', 'deny', 'modify']).optional(),
   decisionScope: z.enum(['once', 'session', 'always']).optional(),
+  /**
+   * Replacement tool input for a 'modify' decision.  Must be a non-empty plain
+   * object (at least one key).  Ignored when decisionAction is 'allow' or 'deny'.
+   */
+  updatedInput: z.record(z.string(), z.unknown()).refine(
+    (obj) => Object.keys(obj).length > 0,
+    { message: 'updatedInput must be a non-empty object' },
+  ).optional(),
   /** Optional metadata for routing — e.g. type: 'deferred_permission' for defer flow. */
   metadata: z.record(z.string(), z.unknown()).optional(),
-});
+}).refine(
+  (data) => {
+    // If decisionAction is 'modify', updatedInput must be present and non-empty.
+    if (data.decisionAction === 'modify') {
+      return data.updatedInput !== undefined && Object.keys(data.updatedInput).length > 0;
+    }
+    return true;
+  },
+  {
+    message: "updatedInput (non-empty object) is required when decisionAction is 'modify'",
+    path: ['updatedInput'],
+  },
+);
 
 export type InputRequiredResponsePayload = z.infer<typeof InputRequiredResponsePayloadSchema>;
 

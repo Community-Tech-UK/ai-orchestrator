@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { CompletedFileWatcher, LoopCompletionDetector, buildVerifyInvocation } from './loop-completion-detector';
+import { CompletedFileWatcher, LoopCompletionDetector, buildVerifyInvocation, isCompletedRenameForPlan } from './loop-completion-detector';
+import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import { defaultLoopConfig, type LoopIteration, type LoopState } from '../../shared/types/loop.types';
 
 let tmpDir: string;
@@ -10,6 +11,16 @@ let tmpDir: string;
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'loop-completion-test-'));
 });
+
+/**
+ * Write the DONE sentinel into the per-run state dir (keyed by the makeState
+ * id 'loop-1') — that's where the detector reads it after artifact scoping.
+ */
+function writeDoneSentinel(content: string): void {
+  const p = resolveLoopArtifactPaths(tmpDir, 'loop-1');
+  fs.mkdirSync(p.dir, { recursive: true });
+  fs.writeFileSync(loopStateFile(p, 'DONE.txt'), content);
+}
 
 afterEach(() => {
   try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* noop */ }
@@ -183,7 +194,7 @@ describe('LoopCompletionDetector.observe', () => {
   it('reports done-sentinel when DONE.txt is created during the run (IMPLEMENT stage)', async () => {
     const det = new LoopCompletionDetector();
     // Sentinel did NOT exist at startLoop — agent just created it.
-    fs.writeFileSync(path.join(tmpDir, 'DONE.txt'), 'finished');
+    writeDoneSentinel('finished');
     const state = makeState(tmpDir, { doneSentinelPresentAtStart: false });
     const sigs = await det.observe({ iteration: makeIteration({ stage: 'IMPLEMENT' }), config: state.config, state });
     expect(sigs.some((s) => s.id === 'done-sentinel' && s.sufficient)).toBe(true);
@@ -191,7 +202,7 @@ describe('LoopCompletionDetector.observe', () => {
 
   it('does NOT report done-sentinel when DONE.txt already existed at startLoop (stale)', async () => {
     const det = new LoopCompletionDetector();
-    fs.writeFileSync(path.join(tmpDir, 'DONE.txt'), 'left over from a prior run');
+    writeDoneSentinel('left over from a prior run');
     const state = makeState(tmpDir, { doneSentinelPresentAtStart: true });
     const sigs = await det.observe({ iteration: makeIteration({ stage: 'IMPLEMENT' }), config: state.config, state });
     expect(sigs.find((s) => s.id === 'done-sentinel')).toBeUndefined();
@@ -199,7 +210,7 @@ describe('LoopCompletionDetector.observe', () => {
 
   it('done-sentinel is NOT sufficient in REVIEW stage even when in-run created', async () => {
     const det = new LoopCompletionDetector();
-    fs.writeFileSync(path.join(tmpDir, 'DONE.txt'), 'finished');
+    writeDoneSentinel('finished');
     const state = makeState(tmpDir, { doneSentinelPresentAtStart: false });
     const sigs = await det.observe({ iteration: makeIteration({ stage: 'REVIEW' }), config: state.config, state });
     const sig = sigs.find((s) => s.id === 'done-sentinel');
@@ -509,5 +520,36 @@ describe('buildVerifyInvocation', () => {
     expect(inv.useShellOption).toBe(true);
     expect(inv.file).toBe('npm run verify');
     expect(inv.args).toEqual([]);
+  });
+});
+
+describe('isCompletedRenameForPlan (completion tied to THIS loop\'s plan)', () => {
+  const cfg = (planFile?: string) => ({ workspaceCwd: '/tmp/ws', planFile });
+
+  it('accepts the configured plan file renamed to _completed.md (either casing)', () => {
+    expect(isCompletedRenameForPlan(cfg('plan.md'), '/tmp/ws/plan_completed.md')).toBe(true);
+    expect(isCompletedRenameForPlan(cfg('plan.md'), '/tmp/ws/plan_Completed.md')).toBe(true);
+  });
+
+  it('accepts a nested configured plan file rename', () => {
+    expect(isCompletedRenameForPlan(cfg('docs/plans/phase.md'), '/tmp/ws/docs/plans/phase_completed.md')).toBe(true);
+  });
+
+  it('REJECTS renaming an unrelated file (the incident: blog drafts → _completed)', () => {
+    // This is exactly what ended the reported run — renaming two unrelated root
+    // docs to _completed.md must NOT count as completing a loop whose plan is
+    // something else.
+    expect(isCompletedRenameForPlan(cfg('plan.md'), '/tmp/ws/token-efficiency-accuracy-linkedin_completed.md')).toBe(false);
+    expect(isCompletedRenameForPlan(cfg('plan.md'), '/tmp/ws/token-efficiency-accuracy-medium_completed.md')).toBe(false);
+  });
+
+  it('REJECTS another concurrent loop\'s plan rename (cross-talk guard)', () => {
+    // Loop A drives plan-a.md; loop B drives plan-b.md in the same workspace.
+    // B renaming plan-b_completed.md must not complete A.
+    expect(isCompletedRenameForPlan(cfg('plan-a.md'), '/tmp/ws/plan-b_completed.md')).toBe(false);
+  });
+
+  it('REJECTS any rename for a no-plan loop (must complete via DONE.txt/verify/ledger)', () => {
+    expect(isCompletedRenameForPlan(cfg(undefined), '/tmp/ws/anything_completed.md')).toBe(false);
   });
 });

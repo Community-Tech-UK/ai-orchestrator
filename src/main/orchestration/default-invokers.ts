@@ -68,7 +68,7 @@ interface LoopInvocationActivity {
 }
 
 const LOOP_AUTONOMOUS_INPUT_RESPONSE =
-  'Loop Mode is unattended. Do not wait for human input. Make the best reasonable assumption a senior engineer would defend, document it in NOTES.md, and continue. If the work is genuinely blocked, write BLOCKED.md with the exact blocker and exit the iteration.';
+  'Loop Mode is unattended. Do not wait for human input. Make the best reasonable assumption a senior engineer would defend, document it in your loop NOTES file, and continue. If the work is genuinely blocked, write the BLOCKED.md file at the loop-state path given in your iteration prompt with the exact blocker, then exit the iteration.';
 const LOOP_DEFAULT_ACTIVE_TIMEOUT_MS = 5 * 60 * 1000;
 
 function attachInvocationActivity(

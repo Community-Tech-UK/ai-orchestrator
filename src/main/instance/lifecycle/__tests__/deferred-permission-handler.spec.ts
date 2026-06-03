@@ -105,6 +105,7 @@ describe('DeferredPermissionHandler', () => {
       'tool-1',
       'allow',
       'User approved via orchestrator UI',
+      undefined,  // no updatedInput — plain allow
     );
     expect(oldAdapter.terminate).toHaveBeenCalledWith(true);
     expect(ops.createCliAdapter).toHaveBeenCalledWith(

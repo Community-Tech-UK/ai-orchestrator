@@ -23,6 +23,12 @@ import { SessionRevivalService } from '../session/session-revival-service';
 import { emitPluginHook } from '../plugins/hook-emitter';
 import { getArtifactAttributionStore } from '../session/artifact-attribution-store';
 import { getChannelManager } from '../channels/channel-manager';
+import {
+  DEFAULT_MAX_RETRY_ATTEMPTS,
+  DEFAULT_RETRY_BASE_DELAY_MS,
+  computeRetryDelayMs,
+} from './automation-retry';
+import { toWorkspaceId } from '../../shared/utils/workspace-key';
 
 const logger = getLogger('AutomationRunner');
 
@@ -66,12 +72,24 @@ type ThreadWakeupRunnerFactory = (
   now: () => number,
 ) => ThreadWakeupRunner;
 
+/**
+ * Callback registered by the scheduler so the runner can schedule a retry
+ * without a circular dependency.  The scheduler is the sole owner of timers.
+ */
+export type RetrySchedulerCallback = (
+  originalRun: AutomationRun,
+  nextAttempt: number,
+  maxAttempts: number,
+  delayMs: number,
+) => void;
+
 export class AutomationRunner {
   private instanceManager: InstanceManager | null = null;
   private threadWakeupRunner: ThreadWakeupRunner | null = null;
   private readonly trackingByInstance = new Map<string, RunTracking>();
   private readonly instanceByRun = new Map<string, string>();
   private initialized = false;
+  private retryScheduler: RetrySchedulerCallback | null = null;
 
   constructor(
     private readonly store: AutomationStore,
@@ -87,7 +105,17 @@ export class AutomationRunner {
       automationStore,
       currentTime,
     ),
+    private readonly maxRetryAttempts = DEFAULT_MAX_RETRY_ATTEMPTS,
+    private readonly baseRetryDelayMs = DEFAULT_RETRY_BASE_DELAY_MS,
   ) {}
+
+  /**
+   * Register the callback the runner will invoke when it needs to schedule a
+   * retry.  Should be called by the scheduler immediately after construction.
+   */
+  setRetryScheduler(cb: RetrySchedulerCallback): void {
+    this.retryScheduler = cb;
+  }
 
   initialize(instanceManager: InstanceManager): void {
     if (this.initialized) {
@@ -131,6 +159,8 @@ export class AutomationRunner {
         idempotencyKey: options.idempotencyKey,
         triggerSource: options.triggerSource,
         deliveryMode: options.deliveryMode,
+        maxAttempts: this.maxRetryAttempts,
+        attempt: 1,
       },
     );
 
@@ -585,29 +615,78 @@ export class AutomationRunner {
         timestamp: Date.now(),
       });
     }
-    // Resilience: track consecutive failures so a persistently-failing automation
-    // is auto-disabled instead of re-firing on every schedule tick. Success resets
-    // the streak. Skipped/cancelled outcomes are intentionally ignored.
-    if (run.status === 'succeeded' || run.status === 'failed') {
+
+    // Resilience: retry/backoff + consecutive-failure tracking (B10a/B10b).
+    //
+    // On a failed run, check if more attempts are available. If so, schedule a
+    // retry — intermediate failures do NOT increment the consecutive-failure
+    // streak so a transient error doesn't cause an early auto-disable. Only the
+    // final give-up (all attempts exhausted) records the outcome and may
+    // auto-disable the automation.
+    //
+    // On success, always record the outcome immediately to reset the streak.
+    if (run.status === 'failed') {
+      const attempt = run.attempt ?? 1;
+      const maxAttempts = run.maxAttempts ?? 1;
+      if (attempt < maxAttempts && this.retryScheduler) {
+        const delayMs = computeRetryDelayMs(run.automationId, attempt, this.baseRetryDelayMs);
+        logger.info('Scheduling automation retry', {
+          automationId: run.automationId,
+          runId: run.id,
+          attempt,
+          nextAttempt: attempt + 1,
+          maxAttempts,
+          delayMs,
+        });
+        this.retryScheduler(run, attempt + 1, maxAttempts, delayMs);
+        // Intentionally skip recordRunOutcome — the streak must not be
+        // incremented for intermediate retry failures.
+      } else {
+        // Final attempt — record the failure and possibly auto-disable.
+        const outcome = this.store.recordRunOutcome(
+          run.automationId,
+          run.status,
+          run.error ?? undefined,
+          this.now(),
+        );
+        if (outcome.autoDisabled) {
+          logger.warn('Automation auto-disabled after repeated failures', {
+            automationId: run.automationId,
+            consecutiveFailures: outcome.automation?.consecutiveFailures,
+            lastFailureReason: run.error ?? undefined,
+          });
+          this.emitAutomationState(run.automationId);
+          this.events.emitScheduleDeactivated({ automationId: run.automationId });
+        }
+      }
+    } else if (run.status === 'succeeded') {
       const outcome = this.store.recordRunOutcome(
         run.automationId,
         run.status,
-        run.error ?? undefined,
+        undefined,
         this.now(),
       );
       if (outcome.autoDisabled) {
-        logger.warn('Automation auto-disabled after repeated failures', {
-          automationId: run.automationId,
-          consecutiveFailures: outcome.automation?.consecutiveFailures,
-          lastFailureReason: run.error ?? undefined,
-        });
+        // Shouldn't happen on success, but guard defensively.
         this.emitAutomationState(run.automationId);
         this.events.emitScheduleDeactivated({ automationId: run.automationId });
       }
     }
+
     if (this.isOneTimeRun(run)) {
       this.emitAutomationState(run.automationId);
-      this.events.emitScheduleDeactivated({ automationId: run.automationId });
+      // BUG 1 FIX (runner side): do NOT emit schedule-deactivated for a failed
+      // oneTime run when a retry is still pending.  schedule-deactivated triggers
+      // a full deactivate() in the scheduler, which would immediately cancel the
+      // retry timer we just armed above.  A retry is pending when this run is
+      // failed AND attempt < maxAttempts AND a retryScheduler is registered.
+      const hasRetryPending =
+        run.status === 'failed' &&
+        (run.attempt ?? 1) < (run.maxAttempts ?? 1) &&
+        this.retryScheduler !== null;
+      if (!hasRetryPending) {
+        this.events.emitScheduleDeactivated({ automationId: run.automationId });
+      }
     }
     this.deliverRunSummaryToChannel(run).catch((deliveryError) => {
       logger.warn('Failed to deliver automation run summary to channel', {
@@ -622,5 +701,121 @@ export class AutomationRunner {
         error: promoteError instanceof Error ? promoteError.message : String(promoteError),
       });
     });
+  }
+
+  /**
+   * Record a give-up outcome for a run whose last retry attempt was abandoned
+   * due to a concurrency-policy skip.  This keeps the consecutive-failure streak
+   * accurate even when a retry is skipped for non-error reasons.
+   *
+   * Called from AutomationScheduler.onRetryTimer when concurrencyPolicy=skip
+   * and the retry timer fires but a run is still active.
+   */
+  recordGiveUpOutcome(originalRun: AutomationRun): void {
+    const outcome = this.store.recordRunOutcome(
+      originalRun.automationId,
+      'failed',
+      originalRun.error ?? 'Retry skipped due to concurrency policy (skip)',
+      this.now(),
+    );
+    if (outcome.autoDisabled) {
+      logger.warn('Automation auto-disabled after repeated failures (give-up via concurrency skip)', {
+        automationId: originalRun.automationId,
+        consecutiveFailures: outcome.automation?.consecutiveFailures,
+      });
+      this.emitAutomationState(originalRun.automationId);
+      this.events.emitScheduleDeactivated({ automationId: originalRun.automationId });
+    }
+  }
+
+  /**
+   * Dispatch a retry run that was created by the scheduler when the retry
+   * timer fires.  Called from `AutomationScheduler.onRetryTimer`.
+   */
+  async dispatchRetryRun(retryRun: AutomationRun): Promise<void> {
+    const manager = this.requireInstanceManager();
+    this.events.emitRunChanged({ automationId: retryRun.automationId, run: retryRun });
+    emitPluginHook('automation.run.started', {
+      automationId: retryRun.automationId,
+      runId: retryRun.id,
+      trigger: retryRun.trigger,
+      source: retryRun.triggerSource ?? undefined,
+      deliveryMode: retryRun.deliveryMode,
+      timestamp: Date.now(),
+    });
+
+    if (retryRun.configSnapshot?.destination.kind === 'thread') {
+      const terminal = await this.requireThreadWakeupRunner().fireThreadWakeup({
+        run: retryRun,
+        automation: this.automationFromSnapshot(
+          // Build a minimal Automation shell from the snapshot for the wakeup runner.
+          {
+            id: retryRun.automationId,
+            name: retryRun.configSnapshot.name,
+            enabled: true,
+            active: true,
+            workspaceId: toWorkspaceId(retryRun.configSnapshot.action.workingDirectory),
+            schedule: retryRun.configSnapshot.schedule,
+            missedRunPolicy: retryRun.configSnapshot.missedRunPolicy,
+            concurrencyPolicy: retryRun.configSnapshot.concurrencyPolicy,
+            destination: retryRun.configSnapshot.destination,
+            action: retryRun.configSnapshot.action,
+            nextFireAt: null,
+            lastFiredAt: null,
+            lastRunId: null,
+            createdAt: retryRun.createdAt,
+            updatedAt: retryRun.updatedAt,
+          },
+          retryRun.configSnapshot,
+        ),
+        destination: retryRun.configSnapshot.destination,
+      });
+      this.handleTerminalRun(terminal);
+      return;
+    }
+
+    try {
+      const snapshot = retryRun.configSnapshot;
+      if (!snapshot) {
+        throw new Error('Retry run has no config snapshot');
+      }
+      const instance = await manager.createInstance({
+        displayName: `Automation: ${snapshot.name} (retry ${retryRun.attempt})`,
+        workingDirectory: snapshot.action.workingDirectory,
+        initialPrompt: snapshot.action.prompt,
+        attachments: snapshot.action.attachments,
+        yoloMode: snapshot.action.yoloMode,
+        agentId: snapshot.action.agentId,
+        provider: snapshot.action.provider,
+        modelOverride: snapshot.action.model,
+        forceNodeId: snapshot.action.forceNodeId,
+        reasoningEffort: snapshot.action.reasoningEffort,
+      });
+
+      this.trackInstance(instance.id, retryRun);
+      const attachedRun = this.store.attachInstance(retryRun.id, instance.id, this.now());
+      if (attachedRun) {
+        this.events.emitRunChanged({ automationId: attachedRun.automationId, run: attachedRun });
+      }
+
+      this.reconcileInstanceState(instance);
+      instance.readyPromise?.catch((error: unknown) => {
+        this.failTrackedInstance(
+          instance.id,
+          `Automation retry dispatch failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+    } catch (error) {
+      const failed = this.store.terminalizeRun(
+        retryRun.id,
+        'failed',
+        error instanceof Error ? error.message : String(error),
+        undefined,
+        this.now(),
+      );
+      if (failed) {
+        this.handleTerminalRun(failed);
+      }
+    }
   }
 }

@@ -11,10 +11,20 @@ import type {
 } from '../../../../shared/types/automation.types';
 import type { FileAttachment } from '../../../../shared/types/instance.types';
 import type { AutomationPreflightReport, AutomationTemplate } from '../../../../shared/types/task-preflight.types';
+import { NO_WORKSPACE_KEY } from '../../../../shared/utils/workspace-key';
 import { AutomationStore, type AutomationDraft } from '../../core/state/automation.store';
+import { InstanceStore } from '../../core/state/instance/instance.store';
 import { describeSchedule } from './schedule-format';
 
 type OverlayMode = 'detail' | 'form' | 'chat' | null;
+
+/** A project (workspace) bucket of automations for the grouped list view. */
+interface AutomationGroup {
+  key: string;
+  title: string;
+  subtitle: string;
+  automations: Automation[];
+}
 
 interface AutomationFormModel {
   id?: string;
@@ -83,6 +93,7 @@ function fromLocalDateInput(value: string): number {
 })
 export class AutomationsPageComponent {
   private readonly router = inject(Router);
+  private readonly instances = inject(InstanceStore);
   store = inject(AutomationStore);
 
   selectedId = signal<string | null>(null);
@@ -99,8 +110,53 @@ export class AutomationsPageComponent {
   chatError = signal<string | null>(null);
   chatDraft = signal<AutomationDraft | null>(null);
 
-  current = computed(() => this.store.automations().filter((a) => a.enabled && a.active));
-  paused = computed(() => this.store.automations().filter((a) => !(a.enabled && a.active)));
+  /** Working directory of the currently-active instance/project, if any. */
+  currentProjectDir = computed(() => this.instances.selectedInstance()?.workingDirectory ?? '');
+
+  /**
+   * Automations bucketed by the project (workspace) they target, so each
+   * automation appears under the relevant project rather than in one flat list.
+   * Within a group, active automations sort before paused ones; groups sort by
+   * title with the "No workspace" bucket last.
+   */
+  groups = computed<AutomationGroup[]>(() => {
+    const buckets = new Map<string, Automation[]>();
+    for (const automation of this.store.automations()) {
+      const key = automation.workspaceId || NO_WORKSPACE_KEY;
+      const bucket = buckets.get(key);
+      if (bucket) {
+        bucket.push(automation);
+      } else {
+        buckets.set(key, [automation]);
+      }
+    }
+
+    const result: AutomationGroup[] = [];
+    for (const [key, automations] of buckets) {
+      automations.sort((a, b) => {
+        const activeDelta = Number(this.isActive(b)) - Number(this.isActive(a));
+        return activeDelta !== 0 ? activeDelta : a.name.localeCompare(b.name);
+      });
+      const dir = automations[0]?.action.workingDirectory ?? '';
+      result.push({
+        key,
+        title: this.projectTitle(dir),
+        subtitle: this.projectSubtitle(dir),
+        automations,
+      });
+    }
+
+    result.sort((a, b) => {
+      const aNoWs = a.key === NO_WORKSPACE_KEY ? 1 : 0;
+      const bNoWs = b.key === NO_WORKSPACE_KEY ? 1 : 0;
+      return aNoWs !== bNoWs ? aNoWs - bNoWs : a.title.localeCompare(b.title);
+    });
+    return result;
+  });
+
+  isActive(automation: Automation): boolean {
+    return automation.enabled && automation.active;
+  }
 
   selected = computed(() =>
     this.store.automations().find((automation) => automation.id === this.selectedId()) ?? null
@@ -140,7 +196,7 @@ export class AutomationsPageComponent {
     this.chatError.set(null);
     this.chatDraft.set(null);
     this.chatBusy.set(false);
-    this.chatWorkingDir.set(this.suggestWorkingDirectory());
+    this.chatWorkingDir.set(this.defaultWorkingDirectory());
     this.overlay.set('chat');
   }
 
@@ -213,6 +269,27 @@ export class AutomationsPageComponent {
     return '';
   }
 
+  /** Short project name for a group header (last path segment). */
+  projectTitle(workingDirectory: string): string {
+    const normalized = workingDirectory.trim();
+    if (!normalized) {
+      return 'No workspace';
+    }
+    const parts = normalized.split(/[/\\]/).filter(Boolean);
+    return parts.at(-1) ?? normalized;
+  }
+
+  /** Full project path for a group header, with the home dir collapsed to ~. */
+  projectSubtitle(workingDirectory: string): string {
+    const normalized = workingDirectory.trim();
+    if (!normalized) {
+      return 'Automations without a working directory';
+    }
+    return normalized
+      .replace(/^\/Users\/[^/]+/, '~')
+      .replace(/^\/home\/[^/]+/, '~');
+  }
+
   select(automation: Automation): void {
     this.selectedId.set(automation.id);
     this.overlay.set('detail');
@@ -228,7 +305,7 @@ export class AutomationsPageComponent {
     this.selectedTemplateId.set('');
     this.preflightAcknowledged.set(false);
     this.store.clearPreflight();
-    this.form.set(emptyForm());
+    this.form.set({ ...emptyForm(), workingDirectory: this.defaultWorkingDirectory() });
     this.overlay.set('form');
   }
 
@@ -357,6 +434,16 @@ export class AutomationsPageComponent {
 
   formatTime(timestamp: number | null): string {
     return timestamp ? new Date(timestamp).toLocaleString() : 'None';
+  }
+
+  /**
+   * Default working directory for a newly-created automation: the currently
+   * active project if one is open, otherwise the most common workspace across
+   * existing automations.
+   */
+  private defaultWorkingDirectory(): string {
+    const current = this.currentProjectDir().trim();
+    return current || this.suggestWorkingDirectory();
   }
 
   private suggestWorkingDirectory(): string {

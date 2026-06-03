@@ -10,11 +10,24 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
+import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
+
+/**
+ * Write a loop-state file (e.g. DONE.txt) into the run's per-run state dir —
+ * loop state is scoped under .aio-loop-state/<runId>/, not the workspace root.
+ * The invoke-iteration payload carries loopRunId + workspaceCwd.
+ */
+function writeRunState(payload: unknown, name: string, content: string): void {
+  const p = payload as { loopRunId: string; workspaceCwd: string };
+  const paths = resolveLoopArtifactPaths(p.workspaceCwd, p.loopRunId);
+  mkdirSync(paths.dir, { recursive: true });
+  writeFileSync(loopStateFile(paths, name), content);
+}
 
 let workspace: string;
 let coordinator: LoopCoordinator;
@@ -65,7 +78,7 @@ async function waitForStatus(id: string, status: string, tries = 100): Promise<v
 async function startManualReviewLoop(): Promise<LoopState> {
   coordinator.on('loop:invoke-iteration', (payload: unknown) => {
     const p = payload as { callback: (r: LoopChildResult) => void };
-    writeFileSync(join(workspace, 'DONE.txt'), 'done\n');
+    writeRunState(payload, 'DONE.txt', 'done\n');
     queueMicrotask(() => p.callback(claimsDone()));
   });
   const state = await coordinator.startLoop('chat-accept', {

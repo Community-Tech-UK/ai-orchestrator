@@ -52,12 +52,18 @@ benchmarks/orchestrator-benchmark/dist/
 
 # Loop Mode runtime state (the loop coordinator writes these into the
 # workspace where it runs; they are per-iteration memory, not source).
+# Current loops scope all state under .aio-loop-state/<runId>/; the bare
+# root entries below are legacy (older loops wrote them at the workspace root).
 /STAGE.md
 /NOTES.md
 /ITERATION_LOG.md
-# AI Orchestrator loop attachments
+/LOOP_TASKS.md
+/DONE.txt
+/BLOCKED.md
+# AI Orchestrator loop runtime state
 .aio-loop-attachments/
 .aio-loop-control/
+.aio-loop-state/
 
 # Temporary JSON dumps (vitest session reviews, etc.)
 .tmp-*.json

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { getLogger } from '../logging/logger';
 import { ATTACHMENT_PREAMBLE_HEADER } from '../../shared/types/title-derivation';
 import type { LoopAttachment } from '@contracts/schemas/loop';
+import { LOOP_STATE_DIR_NAME } from './loop-artifact-paths';
 
 const logger = getLogger('LoopAttachments');
 
@@ -124,9 +125,10 @@ export function renderAttachmentBlock(saved: SavedAttachment[]): string {
 }
 
 /**
- * Append `LOOP_ATTACHMENT_ROOT/` to the workspace's .gitignore if it
- * isn't already covered. Best-effort; logs and continues on failure
- * so a read-only repo doesn't block loop start.
+ * Append the loop's hidden runtime roots (`.aio-loop-attachments/` and
+ * `.aio-loop-state/`) to the workspace's .gitignore if not already covered.
+ * Best-effort; logs and continues on failure so a read-only repo doesn't
+ * block loop start.
  */
 export async function ensureLoopAttachmentsIgnored(workspaceCwd: string): Promise<void> {
   const gitignorePath = join(workspaceCwd, '.gitignore');
@@ -136,14 +138,18 @@ export async function ensureLoopAttachmentsIgnored(workspaceCwd: string): Promis
   } catch {
     // No .gitignore yet — appendFile below will create one.
   }
-  if (containsIgnore(existing, LOOP_ATTACHMENT_ROOT)) return;
+  const missing = [LOOP_ATTACHMENT_ROOT, LOOP_STATE_DIR_NAME].filter(
+    (root) => !containsIgnore(existing, root),
+  );
+  if (missing.length === 0) return;
 
   const needsLeadingNewline = existing.length > 0 && !existing.endsWith('\n');
-  const block = `${needsLeadingNewline ? '\n' : ''}# AI Orchestrator loop attachments\n${LOOP_ATTACHMENT_ROOT}/\n`;
+  const entries = missing.map((root) => `${root}/`).join('\n');
+  const block = `${needsLeadingNewline ? '\n' : ''}# AI Orchestrator loop runtime state\n${entries}\n`;
   try {
     await appendFile(gitignorePath, block);
   } catch (err) {
-    logger.warn('Failed to update .gitignore for loop attachments', { error: String(err) });
+    logger.warn('Failed to update .gitignore for loop runtime state', { error: String(err) });
   }
 }
 

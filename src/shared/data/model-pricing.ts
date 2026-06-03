@@ -70,6 +70,11 @@ export function modelRateOverlaySize(): number {
   return overlayRates.size;
 }
 
+/** True when the live models.dev overlay has an explicit entry for this model. */
+export function hasOverlayRate(model: string | undefined | null): boolean {
+  return !!(model && overlayRates.has(model));
+}
+
 /** True when the overlay or `MODEL_PRICING` has an explicit entry for this model. */
 export function hasModelRate(model: string | undefined | null): boolean {
   return !!(model && (overlayRates.has(model) || !!MODEL_PRICING[model]));

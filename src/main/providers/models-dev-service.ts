@@ -30,6 +30,8 @@ const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 /** Per-model metadata distilled from the registry. */
 export interface ModelsDevEntry {
   id: string;
+  /** The provider namespace as reported by models.dev (e.g. `anthropic`, `openai`). */
+  provider: string;
   rate: ModelRate;
   /** Total context window in tokens, when published. */
   contextWindow?: number;
@@ -40,6 +42,8 @@ export interface ModelsDevEntry {
 interface ParsedRegistry {
   rates: Record<string, ModelRate>;
   contextWindows: Map<string, number>;
+  /** Full entry list — includes models without cost data if they have context limits. */
+  entries: ModelsDevEntry[];
 }
 
 export class ModelsDevService {
@@ -47,6 +51,8 @@ export class ModelsDevService {
   private lastFetchedAt = 0;
   private inflight: Promise<boolean> | null = null;
   private contextWindows = new Map<string, number>();
+  /** Full parsed entry list from the last successful sync. */
+  private entries: ModelsDevEntry[] = [];
 
   constructor(ttlMs = DEFAULT_TTL_MS) {
     this.ttlMs = ttlMs;
@@ -95,17 +101,40 @@ export class ModelsDevService {
 
     registerModelRates(parsed.rates);
     this.contextWindows = parsed.contextWindows;
+    this.entries = parsed.entries;
     this.lastFetchedAt = Date.now();
     logger.info('models.dev pricing synced', {
       models: count,
       overlaySize: modelRateOverlaySize(),
     });
+
+    // Notify the unified catalog that models.dev data has refreshed.
+    // Lazy require avoids a circular dependency at module load time.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { getUnifiedModelCatalog } = require('./unified-model-catalog-service') as typeof import('./unified-model-catalog-service');
+      getUnifiedModelCatalog().onModelsDevRefreshed();
+    } catch (err) {
+      logger.warn('Failed to notify unified catalog of models.dev refresh', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     return true;
   }
 
   /** Context window (tokens) for a model from the last successful sync, if any. */
   getContextWindow(modelId: string): number | undefined {
     return this.contextWindows.get(modelId);
+  }
+
+  /**
+   * All entries parsed from the last successful sync.
+   * Returns an empty array until the first successful refresh.
+   * Each entry includes the provider namespace as reported by models.dev.
+   */
+  listEntries(): ModelsDevEntry[] {
+    return this.entries;
   }
 
   /**
@@ -126,30 +155,32 @@ export class ModelsDevService {
 
     const rates: Record<string, ModelRate> = {};
     const contextWindows = new Map<string, number>();
+    const entries: ModelsDevEntry[] = [];
 
-    for (const provider of Object.values(root as Record<string, unknown>)) {
+    for (const [providerKey, provider] of Object.entries(root as Record<string, unknown>)) {
       if (!provider || typeof provider !== 'object') continue;
       const models = (provider as { models?: unknown }).models;
       if (!models || typeof models !== 'object') continue;
 
-      const entries = Array.isArray(models)
+      const modelValues = Array.isArray(models)
         ? (models as unknown[])
         : Object.values(models as Record<string, unknown>);
 
-      for (const model of entries) {
-        const entry = this.parseModel(model);
+      for (const model of modelValues) {
+        const entry = this.parseModel(model, providerKey);
         if (!entry) continue;
         rates[entry.id] = entry.rate;
         if (entry.contextWindow !== undefined) {
           contextWindows.set(entry.id, entry.contextWindow);
         }
+        entries.push(entry);
       }
     }
 
-    return { rates, contextWindows };
+    return { rates, contextWindows, entries };
   }
 
-  private parseModel(model: unknown): ModelsDevEntry | null {
+  private parseModel(model: unknown, providerKey: string): ModelsDevEntry | null {
     if (!model || typeof model !== 'object') return null;
     const record = model as Record<string, unknown>;
 
@@ -171,6 +202,7 @@ export class ModelsDevService {
 
     return {
       id,
+      provider: providerKey,
       rate: { input, output },
       contextWindow,
       maxOutputTokens,

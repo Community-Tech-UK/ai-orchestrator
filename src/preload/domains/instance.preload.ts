@@ -412,16 +412,28 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
     },
 
     /**
-     * Respond to an input required event (approve/deny permission)
+     * Respond to an input required event (approve/deny/modify permission).
+     *
+     * When decisionAction is 'modify', updatedInput MUST be a non-empty plain object
+     * containing the replacement tool input.  The backend will reject the request with
+     * an explicit error if updatedInput is absent or empty — it never silently falls
+     * back to approving the original (unmodified) input.
+     *
+     * NOTE: end-to-end 'modify' support requires the installed Claude CLI to honour
+     * updatedInput in PreToolUse hook replies.  This is version-dependent and has not
+     * been validated against a production CLI build.  The UI layer should gate the
+     * 'modify' action behind a user-visible disclaimer until live-CLI support is
+     * confirmed.
      */
     respondToInputRequired: (
       instanceId: string,
       requestId: string,
       response: string,
       permissionKey?: string,
-      decisionAction?: 'allow' | 'deny',
+      decisionAction?: 'allow' | 'deny' | 'modify',
       decisionScope?: 'once' | 'session' | 'always',
-      metadata?: Record<string, unknown>
+      metadata?: Record<string, unknown>,
+      updatedInput?: Record<string, unknown>,
     ): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.INPUT_REQUIRED_RESPOND, {
         instanceId,
@@ -430,7 +442,8 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
         permissionKey,
         decisionAction,
         decisionScope,
-        metadata
+        metadata,
+        updatedInput,
       });
     },
   };
