@@ -5085,10 +5085,6 @@
       "lines": 1443
     },
     {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
-      "lines": 1417
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency.md",
       "lines": 1411
     },
@@ -5103,6 +5099,10 @@
     {
       "path": "src/main/history/history-manager.ts",
       "lines": 1362
+    },
+    {
+      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
+      "lines": 1354
     },
     {
       "path": "src/renderer/app/core/state/source-control.store.spec.ts",
