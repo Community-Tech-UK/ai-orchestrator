@@ -49,6 +49,12 @@ export const InstanceSendInputPayloadSchema = z.object({
     data: z.string().optional(),
   })).max(10).optional(),
   isRetry: z.boolean().optional(),
+  /**
+   * Optional stable key for at-most-once delivery (B2). A retried send carrying
+   * the same key is recognised as a duplicate and skipped instead of dispatching
+   * the input twice.
+   */
+  idempotencyKey: z.string().min(1).max(200).optional(),
 }).refine(
   (data) => data.message.trim().length > 0 || (data.attachments && data.attachments.length > 0),
   { message: 'Either message must be non-empty or attachments must be provided' }

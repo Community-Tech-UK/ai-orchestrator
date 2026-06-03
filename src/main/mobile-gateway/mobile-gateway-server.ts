@@ -8,6 +8,7 @@ import { URL } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { crossPlatformBasename } from '../../shared/utils/cross-platform-path';
 import { getLogger } from '../logging/logger';
+import { getIdempotencyStore, IdempotencyStore } from '../transport/idempotency-store';
 import { resolveBindHost } from './tailscale-interface';
 import { getMobileDeviceRegistry, type MobileDeviceRegistry } from './mobile-device-registry';
 import { getMobileApnsSender, type MobileApnsSender } from './mobile-apns-sender';
@@ -1048,6 +1049,7 @@ export class MobileGatewayServer {
       decisionScope?: unknown;
       response?: unknown;
       updatedInput?: unknown;
+      idempotencyKey?: unknown;
     };
     const requestId = typeof body.requestId === 'string' ? body.requestId : '';
     const decisionAction =
@@ -1085,6 +1087,19 @@ export class MobileGatewayServer {
       this.sendJson(res, 400, {
         error: "decisionAction 'modify' requires a non-empty updatedInput object",
       });
+      return;
+    }
+
+    // B2: at-most-once — a permission request is answered once. A retried respond
+    // (same requestId, or an explicit idempotencyKey) must not resume twice.
+    const respondKey =
+      typeof body.idempotencyKey === 'string' && body.idempotencyKey.length > 0
+        ? body.idempotencyKey
+        : requestId;
+    if (getIdempotencyStore().isDuplicate(
+      IdempotencyStore.compose('respond', instanceId, respondKey),
+    )) {
+      this.sendJson(res, 200, { ok: true, duplicate: true });
       return;
     }
 
@@ -1147,7 +1162,18 @@ export class MobileGatewayServer {
     res: ServerResponse,
     instanceId: string,
   ): Promise<void> {
-    const body = (await readJsonBody(req).catch(() => ({}))) as { graceful?: unknown };
+    const body = (await readJsonBody(req).catch(() => ({}))) as {
+      graceful?: unknown;
+      idempotencyKey?: unknown;
+    };
+    // B2: at-most-once — a retried terminate with the same key must not run twice.
+    const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : undefined;
+    if (idempotencyKey && getIdempotencyStore().isDuplicate(
+      IdempotencyStore.compose('terminate', instanceId, idempotencyKey),
+    )) {
+      this.sendJson(res, 200, { ok: true, duplicate: true });
+      return;
+    }
     const graceful = body.graceful !== false;
     await this.source().terminateInstance(instanceId, graceful);
     this.clearPromptsForInstance(instanceId);

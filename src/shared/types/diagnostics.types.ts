@@ -1,5 +1,6 @@
 import type { CommandDiagnostic } from './command.types';
 import type { StartupCapabilityReport } from './startup-capability.types';
+import type { ProviderProbeErrorKind, RepairAction } from './provider-doctor.types';
 
 export type DoctorSectionId =
   | 'startup-capabilities'
@@ -26,6 +27,8 @@ export interface ProviderProbeSnapshot {
   message: string;
   latencyMs: number;
   metadata?: Record<string, unknown>;
+  /** Present on failed probes; absent on pass/skip/timeout. */
+  errorKind?: ProviderProbeErrorKind;
 }
 
 export interface ProviderDiagnosisSnapshot {
@@ -33,6 +36,8 @@ export interface ProviderDiagnosisSnapshot {
   overall: string;
   probes: ProviderProbeSnapshot[];
   recommendations: string[];
+  /** Structured repair actions derived from failed probe error kinds. */
+  repairActions: RepairAction[];
   timestamp: number;
   error?: string;
 }

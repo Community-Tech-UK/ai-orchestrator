@@ -4896,7 +4896,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3212
+      "lines": 3235
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
@@ -4948,7 +4948,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2486
+      "lines": 2507
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
@@ -5047,12 +5047,12 @@
       "lines": 1635
     },
     {
-      "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",
-      "lines": 1613
+      "path": "src/main/security/permission-manager.ts",
+      "lines": 1624
     },
     {
-      "path": "src/main/security/permission-manager.ts",
-      "lines": 1610
+      "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",
+      "lines": 1613
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
@@ -5095,12 +5095,12 @@
       "lines": 1443
     },
     {
-      "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency.md",
-      "lines": 1411
+      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
+      "lines": 1422
     },
     {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
-      "lines": 1396
+      "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency.md",
+      "lines": 1411
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-cross-project-improvements_completed.md",
@@ -5223,6 +5223,10 @@
       "lines": 1186
     },
     {
+      "path": "src/main/ipc/handlers/instance-handlers.ts",
+      "lines": 1178
+    },
+    {
       "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
       "lines": 1178
     },
@@ -5245,10 +5249,6 @@
     {
       "path": "docs/superpowers/specs/2026-04-28-wave3-workflow-resume-history-recovery-design_completed.md",
       "lines": 1165
-    },
-    {
-      "path": "src/main/ipc/handlers/instance-handlers.ts",
-      "lines": 1161
     },
     {
       "path": "src/renderer/app/features/loop/loop-control.component.ts",

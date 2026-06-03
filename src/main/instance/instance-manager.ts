@@ -22,6 +22,7 @@ import { getActionCircuitBreaker } from '../security/action-circuit-breaker';
 import { forgetLspFeedbackInstance } from '../codemem/lsp-feedback-registration';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getTaskManager } from '../orchestration/task-manager';
+import { applySubagentPermissions } from '../orchestration/derive-subagent-permission';
 import type { RoutingDecision } from '../routing';
 import type { SpawnChildCommand } from '../orchestration/orchestration-protocol';
 import { getWorkerNodeRegistry, resolveWorkerNodeTarget } from '../remote-node/worker-node-registry';
@@ -2336,6 +2337,26 @@ export class InstanceManager extends EventEmitter {
         },
       },
     });
+
+    // A7#18: forward the parent's deny constraints onto the child so a subagent
+    // cannot exceed the permissions the parent was held to (child ≤ parent).
+    // Keyed by the child's instance id — the same key the permission evaluator
+    // reads — so the forwarded denies (incl. Plan-Mode write blocks) are actually
+    // enforced. Best-effort: a permission failure must not abort the spawn.
+    try {
+      applySubagentPermissions(child.id, {
+        parentInstanceId: parent.id,
+        permissionManager: getPermissionManager(),
+        parentPlanModeActive:
+          parent.planMode?.enabled === true && parent.planMode.state === 'planning',
+      });
+    } catch (error) {
+      logger.warn('Failed to apply subagent permission inheritance', {
+        childId: child.id,
+        parentId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     // Mark this child as already having received its first message
     this.hasReceivedFirstMessage.add(child.id);

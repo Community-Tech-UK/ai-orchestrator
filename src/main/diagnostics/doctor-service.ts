@@ -245,6 +245,7 @@ export class DoctorService {
           overall: diagnosis.overall,
           probes: diagnosis.probes,
           recommendations: diagnosis.recommendations,
+          repairActions: diagnosis.repairActions,
           timestamp: diagnosis.timestamp,
         };
       } catch (error) {
@@ -253,6 +254,7 @@ export class DoctorService {
           overall: 'unknown',
           probes: [],
           recommendations: [],
+          repairActions: [],
           timestamp: Date.now(),
           error: error instanceof Error ? error.message : String(error),
         };

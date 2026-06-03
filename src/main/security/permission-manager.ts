@@ -555,6 +555,20 @@ export class PermissionManager extends EventEmitter {
   }
 
   /**
+   * Returns the active deny rules from a session's temporary rule list.
+   *
+   * Session rules are stored and evaluated under the same key (the requesting
+   * instance id — see gatherRules), so callers MUST pass that same id here. Used
+   * to forward a parent's deny constraints onto a spawned subagent so the child
+   * cannot exceed the limits the parent was held to (child ≤ parent invariant).
+   */
+  getSessionDenyRules(instanceId: string): PermissionRule[] {
+    return (this.sessionRules.get(instanceId) ?? []).filter(
+      (r) => r.action === 'deny' && r.enabled,
+    );
+  }
+
+  /**
    * Add a per-agent override rule (#18). Applies to any request whose
    * context.agentId matches, at 'agent' priority (above user/project/default,
    * below session). Glob/regex matching is identical to other rules.

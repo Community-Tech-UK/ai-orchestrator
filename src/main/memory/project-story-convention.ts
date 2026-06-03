@@ -106,3 +106,22 @@ export function readStoryFile(
   if (!fs.existsSync(filePath)) return null;
   return fs.readFileSync(filePath, 'utf-8');
 }
+
+/**
+ * Returns the authored content of `.aio/lessons.md` suitable for injecting into
+ * a fresh session's system prompt, or null when the file holds only the
+ * skeleton placeholder (no real entries).
+ *
+ * Strips HTML skeleton comments and only returns content when at least one
+ * authored entry (a `## ` heading) is present, so an untouched skeleton file
+ * never bloats the prompt. The file is the git-trackable interface humans and
+ * agents write lessons into (see appendToStoryFile); this is the read side that
+ * surfaces them at session start (A7#15).
+ */
+export function extractAuthoredLessons(options: StoryConventionOptions = {}): string | null {
+  const raw = readStoryFile('lessons.md', options);
+  if (!raw) return null;
+  const withoutComments = raw.replace(/<!--[\s\S]*?-->/g, '').trim();
+  if (!/^##\s/m.test(withoutComments)) return null;
+  return withoutComments;
+}

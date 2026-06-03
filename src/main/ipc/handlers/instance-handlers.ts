@@ -6,6 +6,7 @@
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import ElectronStore from 'electron-store';
 import { getLogger } from '../../logging/logger';
+import { getIdempotencyStore, IdempotencyStore } from '../../transport/idempotency-store';
 import { IPC_CHANNELS } from '@contracts/channels';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { generateId } from '../../../shared/utils/id-generator';
@@ -248,6 +249,22 @@ export function registerInstanceHandlers(deps: {
           attachmentsCount: validatedPayload.attachments?.length ?? 0,
           attachmentNames: validatedPayload.attachments?.map((a) => a.name)
         });
+
+        // B2: at-most-once — a retried send carrying the same idempotency key
+        // is a duplicate and must not dispatch the input twice.
+        if (validatedPayload.idempotencyKey) {
+          const idemKey = IdempotencyStore.compose(
+            'input',
+            validatedPayload.instanceId,
+            validatedPayload.idempotencyKey,
+          );
+          if (getIdempotencyStore().isDuplicate(idemKey)) {
+            logger.info('Duplicate INSTANCE_SEND_INPUT ignored (idempotency)', {
+              instanceId: validatedPayload.instanceId,
+            });
+            return { success: true };
+          }
+        }
 
         await instanceManager.sendInput(
           validatedPayload.instanceId,

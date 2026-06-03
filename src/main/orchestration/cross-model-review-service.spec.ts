@@ -95,6 +95,13 @@ vi.mock('../instance/instance-manager', () => ({
   }),
 }));
 
+// Mutable holder so individual tests can configure the per-reviewer model
+// override the service reads via resolveReviewerModelOverride(). Reset in
+// beforeEach. vi.hoisted lets the (hoisted) vi.mock factory reference it.
+const reviewTestState = vi.hoisted(() => ({
+  modelByProvider: {} as Record<string, string>,
+}));
+
 vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: () => ({
     getAll: () => ({
@@ -104,6 +111,7 @@ vi.mock('../core/config/settings-manager', () => ({
       crossModelReviewProviders: [],
       crossModelReviewTimeout: 30,
       crossModelReviewTypes: ['code', 'plan', 'architecture'],
+      crossModelReviewModelByProvider: reviewTestState.modelByProvider,
     }),
   }),
 }));
@@ -119,6 +127,7 @@ vi.mock('../core/circuit-breaker', () => ({
 describe('CrossModelReviewService', () => {
   beforeEach(() => {
     CrossModelReviewService._resetForTesting();
+    reviewTestState.modelByProvider = {};
     vi.mocked(resolveCliType).mockImplementation(async (cli) => {
       if (!cli || cli === 'auto' || cli === 'openai') return 'codex';
       return cli as CliType;
@@ -270,6 +279,60 @@ describe('CrossModelReviewService', () => {
     ).rejects.toThrow('review failed');
 
     expect(terminate).toHaveBeenCalledWith(false);
+  });
+
+  it('passes a configured reviewer model override into the adapter options', async () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    reviewTestState.modelByProvider = { copilot: 'claude-sonnet-46' };
+
+    let capturedModel: unknown = 'unset';
+    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+      capturedModel = options.model;
+      return {
+        sendMessage: async () => ({
+          content: JSON.stringify({
+            correctness: { reasoning: 'ok', score: 4, issues: [] },
+            completeness: { reasoning: 'ok', score: 4, issues: [] },
+            security: { reasoning: 'ok', score: 4, issues: [] },
+            consistency: { reasoning: 'ok', score: 4, issues: [] },
+            overall_verdict: 'APPROVE',
+            summary: 'approved',
+          }),
+        }),
+        terminate: vi.fn().mockResolvedValue(undefined),
+      };
+    });
+
+    await service.executeOneReview(makeRequest(), 'copilot', 30, new AbortController().signal);
+
+    expect(capturedModel).toBe('claude-sonnet-46');
+  });
+
+  it('omits the model option when no override is set so the CLI auto-routes', async () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+    // reviewTestState.modelByProvider stays {} (reset in beforeEach)
+
+    let modelKeyPresent = true;
+    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+      modelKeyPresent = 'model' in options;
+      return {
+        sendMessage: async () => ({
+          content: JSON.stringify({
+            correctness: { reasoning: 'ok', score: 4, issues: [] },
+            completeness: { reasoning: 'ok', score: 4, issues: [] },
+            security: { reasoning: 'ok', score: 4, issues: [] },
+            consistency: { reasoning: 'ok', score: 4, issues: [] },
+            overall_verdict: 'APPROVE',
+            summary: 'approved',
+          }),
+        }),
+        terminate: vi.fn().mockResolvedValue(undefined),
+      };
+    });
+
+    await service.executeOneReview(makeRequest(), 'copilot', 30, new AbortController().signal);
+
+    expect(modelKeyPresent).toBe(false);
   });
 
   it('emits all-unavailable when every reviewer response is unusable', async () => {

@@ -24,6 +24,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getHistoryManager } from '../history';
 import { getOutputStorageManager } from '../memory';
 import { getProjectMemoryBriefService } from '../memory/project-memory-brief';
+import { extractAuthoredLessons } from '../memory/project-story-convention';
 import { getProjectKnowledgeCoordinator } from '../memory/project-knowledge-coordinator';
 import { getConversationMiner } from '../memory/conversation-miner';
 import { getSupervisorTree } from '../process';
@@ -1193,6 +1194,28 @@ export class InstanceLifecycleManager extends EventEmitter {
             }
           } catch (err) {
             logger.warn('Failed to inject project memory brief', {
+              error: err instanceof Error ? err.message : String(err),
+              instanceId: instance.id,
+            });
+          }
+        }
+
+        // A7#15: inject authored project lessons (.aio/lessons.md) into fresh
+        // root sessions. The file is git-trackable and written by humans/agents;
+        // injecting it carries hard-won knowledge into the next session. Skipped
+        // when the file holds only its skeleton placeholder (no real entries).
+        if (instance.depth === 0 && !isRestoreOrReplayContinuity(config)) {
+          try {
+            const lessons = extractAuthoredLessons({ projectRoot: instance.workingDirectory });
+            if (lessons) {
+              systemPrompt = `${systemPrompt}\n\n---\n\n${lessons}`;
+              logger.info('Injected project lessons into system prompt', {
+                instanceId: instance.id,
+                chars: lessons.length,
+              });
+            }
+          } catch (err) {
+            logger.warn('Failed to inject project lessons', {
               error: err instanceof Error ? err.message : String(err),
               instanceId: instance.id,
             });

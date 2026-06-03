@@ -35,3 +35,4 @@ export * from './mcp-scopes.types';
 export * from './mcp-orchestrator.types';
 export * from './mcp-shared.types';
 export * from './mcp-dtos.types';
+export * from './provider-doctor.types';

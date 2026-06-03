@@ -1,7 +1,31 @@
 import { resolveCliType } from '../cli/adapters/adapter-factory';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import { getSettingsManager } from '../core/config/settings-manager';
 import type { CliType as SettingsCliType } from '../../shared/types/settings.types';
+
+/**
+ * Resolve the model a given reviewer CLI should run with for cross-model review.
+ *
+ * Returns a concrete model id only when the user has configured an explicit
+ * override for that reviewer in `crossModelReviewModelByProvider`. A missing
+ * entry, an empty string, or 'auto' yields `undefined`, meaning "pass no model"
+ * so the reviewer CLI uses its own default/auto routing. We deliberately do NOT
+ * fall back to a primary model — that would silently pin providers (e.g.
+ * Copilot's primary is Gemini), defeating each CLI's native routing.
+ *
+ * Shared by the in-session review path (CrossModelReviewService.executeOneReview)
+ * and the headless review path (ProviderReviewExecutionHost) so both honour the
+ * same setting.
+ */
+export function resolveReviewerModelOverride(provider: string): string | undefined {
+  const overrides = getSettingsManager().getAll().crossModelReviewModelByProvider ?? {};
+  const configured = (overrides[provider] ?? '').trim();
+  if (!configured || configured.toLowerCase() === 'auto') {
+    return undefined;
+  }
+  return configured;
+}
 
 export interface ReviewExecutionHost {
   getWorkingDirectory(instanceId: string): string | undefined;
@@ -48,11 +72,15 @@ export class ProviderReviewExecutionHost implements ReviewExecutionHost {
     }
 
     const resolvedCli = await resolveCliType(provider as SettingsCliType);
+    const reviewerModel = resolveReviewerModelOverride(provider);
     const adapter = getProviderRuntimeService().createAdapter({
       cliType: resolvedCli,
       options: {
         workingDirectory: cwd,
         yoloMode: false,
+        // When no override is configured, leave `model` unset so the reviewer
+        // CLI uses its own default/auto routing.
+        ...(reviewerModel ? { model: reviewerModel } : {}),
       },
     });
 

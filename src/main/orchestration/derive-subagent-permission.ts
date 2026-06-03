@@ -30,8 +30,13 @@ const SUBAGENT_DEFAULT_DENY_SCOPES: PermissionScope[] = [
 ];
 
 export interface SubagentPermissionContext {
-  /** Session ID of the parent agent. Used to look up its session rules. */
-  parentSessionId: string;
+  /**
+   * Instance ID of the parent agent. Session rules are stored and evaluated
+   * under the requesting instance id (see PermissionManager.gatherRules), so the
+   * parent's forwarded denies must be read with the SAME key — its instance id,
+   * not a provider session id.
+   */
+  parentInstanceId: string;
   /** The shared PermissionManager instance. */
   permissionManager: PermissionManager;
   /**
@@ -44,6 +49,14 @@ export interface SubagentPermissionContext {
    * Any deny rules scoped to these directories are forwarded verbatim.
    */
   parentExternalDirectories?: string[];
+  /**
+   * When true, impose the stricter subagent default-denies (secrets, env,
+   * dangerous bash) REGARDLESS of the parent's own grants. Off by default: the
+   * baseline forwards only the parent's actual denies (child ≤ parent) so
+   * existing child workflows that legitimately use env/bash are not broken.
+   * Enable to give subagents less trust than their parent.
+   */
+  includeDefaultDenies?: boolean;
 }
 
 /**
@@ -66,7 +79,7 @@ export function deriveSubagentRules(
   for (const rule of parentSessionRules) {
     derived.push({
       name: `inherited:${rule.name}`,
-      description: `Inherited from parent session ${ctx.parentSessionId}: ${rule.description ?? ''}`,
+      description: `Inherited from parent ${ctx.parentInstanceId}: ${rule.description ?? ''}`,
       scope: rule.scope,
       pattern: rule.pattern,
       action: 'deny',
@@ -126,26 +139,29 @@ export function deriveSubagentRules(
     }
   }
 
-  // ── 4. Subagent default denies ─────────────────────────────────────────────
-  // Subagents are given less trust than the parent by default: they cannot
-  // access secrets, environment variables, or execute dangerous shell commands
-  // unless the parent's rules explicitly allow them (checked above via forwarding).
-  for (const scope of SUBAGENT_DEFAULT_DENY_SCOPES) {
-    const alreadyCovered = derived.some((r) => r.scope === scope);
-    if (!alreadyCovered) {
-      derived.push({
-        name: `subagent-default-deny:${scope}`,
-        description: `Default deny for ${scope} in subagent context (inherits explicit allows from parent)`,
-        scope,
-        pattern: '**',
-        action: 'deny' as PermissionAction,
-        priority: 100,
-        enabled: true,
-      });
+  // ── 4. Subagent default denies (opt-in) ────────────────────────────────────
+  // When enabled, subagents are given less trust than the parent: they cannot
+  // access secrets, environment variables, or execute dangerous shell commands.
+  // Off by default so the baseline preserves the child ≤ parent invariant
+  // without newly breaking children that legitimately use env/bash.
+  if (ctx.includeDefaultDenies) {
+    for (const scope of SUBAGENT_DEFAULT_DENY_SCOPES) {
+      const alreadyCovered = derived.some((r) => r.scope === scope);
+      if (!alreadyCovered) {
+        derived.push({
+          name: `subagent-default-deny:${scope}`,
+          description: `Default deny for ${scope} in subagent context`,
+          scope,
+          pattern: '**',
+          action: 'deny' as PermissionAction,
+          priority: 100,
+          enabled: true,
+        });
+      }
     }
   }
 
-  logger.debug(`Derived ${derived.length} permission rule(s) for subagent of ${ctx.parentSessionId}`);
+  logger.debug(`Derived ${derived.length} permission rule(s) for subagent of ${ctx.parentInstanceId}`);
   return derived;
 }
 
@@ -154,16 +170,20 @@ export function deriveSubagentRules(
  * Convenience wrapper around deriveSubagentRules + addSessionRule.
  */
 export function applySubagentPermissions(
-  subagentSessionId: string,
+  subagentInstanceId: string,
   ctx: SubagentPermissionContext,
 ): void {
   const rules = deriveSubagentRules(ctx);
   for (const rule of rules) {
-    ctx.permissionManager.addSessionRule(subagentSessionId, rule);
+    // Keyed by the child's INSTANCE id so the evaluator (gatherRules, which reads
+    // sessionRules by request.instanceId) actually consults these forwarded denies.
+    ctx.permissionManager.addSessionRule(subagentInstanceId, rule);
   }
-  logger.info(
-    `Applied ${rules.length} derived permission rule(s) to subagent session ${subagentSessionId}`,
-  );
+  if (rules.length > 0) {
+    logger.info(
+      `Applied ${rules.length} derived permission rule(s) to subagent ${subagentInstanceId}`,
+    );
+  }
 }
 
 // ── Internal helpers ────────────────────────────────────────────────────────
@@ -174,11 +194,10 @@ export function applySubagentPermissions(
  */
 function getParentSessionDenyRules(ctx: SubagentPermissionContext): PermissionRule[] {
   try {
-    // PermissionManager.sessionRules is private; access via the public rule sets
-    // that are keyed by session ID when present.
-    const ruleSet = ctx.permissionManager.getRuleSet(ctx.parentSessionId);
-    if (!ruleSet) return [];
-    return ruleSet.rules.filter((r) => r.action === 'deny' && r.enabled);
+    // Session-temporary rules are keyed by instance id (the same key the
+    // evaluator reads in gatherRules), so read the parent's denies by its
+    // instance id — NOT via getRuleSet, which only holds persistent rule sets.
+    return ctx.permissionManager.getSessionDenyRules(ctx.parentInstanceId);
   } catch {
     logger.warn('Could not read parent session rules; proceeding without forwarding');
     return [];

@@ -33,7 +33,7 @@ import type {
 import { reviewResultHasConcerns } from '../../shared/utils/cross-model-review-concerns';
 import type { OutputBuffer, ReviewDispatchRequest } from './cross-model-review.types';
 import type { HeadlessReviewFinding, HeadlessReviewResult, HeadlessReviewReviewer } from '../cli-entrypoints/review-command-output';
-import type { HeadlessReviewRequest, ReviewExecutionHost } from '../review/review-execution-host';
+import { resolveReviewerModelOverride, type HeadlessReviewRequest, type ReviewExecutionHost } from '../review/review-execution-host';
 import {
   MIN_COOLDOWN_MS,
   MAX_REVIEW_HISTORY,
@@ -294,25 +294,6 @@ export class CrossModelReviewService extends EventEmitter {
     return successful;
   }
 
-  /**
-   * Resolve the model a given reviewer CLI should run with.
-   *
-   * Returns a concrete model id only when the user has configured an explicit
-   * override for that reviewer in `crossModelReviewModelByProvider`. A missing
-   * entry, an empty string, or 'auto' yields `undefined`, meaning "pass no
-   * model" so the reviewer CLI uses its own default/auto routing. We do NOT
-   * fall back to a primary model here — that would silently pin providers
-   * (e.g. Copilot's primary is Gemini), defeating each CLI's native routing.
-   */
-  private resolveReviewerModel(cliType: string): string | undefined {
-    const overrides = getSettingsManager().getAll().crossModelReviewModelByProvider ?? {};
-    const configured = (overrides[cliType] ?? '').trim();
-    if (!configured || configured.toLowerCase() === 'auto') {
-      return undefined;
-    }
-    return configured;
-  }
-
   private async executeOneReview(request: ReviewDispatchRequest, cliType: string, timeoutSeconds: number, signal: AbortSignal): Promise<ReviewResult | null> {
     const startTime = Date.now();
     const breaker = getCircuitBreakerRegistry().getBreaker(`cross-review-${cliType}`, {
@@ -326,7 +307,7 @@ export class CrossModelReviewService extends EventEmitter {
         if (this.isPaused || getPauseCoordinator().isPaused()) throw new Error('Review skipped while orchestrator is paused');
 
         const resolvedCli = await resolveCliType(cliType as SettingsCliType);
-        const reviewerModel = this.resolveReviewerModel(cliType);
+        const reviewerModel = resolveReviewerModelOverride(cliType);
         const adapter = getProviderRuntimeService().createAdapter({
           cliType: resolvedCli,
           options: {
