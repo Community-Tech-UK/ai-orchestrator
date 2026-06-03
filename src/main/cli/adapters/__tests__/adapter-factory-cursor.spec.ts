@@ -28,6 +28,33 @@ describe('adapter factory — cursor', () => {
     });
   });
 
+  // Regression: the ACP layer holds `model` in config but never forwards it to
+  // the subprocess, and `session/new` carries no model field. cursor-agent must
+  // be launched with `acp --model <id>` or the session silently runs the binary
+  // default while the UI shows the chosen model. Verified against the live CLI:
+  // `session/new` reports currentModelId === the forwarded `--model`.
+  const cursorArgs = (adapter: unknown): string[] =>
+    (adapter as { acpConfig: { args?: string[] } }).acpConfig.args ?? [];
+
+  it('forwards the selected model to cursor-agent as `acp --model <id>`', () => {
+    const adapter = createCliAdapter('cursor', {
+      workingDirectory: '/tmp',
+      model: 'composer-2.5',
+    });
+    const args = cursorArgs(adapter);
+    expect(args[0]).toBe('acp');
+    expect(args).toContain('--model');
+    expect(args[args.indexOf('--model') + 1]).toBe('composer-2.5');
+  });
+
+  it('omits --model for the `auto` sentinel (lets Cursor pick)', () => {
+    const auto = cursorArgs(createCliAdapter('cursor', { workingDirectory: '/tmp', model: 'auto' }));
+    expect(auto).not.toContain('--model');
+
+    const none = cursorArgs(createCliAdapter('cursor', { workingDirectory: '/tmp' }));
+    expect(none).not.toContain('--model');
+  });
+
   it('adds the chrome-devtools attach server to the Cursor ACP mcpServers list', () => {
     const adapter = createCliAdapter('cursor', {
       workingDirectory: '/tmp',

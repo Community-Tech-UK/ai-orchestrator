@@ -25,6 +25,7 @@ import {
 } from './unified-model-menu.component';
 import { ModelSelectionPanelComponent } from './model-selection-panel.component';
 import { DynamicModelCatalogService } from './dynamic-model-catalog.service';
+import { UnifiedCatalogStore } from './unified-catalog.store';
 import {
   getPrimaryModelForProvider,
   type ModelDisplayInfo,
@@ -82,6 +83,13 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
 
       @if (statusPill()) {
         <span class="compact-picker__status" role="status">{{ statusPill() }}</span>
+      }
+      @if (catalogFreshness()) {
+        <span
+          class="compact-picker__catalog"
+          role="status"
+          [attr.title]="'Model catalog last refreshed ' + catalogFreshness()"
+        >↻ {{ catalogFreshness() }}</span>
       }
     </div>
 
@@ -169,12 +177,18 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
       border-radius: 10px;
       color: var(--success-text, rgb(74,222,128));
     }
+    .compact-picker__catalog {
+      font-size: 10px;
+      color: var(--text-tertiary, rgba(255,255,255,0.45));
+      white-space: nowrap;
+    }
   `],
 })
 export class CompactModelPickerComponent {
   protected readonly controller = inject(ModelPickerController);
   private readonly focusService = inject(ModelPickerFocusService);
   private readonly dynamicCatalog = inject(DynamicModelCatalogService);
+  private readonly unifiedCatalog = inject(UnifiedCatalogStore);
 
   protected readonly menuId = `compact-model-picker__menu-${idCounter++}`;
 
@@ -236,8 +250,14 @@ export class CompactModelPickerComponent {
    * the curated static catalog. Reads `DynamicModelCatalogService`'s internal
    * signal, so the panel re-renders automatically once a refresh resolves.
    */
-  protected readonly modelsForProviderFn = (provider: PickerProvider): ModelDisplayInfo[] =>
-    this.dynamicCatalog.modelsFor(provider);
+  protected readonly modelsForProviderFn = (provider: PickerProvider): ModelDisplayInfo[] => {
+    // Prefer the unified catalog (static + models.dev pricing/context + live
+    // CLI-discovered, provider-namespaced so no cross-provider bleed). Fall back
+    // to the dynamic/static catalog when the unified one hasn't loaded yet, so
+    // worst case is identical to the previous behaviour.
+    const unified = this.unifiedCatalog.displayModelsForProvider(provider);
+    return unified.length > 0 ? unified : this.dynamicCatalog.modelsFor(provider);
+  };
 
   /** Bound `[reasoningOptionsForProvider]` callback for the selection panel. */
   protected readonly reasoningOptionsForProviderFn = (
@@ -258,6 +278,9 @@ export class CompactModelPickerComponent {
     // (Copilot, Cursor). Static providers are a no-op inside the service.
     effect(() => {
       if (!this.menuOpen()) return;
+      // Pull the unified catalog (static + models.dev + CLI) once, and refresh
+      // the per-provider live lists for dynamic providers (Copilot, Cursor).
+      this.unifiedCatalog.ensureLoaded();
       for (const provider of this.providerList()) {
         this.dynamicCatalog.ensureLoaded(provider);
       }
@@ -316,6 +339,16 @@ export class CompactModelPickerComponent {
   protected readonly reasoningSuffix = computed<string | null>(() => {
     const r = this.controller.selectedReasoningEffort();
     return r ? REASONING_LABELS[r] ?? r : null;
+  });
+
+  /**
+   * Live-refresh indicator: how long ago the unified model catalog last rebuilt
+   * (from a models.dev sync or CLI discovery). Null until the catalog loads.
+   * Recomputes whenever the catalog pushes an update (lastBuiltAt changes).
+   */
+  protected readonly catalogFreshness = computed<string | null>(() => {
+    const at = this.unifiedCatalog.lastBuiltAt();
+    return at ? formatAgo(at) : null;
   });
 
   // --- Provider gating (lock-on-messages) ---
@@ -411,3 +444,12 @@ export class CompactModelPickerComponent {
 }
 
 let idCounter = 0;
+
+/** Short relative-time label for the catalog-freshness pill. */
+function formatAgo(at: number): string {
+  const seconds = Math.max(0, Math.round((Date.now() - at) / 1000));
+  if (seconds < 60) return 'just now';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  return `${Math.round(minutes / 60)}h ago`;
+}

@@ -19,6 +19,26 @@ import {
   FakeAcpProcess,
   TestAcpCliAdapter,
 } from './acp-cli-adapter.test-helpers';
+import { normalizeAcpModelId } from './acp-cli-adapter';
+
+describe('normalizeAcpModelId', () => {
+  it('strips the [...] attribute block from the ACP model id', () => {
+    expect(normalizeAcpModelId('composer-2.5[fast=true]')).toBe('composer-2.5');
+    expect(normalizeAcpModelId('gpt-5.3-codex[reasoning=medium,fast=false]')).toBe('gpt-5.3-codex');
+    expect(normalizeAcpModelId('claude-opus-4-8[thinking=true,effort=high]')).toBe('claude-opus-4-8');
+  });
+
+  it('maps the Cursor `default` sentinel to our `auto` id', () => {
+    expect(normalizeAcpModelId('default[]')).toBe('auto');
+    expect(normalizeAcpModelId('default')).toBe('auto');
+  });
+
+  it('passes through a bare id and rejects empty/missing input', () => {
+    expect(normalizeAcpModelId('composer-2.5')).toBe('composer-2.5');
+    expect(normalizeAcpModelId('')).toBeUndefined();
+    expect(normalizeAcpModelId(undefined)).toBeUndefined();
+  });
+});
 
 describe('AcpCliAdapter', () => {
   beforeEach(() => {

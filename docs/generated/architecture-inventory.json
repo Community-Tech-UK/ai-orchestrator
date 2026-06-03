@@ -4901,7 +4901,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3140
+      "lines": 3147
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
@@ -4965,7 +4965,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2174
+      "lines": 2203
     },
     {
       "path": "docs/superpowers/plans/2026-04-09-resilient-codex-resume-and-agent-observability_completed.md",
@@ -4974,6 +4974,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-c-reliability-lifecycle.md",
       "lines": 2112
+    },
+    {
+      "path": "src/main/cli/adapters/acp-cli-adapter.ts",
+      "lines": 2105
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
@@ -4990,10 +4994,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-remote-nodes-phase1-phase2.COMPLETED.md",
       "lines": 2078
-    },
-    {
-      "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2071
     },
     {
       "path": "docs/superpowers/plans/2026-04-04-remote-nodes-settings_completed.md",
@@ -5216,6 +5216,10 @@
       "lines": 1196
     },
     {
+      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
+      "lines": 1194
+    },
+    {
       "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
       "lines": 1193
     },
@@ -5230,10 +5234,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-streaming-tool-executor.COMPLETED.md",
       "lines": 1177
-    },
-    {
-      "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
-      "lines": 1174
     },
     {
       "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
@@ -5300,6 +5300,10 @@
       "lines": 1099
     },
     {
+      "path": "src/main/instance/instance-communication.spec.ts",
+      "lines": 1091
+    },
+    {
       "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
       "lines": 1077
     },
@@ -5322,10 +5326,6 @@
     {
       "path": "src/main/instance/instance-orchestration.ts",
       "lines": 1050
-    },
-    {
-      "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 1049
     },
     {
       "path": "src/main/cli/adapters/cursor-cli-adapter.ts",

@@ -1,6 +1,6 @@
 import { Injectable, DestroyRef, computed, inject, signal } from '@angular/core';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
-import type { ModelDisplayInfo } from '../../../../shared/types/provider.types';
+import { getModelsForProvider, type ModelDisplayInfo } from '../../../../shared/types/provider.types';
 import type {
   CatalogStatus,
   UnifiedModelEntry,
@@ -80,17 +80,32 @@ export class UnifiedCatalogStore {
     return this._models().filter((m) => m.provider === norm);
   }
 
-  /** Picker-shaped rows for a provider. Name falls back to id (curated names live in the static list). */
+  /**
+   * Picker-shaped rows for a provider, with curated display names / pinned /
+   * family overlaid from the static catalog by id (so the picker keeps its
+   * polished labels). Models the catalog knows but the static list doesn't get a
+   * humanised name from their id.
+   */
   displayModelsForProvider(provider: string): ModelDisplayInfo[] {
-    return this.modelsForProvider(provider).map(toDisplayInfo);
+    const curated = new Map(getModelsForProvider(provider).map((m) => [m.id, m]));
+    return this.modelsForProvider(provider).map((entry) => {
+      const known = curated.get(entry.id);
+      return {
+        id: entry.id,
+        name: known?.name ?? humanizeModelId(entry.id),
+        tier: entry.tier,
+        ...(known?.pinned ? { pinned: known.pinned } : {}),
+        ...(known?.family ?? entry.family ? { family: known?.family ?? entry.family } : {}),
+      };
+    });
   }
 }
 
-function toDisplayInfo(entry: UnifiedModelEntry): ModelDisplayInfo {
-  return {
-    id: entry.id,
-    name: entry.id,
-    tier: entry.tier,
-    ...(entry.family ? { family: entry.family } : {}),
-  };
+/** Best-effort readable label for a model id we have no curated name for. */
+function humanizeModelId(id: string): string {
+  return id
+    .replace(/^claude-/, '')
+    .replace(/-(\d{8})$/, '')
+    .replace(/[-_]/g, ' ')
+    .trim() || id;
 }

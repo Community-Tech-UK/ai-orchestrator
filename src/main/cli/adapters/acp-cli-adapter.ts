@@ -82,6 +82,26 @@ const JSON_RPC_METHOD_NOT_FOUND = -32601;
 const JSON_RPC_INVALID_REQUEST = -32600;
 
 /**
+ * Normalize an ACP `currentModelId` (attribute form) to a bare model id.
+ *
+ * Cursor reports models like `composer-2.5[fast=true]` or
+ * `claude-opus-4-8[thinking=true,effort=high]`; strip the `[...]` attribute
+ * block. Cursor's Auto sentinel is reported as `default` — map it back to our
+ * `auto` id. Returns undefined for empty/missing input.
+ *
+ * NOTE: the stripped form (`claude-opus-4-8`) intentionally does NOT always
+ * equal a `--list-models` id (`claude-opus-4-8-thinking-high`); callers must
+ * only apply it where that divergence is acceptable (see the cursor `model`
+ * handler, which reconciles only the `auto` case).
+ */
+export function normalizeAcpModelId(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const stripped = raw.replace(/\[.*\]\s*$/, '').trim();
+  if (!stripped) return undefined;
+  return stripped === 'default' ? 'auto' : stripped;
+}
+
+/**
  * Default per-request timeout for ACP JSON-RPC calls. Without a timeout the
  * `pendingRequests` Map entries accumulate forever when the agent stops
  * responding (observed in the wild: Copilot ACP sessions hanging mid-turn
@@ -829,7 +849,21 @@ export class AcpCliAdapter extends BaseCliAdapter {
     };
     const result = await this.sendRequest<AcpSessionNewResult>('session/new', newParams);
     this.lastResumeAttemptResult = undefined;
+    this.reportResolvedModel(result.models?.currentModelId);
     return result.sessionId;
+  }
+
+  /**
+   * Surface the model the agent actually bound to the session (from
+   * `session/new`), so the UI can reconcile a chip that doesn't know the
+   * concrete model (e.g. the `auto` sentinel). Emitted as a `'model'` event;
+   * consumers decide whether/how to apply it. No-op when the agent reports
+   * nothing parseable.
+   */
+  private reportResolvedModel(rawModelId: string | undefined): void {
+    const normalized = normalizeAcpModelId(rawModelId);
+    if (!normalized) return;
+    this.emit('model', normalized);
   }
 
   private buildResumeCursor(sessionId: string): Record<string, unknown> {

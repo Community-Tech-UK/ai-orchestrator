@@ -337,6 +337,22 @@ export interface AcpSessionModes {
   availableModes?: AcpSessionModeDescriptor[];
 }
 
+export interface AcpSessionModelDescriptor {
+  modelId: string;
+  name?: string;
+}
+
+/**
+ * Model metadata returned by `session/new` (Cursor populates this). Note the
+ * `currentModelId` is in attribute form — e.g. `composer-2.5[fast=true]` or
+ * `claude-opus-4-8[thinking=true,effort=high]` — which differs from the
+ * `cursor-agent --list-models` id scheme used by the catalog/UI.
+ */
+export interface AcpSessionModels {
+  currentModelId?: string;
+  availableModels?: AcpSessionModelDescriptor[];
+}
+
 export interface AcpSessionNewParams {
   cwd: string;
   mcpServers?: AcpMcpServerConfig[];
@@ -346,6 +362,7 @@ export interface AcpSessionNewResult {
   sessionId: string;
   configOptions?: AcpSessionConfigOption[];
   modes?: AcpSessionModes;
+  models?: AcpSessionModels;
 }
 
 export interface AcpSessionLoadParams extends AcpSessionNewParams {

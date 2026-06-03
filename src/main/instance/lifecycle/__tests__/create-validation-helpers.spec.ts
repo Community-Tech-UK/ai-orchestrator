@@ -33,7 +33,28 @@ vi.mock('../../../logging/logger', () => ({
   getLogger: () => ({ warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-import { getKnownModelsForCli } from '../create-validation-helpers';
+import { getKnownModelsForCli, requiresFreshAcpModelSpawn } from '../create-validation-helpers';
+
+describe('requiresFreshAcpModelSpawn', () => {
+  it('requires a fresh spawn for an explicit cursor/copilot model (warm process runs the default)', () => {
+    expect(requiresFreshAcpModelSpawn('cursor', 'composer-2.5')).toBe(true);
+    expect(requiresFreshAcpModelSpawn('cursor', 'gpt-5.3-codex')).toBe(true);
+    expect(requiresFreshAcpModelSpawn('copilot', 'claude-opus-4.8')).toBe(true);
+  });
+
+  it('allows warm-start for the auto sentinel / unset model', () => {
+    expect(requiresFreshAcpModelSpawn('cursor', 'auto')).toBe(false);
+    expect(requiresFreshAcpModelSpawn('cursor', 'AUTO')).toBe(false);
+    expect(requiresFreshAcpModelSpawn('cursor', undefined)).toBe(false);
+    expect(requiresFreshAcpModelSpawn('cursor', '   ')).toBe(false);
+  });
+
+  it('never blocks warm-start for non-ACP-model providers', () => {
+    expect(requiresFreshAcpModelSpawn('claude', 'opus')).toBe(false);
+    expect(requiresFreshAcpModelSpawn('codex', 'gpt-5.5')).toBe(false);
+    expect(requiresFreshAcpModelSpawn('gemini', 'gemini-3.1-pro')).toBe(false);
+  });
+});
 
 describe('getKnownModelsForCli', () => {
   beforeEach(() => {

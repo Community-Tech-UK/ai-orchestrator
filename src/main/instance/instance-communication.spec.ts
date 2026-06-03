@@ -205,6 +205,48 @@ describe('InstanceCommunicationManager', () => {
     expect(queueUpdate).toHaveBeenCalledWith(instance.id, 'terminated', undefined, undefined, undefined, undefined);
   });
 
+  it('reconciles a Cursor instance whose model is the auto sentinel to the agent-reported model', () => {
+    instance.provider = 'cursor';
+    instance.currentModel = 'auto';
+    const adapter = new FakeAdapter('cursor-acp') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('model', 'composer-2.5');
+
+    expect(instance.currentModel).toBe('composer-2.5');
+    expect(queueUpdate).toHaveBeenCalledWith(
+      instance.id, 'idle', instance.contextUsage,
+      undefined, undefined, undefined, undefined, undefined, undefined, 'composer-2.5',
+    );
+  });
+
+  it('does NOT overwrite an explicit Cursor model pick on a model event', () => {
+    instance.provider = 'cursor';
+    instance.currentModel = 'claude-opus-4-8-thinking-high';
+    const adapter = new FakeAdapter('cursor-acp') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('model', 'claude-opus-4-8');
+
+    expect(instance.currentModel).toBe('claude-opus-4-8-thinking-high');
+    expect(queueUpdate).not.toHaveBeenCalled();
+  });
+
+  it('ignores model events for non-Cursor providers', () => {
+    instance.provider = 'copilot';
+    instance.currentModel = 'auto';
+    const adapter = new FakeAdapter('copilot-acp') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('model', 'gpt-5.5');
+
+    expect(instance.currentModel).toBe('auto');
+    expect(queueUpdate).not.toHaveBeenCalled();
+  });
+
   it('preserves provider context diagnostics when forwarding adapter context events', () => {
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
     adapters.set(instance.id, adapter);

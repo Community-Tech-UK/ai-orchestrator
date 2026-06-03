@@ -332,6 +332,14 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
 
 /**
  * Creates a Cursor CLI adapter (spawns the `cursor-agent` binary directly).
+ *
+ * NOTE: Same trap as createCopilotAdapter — the ACP layer holds `options.model`
+ * but never forwards it to the subprocess, and `session/new` carries no model
+ * field. `cursor-agent acp` accepts the global `--model` flag, so we inject it at
+ * spawn time. Without it the session silently runs cursor-agent's configured
+ * default while the orchestrator UI shows the chosen model (observed: UI shows
+ * "Composer 2.5" but the agent self-reports a different model). The `auto`
+ * sentinel is omitted (mirrors CursorCliAdapter.buildArgs) so Cursor picks.
  */
 export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter {
   const browserGatewayMcpServers = options.browserGatewayMcp
@@ -342,12 +350,17 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
   const chromeDevtoolsMcpServers = options.chromeDevtoolsMcp
     ? buildChromeDevtoolsAcpMcpServers(options.chromeDevtoolsMcp)
     : [];
+  const modelArgs: string[] = [];
+  const requestedModel = options.model?.trim();
+  if (requestedModel && requestedModel.toLowerCase() !== 'auto') {
+    modelArgs.push('--model', requestedModel);
+  }
   const env = mergeSpawnEnv(options);
   extendEnvWithRtk(env, options.rtk);
   return new AcpCliAdapter({
     adapterName: 'cursor-acp',
     command: 'cursor-agent',
-    args: ['acp'],
+    args: ['acp', ...modelArgs],
     workingDirectory: options.workingDirectory ?? process.cwd(),
     sessionId: options.sessionId,
     resume: options.resume,

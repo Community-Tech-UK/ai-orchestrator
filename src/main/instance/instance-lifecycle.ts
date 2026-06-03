@@ -97,7 +97,7 @@ import { getPromptHistoryService } from '../prompt-history/prompt-history-servic
 import { summarizeCreateInstanceConfig } from './lifecycle/instance-create-logging';
 import { callWithDeadline } from '../util/deadline';
 import { LifecycleMemoryPressureMonitor } from './lifecycle/memory-pressure-monitor';
-import { getKnownModelsForCli, isRestoreOrReplayContinuity } from './lifecycle/create-validation-helpers';
+import { getKnownModelsForCli, isRestoreOrReplayContinuity, requiresFreshAcpModelSpawn } from './lifecycle/create-validation-helpers';
 import type { McpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-context';
 
 const logger = getLogger('InstanceLifecycle');
@@ -1363,7 +1363,14 @@ export class InstanceLifecycleManager extends EventEmitter {
         // spawned CLI process.
         // NEVER use warm-start for remote sessions — warm adapters are local processes
         // and cannot proxy commands to a remote worker node.
-        const warmAdapter = (config.resume || config.forceNodeId || config.nodePlacement || spawnOptions.browserGatewayMcp)
+        // NEVER use warm-start for cursor/copilot when an explicit model is requested.
+        // Their ACP model is fixed by the `--model` launch flag (and session/new
+        // runs at pre-warm time), so a warm process always runs the account
+        // default. Reusing it would silently ignore the user's model pick — the
+        // chip would show e.g. Composer 2.5 while the agent runs the default
+        // (Codex 5.3). `auto` is fine: it intentionally means "let the CLI pick".
+        const wantsExplicitAcpModel = requiresFreshAcpModelSpawn(resolvedCliType, spawnOptions.model);
+        const warmAdapter = (config.resume || config.forceNodeId || config.nodePlacement || spawnOptions.browserGatewayMcp || wantsExplicitAcpModel)
           ? null
           : (this.deps.warmStartManager?.consume(resolvedCliType, instance.workingDirectory) as CliAdapter | null ?? null);
 

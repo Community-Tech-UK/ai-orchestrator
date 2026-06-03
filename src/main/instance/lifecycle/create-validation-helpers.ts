@@ -44,6 +44,26 @@ export async function getKnownModelsForCli(cliType: string): Promise<string[]> {
   return getModelsForProvider(cliType).map(model => model.id);
 }
 
+/**
+ * Whether a fresh spawn (not a warm-start adapter) is required to honor the
+ * requested model.
+ *
+ * Cursor and Copilot fix their ACP model via the `--model` launch flag, and
+ * `session/new` runs at pre-warm time — so a pre-warmed process always runs the
+ * account default. Reusing it for an explicit model pick would silently ignore
+ * the selection (UI shows e.g. Composer 2.5 while the agent runs the default
+ * Codex 5.3). `auto`/unset intentionally defers to the CLI default, so a warm
+ * process is fine there.
+ */
+export function requiresFreshAcpModelSpawn(
+  cliType: string,
+  model: string | undefined,
+): boolean {
+  if (cliType !== 'cursor' && cliType !== 'copilot') return false;
+  const normalized = model?.trim().toLowerCase();
+  return !!normalized && normalized !== 'auto';
+}
+
 export function isRestoreOrReplayContinuity(config: InstanceCreateConfig): boolean {
   const hasInitialPrompt =
     typeof config.initialPrompt === 'string'

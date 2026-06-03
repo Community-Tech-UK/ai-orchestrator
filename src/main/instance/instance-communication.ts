@@ -1389,6 +1389,35 @@ export class InstanceCommunicationManager extends EventEmitter {
       }
     });
 
+    adapter.on('model', (model: string) => {
+      if (isStaleAdapterEvent('model')) return;
+      const instance = this.deps.getInstance(instanceId);
+      if (!instance || !model) return;
+      // Reconcile the displayed model to what the agent actually bound only for
+      // Cursor, and only when the UI doesn't already track a concrete model
+      // (the `auto` sentinel / empty). Explicit picks are forwarded verbatim and
+      // honored by the agent, and Cursor's ACP id form diverges from the
+      // catalog scheme for reasoning variants — so overwriting them would
+      // corrupt the chip. See normalizeAcpModelId.
+      if (instance.provider !== 'cursor') return;
+      const current = instance.currentModel;
+      const isUnknown = !current || current.toLowerCase() === 'auto';
+      if (!isUnknown || current === model) return;
+      instance.currentModel = model;
+      this.deps.queueUpdate(
+        instanceId,
+        instance.status,
+        instance.contextUsage,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        model,
+      );
+    });
+
     adapter.on('cost', (cost: { costEstimate: number }) => {
       if (isStaleAdapterEvent('cost')) {
         return;

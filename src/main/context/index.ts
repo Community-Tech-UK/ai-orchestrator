@@ -20,3 +20,12 @@ export {
   type PTLTurn,
   type PTLRetryResult,
 } from './ptl-retry';
+export {
+  LegacyContextEngine,
+  SafeContextEngine,
+  getContextEngine,
+  setContextEngine,
+  _resetContextEngineForTesting,
+  type ContextEngine,
+  type ContextStatus,
+} from './context-engine';

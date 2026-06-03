@@ -370,7 +370,10 @@ vi.mock('../../../shared/types/error-recovery.types', async (importOriginal) => 
   };
 });
 
-vi.mock('../../../shared/types/provider.types', () => ({
+vi.mock('../../../shared/types/provider.types', async (importOriginal) => ({
+  // Spread the real module so eval-time consumers (e.g. cursor-cli-adapter.models
+  // referencing PROVIDER_MODEL_LIST) load; explicit stubs below still override.
+  ...(await importOriginal<typeof import('../../../shared/types/provider.types')>()),
   COPILOT_MODELS: {
     AUTO: 'auto',
     CLAUDE_SONNET_46: 'claude-sonnet-4.6',

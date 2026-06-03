@@ -1,4 +1,4 @@
-import { getCompactionCoordinator } from '../context/compaction-coordinator';
+import { getContextEngine } from '../context/context-engine';
 import { evaluateContextWindowGuard } from '../context/context-window-guard';
 import { getCrossModelReviewService } from '../orchestration/cross-model-review-service';
 import { getDebateCoordinator } from '../orchestration/debate-coordinator';
@@ -122,7 +122,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
 
   instanceManager.on('instance:removed', (instanceId) => {
     windowManager.sendToRenderer('instance:removed', instanceId);
-    getCompactionCoordinator().cleanupInstance(instanceId as string);
+    getContextEngine().cleanupInstance(instanceId as string);
     getDoomLoopDetector().cleanupInstance(instanceId as string);
     getLoadBalancer().removeMetrics(instanceId as string);
     getWorkflowManager().cleanupInstance(instanceId as string);
@@ -215,7 +215,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
       }[];
     };
     if (data.updates) {
-      const coordinator = getCompactionCoordinator();
+      const contextEngine = getContextEngine();
       for (const update of data.updates) {
         if (update.contextUsage) {
           const instance = instanceManager.getInstance(update.instanceId);
@@ -223,7 +223,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
             continue;
           }
 
-          coordinator.onContextUpdate(update.instanceId, update.contextUsage);
+          contextEngine.onContextUpdate(update.instanceId, update.contextUsage);
           const remaining = update.contextUsage.total - update.contextUsage.used;
           const guardResult = evaluateContextWindowGuard(remaining);
           if (guardResult.shouldWarn || !guardResult.allowed) {

@@ -1,5 +1,16 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+// Deterministic curated catalog so display-name overlay is testable independent
+// of the real static list.
+vi.mock('../../../../shared/types/provider.types', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../shared/types/provider.types')>()),
+  getModelsForProvider: (provider: string) =>
+    provider === 'claude'
+      ? [{ id: 'opus', name: 'Opus Curated', tier: 'powerful', pinned: true, family: 'Opus' }]
+      : [],
+}));
+
 import { UnifiedCatalogStore } from './unified-catalog.store';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
 import type { UnifiedModelEntry } from '../../../../shared/types/unified-model-catalog.types';
@@ -94,11 +105,13 @@ describe('UnifiedCatalogStore', () => {
     expect(store.modelsForProvider('codex').map((m) => m.id)).toEqual(['gpt-x']);
   });
 
-  it('maps to picker display rows (name falls back to id, family preserved)', async () => {
+  it('maps to picker rows: curated name/pinned/family overlaid by id, humanized fallback otherwise', async () => {
     const store = setup();
     await store.refresh();
     expect(store.displayModelsForProvider('claude')).toEqual([
-      { id: 'opus', name: 'opus', tier: 'powerful', family: 'Opus' },
+      // 'opus' is in the (mocked) curated list → curated name + pinned applied.
+      { id: 'opus', name: 'Opus Curated', tier: 'powerful', pinned: true, family: 'Opus' },
+      // 'haiku' is not curated → humanized id as the name; tier from the catalog.
       { id: 'haiku', name: 'haiku', tier: 'fast' },
     ]);
   });
