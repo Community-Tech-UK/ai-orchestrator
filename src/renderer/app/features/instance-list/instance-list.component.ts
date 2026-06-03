@@ -42,14 +42,6 @@ import { ProjectRailBuilderService } from './project-rail-builder.service';
 import { ProjectRailPathService } from './project-rail-path.service';
 import { getAllProjectHistoryItems, getOrderedRootIds } from './project-rail-tree.utils';
 import {
-  FILTER_TEXT_STORAGE_KEY,
-  HISTORY_TIME_WINDOW_STORAGE_KEY,
-  HISTORY_VISIBILITY_STORAGE_KEY,
-  LOCATION_FILTER_STORAGE_KEY,
-  ORDER_STORAGE_KEY,
-  SHOW_EMPTY_PROJECTS_STORAGE_KEY,
-  SORT_MODE_STORAGE_KEY,
-  STATUS_FILTER_STORAGE_KEY,
   getInstanceThreadId,
   type HierarchicalHistoryItem,
   type HierarchicalInstance,
@@ -58,6 +50,25 @@ import {
   type ProjectPathGroupIndex,
   type RailChangeSummary,
 } from './instance-list.types';
+import {
+  loadFilterText,
+  loadHistoryTimeWindow,
+  loadHistoryVisibilityMode,
+  loadLocationFilter,
+  loadOrder,
+  loadShowEmptyProjects,
+  loadSortMode,
+  loadStatusFilter,
+  parseHistoryTimeWindow,
+  saveFilterText,
+  saveHistoryTimeWindow,
+  saveHistoryVisibilityMode,
+  saveLocationFilter,
+  saveOrder,
+  saveShowEmptyProjects,
+  saveSortMode,
+  saveStatusFilter,
+} from './instance-list-preferences';
 
 @Component({
   selector: 'app-instance-list',
@@ -83,21 +94,21 @@ export class InstanceListComponent implements OnDestroy {
   private visibleInstanceResolver = inject(VisibleInstanceResolver);
   private clipboard = inject(CLIPBOARD_SERVICE);
 
-  filterInput = signal(this.loadFilterText());
-  filterText = signal(this.loadFilterText());
-  statusFilter = signal<string>(this.loadStatusFilter());
-  locationFilter = signal<'all' | 'local' | 'remote'>(this.loadLocationFilter());
+  filterInput = signal(loadFilterText());
+  filterText = signal(loadFilterText());
+  statusFilter = signal<string>(loadStatusFilter());
+  locationFilter = signal<'all' | 'local' | 'remote'>(loadLocationFilter());
   filtersOpen = signal(false);
   pendingArchiveId = signal<string | null>(null);
   collapsedIds = signal<Set<string>>(new Set());
   collapsedHistoryParentIds = signal<Set<string>>(new Set());
   collapsedProjectKeys = signal<Set<string>>(new Set());
-  rootInstanceOrder = signal<string[]>(this.loadOrder());
+  rootInstanceOrder = signal<string[]>(loadOrder());
   recentDirectories = signal<RecentDirectoryEntry[]>([]);
-  historySortMode = signal<HistorySortMode>(this.loadSortMode());
-  historyVisibilityMode = signal<HistoryVisibilityMode>(this.loadHistoryVisibilityMode());
-  historyTimeWindow = signal<HistoryTimeWindow>(this.loadHistoryTimeWindow());
-  showEmptyProjects = signal<boolean>(this.loadShowEmptyProjects());
+  historySortMode = signal<HistorySortMode>(loadSortMode());
+  historyVisibilityMode = signal<HistoryVisibilityMode>(loadHistoryVisibilityMode());
+  historyTimeWindow = signal<HistoryTimeWindow>(loadHistoryTimeWindow());
+  showEmptyProjects = signal<boolean>(loadShowEmptyProjects());
   openProjectMenuKey = signal<string | null>(null);
   preferredEditorLabel = signal('Editor');
   lastVisitedHistoryThreadId = signal<string | null>(null);
@@ -290,7 +301,7 @@ export class InstanceListComponent implements OnDestroy {
 
   setFilterText(value: string): void {
     this.filterInput.set(value);
-    this.saveFilterText(value);
+    saveFilterText(value);
     if (this.filterDebounceTimer) {
       clearTimeout(this.filterDebounceTimer);
     }
@@ -314,21 +325,21 @@ export class InstanceListComponent implements OnDestroy {
 
   setStatusFilter(value: string): void {
     this.statusFilter.set(value);
-    this.saveStatusFilter(value);
+    saveStatusFilter(value);
     this.closeProjectMenu({ restoreFocus: false });
   }
 
   onLocationFilterChange(event: Event): void {
     const value = (event.target as HTMLSelectElement).value as 'all' | 'local' | 'remote';
     this.locationFilter.set(value);
-    this.saveLocationFilter(value);
+    saveLocationFilter(value);
   }
 
   onSortModeChange(event: Event): void {
     const select = event.target as HTMLSelectElement;
     const value = select.value === 'created' ? 'created' : 'last-interacted';
     this.historySortMode.set(value);
-    this.saveSortMode(value);
+    saveSortMode(value);
     this.closeProjectMenu({ restoreFocus: false });
   }
 
@@ -336,22 +347,22 @@ export class InstanceListComponent implements OnDestroy {
     const select = event.target as HTMLSelectElement;
     const value: HistoryVisibilityMode = select.value === 'all' ? 'all' : 'relevant';
     this.historyVisibilityMode.set(value);
-    this.saveHistoryVisibilityMode(value);
+    saveHistoryVisibilityMode(value);
     this.closeProjectMenu({ restoreFocus: false });
   }
 
   onHistoryTimeWindowChange(event: Event): void {
     const select = event.target as HTMLSelectElement;
-    const value = this.parseHistoryTimeWindow(select.value);
+    const value = parseHistoryTimeWindow(select.value);
     this.historyTimeWindow.set(value);
-    this.saveHistoryTimeWindow(value);
+    saveHistoryTimeWindow(value);
     this.closeProjectMenu({ restoreFocus: false });
   }
 
   onShowEmptyProjectsChange(event: Event): void {
     const value = (event.target as HTMLInputElement).checked;
     this.showEmptyProjects.set(value);
-    this.saveShowEmptyProjects(value);
+    saveShowEmptyProjects(value);
   }
 
   onSelectInstance(instanceId: string): void {
@@ -780,7 +791,7 @@ export class InstanceListComponent implements OnDestroy {
     );
 
     this.rootInstanceOrder.set(nextOrder);
-    this.saveOrder(nextOrder);
+    saveOrder(nextOrder);
   }
 
   async onProjectDrop(event: CdkDragDrop<ProjectGroup[]>): Promise<void> {
@@ -1052,23 +1063,6 @@ export class InstanceListComponent implements OnDestroy {
     items[nextIndex]?.focus();
   }
 
-  private loadOrder(): string[] {
-    try {
-      const saved = localStorage.getItem(ORDER_STORAGE_KEY);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  }
-
-  private saveOrder(order: string[]): void {
-    try {
-      localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(order));
-    } catch {
-      // Ignore storage errors.
-    }
-  }
-
   isRestoringHistory(entryId: string): boolean {
     return this.historyRail.isRestoringHistory(entryId);
   }
@@ -1252,138 +1246,6 @@ export class InstanceListComponent implements OnDestroy {
       return 'Files';
     }
     return 'Finder';
-  }
-
-  private loadSortMode(): HistorySortMode {
-    try {
-      const saved = localStorage.getItem(SORT_MODE_STORAGE_KEY);
-      return saved === 'created' ? 'created' : 'last-interacted';
-    } catch {
-      return 'last-interacted';
-    }
-  }
-
-  private saveSortMode(mode: HistorySortMode): void {
-    try {
-      localStorage.setItem(SORT_MODE_STORAGE_KEY, mode);
-    } catch {
-      // Ignore storage errors.
-    }
-  }
-
-  private loadHistoryVisibilityMode(): HistoryVisibilityMode {
-    try {
-      const saved = localStorage.getItem(HISTORY_VISIBILITY_STORAGE_KEY);
-      return saved === 'all' ? 'all' : 'relevant';
-    } catch {
-      return 'relevant';
-    }
-  }
-
-  private saveHistoryVisibilityMode(mode: HistoryVisibilityMode): void {
-    try {
-      localStorage.setItem(HISTORY_VISIBILITY_STORAGE_KEY, mode);
-    } catch {
-      // Ignore storage errors.
-    }
-  }
-
-  private loadHistoryTimeWindow(): HistoryTimeWindow {
-    try {
-      return this.parseHistoryTimeWindow(localStorage.getItem(HISTORY_TIME_WINDOW_STORAGE_KEY));
-    } catch {
-      return 'all';
-    }
-  }
-
-  private saveHistoryTimeWindow(mode: HistoryTimeWindow): void {
-    try {
-      localStorage.setItem(HISTORY_TIME_WINDOW_STORAGE_KEY, mode);
-    } catch {
-      // Ignore storage errors.
-    }
-  }
-
-  private loadShowEmptyProjects(): boolean {
-    try {
-      return localStorage.getItem(SHOW_EMPTY_PROJECTS_STORAGE_KEY) === 'true';
-    } catch {
-      return false;
-    }
-  }
-
-  private saveShowEmptyProjects(value: boolean): void {
-    try {
-      localStorage.setItem(SHOW_EMPTY_PROJECTS_STORAGE_KEY, value ? 'true' : 'false');
-    } catch {
-      // Ignore storage errors.
-    }
-  }
-
-  private loadStatusFilter(): string {
-    try {
-      return localStorage.getItem(STATUS_FILTER_STORAGE_KEY) === 'active' ? 'active' : 'all';
-    } catch {
-      return 'all';
-    }
-  }
-
-  private saveStatusFilter(value: string): void {
-    try {
-      localStorage.setItem(STATUS_FILTER_STORAGE_KEY, value);
-    } catch {
-      // Ignore storage errors.
-    }
-  }
-
-  private loadLocationFilter(): 'all' | 'local' | 'remote' {
-    try {
-      const saved = localStorage.getItem(LOCATION_FILTER_STORAGE_KEY);
-      return saved === 'local' || saved === 'remote' ? saved : 'all';
-    } catch {
-      return 'all';
-    }
-  }
-
-  private saveLocationFilter(value: 'all' | 'local' | 'remote'): void {
-    try {
-      localStorage.setItem(LOCATION_FILTER_STORAGE_KEY, value);
-    } catch {
-      // Ignore storage errors.
-    }
-  }
-
-  private loadFilterText(): string {
-    try {
-      return localStorage.getItem(FILTER_TEXT_STORAGE_KEY) ?? '';
-    } catch {
-      return '';
-    }
-  }
-
-  private saveFilterText(value: string): void {
-    try {
-      if (value) {
-        localStorage.setItem(FILTER_TEXT_STORAGE_KEY, value);
-      } else {
-        localStorage.removeItem(FILTER_TEXT_STORAGE_KEY);
-      }
-    } catch {
-      // Ignore storage errors.
-    }
-  }
-
-  private parseHistoryTimeWindow(value: string | null): HistoryTimeWindow {
-    switch (value) {
-      case 'day':
-      case '3-days':
-      case 'week':
-      case '2-weeks':
-      case 'month':
-        return value;
-      default:
-        return 'all';
-    }
   }
 
   canDragProject(group: ProjectGroup): boolean {

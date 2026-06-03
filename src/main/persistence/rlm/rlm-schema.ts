@@ -10,40 +10,7 @@ import type { SqliteDriver } from '../../db/sqlite-driver';
 import * as crypto from 'crypto';
 import type { Migration } from './rlm-types';
 import type { MigrationRow } from '../rlm-database.types';
-
-interface TableInfoRow {
-  name: string;
-}
-
-function ensureContextSectionSummaryColumns(
-  db: SqliteDriver
-): void {
-  const columns = db
-    .prepare(`PRAGMA table_info(context_sections)`)
-    .all() as TableInfoRow[];
-  const columnNames = new Set(columns.map((column) => column.name));
-
-  if (!columnNames.has('pending_summary')) {
-    db.exec(`
-      ALTER TABLE context_sections
-      ADD COLUMN pending_summary INTEGER DEFAULT 0
-    `);
-  }
-
-  if (!columnNames.has('summary_priority')) {
-    db.exec(`
-      ALTER TABLE context_sections
-      ADD COLUMN summary_priority INTEGER DEFAULT 0
-    `);
-  }
-
-  if (!columnNames.has('last_summary_attempt')) {
-    db.exec(`
-      ALTER TABLE context_sections
-      ADD COLUMN last_summary_attempt INTEGER
-    `);
-  }
-}
+import { ensureContextSectionSummaryColumns } from './rlm-schema-context-sections';
 
 /**
  * Migrations to be applied in order

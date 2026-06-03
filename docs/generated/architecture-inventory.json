@@ -4919,10 +4919,6 @@
       "lines": 2829
     },
     {
-      "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 2744
-    },
-    {
       "path": "docs/superpowers/plans/2026-03-20-cross-model-review_completed.md",
       "lines": 2734
     },
@@ -4937,6 +4933,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase3-4-6-7.COMPLETED.md",
       "lines": 2659
+    },
+    {
+      "path": "src/main/orchestration/loop-coordinator.ts",
+      "lines": 2656
     },
     {
       "path": "src/main/channels/channel-message-router.ts",
@@ -4955,12 +4955,12 @@
       "lines": 2339
     },
     {
-      "path": "src/main/persistence/rlm/rlm-schema.ts",
-      "lines": 2211
-    },
-    {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
       "lines": 2207
+    },
+    {
+      "path": "src/main/persistence/rlm/rlm-schema.ts",
+      "lines": 2178
     },
     {
       "path": "src/main/instance/instance-communication.ts",
@@ -5091,10 +5091,6 @@
       "lines": 1456
     },
     {
-      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
-      "lines": 1449
-    },
-    {
       "path": "src/main/orchestration/orchestration-handler.ts",
       "lines": 1443
     },
@@ -5145,6 +5141,10 @@
     {
       "path": "src/main/ipc/orchestration-ipc-handler.ts",
       "lines": 1316
+    },
+    {
+      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
+      "lines": 1311
     },
     {
       "path": "src/main/workspace/git/vcs-manager.ts",
@@ -5359,10 +5359,6 @@
       "lines": 997
     },
     {
-      "path": "src/main/automations/automation-store.ts",
-      "lines": 996
-    },
-    {
       "path": "src/renderer/app/features/debate/debate-visualization.component.ts",
       "lines": 993
     },
@@ -5491,6 +5487,10 @@
       "lines": 887
     },
     {
+      "path": "src/main/automations/automation-store.ts",
+      "lines": 882
+    },
+    {
       "path": "src/main/rlm/smart-compaction.ts",
       "lines": 879
     },
@@ -5577,10 +5577,6 @@
     {
       "path": "src/main/cli/adapters/base-cli-adapter.ts",
       "lines": 830
-    },
-    {
-      "path": "src/main/automations/automation-runner.ts",
-      "lines": 822
     },
     {
       "path": "src/renderer/app/features/debate/enhanced-debate-visualization.component.ts",

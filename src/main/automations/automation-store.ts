@@ -27,15 +27,16 @@ import type {
   AutomationThreadDestinationRow,
   RunInsertExtras,
 } from './automation-store-records';
-
-/** Shape returned by listPendingRetries — just enough for the scheduler to re-arm timers. */
-export interface PendingRetryRecord {
-  runId: string;
-  automationId: string;
-  nextRetryAt: number;
-  nextRetryAttempt: number;
-  nextRetryMaxAttempts: number;
-}
+import {
+  clearPendingRetry as clearPendingRetryFields,
+  insertPendingRetryRun as insertPendingRetryRunRecord,
+  insertRetryRun as insertRetryRunRecord,
+  listPendingRetries as listPendingRetryRecords,
+  markPendingRetry as markPendingRetryFields,
+  recordSkippedRun,
+  type PendingRetryRecord,
+} from './automation-store-retry-ops';
+export type { PendingRetryRecord } from './automation-store-retry-ops';
 
 /**
  * Default number of consecutive failed runs after which an automation is
@@ -439,13 +440,6 @@ export class AutomationStore {
     return tx();
   }
 
-  /**
-   * Creates a new `running` run record for a retry attempt, preserving the
-   * config snapshot from the original run so the retry executes with the exact
-   * same parameters even if the automation was edited in the meantime.
-   *
-   * Returns null if the automation no longer exists.
-   */
   insertRetryRun(
     originalRun: AutomationRun,
     nextAttempt: number,
@@ -453,40 +447,20 @@ export class AutomationStore {
     retryAt: number,
     now = Date.now(),
   ): AutomationRun | null {
-    const tx = this.db.transaction((): AutomationRun | null => {
-      const automationRow = this.getAutomationRow(originalRun.automationId);
-      if (!automationRow) {
-        return null;
-      }
-      const automation = this.mapAutomationSync(automationRow);
-      // Preserve the original action/snapshot: use attachments from the original
-      // snapshot if available, otherwise fall through to the live automation.
-      if (originalRun.configSnapshot) {
-        automation.name = originalRun.configSnapshot.name;
-        automation.schedule = originalRun.configSnapshot.schedule;
-        automation.missedRunPolicy = originalRun.configSnapshot.missedRunPolicy;
-        automation.concurrencyPolicy = originalRun.configSnapshot.concurrencyPolicy;
-        automation.destination = originalRun.configSnapshot.destination;
-        automation.action = originalRun.configSnapshot.action;
-      }
-
-      const run = this.insertRun(
-        automation,
-        'running',
-        originalRun.trigger,
-        retryAt,
-        now,
-        {
-          startedAt: now,
-          triggerSource: originalRun.triggerSource ?? undefined,
-          deliveryMode: originalRun.deliveryMode,
-          attempt: nextAttempt,
-          maxAttempts,
-        },
-      );
-      return run;
-    });
-    return tx();
+    return insertRetryRunRecord(
+      {
+        db: this.db,
+        getAutomationRow: (automationId) => this.getAutomationRow(automationId),
+        mapAutomationSync: (row) => this.mapAutomationSync(row),
+        insertRun: (automation, status, trigger, scheduledAt, runNow, extras) =>
+          this.insertRun(automation, status, trigger, scheduledAt, runNow, extras),
+      },
+      originalRun,
+      nextAttempt,
+      maxAttempts,
+      retryAt,
+      now,
+    );
   }
 
   claimNextPending(automationId?: string, now = Date.now()): ClaimedAutomationRun | null {
@@ -563,22 +537,23 @@ export class AutomationStore {
     reason: string,
     now = Date.now(),
   ): AutomationRun {
-    const tx = this.db.transaction(() => {
-      if (this.isScheduleTrigger(trigger) && this.findDedupeRun(automation.id, fireTime)) {
-        this.advanceScheduleBaselineIfNeeded(automation.id, automation.lastRunId, trigger, fireTime);
-        const existing = this.findDedupeRun(automation.id, fireTime);
-        if (existing) {
-          return this.mapRun(existing);
-        }
-      }
-      const run = this.insertRun(automation, 'skipped', trigger, fireTime, now, {
-        finishedAt: now,
-        error: reason,
-      });
-      this.advanceScheduleBaselineIfNeeded(automation.id, run.id, trigger, fireTime);
-      return run;
-    });
-    return tx();
+    return recordSkippedRun(
+      {
+        db: this.db,
+        isScheduleTrigger: (currentTrigger) => this.isScheduleTrigger(currentTrigger),
+        findDedupeRun: (automationId, scheduledAt) => this.findDedupeRun(automationId, scheduledAt),
+        advanceScheduleBaselineIfNeeded: (automationId, runId, currentTrigger, currentFireTime) =>
+          this.advanceScheduleBaselineIfNeeded(automationId, runId, currentTrigger, currentFireTime),
+        insertRun: (currentAutomation, status, currentTrigger, scheduledAt, runNow, extras) =>
+          this.insertRun(currentAutomation, status, currentTrigger, scheduledAt, runNow, extras),
+        mapRun: (row) => this.mapRun(row),
+      },
+      automation,
+      trigger,
+      fireTime,
+      reason,
+      now,
+    );
   }
 
   listRuns(options: { automationId?: string; limit?: number } = {}): AutomationRun[] {
@@ -699,95 +674,23 @@ export class AutomationStore {
     return tx();
   }
 
-  /**
-   * Persist pending-retry durability fields on the original failed run so the
-   * scheduler can re-arm the timer after an app restart.
-   * Migration 033 adds these columns.
-   */
   markPendingRetry(
     runId: string,
     nextRetryAt: number,
     nextAttempt: number,
     maxAttempts: number,
   ): void {
-    this.db.prepare(`
-      UPDATE automation_runs
-      SET next_retry_at = ?,
-          next_retry_attempt = ?,
-          next_retry_max_attempts = ?,
-          updated_at = ?
-      WHERE id = ?
-    `).run(nextRetryAt, nextAttempt, maxAttempts, Date.now(), runId);
+    markPendingRetryFields(this.db, runId, nextRetryAt, nextAttempt, maxAttempts);
   }
 
-  /**
-   * Clear the pending-retry fields on the original failed run once the retry
-   * has fired, been cancelled, or been superseded.
-   */
   clearPendingRetry(runId: string): void {
-    this.db.prepare(`
-      UPDATE automation_runs
-      SET next_retry_at = NULL,
-          next_retry_attempt = NULL,
-          next_retry_max_attempts = NULL,
-          updated_at = ?
-      WHERE id = ?
-    `).run(Date.now(), runId);
+    clearPendingRetryFields(this.db, runId);
   }
 
-  /**
-   * Return all failed runs that have a pending retry scheduled but whose retry
-   * run has not yet been created (i.e. the automation was restarted before the
-   * timer fired).
-   *
-   * A retry run for the original run would have been inserted by insertRetryRun,
-   * meaning we can detect it by looking for a run with a scheduled_at that
-   * matches the pending retry timestamp AND whose trigger is the same and whose
-   * attempt equals next_retry_attempt. But the simplest safe check is to confirm
-   * no run with attempt == next_retry_attempt exists yet for this automation.
-   */
   listPendingRetries(): PendingRetryRecord[] {
-    const rows = this.db.prepare(`
-      SELECT
-        r.id            AS run_id,
-        r.automation_id,
-        r.next_retry_at,
-        r.next_retry_attempt,
-        r.next_retry_max_attempts
-      FROM automation_runs r
-      WHERE r.next_retry_at IS NOT NULL
-        AND r.next_retry_attempt IS NOT NULL
-        AND r.next_retry_max_attempts IS NOT NULL
-        AND NOT EXISTS (
-          SELECT 1
-          FROM automation_runs successor
-          WHERE successor.automation_id = r.automation_id
-            AND successor.attempt = r.next_retry_attempt
-            AND successor.scheduled_at >= r.next_retry_at - 1
-        )
-    `).all<{
-      run_id: string;
-      automation_id: string;
-      next_retry_at: number;
-      next_retry_attempt: number;
-      next_retry_max_attempts: number;
-    }>();
-
-    return rows.map((row) => ({
-      runId: row.run_id,
-      automationId: row.automation_id,
-      nextRetryAt: row.next_retry_at,
-      nextRetryAttempt: row.next_retry_attempt,
-      nextRetryMaxAttempts: row.next_retry_max_attempts,
-    }));
+    return listPendingRetryRecords(this.db);
   }
 
-  /**
-   * Like insertRetryRun but inserts the retry run as 'pending' rather than
-   * 'running'.  Used when the automation's concurrencyPolicy is 'queue' and a
-   * run is already active — the existing claimNextPending promotion path will
-   * start it once the slot is free.
-   */
   insertPendingRetryRun(
     originalRun: AutomationRun,
     nextAttempt: number,
@@ -795,37 +698,20 @@ export class AutomationStore {
     retryAt: number,
     now = Date.now(),
   ): AutomationRun | null {
-    const tx = this.db.transaction((): AutomationRun | null => {
-      const automationRow = this.getAutomationRow(originalRun.automationId);
-      if (!automationRow) {
-        return null;
-      }
-      const automation = this.mapAutomationSync(automationRow);
-      if (originalRun.configSnapshot) {
-        automation.name = originalRun.configSnapshot.name;
-        automation.schedule = originalRun.configSnapshot.schedule;
-        automation.missedRunPolicy = originalRun.configSnapshot.missedRunPolicy;
-        automation.concurrencyPolicy = originalRun.configSnapshot.concurrencyPolicy;
-        automation.destination = originalRun.configSnapshot.destination;
-        automation.action = originalRun.configSnapshot.action;
-      }
-
-      const run = this.insertRun(
-        automation,
-        'pending',
-        originalRun.trigger,
-        retryAt,
-        now,
-        {
-          triggerSource: originalRun.triggerSource ?? undefined,
-          deliveryMode: originalRun.deliveryMode,
-          attempt: nextAttempt,
-          maxAttempts,
-        },
-      );
-      return run;
-    });
-    return tx();
+    return insertPendingRetryRunRecord(
+      {
+        db: this.db,
+        getAutomationRow: (automationId) => this.getAutomationRow(automationId),
+        mapAutomationSync: (row) => this.mapAutomationSync(row),
+        insertRun: (automation, status, trigger, scheduledAt, runNow, extras) =>
+          this.insertRun(automation, status, trigger, scheduledAt, runNow, extras),
+      },
+      originalRun,
+      nextAttempt,
+      maxAttempts,
+      retryAt,
+      now,
+    );
   }
 
   private insertRun(
