@@ -31,21 +31,23 @@ import type { WorkerNodeInfo } from '../../../../../shared/types/worker-node.typ
 
         @if (isOpen()) {
           <div class="node-picker-dropdown">
-            <button
-              class="node-option"
-              [class.selected]="!selectedNodeId()"
-              type="button"
-              (click)="selectNode(null)"
-            >
-              <span class="node-health-dot health-local"></span>
-              <div class="node-option-content">
-                <span class="node-option-name">Local</span>
-                <span class="node-option-detail">This machine</span>
-              </div>
-            </button>
+            @if (allowLocal()) {
+              <button
+                class="node-option"
+                [class.selected]="!selectedNodeId()"
+                type="button"
+                (click)="selectNode(null)"
+              >
+                <span class="node-health-dot health-local"></span>
+                <div class="node-option-content">
+                  <span class="node-option-name">Local</span>
+                  <span class="node-option-detail">This machine</span>
+                </div>
+              </button>
 
-            @if (sortedNodes().length > 0) {
-              <div class="node-option-separator"></div>
+              @if (sortedNodes().length > 0) {
+                <div class="node-option-separator"></div>
+              }
             }
 
             @for (node of sortedNodes(); track node.id) {
@@ -175,6 +177,13 @@ export class NodePickerComponent {
 
   selectedNodeId = input<string | null>(null);
   selectedCli = input<string>('auto');
+  /**
+   * Whether the "Local (this machine)" option is offered. Default true. Set
+   * false for surfaces that are remote-only — e.g. the remote terminal drawer,
+   * whose backend cannot spawn a local pty (node-pty is confined to the worker
+   * bundle), so offering "Local" there would be a dead, confusing option.
+   */
+  allowLocal = input(true);
   nodeSelected = output<string | null>();
 
   isOpen = signal(false);
@@ -192,7 +201,7 @@ export class NodePickerComponent {
 
   readonly selectedLabel = computed(() => {
     const id = this.selectedNodeId();
-    if (!id) return 'Local';
+    if (!id) return this.allowLocal() ? 'Local' : 'Select node';
     const node = this.nodeStore.nodeById(id);
     return node?.name ?? id.slice(0, 8);
   });

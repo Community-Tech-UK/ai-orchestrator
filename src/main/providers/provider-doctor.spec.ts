@@ -376,7 +376,12 @@ describe('ProviderDoctor probe errorKind population', () => {
   it('failed probe has errorKind set in the diagnosis probes array', async () => {
     // anthropic-api has the reachable probe which will fail in this env
     // because no real network calls are made in tests. We use fetch mock.
-    global.fetch = vi.fn().mockRejectedValueOnce(new Error('network error'));
+    // Use vi.stubGlobal (not a raw `global.fetch =` assignment) so the shared
+    // test-setup `vi.unstubAllGlobals()` restores the real fetch afterwards.
+    // A raw assignment leaks a one-shot mock (which returns undefined after its
+    // single mockRejectedValueOnce) into every later spec in the same vitest
+    // worker, breaking unrelated fetch-using tests (http-transport, clipboard…).
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new Error('network error')));
 
     ProviderDoctor._resetForTesting();
     const doctor = ProviderDoctor.getInstance();

@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
   effect,
   ElementRef,
@@ -8,12 +9,14 @@ import {
   input,
   output,
   signal,
+  untracked,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import type { Terminal as XTerminal } from '@xterm/xterm';
 import type { FitAddon as XFitAddon } from '@xterm/addon-fit';
 import { NodePickerComponent } from '../../shared/components/node-picker/node-picker.component';
 import { TERMINAL_SESSION } from '../../core/services/terminal-session.service';
+import { RemoteNodeStore } from '../../core/state/remote-node.store';
 
 type DrawerStatus = 'idle' | 'connecting' | 'running' | 'exited' | 'error';
 
@@ -24,10 +27,11 @@ type DrawerStatus = 'idle' | 'connecting' | 'running' | 'exited' | 'error';
   template: `
     <section class="terminal-drawer" [class.open]="isOpen()" aria-label="Terminal drawer">
       <header class="terminal-drawer__header">
-        <h3 class="terminal-drawer__title">Terminal</h3>
+        <h3 class="terminal-drawer__title">Remote Terminal</h3>
         <div class="terminal-drawer__controls">
           <app-node-picker
             [selectedNodeId]="selectedNodeId()"
+            [allowLocal]="false"
             (nodeSelected)="onNodeSelected($event)"
           ></app-node-picker>
           <input
@@ -37,8 +41,17 @@ type DrawerStatus = 'idle' | 'connecting' | 'running' | 'exited' | 'error';
             [ngModel]="cwd()"
             (ngModelChange)="cwd.set($event)"
             [disabled]="isLive()"
-            aria-label="Working directory"
+            list="terminal-drawer-roots"
+            aria-label="Working directory on the worker (must be inside an allowed root)"
+            [title]="selectedNodeRoots().length
+              ? 'Allowed roots: ' + selectedNodeRoots().join(', ')
+              : 'Pick a worker node first'"
           />
+          <datalist id="terminal-drawer-roots">
+            @for (root of selectedNodeRoots(); track root) {
+              <option [value]="root"></option>
+            }
+          </datalist>
           @if (!isLive()) {
             <button type="button" class="terminal-drawer__btn" (click)="open()">Open</button>
           } @else {
@@ -73,9 +86,9 @@ type DrawerStatus = 'idle' | 'connecting' | 'running' | 'exited' | 'error';
       z-index: 80;
       display: flex;
       flex-direction: column;
-      height: 320px;
-      min-height: 200px;
-      max-height: 60vh;
+      height: 300px;
+      min-height: 160px;
+      max-height: 42vh;
       background: var(--bg-primary);
       border-top: 1px solid var(--border-color);
       box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.22);
@@ -173,12 +186,24 @@ export class TerminalDrawerComponent {
   private readonly terminal = inject(TERMINAL_SESSION);
   private readonly destroyRef = inject(DestroyRef);
   private readonly elementRef = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly remoteNodes = inject(RemoteNodeStore);
 
   readonly isOpen = input(false);
   readonly closeRequested = output<void>();
 
   protected readonly selectedNodeId = signal<string | null>(null);
   protected readonly cwd = signal('');
+
+  /**
+   * The worker's allowed working-directory roots for the selected node. The
+   * worker sandboxes terminals to these, so the cwd MUST be inside one of them
+   * (otherwise the spawn fails with "cwd outside allowed roots"). Surfaced as
+   * suggestions + used to pre-fill a valid default on node selection.
+   */
+  protected readonly selectedNodeRoots = computed<string[]>(() => {
+    const id = this.selectedNodeId();
+    return id ? this.remoteNodes.nodeById(id)?.capabilities.workingDirectories ?? [] : [];
+  });
   protected readonly status = signal<DrawerStatus>('idle');
   protected readonly statusMessage = signal<string | null>(null);
 
@@ -221,6 +246,17 @@ export class TerminalDrawerComponent {
       if (this.isOpen() && this.term) this.fit();
     });
 
+    // On open with nothing selected, auto-pick the only connected worker (and
+    // pre-fill a valid cwd via onNodeSelected) so the common case is one click.
+    effect(() => {
+      if (!this.isOpen()) return;
+      untracked(() => {
+        if (this.selectedNodeId()) return;
+        const connected = this.remoteNodes.connectedNodes();
+        if (connected.length === 1) this.onNodeSelected(connected[0].id);
+      });
+    });
+
     this.destroyRef.onDestroy(() => {
       if (typeof window !== 'undefined') window.removeEventListener('resize', onResize);
       unsubscribe();
@@ -246,6 +282,14 @@ export class TerminalDrawerComponent {
 
   protected onNodeSelected(nodeId: string | null): void {
     this.selectedNodeId.set(nodeId);
+    // Pre-fill the cwd with one of the node's allowed roots so "Open" works out of
+    // the box. Only overwrite when the current cwd isn't already a valid root for
+    // this node (avoids clobbering a deliberate sub-path the user typed).
+    const roots = this.selectedNodeRoots();
+    const current = this.cwd().trim();
+    if (roots.length > 0 && !roots.some((root) => current === root || current.startsWith(root))) {
+      this.cwd.set(roots[0]);
+    }
   }
 
   protected async open(): Promise<void> {

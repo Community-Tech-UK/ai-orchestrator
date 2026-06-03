@@ -17,6 +17,14 @@ await resolveComponentResources((url) => {
   if (url.endsWith('loop-config-panel.component.scss')) {
     return Promise.resolve(styles);
   }
+  // resolveComponentResources is global: it resolves pending templateUrl/styleUrl
+  // resources for *every* component left in the shared registry by other specs in
+  // the same vitest worker, not just this one. Resolve unrelated component
+  // resources to empty so a leaked component (e.g. output-stream.component) cannot
+  // make this spec fail. Matches the tolerant pattern in checkpoint-timeline.spec.
+  if (url.endsWith('.html') || url.endsWith('.scss')) {
+    return Promise.resolve('');
+  }
   return Promise.reject(new Error(`Unexpected resource: ${url}`));
 });
 

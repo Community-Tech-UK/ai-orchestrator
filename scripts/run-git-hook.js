@@ -28,6 +28,13 @@ const HOOK_COMMANDS = {
     // CI runs `npm run check:ts-max-loc` without --warn, so it stays the enforcing gate.
     { command: 'npm', args: ['run', 'check:ts-max-loc', '--', '--warn'] },
     { command: 'npm', args: ['run', 'verify:architecture'] },
+    // Run the full test suite before code leaves the machine for CI. This is the
+    // CI-mirror gate that blocks pushing red tests — the exact failure that
+    // prompted this hook. It lives on pre-push, not pre-commit, because the full
+    // suite takes ~2 min and the live app's loop agents auto-commit on shutdown;
+    // a blocking pre-commit suite would stall or abort those automated commits.
+    // Bypass in an emergency with `git push --no-verify`.
+    { command: 'npm', args: ['run', 'test'] },
   ],
 };
 
