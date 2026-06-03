@@ -12,6 +12,7 @@
 import * as path from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { IpcResponse } from '../../../../shared/types/ipc.types';
+import type { StartupCapabilityReport } from '../../../../shared/types/startup-capability.types';
 
 // ============================================================
 // 1. Mock electron BEFORE any import that would pull it in
@@ -134,6 +135,29 @@ vi.mock('fs', () => ({
   default: {
     existsSync: appHandlerMocks.fsExistsSync,
   },
+}));
+
+// ============================================================
+// 4b. Mock capability-probe — APP_READY triggers it, and the real
+//     probe spawns CLI processes (claude/gemini/codex/copilot version
+//     + doctor `which` checks). Under CI fork pressure those spawns can
+//     exceed the 5s test timeout (the probe's own source notes it is
+//     "prone to flakes"). Returning a cached report makes APP_READY's
+//     `getLastReport() ?? await run()` short-circuit — no spawns.
+// ============================================================
+
+const capabilityReport: StartupCapabilityReport = {
+  status: 'ready',
+  generatedAt: 0,
+  checks: [],
+};
+const capabilityProbeMock = {
+  getLastReport: vi.fn((): StartupCapabilityReport | null => capabilityReport),
+  run: vi.fn(async (): Promise<StartupCapabilityReport> => capabilityReport),
+};
+
+vi.mock('../../../bootstrap/capability-probe', () => ({
+  getCapabilityProbe: () => capabilityProbeMock,
 }));
 
 // ============================================================

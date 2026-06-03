@@ -1,3 +1,43 @@
 @use './settings-row-list' as list;
 
 @include list.settings-row-list;
+
+.reviewer-model-overrides {
+  margin-top: 16px;
+
+  &__header {
+    padding: 12px 16px 4px;
+  }
+
+  &__title {
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+
+  &__hint {
+    margin: 4px 0 0;
+    font-size: 0.8rem;
+    opacity: 0.7;
+  }
+}
+
+.reviewer-model-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  &__label {
+    font-size: 0.9rem;
+  }
+
+  &__select {
+    min-width: 220px;
+    max-width: 60%;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: var(--input-bg, var(--surface-2, #1e1e1e));
+    color: inherit;
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.15));
+  }
+}

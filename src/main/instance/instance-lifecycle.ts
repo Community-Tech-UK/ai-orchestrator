@@ -63,6 +63,7 @@ import { getDeferDecisionStore } from '../cli/hooks/defer-decision-store';
 import { InstanceSpawner } from './lifecycle/instance-spawner';
 import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handler';
 import { buildInstanceRecord } from './lifecycle/instance-create-builder';
+import { resolveInitialModel } from './lifecycle/resolve-initial-model';
 import { applyOutputStyle, isOutputStyleInjectableProvider } from './output-style';
 import { PlanModeManager } from './lifecycle/plan-mode-manager';
 import { RestartPolicyHelpers } from './lifecycle/restart-policy-helpers';
@@ -1343,9 +1344,19 @@ export class InstanceLifecycleManager extends EventEmitter {
           displayName: getCliDisplayName(resolvedCliType)
         });
 
-        // Resolve model: explicit override > agent override > settings default
+        // Resolve model: explicit override > agent override > per-provider
+        // remembered (defaultModelByProvider, persisted by the renderer's
+        // provider-state.service) > legacy global default. A8a: honoring the
+        // per-provider map here makes a backend spawn start on the same model the
+        // picker pre-selects for this provider.
         const settingsModel = settingsAll.defaultModel;
-        let resolvedModel = config.modelOverride || resolvedAgent.modelOverride || settingsModel || undefined;
+        let resolvedModel = resolveInitialModel({
+          configModelOverride: config.modelOverride,
+          agentModelOverride: resolvedAgent.modelOverride,
+          provider: resolvedCliType,
+          defaultModelByProvider: settingsAll.defaultModelByProvider,
+          defaultModel: settingsModel,
+        });
 
         // Validate model against the target provider's supported models.
         // If the model is a tier name (fast/balanced/powerful), resolve it to a concrete ID.
@@ -1394,6 +1405,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         logger.info('Resolved model for instance', {
           configOverride: config.modelOverride,
           agentOverride: resolvedAgent.modelOverride,
+          perProviderRemembered: settingsAll.defaultModelByProvider?.[resolvedCliType],
           settingsDefault: settingsModel,
           resolved: resolvedModel,
         });

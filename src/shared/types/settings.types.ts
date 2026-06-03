@@ -219,6 +219,16 @@ export interface AppSettings {
   crossModelReviewProviders: string[];
   crossModelReviewTimeout: number;
   crossModelReviewTypes: string[];
+  /**
+   * Optional per-reviewer-CLI model override for cross-model review.
+   * Keys are reviewer CLI names (e.g. 'copilot', 'gemini', 'codex', 'cursor').
+   * A missing entry, an empty string, or 'auto' means "let that provider's CLI
+   * decide" — we pass no model and the CLI uses its own default/auto routing
+   * (e.g. Copilot auto-routes to a GPT model). A concrete model id is forwarded
+   * to the reviewer adapter as its model. This does NOT fall back to
+   * getPrimaryModelForProvider, so the default behaviour is true CLI routing.
+   */
+  crossModelReviewModelByProvider: Record<string, string>;
 
   // Remote Nodes
   remoteNodesEnabled: boolean;
@@ -371,6 +381,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   crossModelReviewProviders: [],
   crossModelReviewTimeout: 30,
   crossModelReviewTypes: ['code', 'plan', 'architecture'],
+  crossModelReviewModelByProvider: {},
 
   // Remote Nodes
   remoteNodesEnabled: false,
