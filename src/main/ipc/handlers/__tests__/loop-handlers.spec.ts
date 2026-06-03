@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { LoopConfigInput } from '@contracts/schemas/loop';
@@ -304,7 +304,13 @@ describe('LOOP_START handler — kickoff prompt persistence', () => {
     expect(response).toEqual({ success: true, data: { state: startState } });
   });
 
-  it('fills a blank verify command from the workspace before starting the loop', async () => {
+  it('starts the loop under the fresh-eyes cross-model review default when the verify command is blank (LF-3a: no longer infers a machine verify command nor rejects)', async () => {
+    // LF-3a: a blank verify command no longer triggers workspace inference of a
+    // machine verify command (e.g. `npm run verify`), nor does it reject the
+    // start up front. The handler defers to prepareLoopStartConfig, which makes
+    // the fresh-eyes cross-model review the completion authority. Even with a
+    // package.json "verify" script present, nothing is inferred. (The full
+    // inference/fresh-eyes matrix lives in loop-start-config.spec.ts.)
     tempWorkspace = mkdtempSync(join(tmpdir(), 'loop-handler-verify-'));
     writeFileSync(
       join(tempWorkspace, 'package.json'),
@@ -338,91 +344,13 @@ describe('LOOP_START handler — kickoff prompt persistence', () => {
       'chat-1',
       expect.objectContaining({
         completion: expect.objectContaining({
-          verifyCommand: 'npm run verify',
+          verifyCommand: '',
+          crossModelReview: expect.objectContaining({ enabled: true }),
         }),
       }),
       undefined,
       expect.any(Object),
     );
-  });
-
-  it('fills a blank verify command from a child package when the workspace points at its parent', async () => {
-    tempWorkspace = mkdtempSync(join(tmpdir(), 'loop-handler-verify-'));
-    const siblingWorkspace = join(tempWorkspace, 'agent-orchestrator');
-    mkdirSync(siblingWorkspace, { recursive: true });
-    writeFileSync(
-      join(siblingWorkspace, 'package.json'),
-      JSON.stringify({ scripts: { typecheck: 'tsc --noEmit', lint: 'eslint .', test: 'vitest run' } }, null, 2),
-    );
-    const packageWorkspace = join(tempWorkspace, 'ai-orchestrator');
-    mkdirSync(packageWorkspace, { recursive: true });
-    writeFileSync(
-      join(packageWorkspace, 'package.json'),
-      JSON.stringify({ scripts: { verify: 'npm test' } }, null, 2),
-    );
-    const windowManager = { sendToRenderer: vi.fn() };
-    const instanceManager = makeInstanceManager([]);
-    const startState = makeLoopState({ status: 'running', endedAt: null });
-    hoisted.coordinator.startLoop.mockResolvedValue(startState);
-    registerLoopHandlers({
-      windowManager: windowManager as never,
-      instanceManager,
-    });
-    const handler = findIpcHandler(IPC_CHANNELS.LOOP_START);
-    const payload = {
-      chatId: 'chat-1',
-      config: {
-        initialPrompt: 'Build the thing.',
-        workspaceCwd: tempWorkspace,
-        completion: {
-          ...defaultLoopConfig(tempWorkspace, 'Build the thing.').completion,
-          verifyCommand: '',
-        },
-      },
-    };
-
-    const response = await handler({}, payload);
-
-    expect(response).toEqual({ success: true, data: { state: startState } });
-    expect(hoisted.coordinator.startLoop).toHaveBeenCalledWith(
-      'chat-1',
-      expect.objectContaining({
-        completion: expect.objectContaining({
-          verifyCommand: `npm --prefix "${packageWorkspace}" run verify`,
-        }),
-      }),
-      undefined,
-      expect.any(Object),
-    );
-  });
-
-  it('rejects loop start up front when no verifier can be inferred', async () => {
-    tempWorkspace = mkdtempSync(join(tmpdir(), 'loop-handler-verify-'));
-    const windowManager = { sendToRenderer: vi.fn() };
-    const instanceManager = makeInstanceManager([]);
-    registerLoopHandlers({
-      windowManager: windowManager as never,
-      instanceManager,
-    });
-    const handler = findIpcHandler(IPC_CHANNELS.LOOP_START);
-    const payload = {
-      chatId: 'chat-1',
-      config: {
-        initialPrompt: 'Build the thing.',
-        workspaceCwd: tempWorkspace,
-        completion: {
-          ...defaultLoopConfig(tempWorkspace, 'Build the thing.').completion,
-          verifyCommand: '',
-        },
-      },
-    };
-
-    const response = await handler({}, payload);
-
-    expect(response.success).toBe(false);
-    expect(response.error?.code).toBe('LOOP_START_FAILED');
-    expect(response.error?.message).toContain('Loop Mode could not infer a verify command');
-    expect(hoisted.coordinator.startLoop).not.toHaveBeenCalled();
   });
 
   it('allows explicit operator-reviewed completion without a verify command', async () => {

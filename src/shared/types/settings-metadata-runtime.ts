@@ -77,11 +77,10 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   },
   {
     key: 'chromeDevtoolsAttachProfileId',
-    label: 'chrome-devtools managed profile id',
-    description: 'The managed browser profile id chrome-devtools attaches to. Copy it from the Browser screen. Only used when the attach toggle above is on.',
-    type: 'string',
+    label: 'chrome-devtools managed profile',
+    description: 'The managed browser profile chrome-devtools attaches to. Pick one of your managed profiles from the Browser screen. Only used when the attach toggle above is on.',
+    type: 'select',
     category: 'advanced',
-    placeholder: 'managed browser profile id',
   },
   {
     key: 'codememEnabled',

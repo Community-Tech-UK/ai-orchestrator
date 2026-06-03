@@ -102,7 +102,8 @@ export class GatewayClient {
 
   private openSocket(host: PairedHost): void {
     this._state.set('connecting');
-    const url = `ws://${host.host}:${host.port}/ws?token=${encodeURIComponent(host.token)}`;
+    const scheme = host.secure ? 'wss' : 'ws';
+    const url = `${scheme}://${host.host}:${host.port}/ws?token=${encodeURIComponent(host.token)}`;
     let ws: WebSocket;
     try {
       ws = new WebSocket(url);
@@ -237,8 +238,9 @@ export class GatewayClient {
   private base(): { url: string; headers: Record<string, string> } | null {
     const host = this.hostStore.activeHost();
     if (!host) return null;
+    const scheme = host.secure ? 'https' : 'http';
     return {
-      url: `http://${host.host}:${host.port}`,
+      url: `${scheme}://${host.host}:${host.port}`,
       headers: { authorization: `Bearer ${host.token}`, 'content-type': 'application/json' },
     };
   }
@@ -358,12 +360,14 @@ export class GatewayClient {
     port: number,
     pairingToken: string,
     label: string,
+    secure = false,
   ): Promise<{ deviceId: string; token: string; hostName: string; expiresAt: number }> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), PAIR_TIMEOUT_MS);
+    const scheme = secure ? 'https' : 'http';
     let res: Response;
     try {
-      res = await fetch(`http://${host}:${port}/pair`, {
+      res = await fetch(`${scheme}://${host}:${port}/pair`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ pairingToken, label }),

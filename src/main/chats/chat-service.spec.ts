@@ -333,6 +333,33 @@ describe('ChatService', () => {
     expect(events.some((event) => event.type === 'chat-updated')).toBe(true);
   });
 
+  it('auto-names an Untitled chat from the attachment subject when the text is generic filler', async () => {
+    const { service } = createHarness();
+    const chat = await service.createChat({
+      provider: 'claude',
+      currentCwd: '/work/project',
+    });
+    expect(chat.chat.name).toBe('Untitled chat');
+
+    const detail = await service.sendMessage({
+      chatId: chat.chat.id,
+      text: 'Please implement this',
+      attachments: [
+        {
+          name: '2026-06-02-chrome-devtools-managed-profile-attach.md',
+          type: 'text/markdown',
+          size: 3500,
+          data: 'data:text/markdown;base64,eA==',
+        },
+      ],
+    });
+
+    // Previously this stored "Please implement this" (and the rail showed only
+    // "Implement…"); now it leads with the distinctive file subject (truncated
+    // to the stored chat-name length at a word boundary).
+    expect(detail.chat.name).toBe('Chrome devtools managed profile attach...');
+  });
+
   it('leaves a manually-named chat alone even when autoName is true (matches sendMessage semantics)', async () => {
     const { service } = createHarness();
     const chat = await service.createChat({

@@ -128,7 +128,7 @@ describe('AutoTitleService', () => {
     expect(service.maybeGenerateTitle.length).toBeLessThanOrEqual(4);
   });
 
-  it('folds the attachment filename into a generic instant title', async () => {
+  it('folds the attachment filename into a generic instant title, subject-first', async () => {
     // No CLI: only the instant (Phase 1) title is exercised.
     mockIsCliAvailable.mockResolvedValue({ installed: false });
 
@@ -142,7 +142,33 @@ describe('AutoTitleService', () => {
       ['loopfixex.md'],
     );
 
-    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Fully implement loopfixex.md', 'instant');
+    // Leads with the distinctive file subject, not the generic verb, so the
+    // recognizable part survives rail truncation.
+    expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Loopfixex implementation', 'instant');
+    expect(mockCreateAdapter).not.toHaveBeenCalled();
+  });
+
+  it('leads with the attachment subject for a plain "implement this" + long filename (screenshot case)', async () => {
+    // No CLI: only the instant (Phase 1) title is exercised. Reproduces the
+    // header that previously showed only "Implement…" because the verb led and
+    // the distinctive filename was truncated away.
+    mockIsCliAvailable.mockResolvedValue({ installed: false });
+
+    const applyTitle = vi.fn();
+
+    await AutoTitleService.getInstance().maybeGenerateTitle(
+      'instance-1',
+      'Please implement this',
+      applyTitle,
+      false,
+      ['2026-06-02-chrome-devtools-managed-profile-attach.md'],
+    );
+
+    expect(applyTitle).toHaveBeenCalledWith(
+      'instance-1',
+      'Chrome devtools managed profile attach implementation',
+      'instant',
+    );
     expect(mockCreateAdapter).not.toHaveBeenCalled();
   });
 

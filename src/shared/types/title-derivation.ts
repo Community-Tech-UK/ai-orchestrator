@@ -27,13 +27,6 @@ export const ATTACHMENT_PREAMBLE_HEADER =
   'Attached files (relative to workspace; use your file-read tools):';
 
 /**
- * A bare pointer at the end of a sentence ("…implement this", "…review these")
- * carries no identifying information. When that's all the user typed and a file
- * is attached, the filename is the real subject, so we swap it in.
- */
-export const TRAILING_POINTER_PATTERN = /\b(?:this|that|these|those|it|the\s+following)[\s:.!?-]*$/i;
-
-/**
  * Words that, on their own, identify nothing — generic openers, instruction
  * verbs, and pointers. A title built entirely from these is "low signal": it
  * needs the attachment filename to become recognizable.

@@ -50,7 +50,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
               [value]="value()"
               (change)="onSelectChange($event)"
             >
-              @for (option of setting().options; track option.value) {
+              @for (option of selectOptions(); track option.value) {
                 <option [value]="option.value">
                   {{ option.label }}
                 </option>
@@ -113,7 +113,32 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
 export class SettingRowComponent {
   setting = input.required<SettingMetadata>();
   value = input.required<unknown>();
+  /**
+   * Runtime-loaded options for a `select` row, used when the choices aren't
+   * known statically in metadata (e.g. the list of managed browser profiles).
+   * When provided, these take precedence over `setting().options`.
+   */
+  dynamicOptions = input<{ value: string | number; label: string }[] | null>(null);
   valueChange = output<{ key: string; value: unknown }>();
+
+  /**
+   * Options shown in a `select` control. Prefers runtime `dynamicOptions`, then
+   * the static metadata options. If the current value isn't represented in the
+   * list (e.g. a profile that was deleted or hand-entered before), it's prepended
+   * so the saved value is preserved rather than silently dropped.
+   */
+  selectOptions(): { value: string | number; label: string }[] {
+    const options = this.dynamicOptions() ?? this.setting().options ?? [];
+    const current = this.value();
+    if (
+      (typeof current === 'string' || typeof current === 'number') &&
+      current !== '' &&
+      !options.some((option) => String(option.value) === String(current))
+    ) {
+      return [{ value: current, label: String(current) }, ...options];
+    }
+    return options;
+  }
 
   rowTone(): 'risk' | null {
     switch (this.setting().key) {

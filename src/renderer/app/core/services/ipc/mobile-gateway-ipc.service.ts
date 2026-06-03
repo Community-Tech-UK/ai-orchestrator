@@ -16,6 +16,8 @@ export interface MobilePairingResult {
   expiresAt: number;
   host: string;
   port: number;
+  /** True when the gateway is serving TLS — the phone should connect over wss/https. */
+  secure?: boolean;
   qrDataUrl: string;
 }
 

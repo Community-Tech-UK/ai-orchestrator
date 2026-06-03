@@ -105,6 +105,43 @@ import type {
         </button>
       </div>
 
+      <div class="card">
+        <div class="status-line">
+          <span class="dot" [class.on]="status()?.secure"></span>
+          <strong>Secure connection (TLS / wss)</strong>
+        </div>
+        <p class="hint">
+          Optional. Tailscale already encrypts the link end-to-end, so this is extra hardening.
+          Generate a publicly-trusted cert with
+          <code>tailscale cert &lt;this-mac&gt;.&lt;tailnet&gt;.ts.net</code>
+          and point these at the resulting <code>.crt</code> and <code>.key</code> files. The phone
+          then connects over <code>wss://</code> by the cert's hostname with no trust prompt.
+          Leave blank for plain <code>ws://</code>. Restart the gateway after changing.
+        </p>
+        @if (status()?.secure && status()?.tlsHostname) {
+          <p class="hint">Serving TLS for <code>{{ status()?.tlsHostname }}</code>.</p>
+        }
+        <label class="field">
+          <span>Certificate file (.crt / fullchain.pem)</span>
+          <input
+            [ngModel]="tlsCertPath()"
+            (ngModelChange)="tlsCertPath.set($event)"
+            placeholder="/Users/you/certs/mac.tailnet.ts.net.crt"
+          />
+        </label>
+        <label class="field">
+          <span>Private key file (.key)</span>
+          <input
+            [ngModel]="tlsKeyPath()"
+            (ngModelChange)="tlsKeyPath.set($event)"
+            placeholder="/Users/you/certs/mac.tailnet.ts.net.key"
+          />
+        </label>
+        <button (click)="saveTls()" [disabled]="tlsBusy()">
+          {{ tlsBusy() ? 'Saving…' : tlsSaved() ? 'Saved' : 'Save TLS settings' }}
+        </button>
+      </div>
+
       @if (status()?.running) {
         <div class="card">
           <h3>Pair a phone</h3>
@@ -245,10 +282,22 @@ export class MobileSettingsTabComponent implements OnInit {
   protected readonly apnsBusy = signal(false);
   protected readonly apnsSaved = signal(false);
 
+  // Optional TLS (wss://)
+  protected readonly tlsCertPath = signal('');
+  protected readonly tlsKeyPath = signal('');
+  protected readonly tlsBusy = signal(false);
+  protected readonly tlsSaved = signal(false);
+
   protected readonly tailscaleReady = computed(() => Boolean(this.status()?.tailscaleIp));
 
   protected connectionCode(p: MobilePairingResult): string {
-    return JSON.stringify({ v: 1, host: p.host, port: p.port, pairingToken: p.pairingToken });
+    return JSON.stringify({
+      v: 1,
+      host: p.host,
+      port: p.port,
+      pairingToken: p.pairingToken,
+      ...(p.secure ? { secure: true } : {}),
+    });
   }
 
   protected async copyCode(p: MobilePairingResult): Promise<void> {
@@ -284,6 +333,24 @@ export class MobileSettingsTabComponent implements OnInit {
     // Never echo the secret key back into the UI; just note whether one is stored.
     this.apnsHasKey.set(typeof s['mobileGatewayApnsKeyP8'] === 'string' && (s['mobileGatewayApnsKeyP8'] as string).length > 0);
     this.apnsKeyP8.set('');
+    this.tlsCertPath.set(typeof s['mobileGatewayTlsCertPath'] === 'string' ? (s['mobileGatewayTlsCertPath'] as string) : '');
+    this.tlsKeyPath.set(typeof s['mobileGatewayTlsKeyPath'] === 'string' ? (s['mobileGatewayTlsKeyPath'] as string) : '');
+  }
+
+  protected async saveTls(): Promise<void> {
+    this.tlsBusy.set(true);
+    this.error.set(null);
+    try {
+      await this.settings.setSetting('mobileGatewayTlsCertPath', this.tlsCertPath().trim());
+      await this.settings.setSetting('mobileGatewayTlsKeyPath', this.tlsKeyPath().trim());
+      this.tlsSaved.set(true);
+      setTimeout(() => this.tlsSaved.set(false), 2000);
+      await this.refresh();
+    } catch (err) {
+      this.error.set((err as Error).message);
+    } finally {
+      this.tlsBusy.set(false);
+    }
   }
 
   protected async saveApns(): Promise<void> {

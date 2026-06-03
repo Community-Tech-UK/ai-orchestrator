@@ -17,11 +17,8 @@ import {
   deriveAttachmentTaskTitle,
   extractAttachmentPreamble,
   isLowSignalTitle,
-  stripGenericQualityTail,
   titleFromAttachments,
-  titleFromGenericAttachmentTask,
   truncateForRail,
-  TRAILING_POINTER_PATTERN,
 } from '../../shared/types/title-derivation';
 import { getLogger } from '../logging/logger';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
@@ -75,25 +72,16 @@ function deriveInstantTitle(message: string, attachmentNames: readonly string[] 
   // PR", a bare URL) so the distinctive part shows up front even before the AI
   // upgrade lands.
   const firstLine = trimmed.split(/\r?\n/)[0];
-  let title = truncateForRail(frontLoadTitle(firstLine));
+  const title = truncateForRail(frontLoadTitle(firstLine));
 
-  // The text alone identifies nothing ("Fully implement this") but a file is
-  // attached: rebuild the title around the filename. Swapping it into the raw
-  // line before re-stripping keeps lead-in removal clean ("Please implement
-  // this" + loopfixex.md → "Implement loopfixex.md").
+  // The text alone identifies nothing ("Please implement this") but a file is
+  // attached: the file is the subject. Title from its (cleaned) name, led by
+  // the subject rather than the verb — "Please implement this" + a long-named
+  // plan becomes "Chrome devtools managed profile implementation", not
+  // "Implement 2026-06-02-chrome-devtools-…" (whose distinctive part is invisible
+  // once the rail truncates the leading verb away).
   if (labels.length > 0 && isLowSignalTitle(title)) {
-    const withoutQualityTail = stripGenericQualityTail(firstLine);
-    if (withoutQualityTail !== firstLine.trim()) {
-      const attachmentTaskTitle = titleFromGenericAttachmentTask(withoutQualityTail, labels);
-      if (attachmentTaskTitle) {
-        return attachmentTaskTitle;
-      }
-    }
-
-    const withFile = TRAILING_POINTER_PATTERN.test(withoutQualityTail)
-      ? withoutQualityTail.replace(TRAILING_POINTER_PATTERN, labels[0])
-      : `${withoutQualityTail} ${labels[0]}`;
-    title = truncateForRail(frontLoadTitle(withFile)) || titleFromAttachments(labels) || title;
+    return deriveAttachmentTaskTitle(firstLine, labels) ?? title;
   }
 
   return title || titleFromAttachments(labels);
@@ -281,8 +269,7 @@ export class AutoTitleService {
     }
     const frontLoadedTitle = truncateForRail(frontLoadTitle(title));
     if (labels.length > 0 && isLowSignalTitle(frontLoadedTitle)) {
-      return titleFromGenericAttachmentTask(stripGenericQualityTail(truncatedMessage), labels)
-        ?? titleFromAttachments(labels);
+      return deriveAttachmentTaskTitle(truncatedMessage, labels) ?? frontLoadedTitle;
     }
     return frontLoadedTitle;
   }

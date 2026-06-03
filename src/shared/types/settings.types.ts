@@ -240,6 +240,12 @@ export interface AppSettings {
   mobileGatewayBindInterface: 'tailscale' | 'all';
   /** JSON array of paired MobileDevice records. */
   mobileGatewayDevices: string;
+  // Optional TLS (wss://). Tailscale already encrypts the link E2E, so this is
+  // extra hardening only. Point these at a `tailscale cert <host>.<tailnet>.ts.net`
+  // key/cert (publicly trusted, so iOS connects without a trust prompt). Empty =>
+  // plain ws:// over the tailnet. Both must be set to enable TLS.
+  mobileGatewayTlsCertPath: string;
+  mobileGatewayTlsKeyPath: string;
   // APNs push (direct from Mac → Apple). Empty key => push disabled.
   /** PEM contents of the APNs Auth Key (.p8). */
   mobileGatewayApnsKeyP8: string;
@@ -385,6 +391,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mobileGatewayPort: 4879,
   mobileGatewayBindInterface: 'tailscale' as const,
   mobileGatewayDevices: '[]',
+  mobileGatewayTlsCertPath: '',
+  mobileGatewayTlsKeyPath: '',
   mobileGatewayApnsKeyP8: '',
   mobileGatewayApnsKeyId: '',
   mobileGatewayApnsTeamId: '',

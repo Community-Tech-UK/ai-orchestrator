@@ -36,6 +36,8 @@ export function registerMobileGatewayHandlers(): void {
       const status = await getMobileGatewayServer().start({
         port: settings.get('mobileGatewayPort'),
         bindInterface: settings.get('mobileGatewayBindInterface'),
+        tlsCertPath: settings.get('mobileGatewayTlsCertPath'),
+        tlsKeyPath: settings.get('mobileGatewayTlsKeyPath'),
       });
       return { success: true, data: status };
     } catch (error) {
@@ -59,7 +61,11 @@ export function registerMobileGatewayHandlers(): void {
       if (!status.running) {
         return fail('MOBILE_GATEWAY_NOT_RUNNING', new Error('Start the mobile gateway before pairing.'));
       }
-      const host = status.tailscaleIp ?? status.host;
+      // When serving TLS the phone must connect by the cert's DNS name (an IP
+      // won't validate against the cert), so prefer the cert hostname.
+      const host = status.secure
+        ? status.tlsHostname ?? status.tailscaleIp ?? status.host
+        : status.tailscaleIp ?? status.host;
       if (!host || host === '0.0.0.0') {
         return fail('MOBILE_GATEWAY_NO_HOST', new Error('No reachable address found — is Tailscale running on this machine?'));
       }
@@ -69,6 +75,7 @@ export function registerMobileGatewayHandlers(): void {
         host,
         port: status.port,
         pairingToken: credential.pairingToken,
+        ...(status.secure ? { secure: true } : {}),
       };
       const qrDataUrl = await QRCode.toDataURL(JSON.stringify(connectPayload), {
         margin: 1,
@@ -81,6 +88,7 @@ export function registerMobileGatewayHandlers(): void {
           expiresAt: credential.expiresAt,
           host,
           port: status.port,
+          secure: Boolean(status.secure),
           qrDataUrl,
         },
       };

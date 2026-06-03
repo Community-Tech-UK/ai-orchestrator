@@ -252,7 +252,11 @@ export interface MobileGatewayStatus {
   port?: number;
   /** Tailscale IPv4 if detected, else null. */
   tailscaleIp: string | null;
-  /** ws:// URL a phone would connect to over the tailnet, when running. */
+  /** True when the gateway is serving TLS (https/wss) from a configured cert. */
+  secure?: boolean;
+  /** Primary DNS name from the TLS cert (what the phone must connect to), when secure. */
+  tlsHostname?: string | null;
+  /** ws:// (or wss:// when secure) URL a phone would connect to over the tailnet, when running. */
   tailnetUrl?: string;
   startedAt?: number;
   connectedClientCount: number;

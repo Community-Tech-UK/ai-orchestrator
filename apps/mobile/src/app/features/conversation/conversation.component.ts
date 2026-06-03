@@ -12,8 +12,9 @@ import {
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { GatewayClient } from '../../core/gateway-client.service';
+import { ImageAttachmentService } from '../../core/image-attachment.service';
 import { statusColor, statusLabel } from '../../core/status';
-import type { MobileMessageDto } from '../../core/models';
+import type { MobileAttachmentDto, MobileMessageDto } from '../../core/models';
 
 /**
  * A rendered transcript row: either a single conversational message, or a
@@ -108,7 +109,29 @@ type DisplayItem =
         }
       </div>
 
+      @if (attachments().length > 0) {
+        <div class="attach-strip">
+          @for (a of attachments(); track a) {
+            <div class="chip">
+              <img [src]="a.data" [alt]="a.name" />
+              <button type="button" class="chip-x" (click)="removeAttachment(a)" aria-label="Remove">×</button>
+            </div>
+          }
+        </div>
+      }
+
       <form class="composer" (submit)="send($event)">
+        @if (canAttach) {
+          <button
+            type="button"
+            class="attach"
+            (click)="pickImages()"
+            [disabled]="attachBusy() || sending()"
+            aria-label="Add photo"
+          >
+            {{ attachBusy() ? '…' : '＋' }}
+          </button>
+        }
         <textarea
           rows="1"
           [ngModel]="draft()"
@@ -117,7 +140,7 @@ type DisplayItem =
           placeholder="Message…"
           (keydown.enter)="onEnter($event)"
         ></textarea>
-        <button type="submit" class="send" [disabled]="!online() || !draft().trim() || sending()">
+        <button type="submit" class="send" [disabled]="!online() || !canSend() || sending()">
           {{ sending() ? '…' : '↑' }}
         </button>
       </form>
@@ -187,7 +210,26 @@ type DisplayItem =
       .t-tool_use .tool, .t-tool_result .bubble { color: var(--text-secondary); font-size: 13px; font-family: 'SF Mono', ui-monospace, monospace; }
       .muted { color: var(--text-secondary); }
       .center { text-align: center; margin-top: 40px; }
+      .attach-strip {
+        display: flex; gap: 8px; padding: 8px 12px 0; overflow-x: auto;
+      }
+      .chip { position: relative; flex: none; }
+      .chip img {
+        width: 56px; height: 56px; object-fit: cover; border-radius: 10px;
+        border: 1px solid rgba(255,255,255,0.12);
+      }
+      .chip-x {
+        position: absolute; top: -6px; right: -6px; width: 20px; height: 20px;
+        border-radius: 50%; border: none; background: rgba(0,0,0,0.75); color: #fff;
+        font-size: 14px; line-height: 1; display: flex; align-items: center; justify-content: center;
+      }
       .composer { display: flex; gap: 8px; padding: 8px 12px; border-top: 1px solid rgba(255,255,255,0.08); align-items: flex-end; }
+      .attach {
+        width: 40px; height: 40px; border-radius: 50%; flex: none;
+        border: 1px solid rgba(255,255,255,0.12); background: var(--surface);
+        color: var(--text); font-size: 22px; line-height: 1;
+      }
+      .attach:disabled { opacity: 0.4; }
       .composer textarea {
         flex: 1; resize: none; max-height: 120px; background: var(--surface); color: var(--text);
         border: 1px solid rgba(255,255,255,0.12); border-radius: 18px; padding: 10px 14px; font-size: 16px; font-family: inherit;
@@ -202,12 +244,16 @@ type DisplayItem =
 })
 export class ConversationComponent {
   private readonly gateway = inject(GatewayClient);
+  private readonly images = inject(ImageAttachmentService);
   private readonly router = inject(Router);
 
   readonly projectKey = input<string>('');
   readonly instanceId = input<string>('');
 
   protected readonly draft = signal('');
+  protected readonly attachments = signal<MobileAttachmentDto[]>([]);
+  protected readonly attachBusy = signal(false);
+  protected readonly canAttach = this.images.available;
   protected readonly sending = signal(false);
   protected readonly menuOpen = signal(false);
   protected readonly online = this.gateway.online;
@@ -332,16 +378,48 @@ export class ConversationComponent {
     }
   }
 
+  /** Send is allowed with text, attachments, or both. */
+  protected canSend(): boolean {
+    return this.draft().trim().length > 0 || this.attachments().length > 0;
+  }
+
+  protected async pickImages(): Promise<void> {
+    if (this.attachBusy()) return;
+    this.attachBusy.set(true);
+    try {
+      const picked = await this.images.pickImages();
+      if (picked.length) {
+        this.attachments.update((current) => [...current, ...picked]);
+      }
+    } catch {
+      /* user cancelled or the pick failed — nothing to add */
+    } finally {
+      this.attachBusy.set(false);
+    }
+  }
+
+  protected removeAttachment(attachment: MobileAttachmentDto): void {
+    this.attachments.update((current) => current.filter((a) => a !== attachment));
+  }
+
   protected async send(event: Event): Promise<void> {
     event.preventDefault();
     const text = this.draft().trim();
-    if (!text || this.sending() || !this.online()) return;
+    const attachments = this.attachments();
+    if ((!text && attachments.length === 0) || this.sending() || !this.online()) return;
     this.sending.set(true);
     this.draft.set('');
+    this.attachments.set([]);
     try {
-      await this.gateway.sendInput(this.instanceId(), text);
+      await this.gateway.sendInput(
+        this.instanceId(),
+        text,
+        attachments.length ? attachments : undefined,
+      );
     } catch {
-      this.draft.set(text); // restore on failure
+      // Restore the draft + attachments so the user doesn't lose them.
+      this.draft.set(text);
+      this.attachments.set(attachments);
     } finally {
       this.sending.set(false);
     }

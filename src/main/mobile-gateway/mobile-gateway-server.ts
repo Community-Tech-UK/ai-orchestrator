@@ -1,5 +1,8 @@
 import * as os from 'os';
+import { readFileSync } from 'fs';
+import { X509Certificate } from 'crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http';
+import { createServer as createHttpsServer } from 'https';
 import type { AddressInfo } from 'net';
 import type { Duplex } from 'stream';
 import { URL } from 'url';
@@ -38,7 +41,6 @@ import {
 } from './mobile-gateway-serializers';
 import type {
   GatewayChatHistorySource,
-  GatewayInstanceHistoryEntry,
   GatewayInstanceHistorySource,
 } from './mobile-gateway-serializers';
 
@@ -62,6 +64,8 @@ const logger = getLogger('MobileGateway');
 const MAX_BODY_BYTES = 8 * 1024 * 1024; // generous: input may carry base64 attachments
 const SNAPSHOT_COALESCE_MS = 100;
 const MESSAGE_REPLAY_LIMIT = 300;
+/** Ping idle WS clients on this interval; reap any that miss a pong (dead cellular link). */
+const WS_HEARTBEAT_MS = 30_000;
 
 const VALID_PROVIDERS = new Set(['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor']);
 
@@ -139,6 +143,20 @@ export interface MobileGatewayDeps {
 export interface MobileGatewayStartOptions {
   port: number;
   bindInterface: 'tailscale' | 'all';
+  /**
+   * Optional TLS. When both paths are set and readable, the gateway serves
+   * https/wss instead of http/ws. Tailscale already encrypts the link, so this
+   * is extra hardening; point them at a `tailscale cert` key/cert pair.
+   */
+  tlsCertPath?: string;
+  tlsKeyPath?: string;
+}
+
+/** Resolved TLS material + the cert's primary DNS name, or null when not configured. */
+interface ResolvedTls {
+  cert: Buffer;
+  key: Buffer;
+  hostname: string | null;
 }
 
 export class MobileGatewayServer {
@@ -151,8 +169,13 @@ export class MobileGatewayServer {
   private boundHost = '';
   private boundPort = 0;
   private tailscaleIp: string | null = null;
+  private secure = false;
+  private tlsHostname: string | null = null;
   private startedAt = 0;
   private snapshotTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  /** Liveness flag per live WS client, driven by the ping/pong heartbeat reaper. */
+  private readonly clientAlive = new WeakMap<WebSocket, boolean>();
 
   /** Pending "needs you" prompts keyed by requestId. */
   private readonly prompts = new Map<string, MobilePromptDto>();
@@ -288,9 +311,16 @@ export class MobileGatewayServer {
     const { host, tailscaleIp } = resolveBindHost(options.bindInterface);
     this.tailscaleIp = tailscaleIp;
 
-    const httpServer = createServer((req, res) => {
+    const tls = this.resolveTls(options.tlsCertPath, options.tlsKeyPath);
+    this.secure = tls !== null;
+    this.tlsHostname = tls?.hostname ?? null;
+
+    const requestHandler = (req: IncomingMessage, res: ServerResponse): void => {
       void this.handleRequest(req, res);
-    });
+    };
+    const httpServer: Server = tls
+      ? createHttpsServer({ cert: tls.cert, key: tls.key }, requestHandler)
+      : createServer(requestHandler);
     this.wss = new WebSocketServer({ noServer: true });
 
     httpServer.on('upgrade', (req, socket, head) => {
@@ -310,11 +340,14 @@ export class MobileGatewayServer {
     });
 
     this.attachListeners();
+    this.startHeartbeat();
 
     logger.info('Mobile gateway started', {
       host: this.boundHost,
       port: this.boundPort,
       tailscaleIp: this.tailscaleIp,
+      secure: this.secure,
+      tlsHostname: this.tlsHostname,
       pushConfigured: this.safeIsPushConfigured(),
     });
     return this.getStatus();
@@ -324,6 +357,10 @@ export class MobileGatewayServer {
     if (this.snapshotTimer) {
       clearTimeout(this.snapshotTimer);
       this.snapshotTimer = null;
+    }
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
     }
     this.detachListeners();
 
@@ -353,6 +390,8 @@ export class MobileGatewayServer {
 
     this.boundPort = 0;
     this.startedAt = 0;
+    this.secure = false;
+    this.tlsHostname = null;
     return this.getStatus();
   }
 
@@ -362,13 +401,19 @@ export class MobileGatewayServer {
 
   getStatus(): MobileGatewayStatus {
     const running = this.isRunning();
+    // When serving TLS the phone must connect by the cert's DNS name (an IP won't
+    // match the cert), so advertise the cert hostname; fall back to the tailnet IP.
+    const scheme = this.secure ? 'wss' : 'ws';
+    const urlHost = this.secure ? this.tlsHostname ?? this.tailscaleIp : this.tailscaleIp;
     return {
       running,
       host: running ? this.boundHost : undefined,
       port: running ? this.boundPort : undefined,
       tailscaleIp: this.tailscaleIp,
+      secure: this.secure,
+      tlsHostname: this.tlsHostname,
       tailnetUrl:
-        running && this.tailscaleIp ? `ws://${this.tailscaleIp}:${this.boundPort}/ws` : undefined,
+        running && urlHost ? `${scheme}://${urlHost}:${this.boundPort}/ws` : undefined,
       startedAt: running ? this.startedAt : undefined,
       connectedClientCount: this.clients.size,
       pairedDeviceCount: this.registry.deviceCount(),
@@ -381,6 +426,62 @@ export class MobileGatewayServer {
       return this.apnsSender.isConfigured();
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Read the configured TLS cert+key. Returns null (→ plain ws) when either path
+   * is unset or unreadable — TLS is opt-in and must never block startup.
+   */
+  private resolveTls(certPath?: string, keyPath?: string): ResolvedTls | null {
+    const certFile = certPath?.trim();
+    const keyFile = keyPath?.trim();
+    if (!certFile || !keyFile) {
+      return null;
+    }
+    try {
+      const cert = readFileSync(certFile);
+      const key = readFileSync(keyFile);
+      return { cert, key, hostname: extractCertHostname(cert.toString('utf-8')) };
+    } catch (err) {
+      logger.warn('Mobile gateway TLS configured but cert/key unreadable — falling back to ws://', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Ping idle WS clients and reap any that miss a pong. Without this a phone that
+   * drops off cellular leaves a half-open socket in `clients` forever, and every
+   * broadcast keeps buffering to it. Cleared on stop().
+   */
+  private startHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      return;
+    }
+    this.heartbeatTimer = setInterval(() => {
+      for (const client of this.clients) {
+        if (this.clientAlive.get(client) === false) {
+          this.clients.delete(client);
+          try {
+            client.terminate();
+          } catch {
+            /* ignore */
+          }
+          continue;
+        }
+        this.clientAlive.set(client, false);
+        try {
+          client.ping();
+        } catch {
+          /* ignore */
+        }
+      }
+    }, WS_HEARTBEAT_MS);
+    // Don't keep the event loop alive solely for the heartbeat.
+    if (typeof this.heartbeatTimer.unref === 'function') {
+      this.heartbeatTimer.unref();
     }
   }
 
@@ -765,6 +866,8 @@ export class MobileGatewayServer {
 
   private handleWsConnection(ws: WebSocket): void {
     this.clients.add(ws);
+    this.clientAlive.set(ws, true);
+    ws.on('pong', () => this.clientAlive.set(ws, true));
     ws.on('close', () => {
       this.clients.delete(ws);
     });
@@ -1237,6 +1340,29 @@ export class MobileGatewayServer {
       ...corsHeaders(),
     });
     res.end(JSON.stringify(payload));
+  }
+}
+
+/**
+ * Extract the primary DNS name from a PEM certificate's subjectAltName, so the
+ * gateway can advertise the hostname a phone must connect to for the TLS cert to
+ * validate (e.g. a `tailscale cert` name like `mac.tailnet.ts.net`). Returns null
+ * if the cert exposes no DNS SAN.
+ */
+export function extractCertHostname(certPem: string): string | null {
+  try {
+    const san = new X509Certificate(certPem).subjectAltName;
+    if (!san) return null;
+    // Format: "DNS:a.example, IP Address:1.2.3.4, DNS:b.example"
+    for (const part of san.split(',')) {
+      const trimmed = part.trim();
+      if (trimmed.startsWith('DNS:')) {
+        return trimmed.slice('DNS:'.length).trim() || null;
+      }
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 

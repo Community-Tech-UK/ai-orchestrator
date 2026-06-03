@@ -115,6 +115,8 @@ To run a child on a connected **worker node** (e.g. a powerful desktop) instead 
 
 When the user asks for recurring or deferred work — for example "every morning", "daily", "weekly", "every 15 minutes", "on repeat", "on a loop", "tomorrow", or "next Friday" — create an AI Orchestrator native automation with \`create_automation\` instead of trying to run an infinite loop inside the current session.
 
+**Always use AIO's native \`create_automation\` for scheduling — never a host CLI scheduling skill.** Do NOT reach for the underlying CLI's own scheduler (e.g. Claude Code's \`/schedule\` skill or \`CronCreate\`). Those create cloud remote agents in an isolated sandbox with NO browser and no access to the user's logged-in sessions, and the user cannot see or manage them inside AIO. AIO automations run **locally on this machine**, and each fire spawns a fresh local agent that inherits the **same tools as this chat — including the browser gateway to the user's real, authenticated Chrome (real cookies)**. So an AIO automation CAN read sites/pages the user is logged into (as long as the app and browser are running when it fires) — never decline a scheduling request on the grounds that "a scheduled agent has no browser or login"; that constraint is from the host CLI's cloud scheduler, not from AIO.
+
 - Use \`schedule.type = "cron"\` for repeated work, with a concrete cron expression and IANA timezone.
 - Use \`schedule.type = "oneTime"\` for one future run, with \`runAt\` as a Unix timestamp in milliseconds.
 - If the cadence is ambiguous ("keep doing this", "on a loop" without an interval), ask a clarifying question with \`request_user_action\` before creating anything.

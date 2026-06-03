@@ -12,10 +12,12 @@ import {
 } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
 import { SettingsIpcService } from '../../core/services/ipc/settings-ipc.service';
+import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gateway-ipc.service';
 import { SettingRowComponent } from './setting-row.component';
 import { SettingsNavIconComponent } from './ui/settings-nav-icon.component';
 import type { AppSettings } from '../../../../shared/types/settings.types';
 import type { SettingMetadata } from '../../../../shared/types/settings-metadata.types';
+import type { BrowserProfile } from '@contracts/types/browser';
 
 // Helper to access API from preload
 const getApi = (): {
@@ -61,22 +63,55 @@ interface AdvancedSection {
         class="advanced-section"
         [attr.aria-labelledby]="section.id"
       >
-        <div class="section-heading">
-          <h3 [id]="section.id" class="subsection-title">
-            {{ section.title }}
-          </h3>
-          <p class="section-description">{{ section.description }}</p>
-        </div>
+        @if (section.id === chromeDevtoolsSectionId) {
+          <div class="section-heading-row">
+            <div class="section-heading">
+              <h3 [id]="section.id" class="subsection-title">
+                {{ section.title }}
+              </h3>
+              <p class="section-description">{{ section.description }}</p>
+            </div>
+            <div class="button-group section-actions">
+              <button
+                class="btn-secondary"
+                (click)="loadBrowserProfiles()"
+                [disabled]="browserProfilesLoading()"
+              >
+                Refresh profiles
+              </button>
+            </div>
+          </div>
+        } @else {
+          <div class="section-heading">
+            <h3 [id]="section.id" class="subsection-title">
+              {{ section.title }}
+            </h3>
+            <p class="section-description">{{ section.description }}</p>
+          </div>
+        }
         <div class="settings-list-card">
           @for (setting of section.settings; track setting.key) {
             <app-setting-row
               class="settings-list-item"
               [setting]="setting"
               [value]="store.get(setting.key)"
+              [dynamicOptions]="dynamicOptionsFor(setting.key)"
               (valueChange)="onSettingChange($event)"
             />
           }
         </div>
+        @if (section.id === chromeDevtoolsSectionId) {
+          @if (browserProfilesError(); as profilesError) {
+            <p class="section-hint error">{{ profilesError }}</p>
+          } @else if (
+            browserProfiles().length === 0 && !browserProfilesLoading()
+          ) {
+            <p class="section-hint">
+              No managed browser profiles yet. Create one on the Browser screen,
+              then choose it here.
+            </p>
+          }
+        }
       </section>
     }
 
@@ -271,6 +306,12 @@ interface AdvancedSection {
 export class AdvancedSettingsTabComponent {
   store = inject(SettingsStore);
   private settingsIpc = inject(SettingsIpcService);
+  private browserGatewayIpc = inject(BrowserGatewayIpcService);
+
+  /** Section id whose chrome-devtools profile row gets the managed-profile dropdown. */
+  readonly chromeDevtoolsSectionId = 'chrome-devtools-attach-heading';
+  private static readonly CHROME_DEVTOOLS_PROFILE_KEY: keyof AppSettings =
+    'chromeDevtoolsAttachProfileId';
 
   private readonly advancedSectionDefinitions: readonly AdvancedSectionDefinition[] = [
     {
@@ -377,6 +418,28 @@ export class AdvancedSettingsTabComponent {
   hookApprovalsLoading = signal(false);
   hookApprovalsError = signal<string | null>(null);
 
+  // Managed browser profiles for the chrome-devtools attach dropdown
+  browserProfiles = signal<BrowserProfile[]>([]);
+  browserProfilesLoading = signal(false);
+  browserProfilesError = signal<string | null>(null);
+
+  /** Options for the chrome-devtools managed-profile dropdown. */
+  readonly profileOptions = computed<{ value: string; label: string }[]>(() => {
+    const options: { value: string; label: string }[] = [
+      { value: '', label: 'None — attach disabled' },
+    ];
+    for (const profile of this.browserProfiles()) {
+      options.push({
+        value: profile.id,
+        label:
+          profile.status === 'running'
+            ? `${profile.label} · running`
+            : profile.label,
+      });
+    }
+    return options;
+  });
+
   // Export / Import state
   exportImportWorking = signal(false);
   exportImportMessage = signal<string | null>(null);
@@ -385,17 +448,45 @@ export class AdvancedSettingsTabComponent {
   private initialized = false;
 
   constructor() {
-    // Load hook approvals on first render
+    // Load hook approvals + managed browser profiles on first render
     effect(() => {
       if (!this.initialized) {
         this.initialized = true;
         void this.loadHookApprovals();
+        void this.loadBrowserProfiles();
       }
     });
   }
 
   onSettingChange(event: { key: string; value: unknown }): void {
     this.store.set(event.key as keyof AppSettings, event.value as AppSettings[keyof AppSettings]);
+  }
+
+  /** Runtime-loaded dropdown options for settings whose choices aren't static. */
+  dynamicOptionsFor(key: keyof AppSettings): { value: string; label: string }[] | null {
+    return key === AdvancedSettingsTabComponent.CHROME_DEVTOOLS_PROFILE_KEY
+      ? this.profileOptions()
+      : null;
+  }
+
+  async loadBrowserProfiles(): Promise<void> {
+    this.browserProfilesLoading.set(true);
+    this.browserProfilesError.set(null);
+    try {
+      const response = await this.browserGatewayIpc.listProfiles();
+      if (response.success) {
+        const profiles = response.data?.data;
+        this.browserProfiles.set(Array.isArray(profiles) ? profiles : []);
+      } else {
+        this.browserProfilesError.set(
+          response.error?.message || 'Failed to load browser profiles',
+        );
+      }
+    } catch (error) {
+      this.browserProfilesError.set((error as Error).message);
+    } finally {
+      this.browserProfilesLoading.set(false);
+    }
   }
 
   async loadHookApprovals(): Promise<void> {

@@ -2,6 +2,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { generateKeyPairSync } from 'crypto';
 import { WebSocket } from 'ws';
+import * as os from 'os';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as https from 'https';
 import {
   MobileGatewayServer,
   serializeInstance,
@@ -9,6 +13,7 @@ import {
   serializeHistorySession,
   serializeHistoryMessage,
   serializeInstanceHistorySession,
+  extractCertHostname,
   type GatewayInstanceSource,
   type GatewayPauseSource,
   type GatewayRecentDirsSource,
@@ -821,5 +826,108 @@ describe('MobileGatewayServer', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(posts).toHaveLength(0);
+  });
+
+  it('reports secure=false and a ws:// tailnetUrl when no TLS is configured', () => {
+    const status = server.getStatus();
+    expect(status.secure).toBe(false);
+    // boundInterface 'all' has no tailscale IP, so tailnetUrl is undefined here;
+    // the scheme assertion is covered by the dedicated TLS suite below.
+    expect(status.tlsHostname).toBeNull();
+  });
+});
+
+// A self-signed EC cert with SAN DNS:test-mac.tailnet.ts.net (+ an IP SAN), used
+// to exercise the optional-TLS path without shelling out to openssl at test time.
+const FIXTURE_CERT = `-----BEGIN CERTIFICATE-----
+MIIBxDCCAWmgAwIBAgIUOWCT7g6FPeqQHMnZcWM9rxrgV2YwCgYIKoZIzj0EAwIw
+IjEgMB4GA1UEAwwXdGVzdC1tYWMudGFpbG5ldC50cy5uZXQwHhcNMjYwNjAyMjM1
+MTU4WhcNMzYwNTMwMjM1MTU4WjAiMSAwHgYDVQQDDBd0ZXN0LW1hYy50YWlsbmV0
+LnRzLm5ldDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABHZoldfgT3+GrFaLbS9k
+e4vLcjZ0XLE6rNxbgWDojj72hS6d83biGm6wKMcFxUbj5mgA6ra65Fv9IXs+JEsB
+mDmjfTB7MB0GA1UdDgQWBBQe7tFZTHI/YI+pJuyzG4LViw28njAfBgNVHSMEGDAW
+gBQe7tFZTHI/YI+pJuyzG4LViw28njAPBgNVHRMBAf8EBTADAQH/MCgGA1UdEQQh
+MB+CF3Rlc3QtbWFjLnRhaWxuZXQudHMubmV0hwRkZWZnMAoGCCqGSM49BAMCA0kA
+MEYCIQCADP29HmKvJILyDYiP+3jDvnQNSt3MlIechvwv4GKouAIhAKAeHn6a58bd
+TSC73vl/J/khiFKBNt1QtvTBrDlKpxyp
+-----END CERTIFICATE-----
+`;
+const FIXTURE_KEY = `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg5W/il3RWWeGYPUUH
+2ByVNLYN+WQWj7nUYNy1qe/2Ro+hRANCAAR2aJXX4E9/hqxWi20vZHuLy3I2dFyx
+OqzcW4Fg6I4+9oUunfN24hpusCjHBcVG4+ZoAOq2uuRb/SF7PiRLAZg5
+-----END PRIVATE KEY-----
+`;
+
+describe('extractCertHostname', () => {
+  it('returns the first DNS SAN from a PEM cert', () => {
+    expect(extractCertHostname(FIXTURE_CERT)).toBe('test-mac.tailnet.ts.net');
+  });
+
+  it('returns null for non-cert input', () => {
+    expect(extractCertHostname('not a cert')).toBeNull();
+  });
+});
+
+describe('MobileGatewayServer TLS (wss)', () => {
+  let server: MobileGatewayServer;
+  let source: FakeInstanceSource;
+  let registry: MobileDeviceRegistry;
+  let dir: string;
+  let certPath: string;
+  let keyPath: string;
+
+  beforeEach(() => {
+    source = new FakeInstanceSource();
+    registry = new MobileDeviceRegistry(memPersistence());
+    server = new MobileGatewayServer();
+    server.initialize({ instanceManager: source, registry });
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-tls-'));
+    certPath = path.join(dir, 'cert.pem');
+    keyPath = path.join(dir, 'key.pem');
+    fs.writeFileSync(certPath, FIXTURE_CERT);
+    fs.writeFileSync(keyPath, FIXTURE_KEY);
+  });
+
+  afterEach(async () => {
+    await server.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('serves https and reports secure status + wss tailnetUrl from the cert hostname', async () => {
+    const status = await server.start({
+      port: 0,
+      bindInterface: 'all',
+      tlsCertPath: certPath,
+      tlsKeyPath: keyPath,
+    });
+    expect(status.secure).toBe(true);
+    expect(status.tlsHostname).toBe('test-mac.tailnet.ts.net');
+
+    // A real TLS handshake to /health (self-signed, so skip cert validation).
+    const body = await new Promise<string>((resolve, reject) => {
+      https
+        .get(
+          { host: '127.0.0.1', port: status.port!, path: '/health', rejectUnauthorized: false },
+          (res) => {
+            let data = '';
+            res.on('data', (c) => (data += c));
+            res.on('end', () => resolve(data));
+          },
+        )
+        .on('error', reject);
+    });
+    expect(JSON.parse(body).ok).toBe(true);
+  });
+
+  it('falls back to plain ws when the cert path is unreadable', async () => {
+    const status = await server.start({
+      port: 0,
+      bindInterface: 'all',
+      tlsCertPath: path.join(dir, 'missing.pem'),
+      tlsKeyPath: keyPath,
+    });
+    expect(status.secure).toBe(false);
+    expect(status.tlsHostname).toBeNull();
   });
 });

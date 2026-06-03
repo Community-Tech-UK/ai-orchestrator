@@ -48,6 +48,17 @@
   line-height: var(--leading-snug);
 }
 
+.section-hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  line-height: var(--leading-snug);
+
+  &.error {
+    color: var(--error-color);
+  }
+}
+
 .setting-row {
   display: flex;
   justify-content: space-between;

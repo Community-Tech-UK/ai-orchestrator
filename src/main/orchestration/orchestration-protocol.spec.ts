@@ -178,6 +178,18 @@ describe('generateOrchestrationPrompt', () => {
     it('requires a clarifying question when loop cadence is ambiguous', () => {
       expect(prompt).toMatch(/cadence is ambiguous[\s\S]*request_user_action/);
     });
+
+    it('steers scheduling to native create_automation and away from host CLI schedulers', () => {
+      expect(prompt).toMatch(/native `create_automation`/);
+      expect(prompt).toMatch(/Claude Code's `\/schedule`/);
+      expect(prompt).toContain('CronCreate');
+      expect(prompt).toMatch(/cloud remote agents/);
+    });
+
+    it('reminds the model that AIO automations run locally with browser-gateway access', () => {
+      expect(prompt).toMatch(/locally on this machine/);
+      expect(prompt).toMatch(/browser gateway to the user's real, authenticated Chrome/);
+    });
   });
 
   describe('consensus guidance', () => {

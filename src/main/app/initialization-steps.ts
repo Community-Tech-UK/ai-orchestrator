@@ -424,6 +424,8 @@ export function createInitializationSteps(
         await gateway.start({
           port: settings.get('mobileGatewayPort'),
           bindInterface: settings.get('mobileGatewayBindInterface'),
+          tlsCertPath: settings.get('mobileGatewayTlsCertPath'),
+          tlsKeyPath: settings.get('mobileGatewayTlsKeyPath'),
         });
         logger.info('Mobile gateway started from boot');
       },

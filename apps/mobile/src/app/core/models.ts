@@ -151,6 +151,8 @@ export interface PairedHost {
   port: number;
   /** Device bearer token (secret). */
   token: string;
+  /** True → connect over wss/https (the gateway is serving TLS). */
+  secure?: boolean;
   addedAt: number;
 }
 
@@ -160,4 +162,6 @@ export interface PairingPayload {
   host: string;
   port: number;
   pairingToken: string;
+  /** True → the gateway serves TLS; pair + connect over https/wss. */
+  secure?: boolean;
 }

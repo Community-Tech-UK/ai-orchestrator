@@ -50,6 +50,10 @@ import type { PairingPayload } from '../../core/models';
         <input [ngModel]="token()" (ngModelChange)="token.set($event)" placeholder="one-time token" />
         <span class="lbl">Label (optional)</span>
         <input [ngModel]="label()" (ngModelChange)="label.set($event)" placeholder="My iPhone" />
+        <label class="secure-row">
+          <input type="checkbox" [ngModel]="secure()" (ngModelChange)="secure.set($event)" />
+          <span>Secure (wss / TLS) — only if the Mac gateway has a cert configured</span>
+        </label>
       </div>
 
       @if (error()) {
@@ -77,6 +81,11 @@ import type { PairingPayload } from '../../core/models';
       }
       .lbl { font-size: 13px; color: var(--text-secondary); }
       .fields { display: flex; flex-direction: column; gap: 6px; }
+      .secure-row {
+        display: flex; align-items: center; gap: 8px; margin-top: 6px;
+        font-size: 13px; color: var(--text-secondary);
+      }
+      .secure-row input { width: auto; }
       .error { color: var(--accent-error); font-size: 14px; }
       .cta {
         margin-top: 8px; background: #fff; color: #000; border: none;
@@ -97,6 +106,7 @@ export class AddHostComponent {
   protected readonly port = signal(4879);
   protected readonly token = signal('');
   protected readonly label = signal('');
+  protected readonly secure = signal(false);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
 
@@ -120,6 +130,7 @@ export class AddHostComponent {
       if (typeof parsed.host === 'string') this.host.set(parsed.host);
       if (typeof parsed.port === 'number') this.port.set(parsed.port);
       if (typeof parsed.pairingToken === 'string') this.token.set(parsed.pairingToken);
+      this.secure.set(parsed.secure === true);
       return true;
     } catch {
       return false;
@@ -147,6 +158,7 @@ export class AddHostComponent {
         this.port(),
         this.token().trim(),
         this.label().trim() || 'iPhone',
+        this.secure(),
       );
       await this.hostStore.addHost({
         id: result.deviceId,
@@ -154,6 +166,7 @@ export class AddHostComponent {
         host: this.host().trim(),
         port: this.port(),
         token: result.token,
+        secure: this.secure(),
         addedAt: Date.now(),
       });
       await this.hostStore.setActive(result.deviceId);

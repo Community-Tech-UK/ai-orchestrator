@@ -5085,6 +5085,10 @@
       "lines": 1443
     },
     {
+      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
+      "lines": 1417
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency.md",
       "lines": 1411
     },
@@ -5135,10 +5139,6 @@
     {
       "path": "src/main/workspace/git/vcs-manager.ts",
       "lines": 1296
-    },
-    {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
-      "lines": 1291
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
@@ -5433,6 +5433,10 @@
       "lines": 940
     },
     {
+      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
+      "lines": 934
+    },
+    {
       "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
       "lines": 908
     },
@@ -5509,6 +5513,10 @@
       "lines": 858
     },
     {
+      "path": "src/main/chats/chat-service.spec.ts",
+      "lines": 856
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-17-wave2-provider-normalization-design.md",
       "lines": 854
     },
@@ -5551,14 +5559,6 @@
     {
       "path": "src/main/cli/adapters/base-cli-adapter.ts",
       "lines": 830
-    },
-    {
-      "path": "src/main/chats/chat-service.spec.ts",
-      "lines": 829
-    },
-    {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
-      "lines": 826
     },
     {
       "path": "src/renderer/app/features/debate/enhanced-debate-visualization.component.ts",

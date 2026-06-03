@@ -23,6 +23,7 @@ import {
 import type { InstanceManager } from '../instance/instance-manager';
 import type { Instance } from '../../shared/types/instance.types';
 import { frontLoadTitle } from '../../shared/types/history.types';
+import { deriveAttachmentTaskTitle, isLowSignalTitle } from '../../shared/types/title-derivation';
 import { getLogger } from '../logging/logger';
 import { getOperatorDatabase } from '../operator/operator-database';
 import { addAllowedRoot } from '../security/path-validator';
@@ -364,7 +365,7 @@ export class ChatService {
     if (!text) {
       throw new Error('Chat message cannot be empty');
     }
-    const named = maybeAutoName(chat, text);
+    const named = maybeAutoName(chat, text, input.attachments?.map((a) => a.name) ?? []);
     const workingChat = named
       ? this.store.update(chat.id, { name: named, lastActiveAt: Date.now() })
       : chat;
@@ -627,7 +628,11 @@ function normalizeChatName(name: string | undefined): string {
   return trimmed || UNTITLED_CHAT;
 }
 
-function maybeAutoName(chat: ChatRecord, text: string): string | null {
+function maybeAutoName(
+  chat: ChatRecord,
+  text: string,
+  attachmentNames: readonly string[] = [],
+): string | null {
   if (chat.name !== UNTITLED_CHAT) {
     return null;
   }
@@ -635,13 +640,30 @@ function maybeAutoName(chat: ChatRecord, text: string): string | null {
   // stored chat name is recognizable within its first ~30 chars — the same
   // treatment the workspace rail applies to thread titles.
   const compact = frontLoadTitle(text);
+
+  // Generic filler ("Please implement this") with a file attached: the file is
+  // the subject. Fold its (cleaned) name in subject-first so the name stays
+  // recognizable once the rail truncates — matching AutoTitleService's instant
+  // title. Also covers the no-prose case (compact === '').
+  if (attachmentNames.length > 0 && (!compact || isLowSignalTitle(compact))) {
+    const fromAttachment = deriveAttachmentTaskTitle(text, attachmentNames);
+    if (fromAttachment) {
+      return truncateChatName(fromAttachment);
+    }
+  }
+
   if (!compact) {
     return null;
   }
-  if (compact.length <= 44) {
-    return compact;
+  return truncateChatName(compact);
+}
+
+/** Trim an auto-derived chat name to the rail-visible length at a word boundary. */
+function truncateChatName(name: string): string {
+  if (name.length <= 44) {
+    return name;
   }
-  const slice = compact.slice(0, 44);
+  const slice = name.slice(0, 44);
   const lastSpace = slice.lastIndexOf(' ');
   return `${slice.slice(0, lastSpace > 20 ? lastSpace : 44).trim()}...`;
 }
