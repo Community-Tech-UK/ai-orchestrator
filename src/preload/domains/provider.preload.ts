@@ -321,5 +321,20 @@ export function createProviderDomain(
       models: { id: string; name: string; tier: 'fast' | 'balanced' | 'powerful'; pinned?: boolean; family?: string }[]
     ): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.MODELS_CLI_PUSH, { provider, models }),
+
+    /**
+     * Subscribe to unified-catalog refreshes (main -> renderer). Fires whenever
+     * models.dev or CLI discovery rebuilds the catalog. Returns an unsubscribe.
+     */
+    onModelsCatalogUpdated: (
+      callback: (payload: { totalEntries: number; sources: string[] }) => void
+    ): (() => void) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        payload: { totalEntries: number; sources: string[] }
+      ) => callback(payload);
+      ipcRenderer.on(ch.MODELS_CATALOG_UPDATED, handler);
+      return () => ipcRenderer.removeListener(ch.MODELS_CATALOG_UPDATED, handler);
+    },
   };
 }

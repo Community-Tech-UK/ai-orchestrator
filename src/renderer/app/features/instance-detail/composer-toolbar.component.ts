@@ -23,10 +23,11 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   inject,
   input,
-  OnInit,
   signal,
+  untracked,
 } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
@@ -144,8 +145,28 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
     }
   `],
 })
-export class ComposerToolbarComponent implements OnInit {
+export class ComposerToolbarComponent {
   private readonly ipc = inject(InstanceIpcService);
+
+  constructor() {
+    // Re-seed the picker from the bound instance's provider + model whenever the
+    // instance changes. The live composer is a single reused node whose
+    // [instanceId]/[provider]/[currentModel] inputs swap when you switch
+    // sessions, so seeding once (the old ngOnInit) leaked the previous
+    // instance's selection into the next — e.g. a Cursor pick showing up as
+    // "Cursor · Auto" on a Claude session. Tracking only instanceId() keeps the
+    // user's in-flight pick within a single instance while preventing the bleed;
+    // provider()/currentModel() are read untracked so unrelated model updates
+    // don't clobber a selection mid-change.
+    effect(() => {
+      this.instanceId(); // reset trigger: the bound instance changed
+      untracked(() => {
+        this.pendingSelection.set(
+          deriveComposerPickerSelection(this.provider(), this.currentModel()),
+        );
+      });
+    });
+  }
 
   /** Instance ID — used to call changeModel IPC. */
   instanceId = input.required<string>();
@@ -194,17 +215,6 @@ export class ComposerToolbarComponent implements OnInit {
 
   readonly pickerSelection = computed<PendingSelection | null>(() => this.pendingSelection());
 
-  ngOnInit(): void {
-    // Seed the picker with the instance's current provider + model.
-    const p = this.provider();
-    const pickerProvider: PickerProvider = (p === 'ollama' ? 'claude' : p) as PickerProvider;
-    this.pendingSelection.set({
-      provider: pickerProvider,
-      model: this.currentModel() ?? null,
-      reasoning: null,
-    });
-  }
-
   async onPickerSelectionChange(sel: PendingSelection): Promise<void> {
     this.pendingSelection.set(sel);
 
@@ -218,4 +228,19 @@ export class ComposerToolbarComponent implements OnInit {
 
     await this.ipc.changeModel(this.instanceId(), sel.model, reasoningEffort);
   }
+}
+
+/**
+ * Map a live instance's provider + model to the picker's initial selection.
+ * Pure so the per-instance seed mapping is unit-testable without the Angular
+ * compiler. `ollama` collapses to `claude` because the picker has no Ollama
+ * tab; a missing model becomes `null` (the picker then shows the provider
+ * default).
+ */
+export function deriveComposerPickerSelection(
+  provider: InstanceProvider,
+  currentModel: string | undefined,
+): PendingSelection {
+  const pickerProvider: PickerProvider = (provider === 'ollama' ? 'claude' : provider) as PickerProvider;
+  return { provider: pickerProvider, model: currentModel ?? null, reasoning: null };
 }

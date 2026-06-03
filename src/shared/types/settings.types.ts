@@ -409,10 +409,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   crossModelReviewEnabled: true,
   crossModelReviewDepth: 'structured',
   crossModelReviewMaxReviewers: 2,
-  crossModelReviewProviders: [],
+  crossModelReviewProviders: ['cursor', 'gemini', 'codex'],
   crossModelReviewTimeout: 30,
   crossModelReviewTypes: ['code', 'plan', 'architecture'],
-  crossModelReviewModelByProvider: {},
+  crossModelReviewModelByProvider: { cursor: 'composer-2.5' },
 
   // Remote Nodes
   remoteNodesEnabled: false,

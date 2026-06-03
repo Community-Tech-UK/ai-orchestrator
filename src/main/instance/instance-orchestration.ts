@@ -9,7 +9,7 @@ import { StrategyLearner } from '../learning/strategy-learner';
 import { getTaskManager } from '../orchestration/task-manager';
 import { getChildResultStorage } from '../orchestration/child-result-storage';
 import { getChildAnnouncer } from '../orchestration/child-announcer';
-import { getModelRouter, type RoutingDecision, type ModelRouter } from '../routing';
+import { getModelRouter, applyProviderResolution, type RoutingDecision, type ModelRouter } from '../routing';
 import { getUnifiedMemory } from '../memory';
 import { getHabitTracker } from '../learning/habit-tracker';
 import { getPreferenceStore } from '../learning/preference-store';
@@ -18,7 +18,6 @@ import {
   CLAUDE_MODELS,
   isModelTier,
   normalizeModelAliasForProvider,
-  resolveModelForTier,
 } from '../../shared/types/provider.types';
 import type {
   SpawnChildCommand,
@@ -704,46 +703,10 @@ export class InstanceOrchestrationManager {
       ? normalizeModelAliasForProvider(providerForModel, explicitModel)
       : explicitModel;
     const decision = this.computeRoutingDecision(router, task, normalizedExplicitModel, agentId);
-    const hasExplicitConcreteModel = Boolean(
-      normalizedExplicitModel && !isModelTier(normalizedExplicitModel)
-    );
 
-    // If the target is a non-Claude provider, resolve the decision's tier
-    // to that provider's concrete model ID. This handles:
-    //   - Explicit tier names (e.g., model: "powerful", provider: "gemini")
-    //   - Auto-routed Claude model IDs that need cross-provider mapping
-    if (provider && provider !== 'auto' && provider !== 'claude') {
-      if (hasExplicitConcreteModel) {
-        return {
-          ...decision,
-          model: normalizedExplicitModel!,
-          reason: `${decision.reason} for ${provider}`,
-        };
-      }
-
-      const resolvedId = resolveModelForTier(decision.tier, provider);
-      if (resolvedId) {
-        logger.info('Resolved model for target provider', {
-          originalModel: decision.model,
-          tier: decision.tier,
-          provider,
-          resolvedModel: resolvedId
-        });
-        return {
-          ...decision,
-          model: resolvedId,
-          reason: `${decision.reason} → resolved to "${resolvedId}" for ${provider}`
-        };
-      }
-      // No model found for this tier+provider — let lifecycle validation handle it
-      logger.warn('No model found for tier in target provider, passing through', {
-        tier: decision.tier,
-        provider,
-        originalModel: decision.model
-      });
-    }
-
-    return decision;
+    // Cross-provider tier mapping is shared with the Loop-Mode invoker path via
+    // the routing helper (intent-routing Phase 1) so there is one routing brain.
+    return applyProviderResolution(decision, normalizedExplicitModel, provider);
   }
 
   /**

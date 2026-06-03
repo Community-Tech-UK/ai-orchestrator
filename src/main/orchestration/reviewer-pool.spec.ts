@@ -66,6 +66,30 @@ describe('ReviewerPool', () => {
       const selected = pool.selectReviewers('claude', 3, ['gemini', 'codex']);
       expect(selected).toEqual(['copilot']);
     });
+
+    it('selects the first N reviewers in the configured priority order', () => {
+      const selected = pool.selectReviewers('claude', 2, [], ['copilot', 'gemini', 'codex']);
+      expect(selected).toEqual(['copilot', 'gemini']);
+    });
+
+    it('keeps configured order deterministic across repeated selections', () => {
+      const first = pool.selectReviewers('claude', 2, [], ['copilot', 'gemini', 'codex']);
+      const second = pool.selectReviewers('claude', 2, [], ['copilot', 'gemini', 'codex']);
+      expect(first).toEqual(['copilot', 'gemini']);
+      expect(second).toEqual(['copilot', 'gemini']);
+    });
+
+    it('falls through to the next configured reviewer when earlier ones are excluded', () => {
+      const selected = pool.selectReviewers('claude', 1, ['copilot'], ['copilot', 'gemini', 'codex']);
+      expect(selected).toEqual(['gemini']);
+    });
+
+    it('ranks unlisted reviewers after configured ones', () => {
+      const selected = pool.selectReviewers('claude', 3, [], ['copilot']);
+      expect(selected[0]).toBe('copilot');
+      expect(selected).toContain('gemini');
+      expect(selected).toContain('codex');
+    });
   });
 
   describe('failover', () => {

@@ -73,4 +73,6 @@ export const PROVIDER_CHANNELS = {
   // Unified model catalog (main-process read-only catalog, renderer-pushed CLI discovery)
   MODELS_UNIFIED_CATALOG: 'models:unified-catalog',
   MODELS_CLI_PUSH: 'models:cli-push',
+  // Catalog-updated push (main -> renderer) — fires when any source refreshes.
+  MODELS_CATALOG_UPDATED: 'models:catalog-updated',
 } as const;

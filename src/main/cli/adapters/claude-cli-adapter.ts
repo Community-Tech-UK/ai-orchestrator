@@ -1209,8 +1209,14 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           assistantContent = assistantMsg.content;
         }
 
-        // Also extract any inline thinking from text content (XML tags, brackets, headers)
-        const extracted = extractThinkingContent(assistantContent);
+        // Also extract any inline thinking from text content (explicit XML tags
+        // and [THINKING] brackets only). The header/meta-reasoning heuristic is
+        // disabled here: Claude already delivers genuine reasoning as structured
+        // `thinking` blocks above, so re-parsing its `text` blocks would
+        // mis-classify real answer content (bold headers, option lists,
+        // first-person phrasing) as thinking — which then vanishes when the user
+        // has thinking display turned off.
+        const extracted = extractThinkingContent(assistantContent, { headerStyle: false });
         assistantContent = extracted.response;
         thinkingBlocks.push(...extracted.thinking.map(t => ({
           ...t,

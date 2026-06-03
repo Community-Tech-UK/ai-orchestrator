@@ -192,6 +192,8 @@ export class CrossModelReviewService extends EventEmitter {
     const selectedReviewers = this.reviewerPool.selectReviewers(
       buffer.primaryProvider,
       settings.crossModelReviewMaxReviewers,
+      [],
+      settings.crossModelReviewProviders as string[],
     );
 
     if (selectedReviewers.length === 0) {
@@ -267,6 +269,9 @@ export class CrossModelReviewService extends EventEmitter {
     const successful: ReviewResult[] = [];
     let candidates = [...reviewerClis];
     const desiredCount = reviewerClis.length;
+    // Honour the user's configured reviewer order when picking fallbacks too,
+    // so a failed active reviewer is replaced by the next one in priority order.
+    const preferredOrder = getSettingsManager().getAll().crossModelReviewProviders as string[];
 
     while (candidates.length > 0 && successful.length < desiredCount) {
       for (const cliType of candidates) attempted.add(cliType);
@@ -288,6 +293,7 @@ export class CrossModelReviewService extends EventEmitter {
         request.primaryProvider,
         remaining,
         Array.from(attempted),
+        preferredOrder,
       );
     }
 
@@ -484,6 +490,8 @@ export class CrossModelReviewService extends EventEmitter {
     return this.reviewerPool.selectReviewers(
       request.primaryProvider ?? 'claude',
       settings.crossModelReviewMaxReviewers,
+      [],
+      settings.crossModelReviewProviders as string[],
     );
   }
 

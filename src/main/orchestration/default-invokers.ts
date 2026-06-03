@@ -19,6 +19,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
 import { coerceToFailoverError } from '../core/failover-error';
 import { getDefaultModelForCli } from '../../shared/types/provider.types';
+import { getModelRouter, resolveRoutedModel } from '../routing';
 import type { CliType } from '../cli/cli-detection';
 import {
   DebateCritiqueInvocationPayloadSchema,
@@ -43,6 +44,52 @@ type DebateInvocationSchema =
 function resolveDefaultModel(cliType: CliType, payloadModel?: string): string | undefined {
   if (typeof payloadModel === 'string' && payloadModel !== 'default') return payloadModel;
   return getDefaultModelForCli(cliType);
+}
+
+/** Per-call-site opt-in for cost-tiered routing on the shared invoker path. */
+export type RoutingIntent = 'loop' | 'workflow';
+
+/**
+ * Resolve the model for a CLI invocation (intent-routing Phase 2).
+ *
+ * Routing is OPT-IN per call-site and only fires when ALL hold:
+ *   1. the caller passed an explicit `routingIntent` (only Loop Mode does today),
+ *   2. the user did NOT request a concrete model (`payloadModel` unset/`'default'`),
+ *   3. the model router is enabled (`ModelRoutingConfig.enabled`).
+ *
+ * Otherwise it falls back to `resolveDefaultModel` byte-for-byte — so the
+ * verify/review/debate/workflow/consensus paths (which never pass a
+ * `routingIntent`) keep resolving to the strong house model (Opus).
+ */
+export function resolveModelForInvocation(args: {
+  cliType: CliType;
+  requestedProvider: string;
+  payloadModel?: string;
+  prompt: string;
+  routingIntent?: RoutingIntent;
+}): string | undefined {
+  const explicitlyRequested =
+    typeof args.payloadModel === 'string' && args.payloadModel !== 'default';
+
+  if (args.routingIntent && !explicitlyRequested && getModelRouter().getConfig().enabled) {
+    // Prefer the concrete requested provider; fall back to the resolved CLI type
+    // as a provider hint when the caller asked for `auto`.
+    const provider =
+      args.requestedProvider && args.requestedProvider !== 'auto'
+        ? args.requestedProvider
+        : args.cliType;
+    const decision = resolveRoutedModel(args.prompt, { provider });
+    logger.info('Routed invocation model', {
+      intent: args.routingIntent,
+      provider,
+      tier: decision.tier,
+      model: decision.model,
+      reason: decision.reason,
+    });
+    return decision.model;
+  }
+
+  return resolveDefaultModel(args.cliType, args.payloadModel);
 }
 
 function isBaseCliAdapterLike(adapter: CliAdapter): adapter is CliAdapter & { sendMessage: (m: CliMessage) => Promise<CliResponse> } {
@@ -305,6 +352,13 @@ async function invokeCliTextResponse(params: {
   workingDirectory?: string;
   requestedProvider?: string;
   payloadModel?: string;
+  /**
+   * Opt-in cost-tiered routing for this call (intent-routing Phase 2).
+   * Only Loop Mode sets this; verify/review/debate/workflow/consensus leave it
+   * unset so they keep the strong default model. Routing also requires the
+   * router to be enabled and `payloadModel` to be unset.
+   */
+  routingIntent?: RoutingIntent;
   systemPrompt?: string;
   prompt: string;
   context?: string;
@@ -345,7 +399,13 @@ async function invokeCliTextResponse(params: {
   const requestedProvider = params.requestedProvider ?? fallbackProvider ?? 'auto';
   const defaultCli = getSettingsManager().getAll().defaultCli;
   const cliType = await resolveCliType(requestedProvider as Parameters<typeof resolveCliType>[0], defaultCli);
-  const model = resolveDefaultModel(cliType, params.payloadModel);
+  const model = resolveModelForInvocation({
+    cliType,
+    requestedProvider,
+    payloadModel: params.payloadModel,
+    prompt: params.prompt,
+    routingIntent: params.routingIntent,
+  });
 
   const spawnOptions: UnifiedSpawnOptions = {
     workingDirectory,
@@ -1655,6 +1715,10 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         workingDirectory: p.workspaceCwd,
         requestedProvider: p.provider,
         payloadModel: undefined,
+        // Opt this (Loop Mode) call into cost-tiered routing. Routing only
+        // actually fires when the router is enabled and no explicit model was
+        // requested; otherwise the strong default is used as before.
+        routingIntent: 'loop',
         systemPrompt: undefined,
         prompt: p.prompt,
         breakerKey: `loop-orchestration:${p.provider}`,

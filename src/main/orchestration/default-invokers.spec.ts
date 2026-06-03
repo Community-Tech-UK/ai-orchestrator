@@ -65,7 +65,11 @@ vi.mock('../core/failover-error', () => ({
   coerceToFailoverError: vi.fn(() => null),
 }));
 
-vi.mock('../../shared/types/provider.types', () => ({
+vi.mock('../../shared/types/provider.types', async (importOriginal) => ({
+  // Keep the real exports (CLAUDE_MODELS, isModelTier, resolveModelForTier, …)
+  // so the routing modules pulled in transitively via default-invokers load
+  // correctly; only override the default-model resolver for these tests.
+  ...(await importOriginal<typeof import('../../shared/types/provider.types')>()),
   getDefaultModelForCli: vi.fn(() => 'default-model'),
 }));
 
@@ -74,7 +78,9 @@ import {
   registerDefaultMultiVerifyInvoker,
   registerDefaultReviewInvoker,
   registerDefaultWorkflowInvoker,
+  resolveModelForInvocation,
 } from './default-invokers';
+import { DEFAULT_ROUTING_CONFIG } from '../routing/model-router';
 
 describe('default orchestration invokers', () => {
   beforeEach(() => {
@@ -202,5 +208,54 @@ describe('default orchestration invokers', () => {
       expect.stringContaining('[Error: workflow:invoke-agent payload validation failed'),
       0,
     );
+  });
+});
+
+describe('resolveModelForInvocation (intent-routing Phase 2)', () => {
+  it('without a routingIntent, resolves the strong default (verify/review/debate/workflow path)', () => {
+    // getDefaultModelForCli is mocked to 'default-model'.
+    expect(
+      resolveModelForInvocation({
+        cliType: 'claude',
+        requestedProvider: 'claude',
+        payloadModel: 'default',
+        prompt: 'list',
+      }),
+    ).toBe('default-model');
+  });
+
+  it('honours an explicit model even when not routing', () => {
+    expect(
+      resolveModelForInvocation({
+        cliType: 'claude',
+        requestedProvider: 'claude',
+        payloadModel: 'sonnet',
+        prompt: 'list',
+      }),
+    ).toBe('sonnet');
+  });
+
+  it('routes a simple Loop-Mode call to the fast tier when no explicit model is set', () => {
+    const model = resolveModelForInvocation({
+      cliType: 'claude',
+      requestedProvider: 'claude',
+      payloadModel: undefined,
+      prompt: 'list',
+      routingIntent: 'loop',
+    });
+    expect(model).toBe(DEFAULT_ROUTING_CONFIG.fastModel);
+    expect(model).not.toBe('default-model');
+  });
+
+  it('does NOT route a Loop-Mode call when the user supplied an explicit model', () => {
+    expect(
+      resolveModelForInvocation({
+        cliType: 'claude',
+        requestedProvider: 'claude',
+        payloadModel: 'sonnet',
+        prompt: 'list',
+        routingIntent: 'loop',
+      }),
+    ).toBe('sonnet');
   });
 });

@@ -42,6 +42,7 @@ import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import type { LinkKind } from '../../../../shared/utils/link-detection';
 import { shouldCollapseUserMessage } from './output-stream-message-collapse';
+import { filterDisplayItems } from './output-stream-item-filter';
 import { isLoopOriginatedUserMessage as detectLoopOriginatedUserMessage } from './loop-message-detection';
 import {
   EMPTY_STABLE_DISPLAY_ITEMS_STATE,
@@ -227,25 +228,20 @@ export class OutputStreamComponent {
     return !this.isChild();
   });
 
-  /** Display items filtered by tool call visibility. When tool calls are hidden
-   *  we also strip them from work-cycle children so collapsed cycles don't
-   *  silently contain invisible entries. This is the raw list; visibleItems()
-   *  stabilises its references before the template renders it. */
+  /** Display items filtered by visibility settings. Tool-groups (when tool
+   *  calls are hidden) and empty thought-groups (when thinking is hidden) are
+   *  stripped from both the top level and from work-cycle children, so a
+   *  collapsed cycle never advertises content that renders to an empty box.
+   *  This is the raw list; visibleItems() stabilises its references before the
+   *  template renders it. */
   private readonly filteredItems = computed<RenderedDisplayItem[]>(() => {
-    const items = this.displayItems();
-    if (this.effectiveShowToolCalls()) return items;
-    const result: RenderedDisplayItem[] = [];
-    for (const item of items) {
-      if (item.type === 'tool-group') continue;
-      if (item.type === 'work-cycle' && item.children) {
-        const filtered = item.children.filter(c => c.type !== 'tool-group');
-        if (filtered.length === 0) continue;
-        result.push({ ...item, children: filtered });
-      } else {
-        result.push(item);
-      }
-    }
-    return result;
+    const showThinking = this.showThinking();
+    return filterDisplayItems(this.displayItems(), {
+      hideToolGroups: !this.effectiveShowToolCalls(),
+      hideEmptyThoughts: !showThinking,
+      isThoughtGroupEmpty: (item) =>
+        !this.messageFormat.hasThoughtGroupContent(item, showThinking),
+    });
   });
 
   /**

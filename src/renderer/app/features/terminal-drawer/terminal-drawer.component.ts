@@ -24,8 +24,12 @@ type DrawerStatus = 'idle' | 'connecting' | 'running' | 'exited' | 'error';
   selector: 'app-terminal-drawer',
   standalone: true,
   imports: [FormsModule, NodePickerComponent],
+  // The host element is an in-flow flex child of `.app-container`. Toggling
+  // `.open` animates its height, which reflows the column and pushes the rest of
+  // the app up rather than overlaying it (see `:host` styles below).
+  host: { '[class.open]': 'isOpen()' },
   template: `
-    <section class="terminal-drawer" [class.open]="isOpen()" aria-label="Terminal drawer">
+    <section class="terminal-drawer" aria-label="Terminal drawer">
       <header class="terminal-drawer__header">
         <h3 class="terminal-drawer__title">Remote Terminal</h3>
         <div class="terminal-drawer__controls">
@@ -78,25 +82,27 @@ type DrawerStatus = 'idle' | 'connecting' | 'running' | 'exited' | 'error';
     </section>
   `,
   styles: [`
+    /* In-flow flex child: animating the host's height reflows the app column and
+       pushes the content above it up, instead of floating over it. Collapsed to
+       0 when closed; the fixed-height inner section is clipped during the slide. */
+    :host {
+      display: block;
+      flex: 0 0 auto;
+      height: 0;
+      overflow: hidden;
+      transition: height 160ms ease-out;
+    }
+
+    :host(.open) { height: clamp(160px, 300px, 42vh); }
+
     .terminal-drawer {
-      position: fixed;
-      right: 0;
-      bottom: 0;
-      left: 0;
-      z-index: 80;
       display: flex;
       flex-direction: column;
-      height: 300px;
-      min-height: 160px;
-      max-height: 42vh;
+      height: clamp(160px, 300px, 42vh);
       background: var(--bg-primary);
       border-top: 1px solid var(--border-color);
       box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.22);
-      transform: translateY(100%);
-      transition: transform 160ms ease-out;
     }
-
-    .terminal-drawer.open { transform: translateY(0); }
 
     .terminal-drawer__header {
       display: flex;
@@ -229,6 +235,9 @@ export class TerminalDrawerComponent {
               `Session exited${event.code !== null ? ` (code ${event.code})` : ''}${event.signal ? ` [${event.signal}]` : ''}.`,
             );
             this.sessionId = null;
+            // The session is gone — wipe its output so the dead terminal isn't
+            // left lingering in the window. The exit notice above stays visible.
+            this.clearTerminalView();
           }
           break;
         case 'error':
@@ -330,7 +339,20 @@ export class TerminalDrawerComponent {
   }
 
   protected onClose(): void {
+    // Closing a finished/idle terminal clears it so the next open starts fresh.
+    // A live session is only hidden (not killed or cleared) so it can be resumed.
+    if (!this.isLive()) {
+      this.clearTerminalView();
+      this.status.set('idle');
+      this.statusMessage.set(null);
+    }
     this.closeRequested.emit();
+  }
+
+  /** Wipe the on-screen terminal buffer (e.g. after the session ends). */
+  private clearTerminalView(): void {
+    this.pendingOutput = '';
+    this.term?.reset();
   }
 
   /** Lazily create the xterm terminal (kept out of the initial bundle). */

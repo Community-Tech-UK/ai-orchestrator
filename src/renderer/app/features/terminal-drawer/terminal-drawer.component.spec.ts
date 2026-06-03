@@ -39,6 +39,9 @@ vi.mock('@xterm/xterm', () => {
     dispose(): void {
       void 0;
     }
+    reset(): void {
+      this.written.length = 0;
+    }
     write(data: string): void {
       this.written.push(data);
     }
@@ -149,6 +152,31 @@ describe('TerminalDrawerComponent', () => {
 
     const notice = (fixture.nativeElement as HTMLElement).querySelector('.terminal-drawer__notice');
     expect(notice?.textContent ?? '').toContain('node disconnected');
+  });
+
+  it('clears the terminal output when the session exits', async () => {
+    const { fake, internals } = setup();
+    await openSession(internals);
+
+    fake.emit({ kind: 'data', sessionId: 's1', data: 'output before exit' });
+    expect(hoisted.terminals[0].written.join('')).toContain('output before exit');
+
+    fake.emit({ kind: 'exited', sessionId: 's1', code: 0, signal: null });
+    expect(hoisted.terminals[0].written.join('')).toBe('');
+  });
+
+  it('keeps a live session intact (not cleared or killed) when the panel is closed', async () => {
+    const { fixture, fake, internals } = setup();
+    await openSession(internals);
+    fake.emit({ kind: 'data', sessionId: 's1', data: 'live output' });
+
+    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+      'button[aria-label="Close terminal drawer"]',
+    );
+    button?.click();
+
+    expect(hoisted.terminals[0].written.join('')).toContain('live output');
+    expect(fake.kill).not.toHaveBeenCalled();
   });
 
   it('emits close when the close button is clicked', () => {

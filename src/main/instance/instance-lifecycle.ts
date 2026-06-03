@@ -14,7 +14,6 @@ import type { ResumeAttemptResult } from '../cli/adapters/base-cli-adapter';
 import type { ExecutionLocation } from '../../shared/types/worker-node.types';
 import {
   getDefaultModelForCli,
-  getModelsForProvider,
   getProviderModelContextWindow,
   isModelTier,
   looksLikeCodexModelId,
@@ -2848,7 +2847,12 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
           validatedModel = resolveModelForTier(newModel, cliType);
         }
 
-        const providerModels = getModelsForProvider(cliType);
+        // Use the CLI-dynamic list (Copilot/Cursor query the binary; others
+        // fall back to the static catalog) so a valid live model that isn't in
+        // the small curated static subset — e.g. a Cursor `composer-2.5-fast` —
+        // is not wrongly reset to the provider default. Mirrors the spawn-time
+        // validation in createInstance.
+        const knownModelIds = await getKnownModelsForCli(cliType);
         const modelToValidate = validatedModel;
         const allowCodexDynamicModel =
           modelToValidate !== undefined &&
@@ -2856,8 +2860,8 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
           looksLikeCodexModelId(modelToValidate);
         if (
           modelToValidate !== undefined &&
-          providerModels.length > 0 &&
-          !providerModels.some(m => m.id === modelToValidate) &&
+          knownModelIds.length > 0 &&
+          !knownModelIds.includes(modelToValidate) &&
           !allowCodexDynamicModel
         ) {
           logger.warn('Model not valid for target provider during changeModel, using provider default', {

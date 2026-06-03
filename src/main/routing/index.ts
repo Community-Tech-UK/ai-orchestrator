@@ -18,6 +18,12 @@ export {
 } from './model-router';
 
 export {
+  applyProviderResolution,
+  resolveRoutedModel,
+  type ResolveRoutedModelOptions,
+} from './route-task';
+
+export {
   HotModelSwitcher,
   getHotModelSwitcher,
   DEFAULT_HOT_SWITCHER_CONFIG,

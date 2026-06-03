@@ -51,11 +51,36 @@ export class ReviewerPool {
     }
   }
 
-  selectReviewers(primaryProvider: string, maxReviewers: number, excludeCliTypes: readonly string[] = []): string[] {
+  /**
+   * Pick up to `maxReviewers` reviewers for a check.
+   *
+   * When `preferredOrder` is supplied (the user's configured reviewer list),
+   * selection is deterministic: reviewers are taken strictly in that order, so
+   * the first N available providers run each check and the remainder act as
+   * ordered fallbacks. Providers not in `preferredOrder` (and the auto-detect
+   * case where it's empty) fall back to least-recently-used rotation, which
+   * keeps load spread across an unordered pool.
+   */
+  selectReviewers(
+    primaryProvider: string,
+    maxReviewers: number,
+    excludeCliTypes: readonly string[] = [],
+    preferredOrder: readonly string[] = [],
+  ): string[] {
     const excluded = new Set(excludeCliTypes);
+    const orderRank = new Map<string, number>();
+    preferredOrder.forEach((cliType, index) => {
+      if (!orderRank.has(cliType)) orderRank.set(cliType, index);
+    });
+    const rankOf = (cliType: string): number => orderRank.get(cliType) ?? Number.MAX_SAFE_INTEGER;
+
     const candidates = Array.from(this.reviewers.values())
       .filter(r => r.available && !r.rateLimited && r.cliType !== primaryProvider && !excluded.has(r.cliType))
-      .sort((a, b) => a.lastUsed - b.lastUsed);
+      .sort((a, b) => {
+        const rankDelta = rankOf(a.cliType) - rankOf(b.cliType);
+        // Configured order wins; LRU only breaks ties (or drives the auto pool).
+        return rankDelta !== 0 ? rankDelta : a.lastUsed - b.lastUsed;
+      });
 
     const selected = candidates.slice(0, maxReviewers).map(r => r.cliType);
 

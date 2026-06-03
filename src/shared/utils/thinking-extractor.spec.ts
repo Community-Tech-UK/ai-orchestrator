@@ -600,4 +600,58 @@ function hello() {
       expect(result.response).toContain('<thinking>');
     });
   });
+
+  describe('headerStyle option (Claude opt-out)', () => {
+    // Regression: the header/meta-reasoning heuristic was swallowing Claude's
+    // real answer content (an option list + a follow-up question) into a
+    // thinking block, which then vanished when thinking display was off.
+    const claudeAnswer = `**Two ways to do this**
+
+I think we should keep it simple. I'll lay out the choices.
+
+Option 1: Wire it into the existing pipeline.
+Option 2: Add a separate pass.
+
+Want me to go ahead with option 1?`;
+
+    it('preserves the full answer when headerStyle is disabled', () => {
+      const result = extractThinkingContent(claudeAnswer, { headerStyle: false });
+
+      expect(result.hasThinking).toBe(false);
+      expect(result.response).toContain('Option 1: Wire it into the existing pipeline.');
+      expect(result.response).toContain('Option 2: Add a separate pass.');
+      expect(result.response).toContain('Want me to go ahead with option 1?');
+    });
+
+    it('still strips explicit XML thinking tags when headerStyle is disabled', () => {
+      const content = `<thinking>internal reasoning</thinking>
+Here is the actual answer.`;
+      const result = extractThinkingContent(content, { headerStyle: false });
+
+      expect(result.hasThinking).toBe(true);
+      expect(result.thinking[0].format).toBe('xml');
+      expect(result.response).toBe('Here is the actual answer.');
+    });
+
+    it('still strips [THINKING] brackets when headerStyle is disabled', () => {
+      const content = `[THINKING]some reasoning[/THINKING]
+Final answer here.`;
+      const result = extractThinkingContent(content, { headerStyle: false });
+
+      expect(result.hasThinking).toBe(true);
+      expect(result.thinking[0].format).toBe('bracket');
+      expect(result.response).toBe('Final answer here.');
+    });
+
+    it('defaults to applying the header heuristic (Codex-style providers)', () => {
+      const content = `# Crafting a friendly response
+
+I need to respond to the user. I should keep it concise.
+Hey! I'm here.`;
+      const result = extractThinkingContent(content);
+
+      expect(result.hasThinking).toBe(true);
+      expect(result.response).toBe(`Hey! I'm here.`);
+    });
+  });
 });

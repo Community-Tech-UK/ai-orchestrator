@@ -2,25 +2,33 @@
  * Review Settings Tab Component - Cross-model review settings
  */
 
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
 import { SettingRowComponent } from './setting-row.component';
 import type { AppSettings } from '../../../../shared/types/settings.types';
-import { getModelsForProvider } from '../../../../shared/types/provider.types';
+import { getModelsForProvider, type ModelDisplayInfo } from '../../../../shared/types/provider.types';
 
 /**
  * Reviewer CLIs that can run a cross-model review. Mirrors
  * `SUPPORTED_REVIEWER_CLIS` in
  * src/main/orchestration/cross-model-review-service.constants.ts. Kept as a
  * local copy because the renderer cannot import main-process modules; update
- * both if the supported set changes.
+ * both if the supported set changes. Order here is only the default offer order
+ * for the "add a reviewer" menu — the live priority order lives in the
+ * `crossModelReviewProviders` setting.
  */
 const REVIEWER_PROVIDERS: { id: string; label: string }[] = [
+  { id: 'cursor', label: 'Cursor CLI' },
   { id: 'gemini', label: 'Gemini CLI' },
   { id: 'codex', label: 'OpenAI Codex CLI' },
   { id: 'copilot', label: 'GitHub Copilot' },
-  { id: 'cursor', label: 'Cursor CLI' },
 ];
+
+interface ReviewerProviderView {
+  id: string;
+  label: string;
+  models: ModelDisplayInfo[];
+}
 
 @Component({
   selector: 'app-review-settings-tab',
@@ -29,7 +37,7 @@ const REVIEWER_PROVIDERS: { id: string; label: string }[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="settings-list-card" aria-label="Cross-model review settings">
-      @for (setting of store.reviewSettings(); track setting.key) {
+      @for (setting of genericReviewSettings(); track setting.key) {
         <app-setting-row
           class="settings-list-item"
           [setting]="setting"
@@ -39,31 +47,94 @@ const REVIEWER_PROVIDERS: { id: string; label: string }[] = [
       }
     </section>
 
-    <section class="settings-list-card reviewer-model-overrides" aria-label="Reviewer model overrides">
-      <header class="reviewer-model-overrides__header">
-        <div class="reviewer-model-overrides__title">Reviewer models</div>
-        <p class="reviewer-model-overrides__hint">
-          Pick the model each reviewer CLI uses. "Auto" lets that provider's CLI
-          choose (e.g. Copilot auto-routes to a GPT model).
-        </p>
+    <section class="settings-list-card reviewer-priority" aria-label="Reviewer priority">
+      <header class="reviewer-priority__header">
+        <div class="reviewer-priority__heading">
+          <h3 class="reviewer-priority__title">Reviewer priority</h3>
+          <p class="reviewer-priority__hint">
+            Reviewers run in this order. The top
+            <strong>{{ reviewersPerCheck() }}</strong>
+            available {{ reviewersPerCheck() === 1 ? 'reviewer runs' : 'reviewers run' }} on
+            each check; the rest are fallbacks if one is unavailable. Drag the
+            arrows to reorder, and pick the model each reviewer uses.
+          </p>
+        </div>
       </header>
 
-      @for (provider of reviewerProviders; track provider.id) {
-        <div class="settings-list-item reviewer-model-row">
-          <label class="reviewer-model-row__label" [attr.for]="'review-model-' + provider.id">
-            {{ provider.label }}
-          </label>
-          <select
-            class="reviewer-model-row__select"
-            [id]="'review-model-' + provider.id"
-            [value]="modelFor(provider.id)"
-            (change)="onModelChange(provider.id, $event)"
-          >
-            <option value="">Auto (let provider decide)</option>
-            @for (model of provider.models; track model.id) {
-              <option [value]="model.id">{{ model.name }}</option>
+      @if (orderedProviders().length === 0) {
+        <p class="reviewer-priority__empty">
+          No reviewers selected — cross-model review auto-picks whichever
+          supported CLIs are installed. Add one below to take control.
+        </p>
+      } @else {
+        <ol class="reviewer-list">
+          @for (provider of orderedProviders(); track provider.id; let i = $index) {
+            <li class="reviewer-list__item" [class.is-fallback]="!isActive(i)">
+              <div class="reviewer-list__rank" aria-hidden="true">{{ i + 1 }}</div>
+
+              <div class="reviewer-list__reorder">
+                <button
+                  type="button"
+                  class="reorder-btn"
+                  [disabled]="i === 0"
+                  [attr.aria-label]="'Move ' + provider.label + ' up'"
+                  (click)="move(i, -1)"
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  class="reorder-btn"
+                  [disabled]="i === orderedProviders().length - 1"
+                  [attr.aria-label]="'Move ' + provider.label + ' down'"
+                  (click)="move(i, 1)"
+                >
+                  ↓
+                </button>
+              </div>
+
+              <div class="reviewer-list__info">
+                <span class="reviewer-list__name">{{ provider.label }}</span>
+                <span class="reviewer-list__badge" [class.is-active]="isActive(i)">
+                  {{ isActive(i) ? 'Active' : 'Fallback' }}
+                </span>
+              </div>
+
+              <select
+                class="reviewer-list__model"
+                [attr.aria-label]="provider.label + ' model'"
+                [value]="modelFor(provider.id)"
+                (change)="onModelChange(provider.id, $event)"
+              >
+                <option value="">Auto (let provider decide)</option>
+                @for (model of provider.models; track model.id) {
+                  <option [value]="model.id">{{ model.name }}</option>
+                }
+              </select>
+
+              <button
+                type="button"
+                class="reviewer-list__remove"
+                [attr.aria-label]="'Remove ' + provider.label"
+                (click)="remove(provider.id)"
+              >
+                ✕
+              </button>
+            </li>
+          }
+        </ol>
+      }
+
+      @if (availableProviders().length > 0) {
+        <div class="reviewer-add">
+          <span class="reviewer-add__label">Add reviewer</span>
+          <div class="reviewer-add__chips">
+            @for (provider of availableProviders(); track provider.id) {
+              <button type="button" class="reviewer-add__chip" (click)="add(provider.id)">
+                + {{ provider.label }}
+              </button>
             }
-          </select>
+          </div>
         </div>
       }
     </section>
@@ -73,10 +144,40 @@ const REVIEWER_PROVIDERS: { id: string; label: string }[] = [
 export class ReviewSettingsTabComponent {
   store = inject(SettingsStore);
 
-  readonly reviewerProviders = REVIEWER_PROVIDERS.map((provider) => ({
-    ...provider,
-    models: getModelsForProvider(provider.id),
-  }));
+  private readonly providerById = new Map<string, ReviewerProviderView>(
+    REVIEWER_PROVIDERS.map((provider) => [
+      provider.id,
+      { ...provider, models: getModelsForProvider(provider.id) },
+    ]),
+  );
+
+  /** All review settings except the reviewer list, which has a bespoke control. */
+  readonly genericReviewSettings = computed(() =>
+    this.store.reviewSettings().filter((setting) => setting.key !== 'crossModelReviewProviders'),
+  );
+
+  /** Configured reviewers, in priority order, limited to supported CLIs. */
+  readonly orderedProviders = computed<ReviewerProviderView[]>(() =>
+    this.configuredProviders()
+      .map((id) => this.providerById.get(id))
+      .filter((provider): provider is ReviewerProviderView => provider !== undefined),
+  );
+
+  /** Supported reviewers not yet in the priority list, in default offer order. */
+  readonly availableProviders = computed(() => {
+    const enabled = new Set(this.configuredProviders());
+    return REVIEWER_PROVIDERS.filter((provider) => !enabled.has(provider.id));
+  });
+
+  /** How many reviewers run per check — drives the Active/Fallback split. */
+  readonly reviewersPerCheck = computed(() => {
+    const raw = Number(this.store.get('crossModelReviewMaxReviewers'));
+    return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 1;
+  });
+
+  isActive(index: number): boolean {
+    return index < this.reviewersPerCheck();
+  }
 
   onSettingChange(event: { key: string; value: unknown }): void {
     this.store.set(event.key as keyof AppSettings, event.value as string | number | boolean);
@@ -97,5 +198,45 @@ export class ReviewSettingsTabComponent {
       next[provider] = value;
     }
     void this.store.set('crossModelReviewModelByProvider', next);
+  }
+
+  /** Move a reviewer up (-1) or down (+1) in the priority order. */
+  move(index: number, delta: -1 | 1): void {
+    const order = this.configuredProviders();
+    const target = index + delta;
+    if (target < 0 || target >= order.length) return;
+    const next = [...order];
+    [next[index], next[target]] = [next[target], next[index]];
+    void this.store.set('crossModelReviewProviders', next);
+  }
+
+  /** Append a reviewer to the end of the priority list (lowest priority). */
+  add(provider: string): void {
+    const order = this.configuredProviders();
+    if (order.includes(provider)) return;
+    void this.store.set('crossModelReviewProviders', [...order, provider]);
+  }
+
+  /** Remove a reviewer from the priority list (back to auto for that CLI). */
+  remove(provider: string): void {
+    const next = this.configuredProviders().filter((id) => id !== provider);
+    void this.store.set('crossModelReviewProviders', next);
+  }
+
+  /**
+   * The configured reviewer order, limited to currently-supported CLIs and
+   * de-duplicated. Filtering here keeps the rendered list, the reorder indices,
+   * and every persisted write aligned, and quietly drops legacy/unsupported
+   * entries (e.g. a stored 'claude' that the backend never honoured anyway).
+   */
+  private configuredProviders(): string[] {
+    const value = this.store.get('crossModelReviewProviders');
+    if (!Array.isArray(value)) return [];
+    const seen = new Set<string>();
+    return value.filter((id): id is string => {
+      if (typeof id !== 'string' || seen.has(id) || !this.providerById.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
   }
 }

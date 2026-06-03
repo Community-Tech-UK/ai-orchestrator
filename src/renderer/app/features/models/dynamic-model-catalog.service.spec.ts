@@ -9,13 +9,19 @@ function makeIpc(data: ModelDisplayInfo[] | null) {
     listModelsForProvider: vi.fn(async () =>
       data ? { success: true, data } : { success: false, error: { message: 'nope' } },
     ),
+    // The discovery flow feeds live models into the main-process unified catalog
+    // (A1 producer call-site). Mock it so we can assert it actually fires.
+    pushCliDiscoveredModels: vi.fn(async () => undefined),
   };
 }
 
 const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
 describe('DynamicModelCatalogService', () => {
-  function setup(ipc: { listModelsForProvider: ReturnType<typeof vi.fn> }) {
+  function setup(ipc: {
+    listModelsForProvider: ReturnType<typeof vi.fn>;
+    pushCliDiscoveredModels?: ReturnType<typeof vi.fn>;
+  }) {
     TestBed.configureTestingModule({
       providers: [
         DynamicModelCatalogService,
@@ -68,6 +74,28 @@ describe('DynamicModelCatalogService', () => {
 
     const fresh = models.find((m) => m.id === 'brand-new-model')!;
     expect(fresh.tier).toBe('powerful'); // untouched
+  });
+
+  it('pushes CLI-discovered models into the unified catalog after a successful discovery (A1 producer)', async () => {
+    const ipc = makeIpc([{ id: 'composer-2.5', name: 'Composer 2.5', tier: 'fast' }]);
+    const svc = setup(ipc);
+
+    svc.ensureLoaded('cursor');
+    await flush();
+
+    expect(ipc.pushCliDiscoveredModels).toHaveBeenCalledTimes(1);
+    expect(ipc.pushCliDiscoveredModels).toHaveBeenCalledWith(
+      'cursor',
+      expect.arrayContaining([expect.objectContaining({ id: 'composer-2.5' })]),
+    );
+  });
+
+  it('does NOT push to the unified catalog when discovery fails', async () => {
+    const ipc = makeIpc(null);
+    const svc = setup(ipc);
+    svc.ensureLoaded('cursor');
+    await flush();
+    expect(ipc.pushCliDiscoveredModels).not.toHaveBeenCalled();
   });
 
   it('keeps the static fallback when discovery fails', async () => {

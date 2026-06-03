@@ -1,10 +1,23 @@
 import { CopilotCliAdapter } from '../../cli/adapters/copilot-cli-adapter';
+import { CursorCliAdapter } from '../../cli/adapters/cursor-cli-adapter';
 import { getModelsForProvider } from '../../../shared/types/provider.types';
 import type { InstanceCreateConfig } from '../../../shared/types/instance.types';
 import { getLogger } from '../../logging/logger';
 
 const logger = getLogger('InstanceLifecycle');
 
+/**
+ * Return the set of valid model ids for a CLI, used to reject cross-provider
+ * model leakage before spawn / on model change.
+ *
+ * Copilot and Cursor expose their real model list only at runtime
+ * (`<cli> --list-models`), and our static `PROVIDER_MODEL_LIST` entry for them
+ * is just a small curated fallback. Validating against that static subset would
+ * silently reset any non-curated-but-valid live model (e.g. a Cursor
+ * `composer-2.5-fast`) to the provider default — so for these providers we
+ * query the CLI dynamically (results are cached in the adapter), falling back to
+ * the static list only when the CLI is unreachable.
+ */
 export async function getKnownModelsForCli(cliType: string): Promise<string[]> {
   if (cliType === 'copilot') {
     try {
@@ -12,6 +25,17 @@ export async function getKnownModelsForCli(cliType: string): Promise<string[]> {
       return models.map(model => model.id);
     } catch (error) {
       logger.warn('Falling back to static Copilot model list during validation', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  if (cliType === 'cursor') {
+    try {
+      const models = await new CursorCliAdapter().listAvailableModels();
+      return models.map(model => model.id);
+    } catch (error) {
+      logger.warn('Falling back to static Cursor model list during validation', {
         error: error instanceof Error ? error.message : String(error),
       });
     }

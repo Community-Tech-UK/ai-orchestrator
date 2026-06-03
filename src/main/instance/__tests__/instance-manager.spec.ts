@@ -533,6 +533,11 @@ vi.mock('../../../shared/types/provider.types', () => ({
     GEMINI_25_FLASH: 'gemini-2.5-flash',
   },
   getModelsForProvider: vi.fn().mockReturnValue([]),
+  // Read at module-load time by cursor-cli-adapter.models.ts
+  // (`PROVIDER_MODEL_LIST['cursor'] ?? []`), which is now pulled in via
+  // create-validation-helpers' dynamic Cursor model lookup. Empty is fine —
+  // this spec doesn't exercise the Cursor model catalog.
+  PROVIDER_MODEL_LIST: {},
   getProviderModelContextWindow: vi.fn((provider: string, model?: string) => {
     if (provider === 'claude' && model?.endsWith('[1m]')) return 1000000;
     if (provider === 'claude' && model?.includes('opus')) return 1000000;

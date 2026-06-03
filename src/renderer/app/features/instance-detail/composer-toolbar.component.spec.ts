@@ -15,7 +15,7 @@
 
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ComposerToolbarComponent } from './composer-toolbar.component';
+import { ComposerToolbarComponent, deriveComposerPickerSelection } from './composer-toolbar.component';
 import { InstanceIpcService } from '../../core/services/ipc';
 import type { ContextUsage } from '../../core/state/instance/instance.types';
 
@@ -168,5 +168,39 @@ describe('ComposerToolbarComponent', () => {
     await component.onPickerSelectionChange({ provider: 'claude', model: null, reasoning: null });
 
     expect(ipcStub.changeModel).not.toHaveBeenCalled();
+  });
+});
+
+// Regression for the cross-instance leak: the live composer is a single reused
+// node whose instance inputs swap when switching sessions. Seeding the picker
+// once (the old ngOnInit) leaked the previous instance's selection — e.g. a
+// Cursor pick surfacing as "Cursor · Auto" on a Claude session. The component
+// now re-seeds via an effect keyed on instanceId(); that effect delegates to
+// `deriveComposerPickerSelection`, which is unit-tested here directly (the
+// vitest setup runs without the Angular compiler, so effect/CD flushing isn't
+// available — see overrideInputs above).
+describe('deriveComposerPickerSelection', () => {
+  it('derives the picker selection from a Cursor instance', () => {
+    expect(deriveComposerPickerSelection('cursor', 'composer-2.5')).toEqual({
+      provider: 'cursor',
+      model: 'composer-2.5',
+      reasoning: null,
+    });
+  });
+
+  it('derives a different selection for a Claude instance (no leak from a prior call)', () => {
+    expect(deriveComposerPickerSelection('claude', 'opus')).toEqual({
+      provider: 'claude',
+      model: 'opus',
+      reasoning: null,
+    });
+  });
+
+  it('maps ollama to the claude picker tab', () => {
+    expect(deriveComposerPickerSelection('ollama', 'llama3').provider).toBe('claude');
+  });
+
+  it('uses null model when the instance has no model yet', () => {
+    expect(deriveComposerPickerSelection('cursor', undefined).model).toBeNull();
   });
 });

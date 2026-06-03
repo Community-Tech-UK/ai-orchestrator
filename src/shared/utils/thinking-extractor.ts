@@ -8,6 +8,27 @@
 import { generateId } from './id-generator';
 
 /**
+ * Options controlling thinking extraction.
+ */
+export interface ExtractThinkingOptions {
+  /**
+   * Apply the header/meta-reasoning heuristic that demotes plain-text reasoning
+   * written under a markdown header (e.g. "**Crafting a response**\n\nI should…")
+   * into a thinking block.
+   *
+   * Default `true` — useful for providers that narrate their reasoning as plain
+   * text (Codex, Gemini, Cursor, Copilot).
+   *
+   * Set to `false` for providers that already emit genuine structured thinking
+   * blocks (Claude extended thinking). For those, this heuristic only
+   * mis-classifies real user-facing answer content (bold headers, first-person
+   * phrasing, option lists) as "thinking", which then disappears entirely when
+   * the user has thinking display turned off.
+   */
+  headerStyle?: boolean;
+}
+
+/**
  * Result of extracting thinking content from a message
  */
 export interface ExtractedContent {
@@ -85,11 +106,15 @@ const RESPONSE_START_PATTERNS = [
  * @param content The raw message content to extract thinking from
  * @returns ExtractedContent with cleaned response and thinking blocks
  */
-export function extractThinkingContent(content: string): ExtractedContent {
+export function extractThinkingContent(
+  content: string,
+  options: ExtractThinkingOptions = {},
+): ExtractedContent {
   if (!content || typeof content !== 'string') {
     return { response: content || '', thinking: [], hasThinking: false };
   }
 
+  const { headerStyle = true } = options;
   const thinking: ThinkingBlock[] = [];
   let cleaned = content;
 
@@ -115,16 +140,20 @@ export function extractThinkingContent(content: string): ExtractedContent {
     });
   });
 
-  // 3. Extract header-style thinking (most complex)
-  const headerResult = extractHeaderStyleThinking(cleaned);
-  cleaned = headerResult.cleaned;
-  headerResult.extracted.forEach((t) => {
-    thinking.push({
-      id: generateId(),
-      content: t.trim(),
-      format: 'header',
+  // 3. Extract header-style thinking (most complex). Opt-out for providers that
+  //    emit genuine structured thinking, where this heuristic would otherwise
+  //    swallow real answer content.
+  if (headerStyle) {
+    const headerResult = extractHeaderStyleThinking(cleaned);
+    cleaned = headerResult.cleaned;
+    headerResult.extracted.forEach((t) => {
+      thinking.push({
+        id: generateId(),
+        content: t.trim(),
+        format: 'header',
+      });
     });
-  });
+  }
 
   // Clean up extra whitespace from extraction
   cleaned = cleaned.trim().replace(/\n{3,}/g, '\n\n');

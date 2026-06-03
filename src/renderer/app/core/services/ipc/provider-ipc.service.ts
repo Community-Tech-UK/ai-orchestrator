@@ -5,6 +5,20 @@
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse, CopilotModelInfo } from './electron-ipc.service';
 import type { ModelDisplayInfo } from '../../../../../shared/types/provider.types';
+import type {
+  UnifiedModelEntry,
+  CatalogStatus,
+} from '../../../../../shared/types/unified-model-catalog.types';
+
+export interface UnifiedCatalogSnapshot {
+  models: UnifiedModelEntry[];
+  status: CatalogStatus;
+}
+
+export interface CatalogUpdatedPushPayload {
+  totalEntries: number;
+  sources: string[];
+}
 
 @Injectable({ providedIn: 'root' })
 export class ProviderIpcService {
@@ -119,6 +133,32 @@ export class ProviderIpcService {
     } catch {
       // Catalog enrichment is best-effort; discovery already updated the picker.
     }
+  }
+
+  /**
+   * Read the full unified model catalog (static + models.dev + CLI-discovered)
+   * from the main process.
+   */
+  async getUnifiedModelCatalog(): Promise<{
+    success: boolean;
+    data?: UnifiedCatalogSnapshot;
+    error?: { message: string };
+  }> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.getUnifiedModelCatalog() as Promise<{
+      success: boolean;
+      data?: UnifiedCatalogSnapshot;
+      error?: { message: string };
+    }>;
+  }
+
+  /**
+   * Subscribe to unified-catalog refreshes (main -> renderer). Returns an
+   * unsubscribe function; a no-op outside Electron.
+   */
+  onModelsCatalogUpdated(callback: (payload: CatalogUpdatedPushPayload) => void): () => void {
+    if (!this.api?.onModelsCatalogUpdated) return () => { /* no-op outside Electron */ };
+    return this.api.onModelsCatalogUpdated(callback);
   }
 
   // ============================================

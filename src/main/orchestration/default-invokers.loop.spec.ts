@@ -78,7 +78,10 @@ vi.mock('../core/circuit-breaker', () => ({
 }));
 
 vi.mock('../core/failover-error', () => ({ coerceToFailoverError: vi.fn(() => null) }));
-vi.mock('../../shared/types/provider.types', () => ({ getDefaultModelForCli: vi.fn(() => 'default-model') }));
+vi.mock('../../shared/types/provider.types', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../shared/types/provider.types')>()),
+  getDefaultModelForCli: vi.fn(() => 'default-model'),
+}));
 
 import { registerDefaultLoopInvoker, buildLoopBranchSelectorDeps } from './default-invokers';
 import type { BranchSelectInput } from './loop-branch-select';

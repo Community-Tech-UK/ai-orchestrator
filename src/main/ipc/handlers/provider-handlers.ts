@@ -8,7 +8,11 @@ import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import type { ProviderType } from '../../../shared/types/provider.types';
 import { getProviderInstanceManager } from '../../providers';
 import { getProviderPluginsManager } from '../../providers/provider-plugins';
-import { getUnifiedModelCatalog } from '../../providers/unified-model-catalog-service';
+import {
+  getUnifiedModelCatalog,
+  CATALOG_UPDATED_EVENT,
+  type CatalogUpdatedPayload,
+} from '../../providers/unified-model-catalog-service';
 import type { WindowManager } from '../../window-manager';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
@@ -494,4 +498,16 @@ export function registerProviderHandlers(
       .getMainWindow()
       ?.webContents.send(IPC_CHANNELS.PLUGINS_ERROR, { pluginId, error: error.message });
   });
+
+  // Forward unified-catalog refreshes to the renderer (A1 consume-half) so a
+  // UnifiedCatalogStore can live-refresh pickers when models.dev/CLI discovery
+  // updates the catalog. The payload mirrors CatalogUpdatedPayload.
+  getUnifiedModelCatalog().on(
+    CATALOG_UPDATED_EVENT,
+    (payload: CatalogUpdatedPayload) => {
+      deps.windowManager
+        .getMainWindow()
+        ?.webContents.send(IPC_CHANNELS.MODELS_CATALOG_UPDATED, payload);
+    },
+  );
 }
