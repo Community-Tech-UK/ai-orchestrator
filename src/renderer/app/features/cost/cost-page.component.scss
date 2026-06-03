@@ -1,0 +1,311 @@
+:host {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+.page {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* ── Header ─────────────────────────────────────── */
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.header-title {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.header-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+/* ── Buttons ────────────────────────────────────── */
+.header-btn,
+.btn {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.header-btn:hover,
+.btn:hover:not(:disabled) {
+  background: var(--bg-secondary);
+}
+
+.btn.primary {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+}
+
+.btn.primary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Banners ────────────────────────────────────── */
+.error-banner,
+.info-banner,
+.alert-banner {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.error-banner {
+  border: 1px solid color-mix(in srgb, var(--error-color) 60%, transparent);
+  background: color-mix(in srgb, var(--error-color) 14%, transparent);
+  color: var(--error-color);
+}
+
+.info-banner {
+  border: 1px solid color-mix(in srgb, var(--primary-color) 60%, transparent);
+  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+  color: var(--text-primary);
+}
+
+.alert-banner {
+  border: 1px solid color-mix(in srgb, #f97316 60%, transparent);
+  background: color-mix(in srgb, #f97316 12%, transparent);
+  color: #f97316;
+}
+
+/* ── Metric cards ───────────────────────────────── */
+.metrics-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--spacing-md);
+}
+
+.metric-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  text-align: center;
+}
+
+.metric-card.over-budget {
+  border-color: var(--error-color);
+}
+
+.metric-value {
+  font-size: 28px;
+  font-weight: 700;
+  font-family: var(--font-family-mono);
+  line-height: 1.2;
+}
+
+.metric-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: var(--spacing-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.metric-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  font-family: var(--font-family-mono);
+}
+
+/* ── Charts ─────────────────────────────────────── */
+.charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+}
+
+.chart-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+}
+
+.chart-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--spacing-sm);
+}
+
+/* ── Panel cards ────────────────────────────────── */
+.panel-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ── Tables ─────────────────────────────────────── */
+.table-wrapper {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.data-table th,
+.data-table td {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.data-table th {
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.data-table tr:hover td {
+  background: var(--bg-tertiary);
+}
+
+.num-col {
+  text-align: right;
+}
+
+.provider-cell {
+  font-weight: 500;
+}
+
+.truncate-col {
+  max-width: 140px;
+}
+
+.truncate-cell {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--font-family-mono);
+}
+
+/* ── Bar cells (cost percentage visualisation) ── */
+.bar-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  justify-content: flex-end;
+}
+
+.bar-fill {
+  height: 6px;
+  min-width: 2px;
+  max-width: 80px;
+  background: var(--primary-color);
+  border-radius: 3px;
+  opacity: 0.7;
+}
+
+.bar-label {
+  font-size: 11px;
+  font-family: var(--font-family-mono);
+  min-width: 38px;
+  text-align: right;
+}
+
+.empty-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: var(--spacing-sm) 0;
+}
+
+/* ── Budget form ────────────────────────────────── */
+.budget-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--spacing-md);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.input {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: 12px;
+  font-family: var(--font-family-mono);
+  transition: border-color var(--transition-fast);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.budget-actions {
+  display: flex;
+  justify-content: flex-end;
+}

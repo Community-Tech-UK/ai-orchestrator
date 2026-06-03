@@ -7,10 +7,23 @@
  */
 
 import { TestBed } from '@angular/core/testing';
+import {
+  ɵresolveComponentResources as resolveComponentResources,
+} from '@angular/core';
 import { RouterTestingModule } from '@angular/router/testing';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CostPageComponent, type CostSummaryData, type CostEntry } from './cost-page.component';
 import { CostIpcService } from '../../core/services/ipc/cost-ipc.service';
+
+await resolveComponentResources((url) => {
+  if (
+    url.endsWith('cost-page.component.html') ||
+    url.endsWith('cost-page.component.scss')
+  ) {
+    return Promise.resolve('');
+  }
+  return Promise.reject(new Error(`Unexpected resource: ${url}`));
+});
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

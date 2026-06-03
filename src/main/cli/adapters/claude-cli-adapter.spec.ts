@@ -10,7 +10,11 @@ vi.mock('../../logging/logger', () => ({
   }),
 }));
 
-import { ClaudeCliAdapter } from './claude-cli-adapter';
+import {
+  ClaudeCliAdapter,
+  helpAdvertisesExcludeDynamicSections,
+  EXCLUDE_DYNAMIC_SECTIONS_FLAG,
+} from './claude-cli-adapter';
 import { createClaudeAdapter } from './adapter-factory';
 
 describe('ClaudeCliAdapter AskUserQuestion handling', () => {
@@ -255,5 +259,53 @@ describe('ClaudeCliAdapter deferred-permission tool_input', () => {
     };
     expect(payload.metadata?.['type']).toBe('deferred_permission');
     expect(Object.prototype.hasOwnProperty.call(payload.metadata, 'tool_input')).toBe(false);
+  });
+});
+
+describe('helpAdvertisesExcludeDynamicSections (C1 remote-worker fix)', () => {
+  it('detects the flag in a supporting CLI --help output', () => {
+    expect(
+      helpAdvertisesExcludeDynamicSections(
+        'Options:\n  --version\n  --exclude-dynamic-system-prompt-sections  Move sections\n  --help',
+      ),
+    ).toBe(true);
+  });
+
+  it('returns false when an older CLI --help omits the flag', () => {
+    expect(
+      helpAdvertisesExcludeDynamicSections('Usage: claude [options]\n  --version\n  --help'),
+    ).toBe(false);
+  });
+});
+
+describe('ClaudeCliAdapter exclude-dynamic-sections capability gating', () => {
+  function getBuildArgs(adapter: ClaudeCliAdapter): string[] {
+    return (
+      adapter as unknown as {
+        buildArgs: (message: { role: 'user'; content: string }) => string[];
+      }
+    ).buildArgs({ role: 'user', content: 'test' });
+  }
+  function setSupport(adapter: ClaudeCliAdapter, value: boolean | null): void {
+    (adapter as unknown as { excludeDynamicSectionsSupported: boolean | null })
+      .excludeDynamicSectionsSupported = value;
+  }
+
+  it('includes the flag only when the CLI is confirmed to support it', () => {
+    const adapter = createClaudeAdapter({});
+    setSupport(adapter, true);
+    expect(getBuildArgs(adapter)).toContain(EXCLUDE_DYNAMIC_SECTIONS_FLAG);
+  });
+
+  it('omits the flag when the CLI does NOT support it (older remote worker)', () => {
+    const adapter = createClaudeAdapter({});
+    setSupport(adapter, false);
+    expect(getBuildArgs(adapter)).not.toContain(EXCLUDE_DYNAMIC_SECTIONS_FLAG);
+  });
+
+  it('omits the flag when support is unprobed (null) — safe default', () => {
+    const adapter = createClaudeAdapter({});
+    setSupport(adapter, null);
+    expect(getBuildArgs(adapter)).not.toContain(EXCLUDE_DYNAMIC_SECTIONS_FLAG);
   });
 });

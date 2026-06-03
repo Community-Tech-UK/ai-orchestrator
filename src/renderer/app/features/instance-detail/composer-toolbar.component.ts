@@ -5,17 +5,18 @@
  * Provides:
  *   (a) Context-usage ring — small circular SVG indicator of context window % used
  *   (b) Model picker — reuses CompactModelPickerComponent in pending-create mode
- *   (c) Effort selector — 3-state control for low / medium / high reasoning effort
  *
- * Model changes call orchestrationIpc.changeModel() directly (per-instance IPC),
- * which is the same call the instance-header uses. Per-message model switching is
- * not a distinct backend concept; this wires to the per-instance changeModel.
+ * Reasoning effort is owned entirely by the model picker (it exposes the full,
+ * provider-aware tier set per model and applies the provider default). The toolbar
+ * no longer carries a separate low/med/high effort control — that duplicated the
+ * picker's value with a fixed 3-tier vocabulary and a `medium` default that could
+ * silently downgrade providers (e.g. Claude defaults to High).
  *
- * Effort selection is held as local signal state and emitted via (effortChange) so
- * the parent can attach it to the next sendMessage call if desired.  The current
- * backend does not accept a per-message effort override in sendInput, so the
- * toolbar also calls changeModel(model, effort) to propagate the effort selection
- * to the running instance immediately.
+ * Model/effort changes call InstanceIpcService.changeModel() directly (per-instance
+ * IPC), which is the same call the instance-header uses. Per-message model switching
+ * is not a distinct backend concept; this wires to the per-instance changeModel,
+ * which tears down and respawns the CLI with the new flags and resumes the session,
+ * so conversation context is preserved.
  */
 
 import {
@@ -25,7 +26,6 @@ import {
   inject,
   input,
   OnInit,
-  output,
   signal,
 } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
@@ -34,17 +34,7 @@ import { InstanceIpcService } from '../../core/services/ipc';
 import type { ContextUsage } from '../../core/state/instance/instance.types';
 import type { InstanceProvider } from '../../core/state/instance/instance.types';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
-import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 import { DEFAULT_INSTANCE_PROVIDERS } from '../models/provider-menu.component';
-
-/** The three effort tiers surfaced in the toolbar. */
-export type ToolbarEffort = 'low' | 'medium' | 'high';
-
-const EFFORT_REASONING_MAP: Record<ToolbarEffort, ReasoningEffort> = {
-  low: 'low',
-  medium: 'medium',
-  high: 'high',
-};
 
 /** Circumference of the SVG ring (r=8, so C ≈ 50.27). */
 const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
@@ -102,21 +92,6 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
           (selectionChange)="onPickerSelectionChange($event)"
         />
       }
-
-      <!-- (c) Effort selector -->
-      <div class="effort-group" role="group" aria-label="Reasoning effort">
-        @for (tier of effortTiers; track tier.value) {
-          <button
-            type="button"
-            class="effort-btn"
-            [class.effort-btn--active]="selectedEffort() === tier.value"
-            (click)="onEffortClick(tier.value)"
-            [title]="tier.title"
-          >
-            {{ tier.label }}
-          </button>
-        }
-      </div>
     </div>
   `,
   styles: [`
@@ -167,43 +142,6 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
       min-width: 26px;
       letter-spacing: 0.02em;
     }
-
-    /* ── Effort selector ── */
-    .effort-group {
-      display: inline-flex;
-      gap: 0;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 13px;
-      overflow: hidden;
-      margin-left: auto;
-    }
-
-    .effort-btn {
-      padding: 3px 9px;
-      background: transparent;
-      border: none;
-      color: var(--text-muted);
-      font: 11px var(--font-mono, monospace);
-      font-weight: 500;
-      cursor: pointer;
-      text-transform: lowercase;
-      letter-spacing: 0.04em;
-      transition: background 0.15s, color 0.15s;
-
-      &:hover {
-        background: rgba(255, 255, 255, 0.05);
-        color: var(--text-secondary);
-      }
-
-      &.effort-btn--active {
-        background: rgba(var(--primary-rgb), 0.18);
-        color: var(--primary-color);
-      }
-    }
-
-    .effort-btn + .effort-btn {
-      border-left: 1px solid rgba(255, 255, 255, 0.07);
-    }
   `],
 })
 export class ComposerToolbarComponent implements OnInit {
@@ -221,22 +159,11 @@ export class ComposerToolbarComponent implements OnInit {
   /** Current model for the instance (drives picker initial state). */
   currentModel = input<string | undefined>(undefined);
 
-  /** Emitted whenever the user changes effort. */
-  effortChange = output<ToolbarEffort>();
-
   /** Provider list for the picker — same wide list used by new-session. */
   readonly pickerProviders = DEFAULT_INSTANCE_PROVIDERS;
 
-  readonly effortTiers: { value: ToolbarEffort; label: string; title: string }[] = [
-    { value: 'low',    label: 'low',    title: 'Low reasoning effort' },
-    { value: 'medium', label: 'med',    title: 'Medium reasoning effort' },
-    { value: 'high',   label: 'high',   title: 'High reasoning effort' },
-  ];
-
   /** Holds the user's pending selection in the picker. Initialised in ngOnInit. */
   readonly pendingSelection = signal<PendingSelection | null>(null);
-
-  readonly selectedEffort = signal<ToolbarEffort>('medium');
 
   // ── Computed for the ring ──
 
@@ -284,25 +211,11 @@ export class ComposerToolbarComponent implements OnInit {
     // Only send IPC when we have a real model selected.
     if (!sel.model) return;
 
-    const reasoningEffort = sel.reasoning
-      ? sel.reasoning
-      : (EFFORT_REASONING_MAP[this.selectedEffort()] as ReasoningEffort);
+    // Reasoning effort is owned by the picker. When the user didn't pick a
+    // level (reasoning === null), pass undefined so the backend preserves the
+    // instance's current effort rather than forcing a default.
+    const reasoningEffort = sel.reasoning ?? undefined;
 
     await this.ipc.changeModel(this.instanceId(), sel.model, reasoningEffort);
-  }
-
-  async onEffortClick(effort: ToolbarEffort): Promise<void> {
-    this.selectedEffort.set(effort);
-    this.effortChange.emit(effort);
-
-    // Propagate the effort change to the running instance if a model is known.
-    const model = this.pendingSelection()?.model ?? this.currentModel();
-    if (!model) return;
-
-    await this.ipc.changeModel(
-      this.instanceId(),
-      model,
-      EFFORT_REASONING_MAP[effort],
-    );
   }
 }

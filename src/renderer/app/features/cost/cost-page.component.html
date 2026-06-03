@@ -1,0 +1,293 @@
+<div class="page">
+  <!-- Page header -->
+  <div class="page-header">
+    <button class="header-btn" type="button" (click)="goBack()">← Back</button>
+    <div class="header-title">
+      <span class="title">Usage & Cost Analytics</span>
+      <span class="subtitle">Token usage, costs, and budget management</span>
+    </div>
+    <div class="header-actions">
+      <button class="btn" type="button" [disabled]="working()" (click)="refreshAll(true)">
+        Refresh
+      </button>
+    </div>
+  </div>
+
+  <!-- Error banner -->
+  @if (errorMessage()) {
+    <div class="error-banner">{{ errorMessage() }}</div>
+  }
+
+  <!-- Info banner -->
+  @if (infoMessage()) {
+    <div class="info-banner">{{ infoMessage() }}</div>
+  }
+
+  <!-- Budget alert banner -->
+  @if (budgetAlert()) {
+    <div class="alert-banner">{{ budgetAlert() }}</div>
+  }
+
+  <!-- Metric cards row 1: cost & session aggregates -->
+  <div class="metrics-row">
+    <div class="metric-card">
+      <div class="metric-value">\${{ totalCost().toFixed(4) }}</div>
+      <div class="metric-label">Total Spend</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-value">{{ requestCount() }}</div>
+      <div class="metric-label">API Requests</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-value">{{ sessionCount() }}</div>
+      <div class="metric-label">Sessions</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-value">\${{ avgCostPerSession().toFixed(4) }}</div>
+      <div class="metric-label">Avg Cost / Session</div>
+    </div>
+  </div>
+
+  <!-- Metric cards row 2: token totals -->
+  <div class="metrics-row">
+    <div class="metric-card">
+      <div class="metric-value">{{ formatTokens(totalInputTokens()) }}</div>
+      <div class="metric-label">Input Tokens</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-value">{{ formatTokens(totalOutputTokens()) }}</div>
+      <div class="metric-label">Output Tokens</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-value">{{ formatTokens(totalCacheTokens()) }}</div>
+      <div class="metric-label">Cache Tokens</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-value">{{ formatTokens(totalTokens()) }}</div>
+      <div class="metric-label">Total Tokens</div>
+    </div>
+  </div>
+
+  <!-- Budget status row -->
+  <div class="metrics-row">
+    <div class="metric-card" [class.over-budget]="budgetStatus().daily.percentage >= 100">
+      <div class="metric-value">{{ budgetStatus().daily.percentage.toFixed(1) }}%</div>
+      <div class="metric-label">Daily Budget Used</div>
+      <div class="metric-sub">\${{ budgetStatus().daily.usage.toFixed(4) }} / \${{ budgetStatus().daily.limit.toFixed(2) }}</div>
+    </div>
+    <div class="metric-card" [class.over-budget]="budgetStatus().weekly.percentage >= 100">
+      <div class="metric-value">{{ budgetStatus().weekly.percentage.toFixed(1) }}%</div>
+      <div class="metric-label">Weekly Budget Used</div>
+      <div class="metric-sub">\${{ budgetStatus().weekly.usage.toFixed(4) }} / \${{ budgetStatus().weekly.limit.toFixed(2) }}</div>
+    </div>
+    <div class="metric-card" [class.over-budget]="budgetStatus().monthly.percentage >= 100">
+      <div class="metric-value">{{ budgetStatus().monthly.percentage.toFixed(1) }}%</div>
+      <div class="metric-label">Monthly Budget Used</div>
+      <div class="metric-sub">\${{ budgetStatus().monthly.usage.toFixed(4) }} / \${{ budgetStatus().monthly.limit.toFixed(2) }}</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-value">{{ modelCount() }}</div>
+      <div class="metric-label">Models Used</div>
+    </div>
+  </div>
+
+  <!-- Charts row -->
+  <div class="charts-row">
+    <!-- Cost over time -->
+    <div class="chart-card">
+      <div class="chart-title">Cost Over Time</div>
+      <app-echarts-themed
+        [options]="lineChartOptions()"
+        [loading]="loading()"
+        height="260px"
+        emptyMessage="No cost history yet"
+      />
+    </div>
+
+    <!-- Cost by model -->
+    <div class="chart-card">
+      <div class="chart-title">Cost by Model</div>
+      <app-echarts-themed
+        [options]="donutChartOptions()"
+        [loading]="loading()"
+        height="260px"
+        emptyMessage="No model breakdown yet"
+      />
+    </div>
+  </div>
+
+  <!-- Per-model breakdown table -->
+  <div class="panel-card">
+    <div class="panel-title">Per-Model Breakdown</div>
+    @if (modelRows().length > 0) {
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th class="num-col">Cost</th>
+              <th class="num-col">% of Total</th>
+              <th class="num-col">Input Tokens</th>
+              <th class="num-col">Output Tokens</th>
+              <th class="num-col">Requests</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of modelRows(); track row.model) {
+              <tr>
+                <td class="provider-cell">{{ row.model }}</td>
+                <td class="num-col mono">\${{ row.cost.toFixed(6) }}</td>
+                <td class="num-col">
+                  <div class="bar-cell">
+                    <div class="bar-fill" [style.width.%]="row.costPct"></div>
+                    <span class="bar-label">{{ row.costPct.toFixed(1) }}%</span>
+                  </div>
+                </td>
+                <td class="num-col mono">{{ row.inputTokens.toLocaleString() }}</td>
+                <td class="num-col mono">{{ row.outputTokens.toLocaleString() }}</td>
+                <td class="num-col mono">{{ row.requests.toLocaleString() }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    } @else {
+      <div class="empty-hint">No model usage recorded yet.</div>
+    }
+  </div>
+
+  <!-- Per-session breakdown table -->
+  <div class="panel-card">
+    <div class="panel-title">Per-Session Breakdown</div>
+    @if (sessionRows().length > 0) {
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Session ID</th>
+              <th class="num-col">Cost</th>
+              <th class="num-col">% of Total</th>
+              <th class="num-col">Tokens</th>
+              <th class="num-col">Requests</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of sessionRows(); track row.sessionId) {
+              <tr>
+                <td class="mono truncate-cell">{{ row.sessionId }}</td>
+                <td class="num-col mono">\${{ row.cost.toFixed(6) }}</td>
+                <td class="num-col">
+                  <div class="bar-cell">
+                    <div class="bar-fill" [style.width.%]="row.costPct"></div>
+                    <span class="bar-label">{{ row.costPct.toFixed(1) }}%</span>
+                  </div>
+                </td>
+                <td class="num-col mono">{{ row.tokens.toLocaleString() }}</td>
+                <td class="num-col mono">{{ row.requests.toLocaleString() }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    } @else {
+      <div class="empty-hint">No session data recorded yet.</div>
+    }
+  </div>
+
+  <!-- Recent entries table -->
+  <div class="panel-card">
+    <div class="panel-title">Recent Entries</div>
+    @if (entries().length > 0) {
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Model</th>
+              <th class="truncate-col">Instance ID</th>
+              <th class="truncate-col">Session ID</th>
+              <th class="num-col">Input Tokens</th>
+              <th class="num-col">Output Tokens</th>
+              <th class="num-col">Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (entry of entries(); track entry.id) {
+              <tr>
+                <td class="mono">{{ formatTimestamp(entry.timestamp) }}</td>
+                <td>{{ entry.model }}</td>
+                <td class="mono truncate-cell" [title]="entry.instanceId">{{ entry.instanceId }}</td>
+                <td class="mono truncate-cell" [title]="entry.sessionId">{{ entry.sessionId }}</td>
+                <td class="num-col mono">{{ entry.inputTokens.toLocaleString() }}</td>
+                <td class="num-col mono">{{ entry.outputTokens.toLocaleString() }}</td>
+                <td class="num-col mono">\${{ entry.cost.toFixed(6) }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    } @else {
+      <div class="empty-hint">No usage recorded yet.</div>
+    }
+  </div>
+
+  <!-- Budget config panel -->
+  <div class="panel-card">
+    <div class="panel-title">Budget Configuration</div>
+    <div class="budget-grid">
+      <label class="field">
+        <span class="label">Daily Limit ($)</span>
+        <input
+          class="input"
+          type="number"
+          min="0"
+          step="0.01"
+          [value]="budgetDaily() ?? ''"
+          (input)="onBudgetDailyInput($event)"
+          placeholder="No limit"
+        />
+      </label>
+      <label class="field">
+        <span class="label">Weekly Limit ($)</span>
+        <input
+          class="input"
+          type="number"
+          min="0"
+          step="0.01"
+          [value]="budgetWeekly() ?? ''"
+          (input)="onBudgetWeeklyInput($event)"
+          placeholder="No limit"
+        />
+      </label>
+      <label class="field">
+        <span class="label">Monthly Limit ($)</span>
+        <input
+          class="input"
+          type="number"
+          min="0"
+          step="0.01"
+          [value]="budgetMonthly() ?? ''"
+          (input)="onBudgetMonthlyInput($event)"
+          placeholder="No limit"
+        />
+      </label>
+      <label class="field">
+        <span class="label">Per-Session Limit ($)</span>
+        <input
+          class="input"
+          type="number"
+          min="0"
+          step="0.01"
+          [value]="budgetPerSession() ?? ''"
+          (input)="onBudgetPerSessionInput($event)"
+          placeholder="No limit"
+        />
+      </label>
+    </div>
+    <div class="budget-actions">
+      <button class="btn primary" type="button" [disabled]="working()" (click)="saveBudget()">
+        Save Budget
+      </button>
+    </div>
+  </div>
+</div>

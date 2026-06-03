@@ -43,40 +43,24 @@ import type {
   DeferredToolUse,
   ClaudeCliSpawnOptions,
 } from './claude-cli-adapter.types';
+import {
+  EXCLUDE_DYNAMIC_SECTIONS_FLAG,
+  detectExcludeDynamicSectionsSupport,
+  helpAdvertisesExcludeDynamicSections,
+  isVersionAtLeast,
+} from './claude-cli-feature-probes';
 
 export type { DeferredToolUse } from './claude-cli-adapter.types';
 export type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
 export type { InputRequiredPayload } from './claude-cli-adapter.types';
 export type { ClaudeCliAdapterEvents } from './claude-cli-adapter.types';
+export { EXCLUDE_DYNAMIC_SECTIONS_FLAG, helpAdvertisesExcludeDynamicSections };
 
 const logger = getLogger('ClaudeCliAdapter');
 
 /** Minimum Claude CLI version that supports the `defer` permission decision.
  *  VALIDATED: defer works in CLI 2.1.98. Conservative estimate for first release. */
 export const DEFER_MIN_VERSION = '2.1.90';
-
-function isVersionAtLeast(version: string | undefined, minimumVersion: string): boolean {
-  if (!version || version === 'unknown') {
-    return false;
-  }
-
-  const currentParts = version.split('.').map((part) => Number.parseInt(part, 10));
-  const minimumParts = minimumVersion.split('.').map((part) => Number.parseInt(part, 10));
-  const maxLength = Math.max(currentParts.length, minimumParts.length);
-
-  for (let index = 0; index < maxLength; index += 1) {
-    const currentPart = Number.isFinite(currentParts[index]) ? currentParts[index] : 0;
-    const minimumPart = Number.isFinite(minimumParts[index]) ? minimumParts[index] : 0;
-    if (currentPart > minimumPart) {
-      return true;
-    }
-    if (currentPart < minimumPart) {
-      return false;
-    }
-  }
-
-  return true;
-}
 
 /**
  * Claude CLI Adapter - Implementation for Claude Code CLI
@@ -105,6 +89,13 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private deferredToolUse: DeferredToolUse | null = null;
   /** Cached CLI status so defer-hook feature gating only probes the CLI once per adapter. */
   private cachedCliStatus: CliStatus | null = null;
+  /**
+   * Cached: whether THIS CLI binary accepts `--exclude-dynamic-system-prompt-sections`,
+   * detected from `--help`. `null` until probed. Strictly gates the flag in buildArgs
+   * so an older CLI (e.g. on a remote worker) never receives an option it rejects.
+   */
+  private excludeDynamicSectionsSupported: boolean | null = null;
+  private excludeSupportPromise: Promise<boolean> | null = null;
   private cliStatusPromise: Promise<CliStatus> | null = null;
 
   constructor(options: ClaudeCliSpawnOptions = {}) {
@@ -331,6 +322,33 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     });
 
     return this.cliStatusPromise;
+  }
+
+  /**
+   * Probe `<cli> --help` once (cached) to learn whether this binary supports the
+   * exclude-dynamic-sections flag. Fail-safe: any probe failure resolves to
+   * `false`, so an unconfirmed CLI simply loses the optimization rather than
+   * erroring on an unknown option.
+   */
+  private detectExcludeDynamicSupport(): Promise<boolean> {
+    if (this.excludeDynamicSectionsSupported !== null) {
+      return Promise.resolve(this.excludeDynamicSectionsSupported);
+    }
+    if (this.excludeSupportPromise) {
+      return this.excludeSupportPromise;
+    }
+    this.excludeSupportPromise = detectExcludeDynamicSectionsSupport(
+      () => this.spawnProcess(['--help']),
+    ).then((supported) => {
+      this.excludeDynamicSectionsSupported = supported;
+      this.excludeSupportPromise = null;
+      return supported;
+    }, () => {
+      this.excludeDynamicSectionsSupported = false;
+      this.excludeSupportPromise = null;
+      return false;
+    });
+    return this.excludeSupportPromise;
   }
 
   async sendMessage(message: CliMessage): Promise<CliResponse> {
@@ -754,9 +772,14 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     }
 
     // Move per-machine dynamic sections from system prompt to first user message
-    // for better cross-instance prompt cache hit rates
-    if (this.spawnOptions.excludeDynamicSystemPromptSections) {
-      args.push('--exclude-dynamic-system-prompt-sections');
+    // for better cross-instance prompt cache hit rates. Only pass the flag to a CLI
+    // that actually supports it (detected from --help in primeCliVersion); an older
+    // CLI — e.g. on a remote worker node — rejects the unknown option and the spawn
+    // fails. Strict `=== true`: omit when support is unconfirmed (safe — just loses
+    // the optimization). Live-verified against a Windows worker (2026-06-03).
+    if (this.spawnOptions.excludeDynamicSystemPromptSections
+        && this.excludeDynamicSectionsSupported === true) {
+      args.push(EXCLUDE_DYNAMIC_SECTIONS_FLAG);
     }
 
     const permissionHookEnabled = !this.spawnOptions.yoloMode && this.shouldUsePermissionHook();
@@ -1868,6 +1891,12 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   private async primeCliVersion(): Promise<void> {
+    // Detect only when the optional optimization is enabled. The default send
+    // path never uses the flag, so an unconditional help probe would add a
+    // blocking child process before every first message.
+    if (this.spawnOptions.excludeDynamicSystemPromptSections) {
+      await this.detectExcludeDynamicSupport();
+    }
     if (this.spawnOptions.yoloMode || !this.spawnOptions.permissionHookPath) {
       return;
     }

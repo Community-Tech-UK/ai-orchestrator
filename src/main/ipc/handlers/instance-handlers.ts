@@ -4,13 +4,11 @@
  */
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
-import ElectronStore from 'electron-store';
 import { getLogger } from '../../logging/logger';
 import { getIdempotencyStore, IdempotencyStore } from '../../transport/idempotency-store';
 import { IPC_CHANNELS } from '@contracts/channels';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
-import { generateId } from '../../../shared/utils/id-generator';
-import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
+import type { FileAttachment } from '../../../shared/types/instance.types';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   InputRequiredResponsePayloadSchema,
@@ -37,74 +35,10 @@ import { getCompactionCoordinator } from '../../context/compaction-coordinator';
 import { getRemoteObserverServer } from '../../remote/observer-server';
 import { getSelfPermissionGranter } from '../../security/self-permission-granter';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
+import { clearInstanceQueueStore, loadAllInstanceQueues, saveInstanceQueue } from './instance-queue-store';
+import { createInitialUserMessage, serializeInstance } from './instance-handler-serializers';
 
 const logger = getLogger('InstanceHandlers');
-
-interface PersistedQueueEntry {
-  message: string;
-  hadAttachmentsDropped: boolean;
-  retryCount?: number;
-  seededAlready?: boolean;
-  kind?: 'queue' | 'steer';
-}
-
-interface QueueStoreShape {
-  queues?: Record<string, PersistedQueueEntry[]>;
-}
-
-interface Store<T> {
-  store: T;
-  set<K extends keyof T>(key: K, value: T[K]): void;
-  clear(): void;
-}
-
-let queueStore: Store<QueueStoreShape> | null = null;
-
-function getQueueStore(): Store<QueueStoreShape> {
-  queueStore ??= new ElectronStore<QueueStoreShape>({
-    name: 'instance-message-queue',
-  }) as unknown as Store<QueueStoreShape>;
-  return queueStore;
-}
-
-/**
- * Serialize instance for IPC response
- */
-function serializeInstance(
-  instance: object & { communicationTokens?: unknown }
-): Record<string, unknown> {
-  const record = { ...(instance as Record<string, unknown>) };
-  const communicationTokens = record['communicationTokens'];
-  delete record['readyPromise'];
-  delete record['respawnPromise'];
-  delete record['abortController'];
-
-  return {
-    ...record,
-    communicationTokens:
-      communicationTokens instanceof Map
-        ? Object.fromEntries(communicationTokens)
-        : communicationTokens
-  };
-}
-
-function createInitialUserMessage(
-  message: string,
-  attachments?: FileAttachment[]
-): OutputMessage {
-  return {
-    id: generateId(),
-    timestamp: Date.now(),
-    type: 'user',
-    content: message,
-    attachments: attachments?.map((attachment) => ({
-      name: attachment.name,
-      type: attachment.type,
-      size: attachment.size,
-      data: attachment.data,
-    })),
-  };
-}
 
 export function registerInstanceHandlers(deps: {
   instanceManager: InstanceManager;
@@ -752,11 +686,11 @@ export function registerInstanceHandlers(deps: {
       try {
         const settings = getSettingsManager();
         if (!settings.get('pauseFeatureEnabled')) {
-          getQueueStore().clear();
+          clearInstanceQueueStore();
           return { success: true };
         }
         if (!settings.get('persistSessionContent')) {
-          getQueueStore().clear();
+          clearInstanceQueueStore();
           return { success: true };
         }
 
@@ -765,20 +699,7 @@ export function registerInstanceHandlers(deps: {
           payload,
           'INSTANCE_QUEUE_SAVE'
         );
-        const store = getQueueStore();
-        const queues = { ...(store.store.queues ?? {}) };
-        if (validated.queue.length === 0) {
-          delete queues[validated.instanceId];
-        } else {
-          queues[validated.instanceId] = validated.queue.map((entry) => ({
-            message: entry.message,
-            hadAttachmentsDropped: entry.hadAttachmentsDropped,
-            retryCount: entry.retryCount,
-            seededAlready: entry.seededAlready,
-            kind: entry.kind,
-          }));
-        }
-        store.set('queues', queues);
+        saveInstanceQueue(validated.instanceId, validated.queue);
         return { success: true };
       } catch (error) {
         return {
@@ -797,15 +718,15 @@ export function registerInstanceHandlers(deps: {
     try {
       const settings = getSettingsManager();
       if (!settings.get('pauseFeatureEnabled')) {
-        getQueueStore().clear();
+        clearInstanceQueueStore();
         return { success: true, data: { queues: {} } };
       }
       if (!settings.get('persistSessionContent')) {
-        getQueueStore().clear();
+        clearInstanceQueueStore();
         return { success: true, data: { queues: {} } };
       }
 
-      return { success: true, data: { queues: getQueueStore().store.queues ?? {} } };
+      return { success: true, data: { queues: loadAllInstanceQueues() } };
     } catch (error) {
       return {
         success: false,

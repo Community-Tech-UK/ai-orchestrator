@@ -6,7 +6,6 @@ import type { AddressInfo } from 'net';
 import type { Duplex } from 'stream';
 import { URL } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
-import { crossPlatformBasename } from '../../shared/utils/cross-platform-path';
 import { getLogger } from '../logging/logger';
 import { getIdempotencyStore, IdempotencyStore } from '../transport/idempotency-store';
 import { resolveBindHost } from './tailscale-interface';
@@ -28,7 +27,6 @@ import type {
   MobilePromptDto,
   MobileServerEvent,
   MobileSnapshot,
-  MobileHistorySessionDto,
 } from '../../shared/types/mobile-gateway.types';
 import {
   buildProjects,
@@ -49,7 +47,10 @@ import {
   corsHeaders,
   extractCertHostname,
   readJsonBody,
+  sendJsonResponse,
 } from './mobile-gateway-http-utils';
+import { handleMobileHistory, handleMobileHistoryMessages } from './mobile-gateway-history-handlers';
+import { sendMobileCompletionPush, sendMobilePromptPush } from './mobile-gateway-push';
 
 export {
   buildProjects,
@@ -99,10 +100,6 @@ export interface GatewayRecentDirsSource {
     { path: string; displayName: string; lastAccessed: number; isPinned: boolean }[]
   >;
 }
-
-/** id namespaces so /api/history/:id/messages can route to the right store. */
-const HISTORY_CHAT_PREFIX = 'chat:';
-const HISTORY_INSTANCE_PREFIX = 'inst:';
 
 /**
  * Structural view of InstanceManager the gateway needs. The real InstanceManager
@@ -710,77 +707,20 @@ export class MobileGatewayServer {
   }
 
   private sendPush(prompt: MobilePromptDto): void {
-    try {
-      const sender = this.apnsSender;
-      if (!sender.isConfigured()) return;
-      const tokens = this.registry.apnsTokens();
-      if (tokens.length === 0) return;
-      const instance = this.deps?.instanceManager.getInstance(prompt.instanceId);
-      const where = instance?.workingDirectory
-        ? crossPlatformBasename(instance.workingDirectory)
-        : '';
-      const agent = instance?.displayName || 'Agent';
-      const title =
-        prompt.kind === 'permission'
-          ? prompt.toolName
-            ? `${prompt.toolName} needs approval`
-            : 'Approval needed'
-          : prompt.title;
-      const body = where ? `${agent} · ${where}` : agent;
-      void sender
-        .send(tokens, {
-          title,
-          body,
-          category: 'AIO_APPROVAL',
-          threadId: prompt.instanceId,
-          data: {
-            instanceId: prompt.instanceId,
-            requestId: prompt.requestId,
-            kind: prompt.kind,
-          },
-        })
-        .catch((err) =>
-          logger.debug('APNs send failed', {
-            error: err instanceof Error ? err.message : String(err),
-          }),
-        );
-    } catch (err) {
-      logger.debug('sendPush threw', { error: err instanceof Error ? err.message : String(err) });
-    }
+    sendMobilePromptPush(this.pushDeps(), prompt);
   }
 
   private sendCompletionPush(instanceId: string): void {
-    try {
-      const sender = this.apnsSender;
-      if (!sender.isConfigured()) return;
-      const tokens = this.registry.apnsTokens();
-      if (tokens.length === 0) return;
-      const instance = this.deps?.instanceManager.getInstance(instanceId);
-      const where = instance?.workingDirectory
-        ? crossPlatformBasename(instance.workingDirectory)
-        : '';
-      const agent = instance?.displayName || 'Agent';
-      void sender
-        .send(tokens, {
-          title: `${agent} finished`,
-          body: where ? `Idle · ${where}` : 'Ready for your next message',
-          category: 'AIO_COMPLETE',
-          threadId: instanceId,
-          data: {
-            instanceId,
-            kind: 'completion',
-          },
-        })
-        .catch((err) =>
-          logger.debug('APNs completion send failed', {
-            error: err instanceof Error ? err.message : String(err),
-          }),
-        );
-    } catch (err) {
-      logger.debug('sendCompletionPush threw', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+    sendMobileCompletionPush(this.pushDeps(), instanceId);
+  }
+
+  private pushDeps() {
+    return {
+      apnsSender: this.apnsSender,
+      registry: this.registry,
+      instanceManager: this.deps?.instanceManager ?? null,
+      logger,
+    };
   }
 
   private pauseState(): MobilePauseDto {
@@ -1325,86 +1265,34 @@ export class MobileGatewayServer {
     );
   }
 
-  /**
-   * GET /api/history — persisted sessions, newest first. Merges two stores:
-   * the ChatService chats (live + archived) and the HistoryManager archive of
-   * closed instance sessions (the work run as live agents). Ids are namespaced
-   * (`chat:` / `inst:`) so the transcript route can dispatch to the right store.
-   * Either store being unavailable degrades to "just the other one".
-   */
+  /** GET /api/history — persisted sessions, newest first. */
   private handleHistory(res: ServerResponse): void {
-    const sessions: MobileHistorySessionDto[] = [];
-
-    const chatSource = this.chatHistory;
-    if (chatSource) {
-      try {
-        for (const chat of chatSource.listChats({ includeArchived: true })) {
-          const dto = serializeHistorySession(chat);
-          sessions.push({ ...dto, id: `${HISTORY_CHAT_PREFIX}${dto.id}` });
-        }
-      } catch (err) {
-        logger.warn('Chat history list failed', {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-
-    const instanceSource = this.instanceHistory;
-    if (instanceSource) {
-      try {
-        for (const entry of instanceSource.getEntries({ limit: 500 })) {
-          const dto = serializeInstanceHistorySession(entry);
-          sessions.push({ ...dto, id: `${HISTORY_INSTANCE_PREFIX}${dto.id}` });
-        }
-      } catch (err) {
-        logger.warn('Instance history list failed', {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-
-    sessions.sort((a, b) => b.lastActiveAt - a.lastActiveAt);
-    this.sendJson(res, 200, sessions);
+    handleMobileHistory(
+      {
+        chatHistory: this.chatHistory,
+        instanceHistory: this.instanceHistory,
+        messageReplayLimit: MESSAGE_REPLAY_LIMIT,
+        sendJson: (response, statusCode, payload) => this.sendJson(response, statusCode, payload),
+        logger,
+      },
+      res,
+    );
   }
 
   /** GET /api/history/:id/messages — transcript of one persisted session (chat or instance). */
   private async handleHistoryMessages(res: ServerResponse, id: string): Promise<void> {
-    try {
-      if (id.startsWith(HISTORY_INSTANCE_PREFIX)) {
-        const source = this.instanceHistory;
-        if (!source) {
-          this.sendJson(res, 404, { error: 'History unavailable' });
-          return;
-        }
-        const data = await source.loadConversation(id.slice(HISTORY_INSTANCE_PREFIX.length));
-        if (!data) {
-          this.sendJson(res, 404, { error: 'Session not found' });
-          return;
-        }
-        const messages = (data.messages ?? []).slice(-MESSAGE_REPLAY_LIMIT).map(serializeMessage);
-        this.sendJson(res, 200, messages);
-        return;
-      }
-
-      // Default / `chat:` → the ChatService store.
-      const source = this.chatHistory;
-      if (!source) {
-        this.sendJson(res, 404, { error: 'History unavailable' });
-        return;
-      }
-      const chatId = id.startsWith(HISTORY_CHAT_PREFIX)
-        ? id.slice(HISTORY_CHAT_PREFIX.length)
-        : id;
-      const detail = await source.getChat(chatId);
-      const messages = (detail.conversation.messages ?? [])
-        .slice(-MESSAGE_REPLAY_LIMIT)
-        .map(serializeHistoryMessage);
-      this.sendJson(res, 200, messages);
-    } catch {
-      this.sendJson(res, 404, { error: 'Session not found' });
-    }
+    await handleMobileHistoryMessages(
+      {
+        chatHistory: this.chatHistory,
+        instanceHistory: this.instanceHistory,
+        messageReplayLimit: MESSAGE_REPLAY_LIMIT,
+        sendJson: (response, statusCode, payload) => this.sendJson(response, statusCode, payload),
+        logger,
+      },
+      res,
+      id,
+    );
   }
-
   private async handleApnsToken(
     req: IncomingMessage,
     res: ServerResponse,
@@ -1456,12 +1344,7 @@ export class MobileGatewayServer {
   }
 
   private sendJson(res: ServerResponse, statusCode: number, payload: unknown): void {
-    res.writeHead(statusCode, {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store',
-      ...corsHeaders(),
-    });
-    res.end(JSON.stringify(payload));
+    sendJsonResponse(res, statusCode, payload);
   }
 }
 

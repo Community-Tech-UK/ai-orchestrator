@@ -78,8 +78,8 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/channels/channel-message-router.ts': 2521,
   // Main process — CLI adapters
   'src/main/cli/adapters/acp-cli-adapter.ts': 2142,
-  'src/main/cli/adapters/base-cli-adapter.ts': 830,
-  'src/main/cli/adapters/claude-cli-adapter.ts': 2049,
+  'src/main/cli/adapters/base-cli-adapter.ts': 738,
+  'src/main/cli/adapters/claude-cli-adapter.ts': 2096,
   'src/main/cli/adapters/codex-cli-adapter.ts': 3029,
   'src/main/cli/adapters/copilot-cli-adapter.ts': 978,
   'src/main/cli/adapters/cursor-cli-adapter.ts': 1044,
@@ -100,13 +100,13 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — instance
   'src/main/instance/instance-communication.ts': 2140,
   'src/main/instance/instance-context.ts': 1210,
-  'src/main/instance/instance-lifecycle.ts': 3172,
+  'src/main/instance/instance-lifecycle.ts': 3136,
   'src/main/instance/instance-manager.ts': 2508,
   'src/main/instance/instance-orchestration.ts': 1516,
   'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1071,
   // Main process — IPC handlers
   'src/main/ipc/handlers/app-handlers.ts': 767,
-  'src/main/ipc/handlers/instance-handlers.ts': 1125,
+  'src/main/ipc/handlers/instance-handlers.ts': 1099,
   'src/main/ipc/handlers/mcp-handlers.ts': 941,
   'src/main/ipc/handlers/session-handlers.ts': 1013,
   'src/main/ipc/handlers/vcs-handlers.ts': 978,
@@ -121,7 +121,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/mcp/mcp-manager.ts': 1025,
   'src/main/mcp/mcp-tool-search.ts': 842,
   // Main process — mobile gateway
-  'src/main/mobile-gateway/mobile-gateway-server.ts': 1362,
+  'src/main/mobile-gateway/mobile-gateway-server.ts': 1354,
   // Main process — memory
   'src/main/memory/codebase-miner.ts': 725,
   'src/main/memory/critique-agent.ts': 817,
@@ -145,8 +145,6 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/orchestration/orchestration-handler.ts': 1443,
   'src/main/orchestration/supervisor.ts': 735,
   'src/main/orchestration/voting.ts': 777,
-  // Main process — persistence
-  'src/main/persistence/rlm/rlm-schema.ts': 2136,
   // Main process — plugins
   'src/main/plugins/plugin-manager.ts': 1235,
   // Main process — providers

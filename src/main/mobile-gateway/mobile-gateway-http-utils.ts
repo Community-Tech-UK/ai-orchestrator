@@ -1,5 +1,5 @@
 import { X509Certificate } from 'crypto';
-import type { IncomingMessage } from 'http';
+import type { IncomingMessage, ServerResponse } from 'http';
 
 const MAX_BODY_BYTES = 8 * 1024 * 1024; // generous: input may carry base64 attachments
 
@@ -32,6 +32,19 @@ export function corsHeaders(): Record<string, string> {
     'Access-Control-Allow-Headers': 'authorization, content-type',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   };
+}
+
+export function sendJsonResponse(
+  res: ServerResponse,
+  statusCode: number,
+  payload: unknown,
+): void {
+  res.writeHead(statusCode, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    ...corsHeaders(),
+  });
+  res.end(JSON.stringify(payload));
 }
 
 export function bearerFromHeader(authHeader: string | string[] | undefined): string | undefined {

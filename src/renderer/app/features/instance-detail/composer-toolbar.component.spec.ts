@@ -7,11 +7,10 @@
  *   3. Ring shows 0% when no contextUsage is provided.
  *   4. ringDash encodes the correct arc lengths.
  *   5. ringTitle reflects token counts.
- *   6. selectedEffort defaults to 'medium' and updates on click.
- *   7. effortChange output fires when effort is clicked.
- *   8. onEffortClick calls ipc.changeModel with the correct reasoning effort.
- *   9. onPickerSelectionChange calls ipc.changeModel with the selected model.
- *  10. onPickerSelectionChange is a no-op when model is null.
+ *   6. onPickerSelectionChange calls ipc.changeModel with the selected model
+ *      (reasoning omitted → backend preserves current effort).
+ *   7. onPickerSelectionChange passes the picked reasoning level when set.
+ *   8. onPickerSelectionChange is a no-op when model is null.
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -133,77 +132,25 @@ describe('ComposerToolbarComponent', () => {
     expect(component.ringTitle()).toBe('Context window: no data');
   });
 
-  // ── 6. selectedEffort defaults + updates ─────────────────────────────────
+  // ── 6. onPickerSelectionChange calls ipc.changeModel ─────────────────────
 
-  it('defaults selectedEffort to medium', () => {
-    expect(component.selectedEffort()).toBe('medium');
-  });
-
-  it('updates selectedEffort when onEffortClick is called', async () => {
-    await component.onEffortClick('high');
-    expect(component.selectedEffort()).toBe('high');
-  });
-
-  it('updates selectedEffort back to low', async () => {
-    await component.onEffortClick('low');
-    expect(component.selectedEffort()).toBe('low');
-  });
-
-  // ── 7. effortChange output fires ─────────────────────────────────────────
-
-  it('emits effortChange when effort is clicked', async () => {
-    const emitted: string[] = [];
-    component.effortChange.subscribe((v) => emitted.push(v));
-
-    await component.onEffortClick('high');
-
-    expect(emitted).toContain('high');
-  });
-
-  // ── 8. onEffortClick calls ipc.changeModel with correct reasoningEffort ───
-
-  it('calls changeModel with "high" effort when high is clicked', async () => {
-    // Seed a model via pendingSelection so IPC is called.
-    component.pendingSelection.set({ provider: 'claude', model: 'claude-opus-4-5', reasoning: null });
-
-    await component.onEffortClick('high');
-
-    expect(ipcStub.changeModel).toHaveBeenCalledWith('inst-1', 'claude-opus-4-5', 'high');
-  });
-
-  it('calls changeModel with "low" effort when low is clicked', async () => {
-    component.pendingSelection.set({ provider: 'claude', model: 'claude-sonnet-4-5', reasoning: null });
-
-    await component.onEffortClick('low');
-
-    expect(ipcStub.changeModel).toHaveBeenCalledWith('inst-1', 'claude-sonnet-4-5', 'low');
-  });
-
-  it('does not call changeModel when no model is known', async () => {
-    // Clear everything
-    component.pendingSelection.set(null);
-    overrideInputs(component, { currentModel: undefined });
-
-    await component.onEffortClick('high');
-
-    expect(ipcStub.changeModel).not.toHaveBeenCalled();
-  });
-
-  // ── 9. onPickerSelectionChange calls ipc.changeModel ─────────────────────
-
-  it('calls changeModel with the selected model', async () => {
+  it('calls changeModel with the selected model and no forced effort', async () => {
     await component.onPickerSelectionChange({
       provider: 'claude',
       model: 'claude-3-5-sonnet',
       reasoning: null,
     });
 
+    // reasoning omitted (undefined) so the backend preserves current effort
+    // rather than the old `medium` downgrade.
     expect(ipcStub.changeModel).toHaveBeenCalledWith(
       'inst-1',
       'claude-3-5-sonnet',
-      'medium', // default effort
+      undefined,
     );
   });
+
+  // ── 7. onPickerSelectionChange passes picked reasoning level ─────────────
 
   it('calls changeModel with reasoning effort from the selection when provided', async () => {
     await component.onPickerSelectionChange({
@@ -215,7 +162,7 @@ describe('ComposerToolbarComponent', () => {
     expect(ipcStub.changeModel).toHaveBeenCalledWith('inst-1', 'claude-3-7-sonnet', 'high');
   });
 
-  // ── 10. onPickerSelectionChange is no-op when model is null ──────────────
+  // ── 8. onPickerSelectionChange is no-op when model is null ──────────────
 
   it('does not call changeModel when picker selection has null model', async () => {
     await component.onPickerSelectionChange({ provider: 'claude', model: null, reasoning: null });
