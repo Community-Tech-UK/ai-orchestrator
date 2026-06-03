@@ -131,6 +131,14 @@ export interface ConversationHistoryEntry {
 
   /** External transcript source, when this row was imported rather than archived by Orchestrator. */
   importSource?: HistoryImportSource;
+
+  /**
+   * True when the originating instance was spawned by a scheduled automation
+   * (carried over from `instance.metadata.automationId` at archive time). Drives
+   * the clock indicator in the project rail so automation-born threads are
+   * recognizable at a glance. Absent on manual and legacy threads.
+   */
+  isAutomation?: boolean;
 }
 
 /**

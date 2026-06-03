@@ -219,6 +219,13 @@ export class AutomationRunner {
         modelOverride: claimed.snapshot.action.model,
         forceNodeId: claimed.snapshot.action.forceNodeId,
         reasoningEffort: claimed.snapshot.action.reasoningEffort,
+        // Durable provenance so the rail can mark this session as automation-born
+        // (with a clock indicator) even after AI auto-titling rewrites the
+        // "Automation: …" displayName. Survives archive into the history entry.
+        metadata: {
+          automationId: claimed.run.automationId,
+          automationRunId: claimed.run.id,
+        },
       });
 
       this.trackInstance(instance.id, claimed.run);

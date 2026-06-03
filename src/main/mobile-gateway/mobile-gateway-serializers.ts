@@ -102,7 +102,7 @@ export function serializeInstance(instance: Instance): MobileInstanceDto {
   };
 }
 
-export function serializeMessage(message: OutputMessage): MobileMessageDto {
+export function serializeMessage(message: OutputMessage, seq?: number): MobileMessageDto {
   return {
     id: message.id,
     timestamp: message.timestamp,
@@ -110,6 +110,7 @@ export function serializeMessage(message: OutputMessage): MobileMessageDto {
     content: message.content,
     metadata: message.metadata,
     hasAttachments: Boolean(message.attachments?.length),
+    ...(seq !== undefined ? { seq } : {}),
   };
 }
 

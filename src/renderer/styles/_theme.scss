@@ -79,6 +79,42 @@
   --status-error: #ef4444;
   --status-initializing: #a855f7;
 
+  // ============================================
+  // SEMANTIC STATUS TOKENS
+  // Consistent color vocabulary for all agent/task/pipeline status states.
+  // These alias the base status/semantic color tokens above so they adapt
+  // automatically when base tokens are overridden per theme.
+  //
+  // Usage: prefer these tokens over --success-color / --error-color directly
+  // in component styles so status UI responds to theme changes as a unit.
+  // ============================================
+
+  // Foreground (text / icon) status colors
+  --status-success: var(--success-color);
+  --status-warning: var(--warning-color);
+  // --status-error already declared above as instance state; alias to semantic
+  // error base so both names are available and consistent.
+  --status-error: var(--error-color);
+  --status-info: var(--info-color);
+  // Running = in-progress work; maps to the "busy" amber by default
+  --status-running: var(--status-busy);
+
+  // Background fills for status chips / banners (semi-transparent washes)
+  --status-success-bg: var(--success-bg);
+  --status-warning-bg: var(--warning-bg);
+  --status-error-bg: var(--error-bg);
+  --status-info-bg: var(--info-bg);
+  --status-running-bg: rgba(var(--warning-rgb), 0.1);
+  --status-idle-bg: rgba(var(--success-rgb), 0.1);
+
+  // Border strokes for status chips / banners
+  --status-success-border: var(--success-border);
+  --status-warning-border: var(--warning-border);
+  --status-error-border: var(--error-border);
+  --status-info-border: var(--info-border);
+  --status-running-border: rgba(var(--warning-rgb), 0.2);
+  --status-idle-border: rgba(var(--success-rgb), 0.2);
+
   // Memory type indicators
   --memory-episodic: #3b82f6;
   --memory-procedural: #10b981;
@@ -444,4 +480,145 @@
     --glass-border: rgba(0, 0, 0, 0.06);
     --glass-border-hover: rgba(0, 0, 0, 0.12);
   }
+}
+
+// ============================================
+// HIGH-CONTRAST THEME FAMILY
+// Demonstrates that the semantic token layer supports multiple theme
+// families beyond the baseline light/dark pair.
+//
+// Activate with: document.documentElement.setAttribute('data-theme', 'high-contrast')
+//
+// Design intent: maximum foreground/background separation (WCAG AAA targets),
+// vivid unambiguous status colors, zero transparency in bg/border tokens.
+// ============================================
+:root[data-theme='high-contrast'] {
+  // Backgrounds — pure black ground, hard edges
+  --bg-primary: #000000;
+  --bg-secondary: #0a0a0a;
+  --bg-tertiary: #141414;
+  --bg-elevated: #1c1c1c;
+  --bg-hover: #242424;
+  --bg-selected: #2e2e2e;
+  --bg-active: #383838;
+
+  // Text — pure whites and high-value greys
+  --text-primary: #ffffff;
+  --text-secondary: #e0e0e0;
+  --text-muted: #b0b0b0;
+  --text-disabled: #787878;
+
+  // Borders — high-visibility, no subtle/faint variants
+  --border-subtle: #303030;
+  --border-color: #484848;
+  --border-strong: #606060;
+  --border-light: #787878;
+  --border-focus: #ffdd57;
+
+  // Primary accent — vivid yellow for maximum contrast on black
+  --primary-color: #ffdd57;
+  --primary-hover: #ffe880;
+  --primary-muted: #ccb030;
+  --primary-rgb: 255, 221, 87;
+  --primary-glow: rgba(255, 221, 87, 0.2);
+  --button-on-primary: #000000;
+  --button-on-success: #000000;
+  --button-on-danger: #ffffff;
+
+  --secondary-color: #9ee0c8;
+  --secondary-hover: #b8ead8;
+  --secondary-muted: #6ab89e;
+  --secondary-rgb: 158, 224, 200;
+
+  // Status base colors — vivid, unambiguous, high-contrast
+  --success-color: #00e676;
+  --success-rgb: 0, 230, 118;
+  --success-bg: #003318;
+  --success-border: #006630;
+
+  --warning-color: #ffab40;
+  --warning-rgb: 255, 171, 64;
+  --warning-bg: #331f00;
+  --warning-border: #663d00;
+
+  --error-color: #ff1744;
+  --error-rgb: 255, 23, 68;
+  --error-bg: #330008;
+  --error-border: #660010;
+
+  --info-color: #40c4ff;
+  --info-rgb: 64, 196, 255;
+  --info-bg: #002233;
+  --info-border: #004466;
+
+  // Instance status colors — vivid, distinguishable
+  --status-idle: #00e676;
+  --status-busy: #ffab40;
+  --status-waiting: #40c4ff;
+  --status-error: #ff1744;
+  --status-initializing: #ea80fc;
+
+  // Semantic status tokens — re-point to the high-contrast base colors above
+  --status-success: var(--success-color);
+  --status-warning: var(--warning-color);
+  --status-error: var(--error-color);
+  --status-info: var(--info-color);
+  --status-running: var(--status-busy);
+
+  --status-success-bg: var(--success-bg);
+  --status-warning-bg: var(--warning-bg);
+  --status-error-bg: var(--error-bg);
+  --status-info-bg: var(--info-bg);
+  --status-running-bg: var(--warning-bg);
+  --status-idle-bg: var(--success-bg);
+
+  --status-success-border: var(--success-border);
+  --status-warning-border: var(--warning-border);
+  --status-error-border: var(--error-border);
+  --status-info-border: var(--info-border);
+  --status-running-border: var(--warning-border);
+  --status-idle-border: var(--success-border);
+
+  // Overlays — opaque on high-contrast (no semitransparent washes)
+  --overlay-dark-light: rgba(0, 0, 0, 0.4);
+  --overlay-dark-medium: rgba(0, 0, 0, 0.7);
+  --overlay-dark-strong: rgba(0, 0, 0, 0.9);
+
+  // Glass / frost — disabled on high-contrast (borders do the work)
+  --glass-subtle: rgba(255, 255, 255, 0.04);
+  --glass-light: rgba(255, 255, 255, 0.06);
+  --glass-medium: rgba(255, 255, 255, 0.1);
+  --glass-strong: rgba(255, 255, 255, 0.15);
+  --glass-border: rgba(255, 255, 255, 0.2);
+  --glass-border-hover: rgba(255, 255, 255, 0.35);
+
+  // Shadows — stronger for high-contrast dark surface
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.8);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.8);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.9);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.95);
+
+  // Memory type indicators — vivid variants
+  --memory-episodic: #40c4ff;
+  --memory-procedural: #00e676;
+  --memory-semantic: #ffab40;
+  --memory-short-term: #ea80fc;
+  --memory-long-term: #ff80ab;
+  --memory-unknown: #9e9e9e;
+  --memory-episodic-alpha: rgba(64, 196, 255, 0.2);
+  --memory-procedural-alpha: rgba(0, 230, 118, 0.2);
+  --memory-semantic-alpha: rgba(255, 171, 64, 0.2);
+  --memory-short-term-alpha: rgba(234, 128, 252, 0.2);
+  --memory-long-term-alpha: rgba(255, 128, 171, 0.2);
+  --memory-unknown-alpha: rgba(158, 158, 158, 0.2);
+
+  // Operation status colors — vivid variants
+  --operation-add: #00e676;
+  --operation-update: #40c4ff;
+  --operation-delete: #ff1744;
+  --operation-noop: #9e9e9e;
+
+  // Toast overrides
+  --toast-error-fg: #ff6b8a;
+  --toast-success-fg: #80ffb8;
 }

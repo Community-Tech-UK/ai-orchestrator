@@ -502,6 +502,18 @@
                       </button>
                     </div>
                     <div class="history-entry-meta">
+                      @if (item.entry.isAutomation) {
+                        <span
+                          class="history-entry-automation-clock"
+                          title="Started by a scheduled automation"
+                          aria-label="Automation session"
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="9" />
+                            <path d="M12 7v5l3.5 2" />
+                          </svg>
+                        </span>
+                      }
                       @if (pendingArchiveId() === item.entry.id) {
                         <button
                           type="button"

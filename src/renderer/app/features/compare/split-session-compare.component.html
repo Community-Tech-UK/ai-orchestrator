@@ -1,0 +1,70 @@
+<div class="compare-root">
+
+  <!-- Left pane -->
+  <section class="compare-pane compare-pane--left">
+    <header class="pane-header">
+      <label class="pane-label" for="pane-left-picker">Left agent</label>
+      <select
+        id="pane-left-picker"
+        class="pane-picker"
+        [value]="leftId() ?? ''"
+        (change)="onLeftChange($event)"
+      >
+        <option value="">— none —</option>
+        @for (inst of instances(); track inst.id) {
+          <option [value]="inst.id">{{ instanceLabel(inst) }}</option>
+        }
+      </select>
+    </header>
+
+    <div class="pane-stream">
+      @if (leftId() && leftInstance()) {
+        <app-output-stream
+          [messages]="leftMessages()"
+          [instanceId]="leftId()!"
+          [provider]="leftInstance()!.provider"
+        />
+      } @else {
+        <div class="pane-empty">
+          <span>Select an instance above to compare its output.</span>
+        </div>
+      }
+    </div>
+  </section>
+
+  <!-- Divider -->
+  <div class="compare-divider" aria-hidden="true"></div>
+
+  <!-- Right pane -->
+  <section class="compare-pane compare-pane--right">
+    <header class="pane-header">
+      <label class="pane-label" for="pane-right-picker">Right agent</label>
+      <select
+        id="pane-right-picker"
+        class="pane-picker"
+        [value]="rightId() ?? ''"
+        (change)="onRightChange($event)"
+      >
+        <option value="">— none —</option>
+        @for (inst of instances(); track inst.id) {
+          <option [value]="inst.id">{{ instanceLabel(inst) }}</option>
+        }
+      </select>
+    </header>
+
+    <div class="pane-stream">
+      @if (rightId() && rightInstance()) {
+        <app-output-stream
+          [messages]="rightMessages()"
+          [instanceId]="rightId()!"
+          [provider]="rightInstance()!.provider"
+        />
+      } @else {
+        <div class="pane-empty">
+          <span>Select an instance above to compare its output.</span>
+        </div>
+      }
+    </div>
+  </section>
+
+</div>

@@ -7,13 +7,19 @@
  * (`source-control-inline-diff.component.ts`). Owns no fetch logic —
  * the parent passes a `DiffLoader` instance via the `loader` input
  * and this component reads its signals.
+ *
+ * Rendering groups diff lines into per-hunk blocks so each `@@ … @@`
+ * header is visually separated from the others. This is purely
+ * presentational — no accept/reject backend exists.
  */
 
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   input,
 } from '@angular/core';
+import { groupHunks } from './diff-loader';
 import type { DiffLoader } from './diff-loader';
 
 @Component({
@@ -30,7 +36,14 @@ import type { DiffLoader } from './diff-loader';
       } @else if (f.hunks.length === 0) {
         <div class="diff-empty">No textual changes.</div>
       } @else {
-        <pre class="diff-pre">@for (line of loader().renderedLines(); track $index) {<span class="diff-line diff-line-{{ line.kind }}">{{ line.text }}</span><br />}</pre>
+        <div class="diff-hunks">
+          @for (hunk of hunkGroups(); track $index) {
+            <div class="diff-hunk">
+              <div class="diff-hunk-header">{{ hunk.header.text }}</div>
+              <pre class="diff-pre">@for (line of hunk.body; track $index) {<span class="diff-line diff-line-{{ line.kind }}">{{ line.text }}</span><br />}</pre>
+            </div>
+          }
+        </div>
       }
     } @else {
       <div class="diff-empty">No diff available for this file.</div>
@@ -56,9 +69,33 @@ import type { DiffLoader } from './diff-loader';
       color: var(--error-color);
     }
 
+    .diff-hunks {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .diff-hunk {
+      border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+
+      &:last-child {
+        border-bottom: none;
+      }
+    }
+
+    .diff-hunk-header {
+      padding: 4px 18px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      background: rgba(120, 140, 220, 0.1);
+      color: #8a9be8;
+      border-top: 1px solid rgba(120, 140, 220, 0.15);
+      border-bottom: 1px solid rgba(120, 140, 220, 0.15);
+      user-select: none;
+    }
+
     .diff-pre {
       margin: 0;
-      padding: 8px 0;
+      padding: 4px 0;
       font-family: var(--font-mono);
       font-size: 12px;
       line-height: 1.5;
@@ -84,11 +121,6 @@ import type { DiffLoader } from './diff-loader';
       color: #f0a0a0;
     }
 
-    .diff-line-header {
-      background: rgba(120, 140, 220, 0.1);
-      color: #8a9be8;
-    }
-
     .diff-line-meta {
       color: var(--text-muted);
       opacity: 0.7;
@@ -102,4 +134,7 @@ import type { DiffLoader } from './diff-loader';
 })
 export class SourceControlDiffViewComponent {
   loader = input.required<DiffLoader>();
+
+  /** Flat rendered lines grouped into per-hunk blocks for visual separation. */
+  protected readonly hunkGroups = computed(() => groupHunks(this.loader().renderedLines()));
 }

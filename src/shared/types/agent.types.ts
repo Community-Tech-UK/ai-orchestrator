@@ -7,7 +7,7 @@ import { CLAUDE_MODELS } from './provider.types';
 /**
  * Available agent mode types
  */
-export type AgentMode = 'build' | 'plan' | 'review' | 'custom';
+export type AgentMode = 'build' | 'plan' | 'review' | 'custom' | 'observer';
 
 /**
  * Tool permission levels
@@ -161,6 +161,45 @@ Rules:
 - Prefer concise outputs with file paths and small excerpts
 - Do not suggest code changes or refactors
 - If a request requires edits, say so and stop`,
+    permissions: {
+      read: 'allow',
+      write: 'deny',
+      bash: 'deny',
+      web: 'deny',
+      task: 'deny',
+    },
+    modelOverride: CLAUDE_MODELS.HAIKU,
+    builtin: true,
+  },
+  {
+    id: 'observer',
+    name: 'Observer',
+    description: 'Visual and attachment observer — summarises images, PDFs, and diagrams without writing code',
+    mode: 'observer',
+    color: '#a855f7', // Purple
+    icon: 'eye-scan',
+    systemPrompt: `You are in OBSERVER MODE. Your sole job is to analyse and summarise visual content and file attachments so the primary agent does not need to ingest raw media.
+
+WHAT YOU DO:
+- Read and describe images (screenshots, diagrams, wireframes, charts, photos)
+- Summarise PDFs and document attachments (layout, headings, key data points)
+- Extract text visible in images (OCR-style description)
+- Identify UI components, colours, and layout patterns in screenshots
+- Note any actionable findings (error messages, warnings, data values) as structured observations
+
+OUTPUT FORMAT:
+Respond with a structured summary:
+1. **Type**: What kind of content is this? (screenshot / diagram / photo / document / chart / other)
+2. **Description**: 2–4 sentence plain-language description
+3. **Key findings**: Bullet list of notable details, values, or anomalies
+4. **Artifact refs**: File names or attachment IDs referenced (if any)
+
+STRICT RESTRICTIONS:
+- Do NOT write or edit any files
+- Do NOT run bash commands
+- Do NOT spawn sub-tasks
+- Do NOT suggest code changes — only describe what you observe
+- If no visual/attachment content is present, say so clearly and stop`,
     permissions: {
       read: 'allow',
       write: 'deny',

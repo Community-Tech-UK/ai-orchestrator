@@ -91,6 +91,10 @@ export interface MobileProjectDto {
  * buffered messages straight through. Heavy fields (attachment data, raw
  * thinking) are deliberately omitted from the wire — `hasAttachments` flags
  * their presence for the UI.
+ *
+ * `seq` is the 0-based index of this message in the instance's outputBuffer at
+ * the time of the replay response. Clients persist their last-seen `seq` and
+ * pass it back as `?fromSeq=N` on reconnect to resume from where they left off.
  */
 export interface MobileMessageDto {
   id: string;
@@ -99,6 +103,30 @@ export interface MobileMessageDto {
   content: string;
   metadata?: Record<string, unknown>;
   hasAttachments?: boolean;
+  /** 0-based buffer index used as a resume cursor for `?fromSeq=N` replay. */
+  seq?: number;
+}
+
+/**
+ * Response envelope returned by `GET /api/instances/:id/messages?fromSeq=N`.
+ * The plain array form (no envelope) is returned when `fromSeq` is absent for
+ * backwards-compatibility.
+ */
+export interface MobileMessagesResumeDto {
+  messages: MobileMessageDto[];
+  meta: {
+    /** The `fromSeq` value the client supplied. */
+    fromSeq: number;
+    /** Number of messages returned in this response. */
+    returned: number;
+    /**
+     * True when the gap since `fromSeq` exceeded MESSAGE_REPLAY_LIMIT and the
+     * client should request again (future pagination) or do a full re-sync.
+     */
+    hasMore: boolean;
+    /** The highest `seq` in this response, or `fromSeq` when nothing was returned. */
+    maxSeq: number;
+  };
 }
 
 export type MobileUserActionRequestType =

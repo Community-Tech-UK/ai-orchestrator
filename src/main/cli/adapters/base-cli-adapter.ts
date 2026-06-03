@@ -13,6 +13,8 @@ import { buildCliSpawnOptions } from '../cli-environment';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../../pause/orchestrator-paused-error';
 import type { FileAttachment } from '../../../shared/types/instance.types';
+import type { DegradedReason, DegradedOutputSignals } from './degraded-output-classifier';
+import { classifyDegradedOutput } from './degraded-output-classifier';
 
 const logger = getLogger('BaseCliAdapter');
 
@@ -149,6 +151,15 @@ export interface CliResponse {
   metadata?: Record<string, unknown>;
   /** Original CLI output for debugging */
   raw?: unknown;
+  /**
+   * Set by the adapter-layer degraded-output classifier (A3) when
+   * `detectDegradedAdapterOutput` is enabled in settings. Absent when the
+   * classifier is off (default) or when no degraded signal was detected.
+   * Callers (coordinators, loop supervisors) may use this tag to trigger
+   * retries or emit diagnostic events — but the presence of a tag alone does
+   * NOT mean the response should be discarded.
+   */
+  degradedReason?: DegradedReason;
 }
 
 /**
@@ -258,6 +269,12 @@ export abstract class BaseCliAdapter extends EventEmitter {
   /** Stream idle watchdog timer — resets on each stdout chunk */
   private streamIdleTimer: NodeJS.Timeout | null = null;
   private streamIdleTimeoutMs: number;
+
+  // A3: degraded-output classifier state (only used when flag is on)
+  /** Timestamp (ms) when the current process was spawned, for elapsed-time signals. */
+  protected responseStartedAt = 0;
+  /** Set to true if the stream-idle watchdog fired during the current response. */
+  protected streamIdleDidFire = false;
 
   /** Tracks all active child processes across all adapter instances for orphan cleanup. */
   private static activeProcesses = new Set<ChildProcess>();
@@ -615,6 +632,10 @@ export abstract class BaseCliAdapter extends EventEmitter {
     const generation = ++this.processGeneration;
     this.processAlive = true;
 
+    // A3: reset per-response degraded-classifier state
+    this.responseStartedAt = Date.now();
+    this.streamIdleDidFire = false;
+
     if (proc.pid) {
       this.emit('spawned', proc.pid);
     }
@@ -729,6 +750,8 @@ export abstract class BaseCliAdapter extends EventEmitter {
         timeoutMs: this.streamIdleTimeoutMs,
         pid: this.getPid(),
       });
+      // A3: record that the idle watchdog fired for the degraded-output classifier.
+      this.streamIdleDidFire = true;
       this.emit('stream:idle', {
         adapter: this.getName(),
         timeoutMs: this.streamIdleTimeoutMs,
@@ -786,6 +809,84 @@ export abstract class BaseCliAdapter extends EventEmitter {
     }
 
     return getOutputPersistenceManager().maybeExternalize(toolName, content);
+  }
+
+  /**
+   * A3: Read whether the degraded-output detection feature flag is enabled.
+   *
+   * Separated into its own protected method so that unit tests can override it
+   * without needing to mock the full SettingsManager module (which would require
+   * intercepting CommonJS `require()` calls, not well-supported by Vitest's ESM
+   * mock system). Production code reads the live setting; tests subclass and
+   * override to inject a fixed value.
+   *
+   * Returns `false` (safe/off default) if SettingsManager is not yet initialized
+   * or throws (e.g. in tests that don't boot Electron).
+   */
+  protected isDegradedDetectionEnabled(): boolean {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { getSettingsManager } = require('../core/config/settings-manager') as {
+        getSettingsManager: () => { get: (key: string) => unknown };
+      };
+      return getSettingsManager().get('detectDegradedAdapterOutput') === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * A3: Adapter-layer degraded-output detection hook.
+   *
+   * Classifies `response` against `signals` using the pure classifier and, if
+   * a degraded reason is found, sets `response.degradedReason` in-place.
+   *
+   * This method is a no-op when `detectDegradedAdapterOutput` is false
+   * (the default). When the flag is off, the function returns immediately
+   * without running any classifier logic, so there is zero overhead on the
+   * hot streaming path.
+   *
+   * Fail-soft: any unexpected exception inside the classifier is caught and
+   * logged — it must never propagate into the stream or throw to the caller.
+   *
+   * Usage by subclasses (once they opt in):
+   * ```ts
+   * const response = this.parseOutput(raw);
+   * this.tagResponseIfEnabled(response, {
+   *   contentLength: raw.length,
+   *   elapsedMs: Date.now() - this.responseStartedAt,
+   *   streamIdleFired: this.streamIdleDidFire,
+   *   cancelled: wasCancelled,
+   *   duplicateOfPrior: false,
+   * });
+   * return response;
+   * ```
+   */
+  protected tagResponseIfEnabled(
+    response: CliResponse,
+    signals: DegradedOutputSignals,
+  ): void {
+    // Fast-path: flag is off (default) → byte-identical behavior to before A3.
+    if (!this.isDegradedDetectionEnabled()) return;
+
+    // Flag is on — run the classifier, fail-soft on any exception.
+    try {
+      const result = classifyDegradedOutput(signals);
+      if (result.degraded && result.reason) {
+        response.degradedReason = result.reason;
+        logger.debug('A3: degraded output detected', {
+          adapter: this.getName(),
+          reason: result.reason,
+          contentLength: signals.contentLength,
+          elapsedMs: signals.elapsedMs,
+        });
+      }
+    } catch (err) {
+      logger.warn('A3: degraded-output classifier threw unexpectedly (ignored)', {
+        adapter: this.getName(),
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   /**

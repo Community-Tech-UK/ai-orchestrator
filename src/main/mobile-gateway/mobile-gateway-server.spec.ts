@@ -21,7 +21,7 @@ import {
 import { MobileDeviceRegistry, type MobileDevicePersistence } from './mobile-device-registry';
 import { MobileApnsSender } from './mobile-apns-sender';
 import type { Instance, InstanceCreateConfig } from '../../shared/types/instance.types';
-import type { MobilePauseDto } from '../../shared/types/mobile-gateway.types';
+import type { MobileMessageDto, MobileMessagesResumeDto, MobilePauseDto } from '../../shared/types/mobile-gateway.types';
 
 function inst(partial: Partial<Instance>): Instance {
   return {
@@ -391,6 +391,182 @@ describe('MobileGatewayServer', () => {
     const token = await pairToken();
     const res = await authed(token, '/api/instances/nope/messages');
     expect(res.status).toBe(404);
+  });
+
+  // ---- seq / fromSeq resume (B2 transport-hardening) ----
+
+  it('attaches a stable seq to each message in the legacy (no fromSeq) path', async () => {
+    source.instances = [
+      inst({
+        id: 'a',
+        outputBuffer: [
+          { id: 'm0', timestamp: 1, type: 'user', content: 'zero' },
+          { id: 'm1', timestamp: 2, type: 'assistant', content: 'one' },
+          { id: 'm2', timestamp: 3, type: 'assistant', content: 'two' },
+        ],
+      } as Partial<Instance>),
+    ];
+    const token = await pairToken();
+    const res = await authed(token, '/api/instances/a/messages');
+    expect(res.status).toBe(200);
+    const msgs = (await res.json()) as MobileMessageDto[];
+    // Plain array (legacy shape), each item carries seq = buffer index.
+    expect(Array.isArray(msgs)).toBe(true);
+    expect(msgs.map((m) => m.seq)).toEqual([0, 1, 2]);
+    expect(msgs.map((m) => m.id)).toEqual(['m0', 'm1', 'm2']);
+  });
+
+  it('seq on legacy path reflects the actual buffer start index when buffer > REPLAY_LIMIT', async () => {
+    // Build a buffer of 305 messages to exceed MESSAGE_REPLAY_LIMIT (300).
+    const bigBuffer = Array.from({ length: 305 }, (_, i) => ({
+      id: `big-${i}`,
+      timestamp: i,
+      type: 'assistant' as const,
+      content: `msg ${i}`,
+    }));
+    source.instances = [inst({ id: 'a', outputBuffer: bigBuffer } as Partial<Instance>)];
+    const token = await pairToken();
+    const res = await authed(token, '/api/instances/a/messages');
+    const msgs = (await res.json()) as MobileMessageDto[];
+    // Should return the last 300 (indices 5–304).
+    expect(msgs).toHaveLength(300);
+    expect(msgs[0].seq).toBe(5);
+    expect(msgs[299].seq).toBe(304);
+    expect(msgs[0].id).toBe('big-5');
+    expect(msgs[299].id).toBe('big-304');
+  });
+
+  it('fromSeq=N returns only messages with buffer index > N, each with correct seq', async () => {
+    source.instances = [
+      inst({
+        id: 'a',
+        outputBuffer: [
+          { id: 'm0', timestamp: 1, type: 'user', content: 'zero' },
+          { id: 'm1', timestamp: 2, type: 'assistant', content: 'one' },
+          { id: 'm2', timestamp: 3, type: 'assistant', content: 'two' },
+          { id: 'm3', timestamp: 4, type: 'assistant', content: 'three' },
+        ],
+      } as Partial<Instance>),
+    ];
+    const token = await pairToken();
+    const res = await authed(token, '/api/instances/a/messages?fromSeq=1');
+    expect(res.status).toBe(200);
+    const envelope = (await res.json()) as MobileMessagesResumeDto;
+    // Envelope shape (not plain array).
+    expect(Array.isArray(envelope)).toBe(false);
+    expect(Array.isArray(envelope.messages)).toBe(true);
+    // Only messages at indices 2 and 3 (> 1).
+    expect(envelope.messages.map((m) => m.id)).toEqual(['m2', 'm3']);
+    expect(envelope.messages.map((m) => m.seq)).toEqual([2, 3]);
+    // Meta fields.
+    expect(envelope.meta.fromSeq).toBe(1);
+    expect(envelope.meta.returned).toBe(2);
+    expect(envelope.meta.hasMore).toBe(false);
+    expect(envelope.meta.maxSeq).toBe(3);
+  });
+
+  it('fromSeq=0 returns all messages except the first', async () => {
+    source.instances = [
+      inst({
+        id: 'a',
+        outputBuffer: [
+          { id: 'm0', timestamp: 1, type: 'user', content: 'zero' },
+          { id: 'm1', timestamp: 2, type: 'assistant', content: 'one' },
+          { id: 'm2', timestamp: 3, type: 'assistant', content: 'two' },
+        ],
+      } as Partial<Instance>),
+    ];
+    const token = await pairToken();
+    const res = await authed(token, '/api/instances/a/messages?fromSeq=0');
+    const envelope = (await res.json()) as MobileMessagesResumeDto;
+    expect(envelope.messages.map((m) => m.id)).toEqual(['m1', 'm2']);
+    expect(envelope.meta.returned).toBe(2);
+    expect(envelope.meta.hasMore).toBe(false);
+    expect(envelope.meta.maxSeq).toBe(2);
+  });
+
+  it('fromSeq=N beyond the end returns empty messages without error', async () => {
+    source.instances = [
+      inst({
+        id: 'a',
+        outputBuffer: [
+          { id: 'm0', timestamp: 1, type: 'user', content: 'zero' },
+          { id: 'm1', timestamp: 2, type: 'assistant', content: 'one' },
+        ],
+      } as Partial<Instance>),
+    ];
+    const token = await pairToken();
+    const res = await authed(token, '/api/instances/a/messages?fromSeq=99');
+    expect(res.status).toBe(200);
+    const envelope = (await res.json()) as MobileMessagesResumeDto;
+    expect(envelope.messages).toHaveLength(0);
+    expect(envelope.meta.returned).toBe(0);
+    expect(envelope.meta.hasMore).toBe(false);
+    // maxSeq falls back to fromSeq when nothing returned.
+    expect(envelope.meta.maxSeq).toBe(99);
+  });
+
+  it('fromSeq with garbage value is handled safely (treated as 0)', async () => {
+    source.instances = [
+      inst({
+        id: 'a',
+        outputBuffer: [
+          { id: 'm0', timestamp: 1, type: 'user', content: 'zero' },
+          { id: 'm1', timestamp: 2, type: 'assistant', content: 'one' },
+        ],
+      } as Partial<Instance>),
+    ];
+    const token = await pairToken();
+    // 'garbage' is not a valid number — falls back to fromSeq=0.
+    const res = await authed(token, '/api/instances/a/messages?fromSeq=garbage');
+    expect(res.status).toBe(200);
+    const envelope = (await res.json()) as MobileMessagesResumeDto;
+    // fromSeq=0 means return messages with index > 0, i.e. just m1.
+    expect(envelope.messages.map((m) => m.id)).toEqual(['m1']);
+    expect(envelope.meta.fromSeq).toBe(0);
+  });
+
+  it('fromSeq negative value is handled safely (treated as 0)', async () => {
+    source.instances = [
+      inst({
+        id: 'a',
+        outputBuffer: [
+          { id: 'm0', timestamp: 1, type: 'user', content: 'zero' },
+          { id: 'm1', timestamp: 2, type: 'assistant', content: 'one' },
+        ],
+      } as Partial<Instance>),
+    ];
+    const token = await pairToken();
+    const res = await authed(token, '/api/instances/a/messages?fromSeq=-5');
+    expect(res.status).toBe(200);
+    const envelope = (await res.json()) as MobileMessagesResumeDto;
+    // -5 is negative → treated as 0 → returns only index > 0, i.e. m1.
+    expect(envelope.messages.map((m) => m.id)).toEqual(['m1']);
+    expect(envelope.meta.fromSeq).toBe(0);
+  });
+
+  it('fromSeq truncates at MESSAGE_REPLAY_LIMIT and sets hasMore=true', async () => {
+    // Build a buffer of 305 messages; fromSeq=-1 (treated as 0) would want all 305
+    // but the limit caps at 300 from index 1 onward, which is still 304 messages.
+    // Instead use a buffer of 305 and fromSeq=0 to want 304 messages (> 300 cap).
+    const bigBuffer = Array.from({ length: 305 }, (_, i) => ({
+      id: `t-${i}`,
+      timestamp: i,
+      type: 'assistant' as const,
+      content: `msg ${i}`,
+    }));
+    source.instances = [inst({ id: 'a', outputBuffer: bigBuffer } as Partial<Instance>)];
+    const token = await pairToken();
+    // fromSeq=0 → want indices 1..304 (304 messages) → capped at 300 → hasMore=true.
+    const res = await authed(token, '/api/instances/a/messages?fromSeq=0');
+    expect(res.status).toBe(200);
+    const envelope = (await res.json()) as MobileMessagesResumeDto;
+    expect(envelope.messages).toHaveLength(300);
+    expect(envelope.meta.hasMore).toBe(true);
+    expect(envelope.meta.returned).toBe(300);
+    // First returned is index 1, last is index 300.
+    expect(envelope.messages[0].seq).toBe(1);
+    expect(envelope.messages[299].seq).toBe(300);
   });
 
   it('routes input to sendInput', async () => {

@@ -816,6 +816,24 @@
       flex-shrink: 0;
     }
 
+    /* Clock marking automation-born threads, sitting just left of the
+       timestamp like Codex's scheduled-task indicator. Muted so it reads as
+       metadata rather than an interactive control. */
+    .history-entry-automation-clock {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+      color: rgba(168, 176, 164, 0.7);
+    }
+
+    .history-entry-automation-clock svg {
+      width: 12px;
+      height: 12px;
+    }
+
     .history-entry-main {
       width: 100%;
       min-width: 0;

@@ -213,6 +213,26 @@
                   Agents ({{ inst.childrenIds.length }})
                 </button>
               }
+              @if (hasCheckpoints()) {
+                <button
+                  class="inspector-toggle"
+                  [class.active]="showCheckpointInspector()"
+                  [class.entering]="enteringInspectorToggle() === 'checkpoint'"
+                  (animationend)="onInspectorToggleAnimationEnd('checkpoint')"
+                  (click)="showCheckpointInspector.set(!showCheckpointInspector())"
+                  [attr.aria-expanded]="showCheckpointInspector()"
+                  title="Toggle checkpoints"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+                  </svg>
+                  Checkpoints
+                  @if (!showCheckpointInspector()) {
+                    <span class="inspector-badge">{{ checkpointCount() }}</span>
+                  }
+                </button>
+              }
               <!-- Screen reader announcement for dynamically appearing toggles -->
               <span class="sr-only" aria-live="polite">
                 @if (todoStore.hasTodos()) { Task list available. }
@@ -245,6 +265,9 @@
                   (quickAction)="onQuickAction($event)"
                 />
               }
+              @if (showCheckpointInspector()) {
+                <app-checkpoint-timeline [instanceId]="inst.id" />
+              }
             </div>
           }
 
@@ -265,6 +288,7 @@
             [instanceStatus]="inst.status"
             [provider]="inst.provider"
             [currentModel]="inst.currentModel"
+            [contextUsage]="inst.contextUsage"
             [workingDirectory]="inst.workingDirectory"
             [loopChatId]="inst.id"
             [isReplayFallback]="isReplayFallback()"

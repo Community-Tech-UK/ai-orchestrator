@@ -17,6 +17,7 @@ import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { McpIpcService } from '../../core/services/ipc/mcp-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
+import { McpPresetCatalogComponent } from './mcp-preset-catalog.component';
 import { BrowserAutomationIpcService } from '../../core/services/ipc/browser-automation-ipc.service';
 import { McpMultiProviderStore } from './state/mcp-multi-provider.store';
 import {
@@ -129,7 +130,7 @@ const ORCHESTRATOR_SCOPES: readonly OrchestratorMcpScope[] = [
 @Component({
   selector: 'app-mcp-page',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, McpPresetCatalogComponent],
   templateUrl: './mcp-page.component.html',
   styleUrl: './mcp-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -221,6 +222,9 @@ export class McpPageComponent implements OnInit, OnDestroy {
   readonly connectedCount = computed(
     () => this.servers().filter((s) => s.status === 'connected').length
   );
+
+  /** IDs of all currently configured servers — passed to the preset catalog to mark already-added entries. */
+  readonly configuredServerIds = computed(() => this.servers().map((s) => s.id));
 
   readonly selectedServer = computed(
     () => this.servers().find((s) => s.id === this.selectedServerId()) ?? null
@@ -383,6 +387,12 @@ export class McpPageComponent implements OnInit, OnDestroy {
     } finally {
       this.loading.set(false);
     }
+  }
+
+  /** Called by the preset catalog when the user adds a preset server. */
+  async onPresetAdded(presetId: string): Promise<void> {
+    this.infoMessage.set(`Preset "${presetId}" added. Connect it from the server list.`);
+    await this.loadServers();
   }
 
   async runBrowserHealthCheck(): Promise<void> {

@@ -104,6 +104,23 @@ export class ProviderIpcService {
     return this.api.listModelsForProvider(provider) as Promise<{ success: boolean; data?: ModelDisplayInfo[]; error?: { message: string } }>;
   }
 
+  /**
+   * Push CLI-discovered models into the main-process unified catalog (A1) so
+   * backend services (routing, cost accounting) and the unified-catalog IPC see
+   * live models. Fire-and-forget from discovery; never throws.
+   */
+  async pushCliDiscoveredModels(provider: string, models: ModelDisplayInfo[]): Promise<void> {
+    if (!this.api) return;
+    try {
+      await this.api.pushCliDiscoveredModels(
+        provider,
+        models.map((m) => ({ id: m.id, name: m.name, tier: m.tier, pinned: m.pinned, family: m.family })),
+      );
+    } catch {
+      // Catalog enrichment is best-effort; discovery already updated the picker.
+    }
+  }
+
   // ============================================
   // Providers
   // ============================================

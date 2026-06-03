@@ -59,10 +59,12 @@ import {
   isCaretOnLastVisualLine,
 } from '../../core/services/textarea-caret-position.util';
 import type {
+  ContextUsage,
   InstanceProvider,
   InstanceStatus,
-  OutputMessage
+  OutputMessage,
 } from '../../core/state/instance/instance.types';
+import { ComposerToolbarComponent } from './composer-toolbar.component';
 import type { NlWorkflowSuggestion } from '../../../../shared/types/workflow.types';
 
 const LOOP_START_ACK_TIMEOUT_MS = 30_000;
@@ -73,6 +75,7 @@ const LOOP_START_ACK_TIMEOUT_MS = 30_000;
   imports: [
     AgentSelectorComponent,
     CompactModelPickerComponent,
+    ComposerToolbarComponent,
     LoopToggleComponent,
     LoopConfigPanelComponent,
   ],
@@ -117,6 +120,7 @@ export class InputPanelComponent implements OnDestroy {
   currentModel = input<string | undefined>(undefined);
   workingDirectory = input<string | null>(null);
   loopChatId = input<string | null>(null);
+  contextUsage = input<ContextUsage | undefined>(undefined);
   isReplayFallback = input<boolean>(false);
   showWakeupControls = input<boolean>(false);
   hasThreadWakeups = input<boolean>(false);

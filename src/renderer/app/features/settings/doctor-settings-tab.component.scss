@@ -231,6 +231,64 @@
   color: var(--text-muted);
 }
 
+.repair-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.repair-action {
+  border-left: 3px solid var(--info-color);
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius-sm);
+  background: var(--glass-light);
+
+  &[data-severity='warning'] {
+    border-left-color: var(--warning-color);
+  }
+  &[data-severity='critical'] {
+    border-left-color: var(--error-color);
+  }
+}
+
+.repair-desc {
+  margin: 0 0 0.35rem;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.repair-command {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  code {
+    flex: 1;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    color: var(--text-primary);
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  .copy-btn {
+    flex: none;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    padding: 0.2rem 0.55rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+
+    &:hover {
+      color: var(--text-primary);
+      border-color: var(--primary-color);
+    }
+  }
+}
+
 @media (max-width: 860px) {
   .doctor-layout {
     grid-template-columns: 1fr;

@@ -1847,6 +1847,45 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE automations DROP COLUMN workspace_id;
     `,
   },
+  // Migration 035: durable evidence records for the evidence-resolver ladder (A4).
+  //
+  // Persists each completion-attempt evidence record keyed by (loop_id, target)
+  // so the coordinator can query history across restarts.
+  //
+  // state values:
+  //   'fixed'    — the target was checked and no verify command is present
+  //                (manually-reviewed; operator accepted the work).
+  //   'verified' — independent external authority passed (verify command exited 0).
+  //   'reviewed' — cross-model fresh-eyes review cleared the work (review authority).
+  //
+  // These three states are intentionally distinct columns of the same enum: they
+  // have different authority levels and are queried separately by callers.
+  {
+    name: '035_evidence_records',
+    up: `
+      CREATE TABLE IF NOT EXISTS evidence_records (
+        id               TEXT PRIMARY KEY,
+        loop_id          TEXT NOT NULL,
+        target           TEXT NOT NULL,
+        kind             TEXT NOT NULL,
+        state            TEXT NOT NULL CHECK(state IN ('fixed', 'verified', 'reviewed')),
+        timestamp        INTEGER NOT NULL,
+        source_metadata  TEXT NOT NULL DEFAULT '{}',
+        created_at       INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_evidence_records_loop
+        ON evidence_records(loop_id, timestamp DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_evidence_records_target
+        ON evidence_records(loop_id, target, state);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_evidence_records_target;
+      DROP INDEX IF EXISTS idx_evidence_records_loop;
+      DROP TABLE IF EXISTS evidence_records;
+    `,
+  },
 ];
 
 /**

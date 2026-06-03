@@ -1502,9 +1502,19 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             sessionId: this.deferredToolUse.sessionId,
           });
 
+          // Prefer the tool input captured from the assistant message (via
+          // toolUseContexts) over the deferred_tool_use.input field, since
+          // both should be identical but the captured copy is always a plain
+          // object (already normalized by rememberToolUse). Fall back to
+          // deferred.input if the context entry is absent, and omit the field
+          // entirely if neither source is available (fail-soft).
+          const capturedContext = this.toolUseContexts.get(deferred.id);
+          const resolvedToolInput: Record<string, unknown> | undefined =
+            capturedContext?.input ?? (deferred.input ? deferred.input : undefined);
+
           // Build a human-readable prompt with the actual command
-          const toolSummary = deferred.name === 'Bash' && deferred.input?.['command']
-            ? `Bash: \`${String(deferred.input['command'])}\``
+          const toolSummary = deferred.name === 'Bash' && resolvedToolInput?.['command']
+            ? `Bash: \`${String(resolvedToolInput['command'])}\``
             : deferred.name;
 
           this.emit('status', 'waiting_for_permission' as InstanceStatus);
@@ -1515,7 +1525,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             metadata: {
               type: 'deferred_permission',
               tool_name: deferred.name,
-              tool_input: deferred.input,
+              ...(resolvedToolInput !== undefined ? { tool_input: resolvedToolInput } : {}),
               tool_use_id: deferred.id,
               session_id: resultMsg.session_id,
             },

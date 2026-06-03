@@ -156,3 +156,104 @@ describe('ClaudeCliAdapter reasoning effort', () => {
     expect(args[effortIndex + 1]).toBe('low');
   });
 });
+
+describe('ClaudeCliAdapter deferred-permission tool_input', () => {
+  function makeAdapter() {
+    return new ClaudeCliAdapter();
+  }
+
+  function processCliMessage(adapter: ClaudeCliAdapter, message: unknown): void {
+    (adapter as unknown as { processCliMessage: (m: unknown) => void })
+      .processCliMessage(message);
+  }
+
+  it('carries tool_input from toolUseContexts when the assistant block was captured before deferral', () => {
+    const adapter = makeAdapter();
+    const onInputRequired = vi.fn();
+    adapter.on('input_required', onInputRequired);
+
+    // Simulate the assistant message that records the tool_use context.
+    processCliMessage(adapter, {
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tuid-1',
+            name: 'Bash',
+            input: { command: 'rm -rf /tmp/test' },
+          },
+        ],
+      },
+    });
+
+    // Now simulate the result message with stop_reason: tool_deferred.
+    processCliMessage(adapter, {
+      type: 'result',
+      stop_reason: 'tool_deferred',
+      session_id: 'sess-abc',
+      deferred_tool_use: {
+        id: 'tuid-1',
+        name: 'Bash',
+        input: { command: 'rm -rf /tmp/test' },
+      },
+    });
+
+    expect(onInputRequired).toHaveBeenCalledTimes(1);
+    const payload = onInputRequired.mock.calls[0][0] as {
+      metadata?: Record<string, unknown>;
+    };
+    expect(payload.metadata?.['type']).toBe('deferred_permission');
+    expect(payload.metadata?.['tool_input']).toEqual({ command: 'rm -rf /tmp/test' });
+  });
+
+  it('falls back to deferred_tool_use.input when toolUseContexts has no entry for the id', () => {
+    const adapter = makeAdapter();
+    const onInputRequired = vi.fn();
+    adapter.on('input_required', onInputRequired);
+
+    // No prior assistant message — toolUseContexts is empty.
+    processCliMessage(adapter, {
+      type: 'result',
+      stop_reason: 'tool_deferred',
+      session_id: 'sess-xyz',
+      deferred_tool_use: {
+        id: 'tuid-2',
+        name: 'Bash',
+        input: { command: 'echo hello' },
+      },
+    });
+
+    expect(onInputRequired).toHaveBeenCalledTimes(1);
+    const payload = onInputRequired.mock.calls[0][0] as {
+      metadata?: Record<string, unknown>;
+    };
+    expect(payload.metadata?.['type']).toBe('deferred_permission');
+    expect(payload.metadata?.['tool_input']).toEqual({ command: 'echo hello' });
+  });
+
+  it('omits tool_input when neither toolUseContexts nor deferred.input provides a value', () => {
+    const adapter = makeAdapter();
+    const onInputRequired = vi.fn();
+    adapter.on('input_required', onInputRequired);
+
+    // deferred_tool_use with no input field — simulates a tool that has no arguments.
+    processCliMessage(adapter, {
+      type: 'result',
+      stop_reason: 'tool_deferred',
+      session_id: 'sess-empty',
+      deferred_tool_use: {
+        id: 'tuid-3',
+        name: 'NoArgTool',
+        // input is intentionally absent
+      },
+    });
+
+    expect(onInputRequired).toHaveBeenCalledTimes(1);
+    const payload = onInputRequired.mock.calls[0][0] as {
+      metadata?: Record<string, unknown>;
+    };
+    expect(payload.metadata?.['type']).toBe('deferred_permission');
+    expect(Object.prototype.hasOwnProperty.call(payload.metadata, 'tool_input')).toBe(false);
+  });
+});

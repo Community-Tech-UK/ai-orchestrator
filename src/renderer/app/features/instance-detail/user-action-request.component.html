@@ -88,6 +88,55 @@
             }
           </div>
         } @else {
+          @if (canModifyInput(request)) {
+            <!-- "Edit input" collapsible panel — deferred-permission + tool_input only -->
+            <div class="modify-panel">
+              <button
+                class="modify-toggle"
+                type="button"
+                (click)="toggleModifyPanel(request)"
+                [disabled]="isResponding()"
+                title="Inspect or edit the tool's input before approving (experimental — requires CLI support)"
+              >
+                {{ isModifyPanelOpen(request.id) ? '▾' : '▸' }} Edit input
+                <span class="modify-badge">experimental</span>
+              </button>
+              @if (isModifyPanelOpen(request.id)) {
+                <div class="modify-editor">
+                  <p class="modify-hint">
+                    Editing tool input before approval is experimental and requires
+                    the installed Claude CLI to honour updated inputs in hook replies.
+                    Behaviour may vary across CLI versions.
+                  </p>
+                  <textarea
+                    class="question-input modify-textarea"
+                    rows="8"
+                    [value]="getModifyInputText(request.id)"
+                    [disabled]="isResponding()"
+                    (input)="onModifyInputTextChange(request.id, $event)"
+                    spellcheck="false"
+                    autocomplete="off"
+                    autocorrect="off"
+                    autocapitalize="off"
+                  ></textarea>
+                  @if (getModifyInputError(request.id)) {
+                    <p class="modify-error">{{ getModifyInputError(request.id) }}</p>
+                  }
+                  <div class="request-actions modify-actions">
+                    <button
+                      class="btn-approve btn-modify-approve"
+                      type="button"
+                      (click)="onApproveWithChanges(request)"
+                      [disabled]="isResponding()"
+                      title="Approve with the edited input (requires CLI support for modify)"
+                    >
+                      Approve with changes
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          }
           <div class="request-actions">
             @if (request.requestType === 'input_required' && isPermissionRequest(request)) {
               <select

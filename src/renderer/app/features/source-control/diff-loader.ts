@@ -99,7 +99,7 @@ export class DiffLoader {
 }
 
 // ---------------------------------------------------------------------------
-// Pure helper — exported for tests
+// Pure helpers — exported for tests
 // ---------------------------------------------------------------------------
 
 export function classifyHunks(file: DiffFile): RenderedDiffLine[] {
@@ -122,4 +122,39 @@ export function classifyHunks(file: DiffFile): RenderedDiffLine[] {
     }
   }
   return out;
+}
+
+/**
+ * A single hunk with its header line and body lines, for grouped rendering.
+ * `header` is the `@@ -a,b +c,d @@` line; `body` is the lines that follow it.
+ */
+export interface RenderedDiffHunk {
+  header: RenderedDiffLine;
+  body: RenderedDiffLine[];
+}
+
+/**
+ * Groups a flat `RenderedDiffLine[]` into per-hunk blocks. Lines that appear
+ * before the first `@@ …` header (i.e. `meta` lines like `---`/`+++`) are
+ * discarded because they duplicate information already shown in the modal
+ * header bar.
+ *
+ * Exported for unit tests.
+ */
+export function groupHunks(lines: RenderedDiffLine[]): RenderedDiffHunk[] {
+  const hunks: RenderedDiffHunk[] = [];
+  let current: RenderedDiffHunk | null = null;
+
+  for (const line of lines) {
+    if (line.kind === 'header') {
+      if (current) hunks.push(current);
+      current = { header: line, body: [] };
+    } else if (current) {
+      current.body.push(line);
+    }
+    // Lines before the first header (meta/preamble) are intentionally skipped.
+  }
+
+  if (current) hunks.push(current);
+  return hunks;
 }

@@ -293,6 +293,87 @@ describe('HistoryManager', () => {
     expect(fs.existsSync(path.join(storageDir, `${entry.id}.json.gz`))).toBe(true);
   });
 
+  it('carries automation provenance from instance metadata into the archived entry', async () => {
+    const { HistoryManager } = await import('./history-manager');
+    const manager = new HistoryManager();
+
+    const automationInstance = makeInstance({
+      id: 'instance-auto',
+      historyThreadId: 'thread-auto',
+      sessionId: 'session-auto',
+      metadata: { automationId: 'automation-7', automationRunId: 'run-7' },
+      outputBuffer: [message('m-auto', 'user', 'run the marketing sweep', 10)],
+    });
+    const manualInstance = makeInstance({
+      id: 'instance-manual',
+      historyThreadId: 'thread-manual',
+      sessionId: 'session-manual',
+      outputBuffer: [message('m-manual', 'user', 'fix the login bug', 10)],
+    });
+
+    await manager.archiveInstance(automationInstance, 'completed');
+    await manager.archiveInstance(manualInstance, 'completed');
+
+    const entries = manager.getEntries();
+    const autoEntry = entries.find((e) => e.historyThreadId === 'thread-auto');
+    const manualEntry = entries.find((e) => e.historyThreadId === 'thread-manual');
+
+    expect(autoEntry?.isAutomation).toBe(true);
+    // Manual threads stay unflagged so the rail clock only marks automations.
+    expect(manualEntry?.isAutomation).toBeUndefined();
+  });
+
+  it('backfills isAutomation for legacy entries with an "Automation:" displayName on load', async () => {
+    const storageDir = path.join(userDataDir, 'conversation-history');
+    fs.mkdirSync(storageDir, { recursive: true });
+
+    const legacyAutomationEntry = {
+      id: 'entry-legacy-auto',
+      displayName: 'Automation: Daily Marketplace Marketing',
+      createdAt: 10,
+      endedAt: 20,
+      workingDirectory: '/repo/binsout',
+      messageCount: 2,
+      firstUserMessage: 'twice-daily marketing sweep',
+      lastUserMessage: 'done',
+      status: 'completed' as const,
+      originalInstanceId: 'instance-legacy-auto',
+      parentId: null,
+      sessionId: 'session-legacy-auto',
+      // No isAutomation flag — predates provenance tracking.
+    };
+    const legacyManualEntry = {
+      id: 'entry-legacy-manual',
+      displayName: 'Fix the login bug',
+      createdAt: 11,
+      endedAt: 21,
+      workingDirectory: '/repo/binsout',
+      messageCount: 1,
+      firstUserMessage: 'fix login',
+      lastUserMessage: 'fix login',
+      status: 'completed' as const,
+      originalInstanceId: 'instance-legacy-manual',
+      parentId: null,
+      sessionId: 'session-legacy-manual',
+    };
+
+    fs.writeFileSync(
+      path.join(storageDir, 'index.json'),
+      JSON.stringify({
+        version: 1,
+        lastUpdated: Date.now(),
+        entries: [legacyAutomationEntry, legacyManualEntry],
+      })
+    );
+
+    const { HistoryManager } = await import('./history-manager');
+    const manager = new HistoryManager();
+
+    const entries = manager.getEntries();
+    expect(entries.find((e) => e.id === 'entry-legacy-auto')?.isAutomation).toBe(true);
+    expect(entries.find((e) => e.id === 'entry-legacy-manual')?.isAutomation).toBeUndefined();
+  });
+
   it('upserts history by stable thread identity when a restored session falls back to a new CLI session', async () => {
     const { HistoryManager } = await import('./history-manager');
     const manager = new HistoryManager();

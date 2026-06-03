@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { DiffLoader, classifyHunks } from './diff-loader';
+import { DiffLoader, classifyHunks, groupHunks } from './diff-loader';
 import type { VcsIpcService } from '../../core/services/ipc/vcs-ipc.service';
-import type { DiffFile, DiffResult } from './source-control.types';
+import type { DiffFile, DiffResult, RenderedDiffLine } from './source-control.types';
 
 // ---------------------------------------------------------------------------
 // classifyHunks — pure
@@ -189,5 +189,87 @@ describe('DiffLoader', () => {
     await promise;
     expect(loader.file()?.isBinary).toBe(true);
     expect(loader.renderedLines()).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// groupHunks — pure
+// ---------------------------------------------------------------------------
+
+describe('groupHunks', () => {
+  function line(kind: RenderedDiffLine['kind'], text: string): RenderedDiffLine {
+    return { kind, text };
+  }
+
+  it('returns an empty array for an empty input', () => {
+    expect(groupHunks([])).toEqual([]);
+  });
+
+  it('groups a single hunk with header and body lines', () => {
+    const input: RenderedDiffLine[] = [
+      line('header', '@@ -1,3 +1,4 @@'),
+      line('context', ' context'),
+      line('add', '+added'),
+      line('remove', '-removed'),
+    ];
+    const result = groupHunks(input);
+    expect(result).toHaveLength(1);
+    expect(result[0].header).toEqual(line('header', '@@ -1,3 +1,4 @@'));
+    expect(result[0].body).toEqual([
+      line('context', ' context'),
+      line('add', '+added'),
+      line('remove', '-removed'),
+    ]);
+  });
+
+  it('groups multiple hunks independently', () => {
+    const input: RenderedDiffLine[] = [
+      line('header', '@@ -1 +1 @@'),
+      line('add', '+first'),
+      line('header', '@@ -10 +10 @@'),
+      line('remove', '-second'),
+    ];
+    const result = groupHunks(input);
+    expect(result).toHaveLength(2);
+    expect(result[0].header.text).toBe('@@ -1 +1 @@');
+    expect(result[0].body).toEqual([line('add', '+first')]);
+    expect(result[1].header.text).toBe('@@ -10 +10 @@');
+    expect(result[1].body).toEqual([line('remove', '-second')]);
+  });
+
+  it('discards meta/preamble lines that appear before the first header', () => {
+    const input: RenderedDiffLine[] = [
+      line('meta', '--- a/file.ts'),
+      line('meta', '+++ b/file.ts'),
+      line('header', '@@ -1 +1 @@'),
+      line('add', '+line'),
+    ];
+    const result = groupHunks(input);
+    expect(result).toHaveLength(1);
+    expect(result[0].header.text).toBe('@@ -1 +1 @@');
+    expect(result[0].body).toEqual([line('add', '+line')]);
+  });
+
+  it('handles a hunk with only a header and no body lines', () => {
+    const input: RenderedDiffLine[] = [
+      line('header', '@@ -1 +1 @@'),
+    ];
+    const result = groupHunks(input);
+    expect(result).toHaveLength(1);
+    expect(result[0].body).toEqual([]);
+  });
+
+  it('preserves context lines in the correct hunk body', () => {
+    const input: RenderedDiffLine[] = [
+      line('header', '@@ -5,3 +5,3 @@'),
+      line('context', ' unchanged-a'),
+      line('add', '+new-line'),
+      line('context', ' unchanged-b'),
+    ];
+    const result = groupHunks(input);
+    expect(result).toHaveLength(1);
+    expect(result[0].body[0].kind).toBe('context');
+    expect(result[0].body[1].kind).toBe('add');
+    expect(result[0].body[2].kind).toBe('context');
   });
 });

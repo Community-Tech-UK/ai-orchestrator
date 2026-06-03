@@ -4896,7 +4896,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3235
+      "lines": 3264
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
@@ -4955,16 +4955,16 @@
       "lines": 2339
     },
     {
+      "path": "src/main/persistence/rlm/rlm-schema.ts",
+      "lines": 2217
+    },
+    {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
       "lines": 2207
     },
     {
-      "path": "src/main/persistence/rlm/rlm-schema.ts",
-      "lines": 2178
-    },
-    {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2173
+      "lines": 2174
     },
     {
       "path": "docs/superpowers/plans/2026-04-09-resilient-codex-resume-and-agent-observability_completed.md",
@@ -4996,7 +4996,7 @@
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2057
+      "lines": 2067
     },
     {
       "path": "docs/superpowers/plans/2026-04-17-wave1-contracts-subpath-exports.md",
@@ -5036,7 +5036,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1704
+      "lines": 1708
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.spec.ts",
@@ -5076,11 +5076,15 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
-      "lines": 1487
+      "lines": 1517
     },
     {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-audit-phase2.COMPLETED.md",
       "lines": 1478
+    },
+    {
+      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
+      "lines": 1471
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase2-provider-tool-sdk_completed.md",
@@ -5095,10 +5099,6 @@
       "lines": 1443
     },
     {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
-      "lines": 1422
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency.md",
       "lines": 1411
     },
@@ -5108,7 +5108,7 @@
     },
     {
       "path": "src/main/history/history-manager.ts",
-      "lines": 1362
+      "lines": 1393
     },
     {
       "path": "src/renderer/app/core/state/source-control.store.spec.ts",
@@ -5215,6 +5215,10 @@
       "lines": 1196
     },
     {
+      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
+      "lines": 1193
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase5-integration.COMPLETED.md",
       "lines": 1186
     },
@@ -5275,11 +5279,11 @@
       "lines": 1126
     },
     {
-      "path": "docs/plans/bigchange_remote-nodes_completed.md",
-      "lines": 1113
+      "path": "src/renderer/app/features/mcp/mcp-page.component.ts",
+      "lines": 1123
     },
     {
-      "path": "src/renderer/app/features/mcp/mcp-page.component.ts",
+      "path": "docs/plans/bigchange_remote-nodes_completed.md",
       "lines": 1113
     },
     {
@@ -5307,6 +5311,10 @@
       "lines": 1069
     },
     {
+      "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
+      "lines": 1065
+    },
+    {
       "path": "src/renderer/app/features/archive/archive-page.component.ts",
       "lines": 1059
     },
@@ -5317,10 +5325,6 @@
     {
       "path": "src/main/instance/instance-communication.spec.ts",
       "lines": 1049
-    },
-    {
-      "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
-      "lines": 1047
     },
     {
       "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
@@ -5347,10 +5351,6 @@
       "lines": 1020
     },
     {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
-      "lines": 1017
-    },
-    {
       "path": "src/main/ipc/handlers/session-handlers.ts",
       "lines": 1003
     },
@@ -5369,6 +5369,10 @@
     {
       "path": "src/main/repo-jobs/repo-job-service.ts",
       "lines": 989
+    },
+    {
+      "path": "src/renderer/app/features/cost/cost-page.component.ts",
+      "lines": 983
     },
     {
       "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
@@ -5451,6 +5455,10 @@
       "lines": 940
     },
     {
+      "path": "src/main/cli/adapters/base-cli-adapter.ts",
+      "lines": 931
+    },
+    {
       "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
       "lines": 908
     },
@@ -5487,6 +5495,10 @@
       "lines": 887
     },
     {
+      "path": "src/main/history/history-manager.spec.ts",
+      "lines": 885
+    },
+    {
       "path": "src/main/automations/automation-store.ts",
       "lines": 882
     },
@@ -5496,6 +5508,10 @@
     },
     {
       "path": "src/main/security/sandbox-manager.ts",
+      "lines": 877
+    },
+    {
+      "path": "src/renderer/app/features/instance-list/instance-row.component.ts",
       "lines": 877
     },
     {
@@ -5555,10 +5571,6 @@
       "lines": 845
     },
     {
-      "path": "src/renderer/app/features/instance-list/instance-row.component.ts",
-      "lines": 845
-    },
-    {
       "path": "docs/superpowers/specs/2026-04-05-bash-validation-pipeline-design.md",
       "lines": 841
     },
@@ -5573,10 +5585,6 @@
     {
       "path": "src/main/learning/ab-testing.ts",
       "lines": 832
-    },
-    {
-      "path": "src/main/cli/adapters/base-cli-adapter.ts",
-      "lines": 830
     },
     {
       "path": "src/renderer/app/features/debate/enhanced-debate-visualization.component.ts",
@@ -5624,10 +5632,6 @@
     },
     {
       "path": "src/main/core/config/claude-md-loader.ts",
-      "lines": 804
-    },
-    {
-      "path": "src/main/history/history-manager.spec.ts",
       "lines": 804
     },
     {

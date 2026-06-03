@@ -3,6 +3,7 @@ import { getLogger } from '../logging/logger';
 import { RLMContextManager } from '../rlm/context-manager';
 import { getCodeRetrievalService } from '../codemem';
 import { defaultStoreIdResolver } from './codebase-indexing-auto-defaults';
+import { getTokenCounter } from '../rlm/token-counter';
 import type { ContextStore } from '../../shared/types/rlm.types';
 import type {
   CodeRetrievalResult,
@@ -287,7 +288,7 @@ function formatLocation(result: IndexedCodebaseContextResult): string {
 }
 
 function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+  return getTokenCounter().countTokens(text);
 }
 
 function trimText(text: string, maxChars: number): string {

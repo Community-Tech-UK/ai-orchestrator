@@ -64,6 +64,7 @@ function normalizeMode(mode: string | undefined): AgentMode {
   if (m === 'plan') return 'plan';
   if (m === 'review') return 'review';
   if (m === 'build') return 'build';
+  if (m === 'observer') return 'observer';
   return 'custom';
 }
 
@@ -72,6 +73,8 @@ function defaultPermissionsForMode(mode: AgentMode): AgentToolPermissions {
     case 'plan':
     case 'review':
       return { read: 'allow', write: 'deny', bash: 'ask', web: 'allow', task: 'allow' };
+    case 'observer':
+      return { read: 'allow', write: 'deny', bash: 'deny', web: 'deny', task: 'deny' };
     case 'build':
       return { read: 'allow', write: 'allow', bash: 'allow', web: 'allow', task: 'allow' };
     default:

@@ -9,6 +9,7 @@ describe('TokenCounter', () => {
   let tokenCounter: TokenCounter;
 
   beforeEach(() => {
+    TokenCounter._resetForTesting();
     tokenCounter = getTokenCounter();
     tokenCounter.setDefaultModel(undefined); // Reset to default
   });
@@ -206,6 +207,126 @@ describe('TokenCounter', () => {
       // Both should be valid counts
       expect(defaultTokens).toBeGreaterThan(0);
       expect(claudeTokens).toBeGreaterThan(0);
+    });
+  });
+
+  describe('calibrate()', () => {
+    it('starts with a correction factor of 1.0 when no data is provided', () => {
+      expect(tokenCounter.getCorrectionFactor('claude-3-haiku')).toBe(1.0);
+      expect(tokenCounter.getCorrectionFactor(undefined)).toBe(1.0);
+    });
+
+    it('is a no-op by default (calibrateTokenCounts = false)', () => {
+      // By default, calibrate() must not change the correction factor
+      expect(tokenCounter.getCalibrateTokenCounts()).toBe(false);
+      const text = 'Hello world test message for calibration';
+      const rawEstimate = tokenCounter.countTokensRaw(text);
+      tokenCounter.calibrate(Math.ceil(rawEstimate * 1.5), text);
+      // Correction factor must still be 1.0 — no data recorded
+      expect(tokenCounter.getCorrectionFactor(undefined)).toBe(1.0);
+    });
+
+    it('adjusts correction factor upward when actual > estimated (calibration enabled)', () => {
+      tokenCounter.setCalibrateTokenCounts(true);
+      // Simulate a text where the heuristic systematically underestimates
+      const text = 'Hello world test message for calibration';
+      const rawEstimate = tokenCounter.countTokensRaw(text);
+      // Feed an actual that is 50% higher than raw estimate → correction should converge toward 1.5
+      const simulatedActual = Math.ceil(rawEstimate * 1.5);
+      tokenCounter.calibrate(simulatedActual, text);
+      const factor = tokenCounter.getCorrectionFactor(undefined);
+      expect(factor).toBeGreaterThan(1.0);
+      expect(factor).toBeLessThanOrEqual(2.0); // clamped upper bound
+    });
+
+    it('adjusts correction factor downward when actual < estimated (calibration enabled)', () => {
+      tokenCounter.setCalibrateTokenCounts(true);
+      const text = 'Hello world test message for calibration';
+      const rawEstimate = tokenCounter.countTokensRaw(text);
+      // Feed an actual that is 30% lower → correction should converge toward 0.7
+      const simulatedActual = Math.ceil(rawEstimate * 0.7);
+      tokenCounter.calibrate(simulatedActual, text);
+      const factor = tokenCounter.getCorrectionFactor(undefined);
+      expect(factor).toBeLessThan(1.0);
+      expect(factor).toBeGreaterThanOrEqual(0.5); // clamped lower bound
+    });
+
+    it('converges to the median ratio over multiple paired samples (calibration enabled)', () => {
+      tokenCounter.setCalibrateTokenCounts(true);
+      const text = 'Sample text for convergence test. It has multiple words.';
+      const rawEstimate = tokenCounter.countTokensRaw(text, 'claude-3-haiku');
+      // Feed 5 samples all at 2× the raw estimate
+      for (let i = 0; i < 5; i++) {
+        tokenCounter.calibrate(Math.ceil(rawEstimate * 2), text, 'claude-3-haiku');
+      }
+      const factor = tokenCounter.getCorrectionFactor('claude-3-haiku');
+      // With 5 identical 2× samples, median ratio should equal 2 (clamped to 2.0)
+      expect(factor).toBe(2.0);
+    });
+
+    it('keeps separate correction factors per model family (calibration enabled)', () => {
+      tokenCounter.setCalibrateTokenCounts(true);
+      const text = 'Test text for per-family isolation';
+      const rawClaudeEstimate = tokenCounter.countTokensRaw(text, 'claude-3-haiku');
+      const rawGptEstimate = tokenCounter.countTokensRaw(text, 'gpt-4');
+      // Calibrate claude family at 2× and gpt family at 0.5×
+      tokenCounter.calibrate(Math.ceil(rawClaudeEstimate * 2), text, 'claude-3-haiku');
+      tokenCounter.calibrate(Math.ceil(rawGptEstimate * 0.5), text, 'gpt-4');
+      const claudeFactor = tokenCounter.getCorrectionFactor('claude-3-haiku');
+      const gptFactor = tokenCounter.getCorrectionFactor('gpt-4');
+      expect(claudeFactor).toBeGreaterThan(gptFactor);
+    });
+
+    it('ignores zero-token inputs without corrupting state (calibration enabled)', () => {
+      tokenCounter.setCalibrateTokenCounts(true);
+      tokenCounter.calibrate(0, 'non-empty text');
+      tokenCounter.calibrate(10, '');
+      expect(tokenCounter.getCorrectionFactor(undefined)).toBe(1.0);
+    });
+
+    it('clamps correction factor to [0.5, 2.0] (calibration enabled)', () => {
+      tokenCounter.setCalibrateTokenCounts(true);
+      const text = 'Some text';
+      // Drive factor below 0.5: feed actual=1 while raw estimate >> 1
+      tokenCounter.calibrate(1, text);
+      expect(tokenCounter.getCorrectionFactor(undefined)).toBeGreaterThanOrEqual(0.5);
+    });
+
+    it('countTokens incorporates correction factor after calibration (calibration enabled)', () => {
+      tokenCounter.setCalibrateTokenCounts(true);
+      const text = 'Hello world';
+      const uncalibratedCount = tokenCounter.countTokens(text);
+      // Calibrate with a doubled actual value
+      const rawEstimate = tokenCounter.countTokensRaw(text);
+      tokenCounter.calibrate(Math.ceil(rawEstimate * 2), text);
+      const calibratedCount = tokenCounter.countTokens(text);
+      // The calibrated count should be higher than the uncalibrated count
+      expect(calibratedCount).toBeGreaterThanOrEqual(uncalibratedCount);
+    });
+
+    it('setCalibrateTokenCounts / getCalibrateTokenCounts round-trips', () => {
+      expect(tokenCounter.getCalibrateTokenCounts()).toBe(false);
+      tokenCounter.setCalibrateTokenCounts(true);
+      expect(tokenCounter.getCalibrateTokenCounts()).toBe(true);
+      tokenCounter.setCalibrateTokenCounts(false);
+      expect(tokenCounter.getCalibrateTokenCounts()).toBe(false);
+    });
+  });
+
+  describe('countTokensRaw()', () => {
+    it('returns a positive integer for non-empty text', () => {
+      const raw = tokenCounter.countTokensRaw('hello world');
+      expect(raw).toBeGreaterThan(0);
+      expect(Number.isInteger(raw)).toBe(true);
+    });
+
+    it('returns 0 for empty string', () => {
+      expect(tokenCounter.countTokensRaw('')).toBe(0);
+    });
+
+    it('is always <= countTokens due to safety margin', () => {
+      const text = 'Test text for safety margin verification';
+      expect(tokenCounter.countTokensRaw(text)).toBeLessThanOrEqual(tokenCounter.countTokens(text));
     });
   });
 });

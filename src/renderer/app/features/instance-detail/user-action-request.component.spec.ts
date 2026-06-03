@@ -157,6 +157,176 @@ describe('UserActionRequestComponent', () => {
 
     expect(fixture.nativeElement.textContent).toContain('Allow Bash command?');
   });
+
+  // ── Modify-approval tests ────────────────────────────────────────────────
+
+  it('hides "Edit input" toggle when deferred_permission has no tool_input', async () => {
+    currentInstanceId.set('inst-a');
+    fixture.detectChanges();
+    await settle(fixture);
+
+    onInputRequired({
+      instanceId: 'inst-a',
+      requestId: 'req-no-tool-input',
+      prompt: 'Allow operation?',
+      timestamp: 1_900_000_000_000,
+      metadata: {
+        type: 'deferred_permission',
+        tool_use_id: 'toolu_x',
+        // no tool_input
+      },
+    });
+    fixture.detectChanges();
+    await settle(fixture);
+
+    expect(fixture.nativeElement.textContent).not.toContain('Edit input');
+  });
+
+  it('shows "Edit input" toggle when deferred_permission has tool_input', async () => {
+    currentInstanceId.set('inst-a');
+    fixture.detectChanges();
+    await settle(fixture);
+
+    onInputRequired({
+      instanceId: 'inst-a',
+      requestId: 'req-with-tool-input',
+      prompt: 'Allow Bash?',
+      timestamp: 1_900_000_000_000,
+      metadata: {
+        type: 'deferred_permission',
+        tool_use_id: 'toolu_y',
+        tool_input: { command: 'echo hello' },
+      },
+    });
+    fixture.detectChanges();
+    await settle(fixture);
+
+    expect(fixture.nativeElement.textContent).toContain('Edit input');
+  });
+
+  it('shows inline error and does NOT call respondToInputRequired on invalid JSON', async () => {
+    currentInstanceId.set('inst-a');
+    fixture.detectChanges();
+    await settle(fixture);
+
+    onInputRequired({
+      instanceId: 'inst-a',
+      requestId: 'req-bad-json',
+      prompt: 'Allow Bash?',
+      timestamp: 1_900_000_000_000,
+      metadata: {
+        type: 'deferred_permission',
+        tool_use_id: 'toolu_z',
+        tool_input: { command: 'echo hi' },
+      },
+    });
+    fixture.detectChanges();
+    await settle(fixture);
+
+    // Open the modify panel
+    const toggleBtn = fixture.nativeElement.querySelector('.modify-toggle') as HTMLButtonElement;
+    toggleBtn.click();
+    fixture.detectChanges();
+    await settle(fixture);
+
+    // Overwrite the textarea with bad JSON
+    const textarea = fixture.nativeElement.querySelector('.modify-textarea') as HTMLTextAreaElement;
+    const inputEvent = new Event('input', { bubbles: true });
+    Object.defineProperty(textarea, 'value', { value: 'NOT JSON {{{', writable: true });
+    textarea.dispatchEvent(inputEvent);
+    fixture.detectChanges();
+
+    // Trigger approve-with-changes
+    const approveBtn = fixture.nativeElement.querySelector('.btn-modify-approve') as HTMLButtonElement;
+    approveBtn.click();
+    fixture.detectChanges();
+    await settle(fixture);
+
+    // respondToInputRequired must NOT have been called with 'modify'
+    const calls = (fakeIpc.respondToInputRequired as ReturnType<typeof vi.fn>).mock.calls;
+    const modifyCalls = calls.filter((c: unknown[]) => c[4] === 'modify');
+    expect(modifyCalls).toHaveLength(0);
+
+    // Error should be visible in the DOM
+    expect(fixture.nativeElement.textContent).toContain('Invalid JSON');
+  });
+
+  it('calls respondToInputRequired with decisionAction modify and parsed updatedInput on valid edit', async () => {
+    currentInstanceId.set('inst-a');
+    fixture.detectChanges();
+    await settle(fixture);
+
+    onInputRequired({
+      instanceId: 'inst-a',
+      requestId: 'req-valid-json',
+      prompt: 'Allow Bash?',
+      timestamp: 1_900_000_000_000,
+      metadata: {
+        type: 'deferred_permission',
+        tool_use_id: 'toolu_w',
+        tool_input: { command: 'echo hello' },
+      },
+    });
+    fixture.detectChanges();
+    await settle(fixture);
+
+    // Open the modify panel
+    const toggleBtn = fixture.nativeElement.querySelector('.modify-toggle') as HTMLButtonElement;
+    toggleBtn.click();
+    fixture.detectChanges();
+    await settle(fixture);
+
+    // Set the textarea to valid JSON
+    const textarea = fixture.nativeElement.querySelector('.modify-textarea') as HTMLTextAreaElement;
+    const newInput = { command: 'echo world' };
+    const inputEvent = new Event('input', { bubbles: true });
+    Object.defineProperty(textarea, 'value', { value: JSON.stringify(newInput), writable: true });
+    textarea.dispatchEvent(inputEvent);
+    fixture.detectChanges();
+
+    // Trigger approve-with-changes
+    const approveBtn = fixture.nativeElement.querySelector('.btn-modify-approve') as HTMLButtonElement;
+    approveBtn.click();
+    fixture.detectChanges();
+    await settle(fixture);
+
+    const calls = (fakeIpc.respondToInputRequired as ReturnType<typeof vi.fn>).mock.calls;
+    const modifyCall = calls.find((c: unknown[]) => c[4] === 'modify');
+    expect(modifyCall).toBeDefined();
+    // arg[0]=instanceId, [1]=requestId, [2]=response, [3]=permissionKey, [4]=decisionAction, [5]=scope, [6]=metadata, [7]=updatedInput
+    expect(modifyCall![7]).toEqual(newInput);
+  });
+
+  it('does not change approve/deny button behaviour for non-deferred requests', async () => {
+    currentInstanceId.set('inst-a');
+    fixture.detectChanges();
+    await settle(fixture);
+
+    // A confirm request (not input_required)
+    const req: UserActionRequest = {
+      id: 'req-confirm',
+      instanceId: 'inst-a',
+      requestType: 'confirm',
+      title: 'Confirm action',
+      message: 'Are you sure?',
+      createdAt: 1_900_000_000_000,
+    };
+    fixture.componentInstance.pendingRequests.set([req]);
+    fixture.detectChanges();
+    await settle(fixture);
+
+    // No "Edit input" toggle should appear
+    expect(fixture.nativeElement.textContent).not.toContain('Edit input');
+
+    // Approve fires respondToUserAction, not respondToInputRequired
+    fakeIpc.respondToUserAction.mockResolvedValue({ success: true });
+    const approveBtn = fixture.nativeElement.querySelector('.btn-approve') as HTMLButtonElement;
+    approveBtn.click();
+    fixture.detectChanges();
+    await settle(fixture);
+
+    expect(fakeIpc.respondToUserAction).toHaveBeenCalledWith('req-confirm', true, undefined);
+  });
 });
 
 function overrideInputs(

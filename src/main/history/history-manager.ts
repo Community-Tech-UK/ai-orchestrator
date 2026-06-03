@@ -242,6 +242,13 @@ export class HistoryManager {
         currentModel: instance.currentModel,
         executionLocation,
         snippets,
+        // Preserve automation provenance across the live → archived boundary (and
+        // across re-archival of a restored thread, whose live instance no longer
+        // carries the original automation metadata).
+        isAutomation:
+          Boolean(instance.metadata?.['automationId'])
+          || previousEntries.some((e) => e.isAutomation)
+          || undefined,
       };
 
       // Create conversation data
@@ -605,6 +612,8 @@ export class HistoryManager {
           });
           index.entries = deduped;
         }
+
+        this.backfillAutomationFlags(index.entries);
 
         return index;
       } catch (error) {
@@ -1034,10 +1043,32 @@ export class HistoryManager {
   private migrateIndex(oldIndex: HistoryIndex): HistoryIndex {
     // For now, just update version - add migrations here as needed
     logger.info('Migrating index', { from: oldIndex.version, to: HISTORY_INDEX_VERSION });
+    this.backfillAutomationFlags(oldIndex.entries);
     return {
       ...oldIndex,
       version: HISTORY_INDEX_VERSION,
     };
+  }
+
+  /**
+   * One-time, idempotent backfill of `isAutomation` for legacy history entries
+   * archived before automation provenance was tracked. Those threads were
+   * archived with an `"Automation: <name>"` displayName, so a prefix match
+   * recovers them. Mutates `entries` in place (persisted on the next index
+   * save); re-runs harmlessly on each launch until then. Threads whose
+   * displayName was later AI-retitled can't be recovered — no metadata existed.
+   */
+  private backfillAutomationFlags(entries: ConversationHistoryEntry[]): void {
+    let changed = 0;
+    for (const entry of entries) {
+      if (entry.isAutomation === undefined && entry.displayName?.startsWith('Automation: ')) {
+        entry.isAutomation = true;
+        changed++;
+      }
+    }
+    if (changed > 0) {
+      logger.info('Backfilled automation flags for legacy history entries', { count: changed });
+    }
   }
 
   /**

@@ -1,0 +1,91 @@
+<!-- Checkpoint Timeline -->
+<div class="timeline-host">
+
+  <!-- Loading state -->
+  @if (loading()) {
+    <div class="status-row">
+      <span class="status-text loading-text">Loading checkpoints…</span>
+    </div>
+  }
+
+  <!-- Error state -->
+  @if (error() && !loading()) {
+    <div class="error-banner" role="alert">
+      <span>{{ error() }}</span>
+      <button class="btn retry-btn" (click)="load()">Retry</button>
+    </div>
+  }
+
+  <!-- Empty state -->
+  @if (isEmpty()) {
+    <div class="status-row">
+      <span class="status-text muted-text">No checkpoints recorded for this instance yet.</span>
+    </div>
+  }
+
+  <!-- Timeline entries -->
+  @if (!loading() && checkpoints().length > 0) {
+    <ol class="timeline" aria-label="Checkpoint timeline">
+      @for (entry of checkpoints(); track entry.id) {
+        <li class="timeline-entry">
+          <div class="entry-connector">
+            <div class="entry-dot"></div>
+            <div class="entry-line"></div>
+          </div>
+          <div class="entry-body">
+            <div class="entry-header">
+              <span class="entry-label">{{ entryLabel(entry) }}</span>
+              <span class="entry-badge" [class]="'badge-' + entry.metadata.trigger">
+                {{ triggerLabel(entry.metadata.trigger) }}
+              </span>
+            </div>
+            <div class="entry-meta">
+              <span class="meta-item">{{ formatDate(entry.timestamp) }}</span>
+              <span class="meta-sep">·</span>
+              <span class="meta-item">{{ entry.metadata.messageCount }} messages</span>
+              @if (entry.metadata.tokensUsed > 0) {
+                <span class="meta-sep">·</span>
+                <span class="meta-item">{{ entry.metadata.tokensUsed | number }} tokens</span>
+              }
+            </div>
+            @if (entry.description && entry.name) {
+              <p class="entry-description">{{ entry.description }}</p>
+            }
+            <div class="entry-actions">
+              <button
+                class="btn restore-btn"
+                [disabled]="restoring()"
+                (click)="requestRestore(entry.id)"
+                aria-label="Restore to this checkpoint">
+                @if (restoring() && pendingRestoreId() === null) {
+                  Restoring…
+                } @else {
+                  Restore
+                }
+              </button>
+            </div>
+          </div>
+        </li>
+      }
+    </ol>
+  }
+
+  <!-- Confirmation overlay -->
+  @if (pendingCheckpoint()) {
+    <div class="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <div class="confirm-dialog">
+        <h3 class="confirm-title" id="confirm-title">Restore checkpoint?</h3>
+        <p class="confirm-body">
+          Restore to <strong>{{ entryLabel(pendingCheckpoint()!) }}</strong>
+          from {{ formatDate(pendingCheckpoint()!.timestamp) }}?
+          Any progress since this point will be lost.
+        </p>
+        <div class="confirm-actions">
+          <button class="btn cancel-btn" (click)="cancelRestore()">Cancel</button>
+          <button class="btn confirm-btn" (click)="confirmRestore()">Restore</button>
+        </div>
+      </div>
+    </div>
+  }
+
+</div>

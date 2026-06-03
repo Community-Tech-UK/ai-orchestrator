@@ -52,6 +52,14 @@ export class CostIpcService {
   }
 
   /**
+   * Get cost entries (raw CostEntry records, uses the registered COST_GET_ENTRIES handler)
+   */
+  async costGetEntries(limit?: number): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.costGetEntries(limit);
+  }
+
+  /**
    * Set budget limits
    */
   async costSetBudget(budget: {

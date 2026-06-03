@@ -51,6 +51,15 @@
     </div>
   }
 
+  @if (!isDraftComposer()) {
+    <app-composer-toolbar
+      [instanceId]="instanceId()"
+      [contextUsage]="contextUsage()"
+      [provider]="provider()"
+      [currentModel]="currentModel()"
+    />
+  }
+
   @if (isDraftComposer()) {
     <div class="composer-toolbar draft-mode">
       <div class="composer-defaults">

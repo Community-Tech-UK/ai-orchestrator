@@ -9,3 +9,8 @@ export { SearchPanelComponent, type SearchFilter } from './search-panel/search-p
 export { EmptyStateComponent } from './empty-state/empty-state.component';
 export { SkeletonComponent } from './skeleton/skeleton.component';
 export { PageHeaderComponent } from './page-header/page-header.component';
+export {
+  PanelZoneComponent,
+  PanelZoneContentDirective,
+  type PanelDescriptor,
+} from './panel-zone/panel-zone.component';

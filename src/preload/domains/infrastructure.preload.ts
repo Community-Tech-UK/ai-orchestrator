@@ -170,6 +170,9 @@ export function createInfrastructureDomain(
         limit
       });
     },
+    costGetEntries: (limit?: number): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.COST_GET_ENTRIES, _withAuth({ limit }));
+    },
     costSetBudget: (budget: {
       daily?: number;
       weekly?: number;

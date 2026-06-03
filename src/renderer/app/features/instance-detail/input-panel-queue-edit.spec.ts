@@ -123,6 +123,18 @@ class LoopConfigPanelStubComponent {
   @Output() configChange = new EventEmitter<LoopStartConfigInput | null>();
 }
 
+@Component({
+  selector: 'app-composer-toolbar',
+  standalone: true,
+  template: '',
+})
+class ComposerToolbarStubComponent {
+  @Input() instanceId = '';
+  @Input() contextUsage: unknown = undefined;
+  @Input() provider = 'claude';
+  @Input() currentModel: string | undefined = undefined;
+}
+
 describe('InputPanelComponent queued message editing', () => {
   let fixture: ComponentFixture<InputPanelComponent>;
 
@@ -141,6 +153,7 @@ describe('InputPanelComponent queued message editing', () => {
           AgentSelectorStubComponent,
           LoopToggleStubComponent,
           LoopConfigPanelStubComponent,
+          ComposerToolbarStubComponent,
         ],
       },
     });

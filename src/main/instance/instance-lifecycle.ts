@@ -1222,6 +1222,35 @@ export class InstanceLifecycleManager extends EventEmitter {
           }
         }
 
+        // E14: inject a compact ranked repo map for fresh root sessions so the
+        // agent has structural project context without reading every file.
+        if (instance.depth === 0 && !isRestoreOrReplayContinuity(config)
+            && instance.workingDirectory && this.settings.getAll().injectRepoMap) {
+          try {
+            const { getRepoMapService } = await import('../memory/repo-map-service');
+            const repoMap = await getRepoMapService().buildRepoMap({
+              projectPath: instance.workingDirectory,
+              tokenBudget: this.settings.getAll().repoMapTokenBudget,
+            });
+            if (repoMap.text.trim()) {
+              systemPrompt = `${systemPrompt}\n\n---\n\n${repoMap.text}`;
+              logger.info('Injected repo map into system prompt', {
+                instanceId: instance.id,
+                filesIncluded: repoMap.stats.filesIncluded,
+                filesConsidered: repoMap.stats.filesConsidered,
+                tokensUsed: repoMap.stats.tokensUsed,
+                truncated: repoMap.stats.truncated,
+                fallback: repoMap.stats.fallback,
+              });
+            }
+          } catch (err) {
+            logger.warn('Failed to inject repo map', {
+              error: err instanceof Error ? err.message : String(err),
+              instanceId: instance.id,
+            });
+          }
+        }
+
         // Inject wake-up context (mempalace L0 identity + L1 essential story)
         if (instance.depth === 0) {
           try {

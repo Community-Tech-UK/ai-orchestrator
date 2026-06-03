@@ -176,6 +176,34 @@ export class HistoryIpcService {
   }
 
   // ============================================
+  // Session Continuity (snapshots / restore)
+  // ============================================
+
+  /**
+   * List session snapshots for an instance (or all instances)
+   */
+  async listSessionSnapshots(instanceId?: string): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.listSessionSnapshots(instanceId ? { instanceId } : undefined);
+  }
+
+  /**
+   * Resume a session from a snapshot
+   */
+  async resumeSession(
+    instanceId: string,
+    options?: {
+      fromSnapshot?: string;
+      restoreMessages?: boolean;
+      restoreContext?: boolean;
+      restoreTasks?: boolean;
+    },
+  ): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.resumeSession({ instanceId, options });
+  }
+
+  // ============================================
   // Session Archive
   // ============================================
 

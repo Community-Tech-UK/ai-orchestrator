@@ -323,6 +323,12 @@
     }
   </div>
 
+  <!-- Preset catalog -->
+  <app-mcp-preset-catalog
+    [configuredServerIds]="configuredServerIds()"
+    (presetAdded)="onPresetAdded($event)"
+  ></app-mcp-preset-catalog>
+
   <!-- 2-column layout -->
   <div class="body-grid">
 

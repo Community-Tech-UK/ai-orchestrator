@@ -299,6 +299,37 @@ export interface AppSettings {
    * safe updates unattended; `'off'` disables detection entirely.
    */
   cliUpdatePolicy: CliUpdatePolicy;
+
+  /**
+   * E14 — repo-map injection: when true, a compact ranked map of the project's
+   * most important files and symbols is prepended to the system prompt of fresh
+   * root sessions (depth 0, non-restore). Sourced from the codemem index when
+   * available; falls back to a filesystem-walk heuristic when not indexed.
+   * Default: true (the map is small — ~2 000 tokens — and provides structural
+   * context that makes the first prompt dramatically more effective).
+   */
+  injectRepoMap: boolean;
+  /**
+   * Token budget for the injected repo map (E14). Larger budgets include more
+   * files / symbols but consume more context. Default: 2 000 tokens.
+   */
+  repoMapTokenBudget: number;
+
+  /**
+   * A3 — Adapter-layer degraded-output detection.
+   *
+   * When true, the base CLI adapter classifies each completed response against
+   * a set of degraded-output signals (stream idle timeout, zero-length content,
+   * duplicate-of-prior, partial replay, cancelled) and tags `CliResponse` with
+   * an optional `degradedReason`. Coordinators and supervisors can then use the
+   * tag to trigger retries or raise alerts.
+   *
+   * DEFAULT: false — ships dormant until validated against a real degraded-stream
+   * harness. Thresholds in `degraded-output-classifier.ts` need real data before
+   * being trusted in production. When false, behavior is byte-identical to today:
+   * no classification runs, no tag is added, zero overhead on the streaming path.
+   */
+  detectDegradedAdapterOutput: boolean;
 }
 
 /**
@@ -435,6 +466,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   // CLI Provider Updates
   cliUpdatePolicy: 'notify',
+
+  // E14 — repo-map injection
+  injectRepoMap: true,
+  repoMapTokenBudget: 2_000,
+
+  // A3 — adapter-layer degraded-output detection (off by default)
+  detectDegradedAdapterOutput: false,
 };
 
 export { SETTINGS_METADATA } from './settings-metadata';

@@ -38,6 +38,8 @@ import { InstanceWelcomeComponent } from './instance-welcome.component';
 import { InstanceReviewPanelComponent } from './instance-review-panel.component';
 import { CrossModelReviewPanelComponent } from './cross-model-review-panel.component';
 import { ProviderDiagnosticsPanelComponent } from './provider-diagnostics-panel.component';
+import { CheckpointTimelineComponent } from '../checkpoints/checkpoint-timeline.component';
+import { HistoryIpcService } from '../../core/services/ipc/history-ipc.service';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import { OrchestrationHudComponent } from '../orchestration/orchestration-hud.component';
 import { LoopControlComponent } from '../loop/loop-control.component';
@@ -97,7 +99,8 @@ interface HistoryPreviewView {
     RemoteBrowseModalComponent,
     OrchestrationHudComponent,
     ChildDiagnosticBundleModalComponent,
-    LoopControlComponent
+    LoopControlComponent,
+    CheckpointTimelineComponent
   ],
   templateUrl: './instance-detail.component.html',
   styleUrl: './instance-detail.component.scss',
@@ -113,6 +116,7 @@ export class InstanceDetailComponent {
   private newSessionDraft = inject(NewSessionDraftService);
   private providerIpc = inject(ProviderIpcService);
   private crossModelReviewService = inject(CrossModelReviewIpcService);
+  private historyIpc = inject(HistoryIpcService);
   private quickActionDispatcher = inject(QuickActionDispatcherService);
   private loopStore = inject(LoopStore);
   private loopPromptHistory = inject(LoopPromptHistoryService);
@@ -173,7 +177,10 @@ export class InstanceDetailComponent {
   showReviewInspector = signal(false);
   showChildrenInspector = signal(false);
   showCrossModelReviewPanel = signal(false);
-  enteringInspectorToggle = signal<'todo' | 'review' | 'children' | null>(null);
+  showCheckpointInspector = signal(false);
+  /** Number of restorable session snapshots for the current instance (E1). */
+  checkpointCount = signal(0);
+  enteringInspectorToggle = signal<'todo' | 'review' | 'children' | 'checkpoint' | null>(null);
 
   // Review panel state — driven by output events from InstanceReviewPanelComponent
   reviewHasContent = signal(false);
@@ -181,8 +188,13 @@ export class InstanceDetailComponent {
 
   // Container visibility — only render the toggle bar when at least one toggle has content
   anyInspectorVisible = computed(() =>
-    this.todoStore.hasTodos() || this.reviewHasContent() || this.hasChildren()
+    this.todoStore.hasTodos() || this.reviewHasContent() || this.hasChildren() || this.hasCheckpoints()
   );
+
+  // Computed: show the checkpoint toggle only when the instance has restorable
+  // snapshots (E1). Gated like the other toggles so the bar still only appears
+  // when there is content to show.
+  hasCheckpoints = computed(() => this.checkpointCount() > 0);
 
   // Auto-expand Tasks panel on first appearance (false → true transition).
   // Guard: only fires when the TodoStore's session matches the current instance,
@@ -240,6 +252,23 @@ export class InstanceDetailComponent {
     this.enteringInspectorToggle.set(null);
     this.inspectorBarWasVisible = false;
 
+    // E1: reset + reload the restorable-snapshot count for the checkpoint toggle
+    // gate. Guard against a stale resolve landing after a fast instance switch.
+    this.showCheckpointInspector.set(false);
+    this.checkpointCount.set(0);
+    const checkpointInstanceId = inst?.id;
+    if (checkpointInstanceId) {
+      void this.historyIpc
+        .listSessionSnapshots(checkpointInstanceId)
+        .then((res) => {
+          if (this.instance()?.id !== checkpointInstanceId) return;
+          this.checkpointCount.set(res.success && Array.isArray(res.data) ? res.data.length : 0);
+        })
+        .catch(() => {
+          /* best-effort; leave the count at 0 so the toggle stays hidden */
+        });
+    }
+
     // Reset welcome-screen state so it doesn't bleed across sessions.
     this.welcomeCoordinator.resetState();
   });
@@ -247,6 +276,7 @@ export class InstanceDetailComponent {
   // Computed: any inspector is open
   hasActiveInspector = computed(() =>
     this.showTodoInspector() || this.showReviewInspector() || this.showChildrenInspector()
+    || this.showCheckpointInspector()
   );
 
   // Computed: show children toggle only when instance has children
@@ -1436,7 +1466,7 @@ export class InstanceDetailComponent {
     this.showReviewInspector.set(true);
   }
 
-  onInspectorToggleAnimationEnd(toggle: 'todo' | 'review' | 'children'): void {
+  onInspectorToggleAnimationEnd(toggle: 'todo' | 'review' | 'children' | 'checkpoint'): void {
     if (this.enteringInspectorToggle() === toggle) {
       this.enteringInspectorToggle.set(null);
     }

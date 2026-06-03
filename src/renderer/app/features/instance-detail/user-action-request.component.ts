@@ -47,6 +47,13 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   private inputRequiredTexts = new Map<string, string>();
   private pendingInputRequiredById = new Map<string, UserActionRequest>();
 
+  /** Tracks whether the "Edit input" section is expanded per requestId */
+  private modifyPanelOpen = new Map<string, boolean>();
+  /** Tracks the raw textarea text for modified tool_input per requestId */
+  private modifyInputTexts = new Map<string, string>();
+  /** Tracks JSON parse/validation errors for modify per requestId */
+  modifyInputErrors = signal<Map<string, string>>(new Map());
+
   /** Tracks user answers for ask_questions requests: requestId → Map<questionIndex, answer> */
   private questionAnswers = new Map<string, Map<number, string>>();
 
@@ -377,6 +384,54 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     return text.trim().length > 0;
   }
 
+  // ── Modify-approval helpers ──────────────────────────────────────────────
+
+  /**
+   * Returns true only when the request is a deferred permission AND has
+   * tool_input data to pre-fill the editor. This gates the entire modify UI.
+   */
+  canModifyInput(request: UserActionRequest): boolean {
+    return (
+      this.isDeferredPermission(request) &&
+      request.permissionMetadata?.tool_input !== undefined &&
+      request.permissionMetadata.tool_input !== null
+    );
+  }
+
+  isModifyPanelOpen(requestId: string): boolean {
+    return this.modifyPanelOpen.get(requestId) ?? false;
+  }
+
+  toggleModifyPanel(request: UserActionRequest): void {
+    const open = !this.isModifyPanelOpen(request.id);
+    this.modifyPanelOpen.set(request.id, open);
+    // Pre-fill from tool_input the first time the panel is opened
+    if (open && !this.modifyInputTexts.has(request.id)) {
+      const toolInput = request.permissionMetadata?.tool_input;
+      this.modifyInputTexts.set(
+        request.id,
+        toolInput ? JSON.stringify(toolInput, null, 2) : ''
+      );
+    }
+  }
+
+  getModifyInputText(requestId: string): string {
+    return this.modifyInputTexts.get(requestId) ?? '';
+  }
+
+  onModifyInputTextChange(requestId: string, event: Event): void {
+    const target = event.target as HTMLTextAreaElement;
+    this.modifyInputTexts.set(requestId, target.value);
+    // Clear any stale error as user edits
+    const errors = new Map(this.modifyInputErrors());
+    errors.delete(requestId);
+    this.modifyInputErrors.set(errors);
+  }
+
+  getModifyInputError(requestId: string): string {
+    return this.modifyInputErrors().get(requestId) ?? '';
+  }
+
   /**
    * Track answer changes for ask_questions requests
    */
@@ -418,6 +473,41 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     await this.respond(request, false);
   }
 
+  /**
+   * "Approve with changes" path: parse the edited JSON, validate it is a
+   * non-empty plain object, then call respondToInputRequired with
+   * decisionAction='modify' and the parsed object as updatedInput.
+   */
+  async onApproveWithChanges(request: UserActionRequest): Promise<void> {
+    const rawText = (this.modifyInputTexts.get(request.id) ?? '').trim();
+
+    // Parse JSON
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      const errors = new Map(this.modifyInputErrors());
+      errors.set(request.id, 'Invalid JSON — please fix the syntax before approving.');
+      this.modifyInputErrors.set(errors);
+      return;
+    }
+
+    // Validate: must be a non-empty plain object
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      Array.isArray(parsed) ||
+      Object.keys(parsed as object).length === 0
+    ) {
+      const errors = new Map(this.modifyInputErrors());
+      errors.set(request.id, 'Input must be a non-empty JSON object ({ … }).');
+      this.modifyInputErrors.set(errors);
+      return;
+    }
+
+    await this.respondWithModify(request, parsed as Record<string, unknown>);
+  }
+
   async onEnableYolo(request: UserActionRequest): Promise<void> {
     this.isResponding.set(true);
     try {
@@ -454,6 +544,72 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
     await this.respond(request, true, responseText);
     this.inputRequiredTexts.delete(request.id);
+  }
+
+  /**
+   * Sends a 'modify' decision: approved with an edited tool_input payload.
+   * Only valid for deferred_permission requests.
+   */
+  private async respondWithModify(
+    request: UserActionRequest,
+    updatedInput: Record<string, unknown>
+  ): Promise<void> {
+    this.isResponding.set(true);
+    try {
+      const meta = request.permissionMetadata;
+      const approvalTraceId =
+        meta?.approvalTraceId || `approval-renderer-modify-${request.id}`;
+      const permissionKey =
+        meta?.action && meta?.path ? `${meta.action}:${meta.path}` : undefined;
+      const decisionScope = this.getInputRequiredScope(request);
+      const ipcMetadata: Record<string, unknown> = {
+        type: 'deferred_permission',
+        tool_use_id: meta?.tool_use_id,
+      };
+
+      console.log('[APPROVAL_TRACE][renderer:user-action] submit_modify_decision', {
+        approvalTraceId,
+        requestId: request.id,
+        instanceId: request.instanceId,
+        decisionScope,
+        updatedInputKeys: Object.keys(updatedInput),
+      });
+
+      const result = await this.ipc.respondToInputRequired(
+        request.instanceId,
+        request.id,
+        'Permission granted with modified input.',
+        permissionKey,
+        'modify',
+        decisionScope,
+        ipcMetadata,
+        updatedInput
+      );
+
+      if (result.success) {
+        console.log('[APPROVAL_TRACE][renderer:user-action] submit_modify_decision_success', {
+          approvalTraceId,
+          requestId: request.id,
+          instanceId: request.instanceId,
+        });
+        // Clean up local state
+        this.modifyInputTexts.delete(request.id);
+        this.modifyPanelOpen.delete(request.id);
+        const errors = new Map(this.modifyInputErrors());
+        errors.delete(request.id);
+        this.modifyInputErrors.set(errors);
+        this.inputRequiredScopes.delete(request.id);
+        this.pendingInputRequiredById.delete(request.id);
+        this.pendingRequests.update((requests) =>
+          requests.filter((r) => r.id !== request.id)
+        );
+        this.instanceStore.decrementPendingApproval(request.instanceId);
+      }
+    } catch (error) {
+      console.error('Failed to respond with modified input:', error);
+    } finally {
+      this.isResponding.set(false);
+    }
   }
 
   private async respond(

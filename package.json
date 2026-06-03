@@ -34,6 +34,7 @@
     "bench:search": "vitest bench src/main/indexing/benchmarks/search.bench.ts",
     "test:load": "vitest run src/main/indexing/__tests__/load/",
     "lint": "ng lint",
+    "lint:colors": "node scripts/lint-colors.js",
     "lint:fast": "oxlint --config .oxlintrc.json src/main src/shared src/preload packages/contracts/src packages/sdk/src",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.electron.json",
     "typecheck:fast": "tsgo --noEmit -p tsconfig.electron.json",

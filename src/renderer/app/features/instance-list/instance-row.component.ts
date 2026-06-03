@@ -112,6 +112,14 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
           @if (hasUnreadCompletion()) {
             <span class="unread-dot" title="Completed — click to view"></span>
           }
+          @if (isAutomation()) {
+            <span class="automation-clock" title="Started by a scheduled automation" aria-label="Automation session">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3.5 2" />
+              </svg>
+            </span>
+          }
           <span class="instance-name">{{ resolvedDisplayTitle() }}</span>
           @if (hasPendingApproval()) {
             <span class="approval-chip" title="This instance has a pending permission request">Awaiting approval</span>
@@ -452,6 +460,23 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
       animation: unread-fade-in 200ms ease-out;
     }
 
+    /* Clock badge marking automation-born sessions, mirroring Codex's
+       scheduled-task indicator. Muted so it reads as metadata, not status. */
+    .automation-clock {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+      color: rgba(168, 176, 164, 0.7);
+    }
+
+    .automation-clock svg {
+      width: 12px;
+      height: 12px;
+    }
+
     @keyframes unread-fade-in {
       from { opacity: 0; transform: scale(0.5); }
       to { opacity: 1; transform: scale(1); }
@@ -697,6 +722,13 @@ export class InstanceRowComponent {
   });
 
   readonly hasUnreadCompletion = computed(() => !!this.instance().hasUnreadCompletion);
+
+  /**
+   * True when this session was spawned by a scheduled automation. Detected via
+   * durable instance metadata rather than the "Automation: …" displayName, which
+   * AI auto-titling can overwrite. Drives the small clock indicator in the rail.
+   */
+  readonly isAutomation = computed(() => Boolean(this.instance().metadata?.['automationId']));
 
   readonly diffTooltip = computed(() => {
     const stats = this.instance().diffStats;

@@ -1,6 +1,20 @@
 /**
- * Cost Tracking Page
- * Token usage, costs, and budget management for all AI instances.
+ * Cost Tracking Page — E15 Usage/Cost Analytics
+ *
+ * Presents:
+ *   - Aggregate metric cards (total cost, tokens, requests, avg cost/session)
+ *   - Budget usage (daily / weekly / monthly)
+ *   - Cost-over-time line chart + cost-by-model donut chart
+ *   - Per-model breakdown table (model, cost, input tokens, output tokens, requests)
+ *   - Per-session rows table (sessionId, cost, tokens, requests)
+ *   - Recent entries table
+ *   - Budget configuration form
+ *
+ * Data sources (all via existing IPC handlers):
+ *   COST_GET_SUMMARY → CostSummary (byModel, bySession, totalCost, totalInputTokens …)
+ *   COST_GET_ENTRIES → CostEntry[] (instanceId, sessionId, model, tokens, cost)
+ *   COST_GET_BUDGET_STATUS → { daily, weekly, monthly } usage/limit/pct
+ *   COST_SET_BUDGET → save limits
  */
 
 import {
@@ -21,29 +35,87 @@ import type { EChartsOption } from 'echarts';
 
 // ─── Local data shapes ────────────────────────────────────────────────────────
 
-interface CostSummary {
+/** Shape returned by COST_GET_SUMMARY */
+export interface CostSummaryData {
   totalCost: number;
-  sessionCount: number;
-  modelBreakdown: { name: string; value: number }[];
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheWriteTokens: number;
+  byModel: Record<string, {
+    cost: number;
+    inputTokens: number;
+    outputTokens: number;
+    requests: number;
+  }>;
+  bySession: Record<string, {
+    cost: number;
+    tokens: number;
+    requests: number;
+  }>;
+  requestCount: number;
+  startTime: number;
+  endTime: number;
 }
 
-interface CostHistoryEntry {
+/** Single cost entry returned by COST_GET_ENTRIES */
+export interface CostEntry {
+  id: string;
   timestamp: number;
+  instanceId: string;
+  sessionId: string;
   model: string;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
   cost: number;
 }
 
-interface BudgetStatus {
-  daily?: number;
-  weekly?: number;
-  monthly?: number;
-  warningThreshold?: number;
-  spentToday?: number;
-  spentThisWeek?: number;
-  spentThisMonth?: number;
+/** Flattened row for the per-model breakdown table */
+export interface ModelRow {
+  model: string;
+  cost: number;
+  inputTokens: number;
+  outputTokens: number;
+  requests: number;
+  costPct: number;
 }
+
+/** Flattened row for the per-session breakdown table */
+export interface SessionRow {
+  sessionId: string;
+  cost: number;
+  tokens: number;
+  requests: number;
+  costPct: number;
+}
+
+/** Shape returned by COST_GET_BUDGET_STATUS */
+interface BudgetStatusData {
+  daily: { usage: number; limit: number; percentage: number };
+  weekly: { usage: number; limit: number; percentage: number };
+  monthly: { usage: number; limit: number; percentage: number };
+}
+
+const EMPTY_SUMMARY: CostSummaryData = {
+  totalCost: 0,
+  totalInputTokens: 0,
+  totalOutputTokens: 0,
+  totalCacheReadTokens: 0,
+  totalCacheWriteTokens: 0,
+  byModel: {},
+  bySession: {},
+  requestCount: 0,
+  startTime: 0,
+  endTime: 0,
+};
+
+const EMPTY_BUDGET_STATUS: BudgetStatusData = {
+  daily: { usage: 0, limit: 0, percentage: 0 },
+  weekly: { usage: 0, limit: 0, percentage: 0 },
+  monthly: { usage: 0, limit: 0, percentage: 0 },
+};
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -58,7 +130,7 @@ interface BudgetStatus {
       <div class="page-header">
         <button class="header-btn" type="button" (click)="goBack()">← Back</button>
         <div class="header-title">
-          <span class="title">Cost Tracking</span>
+          <span class="title">Usage & Cost Analytics</span>
           <span class="subtitle">Token usage, costs, and budget management</span>
         </div>
         <div class="header-actions">
@@ -83,23 +155,66 @@ interface BudgetStatus {
         <div class="alert-banner">{{ budgetAlert() }}</div>
       }
 
-      <!-- Metric cards -->
+      <!-- Metric cards row 1: cost & session aggregates -->
       <div class="metrics-row">
         <div class="metric-card">
-          <div class="metric-value">\${{ totalSpend().toFixed(4) }}</div>
+          <div class="metric-value">\${{ totalCost().toFixed(4) }}</div>
           <div class="metric-label">Total Spend</div>
         </div>
         <div class="metric-card">
-          <div class="metric-value">{{ sessionCount() }}</div>
-          <div class="metric-label">Session Count</div>
+          <div class="metric-value">{{ requestCount() }}</div>
+          <div class="metric-label">API Requests</div>
         </div>
-        <div class="metric-card" [class.over-budget]="budgetUsedPct() >= 100">
-          <div class="metric-value">{{ budgetUsedPct().toFixed(1) }}%</div>
-          <div class="metric-label">Budget Used</div>
+        <div class="metric-card">
+          <div class="metric-value">{{ sessionCount() }}</div>
+          <div class="metric-label">Sessions</div>
         </div>
         <div class="metric-card">
           <div class="metric-value">\${{ avgCostPerSession().toFixed(4) }}</div>
           <div class="metric-label">Avg Cost / Session</div>
+        </div>
+      </div>
+
+      <!-- Metric cards row 2: token totals -->
+      <div class="metrics-row">
+        <div class="metric-card">
+          <div class="metric-value">{{ formatTokens(totalInputTokens()) }}</div>
+          <div class="metric-label">Input Tokens</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">{{ formatTokens(totalOutputTokens()) }}</div>
+          <div class="metric-label">Output Tokens</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">{{ formatTokens(totalCacheTokens()) }}</div>
+          <div class="metric-label">Cache Tokens</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">{{ formatTokens(totalTokens()) }}</div>
+          <div class="metric-label">Total Tokens</div>
+        </div>
+      </div>
+
+      <!-- Budget status row -->
+      <div class="metrics-row">
+        <div class="metric-card" [class.over-budget]="budgetStatus().daily.percentage >= 100">
+          <div class="metric-value">{{ budgetStatus().daily.percentage.toFixed(1) }}%</div>
+          <div class="metric-label">Daily Budget Used</div>
+          <div class="metric-sub">\${{ budgetStatus().daily.usage.toFixed(4) }} / \${{ budgetStatus().daily.limit.toFixed(2) }}</div>
+        </div>
+        <div class="metric-card" [class.over-budget]="budgetStatus().weekly.percentage >= 100">
+          <div class="metric-value">{{ budgetStatus().weekly.percentage.toFixed(1) }}%</div>
+          <div class="metric-label">Weekly Budget Used</div>
+          <div class="metric-sub">\${{ budgetStatus().weekly.usage.toFixed(4) }} / \${{ budgetStatus().weekly.limit.toFixed(2) }}</div>
+        </div>
+        <div class="metric-card" [class.over-budget]="budgetStatus().monthly.percentage >= 100">
+          <div class="metric-value">{{ budgetStatus().monthly.percentage.toFixed(1) }}%</div>
+          <div class="metric-label">Monthly Budget Used</div>
+          <div class="metric-sub">\${{ budgetStatus().monthly.usage.toFixed(4) }} / \${{ budgetStatus().monthly.limit.toFixed(2) }}</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value">{{ modelCount() }}</div>
+          <div class="metric-label">Models Used</div>
         </div>
       </div>
 
@@ -128,29 +243,111 @@ interface BudgetStatus {
         </div>
       </div>
 
-      <!-- History table -->
+      <!-- Per-model breakdown table -->
       <div class="panel-card">
-        <div class="panel-title">Recent Cost History</div>
-        @if (history().length > 0) {
+        <div class="panel-title">Per-Model Breakdown</div>
+        @if (modelRows().length > 0) {
           <div class="table-wrapper">
-            <table class="history-table">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th class="num-col">Cost</th>
+                  <th class="num-col">% of Total</th>
+                  <th class="num-col">Input Tokens</th>
+                  <th class="num-col">Output Tokens</th>
+                  <th class="num-col">Requests</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of modelRows(); track row.model) {
+                  <tr>
+                    <td class="provider-cell">{{ row.model }}</td>
+                    <td class="num-col mono">\${{ row.cost.toFixed(6) }}</td>
+                    <td class="num-col">
+                      <div class="bar-cell">
+                        <div class="bar-fill" [style.width.%]="row.costPct"></div>
+                        <span class="bar-label">{{ row.costPct.toFixed(1) }}%</span>
+                      </div>
+                    </td>
+                    <td class="num-col mono">{{ row.inputTokens.toLocaleString() }}</td>
+                    <td class="num-col mono">{{ row.outputTokens.toLocaleString() }}</td>
+                    <td class="num-col mono">{{ row.requests.toLocaleString() }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        } @else {
+          <div class="empty-hint">No model usage recorded yet.</div>
+        }
+      </div>
+
+      <!-- Per-session breakdown table -->
+      <div class="panel-card">
+        <div class="panel-title">Per-Session Breakdown</div>
+        @if (sessionRows().length > 0) {
+          <div class="table-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Session ID</th>
+                  <th class="num-col">Cost</th>
+                  <th class="num-col">% of Total</th>
+                  <th class="num-col">Tokens</th>
+                  <th class="num-col">Requests</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (row of sessionRows(); track row.sessionId) {
+                  <tr>
+                    <td class="mono truncate-cell">{{ row.sessionId }}</td>
+                    <td class="num-col mono">\${{ row.cost.toFixed(6) }}</td>
+                    <td class="num-col">
+                      <div class="bar-cell">
+                        <div class="bar-fill" [style.width.%]="row.costPct"></div>
+                        <span class="bar-label">{{ row.costPct.toFixed(1) }}%</span>
+                      </div>
+                    </td>
+                    <td class="num-col mono">{{ row.tokens.toLocaleString() }}</td>
+                    <td class="num-col mono">{{ row.requests.toLocaleString() }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        } @else {
+          <div class="empty-hint">No session data recorded yet.</div>
+        }
+      </div>
+
+      <!-- Recent entries table -->
+      <div class="panel-card">
+        <div class="panel-title">Recent Entries</div>
+        @if (entries().length > 0) {
+          <div class="table-wrapper">
+            <table class="data-table">
               <thead>
                 <tr>
                   <th>Timestamp</th>
                   <th>Model</th>
-                  <th>Input Tokens</th>
-                  <th>Output Tokens</th>
-                  <th>Cost</th>
+                  <th class="truncate-col">Instance ID</th>
+                  <th class="truncate-col">Session ID</th>
+                  <th class="num-col">Input Tokens</th>
+                  <th class="num-col">Output Tokens</th>
+                  <th class="num-col">Cost</th>
                 </tr>
               </thead>
               <tbody>
-                @for (entry of history(); track entry.timestamp) {
+                @for (entry of entries(); track entry.id) {
                   <tr>
                     <td class="mono">{{ formatTimestamp(entry.timestamp) }}</td>
                     <td>{{ entry.model }}</td>
-                    <td class="mono">{{ entry.inputTokens.toLocaleString() }}</td>
-                    <td class="mono">{{ entry.outputTokens.toLocaleString() }}</td>
-                    <td class="mono">\${{ entry.cost.toFixed(6) }}</td>
+                    <td class="mono truncate-cell" [title]="entry.instanceId">{{ entry.instanceId }}</td>
+                    <td class="mono truncate-cell" [title]="entry.sessionId">{{ entry.sessionId }}</td>
+                    <td class="num-col mono">{{ entry.inputTokens.toLocaleString() }}</td>
+                    <td class="num-col mono">{{ entry.outputTokens.toLocaleString() }}</td>
+                    <td class="num-col mono">\${{ entry.cost.toFixed(6) }}</td>
                   </tr>
                 }
               </tbody>
@@ -202,16 +399,15 @@ interface BudgetStatus {
             />
           </label>
           <label class="field">
-            <span class="label">Warning Threshold (0–1)</span>
+            <span class="label">Per-Session Limit ($)</span>
             <input
               class="input"
               type="number"
               min="0"
-              max="1"
-              step="0.05"
-              [value]="budgetWarning() ?? ''"
-              (input)="onBudgetWarningInput($event)"
-              placeholder="e.g. 0.8"
+              step="0.01"
+              [value]="budgetPerSession() ?? ''"
+              (input)="onBudgetPerSessionInput($event)"
+              placeholder="No limit"
             />
           </label>
         </div>
@@ -364,6 +560,13 @@ interface BudgetStatus {
       letter-spacing: 0.04em;
     }
 
+    .metric-sub {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 2px;
+      font-family: var(--font-family-mono);
+    }
+
     /* ── Charts ─────────────────────────────────────── */
     .charts-row {
       display: grid;
@@ -387,7 +590,7 @@ interface BudgetStatus {
       margin-bottom: var(--spacing-sm);
     }
 
-    /* ── Panel cards (table + budget) ───────────────── */
+    /* ── Panel cards ────────────────────────────────── */
     .panel-card {
       background: var(--bg-secondary);
       border: 1px solid var(--border-color);
@@ -406,25 +609,25 @@ interface BudgetStatus {
       letter-spacing: 0.04em;
     }
 
-    /* ── History table ──────────────────────────────── */
+    /* ── Tables ─────────────────────────────────────── */
     .table-wrapper {
       overflow-x: auto;
     }
 
-    .history-table {
+    .data-table {
       width: 100%;
       border-collapse: collapse;
       font-size: 12px;
     }
 
-    .history-table th,
-    .history-table td {
+    .data-table th,
+    .data-table td {
       padding: var(--spacing-xs) var(--spacing-sm);
       text-align: left;
       border-bottom: 1px solid var(--border-color);
     }
 
-    .history-table th {
+    .data-table th {
       font-weight: 600;
       font-size: 11px;
       text-transform: uppercase;
@@ -432,12 +635,55 @@ interface BudgetStatus {
       color: var(--text-muted);
     }
 
-    .history-table tr:hover td {
+    .data-table tr:hover td {
       background: var(--bg-tertiary);
+    }
+
+    .num-col {
+      text-align: right;
+    }
+
+    .provider-cell {
+      font-weight: 500;
+    }
+
+    .truncate-col {
+      max-width: 140px;
+    }
+
+    .truncate-cell {
+      max-width: 140px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .mono {
       font-family: var(--font-family-mono);
+    }
+
+    /* ── Bar cells (cost percentage visualisation) ── */
+    .bar-cell {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-xs);
+      justify-content: flex-end;
+    }
+
+    .bar-fill {
+      height: 6px;
+      min-width: 2px;
+      max-width: 80px;
+      background: var(--primary-color);
+      border-radius: 3px;
+      opacity: 0.7;
+    }
+
+    .bar-label {
+      font-size: 11px;
+      font-family: var(--font-family-mono);
+      min-width: 38px;
+      text-align: right;
     }
 
     .empty-hint {
@@ -491,7 +737,7 @@ export class CostPageComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly costIpc = inject(CostIpcService);
 
-  // ── State signals ────────────────────────────────────────────────────────
+  // ── Raw state signals ────────────────────────────────────────────────────
 
   readonly loading = signal(false);
   readonly working = signal(false);
@@ -499,39 +745,76 @@ export class CostPageComponent implements OnInit, OnDestroy {
   readonly infoMessage = signal('');
   readonly budgetAlert = signal('');
 
-  readonly summary = signal<CostSummary>({ totalCost: 0, sessionCount: 0, modelBreakdown: [] });
-  readonly history = signal<CostHistoryEntry[]>([]);
-  readonly budgetStatus = signal<BudgetStatus>({});
+  readonly summary = signal<CostSummaryData>(EMPTY_SUMMARY);
+  readonly entries = signal<CostEntry[]>([]);
+  readonly budgetStatus = signal<BudgetStatusData>(EMPTY_BUDGET_STATUS);
 
   // Budget form fields
   readonly budgetDaily = signal<number | null>(null);
   readonly budgetWeekly = signal<number | null>(null);
   readonly budgetMonthly = signal<number | null>(null);
-  readonly budgetWarning = signal<number | null>(null);
+  readonly budgetPerSession = signal<number | null>(null);
 
-  // ── Computed values ──────────────────────────────────────────────────────
+  // ── Derived aggregate signals ────────────────────────────────────────────
 
-  readonly totalSpend = computed(() => this.summary().totalCost);
-  readonly sessionCount = computed(() => this.summary().sessionCount);
+  readonly totalCost = computed(() => this.summary().totalCost);
+  readonly totalInputTokens = computed(() => this.summary().totalInputTokens);
+  readonly totalOutputTokens = computed(() => this.summary().totalOutputTokens);
+  readonly totalCacheTokens = computed(
+    () => this.summary().totalCacheReadTokens + this.summary().totalCacheWriteTokens,
+  );
+  readonly totalTokens = computed(
+    () => this.totalInputTokens() + this.totalOutputTokens() + this.totalCacheTokens(),
+  );
+  readonly requestCount = computed(() => this.summary().requestCount);
+  readonly sessionCount = computed(() => Object.keys(this.summary().bySession).length);
+  readonly modelCount = computed(() => Object.keys(this.summary().byModel).length);
 
   readonly avgCostPerSession = computed(() => {
     const count = this.sessionCount();
-    return count > 0 ? this.totalSpend() / count : 0;
+    return count > 0 ? this.totalCost() / count : 0;
   });
 
-  readonly budgetUsedPct = computed(() => {
-    const status = this.budgetStatus();
-    const monthly = status.monthly ?? 0;
-    const spent = status.spentThisMonth ?? 0;
-    if (monthly <= 0) return 0;
-    return (spent / monthly) * 100;
+  // ── Per-model breakdown rows ─────────────────────────────────────────────
+
+  readonly modelRows = computed((): ModelRow[] => {
+    const byModel = this.summary().byModel;
+    const total = this.totalCost();
+    return Object.entries(byModel)
+      .map(([model, stats]) => ({
+        model,
+        cost: stats.cost,
+        inputTokens: stats.inputTokens,
+        outputTokens: stats.outputTokens,
+        requests: stats.requests,
+        costPct: total > 0 ? (stats.cost / total) * 100 : 0,
+      }))
+      .sort((a, b) => b.cost - a.cost);
   });
+
+  // ── Per-session breakdown rows ───────────────────────────────────────────
+
+  readonly sessionRows = computed((): SessionRow[] => {
+    const bySession = this.summary().bySession;
+    const total = this.totalCost();
+    return Object.entries(bySession)
+      .map(([sessionId, stats]) => ({
+        sessionId,
+        cost: stats.cost,
+        tokens: stats.tokens,
+        requests: stats.requests,
+        costPct: total > 0 ? (stats.cost / total) * 100 : 0,
+      }))
+      .sort((a, b) => b.cost - a.cost);
+  });
+
+  // ── Chart options ────────────────────────────────────────────────────────
 
   readonly lineChartOptions = computed((): EChartsOption | null => {
-    const entries = this.history();
-    if (entries.length === 0) return null;
+    const items = this.entries();
+    if (items.length === 0) return null;
 
-    const sorted = [...entries].sort((a, b) => a.timestamp - b.timestamp);
+    const sorted = [...items].sort((a, b) => a.timestamp - b.timestamp);
     const timestamps = sorted.map(e => this.formatTimestamp(e.timestamp));
     const costs = sorted.map(e => e.cost);
 
@@ -549,15 +832,15 @@ export class CostPageComponent implements OnInit, OnDestroy {
   });
 
   readonly donutChartOptions = computed((): EChartsOption | null => {
-    const breakdown = this.summary().modelBreakdown;
-    if (breakdown.length === 0) return null;
+    const rows = this.modelRows();
+    if (rows.length === 0) return null;
 
     return {
       tooltip: { trigger: 'item' },
       series: [{
         type: 'pie',
         radius: ['40%', '70%'],
-        data: breakdown,
+        data: rows.map(r => ({ name: r.model, value: r.cost })),
       }],
     };
   });
@@ -604,28 +887,22 @@ export class CostPageComponent implements OnInit, OnDestroy {
     this.errorMessage.set('');
 
     try {
-      const [summaryResp, historyResp, budgetResp] = await Promise.all([
+      const [summaryResp, entriesResp, budgetResp] = await Promise.all([
         this.costIpc.costGetSummary(),
-        this.costIpc.costGetHistory(undefined, 50),
+        this.costIpc.costGetEntries(100),
         this.costIpc.costGetBudgetStatus(),
       ]);
 
-      this.summary.set(this.unwrapData<CostSummary>(summaryResp, {
-        totalCost: 0,
-        sessionCount: 0,
-        modelBreakdown: [],
-      }));
+      this.summary.set(this.unwrapData<CostSummaryData>(summaryResp, EMPTY_SUMMARY));
+      this.entries.set(this.unwrapData<CostEntry[]>(entriesResp, []));
 
-      this.history.set(this.unwrapData<CostHistoryEntry[]>(historyResp, []));
-
-      const budget = this.unwrapData<BudgetStatus>(budgetResp, {});
+      const budget = this.unwrapData<BudgetStatusData>(budgetResp, EMPTY_BUDGET_STATUS);
       this.budgetStatus.set(budget);
 
-      // Populate form fields from loaded budget config
-      this.budgetDaily.set(budget.daily ?? null);
-      this.budgetWeekly.set(budget.weekly ?? null);
-      this.budgetMonthly.set(budget.monthly ?? null);
-      this.budgetWarning.set(budget.warningThreshold ?? null);
+      // Populate form fields from the status limits
+      this.budgetDaily.set(budget.daily.limit > 0 ? budget.daily.limit : null);
+      this.budgetWeekly.set(budget.weekly.limit > 0 ? budget.weekly.limit : null);
+      this.budgetMonthly.set(budget.monthly.limit > 0 ? budget.monthly.limit : null);
     } catch (err) {
       this.errorMessage.set(err instanceof Error ? err.message : 'Failed to load cost data');
     } finally {
@@ -650,19 +927,20 @@ export class CostPageComponent implements OnInit, OnDestroy {
     this.budgetMonthly.set(isNaN(val) ? null : val);
   }
 
-  onBudgetWarningInput(event: Event): void {
+  onBudgetPerSessionInput(event: Event): void {
     const val = parseFloat((event.target as HTMLInputElement).value);
-    this.budgetWarning.set(isNaN(val) ? null : val);
+    this.budgetPerSession.set(isNaN(val) ? null : val);
   }
 
   async saveBudget(): Promise<void> {
     this.working.set(true);
+    this.infoMessage.set('');
+    this.errorMessage.set('');
     try {
       const resp = await this.costIpc.costSetBudget({
         daily: this.budgetDaily() ?? undefined,
         weekly: this.budgetWeekly() ?? undefined,
         monthly: this.budgetMonthly() ?? undefined,
-        warningThreshold: this.budgetWarning() ?? undefined,
       });
       if (!resp.success) {
         this.errorMessage.set(resp.error?.message ?? 'Failed to save budget');
@@ -694,5 +972,11 @@ export class CostPageComponent implements OnInit, OnDestroy {
       hour: '2-digit',
       minute: '2-digit',
     });
+  }
+
+  formatTokens(n: number): string {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+    return n.toString();
   }
 }

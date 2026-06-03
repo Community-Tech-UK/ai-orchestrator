@@ -419,6 +419,33 @@ export const routes: Routes = [
       ),
   },
 
+  // E4: Multi-Provider Compare / Ask Council
+  {
+    path: 'ask-council',
+    loadComponent: () =>
+      import('./features/compare/ask-council-page.component').then(
+        (m) => m.AskCouncilPageComponent
+      ),
+  },
+
+  // E6: Attention-zone fleet dashboard
+  {
+    path: 'fleet',
+    loadComponent: () =>
+      import('./features/fleet-dashboard/fleet-dashboard.component').then(
+        (m) => m.FleetDashboardComponent
+      ),
+  },
+
+  // E9: Split-screen dual-session compare
+  {
+    path: 'compare/split',
+    loadComponent: () =>
+      import('./features/compare/split-session-compare.component').then(
+        (m) => m.SplitSessionCompareComponent
+      ),
+  },
+
   // Catch-all redirect to dashboard
   {
     path: '**',

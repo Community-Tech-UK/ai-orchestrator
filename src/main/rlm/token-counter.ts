@@ -197,6 +197,22 @@ export class TokenCounter {
   /** Safety margin applied to all heuristic estimates (default from LIMITS) */
   private safetyMargin: number = LIMITS.TOKEN_SAFETY_MARGIN;
 
+  /**
+   * Guards whether `calibrate()` actually records data.
+   *
+   * Defaults to **false** because no currently-wired call site supplies a
+   * genuinely-paired (estimated-text, actual-provider-tokens) value for the
+   * same text/turn.  Feeding mismatched pairs would silently corrupt the
+   * correction factor that drives `countTokens()`.
+   *
+   * Set to `true` only once a call site has been audited to confirm:
+   *   1. `text` is the exact content that was tokenized by the provider.
+   *   2. `actualTokens` is the provider-reported count for that same content.
+   *   3. No other content (system prompt, history, tool definitions) is
+   *      included in `actualTokens`.
+   */
+  private calibrateTokenCounts = false;
+
   /** Calibration data from actual API responses, keyed by ModelFamily */
   private calibrationData = new Map<ModelFamily, CalibrationEntry[]>();
 
@@ -222,6 +238,7 @@ export class TokenCounter {
     if (this.instance) {
       this.instance.calibrationData.clear();
       this.instance.correctionFactors.clear();
+      this.instance.calibrateTokenCounts = false;
     }
     this.instance = null;
   }
@@ -295,6 +312,26 @@ export class TokenCounter {
   }
 
   /**
+   * Enable or disable calibration data recording.
+   *
+   * Calibration is **disabled by default** (`calibrateTokenCounts = false`).
+   * Enable it only when `calibrate()` is wired to a site that supplies a
+   * genuinely-paired (estimated-text, provider-actual-tokens) value — meaning
+   * `actualTokens` comes from the provider's response for *exactly* `text`,
+   * with no other content folded into the count.
+   */
+  setCalibrateTokenCounts(enabled: boolean): void {
+    this.calibrateTokenCounts = enabled;
+  }
+
+  /**
+   * Whether calibration recording is currently enabled.
+   */
+  getCalibrateTokenCounts(): boolean {
+    return this.calibrateTokenCounts;
+  }
+
+  /**
    * Calibrate the estimator with actual API usage data.
    *
    * Feed this function the actual token count returned by the API alongside
@@ -303,8 +340,14 @@ export class TokenCounter {
    *
    * Inspired by OpenClaw's SAFETY_MARGIN and Actual Claude's hybrid
    * tokenCountWithEstimation approach.
+   *
+   * NOTE: This method is a no-op unless `setCalibrateTokenCounts(true)` has
+   * been called.  The guard prevents accidentally corrupting the correction
+   * factor with mismatched (estimated-text, actual-tokens) pairs.
    */
   calibrate(actualTokens: number, text: string, model?: string): void {
+    if (!this.calibrateTokenCounts) return;
+
     const family = model ? getModelFamily(model) : this.modelFamily;
     const estimated = this.countTokensRaw(text, model);
 

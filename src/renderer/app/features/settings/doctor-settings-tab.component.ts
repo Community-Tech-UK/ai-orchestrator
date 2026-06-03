@@ -129,6 +129,27 @@ function isDoctorSection(value: string | null): value is DoctorSectionId {
                           }
                         </ul>
                       }
+                      @if (diagnosis.repairActions.length > 0) {
+                        <div class="repair-actions">
+                          @for (action of diagnosis.repairActions; track action.kind) {
+                            <div class="repair-action" [attr.data-severity]="action.severity">
+                              <p class="repair-desc">{{ action.description }}</p>
+                              @if (action.command) {
+                                <div class="repair-command">
+                                  <code>{{ action.command }}</code>
+                                  <button
+                                    type="button"
+                                    class="copy-btn"
+                                    (click)="copyCommand(action.command)"
+                                  >
+                                    {{ copiedCommand() === action.command ? 'Copied' : 'Copy' }}
+                                  </button>
+                                </div>
+                              }
+                            </div>
+                          }
+                        </div>
+                      }
                     </div>
                   }
                 </div>
@@ -261,6 +282,8 @@ export class DoctorSettingsTabComponent implements OnInit {
   readonly exportError = signal<string | null>(null);
   readonly docsError = signal<string | null>(null);
   readonly lastExport = signal<OperatorArtifactExportResult | null>(null);
+  /** The repair command most recently copied to the clipboard (for button feedback). */
+  readonly copiedCommand = signal<string | null>(null);
   readonly workingDirectory = computed(() => {
     const configured = this.settings.get('defaultWorkingDirectory');
     return configured.trim() ? configured : undefined;
@@ -279,6 +302,24 @@ export class DoctorSettingsTabComponent implements OnInit {
 
   ngOnInit(): void {
     void this.refresh();
+  }
+
+  /**
+   * Copies a Doctor repair-action command preview to the clipboard. The command
+   * is only ever a preview the operator runs themselves — it is never executed
+   * by the app. Briefly flips the button label to "Copied" for feedback.
+   */
+  async copyCommand(command: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(command);
+      this.copiedCommand.set(command);
+      setTimeout(() => {
+        if (this.copiedCommand() === command) this.copiedCommand.set(null);
+      }, 1500);
+    } catch {
+      // Clipboard may be unavailable (permissions); the command stays visible
+      // for manual selection, so this is a non-fatal best-effort.
+    }
   }
 
   refresh(): Promise<void> {

@@ -1,0 +1,127 @@
+// E9 Split-Session Compare Layout
+// Uses the project's CSS design tokens from _theme.scss / _base.scss.
+
+:host {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+// ────────────────────────────────────────────────────────────────
+// Root container — full-height horizontal flex
+// ────────────────────────────────────────────────────────────────
+
+.compare-root {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--shell-workspace-bg, var(--bg-primary));
+}
+
+// ────────────────────────────────────────────────────────────────
+// Panes — equal width, independent scroll
+// ────────────────────────────────────────────────────────────────
+
+.compare-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+// ────────────────────────────────────────────────────────────────
+// Pane header — picker bar
+// ────────────────────────────────────────────────────────────────
+
+.pane-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.pane-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.pane-picker {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+
+  &:hover {
+    border-color: var(--border-strong);
+  }
+
+  &:focus-visible {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 2px var(--primary-glow);
+  }
+}
+
+// ────────────────────────────────────────────────────────────────
+// Stream area — fills remaining pane height, scrolls inside
+// ────────────────────────────────────────────────────────────────
+
+.pane-stream {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+
+  // OutputStreamComponent itself controls scrolling internally — just give
+  // it all the available height.
+  app-output-stream {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+}
+
+// ────────────────────────────────────────────────────────────────
+// Empty state
+// ────────────────────────────────────────────────────────────────
+
+.pane-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 24px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+// ────────────────────────────────────────────────────────────────
+// Divider
+// ────────────────────────────────────────────────────────────────
+
+.compare-divider {
+  width: 1px;
+  background: var(--border-color);
+  flex-shrink: 0;
+  align-self: stretch;
+}

@@ -23,6 +23,7 @@ import type {
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import type {
   MobileGatewayStatus,
+  MobileMessagesResumeDto,
   MobilePauseDto,
   MobilePromptDto,
   MobileServerEvent,
@@ -932,7 +933,7 @@ export class MobileGatewayServer {
             const instanceId = decodeURIComponent(segments[2]);
             const action = segments[3];
             if (action === 'messages' && method === 'GET') {
-              return this.handleMessages(res, instanceId);
+              return this.handleMessages(res, instanceId, url);
             }
             if (action === 'input' && method === 'POST') {
               return await this.handleInput(req, res, instanceId);
@@ -1001,16 +1002,64 @@ export class MobileGatewayServer {
     return this.deps.instanceManager;
   }
 
-  private handleMessages(res: ServerResponse, instanceId: string): void {
+  private handleMessages(res: ServerResponse, instanceId: string, url: URL): void {
     const instance = this.source().getInstance(instanceId);
     if (!instance) {
       this.sendJson(res, 404, { error: 'Instance not found' });
       return;
     }
-    const messages = (instance.outputBuffer ?? [])
-      .slice(-MESSAGE_REPLAY_LIMIT)
-      .map(serializeMessage);
-    this.sendJson(res, 200, messages);
+
+    const buffer = instance.outputBuffer ?? [];
+    const rawFromSeq = url.searchParams.get('fromSeq');
+
+    // Absent fromSeq: legacy path — last MESSAGE_REPLAY_LIMIT messages, byte-for-byte
+    // equivalent to before except each DTO now carries its buffer index as `seq`.
+    if (rawFromSeq === null) {
+      const start = Math.max(0, buffer.length - MESSAGE_REPLAY_LIMIT);
+      const messages = buffer
+        .slice(start)
+        .map((msg, sliceIdx) => serializeMessage(msg, start + sliceIdx));
+      this.sendJson(res, 200, messages);
+      return;
+    }
+
+    // fromSeq present: parse and validate.
+    const parsed = Number(rawFromSeq);
+    // Treat NaN, negative, or non-integer as "start from 0" (safe degradation —
+    // the client sent garbage but we still serve something useful rather than 400).
+    const fromSeq = Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0;
+
+    // Messages with buffer index strictly greater than fromSeq.
+    // "seq" of message at buffer[i] === i (0-based).
+    // Slice from (fromSeq + 1) onward, then cap to MESSAGE_REPLAY_LIMIT.
+    const firstIdx = fromSeq + 1;
+    const available = Math.max(0, buffer.length - firstIdx);
+    const hasMore = available > MESSAGE_REPLAY_LIMIT;
+    // Take at most MESSAGE_REPLAY_LIMIT messages starting at firstIdx.
+    const sliceEnd = firstIdx + MESSAGE_REPLAY_LIMIT;
+    const sliced = buffer.slice(firstIdx, sliceEnd);
+    const messages = sliced.map((msg, sliceIdx) => serializeMessage(msg, firstIdx + sliceIdx));
+
+    const maxSeq = messages.length > 0 ? (firstIdx + messages.length - 1) : fromSeq;
+
+    logger.info('Mobile: client attached from seq', {
+      instanceId,
+      fromSeq,
+      returned: messages.length,
+      hasMore,
+      bufferLength: buffer.length,
+    });
+
+    const envelope: MobileMessagesResumeDto = {
+      messages,
+      meta: {
+        fromSeq,
+        returned: messages.length,
+        hasMore,
+        maxSeq,
+      },
+    };
+    this.sendJson(res, 200, envelope);
   }
 
   private async handleInput(

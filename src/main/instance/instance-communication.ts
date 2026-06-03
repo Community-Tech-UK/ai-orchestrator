@@ -34,6 +34,7 @@ import { generateId } from '../../shared/utils/id-generator';
 import { isContextOverflowError, extractOverflowTokenCount } from '../context/ptl-retry';
 import { TokenBudgetTracker, BudgetAction } from '../context/token-budget-tracker.js';
 import { getTokenStatsService } from '../memory/token-stats';
+import { getTokenCounter } from '../rlm/token-counter';
 import { getTodoManager } from '../tasks/todo-manager';
 import type {
   ProviderName,
@@ -1991,14 +1992,14 @@ export class InstanceCommunicationManager extends EventEmitter {
     // Record token stats (best-effort)
     try {
       const statsService = getTokenStatsService();
-      const charCount = typeof messageToStore.content === 'string'
-        ? messageToStore.content.length
-        : JSON.stringify(messageToStore.content).length;
+      const contentText = typeof messageToStore.content === 'string'
+        ? messageToStore.content
+        : JSON.stringify(messageToStore.content);
       statsService.record({
         instanceId: instance.id,
         toolType: statsService.classifyToolType(messageToStore),
-        tokenCount: Math.ceil(charCount / 4),
-        charCount,
+        tokenCount: getTokenCounter().countTokens(contentText),
+        charCount: contentText.length,
         truncated: !!(messageToStore.metadata?.['truncated']),
         metadata: messageToStore.metadata ? { toolName: messageToStore.metadata['toolName'] } : undefined
       });

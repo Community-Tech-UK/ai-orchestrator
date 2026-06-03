@@ -441,6 +441,7 @@ export class IpcFacadeService {
   costRecordUsage = this.cost.costRecordUsage.bind(this.cost);
   costGetSummary = this.cost.costGetSummary.bind(this.cost);
   costGetHistory = this.cost.costGetHistory.bind(this.cost);
+  costGetEntries = this.cost.costGetEntries.bind(this.cost);
   costSetBudget = this.cost.costSetBudget.bind(this.cost);
   costGetBudgetStatus = this.cost.costGetBudgetStatus.bind(this.cost);
   onCostUsageRecorded = this.cost.onCostUsageRecorded.bind(this.cost);

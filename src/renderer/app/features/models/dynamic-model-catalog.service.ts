@@ -73,6 +73,9 @@ export class DynamicModelCatalogService {
       if (response.success && response.data && response.data.length > 0) {
         const merged = mergeStaticMetadata(provider, response.data);
         this.catalog.update((current) => ({ ...current, [provider]: merged }));
+        // A1: feed live models into the main-process unified catalog so backend
+        // services see them. Fire-and-forget — the picker is already updated.
+        void this.providerIpc.pushCliDiscoveredModels(provider, merged);
       }
     } catch {
       // Keep whatever we have (static fallback); the next open retries after TTL.

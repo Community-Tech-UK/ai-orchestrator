@@ -382,11 +382,12 @@ export class InstanceIpcService {
     requestId: string,
     response: string,
     permissionKey?: string,
-    decisionAction?: 'allow' | 'deny',
+    decisionAction?: 'allow' | 'deny' | 'modify',
     decisionScope?: 'once' | 'session' | 'always',
-    metadata?: Record<string, unknown>
+    metadata?: Record<string, unknown>,
+    updatedInput?: Record<string, unknown>
   ): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.respondToInputRequired(instanceId, requestId, response, permissionKey, decisionAction, decisionScope, metadata);
+    return this.api.respondToInputRequired(instanceId, requestId, response, permissionKey, decisionAction, decisionScope, metadata, updatedInput);
   }
 }
