@@ -803,12 +803,11 @@ export function registerDefaultWorkflowInvoker(instanceManager: InstanceManager)
 
 import { spawnSync } from 'child_process';
 import { createHash } from 'crypto';
-import * as fsLoop from 'fs';
 import * as pathLoop from 'path';
 import { getLoopCoordinator } from './loop-coordinator';
 import { registerLoopSafetyAdvisor } from './loop-safety-advisor';
 import type { LoopChildResult } from './loop-coordinator';
-import type { LoopErrorRecord, LoopFileChange, LoopToolCallRecord } from '../../shared/types/loop.types';
+import type { LoopErrorRecord, LoopToolCallRecord } from '../../shared/types/loop.types';
 import { defaultLoopContextConfig } from '../../shared/types/loop.types';
 import { shouldRecycleLoopContext } from './loop-context-discipline';
 import {
@@ -822,32 +821,12 @@ import { collectWorkspaceDiff } from './loop-diff';
 import { DurableLoopMemoryStore } from './loop-memory';
 import { maybeExternalizeLoopOutput } from './loop-output-externalize';
 import { getWorktreeManager } from '../workspace/git/worktree-manager';
-
-interface WorkspaceSnapshotEntry {
-  contentHash: string;
-}
-
-type WorkspaceSnapshot = Map<string, WorkspaceSnapshotEntry>;
-
-const WORKSPACE_SNAPSHOT_MAX_FILES = 5_000;
-const WORKSPACE_SNAPSHOT_MAX_FILE_BYTES = 5 * 1024 * 1024;
-const WORKSPACE_SNAPSHOT_IGNORED_DIRS = new Set([
-  '.aio-loop-attachments',
-  '.aio-loop-control',
-  '.angular',
-  '.cache',
-  '.git',
-  '.next',
-  '.nuxt',
-  '.turbo',
-  '.vite',
-  'build',
-  'coverage',
-  'dist',
-  'node_modules',
-  'out',
-]);
-const WORKSPACE_SNAPSHOT_IGNORED_FILES = new Set(['.DS_Store']);
+import {
+  mergeFileChanges,
+  snapshotFileChangesViaGit,
+  snapshotFileChangesViaWorkspace,
+  snapshotWorkspaceFiles,
+} from './loop-workspace-snapshot';
 
 function enableAdapterResume(adapter: unknown): void {
   const setResume = (adapter as { setResume?: (resume: boolean) => void } | null | undefined)?.setResume;
@@ -890,156 +869,6 @@ async function createPersistentLoopAdapter(opts: {
     if (typeof setter === 'function') setter.call(adapter, opts.streamIdleTimeoutMs);
   }
   return adapter;
-}
-
-/**
- * Best-effort file change detection: shells out to `git diff --numstat HEAD`
- * inside the workspace, then computes a content hash for each file. Returns
- * an empty list if not a git repo (the loop still works — progress detector
- * will gracefully degrade).
- */
-function snapshotFileChangesViaGit(cwd: string): LoopFileChange[] {
-  try {
-    const numstat = spawnSync('git', ['diff', '--numstat', 'HEAD'], {
-      cwd,
-      encoding: 'utf8',
-      timeout: 30_000,
-    });
-    if (numstat.status !== 0 || !numstat.stdout) return [];
-    const out: LoopFileChange[] = [];
-    for (const line of numstat.stdout.trim().split('\n')) {
-      if (!line) continue;
-      const parts = line.split('\t');
-      if (parts.length < 3) continue;
-      const additions = Number.parseInt(parts[0], 10);
-      const deletions = Number.parseInt(parts[1], 10);
-      const relPath = parts[2];
-      const abs = pathLoop.resolve(cwd, relPath);
-      let contentHash = '';
-      try {
-        if (fsLoop.existsSync(abs) && fsLoop.statSync(abs).isFile()) {
-          const buf = fsLoop.readFileSync(abs);
-          contentHash = createHash('sha256').update(buf).digest('hex').slice(0, 16);
-        }
-      } catch { /* ignore */ }
-      out.push({
-        path: relPath,
-        additions: Number.isFinite(additions) ? additions : 0,
-        deletions: Number.isFinite(deletions) ? deletions : 0,
-        contentHash,
-      });
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}
-
-function normalizeWorkspacePath(relPath: string): string {
-  return relPath.split(pathLoop.sep).join('/');
-}
-
-function hashWorkspaceFile(absPath: string, stat: fsLoop.Stats): string {
-  try {
-    if (stat.size <= WORKSPACE_SNAPSHOT_MAX_FILE_BYTES) {
-      const buf = fsLoop.readFileSync(absPath);
-      return createHash('sha256').update(buf).digest('hex').slice(0, 16);
-    }
-  } catch {
-    // Fall through to a metadata hash. This is still useful for detecting
-    // progress in non-git workspaces when a file is unreadable or large.
-  }
-
-  return createHash('sha256')
-    .update(`${stat.size}:${Math.trunc(stat.mtimeMs)}`)
-    .digest('hex')
-    .slice(0, 16);
-}
-
-function snapshotWorkspaceFiles(cwd: string): WorkspaceSnapshot {
-  const root = pathLoop.resolve(cwd);
-  const snapshot: WorkspaceSnapshot = new Map();
-  let limitReached = false;
-
-  const visit = (dir: string, relDir: string): void => {
-    if (limitReached) return;
-
-    let entries: fsLoop.Dirent[];
-    try {
-      entries = fsLoop.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-
-    entries.sort((a, b) => a.name.localeCompare(b.name));
-    for (const entry of entries) {
-      if (limitReached) return;
-      if (entry.isSymbolicLink()) continue;
-      if (entry.isDirectory() && WORKSPACE_SNAPSHOT_IGNORED_DIRS.has(entry.name)) continue;
-      if (entry.isFile() && WORKSPACE_SNAPSHOT_IGNORED_FILES.has(entry.name)) continue;
-
-      const relPath = relDir ? pathLoop.join(relDir, entry.name) : entry.name;
-      const absPath = pathLoop.join(root, relPath);
-
-      if (entry.isDirectory()) {
-        visit(absPath, relPath);
-        continue;
-      }
-
-      if (!entry.isFile()) continue;
-      if (snapshot.size >= WORKSPACE_SNAPSHOT_MAX_FILES) {
-        limitReached = true;
-        return;
-      }
-
-      try {
-        const stat = fsLoop.statSync(absPath);
-        if (!stat.isFile()) continue;
-        snapshot.set(normalizeWorkspacePath(relPath), {
-          contentHash: hashWorkspaceFile(absPath, stat),
-        });
-      } catch {
-        // Best effort only.
-      }
-    }
-  };
-
-  visit(root, '');
-  return snapshot;
-}
-
-function snapshotFileChangesViaWorkspace(
-  before: WorkspaceSnapshot,
-  cwd: string,
-): LoopFileChange[] {
-  const after = snapshotWorkspaceFiles(cwd);
-  const paths = new Set<string>([...before.keys(), ...after.keys()]);
-  const changes: LoopFileChange[] = [];
-
-  for (const relPath of [...paths].sort()) {
-    const prev = before.get(relPath);
-    const next = after.get(relPath);
-    if (prev?.contentHash === next?.contentHash) continue;
-
-    changes.push({
-      path: relPath,
-      additions: prev ? 0 : 1,
-      deletions: next ? 0 : 1,
-      contentHash: next?.contentHash ?? '',
-    });
-  }
-
-  return changes;
-}
-
-function mergeFileChanges(...groups: LoopFileChange[][]): LoopFileChange[] {
-  const byPath = new Map<string, LoopFileChange>();
-  for (const group of groups) {
-    for (const change of group) {
-      byPath.set(change.path, change);
-    }
-  }
-  return [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path));
 }
 
 /**

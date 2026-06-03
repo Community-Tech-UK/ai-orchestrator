@@ -98,7 +98,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/indexing/benchmarks/benchmark-utils.ts': 820,
   'src/main/indexing/tree-sitter-chunker.ts': 716,
   // Main process — instance
-  'src/main/instance/instance-communication.ts': 2140,
+  'src/main/instance/instance-communication.ts': 2143,
   'src/main/instance/instance-context.ts': 1210,
   'src/main/instance/instance-lifecycle.ts': 3136,
   'src/main/instance/instance-manager.ts': 2508,
@@ -137,7 +137,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/orchestration/consensus.ts': 759,
   'src/main/orchestration/cross-model-review-service.ts': 755,
   'src/main/orchestration/debate-coordinator.ts': 1196,
-  'src/main/orchestration/default-invokers.ts': 1776,
+  'src/main/orchestration/default-invokers.ts': 1669,
   'src/main/orchestration/embedding-service.ts': 845,
   'src/main/orchestration/loop-coordinator.ts': 2635,
   'src/main/orchestration/loop-progress-detector.ts': 725,

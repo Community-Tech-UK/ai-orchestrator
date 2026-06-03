@@ -4965,7 +4965,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2203
+      "lines": 2143
     },
     {
       "path": "docs/superpowers/plans/2026-04-09-resilient-codex-resume-and-agent-observability_completed.md",
@@ -5016,10 +5016,6 @@
       "lines": 1867
     },
     {
-      "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1840
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-hardening.md",
       "lines": 1830
     },
@@ -5038,6 +5034,10 @@
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
       "lines": 1708
+    },
+    {
+      "path": "src/main/orchestration/default-invokers.ts",
+      "lines": 1669
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.spec.ts",
