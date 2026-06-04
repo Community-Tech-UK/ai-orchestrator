@@ -693,6 +693,33 @@ export function createInitializationSteps(
           });
         }
 
+        // Auto-approve ACP permission requests for instances running in yolo
+        // mode. The ACP transport (cursor-agent acp, copilot acp) mediates every
+        // tool action through `session/request_permission`, which the adapter
+        // forwards to the PermissionRegistry. Unlike Claude's `permission_denial`
+        // /`deferred_permission` prompts — already gated through the tool
+        // execution gate (which honors yolo) in InstanceManager — ACP requests
+        // have NO yolo-aware resolver, so in headless mode they sit unanswered
+        // until the 60s timeout fires `deny`. That surfaces as "edit was blocked"
+        // even though the user enabled yolo. Mirror the Browser Gateway's
+        // autoApproveRequests yolo policy here so the registry resolves them
+        // immediately. Registered AFTER the durable-store listeners so the
+        // pending row is persisted before this listener emits `permission:resolved`.
+        permissionRegistry.on('permission:requested', (req: { id: string; instanceId: string }) => {
+          try {
+            const requestingInstance = instanceManager.getInstance(req.instanceId);
+            if (requestingInstance?.yoloMode) {
+              permissionRegistry.resolve(req.id, true, 'auto_approve');
+            }
+          } catch (err) {
+            logger.warn('Yolo auto-approve for ACP permission request failed', {
+              requestId: req.id,
+              instanceId: req.instanceId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        });
+
         // Register plan-mode agent tools bound to the live InstanceManager.
         // The returned ToolDefinitions can be exposed to debate coordinators
         // and orchestration agents that need explicit plan-mode control.

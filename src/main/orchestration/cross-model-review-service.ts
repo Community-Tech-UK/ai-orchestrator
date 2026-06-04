@@ -413,6 +413,15 @@ export class CrossModelReviewService extends EventEmitter {
     const reviewerStatuses: HeadlessReviewReviewer[] = [];
     const successfulReviews: ReviewResult[] = [];
 
+    // Bound the review payload. The fresh-eyes loop gate feeds the full
+    // cumulative git diff here; on a long run that diff can be hundreds of KB,
+    // which overflows the reviewer CLI's context window and makes it emit
+    // truncated / non-JSON output ("Reviewer returned unparseable output").
+    // The in-session review path already truncates (see executeReview); the
+    // headless path must do the same so large diffs degrade to a bounded
+    // review rather than a hard failure.
+    const reviewContent = truncateForReview(request.content);
+
     try {
       const reviewDepth = request.reviewDepth ?? 'structured';
 
@@ -423,13 +432,18 @@ export class CrossModelReviewService extends EventEmitter {
       for (const reviewer of reviewers) {
         const angle = angleForReviewer(reviewerIndex++);
         const prompt = reviewDepth === 'tiered'
-          ? buildTieredReviewPrompt(request.taskDescription, request.content, angle)
-          : buildStructuredReviewPrompt(request.taskDescription, request.content, angle);
+          ? buildTieredReviewPrompt(request.taskDescription, reviewContent, angle)
+          : buildStructuredReviewPrompt(request.taskDescription, reviewContent, angle);
         try {
           const rawResponse = await host.dispatchReviewerPrompt(reviewer, prompt, request.cwd, abort.signal);
           const parsed = this.parseReviewResponse(reviewer, rawResponse, reviewDepth, 0);
           if (!parsed) {
-            reviewerStatuses.push({ provider: reviewer, status: 'failed', reason: 'Reviewer returned unparseable output' });
+            const len = rawResponse?.length ?? 0;
+            reviewerStatuses.push({
+              provider: reviewer,
+              status: 'failed',
+              reason: `Reviewer returned unparseable output (${len} chars; expected strict JSON)`,
+            });
             continue;
           }
           successfulReviews.push(parsed);
@@ -561,7 +575,11 @@ export class CrossModelReviewService extends EventEmitter {
     const parsed = extractJson(rawResponse);
 
     if (!parsed) {
-      logger.warn('Failed to extract JSON from review response', { reviewerId, responseLength: rawResponse.length });
+      logger.warn('Failed to extract JSON from review response', {
+        reviewerId,
+        responseLength: rawResponse.length,
+        responsePreview: rawResponse.slice(0, 400),
+      });
       return null;
     }
 

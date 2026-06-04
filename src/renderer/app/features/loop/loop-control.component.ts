@@ -57,8 +57,12 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
         @if (pauseKind() === 'awaiting-review') {
           <span class="loop-banner-title">Awaiting your review — loop thinks it's done</span>
           <span class="loop-banner-msg">
-            No verify command is configured, so the loop can't auto-confirm completion.
-            Review the work, then accept or keep iterating.
+            @if (b.kind === 'claimed-failed') {
+              {{ b.failure }}
+            } @else {
+              The loop can't auto-confirm completion, so it's waiting on you.
+              Review the work, then accept or keep iterating.
+            }
           </span>
           <span class="loop-banner-actions">
             <button type="button" class="banner-accept" (click)="onAcceptCompletion()">Accept as complete</button>

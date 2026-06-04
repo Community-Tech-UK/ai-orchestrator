@@ -4912,6 +4912,10 @@
       "lines": 2952
     },
     {
+      "path": "src/main/orchestration/loop-coordinator.ts",
+      "lines": 2919
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-16-worker-agent-autostart-service.md",
       "lines": 2867
     },
@@ -4932,10 +4936,6 @@
       "lines": 2734
     },
     {
-      "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 2717
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-28-wave5-orchestration-hud-verification-verdicts-plan_completed.md",
       "lines": 2695
     },
@@ -4945,7 +4945,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2522
+      "lines": 2536
     },
     {
       "path": "src/main/channels/channel-message-router.ts",
@@ -5252,16 +5252,16 @@
       "lines": 1165
     },
     {
+      "path": "src/main/cli/adapters/__tests__/cursor-cli-adapter.spec.ts",
+      "lines": 1162
+    },
+    {
       "path": "src/renderer/app/features/loop/loop-control.component.ts",
-      "lines": 1154
+      "lines": 1158
     },
     {
       "path": "docs/plans/completed/claude2_completed.md",
       "lines": 1145
-    },
-    {
-      "path": "src/main/cli/adapters/__tests__/cursor-cli-adapter.spec.ts",
-      "lines": 1143
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-wave2-navigation-pickers-prompt-recall-design_completed.md",
@@ -5316,6 +5316,10 @@
       "lines": 1065
     },
     {
+      "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
+      "lines": 1059
+    },
+    {
       "path": "src/main/instance/instance-orchestration.ts",
       "lines": 1059
     },
@@ -5326,10 +5330,6 @@
     {
       "path": "src/main/orchestration/__tests__/debate-coordinator.spec.ts",
       "lines": 1055
-    },
-    {
-      "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
-      "lines": 1044
     },
     {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
@@ -5468,6 +5468,10 @@
       "lines": 893
     },
     {
+      "path": "src/shared/types/loop.types.ts",
+      "lines": 891
+    },
+    {
       "path": "src/renderer/app/features/verification/config/api-key-manager.component.ts",
       "lines": 890
     },
@@ -5536,6 +5540,10 @@
       "lines": 864
     },
     {
+      "path": "src/main/orchestration/loop-stage-machine.ts",
+      "lines": 862
+    },
+    {
       "path": "docs/superpowers/plans/2026-05-10-main-process-multicore-offload_completed.md",
       "lines": 858
     },
@@ -5566,10 +5574,6 @@
     {
       "path": "docs/superpowers/specs/2026-04-05-bash-validation-pipeline-design.md",
       "lines": 841
-    },
-    {
-      "path": "src/shared/types/loop.types.ts",
-      "lines": 839
     },
     {
       "path": "src/renderer/app/features/mcp/mcp-page.component.scss",

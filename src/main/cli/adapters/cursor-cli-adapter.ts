@@ -643,9 +643,24 @@ export class CursorCliAdapter extends BaseCliAdapter {
     const args: string[] = [
       '-p',
       '--output-format', 'stream-json',
-      '--force',
-      '--sandbox', 'disabled',
     ];
+
+    // Yolo / unattended mode. We run cursor-agent headless (`--print`), so any
+    // approval prompt it raises has no TTY to answer it and the underlying
+    // action is silently blocked — which looks like "cursor isn't in yolo
+    // mode" even when the user has yolo enabled. `--force` alone is NOT
+    // sufficient: cursor-agent additionally gates edits/commands behind
+    // workspace-trust and MCP-approval prompts. Pass the full unattended set:
+    //   --force            run everything unless explicitly denied (alias: --yolo)
+    //   --sandbox disabled disable the command sandbox
+    //   --trust            trust the workspace without prompting (headless-only)
+    //   --approve-mcps     auto-approve MCP servers
+    // Yolo is the long-standing default for Cursor (the orchestrator does not
+    // mediate its tool-use prompts); only an explicit `yoloMode: false` opts
+    // out, in which case cursor keeps its own approval gating.
+    if (this.cliConfig.yoloMode !== false) {
+      args.push('--force', '--sandbox', 'disabled', '--trust', '--approve-mcps');
+    }
 
     if (this.partialOutputSupported) {
       args.push('--stream-partial-output');

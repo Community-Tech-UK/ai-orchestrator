@@ -65,10 +65,73 @@ describe('LoopCoordinator terminal intents', () => {
         expect.objectContaining({
           kind: 'complete',
           status: 'rejected',
-          statusReason: 'completion not verified — no verify command configured',
+          statusReason: 'completion not verified — no verify command configured and fresh-eyes review is not enabled',
         }),
       ]);
       expect(invokeCount).toBe(1);
+    } finally {
+      if (state) await coordinator.cancelLoop(state.id);
+    }
+  });
+
+  it('rejects a complete intent with the REVIEW-failed reason (not "no verify command") when the fresh-eyes review produced no verdict', async () => {
+    // Reproduces the reported scenario: a no-verify loop whose completion
+    // authority is the fresh-eyes review. The review RAN but every reviewer
+    // returned unparseable output (empty reviewersUsed). The operator-facing
+    // rejection must blame the failed review, NOT a missing verify command.
+    coordinator.setFreshEyesReviewer(async () => ({
+      findings: [],
+      reviewersUsed: [],
+      summary: 'No reviewers available for headless review.',
+      infrastructureError: 'cursor: Reviewer returned unparseable output; gemini: Reviewer returned unparseable output',
+    }));
+
+    const claimedFailed = waitForEvent<{ signal: string; failure: string }>(
+      coordinator,
+      'loop:claimed-done-but-failed',
+    );
+    coordinator.on('loop:invoke-iteration', async (payload: unknown) => {
+      const p = payload as {
+        loopControlEnv: NodeJS.ProcessEnv;
+        callback: (result: LoopChildResult | { error: string }) => void;
+      };
+      const code = await runLoopControlCli(
+        ['node', 'aio-loop-control', 'complete', '--summary', 'implemented everything'],
+        p.loopControlEnv,
+        silentIo(),
+      );
+      expect(code).toBe(0);
+      p.callback(iterationResult('declared complete'));
+    });
+
+    let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
+    try {
+      state = await coordinator.startLoop('chat-complete-review-errored', {
+        initialPrompt: 'do thing',
+        workspaceCwd: workspace,
+        caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 5 },
+        completion: {
+          ...defaultLoopConfig(workspace, 'x').completion,
+          verifyCommand: '',
+          runVerifyTwice: false,
+          requireCompletedFileRename: false,
+          crossModelReview: { enabled: true, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
+        },
+      });
+
+      const failed = await claimedFailed;
+      expect(failed.signal).toBe('declared-complete');
+      expect(failed.failure).toContain('fresh-eyes review');
+      expect(failed.failure).not.toContain('fresh-eyes review is not enabled');
+
+      await waitForCondition(() => coordinator.getLoop(state!.id)?.status === 'paused');
+      expect(coordinator.getLoop(state.id)?.terminalIntentHistory).toEqual([
+        expect.objectContaining({
+          kind: 'complete',
+          status: 'rejected',
+          statusReason: expect.stringContaining('could not produce a verdict'),
+        }),
+      ]);
     } finally {
       if (state) await coordinator.cancelLoop(state.id);
     }

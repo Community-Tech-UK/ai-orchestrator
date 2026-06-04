@@ -73,6 +73,37 @@ export function parsePlanChecklist(text: string): PlanChecklistState {
   return { checked, unchecked, total, fullyChecked: total > 0 && unchecked === 0 };
 }
 
+/**
+ * review-driven mode: does OUTSTANDING.md's "Needs human" section contain at
+ * least one real item? We scan from a `## Needs human` (or "Needs-human" /
+ * "Requires human") heading to the next heading and look for a markdown bullet
+ * with non-placeholder text. Placeholders like "(none)", "none", "n/a", "—"
+ * don't count. Tolerant by design — the file is agent-authored prose.
+ */
+export function outstandingHasHumanItems(raw: string): boolean {
+  if (!raw.trim()) return false;
+  const lines = raw.split(/\r?\n/);
+  let inSection = false;
+  const placeholder = /^(none|n\/?a|nil|empty|tbd|—|-)\.?$/i;
+  for (const line of lines) {
+    const heading = line.match(/^#{1,6}\s+(.*)$/);
+    if (heading) {
+      const title = heading[1].trim().toLowerCase();
+      inSection = /needs?[-\s]*human|requires?[-\s]*human|human[-\s]*review|manual[-\s]*verif/i.test(title);
+      continue;
+    }
+    if (!inSection) continue;
+    const bullet = line.match(/^\s*(?:[-*+]|\d+\.)\s+(?:\[[ xX~-]\]\s*)?(.*)$/);
+    if (bullet) {
+      // Strip markdown emphasis AND wrapping punctuation so "(none)", "_none_",
+      // "[n/a]" all normalise to the bare placeholder word.
+      const text = bullet[1].trim().replace(/[.*_`()[\]]/g, '').trim();
+      if (text && !placeholder.test(text)) return true;
+    }
+  }
+  return false;
+}
+
 /** Default NOTES.md curation thresholds (LF-3). Conservative so curation only
  *  fires on genuinely bloated notes — most loops never trip it. */
 export const NOTES_CURATION_MAX_CHARS = 24_000;
@@ -443,6 +474,23 @@ export class LoopStageMachine {
   }
 
   /**
+   * review-driven mode: read OUTSTANDING.md, which the agent maintains with
+   * items it could not resolve autonomously. Returns the raw contents plus a
+   * `needsHuman` flag — true when the "Needs human" section contains at least
+   * one real bullet (not a "(none)" placeholder). Drives the coordinator's
+   * choice of terminal state (`completed` vs `completed-needs-review`).
+   */
+  async readOutstanding(): Promise<{ raw: string; needsHuman: boolean }> {
+    let raw = '';
+    try {
+      raw = await fsp.readFile(this.paths.outstanding, 'utf8');
+    } catch {
+      return { raw: '', needsHuman: false };
+    }
+    return { raw, needsHuman: outstandingHasHumanItems(raw) };
+  }
+
+  /**
    * LF-3 — curate NOTES.md if it has grown past the size threshold. Reads the
    * file, runs {@link curateNotesContent} (preserving the completion
    * inventory), and writes back only when curation actually changed something.
@@ -657,6 +705,99 @@ Append a one-paragraph summary of this iteration to \`${notesRel}\`. Keep it ter
 Exit the iteration. The loop coordinator will continue according to the configured context strategy.
 
 ---
+
+Begin.`;
+  }
+
+  /**
+   * review-driven prompt. Far simpler than the staged buildPrompt: there is no
+   * PLAN/REVIEW/IMPLEMENT machinery and no verify/rename gate. The loop's engine
+   * is a relentless fresh-eyes self-review — exactly the manual workflow
+   * ("re-review with fresh eyes, fix anything not done") run automatically until
+   * the model goes quiet for `requiredCleanReviewPasses` consecutive rounds.
+   */
+  buildReviewDrivenPrompt(args: {
+    config: LoopConfig;
+    iterationSeq: number;
+    pendingInterventions: string[];
+    existingSessionContext?: string;
+    priorObservations?: string[];
+  }): string {
+    const {
+      config,
+      iterationSeq,
+      pendingInterventions,
+      existingSessionContext,
+      priorObservations = [],
+    } = args;
+    const sd = this.paths.relDir;
+    const notesRel = `${sd}/NOTES.md`;
+    const outstandingRel = `${sd}/OUTSTANDING.md`;
+    const blockedRel = `${sd}/BLOCKED.md`;
+    const phrase = (config.completion.noOutstandingPhrase ?? 'There are no outstanding issues').trim();
+    const required = Math.max(1, config.completion.requiredCleanReviewPasses ?? 2);
+    const verifyCmd = config.completion.verifyCommand?.trim();
+
+    const interventions =
+      pendingInterventions.length > 0
+        ? `\n\n## Direction since last iteration (binding — operator hints and/or review findings to address)\n${pendingInterventions.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n`
+        : '';
+    const priorObservationsBlock = priorObservations.length > 0
+      ? `\n\n## Prior observations (not binding)\nHints from previous runs in this workspace — may be stale:\n${priorObservations.map((o, i) => `${i + 1}. ${o}`).join('\n')}\n`
+      : '';
+    const isFirstIteration = iterationSeq === 0;
+    const existingSessionContextBlock = existingSessionContext?.trim()
+      && (isFirstIteration || config.contextStrategy !== 'same-session')
+      ? `\n\n## Existing session context (read-only background)\n${existingSessionContext.trim()}\n`
+      : '';
+    const verifyBlock = verifyCmd
+      ? `\n- A verify command is configured: \`${verifyCmd}\`. Run it as part of your review; if it fails, that is an outstanding issue — fix it and do NOT emit the completion line this round.`
+      : '';
+    const contextModeLine = config.contextStrategy === 'same-session'
+      ? 'You are running inside an autonomous Loop Mode using one persistent child CLI session across iterations. State still belongs on disk so the loop can recover if the process restarts.'
+      : 'You are running inside an autonomous Loop Mode. State lives on disk; every iteration is a fresh process — do not rely on chat history.';
+
+    return `# Loop Mode (review-driven) — Iteration ${iterationSeq}
+
+${contextModeLine}
+
+There is no human in the loop. Make the decisions a senior engineer would defend; do not ask questions (the next iteration won't see them).
+
+## Your job this iteration
+1. **Advance the goal.** Do the next concrete chunk of real work toward the goal below. Use maintainable architecture; no shortcuts, stubs, or placeholder/constant-return logic standing in for the real thing.
+2. **Re-review your own work with completely fresh eyes.** Pretend a stranger wrote everything and you are the reviewer. Hunt specifically for:
+   - things the goal asked for that are NOT actually implemented (orphan code, stubs, TODOs, "not implemented", fake/mock behaviour in production paths, docs that claim done with no real wiring);
+   - specs that say one thing while the code does another;
+   - half-done features, missing wiring/integration, missing error handling, regressions.
+3. **Fix everything you find** in this same iteration.${verifyBlock}
+
+## State files (under \`${sd}/\` — read/write at these exact paths)
+- \`${notesRel}\` — append a terse one-paragraph summary each iteration: what you changed, what's left.
+- \`${outstandingRel}\` — keep this current. It has two sections:
+    \`\`\`
+    ## Needs human
+    - <only items literally impossible for an autonomous agent: physical-hardware testing, subjective/aesthetic or stakeholder sign-off, access/credentials you do not have. Each with a one-line WHY.>
+
+    ## Open questions
+    - <assumptions you made where the goal was ambiguous>
+    \`\`\`
+  The bar for "Needs human" is HIGH — do everything you possibly can yourself. Only genuinely human-required items go there. If a section has nothing, write \`- (none)\`.
+- \`${blockedRel}\` — only if you are truly, hard-blocked right now (missing credentials/access you cannot proceed without). Write what you need, then exit; the loop will pause for the operator.${priorObservationsBlock}${interventions}${existingSessionContextBlock}
+
+## Goal (persistent across iterations)
+${config.initialPrompt}
+
+## How this loop stops
+The loop ends after **${required} consecutive** iterations where, after a genuine fresh-eyes pass, you (a) made **no** code changes and (b) found nothing left to fix that you can act on.
+
+When — and ONLY when — that is true this iteration (you changed no production code, and everything remaining is either done or sits under "## Needs human" in \`${outstandingRel}\`), end your message with this exact line on its own:
+
+${phrase}
+
+Do **not** write that line in any other situation. If you changed code or found anything actionable, keep working — do not write it. Writing it prematurely just delays the real finish, because the loop re-checks and will reset the moment it sees more changes.
+
+## Safety
+This loop ${config.allowDestructiveOps ? 'DOES' : 'DOES NOT'} allow destructive operations (\`rm -rf\`, \`git push --force\`, schema drops). Honor that.
 
 Begin.`;
   }

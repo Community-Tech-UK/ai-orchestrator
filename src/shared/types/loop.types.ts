@@ -96,7 +96,44 @@ export interface LoopProgressThresholds {
   warnEscalationCount: number;              // default 3
 }
 
+/**
+ * How the loop decides it is finished.
+ *
+ * - `'review-driven'` (the default for user-started loops): the loop's *engine*
+ *   is a fresh-eyes self-review. Each iteration the model re-reviews its own
+ *   work, fixes anything not done or done wrong, and only emits the
+ *   `noOutstandingPhrase` when — after a genuine fresh pass — it found nothing
+ *   to fix and changed no production code. The loop stops after
+ *   `requiredCleanReviewPasses` consecutive such clean passes. There is no
+ *   verify-gate / rename-gate / evidence-ladder; the review IS the stop
+ *   condition. Mirrors the proven manual workflow ("re-review with fresh eyes,
+ *   fix anything not done") without a human typing it each round.
+ * - `'gated'`: the legacy evidence-ladder path — a sufficient completion signal
+ *   (declared-complete / forensic markers) gated by verify + belt-and-braces +
+ *   optional cross-model review. Still fully supported; opt in explicitly.
+ */
+export type LoopCompletionMode = 'review-driven' | 'gated';
+
 export interface LoopCompletionConfig {
+  /**
+   * Completion strategy. Defaults to `'gated'` at the engine level
+   * (`defaultLoopConfig`) so programmatic callers and the existing test suite
+   * keep their behaviour; user-started loops are defaulted to `'review-driven'`
+   * by `prepareLoopStartConfig`. Undefined is treated as `'gated'`.
+   */
+  mode?: LoopCompletionMode;
+  /**
+   * review-driven only: number of consecutive clean fresh-eyes passes (model
+   * emits `noOutstandingPhrase` AND changed no production code) required before
+   * the loop stops. Default 2 — one clean pass can be lazy, two in a row is a
+   * strong signal. Ignored in `'gated'` mode.
+   */
+  requiredCleanReviewPasses?: number;
+  /**
+   * review-driven only: the exact line the model must emit (case-insensitive)
+   * to signal "nothing left to do." Default 'There are no outstanding issues'.
+   */
+  noOutstandingPhrase?: string;
   /** Path glob matched against rename events. */
   completedFilenamePattern: string; // default '*_[Cc]ompleted.md'
   /** Regex applied to iteration output. */
@@ -431,6 +468,12 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
     blockSanityProbe: { enabled: true, timeoutMs: 5000 },
     degradedIterationRetry: { enabled: true, maxRetries: 2 },
     completion: {
+      // Engine default is the legacy gated ladder so the test suite and
+      // programmatic callers are unaffected; `prepareLoopStartConfig` upgrades
+      // user-started loops to 'review-driven'.
+      mode: 'gated',
+      requiredCleanReviewPasses: 2,
+      noOutstandingPhrase: 'There are no outstanding issues',
       completedFilenamePattern: '*_[Cc]ompleted.md',
       donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
       doneSentinelFile: 'DONE.txt',
@@ -772,6 +815,15 @@ export interface LoopState {
    * does. In-memory only.
    */
   repeatedEvidenceCount?: number;
+  /**
+   * review-driven mode: count of consecutive clean fresh-eyes passes (model
+   * emitted the no-outstanding phrase AND changed no production code this
+   * iteration). Resets to 0 on any iteration that changes production code or
+   * does not emit the phrase. The loop converges when this reaches
+   * `completion.requiredCleanReviewPasses`. In-memory only; undefined/0 in
+   * gated mode.
+   */
+  consecutiveCleanReviewPasses?: number;
 }
 
 // ============ Stream events (async generator) ============

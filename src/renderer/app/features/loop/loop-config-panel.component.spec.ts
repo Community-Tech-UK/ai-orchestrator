@@ -67,6 +67,22 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.completion?.allowOperatorReviewedCompletion).toBe(false);
   });
 
+  it('defaults to review-driven completion with 2 clean passes', () => {
+    const config = component.buildConfig();
+
+    expect(config?.completion?.mode).toBe('review-driven');
+    expect(config?.completion?.requiredCleanReviewPasses).toBe(2);
+  });
+
+  it('emits the chosen completion mode and clean-pass count', () => {
+    component.completionMode.set('gated');
+    component.requiredCleanPasses.set(4);
+    const config = component.buildConfig();
+
+    expect(config?.completion?.mode).toBe('gated');
+    expect(config?.completion?.requiredCleanReviewPasses).toBe(4);
+  });
+
   it('defaults to a $10 spend cap (LF-3)', () => {
     const config = component.buildConfig();
 

@@ -274,8 +274,12 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
 
     let completed = false;
     let claimedDoneButFailed = false;
+    let claimedFailure = '';
     coordinator.on('loop:completed', () => { completed = true; });
-    coordinator.on('loop:claimed-done-but-failed', () => { claimedDoneButFailed = true; });
+    coordinator.on('loop:claimed-done-but-failed', (e: unknown) => {
+      claimedDoneButFailed = true;
+      claimedFailure = (e as { failure: string }).failure;
+    });
     coordinator.on('loop:invoke-iteration', (payload: unknown) => {
       const p = payload as { callback: (r: LoopChildResult) => void };
       writeRunState(payload, 'DONE.txt', `${new Date().toISOString()}\n`);
@@ -319,6 +323,16 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     expect(completed).toBe(false);
     expect(claimedDoneButFailed).toBe(true);
     expect(live?.status).toBe('paused');
+
+    // Regression for the misleading "no verify command configured" message:
+    // when the fresh-eyes review RAN but produced no verdict (no reviewers /
+    // unparseable output), the operator-facing text must blame the failed
+    // review, not pin it on a missing verify command. The review is enabled
+    // here, so neither the rejection reason nor the failure should claim it is
+    // "not enabled".
+    expect(claimedFailure).toContain('fresh-eyes review');
+    expect(claimedFailure).toMatch(/could not produce a verdict|unparseable|none were available/);
+    expect(claimedFailure).not.toContain('fresh-eyes review is not enabled');
   });
 
   it('ALLOWS completion when the reviewer throws (does not pin loop open)', async () => {

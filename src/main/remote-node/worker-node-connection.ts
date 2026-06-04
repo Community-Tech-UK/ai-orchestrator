@@ -310,12 +310,25 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     });
 
     ws.on('close', () => {
-      if (nodeId !== null) {
-        this.nodeToSocket.delete(nodeId);
-        this.socketToNode.delete(ws);
-        logger.info('Node WebSocket disconnected', { nodeId });
-        this.emit('node:ws-disconnected', nodeId);
+      if (nodeId === null) {
+        return;
       }
+      // Only treat this close as a true disconnect if this socket is still the
+      // active one for the node. When a worker reconnects, the new socket
+      // replaces the old in nodeToSocket *before* the old socket's close event
+      // fires. Without this guard, the stale socket's close would delete the new
+      // socket's mapping and emit node:ws-disconnected, deregistering a node
+      // that just successfully re-registered — leaving a live, heartbeating
+      // worker permanently absent from the registry ("unknown node" heartbeats).
+      if (this.nodeToSocket.get(nodeId) !== ws) {
+        this.socketToNode.delete(ws);
+        logger.info('Replaced worker socket closed; keeping active connection', { nodeId });
+        return;
+      }
+      this.nodeToSocket.delete(nodeId);
+      this.socketToNode.delete(ws);
+      logger.info('Node WebSocket disconnected', { nodeId });
+      this.emit('node:ws-disconnected', nodeId);
     });
 
     ws.on('error', (err) => {

@@ -291,6 +291,37 @@ export class AutomationStore implements OnDestroy {
     }
   }
 
+  /**
+   * Mark a single automation run as seen — used when the user opens that run's
+   * session directly from the rail (rather than the Automations page). Decrements
+   * the owning automation's unread count by one so the sidebar badge reduces and
+   * eventually disappears once every produced session has been viewed.
+   *
+   * Idempotent: if the run is already known to be seen we skip the round-trip so
+   * re-selecting the same session can't under-count the badge.
+   */
+  async markRunSeen(runId: string, automationId: string): Promise<void> {
+    const known = this._runs().find((item) => item.id === runId);
+    if (known?.seenAt) {
+      return;
+    }
+    const response = await this.ipc.markSeen({ runId });
+    if (!response.success) {
+      return;
+    }
+    const seenAt = Date.now();
+    this._runs.update((items) =>
+      items.map((item) => (item.id === runId ? { ...item, seenAt } : item))
+    );
+    this._automations.update((items) =>
+      items.map((item) =>
+        item.id === automationId
+          ? { ...item, unreadRunCount: Math.max(0, (item.unreadRunCount ?? 0) - 1) }
+          : item
+      )
+    );
+  }
+
   private applyAutomationEvent(event: AutomationChangedEvent): void {
     if (event.type === 'deleted') {
       this._automations.update((items) => items.filter((item) => item.id !== event.automationId));

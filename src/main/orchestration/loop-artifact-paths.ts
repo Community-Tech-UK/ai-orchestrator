@@ -50,6 +50,13 @@ export interface LoopArtifactPaths {
   tasksArchive: string;
   /** Absolute path to BLOCKED.md inside the state dir. */
   blocked: string;
+  /**
+   * Absolute path to OUTSTANDING.md inside the state dir. review-driven mode:
+   * the agent maintains this with items it could NOT resolve autonomously
+   * (NEEDS-HUMAN) and open questions; the coordinator reads it on convergence
+   * to decide `completed` vs `completed-needs-review`.
+   */
+  outstanding: string;
 }
 
 /**
@@ -68,6 +75,7 @@ export function resolveLoopArtifactPaths(workspaceCwd: string, loopRunId: string
     tasks: path.join(dir, 'LOOP_TASKS.md'),
     tasksArchive: path.join(dir, 'LOOP_TASKS.prev.md'),
     blocked: path.join(dir, 'BLOCKED.md'),
+    outstanding: path.join(dir, 'OUTSTANDING.md'),
   };
 }
 

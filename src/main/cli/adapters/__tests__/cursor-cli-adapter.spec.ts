@@ -131,14 +131,33 @@ describe('CursorCliAdapter — identity', () => {
 });
 
 describe('CursorCliAdapter — buildArgs baseline', () => {
-  it('includes -p, --output-format stream-json, --force, --sandbox disabled', () => {
+  it('includes -p, --output-format stream-json, and the full headless-yolo flag set', () => {
     const adapter = new CursorCliAdapter({});
     const args = (adapter as unknown as { buildArgs: (m: { content: string }) => string[] })
       .buildArgs({ content: 'hi' });
     expect(args).toEqual(expect.arrayContaining([
       '-p', '--output-format', 'stream-json',
-      '--force', '--sandbox', 'disabled',
+      '--force', '--sandbox', 'disabled', '--trust', '--approve-mcps',
     ]));
+  });
+
+  it('passes the yolo flag set when yoloMode is explicitly true', () => {
+    const adapter = new CursorCliAdapter({ yoloMode: true });
+    const args = (adapter as unknown as { buildArgs: (m: { content: string }) => string[] })
+      .buildArgs({ content: 'hi' });
+    expect(args).toEqual(expect.arrayContaining([
+      '--force', '--sandbox', 'disabled', '--trust', '--approve-mcps',
+    ]));
+  });
+
+  it('omits all yolo flags when yoloMode is explicitly false', () => {
+    const adapter = new CursorCliAdapter({ yoloMode: false });
+    const args = (adapter as unknown as { buildArgs: (m: { content: string }) => string[] })
+      .buildArgs({ content: 'hi' });
+    expect(args).not.toContain('--force');
+    expect(args).not.toContain('--sandbox');
+    expect(args).not.toContain('--trust');
+    expect(args).not.toContain('--approve-mcps');
   });
 
   it('positional prompt appears at the end', () => {

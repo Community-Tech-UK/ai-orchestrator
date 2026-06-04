@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { LoopStageMachine, parsePlanChecklist } from './loop-stage-machine';
+import { LoopStageMachine, parsePlanChecklist, outstandingHasHumanItems } from './loop-stage-machine';
 import { resolveLoopArtifactPaths, loopStateFile, type LoopArtifactPaths } from './loop-artifact-paths';
 import { parseTaskLedger } from './loop-task-ledger';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
@@ -488,5 +488,88 @@ describe('LoopStageMachine.captureStartupSnapshot', () => {
     expect(cfg.planFile).toBeUndefined();
     const snap = await m.captureStartupSnapshot(cfg);
     expect(snap.planChecklistFullyChecked).toBe(false);
+  });
+});
+
+describe('outstandingHasHumanItems (review-driven)', () => {
+  it('is false for empty / missing content', () => {
+    expect(outstandingHasHumanItems('')).toBe(false);
+    expect(outstandingHasHumanItems('   \n')).toBe(false);
+  });
+
+  it('is false when the Needs human section only has a (none) placeholder', () => {
+    const raw = '## Needs human\n- (none)\n\n## Open questions\n- Assumed UTC for timestamps.\n';
+    expect(outstandingHasHumanItems(raw)).toBe(false);
+  });
+
+  it('is true when the Needs human section has a real item', () => {
+    const raw = '## Needs human\n- Deploy to a physical device and confirm the camera works.\n\n## Open questions\n- (none)\n';
+    expect(outstandingHasHumanItems(raw)).toBe(true);
+  });
+
+  it('only counts items under a human heading, not open questions', () => {
+    const raw = '## Open questions\n- Should retries be exponential?\n';
+    expect(outstandingHasHumanItems(raw)).toBe(false);
+  });
+
+  it('matches heading variants and checkbox bullets', () => {
+    expect(outstandingHasHumanItems('### Requires human review\n- [ ] Get design sign-off')).toBe(true);
+    expect(outstandingHasHumanItems('## Manual verification\n* Run on real hardware')).toBe(true);
+  });
+});
+
+describe('LoopStageMachine.readOutstanding', () => {
+  it('returns needsHuman=false when OUTSTANDING.md is absent', async () => {
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    const r = await m.readOutstanding();
+    expect(r).toEqual({ raw: '', needsHuman: false });
+  });
+
+  it('reads and classifies a real human item', async () => {
+    fs.mkdirSync(paths.dir, { recursive: true });
+    fs.writeFileSync(paths.outstanding, '## Needs human\n- Confirm prod credentials with the ops team.\n');
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    const r = await m.readOutstanding();
+    expect(r.needsHuman).toBe(true);
+    expect(r.raw).toContain('ops team');
+  });
+});
+
+describe('LoopStageMachine.buildReviewDrivenPrompt', () => {
+  it('embeds the goal, the exact no-outstanding phrase, the pass count, and the OUTSTANDING path', () => {
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    const cfg = {
+      ...defaultLoopConfig(tmpDir, 'build the thing'),
+      completion: {
+        ...defaultLoopConfig(tmpDir, 'x').completion,
+        mode: 'review-driven' as const,
+        requiredCleanReviewPasses: 3,
+        noOutstandingPhrase: 'There are no outstanding issues',
+      },
+    };
+    const prompt = m.buildReviewDrivenPrompt({
+      config: cfg,
+      iterationSeq: 0,
+      pendingInterventions: [],
+    });
+    expect(prompt).toContain('build the thing');
+    expect(prompt).toContain('There are no outstanding issues');
+    expect(prompt).toContain('3 consecutive');
+    expect(prompt).toContain('OUTSTANDING.md');
+    expect(prompt).toContain('fresh eyes');
+  });
+
+  it('folds a configured verify command into the review instructions', () => {
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    const cfg = {
+      ...defaultLoopConfig(tmpDir, 'x'),
+      completion: {
+        ...defaultLoopConfig(tmpDir, 'x').completion,
+        mode: 'review-driven' as const,
+        verifyCommand: 'npm test',
+      },
+    };
+    const prompt = m.buildReviewDrivenPrompt({ config: cfg, iterationSeq: 1, pendingInterventions: [] });
+    expect(prompt).toContain('npm test');
   });
 });

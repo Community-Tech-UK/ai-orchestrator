@@ -40,28 +40,50 @@ export async function prepareLoopStartConfig(
       'unbounded run is unsafe. Set a Max spend, or configure a verify command.',
     );
   }
+  // Completion mode. The default for user-started loops is 'review-driven':
+  // the loop's engine is a fresh-eyes self-review that keeps fixing what it
+  // finds until N consecutive clean passes — the proven manual workflow,
+  // automated. The operator-reviewed escape hatch is a deliberately gated
+  // flavour, so it stays in 'gated' mode. An explicit `mode` from the caller
+  // always wins.
+  const explicitMode = config.completion?.mode;
+  const mode =
+    explicitMode ?? (config.completion?.allowOperatorReviewedCompletion ? 'gated' : 'review-driven');
+
+  if (mode === 'review-driven') {
+    // Self-review is the default authority — we do NOT auto-enable cross-model
+    // review here (that's the opt-in "ask another model" option, set by the
+    // caller via `crossModelReview.enabled`). A verify command, if supplied, is
+    // still honoured and folded in as an extra check during review-driven runs.
+    logger.info('Defaulting loop completion to review-driven (fresh-eyes self-review)', {
+      workspaceCwd: config.workspaceCwd,
+      verifyCommand: verifyCommand || '(none)',
+    });
+    return {
+      ...config,
+      completion: {
+        ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
+        ...(config.completion ?? {}),
+        mode: 'review-driven',
+      },
+    };
+  }
+
+  // --- gated mode (explicit, or the operator-reviewed escape hatch) ---
   if (verifyCommand || config.completion?.allowOperatorReviewedCompletion) {
-    return config;
+    return { ...config, completion: { ...(config.completion ?? {}), mode: 'gated' } as LoopConfig['completion'] };
   }
 
-  // No verify command and not operator-reviewed. We deliberately do NOT infer
-  // and force a machine verify command (e.g. `npm run verify`) anymore — that
-  // gate is heavy, environment-fragile (it needs node/npm on the launched
-  // process's PATH), and ran BEFORE the fresh-eyes review so a broken verify
-  // environment starved the review gate entirely. Instead the default
-  // completion authority is the fresh-eyes cross-model review: the loop
-  // auto-completes when an independent model review comes back clean, keeps
-  // iterating on blocking findings, and only pauses for an operator when no
-  // review verdict is available. A machine verify command is still fully
-  // supported — it's now opt-in (set it in the Verify field / loop config).
-  //
-  // An explicit `crossModelReview: { enabled: false }` from the caller is
-  // honoured; we only fill in the default when it was left unset.
+  // Gated, no verify command, not operator-reviewed. We deliberately do NOT
+  // infer/force a machine verify command (heavy, environment-fragile). The
+  // gated completion authority defaults to the fresh-eyes cross-model review;
+  // an explicit `crossModelReview: { enabled: false }` from the caller is
+  // honoured.
   if (config.completion?.crossModelReview !== undefined) {
-    return config;
+    return { ...config, completion: { ...config.completion, mode: 'gated' } };
   }
 
-  logger.info('No verify command configured — defaulting completion gate to fresh-eyes cross-model review', {
+  logger.info('No verify command configured (gated mode) — defaulting completion gate to fresh-eyes cross-model review', {
     workspaceCwd: config.workspaceCwd,
   });
   return {
@@ -69,6 +91,7 @@ export async function prepareLoopStartConfig(
     completion: {
       ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
       ...(config.completion ?? {}),
+      mode: 'gated',
       crossModelReview: defaultCrossModelReviewConfig(),
     },
   };

@@ -662,6 +662,12 @@ export class AutomationRunner {
         modelOverride: snapshot.action.model,
         forceNodeId: snapshot.action.forceNodeId,
         reasoningEffort: snapshot.action.reasoningEffort,
+        // Same durable provenance as the first attempt so the rail marks the
+        // retry session as automation-born and viewing it clears the badge.
+        metadata: {
+          automationId: retryRun.automationId,
+          automationRunId: retryRun.id,
+        },
       });
 
       this.trackInstance(instance.id, retryRun);

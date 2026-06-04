@@ -22,6 +22,7 @@ import { InstanceListStore } from './instance-list.store';
 import { InstanceSelectionStore } from './instance-selection.store';
 import { InstanceOutputStore } from './instance-output.store';
 import { InstanceMessagingStore } from './instance-messaging.store';
+import { AutomationStore } from '../automation.store';
 
 // Types
 import type { InstanceStatus, CreateInstanceConfig, OutputMessage } from './instance.types';
@@ -47,6 +48,7 @@ export class InstanceStore implements OnDestroy {
   private statsIpc = inject(StatsIpcService);
   private batcher = inject(UpdateBatcherService);
   private activityDebouncer = inject(ActivityDebouncerService);
+  private automationStore = inject(AutomationStore);
   private unsubscribes: (() => void)[] = [];
 
   // Compaction state (tracked per instance)
@@ -556,6 +558,13 @@ export class InstanceStore implements OnDestroy {
       const instance = this.stateService.getInstance(id);
       if (instance?.hasUnreadCompletion) {
         this.stateService.updateInstance(id, { hasUnreadCompletion: false });
+      }
+      // Viewing an automation-born session counts as viewing that run, so the
+      // sidebar automations badge reduces (and disappears once all are seen).
+      const automationId = instance?.metadata?.['automationId'];
+      const automationRunId = instance?.metadata?.['automationRunId'];
+      if (typeof automationId === 'string' && typeof automationRunId === 'string') {
+        void this.automationStore.markRunSeen(automationRunId, automationId);
       }
     }
   }

@@ -102,6 +102,59 @@ describe('CrossModelReviewService headless review', () => {
     expect(result.infrastructureErrors).toEqual([]);
   });
 
+  it('truncates an oversized payload before dispatching to the reviewer', async () => {
+    // A long loop's cumulative git diff can be hundreds of KB. Shipping it raw
+    // overflows the reviewer CLI's context and yields unparseable output. The
+    // headless path must bound the payload like the in-session path does.
+    let dispatchedPrompt = '';
+    const dispatchReviewerPrompt = vi.fn(async (_provider: string, prompt: string) => {
+      dispatchedPrompt = prompt;
+      return reviewerJson('finding');
+    });
+    const service = CrossModelReviewService.getInstance();
+    service.setReviewExecutionHost({
+      getWorkingDirectory: () => '/repo',
+      getTaskDescription: () => 'Review',
+      dispatchReviewerPrompt,
+    });
+
+    const hugeDiff = 'x'.repeat(200_000);
+    await service.runHeadlessReview({
+      target: 'HEAD',
+      cwd: '/repo',
+      content: hugeDiff,
+      taskDescription: 'Review',
+      reviewers: ['gemini'],
+    });
+
+    // The 200k-char payload must not be forwarded whole.
+    expect(dispatchedPrompt.length).toBeLessThan(hugeDiff.length);
+    expect(dispatchedPrompt).toContain('truncated');
+  });
+
+  it('reports the response length when a reviewer returns unparseable output', async () => {
+    const service = CrossModelReviewService.getInstance();
+    service.setReviewExecutionHost({
+      getWorkingDirectory: () => '/repo',
+      getTaskDescription: () => 'Review',
+      dispatchReviewerPrompt: vi.fn(async () => 'I think this looks fine to me, ship it!'),
+    });
+
+    const result = await service.runHeadlessReview({
+      target: 'HEAD',
+      cwd: '/repo',
+      content: 'diff',
+      taskDescription: 'Review',
+      reviewers: ['gemini'],
+    });
+
+    expect(result.reviewers).toEqual([
+      { provider: 'gemini', status: 'failed', reason: expect.stringContaining('unparseable output') },
+    ]);
+    expect(result.reviewers[0].reason).toMatch(/\d+ chars/);
+    expect(result.infrastructureErrors).toHaveLength(1);
+  });
+
   it('returns stable JSON-shaped results when no reviewers are available', async () => {
     const service = CrossModelReviewService.getInstance();
     service.setReviewExecutionHost({

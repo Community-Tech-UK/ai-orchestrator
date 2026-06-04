@@ -120,6 +120,62 @@ describe('AutomationStore thread wakeups', () => {
     expect(applied?.prompt).toContain('Return a concise summary');
   });
 
+  it('markRunSeen reduces the unread badge by one and marks the run seen', async () => {
+    ipc.list.mockResolvedValue({
+      success: true,
+      data: [{ id: 'automation-1', unreadRunCount: 2 }],
+    });
+    ipc.listRuns.mockResolvedValue({
+      success: true,
+      data: [{ id: 'run-1', automationId: 'automation-1', status: 'succeeded', seenAt: null }],
+    });
+    ipc.markSeen.mockResolvedValue({ success: true });
+    const store = TestBed.inject(AutomationStore);
+    await store.refresh();
+
+    expect(store.unreadCount()).toBe(2);
+
+    await store.markRunSeen('run-1', 'automation-1');
+
+    expect(ipc.markSeen).toHaveBeenCalledWith({ runId: 'run-1' });
+    expect(store.unreadCount()).toBe(1);
+    expect(store.runs().find((run) => run.id === 'run-1')?.seenAt).toBeTruthy();
+  });
+
+  it('markRunSeen is idempotent for an already-seen run', async () => {
+    ipc.list.mockResolvedValue({
+      success: true,
+      data: [{ id: 'automation-1', unreadRunCount: 1 }],
+    });
+    ipc.listRuns.mockResolvedValue({
+      success: true,
+      data: [{ id: 'run-1', automationId: 'automation-1', status: 'succeeded', seenAt: 12345 }],
+    });
+    ipc.markSeen.mockResolvedValue({ success: true });
+    const store = TestBed.inject(AutomationStore);
+    await store.refresh();
+
+    await store.markRunSeen('run-1', 'automation-1');
+
+    expect(ipc.markSeen).not.toHaveBeenCalled();
+    expect(store.unreadCount()).toBe(1);
+  });
+
+  it('markRunSeen never drives the unread count below zero', async () => {
+    ipc.list.mockResolvedValue({
+      success: true,
+      data: [{ id: 'automation-1', unreadRunCount: 0 }],
+    });
+    ipc.listRuns.mockResolvedValue({ success: true, data: [] });
+    ipc.markSeen.mockResolvedValue({ success: true });
+    const store = TestBed.inject(AutomationStore);
+    await store.refresh();
+
+    await store.markRunSeen('run-unknown', 'automation-1');
+
+    expect(store.unreadCount()).toBe(0);
+  });
+
   it('runs automation preflight and stores the latest report', async () => {
     const report = {
       generatedAt: 1,

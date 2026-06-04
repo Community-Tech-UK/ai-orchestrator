@@ -55,7 +55,7 @@ import {
 } from './loop-completion-detector';
 import { LoopProgressDetector } from './loop-progress-detector';
 import { LoopStageMachine } from './loop-stage-machine';
-import { resolveLoopArtifactPaths } from './loop-artifact-paths';
+import { resolveLoopArtifactPaths, LOOP_STATE_DIR_NAME } from './loop-artifact-paths';
 import {
   saveLoopAttachments,
   cleanupLoopAttachments,
@@ -699,6 +699,7 @@ export class LoopCoordinator extends EventEmitter {
       unresolvedReviewThreads: [],
       recentEvidenceHashes: [],
       repeatedEvidenceCount: 0,
+      consecutiveCleanReviewPasses: 0,
     };
     this.active.set(id, state);
     this.histories.set(id, []);
@@ -1000,6 +1001,13 @@ export class LoopCoordinator extends EventEmitter {
   // ============ Internal — main loop ============
 
   private async runLoop(state: LoopState, stageMachine: LoopStageMachine): Promise<void> {
+    // review-driven mode (the default for user-started loops) replaces the
+    // evidence-ladder completion machinery with a relentless fresh-eyes
+    // self-review: keep iterating until the model emits the no-outstanding
+    // phrase with no production-code changes for N consecutive rounds. The
+    // stage machinery, verify/rename gates, and no-progress pause are bypassed
+    // because "no changes" is the SUCCESS condition here, not a stall.
+    const reviewDriven = state.config.completion.mode === 'review-driven';
     while (true) {
       // -- pause / cancel / cap pre-flight --
       // If the state was already terminated externally (e.g. cancelLoop
@@ -1100,7 +1108,10 @@ export class LoopCoordinator extends EventEmitter {
 
       // -- pre-iteration kill switch --
       const history = this.histories.get(state.id) ?? [];
-      const block = this.progressDetector.shouldRefuseToSpawnNext(state, history);
+      // review-driven loops converge by going quiet (no changes + clean review),
+      // which the structural no-progress detector would mistake for a stall. The
+      // clean-pass counter + hard caps bound these runs instead.
+      const block = reviewDriven ? null : this.progressDetector.shouldRefuseToSpawnNext(state, history);
       if (block) {
         // LF-4: when disposable-plan regeneration is enabled and budget remains,
         // bypass the kill switch (spawn an iteration so the post-iteration
@@ -1157,15 +1168,27 @@ export class LoopCoordinator extends EventEmitter {
       // review), so showing the pause warning would be misleading — the
       // separate fresh-eyes review block already explains that path.
       const crossModelReviewEnabled = !!state.config.completion.crossModelReview?.enabled;
-      const prompt = this.appendLoopControlPrompt(state, stageMachine.buildPrompt({
-        config: state.config,
-        iterationSeq: seq,
-        pendingInterventions: state.pendingInterventions,
-        existingSessionContext: this.runtimeContexts.get(state.id)?.existingSessionContext,
-        priorObservations: this.runtimeContexts.get(state.id)?.priorObservations,
-        uncompletedPlanFilesAtStart: state.uncompletedPlanFilesAtStart,
-        manualReviewOnly: state.manualReviewOnly && !crossModelReviewEnabled,
-      }));
+      // review-driven mode uses its own simpler prompt and does NOT append the
+      // loop-control CLI hints (completion there is the no-outstanding phrase,
+      // not an explicit `complete` intent — surfacing the CLI would just invite
+      // a self-declared completion the review-driven path ignores).
+      const prompt = reviewDriven
+        ? stageMachine.buildReviewDrivenPrompt({
+            config: state.config,
+            iterationSeq: seq,
+            pendingInterventions: state.pendingInterventions,
+            existingSessionContext: this.runtimeContexts.get(state.id)?.existingSessionContext,
+            priorObservations: this.runtimeContexts.get(state.id)?.priorObservations,
+          })
+        : this.appendLoopControlPrompt(state, stageMachine.buildPrompt({
+            config: state.config,
+            iterationSeq: seq,
+            pendingInterventions: state.pendingInterventions,
+            existingSessionContext: this.runtimeContexts.get(state.id)?.existingSessionContext,
+            priorObservations: this.runtimeContexts.get(state.id)?.priorObservations,
+            uncompletedPlanFilesAtStart: state.uncompletedPlanFilesAtStart,
+            manualReviewOnly: state.manualReviewOnly && !crossModelReviewEnabled,
+          }));
       // The buildPrompt() call above embedded the pending interventions into
       // the iteration prompt, so we can clear the queue. (Previous revisions
       // captured the consumed list for a lockout decision that no longer
@@ -1410,7 +1433,19 @@ export class LoopCoordinator extends EventEmitter {
       // resolves to a SUCCESSFUL `completed-needs-review` terminal (verify is
       // green) rather than a misleading `cap-reached`.
       let completionNeedsReviewReason: string | null = null;
-      if (this.completionDetector.hasSufficientSignal(completionSignals)) {
+      // review-driven terminal decision (computed below, acted on after the
+      // iteration is logged so the converging iteration still lands in history).
+      let reviewDrivenTerminal: { status: 'completed' | 'completed-needs-review'; reason: string } | null = null;
+      if (reviewDriven) {
+        reviewDrivenTerminal = await this.evaluateReviewDrivenCompletion(
+          state,
+          iteration,
+          childResult.output,
+          stageMachine,
+          seq,
+          stage,
+        );
+      } else if (this.completionDetector.hasSufficientSignal(completionSignals)) {
         // Pick the highest-priority sufficient signal for the stop attempt.
         // LF-7: prefer the structured `declared-complete` terminal intent over
         // the forensic signals (rename / sentinel / checklist) when present —
@@ -1537,27 +1572,49 @@ export class LoopCoordinator extends EventEmitter {
           // rename-gate budget exhausted; fall through to post-log terminal handling
           completionNeedsReviewReason = resolution.needsReviewReason!;
         } else if (resolution.decision === 'pause-operator-review') {
-          // verify was skipped — no verify command configured
-          this.rejectPendingCompleteIntent(
-            state,
-            'completion not verified — no verify command configured',
-          );
+          // Verify was skipped (no verify command), so the fresh-eyes cross-model
+          // review is the only thing that could independently confirm completion.
+          // Two distinct situations land here, and they MUST read differently to
+          // the operator:
+          //   (a) freshEyesErrored — the review ran but produced no verdict (the
+          //       reviewer threw, returned unparseable output, or no reviewer CLI
+          //       was available). This is NOT "you forgot a verify command"; the
+          //       default verification exists and crashed.
+          //   (b) otherwise — fresh-eyes review was never enabled (or did not run)
+          //       and there is no verify command, so there is no authority at all.
+          // The resolver already distinguishes the two in `resolution.reason`;
+          // surface it verbatim instead of the old one-size "no verify command
+          // configured" string, which hid a crashed reviewer behind a config nag.
+          this.rejectPendingCompleteIntent(state, resolution.reason);
+          const failure = freshEyesErrored
+            ? 'Completion cannot be auto-confirmed: the fresh-eyes review that would ' +
+              'independently verify this loop could not produce a verdict (the reviewers ' +
+              'returned unparseable output, or none were available). No verify command is ' +
+              'configured as a fallback, so the loop is pausing for operator review. Inspect ' +
+              'the work and accept it manually, or fix the reviewer setup (or add a verify ' +
+              'command) and keep iterating.'
+            : 'Completion cannot be confirmed: no verify command is configured and fresh-eyes ' +
+              'review is not enabled, so the loop has no independent way to check the work is ' +
+              'actually done. Configure a verify command (your test / lint / build command) or ' +
+              'enable fresh-eyes review before starting a loop that should auto-complete, or ' +
+              'inspect the reported evidence and stop the loop manually.';
           this.emit('loop:claimed-done-but-failed', {
             loopRunId: state.id,
             signal: candidate.id,
-            failure:
-              'Completion cannot be confirmed: no verify command is configured, so the loop ' +
-              'has no independent way to check the work is actually done. Configure a verify ' +
-              'command (your test / lint / build command) before starting a loop that should ' +
-              'auto-complete, or inspect the reported evidence and stop the loop manually.',
+            failure,
           });
-          state.pendingInterventions.push(
-            'Your completion was NOT accepted. This loop has no verify command configured, ' +
-              'so it cannot independently confirm the work is finished. Do not simply ' +
-              're-declare completion — it will be rejected again. The loop is pausing for ' +
-              'operator review because only the operator can decide whether your reported ' +
-              'verification evidence is sufficient without an independent verify command.',
-          );
+          const intervention = freshEyesErrored
+            ? 'Your completion was NOT accepted. The fresh-eyes review that would independently ' +
+              'confirm it could not produce a verdict this time (the reviewers returned ' +
+              'unparseable output, or none were available). Do not simply re-declare completion ' +
+              '— it will be rejected again until an independent review succeeds. The loop is ' +
+              'pausing for operator review.'
+            : 'Your completion was NOT accepted. This loop has no verify command configured and ' +
+              'fresh-eyes review is not enabled, so it cannot independently confirm the work is ' +
+              'finished. Do not simply re-declare completion — it will be rejected again. The ' +
+              'loop is pausing for operator review because only the operator can decide whether ' +
+              'your reported verification evidence is sufficient without an independent verify command.';
+          state.pendingInterventions.push(intervention);
           this.convergenceNotes.set(state.id, resolution.convergenceNote ?? 'completion was unverifiable (no verify command configured)');
           pauseBecauseCompletionCannotBeVerified = true;
         } else {
@@ -1717,6 +1774,29 @@ export class LoopCoordinator extends EventEmitter {
         return;
       }
 
+      // -- terminal: review-driven convergence --
+      // N consecutive clean fresh-eyes passes. `completed` when nothing was
+      // flagged for a human; `completed-needs-review` (a SUCCESS state) when the
+      // agent left items in OUTSTANDING.md's "Needs human" section.
+      if (reviewDrivenTerminal) {
+        if (reviewDrivenTerminal.status === 'completed') {
+          this.emit('loop:completed', {
+            loopRunId: state.id,
+            signal: 'self-declared',
+            verifyOutput: '',
+          });
+          this.terminate(state, 'completed', reviewDrivenTerminal.reason);
+        } else {
+          this.emit('loop:completed-needs-review', {
+            loopRunId: state.id,
+            reason: reviewDrivenTerminal.reason,
+            acceptedByOperator: false,
+          });
+          this.terminate(state, 'completed-needs-review', reviewDrivenTerminal.reason);
+        }
+        return;
+      }
+
       // -- terminal: completion --
       if (stopWithSignal) {
         if (state.terminalIntentPending?.kind === 'complete') {
@@ -1765,7 +1845,13 @@ export class LoopCoordinator extends EventEmitter {
       // verify passes the loop is converging, not stuck; the rename-gate budget
       // above bounds any genuine oscillation. So only pause for no-progress
       // when this iteration did NOT pass verify.
-      if (evaluation.verdict === 'CRITICAL' && iteration.verifyStatus !== 'passed') {
+      //
+      // review-driven loops are EXEMPT: their convergence is precisely "stops
+      // changing things", which the structural detector reads as a stall. The
+      // clean-pass counter handles done-detection and the hard caps bound
+      // runaway churn, so a no-progress pause here would just block the very
+      // signal we want.
+      if (!reviewDriven && evaluation.verdict === 'CRITICAL' && iteration.verifyStatus !== 'passed') {
         // -- LF-5: branch-and-select before pausing (opt-in, default off) --
         // When exploration is enabled and a cost cap is set, fan out candidate
         // iterations, verify + select the best, and adopt the winner instead of
@@ -1828,7 +1914,7 @@ export class LoopCoordinator extends EventEmitter {
         this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
         logger.info('Loop paused — no-progress CRITICAL', { loopRunId: state.id, signal: primary });
         // loop continues after user resumes/cancels
-      } else if (evaluation.verdict === 'CRITICAL') {
+      } else if (!reviewDriven && evaluation.verdict === 'CRITICAL') {
         logger.info('Suppressed no-progress pause — iteration verify passed (converging, not stuck)', {
           loopRunId: state.id,
           seq,
@@ -1838,6 +1924,122 @@ export class LoopCoordinator extends EventEmitter {
       // -- minimum sleep guard so the fs watcher can settle --
       await sleep(1500);
     }
+  }
+
+  /**
+   * review-driven completion. A "clean pass" is an iteration where, after the
+   * model's own fresh-eyes review, it (a) changed no production code (loop
+   * bookkeeping under `.aio-loop-state/` doesn't count), (b) emitted the
+   * configured no-outstanding phrase, and (c) passed the verify command if one
+   * is configured. The loop converges after `requiredCleanReviewPasses`
+   * consecutive clean passes; any non-clean iteration resets the streak.
+   *
+   * Returns the terminal decision when converged, else null (keep iterating).
+   * Pure-ish: mutates `state.consecutiveCleanReviewPasses` /
+   * `state.lastCompletionOutcome` and may run the optional verify command.
+   */
+  private async evaluateReviewDrivenCompletion(
+    state: LoopState,
+    iteration: LoopIteration,
+    fullOutput: string,
+    stageMachine: LoopStageMachine,
+    seq: number,
+    stage: LoopStage,
+  ): Promise<{ status: 'completed' | 'completed-needs-review'; reason: string } | null> {
+    const cfg = state.config.completion;
+    const phrase = (cfg.noOutstandingPhrase ?? 'There are no outstanding issues').trim().toLowerCase();
+    const required = Math.max(1, cfg.requiredCleanReviewPasses ?? 2);
+
+    // "No production changes" — the loop's own state files (NOTES/OUTSTANDING/…
+    // under .aio-loop-state) are bookkeeping the prompt asks for every round, so
+    // they must NOT count, or the loop could never go quiet.
+    const productionChanges = iteration.filesChanged.filter(
+      (f) => !f.path.includes(`${LOOP_STATE_DIR_NAME}/`) && !f.path.includes(`${LOOP_STATE_DIR_NAME}\\`),
+    );
+    const sentinelPresent = (fullOutput ?? '').toLowerCase().includes(phrase);
+    const noProductionChanges = productionChanges.length === 0;
+
+    // Optional verify: when configured, a clean pass must also pass verify.
+    let verifyOk = true;
+    if (sentinelPresent && noProductionChanges && cfg.verifyCommand?.trim()) {
+      const v = await this.completionDetector.runVerify(state.config);
+      iteration.verifyStatus = v.status === 'skipped' ? 'not-run' : v.status;
+      iteration.verifyOutputExcerpt = excerpt(v.output);
+      if (v.status === 'failed') {
+        verifyOk = false;
+        state.pendingInterventions.push(
+          'Your review reported no outstanding issues, but the configured verify command failed. ' +
+          'Treat this as an outstanding issue and fix it before signalling done again:\n\n' +
+          (excerpt(v.output, 8192) || '(verify produced no output)'),
+        );
+      }
+    }
+
+    const cleanPass = sentinelPresent && noProductionChanges && verifyOk;
+
+    if (cleanPass) {
+      state.consecutiveCleanReviewPasses = (state.consecutiveCleanReviewPasses ?? 0) + 1;
+      const count = state.consecutiveCleanReviewPasses;
+      this.emit('loop:activity', {
+        loopRunId: state.id,
+        seq,
+        stage,
+        timestamp: Date.now(),
+        kind: 'status',
+        message: `Clean fresh-eyes review pass ${count}/${required}`,
+        detail: { consecutiveCleanReviewPasses: count, required },
+      });
+      if (count >= required) {
+        // Opt-in "ask another model" second opinion, taken ONCE at the finish
+        // line (not every iteration — cheap). We reuse the hardened fresh-eyes
+        // gate, but here it is a SUGGESTER, never a hard gate:
+        //   - blocking findings  → injected as an intervention; reset the
+        //     streak so the PRIMARY model (which has the full history) fixes or
+        //     rebuts them next round, then re-converges;
+        //   - clean / errored / no reviewers → converge anyway (a flaky or
+        //     unavailable reviewer must never trap an otherwise-done loop).
+        if (state.config.completion.crossModelReview?.enabled) {
+          const review = await this.runFreshEyesReviewGate(state, 'self-declared', iteration, '');
+          if (review.blocked) {
+            // runFreshEyesReviewGate already pushed the findings as an
+            // intervention and set the convergence note.
+            state.consecutiveCleanReviewPasses = 0;
+            return null;
+          }
+        }
+        state.lastCompletionOutcome = 'accepted';
+        const outstanding = await stageMachine.readOutstanding().catch(() => ({ raw: '', needsHuman: false }));
+        if (outstanding.needsHuman) {
+          return {
+            status: 'completed-needs-review',
+            reason:
+              `Converged after ${required} consecutive clean fresh-eyes reviews. The agent flagged ` +
+              `items that need a human in OUTSTANDING.md:\n\n${outstanding.raw.trim()}`,
+          };
+        }
+        return {
+          status: 'completed',
+          reason: `Converged after ${required} consecutive clean fresh-eyes reviews — no outstanding issues found.`,
+        };
+      }
+      return null; // a clean pass, but not yet enough in a row
+    }
+
+    // Not a clean pass — reset the streak (and surface the reset for legibility).
+    const had = state.consecutiveCleanReviewPasses ?? 0;
+    state.consecutiveCleanReviewPasses = 0;
+    if (had > 0) {
+      this.emit('loop:activity', {
+        loopRunId: state.id,
+        seq,
+        stage,
+        timestamp: Date.now(),
+        kind: 'status',
+        message: 'Clean-review streak reset — more work happened this iteration',
+        detail: { previousStreak: had },
+      });
+    }
+    return null;
   }
 
   /**

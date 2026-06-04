@@ -48,7 +48,8 @@ import { InstanceLifecycleManager } from './instance-lifecycle';
 import { InstanceCommunicationManager } from './instance-communication';
 import { InstanceContextManager } from './instance-context';
 import type { InstanceContextPort } from './instance-context-port';
-import { InstanceEventAggregator } from './instance-event-aggregator';
+import { InstanceEventAggregator, type InstanceEventLogQuery } from './instance-event-aggregator';
+import type { InstanceEventEnvelope } from '@contracts/types/instance-events';
 import { InstanceOrchestrationManager } from './instance-orchestration';
 import { InstancePersistenceManager } from './instance-persistence';
 import { InstanceSettledTracker } from './instance-settled-tracker';
@@ -1142,6 +1143,19 @@ export class InstanceManager extends EventEmitter {
 
   getInstanceCount(): number {
     return this.state.getInstanceCount();
+  }
+
+  /**
+   * Read the retained canonical event log for an instance (A8). Returns
+   * per-instance-sequenced lifecycle envelopes in chronological order; pass
+   * `afterSeq` to resume after the last seq a consumer has seen ("attached
+   * from seq N" replay). Events older than the retained window may be absent.
+   */
+  getInstanceEvents(
+    instanceId: string,
+    query: InstanceEventLogQuery = {},
+  ): InstanceEventEnvelope[] {
+    return this.lifecycleEvents.getEvents(instanceId, query);
   }
 
   /** Return all instances executing on a given worker node */

@@ -258,11 +258,11 @@ export function resolveCompletion(input: EvidenceInput): EvidenceResolution {
       outcome: 'unverifiable',
       signalId: candidate.id,
       reason: input.freshEyesErrored
-        ? 'completion not independently confirmed — no verify command and the fresh-eyes review was unavailable'
+        ? 'completion not independently confirmed — no verify command, and the fresh-eyes review could not produce a verdict (reviewer returned unparseable output or no reviewers were available)'
         : 'completion not verified — no verify command configured and fresh-eyes review is not enabled',
       needsReviewReason: null,
       convergenceNote: input.freshEyesErrored
-        ? 'completion unverifiable (no verify command; fresh-eyes review unavailable)'
+        ? 'completion unverifiable (no verify command; fresh-eyes review produced no verdict)'
         : 'completion was unverifiable (no verify command configured)',
     };
   }

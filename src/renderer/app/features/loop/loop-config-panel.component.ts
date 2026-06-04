@@ -137,6 +137,14 @@ export class LoopConfigPanelComponent {
   compactionThresholdPct = computed(() => Math.round(this.compactionResetUtilization() * 100));
   operatorReviewedCompletion = signal(false);
   freshEyesReview = signal(false);
+  /**
+   * Completion strategy. 'review-driven' (default) keeps re-reviewing with
+   * fresh eyes and fixing what it finds until N consecutive clean passes;
+   * 'gated' is the legacy verify / declared-done evidence ladder.
+   */
+  completionMode = signal<'review-driven' | 'gated'>('review-driven');
+  /** review-driven: consecutive clean fresh-eyes passes required to finish. */
+  requiredCleanPasses = signal(2);
   /** Opt-in for signal F (token-burn-without-test-progress). Default off so
    *  legitimate non-test-driven loops (new module scaffolds, refactors with
    *  no test deltas, doc/asset generation) don't pause spuriously. */
@@ -291,6 +299,8 @@ export class LoopConfigPanelComponent {
         maxToolCallsPerIteration: DEFAULT_CAPS.maxToolCallsPerIteration,
       },
       completion: {
+        mode: this.completionMode(),
+        requiredCleanReviewPasses: this.requiredCleanPasses(),
         completedFilenamePattern: DEFAULT_COMPLETION.completedFilenamePattern,
         donePromiseRegex: DEFAULT_COMPLETION.donePromiseRegex,
         doneSentinelFile: DEFAULT_COMPLETION.doneSentinelFile,

@@ -115,7 +115,16 @@ export const LoopCrossModelReviewConfigSchema = z.object({
   reviewDepth: z.enum(['structured', 'tiered']),
 });
 
+export const LoopCompletionModeSchema = z.enum(['review-driven', 'gated']);
+
 export const LoopCompletionConfigSchema = z.object({
+  /** Completion strategy. Undefined is treated as 'gated' by the engine;
+   *  user-started loops are defaulted to 'review-driven' at start-config. */
+  mode: LoopCompletionModeSchema.optional(),
+  /** review-driven: consecutive clean fresh-eyes passes required to stop. */
+  requiredCleanReviewPasses: z.number().int().positive().max(20).optional(),
+  /** review-driven: exact line the model emits to signal nothing left to do. */
+  noOutstandingPhrase: z.string().min(1).optional(),
   completedFilenamePattern: z.string().min(1),
   donePromiseRegex: z.string().min(1),
   doneSentinelFile: z.string().min(1),

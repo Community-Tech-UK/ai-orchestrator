@@ -40,6 +40,9 @@ export interface LoopStartConfigInput {
     maxToolCallsPerIteration: number;
   }>;
   completion?: Partial<{
+    mode: 'review-driven' | 'gated';
+    requiredCleanReviewPasses: number;
+    noOutstandingPhrase: string;
     completedFilenamePattern: string;
     donePromiseRegex: string;
     doneSentinelFile: string;
