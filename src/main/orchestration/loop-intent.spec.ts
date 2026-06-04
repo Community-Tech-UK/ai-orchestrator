@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { detectConvergeUntilCleanIntent, looksLikeConvergeUntilCleanIntent } from './loop-intent';
+import {
+  detectConvergeUntilCleanIntent,
+  detectLoopGoalIntent,
+  looksLikeConvergeUntilCleanIntent,
+} from './loop-intent';
 
 describe('detectConvergeUntilCleanIntent', () => {
   it('matches the canonical "fresh eyes ... until no issues" prompt', () => {
@@ -47,5 +51,49 @@ describe('detectConvergeUntilCleanIntent', () => {
     // is a build loop — we must NOT auto-enable cross-model review for it.
     expect(looksLikeConvergeUntilCleanIntent('keep building until it passes')).toBe(false);
     expect(looksLikeConvergeUntilCleanIntent('build the project and ship it')).toBe(false);
+  });
+});
+
+describe('detectLoopGoalIntent', () => {
+  it('classifies the canonical audit question as investigation', () => {
+    const r = detectLoopGoalIntent(
+      'Is this fully implemented? Please be thorough and check against actual code.',
+    );
+    expect(r.intent).toBe('investigation');
+    // "is this … implemented" status form OR the question lead both qualify.
+    expect(['status-question', 'question-form']).toContain(r.reason);
+  });
+
+  it('classifies explicit explain/audit verbs as investigation', () => {
+    expect(detectLoopGoalIntent('Explain how the loop coordinator works').intent).toBe('investigation');
+    expect(detectLoopGoalIntent('Audit the auth module for security gaps').intent).toBe('investigation');
+    expect(detectLoopGoalIntent("What's causing the timeout cascade?").intent).toBe('investigation');
+  });
+
+  it('treats a participle inside a question as investigation, not implementation', () => {
+    // "implemented" must NOT trip the implementation-verb matcher (base-form
+    // word boundary) — otherwise the audit goal would be misread as a build.
+    const r = detectLoopGoalIntent('Is the mobile gateway implemented and wired up?');
+    expect(r.intent).toBe('investigation');
+  });
+
+  it('classifies imperative implementation goals as implementation (wins on ambiguity)', () => {
+    expect(detectLoopGoalIntent('Implement everything in the plan').intent).toBe('implementation');
+    expect(detectLoopGoalIntent('Add a dark-mode toggle to settings').intent).toBe('implementation');
+    expect(detectLoopGoalIntent('Refactor the adapter layer').intent).toBe('implementation');
+    // Question-shaped but asks for a code change → implementation.
+    expect(detectLoopGoalIntent('Can you fix the failing tests?').intent).toBe('implementation');
+  });
+
+  it('classifies a review-and-fix (converge) goal as implementation, not investigation', () => {
+    // It mutates code, so it is an implement loop even though it mentions review.
+    expect(detectLoopGoalIntent('Review the diff and fix any issues until clean').intent).toBe(
+      'implementation',
+    );
+  });
+
+  it('defaults to implementation for an empty or non-question goal', () => {
+    expect(detectLoopGoalIntent('').reason).toBe('empty');
+    expect(detectLoopGoalIntent('the parser module').intent).toBe('implementation');
   });
 });

@@ -161,6 +161,53 @@ describe('ClaudeCliAdapter reasoning effort', () => {
   });
 });
 
+describe('ClaudeCliAdapter host cloud-scheduler denylist', () => {
+  function getBuildArgs(adapter: ClaudeCliAdapter): string[] {
+    return (
+      adapter as unknown as {
+        buildArgs: (message: { role: 'user'; content: string }) => string[];
+      }
+    ).buildArgs({ role: 'user', content: 'test' });
+  }
+
+  function getDisallowed(args: string[]): string[] {
+    const i = args.indexOf('--disallowedTools');
+    return i === -1 ? [] : (args[i + 1] ?? '').split(',');
+  }
+
+  it('always denies CronCreate/RemoteTrigger even when no disallowedTools are wired (warm-start adapter)', () => {
+    // A consumed warm-start adapter carries only { workingDirectory } — no disallowedTools.
+    // The guarantee must still hold because enforcement lives in buildArgs.
+    const adapter = new ClaudeCliAdapter({ workingDirectory: '/tmp/x' });
+    const disallowed = getDisallowed(getBuildArgs(adapter));
+
+    expect(disallowed).toContain('CronCreate');
+    expect(disallowed).toContain('RemoteTrigger');
+  });
+
+  it('merges and dedupes with caller-supplied disallowedTools', () => {
+    const adapter = new ClaudeCliAdapter({
+      workingDirectory: '/tmp/x',
+      disallowedTools: ['Bash', 'CronCreate'],
+    });
+    const disallowed = getDisallowed(getBuildArgs(adapter));
+
+    expect(disallowed).toContain('Bash');
+    expect(disallowed).toContain('CronCreate');
+    expect(disallowed).toContain('RemoteTrigger');
+    // CronCreate appears once despite being supplied by both sources.
+    expect(disallowed.filter((t) => t === 'CronCreate')).toHaveLength(1);
+  });
+
+  it('does not block read-only cron tools (cleanup remains possible)', () => {
+    const adapter = new ClaudeCliAdapter({ workingDirectory: '/tmp/x' });
+    const disallowed = getDisallowed(getBuildArgs(adapter));
+
+    expect(disallowed).not.toContain('CronList');
+    expect(disallowed).not.toContain('CronDelete');
+  });
+});
+
 describe('ClaudeCliAdapter deferred-permission tool_input', () => {
   function makeAdapter() {
     return new ClaudeCliAdapter();

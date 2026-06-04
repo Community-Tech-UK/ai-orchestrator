@@ -13,7 +13,7 @@ const { getHookCommands, runHook } = require('../run-git-hook.js') as {
 };
 
 describe('run-git-hook', () => {
-  it('pre-commit regenerates generated artifacts and stages them', () => {
+  it('pre-commit regenerates generated artifacts, stages them, and runs changed-file tests', () => {
     expect(getHookCommands('pre-commit')).toEqual([
       { command: 'npm', args: ['run', 'generate:aliases'] },
       { command: 'npm', args: ['run', 'generate:ipc'] },
@@ -28,6 +28,7 @@ describe('run-git-hook', () => {
           'docs/generated/architecture-inventory.json',
         ],
       },
+      { command: 'npm', args: ['run', 'test:staged'] },
     ]);
   });
 

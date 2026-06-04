@@ -14,6 +14,7 @@ const {
   mockPromptHistoryRecord,
   mockQueueContinuityPreamble,
   mockQueueUpdate,
+  mockGetSchedulingReminder,
   mockStateInstances,
   MockEmitter,
 } = vi.hoisted(() => ({
@@ -24,6 +25,7 @@ const {
   mockPromptHistoryRecord: vi.fn(),
   mockQueueContinuityPreamble: vi.fn(),
   mockQueueUpdate: vi.fn(),
+  mockGetSchedulingReminder: vi.fn(),
   mockStateInstances: new Map<string, Instance>(),
   MockEmitter: class {
     on(): this { return this; }
@@ -274,6 +276,9 @@ vi.mock('../instance-orchestration', () => {
     unregisterInstance(): void { return undefined; }
     hasActiveWork(): boolean { return false; }
     getOrchestrationPrompt(): string { return '[ORCHESTRATION PROMPT]'; }
+    getSchedulingReminderIfRelevant(message: string): string | null {
+      return mockGetSchedulingReminder(message) as string | null;
+    }
     getOrchestrationHandler(): Record<string, unknown> {
       return {
         getPendingUserActionsForInstance: vi.fn(() => []),
@@ -433,6 +438,8 @@ describe('InstanceManager context deadline', () => {
     mockCommandExecuteCommandString.mockResolvedValue(null);
     mockIndexedBuildContext.mockResolvedValue(null);
     mockIndexedFormatContextBlock.mockReturnValue('[Indexed]\nindex context');
+    mockGetSchedulingReminder.mockReset();
+    mockGetSchedulingReminder.mockReturnValue(null);
   });
 
   afterEach(() => {
@@ -581,5 +588,72 @@ describe('InstanceManager context deadline', () => {
       message: expect.stringContaining('Slash command resolution timed out'),
     });
     expect(mockCommunicationSendInput).not.toHaveBeenCalled();
+  });
+
+  // makeInstance() seeds prior conversation history, so the first tracked input is
+  // NOT a fresh-conversation first message — i.e. the orchestration prompt is not
+  // (re)injected. This is exactly the long-conversation case where the scheduling
+  // reminder must be re-surfaced.
+  it('injects the scheduling reminder into the context block on a later-turn scheduling request', async () => {
+    const { InstanceManager } = await import('../instance-manager');
+    mockGetSchedulingReminder.mockImplementation((msg: string) =>
+      msg.includes('automation') ? '[SCHED REMINDER]' : null,
+    );
+    const contextPort = createContextPort({
+      buildRlmContext: vi.fn().mockResolvedValue(null),
+      buildUnifiedMemoryContext: vi.fn().mockResolvedValue(null),
+    });
+    mockIndexedBuildContext.mockResolvedValue(null);
+    mockIndexedFormatContextBlock.mockReturnValue(null);
+    const instance = makeInstance();
+    mockStateInstances.set(instance.id, instance);
+    const manager = new InstanceManager(undefined, contextPort);
+
+    await manager.sendInput(instance.id, 'please create an automation for this');
+
+    expect(mockGetSchedulingReminder).toHaveBeenCalledWith('please create an automation for this');
+    const contextBlock = mockCommunicationSendInput.mock.calls[0]?.[3] as string | null;
+    expect(contextBlock).toContain('[SCHED REMINDER]');
+  });
+
+  it('prepends the reminder alongside retrieved context without dropping it', async () => {
+    const { InstanceManager } = await import('../instance-manager');
+    mockGetSchedulingReminder.mockReturnValue('[SCHED REMINDER]');
+    const contextPort = createContextPort({
+      buildRlmContext: vi.fn().mockResolvedValue({
+        context: 'rlm context',
+        tokens: 10,
+        sectionsAccessed: ['s1'],
+        durationMs: 3,
+        source: 'semantic',
+      } satisfies RlmContextInfo),
+      buildUnifiedMemoryContext: vi.fn().mockResolvedValue(null),
+    });
+    mockIndexedBuildContext.mockResolvedValue(null);
+    mockIndexedFormatContextBlock.mockReturnValue(null);
+    const instance = makeInstance();
+    mockStateInstances.set(instance.id, instance);
+    const manager = new InstanceManager(undefined, contextPort);
+
+    await manager.sendInput(instance.id, 'schedule something daily');
+
+    const contextBlock = mockCommunicationSendInput.mock.calls[0]?.[3] as string | null;
+    expect(contextBlock).toContain('[SCHED REMINDER]');
+    expect(contextBlock).toContain('[RLM]\nrlm context');
+  });
+
+  it('does not inject a reminder for non-scheduling messages', async () => {
+    const { InstanceManager } = await import('../instance-manager');
+    mockGetSchedulingReminder.mockImplementation((msg: string) =>
+      msg.includes('automation') ? '[SCHED REMINDER]' : null,
+    );
+    const instance = makeInstance();
+    mockStateInstances.set(instance.id, instance);
+    const manager = new InstanceManager(undefined, createContextPort());
+
+    await manager.sendInput(instance.id, 'fix the failing test');
+
+    const contextBlock = mockCommunicationSendInput.mock.calls[0]?.[3] as string | null;
+    expect(contextBlock ?? '').not.toContain('[SCHED REMINDER]');
   });
 });

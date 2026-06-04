@@ -15,6 +15,8 @@ import {
   formatCommandResponse,
   generateChildPrompt,
   generateOrchestrationPrompt,
+  detectsSchedulingIntent,
+  SCHEDULING_INTENT_REMINDER,
   parseOrchestratorCommands,
   stripOrchestrationMarkers,
   type OrchestratorCommand,
@@ -189,6 +191,55 @@ describe('generateOrchestrationPrompt', () => {
     it('reminds the model that AIO automations run locally with browser-gateway access', () => {
       expect(prompt).toMatch(/locally on this machine/);
       expect(prompt).toMatch(/browser gateway to the user's real, authenticated Chrome/);
+    });
+  });
+
+  describe('scheduling intent reinforcement', () => {
+    it('detects the screenshot-reported phrasing "create an automation"', () => {
+      expect(detectsSchedulingIntent('Please create an automation for this')).toBe(true);
+    });
+
+    it.each([
+      'set this up to run every morning',
+      'do this daily at 8am',
+      'run it twice daily',
+      'schedule a weekly report',
+      'make this a recurring task',
+      'keep doing this on a loop',
+      'remind me tomorrow',
+      'run this next Friday',
+      'add a cron job for this',
+      'turn this into a routine',
+    ])('detects scheduling intent in: %s', (text) => {
+      expect(detectsSchedulingIntent(text)).toBe(true);
+    });
+
+    it.each([
+      'fix the failing test',
+      'explain how this function works',
+      'refactor this component',
+      '',
+    ])('does not trigger on non-scheduling message: %s', (text) => {
+      expect(detectsSchedulingIntent(text)).toBe(false);
+    });
+
+    it('handles null/undefined input', () => {
+      expect(detectsSchedulingIntent(undefined)).toBe(false);
+      expect(detectsSchedulingIntent(null)).toBe(false);
+    });
+
+    it('reminder steers to native create_automation and away from the host CLI scheduler', () => {
+      expect(SCHEDULING_INTENT_REMINDER).toContain('create_automation');
+      expect(SCHEDULING_INTENT_REMINDER).toContain('CronCreate');
+      expect(SCHEDULING_INTENT_REMINDER).toMatch(/native automation/i);
+    });
+
+    it('reminder is conditional so over-eager detection cannot induce spurious automations', () => {
+      // The detector intentionally over-triggers (e.g. "daily", "tomorrow", "routine").
+      // The reminder must therefore be conditional, never an unconditional command to
+      // create an automation, or a false positive would push the model to create one.
+      expect(SCHEDULING_INTENT_REMINDER).toMatch(/\bif\b/i);
+      expect(SCHEDULING_INTENT_REMINDER).toMatch(/not actually about scheduling[\s\S]*do not create/i);
     });
   });
 

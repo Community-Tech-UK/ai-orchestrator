@@ -59,7 +59,12 @@ export type {
   OrchestratorNodeSummary,
 };
 
-export { generateOrchestrationPrompt, generateChildPrompt } from './orchestration-protocol.prompts';
+export {
+  generateOrchestrationPrompt,
+  generateChildPrompt,
+  detectsSchedulingIntent,
+  SCHEDULING_INTENT_REMINDER,
+} from './orchestration-protocol.prompts';
 
 // ─── Command parsing ──────────────────────────────────────────────────────────
 

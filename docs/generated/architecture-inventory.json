@@ -4932,6 +4932,10 @@
       "lines": 2734
     },
     {
+      "path": "src/main/orchestration/loop-coordinator.ts",
+      "lines": 2717
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-28-wave5-orchestration-hud-verification-verdicts-plan_completed.md",
       "lines": 2695
     },
@@ -4940,8 +4944,8 @@
       "lines": 2659
     },
     {
-      "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 2656
+      "path": "src/main/instance/instance-manager.ts",
+      "lines": 2522
     },
     {
       "path": "src/main/channels/channel-message-router.ts",
@@ -4950,10 +4954,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing.md",
       "lines": 2519
-    },
-    {
-      "path": "src/main/instance/instance-manager.ts",
-      "lines": 2507
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
@@ -4976,12 +4976,12 @@
       "lines": 2112
     },
     {
-      "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2105
+      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
+      "lines": 2108
     },
     {
-      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2102
+      "path": "src/main/cli/adapters/acp-cli-adapter.ts",
+      "lines": 2105
     },
     {
       "path": "docs/superpowers/plans/2026-04-13-codemem-phase1-index-and-lsp-facade_completed.md",
@@ -5041,7 +5041,7 @@
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.spec.ts",
-      "lines": 1652
+      "lines": 1654
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -5084,16 +5084,16 @@
       "lines": 1478
     },
     {
+      "path": "src/main/orchestration/orchestration-handler.ts",
+      "lines": 1458
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-08-phase2-provider-tool-sdk_completed.md",
       "lines": 1457
     },
     {
       "path": "docs/superpowers/plans/2026-04-04-agentic-harness-hardening_completed.md",
       "lines": 1456
-    },
-    {
-      "path": "src/main/orchestration/orchestration-handler.ts",
-      "lines": 1443
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency.md",
@@ -5316,16 +5316,16 @@
       "lines": 1065
     },
     {
+      "path": "src/main/instance/instance-orchestration.ts",
+      "lines": 1059
+    },
+    {
       "path": "src/renderer/app/features/archive/archive-page.component.ts",
       "lines": 1059
     },
     {
       "path": "src/main/orchestration/__tests__/debate-coordinator.spec.ts",
       "lines": 1055
-    },
-    {
-      "path": "src/main/instance/instance-orchestration.ts",
-      "lines": 1050
     },
     {
       "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
@@ -5568,6 +5568,10 @@
       "lines": 841
     },
     {
+      "path": "src/shared/types/loop.types.ts",
+      "lines": 839
+    },
+    {
       "path": "src/renderer/app/features/mcp/mcp-page.component.scss",
       "lines": 838
     },
@@ -5588,10 +5592,6 @@
       "lines": 820
     },
     {
-      "path": "src/shared/types/loop.types.ts",
-      "lines": 820
-    },
-    {
       "path": "src/renderer/app/features/training/training-page.component.ts",
       "lines": 818
     },
@@ -5601,6 +5601,10 @@
     },
     {
       "path": "docs/plans/2026-02-22-token-memory-optimization-design.md",
+      "lines": 816
+    },
+    {
+      "path": "src/main/ipc/handlers/app-handlers.ts",
       "lines": 816
     },
     {

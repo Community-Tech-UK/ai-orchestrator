@@ -28,6 +28,7 @@
     "test": "node scripts/check-node.js && node scripts/verify-package-exports.js && vitest run",
     "test:unit": "vitest",
     "test:unit:run": "vitest run",
+    "test:staged": "node scripts/test-staged.js",
     "test:coverage": "vitest --coverage",
     "bench": "vitest bench",
     "bench:indexing": "vitest bench src/main/indexing/benchmarks/indexing.bench.ts",

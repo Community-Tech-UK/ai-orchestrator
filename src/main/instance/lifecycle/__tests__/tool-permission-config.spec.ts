@@ -48,6 +48,30 @@ describe('buildToolPermissionConfig', () => {
     expect(yolo.allowedTools).toBeUndefined();
   });
 
+  it('folds the host cloud-scheduler write tools into the cold-spawn denylist', () => {
+    const config = buildToolPermissionConfig(buildPermissions(), {
+      allowedToolsPolicy: 'standard-unless-yolo',
+    });
+
+    // Steers scheduling to AIO's native create_automation. (Authoritative
+    // enforcement is in ClaudeCliAdapter.buildArgs; this is the explicit denylist.)
+    expect(config.disallowedTools).toContain('CronCreate');
+    expect(config.disallowedTools).toContain('RemoteTrigger');
+    // Read-only cron tools stay available for cleanup of pre-existing routines.
+    expect(config.disallowedTools).not.toContain('CronList');
+    expect(config.disallowedTools).not.toContain('CronDelete');
+  });
+
+  it('blocks the scheduler tools even in YOLO mode', () => {
+    const config = buildToolPermissionConfig(buildPermissions(), {
+      allowedToolsPolicy: 'allow-all',
+      yoloMode: true,
+    });
+
+    expect(config.disallowedTools).toContain('CronCreate');
+    expect(config.disallowedTools).toContain('RemoteTrigger');
+  });
+
   it('attaches tool filters to instance metadata without replacing other metadata', () => {
     const target: { metadata?: Record<string, unknown> } = {
       metadata: { existing: true },

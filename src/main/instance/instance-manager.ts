@@ -1598,6 +1598,7 @@ export class InstanceManager extends EventEmitter {
     );
 
     // Prepend orchestration prompt only for genuinely fresh conversations.
+    const orchestrationPromptInjected = isFirstTrackedInput && !hasPriorConversationHistory;
     if (isFirstTrackedInput) {
       this.hasReceivedFirstMessage.add(instanceId);
 
@@ -1624,6 +1625,20 @@ export class InstanceManager extends EventEmitter {
           instance.isRenamed,
           attachments?.map((a) => a.name),
         ).catch(() => { /* non-critical */ });
+      }
+    }
+
+    // Reinforce automation steering on later turns. The full orchestration prompt
+    // (which carries the "use create_automation, never the host CLI scheduler"
+    // guidance) only lands on the first message of a fresh conversation. In a long
+    // chat, a later "create an automation"/"every morning" request would otherwise
+    // race against the host CLI's `schedule` skill with no steering in front of the
+    // model. Re-inject a concise reminder exactly when scheduling intent appears.
+    if (!orchestrationPromptInjected) {
+      const schedulingReminder = this.orchestrationMgr.getSchedulingReminderIfRelevant(message);
+      if (schedulingReminder) {
+        const prefix = contextBlock ? `${contextBlock}\n\n` : '';
+        contextBlock = `${prefix}${schedulingReminder}`;
       }
     }
 

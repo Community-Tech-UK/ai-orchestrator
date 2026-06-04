@@ -357,6 +357,15 @@ export interface LoopConfig {
   allowDestructiveOps: boolean;
   /** Optional: agent's initial stage. Default 'IMPLEMENT'. */
   initialStage: LoopStage;
+  /**
+   * Whether the loop's goal is an implementation task or an investigation
+   * (a question / audit / "explain X" / "is Y done?"). Optional — `undefined`
+   * is treated as `'implementation'` everywhere. When `'investigation'`, the
+   * loop answers the goal and writes a `REPORT.md` instead of editing
+   * production code, and completion is gated on that report. Derived at
+   * `startLoop` from the prompt when the caller doesn't set it; an explicit
+   * caller value always wins. */
+  goalIntent?: LoopGoalIntent;
   /** Wall-clock cap per iteration in ms. Defaults applied by the invoker
    *  if unset (currently 30 minutes). The loop's overall caps.maxWallTimeMs
    *  is enforced separately at the coordinator level. */
@@ -438,6 +447,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
     },
     allowDestructiveOps: false,
     initialStage: 'IMPLEMENT',
+    goalIntent: 'implementation',
     iterationTimeoutMs: undefined,
     streamIdleTimeoutMs: undefined,
   };
@@ -446,6 +456,15 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
 // ============ Stage / Status ============
 
 export type LoopStage = 'PLAN' | 'REVIEW' | 'IMPLEMENT';
+
+/**
+ * The kind of goal a loop is pursuing. `'implementation'` is the default
+ * (build/fix/refactor — the agent makes code changes that converge to done).
+ * `'investigation'` is a question/audit/explain goal: the agent answers it with
+ * file:line evidence in a `REPORT.md` and does NOT edit production code. Kept
+ * deliberately binary — finer routing belongs to the model-router, not here.
+ */
+export type LoopGoalIntent = 'implementation' | 'investigation';
 
 export type LoopStatus =
   | 'running'

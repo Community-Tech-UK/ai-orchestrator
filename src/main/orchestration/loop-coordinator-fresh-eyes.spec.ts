@@ -240,7 +240,10 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     expect(r.pendingInterventions.length).toBe(0);
   });
 
-  it('ALLOWS completion when the reviewer infrastructure is unavailable (no reviewers)', async () => {
+  it('ALLOWS completion when the reviewer is unavailable BUT a verify command carries authority', async () => {
+    // runOneIterationAttempt always configures verifyCommand: 'true' (passing).
+    // With an independent verify authority, an unavailable reviewer (empty
+    // reviewersUsed) is correctly non-blocking — the loop still completes.
     const r = await runOneIterationAttempt({
       reviewResult: {
         findings: [],
@@ -252,6 +255,70 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     });
 
     expect(r.ended).toBe(true);
+  });
+
+  it('does NOT false-complete a no-verify loop when no reviewers are available', async () => {
+    // Regression: a no-verify loop whose ONLY completion authority is the
+    // fresh-eyes review must NOT rubber-stamp completion when the review service
+    // returns zero reviewers (no alternative CLIs / infra down). An empty
+    // findings list there means "nobody looked", not "looked and found it
+    // clean", so the loop must pause for operator review instead of declaring
+    // done on the agent's self-declared evidence alone.
+    writeFileSync(join(workspace, 'plan.md'), '# Plan\n');
+    coordinator.setFreshEyesReviewer(async () => ({
+      findings: [],
+      reviewersUsed: [],
+      summary: 'No reviewers available for headless review.',
+      infrastructureError: 'No alternative CLIs detected',
+    }));
+
+    let completed = false;
+    let claimedDoneButFailed = false;
+    coordinator.on('loop:completed', () => { completed = true; });
+    coordinator.on('loop:claimed-done-but-failed', () => { claimedDoneButFailed = true; });
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as { callback: (r: LoopChildResult) => void };
+      writeRunState(payload, 'DONE.txt', `${new Date().toISOString()}\n`);
+      writeFileSync(join(workspace, 'plan_completed.md'), '# Done\n');
+      queueMicrotask(() => p.callback(makeChildResultThatClaimsDone()));
+    });
+
+    const base = defaultLoopConfig(workspace, 'x').completion;
+    const state = await coordinator.startLoop('chat-no-verify-no-reviewers', {
+      initialPrompt: 'implement plan.md',
+      workspaceCwd: workspace,
+      caps: {
+        maxIterations: 1,
+        maxWallTimeMs: 60_000,
+        maxTokens: 1_000_000,
+        maxCostCents: 100,
+        maxToolCallsPerIteration: 200,
+      },
+      completion: {
+        ...base,
+        // No verify command — the fresh-eyes review is the sole authority.
+        verifyCommand: '',
+        runVerifyTwice: false,
+        crossModelReview: {
+          enabled: true,
+          blockingSeverities: ['critical', 'high'],
+          timeoutSeconds: 10,
+          reviewDepth: 'structured',
+        },
+      },
+    });
+
+    await new Promise((r) => setTimeout(r, 200));
+    const live = (coordinator as unknown as {
+      active: Map<string, { status: string }>;
+    }).active.get(state.id);
+    if (live?.status === 'running') {
+      coordinator.cancelLoop(state.id);
+    }
+
+    expect(completed).toBe(false);
+    expect(claimedDoneButFailed).toBe(true);
+    expect(live?.status).toBe('paused');
   });
 
   it('ALLOWS completion when the reviewer throws (does not pin loop open)', async () => {

@@ -20,6 +20,15 @@ const HOOK_COMMANDS = {
     // CI runs `npm run check:ts-max-loc` without --warn, so it stays the enforcing gate.
     { command: 'npm', args: ['run', 'check:ts-max-loc', '--', '--warn'] },
     { command: 'git', args: ['add', ...GENERATED_ARTIFACTS] },
+    // Fast feedback at commit time: run only the tests related to the staged
+    // source files (`vitest related`), not the full suite. This is the "best of
+    // both" gate — quick, scoped test coverage on commit, with the slow
+    // CI-mirror full suite still living on pre-push. test-staged.js excludes the
+    // generated artifacts staged just above (they're widely imported and would
+    // balloon the run) and skips entirely when no source files are staged, so
+    // the loop agents' high-frequency auto-commits stay near-instant. Bypass in
+    // an emergency with `git commit --no-verify`.
+    { command: 'npm', args: ['run', 'test:staged'] },
   ],
   'pre-push': [
     { command: 'npm', args: ['run', 'verify:ipc'] },

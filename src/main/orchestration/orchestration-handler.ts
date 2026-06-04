@@ -23,6 +23,8 @@ import {
   ORCHESTRATION_MARKER_END,
   formatCommandResponse,
   generateOrchestrationPrompt,
+  detectsSchedulingIntent,
+  SCHEDULING_INTENT_REMINDER,
   type OrchestratorAction,
   type OrchestratorNodeSummary
 } from './orchestration-protocol';
@@ -223,6 +225,19 @@ export class OrchestrationHandler extends EventEmitter {
         maxConcurrentInstances: n.capabilities.maxConcurrentInstances,
       }));
     return generateOrchestrationPrompt(instanceId, currentModel, connectedNodes);
+  }
+
+  /**
+   * When a user message expresses scheduling/automation intent, returns a concise
+   * reminder steering the model to AIO's native `create_automation` (and away from
+   * the host CLI's cloud `schedule`/`CronCreate` tools). Returns null otherwise.
+   *
+   * The full steering only lands on the first message of a fresh conversation, so
+   * this re-surfaces it on later turns — exactly when the host CLI's schedule skill
+   * would otherwise win.
+   */
+  getSchedulingReminderIfRelevant(message: string): string | null {
+    return detectsSchedulingIntent(message) ? SCHEDULING_INTENT_REMINDER : null;
   }
 
   /**

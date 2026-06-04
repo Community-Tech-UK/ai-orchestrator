@@ -78,7 +78,7 @@ import {
   type LoopControlRuntime,
 } from './loop-control';
 import { computeWorkHash } from './loop-work-hash';
-import { detectConvergeUntilCleanIntent } from './loop-intent';
+import { detectConvergeUntilCleanIntent, detectLoopGoalIntent } from './loop-intent';
 import { collectWorkspaceDiff } from './loop-diff';
 import {
   completedPlanWatchDirs,
@@ -487,6 +487,37 @@ export class LoopCoordinator extends EventEmitter {
     if (!config.initialPrompt.trim()) throw new Error('initialPrompt is required');
     if (!config.workspaceCwd.trim()) throw new Error('workspaceCwd is required');
 
+    // Derive the goal intent (implementation vs investigation/audit) when the
+    // caller didn't set it explicitly. An investigation loop ANSWERS the goal
+    // and writes a REPORT.md instead of editing production code — so this gates
+    // the per-iteration prompt (answer/report, not implement), suppresses the
+    // plan-file rename gate (we're auditing those files, not finishing them),
+    // and adds a report-required completion check. An explicit caller value
+    // always wins. Conservative: implementation is the safe default and wins on
+    // ambiguity, so a real implement goal is never mistaken for a question.
+    // Classify the GOAL only (config.initialPrompt) — never the iteration
+    // directive, which defaults to a generic "continue… update… rename"
+    // boilerplate that would mask an audit goal as implementation.
+    if (partialConfig.goalIntent === undefined) {
+      const goalIntent = detectLoopGoalIntent(config.initialPrompt);
+      config.goalIntent = goalIntent.intent;
+      if (goalIntent.intent === 'investigation') {
+        logger.info(
+          'Loop start: detected investigation goal — answer/report mode (no production edits)',
+          { workspaceCwd: config.workspaceCwd, reason: goalIntent.reason },
+        );
+      }
+    }
+    const isInvestigation = config.goalIntent === 'investigation';
+    // An investigation/audit must never be pushed to rename the very plan/
+    // backlog files it is auditing. `materializeConfig` auto-enables the rename
+    // gate whenever a `planFile` is set, so explicitly clear it here (unless the
+    // caller pinned it) — the `uncompletedPlanFilesAtStart` auto-enable below is
+    // separately guarded by `!isInvestigation`.
+    if (isInvestigation && !userExplicitlySetCompletedRename) {
+      config.completion.requireCompletedFileRename = false;
+    }
+
     // FU-2: a loop with no `verifyCommand` cannot auto-complete — every
     // completion attempt is "skipped" by verify and the coordinator pauses
     // the loop for operator review. The runtime behaviour already handles
@@ -608,6 +639,7 @@ export class LoopCoordinator extends EventEmitter {
     // "rename it with _completed before stopping" and this gate enforces
     // that contract on the loop side.
     if (
+      !isInvestigation &&
       !userExplicitlySetCompletedRename &&
       !config.completion.requireCompletedFileRename &&
       snapshot.uncompletedPlanFilesAtStart.length > 0
@@ -1886,6 +1918,35 @@ export class LoopCoordinator extends EventEmitter {
     );
 
     if (blocking.length === 0) {
+      // No reviewer actually produced a verdict: an empty `reviewersUsed` means
+      // the review service degraded (no alternative CLIs available / infra
+      // error), so an empty findings list here means "nobody looked", NOT
+      // "looked and found it clean". Treat it exactly like a thrown reviewer:
+      // ran, but with no independent authority. A verify-gated loop still
+      // completes (verify carries the authority); a no-verify loop has zero
+      // independent evidence, so the resolver pauses for operator review
+      // instead of rubber-stamping the agent's self-declared completion. This
+      // is the "only pause when no review verdict is available" contract from
+      // loop-start-config.ts — without this guard a no-verify loop with no
+      // reviewers would false-complete on self-declared evidence alone.
+      if (reviewResult.reviewersUsed.length === 0) {
+        logger.warn(
+          'Fresh-eyes review returned no reviewers — treating as unavailable, not a clean pass',
+          {
+            loopRunId: state.id,
+            signal: signalId,
+            infrastructureError: reviewResult.infrastructureError,
+          },
+        );
+        this.emit('loop:fresh-eyes-review-failed', {
+          loopRunId: state.id,
+          signal: signalId,
+          error:
+            reviewResult.infrastructureError ??
+            'no reviewers available for fresh-eyes review',
+        });
+        return { blocked: false, ran: true, errored: true };
+      }
       // The unresolved-review-thread set has emptied — the ONLY condition under
       // which the loop may converge on the review axis (claude2_todo #1b).
       state.unresolvedReviewThreads = [];

@@ -21,6 +21,7 @@ import { InputFormatter } from '../input-formatter';
 import { processAttachments, buildMessageWithFiles } from '../file-handler';
 import { getLogger } from '../../logging/logger';
 import { buildDeferPermissionHookCommand } from '../hooks/hook-path-resolver';
+import { HOST_CLI_CLOUD_SCHEDULER_TOOLS } from './host-cli-tool-policy';
 import type { CliStreamMessage } from '../../../shared/types/cli.types';
 import type {
   OutputMessage,
@@ -853,14 +854,19 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       args.push('--allowedTools', this.spawnOptions.allowedTools.join(','));
     }
 
-    if (
-      this.spawnOptions.disallowedTools &&
-      this.spawnOptions.disallowedTools.length > 0
-    ) {
-      args.push(
-        '--disallowedTools',
-        this.spawnOptions.disallowedTools.join(',')
-      );
+    // Always deny the host CLI's cloud-scheduler tools, merged with any caller-supplied
+    // denylist and deduped. Enforced here — the single chokepoint every process launch
+    // (cold, warm-start, resume, replay, continuity-recovery) passes through — so the
+    // guarantee holds even for spawn paths that don't wire `disallowedTools` (e.g. a
+    // consumed warm-start adapter whose spawnOptions only carry the working directory).
+    const disallowedTools = Array.from(
+      new Set<string>([
+        ...HOST_CLI_CLOUD_SCHEDULER_TOOLS,
+        ...(this.spawnOptions.disallowedTools ?? []),
+      ]),
+    );
+    if (disallowedTools.length > 0) {
+      args.push('--disallowedTools', disallowedTools.join(','));
     }
 
     // Don't pass system prompt when resuming - the session already has one

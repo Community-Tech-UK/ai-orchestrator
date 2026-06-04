@@ -3,6 +3,7 @@ import { z } from 'zod';
 // ============ Enums ============
 
 export const LoopStageSchema = z.enum(['PLAN', 'REVIEW', 'IMPLEMENT']);
+export const LoopGoalIntentSchema = z.enum(['implementation', 'investigation']);
 export const LoopStatusSchema = z.enum([
   'running',
   'paused',
@@ -207,6 +208,9 @@ export const LoopConfigSchema = z.object({
   completion: LoopCompletionConfigSchema,
   allowDestructiveOps: z.boolean(),
   initialStage: LoopStageSchema,
+  /** Implementation task vs investigation/audit goal. Optional; main process
+   *  derives it from the prompt when omitted (an explicit value wins). */
+  goalIntent: LoopGoalIntentSchema.optional(),
   /** Wall-clock cap for a single iteration's CLI invocation, ms. The
    *  outer caps.maxWallTimeMs covers the whole loop run. */
   iterationTimeoutMs: z.number().int().positive().max(2 * 60 * 60 * 1000).optional(),

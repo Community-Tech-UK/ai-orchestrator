@@ -25,7 +25,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { watch, type FSWatcher } from 'chokidar';
 import { getLogger } from '../logging/logger';
-import { parsePlanChecklist, LOOP_TASKS_FILE } from './loop-stage-machine';
+import { parsePlanChecklist, LOOP_TASKS_FILE, INVESTIGATION_REPORT_FILE } from './loop-stage-machine';
 import { parseTaskLedger } from './loop-task-ledger';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import type {
@@ -244,6 +244,26 @@ export type VerifyOutcome =
   | { status: 'skipped'; output: string; durationMs: number }
   | { status: 'failed'; output: string; durationMs: number; exitCode: number | null };
 
+/** Minimum trimmed length for an investigation REPORT.md to count as substantive. */
+const MIN_INVESTIGATION_REPORT_CHARS = 200;
+
+/** Matches a `path/to/file.ext:line` style citation (extension + colon + line). */
+const FILE_LINE_CITATION_RE = /[A-Za-z0-9_./-]+\.[A-Za-z][A-Za-z0-9]{0,9}:\d+/;
+
+/**
+ * An investigation/audit loop's REPORT.md is "substantive" only when it exists,
+ * has real content (not just a stub/heading), AND cites at least one
+ * `file.ext:line` location — the prompt requires every claim to be backed by
+ * concrete code evidence, so a report with zero citations is an unverified
+ * narrative, not the answer the loop was asked to produce. Pure + exported so
+ * the gate logic is unit-testable without the filesystem.
+ */
+export function isSubstantiveInvestigationReport(content: string): boolean {
+  const trimmed = content.trim();
+  if (trimmed.length < MIN_INVESTIGATION_REPORT_CHARS) return false;
+  return FILE_LINE_CITATION_RE.test(trimmed);
+}
+
 export class LoopCompletionDetector {
   /**
    * Inspect the just-completed iteration + workspace and return any
@@ -411,6 +431,34 @@ export class LoopCompletionDetector {
       }
     } catch {
       // No LOOP_TASKS.md (or unreadable) — ledger inactive, no effect.
+    }
+
+    // Investigation/audit gate: a loop whose goal is a question/audit must
+    // produce a substantive, file:line-cited REPORT.md before ANY completion
+    // signal is accepted. Without this, an investigation loop could "complete"
+    // on a bare DONE.txt / declared-complete with no answer delivered — exactly
+    // the silent-reframe failure the goalIntent split exists to prevent. No-op
+    // for implementation loops (the common case).
+    if (config.goalIntent === 'investigation') {
+      const reportPath = loopStateFile(artifactPaths, INVESTIGATION_REPORT_FILE);
+      let report = '';
+      try {
+        report = await fsp.readFile(reportPath, 'utf8');
+      } catch {
+        // Missing — treated as not-yet-substantive below.
+      }
+      if (!isSubstantiveInvestigationReport(report)) {
+        const hadSufficient = out.some((e) => e.sufficient);
+        for (const evidence of out) evidence.sufficient = false;
+        out.push({
+          id: 'self-declared',
+          sufficient: false,
+          detail:
+            `Investigation goal: ${INVESTIGATION_REPORT_FILE} is missing or not yet a substantive, ` +
+            `file:line-cited answer — completion is blocked until it is written` +
+            (hadSufficient ? ' (a completion signal fired but was demoted)' : ''),
+        });
+      }
     }
 
     return out;

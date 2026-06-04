@@ -110,6 +110,57 @@ describe('LoopStageMachine', () => {
     expect(p).not.toContain('the coordinator will run an **independent cross-model fresh-eyes review**');
   });
 
+  it('buildPrompt renders investigation/audit mode for goalIntent="investigation"', () => {
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    const cfg = defaultLoopConfig(tmpDir, 'Is this fully implemented?');
+    cfg.goalIntent = 'investigation';
+    const p = m.buildPrompt({
+      config: cfg,
+      iterationSeq: 0,
+      pendingInterventions: [],
+      // Even with uncompleted plan files, investigation must NOT demand a rename.
+      uncompletedPlanFilesAtStart: ['backlog.md'],
+    });
+    expect(p).toContain('Investigation / Audit Mode');
+    expect(p).toContain(`${m.paths.relDir}/REPORT.md`);
+    expect(p).toContain('Do NOT modify, create, or delete production source files');
+    expect(p).toContain('file:line'); // citation requirement surfaced
+    // The implementation framing must not leak in.
+    expect(p).not.toContain('Implement the next concrete chunk toward the goal');
+    // No rename demand for an audit, even with plan-like files present.
+    expect(p).not.toContain('Uncompleted Plan Files Detected');
+  });
+
+  it('buildPrompt stays in implementation mode by default (no investigation block)', () => {
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    const cfg = defaultLoopConfig(tmpDir, 'implement plan.md');
+    const p = m.buildPrompt({ config: cfg, iterationSeq: 0, pendingInterventions: [] });
+    expect(p).not.toContain('Investigation / Audit Mode');
+    expect(p).toContain('Implement the next concrete chunk toward the goal');
+  });
+
+  it('buildPrompt never tells an investigation loop to rename the plan file (even with planFile set)', () => {
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    const cfg = defaultLoopConfig(tmpDir, 'Is the plan done?');
+    cfg.goalIntent = 'investigation';
+    cfg.planFile = 'backlog.md';
+    const p = m.buildPrompt({ config: cfg, iterationSeq: 0, pendingInterventions: [] });
+    // Step 3 must not carry the implementation rename instruction in audit mode.
+    expect(p).not.toContain('_Completed.md');
+    expect(p).not.toContain('rename it before declaring done');
+    expect(p).toContain('read-only audit');
+    // And the completion gate is REPORT.md, not a verify command / plan rename.
+    expect(p).toContain(`${m.paths.relDir}/REPORT.md`);
+  });
+
+  it('buildPrompt keeps the plan-file rename step for an implementation loop with a planFile', () => {
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    const cfg = defaultLoopConfig(tmpDir, 'implement backlog.md');
+    cfg.planFile = 'backlog.md';
+    const p = m.buildPrompt({ config: cfg, iterationSeq: 0, pendingInterventions: [] });
+    expect(p).toContain('_Completed.md');
+  });
+
   it('buildPrompt only mentions fresh-eyes review when the gate is explicitly enabled', () => {
     const m = new LoopStageMachine(tmpDir, RUN_ID);
     const cfg = defaultLoopConfig(tmpDir, 'x');

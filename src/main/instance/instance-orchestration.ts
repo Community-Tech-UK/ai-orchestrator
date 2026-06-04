@@ -159,6 +159,15 @@ export class InstanceOrchestrationManager {
     return this.orchestration.getOrchestrationPrompt(instanceId, currentModel);
   }
 
+  /**
+   * Returns a concise reminder steering the model to native `create_automation`
+   * when a user message expresses scheduling/automation intent, or null otherwise.
+   * Used to re-surface automation steering on turns after the first message.
+   */
+  getSchedulingReminderIfRelevant(message: string): string | null {
+    return this.orchestration.getSchedulingReminderIfRelevant(message);
+  }
+
   // ============================================
   // Orchestration Event Handlers Setup
   // ============================================

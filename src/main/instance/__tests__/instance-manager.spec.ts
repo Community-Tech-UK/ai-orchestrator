@@ -311,6 +311,8 @@ vi.mock('../../orchestration/orchestration-protocol', () => ({
   formatCommandResponse: vi.fn((action: string, success: boolean, data: unknown) =>
     `[Orchestrator Response]\nAction: ${action}\nStatus: ${success ? 'SUCCESS' : 'FAILED'}\n${JSON.stringify(data)}\n[/Orchestrator Response]`
   ),
+  detectsSchedulingIntent: vi.fn().mockReturnValue(false),
+  SCHEDULING_INTENT_REMINDER: '[SCHEDULING REMINDER]',
 }));
 
 // ---------------------------------------------------------------------------

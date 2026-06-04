@@ -519,7 +519,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
     .model-picker-row__reasoning {
       appearance: none;
       flex: 0 0 auto;
-      width: 104px;
+      width: 160px;
       height: 26px;
       padding: 0 24px 0 10px;
       border: 1px solid var(--border-color, rgba(255,255,255,0.16));
@@ -594,7 +594,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
       }
 
       .model-picker-row__reasoning {
-        width: 92px;
+        width: 132px;
       }
     }
   `],

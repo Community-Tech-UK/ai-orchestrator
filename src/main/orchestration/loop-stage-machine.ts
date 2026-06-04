@@ -24,6 +24,13 @@ const ARTIFACT_FILES = ['STAGE.md', 'NOTES.md', 'ITERATION_LOG.md'] as const;
 /** LF-4: the structured task ledger filename. */
 export const LOOP_TASKS_FILE = 'LOOP_TASKS.md';
 
+/**
+ * Deliverable filename for an investigation/audit loop (`goalIntent:
+ * 'investigation'`). The agent writes its cited answer here; the completion
+ * detector requires it to exist and be substantive before accepting completion.
+ */
+export const INVESTIGATION_REPORT_FILE = 'REPORT.md';
+
 /** The fresh, item-less ledger template written at the start of every run. */
 const LOOP_TASKS_TEMPLATE =
   '# Loop Tasks\n\n' +
@@ -518,13 +525,57 @@ export class LoopStageMachine {
     const tasksRel = `${sd}/${LOOP_TASKS_FILE}`;
     const doneRel = `${sd}/${config.completion.doneSentinelFile || 'DONE.txt'}`;
     const blockedRel = `${sd}/BLOCKED.md`;
+    const reportRel = `${sd}/${INVESTIGATION_REPORT_FILE}`;
+    // Investigation/audit goal: the agent ANSWERS the goal (with file:line
+    // evidence in REPORT.md) instead of editing production code. `undefined`
+    // intent is treated as implementation.
+    const isInvestigation = config.goalIntent === 'investigation';
     const planRef = config.planFile
       ? `the plan in \`${config.planFile}\` (referred to below as PLAN.md)`
       : 'the prompt below';
     const uncompletedPlansBlock =
-      uncompletedPlanFilesAtStart.length > 0
+      uncompletedPlanFilesAtStart.length > 0 && !isInvestigation
         ? `\n\n## Uncompleted Plan Files Detected\nThe workspace root contained these uncompleted plan-like markdown files when the loop started:\n${uncompletedPlanFilesAtStart.map((f) => `  - \`${f}\``).join('\n')}\n\nThe loop coordinator has auto-enabled the \`requireCompletedFileRename\` gate. Writing \`${doneRel}\` alone is **not sufficient** — at least one of these files must be renamed to \`<name>_completed.md\` during the run before the loop will accept a stop signal. When you finish implementing all addressable items in a file, perform the rename (\`mv <name>.md <name>_completed.md\` or \`git mv\` if tracked). Items explicitly deferred to future architectural specs do not block the rename — document them in \`${notesRel}\` and rename anyway.\n`
         : '';
+    // Investigation/audit override. Placed prominently because it changes the
+    // job from "implement" to "answer with evidence" — the agent reads this
+    // before the implementation-flavoured stage instructions below.
+    const investigationBlock = isInvestigation
+      ? `\n\n## Investigation / Audit Mode — READ THIS FIRST\nThe goal below is a QUESTION / AUDIT, **not an implementation task**. Your job is to ANSWER it accurately — not to write or change production code.\n- **Do NOT modify, create, or delete production source files**, and do NOT rename any plan/backlog files. This is a read-only investigation; the only files you write are \`${reportRel}\` and the loop's own state files under \`${sd}/\`.\n- Investigate by reading the ACTUAL code. Every claim in your answer must be backed by a concrete \`path/to/file.ext:line\` citation — never assert from memory or trust a doc's say-so; verify it against the code.\n- Write your findings to \`${reportRel}\` and keep extending it. It is the deliverable: a thorough, well-structured, cited answer to the goal. For any "is X done / fully implemented?" question, give an explicit per-item verdict (done / partial / not-done) with the evidence.\n- The loop will NOT accept completion until \`${reportRel}\` exists and contains a substantive, cited answer. When the answer is complete and self-reviewed, write \`${doneRel}\` and emit \`<promise>DONE</promise>\`.\n`
+      : '';
+    // Stage-step instructions differ by intent: investigation stages drive the
+    // report, not a software build.
+    const stageWorkBlock = isInvestigation
+      ? `- **PLAN** — Scope the investigation: in \`${tasksRel}\`, list the concrete questions / sub-claims you must resolve to answer the goal (one checkbox each). Do not draft a software plan.
+- **REVIEW** — Re-read \`${reportRel}\` with completely fresh eyes. Is every claim backed by \`file:line\` evidence? Flag and fix any unverified assertion, gap, or item you accepted from a doc without confirming in code.
+- **IMPLEMENT** — Do the investigation: read the relevant code, resolve each open question in the ledger, and write/extend \`${reportRel}\` with the answer and \`file:line\` citations. **Do not edit production code.** Run read-only checks (grep/tests/build output) only to gather evidence.`
+      : `- **PLAN** — Continue or improve the plan. Choose the best architectural decisions. Do not take shortcuts. If a plan does not exist yet, draft one.
+- **REVIEW** — Re-read the plan with completely fresh eyes. Treat the plan as if a stranger wrote it. Identify and fix issues. Improve clarity, completeness, and correctness. If the plan is sound, say so explicitly.
+- **IMPLEMENT** — Implement the next concrete chunk toward the goal. If a plan exists, follow it. If no plan exists, inspect the code and make progress directly rather than drafting a new plan unless the user explicitly asked for planning. For broad goals such as "implement everything", first build or update the \`${notesRel}\` completion inventory by searching for unfinished implementations (for example TODO/FIXME, "not implemented", placeholder, stub, fake/mock behavior in production paths, constant returns standing in for real logic). Use maintainable architecture. After implementing, re-review your code with completely fresh eyes and fix anything you'd reject in code review. Run appropriate verification if you can.`;
+    // Step-3 completion criteria also differ by intent. The implementation
+    // variant renames the plan file and runs a verify command; the
+    // investigation variant must do NEITHER (renaming/editing the audited files
+    // is the exact wrong action) — it gates on a cited REPORT.md instead.
+    const completionStepsBlock = isInvestigation
+      ? `If this iteration's work is complete:
+- **PLAN** done → write \`REVIEW\` into \`${stageRel}\` (scope is set; next, do the investigation). **Do NOT** write \`${doneRel}\` or emit \`<promise>DONE</promise>\` yet.
+- **REVIEW** done → write \`IMPLEMENT\` into \`${stageRel}\`. **Do NOT** write \`${doneRel}\` or emit \`<promise>DONE</promise>\` yet.
+- **IMPLEMENT** but \`${reportRel}\` does not yet fully answer the goal → write \`REVIEW\` into \`${stageRel}\` and keep investigating.
+- **IMPLEMENT** and \`${reportRel}\` fully answers the goal →
+    1. Confirm every \`${tasksRel}\` ledger item is \`[x]\` or \`[-]\` (with a reason), and \`${reportRel}\` contains a substantive, \`file:line\`-cited answer — with an explicit verdict (done / partial / not-done) for each "is X done?" sub-question.
+    2. **Do NOT modify, rename, or delete any plan/backlog/source files** — this is a read-only audit. Cite any read-only checks you ran (grep / build / test output) as evidence inside \`${reportRel}\`; there is no verify command to run and no plan file to rename.
+    3. Write \`${doneRel}\` containing the date — the durable completion sentinel.
+    4. Append \`<promise>DONE</promise>\` on its own line at the end of your output, only after \`${reportRel}\` and \`${doneRel}\` both exist.`
+      : `If the work for the current STAGE is complete:
+- PLAN done → write \`REVIEW\` into \`${stageRel}\`. **Do NOT emit \`<promise>DONE</promise>\` or write \`${doneRel}\` — those are reserved for IMPLEMENT when the plan is fully complete.**
+- REVIEW done → write \`IMPLEMENT\` into \`${stageRel}\`. **Do NOT emit \`<promise>DONE</promise>\` or write \`${doneRel}\` — those are reserved for IMPLEMENT when the plan is fully complete.**
+- IMPLEMENT done **but plan still has unfinished items** → write \`REVIEW\` into \`${stageRel}\` (loop back through review).
+- IMPLEMENT done **and the plan or completion inventory is fully implemented & verified** →
+    1. Confirm there are no open items: every \`${tasksRel}\` ledger item is \`[x]\` (done) or \`[-]\` (deferred with a reason), no unchecked plan items, and no unchecked \`${notesRel}\` completion-inventory items. For broad implementation goals, run a final targeted search for unfinished implementation markers and either implement each actionable item or record why it is out of scope (deferring it in the ledger with a reason).
+    2. Run the verify command if one is configured (\`${config.completion.verifyCommand || '(none configured)'}\`). If none is configured, run the appropriate project checks yourself and summarize their exact output, but understand the coordinator cannot independently verify completion and will pause for operator review instead of auto-completing. Verification must pass.
+    3. If a plan file exists, rename it before declaring done: \`mv ${config.planFile ?? '<plan-file>'} ${(config.planFile ?? '<plan-file>').replace(/\.md$/, '_Completed.md')}\` (or use git mv if applicable).
+    4. Write \`${doneRel}\` containing the date — this durable sentinel is required for no-plan loops.
+    5. Append \`<promise>DONE</promise>\` on its own line at the end of your output only after the durable marker above exists.`;
     const freshEyesReviewBlock = config.completion.crossModelReview?.enabled
       ? `\n\n## Fresh-Eyes Review Gate\nFresh-eyes review is enabled: when you declare done, the coordinator will run an independent cross-model review. Any ${config.completion.crossModelReview.blockingSeverities.join('/')} severity finding is automatically injected as a user intervention here in the prompt, and the loop continues with you addressing it. If you address every intervention and the reviewer has no further blocking findings, the loop accepts completion.\n`
       : '';
@@ -581,30 +632,19 @@ All loop-owned state files for THIS run live in \`${sd}/\` (relative to your wor
 2. Open ${planRef}.
 3. Open \`${notesRel}\`. It contains the rolling notes from prior iterations.
 4. Open \`${logRel}\` if you need detailed per-iteration history.
-5. Open \`${tasksRel}\` — the structured task ledger. For a multi-item goal, list every concrete work item there as a markdown checkbox and keep it current: \`[ ]\` todo, \`[~]\` in progress, \`[x]\` done, \`[-] … — deferred: <why>\`. **The loop stops only when every ledger item is \`[x]\` or \`[-]\` (with a reason) AND verify passes** — so an item you can't finish must be explicitly deferred with a reason, not left \`[ ]\`. (If no plan file is configured and the goal is broad, you may instead keep a \`## Completion Inventory\` in \`${notesRel}\`, but the ledger is preferred because the loop reads it as the source of truth for stopping.)${uncompletedPlansBlock}${freshEyesReviewBlock}${manualReviewBlock}${priorObservationsBlock}${interventions}${promptBlocks}
+5. Open \`${tasksRel}\` — the structured task ledger. For a multi-item goal, list every concrete work item there as a markdown checkbox and keep it current: \`[ ]\` todo, \`[~]\` in progress, \`[x]\` done, \`[-] … — deferred: <why>\`. **The loop stops only when every ledger item is \`[x]\` or \`[-]\` (with a reason) AND verify passes** — so an item you can't finish must be explicitly deferred with a reason, not left \`[ ]\`. (If no plan file is configured and the goal is broad, you may instead keep a \`## Completion Inventory\` in \`${notesRel}\`, but the ledger is preferred because the loop reads it as the source of truth for stopping.)${investigationBlock}${uncompletedPlansBlock}${freshEyesReviewBlock}${manualReviewBlock}${priorObservationsBlock}${interventions}${promptBlocks}
 
 ## Step 2 — Do this iteration's work
 
 Based on the value of STAGE.md:
 
-- **PLAN** — Continue or improve the plan. Choose the best architectural decisions. Do not take shortcuts. If a plan does not exist yet, draft one.
-- **REVIEW** — Re-read the plan with completely fresh eyes. Treat the plan as if a stranger wrote it. Identify and fix issues. Improve clarity, completeness, and correctness. If the plan is sound, say so explicitly.
-- **IMPLEMENT** — Implement the next concrete chunk toward the goal. If a plan exists, follow it. If no plan exists, inspect the code and make progress directly rather than drafting a new plan unless the user explicitly asked for planning. For broad goals such as "implement everything", first build or update the \`${notesRel}\` completion inventory by searching for unfinished implementations (for example TODO/FIXME, "not implemented", placeholder, stub, fake/mock behavior in production paths, constant returns standing in for real logic). Use maintainable architecture. After implementing, re-review your code with completely fresh eyes and fix anything you'd reject in code review. Run appropriate verification if you can.
+${stageWorkBlock}
 
 Honor every safety rail: do not run destructive operations (\`rm -rf\`, \`git push --force\`, schema drops) unless the loop config explicitly allows them — this loop ${config.allowDestructiveOps ? 'DOES' : 'DOES NOT'} allow destructive operations.
 
 ## Step 3 — Advance state at the end of the iteration
 
-If the work for the current STAGE is complete:
-- PLAN done → write \`REVIEW\` into \`${stageRel}\`. **Do NOT emit \`<promise>DONE</promise>\` or write \`${doneRel}\` — those are reserved for IMPLEMENT when the plan is fully complete.**
-- REVIEW done → write \`IMPLEMENT\` into \`${stageRel}\`. **Do NOT emit \`<promise>DONE</promise>\` or write \`${doneRel}\` — those are reserved for IMPLEMENT when the plan is fully complete.**
-- IMPLEMENT done **but plan still has unfinished items** → write \`REVIEW\` into \`${stageRel}\` (loop back through review).
-- IMPLEMENT done **and the plan or completion inventory is fully implemented & verified** →
-    1. Confirm there are no open items: every \`${tasksRel}\` ledger item is \`[x]\` (done) or \`[-]\` (deferred with a reason), no unchecked plan items, and no unchecked \`${notesRel}\` completion-inventory items. For broad implementation goals, run a final targeted search for unfinished implementation markers and either implement each actionable item or record why it is out of scope (deferring it in the ledger with a reason).
-    2. Run the verify command if one is configured (\`${config.completion.verifyCommand || '(none configured)'}\`). If none is configured, run the appropriate project checks yourself and summarize their exact output, but understand the coordinator cannot independently verify completion and will pause for operator review instead of auto-completing. Verification must pass.
-    3. If a plan file exists, rename it before declaring done: \`mv ${config.planFile ?? '<plan-file>'} ${(config.planFile ?? '<plan-file>').replace(/\.md$/, '_Completed.md')}\` (or use git mv if applicable).
-    4. Write \`${doneRel}\` containing the date — this durable sentinel is required for no-plan loops.
-    5. Append \`<promise>DONE</promise>\` on its own line at the end of your output only after the durable marker above exists.
+${completionStepsBlock}
 
 If you are blocked and need a human, write \`${blockedRel}\` describing what you need, then exit.
 
