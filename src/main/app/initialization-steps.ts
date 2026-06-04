@@ -1,5 +1,4 @@
 import { app } from 'electron';
-import { getSettingsManager } from '../core/config/settings-manager';
 import { getHookManager } from '../hooks/hook-manager';
 import {
   registerDefaultMultiVerifyInvoker,
@@ -15,7 +14,6 @@ import { initializePathValidator } from '../security/path-validator';
 import { getLogger } from '../logging/logger';
 import { initTruncationCleanup } from '../util/tool-output-truncation';
 import { getRemoteObserverServer } from '../remote/observer-server';
-import { getMobileGatewayServer } from '../mobile-gateway/mobile-gateway-server';
 import { getSessionContinuityManager } from '../session/session-continuity';
 import { registerCompactionSummaryRenderer } from '../display-items/compaction-summary-renderer';
 import { getResourceGovernor } from '../process/resource-governor';
@@ -23,15 +21,6 @@ import { getCliAutoUpdateService } from '../cli/cli-auto-update-service';
 import { getHibernationManager } from '../process/hibernation-manager';
 import { getPoolManager } from '../process/pool-manager';
 import { getLoadBalancer } from '../process/load-balancer';
-import {
-  getWorkerNodeRegistry,
-  getWorkerNodeConnectionServer,
-  handleNodeFailover,
-  handleLateNodeReconnect,
-  RpcEventRouter,
-  getRemoteNodeConfig,
-  hydrateRemoteNodeConfig,
-} from '../remote-node';
 import { getCrossModelReviewService } from '../orchestration/cross-model-review-service';
 import { registerCrossModelReviewIpcHandlers } from '../ipc/cross-model-review-ipc';
 import {
@@ -81,6 +70,7 @@ import {
   createProjectKnowledgeAutoMirrorCoordinatorStep,
 } from './indexing-initialization-steps';
 import { createOrchestratorToolsStep } from './orchestrator-tools-step';
+import { createMobileGatewayStep, createWorkerNodeSubsystemStep } from './remote-gateway-initialization-steps';
 
 const logger = getLogger('AppInitialization');
 
@@ -388,71 +378,8 @@ export function createInitializationSteps(
       },
     },
     { name: 'Load balancer', fn: () => { getLoadBalancer(); } },
-    {
-      name: 'Worker node subsystem',
-      fn: async () => {
-        hydrateRemoteNodeConfig(getSettingsManager().getAll());
-        const config = getRemoteNodeConfig();
-        if (!config.enabled) {
-          logger.info('Remote node subsystem disabled');
-          return;
-        }
-
-        const registry = getWorkerNodeRegistry();
-        const connection = getWorkerNodeConnectionServer();
-        const rpcRouter = new RpcEventRouter(connection, registry);
-        rpcRouter.start();
-
-        registry.on('node:disconnected', (node) => {
-          const nodeId = typeof node === 'string' ? node : node.id;
-          handleNodeFailover(nodeId, instanceManager);
-          context.syncRemoteNodeMetricsToLoadBalancer(nodeId);
-        });
-
-        registry.on('node:connected', (node) => {
-          windowManager.sendToRenderer('remote-node:event', { type: 'connected', node });
-          const nodeId = typeof node === 'string' ? node : node.id;
-          handleLateNodeReconnect(nodeId, instanceManager);
-        });
-        registry.on('node:disconnected', (node) => {
-          windowManager.sendToRenderer('remote-node:event', {
-            type: 'disconnected',
-            nodeId: typeof node === 'string' ? node : node.id,
-          });
-        });
-        registry.on('node:updated', (node) => {
-          context.syncRemoteNodeMetricsToLoadBalancer(node.id);
-          windowManager.sendToRenderer('remote-node:event', { type: 'updated', node });
-        });
-
-        await connection.start(config.serverPort, config.serverHost);
-        logger.info('Worker node subsystem started', {
-          port: config.serverPort,
-          host: config.serverHost,
-        });
-      },
-    },
-    {
-      name: 'Mobile gateway',
-      fn: async () => {
-        const settings = getSettingsManager();
-        // Always initialize so the runtime start/stop IPC handlers work even
-        // when the gateway is toggled on later from Settings → Mobile.
-        const gateway = getMobileGatewayServer();
-        gateway.initialize({ instanceManager });
-        if (!settings.get('mobileGatewayEnabled')) {
-          logger.info('Mobile gateway disabled (initialized, not started)');
-          return;
-        }
-        await gateway.start({
-          port: settings.get('mobileGatewayPort'),
-          bindInterface: settings.get('mobileGatewayBindInterface'),
-          tlsCertPath: settings.get('mobileGatewayTlsCertPath'),
-          tlsKeyPath: settings.get('mobileGatewayTlsKeyPath'),
-        });
-        logger.info('Mobile gateway started from boot');
-      },
-    },
+    createWorkerNodeSubsystemStep(context),
+    createMobileGatewayStep(instanceManager),
     {
       name: 'Cross-model review',
       fn: async () => {

@@ -4912,10 +4912,6 @@
       "lines": 2952
     },
     {
-      "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 2919
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-16-worker-agent-autostart-service.md",
       "lines": 2867
     },
@@ -4942,6 +4938,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase3-4-6-7.COMPLETED.md",
       "lines": 2659
+    },
+    {
+      "path": "src/main/orchestration/loop-coordinator.ts",
+      "lines": 2635
     },
     {
       "path": "src/main/instance/instance-manager.ts",
@@ -5468,10 +5468,6 @@
       "lines": 893
     },
     {
-      "path": "src/shared/types/loop.types.ts",
-      "lines": 891
-    },
-    {
       "path": "src/renderer/app/features/verification/config/api-key-manager.component.ts",
       "lines": 890
     },
@@ -5538,10 +5534,6 @@
     {
       "path": "src/main/remote/observer-server.ts",
       "lines": 864
-    },
-    {
-      "path": "src/main/orchestration/loop-stage-machine.ts",
-      "lines": 862
     },
     {
       "path": "docs/superpowers/plans/2026-05-10-main-process-multicore-offload_completed.md",
@@ -5618,6 +5610,10 @@
     {
       "path": "docs/superpowers/specs/2026-05-06-claude-code-feature-harvest-design_completed.md",
       "lines": 814
+    },
+    {
+      "path": "src/shared/types/loop.types.ts",
+      "lines": 810
     },
     {
       "path": "src/main/ipc/handlers/__tests__/session-handlers.spec.ts",

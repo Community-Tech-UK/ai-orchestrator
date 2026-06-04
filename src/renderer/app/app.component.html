@@ -18,16 +18,18 @@
     @if (settingsStore.isInitialized() && settingsStore.get('pauseFeatureEnabled')) {
       <app-pause-toggle />
     }
-    <button
-      type="button"
-      class="startup-status-chip"
-      [class.ready]="terminalOpen()"
-      title="Remote terminal (open a shell on a connected worker node)"
-      aria-label="Toggle remote terminal"
-      (click)="toggleTerminal()"
-    >
-      Remote Terminal
-    </button>
+    @if (showRemoteTerminalButton()) {
+      <button
+        type="button"
+        class="startup-status-chip"
+        [class.ready]="terminalOpen()"
+        title="Remote terminal (open a shell on a connected worker node)"
+        aria-label="Toggle remote terminal"
+        (click)="toggleTerminal()"
+      >
+        Remote Terminal
+      </button>
+    }
     <app-provider-quota-chip />
     @if (resumeToast(); as toast) {
       <span class="title-activity-chip" title="Queued paused traffic is resuming">

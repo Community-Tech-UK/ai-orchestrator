@@ -14,15 +14,6 @@
  * `src/main/index.ts` performs the actual provider invocation. This mirrors
  * `DebateCoordinator`'s pattern.
  *
- * Layered defenses (matches plan_loop_mode.md):
- *
- *   L1 hard caps          — iterations / wall-time / tokens / cost / per-iter tools
- *   L2 smart caps         — LoopProgressDetector signals A–H + escalation
- *   L3 completion         — LoopCompletionDetector signals 1–6 + verify-before-stop
- *   L4 safety             — destructive-op gate (declarative; enforced by caller)
- *   L5 observability      — events + iteration log
- *   L6 recovery           — caller persists state via LoopStore (Phase 3)
- *
  * The mantra holds: every loop-detection decision is made structurally
  * (hashes, frequencies, thresholds), never by asking the agent if it's stuck.
  */
@@ -55,7 +46,7 @@ import {
 } from './loop-completion-detector';
 import { LoopProgressDetector } from './loop-progress-detector';
 import { LoopStageMachine } from './loop-stage-machine';
-import { resolveLoopArtifactPaths, LOOP_STATE_DIR_NAME } from './loop-artifact-paths';
+import { resolveLoopArtifactPaths } from './loop-artifact-paths';
 import {
   saveLoopAttachments,
   cleanupLoopAttachments,
@@ -79,7 +70,6 @@ import {
 } from './loop-control';
 import { computeWorkHash } from './loop-work-hash';
 import { detectConvergeUntilCleanIntent, detectLoopGoalIntent } from './loop-intent';
-import { collectWorkspaceDiff } from './loop-diff';
 import {
   completedPlanWatchDirs,
   excerpt,
@@ -89,15 +79,12 @@ import {
 } from './loop-coordinator-utils';
 import { resolveCompletion } from './evidence-resolver';
 import {
-  computeReviewThreadSet,
-  diffReviewThreads,
   computeCompletionEvidenceHash,
   pushBoundedEvidence,
 } from './review-thread-fingerprint';
 import {
   defaultFreshEyesReviewer,
   type FreshEyesReviewer,
-  type FreshEyesReviewerResult,
 } from './loop-fresh-eyes-reviewer';
 import {
   defaultSemanticProgressReviewer,
@@ -123,6 +110,11 @@ import {
 } from './loop-coordinator-block-utils';
 import { defaultLoopExplorationConfig, LOOP_MAX_PLAN_REGENERATIONS } from '../../shared/types/loop.types';
 import { streamLoopEvents } from './loop-stream';
+import {
+  evaluateReviewDrivenCompletion as evaluateReviewDrivenCompletionGate,
+  runFreshEyesReviewGate as runFreshEyesReviewGateHelper,
+  type FreshEyesGateResult,
+} from './loop-coordinator-completion-gates';
 
 export { computeWorkHash } from './loop-work-hash';
 export type {
@@ -169,22 +161,6 @@ export interface LoopChildResult {
 }
 
 interface PauseGate { resolve: () => void }
-
-/**
- * Result of the fresh-eyes cross-model review gate. `ran`/`errored` let the
- * evidence resolver tell a clean review verdict apart from a reviewer that was
- * never run (disabled) or whose infrastructure failed — the distinction is
- * load-bearing for no-verify loops, where the review IS the completion
- * authority and an infra failure must not be mistaken for a clean pass.
- */
-interface FreshEyesGateResult {
-  /** A blocking finding was raised — the loop must continue. */
-  blocked: boolean;
-  /** The reviewer was invoked (review enabled and attempted). */
-  ran: boolean;
-  /** The reviewer threw / infrastructure was unavailable. */
-  errored: boolean;
-}
 
 /**
  * Listener-of-listeners for completed loops. Allows callers (e.g. the
@@ -1926,18 +1902,6 @@ export class LoopCoordinator extends EventEmitter {
     }
   }
 
-  /**
-   * review-driven completion. A "clean pass" is an iteration where, after the
-   * model's own fresh-eyes review, it (a) changed no production code (loop
-   * bookkeeping under `.aio-loop-state/` doesn't count), (b) emitted the
-   * configured no-outstanding phrase, and (c) passed the verify command if one
-   * is configured. The loop converges after `requiredCleanReviewPasses`
-   * consecutive clean passes; any non-clean iteration resets the streak.
-   *
-   * Returns the terminal decision when converged, else null (keep iterating).
-   * Pure-ish: mutates `state.consecutiveCleanReviewPasses` /
-   * `state.lastCompletionOutcome` and may run the optional verify command.
-   */
   private async evaluateReviewDrivenCompletion(
     state: LoopState,
     iteration: LoopIteration,
@@ -1946,283 +1910,35 @@ export class LoopCoordinator extends EventEmitter {
     seq: number,
     stage: LoopStage,
   ): Promise<{ status: 'completed' | 'completed-needs-review'; reason: string } | null> {
-    const cfg = state.config.completion;
-    const phrase = (cfg.noOutstandingPhrase ?? 'There are no outstanding issues').trim().toLowerCase();
-    const required = Math.max(1, cfg.requiredCleanReviewPasses ?? 2);
-
-    // "No production changes" — the loop's own state files (NOTES/OUTSTANDING/…
-    // under .aio-loop-state) are bookkeeping the prompt asks for every round, so
-    // they must NOT count, or the loop could never go quiet.
-    const productionChanges = iteration.filesChanged.filter(
-      (f) => !f.path.includes(`${LOOP_STATE_DIR_NAME}/`) && !f.path.includes(`${LOOP_STATE_DIR_NAME}\\`),
-    );
-    const sentinelPresent = (fullOutput ?? '').toLowerCase().includes(phrase);
-    const noProductionChanges = productionChanges.length === 0;
-
-    // Optional verify: when configured, a clean pass must also pass verify.
-    let verifyOk = true;
-    if (sentinelPresent && noProductionChanges && cfg.verifyCommand?.trim()) {
-      const v = await this.completionDetector.runVerify(state.config);
-      iteration.verifyStatus = v.status === 'skipped' ? 'not-run' : v.status;
-      iteration.verifyOutputExcerpt = excerpt(v.output);
-      if (v.status === 'failed') {
-        verifyOk = false;
-        state.pendingInterventions.push(
-          'Your review reported no outstanding issues, but the configured verify command failed. ' +
-          'Treat this as an outstanding issue and fix it before signalling done again:\n\n' +
-          (excerpt(v.output, 8192) || '(verify produced no output)'),
-        );
-      }
-    }
-
-    const cleanPass = sentinelPresent && noProductionChanges && verifyOk;
-
-    if (cleanPass) {
-      state.consecutiveCleanReviewPasses = (state.consecutiveCleanReviewPasses ?? 0) + 1;
-      const count = state.consecutiveCleanReviewPasses;
-      this.emit('loop:activity', {
-        loopRunId: state.id,
-        seq,
-        stage,
-        timestamp: Date.now(),
-        kind: 'status',
-        message: `Clean fresh-eyes review pass ${count}/${required}`,
-        detail: { consecutiveCleanReviewPasses: count, required },
-      });
-      if (count >= required) {
-        // Opt-in "ask another model" second opinion, taken ONCE at the finish
-        // line (not every iteration — cheap). We reuse the hardened fresh-eyes
-        // gate, but here it is a SUGGESTER, never a hard gate:
-        //   - blocking findings  → injected as an intervention; reset the
-        //     streak so the PRIMARY model (which has the full history) fixes or
-        //     rebuts them next round, then re-converges;
-        //   - clean / errored / no reviewers → converge anyway (a flaky or
-        //     unavailable reviewer must never trap an otherwise-done loop).
-        if (state.config.completion.crossModelReview?.enabled) {
-          const review = await this.runFreshEyesReviewGate(state, 'self-declared', iteration, '');
-          if (review.blocked) {
-            // runFreshEyesReviewGate already pushed the findings as an
-            // intervention and set the convergence note.
-            state.consecutiveCleanReviewPasses = 0;
-            return null;
-          }
-        }
-        state.lastCompletionOutcome = 'accepted';
-        const outstanding = await stageMachine.readOutstanding().catch(() => ({ raw: '', needsHuman: false }));
-        if (outstanding.needsHuman) {
-          return {
-            status: 'completed-needs-review',
-            reason:
-              `Converged after ${required} consecutive clean fresh-eyes reviews. The agent flagged ` +
-              `items that need a human in OUTSTANDING.md:\n\n${outstanding.raw.trim()}`,
-          };
-        }
-        return {
-          status: 'completed',
-          reason: `Converged after ${required} consecutive clean fresh-eyes reviews — no outstanding issues found.`,
-        };
-      }
-      return null; // a clean pass, but not yet enough in a row
-    }
-
-    // Not a clean pass — reset the streak (and surface the reset for legibility).
-    const had = state.consecutiveCleanReviewPasses ?? 0;
-    state.consecutiveCleanReviewPasses = 0;
-    if (had > 0) {
-      this.emit('loop:activity', {
-        loopRunId: state.id,
-        seq,
-        stage,
-        timestamp: Date.now(),
-        kind: 'status',
-        message: 'Clean-review streak reset — more work happened this iteration',
-        detail: { previousStreak: had },
-      });
-    }
-    return null;
+    return evaluateReviewDrivenCompletionGate({
+      state,
+      iteration,
+      fullOutput,
+      stageMachine,
+      seq,
+      stage,
+      completionDetector: this.completionDetector,
+      runFreshEyesReviewGate: (signalId, reviewIteration, verifyOutput) =>
+        this.runFreshEyesReviewGate(state, signalId, reviewIteration, verifyOutput),
+      emit: (eventName, payload) => this.emit(eventName, payload),
+    });
   }
 
-  /**
-   * Run the cross-model fresh-eyes review gate. Returns `true` if any
-   * blocking finding was raised — meaning the loop must continue instead
-   * of stopping. Returns `false` if the review either:
-   *   - is disabled in config
-   *   - returned no blocking findings
-   *   - failed to find any reviewers (infrastructure unavailable)
-   *
-   * When blocking findings are raised, they are injected verbatim into
-   * `state.pendingInterventions` so the next iteration treats them as
-   * binding direction.
-   */
   private async runFreshEyesReviewGate(
     state: LoopState,
     signalId: string,
     iteration: LoopIteration,
     verifyOutput: string,
   ): Promise<FreshEyesGateResult> {
-    const reviewCfg = state.config.completion.crossModelReview;
-    if (!reviewCfg || !reviewCfg.enabled) {
-      return { blocked: false, ran: false, errored: false };
-    }
-
-    this.emit('loop:fresh-eyes-review-started', { loopRunId: state.id, signal: signalId });
-
-    // Scope the review to the actual change (git diff vs HEAD + untracked
-    // files), not the agent's transcript. This is the reviewer's ground
-    // truth and is far smaller than a full conversation, so it avoids the
-    // review-payload truncation that previously starved reviewers of context.
-    const workspaceDiff = collectWorkspaceDiff(state.config.workspaceCwd);
-    const iterationFiles = iteration.filesChanged.map((f) => f.path);
-    const filesChangedThisIteration = iterationFiles.length > 0
-      ? iterationFiles
-      : workspaceDiff.changedFiles;
-
-    let reviewResult: FreshEyesReviewerResult;
-    try {
-      reviewResult = await this.freshEyesReviewer({
-        loopRunId: state.id,
-        workspaceCwd: state.config.workspaceCwd,
-        goal: state.config.initialPrompt,
-        iterationOutput: iteration.outputExcerpt,
-        diff: workspaceDiff.diff,
-        diffSource: workspaceDiff.source,
-        filesChangedThisIteration,
-        uncompletedPlanFilesAtStart: state.uncompletedPlanFilesAtStart,
-        verifyOutputExcerpt: verifyOutput.slice(0, 4096),
-        signal: signalId,
-        terminalIntent: state.terminalIntentPending?.kind === 'complete'
-          ? state.terminalIntentPending
-          : undefined,
-        config: reviewCfg,
-      });
-    } catch (err) {
-      // Reviewer threw — don't pretend the gate held; log and let the loop
-      // stop. We deliberately do NOT block on reviewer failures because
-      // that would let a misconfigured reviewer pin the loop open forever.
-      logger.warn('Fresh-eyes reviewer threw — letting completion proceed', {
-        loopRunId: state.id,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      this.emit('loop:fresh-eyes-review-failed', {
-        loopRunId: state.id,
-        signal: signalId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      // ran=true but errored=true: a verify-gated loop treats this as
-      // non-blocking (verify carries completion), but a no-verify loop has no
-      // independent authority, so the resolver pauses for an operator instead
-      // of stopping on self-declared evidence.
-      return { blocked: false, ran: true, errored: true };
-    }
-
-    const blocking = reviewResult.findings.filter((f) =>
-      (reviewCfg.blockingSeverities as readonly string[]).includes(f.severity),
-    );
-
-    if (blocking.length === 0) {
-      // No reviewer actually produced a verdict: an empty `reviewersUsed` means
-      // the review service degraded (no alternative CLIs available / infra
-      // error), so an empty findings list here means "nobody looked", NOT
-      // "looked and found it clean". Treat it exactly like a thrown reviewer:
-      // ran, but with no independent authority. A verify-gated loop still
-      // completes (verify carries the authority); a no-verify loop has zero
-      // independent evidence, so the resolver pauses for operator review
-      // instead of rubber-stamping the agent's self-declared completion. This
-      // is the "only pause when no review verdict is available" contract from
-      // loop-start-config.ts — without this guard a no-verify loop with no
-      // reviewers would false-complete on self-declared evidence alone.
-      if (reviewResult.reviewersUsed.length === 0) {
-        logger.warn(
-          'Fresh-eyes review returned no reviewers — treating as unavailable, not a clean pass',
-          {
-            loopRunId: state.id,
-            signal: signalId,
-            infrastructureError: reviewResult.infrastructureError,
-          },
-        );
-        this.emit('loop:fresh-eyes-review-failed', {
-          loopRunId: state.id,
-          signal: signalId,
-          error:
-            reviewResult.infrastructureError ??
-            'no reviewers available for fresh-eyes review',
-        });
-        return { blocked: false, ran: true, errored: true };
-      }
-      // The unresolved-review-thread set has emptied — the ONLY condition under
-      // which the loop may converge on the review axis (claude2_todo #1b).
-      state.unresolvedReviewThreads = [];
-      this.emit('loop:fresh-eyes-review-passed', {
-        loopRunId: state.id,
-        signal: signalId,
-        reviewersUsed: reviewResult.reviewersUsed,
-        nonBlockingFindings: reviewResult.findings.length,
-        summary: reviewResult.summary,
-        infrastructureError: reviewResult.infrastructureError,
-      });
-      logger.info('Fresh-eyes review passed', {
-        loopRunId: state.id,
-        signal: signalId,
-        reviewersUsed: reviewResult.reviewersUsed,
-        findings: reviewResult.findings.length,
-      });
-      return { blocked: false, ran: true, errored: false };
-    }
-
-    // claude2_todo #1b: fingerprint the blocking review threads so we can tell a
-    // PERSISTING issue (the agent failed to fix it across rounds) from a newly
-    // raised one, and so the unresolved set survives a re-run that surfaces the
-    // same findings. Persisted across attempts; only emptied on a clean review.
-    const prevThreads = state.unresolvedReviewThreads ?? [];
-    const currThreads = computeReviewThreadSet(blocking);
-    const threadDiff = diffReviewThreads(prevThreads, currThreads);
-    state.unresolvedReviewThreads = currThreads;
-
-    const persistenceNote =
-      threadDiff.persisted.length > 0
-        ? `\n\n⚠ ${threadDiff.persisted.length} of these ` +
-          `${threadDiff.persisted.length === 1 ? 'finding has' : 'findings have'} persisted UNRESOLVED ` +
-          'across review rounds. Re-running the same change will be rejected again — actually fix ' +
-          'them (or change approach) before re-declaring completion.'
-        : '';
-
-    // Blocking findings — inject as interventions and continue the loop.
-    const interventionMessage =
-      `Fresh-eyes cross-model review (${reviewResult.reviewersUsed.join(', ') || 'reviewers'}) ` +
-      `blocked completion with ${blocking.length} ${blocking.length === 1 ? 'issue' : 'issues'} ` +
-      `(severities: ${[...new Set(blocking.map((f) => f.severity))].join(', ')}):\n\n` +
-      blocking
-        .map(
-          (f, i) =>
-            `${i + 1}. [${f.severity.toUpperCase()}] ${f.title}${f.file ? ` (${f.file})` : ''}\n   ${f.body}`,
-        )
-        .join('\n\n') +
-      persistenceNote +
-      `\n\nAddress each item, then re-attempt completion.`;
-
-    state.pendingInterventions.push(interventionMessage);
-    this.convergenceNotes.set(
-      state.id,
-      `${blocking.length} blocking review finding(s) remained` +
-        (threadDiff.persisted.length > 0
-          ? `, ${threadDiff.persisted.length} unresolved across multiple rounds`
-          : '') +
-        (reviewResult.reviewersUsed.length > 0 ? ` (reviewers: ${reviewResult.reviewersUsed.join(', ')})` : ''),
-    );
-    this.emit('loop:fresh-eyes-review-blocked', {
-      loopRunId: state.id,
-      signal: signalId,
-      reviewersUsed: reviewResult.reviewersUsed,
-      blockingFindings: blocking,
-      summary: reviewResult.summary,
+    return runFreshEyesReviewGateHelper({
+      state,
+      signalId,
+      iteration,
+      verifyOutput,
+      reviewer: this.freshEyesReviewer,
+      emit: (eventName, payload) => this.emit(eventName, payload),
+      setConvergenceNote: (note) => this.convergenceNotes.set(state.id, note),
     });
-    logger.info('Fresh-eyes review blocked completion — injected interventions', {
-      loopRunId: state.id,
-      signal: signalId,
-      blocking: blocking.length,
-      severities: [...new Set(blocking.map((f) => f.severity))],
-    });
-    return { blocked: true, ran: true, errored: false };
   }
 
   // ============ Internal — child invocation (extensibility) ============

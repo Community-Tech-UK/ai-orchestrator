@@ -23,6 +23,7 @@ import { PauseDetectorErrorModalComponent } from './core/state/pause/pause-detec
 import type { StartupCapabilityReport } from '../../shared/types/startup-capability.types';
 import { FirstRunService } from './core/services/first-run.service';
 import { ScratchDirectoryService } from './core/services/scratch-directory.service';
+import { RemoteNodeStore } from './core/state/remote-node.store';
 
 const STARTUP_BANNER_DISMISSAL_STORAGE_KEY = 'startup-capabilities-banner:dismissed-fingerprint';
 
@@ -64,6 +65,7 @@ export class AppComponent implements OnInit, OnDestroy {
   protected readonly toastService = inject(ToastService);
   private readonly firstRunService = inject(FirstRunService);
   private readonly scratchDirectory = inject(ScratchDirectoryService);
+  private readonly remoteNodeStore = inject(RemoteNodeStore);
 
   private menuListenerCleanup: (() => void) | null = null;
   private resumeToastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -94,6 +96,16 @@ export class AppComponent implements OnInit, OnDestroy {
 
   /** C2: remote-terminal drawer visibility (xterm.js ⇄ node-pty on a worker). */
   protected readonly terminalOpen = signal(false);
+
+  /**
+   * The remote-terminal feature is useless without a connected worker node — the
+   * drawer auto-picks the only connected node and refuses to open otherwise. So
+   * only surface the title-bar toggle when at least one worker is connected. An
+   * already-open drawer keeps its toggle so it can always be closed again.
+   */
+  protected readonly showRemoteTerminalButton = computed(
+    () => this.remoteNodeStore.connectedNodes().length > 0 || this.terminalOpen(),
+  );
 
   protected toggleTerminal(): void {
     this.terminalOpen.update((open) => !open);
@@ -143,6 +155,9 @@ export class AppComponent implements OnInit, OnDestroy {
     void this.usageStore.init();
     void this.promptHistoryStore.init();
     void this.scratchDirectory.init();
+    // Populate worker-node state up front: the title bar (always mounted) gates
+    // the Remote Terminal toggle on a connected worker. initialize() is idempotent.
+    void this.remoteNodeStore.initialize();
 
     this.ipcService.onStartupCapabilities((report) => {
       this.startupCapabilities.set(report);

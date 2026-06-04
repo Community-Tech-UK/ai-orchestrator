@@ -16,6 +16,22 @@ import { getLogger } from '../logging/logger';
 import type { LoopConfig, LoopStage } from '../../shared/types/loop.types';
 import { parseTaskLedger, type LoopTaskLedger } from './loop-task-ledger';
 import { resolveLoopArtifactPaths, loopStateFile, type LoopArtifactPaths } from './loop-artifact-paths';
+import {
+  curateNotesContent,
+  hasPlanNameHint,
+  isPlanLikeMarkdown,
+  outstandingHasHumanItems,
+  parsePlanChecklist,
+  type NotesCurationResult,
+} from './loop-stage-markdown';
+
+export {
+  curateNotesContent,
+  outstandingHasHumanItems,
+  parsePlanChecklist,
+  type NotesCurationResult,
+  type PlanChecklistState,
+} from './loop-stage-markdown';
 
 const logger = getLogger('LoopStageMachine');
 
@@ -41,148 +57,6 @@ const LOOP_TASKS_TEMPLATE =
   '<!-- Example:\n- [ ] Implement the parser\n- [~] Wire the coordinator\n- [-] Cross-model fan-out — deferred: out of scope for v1\n-->\n';
 
 const VALID_STAGES = new Set<LoopStage>(['PLAN', 'REVIEW', 'IMPLEMENT']);
-
-/**
- * Parsed view of a markdown plan-file's checkbox state. Single source of
- * truth shared by `LoopStageMachine.captureStartupSnapshot` and
- * `LoopCompletionDetector.observe` so the baseline measurement matches the
- * runtime measurement bit-for-bit.
- */
-export interface PlanChecklistState {
-  /** `[x]` or `[X]` items. */
-  checked: number;
-  /** `[ ]` items. */
-  unchecked: number;
-  /** `checked + unchecked`. */
-  total: number;
-  /** True iff the file has at least one item and none are unchecked. */
-  fullyChecked: boolean;
-}
-
-/**
- * Parse markdown checkboxes (`- [x]`, `- [ ]`, `* [X]`, etc.) out of a plan
- * file. Pure function — exposed as a static so the completion detector and
- * the coordinator's startup snapshot use *exactly* the same regex. If they
- * ever drifted, "did this transition during the run?" comparisons would
- * break silently.
- */
-export function parsePlanChecklist(text: string): PlanChecklistState {
-  const checked = (text.match(/^\s*[-*]\s*\[[xX]\]/gm) || []).length;
-  const unchecked = (text.match(/^\s*[-*]\s*\[\s\]/gm) || []).length;
-  const total = checked + unchecked;
-  return { checked, unchecked, total, fullyChecked: total > 0 && unchecked === 0 };
-}
-
-/**
- * review-driven mode: does OUTSTANDING.md's "Needs human" section contain at
- * least one real item? We scan from a `## Needs human` (or "Needs-human" /
- * "Requires human") heading to the next heading and look for a markdown bullet
- * with non-placeholder text. Placeholders like "(none)", "none", "n/a", "—"
- * don't count. Tolerant by design — the file is agent-authored prose.
- */
-export function outstandingHasHumanItems(raw: string): boolean {
-  if (!raw.trim()) return false;
-  const lines = raw.split(/\r?\n/);
-  let inSection = false;
-  const placeholder = /^(none|n\/?a|nil|empty|tbd|—|-)\.?$/i;
-  for (const line of lines) {
-    const heading = line.match(/^#{1,6}\s+(.*)$/);
-    if (heading) {
-      const title = heading[1].trim().toLowerCase();
-      inSection = /needs?[-\s]*human|requires?[-\s]*human|human[-\s]*review|manual[-\s]*verif/i.test(title);
-      continue;
-    }
-    if (!inSection) continue;
-    const bullet = line.match(/^\s*(?:[-*+]|\d+\.)\s+(?:\[[ xX~-]\]\s*)?(.*)$/);
-    if (bullet) {
-      // Strip markdown emphasis AND wrapping punctuation so "(none)", "_none_",
-      // "[n/a]" all normalise to the bare placeholder word.
-      const text = bullet[1].trim().replace(/[.*_`()[\]]/g, '').trim();
-      if (text && !placeholder.test(text)) return true;
-    }
-  }
-  return false;
-}
-
-/** Default NOTES.md curation thresholds (LF-3). Conservative so curation only
- *  fires on genuinely bloated notes — most loops never trip it. */
-export const NOTES_CURATION_MAX_CHARS = 24_000;
-export const NOTES_CURATION_KEEP_TAIL_CHARS = 12_000;
-
-export interface NotesCurationResult {
-  /** The (possibly) curated NOTES.md content. */
-  curated: string;
-  /** True iff curation actually rewrote the content. */
-  changed: boolean;
-  /** Approximate characters elided (0 when unchanged). */
-  elidedChars: number;
-}
-
-/**
- * Extract the `## Completion Inventory` section verbatim (heading through the
- * line before the next `##` heading, or EOF). Returns null when absent. This
- * section is the loop's durable work-item ledger and must never be summarized
- * away by {@link curateNotesContent} (loopfixex LF-3).
- */
-function extractCompletionInventory(content: string): string | null {
-  const heading = content.match(/^##\s+Completion Inventory\b.*$/im);
-  if (!heading || heading.index === undefined) return null;
-  const afterHeadingStart = heading.index + heading[0].length;
-  const rest = content.slice(afterHeadingStart);
-  const nextHeading = rest.search(/^##\s+/m);
-  const end = nextHeading >= 0 ? afterHeadingStart + nextHeading : content.length;
-  return content.slice(heading.index, end);
-}
-
-/**
- * LF-3 — bound NOTES.md growth. NOTES.md is agent-maintained and re-read every
- * iteration; left unbounded it eats the very context LF-1 conserves. When the
- * file exceeds `maxChars`, keep the most recent `keepTailChars` of notes
- * verbatim and elide the older middle, while preserving the
- * `## Completion Inventory` section byte-for-byte (it's the work ledger).
- * Full per-iteration history always remains in ITERATION_LOG.md.
- *
- * Pure and deterministic (no LLM call) — the "safest, lightest-touch
- * compaction" per Anthropic's context-engineering guidance. Exported for unit
- * testing.
- */
-export function curateNotesContent(
-  content: string,
-  opts: { maxChars?: number; keepTailChars?: number } = {},
-): NotesCurationResult {
-  const maxChars = opts.maxChars ?? NOTES_CURATION_MAX_CHARS;
-  const keepTailChars = opts.keepTailChars ?? NOTES_CURATION_KEEP_TAIL_CHARS;
-  if (content.length <= maxChars) {
-    return { curated: content, changed: false, elidedChars: 0 };
-  }
-
-  const inventory = extractCompletionInventory(content);
-
-  // Keep the most recent notes verbatim, snapped to a line boundary so we
-  // never start the tail mid-sentence.
-  let tail = content.slice(-keepTailChars);
-  const firstNewline = tail.indexOf('\n');
-  if (firstNewline >= 0) tail = tail.slice(firstNewline + 1);
-  tail = tail.replace(/^\s+/, '');
-
-  const banner = '# Loop Notes\n';
-  const marker =
-    '\n_[loop] Older NOTES.md entries were elided to bound context. ' +
-    'Full per-iteration history remains in ITERATION_LOG.md._\n\n';
-  let curated = `${banner}${marker}${tail}`;
-
-  // Re-append the completion inventory verbatim if the retained tail dropped it.
-  const inventoryTrimmed = inventory?.trim();
-  if (inventoryTrimmed && !curated.includes(inventoryTrimmed)) {
-    curated = `${curated.replace(/\s+$/, '')}\n\n${inventoryTrimmed}\n`;
-  }
-
-  return {
-    curated,
-    changed: curated !== content,
-    elidedChars: Math.max(0, content.length - curated.length),
-  };
-}
 
 /**
  * Workspace snapshot captured by `LoopStageMachine.captureStartupSnapshot`
@@ -219,54 +93,6 @@ export interface LoopStartupSnapshot {
    */
   loopTasksLedgerResolvedAtStart: boolean;
 }
-
-/**
- * Root-level `.md` filenames that are **not** plan files. These are stable
- * project docs that we never expect the agent to rename to `_completed`.
- * Match is case-insensitive on the basename.
- */
-const PROJECT_DOC_DENYLIST = new Set<string>([
-  'readme.md',
-  'changelog.md',
-  'license.md',
-  'agents.md',
-  'claude.md',
-  'design.md',
-  'development.md',
-  'architecture.md',
-  'contributing.md',
-  'code_of_conduct.md',
-  'security.md',
-  'support.md',
-  'notes.md',
-  'stage.md',
-  'iteration_log.md',
-  'loop_tasks.md', // LF-4: the loop's own task ledger — not a plan file to rename.
-  'todo.md',
-  'roadmap.md',
-]);
-
-function looksLikeCompletedRename(basename: string): boolean {
-  return /_[Cc]ompleted\.md$/.test(basename);
-}
-
-function isPlanLikeMarkdown(basename: string): boolean {
-  if (!basename.toLowerCase().endsWith('.md')) return false;
-  if (PROJECT_DOC_DENYLIST.has(basename.toLowerCase())) return false;
-  if (looksLikeCompletedRename(basename)) return false;
-  return true;
-}
-
-/**
- * Filenames that read like a planning document — used (together with a
- * checkbox-content check) to decide whether a root `.md` is a plan the loop may
- * tell the agent to rename `_completed`. Without this, prose docs that merely
- * happen to be root-level `.md` (e.g. a published blog draft) were classified
- * as plans, and the agent renamed them to satisfy the rename gate. Keyword OR
- * checkbox keeps genuine plan docs in (e.g. `claude-review.md`, `my-plan.md`)
- * while excluding unrelated prose.
- */
-const PLAN_NAME_HINT_RE = /(plan|backlog|roadmap|todo|review|spec|task|milestone|checklist|implementation)/i;
 
 export class LoopStageMachine {
   /**
@@ -445,7 +271,7 @@ export class LoopStageMachine {
    * are not plans, so the loop never demands they be renamed.
    */
   private async looksLikePlanDoc(basename: string): Promise<boolean> {
-    if (PLAN_NAME_HINT_RE.test(basename)) return true;
+    if (hasPlanNameHint(basename)) return true;
     try {
       const text = await fsp.readFile(path.join(this.cwd, basename), 'utf8');
       return parsePlanChecklist(text).total > 0;

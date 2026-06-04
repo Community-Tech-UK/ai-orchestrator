@@ -1,11 +1,3 @@
-/**
- * Loop Mode Types
- * Robust per-chat-session "Ralph loop" with fresh-context iterations,
- * aggressive no-progress detection, and verify-before-stop completion.
- *
- * See: plan_loop_mode.md
- */
-
 // ============ Configuration ============
 
 /** What "fresh eyes" looks like at REVIEW stage. */
@@ -496,8 +488,6 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
   };
 }
 
-// ============ Stage / Status ============
-
 export type LoopStage = 'PLAN' | 'REVIEW' | 'IMPLEMENT';
 
 /**
@@ -544,8 +534,6 @@ export type LoopCompletionOutcome =
   | 'review-blocked'; // fresh-eyes cross-model review raised a blocking finding
 
 export type LoopVerdict = 'OK' | 'WARN' | 'CRITICAL';
-
-// ============ Iteration record ============
 
 export interface LoopFileChange {
   path: string;
@@ -601,8 +589,6 @@ export interface LoopIteration {
   semanticProgress?: LoopSemanticProgressResult;
 }
 
-// ============ Progress (no-progress) detection ============
-
 /**
  * Identifiers from `plan_loop_mode.md` § A. Aggressive no-progress detection.
  * A: Identical work hash
@@ -625,8 +611,6 @@ export interface ProgressSignalEvidence {
   detail?: Record<string, unknown>;
 }
 
-// ============ Completion detection ============
-
 export type CompletionSignalId =
   | 'completed-rename'   // *_Completed.md rename
   | 'done-promise'       // <promise>DONE</promise>
@@ -646,8 +630,6 @@ export interface CompletionSignalEvidence {
   sufficient: boolean;
   detail: string;
 }
-
-// ============ Explicit terminal control ============
 
 export type LoopTerminalIntentKind = 'complete' | 'block' | 'fail';
 export type LoopTerminalIntentStatus = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'superseded';
@@ -691,8 +673,6 @@ export interface LoopControlMetadata {
   createdAt: number;
   updatedAt: number;
 }
-
-// ============ Loop state (live) ============
 
 export interface LoopState {
   id: string;
@@ -826,65 +806,4 @@ export interface LoopState {
   consecutiveCleanReviewPasses?: number;
 }
 
-// ============ Stream events (async generator) ============
-
-export type LoopStreamEvent =
-  | { type: 'started'; loopRunId: string; chatId: string }
-  | { type: 'iteration-started'; loopRunId: string; seq: number; stage: LoopStage }
-  | { type: 'activity'; event: LoopActivityEvent }
-  | { type: 'iteration-complete'; loopRunId: string; seq: number; verdict: LoopVerdict }
-  | { type: 'paused-no-progress'; loopRunId: string; signal: ProgressSignalEvidence }
-  | { type: 'claimed-done-but-failed'; loopRunId: string; signal: CompletionSignalId; failure: string }
-  | { type: 'terminal-intent-recorded'; loopRunId: string; intent: LoopTerminalIntent }
-  | { type: 'terminal-intent-rejected'; loopRunId: string; intent: LoopTerminalIntent; reason: string }
-  | { type: 'intervention-applied'; loopRunId: string; message: string }
-  | { type: 'completed'; loopRunId: string; signal: CompletionSignalId; verifyOutput: string; acceptedByOperator?: boolean }
-  /** LF-7: terminal "done, needs a human glance" — operator-accepted or budget-exhausted-but-verified. */
-  | { type: 'completed-needs-review'; loopRunId: string; reason: string; acceptedByOperator: boolean }
-  | { type: 'failed'; loopRunId: string; reason: string }
-  | { type: 'cap-reached'; loopRunId: string; cap: 'iterations' | 'wall-time' | 'tokens' | 'cost' | 'completion-attempts'; reason?: string }
-  | { type: 'cancelled'; loopRunId: string }
-  | { type: 'error'; loopRunId: string; error: string };
-
-export type LoopActivityKind =
-  | 'spawned'
-  | 'status'
-  | 'tool_use'
-  | 'assistant'
-  | 'system'
-  | 'input_required'
-  | 'error'
-  | 'stream-idle'
-  | 'complete'
-  | 'heartbeat';
-
-export interface LoopActivityEvent {
-  loopRunId: string;
-  seq: number;
-  stage: LoopStage | string;
-  kind: LoopActivityKind;
-  message: string;
-  timestamp: number;
-  detail?: Record<string, unknown>;
-}
-
-// ============ Helpers ============
-
-export interface LoopRunSummary {
-  id: string;
-  chatId: string;
-  status: LoopStatus;
-  totalIterations: number;
-  totalTokens: number;
-  totalCostCents: number;
-  startedAt: number;
-  endedAt: number | null;
-  endReason: string | null;
-  /** The goal/ask the loop was started with (iteration 0 prompt). Pulled
-   *  from the persisted config so the renderer can let users copy/inspect/
-   *  reattempt past prompts even after an app reload. */
-  initialPrompt: string;
-  /** Optional continuation directive used on iterations 1+. Null when the
-   *  loop re-used `initialPrompt` for every iteration. */
-  iterationPrompt: string | null;
-}
+export type { LoopActivityEvent, LoopActivityKind, LoopRunSummary, LoopStreamEvent } from './loop-stream.types';
