@@ -15,7 +15,10 @@
  * batch-update forwarding for every instance.
  */
 
-import type { ContextUsage } from '../../shared/types/instance.types';
+import type { ContextUsage, Instance, InstanceStatus, OutputMessage } from '../../shared/types/instance.types';
+import type { IndexedCodebaseContextInfo } from '../indexing/indexed-codebase-context';
+import type { InstanceContextPort } from '../instance/instance-context-port';
+import type { ContextBudget, RlmContextInfo, UnifiedMemoryContextInfo } from '../instance/instance-types';
 import { getLogger } from '../logging/logger';
 import {
   getCompactionCoordinator,
@@ -31,6 +34,37 @@ export interface ContextStatus {
   latestUsage: ContextUsage | null;
   /** Whether a compaction is currently running for the instance. */
   isCompacting: boolean;
+  /** Most recent settled status reported after a turn, or null if none yet. */
+  lastTurnStatus: InstanceStatus | null;
+}
+
+export interface ContextIngestRequest {
+  instance: Instance;
+  message: OutputMessage;
+  contextPort: InstanceContextPort;
+}
+
+export interface ContextAssembleRequest {
+  instance: Instance;
+  message: string;
+  contextPort: InstanceContextPort;
+  taskId?: string;
+  buildIndexedCodebaseContext?: (
+    instance: Instance,
+    message: string,
+  ) => Promise<IndexedCodebaseContextInfo | null>;
+}
+
+export interface ContextAssemblyResult {
+  budget: ContextBudget;
+  rlmContext: RlmContextInfo | null;
+  unifiedMemoryContext: UnifiedMemoryContextInfo | null;
+  indexedCodebaseContext: IndexedCodebaseContextInfo | null;
+}
+
+export interface ContextAfterTurnRequest {
+  instance: Instance;
+  status: InstanceStatus;
 }
 
 /**
@@ -40,6 +74,12 @@ export interface ContextStatus {
 export interface ContextEngine {
   /** Called on every contextUsage update (per batch-update). Drives auto-compaction. */
   onContextUpdate(instanceId: string, usage: ContextUsage): void;
+  /** Ingest an output message into the active context stores. */
+  ingest(request: ContextIngestRequest): void;
+  /** Assemble retrieved context for a user input turn. */
+  assemble(request: ContextAssembleRequest): Promise<ContextAssemblyResult>;
+  /** Called when an instance turn settles. */
+  afterTurn(request: ContextAfterTurnRequest): void;
   /** Explicit user/IPC-driven compaction. */
   compactInstance(instanceId: string): Promise<CompactionResult>;
   /** Current context status for the instance. */
@@ -56,6 +96,7 @@ export interface ContextEngine {
 export class LegacyContextEngine implements ContextEngine {
   private readonly coordinator: CompactionCoordinator;
   private readonly latestUsage = new Map<string, ContextUsage>();
+  private readonly lastTurnStatus = new Map<string, InstanceStatus>();
 
   constructor(coordinator: CompactionCoordinator = getCompactionCoordinator()) {
     this.coordinator = coordinator;
@@ -66,6 +107,40 @@ export class LegacyContextEngine implements ContextEngine {
     this.coordinator.onContextUpdate(instanceId, usage);
   }
 
+  ingest({ instance, message, contextPort }: ContextIngestRequest): void {
+    contextPort.ingestToRLM(instance.id, message);
+    contextPort.ingestToUnifiedMemory(instance, message);
+  }
+
+  async assemble({
+    instance,
+    message,
+    contextPort,
+    taskId = `context-${Date.now()}`,
+    buildIndexedCodebaseContext,
+  }: ContextAssembleRequest): Promise<ContextAssemblyResult> {
+    const budget = contextPort.calculateContextBudget(instance, message);
+    const [rlmContext, unifiedMemoryContext, indexedCodebaseContext] = await Promise.all([
+      contextPort.buildRlmContext(instance.id, message, budget.rlmMaxTokens, budget.rlmTopK),
+      contextPort.buildUnifiedMemoryContext(instance, message, taskId, budget.unifiedMaxTokens),
+      buildIndexedCodebaseContext ? buildIndexedCodebaseContext(instance, message) : Promise.resolve(null),
+    ]);
+
+    return {
+      budget,
+      rlmContext,
+      unifiedMemoryContext,
+      indexedCodebaseContext,
+    };
+  }
+
+  afterTurn({ instance, status }: ContextAfterTurnRequest): void {
+    this.lastTurnStatus.set(instance.id, status);
+    if (instance.contextUsage) {
+      this.onContextUpdate(instance.id, instance.contextUsage);
+    }
+  }
+
   compactInstance(instanceId: string): Promise<CompactionResult> {
     return this.coordinator.compactInstance(instanceId);
   }
@@ -74,11 +149,13 @@ export class LegacyContextEngine implements ContextEngine {
     return {
       latestUsage: this.latestUsage.get(instanceId) ?? null,
       isCompacting: this.coordinator.isCompacting(instanceId),
+      lastTurnStatus: this.lastTurnStatus.get(instanceId) ?? null,
     };
   }
 
   cleanupInstance(instanceId: string): void {
     this.latestUsage.delete(instanceId);
+    this.lastTurnStatus.delete(instanceId);
     this.coordinator.cleanupInstance(instanceId);
   }
 }
@@ -113,6 +190,48 @@ export class SafeContextEngine implements ContextEngine {
     }
   }
 
+  ingest(request: ContextIngestRequest): void {
+    if (this.quarantined) return;
+    try {
+      this.inner.ingest(request);
+    } catch (err) {
+      this.quarantined = true;
+      logger.error(
+        'ContextEngine.ingest failed — quarantining context ingestion/assembly this session',
+        err instanceof Error ? err : new Error(String(err)),
+      );
+    }
+  }
+
+  async assemble(request: ContextAssembleRequest): Promise<ContextAssemblyResult> {
+    if (this.quarantined) {
+      return this.emptyAssembly(this.fallbackBudget(request));
+    }
+    try {
+      return await this.inner.assemble(request);
+    } catch (err) {
+      this.quarantined = true;
+      logger.error(
+        'ContextEngine.assemble failed — quarantining context ingestion/assembly this session',
+        err instanceof Error ? err : new Error(String(err)),
+      );
+      return this.emptyAssembly(this.fallbackBudget(request));
+    }
+  }
+
+  afterTurn(request: ContextAfterTurnRequest): void {
+    if (this.quarantined) return;
+    try {
+      this.inner.afterTurn(request);
+    } catch (err) {
+      this.quarantined = true;
+      logger.error(
+        'ContextEngine.afterTurn failed — quarantining context engine this session',
+        err instanceof Error ? err : new Error(String(err)),
+      );
+    }
+  }
+
   compactInstance(instanceId: string): Promise<CompactionResult> {
     // Manual compaction is IPC-driven; let errors propagate to the caller.
     return this.inner.compactInstance(instanceId);
@@ -122,7 +241,7 @@ export class SafeContextEngine implements ContextEngine {
     try {
       return this.inner.getStatus(instanceId);
     } catch {
-      return { latestUsage: null, isCompacting: false };
+      return { latestUsage: null, isCompacting: false, lastTurnStatus: null };
     }
   }
 
@@ -133,6 +252,27 @@ export class SafeContextEngine implements ContextEngine {
       logger.warn('ContextEngine.cleanupInstance failed', {
         error: err instanceof Error ? err.message : String(err),
       });
+    }
+  }
+
+  private emptyAssembly(budget: ContextBudget): ContextAssemblyResult {
+    return {
+      budget,
+      rlmContext: null,
+      unifiedMemoryContext: null,
+      indexedCodebaseContext: null,
+    };
+  }
+
+  private fallbackBudget(request: ContextAssembleRequest): ContextBudget {
+    try {
+      return request.contextPort.calculateContextBudget(request.instance, request.message);
+    } catch (err) {
+      logger.warn('ContextEngine fallback budget calculation failed; using zero budget', {
+        instanceId: request.instance.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { totalTokens: 0, rlmMaxTokens: 0, unifiedMaxTokens: 0, rlmTopK: 0 };
     }
   }
 }

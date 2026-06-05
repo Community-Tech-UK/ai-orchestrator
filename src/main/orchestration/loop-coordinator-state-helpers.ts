@@ -36,7 +36,7 @@ export function checkLoopHardCaps(state: LoopState): null | 'iterations' | 'wall
   const caps = state.config.caps;
   if (state.totalIterations >= caps.maxIterations) return 'iterations';
   if (Date.now() - state.startedAt >= caps.maxWallTimeMs) return 'wall-time';
-  if (state.totalTokens >= caps.maxTokens) return 'tokens';
+  if (caps.maxTokens !== null && state.totalTokens >= caps.maxTokens) return 'tokens';
   if (caps.maxCostCents !== null && state.totalCostCents >= caps.maxCostCents) return 'cost';
   return null;
 }

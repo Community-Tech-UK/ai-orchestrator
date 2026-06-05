@@ -28,4 +28,8 @@ export {
   _resetContextEngineForTesting,
   type ContextEngine,
   type ContextStatus,
+  type ContextIngestRequest,
+  type ContextAssembleRequest,
+  type ContextAssemblyResult,
+  type ContextAfterTurnRequest,
 } from './context-engine';

@@ -11,59 +11,21 @@ import { InstanceStateService } from './instance-state.service';
 import { InstanceListStore } from './instance-list.store';
 import type { Instance, InstanceStatus, OutputMessage, QueuedMessage } from './instance.types';
 import { PauseStore } from '../pause/pause.store';
+import {
+  createQueuedMetadata,
+  isActiveTurnStatus,
+  isInterruptRecoveryStatus,
+  isReadyForInputStatus,
+  isTerminalStatus,
+  isTransientQueueStatus,
+  pickQueuedMetadata,
+  type SendInputImmediateOptions,
+} from './instance-messaging-queue-utils';
 
 /** Maximum number of transient-failure retries before dropping a queued message. */
 const MAX_QUEUE_RETRIES = 3;
 const DEFAULT_SEND_INPUT_IPC_TIMEOUT_MS = 60_000;
 const ACP_SEND_INPUT_IPC_TIMEOUT_MS = 11 * 60_000;
-
-interface SendInputImmediateOptions {
-  skipUserBubble?: boolean;
-  queuedMetadata?: Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready'>;
-}
-
-function isTransientQueueStatus(status: InstanceStatus): boolean {
-  return status === 'busy'
-    || status === 'processing'
-    || status === 'thinking_deeply'
-    || status === 'waiting_for_permission'
-    || status === 'respawning'
-    || status === 'interrupting'
-    || status === 'cancelling'
-    || status === 'interrupt-escalating'
-    || status === 'initializing'
-    || status === 'waking'
-    || status === 'hibernating'
-    || status === 'degraded';
-}
-
-function isActiveTurnStatus(status: InstanceStatus | undefined): boolean {
-  return status === 'busy'
-    || status === 'processing'
-    || status === 'thinking_deeply'
-    || status === 'waiting_for_permission';
-}
-
-function isInterruptRecoveryStatus(status: InstanceStatus | undefined): boolean {
-  return status === 'respawning'
-    || status === 'interrupting'
-    || status === 'cancelling'
-    || status === 'interrupt-escalating';
-}
-
-function isReadyForInputStatus(status: InstanceStatus | undefined): boolean {
-  return status === 'idle'
-    || status === 'ready'
-    || status === 'waiting_for_input';
-}
-
-function isTerminalStatus(status: InstanceStatus | undefined): boolean {
-  return status === 'failed'
-    || status === 'error'
-    || status === 'terminated'
-    || status === 'cancelled'
-    || status === 'superseded';
-}
 
 @Injectable({ providedIn: 'root' })
 export class InstanceMessagingStore {
@@ -343,7 +305,7 @@ export class InstanceMessagingStore {
         steerMessage.retryCount ?? 0,
         {
           skipUserBubble: steerMessage.seededAlready === true,
-          queuedMetadata: this.pickQueuedMetadata(steerMessage),
+          queuedMetadata: pickQueuedMetadata(steerMessage),
         }
       );
       return;
@@ -410,7 +372,7 @@ export class InstanceMessagingStore {
         message,
         files,
         retryCount,
-        ...this.createQueuedMetadata(options),
+        ...createQueuedMetadata(options),
       });
       return;
     }
@@ -521,7 +483,7 @@ export class InstanceMessagingStore {
             message,
             files,
             retryCount: nextRetryCount,
-            ...this.createQueuedMetadata(options),
+            ...createQueuedMetadata(options),
           },
           ...existingQueue,
         ]);
@@ -580,7 +542,7 @@ export class InstanceMessagingStore {
       setTimeout(() => {
         this.sendInputImmediate(instanceId, nextMessage.message, nextMessage.files, retryCount, {
           skipUserBubble: nextMessage.seededAlready === true,
-          queuedMetadata: this.pickQueuedMetadata(nextMessage),
+          queuedMetadata: pickQueuedMetadata(nextMessage),
         });
       }, 100);
     }
@@ -740,42 +702,6 @@ export class InstanceMessagingStore {
     }
     this.interruptRequests.delete(instanceId);
     return false;
-  }
-
-  private createQueuedMetadata(
-    options: SendInputImmediateOptions
-  ): Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready'> {
-    const metadata: Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready'> = {};
-
-    if (options.queuedMetadata?.kind) {
-      metadata.kind = options.queuedMetadata.kind;
-    }
-    if (options.queuedMetadata?.hadAttachmentsDropped === true) {
-      metadata.hadAttachmentsDropped = true;
-    }
-    if (options.skipUserBubble === true || options.queuedMetadata?.seededAlready === true) {
-      metadata.seededAlready = true;
-    }
-
-    return metadata;
-  }
-
-  private pickQueuedMetadata(
-    message: QueuedMessage
-  ): Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready'> {
-    const metadata: Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready'> = {};
-
-    if (message.kind) {
-      metadata.kind = message.kind;
-    }
-    if (message.hadAttachmentsDropped === true) {
-      metadata.hadAttachmentsDropped = true;
-    }
-    if (message.seededAlready === true) {
-      metadata.seededAlready = true;
-    }
-
-    return metadata;
   }
 
   /**

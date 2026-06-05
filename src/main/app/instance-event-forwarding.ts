@@ -31,7 +31,7 @@ import { IPC_CHANNELS } from '@contracts/channels';
 import { ProviderRuntimeEventEnvelopeSchema } from '@contracts/schemas/provider-runtime-events';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
-import type { Instance } from '../../shared/types/instance.types';
+import type { Instance, InstanceStatus } from '../../shared/types/instance.types';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
 const logger = getLogger('InstanceEventForwarding');
@@ -423,6 +423,9 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
         const prev = previousStatus.get(update.instanceId);
         if (prev && ACTIVE_STATUSES.has(prev) && update.status === 'idle') {
           const instance = instanceManager.getInstance(update.instanceId);
+          if (instance) {
+            getContextEngine().afterTurn({ instance, status: update.status as InstanceStatus });
+          }
           const displayName = instance?.displayName ?? update.instanceId;
           windowManager.notifyAgentCompleted(update.instanceId, displayName);
         }

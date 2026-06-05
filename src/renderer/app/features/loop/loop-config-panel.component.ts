@@ -13,7 +13,7 @@ import type { PickerProvider } from '../models/compact-model-picker.types';
 // are sent — Zod's `LoopConfigInputSchema` only makes the top-level keys
 // optional, so an empty `progressThresholds: {}` would fail validation.
 const DEFAULT_CAPS = {
-  maxTokens: 1_000_000,
+  maxTokens: null as number | null,
   maxToolCallsPerIteration: 200,
 };
 const DEFAULT_COMPLETION = {

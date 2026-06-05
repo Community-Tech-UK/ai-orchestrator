@@ -32,7 +32,7 @@ import {
 import { isInstanceSettledStatus } from './instance-state-machine';
 import { generateId } from '../../shared/utils/id-generator';
 import { isContextOverflowError, extractOverflowTokenCount } from '../context/ptl-retry';
-import { TokenBudgetTracker, BudgetAction } from '../context/token-budget-tracker.js';
+import { BudgetAction } from '../context/token-budget-tracker.js';
 import { getTokenStatsService } from '../memory/token-stats';
 import { getTokenCounter } from '../rlm/token-counter';
 import { getTodoManager } from '../tasks/todo-manager';
@@ -2043,9 +2043,13 @@ export class InstanceCommunicationManager extends EventEmitter {
       instance.outputBuffer = instance.outputBuffer.slice(-bufferSize);
     }
 
-    // Ingest to context systems
-    this.deps.ingestToRLM(instance.id, message);
-    this.deps.ingestToUnifiedMemory(instance, message);
+    // Ingest to context systems through the B3 ContextEngine boundary.
+    if (this.deps.ingestContext) {
+      this.deps.ingestContext(instance, message);
+    } else {
+      this.deps.ingestToRLM(instance.id, message);
+      this.deps.ingestToUnifiedMemory(instance, message);
+    }
   }
 
   // ============================================

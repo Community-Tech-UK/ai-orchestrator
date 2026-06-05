@@ -35,11 +35,25 @@ export interface ClipboardMessageImage {
   name?: string;
 }
 
+/** Generic file attachment shape consumed by `ClipboardService.copyMessage`. */
+export interface ClipboardMessageAttachment {
+  /** Original filename shown in copied text and rich HTML. */
+  name: string;
+  /** MIME type shown in copied text and rich HTML. */
+  type: string;
+  /** File size in bytes. */
+  size: number;
+  /** A `data:...` URL containing the attachment bytes. */
+  dataUrl: string;
+}
+
 export interface ClipboardMessagePayload {
   /** Plain-text body of the message. */
   text: string;
   /** Image attachments to include alongside the text. */
   images?: ClipboardMessageImage[];
+  /** Non-image attachments to include alongside the text. */
+  attachments?: ClipboardMessageAttachment[];
 }
 
 export interface ClipboardService {
@@ -128,20 +142,20 @@ export class ClipboardServiceImpl implements ClipboardService {
   }
 
   /**
-   * Copy a chat message — its text plus any image attachments — to the
+   * Copy a chat message - its text plus any image/file attachments - to the
    * system clipboard as a single multi-format entry.
    *
    * Behaviour by paste target:
-   * - **Plain-text** (terminal, code editor): pastes `payload.text`.
-   * - **Rich-text / HTML** (Slack, email, Word, Notes): pastes the text
-   *   followed by inline `<img>` tags for every attachment. Images survive
-   *   the paste because the data URLs are embedded directly.
+   * - **Plain-text** (terminal, code editor): pastes the message text plus
+   *   an attachment list.
+   * - **Rich-text / HTML** (Slack, email, Word, Notes): pastes the text,
+   *   inline `<img>` tags for images, and downloadable data links for files.
    * - **Image-only** (Photoshop, Preview, image-paste boxes): pastes the
    *   first attachment as a native image. Subsequent images are only
    *   reachable via the HTML representation.
    *
-   * If the message has no images, this falls back to plain `copyText` so
-   * we don't require Electron IPC for text-only copies.
+   * If the message has no images, this falls back to plain `copyText` so we
+   * don't require Electron IPC for text-only/file-list copies.
    */
   async copyMessage(
     payload: ClipboardMessagePayload,
@@ -151,11 +165,15 @@ export class ClipboardServiceImpl implements ClipboardService {
     const images = (payload.images ?? []).filter((img) =>
       img.dataUrl.startsWith('data:image/'),
     );
+    const attachments = (payload.attachments ?? []).filter((attachment) =>
+      attachment.dataUrl.startsWith('data:'),
+    );
+    const text = this.buildMessageText(payload.text, attachments);
 
-    // No images → preserve the existing text-only path so this method is
+    // No images: preserve the existing text-only path so this method is
     // a strict superset of copyText (and works in non-Electron contexts).
     if (images.length === 0) {
-      return this.copyText(payload.text, { ...opts, label });
+      return this.copyText(text, { ...opts, label });
     }
 
     if (!this.ipc?.invoke) {
@@ -174,9 +192,9 @@ export class ClipboardServiceImpl implements ClipboardService {
       firstImageDataUrl = undefined;
     }
 
-    const html = this.buildMessageHtml(payload.text, images);
+    const html = this.buildMessageHtml(payload.text, images, attachments);
     const response = await this.ipc.invoke('image:copy-message', {
-      text: payload.text,
+      text,
       html,
       imageDataUrl: firstImageDataUrl,
     });
@@ -194,10 +212,15 @@ export class ClipboardServiceImpl implements ClipboardService {
 
   /**
    * Build the HTML representation for `copyMessage`: text rendered as
-   * paragraphs (with `<br>` for line breaks) followed by one `<img>` per
-   * attachment. Plain — no styling — so paste targets can apply their own.
+   * paragraphs (with `<br>` for line breaks), one `<img>` per image, and a
+   * compact attachment list with data links. Plain HTML so paste targets can
+   * apply their own styling.
    */
-  private buildMessageHtml(text: string, images: ClipboardMessageImage[]): string {
+  private buildMessageHtml(
+    text: string,
+    images: ClipboardMessageImage[],
+    attachments: ClipboardMessageAttachment[],
+  ): string {
     const escape = (s: string): string =>
       s
         .replace(/&/g, '&amp;')
@@ -219,7 +242,52 @@ export class ClipboardServiceImpl implements ClipboardService {
       })
       .join('');
 
-    return `${textHtml}${imgsHtml}`;
+    const attachmentsHtml = attachments.length > 0
+      ? `<p>Attachments:</p><ul>${attachments
+          .map((attachment) => {
+            const name = escape(attachment.name);
+            const type = escape(attachment.type);
+            const size = escape(this.formatBytes(attachment.size));
+            const href = escape(attachment.dataUrl);
+            return `<li><a href="${href}" download="${name}">${name}</a> (${size}, ${type})</li>`;
+          })
+          .join('')}</ul>`
+      : '';
+
+    return `${textHtml}${imgsHtml}${attachmentsHtml}`;
+  }
+
+  private buildMessageText(text: string, attachments: ClipboardMessageAttachment[]): string {
+    if (attachments.length === 0) {
+      return text;
+    }
+
+    const attachmentText = attachments
+      .map((attachment) =>
+        `- ${attachment.name} (${this.formatBytes(attachment.size)}, ${attachment.type})`,
+      )
+      .join('\n');
+
+    return text
+      ? `${text}\n\nAttachments:\n${attachmentText}`
+      : `Attachments:\n${attachmentText}`;
+  }
+
+  private formatBytes(size: number): string {
+    if (size < 1024) {
+      return `${size} B`;
+    }
+
+    const units = ['KB', 'MB', 'GB'];
+    let value = size / 1024;
+    let unitIndex = 0;
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024;
+      unitIndex++;
+    }
+
+    const formatted = Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
+    return `${formatted} ${units[unitIndex]}`;
   }
 
   private finish(

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { ContextUsage } from '../../shared/types/instance.types';
+import type { ContextUsage, Instance, OutputMessage } from '../../shared/types/instance.types';
+import type { InstanceContextPort } from '../instance/instance-context-port';
 
 const hoisted = vi.hoisted(() => {
   const coordinator = {
@@ -31,6 +32,62 @@ import {
 const usage = (percentage: number): ContextUsage =>
   ({ used: percentage * 10, total: 1000, percentage }) as ContextUsage;
 
+const instance = (overrides: Partial<Instance> = {}): Instance =>
+  ({
+    id: 'i1',
+    sessionId: 's1',
+    workingDirectory: '/repo',
+    displayName: 'Instance 1',
+    contextUsage: usage(12),
+    outputBuffer: [],
+    ...overrides,
+  }) as Instance;
+
+const message = (content = 'hello world'): OutputMessage =>
+  ({
+    id: 'm1',
+    type: 'assistant',
+    content,
+    timestamp: 123,
+  }) as OutputMessage;
+
+function makeContextPort(overrides: Partial<InstanceContextPort> = {}): InstanceContextPort {
+  return {
+    initializeRlm: vi.fn(async () => undefined),
+    endRlmSession: vi.fn(),
+    ingestInitialOutputToRlm: vi.fn(async () => undefined),
+    ingestToRLM: vi.fn(),
+    ingestToUnifiedMemory: vi.fn(),
+    calculateContextBudget: vi.fn(() => ({
+      totalTokens: 300,
+      rlmMaxTokens: 200,
+      unifiedMaxTokens: 100,
+      rlmTopK: 3,
+    })),
+    buildRlmContext: vi.fn(async () => ({
+      context: 'rlm',
+      tokens: 10,
+      sectionsAccessed: ['sec-1'],
+      durationMs: 5,
+      source: 'semantic',
+    })),
+    buildUnifiedMemoryContext: vi.fn(async () => ({
+      context: 'memory',
+      tokens: 8,
+      longTermCount: 1,
+      proceduralCount: 0,
+      durationMs: 4,
+    })),
+    buildObservationContext: vi.fn(async () => null),
+    buildWakeContextText: vi.fn(async () => null),
+    buildMcpRuntimeToolContextSelection: vi.fn(async () => null),
+    formatRlmContextBlock: vi.fn(() => null),
+    formatUnifiedMemoryContextBlock: vi.fn(() => null),
+    compactContext: vi.fn(async () => undefined),
+    ...overrides,
+  };
+}
+
 describe('LegacyContextEngine', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -54,12 +111,12 @@ describe('LegacyContextEngine', () => {
 
   it('getStatus reports the last seen usage + coordinator compacting state', () => {
     const engine = new LegacyContextEngine();
-    expect(engine.getStatus('i1')).toEqual({ latestUsage: null, isCompacting: false });
+    expect(engine.getStatus('i1')).toEqual({ latestUsage: null, isCompacting: false, lastTurnStatus: null });
 
     const u = usage(80);
     engine.onContextUpdate('i1', u);
     hoisted.coordinator.isCompacting.mockReturnValue(true);
-    expect(engine.getStatus('i1')).toEqual({ latestUsage: u, isCompacting: true });
+    expect(engine.getStatus('i1')).toEqual({ latestUsage: u, isCompacting: true, lastTurnStatus: null });
   });
 
   it('forgets usage after cleanup', () => {
@@ -68,12 +125,67 @@ describe('LegacyContextEngine', () => {
     engine.cleanupInstance('i1');
     expect(engine.getStatus('i1').latestUsage).toBeNull();
   });
+
+  it('ingests output through the supplied context port', () => {
+    const engine = new LegacyContextEngine();
+    const port = makeContextPort();
+    const inst = instance();
+    const msg = message();
+
+    engine.ingest({ instance: inst, message: msg, contextPort: port });
+
+    expect(port.ingestToRLM).toHaveBeenCalledWith('i1', msg);
+    expect(port.ingestToUnifiedMemory).toHaveBeenCalledWith(inst, msg);
+  });
+
+  it('assembles input context through the supplied context port and indexed-context hook', async () => {
+    const engine = new LegacyContextEngine();
+    const port = makeContextPort();
+    const inst = instance();
+    const indexedCodebaseContext = {
+      context: 'indexed',
+      tokens: 12,
+      results: [],
+      storeId: 'store-1',
+      durationMs: 6,
+    };
+
+    const result = await engine.assemble({
+      instance: inst,
+      message: 'what changed?',
+      taskId: 'task-1',
+      contextPort: port,
+      buildIndexedCodebaseContext: vi.fn(async () => indexedCodebaseContext),
+    });
+
+    expect(port.calculateContextBudget).toHaveBeenCalledWith(inst, 'what changed?');
+    expect(port.buildRlmContext).toHaveBeenCalledWith('i1', 'what changed?', 200, 3);
+    expect(port.buildUnifiedMemoryContext).toHaveBeenCalledWith(inst, 'what changed?', 'task-1', 100);
+    expect(result.indexedCodebaseContext).toBe(indexedCodebaseContext);
+  });
+
+  it('afterTurn feeds the latest instance usage through the same context update path', () => {
+    const engine = new LegacyContextEngine();
+    const u = usage(64);
+
+    engine.afterTurn({ instance: instance({ contextUsage: u }), status: 'idle' });
+
+    expect(hoisted.coordinator.onContextUpdate).toHaveBeenCalledWith('i1', u);
+  });
 });
 
 describe('SafeContextEngine (quarantine/fallback)', () => {
   function makeInner(overrides: Partial<ContextEngine> = {}): ContextEngine {
     return {
       onContextUpdate: vi.fn(),
+      ingest: vi.fn(),
+      assemble: vi.fn(async () => ({
+        budget: { totalTokens: 0, rlmMaxTokens: 0, unifiedMaxTokens: 0, rlmTopK: 0 },
+        rlmContext: null,
+        unifiedMemoryContext: null,
+        indexedCodebaseContext: null,
+      })),
+      afterTurn: vi.fn(),
       compactInstance: vi.fn(async () => ({ success: true })),
       getStatus: vi.fn(() => ({ latestUsage: null, isCompacting: false })),
       cleanupInstance: vi.fn(),
@@ -114,7 +226,7 @@ describe('SafeContextEngine (quarantine/fallback)', () => {
       }),
     });
     const safe = new SafeContextEngine(inner);
-    expect(safe.getStatus('i1')).toEqual({ latestUsage: null, isCompacting: false });
+    expect(safe.getStatus('i1')).toEqual({ latestUsage: null, isCompacting: false, lastTurnStatus: null });
   });
 
   it('cleanupInstance swallows inner errors', () => {
@@ -136,6 +248,56 @@ describe('SafeContextEngine (quarantine/fallback)', () => {
     const safe = new SafeContextEngine(inner);
     await expect(safe.compactInstance('i1')).rejects.toThrow('compact boom');
   });
+
+  it('quarantines after assemble throws, then returns empty context fallback', async () => {
+    const inner = makeInner({
+      assemble: vi.fn(async () => {
+        throw new Error('assemble boom');
+      }),
+    });
+    const safe = new SafeContextEngine(inner);
+
+    const result = await safe.assemble({
+      instance: instance(),
+      message: 'query',
+      contextPort: makeContextPort(),
+    });
+
+    expect(result).toEqual({
+      budget: { totalTokens: 300, rlmMaxTokens: 200, unifiedMaxTokens: 100, rlmTopK: 3 },
+      rlmContext: null,
+      unifiedMemoryContext: null,
+      indexedCodebaseContext: null,
+    });
+    expect(safe.isQuarantined()).toBe(true);
+  });
+
+  it('uses a zero-budget fallback if budget calculation also fails after quarantine', async () => {
+    const inner = makeInner({
+      assemble: vi.fn(async () => {
+        throw new Error('assemble boom');
+      }),
+    });
+    const contextPort = makeContextPort({
+      calculateContextBudget: vi.fn(() => {
+        throw new Error('budget boom');
+      }),
+    });
+    const safe = new SafeContextEngine(inner);
+
+    const result = await safe.assemble({
+      instance: instance(),
+      message: 'query',
+      contextPort,
+    });
+
+    expect(result).toEqual({
+      budget: { totalTokens: 0, rlmMaxTokens: 0, unifiedMaxTokens: 0, rlmTopK: 0 },
+      rlmContext: null,
+      unifiedMemoryContext: null,
+      indexedCodebaseContext: null,
+    });
+  });
 });
 
 describe('getContextEngine singleton', () => {
@@ -154,6 +316,14 @@ describe('getContextEngine singleton', () => {
   it('setContextEngine installs an alternative (still safe-wrapped)', () => {
     const inner = {
       onContextUpdate: vi.fn(),
+      ingest: vi.fn(),
+      assemble: vi.fn(async () => ({
+        budget: { totalTokens: 0, rlmMaxTokens: 0, unifiedMaxTokens: 0, rlmTopK: 0 },
+        rlmContext: null,
+        unifiedMemoryContext: null,
+        indexedCodebaseContext: null,
+      })),
+      afterTurn: vi.fn(),
       compactInstance: vi.fn(async () => ({ success: true })),
       getStatus: vi.fn(() => ({ latestUsage: null, isCompacting: false })),
       cleanupInstance: vi.fn(),
@@ -170,6 +340,14 @@ describe('getContextEngine singleton', () => {
     // an alternative engine governs manual compaction without touching call sites.
     const inner = {
       onContextUpdate: vi.fn(),
+      ingest: vi.fn(),
+      assemble: vi.fn(async () => ({
+        budget: { totalTokens: 0, rlmMaxTokens: 0, unifiedMaxTokens: 0, rlmTopK: 0 },
+        rlmContext: null,
+        unifiedMemoryContext: null,
+        indexedCodebaseContext: null,
+      })),
+      afterTurn: vi.fn(),
       compactInstance: vi.fn(async () => ({ success: true })),
       getStatus: vi.fn(() => ({ latestUsage: null, isCompacting: false })),
       cleanupInstance: vi.fn(),

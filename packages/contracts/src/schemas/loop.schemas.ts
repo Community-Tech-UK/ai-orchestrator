@@ -54,7 +54,7 @@ export const CompletionSignalIdSchema = z.enum([
 export const LoopHardCapsSchema = z.object({
   maxIterations: z.number().int().positive().max(1000),
   maxWallTimeMs: z.number().int().positive().max(24 * 60 * 60 * 1000),
-  maxTokens: z.number().int().positive().max(100_000_000),
+  maxTokens: z.number().int().positive().max(100_000_000).nullable(),
   maxCostCents: z.number().int().nonnegative().max(1_000_000).nullable(),
   maxToolCallsPerIteration: z.number().int().positive().max(10_000),
   /** LF-7: bound on verified-but-ungated completion attempts before the loop

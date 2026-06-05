@@ -92,7 +92,7 @@ export function shouldRunBranchSelect(input: BranchSelectInput): { run: boolean;
   }
   // Require at least ~1/fanout of the remaining budget free, so a fan-out round
   // can't immediately exceed caps. Conservative: need headroom > 0.
-  const tokenHeadroom = caps.maxTokens - spentTokens;
+  const tokenHeadroom = caps.maxTokens === null ? Number.POSITIVE_INFINITY : caps.maxTokens - spentTokens;
   const costHeadroom = caps.maxCostCents - spentCents;
   if (tokenHeadroom <= 0) return { run: false, reason: 'token cap exhausted' };
   if (costHeadroom <= 0) return { run: false, reason: 'cost cap exhausted' };

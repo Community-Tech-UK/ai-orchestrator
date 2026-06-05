@@ -1,5 +1,8 @@
 // ============ Configuration ============
 
+import type { LoopHardCaps } from './loop-config.types';
+export type { LoopHardCaps } from './loop-config.types';
+
 /** What "fresh eyes" looks like at REVIEW stage. */
 export type LoopReviewStyle =
   | 'single'         // single agent at REVIEW
@@ -11,37 +14,6 @@ export type LoopContextStrategy = 'fresh-child' | 'hybrid' | 'same-session';
 
 /** Concrete provider for child iterations. `auto` is resolved before persistence. */
 export type LoopProvider = 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor';
-
-export interface LoopHardCaps {
-  /** Max iterations before forced stop. Default 500. */
-  maxIterations: number;
-  /** Wall-time budget in milliseconds. Default 8h. */
-  maxWallTimeMs: number;
-  /** Token spend cap (approx — measured per iteration). Default 1_000_000. */
-  maxTokens: number;
-  /**
-   * Cost cap in cents. Null means unbounded. Default 50000 ($500) — a high
-   * backstop so a loop started with no explicit spend config still has a
-   * ceiling (LF-3) without biting normal subscription runs (where the dollar
-   * estimate is inaccurate). Set to null only deliberately for fully unbounded
-   * usage. A non-null cost
-   * cap is a precondition for operator-reviewed completion and branch-and-select
-   * exploration (LF-3a / LF-5) — both can sit paused/fan-out and burn spend.
-   */
-  maxCostCents: number | null;
-  /** Per-iteration tool-call cap. Default 200. */
-  maxToolCallsPerIteration: number;
-  /**
-   * LF-7: max number of completion attempts where verify PASSED but the
-   * `*_Completed.md` rename belt-and-braces gate kept blocking, before the
-   * loop stops oscillating and terminates as `cap-reached` with a clear
-   * reason. Bounds the "declare done → rename gate rejects → re-declare" spin
-   * (loopfixex §12.1) at this count instead of letting it run all the way to
-   * `maxIterations`. Optional; defaults to 3 via `defaultLoopConfig` and is
-   * read defensively (`?? 3`) so configs/tests that omit it still bound.
-   */
-  maxCompletionAttempts?: number;
-}
 
 export interface LoopProgressThresholds {
   /** Identical-work-hash WARN threshold. */
@@ -434,7 +406,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
     caps: {
       maxIterations: 500,
       maxWallTimeMs: 8 * 60 * 60 * 1000,
-      maxTokens: 1_000_000,
+      maxTokens: null,
       // LF-3: default to a $500 backstop. Previously $10, which prematurely
       // killed subscription loops where the dollar estimate is inaccurate;
       // previously null (unbounded), flagged as a footgun. Renderer surfaces

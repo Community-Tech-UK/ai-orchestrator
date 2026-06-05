@@ -135,6 +135,18 @@ describe('Loop schemas — type/schema drift guards', () => {
   });
 
   describe('LoopHardCapsSchema', () => {
+    it('accepts null maxTokens as an unbounded token cap', () => {
+      const parsed = LoopHardCapsSchema.parse({
+        maxIterations: 50,
+        maxWallTimeMs: 60_000,
+        maxTokens: null,
+        maxCostCents: 100_000,
+        maxToolCallsPerIteration: 100,
+      });
+
+      expect(parsed.maxTokens).toBeNull();
+    });
+
     it('accepts null maxCostCents as an unbounded spend cap', () => {
       const parsed = LoopHardCapsSchema.parse({
         maxIterations: 50,

@@ -241,6 +241,36 @@ describe('ClipboardServiceImpl', () => {
       expect(invoke).not.toHaveBeenCalled();
     });
 
+    it('includes non-image attachments in the plain-text copy path', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      const invoke = vi.fn();
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      TestBed.configureTestingModule({
+        providers: [
+          ClipboardServiceImpl,
+          { provide: ElectronIpcService, useValue: { invoke } },
+        ],
+      });
+
+      const result = await TestBed.inject(ClipboardServiceImpl).copyMessage({
+        text: 'See file',
+        attachments: [
+          {
+            name: 'usage-aware-throttling-plan.md',
+            type: 'text/markdown',
+            size: 9933,
+            dataUrl: 'data:text/markdown;base64,IyBQbGFu',
+          },
+        ],
+      });
+
+      expect(result).toEqual({ ok: true });
+      expect(writeText).toHaveBeenCalledWith(
+        'See file\n\nAttachments:\n- usage-aware-throttling-plan.md (9.7 KB, text/markdown)',
+      );
+      expect(invoke).not.toHaveBeenCalled();
+    });
+
     it('skips empty-array attachments and still uses the text path', async () => {
       const writeText = vi.fn().mockResolvedValue(undefined);
       const invoke = vi.fn();
@@ -288,6 +318,40 @@ describe('ClipboardServiceImpl', () => {
       expect(payload.html).toContain('alt="second.png"');
       // image slot uses the first attachment, in PNG/JPEG form
       expect(payload.imageDataUrl).toMatch(/^data:image\/(png|jpeg)/);
+    });
+
+    it('includes non-image attachments in rich message copies', async () => {
+      const invoke = vi.fn().mockResolvedValue({ success: true });
+      TestBed.configureTestingModule({
+        providers: [
+          ClipboardServiceImpl,
+          { provide: ElectronIpcService, useValue: { invoke } },
+        ],
+      });
+
+      const result = await TestBed.inject(ClipboardServiceImpl).copyMessage({
+        text: 'check this',
+        images: [{ dataUrl: ONE_PIXEL_PNG, name: 'pixel.png' }],
+        attachments: [
+          {
+            name: 'usage-aware-throttling-plan.md',
+            type: 'text/markdown',
+            size: 9933,
+            dataUrl: 'data:text/markdown;base64,IyBQbGFu',
+          },
+        ],
+      });
+
+      expect(result).toEqual({ ok: true });
+      const payload = invoke.mock.calls[0][1] as { text: string; html: string };
+      expect(payload.text).toBe(
+        'check this\n\nAttachments:\n- usage-aware-throttling-plan.md (9.7 KB, text/markdown)',
+      );
+      expect(payload.html).toContain('download="usage-aware-throttling-plan.md"');
+      expect(payload.html).toContain('href="data:text/markdown;base64,IyBQbGFu"');
+      expect(payload.html).toContain('usage-aware-throttling-plan.md');
+      expect(payload.html).toContain('9.7 KB');
+      expect(payload.html).toContain('text/markdown');
     });
 
     it('escapes HTML-special characters in the text body and image filenames', async () => {

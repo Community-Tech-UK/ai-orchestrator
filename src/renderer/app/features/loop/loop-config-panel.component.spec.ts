@@ -111,6 +111,12 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.caps?.maxCostCents).toBe(50000);
   });
 
+  it('does not set a hidden token cap by default', () => {
+    const config = component.buildConfig();
+
+    expect(config?.caps?.maxTokens).toBeNull();
+  });
+
   it('defaults the context recycle threshold to 60%', () => {
     const config = component.buildConfig();
 

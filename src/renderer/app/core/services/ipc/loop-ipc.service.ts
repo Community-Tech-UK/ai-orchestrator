@@ -35,7 +35,7 @@ export interface LoopStartConfigInput {
   caps?: Partial<{
     maxIterations: number;
     maxWallTimeMs: number;
-    maxTokens: number;
+    maxTokens: number | null;
     maxCostCents: number | null;
     maxToolCallsPerIteration: number;
   }>;

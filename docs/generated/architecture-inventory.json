@@ -4960,7 +4960,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2537
+      "lines": 2542
     },
     {
       "path": "src/main/channels/channel-message-router.ts",
@@ -4976,11 +4976,11 @@
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2243
+      "lines": 2197
     },
     {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2166
+      "lines": 2170
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
@@ -5047,12 +5047,12 @@
       "lines": 1803
     },
     {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1750
-    },
-    {
       "path": "src/main/session/session-continuity.ts",
       "lines": 1710
+    },
+    {
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+      "lines": 1690
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.spec.ts",
@@ -5243,6 +5243,10 @@
       "lines": 1194
     },
     {
+      "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
+      "lines": 1189
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase5-integration.COMPLETED.md",
       "lines": 1186
     },
@@ -5253,10 +5257,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-streaming-tool-executor.COMPLETED.md",
       "lines": 1177
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
-      "lines": 1174
     },
     {
       "path": "src/main/orchestration/multi-verify-coordinator.ts",
@@ -5507,19 +5507,11 @@
       "lines": 885
     },
     {
-      "path": "src/main/automations/automation-store.ts",
-      "lines": 882
-    },
-    {
       "path": "src/main/rlm/smart-compaction.ts",
       "lines": 879
     },
     {
       "path": "src/main/security/sandbox-manager.ts",
-      "lines": 877
-    },
-    {
-      "path": "src/renderer/app/features/instance-list/instance-row.component.ts",
       "lines": 877
     },
     {
@@ -5579,11 +5571,11 @@
       "lines": 845
     },
     {
-      "path": "src/shared/types/loop.types.ts",
-      "lines": 845
+      "path": "docs/superpowers/specs/2026-04-05-bash-validation-pipeline-design.md",
+      "lines": 841
     },
     {
-      "path": "docs/superpowers/specs/2026-04-05-bash-validation-pipeline-design.md",
+      "path": "src/main/automations/automation-store.ts",
       "lines": 841
     },
     {
@@ -5607,15 +5599,15 @@
       "lines": 820
     },
     {
-      "path": "src/renderer/app/core/state/instance/instance-messaging.store.ts",
-      "lines": 819
-    },
-    {
       "path": "src/renderer/app/features/training/training-page.component.ts",
       "lines": 818
     },
     {
       "path": "src/main/memory/critique-agent.ts",
+      "lines": 817
+    },
+    {
+      "path": "src/shared/types/loop.types.ts",
       "lines": 817
     },
     {
@@ -5632,7 +5624,7 @@
     },
     {
       "path": "src/renderer/app/features/loop/loop-control.component.ts",
-      "lines": 812
+      "lines": 813
     },
     {
       "path": "src/main/ipc/handlers/__tests__/session-handlers.spec.ts",

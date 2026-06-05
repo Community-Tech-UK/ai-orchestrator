@@ -104,7 +104,6 @@ import {
   primaryActionClass,
   proposedUploadRoots,
   safeTargetFromExistingTab,
-  tryParseWebUrl,
 } from './browser-gateway-service-helpers';
 import {
   BrowserGatewayResultRecorder,
@@ -116,6 +115,13 @@ import {
 } from './browser-existing-tab-operations';
 import { BrowserGatewayApprovalOperations } from './browser-gateway-approval-operations';
 import { normalizeElementCandidates } from './browser-element-candidates';
+import {
+  browserActionTargetLabel,
+  browserActionTargetPayload,
+  browserFillFieldTargetLabel,
+  findExistingTabCandidate,
+  placeholderExistingTabProfileRoot,
+} from './browser-gateway-target-utils';
 import type {
   BrowserGatewayAttachExistingTabRequest,
   BrowserGatewayAuditLogRequest,
@@ -509,7 +515,7 @@ export class BrowserGatewayService {
   ): Promise<BrowserGatewayResult<ReturnType<typeof toAgentSafeTarget> | null>> {
     const url = request.url?.trim();
     const titleHint = request.titleHint?.trim().toLowerCase();
-    const existing = this.findExistingTabCandidate(url, titleHint);
+    const existing = findExistingTabCandidate(this.extensionTabStore.listTabs(), url, titleHint);
     if (existing) {
       return this.result({
         context: request,
@@ -1318,7 +1324,7 @@ export class BrowserGatewayService {
       request,
       'click',
       'browser.click',
-      this.actionTargetLabel(request),
+      browserActionTargetLabel(request),
       request.actionHint,
     );
     if (prepared.result) {
@@ -1332,7 +1338,7 @@ export class BrowserGatewayService {
     try {
       const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
       if (existingTab) {
-        await this.existingTabOperations.sendCommand(existingTab, 'click', this.actionTargetPayload(request));
+        await this.existingTabOperations.sendCommand(existingTab, 'click', browserActionTargetPayload(request));
       } else {
         await this.driver.click(request.profileId, request.targetId, request.selector!);
       }
@@ -1388,7 +1394,7 @@ export class BrowserGatewayService {
       request,
       'type',
       'browser.type',
-      this.actionTargetLabel(request),
+      browserActionTargetLabel(request),
       request.actionHint,
     );
     if (prepared.result) {
@@ -1402,7 +1408,7 @@ export class BrowserGatewayService {
       const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
       if (existingTab) {
         await this.existingTabOperations.sendCommand(existingTab, 'type', {
-          ...this.actionTargetPayload(request),
+          ...browserActionTargetPayload(request),
           value: request.value,
         });
       } else {
@@ -1425,7 +1431,7 @@ export class BrowserGatewayService {
       request,
       'select',
       'browser.select',
-      this.actionTargetLabel(request),
+      browserActionTargetLabel(request),
       request.actionHint,
     );
     if (prepared.result) {
@@ -1439,7 +1445,7 @@ export class BrowserGatewayService {
       const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
       if (existingTab) {
         await this.existingTabOperations.sendCommand(existingTab, 'select', {
-          ...this.actionTargetPayload(request),
+          ...browserActionTargetPayload(request),
           value: request.value,
         });
       } else {
@@ -1480,8 +1486,8 @@ export class BrowserGatewayService {
         filePath: request.filePath,
         workspaceRoots: [],
         approvedRoots: prepared.grant.uploadRoots ?? [],
-        userDataPath: this.placeholderExistingTabProfileRoot(request.filePath),
-        profileRoot: this.placeholderExistingTabProfileRoot(request.filePath),
+        userDataPath: placeholderExistingTabProfileRoot(request.filePath),
+        profileRoot: placeholderExistingTabProfileRoot(request.filePath),
         autonomous: prepared.grant.autonomous,
       });
       if (!uploadDecision.allowed) {
@@ -1711,7 +1717,7 @@ export class BrowserGatewayService {
         request,
         'fill_form',
         'browser.fill_form',
-        this.fillFieldTargetLabel(firstField),
+        browserFillFieldTargetLabel(firstField),
         firstField.actionHint,
         {
           actionClass: 'input',
@@ -1748,7 +1754,7 @@ export class BrowserGatewayService {
       request,
       'fill_form',
       'browser.fill_form',
-      this.fillFieldTargetLabel(firstField),
+      browserFillFieldTargetLabel(firstField),
       firstField.actionHint,
       {
         actionClass: 'input',
@@ -1798,7 +1804,7 @@ export class BrowserGatewayService {
         request,
         'fill_form',
         'browser.fill_form',
-        this.fillFieldTargetLabel(firstField),
+        browserFillFieldTargetLabel(firstField),
         firstField.actionHint,
         classification,
       );
@@ -1822,7 +1828,7 @@ export class BrowserGatewayService {
       request,
       'fill_form',
       'browser.fill_form',
-      this.fillFieldTargetLabel(request.fields[0]!),
+      browserFillFieldTargetLabel(request.fields[0]!),
       request.fields[0]!.actionHint,
       classification,
     );
@@ -2103,35 +2109,6 @@ export class BrowserGatewayService {
     }
   }
 
-  private findExistingTabCandidate(
-    url: string | undefined,
-    titleHint: string | undefined,
-  ): BrowserExistingTabAttachment | null {
-    const tabs = this.extensionTabStore.listTabs();
-    const parsedUrl = url ? tryParseWebUrl(url) : null;
-
-    if (parsedUrl && url) {
-      const exactOrPrefix = tabs.find((tab) =>
-        tab.url === url || tab.url.startsWith(url),
-      );
-      if (exactOrPrefix) {
-        return exactOrPrefix;
-      }
-      const sameOrigin = tabs.find((tab) => tab.origin === parsedUrl.origin);
-      if (sameOrigin) {
-        return sameOrigin;
-      }
-    }
-
-    if (titleHint) {
-      return tabs.find((tab) =>
-        (tab.title ?? '').toLowerCase().includes(titleHint),
-      ) ?? null;
-    }
-
-    return null;
-  }
-
   private async readTargetData<T>(
     request: BrowserGatewayTargetRequest,
     action: string,
@@ -2189,25 +2166,6 @@ export class BrowserGatewayService {
     });
   }
 
-  // Label passed to the action guard for classification/audit. Prefers the CSS
-  // selector; falls back to a uid marker so audit records remain meaningful.
-  private actionTargetLabel(request: { selector?: string; uid?: string }): string {
-    return request.selector ?? `uid:${request.uid}`;
-  }
-
-  private fillFieldTargetLabel(field: { selector?: string; uid?: string }): string {
-    return field.selector ?? `uid:${field.uid}`;
-  }
-
-  // Target identity forwarded to the extension command: a selector, a uid, or
-  // both. The extension prefers uid when present.
-  private actionTargetPayload(request: { selector?: string; uid?: string }): Record<string, unknown> {
-    return {
-      ...(request.selector ? { selector: request.selector } : {}),
-      ...(request.uid ? { uid: request.uid } : {}),
-    };
-  }
-
   private result<T>(params: BrowserGatewayResultInput<T>): BrowserGatewayResult<T> {
     return this.resultRecorder.record(params);
   }
@@ -2225,10 +2183,6 @@ export class BrowserGatewayService {
     return profile.userDataDir ?? this.profileRegistry.resolveProfileDir(profile.id);
   }
 
-  private placeholderExistingTabProfileRoot(filePath: string): string {
-    const root = path.parse(path.resolve(filePath)).root;
-    return path.join(root, '.aio-browser-gateway-existing-tab-profile');
-  }
 }
 
 export function getBrowserGatewayService(): BrowserGatewayService {

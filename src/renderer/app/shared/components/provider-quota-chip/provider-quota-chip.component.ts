@@ -18,6 +18,8 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
+  HostListener,
   OnDestroy,
   OnInit,
   computed,
@@ -182,6 +184,7 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
 })
 export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   private store = inject(ProviderQuotaStore);
+  private readonly elementRef = inject<ElementRef<HTMLElement>>(ElementRef);
 
   /** Live tick used solely to re-render the "resets in" hint each minute. */
   private readonly nowMs = signal(Date.now());
@@ -249,7 +252,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     for (const provider of PROVIDER_ORDER) {
       const snap = snaps[provider];
       if (!snap?.ok) continue;
-      const window = this.mostUsedWindow(snap);
+      const window = this.summaryWindow(snap);
       if (window) {
         entries.push({
           provider,
@@ -311,6 +314,14 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     this.popoverOpen.update((open) => !open);
   }
 
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent): void {
+    if (!this.popoverOpen()) return;
+    const target = event.target;
+    if (target instanceof Node && this.elementRef.nativeElement.contains(target)) return;
+    this.popoverOpen.set(false);
+  }
+
   refreshProvider(provider: ProviderId): void {
     void this.store.refresh(provider);
   }
@@ -338,6 +349,15 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
       if (s && s.ok) return s;
     }
     return null;
+  }
+
+  private summaryWindow(snapshot: ProviderQuotaSnapshot): ProviderQuotaWindow | null {
+    const preferredIds = PREFERRED_SUMMARY_WINDOW_IDS[snapshot.provider] ?? [];
+    for (const preferredId of preferredIds) {
+      const preferred = snapshot.windows.find((window) => window.limit > 0 && window.id === preferredId);
+      if (preferred) return preferred;
+    }
+    return this.mostUsedWindow(snapshot);
   }
 
   private mostUsedWindow(snapshot: ProviderQuotaSnapshot): ProviderQuotaWindow | null {
@@ -387,4 +407,7 @@ const PROVIDER_CODES: Record<ProviderId, string> = {
   gemini: 'GM',
   copilot: 'CP',
   cursor: 'CU',
+};
+const PREFERRED_SUMMARY_WINDOW_IDS: Partial<Record<ProviderId, string[]>> = {
+  codex: ['codex.weekly'],
 };

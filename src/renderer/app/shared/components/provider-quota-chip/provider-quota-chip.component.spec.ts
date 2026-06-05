@@ -263,6 +263,21 @@ describe('ProviderQuotaChipComponent', () => {
       expect(cursor?.style.color).not.toBe(claude?.style.color);
     });
 
+    it('summarizes Codex by weekly usage when both 5-hour and weekly windows are present', () => {
+      store.setSnapshot('codex', makeSnapshot('codex', 'plus', true, [
+        { ...makeWindow(16, 100), id: 'codex.5h', label: '5-hour' },
+        { ...makeWindow(8, 100), id: 'codex.weekly', label: 'Weekly' },
+      ]));
+      store.setWorst({ provider: 'codex', window: makeWindow(16, 100) });
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      const stripText = host.querySelector('[data-testid="quota-strip"]')?.textContent ?? '';
+
+      expect(stripText).toContain('CX8%');
+      expect(stripText).not.toContain('CX16%');
+    });
+
     it('shows per-provider freshness and refresh controls in the detail popover', () => {
       const now = Date.now();
       (component as unknown as { nowMs: { set(value: number): void } }).nowMs.set(now);
@@ -286,6 +301,32 @@ describe('ProviderQuotaChipComponent', () => {
       fixture.detectChanges();
 
       expect(store.refresh).toHaveBeenCalledWith('codex');
+    });
+
+    it('keeps the detail popover open for inside clicks and closes it for outside clicks', () => {
+      store.setSnapshot('codex', makeSnapshot('codex', 'plus', true, [
+        { ...makeWindow(4, 100), id: 'codex.weekly', label: 'Codex weekly' },
+      ]));
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      const button = host.querySelector('button[data-testid="quota-toggle"]') as HTMLButtonElement;
+
+      button.click();
+      fixture.detectChanges();
+
+      expect(host.querySelector('[data-testid="quota-popover"]')).toBeTruthy();
+
+      const refresh = host.querySelector('button[data-testid="quota-refresh-codex"]') as HTMLButtonElement;
+      refresh.click();
+      fixture.detectChanges();
+
+      expect(host.querySelector('[data-testid="quota-popover"]')).toBeTruthy();
+
+      document.body.click();
+      fixture.detectChanges();
+
+      expect(host.querySelector('[data-testid="quota-popover"]')).toBeFalsy();
     });
   });
 });

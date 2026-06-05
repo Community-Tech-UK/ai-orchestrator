@@ -51,6 +51,7 @@ export interface CommunicationDependencies {
   onInterruptedExit: (instanceId: string) => Promise<void>;
   onUnexpectedExit?: (instanceId: string) => Promise<void>;
   onChildExit?: (childId: string, instance: Instance, exitCode: number | null) => void | Promise<void>;
+  ingestContext?: (instance: Instance, message: OutputMessage) => void;
   ingestToRLM: (instanceId: string, message: OutputMessage) => void;
   ingestToUnifiedMemory: (instance: Instance, message: OutputMessage) => void;
   compactContext?: (instanceId: string) => Promise<void>;

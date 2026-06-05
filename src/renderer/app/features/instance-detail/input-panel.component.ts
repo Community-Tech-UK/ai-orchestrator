@@ -66,6 +66,10 @@ import type {
 } from '../../core/state/instance/instance.types';
 import { ComposerToolbarComponent } from './composer-toolbar.component';
 import {
+  tryStartLoopFromPanel,
+  type LoopStartRequestPayload,
+} from './input-panel-loop-start';
+import {
   ImageLightboxComponent,
   type LightboxItem,
 } from '../../shared/components/image-lightbox/image-lightbox.component';
@@ -195,12 +199,7 @@ export class InputPanelComponent implements OnDestroy {
     attachments?: OutputMessage['attachments'];
     retryMode: 'transcript-only';
   }>();
-  loopStartRequested = output<{
-    config: LoopStartConfigInput;
-    firstMessage: string;
-    attachments: { name: string; data: Uint8Array }[];
-    onResolved: (ok: boolean, error?: string) => void;
-  }>();
+  loopStartRequested = output<LoopStartRequestPayload>();
   loopStopRequested = output<void>();
   /**
    * Emitted when the user clicks the stop button rendered in place of the
@@ -281,77 +280,18 @@ export class InputPanelComponent implements OnDestroy {
    * panel + show the error so the user doesn't lose work.
    */
   private async tryStartLoopFromPanel(): Promise<boolean> {
-    if (this.loopStarting()) return false; // dedupe rapid-fire Send/Enter
-    const panelConfig = this.latestLoopConfig();
-    if (!panelConfig) {
-      // The panel either hasn't reported a valid config yet, or the user
-      // edited it into an invalid state. Surface the panel's own error
-      // (if any) so the user understands why nothing happened.
-      this.showLoopPanel.set(true);
-      this.loopStartError.set('Loop config is incomplete — fix the prompt or settings above before sending.');
-      return false;
-    }
-
-    const firstMessage = this.message().trim();
-    const panelPrompt = panelConfig.initialPrompt.trim();
-
-    // Iter 0 = the goal (textarea). Iter 1+ = the continuation directive
-    // (panel prompt). If textarea is empty, fall back to the panel prompt
-    // for iter 0 too — the loop must have *something* to work toward.
-    const finalConfig: LoopStartConfigInput = {
-      ...panelConfig,
-      initialPrompt: firstMessage || panelPrompt,
-      iterationPrompt: firstMessage ? panelPrompt : undefined,
-    };
-
-    const files = this.pendingFiles();
-    const attachments = await Promise.all(
-      files.map(async (file) => ({
-        name: file.name,
-        data: new Uint8Array(await file.arrayBuffer()),
-      })),
-    );
-
-    this.loopStarting.set(true);
-    this.loopStartError.set(null);
-
-    let settled = false;
-    let timeout: ReturnType<typeof setTimeout> | null = null;
-
-    const settle = (ok: boolean, error?: string) => {
-      if (settled) return;
-      settled = true;
-      if (timeout) clearTimeout(timeout);
-      this.loopStarting.set(false);
-      if (ok) {
-        // Only clear once the loop is actually running.
-        this.loopArmed.set(false);
-        this.showLoopPanel.set(false);
-        this.message.set('');
-        this.loopStartError.set(null);
-      } else {
-        // Preserve the user's typed goal, panel state, and pending files
-        // so they can fix and retry — do NOT clear anything.
-        this.loopArmed.set(true);
-        this.showLoopPanel.set(true);
-        this.loopStartError.set(error ?? 'Loop start failed.');
-      }
-    };
-    timeout = setTimeout(() => {
-      settle(false, 'Loop start did not acknowledge within 30 seconds. No loop was confirmed; try again or check the app logs.');
+    return tryStartLoopFromPanel({
+      isLoopStarting: () => this.loopStarting(),
+      panelConfig: () => this.latestLoopConfig(),
+      message: () => this.message(),
+      setMessage: (value) => this.message.set(value),
+      pendingFiles: () => this.pendingFiles(),
+      setLoopStarting: (value) => this.loopStarting.set(value),
+      setLoopArmed: (value) => this.loopArmed.set(value),
+      setShowLoopPanel: (value) => this.showLoopPanel.set(value),
+      setLoopStartError: (value) => this.loopStartError.set(value),
+      requestLoopStart: (payload) => this.loopStartRequested.emit(payload),
     }, LOOP_START_ACK_TIMEOUT_MS);
-
-    try {
-      this.loopStartRequested.emit({
-        config: finalConfig,
-        firstMessage,
-        attachments,
-        onResolved: settle,
-      });
-    } catch (error) {
-      settle(false, error instanceof Error ? error.message : String(error));
-    }
-    return true;
   }
 
   editMode = signal(false);

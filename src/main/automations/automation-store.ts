@@ -3,12 +3,10 @@ import { generateId } from '../../shared/utils/id-generator';
 import { toWorkspaceId } from '../../shared/utils/workspace-key';
 import type {
   Automation,
-  AutomationDeliveryMode,
   AutomationDestination,
   AutomationRun,
   AutomationRunStatus,
   AutomationTrigger,
-  AutomationTriggerSource,
   ClaimedAutomationRun,
   CreateAutomationInput,
   UpdateAutomationInput,
@@ -36,7 +34,10 @@ import {
   recordSkippedRun,
   type PendingRetryRecord,
 } from './automation-store-retry-ops';
+import { recordRunOutcomeRecord } from './automation-store-outcome-ops';
+import type { AutomationRunDecisionOptions } from './automation-store-types';
 export type { PendingRetryRecord } from './automation-store-retry-ops';
+export type { AutomationRunDecisionOptions } from './automation-store-types';
 
 /**
  * Default number of consecutive failed runs after which an automation is
@@ -50,16 +51,6 @@ type FireDecision =
   | { kind: 'skipped'; reason: string; run?: AutomationRun }
   | { kind: 'queued'; run: AutomationRun }
   | { kind: 'started'; run: AutomationRun };
-
-export interface AutomationRunDecisionOptions {
-  idempotencyKey?: string;
-  triggerSource?: AutomationTriggerSource;
-  deliveryMode?: AutomationDeliveryMode;
-  /** Override max attempts for this run (default = 1, meaning no retries). */
-  maxAttempts?: number;
-  /** Current attempt number (default = 1). Used when reinserting a retry run. */
-  attempt?: number;
-}
 
 export class AutomationStore {
   constructor(
@@ -394,50 +385,18 @@ export class AutomationStore {
     reason: string | undefined,
     now = Date.now(),
   ): { automation: Automation | null; autoDisabled: boolean } {
-    if (status !== 'succeeded' && status !== 'failed') {
-      return { automation: null, autoDisabled: false };
-    }
-
-    const tx = this.db.transaction((): { automation: Automation | null; autoDisabled: boolean } => {
-      const row = this.getAutomationRow(automationId);
-      if (!row) {
-        return { automation: null, autoDisabled: false };
-      }
-
-      if (status === 'succeeded') {
-        this.db.prepare(`
-          UPDATE automations
-          SET consecutive_failures = 0,
-              last_failure_at = NULL,
-              last_failure_reason = NULL,
-              updated_at = ?
-          WHERE id = ?
-        `).run(now, automationId);
-      } else {
-        const nextCount = (row.consecutive_failures ?? 0) + 1;
-        const wasEnabled = row.enabled === 1;
-        const shouldDisable =
-          wasEnabled && this.maxConsecutiveFailures > 0 && nextCount >= this.maxConsecutiveFailures;
-        this.db.prepare(`
-          UPDATE automations
-          SET consecutive_failures = ?,
-              last_failure_at = ?,
-              last_failure_reason = ?,
-              enabled = ?,
-              updated_at = ?
-          WHERE id = ?
-        `).run(nextCount, now, reason ?? null, shouldDisable ? 0 : row.enabled, now, automationId);
-        const updated = this.getAutomationRow(automationId);
-        return {
-          automation: updated ? this.mapAutomationSync(updated) : null,
-          autoDisabled: shouldDisable,
-        };
-      }
-
-      const updated = this.getAutomationRow(automationId);
-      return { automation: updated ? this.mapAutomationSync(updated) : null, autoDisabled: false };
-    });
-    return tx();
+    return recordRunOutcomeRecord(
+      {
+        db: this.db,
+        getAutomationRow: (id) => this.getAutomationRow(id),
+        mapAutomationSync: (row) => this.mapAutomationSync(row),
+      },
+      automationId,
+      status,
+      reason,
+      this.maxConsecutiveFailures,
+      now,
+    );
   }
 
   insertRetryRun(

@@ -59,7 +59,6 @@ import type {
   InstanceSettledWaitOptions,
 } from './instance-settled-tracker';
 import type {
-  ContextBudget,
   RlmContextInfo,
   UnifiedMemoryContextInfo,
 } from './instance-types';
@@ -345,6 +344,11 @@ export class InstanceManager extends EventEmitter {
       processOrchestrationOutput: (id, content) => this.orchestrationMgr.processOrchestrationOutput(id, content),
       onInterruptedExit: (id) => this.lifecycle.respawnAfterInterrupt(id),
       onUnexpectedExit: (id) => this.lifecycle.respawnAfterUnexpectedExit(id),
+      ingestContext: (inst, msg) => getContextEngine().ingest({
+        instance: inst,
+        message: msg,
+        contextPort: this.context,
+      }),
       ingestToRLM: (id, msg) => this.context.ingestToRLM(id, msg),
       ingestToUnifiedMemory: (inst, msg) => this.context.ingestToUnifiedMemory(inst, msg),
       compactContext: async (id) => {
@@ -1509,8 +1513,7 @@ export class InstanceManager extends EventEmitter {
     // Calculate context budget and build contexts. Context retrieval improves
     // answer quality, but it must not hold the renderer's send acknowledgement.
     // Anything slower than the deadline is queued for the next user turn.
-    const budgets = this.context.calculateContextBudget(instance, resolvedMessage);
-    const contextPromise = this.buildInputContexts(instance, resolvedMessage, budgets);
+    const contextPromise = this.buildInputContexts(instance, resolvedMessage);
     const inputContexts = await this.resolveInputContextsBeforeDeadline(
       instanceId,
       contextPromise,
@@ -1685,18 +1688,20 @@ export class InstanceManager extends EventEmitter {
   private async buildInputContexts(
     instance: Instance,
     message: string,
-    budgets: ContextBudget,
   ): Promise<InputContextBundle> {
-    const [rlmContext, unifiedMemoryContext, indexedCodebaseContext] = await Promise.all([
-      this.context.buildRlmContext(instance.id, message, budgets.rlmMaxTokens, budgets.rlmTopK),
-      this.context.buildUnifiedMemoryContext(instance, message, generateId(), budgets.unifiedMaxTokens),
-      this.buildIndexedCodebaseContext(instance, message),
-    ]);
+    const assembly = await getContextEngine().assemble({
+      instance,
+      message,
+      contextPort: this.context,
+      taskId: generateId(),
+      buildIndexedCodebaseContext: (targetInstance, targetMessage) =>
+        this.buildIndexedCodebaseContext(targetInstance, targetMessage),
+    });
 
     return {
-      rlmContext,
-      unifiedMemoryContext,
-      indexedCodebaseContext,
+      rlmContext: assembly.rlmContext,
+      unifiedMemoryContext: assembly.unifiedMemoryContext,
+      indexedCodebaseContext: assembly.indexedCodebaseContext,
     };
   }
 
