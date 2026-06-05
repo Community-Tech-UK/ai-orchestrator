@@ -1639,9 +1639,11 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         enableAdapterResume(reusedAdapter);
       }
 
+      const workspaceDelta = snapshotFileChangesViaWorkspace(workspaceBefore, p.workspaceCwd);
+      const workspaceDeltaPaths = new Set(workspaceDelta.map((change) => change.path));
       const filesChanged = mergeFileChanges(
-        snapshotFileChangesViaWorkspace(workspaceBefore, p.workspaceCwd),
-        snapshotFileChangesViaGit(p.workspaceCwd),
+        workspaceDelta,
+        snapshotFileChangesViaGit(p.workspaceCwd).filter((change) => workspaceDeltaPaths.has(change.path)),
       );
       // FU-5: derive structured signals from the actual iteration output.
       // testPassCount/testFailCount feeds the D / D-prime signals;

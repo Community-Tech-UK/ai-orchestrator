@@ -9,9 +9,14 @@
 import { getProviderQuotaService } from '../provider-quota-service';
 import { ClaudeUsageEndpointProbe } from './claude-usage-endpoint-probe';
 import { CopilotQuotaProbe } from './copilot-quota-probe';
+import { CopilotUsageEndpointProbe } from './copilot-usage-endpoint-probe';
 import { CodexQuotaProbe } from './codex-quota-probe';
+import { CodexUsageEndpointProbe } from './codex-usage-endpoint-probe';
+import { CursorUsageSummaryProbe } from './cursor-usage-summary-probe';
 import { GeminiQuotaProbe } from './gemini-quota-probe';
+import { GeminiUsageEndpointProbe } from './gemini-usage-endpoint-probe';
 import { CompositeQuotaProbe } from './composite-quota-probe';
+import { FallbackQuotaProbe } from './fallback-quota-probe';
 import { UsageMonitorSource } from './usage-monitor-source';
 
 export { ClaudeQuotaProbe } from './claude-quota-probe';
@@ -42,6 +47,7 @@ export { UsageMonitorSource } from './usage-monitor-source';
 export type { UsageMonitorSourceOptions } from './usage-monitor-source';
 
 export { CompositeQuotaProbe } from './composite-quota-probe';
+export { FallbackQuotaProbe } from './fallback-quota-probe';
 
 export { CopilotQuotaProbe } from './copilot-quota-probe';
 export type {
@@ -49,17 +55,54 @@ export type {
   CopilotQuotaProbeOptions,
 } from './copilot-quota-probe';
 
+export { CopilotUsageEndpointProbe, parseCopilotInternalUserPayload } from './copilot-usage-endpoint-probe';
+export type {
+  CopilotAppsReader,
+  CopilotUsageEndpointProbeOptions,
+  CopilotUsageFetch,
+} from './copilot-usage-endpoint-probe';
+
 export { CodexQuotaProbe } from './codex-quota-probe';
 export type {
   CodexLoginStatusExec,
   CodexQuotaProbeOptions,
 } from './codex-quota-probe';
 
+export { CodexUsageEndpointProbe, parseCodexUsagePayload } from './codex-usage-endpoint-probe';
+export type {
+  CodexAuthFileReader,
+  CodexUsageEndpointProbeOptions,
+  CodexUsageFetch,
+} from './codex-usage-endpoint-probe';
+
+export { CursorCredentialsReader } from './cursor-credentials-reader';
+export type {
+  CursorCredentialFailureReason,
+  CursorCredentialResult,
+  CursorCredentialsReaderOptions,
+  CursorSecurityExec,
+  CursorSessionCredential,
+} from './cursor-credentials-reader';
+
+export { CursorUsageSummaryProbe, parseCursorUsageSummaryPayload } from './cursor-usage-summary-probe';
+export type {
+  CursorUsageFetch,
+  CursorUsageSummaryProbeOptions,
+} from './cursor-usage-summary-probe';
+
 export { GeminiQuotaProbe } from './gemini-quota-probe';
 export type {
   GeminiFileReader,
   GeminiQuotaProbeOptions,
 } from './gemini-quota-probe';
+
+export { GeminiUsageEndpointProbe, parseGeminiQuotaPayload } from './gemini-usage-endpoint-probe';
+export type {
+  GeminiQuotaFetch,
+  GeminiQuotaFileReader,
+  GeminiTokenRefreshFetch,
+  GeminiUsageEndpointProbeOptions,
+} from './gemini-usage-endpoint-probe';
 
 /**
  * Register every default quota probe on the singleton service. Idempotent —
@@ -85,7 +128,17 @@ export function registerDefaultQuotaProbes(): void {
   // windows the native poll can't populate yet (Codex live WS, etc.). The
   // native poll always wins when it has real windows.
   service.registerProbe(new CompositeQuotaProbe(new ClaudeUsageEndpointProbe(), usageMonitor));
-  service.registerProbe(new CompositeQuotaProbe(new CopilotQuotaProbe(), usageMonitor));
-  service.registerProbe(new CompositeQuotaProbe(new CodexQuotaProbe(), usageMonitor));
-  service.registerProbe(new CompositeQuotaProbe(new GeminiQuotaProbe(), usageMonitor));
+  service.registerProbe(new CompositeQuotaProbe(
+    new FallbackQuotaProbe(new CopilotUsageEndpointProbe(), new CopilotQuotaProbe()),
+    usageMonitor,
+  ));
+  service.registerProbe(new CompositeQuotaProbe(
+    new FallbackQuotaProbe(new CodexUsageEndpointProbe(), new CodexQuotaProbe()),
+    usageMonitor,
+  ));
+  service.registerProbe(new CompositeQuotaProbe(
+    new FallbackQuotaProbe(new GeminiUsageEndpointProbe(), new GeminiQuotaProbe()),
+    usageMonitor,
+  ));
+  service.registerProbe(new CompositeQuotaProbe(new CursorUsageSummaryProbe(), usageMonitor));
 }

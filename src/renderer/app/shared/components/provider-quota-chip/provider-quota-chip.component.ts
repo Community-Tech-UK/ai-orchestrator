@@ -48,6 +48,7 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
   codex: 'Codex',
   gemini: 'Gemini',
   copilot: 'Copilot',
+  cursor: 'Cursor',
 };
 
 @Component({
@@ -93,8 +94,19 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
       @if (popoverOpen()) {
         <span class="popover" data-testid="quota-popover" role="dialog" aria-label="Provider quota details">
           @for (provider of detailEntries(); track provider.provider) {
-            <span class="provider-detail">
-              <span class="provider-heading">{{ provider.label }}</span>
+            <span class="provider-detail" [attr.data-testid]="'quota-provider-' + provider.provider">
+              <span class="provider-header">
+                <span class="provider-title">
+                  <span class="provider-heading">{{ provider.label }}</span>
+                  <span class="provider-age">{{ provider.updatedText }}</span>
+                </span>
+                <button
+                  type="button"
+                  class="refresh-button"
+                  [attr.data-testid]="'quota-refresh-' + provider.provider"
+                  (click)="refreshProvider(provider.provider)"
+                >Refresh</button>
+              </span>
               @if (provider.windows.length > 0) {
                 @for (window of provider.windows; track window.id) {
                   <span class="window-row">
@@ -123,6 +135,7 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
       padding: 5px 10px 5px 8px; border-radius: 999px; border: 0;
       font: inherit; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0;
       white-space: nowrap; cursor: pointer;
+      -webkit-app-region: no-drag;
       transition: all var(--transition-normal, 0.2s);
     }
     .chip.open { box-shadow: 0 0 0 1px currentColor; }
@@ -145,9 +158,20 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
       border-radius: 8px; background: var(--surface-elevated, #202124);
       color: var(--text-primary, #f5f5f5); box-shadow: 0 12px 32px rgba(0,0,0,0.28);
       text-align: left;
+      -webkit-app-region: no-drag;
     }
     .provider-detail { display: grid; gap: 6px; }
+    .provider-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .provider-title { display: grid; gap: 1px; min-width: 0; }
     .provider-heading { font-size: 0.75rem; font-weight: 700; }
+    .provider-age { font-size: 0.66rem; color: var(--text-secondary, #a0a0a0); }
+    .refresh-button {
+      border: 1px solid color-mix(in srgb, currentColor 32%, transparent);
+      border-radius: 6px; padding: 2px 7px; background: transparent; color: inherit;
+      font: inherit; font-size: 0.66rem; font-weight: 650; cursor: pointer;
+      -webkit-app-region: no-drag;
+    }
+    .refresh-button:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
     .window-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; font-size: 0.72rem; }
     .window-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .window-value { font-variant-numeric: tabular-nums; opacity: 0.82; }
@@ -255,6 +279,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
         return {
           provider,
           label: PROVIDER_LABELS[provider],
+          updatedText: formatUpdatedAge(snap.takenAt, this.nowMs()),
           status: snap.ok ? `Signed in · ${snap.plan ?? 'unknown plan'}` : (snap.error ?? 'Unavailable'),
           windows: snap.ok ? snap.windows.filter((window) => window.limit > 0) : [],
         };
@@ -262,6 +287,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
       .filter((entry): entry is {
         provider: ProviderId;
         label: string;
+        updatedText: string;
         status: string;
         windows: ProviderQuotaWindow[];
       } => entry !== null);
@@ -284,13 +310,17 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     this.popoverOpen.update((open) => !open);
   }
 
+  refreshProvider(provider: ProviderId): void {
+    void this.store.refresh(provider);
+  }
+
   windowPercent(window: ProviderQuotaWindow): number {
     if (window.limit <= 0) return 0;
     return Math.max(0, Math.min(100, (window.used / window.limit) * 100));
   }
 
   formatWindowValue(window: ProviderQuotaWindow): string {
-    return `${window.used}/${window.limit} ${window.unit}`;
+    return `${Math.round(this.windowPercent(window))}%`;
   }
 
   formatReset(resetsAt: number): string {
@@ -333,10 +363,21 @@ function formatDuration(ms: number): string {
   return `${m}m`;
 }
 
-const PROVIDER_ORDER: ProviderId[] = ['claude', 'codex', 'gemini', 'copilot'];
+function formatUpdatedAge(takenAt: number, now: number): string {
+  const ageMs = Math.max(0, now - takenAt);
+  const totalMin = Math.floor(ageMs / 60_000);
+  if (totalMin < 1) return 'updated just now';
+  if (totalMin < 60) return `updated ${totalMin}m ago`;
+  const totalHours = Math.floor(totalMin / 60);
+  if (totalHours < 24) return `updated ${totalHours}h ago`;
+  return `updated ${Math.floor(totalHours / 24)}d ago`;
+}
+
+const PROVIDER_ORDER: ProviderId[] = ['claude', 'codex', 'gemini', 'copilot', 'cursor'];
 const PROVIDER_CODES: Record<ProviderId, string> = {
   claude: 'CC',
   codex: 'CX',
   gemini: 'GM',
   copilot: 'CP',
+  cursor: 'CU',
 };

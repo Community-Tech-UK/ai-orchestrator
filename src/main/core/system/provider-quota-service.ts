@@ -29,7 +29,7 @@ import type {
 
 const logger = getLogger('ProviderQuotaService');
 
-const PROVIDERS: readonly ProviderId[] = ['claude', 'codex', 'gemini', 'copilot'];
+const PROVIDERS: readonly ProviderId[] = ['claude', 'codex', 'gemini', 'copilot', 'cursor'];
 const WARNING_THRESHOLDS: readonly number[] = [50, 75, 90];
 const EXHAUSTED_THRESHOLD = 100;
 
@@ -84,6 +84,7 @@ export class ProviderQuotaService extends EventEmitter {
       codex: null,
       gemini: null,
       copilot: null,
+      cursor: null,
     };
     for (const p of PROVIDERS) out[p] = this.snapshots.get(p) ?? null;
     return { snapshots: out };

@@ -186,7 +186,7 @@ class FakeProviderQuotaStore {
   readonly initialize = vi.fn(async () => undefined);
   private worstSig = signal<{ provider: ProviderId; window: ProviderQuotaWindow } | null>(null);
   private snapsSig = signal<Record<ProviderId, null>>({
-    claude: null, codex: null, gemini: null, copilot: null,
+    claude: null, codex: null, gemini: null, copilot: null, cursor: null,
   });
 
   readonly mostConstrainedWindow = computed(() => this.worstSig());

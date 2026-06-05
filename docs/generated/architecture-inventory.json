@@ -5048,7 +5048,7 @@
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1794
+      "lines": 1796
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
@@ -5531,6 +5531,10 @@
       "lines": 872
     },
     {
+      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
+      "lines": 871
+    },
+    {
       "path": "src/renderer/app/features/stats/stats-page.component.ts",
       "lines": 868
     },
@@ -5577,10 +5581,6 @@
     {
       "path": "src/shared/types/loop.types.ts",
       "lines": 845
-    },
-    {
-      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
-      "lines": 842
     },
     {
       "path": "docs/superpowers/specs/2026-04-05-bash-validation-pipeline-design.md",

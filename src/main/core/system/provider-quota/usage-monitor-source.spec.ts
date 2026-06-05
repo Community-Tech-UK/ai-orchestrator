@@ -61,6 +61,30 @@ describe('UsageMonitorSource', () => {
     expect(claude!.windows[0].label).toBe('5h');
   });
 
+  it('preserves Cursor windows written by token-usage-monitor', async () => {
+    const src = makeSource({
+      json: {
+        providers: {
+          cursor: {
+            plan: 'pro',
+            windows: [
+              { id: 'cursor.included', label: 'Cursor included', unit: 'usd', used_percent: 42, reset_at: '2026-07-01T00:00:00Z' },
+            ],
+          },
+        },
+      },
+    });
+    const cursor = await src.readProvider('cursor');
+    expect(cursor).not.toBeNull();
+    expect(cursor!.provider).toBe('cursor');
+    expect(cursor!.plan).toBe('pro');
+    expect(cursor!.windows[0].id).toBe('cursor.included');
+    expect(cursor!.windows[0].used).toBe(42);
+    expect(cursor!.windows[0].limit).toBe(100);
+    expect(cursor!.windows[0].remaining).toBe(58);
+    expect(cursor!.windows[0].resetsAt).toBe(Date.parse('2026-07-01T00:00:00Z'));
+  });
+
   it('treats epoch-seconds resets as ms', async () => {
     const src = makeSource({
       json: { claude: { windows: [{ label: 'w', used: 1, limit: 2, resets_at: 1_750_500_000 }] } },

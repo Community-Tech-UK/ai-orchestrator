@@ -38,8 +38,8 @@ const logger = getLogger('UsageMonitorSource');
 /** Default staleness ceiling — older than this and we ignore the file. */
 const DEFAULT_MAX_AGE_MS = 5 * 60_000;
 
-/** Provider keys we'll accept from state.json (superset of ProviderId). */
-const KNOWN_PROVIDERS: readonly ProviderId[] = ['claude', 'codex', 'gemini', 'copilot'];
+/** Provider keys we'll accept from state.json. Mirrors token-usage-monitor. */
+const KNOWN_PROVIDERS: readonly ProviderId[] = ['claude', 'codex', 'gemini', 'copilot', 'cursor'];
 
 type FileReader = (filePath: string) => Promise<string>;
 type FileStat = (filePath: string) => Promise<{ mtimeMs: number }>;
@@ -64,8 +64,11 @@ interface RawWindow {
   unit?: string;
   kind?: string;
   used?: number;
+  used_percent?: number;
+  usedPercent?: number;
   limit?: number;
   remaining?: number;
+  reset_at?: number | string | null;
   resets_at?: number | string | null;
   resetsAt?: number | string | null;
 }
@@ -163,9 +166,16 @@ export class UsageMonitorSource {
 // ─── parsing helpers ───────────────────────────────────────────────────────
 
 function normalizeWindow(provider: ProviderId, w: RawWindow): ProviderQuotaWindow | null {
-  if (typeof w.used !== 'number' || typeof w.limit !== 'number') return null;
-  const used = w.used;
-  const limit = w.limit;
+  const percent = typeof w.used_percent === 'number'
+    ? w.used_percent
+    : typeof w.usedPercent === 'number'
+      ? w.usedPercent
+      : null;
+  const hasNumericWindow = typeof w.used === 'number' && typeof w.limit === 'number';
+  if (!hasNumericWindow && typeof percent !== 'number') return null;
+
+  const used = hasNumericWindow ? w.used! : clampPct(percent!);
+  const limit = hasNumericWindow ? w.limit! : 100;
   const remaining =
     typeof w.remaining === 'number'
       ? w.remaining
@@ -180,8 +190,15 @@ function normalizeWindow(provider: ProviderId, w: RawWindow): ProviderQuotaWindo
     used,
     limit,
     remaining,
-    resetsAt: coerceEpochMs(w.resets_at ?? w.resetsAt),
+    resetsAt: coerceEpochMs(w.reset_at ?? w.resets_at ?? w.resetsAt),
   };
+}
+
+function clampPct(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  if (n < 0) return 0;
+  if (n > 100) return 100;
+  return n;
 }
 
 function coerceKind(value: unknown): QuotaKind {

@@ -47,10 +47,11 @@ export function mapProviderTypeToQuotaId(type: ProviderType): ProviderId | null 
       return 'gemini';
     case 'copilot':
       return 'copilot';
+    case 'cursor':
+      return 'cursor';
     case 'ollama':
     case 'amazon-bedrock':
     case 'azure':
-    case 'cursor':
       return null;
   }
 }

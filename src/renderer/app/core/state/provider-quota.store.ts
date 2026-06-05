@@ -18,7 +18,7 @@ import type {
 } from '../../../../shared/types/provider-quota.types';
 
 const EMPTY_STATE: ProviderQuotaState = {
-  snapshots: { claude: null, codex: null, gemini: null, copilot: null },
+  snapshots: { claude: null, codex: null, gemini: null, copilot: null, cursor: null },
 };
 
 /** localStorage key for persisted per-provider poll intervals. */
@@ -153,7 +153,7 @@ export class ProviderQuotaStore {
 
   /** Read the saved poll-interval map (from localStorage). */
   readPollIntervals(): Record<ProviderId, number> {
-    const def: Record<ProviderId, number> = { claude: 0, codex: 0, gemini: 0, copilot: 0 };
+    const def: Record<ProviderId, number> = { claude: 0, codex: 0, gemini: 0, copilot: 0, cursor: 0 };
     if (typeof window === 'undefined' || !window.localStorage) return def;
     try {
       const raw = window.localStorage.getItem(POLL_PREFS_KEY);
@@ -164,6 +164,7 @@ export class ProviderQuotaStore {
         codex: typeof parsed.codex === 'number' ? parsed.codex : 0,
         gemini: typeof parsed.gemini === 'number' ? parsed.gemini : 0,
         copilot: typeof parsed.copilot === 'number' ? parsed.copilot : 0,
+        cursor: typeof parsed.cursor === 'number' ? parsed.cursor : 0,
       };
     } catch {
       return def;

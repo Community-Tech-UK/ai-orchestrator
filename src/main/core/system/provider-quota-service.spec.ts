@@ -74,6 +74,7 @@ describe('ProviderQuotaService', () => {
       expect(all.snapshots.codex).toBeNull();
       expect(all.snapshots.gemini).toBeNull();
       expect(all.snapshots.copilot).toBeNull();
+      expect(all.snapshots.cursor).toBeNull();
     });
 
     it('getSnapshot returns null when no snapshot stored', () => {

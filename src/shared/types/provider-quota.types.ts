@@ -8,8 +8,8 @@
  * before I hit a wall".
  */
 
-/** Providers we currently model. Mirrors `CliType` minus 'cursor'. */
-export type ProviderId = 'claude' | 'codex' | 'gemini' | 'copilot';
+/** Providers we currently model for quota display. */
+export type ProviderId = 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor';
 
 /**
  * Window kinds:

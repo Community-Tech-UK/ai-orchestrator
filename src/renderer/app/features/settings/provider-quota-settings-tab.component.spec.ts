@@ -45,7 +45,7 @@ await resolveComponentResources((url) => {
 
 class FakeStore {
   private snaps = signal<Record<ProviderId, ProviderQuotaSnapshot | null>>({
-    claude: null, codex: null, gemini: null, copilot: null,
+    claude: null, codex: null, gemini: null, copilot: null, cursor: null,
   });
   readonly snapshots = computed(() => this.snaps());
   readonly mostConstrainedWindow = computed(() => null);
@@ -56,7 +56,7 @@ class FakeStore {
   readonly refreshAll = vi.fn(async () => { /* noop */ });
   readonly setPollInterval = vi.fn(async () => { /* noop */ });
   readonly readPollIntervals = vi.fn((): Record<ProviderId, number> => ({
-    claude: 0, codex: 0, gemini: 0, copilot: 0,
+    claude: 0, codex: 0, gemini: 0, copilot: 0, cursor: 0,
   }));
 
   setSnapshot(p: ProviderId, snap: ProviderQuotaSnapshot | null): void {
@@ -98,7 +98,7 @@ describe('ProviderQuotaSettingsTabComponent', () => {
     it('shows one row per provider', () => {
       fixture.detectChanges();
       const rows = fixture.nativeElement.querySelectorAll('tbody tr');
-      expect(rows.length).toBe(4);
+      expect(rows.length).toBe(5);
     });
 
     it('shows "—" state for providers with no snapshot', () => {

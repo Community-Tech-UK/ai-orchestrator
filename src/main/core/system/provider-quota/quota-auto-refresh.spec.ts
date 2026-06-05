@@ -33,11 +33,14 @@ describe('mapProviderTypeToQuotaId', () => {
     expect(mapProviderTypeToQuotaId('copilot')).toBe('copilot');
   });
 
+  it('maps cursor to "cursor"', () => {
+    expect(mapProviderTypeToQuotaId('cursor')).toBe('cursor');
+  });
+
   it('returns null for providers without a quota probe', () => {
     expect(mapProviderTypeToQuotaId('ollama')).toBeNull();
     expect(mapProviderTypeToQuotaId('amazon-bedrock')).toBeNull();
     expect(mapProviderTypeToQuotaId('azure')).toBeNull();
-    expect(mapProviderTypeToQuotaId('cursor')).toBeNull();
   });
 });
 

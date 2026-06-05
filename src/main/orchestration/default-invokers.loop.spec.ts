@@ -12,6 +12,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -137,7 +138,7 @@ describe('Loop Mode invoker plumbing', () => {
     // listener registry. The fake also implements `registerIterationHook`
     // (used by the #20 safety advisor) to match the real coordinator contract.
     hoisted.loopCoordinatorRef.current = Object.assign(new EventEmitter(), {
-      registerIterationHook: vi.fn(() => () => {}),
+      registerIterationHook: vi.fn(() => () => undefined),
       setProviderLimitResumeScheduler: vi.fn((fn) => {
         hoisted.providerLimitSchedulerRef.current = fn;
       }),
@@ -410,6 +411,34 @@ describe('Loop Mode invoker plumbing', () => {
           }),
         ]),
       );
+    } finally {
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it('does not report pre-existing git dirt as files changed by an idle iteration', async () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'loop-invoker-dirty-'));
+    const git = (...args: string[]) =>
+      fs.existsSync(workspace)
+        ? spawnSync('git', args, { cwd: workspace, encoding: 'utf8' })
+        : { status: 1 };
+    try {
+      git('init', '-q');
+      git('config', 'user.email', 'test@example.com');
+      git('config', 'user.name', 'Test');
+      git('config', 'commit.gpgsign', 'false');
+      fs.writeFileSync(path.join(workspace, 'existing.txt'), 'committed\n');
+      git('add', '.');
+      git('commit', '-q', '-m', 'init');
+      fs.writeFileSync(path.join(workspace, 'existing.txt'), 'dirty before loop\n');
+
+      registerDefaultLoopInvoker({} as never);
+      hoisted.sendMessage.mockResolvedValue({ content: 'no file work this turn', usage: { totalTokens: 1 } });
+
+      const callbackResult = await emitIteration({ workspaceCwd: workspace });
+
+      expect(callbackResult).not.toHaveProperty('error');
+      expect((callbackResult as LoopChildResult).filesChanged).toEqual([]);
     } finally {
       fs.rmSync(workspace, { recursive: true, force: true });
     }

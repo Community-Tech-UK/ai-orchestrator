@@ -9,14 +9,14 @@ import {
 } from '../quota.schemas';
 
 describe('ProviderIdSchema', () => {
-  it('accepts the four supported providers', () => {
-    for (const p of ['claude', 'codex', 'gemini', 'copilot'] as const) {
+  it('accepts the five supported providers', () => {
+    for (const p of ['claude', 'codex', 'gemini', 'copilot', 'cursor'] as const) {
       expect(ProviderIdSchema.safeParse(p).success).toBe(true);
     }
   });
 
   it('rejects unknown providers', () => {
-    expect(ProviderIdSchema.safeParse('cursor').success).toBe(false);
+    expect(ProviderIdSchema.safeParse('ollama').success).toBe(false);
     expect(ProviderIdSchema.safeParse('').success).toBe(false);
     expect(ProviderIdSchema.safeParse(null).success).toBe(false);
   });

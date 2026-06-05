@@ -24,9 +24,10 @@ import type {
 /** Minimal store stub — replaces the real one for testing. */
 class FakeProviderQuotaStore {
   readonly initialize = vi.fn(async () => { /* noop */ });
+  readonly refresh = vi.fn(async () => { /* noop */ });
   private worst = signal<{ provider: ProviderId; window: ProviderQuotaWindow } | null>(null);
   private snaps = signal<Record<ProviderId, ProviderQuotaSnapshot | null>>({
-    claude: null, codex: null, gemini: null, copilot: null,
+    claude: null, codex: null, gemini: null, copilot: null, cursor: null,
   });
 
   readonly mostConstrainedWindow = computed(() => this.worst());
@@ -58,10 +59,11 @@ function makeSnapshot(
   plan: string | undefined,
   ok = true,
   windows: ProviderQuotaWindow[] = [],
+  takenAt = Date.now(),
 ): ProviderQuotaSnapshot {
   return {
     provider,
-    takenAt: Date.now(),
+    takenAt,
     source: 'cli-result',
     ok,
     plan,
@@ -187,12 +189,31 @@ describe('ProviderQuotaChipComponent', () => {
       store.setSnapshot('codex', makeSnapshot('codex', 'plus', true, [
         { ...makeWindow(4, 100), id: 'codex.weekly', label: 'Codex weekly' },
       ]));
+      store.setSnapshot('gemini', makeSnapshot('gemini', 'personal', true, [
+        { ...makeWindow(3, 100), id: 'gemini.daily', label: 'Gemini daily' },
+      ]));
+      store.setSnapshot('copilot', makeSnapshot('copilot', 'pro', true, [
+        { ...makeWindow(2, 100), id: 'copilot.monthly', label: 'Copilot monthly' },
+      ]));
+      store.setSnapshot('cursor', makeSnapshot('cursor', 'pro', true, [
+        { ...makeWindow(1, 100), id: 'cursor.included', label: 'Cursor included' },
+      ]));
       store.setWorst({ provider: 'claude', window: makeWindow(95, 100) });
       fixture.detectChanges();
 
       const host = fixture.nativeElement as HTMLElement;
+      const entries = host.querySelectorAll('[data-testid="quota-strip"] .provider-entry');
+      expect(entries).toHaveLength(5);
       expect(host.querySelector('[data-testid="quota-strip"]')?.textContent).toContain('CC');
       expect(host.querySelector('[data-testid="quota-strip"]')?.textContent).toContain('CX');
+      expect(host.querySelector('[data-testid="quota-strip"]')?.textContent).toContain('GM');
+      expect(host.querySelector('[data-testid="quota-strip"]')?.textContent).toContain('CP');
+      expect(host.querySelector('[data-testid="quota-strip"]')?.textContent).toContain('CU');
+      expect(host.querySelector('[data-testid="quota-strip"]')?.textContent).toContain('CC95%');
+      expect(host.querySelector('[data-testid="quota-strip"]')?.textContent).toContain('CX4%');
+      expect(host.querySelector('[data-testid="quota-strip"]')?.textContent).toContain('GM3%');
+      expect(host.querySelector('[data-testid="quota-strip"]')?.textContent).toContain('CP2%');
+      expect(host.querySelector('[data-testid="quota-strip"]')?.textContent).toContain('CU1%');
 
       const button = host.querySelector('button[data-testid="quota-toggle"]') as HTMLButtonElement;
       expect(button).toBeTruthy();
@@ -202,6 +223,32 @@ describe('ProviderQuotaChipComponent', () => {
       const popover = host.querySelector('[data-testid="quota-popover"]');
       expect(popover?.textContent).toContain('5-hour messages');
       expect(popover?.textContent).toContain('Codex weekly');
+      expect(popover?.textContent).toContain('Cursor included');
+    });
+
+    it('shows per-provider freshness and refresh controls in the detail popover', () => {
+      const now = Date.now();
+      (component as unknown as { nowMs: { set(value: number): void } }).nowMs.set(now);
+      const fourMinutesAgo = now - 4 * 60 * 1000;
+      store.setSnapshot('codex', makeSnapshot('codex', 'plus', true, [
+        { ...makeWindow(4, 100), id: 'codex.weekly', label: 'Codex weekly' },
+      ], fourMinutesAgo));
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      const button = host.querySelector('button[data-testid="quota-toggle"]') as HTMLButtonElement;
+      button.click();
+      fixture.detectChanges();
+
+      const detail = host.querySelector('[data-testid="quota-provider-codex"]');
+      expect(detail?.textContent).toContain('updated 4m ago');
+      const refresh = detail?.querySelector('button[data-testid="quota-refresh-codex"]') as HTMLButtonElement;
+      expect(refresh).toBeTruthy();
+
+      refresh.click();
+      fixture.detectChanges();
+
+      expect(store.refresh).toHaveBeenCalledWith('codex');
     });
   });
 });
