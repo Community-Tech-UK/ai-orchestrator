@@ -9,27 +9,22 @@ import { ContextEditingFallback } from '../memory/context-editing-fallback';
 import type { ProviderConfig } from '../../shared/types/provider.types';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
+const anthropicSdkMocks = vi.hoisted(() => ({
+  create: vi.fn(),
+  countTokens: vi.fn(),
+}));
+
 // Mock dependencies
 vi.mock('@anthropic-ai/sdk', () => {
-  const mockCreate = vi.fn().mockResolvedValue({
-    id: 'msg_123',
-    _request_id: 'req_123',
-    content: [{ type: 'text', text: 'Hello!' }],
-    stop_reason: 'end_turn',
-    usage: {
-      input_tokens: 100,
-      output_tokens: 50,
-    },
-  });
-
   return {
     default: vi.fn().mockImplementation(() => ({
       messages: {
-        create: mockCreate,
+        create: anthropicSdkMocks.create,
+        countTokens: anthropicSdkMocks.countTokens,
       },
       beta: {
         messages: {
-          create: mockCreate,
+          create: anthropicSdkMocks.create,
         },
       },
     })),
@@ -101,6 +96,17 @@ describe('AnthropicApiProvider', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    anthropicSdkMocks.create.mockResolvedValue({
+      id: 'msg_123',
+      _request_id: 'req_123',
+      content: [{ type: 'text', text: 'Hello!' }],
+      stop_reason: 'end_turn',
+      usage: {
+        input_tokens: 100,
+        output_tokens: 50,
+      },
+    });
+    anthropicSdkMocks.countTokens.mockResolvedValue({ input_tokens: 123 });
 
     // Set up test environment
     process.env.ANTHROPIC_API_KEY = 'test-api-key';
@@ -350,6 +356,49 @@ describe('AnthropicApiProvider', () => {
       await provider.sendMessage('Hello');
 
       expect(mockFallback.createMessageWithClearing).toHaveBeenCalled();
+    });
+
+    it('uses the Anthropic count_tokens API before deciding context fallback', async () => {
+      const { getContextEditingFallback } = await import('../memory/context-editing-fallback');
+      const mockFallback = getContextEditingFallback();
+      vi.mocked(mockFallback.shouldUseFallback).mockReturnValue(false);
+      anthropicSdkMocks.countTokens.mockResolvedValueOnce({ input_tokens: 190_000 });
+
+      await provider.sendMessage('Hello');
+
+      expect(anthropicSdkMocks.countTokens).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: 'claude-sonnet-4-5-20250929',
+          messages: expect.arrayContaining([
+            expect.objectContaining({
+              role: 'user',
+            }),
+          ]),
+        }),
+        expect.objectContaining({
+          headers: {
+            'anthropic-beta': 'token-efficient-tools-2025-02-19',
+          },
+        }),
+      );
+      expect(mockFallback.shouldUseFallback).toHaveBeenCalledWith(
+        expect.objectContaining({
+          utilizationPercent: 95,
+        }),
+      );
+    });
+
+    it('falls back to the local heuristic when count_tokens fails', async () => {
+      const { getContextEditingFallback } = await import('../memory/context-editing-fallback');
+      const mockFallback = getContextEditingFallback();
+      vi.mocked(mockFallback.shouldUseFallback).mockReturnValue(false);
+      anthropicSdkMocks.countTokens.mockRejectedValueOnce(new Error('count unavailable'));
+
+      await provider.sendMessage('Hello');
+
+      const contextState = vi.mocked(mockFallback.shouldUseFallback).mock.calls.at(-1)?.[0];
+      expect(contextState?.utilizationPercent).toBeGreaterThan(0);
+      expect(anthropicSdkMocks.create).toHaveBeenCalled();
     });
   });
 

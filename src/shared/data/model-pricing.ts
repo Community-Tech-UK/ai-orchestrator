@@ -23,6 +23,7 @@ export interface TokenCostInput {
   outputTokens?: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
+  reasoningTokens?: number;
 }
 
 export interface ModelRate {
@@ -103,10 +104,12 @@ export function computeTokenCost(model: string | undefined | null, usage: TokenC
   const output = Math.max(0, usage.outputTokens ?? 0);
   const cacheRead = Math.max(0, usage.cacheReadTokens ?? 0);
   const cacheWrite = Math.max(0, usage.cacheWriteTokens ?? 0);
+  const reasoning = Math.max(0, usage.reasoningTokens ?? 0);
 
   const cost =
     input * rate.input +
     output * rate.output +
+    reasoning * rate.output +
     cacheRead * rate.input * 0.1 +
     cacheWrite * rate.input;
 

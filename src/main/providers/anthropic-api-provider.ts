@@ -239,9 +239,11 @@ export class AnthropicApiProvider extends BaseProvider {
       const userMessage = this.buildUserMessage(message, attachments);
       this.session.messages.push(userMessage);
 
+      const currentContextTokens = await this.refreshContextTokenEstimate();
+
       // Check if we need context editing fallback
       const contextState: ContextState = {
-        utilizationPercent: (this.session.contextTokens / this.session.maxContextTokens) * 100,
+        utilizationPercent: (currentContextTokens / this.session.maxContextTokens) * 100,
         compactionAttempted: this.session.compactionAttempted,
         sessionId: this.sessionId,
         model: this.model,
@@ -482,6 +484,40 @@ export class AnthropicApiProvider extends BaseProvider {
     }
   }
 
+  private async refreshContextTokenEstimate(): Promise<number> {
+    if (!this.client || !this.session) return 0;
+
+    try {
+      const tokenCount = await this.client.messages.countTokens(
+        {
+          model: this.model,
+          system: this.session.systemPrompt as any,
+          messages: this.session.messages,
+        },
+        {
+          headers: {
+            'anthropic-beta': 'token-efficient-tools-2025-02-19',
+          },
+        },
+      );
+      const inputTokens = tokenCount.input_tokens;
+      if (Number.isFinite(inputTokens) && inputTokens >= 0) {
+        this.session.contextTokens = inputTokens;
+        return inputTokens;
+      }
+    } catch {
+      // Fall back to the local estimator; sendMessage() still relies on the
+      // provider's authoritative usage after the completion returns.
+    }
+
+    const fallbackTokens = estimateAnthropicRequestTokens(
+      this.session.systemPrompt,
+      this.session.messages,
+    );
+    this.session.contextTokens = fallbackTokens;
+    return fallbackTokens;
+  }
+
   private emitCompleteDiagnostics(response: Anthropic.Message): void {
     const usage = response.usage;
     const tokensUsed = usage ? usage.input_tokens + usage.output_tokens : undefined;
@@ -619,6 +655,34 @@ function systemPromptToText(systemPrompt: CacheableSystemPrompt | string): strin
 
 function estimateTokens(text: string): number {
   return sharedEstimateTokens(text.trim());
+}
+
+function estimateAnthropicRequestTokens(
+  systemPrompt: CacheableSystemPrompt | string,
+  messages: Anthropic.MessageParam[],
+): number {
+  return estimateTokens(systemPromptToText(systemPrompt)) +
+    messages.reduce((sum, message) => sum + estimateAnthropicMessageTokens(message), 0);
+}
+
+function estimateAnthropicMessageTokens(message: Anthropic.MessageParam): number {
+  const content = message.content;
+  if (typeof content === 'string') {
+    return estimateTokens(content);
+  }
+
+  let text = '';
+  let imageCount = 0;
+  for (const block of content) {
+    if (block.type === 'text') {
+      text += `${block.text}\n`;
+    } else if (block.type === 'image') {
+      imageCount += 1;
+    } else {
+      text += `${JSON.stringify(block)}\n`;
+    }
+  }
+  return sharedEstimateTokens(text.trim(), { imageCount });
 }
 
 function prunePromptWeightBreakdown(

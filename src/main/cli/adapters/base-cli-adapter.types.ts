@@ -160,6 +160,11 @@ export interface CliUsage {
    * above) the input rate. Kept separate from `inputTokens` for accurate cost.
    */
   cacheWriteTokens?: number;
+  /**
+   * Hidden reasoning/thinking tokens reported separately by providers. These
+   * are generated output-side tokens and are billed at the output rate.
+   */
+  reasoningTokens?: number;
   totalTokens?: number;
   cost?: number;
   duration?: number;

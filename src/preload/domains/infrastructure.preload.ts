@@ -139,19 +139,25 @@ export function createInfrastructureDomain(
 
     costRecordUsage: (
       instanceId: string,
-      provider: string,
+      sessionId: string,
       model: string,
       inputTokens: number,
-      outputTokens: number
+      outputTokens: number,
+      cacheReadTokens?: number,
+      cacheWriteTokens?: number,
+      reasoningTokens?: number
     ): Promise<IpcResponse> => {
       return ipcRenderer.invoke(
         ch.COST_RECORD_USAGE,
         _withAuth({
           instanceId,
-          provider,
+          sessionId,
           model,
           inputTokens,
-          outputTokens
+          outputTokens,
+          cacheReadTokens,
+          cacheWriteTokens,
+          reasoningTokens
         })
       );
     },

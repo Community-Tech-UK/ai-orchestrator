@@ -26,13 +26,25 @@ export class CostIpcService {
    */
   async costRecordUsage(
     instanceId: string,
-    provider: string,
+    sessionId: string,
     model: string,
     inputTokens: number,
-    outputTokens: number
+    outputTokens: number,
+    cacheReadTokens?: number,
+    cacheWriteTokens?: number,
+    reasoningTokens?: number
   ): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.costRecordUsage(instanceId, provider, model, inputTokens, outputTokens);
+    return this.api.costRecordUsage(
+      instanceId,
+      sessionId,
+      model,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+      reasoningTokens,
+    );
   }
 
   /**

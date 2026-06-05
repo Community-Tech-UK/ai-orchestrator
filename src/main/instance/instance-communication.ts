@@ -195,9 +195,10 @@ export class InstanceCommunicationManager extends EventEmitter {
       const output = usage.output ?? 0;
       const cacheRead = usage.cacheRead ?? 0;
       const cacheWrite = usage.cacheWrite ?? 0;
+      const reasoning = usage.reasoning ?? 0;
       // A usage object that carried only non-token fields (e.g. duration) has
       // nothing billable to record.
-      if (input === 0 && output === 0 && cacheRead === 0 && cacheWrite === 0) {
+      if (input === 0 && output === 0 && cacheRead === 0 && cacheWrite === 0 && reasoning === 0) {
         return;
       }
       // currentModel is the user-visible pick; fall back to the provider name so
@@ -214,6 +215,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         cacheRead,
         cacheWrite,
         typeof providerCost === 'number' ? providerCost : undefined,
+        reasoning,
       );
     } catch (err) {
       logger.debug('recordCompletionCost failed', { instanceId, error: String(err) });
@@ -243,6 +245,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       const model = instance.currentModel || instance.provider;
       const counter = getTokenCounter();
       if (!counter.recordEstimationSample(actualOutput, text, model)) return;
+      counter.calibrate(actualOutput, text, model);
 
       // Surface drift periodically (every 25 recorded samples) so the heuristic's
       // real-world accuracy is operator-visible without a dedicated UI. Cadence is

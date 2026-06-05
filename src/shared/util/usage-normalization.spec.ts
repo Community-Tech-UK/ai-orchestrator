@@ -56,6 +56,13 @@ describe('normalizeUsage', () => {
       expect(normalizeUsage(payload)).toEqual({ input: 200, output: 80, total: 280 });
     });
 
+    it('normalizes reasoning token fields without folding them into output', () => {
+      expect(normalizeUsage({ reasoningTokens: 12 })).toEqual({ reasoning: 12 });
+      expect(normalizeUsage({ reasoning_tokens: 13 })).toEqual({ reasoning: 13 });
+      expect(normalizeUsage({ thinkingTokens: 14 })).toEqual({ reasoning: 14 });
+      expect(normalizeUsage({ thinking_tokens: 15 })).toEqual({ reasoning: 15 });
+    });
+
     it('passes a canonical payload through unchanged', () => {
       const payload: UsageLike = {
         input: 10,
@@ -192,6 +199,17 @@ describe('derivePromptTokens', () => {
 describe('deriveSessionTotalTokens', () => {
   it('adds output to the prompt-token total', () => {
     expect(deriveSessionTotalTokens({ input: 100, cacheRead: 20, output: 30 })).toBe(150);
+  });
+
+  it('adds reasoning tokens as generated output-side usage', () => {
+    const usage = normalizeUsage({
+      input_tokens: 50,
+      output_tokens: 20,
+      reasoning_tokens: 30,
+      cache_read_input_tokens: 10,
+    });
+    expect(usage).toBeDefined();
+    expect(deriveSessionTotalTokens(usage as NormalizedUsage)).toBe(110);
   });
 
   it('treats absent output as zero', () => {

@@ -31,6 +31,16 @@ describe('computeTokenCost', () => {
     expect(cost).toBeCloseTo(rate.input * 0.1 + rate.input, 6);
   });
 
+  it('prices reasoning tokens at the output-token rate', () => {
+    const rate = MODEL_PRICING[CLAUDE_MODELS.OPUS];
+    const cost = computeTokenCost(CLAUDE_MODELS.OPUS, {
+      inputTokens: 0,
+      outputTokens: 0,
+      reasoningTokens: 1_000_000,
+    });
+    expect(cost).toBeCloseTo(rate.output, 6);
+  });
+
   it('falls back to the default rate for unknown models', () => {
     const cost = computeTokenCost('totally-unknown-model', {
       inputTokens: 1_000_000,

@@ -811,6 +811,7 @@ export interface CostRecordUsagePayload {
   outputTokens: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
+  reasoningTokens?: number;
   ipcAuthToken?: string;
 }
 

@@ -107,6 +107,7 @@ export interface ProviderUsage {
   outputTokens: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
+  reasoningTokens?: number;
   totalTokens: number;
   estimatedCost?: number;
 }

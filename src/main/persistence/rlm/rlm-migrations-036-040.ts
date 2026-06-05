@@ -38,4 +38,14 @@ export const RLM_MIGRATIONS_036_040: Migration[] = [
       DROP TABLE IF EXISTS cost_entries;
     `,
   },
+  {
+    name: '037_add_cost_entry_reasoning_tokens',
+    up: `
+      ALTER TABLE cost_entries ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0;
+    `,
+    down: `
+      -- SQLite cannot drop columns portably on older runtimes; leave the
+      -- additive analytics column in place on rollback.
+    `,
+  },
 ];

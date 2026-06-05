@@ -22,10 +22,10 @@
  * only and emits `{ text, stats: { ...fallback: true } }`.
  *
  * ## Token budget
- * Each file line costs `Math.ceil(lineText.length / 4)` tokens (same
- * approximation used by context-compactor).  Files are appended in rank order
- * until the budget would be exceeded; the remainder is silently dropped and
- * reflected in `stats.truncated`.
+ * Each file line is measured with the shared token estimator used by context
+ * utilities. Files are appended in rank order until the budget would be
+ * exceeded; the remainder is silently dropped and reflected in
+ * `stats.truncated`.
  */
 
 import { promises as fs } from 'node:fs';

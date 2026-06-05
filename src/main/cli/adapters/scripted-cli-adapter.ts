@@ -22,6 +22,7 @@
  */
 
 import type { FileAttachment } from '../../../shared/types/instance.types';
+import { estimateTokens } from '../../../shared/utils/token-estimate';
 import { BaseCliAdapter } from './base-cli-adapter';
 import type {
   AdapterRuntimeCapabilities,
@@ -379,6 +380,6 @@ export class ScriptedCliAdapter extends BaseCliAdapter {
 
 /** A small, deterministic usage estimate (~4 chars/token) for scripted turns. */
 function defaultUsage(content: string): CliUsage {
-  const outputTokens = Math.max(1, Math.ceil(content.length / 4));
+  const outputTokens = Math.max(1, estimateTokens(content));
   return { inputTokens: 0, outputTokens, totalTokens: outputTokens };
 }

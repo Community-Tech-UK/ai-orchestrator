@@ -699,6 +699,7 @@ export const CostRecordUsagePayloadSchema = z.object({
   outputTokens: z.number().int().min(0),
   cacheReadTokens: z.number().int().min(0).optional(),
   cacheWriteTokens: z.number().int().min(0).optional(),
+  reasoningTokens: z.number().int().min(0).optional(),
   ipcAuthToken: IpcAuthTokenSchema,
 });
 

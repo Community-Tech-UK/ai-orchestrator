@@ -11,8 +11,7 @@ import { estimateTokens as sharedEstimateTokens } from '../../../shared/utils/to
 /**
  * Estimate token count for a text string.
  * Delegates to the shared, CJK-aware heuristic in
- * `src/shared/utils/token-estimate.ts` (identical to the legacy
- * `Math.ceil(text.length / 4)` for Latin text).
+ * `src/shared/utils/token-estimate.ts`.
  *
  * @param text - Text to estimate tokens for
  * @returns Estimated token count

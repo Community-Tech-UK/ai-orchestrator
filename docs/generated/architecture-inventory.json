@@ -4980,7 +4980,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2170
+      "lines": 2173
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
@@ -5040,7 +5040,7 @@
     },
     {
       "path": "packages/contracts/src/types/transport.types.ts",
-      "lines": 1827
+      "lines": 1828
     },
     {
       "path": "docs/superpowers/plans/2026-03-21-discord-channels_completed.md",
@@ -5203,6 +5203,10 @@
       "lines": 1253
     },
     {
+      "path": "src/main/instance/instance-communication.spec.ts",
+      "lines": 1249
+    },
+    {
       "path": "docs/plans/2026-05-12-loop-terminal-control-spec_completed.md",
       "lines": 1246
     },
@@ -5225,10 +5229,6 @@
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
       "lines": 1227
-    },
-    {
-      "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 1211
     },
     {
       "path": "src/renderer/app/features/plugins/plugins-page.component.ts",

@@ -55,6 +55,27 @@ describe('CostTracker.recordUsage', () => {
     expect(summary.totalCost).toBeCloseTo(0.01, 10);
   });
 
+  it('stores reasoning token counts separately and bills them at the output rate', () => {
+    const computed = tracker.calculateCost('claude-sonnet-4-6', 0, 0, 0, 0, 1_000_000);
+    const entry = tracker.recordUsage(
+      'inst-1',
+      'sess-1',
+      'claude-sonnet-4-6',
+      0,
+      0,
+      0,
+      0,
+      undefined,
+      1_000_000,
+    );
+    const summary = tracker.getSummary();
+    expect(entry.reasoningTokens).toBe(1_000_000);
+    expect(entry.cost).toBeCloseTo(computed, 10);
+    expect(summary.totalReasoningTokens).toBe(1_000_000);
+    expect(summary.byModel['claude-sonnet-4-6']?.reasoningTokens).toBe(1_000_000);
+    expect(summary.bySession['sess-1']?.tokens).toBe(1_000_000);
+  });
+
   it('emits cost-recorded so downstream consumers (e.g. the cost circuit breaker) observe spend', () => {
     const seen: Array<{ instanceId: string; cost: number }> = [];
     tracker.on('cost-recorded', (e) => seen.push({ instanceId: e.instanceId, cost: e.cost }));
@@ -81,18 +102,31 @@ describe('CostTracker persistence (E15)', () => {
     expect(migration?.name).toBe('036_add_cost_entries_table');
   });
 
+  it('adds reasoning token persistence via migration 037', () => {
+    const migration = db
+      .prepare('SELECT name FROM _migrations WHERE name = ?')
+      .get<{ name: string }>('037_add_cost_entry_reasoning_tokens');
+    const column = db
+      .prepare('PRAGMA table_info(cost_entries)')
+      .all<{ name: string }>()
+      .find((c) => c.name === 'reasoning_tokens');
+    expect(migration?.name).toBe('037_add_cost_entry_reasoning_tokens');
+    expect(column?.name).toBe('reasoning_tokens');
+  });
+
   it('write-through persists every recorded turn to the table', () => {
     const tracker = new CostTracker();
     tracker.setDatabase(db);
-    tracker.recordUsage('inst-1', 'sess-1', 'claude-sonnet-4-6', 1000, 500, 10, 5, 0.0731);
+    tracker.recordUsage('inst-1', 'sess-1', 'claude-sonnet-4-6', 1000, 500, 10, 5, 0.0731, 12);
 
     const row = db
       .prepare('SELECT * FROM cost_entries')
-      .get<{ instance_id: string; session_id: string; cost: number; cache_read_tokens: number }>();
+      .get<{ instance_id: string; session_id: string; cost: number; cache_read_tokens: number; reasoning_tokens: number }>();
     expect(row?.instance_id).toBe('inst-1');
     expect(row?.session_id).toBe('sess-1');
     expect(row?.cost).toBeCloseTo(0.0731, 10);
     expect(row?.cache_read_tokens).toBe(10);
+    expect(row?.reasoning_tokens).toBe(12);
   });
 
   it('rehydrates history on a fresh tracker pointed at the same DB (survives restart)', () => {

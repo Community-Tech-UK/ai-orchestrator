@@ -42,10 +42,12 @@ export interface CostSummaryData {
   totalOutputTokens: number;
   totalCacheReadTokens: number;
   totalCacheWriteTokens: number;
+  totalReasoningTokens: number;
   byModel: Record<string, {
     cost: number;
     inputTokens: number;
     outputTokens: number;
+    reasoningTokens?: number;
     requests: number;
   }>;
   bySession: Record<string, {
@@ -69,6 +71,7 @@ export interface CostEntry {
   outputTokens: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
+  reasoningTokens?: number;
   cost: number;
 }
 
@@ -78,6 +81,7 @@ export interface ModelRow {
   cost: number;
   inputTokens: number;
   outputTokens: number;
+  reasoningTokens: number;
   requests: number;
   costPct: number;
 }
@@ -104,6 +108,7 @@ const EMPTY_SUMMARY: CostSummaryData = {
   totalOutputTokens: 0,
   totalCacheReadTokens: 0,
   totalCacheWriteTokens: 0,
+  totalReasoningTokens: 0,
   byModel: {},
   bySession: {},
   requestCount: 0,
@@ -152,13 +157,14 @@ export class CostPageComponent implements OnInit, OnDestroy {
   // ── Derived aggregate signals ────────────────────────────────────────────
 
   readonly totalCost = computed(() => this.summary().totalCost);
-  readonly totalInputTokens = computed(() => this.summary().totalInputTokens);
-  readonly totalOutputTokens = computed(() => this.summary().totalOutputTokens);
+  readonly totalInputTokens = computed(() => this.summary().totalInputTokens ?? 0);
+  readonly totalOutputTokens = computed(() => this.summary().totalOutputTokens ?? 0);
   readonly totalCacheTokens = computed(
-    () => this.summary().totalCacheReadTokens + this.summary().totalCacheWriteTokens,
+    () => (this.summary().totalCacheReadTokens ?? 0) + (this.summary().totalCacheWriteTokens ?? 0),
   );
+  readonly totalReasoningTokens = computed(() => this.summary().totalReasoningTokens ?? 0);
   readonly totalTokens = computed(
-    () => this.totalInputTokens() + this.totalOutputTokens() + this.totalCacheTokens(),
+    () => this.totalInputTokens() + this.totalOutputTokens() + this.totalCacheTokens() + this.totalReasoningTokens(),
   );
   readonly requestCount = computed(() => this.summary().requestCount);
   readonly sessionCount = computed(() => Object.keys(this.summary().bySession).length);
@@ -180,6 +186,7 @@ export class CostPageComponent implements OnInit, OnDestroy {
         cost: stats.cost,
         inputTokens: stats.inputTokens,
         outputTokens: stats.outputTokens,
+        reasoningTokens: stats.reasoningTokens ?? 0,
         requests: stats.requests,
         costPct: total > 0 ? (stats.cost / total) * 100 : 0,
       }))

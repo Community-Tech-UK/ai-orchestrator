@@ -42,6 +42,8 @@ export interface NormalizedUsage {
   cacheRead?: number;
   /** Tokens written to the prompt cache (charged at a higher rate). */
   cacheWrite?: number;
+  /** Provider-reported hidden reasoning/thinking tokens, billed like output. */
+  reasoning?: number;
   /** Pre-computed total, if the provider surfaced one. */
   total?: number;
 }
@@ -73,6 +75,13 @@ export interface UsageLike {
   completion_tokens?: number;
   cache_read_input_tokens?: number;
   cache_creation_input_tokens?: number;
+
+  // ---- Reasoning / thinking variants -------------------------------------
+  reasoning?: number;
+  reasoningTokens?: number;
+  reasoning_tokens?: number;
+  thinkingTokens?: number;
+  thinking_tokens?: number;
 
   // ---- Alternate totals ---------------------------------------------------
   totalTokens?: number;
@@ -164,6 +173,14 @@ export function normalizeUsage(usage: UsageLike | null | undefined): NormalizedU
     usage.cache_creation_input_tokens
   );
 
+  const reasoning = asFiniteNumber(
+    usage.reasoning ??
+    usage.reasoningTokens ??
+    usage.reasoning_tokens ??
+    usage.thinkingTokens ??
+    usage.thinking_tokens
+  );
+
   const total = asFiniteNumber(
     usage.total ??
     usage.totalTokens ??
@@ -176,6 +193,7 @@ export function normalizeUsage(usage: UsageLike | null | undefined): NormalizedU
     output === undefined &&
     cacheRead === undefined &&
     cacheWrite === undefined &&
+    reasoning === undefined &&
     total === undefined
   ) {
     return undefined;
@@ -186,6 +204,7 @@ export function normalizeUsage(usage: UsageLike | null | undefined): NormalizedU
   if (output !== undefined) normalized.output = output;
   if (cacheRead !== undefined) normalized.cacheRead = cacheRead;
   if (cacheWrite !== undefined) normalized.cacheWrite = cacheWrite;
+  if (reasoning !== undefined) normalized.reasoning = reasoning;
   if (total !== undefined) normalized.total = total;
 
   return normalized;
@@ -210,8 +229,8 @@ export function derivePromptTokens(usage: NormalizedUsage): number {
 }
 
 /**
- * Derives the total session token count by adding output tokens to the prompt
- * token count. Absent fields are treated as zero.
+ * Derives the total session token count by adding visible output plus hidden
+ * reasoning tokens to the prompt token count. Absent fields are treated as zero.
  *
  * Does NOT clamp to any context window size — the caller is responsible for
  * any window-limit enforcement.
@@ -220,5 +239,5 @@ export function derivePromptTokens(usage: NormalizedUsage): number {
  * @returns Total session token count (always >= 0).
  */
 export function deriveSessionTotalTokens(usage: NormalizedUsage): number {
-  return derivePromptTokens(usage) + (usage.output ?? 0);
+  return derivePromptTokens(usage) + (usage.output ?? 0) + (usage.reasoning ?? 0);
 }

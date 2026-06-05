@@ -24,6 +24,7 @@ export interface CostEntry {
   outputTokens: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
+  reasoningTokens?: number;
   cost: number;
 }
 
@@ -38,6 +39,7 @@ interface CostEntryRow {
   output_tokens: number;
   cache_read_tokens: number;
   cache_write_tokens: number;
+  reasoning_tokens: number;
   cost: number;
 }
 
@@ -52,6 +54,7 @@ function rowToEntry(row: CostEntryRow): CostEntry {
     outputTokens: row.output_tokens,
     cacheReadTokens: row.cache_read_tokens,
     cacheWriteTokens: row.cache_write_tokens,
+    reasoningTokens: row.reasoning_tokens,
     cost: row.cost,
   };
 }
@@ -65,10 +68,12 @@ export interface CostSummary {
   totalOutputTokens: number;
   totalCacheReadTokens: number;
   totalCacheWriteTokens: number;
+  totalReasoningTokens: number;
   byModel: Record<string, {
     cost: number;
     inputTokens: number;
     outputTokens: number;
+    reasoningTokens: number;
     requests: number;
   }>;
   bySession: Record<string, {
@@ -137,8 +142,8 @@ export class CostTracker extends EventEmitter {
       this.insertStmt = db.prepare(`
         INSERT OR REPLACE INTO cost_entries
           (id, timestamp, instance_id, session_id, model,
-           input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, cost)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       this.db = db;
       // Flush any entries recorded before persistence was attached (INSERT OR
@@ -162,7 +167,8 @@ export class CostTracker extends EventEmitter {
     const rows = this.db
       .prepare(
         `SELECT id, timestamp, instance_id, session_id, model,
-                input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost
+                input_tokens, output_tokens, cache_read_tokens,
+                cache_write_tokens, reasoning_tokens, cost
          FROM cost_entries ORDER BY timestamp DESC LIMIT ?`,
       )
       .all<CostEntryRow>(this.maxEntries);
@@ -185,6 +191,7 @@ export class CostTracker extends EventEmitter {
         entry.outputTokens,
         entry.cacheReadTokens ?? 0,
         entry.cacheWriteTokens ?? 0,
+        entry.reasoningTokens ?? 0,
         entry.cost,
       );
     } catch (err) {
@@ -200,7 +207,8 @@ export class CostTracker extends EventEmitter {
     inputTokens: number,
     outputTokens: number,
     cacheReadTokens: number = 0,
-    cacheWriteTokens: number = 0
+    cacheWriteTokens: number = 0,
+    reasoningTokens: number = 0,
   ): number {
     // Delegate to the shared pricing helper so every cost path (this tracker
     // plus the provider adapters) uses one per-model input/output/cache table.
@@ -209,6 +217,7 @@ export class CostTracker extends EventEmitter {
       outputTokens,
       cacheReadTokens,
       cacheWriteTokens,
+      reasoningTokens,
     });
   }
 
@@ -230,14 +239,22 @@ export class CostTracker extends EventEmitter {
     outputTokens: number,
     cacheReadTokens: number = 0,
     cacheWriteTokens: number = 0,
-    providerCostUsd?: number
+    providerCostUsd?: number,
+    reasoningTokens: number = 0,
   ): CostEntry {
     const cost =
       typeof providerCostUsd === 'number' &&
       Number.isFinite(providerCostUsd) &&
       providerCostUsd >= 0
         ? providerCostUsd
-        : this.calculateCost(model, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens);
+        : this.calculateCost(
+            model,
+            inputTokens,
+            outputTokens,
+            cacheReadTokens,
+            cacheWriteTokens,
+            reasoningTokens,
+          );
 
     const entry: CostEntry = {
       id: crypto.randomUUID(),
@@ -249,6 +266,7 @@ export class CostTracker extends EventEmitter {
       outputTokens,
       cacheReadTokens,
       cacheWriteTokens,
+      reasoningTokens,
       cost,
     };
 
@@ -288,6 +306,7 @@ export class CostTracker extends EventEmitter {
     let totalOutputTokens = 0;
     let totalCacheReadTokens = 0;
     let totalCacheWriteTokens = 0;
+    let totalReasoningTokens = 0;
 
     for (const entry of filtered) {
       totalCost += entry.cost;
@@ -295,14 +314,22 @@ export class CostTracker extends EventEmitter {
       totalOutputTokens += entry.outputTokens;
       totalCacheReadTokens += entry.cacheReadTokens || 0;
       totalCacheWriteTokens += entry.cacheWriteTokens || 0;
+      totalReasoningTokens += entry.reasoningTokens || 0;
 
       // By model
       if (!byModel[entry.model]) {
-        byModel[entry.model] = { cost: 0, inputTokens: 0, outputTokens: 0, requests: 0 };
+        byModel[entry.model] = {
+          cost: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          reasoningTokens: 0,
+          requests: 0,
+        };
       }
       byModel[entry.model].cost += entry.cost;
       byModel[entry.model].inputTokens += entry.inputTokens;
       byModel[entry.model].outputTokens += entry.outputTokens;
+      byModel[entry.model].reasoningTokens += entry.reasoningTokens || 0;
       byModel[entry.model].requests += 1;
 
       // By session
@@ -310,7 +337,8 @@ export class CostTracker extends EventEmitter {
         bySession[entry.sessionId] = { cost: 0, tokens: 0, requests: 0 };
       }
       bySession[entry.sessionId].cost += entry.cost;
-      bySession[entry.sessionId].tokens += entry.inputTokens + entry.outputTokens;
+      bySession[entry.sessionId].tokens +=
+        entry.inputTokens + entry.outputTokens + (entry.reasoningTokens || 0);
       bySession[entry.sessionId].requests += 1;
     }
 
@@ -320,6 +348,7 @@ export class CostTracker extends EventEmitter {
       totalOutputTokens,
       totalCacheReadTokens,
       totalCacheWriteTokens,
+      totalReasoningTokens,
       byModel,
       bySession,
       requestCount: filtered.length,

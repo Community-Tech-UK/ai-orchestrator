@@ -7,6 +7,8 @@
  * - Chain-of-Verification (Meta AI, ACL 2024)
  */
 
+import { estimateTokens } from '../../shared/utils/token-estimate';
+
 /**
  * A "review angle" biases what a reviewer scrutinises hardest. When several
  * reviewers run on the same change, giving each a different angle (and
@@ -156,5 +158,5 @@ export function truncateForReview(content: string): string {
   if (content.length <= MAX_REVIEW_PAYLOAD_CHARS) return content;
   const totalChars = content.length;
   return content.slice(0, MAX_REVIEW_PAYLOAD_CHARS) +
-    `\n\n[... truncated, showing first ~8000 tokens of ~${Math.round(totalChars / 4)} total ...]`;
+    `\n\n[... truncated, showing first ~8000 tokens of ~${estimateTokens(content)} total ...]`;
 }

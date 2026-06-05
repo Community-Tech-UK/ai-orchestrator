@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_CHARS_PER_TOKEN,
+  DEFAULT_IMAGE_TOKEN_COST,
   estimateTokens,
 } from '../token-estimate';
 
@@ -63,6 +64,18 @@ describe('token-estimate', () => {
       const mixed = 'abcdefgh语语语语';
       const expected = Math.max(1, Math.ceil(8 / 4 + 4 * 0.6));
       expect(estimateTokens(mixed)).toBe(expected);
+    });
+
+    it('can count JSON more densely when the caller identifies structured content', () => {
+      const json = JSON.stringify({ tool: 'search', args: { query: 'token accounting', limit: 10 } });
+      expect(estimateTokens(json, { contentKind: 'json' })).toBeGreaterThan(estimateTokens(json));
+    });
+
+    it('adds fixed image attachment cost even when there is no text', () => {
+      expect(estimateTokens('', { imageCount: 2 })).toBe(DEFAULT_IMAGE_TOKEN_COST * 2);
+      expect(estimateTokens('caption', { imageCount: 1 })).toBe(
+        Math.ceil('caption'.length / DEFAULT_CHARS_PER_TOKEN) + DEFAULT_IMAGE_TOKEN_COST,
+      );
     });
   });
 });

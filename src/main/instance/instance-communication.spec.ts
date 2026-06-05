@@ -41,6 +41,7 @@ import { TokenBudgetTracker } from '../context/token-budget-tracker';
 import { AcpCliAdapter } from '../cli/adapters/acp-cli-adapter';
 import { emitPluginHook } from '../plugins/hook-emitter';
 import { getCostTracker } from '../core/system/cost-tracker';
+import { getTokenCounter, TokenCounter } from '../rlm/token-counter';
 import type { CliResponse } from '../cli/adapters/base-cli-adapter';
 
 const emitPluginHookMock = vi.mocked(emitPluginHook);
@@ -312,6 +313,43 @@ describe('InstanceCommunicationManager', () => {
       expect(entry.cacheWriteTokens).toBe(100);
       // Provider-supplied total_cost_usd is trusted verbatim.
       expect(entry.cost).toBeCloseTo(0.0421, 6);
+    });
+
+    it('records reasoning tokens from completed-turn usage as a separate cost dimension', () => {
+      instance.currentModel = 'claude-sonnet-4-6';
+      emitComplete('claude-cli', {
+        inputTokens: 100,
+        outputTokens: 50,
+        reasoningTokens: 25,
+      });
+
+      const entries = getCostTracker().getEntries();
+      expect(entries).toHaveLength(1);
+      expect(entries[0].reasoningTokens).toBe(25);
+      expect(getCostTracker().getSummary().totalReasoningTokens).toBe(25);
+    });
+
+    it('feeds clean output-token pairs into calibration only when calibration is enabled', () => {
+      TokenCounter._resetForTesting();
+      instance.currentModel = 'claude-sonnet-4-6';
+      const counter = getTokenCounter();
+      counter.setCalibrateTokenCounts(true);
+      const text = 'calibration sample text';
+      const raw = counter.countTokensRaw(text, instance.currentModel);
+
+      const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+      adapters.set(instance.id, adapter);
+      manager.setupAdapterEvents(instance.id, adapter);
+      const response: CliResponse = {
+        id: 'r-cal',
+        content: text,
+        role: 'assistant',
+        usage: { outputTokens: raw * 2 },
+      };
+      (adapter as unknown as EventEmitter).emit('complete', response);
+
+      expect(counter.getCorrectionFactor(instance.currentModel)).toBeGreaterThan(1);
+      counter.setCalibrateTokenCounts(false);
     });
 
     it('computes cost from tokens when the provider does not supply one', () => {

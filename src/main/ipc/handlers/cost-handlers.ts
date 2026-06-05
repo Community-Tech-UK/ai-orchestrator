@@ -64,7 +64,9 @@ export function registerCostHandlers(deps: {
           validated.inputTokens,
           validated.outputTokens,
           validated.cacheReadTokens,
-          validated.cacheWriteTokens
+          validated.cacheWriteTokens,
+          undefined,
+          validated.reasoningTokens
         );
         return { success: true };
       } catch (error) {

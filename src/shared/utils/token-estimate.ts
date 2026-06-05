@@ -11,7 +11,7 @@
  *   main process, the renderer, `src/shared`, and worker threads alike (a
  *   transitive `electron` import would crash workers — see the worker
  *   isolation rules in AGENTS.md).
- * - **Behaviour-preserving for Latin text.** When the input contains no CJK
+ * - **Behavior-preserving for Latin text.** When the input contains no CJK
  *   characters, `estimateTokens(text)` returns exactly `Math.ceil(text.length /
  *   4)` — byte-identical to every call site it replaces, so existing
  *   token-budget tests are unaffected.
@@ -31,6 +31,9 @@
 
 /** Average characters per token for Latin/Western text — the long-standing default. */
 export const DEFAULT_CHARS_PER_TOKEN = 4;
+
+/** Conservative fixed cost for one image attachment when no provider count exists. */
+export const DEFAULT_IMAGE_TOKEN_COST = 170;
 
 /**
  * Tokens per CJK character. Han/Hiragana/Katakana/Hangul tokenize roughly
@@ -54,6 +57,17 @@ export interface TokenEstimateOptions {
    * prose). Defaults to {@link DEFAULT_CHARS_PER_TOKEN} (4).
    */
   charsPerToken?: number;
+  /**
+   * Hint for dense structured payloads. Defaults to plain text, preserving the
+   * historical Latin `ceil(length / 4)` path when omitted.
+   */
+  contentKind?: 'text' | 'json' | 'code';
+  /**
+   * Number of image attachments included alongside the text. This is a fixed
+   * fallback cost for pre-send estimates only; provider-reported usage wins
+   * after a turn completes.
+   */
+  imageCount?: number;
 }
 
 /** Count characters that belong to a CJK script. */
@@ -74,18 +88,24 @@ function countCjkChars(text: string): number {
  * @returns Estimated token count (always rounds up; >= 1 for non-empty input).
  */
 export function estimateTokens(text: string, options?: TokenEstimateOptions): number {
-  if (!text) return 0;
+  const imageTokens = Math.max(0, Math.floor(options?.imageCount ?? 0)) * DEFAULT_IMAGE_TOKEN_COST;
+  if (!text) return imageTokens;
 
-  const charsPerToken = options?.charsPerToken ?? DEFAULT_CHARS_PER_TOKEN;
+  const charsPerToken =
+    options?.charsPerToken ??
+    (options?.contentKind === 'json' ? 3 : DEFAULT_CHARS_PER_TOKEN);
 
   const cjkChars = countCjkChars(text);
+  let textTokens: number;
   if (cjkChars === 0) {
-    // Fast path: identical to the legacy `Math.ceil(text.length / 4)` it replaces.
-    return Math.ceil(text.length / charsPerToken);
+    // Fast path: identical to the legacy `Math.ceil(text.length / 4)` with default options.
+    textTokens = Math.ceil(text.length / charsPerToken);
+  } else {
+    const latinChars = text.length - cjkChars;
+    const latinTokens = latinChars / charsPerToken;
+    const cjkTokens = cjkChars * CJK_TOKENS_PER_CHAR;
+    textTokens = Math.max(1, Math.ceil(latinTokens + cjkTokens));
   }
 
-  const latinChars = text.length - cjkChars;
-  const latinTokens = latinChars / charsPerToken;
-  const cjkTokens = cjkChars * CJK_TOKENS_PER_CHAR;
-  return Math.max(1, Math.ceil(latinTokens + cjkTokens));
+  return textTokens + imageTokens;
 }
