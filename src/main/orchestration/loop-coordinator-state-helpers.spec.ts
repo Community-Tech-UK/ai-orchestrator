@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LoopState } from '../../shared/types/loop.types';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
-import { checkLoopHardCaps } from './loop-coordinator-state-helpers';
+import { checkLoopHardCaps, materializeLoopConfig } from './loop-coordinator-state-helpers';
 
 function stateWithTokens(totalTokens: number, maxTokens: number | null): LoopState {
   const config = defaultLoopConfig('/tmp/workspace', 'do work');
@@ -34,11 +34,21 @@ function stateWithTokens(totalTokens: number, maxTokens: number | null): LoopSta
 }
 
 describe('LoopCoordinator state helpers', () => {
+  it('normalizes legacy numeric maxTokens inputs to no token cap', () => {
+    const config = materializeLoopConfig({
+      initialPrompt: 'do work',
+      workspaceCwd: '/tmp/workspace',
+      caps: { ...defaultLoopConfig('/tmp/workspace', 'do work').caps, maxTokens: 1_000_000 },
+    });
+
+    expect(config.caps.maxTokens).toBeNull();
+  });
+
   it('does not stop on token usage when maxTokens is null', () => {
     expect(checkLoopHardCaps(stateWithTokens(7_242_440, null))).toBeNull();
   });
 
-  it('still stops on token usage when a numeric maxTokens cap is configured', () => {
-    expect(checkLoopHardCaps(stateWithTokens(7_242_440, 1_000_000))).toBe('tokens');
+  it('does not stop on token usage even when an old numeric maxTokens cap is present', () => {
+    expect(checkLoopHardCaps(stateWithTokens(7_242_440, 1_000_000))).toBeNull();
   });
 });

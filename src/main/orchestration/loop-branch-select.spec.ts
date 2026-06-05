@@ -68,6 +68,14 @@ describe('shouldRunBranchSelect (LF-5)', () => {
   it('runs when enabled with a cost cap and headroom', () => {
     expect(shouldRunBranchSelect(baseInput()).run).toBe(true);
   });
+  it('ignores legacy numeric token caps when cost headroom remains', () => {
+    const r = shouldRunBranchSelect(baseInput({
+      caps: { ...defaultLoopConfig('/ws', 'g').caps, maxTokens: 1_000_000, maxCostCents: 1000 },
+      spentTokens: 7_242_440,
+      spentCents: 10,
+    }));
+    expect(r.run).toBe(true);
+  });
 });
 
 describe('selectWinner (LF-5)', () => {

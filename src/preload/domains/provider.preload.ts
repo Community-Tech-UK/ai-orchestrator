@@ -311,10 +311,6 @@ export function createProviderDomain(
      * Push CLI-discovered models from the renderer into the main-process catalog.
      * Call this after `dynamic-model-catalog.service` finishes discovery for a
      * provider so backend services (routing, cost accounting) see live models.
-     *
-     * NOTE: End-to-end CLI-discovery wiring requires a renderer-side call from
-     * `dynamic-model-catalog.service.ts` into this method.  That renderer change
-     * is out of scope here and must be implemented separately.
      */
     pushCliDiscoveredModels: (
       provider: string,

@@ -52,6 +52,8 @@ import { AutomationStore } from '../../core/state/automation.store';
 import { RemoteBrowseModalComponent } from '../../shared/components/remote-browse-modal/remote-browse-modal.component';
 import { WelcomeCoordinatorService } from './welcome-coordinator.service';
 import { FileAttachmentService } from './file-attachment.service';
+import { UnifiedCatalogStore } from '../models/unified-catalog.store';
+import { resolveInstanceHeaderModels } from './instance-model-list';
 import type { HudQuickAction } from '../../../../shared/types/orchestration-hud.types';
 import {
   getConversationHistoryTitle,
@@ -123,6 +125,7 @@ export class InstanceDetailComponent {
   private automationStore = inject(AutomationStore);
   readonly welcomeCoordinator = inject(WelcomeCoordinatorService);
   private fileAttachment = inject(FileAttachmentService);
+  private unifiedCatalog = inject(UnifiedCatalogStore);
   todoStore = inject(TodoStore);
   canShowFileExplorer = input(false);
   isFileExplorerOpen = input(false);
@@ -305,7 +308,15 @@ export class InstanceDetailComponent {
   isChangingMode = signal(false);
   isTogglingYolo = signal(false);
   showModelDropdown = signal(false);
-  availableModels = signal<ModelDisplayInfo[]>([]);
+  private fallbackModels = signal<ModelDisplayInfo[]>([]);
+  availableModels = computed((): ModelDisplayInfo[] => {
+    const inst = this.instance();
+    if (!inst) return [];
+    return resolveInstanceHeaderModels(
+      this.unifiedCatalog.displayModelsForProvider(inst.provider),
+      this.fallbackModels(),
+    );
+  });
   private manualCompacting = signal(false);
   contextWarningDismissed = signal(false);
   recoveryDismissed = signal(false);
@@ -637,21 +648,29 @@ export class InstanceDetailComponent {
 
   /**
    * Fetch available models for a provider.
-   * Dynamically queries the CLI when supported (Copilot), falls back to static lists.
+   * Uses the unified catalog as the authoritative source once it has loaded,
+   * while keeping the previous static/dynamic list as an immediate fallback.
    */
   private async fetchModelsForProvider(provider: string): Promise<void> {
-    // Immediately set static fallback for instant display
-    const staticModels = PROVIDER_MODEL_LIST[provider] ?? [];
-    this.availableModels.set(staticModels);
+    this.unifiedCatalog.ensureLoaded();
 
-    // Then try dynamic fetch (may return same static list for non-dynamic providers)
+    // Immediately set static fallback for instant display.
+    const staticModels = PROVIDER_MODEL_LIST[provider] ?? [];
+    this.fallbackModels.set(staticModels);
+
+    // Then try dynamic fetch (may return same static list for non-dynamic providers).
     try {
       const response = await this.providerIpc.listModelsForProvider(provider);
       if (response.success && response.data && response.data.length > 0) {
-        this.availableModels.set(response.data);
+        if (provider === 'copilot' || provider === 'cursor') {
+          void this.providerIpc.pushCliDiscoveredModels(provider, response.data);
+        }
+        if (this.instance()?.provider === provider) {
+          this.fallbackModels.set(response.data);
+        }
       }
     } catch {
-      // Static fallback already set above
+      // Static fallback already set above.
     }
   }
 

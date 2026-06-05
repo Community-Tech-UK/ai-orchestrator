@@ -25,7 +25,7 @@ import {
 /** Maximum number of transient-failure retries before dropping a queued message. */
 const MAX_QUEUE_RETRIES = 3;
 const DEFAULT_SEND_INPUT_IPC_TIMEOUT_MS = 60_000;
-const ACP_SEND_INPUT_IPC_TIMEOUT_MS = 11 * 60_000;
+const TURN_BLOCKING_SEND_INPUT_IPC_TIMEOUT_MS = 11 * 60_000;
 
 @Injectable({ providedIn: 'root' })
 export class InstanceMessagingStore {
@@ -578,12 +578,11 @@ export class InstanceMessagingStore {
   }
 
   private getSendInputTimeoutMs(provider: Instance['provider']): number {
-    // ACP prompt turns can legitimately run for up to 10 minutes before the
-    // adapter's own prompt timeout resolves the IPC call with an authoritative
-    // result. Keep the renderer guard beyond that backend ceiling so it only
-    // catches a truly wedged IPC bridge, not normal long Cursor/Copilot turns.
-    if (provider === 'cursor' || provider === 'copilot') {
-      return ACP_SEND_INPUT_IPC_TIMEOUT_MS;
+    // Some adapters keep the IPC send promise open for the whole turn rather
+    // than just message acceptance. Keep this renderer guard beyond backend
+    // watchdogs so it only catches a wedged bridge, not normal long turns.
+    if (provider === 'cursor' || provider === 'copilot' || provider === 'codex') {
+      return TURN_BLOCKING_SEND_INPUT_IPC_TIMEOUT_MS;
     }
     return DEFAULT_SEND_INPUT_IPC_TIMEOUT_MS;
   }

@@ -500,7 +500,6 @@ export class LoopControlComponent implements OnDestroy {
     if (!a) return [];
     const c = a.config;
     const cost = c.caps.maxCostCents === null ? 'no cap' : formatCostCents(c.caps.maxCostCents);
-    const tokens = c.caps.maxTokens === null ? 'no token cap' : humanTokens(c.caps.maxTokens);
     const flags: string[] = [];
     if (c.completion.requireCompletedFileRename) flags.push('rename-gate');
     if (c.completion.runVerifyTwice) flags.push('verify×2');
@@ -514,7 +513,7 @@ export class LoopControlComponent implements OnDestroy {
       { label: 'Provider', value: c.provider },
       { label: 'Context', value: c.contextStrategy },
       { label: 'Start stage', value: c.initialStage },
-      { label: 'Caps', value: `${c.caps.maxIterations} iters · ${humanDuration(c.caps.maxWallTimeMs)} · ${cost} · ${tokens}` },
+      { label: 'Caps', value: `${c.caps.maxIterations} iters · ${humanDuration(c.caps.maxWallTimeMs)} · ${cost}` },
       { label: 'Verify', value: c.completion.verifyCommand || (a.manualReviewOnly ? 'manual review (no command)' : 'auto-detected') },
       { label: 'Options', value: flags.length ? flags.join(', ') : 'defaults' },
     ];

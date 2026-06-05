@@ -82,22 +82,18 @@ export type LoopBranchSelector = (input: BranchSelectInput) => Promise<BranchSel
 /**
  * Decide whether branch-and-select should run for this CRITICAL. Requires the
  * feature enabled AND a non-null cost cap (fan-out multiplies spend), AND that
- * a single fan-out round wouldn't blow the remaining token/cost headroom. Pure.
+ * a single fan-out round wouldn't blow the remaining cost headroom. Pure.
  */
 export function shouldRunBranchSelect(input: BranchSelectInput): { run: boolean; reason: string } {
-  const { exploration, caps, spentTokens, spentCents } = input;
+  const { exploration, caps, spentCents } = input;
   if (!exploration.enabled) return { run: false, reason: 'exploration disabled' };
   if (caps.maxCostCents === null || caps.maxCostCents === undefined) {
     return { run: false, reason: 'no cost cap set — branch-select requires a spend ceiling' };
   }
   // Require at least ~1/fanout of the remaining budget free, so a fan-out round
   // can't immediately exceed caps. Conservative: need headroom > 0.
-  const tokenHeadroom = caps.maxTokens === null ? Number.POSITIVE_INFINITY : caps.maxTokens - spentTokens;
   const costHeadroom = caps.maxCostCents - spentCents;
-  if (tokenHeadroom <= 0) return { run: false, reason: 'token cap exhausted' };
   if (costHeadroom <= 0) return { run: false, reason: 'cost cap exhausted' };
-  // A fan-out of N costs ~N iterations; only proceed if there's plausibly room.
-  if (tokenHeadroom < exploration.fanout) return { run: false, reason: 'insufficient token headroom for fan-out' };
   return { run: true, reason: `eligible — fanout ${exploration.fanout}, headroom ok` };
 }
 

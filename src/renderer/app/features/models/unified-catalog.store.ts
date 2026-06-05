@@ -16,13 +16,12 @@ import type {
  * reactive computeds and re-render automatically on refresh; `lastBuiltAt()`
  * backs a live-refresh pill.
  *
- * WIRED: `CompactModelPickerComponent` consumes this store as its primary model
- * source (`modelsForProviderFn`), falling back to `DynamicModelCatalogService`
- * only until the catalog has loaded, and renders `lastBuiltAt()` as a
- * live-refresh pill. `displayModelsForProvider()` overlays curated display
- * names from the static catalog by id so the picker keeps its polished labels
- * (models.dev-only ids get a humanised fallback name). The remaining A1 work is
- * end-to-end visual verification of the swapped picker in the running app.
+ * WIRED: `CompactModelPickerComponent` and the legacy
+ * `InstanceDetailComponent` header dropdown consume this store as their primary
+ * model source, falling back to the previous static/dynamic lists only until
+ * the catalog has loaded. `displayModelsForProvider()` overlays curated display
+ * names from the static catalog by id so picker rows keep their polished labels
+ * (models.dev-only ids get a humanised fallback name).
  */
 @Injectable({ providedIn: 'root' })
 export class UnifiedCatalogStore {

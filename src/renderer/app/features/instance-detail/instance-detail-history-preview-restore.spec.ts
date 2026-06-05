@@ -109,7 +109,13 @@ describe('InstanceDetailComponent history preview restore send', () => {
         { provide: SettingsStore, useValue: createSettingsStoreMock() },
         { provide: ElectronIpcService, useValue: { forkSession: vi.fn() } },
         { provide: RecentDirectoriesIpcService, useValue: { selectFolderAndTrack: vi.fn() } },
-        { provide: ProviderIpcService, useValue: { listModelsForProvider: vi.fn() } },
+        {
+          provide: ProviderIpcService,
+          useValue: {
+            listModelsForProvider: vi.fn(),
+            onModelsCatalogUpdated: vi.fn(() => () => undefined),
+          },
+        },
         { provide: NewSessionDraftService, useValue: createNewSessionDraftMock() },
         { provide: CrossModelReviewIpcService, useValue: { getReviewForInstance: vi.fn(() => null), dismiss: vi.fn() } },
         { provide: QuickActionDispatcherService, useValue: { dispatch: vi.fn() } },

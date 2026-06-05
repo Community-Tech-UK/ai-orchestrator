@@ -176,6 +176,21 @@ describe('InstanceMessagingStore', () => {
     });
   });
 
+  it('does not show the renderer timeout for a long-running Codex turn before the backend watchdog can resolve', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ provider: 'codex', status: 'idle' }));
+    ipcMock.sendInput.mockImplementation(() => new Promise(() => undefined));
+
+    void currentStore.sendInput('inst-1', 'long codex turn');
+
+    await vi.advanceTimersByTimeAsync(60_100);
+
+    const instance = currentStateService.getInstance('inst-1');
+    expect(instance?.status).toBe('busy');
+    expect(instance?.outputBuffer).toEqual([]);
+  });
+
   it('replays seeded queued initial prompts without adding a duplicate user bubble', async () => {
     const currentStore = store!;
     const currentStateService = stateService!;

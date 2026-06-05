@@ -21,7 +21,10 @@ export function materializeLoopConfig(
   return {
     ...base,
     ...p,
-    caps: { ...base.caps, ...(p.caps ?? {}) },
+    // Token caps are intentionally disabled for loops. Keep accepting the
+    // field for persisted/IPC compatibility, but never materialize it as an
+    // operative hard cap.
+    caps: { ...base.caps, ...(p.caps ?? {}), maxTokens: null },
     progressThresholds: {
       ...base.progressThresholds,
       ...(p.progressThresholds ?? {}),
@@ -36,7 +39,6 @@ export function checkLoopHardCaps(state: LoopState): null | 'iterations' | 'wall
   const caps = state.config.caps;
   if (state.totalIterations >= caps.maxIterations) return 'iterations';
   if (Date.now() - state.startedAt >= caps.maxWallTimeMs) return 'wall-time';
-  if (caps.maxTokens !== null && state.totalTokens >= caps.maxTokens) return 'tokens';
   if (caps.maxCostCents !== null && state.totalCostCents >= caps.maxCostCents) return 'cost';
   return null;
 }

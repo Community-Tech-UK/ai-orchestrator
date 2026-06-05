@@ -5087,11 +5087,11 @@
       "lines": 1540
     },
     {
-      "path": "docs/superpowers/plans/2026-04-02-phase-e-developer-experience.md",
-      "lines": 1517
+      "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
+      "lines": 1536
     },
     {
-      "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
+      "path": "docs/superpowers/plans/2026-04-02-phase-e-developer-experience.md",
       "lines": 1517
     },
     {
@@ -5624,7 +5624,7 @@
     },
     {
       "path": "src/renderer/app/features/loop/loop-control.component.ts",
-      "lines": 813
+      "lines": 812
     },
     {
       "path": "src/main/ipc/handlers/__tests__/session-handlers.spec.ts",
