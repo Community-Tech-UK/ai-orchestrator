@@ -29,6 +29,7 @@ import { getWakeContextBuilder } from '../memory/wake-context-builder';
 import { buildMcpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-context';
 import { RLMDatabase } from '../persistence/rlm-database';
 import { getPolicyAdapter } from '../observation/policy-adapter';
+import { buildProjectMemoryBriefInWorker } from '../memory/project-memory-brief-worker';
 import {
   loadHabitTrackerStateSnapshot,
   loadMetricsCollectorStateSnapshot,
@@ -198,6 +199,18 @@ async function handleMessage(msg: ContextWorkerInboundMsg): Promise<void> {
             msg.instanceId,
             msg.taskType,
           ),
+        );
+      } catch {
+        respond(msg.id, null);
+      }
+      break;
+    }
+
+    case 'build-project-memory-brief': {
+      try {
+        respond(
+          msg.id,
+          await buildProjectMemoryBriefInWorker(msg.request),
         );
       } catch {
         respond(msg.id, null);

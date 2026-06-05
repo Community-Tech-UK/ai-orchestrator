@@ -215,6 +215,50 @@ describe('ContextWorkerClient', () => {
     await expect(promise).resolves.toEqual(selection);
   });
 
+  it('posts project-memory brief RPC and resolves worker results', async () => {
+    const brief = {
+      text: 'Relevant prior project memory',
+      sections: [{ title: 'Recent context', items: [] }],
+      sources: [],
+      stats: {
+        projectKey: '/repo',
+        candidatesScanned: 2,
+        candidatesIncluded: 1,
+        truncated: false,
+      },
+    };
+
+    const promise = client.buildProjectMemoryBrief({
+      projectPath: '/repo',
+      instanceId: 'inst-1',
+      initialPrompt: 'continue auth work',
+      provider: 'claude',
+      model: 'claude-opus-4-20250514',
+    });
+    const postedMsg = fakeWorker.postMessage.mock.calls[0]?.[0] as {
+      id: number;
+      type: string;
+      request: unknown;
+    };
+
+    expect(postedMsg.type).toBe('build-project-memory-brief');
+    expect(postedMsg.request).toEqual({
+      projectPath: '/repo',
+      instanceId: 'inst-1',
+      initialPrompt: 'continue auth work',
+      provider: 'claude',
+      model: 'claude-opus-4-20250514',
+    });
+
+    fakeWorker.emit('message', {
+      type: 'rpc-response',
+      id: postedMsg.id,
+      result: brief,
+    });
+
+    await expect(promise).resolves.toEqual(brief);
+  });
+
   it('falls back to in-process MCP runtime-tool selection when the worker is degraded', async () => {
     const snapshot = makeMcpSnapshot();
 
@@ -226,6 +270,13 @@ describe('ContextWorkerClient', () => {
       deferredToolCount: 0,
       query: 'docs',
     });
+    expect(fakeWorker.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('returns null for project-memory brief when the worker is degraded', async () => {
+    fakeWorker.emit('error', new Error('worker crashed'));
+
+    await expect(client.buildProjectMemoryBrief({ projectPath: '/repo' })).resolves.toBeNull();
     expect(fakeWorker.postMessage).not.toHaveBeenCalled();
   });
 

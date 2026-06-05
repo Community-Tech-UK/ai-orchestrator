@@ -278,6 +278,24 @@ describe('ProviderQuotaChipComponent', () => {
       expect(stripText).not.toContain('CX16%');
     });
 
+    it('summarizes Claude by weekly usage even when 5-hour or credits windows are higher', () => {
+      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [
+        { ...makeWindow(0, 100), id: 'claude.5h', label: '5-hour session' },
+        { ...makeWindow(12, 100), id: 'claude.weekly', label: 'Weekly (all models)' },
+        { ...makeWindow(0, 100), id: 'claude.weekly-sonnet', label: 'Weekly (Sonnet)' },
+        { ...makeWindow(83, 100), id: 'claude.credits', label: 'Extra usage credits' },
+      ]));
+      store.setWorst({ provider: 'claude', window: makeWindow(83, 100) });
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      const stripText = host.querySelector('[data-testid="quota-strip"]')?.textContent ?? '';
+
+      expect(stripText).toContain('CC12%');
+      expect(stripText).not.toContain('CC83%');
+      expect(stripText).not.toContain('CC0%');
+    });
+
     it('shows per-provider freshness and refresh controls in the detail popover', () => {
       const now = Date.now();
       (component as unknown as { nowMs: { set(value: number): void } }).nowMs.set(now);

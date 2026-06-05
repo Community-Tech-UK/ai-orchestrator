@@ -6,9 +6,16 @@ import {
   REASONING_EFFORTS,
   type ReasoningEffort,
 } from '../../../../shared/types/provider.types';
+import type { InstanceLaunchMode } from '../../../../shared/types/instance.types';
 import { BUILTIN_AGENTS, getDefaultAgent } from '../../../../shared/types/agent.types';
 import { ProviderStateService, type ProviderType } from './provider-state.service';
 import { WorkspaceIpcService } from './ipc/workspace-ipc.service';
+import type {
+  NewSessionDraftState,
+  NewSessionDraftStoreState,
+  PersistedNewSessionDraft,
+  PersistedNewSessionDraftStoreState,
+} from './new-session-draft.types';
 
 @Injectable({ providedIn: 'root' })
 export class NewSessionDraftService {
@@ -31,6 +38,7 @@ export class NewSessionDraftService {
   readonly reasoningEffort = computed(() => this.activeDraft().reasoningEffort);
   readonly pendingFolders = computed(() => this.activeDraft().pendingFolders);
   readonly yoloMode = computed(() => this.activeDraft().yoloMode);
+  readonly launchMode = computed(() => this.activeDraft().launchMode);
   readonly agentId = computed(() => this.activeDraft().agentId);
   readonly nodeId = computed(() => this.activeDraft().nodeId);
   readonly updatedAt = computed(() => this.activeDraft().updatedAt);
@@ -100,6 +108,7 @@ export class NewSessionDraftService {
           model: this.normalizeDraftModel(currentDraft.provider, currentDraft.model),
           reasoningEffort: currentDraft.reasoningEffort,
           yoloMode: currentDraft.yoloMode,
+          launchMode: currentDraft.launchMode,
           agentId: currentDraft.agentId,
           pendingFolders: [...currentDraft.pendingFolders],
           updatedAt: Date.now(),
@@ -111,6 +120,7 @@ export class NewSessionDraftService {
           model: null,
           reasoningEffort: null,
           yoloMode: null,
+          launchMode: null,
           agentId: getDefaultAgent().id,
           pendingFolders: [],
         };
@@ -168,7 +178,13 @@ export class NewSessionDraftService {
       // default effort (High for Claude, provider-decided/null otherwise)
       // rather than always clearing — keeps a fresh Claude chat pinned to High.
       const nextReasoning = sameProvider ? draft.reasoningEffort : getDefaultReasoningEffort(provider);
-      if (sameProvider && draft.model === nextModel && draft.reasoningEffort === nextReasoning) {
+      const nextLaunchMode = this.resolveDraftLaunchMode(provider, sameProvider ? draft.launchMode : null);
+      if (
+        sameProvider
+        && draft.model === nextModel
+        && draft.reasoningEffort === nextReasoning
+        && draft.launchMode === nextLaunchMode
+      ) {
         return draft;
       }
 
@@ -177,6 +193,7 @@ export class NewSessionDraftService {
         provider,
         model: nextModel,
         reasoningEffort: nextReasoning,
+        launchMode: nextLaunchMode,
         updatedAt: Date.now(),
       };
     });
@@ -233,6 +250,25 @@ export class NewSessionDraftService {
       yoloMode,
       updatedAt: Date.now(),
     }));
+  }
+
+  setLaunchMode(launchMode: InstanceLaunchMode | null): void {
+    this.updateActiveDraft((draft) => {
+      const nextLaunchMode = this.resolveDraftLaunchMode(draft.provider, launchMode);
+      if (draft.launchMode === nextLaunchMode) {
+        return draft;
+      }
+
+      if (draft.provider === 'claude' && nextLaunchMode) {
+        this.providerState.rememberLaunchModeForProvider('claude', nextLaunchMode);
+      }
+
+      return {
+        ...draft,
+        launchMode: nextLaunchMode,
+        updatedAt: Date.now(),
+      };
+    });
   }
 
   setAgentId(agentId: string): void {
@@ -452,6 +488,7 @@ export class NewSessionDraftService {
       reasoningEffort: this.isReasoningEffort(draft?.reasoningEffort) ? draft.reasoningEffort : null,
       nodeId: typeof draft?.nodeId === 'string' && draft.nodeId.trim().length > 0 ? draft.nodeId : null,
       yoloMode: typeof draft?.yoloMode === 'boolean' ? draft.yoloMode : null,
+      launchMode: this.resolveDraftLaunchMode(provider, draft?.launchMode),
       agentId: isKnownAgent ? persistedAgentId : getDefaultAgent().id,
       pendingFolders: Array.isArray(draft?.pendingFolders)
         ? draft.pendingFolders
@@ -530,6 +567,7 @@ export class NewSessionDraftService {
       reasoningEffort: null,
       nodeId: null,
       yoloMode: null,
+      launchMode: null,
       agentId: getDefaultAgent().id,
       pendingFolders: [],
       updatedAt: Date.now(),
@@ -549,6 +587,19 @@ export class NewSessionDraftService {
       model,
       getPrimaryModelForProvider(provider),
     ) ?? null;
+  }
+
+  private resolveDraftLaunchMode(
+    provider: ProviderType | null,
+    launchMode: unknown,
+  ): InstanceLaunchMode | null {
+    if (provider !== 'claude') {
+      return null;
+    }
+    if (launchMode === 'orchestrated' || launchMode === 'interactive') {
+      return launchMode;
+    }
+    return this.providerState.getLaunchModeForProvider('claude');
   }
 
   private draftHasContent(draft: NewSessionDraftState): boolean {
@@ -640,42 +691,4 @@ export class NewSessionDraftService {
       value === 'cursor' ||
       value === 'auto';
   }
-}
-
-interface NewSessionDraftState {
-  workingDirectory: string | null;
-  prompt: string;
-  provider: ProviderType | null;
-  model: string | null;
-  reasoningEffort: ReasoningEffort | null;
-  nodeId: string | null;
-  yoloMode: boolean | null; // null = use settings default
-  agentId: string;
-  pendingFolders: string[];
-  updatedAt: number;
-}
-
-interface NewSessionDraftStoreState {
-  activeKey: string;
-  drafts: Record<string, NewSessionDraftState>;
-  revision: number;
-}
-
-interface PersistedNewSessionDraft {
-  workingDirectory: string | null;
-  prompt: string;
-  provider: ProviderType | null;
-  model: string | null;
-  reasoningEffort?: ReasoningEffort | null;
-  nodeId?: string | null;
-  yoloMode?: boolean | null;
-  agentId?: string;
-  pendingFolders: string[];
-  updatedAt: number;
-}
-
-interface PersistedNewSessionDraftStoreState {
-  version: 1;
-  activeKey: string;
-  drafts: Record<string, PersistedNewSessionDraft>;
 }

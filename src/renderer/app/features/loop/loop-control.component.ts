@@ -805,7 +805,7 @@ export class LoopControlComponent implements OnDestroy {
   protected time(ts: number): string     { return shortTime(ts); }
   protected kindLabel(kind: string): string { return activityKindLabel(kind); }
   protected toolDetail(detail?: Record<string, unknown>): string { return summarizeToolDetail(detail); }
-  protected summaryStatusLabel(status: 'completed' | 'completed-needs-review' | 'cancelled' | 'failed' | 'cap-reached' | 'error' | 'no-progress'): string {
+  protected summaryStatusLabel(status: 'completed' | 'completed-needs-review' | 'cancelled' | 'failed' | 'cap-reached' | 'error' | 'no-progress' | 'provider-limit'): string {
     return terminalStatusLabel(status);
   }
 }

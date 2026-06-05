@@ -54,7 +54,7 @@ export interface LoopFinalSummaryLastIteration {
 
 export interface LoopFinalSummary {
   loopRunId: string;
-  status: 'completed' | 'completed-needs-review' | 'cancelled' | 'failed' | 'cap-reached' | 'error' | 'no-progress';
+  status: 'completed' | 'completed-needs-review' | 'cancelled' | 'failed' | 'cap-reached' | 'error' | 'no-progress' | 'provider-limit';
   reason: string;
   iterations: number;
   tokens: number;
@@ -606,6 +606,7 @@ export class LoopStore {
       || status === 'cap-reached'
       || status === 'error'
       || status === 'no-progress'
+      || status === 'provider-limit'
     );
   }
 }

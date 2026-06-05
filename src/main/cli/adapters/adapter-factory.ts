@@ -51,6 +51,8 @@ import {
 } from './adapter-spawn-helpers';
 
 const logger = getLogger('AdapterFactory');
+const INTERACTIVE_RUNTIME_UNAVAILABLE =
+  'Interactive Claude launch mode requires the terminal runtime, which is not available in this build. Switch to Orchestrated to start a managed AI Orchestrator session.';
 
 // Re-export the spawn-option types so existing `import { UnifiedSpawnOptions,
 // CliAdapter } from './adapter-factory'` sites keep resolving.
@@ -141,6 +143,10 @@ export async function resolveCliType(
  * Creates a Claude CLI adapter
  */
 export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdapter {
+  if (options.launchMode === 'interactive') {
+    throw new Error(INTERACTIVE_RUNTIME_UNAVAILABLE);
+  }
+
   const claudeOptions: ClaudeCliSpawnOptions = {
     sessionId: options.sessionId,
     workingDirectory: options.workingDirectory,
@@ -410,6 +416,13 @@ export function createCliAdapter(
   executionLocation?: ExecutionLocation,
 ): CliAdapter {
   const effectiveOptions = withBrowserGatewaySystemPrompt(options);
+  if (effectiveOptions.launchMode === 'interactive') {
+    if (cliType !== 'claude') {
+      throw new Error('Interactive launch mode is only supported for Claude.');
+    }
+    throw new Error(INTERACTIVE_RUNTIME_UNAVAILABLE);
+  }
+
   // If remote, create a RemoteCliAdapter regardless of CLI type
   if (executionLocation?.type === 'remote') {
     const connection = getWorkerNodeConnectionServer();

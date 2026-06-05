@@ -10,6 +10,7 @@ import type { ProviderPromptWeightBreakdown } from '@contracts/types/provider-ru
 import type {
   FailedImageRef,
   FileAttachment,
+  InstanceLaunchMode as SharedInstanceLaunchMode,
   InstanceRecoveryMethod,
   ThinkingContent,
 } from '../../../../../shared/types/instance.types';
@@ -88,6 +89,7 @@ export interface OutputMessage {
 }
 
 export type InstanceProvider = 'claude' | 'codex' | 'gemini' | 'ollama' | 'copilot' | 'cursor';
+export type InstanceLaunchMode = SharedInstanceLaunchMode;
 
 export interface Instance {
   id: string;
@@ -122,6 +124,7 @@ export interface Instance {
   archivedUpToMessageId?: string;
   workingDirectory: string;
   yoloMode: boolean;
+  launchMode: InstanceLaunchMode;
   currentModel?: string; // Current model being used
   reasoningEffort?: ReasoningEffort; // Optional thinking/reasoning effort override
   outputBuffer: OutputMessage[];
@@ -176,6 +179,7 @@ export interface CreateInstanceConfig {
   displayName?: string;
   parentId?: string;
   yoloMode?: boolean;
+  launchMode?: InstanceLaunchMode;
   agentId?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
   model?: string;

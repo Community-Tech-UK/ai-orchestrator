@@ -25,6 +25,7 @@ export type {
   ContextUsage,
   OutputMessage,
   InstanceProvider,
+  InstanceLaunchMode,
   Instance,
   InstanceStoreState,
   QueuedMessage,

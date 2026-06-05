@@ -14,6 +14,7 @@ import { CLAUDE_MODELS } from '../../../../shared/types/provider.types';
 describe('WelcomeCoordinatorService workflow launch', () => {
   let service: WelcomeCoordinatorService;
   let store: {
+    createInstanceWithMessage: ReturnType<typeof vi.fn>;
     createInstanceAndReturnId: ReturnType<typeof vi.fn>;
     createInstanceWithMessageAndReturnId: ReturnType<typeof vi.fn>;
     setError: ReturnType<typeof vi.fn>;
@@ -29,6 +30,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     provider: ReturnType<typeof signal<'claude' | null>>;
     model: ReturnType<typeof signal<string | null>>;
     agentId: ReturnType<typeof signal<string>>;
+    launchMode: ReturnType<typeof signal<'orchestrated' | 'interactive' | null>>;
     nodeId: ReturnType<typeof signal<string | null>>;
     updatedAt: ReturnType<typeof signal<number>>;
     hasActiveContent: ReturnType<typeof signal<boolean>>;
@@ -41,6 +43,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
 
   beforeEach(() => {
     store = {
+      createInstanceWithMessage: vi.fn().mockResolvedValue(true),
       createInstanceAndReturnId: vi.fn().mockResolvedValue('inst-new'),
       createInstanceWithMessageAndReturnId: vi.fn().mockResolvedValue('inst-new'),
       setError: vi.fn(),
@@ -63,6 +66,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       provider: signal<'claude' | null>('claude'),
       model: signal<string | null>(null),
       agentId: signal('build'),
+      launchMode: signal<'orchestrated' | 'interactive' | null>('orchestrated'),
       nodeId: signal<string | null>(null),
       updatedAt: signal(1),
       hasActiveContent: signal(true),
@@ -86,6 +90,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
           useValue: {
             getProviderForCreation: vi.fn(() => 'claude'),
             getModelForCreation: vi.fn(() => undefined),
+            getLaunchModeForProvider: vi.fn(() => 'orchestrated'),
           },
         },
         { provide: NewSessionDraftService, useValue: newSessionDraft },
@@ -121,6 +126,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       agentId: 'build',
       provider: 'claude',
       model: CLAUDE_MODELS.OPUS_1M,
+      launchMode: 'orchestrated',
       forceNodeId: undefined,
     });
     expect(orchestration.workflowCanTransition).toHaveBeenCalledWith({
@@ -161,6 +167,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       agentId: 'build',
       provider: 'claude',
       model: CLAUDE_MODELS.OPUS_1M,
+      launchMode: 'orchestrated',
       forceNodeId: undefined,
     });
     expect(store.createInstanceWithMessageAndReturnId).not.toHaveBeenCalled();
@@ -174,5 +181,69 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     expect(newSessionDraft.clearActiveComposer).toHaveBeenCalled();
     expect(recentDirs.addDirectory).toHaveBeenCalledWith('/repo', undefined);
     expect(creatingStates).toEqual([true]);
+  });
+
+  it('passes interactive launch mode through normal welcome session creation', async () => {
+    newSessionDraft.launchMode.set('interactive');
+
+    const launched = await service.onWelcomeSendMessage(
+      'Open a terminal session',
+      vi.fn(),
+    );
+
+    expect(launched).toBe(true);
+    expect(store.createInstanceWithMessageAndReturnId).not.toHaveBeenCalled();
+    expect(store.createInstanceWithMessage).toHaveBeenCalledWith({
+      message: 'Folders:\nplans\n\nOpen a terminal session',
+      files: [],
+      workingDirectory: '/repo',
+      agentId: 'build',
+      provider: 'claude',
+      model: CLAUDE_MODELS.OPUS_1M,
+      launchMode: 'interactive',
+      forceNodeId: undefined,
+    });
+  });
+
+  it('blocks workflow orchestration for interactive launch mode', async () => {
+    newSessionDraft.launchMode.set('interactive');
+
+    const launched = await service.onWelcomeStartSessionWithWorkflow(
+      'Please review this plan',
+      'pr-review',
+      vi.fn(),
+    );
+
+    expect(launched).toBe(false);
+    expect(store.createInstanceWithMessageAndReturnId).not.toHaveBeenCalled();
+    expect(orchestration.workflowCanTransition).not.toHaveBeenCalled();
+    expect(store.setError).toHaveBeenCalledWith(
+      'Interactive Claude sessions are human-driven and cannot start workflows. Switch to Orchestrated to use workflows.',
+    );
+  });
+
+  it('blocks loop orchestration for interactive launch mode', async () => {
+    newSessionDraft.launchMode.set('interactive');
+    const startLoop = vi.fn().mockResolvedValue({ ok: true });
+
+    const launched = await service.onWelcomeStartSessionWithLoop(
+      'Please implement this plan',
+      {
+        initialPrompt: 'Please implement this plan',
+        iterationPrompt: 'Continue until done',
+        workspaceCwd: '/repo',
+        provider: 'claude',
+        contextStrategy: 'fresh-child',
+      },
+      vi.fn(),
+      startLoop,
+    );
+
+    expect(launched).toBe(false);
+    expect(store.createInstanceAndReturnId).not.toHaveBeenCalled();
+    expect(startLoop).not.toHaveBeenCalled();
+    expect(store.setError).toHaveBeenCalledWith(
+      'Interactive Claude sessions are human-driven and cannot start Loop Mode. Switch to Orchestrated to use Loop Mode.',
+    );
   });
 });

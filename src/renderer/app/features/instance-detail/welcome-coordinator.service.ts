@@ -11,6 +11,7 @@ import { NewSessionDraftService } from '../../core/services/new-session-draft.se
 import { FileAttachmentService } from './file-attachment.service';
 import { normalizeModelForProvider } from '../../../../shared/types/provider.types';
 import type { RecentDirectoryEntry } from '../../../../shared/types/recent-directories.types';
+import type { InstanceLaunchMode } from '../../../../shared/types/instance.types';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 
 export interface WelcomeProjectContext {
@@ -29,6 +30,7 @@ interface WelcomeLaunchConfig {
   agentId: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
   model?: string;
+  launchMode?: InstanceLaunchMode;
   forceNodeId?: string;
 }
 
@@ -187,6 +189,12 @@ export class WelcomeCoordinatorService {
     const sessionMessage = firstMessage.trim() || config.initialPrompt;
     const plan = this.prepareWelcomeLaunch(sessionMessage);
     if (!plan) return false;
+    if (plan.config.launchMode === 'interactive') {
+      this.store.setError(
+        'Interactive Claude sessions are human-driven and cannot start Loop Mode. Switch to Orchestrated to use Loop Mode.',
+      );
+      return false;
+    }
 
     onCreatingChange(true);
     const instanceId = await this.store.createInstanceAndReturnId({
@@ -194,6 +202,7 @@ export class WelcomeCoordinatorService {
       agentId: plan.config.agentId,
       provider: plan.config.provider,
       model: plan.config.model,
+      launchMode: plan.config.launchMode,
       forceNodeId: plan.forceNodeId,
     });
     if (!instanceId) {
@@ -221,6 +230,12 @@ export class WelcomeCoordinatorService {
   ): Promise<boolean> {
     const plan = this.prepareWelcomeLaunch(message);
     if (!plan) return false;
+    if (plan.config.launchMode === 'interactive') {
+      this.store.setError(
+        'Interactive Claude sessions are human-driven and cannot start workflows. Switch to Orchestrated to use workflows.',
+      );
+      return false;
+    }
 
     onCreatingChange(true);
     const instanceId = await this.store.createInstanceWithMessageAndReturnId(plan.config);
@@ -272,6 +287,9 @@ export class WelcomeCoordinatorService {
     const model = provider
       ? normalizeModelForProvider(provider, requestedModel)
       : undefined;
+    const launchMode = provider === 'claude'
+      ? (this.newSessionDraft.launchMode() ?? this.providerState.getLaunchModeForProvider('claude'))
+      : undefined;
     const pendingFolders = this.pendingFolders();
     const finalMessage = this.fileAttachment.prependPendingFolders(
       message,
@@ -316,6 +334,7 @@ export class WelcomeCoordinatorService {
         agentId: this.newSessionDraft.agentId(),
         provider,
         model,
+        launchMode,
         forceNodeId,
       },
       effectiveWorkingDir,

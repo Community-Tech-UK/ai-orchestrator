@@ -87,8 +87,13 @@ describe('evaluateQuotaThrottle', () => {
   describe('overage guard', () => {
     const credits = w({ id: 'claude.credits', label: 'Credits', unit: 'usd', used: 5, limit: 100, remaining: 95 });
 
-    it('fires when paid credits are being consumed', () => {
+    it('does not fire on cumulative paid credits when the normal window has headroom', () => {
       const d = evaluateQuotaThrottle(snap([w({ used: 50 }), credits]));
+      expect(d.action).toBe('continue');
+    });
+
+    it('fires when paid credits are the only usable quota signal', () => {
+      const d = evaluateQuotaThrottle(snap([credits]));
       expect(d.action).toBe('overage-guard');
       expect(d.window!.id).toBe('claude.credits');
     });

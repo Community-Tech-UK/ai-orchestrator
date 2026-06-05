@@ -10,6 +10,11 @@ import type {
   InterruptResult,
   ResumeAttemptResult,
 } from '../cli/adapters/base-cli-adapter';
+import {
+  getProviderRuntimeRegistry,
+  runtimeDescriptorForSpawn,
+  type ProviderRuntimeRegistry,
+} from './provider-runtime-registry';
 
 export interface ProviderRuntimeStartInput {
   cliType: CliType;
@@ -24,6 +29,13 @@ export interface ProviderRuntimeContract {
   getResumeProof(adapter?: CliAdapter): ResumeAttemptResult | undefined;
 }
 
+export type ProviderRuntimeAdapterCreator = (input: ProviderRuntimeStartInput) => CliAdapter;
+
+export interface ProviderRuntimeServiceDeps {
+  registry?: ProviderRuntimeRegistry;
+  createAdapter?: ProviderRuntimeAdapterCreator;
+}
+
 const DEFAULT_RUNTIME_CAPABILITIES: AdapterRuntimeCapabilities = {
   supportsResume: false,
   supportsForkSession: false,
@@ -34,8 +46,43 @@ const DEFAULT_RUNTIME_CAPABILITIES: AdapterRuntimeCapabilities = {
 };
 
 export class ProviderRuntimeService implements ProviderRuntimeContract {
+  private readonly registry: ProviderRuntimeRegistry;
+  private readonly createAdapterFn: ProviderRuntimeAdapterCreator;
+
+  constructor(deps: ProviderRuntimeServiceDeps = {}) {
+    this.registry = deps.registry ?? getProviderRuntimeRegistry();
+    this.createAdapterFn = deps.createAdapter
+      ?? ((input) => createCliAdapter(input.cliType, input.options, input.executionLocation));
+  }
+
   createAdapter(input: ProviderRuntimeStartInput): CliAdapter {
-    return createCliAdapter(input.cliType, input.options, input.executionLocation);
+    try {
+      const adapter = this.createAdapterFn(input);
+      this.registry.recordAvailable({
+        provider: input.cliType,
+        runtime: runtimeDescriptorForSpawn(
+          input.cliType,
+          input.options.workingDirectory,
+          input.executionLocation,
+        ),
+        capabilities: this.getCapabilities(adapter),
+        model: input.options.model,
+        source: 'adapter-created',
+      });
+      return adapter;
+    } catch (error) {
+      this.registry.recordUnavailable({
+        provider: input.cliType,
+        runtime: runtimeDescriptorForSpawn(
+          input.cliType,
+          input.options.workingDirectory,
+          input.executionLocation,
+        ),
+        message: error instanceof Error ? error.message : String(error),
+        source: 'adapter-create-failed',
+      });
+      throw error;
+    }
   }
 
   getCapabilities(adapter?: CliAdapter): AdapterRuntimeCapabilities {

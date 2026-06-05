@@ -24,6 +24,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getHistoryManager } from '../history';
 import { getOutputStorageManager } from '../memory';
 import { getProjectMemoryBriefService } from '../memory/project-memory-brief';
+import { getContextWorkerClient } from './context-worker-client';
 import { extractAuthoredLessons } from '../memory/project-story-convention';
 import { getProjectKnowledgeCoordinator } from '../memory/project-knowledge-coordinator';
 import { getConversationMiner } from '../memory/conversation-miner';
@@ -36,9 +37,7 @@ import type {
   Instance,
   InstanceCreateConfig,
   InstanceStatus,
-  ContextUsage,
   OutputMessage,
-  SessionDiffStats
 } from '../../shared/types/instance.types';
 import { getModelSwitchUnavailableReason } from '../../shared/types/instance-status-policy';
 import { createPromptHistoryEntryId } from '../../shared/types/prompt-history.types';
@@ -51,7 +50,6 @@ import { RecoveryRecipeEngine } from '../session/recovery-recipe-engine';
 import { createBuiltinRecipes } from '../session/builtin-recovery-recipes';
 import { getCheckpointManager } from '../session/checkpoint-manager';
 import type { DetectedFailure } from '../../shared/types/error-recovery.types';
-import { WarmStartManager } from './warm-start-manager';
 import { SessionDiffTracker } from './session-diff-tracker';
 import {
   IllegalTransitionError,
@@ -1065,13 +1063,22 @@ export class InstanceLifecycleManager extends EventEmitter {
         // Inject a compact, project-scoped memory brief for fresh root sessions.
         if (instance.depth === 0 && !isRestoreOrReplayContinuity(config)) {
           try {
-            const projectBrief = await getProjectMemoryBriefService().buildBrief({
+            const projectBriefRequest = {
               projectPath: instance.workingDirectory,
               instanceId: instance.id,
               initialPrompt: config.initialPrompt,
               provider: config.provider,
               model: config.modelOverride || resolvedAgent.modelOverride || this.settings.getAll().defaultModel,
-            });
+            };
+            let projectBrief = await getContextWorkerClient()
+              .buildProjectMemoryBrief(projectBriefRequest)
+              .catch((error) => {
+                logger.warn('Context worker failed to build project memory brief; falling back to main process', {
+                  error: error instanceof Error ? error.message : String(error),
+                });
+                return null;
+              });
+            projectBrief ??= await getProjectMemoryBriefService().buildBrief(projectBriefRequest);
             if (projectBrief.text.trim()) {
               systemPrompt = `${systemPrompt}\n\n---\n\n${projectBrief.text}`;
               logger.info('Injected project memory brief into system prompt', {
@@ -1364,6 +1371,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           systemPrompt: systemPrompt,
           model: modelOverride,
           yoloMode: instance.yoloMode,
+          launchMode: instance.launchMode,
           reasoningEffort: config.reasoningEffort,
           allowedTools: toolPermissions.allowedTools,
           disallowedTools: toolPermissions.disallowedToolsForSpawn,
@@ -1834,6 +1842,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           sessionId: instance.sessionId,
           workingDirectory: instance.workingDirectory,
           yoloMode: instance.yoloMode,
+          launchMode: instance.launchMode,
           model: instance.currentModel,
           resume: canAttemptNativeResume,
           mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
@@ -2021,6 +2030,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         sessionId: providerSessionId,
         workingDirectory: instance.workingDirectory,
         yoloMode: instance.yoloMode,
+        launchMode: instance.launchMode,
         model: instance.currentModel,
         resume: true,
         forkSession: false,
@@ -2094,6 +2104,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         sessionId: newProviderSessionId,
         workingDirectory: instance.workingDirectory,
         yoloMode: instance.yoloMode,
+        launchMode: instance.launchMode,
         model: instance.currentModel,
         resume: false,
         forkSession: false,
@@ -2335,6 +2346,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           sessionId: newProviderSessionId,
           workingDirectory: instance.workingDirectory,
           yoloMode: instance.yoloMode,
+          launchMode: instance.launchMode,
           model: instance.currentModel,
           resume: false,
           forkSession: false,
@@ -2490,6 +2502,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         workingDirectory: instance.workingDirectory,
         systemPrompt: newAgent.systemPrompt,
         yoloMode: instance.yoloMode,
+        launchMode: instance.launchMode,
         model: instance.currentModel,
         allowedTools: toolPermissions.allowedTools,
         disallowedTools: toolPermissions.disallowedToolsForSpawn,
@@ -2686,6 +2699,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         workingDirectory: instance.workingDirectory,
         systemPrompt: agent.systemPrompt,
         yoloMode: newYoloMode,
+        launchMode: instance.launchMode,
         allowedTools: toolPermissions.allowedTools,
         disallowedTools: toolPermissions.disallowedToolsForSpawn,
         resume: shouldResume,
@@ -2925,6 +2939,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         systemPrompt: agent.systemPrompt,
         model: validatedModel,
         yoloMode: instance.yoloMode,
+        launchMode: instance.launchMode,
         reasoningEffort: nextReasoningEffort,
         allowedTools: toolPermissions.allowedTools,
         disallowedTools: toolPermissions.disallowedToolsForSpawn,

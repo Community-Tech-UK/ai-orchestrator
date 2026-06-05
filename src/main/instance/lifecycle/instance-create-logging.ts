@@ -72,6 +72,7 @@ export function summarizeCreateInstanceConfig(config: InstanceCreateConfig): Rec
     initialContextBlockLength: config.initialContextBlock?.length ?? 0,
     attachments: summarizeAttachments(config.attachments),
     yoloMode: config.yoloMode,
+    launchMode: config.launchMode,
     initialOutputBuffer: summarizeInitialOutputBuffer(config.initialOutputBuffer),
     agentId: config.agentId,
     modelOverride: config.modelOverride,

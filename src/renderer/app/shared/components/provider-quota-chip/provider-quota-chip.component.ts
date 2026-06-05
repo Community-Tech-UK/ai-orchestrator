@@ -409,5 +409,6 @@ const PROVIDER_CODES: Record<ProviderId, string> = {
   cursor: 'CU',
 };
 const PREFERRED_SUMMARY_WINDOW_IDS: Partial<Record<ProviderId, string[]>> = {
+  claude: ['claude.weekly'],
   codex: ['codex.weekly'],
 };

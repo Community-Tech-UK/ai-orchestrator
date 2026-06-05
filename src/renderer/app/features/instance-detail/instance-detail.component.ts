@@ -61,6 +61,13 @@ import {
   type ConversationData,
   type ConversationHistoryEntry,
 } from '../../../../shared/types/history.types';
+import {
+  buildHistoryPreviewPendingRestoreMessages,
+  getHistoryPreviewInstanceId,
+  getHistoryPreviewSubtitle,
+  providerDisplayName,
+  shouldShowWakeupReviveToggle,
+} from './instance-detail-history-preview.utils';
 
 interface RestartToast {
   id: string;
@@ -153,10 +160,10 @@ export class InstanceDetailComponent {
     const provider = inferConversationHistoryProvider(entry) as InstanceProvider;
 
     return {
-      id: this.getHistoryPreviewInstanceId(entry.id),
+      id: getHistoryPreviewInstanceId(entry.id),
       entry,
       title: getConversationHistoryTitle(entry),
-      subtitle: this.getHistoryPreviewSubtitle(entry, provider),
+      subtitle: getHistoryPreviewSubtitle(entry, provider),
       provider,
       currentModel: entry.currentModel,
       messages: [
@@ -608,31 +615,11 @@ export class InstanceDetailComponent {
   }
 
   showWakeupReviveToggle(status: string): boolean {
-    return status === 'failed'
-      || status === 'error'
-      || status === 'terminated'
-      || status === 'cancelled'
-      || status === 'superseded'
-      || status === 'hibernated';
+    return shouldShowWakeupReviveToggle(status);
   }
 
   getProviderDisplayName(provider: string): string {
-    switch (provider) {
-      case 'claude':
-        return 'Claude';
-      case 'codex':
-        return 'Codex';
-      case 'gemini':
-        return 'Gemini';
-      case 'ollama':
-        return 'Ollama';
-      case 'copilot':
-        return 'Copilot';
-      case 'cursor':
-        return 'Cursor';
-      default:
-        return 'AI';
-    }
+    return providerDisplayName(provider);
   }
 
   toggleModelDropdown(): void {
@@ -1399,29 +1386,7 @@ export class InstanceDetailComponent {
   }
 
   private addHistoryPreviewPendingRestoreMessage(entryId: string, message: string): string {
-    const id = `history-preview-queued-${entryId}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    const timestamp = Date.now();
-    const messages: OutputMessage[] = [
-      {
-        id: `${id}-user`,
-        timestamp,
-        type: 'user',
-        content: message,
-        metadata: {
-          historyPreviewQueued: true,
-        },
-      },
-      {
-        id: `${id}-notice`,
-        timestamp: timestamp + 1,
-        type: 'system',
-        content: 'Restoring this session. Your message will send when the session is ready.',
-        metadata: {
-          isRestoreNotice: true,
-          systemMessageKind: 'history-preview-restore-queue',
-        },
-      },
-    ];
+    const { id, messages } = buildHistoryPreviewPendingRestoreMessages(entryId, message);
 
     this.historyPreviewPendingRestoreMessages.update((current) => ({
       ...current,
@@ -1448,24 +1413,6 @@ export class InstanceDetailComponent {
         [entryId]: nextMessages,
       };
     });
-  }
-
-  private getHistoryPreviewInstanceId(entryId: string): string {
-    return `history-preview:${entryId}`;
-  }
-
-  private getHistoryPreviewSubtitle(
-    entry: ConversationHistoryEntry,
-    provider: InstanceProvider
-  ): string {
-    const path = entry.workingDirectory.trim() || 'No workspace';
-    return `${this.getProviderDisplayName(provider)} history - ${this.shortenPath(path)}`;
-  }
-
-  private shortenPath(path: string): string {
-    return path
-      .replace(/^\/Users\/[^/]+/, '~')
-      .replace(/^\/home\/[^/]+/, '~');
   }
 
   private getEnteringInspectorToggle(): 'todo' | 'review' | 'children' | null {

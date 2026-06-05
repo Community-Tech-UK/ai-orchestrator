@@ -10,6 +10,7 @@
  */
 
 import { getLogger } from '../../logging/logger';
+import type { InstanceLaunchMode } from '../../../shared/types/instance.types';
 
 const logger = getLogger('InstanceSpawner');
 
@@ -28,6 +29,7 @@ export interface SpawnConfig {
   resumeSessionId?: string;
   env?: Record<string, string>;
   yoloMode?: boolean;
+  launchMode?: InstanceLaunchMode;
 }
 
 export interface SpawnResult {
@@ -65,6 +67,7 @@ export class InstanceSpawner {
       resumeSessionId: config.resumeSessionId,
       env: config.env,
       yoloMode: config.yoloMode,
+      launchMode: config.launchMode,
       instructions,
     });
 

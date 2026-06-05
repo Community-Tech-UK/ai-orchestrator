@@ -74,6 +74,7 @@ export function buildInstanceRecord(
     adapterGeneration: 0,
     workingDirectory: parentContext.workingDirectory,
     yoloMode: parentContext.yoloMode,
+    launchMode: config.launchMode ?? 'orchestrated',
     provider: config.provider || 'auto',
     // Seed from the caller's explicit pick so the renderer chip matches the
     // draft composer before Phase-2 async init resolves settings fallbacks.

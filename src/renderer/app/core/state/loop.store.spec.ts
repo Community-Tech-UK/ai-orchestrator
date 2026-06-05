@@ -379,6 +379,32 @@ describe('LoopStore', () => {
     });
   });
 
+  it('treats provider-limit as terminal and captures a stopped summary', () => {
+    store.ensureWired();
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: activeState(),
+    }));
+
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: {
+        ...activeState(),
+        status: 'provider-limit',
+        totalIterations: 0,
+        endedAt: 1778310600000,
+        endReason: '5-hour session exhausted',
+      },
+    }));
+
+    expect(store.activeForChat('chat-1')()).toBeUndefined();
+    expect(store.summaryForChat('chat-1')()).toMatchObject({
+      status: 'provider-limit',
+      iterations: 0,
+      reason: '5-hour session exhausted',
+    });
+  });
+
   it('snapshots the last iteration onto the terminal summary so the card can recap without an extra IPC', () => {
     store.ensureWired();
     const base = activeState();

@@ -15,6 +15,10 @@ import type {
   MetricsCollectorStateSnapshot,
   OutcomeTrackerStateSnapshot,
 } from '../learning/learning-state.types';
+import type {
+  ProjectMemoryBrief,
+  ProjectMemoryBriefRequest,
+} from '../memory/project-memory-brief';
 
 // ── Clone-safe snapshots ──────────────────────────────────────────────────────
 
@@ -74,6 +78,12 @@ export interface BuildObservationContextMsg {
   taskContext: string;
   instanceId?: string;
   taskType?: string;
+}
+
+export interface BuildProjectMemoryBriefMsg {
+  type: 'build-project-memory-brief';
+  id: number;
+  request: ProjectMemoryBriefRequest;
 }
 
 export interface BuildMcpRuntimeToolContextMsg {
@@ -148,6 +158,7 @@ export type ContextWorkerRpcMsg =
   | BuildRlmContextMsg
   | BuildUnifiedMemoryContextMsg
   | BuildObservationContextMsg
+  | BuildProjectMemoryBriefMsg
   | BuildWakeContextTextMsg
   | BuildMcpRuntimeToolContextMsg
   | LoadOutcomeTrackerStateMsg
@@ -188,4 +199,6 @@ export type {
   McpRuntimeToolContextSelection,
   MetricsCollectorStateSnapshot,
   OutcomeTrackerStateSnapshot,
+  ProjectMemoryBrief,
+  ProjectMemoryBriefRequest,
 };

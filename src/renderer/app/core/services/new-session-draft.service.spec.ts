@@ -11,11 +11,18 @@ import { ProviderStateService } from './provider-state.service';
  */
 class StubProviderStateService {
   private remembered = new Map<string, string>();
+  private rememberedLaunchModes = new Map<string, string>();
   getLastModelForProvider(): undefined {
     return undefined;
   }
   rememberModelForProvider(provider: string, model: string): void {
     this.remembered.set(provider, model);
+  }
+  getLaunchModeForProvider(provider: string): string {
+    return this.rememberedLaunchModes.get(provider) ?? 'orchestrated';
+  }
+  rememberLaunchModeForProvider(provider: string, launchMode: string): void {
+    this.rememberedLaunchModes.set(provider, launchMode);
   }
 }
 
@@ -223,5 +230,38 @@ describe('NewSessionDraftService', () => {
 
     service.setProvider('claude');
     expect(service.reasoningEffort()).toBe('high');
+  });
+
+  it('persists Claude launch mode across reload', () => {
+    vi.useFakeTimers();
+    try {
+      service.open('/Users/suas/work/orchestrat0r/claude-orchestrator');
+      service.setProvider('claude');
+      service.setLaunchMode('interactive');
+      vi.advanceTimersByTime(250);
+
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          NewSessionDraftService,
+          { provide: ProviderStateService, useClass: StubProviderStateService },
+        ],
+      });
+      const reloaded = createService();
+      reloaded.open('/Users/suas/work/orchestrat0r/claude-orchestrator');
+      expect(reloaded.launchMode()).toBe('interactive');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uses remembered Claude launch mode when switching providers', () => {
+    service.setProvider('claude');
+    service.setLaunchMode('interactive');
+    service.setProvider('codex');
+    expect(service.launchMode()).toBeNull();
+
+    service.setProvider('claude');
+    expect(service.launchMode()).toBe('interactive');
   });
 });

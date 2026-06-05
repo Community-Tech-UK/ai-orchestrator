@@ -60,6 +60,7 @@ import {
 } from '../../core/services/textarea-caret-position.util';
 import type {
   ContextUsage,
+  InstanceLaunchMode,
   InstanceProvider,
   InstanceStatus,
   OutputMessage,
@@ -74,6 +75,13 @@ import {
   type LightboxItem,
 } from '../../shared/components/image-lightbox/image-lightbox.component';
 import type { NlWorkflowSuggestion } from '../../../../shared/types/workflow.types';
+import {
+  defaultWakeupLocal,
+  formatFileSize,
+  getFileIcon,
+  parseWakeupLocal,
+  truncateQueuedMessage,
+} from './input-panel-formatters';
 
 const LOOP_START_ACK_TIMEOUT_MS = 30_000;
 
@@ -143,8 +151,8 @@ export class InputPanelComponent implements OnDestroy {
       file,
       isImage: file.type.startsWith('image/'),
       previewUrl: this.getOrCreatePreviewUrl(file),
-      size: this.formatFileSize(file.size),
-      icon: this.getFileIcon(file),
+      size: formatFileSize(file.size),
+      icon: getFileIcon(file),
     }));
   });
 
@@ -523,6 +531,22 @@ export class InputPanelComponent implements OnDestroy {
     return draftValue ?? this.settingsStore.defaultYoloMode();
   });
 
+  readonly effectiveLaunchMode = computed<InstanceLaunchMode>(() => {
+    if (this.selectedProvider() !== 'claude') {
+      return 'orchestrated';
+    }
+    return this.newSessionDraft.launchMode()
+      ?? this.providerState.getLaunchModeForProvider('claude');
+  });
+
+  readonly showLaunchModeSelector = computed(() =>
+    this.isDraftComposer() && this.selectedProvider() === 'claude',
+  );
+
+  onLaunchModeSelected(launchMode: InstanceLaunchMode): void {
+    this.newSessionDraft.setLaunchMode(launchMode);
+  }
+
   // Ghost text suggestion state
   ghostSuggestion = signal<string | null>(null);
   nlWorkflowSuggestion = signal<NlWorkflowSuggestion | null>(null);
@@ -531,7 +555,7 @@ export class InputPanelComponent implements OnDestroy {
   temporaryVoiceKey = signal('');
   showWakeupMenu = signal(false);
   wakeupMode = signal<'once' | 'loop'>('once');
-  wakeupRunAtLocal = signal(this.defaultWakeupLocal());
+  wakeupRunAtLocal = signal(defaultWakeupLocal());
   wakeupIntervalMinutes = signal(20);
   wakeupReviveIfArchived = signal(true);
   private isFocused = signal(false);
@@ -819,7 +843,7 @@ export class InputPanelComponent implements OnDestroy {
   onToggleWakeupMenu(): void {
     this.showWakeupMenu.update((open) => !open);
     if (!this.wakeupRunAtLocal()) {
-      this.wakeupRunAtLocal.set(this.defaultWakeupLocal());
+      this.wakeupRunAtLocal.set(defaultWakeupLocal());
     }
   }
 
@@ -837,7 +861,7 @@ export class InputPanelComponent implements OnDestroy {
 
   onCreateWakeup(): void {
     const prompt = this.message().trim() || 'Continue from here.';
-    const runAt = this.parseWakeupLocal(this.wakeupRunAtLocal()) ?? Date.now() + 60 * 60 * 1000;
+    const runAt = parseWakeupLocal(this.wakeupRunAtLocal()) ?? Date.now() + 60 * 60 * 1000;
     this.createWakeup.emit({
       prompt,
       runAt,
@@ -1417,35 +1441,6 @@ export class InputPanelComponent implements OnDestroy {
     this.ghostSuggestion.set(null);
   }
 
-  getFileIcon(file: File): string {
-    if (file.type.startsWith('image/')) return '🖼️';
-    if (file.type.includes('pdf')) return '📄';
-    if (file.type.includes('text')) return '📝';
-    if (file.type.includes('json') || file.type.includes('javascript')) return '📋';
-    return '📎';
-  }
-
-  formatFileSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
-  private defaultWakeupLocal(): string {
-    return this.toDatetimeLocal(Date.now() + 60 * 60 * 1000);
-  }
-
-  private toDatetimeLocal(timestamp: number): string {
-    const date = new Date(timestamp);
-    const offsetMs = date.getTimezoneOffset() * 60_000;
-    return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
-  }
-
-  private parseWakeupLocal(value: string): number | null {
-    const parsed = Date.parse(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
   onRemoveFile(file: File): void {
     // Revoke the preview URL
     const url = this.filePreviewUrls.get(file);
@@ -1500,11 +1495,7 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   truncateMessage(message: string): string {
-    const firstLine = message.split('\n')[0];
-    if (firstLine.length > 50) {
-      return firstLine.slice(0, 50) + '...';
-    }
-    return firstLine + (message.includes('\n') ? '...' : '');
+    return truncateQueuedMessage(message);
   }
 
   onCancelQueuedMessage(index: number): void {

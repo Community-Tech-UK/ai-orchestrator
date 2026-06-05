@@ -8,6 +8,7 @@ import {
 } from './common.schemas';
 
 const ReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow']);
+export const InstanceLaunchModeSchema = z.enum(['orchestrated', 'interactive']);
 
 // ============ Instance Creation ============
 
@@ -19,6 +20,7 @@ export const InstanceCreatePayloadSchema = z.object({
   initialPrompt: z.string().max(500000).optional(),
   attachments: z.array(FileAttachmentSchema).max(10).optional(),
   yoloMode: z.boolean().optional(),
+  launchMode: InstanceLaunchModeSchema.optional(),
   agentId: z.string().max(100).optional(),
   provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor']).optional(),
   model: z.string().max(100).optional(),
@@ -31,6 +33,7 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
   workingDirectory: WorkingDirectorySchema,
   message: z.string().min(0).max(500000),
   attachments: z.array(FileAttachmentSchema).max(10).optional(),
+  launchMode: InstanceLaunchModeSchema.optional(),
   agentId: z.string().max(100).optional(),
   provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor']).optional(),
   model: z.string().max(100).optional(),

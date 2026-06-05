@@ -4916,7 +4916,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3169
+      "lines": 3184
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
@@ -5035,16 +5035,20 @@
       "lines": 1867
     },
     {
+      "path": "packages/contracts/src/types/transport.types.ts",
+      "lines": 1832
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-hardening.md",
       "lines": 1830
     },
     {
-      "path": "packages/contracts/src/types/transport.types.ts",
-      "lines": 1828
-    },
-    {
       "path": "docs/superpowers/plans/2026-03-21-discord-channels_completed.md",
       "lines": 1803
+    },
+    {
+      "path": "src/main/instance/__tests__/instance-manager.spec.ts",
+      "lines": 1710
     },
     {
       "path": "src/main/session/session-continuity.ts",
@@ -5052,11 +5056,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1690
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.spec.ts",
-      "lines": 1661
+      "lines": 1681
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
@@ -5087,12 +5087,12 @@
       "lines": 1540
     },
     {
-      "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
-      "lines": 1536
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-02-phase-e-developer-experience.md",
       "lines": 1517
+    },
+    {
+      "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
+      "lines": 1483
     },
     {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-audit-phase2.COMPLETED.md",
@@ -5159,6 +5159,10 @@
       "lines": 1321
     },
     {
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
+      "lines": 1320
+    },
+    {
       "path": "src/main/ipc/orchestration-ipc-handler.ts",
       "lines": 1316
     },
@@ -5169,10 +5173,6 @@
     {
       "path": "src/main/workspace/git/vcs-manager.ts",
       "lines": 1296
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
-      "lines": 1282
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
@@ -5312,7 +5312,7 @@
     },
     {
       "path": "src/main/ipc/handlers/instance-handlers.ts",
-      "lines": 1098
+      "lines": 1101
     },
     {
       "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
@@ -5383,6 +5383,10 @@
       "lines": 989
     },
     {
+      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
+      "lines": 982
+    },
+    {
       "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
       "lines": 978
     },
@@ -5405,10 +5409,6 @@
     {
       "path": "src/main/orchestration/cli-verification-extension.ts",
       "lines": 973
-    },
-    {
-      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
-      "lines": 972
     },
     {
       "path": "docs/superpowers/specs/2026-04-21-mcp-multi-provider-management-design.md",

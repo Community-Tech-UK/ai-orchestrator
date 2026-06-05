@@ -133,6 +133,7 @@ export class WorkspaceBenchService implements WorkspaceBenchmarkHarness {
       restartEpoch: 0,
       workingDirectory: '/benchmark',
       yoloMode: false,
+      launchMode: 'orchestrated',
       currentModel: 'benchmark',
       outputBuffer: messages,
     };

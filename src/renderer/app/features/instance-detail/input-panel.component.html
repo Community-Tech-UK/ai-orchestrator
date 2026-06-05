@@ -92,6 +92,26 @@
             [selectedAgentId]="selectedAgentId()"
             (agentSelected)="onAgentSelected($event)"
           />
+          @if (showLaunchModeSelector()) {
+            <div class="launch-mode-segments" role="group" aria-label="Claude launch mode">
+              <button
+                type="button"
+                [class.active]="effectiveLaunchMode() === 'orchestrated'"
+                (click)="onLaunchModeSelected('orchestrated')"
+                title="Orchestrated: full AI Orchestrator routing, workflows, Loop Mode, and managed approvals"
+              >
+                Orchestrated
+              </button>
+              <button
+                type="button"
+                [class.active]="effectiveLaunchMode() === 'interactive'"
+                (click)="onLaunchModeSelected('interactive')"
+                title="Interactive: human-driven Claude terminal session; workflows and Loop Mode are unavailable"
+              >
+                Interactive
+              </button>
+            </div>
+          }
           <button
             class="yolo-toggle"
             [class.active]="effectiveYoloMode()"

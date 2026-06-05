@@ -41,6 +41,7 @@ import type {
   BuildRlmContextMsg,
   BuildUnifiedMemoryContextMsg,
   BuildObservationContextMsg,
+  BuildProjectMemoryBriefMsg,
   BuildWakeContextTextMsg,
   BuildMcpRuntimeToolContextMsg,
   CompactContextMsg,
@@ -51,6 +52,8 @@ import type {
   MetricsCollectorStateSnapshot,
   OutcomeTrackerStateSnapshot,
   GetStatsMsg,
+  ProjectMemoryBrief,
+  ProjectMemoryBriefRequest,
   ShutdownMsg,
 } from './context-worker-protocol';
 
@@ -89,6 +92,7 @@ type RpcMsgWithId =
   | BuildRlmContextMsg
   | BuildUnifiedMemoryContextMsg
   | BuildObservationContextMsg
+  | BuildProjectMemoryBriefMsg
   | BuildWakeContextTextMsg
   | BuildMcpRuntimeToolContextMsg
   | LoadOutcomeTrackerStateMsg
@@ -390,6 +394,21 @@ export class ContextWorkerClient implements InstanceContextPort {
       taskType,
     });
     return typeof result === 'string' ? result : null;
+  }
+
+  async buildProjectMemoryBrief(
+    request: ProjectMemoryBriefRequest,
+  ): Promise<ProjectMemoryBrief | null> {
+    if (this.isDegraded) {
+      return null;
+    }
+    const id = this.nextId();
+    const result = await this.postRpc({
+      type: 'build-project-memory-brief',
+      id,
+      request,
+    });
+    return result ? (result as ProjectMemoryBrief) : null;
   }
 
   async buildMcpRuntimeToolContextSelection(

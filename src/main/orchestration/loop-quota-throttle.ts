@@ -102,24 +102,7 @@ export function evaluateQuotaThrottle(
   const throttlePct = options.throttlePct ?? DEFAULT_THROTTLE_PCT;
   const allowOverage = options.allowOverage ?? false;
 
-  // 1. Hard real-money guard: if a paid credits window is already being
-  //    consumed, stop unless the operator explicitly opted in.
-  if (!allowOverage) {
-    const credits = snapshot.windows.find(
-      (w) => isOverageWindow(w) && w.limit > 0 && w.used > 0,
-    );
-    if (credits) {
-      return {
-        action: 'overage-guard',
-        window: credits,
-        reason:
-          'paid overage credits are being consumed — parking (allowOverage is off)',
-        resumeAt: credits.resetsAt,
-      };
-    }
-  }
-
-  // 2. Find the most-utilized non-overage window — the binding constraint.
+  // 1. Find the most-utilized non-overage window — the binding constraint.
   let binding: ProviderQuotaWindow | null = null;
   let bindingPct = -1;
   for (const w of snapshot.windows) {
@@ -132,7 +115,39 @@ export function evaluateQuotaThrottle(
     }
   }
 
-  if (!binding) return { action: 'continue' };
+  const credits = snapshot.windows.find(
+    (w) => isOverageWindow(w) && w.limit > 0 && w.used > 0,
+  );
+
+  if (!binding) {
+    if (!allowOverage && credits) {
+      return {
+        action: 'overage-guard',
+        window: credits,
+        reason:
+          'paid overage credits are being consumed — parking (allowOverage is off)',
+        resumeAt: credits.resetsAt,
+      };
+    }
+    return { action: 'continue' };
+  }
+
+  // 2. Hard real-money guard: if a paid credits window is the only usable
+  // quota signal, stop unless the operator explicitly opted in. Do not let a
+  // nonzero credits bucket preempt normal-window headroom: Claude reports
+  // extra_usage.used_credits as monthly cumulative usage, not proof that the
+  // next request would currently consume paid overage.
+  if (!allowOverage && bindingPct >= throttlePct) {
+    if (credits && bindingPct >= 100) {
+      return {
+        action: 'overage-guard',
+        window: credits,
+        reason:
+          'paid overage credits are being consumed — parking (allowOverage is off)',
+        resumeAt: credits.resetsAt,
+      };
+    }
+  }
 
   if (bindingPct >= 100) {
     return {

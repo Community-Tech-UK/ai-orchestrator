@@ -42,7 +42,18 @@ describe('buildInstanceRecord', () => {
     expect(instance.parentId).toBeNull();
     expect(instance.depth).toBe(0);
     expect(instance.agentId).toBe('build');
+    expect(instance.launchMode).toBe('orchestrated');
     expect(instance.abortController).toBeInstanceOf(AbortController);
+  });
+
+  it('preserves an explicit interactive launch mode before registration', () => {
+    const instance = buildInstanceRecord(
+      buildConfig({ provider: 'claude', launchMode: 'interactive' }),
+      buildAgent(),
+      { defaultYoloMode: false, getParent: () => undefined },
+    );
+
+    expect(instance.launchMode).toBe('interactive');
   });
 
   it('seeds currentModel from an explicit modelOverride before async init', () => {

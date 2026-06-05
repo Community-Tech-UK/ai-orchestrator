@@ -18,6 +18,8 @@ import { getProviderModelContextWindow, type ReasoningEffort } from './provider.
  */
 export type InstanceProvider = CanonicalCliType;
 
+export type InstanceLaunchMode = 'orchestrated' | 'interactive';
+
 // ============================================
 // Session Export Types
 // ============================================
@@ -346,6 +348,7 @@ export interface Instance {
   autoRespawnSuppressedUntil?: number;
   workingDirectory: string;
   yoloMode: boolean; // Auto-approve all permissions
+  launchMode: InstanceLaunchMode; // Orchestrated agent loop or human-driven interactive terminal
   provider: InstanceProvider; // Which CLI provider is being used
   currentModel?: string; // Current model override (e.g., 'gpt-5.3-codex')
   reasoningEffort?: ReasoningEffort; // Optional model thinking/reasoning effort override
@@ -403,6 +406,7 @@ export interface InstanceCreateConfig {
   initialContextBlock?: string;
   attachments?: FileAttachment[];
   yoloMode?: boolean;
+  launchMode?: InstanceLaunchMode;
   initialOutputBuffer?: OutputMessage[]; // Pre-populate output buffer (for history restore)
   agentId?: string; // Agent profile ID (defaults to 'build')
   modelOverride?: string; // Optional model override for the instance
@@ -500,6 +504,7 @@ export function createInstance(config: InstanceCreateConfig): Instance {
     restartEpoch: 0,
     workingDirectory: config.workingDirectory,
     yoloMode: config.yoloMode ?? false, // Default to YOLO mode disabled
+    launchMode: config.launchMode ?? 'orchestrated',
     provider, // Default to auto (resolved by instance manager)
     reasoningEffort: config.reasoningEffort,
     executionLocation: { type: 'local' },

@@ -85,9 +85,11 @@ export function registerInstanceHandlers(deps: {
           initialPrompt: validatedPayload.initialPrompt,
           attachments: validatedPayload.attachments as import('../../../shared/types/instance.types').FileAttachment[] | undefined,
           yoloMode: validatedPayload.yoloMode,
+          launchMode: validatedPayload.launchMode,
           agentId: validatedPayload.agentId,
           provider: validatedPayload.provider as import('../../../shared/types/instance.types').InstanceProvider | undefined,
-          modelOverride: validatedPayload.model
+          modelOverride: validatedPayload.model,
+          forceNodeId: validatedPayload.forceNodeId,
         });
 
         return {
@@ -139,6 +141,7 @@ export function registerInstanceHandlers(deps: {
           initialPrompt: validated.message,
           attachments,
           initialOutputBuffer: [createInitialUserMessage(validated.message, attachments)],
+          launchMode: validated.launchMode,
           agentId: validated.agentId,
           provider: validated.provider as import('../../../shared/types/instance.types').InstanceProvider | undefined,
           modelOverride: validated.model,

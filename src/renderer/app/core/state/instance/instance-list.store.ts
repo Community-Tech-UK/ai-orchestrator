@@ -26,6 +26,7 @@ export interface CreateInstanceWithMessageOptions {
   agentId?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
   model?: string;
+  launchMode?: Instance['launchMode'];
   forceNodeId?: string;
 }
 
@@ -122,6 +123,7 @@ export class InstanceListStore {
         displayName: config.displayName,
         parentInstanceId: config.parentId,
         yoloMode: config.yoloMode,
+        launchMode: config.launchMode,
         agentId: config.agentId,
         provider: config.provider,
         model: config.model,
@@ -215,6 +217,7 @@ export class InstanceListStore {
         workingDirectory: workingDirectory || '.',
         message,
         attachments,
+        launchMode: options.launchMode,
         agentId,
         provider: provider === 'auto' ? undefined : provider,
         model,
@@ -412,7 +415,7 @@ export class InstanceListStore {
     const folder = await this.ipc.selectFolder();
     if (!folder) return; // User cancelled
 
-    const { displayName, parentId, yoloMode } = instance;
+    const { displayName, parentId, yoloMode, launchMode } = instance;
     await this.terminateInstance(instanceId);
 
     await this.createInstance({
@@ -420,6 +423,7 @@ export class InstanceListStore {
       displayName,
       parentId: parentId || undefined,
       yoloMode,
+      launchMode,
     });
   }
 
@@ -431,7 +435,7 @@ export class InstanceListStore {
     const instance = this.stateService.getInstance(instanceId);
     if (!instance || !folder) return;
 
-    const { displayName, parentId, yoloMode } = instance;
+    const { displayName, parentId, yoloMode, launchMode } = instance;
     await this.terminateInstance(instanceId);
 
     await this.createInstance({
@@ -439,6 +443,7 @@ export class InstanceListStore {
       displayName,
       parentId: parentId || undefined,
       yoloMode,
+      launchMode,
     });
   }
 
@@ -632,6 +637,7 @@ export class InstanceListStore {
           : undefined,
       workingDirectory: d['workingDirectory'] as string,
       yoloMode: (d['yoloMode'] as boolean) ?? false,
+      launchMode: this.isLaunchMode(d['launchMode']) ? d['launchMode'] : 'orchestrated',
       currentModel,
       reasoningEffort,
       outputBuffer: (d['outputBuffer'] as OutputMessage[]) || [],
@@ -719,6 +725,10 @@ export class InstanceListStore {
       || value === 'copilot'
       || value === 'ollama'
       || value === 'cursor';
+  }
+
+  private isLaunchMode(value: unknown): value is Instance['launchMode'] {
+    return value === 'orchestrated' || value === 'interactive';
   }
 
   private isReasoningEffort(value: unknown): value is ReasoningEffort {

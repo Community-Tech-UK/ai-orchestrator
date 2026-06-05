@@ -12,6 +12,7 @@ import type { GeminiCliAdapter } from './gemini-cli-adapter';
 import type { OllamaCliAdapter } from './ollama-cli-adapter';
 import type { AcpCliAdapter } from './acp-cli-adapter';
 import type { RemoteCliAdapter } from './remote-cli-adapter';
+import type { InstanceLaunchMode } from '../../../shared/types/instance.types';
 import type { BrowserGatewayMcpConfigOptions } from '../../browser-gateway/browser-mcp-config';
 import type { ChromeDevtoolsMcpConfigOptions } from '../../browser-gateway/chrome-devtools-mcp-config';
 import type { AcpMcpServerConfig } from '../../../shared/types/cli.types';
@@ -27,6 +28,7 @@ export interface UnifiedSpawnOptions {
   systemPrompt?: string;
   model?: string;
   yoloMode?: boolean;
+  launchMode?: InstanceLaunchMode;
   timeout?: number;
   env?: Record<string, string>;
   allowedTools?: string[];

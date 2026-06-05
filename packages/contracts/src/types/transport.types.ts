@@ -11,6 +11,7 @@ import type {
   InstanceStatus,
   OutputMessage,
   InstanceProvider,
+  InstanceLaunchMode,
   SessionDiffStats,
 } from '@shared/types/instance.types';
 import type { RepoJobStatus, RepoJobType } from '@shared/types/repo-job.types';
@@ -57,9 +58,11 @@ export interface InstanceCreatePayload {
   initialPrompt?: string;
   attachments?: FileAttachment[];
   yoloMode?: boolean;
+  launchMode?: InstanceLaunchMode;
   agentId?: string; // Agent profile ID (defaults to 'build')
   provider?: InstanceProvider; // CLI provider (defaults to 'auto')
   model?: string; // Model override (e.g., for Copilot multi-model support)
+  forceNodeId?: string;
 }
 
 export interface InstanceStateUpdatePayload {
@@ -79,6 +82,7 @@ export interface InstanceStateUpdatePayload {
    */
   currentModel?: string;
   reasoningEffort?: ReasoningEffort | null;
+  launchMode?: InstanceLaunchMode;
   executionLocation?: ExecutionLocation;
   providerSessionId?: string;
   restartEpoch?: number;

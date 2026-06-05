@@ -34,6 +34,7 @@ describe('InstanceListStore', () => {
           sessionId: 'session-created',
           workingDirectory: '/tmp/project',
           yoloMode: false,
+          launchMode: 'orchestrated',
           provider: 'claude',
           outputBuffer: [],
         },
@@ -162,6 +163,7 @@ describe('InstanceListStore', () => {
       agentId: 'build',
       provider: 'claude',
       model: 'opus',
+      launchMode: 'interactive',
     });
 
     expect(id).toBe('created-instance');
@@ -173,6 +175,7 @@ describe('InstanceListStore', () => {
       agentId: 'build',
       provider: 'claude',
       model: 'opus',
+      launchMode: 'interactive',
       forceNodeId: undefined,
     });
     expect(stateService.getInstance('created-instance')).toBeDefined();
@@ -212,6 +215,25 @@ describe('InstanceListStore', () => {
     expect(id).toBe('event-created-instance');
     expect(stateService.state().loading).toBe(false);
     expect(stateService.state().selectedInstanceId).toBe('event-created-instance');
+  });
+
+  it('defaults legacy deserialized instances to orchestrated launch mode', () => {
+    const instance = store.deserializeInstance({
+      id: 'legacy-launch-mode',
+      displayName: 'Legacy instance',
+      createdAt: 1,
+      historyThreadId: 'thread-legacy-launch',
+      parentId: null,
+      childrenIds: [],
+      status: 'idle',
+      lastActivity: 2,
+      sessionId: 'session-legacy-launch',
+      workingDirectory: '/tmp/project',
+      yoloMode: false,
+      outputBuffer: [],
+    });
+
+    expect(instance.launchMode).toBe('orchestrated');
   });
 
   it('preserves transcript and diff stats on resume restart', async () => {

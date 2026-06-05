@@ -109,7 +109,7 @@ describe('LoopCoordinator usage-aware throttling', () => {
 
   it('preventive: downshifts to sonnet before spawning when weekly all-model usage is high', async () => {
     let invokeCount = 0;
-    const models: Array<string | undefined> = [];
+    const models: (string | undefined)[] = [];
     const events: unknown[] = [];
     coordinator.on('loop:provider-limit', (e) => events.push(e));
     coordinator.setQuotaSnapshotProvider(() =>
@@ -136,11 +136,10 @@ describe('LoopCoordinator usage-aware throttling', () => {
     }
   });
 
-  it('preventive: overage guard fires when paid credits are being consumed', async () => {
+  it('preventive: overage guard fires when paid credits are the only usable quota signal', async () => {
     let invokeCount = 0;
     coordinator.setQuotaSnapshotProvider(() =>
       snapshot([
-        win({ used: 50 }),
         win({ id: 'claude.credits', label: 'Credits', unit: 'usd', used: 10, limit: 100, remaining: 90 }),
       ]),
     );
@@ -155,6 +154,30 @@ describe('LoopCoordinator usage-aware throttling', () => {
       // No reset on the credits window → terminates as provider-limit.
       await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'provider-limit', 5000);
       expect(invokeCount).toBe(0);
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  });
+
+  it('preventive: cumulative paid credits do not block when the normal window has headroom', async () => {
+    let invokeCount = 0;
+    coordinator.setQuotaSnapshotProvider(() =>
+      snapshot([
+        win({ used: 50 }),
+        win({ id: 'claude.credits', label: 'Credits', unit: 'usd', used: 10, limit: 100, remaining: 90 }),
+      ]),
+    );
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as { callback: (r: LoopChildResult) => void };
+      invokeCount += 1;
+      p.callback(iterationResult('work'));
+    });
+
+    const state = await startLoop('chat-overage-headroom');
+    try {
+      await waitForCondition(() => invokeCount >= 1, 5000);
+      expect(invokeCount).toBeGreaterThanOrEqual(1);
+      expect(coordinator.getLoop(state.id)?.status).not.toBe('provider-limit');
     } finally {
       await coordinator.cancelLoop(state.id);
     }

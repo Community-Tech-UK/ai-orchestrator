@@ -18,6 +18,7 @@ const {
   mockIndexedBuildContext,
   mockIndexedFormatContextBlock,
   mockIndexedBuildFastPathResult,
+  mockContextWorkerBuildProjectMemoryBrief,
   mockProjectMemoryBuildBrief,
   mockPromptHistoryRecord,
   mockResourceGovernorGetCreationBlockReason,
@@ -26,6 +27,7 @@ const {
   mockIndexedBuildContext: vi.fn(),
   mockIndexedFormatContextBlock: vi.fn(),
   mockIndexedBuildFastPathResult: vi.fn(),
+  mockContextWorkerBuildProjectMemoryBrief: vi.fn().mockResolvedValue(null),
   mockProjectMemoryBuildBrief: vi.fn().mockResolvedValue({
     text: '',
     sections: [],
@@ -442,6 +444,12 @@ vi.mock('../../memory/project-memory-brief', () => ({
   })),
 }));
 
+vi.mock('../context-worker-client', () => ({
+  getContextWorkerClient: vi.fn(() => ({
+    buildProjectMemoryBrief: mockContextWorkerBuildProjectMemoryBrief,
+  })),
+}));
+
 vi.mock('../../prompt-history/prompt-history-service', () => ({
   getPromptHistoryService: vi.fn(() => ({
     record: mockPromptHistoryRecord,
@@ -757,6 +765,8 @@ describe('InstanceManager', () => {
     mockIndexedBuildFastPathResult.mockResolvedValue(null);
     mockAutoTitleMaybeGenerate.mockResolvedValue(undefined);
     mockAutoTitleClearInstance.mockReset();
+    mockContextWorkerBuildProjectMemoryBrief.mockReset();
+    mockContextWorkerBuildProjectMemoryBrief.mockResolvedValue(null);
     mockProjectMemoryBuildBrief.mockResolvedValue({
       text: '',
       sections: [],
@@ -1066,7 +1076,7 @@ describe('InstanceManager', () => {
     });
 
     it('injects the project memory brief into fresh root system prompts', async () => {
-      mockProjectMemoryBuildBrief.mockResolvedValue({
+      mockContextWorkerBuildProjectMemoryBrief.mockResolvedValue({
         text: '## Project Memory Brief\n\nRelevant prior chat excerpts:\n- [2026-04-28 Claude] auth middleware fix',
         sections: [],
         sources: [{ id: 'history:1', type: 'history-transcript', projectPath: TEST_WORKING_DIR }],
@@ -1091,11 +1101,12 @@ describe('InstanceManager', () => {
       const spawnOptions = spawnCall?.[1] as { systemPrompt?: string } | undefined;
       expect(spawnOptions?.systemPrompt).toContain('## Project Memory Brief');
       expect(spawnOptions?.systemPrompt).toContain('auth middleware fix');
-      expect(mockProjectMemoryBuildBrief).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockContextWorkerBuildProjectMemoryBrief).toHaveBeenCalledWith(expect.objectContaining({
         projectPath: TEST_WORKING_DIR,
         instanceId: instance.id,
         initialPrompt: 'Check auth middleware',
       }));
+      expect(mockProjectMemoryBuildBrief).not.toHaveBeenCalled();
       expect(mockAdapterSendInput).toHaveBeenCalledWith('Check auth middleware', undefined);
     });
 
@@ -1106,6 +1117,7 @@ describe('InstanceManager', () => {
       });
       await parent.readyPromise;
       mockProjectMemoryBuildBrief.mockClear();
+      mockContextWorkerBuildProjectMemoryBrief.mockClear();
 
       const child = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,
@@ -1114,6 +1126,7 @@ describe('InstanceManager', () => {
         initialPrompt: 'child task',
       });
       await child.readyPromise;
+      expect(mockContextWorkerBuildProjectMemoryBrief).not.toHaveBeenCalled();
       expect(mockProjectMemoryBuildBrief).not.toHaveBeenCalled();
 
       const resumed = await manager.createInstance({
@@ -1122,6 +1135,7 @@ describe('InstanceManager', () => {
         sessionId: 'session-resume',
       });
       await resumed.readyPromise;
+      expect(mockContextWorkerBuildProjectMemoryBrief).not.toHaveBeenCalled();
       expect(mockProjectMemoryBuildBrief).not.toHaveBeenCalled();
 
       const restored = await manager.createInstance({
@@ -1131,7 +1145,42 @@ describe('InstanceManager', () => {
         ],
       });
       await restored.readyPromise;
+      expect(mockContextWorkerBuildProjectMemoryBrief).not.toHaveBeenCalled();
       expect(mockProjectMemoryBuildBrief).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the in-process project memory brief service when the worker has no result', async () => {
+      mockContextWorkerBuildProjectMemoryBrief.mockResolvedValueOnce(null);
+      mockProjectMemoryBuildBrief.mockResolvedValueOnce({
+        text: '## Project Memory Brief\n\nFallback service memory',
+        sections: [],
+        sources: [],
+        stats: {
+          projectKey: TEST_WORKING_DIR,
+          candidatesScanned: 1,
+          candidatesIncluded: 1,
+          truncated: false,
+        },
+      });
+
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        initialPrompt: 'Use fallback memory',
+      });
+      await instance.readyPromise;
+
+      const spawnCall = mockCreateCliAdapter.mock.calls.find((call) => {
+        const options = call[1] as { systemPrompt?: string } | undefined;
+        return typeof options?.systemPrompt === 'string';
+      });
+      const spawnOptions = spawnCall?.[1] as { systemPrompt?: string } | undefined;
+      expect(spawnOptions?.systemPrompt).toContain('Fallback service memory');
+      expect(mockContextWorkerBuildProjectMemoryBrief).toHaveBeenCalled();
+      expect(mockProjectMemoryBuildBrief).toHaveBeenCalledWith(expect.objectContaining({
+        projectPath: TEST_WORKING_DIR,
+        instanceId: instance.id,
+        initialPrompt: 'Use fallback memory',
+      }));
     });
 
     it('continues spawning when project memory brief retrieval fails', async () => {

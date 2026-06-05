@@ -4,7 +4,10 @@
 
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
-import type { FileAttachment } from '../../../../../shared/types/instance.types';
+import type {
+  FileAttachment,
+  InstanceLaunchMode,
+} from '../../../../../shared/types/instance.types';
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
 
 export interface CreateInstanceConfig {
@@ -13,6 +16,7 @@ export interface CreateInstanceConfig {
   parentInstanceId?: string;
   initialPrompt?: string;
   yoloMode?: boolean;
+  launchMode?: InstanceLaunchMode;
   agentId?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
   model?: string;
@@ -23,6 +27,7 @@ export interface CreateInstanceWithMessageConfig {
   workingDirectory: string;
   message: string;
   attachments?: FileAttachment[];
+  launchMode?: InstanceLaunchMode;
   agentId?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
   model?: string;

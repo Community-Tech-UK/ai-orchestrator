@@ -15,6 +15,7 @@
 
 import { Injectable, signal, computed, inject, effect, untracked } from '@angular/core';
 import { getPrimaryModelForProvider, normalizeModelForProvider } from '../../../../shared/types/provider.types';
+import type { InstanceLaunchMode } from '../../../../shared/types/instance.types';
 import { SettingsStore } from '../state/settings.store';
 import { SettingsIpcService } from './ipc/settings-ipc.service';
 
@@ -36,11 +37,16 @@ function isStringRecord(value: unknown): value is Record<string, string> {
   return true;
 }
 
+function isLaunchMode(value: unknown): value is InstanceLaunchMode {
+  return value === 'orchestrated' || value === 'interactive';
+}
+
 @Injectable({ providedIn: 'root' })
 export class ProviderStateService {
   private settingsStore = inject(SettingsStore);
   private settingsIpc = inject(SettingsIpcService);
   private initialized = false;
+  private readonly launchModeStorageKey = 'provider-launch-mode:v1';
   private readonly defaultModel = getPrimaryModelForProvider('claude') ?? 'opus';
 
   /** Currently selected provider */
@@ -56,6 +62,10 @@ export class ProviderStateService {
    */
   private readonly _lastModelByProvider = signal<Record<string, string>>({});
   readonly lastModelByProvider = this._lastModelByProvider.asReadonly();
+
+  private readonly _launchModeByProvider = signal<Record<string, InstanceLaunchMode>>(
+    this.loadLaunchModeMemory(),
+  );
 
   /** Whether Copilot is the selected provider */
   readonly isCopilot = computed(() => this.selectedProvider() === 'copilot');
@@ -200,6 +210,26 @@ export class ProviderStateService {
     });
   }
 
+  getLaunchModeForProvider(provider: ProviderType): InstanceLaunchMode {
+    if (provider !== 'claude') {
+      return 'orchestrated';
+    }
+    return this._launchModeByProvider()[provider] ?? 'orchestrated';
+  }
+
+  rememberLaunchModeForProvider(provider: ProviderType, launchMode: InstanceLaunchMode): void {
+    if (provider !== 'claude') {
+      return;
+    }
+
+    this._launchModeByProvider.update((map) => {
+      if (map[provider] === launchMode) return map;
+      const next = { ...map, [provider]: launchMode };
+      this.persistLaunchModeMemory(next);
+      return next;
+    });
+  }
+
   /**
    * Get the provider for instance creation (converts 'auto' to undefined).
    */
@@ -256,5 +286,40 @@ export class ProviderStateService {
       candidate,
       getPrimaryModelForProvider(provider) ?? this.defaultModel,
     ) ?? this.defaultModel;
+  }
+
+  private loadLaunchModeMemory(): Record<string, InstanceLaunchMode> {
+    if (typeof window === 'undefined') {
+      return {};
+    }
+
+    try {
+      const raw = window.localStorage.getItem(this.launchModeStorageKey);
+      if (!raw) {
+        return {};
+      }
+
+      const parsed = JSON.parse(raw) as Record<string, unknown> | null;
+      if (!parsed || typeof parsed !== 'object') {
+        return {};
+      }
+
+      const claudeMode = parsed['claude'];
+      return isLaunchMode(claudeMode) ? { claude: claudeMode } : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private persistLaunchModeMemory(map: Record<string, InstanceLaunchMode>): void {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(this.launchModeStorageKey, JSON.stringify(map));
+    } catch {
+      // Keep in-memory launch-mode selection if localStorage is unavailable.
+    }
   }
 }

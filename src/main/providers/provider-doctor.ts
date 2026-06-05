@@ -15,6 +15,7 @@ import { checkCodexCliAuthentication } from './codex-cli-auth';
 import { checkGeminiCliAuthentication } from './gemini-cli-auth';
 import { CliDetectionService, type CliType, type CliShadowReport } from '../cli/cli-detection';
 import type { ProviderProbeErrorKind, RepairAction } from '../../shared/types/provider-doctor.types';
+import { getProviderRuntimeRegistry } from './provider-runtime-registry';
 
 const logger = getLogger('ProviderDoctor');
 
@@ -537,6 +538,7 @@ export class ProviderDoctor {
     diagnosis.repairActions = buildRepairActions(diagnosis);
 
     this.lastDiagnosis.set(provider, diagnosis);
+    getProviderRuntimeRegistry().applyDiagnosis(diagnosis);
     logger.info('Provider diagnosis complete', { provider, overall: diagnosis.overall });
     return diagnosis;
   }

@@ -95,3 +95,39 @@ describe('IPC provider schema parity', () => {
     expect(createWithMessageResult.success).toBe(false);
   });
 });
+
+describe('IPC launch mode schema parity', () => {
+  it('accepts launch mode for create and create-with-message payloads', () => {
+    for (const launchMode of ['orchestrated', 'interactive'] as const) {
+      const createResult = InstanceCreatePayloadSchema.safeParse({
+        workingDirectory: '/tmp/project',
+        launchMode,
+      });
+      const createWithMessageResult = InstanceCreateWithMessagePayloadSchema.safeParse({
+        workingDirectory: '/tmp/project',
+        message: 'hello',
+        launchMode,
+      });
+
+      expect(createResult.success).toBe(true);
+      expect(createResult.success && createResult.data.launchMode).toBe(launchMode);
+      expect(createWithMessageResult.success).toBe(true);
+      expect(createWithMessageResult.success && createWithMessageResult.data.launchMode).toBe(launchMode);
+    }
+  });
+
+  it('rejects unknown launch modes at runtime IPC boundaries', () => {
+    const createResult = InstanceCreatePayloadSchema.safeParse({
+      workingDirectory: '/tmp/project',
+      launchMode: 'terminal',
+    });
+    const createWithMessageResult = InstanceCreateWithMessagePayloadSchema.safeParse({
+      workingDirectory: '/tmp/project',
+      message: 'hello',
+      launchMode: 'terminal',
+    });
+
+    expect(createResult.success).toBe(false);
+    expect(createWithMessageResult.success).toBe(false);
+  });
+});
