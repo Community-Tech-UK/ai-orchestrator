@@ -174,12 +174,18 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     });
     const initialEndReason = state.endReason;
 
-    // Wait briefly for the run to complete or cap out.
-    await new Promise((r) => setTimeout(r, 200));
-
-    const live = (coordinator as unknown as {
+    const active = (coordinator as unknown as {
       active: Map<string, { pendingInterventions: string[]; status: string; endReason?: string }>;
-    }).active.get(state.id);
+    }).active;
+    let live = active.get(state.id);
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      live = active.get(state.id);
+      if (endedFlag || !live || live.status !== 'running' || live.pendingInterventions.length > 0) {
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+
     const pendingInterventions = live?.pendingInterventions ?? [];
     const status = live?.status;
     const reason = live?.endReason;
@@ -217,6 +223,54 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     expect(r.pendingInterventions.length).toBeGreaterThanOrEqual(1);
     expect(r.pendingInterventions[0]).toContain('CRITICAL');
     expect(r.pendingInterventions[0]).toContain('Plan claims X but code shows Y');
+  });
+
+  it('dedupes corroborated findings and orders the intervention worst-first', async () => {
+    const r = await runOneIterationAttempt({
+      reviewResult: {
+        findings: [
+          // Two reviewers flag the SAME critical issue (same title+file) ...
+          {
+            title: 'Auth bypass in handler',
+            body: 'gemini phrasing',
+            severity: 'critical',
+            file: 'src/auth.ts',
+            confidence: 0.8,
+          },
+          {
+            title: 'Auth bypass in handler',
+            body: 'codex phrasing',
+            severity: 'critical',
+            file: 'src/auth.ts',
+            confidence: 0.95,
+          },
+          // ... plus one distinct lower-severity issue.
+          {
+            title: 'Unhandled promise rejection',
+            body: 'A rejected promise is swallowed.',
+            severity: 'high',
+            file: 'src/x.ts',
+            confidence: 0.7,
+          },
+        ],
+        reviewersUsed: ['gemini', 'codex'],
+        summary: 'two issues, one corroborated',
+      },
+      completedRenameFile: 'plan_completed.md',
+    });
+
+    expect(r.ended).toBe(false);
+    const msg = r.pendingInterventions[0];
+    // Deduped to 2 distinct issues (not 3 raw findings).
+    expect(msg).toContain('blocked completion with 2 issues');
+    // Critical issue is listed first, corroborated by 2 reviewers, keeping the
+    // higher-confidence representative body.
+    expect(msg).toContain('1. [CRITICAL] Auth bypass in handler (src/auth.ts) [flagged 2 times]');
+    expect(msg).toContain('codex phrasing');
+    expect(msg).not.toContain('gemini phrasing');
+    // The high finding is listed after the critical one.
+    expect(msg).toContain('2. [HIGH] Unhandled promise rejection');
+    expect(msg.indexOf('[CRITICAL]')).toBeLessThan(msg.indexOf('[HIGH]'));
   });
 
   it('ALLOWS completion when reviewer returns only low/medium findings', async () => {

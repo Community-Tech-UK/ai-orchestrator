@@ -1114,7 +1114,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
         totalTokens: (turnState.finalTurn.usage.input_tokens || 0) + (turnState.finalTurn.usage.output_tokens || 0),
       } : undefined,
     };
-    this.emit('complete', response);
+    this.completeResponse(response);
   }
 
   /**
@@ -2267,7 +2267,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
     // Emit 'complete' AFTER all output events to guarantee correct ordering.
     // Previously this was emitted inside sendMessage() before tool/assistant
     // output events, violating consumer expectations.
-    this.emit('complete', response);
+    this.completeResponse(response);
   }
 
   // ─── Exec mode: message sending ──────────────────────────────────────

@@ -26,7 +26,7 @@ import {
 } from '@contracts/schemas/instance';
 import { getCommandManager } from '../../commands/command-manager';
 import { emitPluginHook } from '../../plugins/hook-emitter';
-import { getCompactionCoordinator } from '../../context/compaction-coordinator';
+import { getContextEngine } from '../../context/context-engine';
 import { isGitRepository } from '../../git/git-probe-service';
 import { InstanceManager } from '../../instance/instance-manager';
 import { getUsageTracker } from '../../usage/usage-tracker';
@@ -167,9 +167,9 @@ export function registerCommandHandlers(
           timestamp: Date.now(),
         });
 
-        // Special handling for /compact command — route to compaction coordinator
+        // Special handling for /compact command — route through the ContextEngine boundary
         if (executed.execution.type === 'compact') {
-          const result = await getCompactionCoordinator().compactInstance(validated.instanceId);
+          const result = await getContextEngine().compactInstance(validated.instanceId);
           if (result.success) {
             getUsageTracker().record('command', executed.command.id, workingDirectory);
           }

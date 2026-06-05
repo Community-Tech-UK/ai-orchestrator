@@ -21,6 +21,29 @@ export interface OutputStyleDefinition {
   directive: string;
 }
 
+/**
+ * How a style's text combines with the base system prompt.
+ * - `append` (built-ins + the default for user styles): low-risk — the directive
+ *   is appended, leaving the base prompt intact.
+ * - `replace`: full-prompt-swap — the style's text REPLACES the base prompt
+ *   entirely. Only user-authored `.md` styles can opt into this.
+ */
+export type OutputStyleMode = 'append' | 'replace';
+
+/**
+ * A fully-resolved output style (built-in or user-authored `.md`), ready to
+ * apply to a system prompt. Built-ins resolve to `mode: 'append'`, `source:
+ * 'built-in'`; user styles carry their declared mode + source file.
+ */
+export interface ResolvedOutputStyle {
+  name: string;
+  label: string;
+  directive: string;
+  mode: OutputStyleMode;
+  source: 'built-in' | 'user';
+  filePath?: string;
+}
+
 export const BUILT_IN_OUTPUT_STYLES: Record<OutputStyleName, OutputStyleDefinition> = {
   default: {
     name: 'default',
@@ -82,4 +105,16 @@ export function isOutputStyleInjectableProvider(provider: string | undefined): b
 /** List built-in styles for a settings/renderer picker. */
 export function listOutputStyles(): OutputStyleDefinition[] {
   return Object.values(BUILT_IN_OUTPUT_STYLES);
+}
+
+/**
+ * Apply a fully-resolved style (built-in or user) to a system prompt. Pure.
+ * - empty directive → prompt unchanged (the inert path);
+ * - `replace` → the directive becomes the whole prompt (full-prompt-swap);
+ * - `append` → the directive is appended after a separator.
+ */
+export function applyResolvedOutputStyle(systemPrompt: string, style: ResolvedOutputStyle): string {
+  if (!style.directive) return systemPrompt;
+  if (style.mode === 'replace') return style.directive;
+  return systemPrompt ? `${systemPrompt}\n\n---\n\n${style.directive}` : style.directive;
 }

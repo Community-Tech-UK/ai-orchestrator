@@ -447,7 +447,10 @@ describe('CursorCliAdapter — assistant event', () => {
     const response = await sendPromise;
     const assistantOutputs = outputs.filter(o => o.type === 'assistant');
 
-    expect(response.content).toBe('');
+    // Close arrived without a terminal `result` event, so the response is
+    // reconstructed by parseOutput from the NDJSON buffer (delta + final
+    // reconciliation) rather than being left empty.
+    expect(response.content).toBe("I'll create a new `cursor_plan.md`");
     expect(assistantOutputs).toHaveLength(3);
     expect(assistantOutputs[0].content).toBe("I'll create a new `cur");
     expect(assistantOutputs[1].content).toBe("sor_plan.md`");
@@ -1157,5 +1160,118 @@ describe('CursorCliAdapter — lifecycle + status + stderr', () => {
       (o) => o.type === 'error' && o.metadata?.kind === 'stderr',
     );
     expect(stderrErrors).toHaveLength(0);
+  });
+});
+
+describe('CursorCliAdapter.parseOutput (close-time fallback)', () => {
+  function adapter() {
+    return new CursorCliAdapter({});
+  }
+
+  it('returns empty content for an empty buffer', () => {
+    const r = adapter().parseOutput('');
+    expect(r.content).toBe('');
+    expect(r.role).toBe('assistant');
+    expect(r.usage?.outputTokens).toBe(0);
+  });
+
+  it('reconstructs assistant text from a final (no-delta) assistant event', () => {
+    const raw = [
+      JSON.stringify({ type: 'system', subtype: 'init', session_id: 's1', model: 'auto' }),
+      JSON.stringify({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Hello world' }] },
+        session_id: 's1',
+      }),
+    ].join('\n');
+    const r = adapter().parseOutput(raw);
+    expect(r.content).toBe('Hello world');
+    expect(r.metadata?.['sessionId']).toBe('s1');
+    expect(r.usage?.outputTokens).toBeGreaterThan(0);
+  });
+
+  it('accumulates streamed deltas without double-counting a cumulative final', () => {
+    const raw = [
+      JSON.stringify({
+        type: 'assistant',
+        timestamp_ms: 1,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Hel' }] },
+      }),
+      JSON.stringify({
+        type: 'assistant',
+        timestamp_ms: 2,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'lo' }] },
+      }),
+      // Final cumulative copy equals the streamed accumulation → must NOT double.
+      JSON.stringify({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Hello' }] },
+      }),
+    ].join('\n');
+    expect(adapter().parseOutput(raw).content).toBe('Hello');
+  });
+
+  it('appends only the suffix when the final extends the streamed deltas', () => {
+    const raw = [
+      JSON.stringify({
+        type: 'assistant',
+        timestamp_ms: 1,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Hello' }] },
+      }),
+      JSON.stringify({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Hello world' }] },
+      }),
+    ].join('\n');
+    expect(adapter().parseOutput(raw).content).toBe('Hello world');
+  });
+
+  it('skips buffered pre-tool-call copies (timestamp_ms AND model_call_id)', () => {
+    const raw = [
+      JSON.stringify({
+        type: 'assistant',
+        timestamp_ms: 1,
+        model_call_id: 'mc1',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'BUFFERED' }] },
+      }),
+      JSON.stringify({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'real answer' }] },
+      }),
+    ].join('\n');
+    expect(adapter().parseOutput(raw).content).toBe('real answer');
+  });
+
+  it('prefers a result event text and captures request/session ids', () => {
+    const raw = [
+      JSON.stringify({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'partial' }] },
+      }),
+      JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        result: 'final result',
+        session_id: 's9',
+        request_id: 'r9',
+      }),
+    ].join('\n');
+    const r = adapter().parseOutput(raw);
+    expect(r.content).toBe('final result');
+    expect(r.metadata?.['sessionId']).toBe('s9');
+    expect(r.metadata?.['requestId']).toBe('r9');
+  });
+
+  it('ignores malformed / partial JSON lines without throwing', () => {
+    const raw = [
+      '{not valid json',
+      JSON.stringify({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'survived' }] },
+      }),
+      '{"type":"assistant","message":{"role":"assist', // truncated
+    ].join('\n');
+    expect(adapter().parseOutput(raw).content).toBe('survived');
   });
 });

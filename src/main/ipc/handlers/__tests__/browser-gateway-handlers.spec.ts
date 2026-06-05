@@ -171,6 +171,91 @@ describe('registerBrowserGatewayHandlers', () => {
     });
   });
 
+  it('resumes the originating instance after the user approves a request', async () => {
+    electronMocks.handlers.clear();
+    const sendInput = vi.fn().mockResolvedValue(undefined);
+    serviceMocks.approveRequest.mockResolvedValueOnce({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      auditId: 'audit-1',
+      data: { instanceId: 'instance-7' },
+    });
+    registerBrowserGatewayHandlers({
+      instanceManager: { sendInput } as never,
+    });
+
+    const result = await invoke('browser:approve-request', validApprovePayload());
+
+    expect(result).toMatchObject({ success: true });
+    expect(sendInput).toHaveBeenCalledTimes(1);
+    expect(sendInput).toHaveBeenCalledWith(
+      'instance-7',
+      expect.stringContaining('approved by the user'),
+    );
+  });
+
+  it('resumes the originating instance after the user denies a request', async () => {
+    electronMocks.handlers.clear();
+    const sendInput = vi.fn().mockResolvedValue(undefined);
+    serviceMocks.denyRequest.mockResolvedValueOnce({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      auditId: 'audit-1',
+      data: { instanceId: 'instance-9' },
+    });
+    registerBrowserGatewayHandlers({
+      instanceManager: { sendInput } as never,
+    });
+
+    const result = await invoke('browser:deny-request', { requestId: 'request-1' });
+
+    expect(result).toMatchObject({ success: true });
+    expect(sendInput).toHaveBeenCalledTimes(1);
+    expect(sendInput).toHaveBeenCalledWith(
+      'instance-9',
+      expect.stringContaining('denied by the user'),
+    );
+  });
+
+  it('does not resume when the approval no longer took effect', async () => {
+    electronMocks.handlers.clear();
+    const sendInput = vi.fn().mockResolvedValue(undefined);
+    serviceMocks.approveRequest.mockResolvedValueOnce({
+      decision: 'denied',
+      outcome: 'not_run',
+      auditId: 'audit-1',
+      reason: 'approval_request_expired',
+      data: null,
+    });
+    registerBrowserGatewayHandlers({
+      instanceManager: { sendInput } as never,
+    });
+
+    const result = await invoke('browser:approve-request', validApprovePayload());
+
+    expect(result).toMatchObject({ success: true });
+    expect(sendInput).not.toHaveBeenCalled();
+  });
+
+  it('still reports approval success when resuming the instance fails', async () => {
+    electronMocks.handlers.clear();
+    const sendInput = vi.fn().mockRejectedValue(new Error('Instance instance-7 has been terminated'));
+    serviceMocks.approveRequest.mockResolvedValueOnce({
+      decision: 'allowed',
+      outcome: 'succeeded',
+      auditId: 'audit-1',
+      data: { instanceId: 'instance-7' },
+    });
+    registerBrowserGatewayHandlers({
+      instanceManager: { sendInput } as never,
+    });
+
+    const result = await invoke('browser:approve-request', validApprovePayload());
+
+    expect(result).toMatchObject({ success: true });
+    expect(sendInput).toHaveBeenCalledTimes(1);
+  });
+
   it('can reject untrusted senders before validating or calling the service', async () => {
     electronMocks.handlers.clear();
     registerBrowserGatewayHandlers({
@@ -211,6 +296,26 @@ describe('registerBrowserGatewayHandlers', () => {
     expect(serviceMocks.approveRequest).not.toHaveBeenCalled();
   });
 });
+
+function validApprovePayload() {
+  return {
+    requestId: 'request-1',
+    grant: {
+      mode: 'session',
+      allowedOrigins: [
+        {
+          scheme: 'http',
+          hostPattern: 'localhost',
+          port: 4567,
+          includeSubdomains: false,
+        },
+      ],
+      allowedActionClasses: ['input'],
+      allowExternalNavigation: false,
+      autonomous: false,
+    },
+  };
+}
 
 function invoke(channel: string, payload?: unknown): Promise<IpcResponse> {
   const handler = electronMocks.handlers.get(channel);

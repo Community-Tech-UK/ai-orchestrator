@@ -1,5 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import type {
+  BrowserAccessibilityNode,
+  BrowserAccessibilitySnapshotRequest,
   BrowserApprovalRequest,
   BrowserApprovalRequestLookup,
   BrowserApprovalStatusRequest,
@@ -11,6 +13,8 @@ import type {
   BrowserDenyRequestPayload,
   BrowserDownloadFileRequest,
   BrowserDownloadFileResult,
+  BrowserEvaluateRequest,
+  BrowserEvaluateResult,
   BrowserFillFormRequest,
   BrowserGatewayResult,
   BrowserListApprovalRequestsRequest,
@@ -180,6 +184,18 @@ export class BrowserGatewayIpcService {
 
   async snapshot(payload: BrowserTargetRequest): Promise<BrowserGatewayIpcResponse<unknown>> {
     return this.call(() => this.api?.browserSnapshot(payload));
+  }
+
+  async accessibilitySnapshot(
+    payload: BrowserAccessibilitySnapshotRequest,
+  ): Promise<BrowserGatewayIpcResponse<BrowserAccessibilityNode[]>> {
+    return this.call(() => this.api?.browserAccessibilitySnapshot(payload));
+  }
+
+  async evaluate(
+    payload: BrowserEvaluateRequest,
+  ): Promise<BrowserGatewayIpcResponse<BrowserEvaluateResult>> {
+    return this.call(() => this.api?.browserEvaluate(payload));
   }
 
   async screenshot(payload: BrowserScreenshotRequest): Promise<BrowserGatewayIpcResponse<string>> {

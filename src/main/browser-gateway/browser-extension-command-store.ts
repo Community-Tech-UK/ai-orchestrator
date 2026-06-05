@@ -10,9 +10,11 @@ export type BrowserExtensionCommandName =
   | 'upload_file'
   | 'download_file'
   | 'snapshot'
+  | 'accessibility_snapshot'
   | 'screenshot'
   | 'wait_for'
-  | 'query_elements';
+  | 'query_elements'
+  | 'evaluate';
 
 export interface BrowserExtensionCommandTarget {
   profileId?: string;

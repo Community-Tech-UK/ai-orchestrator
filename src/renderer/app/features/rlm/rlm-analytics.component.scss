@@ -28,8 +28,8 @@
     }
 
     .time-select {
-      padding: 0.5rem 1rem;
-      background: var(--bg-tertiary);
+      padding: 0.5rem 2rem 0.5rem 1rem; // room for the global chevron
+      background-color: var(--bg-tertiary); // not `background` — keep the chevron SVG
       border: 1px solid var(--border-color);
       border-radius: var(--radius-sm);
       color: var(--text-primary);

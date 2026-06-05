@@ -421,6 +421,14 @@ async function invokeCliTextResponse(params: {
   const breaker = getCircuitBreakerRegistry().getBreaker(params.breakerKey, {
     failureThreshold: 3,
     resetTimeoutMs: 60000,
+    // Every call through this path is an interactive CLI turn (loop iteration,
+    // verify, review, debate) that legitimately runs for minutes — deep
+    // thinking, many tool calls, file edits. The breaker's default slow-call
+    // tracking (10s threshold, open at 50% slow) would classify *every*
+    // healthy iteration as "slow" and could trip the breaker on success alone.
+    // Only real failures (throws: timeouts with no active output, adapter
+    // crashes, provider errors) should count toward opening it.
+    trackSlowCalls: false,
   });
 
   const prompt = buildUserPrompt(params.prompt, params.context);

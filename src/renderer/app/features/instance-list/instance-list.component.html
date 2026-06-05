@@ -595,4 +595,13 @@
         [visible]="contextMenuVisible()"
         (closed)="closeContextMenu()"
       />
+      <app-prompt-modal
+        [isOpen]="renameModalOpen()"
+        title="Rename session"
+        [initialValue]="renameInitial()"
+        placeholder="Session name"
+        confirmLabel="Rename"
+        (submitted)="onRenameSubmitted($event)"
+        (cancelled)="onRenameCancelled()"
+      />
     </div>

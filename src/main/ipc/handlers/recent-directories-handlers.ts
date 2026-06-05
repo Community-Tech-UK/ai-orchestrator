@@ -39,8 +39,11 @@ export function registerRecentDirectoriesHandlers(): void {
       manager.seedFromDefaultDirectory(defaultDir);
     }
 
-    // Listen for settings changes to update max entries
-    settings.on('change', (key: string, value: unknown) => {
+    // Listen for settings changes to update max entries.
+    // SettingsManager emits 'setting-changed' with (key, value) — NOT 'change'
+    // (see settings-manager.ts). The previous 'change' subscription never fired,
+    // so runtime edits to maxRecentDirectories silently failed to apply until restart.
+    settings.on('setting-changed', (key: string, value: unknown) => {
       if (key === 'maxRecentDirectories' && typeof value === 'number') {
         manager.setMaxEntries(value);
       }

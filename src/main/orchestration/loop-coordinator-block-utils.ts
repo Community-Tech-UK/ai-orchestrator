@@ -99,6 +99,19 @@ export async function runWorkspaceLivenessProbe(
   return { alive: execOk && fsOk, detail: details.join('; ') };
 }
 
+/**
+ * True when an iteration invocation error is a circuit-breaker rejection
+ * (`Circuit breaker '<name>' is OPEN`, thrown by CircuitBreaker.execute when the
+ * circuit is open). This is a *transient, self-healing* condition — the breaker
+ * reopens to HALF_OPEN after its reset window — so the loop must back off and
+ * retry rather than treat it as a degraded iteration or a fatal error. Matching
+ * is on the stable message shape emitted by `core/circuit-breaker.ts`.
+ */
+export function isCircuitBreakerOpenError(invocationError: string | null | undefined): boolean {
+  if (!invocationError) return false;
+  return /circuit breaker\b.*\bis open\b/i.test(invocationError);
+}
+
 export function classifyDegradedIteration(
   childResult: DegradedIterationChildResult | null,
   invocationError: string | null,

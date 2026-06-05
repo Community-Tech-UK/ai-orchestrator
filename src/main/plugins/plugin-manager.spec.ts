@@ -444,3 +444,168 @@ describe('OrchestratorPluginManager', () => {
     });
   });
 });
+
+describe('OrchestratorPluginManager — runtime lifecycle / quarantine (B11)', () => {
+  const ctx = {
+    instanceManager: {} as never,
+    appPath: '/tmp/test-app',
+    homeDir: '/tmp/test-home',
+  };
+
+  /** Spy getPlugins so a single controlled hook plugin is returned for both emit + list. */
+  function spyHookPlugin(
+    manager: OrchestratorPluginManager,
+    filePath: string,
+    hook: (payload: unknown) => unknown,
+  ): void {
+    vi.spyOn(
+      manager as unknown as {
+        getPlugins: (workingDirectory: string, pluginCtx: unknown) => Promise<unknown[]>;
+      },
+      'getPlugins',
+    ).mockResolvedValue([
+      {
+        filePath,
+        slot: 'hook',
+        loadReport: { slot: 'hook', detected: true, ready: true, phases: [] },
+        hooks: { 'instance.removed': hook },
+      },
+    ]);
+  }
+
+  async function emitRemoved(manager: OrchestratorPluginManager, n: number): Promise<void> {
+    const emit = (
+      manager as unknown as {
+        emitToPlugins: (
+          wd: string,
+          c: typeof ctx,
+          event: 'instance.removed',
+          payload: { instanceId: string },
+        ) => Promise<void>;
+      }
+    ).emitToPlugins.bind(manager);
+    for (let i = 0; i < n; i++) {
+      await emit('/tmp/project', ctx, 'instance.removed', { instanceId: `inst-${i}` });
+    }
+  }
+
+  it('degrades then quarantines after repeated failures and skips the plugin thereafter', async () => {
+    const manager = OrchestratorPluginManager.getInstance();
+    const hook = vi.fn(() => {
+      throw new Error('always boom');
+    });
+    spyHookPlugin(manager, '/tmp/plugin.js', hook);
+
+    // Threshold is 3 consecutive failures. Emit 6 times.
+    await emitRemoved(manager, 6);
+
+    // Invoked exactly 3 times (calls 1-3 fail → quarantine on the 3rd); calls 4-6 skipped.
+    expect(hook).toHaveBeenCalledTimes(3);
+    expect(manager.isPluginQuarantined('/tmp/plugin.js')).toBe(true);
+  });
+
+  it('surfaces lifecycle state (active → degraded → quarantined) via listPlugins', async () => {
+    const manager = OrchestratorPluginManager.getInstance();
+    const hook = vi.fn(() => {
+      throw new Error('boom');
+    });
+    spyHookPlugin(manager, '/tmp/plugin.js', hook);
+
+    const stateOf = async (): Promise<string | undefined> => {
+      const result = await manager.listPlugins('/tmp/project', {} as never);
+      return result.plugins.find((p) => p.filePath === '/tmp/plugin.js')?.lifecycle;
+    };
+
+    expect(await stateOf()).toBe('active');
+    await emitRemoved(manager, 1);
+    expect(await stateOf()).toBe('degraded');
+    await emitRemoved(manager, 2); // 3 total → quarantined
+    expect(await stateOf()).toBe('quarantined');
+
+    const result = await manager.listPlugins('/tmp/project', {} as never);
+    const entry = result.plugins.find((p) => p.filePath === '/tmp/plugin.js');
+    expect(entry?.health).toMatchObject({
+      quarantined: true,
+      totalFailures: 3,
+      consecutiveFailures: 3,
+      lastError: 'boom',
+    });
+  });
+
+  it('recovers a degraded plugin to active on the next successful dispatch', async () => {
+    const manager = OrchestratorPluginManager.getInstance();
+    const hook = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error('transient');
+      })
+      .mockImplementation(() => undefined);
+    spyHookPlugin(manager, '/tmp/plugin.js', hook);
+
+    await emitRemoved(manager, 1); // fails → degraded
+    let result = await manager.listPlugins('/tmp/project', {} as never);
+    expect(result.plugins[0]?.lifecycle).toBe('degraded');
+
+    await emitRemoved(manager, 1); // succeeds → consecutiveFailures reset → active
+    result = await manager.listPlugins('/tmp/project', {} as never);
+    expect(result.plugins[0]?.lifecycle).toBe('active');
+    expect(result.plugins[0]?.health).toMatchObject({ consecutiveFailures: 0, totalFailures: 1 });
+    expect(manager.isPluginQuarantined('/tmp/plugin.js')).toBe(false);
+  });
+
+  it('resets quarantine when the plugin file changes on disk (hot-reload recovery)', async () => {
+    const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-lifecycle-'));
+    const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'flaky');
+    await fsPromises.mkdir(pluginDir, { recursive: true });
+    const pluginFile = path.join(pluginDir, 'index.js');
+    await fsPromises.writeFile(pluginFile, 'module.exports = {};');
+
+    const manager = OrchestratorPluginManager.getInstance();
+    // loadModule is spied (no real import) but the rest of the real load path —
+    // including fs.stat + reconcileHealthOnLoad — runs against the temp file.
+    vi.spyOn(
+      manager as unknown as { loadModule: (filePath: string) => Promise<unknown> },
+      'loadModule',
+    ).mockResolvedValue({
+      'instance.removed': () => {
+        throw new Error('disk boom');
+      },
+    });
+
+    // Initial load → healthy.
+    let result = await manager.listPlugins(tmpDir, {} as never);
+    expect(result.plugins.find((p) => p.filePath === pluginFile)?.lifecycle).toBe('active');
+
+    // Drive 3 failures through the real cached plugin → quarantined.
+    await (manager as unknown as { emitHook: (e: string, p: unknown) => Promise<void> })
+      .emitHook('instance.removed', { instanceId: 'x' });
+    await (manager as unknown as { emitHook: (e: string, p: unknown) => Promise<void> })
+      .emitHook('instance.removed', { instanceId: 'y' });
+    await (manager as unknown as { emitHook: (e: string, p: unknown) => Promise<void> })
+      .emitHook('instance.removed', { instanceId: 'z' });
+    expect(manager.isPluginQuarantined(pluginFile)).toBe(true);
+
+    // Change the file's mtime, force a reload (scoped clear keeps health) → recovery.
+    const future = new Date(Date.now() + 60_000);
+    await fsPromises.utimes(pluginFile, future, future);
+    manager.clearCache(tmpDir);
+    result = await manager.listPlugins(tmpDir, {} as never);
+    expect(manager.isPluginQuarantined(pluginFile)).toBe(false);
+    expect(result.plugins.find((p) => p.filePath === pluginFile)?.lifecycle).toBe('active');
+
+    await fsPromises.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('a full clearCache() resets all runtime health', async () => {
+    const manager = OrchestratorPluginManager.getInstance();
+    const hook = vi.fn(() => {
+      throw new Error('boom');
+    });
+    spyHookPlugin(manager, '/tmp/plugin.js', hook);
+    await emitRemoved(manager, 3);
+    expect(manager.isPluginQuarantined('/tmp/plugin.js')).toBe(true);
+
+    manager.clearCache(); // no arg → explicit global reset
+    expect(manager.isPluginQuarantined('/tmp/plugin.js')).toBe(false);
+  });
+});

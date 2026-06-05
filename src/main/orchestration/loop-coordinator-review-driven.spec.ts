@@ -272,6 +272,31 @@ describe('LoopCoordinator review-driven completion', () => {
     }
   }, 30_000);
 
+  it('stops a spinning review loop as completed-needs-review instead of running to a cap', async () => {
+    // Regression for the one-more-floor 3h/$8 spin: a review-driven loop that
+    // makes no production changes and never emits the phrase (re-reviewing
+    // settled work) produces an identical work hash each iteration → CRITICAL
+    // no-progress. Review-driven loops are exempt from the no-progress *pause*,
+    // so without the stall guard this runs to a hard cap / trips the circuit
+    // breaker (surfaced as a misleading `error`). It must self-terminate.
+    const needsReview = waitForEvent<{ reason: string }>('loop:completed-needs-review');
+    // Empty script → every iteration returns the same no-phrase, no-change result.
+    const driver = driveLoop([]);
+
+    let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
+    try {
+      state = await startReviewDrivenLoop('chat-rd-stall', { maxStalledReviewIterations: 2 });
+      const ev = await needsReview;
+      expect(ev.reason).toContain('stalled');
+      await waitForCondition(() => coordinator.getLoop(state!.id)?.status === 'completed-needs-review');
+      expect(coordinator.getLoop(state.id)?.status).toBe('completed-needs-review');
+      // Must stop well before the 10-iteration cap.
+      expect(driver.invocations()).toBeLessThan(10);
+    } finally {
+      if (state) await coordinator.cancelLoop(state.id);
+    }
+  }, 30_000);
+
   it('does not treat output without the exact phrase as a clean pass', async () => {
     driveLoop([
       childResult('I think it is basically done now.'),

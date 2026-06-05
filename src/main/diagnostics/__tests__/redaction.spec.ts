@@ -50,4 +50,49 @@ describe('redactValue', () => {
 
     expect(redactValue(value).self).toBe('[circular]');
   });
+
+  // Union with the canonical security detector: provider key formats the local
+  // inline patterns miss must still be scrubbed from free-text log lines, even
+  // when the value never appears in a secret-named env var.
+  it('redacts a Google/Gemini API key embedded in a log line', () => {
+    const key = 'AIzaSyA1234567890abcdefghijklmnopqrstuvw';
+    const redacted = redactValue({ line: `gemini failed using ${key} oops` });
+    expect(redacted.line).not.toContain(key);
+    expect(redacted.line).toContain('<redacted-secret>');
+  });
+
+  it('redacts AWS, Stripe, Slack, GitLab and SendGrid keys in free text', () => {
+    const stripeKey = `sk_live_${'x'.repeat(24)}`;
+    const samples = {
+      aws: 'creds AKIAIOSFODNN7EXAMPLE here',
+      stripe: `charge ${stripeKey} done`,
+      slack: 'hook xoxb-1234567890-abcdefghijkl posted',
+      gitlab: 'token glpat-abcdefghij1234567890 used',
+      sendgrid: 'email SG.abcdefghij1234567890ab.cdefghij1234567890abcdefghij done',
+    };
+    const redacted = redactValue(samples);
+    expect(redacted.aws).not.toContain('AKIAIOSFODNN7EXAMPLE');
+    expect(redacted.stripe).not.toContain(stripeKey);
+    expect(redacted.slack).not.toContain('xoxb-1234567890');
+    expect(redacted.gitlab).not.toContain('glpat-abcdefghij');
+    expect(redacted.sendgrid).not.toContain('SG.abcdefghij');
+    for (const v of Object.values(redacted)) {
+      expect(v).toContain('<redacted-secret>');
+    }
+  });
+
+  it('still redacts generic sk-/Bearer tokens the detector does not cover', () => {
+    const redacted = redactValue({
+      openai: 'used sk-proj1234567890abcdefghij to call',
+      header: 'Authorization: Bearer abcdef1234567890ghijkl',
+    });
+    expect(redacted.openai).not.toContain('sk-proj1234567890');
+    expect(redacted.openai).toContain('<redacted-secret>');
+    expect(redacted.header).toContain('Bearer <redacted-secret>');
+  });
+
+  it('leaves benign text untouched', () => {
+    const redacted = redactValue({ note: 'the build finished in 42 seconds' });
+    expect(redacted.note).toBe('the build finished in 42 seconds');
+  });
 });

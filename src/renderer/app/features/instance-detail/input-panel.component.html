@@ -19,7 +19,15 @@
       <!-- File previews -->
       @for (preview of pendingFilePreviews(); track preview.file.name) {
         @if (preview.isImage) {
-          <div class="file-preview-card">
+          <div
+            class="file-preview-card clickable"
+            (click)="openLightbox(preview.file)"
+            (keydown.enter)="openLightbox(preview.file)"
+            (keydown.space)="openLightbox(preview.file)"
+            tabindex="0"
+            role="button"
+            title="Click to preview"
+          >
             <div class="preview-thumbnail" [style.background-image]="'url(' + preview.previewUrl + ')'">
             </div>
             <div class="preview-info">
@@ -28,19 +36,27 @@
             </div>
             <button
               class="file-remove"
-              (click)="onRemoveFile(preview.file)"
+              (click)="onRemoveFile(preview.file); $event.stopPropagation()"
               title="Remove file"
             >
               ×
             </button>
           </div>
         } @else {
-          <div class="file-chip">
+          <div
+            class="file-chip clickable"
+            (click)="openLightbox(preview.file)"
+            (keydown.enter)="openLightbox(preview.file)"
+            (keydown.space)="openLightbox(preview.file)"
+            tabindex="0"
+            role="button"
+            title="Click to preview"
+          >
             <span class="file-icon">{{ preview.icon }}</span>
             <span class="file-name">{{ preview.file.name }}</span>
             <button
               class="file-remove"
-              (click)="onRemoveFile(preview.file)"
+              (click)="onRemoveFile(preview.file); $event.stopPropagation()"
               title="Remove file"
             >
               ×
@@ -50,6 +66,8 @@
       }
     </div>
   }
+
+  <app-image-lightbox [items]="lightboxItems()" />
 
   @if (!isDraftComposer()) {
     <app-composer-toolbar

@@ -2,9 +2,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Browser, ConsoleMessage, HTTPRequest, Page } from 'puppeteer-core';
 import type {
+  BrowserAccessibilityNode,
   BrowserElementContext,
   BrowserElementCandidate,
-  BrowserSelectOption,
+  BrowserEvaluateResult,
   BrowserDownloadFileResult,
   BrowserProfile,
   BrowserProfileMode,
@@ -13,6 +14,10 @@ import type {
 import {
   BrowserProcessLauncher,
 } from './browser-process-launcher';
+import {
+  normalizeAxTreeNodes,
+  normalizeElementCandidates,
+} from './puppeteer-browser-normalizers';
 import {
   BrowserTargetRegistry,
   getBrowserTargetRegistry,
@@ -234,6 +239,78 @@ export class PuppeteerBrowserDriver {
       args: [query, limit],
     });
     return normalizeElementCandidates(result);
+  }
+
+  // Capture a flattened CDP accessibility tree. Mirrors the extension path so
+  // managed profiles expose the same uid-addressable nodes (uid = backendNodeId)
+  // that pierce open and closed shadow roots.
+  async accessibilitySnapshot(
+    profileId: string,
+    targetId: string,
+    options: { interestingOnly?: boolean; limit?: number } = {},
+  ): Promise<BrowserAccessibilityNode[]> {
+    const page = this.getPage(profileId, targetId);
+    const session = await this.createPageSession(page);
+    try {
+      await session.send('DOM.enable').catch(() => undefined);
+      await session.send('Accessibility.enable').catch(() => undefined);
+      const tree = await session.send('Accessibility.getFullAXTree', {});
+      return normalizeAxTreeNodes(tree, {
+        interestingOnly: options.interestingOnly !== false,
+        limit: Math.max(1, Math.min(options.limit ?? 2000, 2000)),
+      });
+    } finally {
+      await this.detachSession(session);
+    }
+  }
+
+  async evaluate(
+    profileId: string,
+    targetId: string,
+    expression: string,
+    awaitPromise: boolean,
+  ): Promise<BrowserEvaluateResult> {
+    const page = this.getPage(profileId, targetId);
+    const session = await this.createPageSession(page);
+    try {
+      const evaluation = await session.send('Runtime.evaluate', {
+        expression,
+        returnByValue: true,
+        awaitPromise,
+        userGesture: true,
+      }) as {
+        result?: { type?: string; value?: unknown; unserializableValue?: string; description?: string };
+        exceptionDetails?: { text?: string; exception?: { description?: string } };
+      };
+      if (evaluation?.exceptionDetails) {
+        throw new Error(
+          evaluation.exceptionDetails.exception?.description
+          || evaluation.exceptionDetails.text
+          || 'browser_evaluate_failed',
+        );
+      }
+      const remote = evaluation?.result ?? {};
+      let json: string | undefined;
+      try {
+        if (Object.prototype.hasOwnProperty.call(remote, 'value')) {
+          json = JSON.stringify(remote.value);
+        } else if (typeof remote.unserializableValue === 'string') {
+          json = remote.unserializableValue;
+        } else if (typeof remote.description === 'string') {
+          json = remote.description;
+        }
+      } catch {
+        json = typeof remote.description === 'string' ? remote.description : '';
+      }
+      const truncated = typeof json === 'string' && json.length > 20_000;
+      return {
+        ...(typeof remote.type === 'string' ? { type: remote.type } : {}),
+        ...(typeof json === 'string' ? { json: json.slice(0, 20_000) } : {}),
+        ...(truncated ? { truncated: true } : {}),
+      };
+    } finally {
+      await this.detachSession(session);
+    }
   }
 
   async inspectElement(
@@ -537,125 +614,12 @@ export class PuppeteerBrowserDriver {
     }
     return session;
   }
-}
 
-function normalizeElementCandidates(result: unknown): BrowserElementCandidate[] {
-  if (!result || typeof result !== 'object' || Array.isArray(result)) {
-    return [];
-  }
-  const rawElements = (result as Record<string, unknown>)['elements'];
-  if (!Array.isArray(rawElements)) {
-    return [];
-  }
-  const candidates: BrowserElementCandidate[] = [];
-  for (const item of rawElements) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      continue;
+  private async detachSession(session: BrowserCdpSession): Promise<void> {
+    const detachable = session as BrowserCdpSession & { detach?: () => Promise<void> };
+    if (typeof detachable.detach === 'function') {
+      await detachable.detach().catch(() => undefined);
     }
-    const value = item as Record<string, unknown>;
-    const selector = value['selector'];
-    const tagName = value['tagName'];
-    if (typeof selector !== 'string' || !selector || typeof tagName !== 'string' || !tagName) {
-      continue;
-    }
-    candidates.push({
-      selector: selector.slice(0, 2_000),
-      tagName: tagName.slice(0, 120),
-      ...optionalString(value, 'role', 120),
-      ...optionalString(value, 'accessibleName', 500),
-      ...optionalText(value),
-      ...optionalString(value, 'inputType', 120),
-      ...optionalString(value, 'placeholder', 500),
-      ...optionalHref(value),
-      ...optionalControlValue(value),
-      ...optionalBoolean(value, 'checked'),
-      ...optionalBoolean(value, 'disabled'),
-      ...optionalBoolean(value, 'expanded'),
-      ...optionalOptions(value),
-    });
-  }
-  return candidates;
-}
-
-function optionalControlValue(value: Record<string, unknown>): Partial<BrowserElementCandidate> {
-  const out: Partial<BrowserElementCandidate> = {};
-  const raw = value['value'];
-  if (typeof raw === 'string') {
-    out.value = redactBrowserText(raw).slice(0, 1_000);
-  }
-  const selectedOption = value['selectedOption'];
-  if (typeof selectedOption === 'string' && selectedOption) {
-    out.selectedOption = redactBrowserText(selectedOption).slice(0, 200);
-  }
-  return out;
-}
-
-function optionalBoolean(
-  value: Record<string, unknown>,
-  key: 'checked' | 'disabled' | 'expanded',
-): Partial<BrowserElementCandidate> {
-  return typeof value[key] === 'boolean' ? { [key]: value[key] as boolean } : {};
-}
-
-function optionalOptions(value: Record<string, unknown>): Partial<BrowserElementCandidate> {
-  const raw = value['options'];
-  if (!Array.isArray(raw)) {
-    return {};
-  }
-  const options: BrowserSelectOption[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      continue;
-    }
-    const option = item as Record<string, unknown>;
-    const optionValue = option['value'];
-    const optionLabel = option['label'];
-    if (typeof optionValue !== 'string' && typeof optionLabel !== 'string') {
-      continue;
-    }
-    options.push({
-      value: typeof optionValue === 'string' ? redactBrowserText(optionValue).slice(0, 200) : '',
-      label: typeof optionLabel === 'string' ? redactBrowserText(optionLabel).slice(0, 200) : '',
-      selected: option['selected'] === true,
-    });
-    if (options.length >= 50) {
-      break;
-    }
-  }
-  return options.length ? { options } : {};
-}
-
-function optionalString(
-  value: Record<string, unknown>,
-  key: keyof BrowserElementCandidate,
-  maxLength: number,
-): Partial<BrowserElementCandidate> {
-  const item = value[key];
-  return typeof item === 'string' && item
-    ? { [key]: item.slice(0, maxLength) }
-    : {};
-}
-
-function optionalText(value: Record<string, unknown>): Partial<BrowserElementCandidate> {
-  const text = value['text'];
-  return typeof text === 'string' && text
-    ? { text: redactBrowserText(text).slice(0, 1_000) }
-    : {};
-}
-
-function optionalHref(value: Record<string, unknown>): Partial<BrowserElementCandidate> {
-  const href = value['href'];
-  if (typeof href !== 'string' || !href) {
-    return {};
-  }
-  try {
-    const parsed = new URL(href);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return {};
-    }
-    return { href: redactBrowserUrl(href).slice(0, 2_000) };
-  } catch {
-    return {};
   }
 }
 

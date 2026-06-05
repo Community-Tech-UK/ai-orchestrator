@@ -54,9 +54,9 @@
   flex: 1;
   border: 1px solid var(--glass-strong);
   border-radius: 6px;
-  padding: 0 9px;
+  padding: 0 30px 0 9px; // room for the global chevron
   color: var(--text-primary);
-  background: var(--glass-light);
+  background-color: var(--glass-light); // not `background` — keep the chevron SVG
   font: inherit;
   font-size: 12px;
 }

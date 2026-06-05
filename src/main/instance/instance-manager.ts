@@ -79,6 +79,7 @@ import * as path from 'path';
 import type { UserActionRequest } from '../orchestration/orchestration-handler';
 import { BaseCliAdapter, type AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
 import { getCompactionCoordinator } from '../context/compaction-coordinator.js';
+import { getContextEngine } from '../context/context-engine.js';
 import type {
   ProviderName,
   ProviderRuntimeEvent,
@@ -1563,7 +1564,7 @@ export class InstanceManager extends EventEmitter {
         this.publishOutput(instanceId, userMessage);
       }
 
-      await getCompactionCoordinator().compactInstance(instanceId);
+      await getContextEngine().compactInstance(instanceId);
       return;
     }
 

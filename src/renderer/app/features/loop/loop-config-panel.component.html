@@ -81,6 +81,21 @@
     <input id="loop-cfg-verify" type="text" placeholder="Auto-detect" [ngModel]="verifyCommand()" (ngModelChange)="verifyCommand.set($event)" />
   </section>
 
+  <section class="row split">
+    <div>
+      <label for="loop-cfg-cap-iter">Max iterations</label>
+      <input id="loop-cfg-cap-iter" type="number" min="1" max="500" [ngModel]="maxIterations()" (ngModelChange)="maxIterations.set($event)" />
+    </div>
+    <div>
+      <label for="loop-cfg-cap-hours">Max hours</label>
+      <input id="loop-cfg-cap-hours" type="number" min="1" max="24" [ngModel]="maxHours()" (ngModelChange)="maxHours.set($event)" />
+    </div>
+    <div>
+      <label for="loop-cfg-cap-cost">Max spend ($) <span class="hint">(blank = no cap)</span></label>
+      <input id="loop-cfg-cap-cost" type="number" min="1" max="1000" placeholder="No cap" [ngModel]="maxDollars()" (ngModelChange)="maxDollars.set($event)" />
+    </div>
+  </section>
+
   <button
     type="button"
     class="advanced-toggle"
@@ -107,21 +122,6 @@
           [ngModel]="quickVerifyCommand()"
           (ngModelChange)="quickVerifyCommand.set($event)"
         />
-      </section>
-
-      <section class="row split">
-        <div>
-          <label for="loop-cfg-cap-iter">Max iterations</label>
-          <input id="loop-cfg-cap-iter" type="number" min="1" max="500" [ngModel]="maxIterations()" (ngModelChange)="maxIterations.set($event)" />
-        </div>
-        <div>
-          <label for="loop-cfg-cap-hours">Max hours</label>
-          <input id="loop-cfg-cap-hours" type="number" min="1" max="24" [ngModel]="maxHours()" (ngModelChange)="maxHours.set($event)" />
-        </div>
-        <div>
-          <label for="loop-cfg-cap-cost">Max spend ($)</label>
-          <input id="loop-cfg-cap-cost" type="number" min="1" max="1000" placeholder="No cap" [ngModel]="maxDollars()" (ngModelChange)="maxDollars.set($event)" />
-        </div>
       </section>
 
       <section class="row split">

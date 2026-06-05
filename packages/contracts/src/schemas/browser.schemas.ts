@@ -1,4 +1,10 @@
 import { z } from 'zod';
+import {
+  BrowserAccessibilityNodeSchema,
+  BrowserElementCandidateSchema,
+  BrowserEvaluateResultSchema,
+  BrowserSelectOptionSchema,
+} from './browser-interaction.schemas';
 
 const idSchema = z.string().min(1).max(200);
 const urlSchema = z.string().min(1).max(2000);
@@ -428,57 +434,81 @@ export const BrowserQueryElementsRequestSchema = BrowserTargetRequestSchema.exte
 }).strict();
 export type BrowserQueryElementsRequest = z.infer<typeof BrowserQueryElementsRequestSchema>;
 
-export const BrowserSelectOptionSchema = z
-  .object({
-    value: z.string().max(200),
-    label: z.string().max(200),
-    selected: z.boolean(),
-  })
-  .strict();
-export type BrowserSelectOption = z.infer<typeof BrowserSelectOptionSchema>;
+// A CDP-resolved element handle. The value is the stringified backendDOMNodeId
+// returned by browser.accessibility_snapshot. Unlike a CSS selector it pierces
+// open AND closed shadow roots (and iframes) because it is resolved through the
+// DevTools protocol rather than document.querySelector, so it is the robust way
+// to act on elements inside web components that attach a closed shadow root.
+const elementUidSchema = z.string().min(1).max(64);
 
-export const BrowserElementCandidateSchema = z
-  .object({
-    selector: z.string().min(1).max(2000),
-    tagName: z.string().min(1).max(120),
-    role: z.string().min(1).max(120).optional(),
-    accessibleName: z.string().min(1).max(500).optional(),
-    text: z.string().max(1000).optional(),
-    inputType: z.string().min(1).max(120).optional(),
-    placeholder: z.string().min(1).max(500).optional(),
-    href: webUrlSchema.optional(),
-    value: z.string().max(1000).optional(),
-    selectedOption: z.string().max(200).optional(),
-    checked: z.boolean().optional(),
-    disabled: z.boolean().optional(),
-    expanded: z.boolean().optional(),
-    options: z.array(BrowserSelectOptionSchema).max(50).optional(),
-  })
-  .strict();
-export type BrowserElementCandidate = z.infer<typeof BrowserElementCandidateSchema>;
+export const BrowserAccessibilitySnapshotRequestSchema = BrowserTargetRequestSchema.extend({
+  // When true (default) only semantically interesting nodes are returned, like
+  // the DevTools accessibility tree. Set false for the full tree.
+  interestingOnly: z.boolean().optional(),
+  limit: z.number().int().min(1).max(2000).optional(),
+}).strict();
+export type BrowserAccessibilitySnapshotRequest = z.infer<
+  typeof BrowserAccessibilitySnapshotRequestSchema
+>;
 
-export const BrowserClickRequestSchema = BrowserTargetRequestSchema.extend({
-  selector: z.string().min(1).max(2000),
+export type BrowserAccessibilityNode = z.infer<typeof BrowserAccessibilityNodeSchema>;
+
+export const BrowserEvaluateRequestSchema = BrowserTargetRequestSchema.extend({
+  expression: z.string().min(1).max(20_000),
+  awaitPromise: z.boolean().optional(),
   actionHint: z.string().min(1).max(500).optional(),
   requestId: idSchema.optional(),
 }).strict();
+export type BrowserEvaluateRequest = z.infer<typeof BrowserEvaluateRequestSchema>;
+
+export type BrowserEvaluateResult = z.infer<typeof BrowserEvaluateResultSchema>;
+
+export type BrowserSelectOption = z.infer<typeof BrowserSelectOptionSchema>;
+
+export type BrowserElementCandidate = z.infer<typeof BrowserElementCandidateSchema>;
+
+// An action must identify its target by a CSS selector, a uid handle, or both.
+// uid (from browser.accessibility_snapshot) is required to reach elements inside
+// closed shadow roots, where a selector cannot resolve.
+function requireSelectorOrUid(
+  value: { selector?: string; uid?: string },
+  ctx: z.RefinementCtx,
+): void {
+  if (!value.selector && !value.uid) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['selector'],
+      message: 'Browser action requires a selector or a uid.',
+    });
+  }
+}
+
+export const BrowserClickRequestSchema = BrowserTargetRequestSchema.extend({
+  selector: z.string().min(1).max(2000).optional(),
+  uid: elementUidSchema.optional(),
+  actionHint: z.string().min(1).max(500).optional(),
+  requestId: idSchema.optional(),
+}).strict().superRefine(requireSelectorOrUid);
 export type BrowserClickRequest = z.infer<typeof BrowserClickRequestSchema>;
 
 export const BrowserTypeRequestSchema = BrowserTargetRequestSchema.extend({
-  selector: z.string().min(1).max(2000),
+  selector: z.string().min(1).max(2000).optional(),
+  uid: elementUidSchema.optional(),
   value: z.string().max(20_000),
   actionHint: z.string().min(1).max(500).optional(),
   requestId: idSchema.optional(),
-}).strict();
+}).strict().superRefine(requireSelectorOrUid);
 export type BrowserTypeRequest = z.infer<typeof BrowserTypeRequestSchema>;
 
 export const BrowserFillFormFieldSchema = z
   .object({
-    selector: z.string().min(1).max(2000),
+    selector: z.string().min(1).max(2000).optional(),
+    uid: elementUidSchema.optional(),
     value: z.string().max(20_000),
     actionHint: z.string().min(1).max(500).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine(requireSelectorOrUid);
 export type BrowserFillFormField = z.infer<typeof BrowserFillFormFieldSchema>;
 
 export const BrowserFillFormRequestSchema = BrowserTargetRequestSchema.extend({
@@ -488,11 +518,12 @@ export const BrowserFillFormRequestSchema = BrowserTargetRequestSchema.extend({
 export type BrowserFillFormRequest = z.infer<typeof BrowserFillFormRequestSchema>;
 
 export const BrowserSelectRequestSchema = BrowserTargetRequestSchema.extend({
-  selector: z.string().min(1).max(2000),
+  selector: z.string().min(1).max(2000).optional(),
+  uid: elementUidSchema.optional(),
   value: z.string().min(1).max(2000),
   actionHint: z.string().min(1).max(500).optional(),
   requestId: idSchema.optional(),
-}).strict();
+}).strict().superRefine(requireSelectorOrUid);
 export type BrowserSelectRequest = z.infer<typeof BrowserSelectRequestSchema>;
 
 export const BrowserUploadFileRequestSchema = BrowserTargetRequestSchema.extend({

@@ -4,9 +4,11 @@ import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  BrowserAccessibilitySnapshotRequestSchema,
   BrowserApprovalStatusRequestSchema,
   BrowserAttachExistingTabRequestSchema,
   BrowserClickRequestSchema,
+  BrowserEvaluateRequestSchema,
   BrowserCreateProfileRequestSchema,
   BrowserDownloadFileRequestSchema,
   BrowserFindOrOpenRequestSchema,
@@ -219,6 +221,10 @@ export class BrowserGatewayRpcServer {
         return this.requireMethod('revokeGrant')(withContext);
       case 'browser.snapshot':
         return this.requireMethod('snapshot')(withContext);
+      case 'browser.accessibility_snapshot':
+        return this.requireMethod('accessibilitySnapshot')(withContext);
+      case 'browser.evaluate':
+        return this.requireMethod('evaluate')(withContext);
       case 'browser.screenshot':
         return this.requireMethod('screenshot')(withContext);
       case 'browser.console_messages':
@@ -459,6 +465,10 @@ export class BrowserGatewayRpcServer {
         case 'browser.console_messages':
         case 'browser.network_requests':
           return BrowserTargetRequestSchema;
+        case 'browser.accessibility_snapshot':
+          return BrowserAccessibilitySnapshotRequestSchema;
+        case 'browser.evaluate':
+          return BrowserEvaluateRequestSchema;
         case 'browser.wait_for':
           return BrowserWaitForRequestSchema;
         case 'browser.query_elements':

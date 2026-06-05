@@ -83,10 +83,10 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.completion?.requiredCleanReviewPasses).toBe(4);
   });
 
-  it('defaults to a $10 spend cap (LF-3)', () => {
+  it('defaults to a $500 spend-cap backstop (LF-3)', () => {
     const config = component.buildConfig();
 
-    expect(config?.caps?.maxCostCents).toBe(1000);
+    expect(config?.caps?.maxCostCents).toBe(50000);
   });
 
   it('defaults the context recycle threshold to 60%', () => {

@@ -40,6 +40,8 @@ import { InstanceCommunicationManager } from './instance-communication';
 import { TokenBudgetTracker } from '../context/token-budget-tracker';
 import { AcpCliAdapter } from '../cli/adapters/acp-cli-adapter';
 import { emitPluginHook } from '../plugins/hook-emitter';
+import { getCostTracker } from '../core/system/cost-tracker';
+import type { CliResponse } from '../cli/adapters/base-cli-adapter';
 
 const emitPluginHookMock = vi.mocked(emitPluginHook);
 
@@ -274,6 +276,87 @@ describe('InstanceCommunicationManager', () => {
     }, undefined);
   });
 
+  describe('cost recording on turn completion', () => {
+    beforeEach(() => {
+      getCostTracker().clearEntries();
+    });
+
+    function emitComplete(adapterName: string, usage: CliResponse['usage']): void {
+      const adapter = new FakeAdapter(adapterName) as unknown as CliAdapter;
+      adapters.set(instance.id, adapter);
+      manager.setupAdapterEvents(instance.id, adapter);
+      const response: CliResponse = { id: 'r1', content: 'done', role: 'assistant', usage };
+      (adapter as unknown as EventEmitter).emit('complete', response);
+    }
+
+    it('records a cost entry from completed-turn usage, trusting a provider-supplied cost', () => {
+      instance.currentModel = 'claude-sonnet-4-6';
+      emitComplete('claude-cli', {
+        inputTokens: 1000,
+        outputTokens: 500,
+        cacheReadTokens: 200,
+        cacheWriteTokens: 100,
+        totalTokens: 1500,
+        cost: 0.0421,
+      });
+
+      const entries = getCostTracker().getEntries();
+      expect(entries).toHaveLength(1);
+      const entry = entries[0];
+      expect(entry.instanceId).toBe(instance.id);
+      expect(entry.sessionId).toBe('session-1');
+      expect(entry.model).toBe('claude-sonnet-4-6');
+      expect(entry.inputTokens).toBe(1000);
+      expect(entry.outputTokens).toBe(500);
+      expect(entry.cacheReadTokens).toBe(200);
+      expect(entry.cacheWriteTokens).toBe(100);
+      // Provider-supplied total_cost_usd is trusted verbatim.
+      expect(entry.cost).toBeCloseTo(0.0421, 6);
+    });
+
+    it('computes cost from tokens when the provider does not supply one', () => {
+      instance.currentModel = 'claude-sonnet-4-6';
+      emitComplete('claude-cli', {
+        inputTokens: 1_000_000,
+        outputTokens: 0,
+      });
+
+      const entries = getCostTracker().getEntries();
+      expect(entries).toHaveLength(1);
+      // No provider cost → derived from the per-model rate table (non-zero).
+      expect(entries[0].cost).toBeGreaterThan(0);
+    });
+
+    it('falls back to the provider name as the model label when no model is set', () => {
+      instance.currentModel = undefined;
+      emitComplete('claude-cli', { inputTokens: 10, outputTokens: 5, cost: 0.001 });
+
+      const entries = getCostTracker().getEntries();
+      expect(entries).toHaveLength(1);
+      expect(entries[0].model).toBe('claude');
+    });
+
+    it('does not record when the turn carried no token usage', () => {
+      emitComplete('claude-cli', { duration: 1234 });
+      expect(getCostTracker().getEntries()).toHaveLength(0);
+    });
+
+    it('does not record when usage is absent entirely', () => {
+      emitComplete('claude-cli', undefined);
+      expect(getCostTracker().getEntries()).toHaveLength(0);
+    });
+
+    it('fires the cost-recorded event so downstream consumers (circuit breaker) see spend', () => {
+      instance.currentModel = 'claude-sonnet-4-6';
+      const recorded = vi.fn();
+      getCostTracker().on('cost-recorded', recorded);
+      emitComplete('claude-cli', { inputTokens: 100, outputTokens: 50, cost: 0.002 });
+      getCostTracker().off('cost-recorded', recorded);
+      expect(recorded).toHaveBeenCalledTimes(1);
+      expect(recorded.mock.calls[0][0]).toMatchObject({ instanceId: instance.id, cost: 0.002 });
+    });
+  });
+
   it('refreshes adapter runtime config before sending normal user input', async () => {
     const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
     adapters.set(instance.id, adapter);
@@ -335,6 +418,43 @@ describe('InstanceCommunicationManager', () => {
       rateLimit: { remaining: 9, resetAt: 1_717_000_060_000 },
       quota: { exhausted: false, message: 'ok' },
     }, undefined);
+  });
+
+  it('propagates the A3 degradedReason tag onto the complete runtime event', () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('complete', {
+      id: 'response-degraded',
+      role: 'assistant',
+      content: '',
+      degradedReason: 'delayed',
+    });
+
+    expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(
+      instance.id,
+      { kind: 'complete', degradedReason: 'delayed' },
+      undefined,
+    );
+  });
+
+  it('omits degradedReason on healthy completions', () => {
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('complete', {
+      id: 'response-healthy',
+      role: 'assistant',
+      content: 'all good',
+    });
+
+    expect(emitProviderRuntimeEvent).toHaveBeenCalledWith(
+      instance.id,
+      { kind: 'complete' },
+      undefined,
+    );
   });
 
   it('preserves provider diagnostics from adapter error objects', () => {

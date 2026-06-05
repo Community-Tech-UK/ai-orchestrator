@@ -1,7 +1,9 @@
 import { vi } from 'vitest';
 import type {
+  BrowserAccessibilityNode,
   BrowserAuditEntry,
   BrowserApprovalRequest,
+  BrowserEvaluateResult,
   BrowserPermissionGrant,
   BrowserProfile,
   BrowserTarget,
@@ -58,6 +60,17 @@ export function makeService(overrides: {
   navigate?: () => Promise<void>;
   screenshot?: () => Promise<string>;
   snapshot?: () => Promise<{ title: string; url: string; text: string }>;
+  accessibilitySnapshot?: (
+    profileId: string,
+    targetId: string,
+    options?: { interestingOnly?: boolean; limit?: number },
+  ) => Promise<BrowserAccessibilityNode[]>;
+  evaluate?: (
+    profileId: string,
+    targetId: string,
+    expression: string,
+    awaitPromise: boolean,
+  ) => Promise<BrowserEvaluateResult>;
   refreshTarget?: () => Promise<BrowserTarget>;
   grants?: BrowserPermissionGrant[];
   autoApproveRequests?: BrowserAutoApprovePredicate;
@@ -99,6 +112,8 @@ export function makeService(overrides: {
     consoleMessages: vi.fn(async () => []),
     networkRequests: vi.fn(async () => []),
     waitFor: vi.fn(async () => undefined),
+    accessibilitySnapshot: vi.fn(overrides.accessibilitySnapshot ?? (async () => [])),
+    evaluate: vi.fn(overrides.evaluate ?? (async () => ({ type: 'string', json: '"ok"' }))),
     queryElements: vi.fn(async () => []),
     inspectElement: vi.fn(async () => ({
       role: 'button',

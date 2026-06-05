@@ -382,7 +382,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         if (settled) return;
         settled = true;
         if (timeout) clearTimeout(timeout);
-        this.emit('complete', response);
+        this.completeResponse(response);
         resolve(response);
       };
 
@@ -707,6 +707,16 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             outputTokens: msg.usage.output_tokens,
             totalTokens:
               (msg.usage.input_tokens ?? 0) + (msg.usage.output_tokens ?? 0),
+            // Surface cache tokens separately (they were previously discarded)
+            // so cost accounting can price cached reads/writes at their distinct
+            // rates. They are intentionally NOT folded into totalTokens — see the
+            // comment above on the generation-count metric.
+            ...(typeof msg.usage.cache_read_input_tokens === 'number'
+              ? { cacheReadTokens: msg.usage.cache_read_input_tokens }
+              : {}),
+            ...(typeof msg.usage.cache_creation_input_tokens === 'number'
+              ? { cacheWriteTokens: msg.usage.cache_creation_input_tokens }
+              : {}),
           };
         }
         if (msg.type === 'result' && typeof msg.total_cost_usd === 'number') {

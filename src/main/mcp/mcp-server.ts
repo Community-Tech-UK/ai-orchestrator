@@ -4,6 +4,44 @@ import { type McpServerToolDefinition } from './mcp-server-tools';
 
 const logger = getLogger('McpServer');
 
+type McpContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; data: string; mimeType: string };
+
+/** Detect an image MIME type from the leading bytes of a base64 payload. */
+function detectImageMimeType(base64: string): string {
+  if (base64.startsWith('iVBORw0KGgo')) return 'image/png';
+  if (base64.startsWith('/9j/')) return 'image/jpeg';
+  if (base64.startsWith('R0lGOD')) return 'image/gif';
+  if (base64.startsWith('UklGR')) return 'image/webp';
+  // Browser Gateway captures PNG (Puppeteer) or JPEG (extension); default to PNG.
+  return 'image/png';
+}
+
+/**
+ * Build MCP content for a tool result that may carry a base64 image in its
+ * `data` field. Returns an `image` block (plus a text block with the remaining
+ * metadata) when image bytes are present, otherwise `null` so the caller falls
+ * back to plain text serialization (e.g. a failed/empty capture).
+ */
+function tryBuildImageContent(result: unknown): McpContentBlock[] | null {
+  if (!result || typeof result !== 'object') return null;
+  const record = result as Record<string, unknown>;
+  const data = record['data'];
+  if (typeof data !== 'string' || data.length === 0) return null;
+  // Tolerate a data URI prefix even though the gateway normally strips it.
+  const base64 = data.startsWith('data:')
+    ? data.slice(data.indexOf(',') + 1)
+    : data;
+  if (base64.length === 0) return null;
+  const mimeType = detectImageMimeType(base64);
+  const metadata = { ...record, data: `[${mimeType} returned as image content]` };
+  return [
+    { type: 'image', data: base64, mimeType },
+    { type: 'text', text: JSON.stringify(metadata) },
+  ];
+}
+
 export interface McpServerConfig {
   port?: number;
   tools: McpServerToolDefinition[];
@@ -58,6 +96,12 @@ export class McpServer extends EventEmitter {
         const tool = this.tools.get(params.name);
         if (!tool) throw new Error(`Unknown tool: ${params.name}`);
         const result = await tool.handler(params.arguments ?? {});
+        if (tool.producesImage) {
+          const imageContent = tryBuildImageContent(result);
+          if (imageContent) {
+            return { content: imageContent };
+          }
+        }
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       }
 

@@ -163,4 +163,20 @@ describe('getContextEngine singleton', () => {
     expect(inner.onContextUpdate).toHaveBeenCalledWith('i1', usage(20));
     expect(hoisted.coordinator.onContextUpdate).not.toHaveBeenCalled();
   });
+
+  it('routes manual compactInstance through the active engine (a swap governs IPC compaction too)', async () => {
+    // Guards the B3 boundary: the manual /compact + INSTANCE_COMPACT call sites
+    // resolve compaction via getContextEngine().compactInstance(), so installing
+    // an alternative engine governs manual compaction without touching call sites.
+    const inner = {
+      onContextUpdate: vi.fn(),
+      compactInstance: vi.fn(async () => ({ success: true })),
+      getStatus: vi.fn(() => ({ latestUsage: null, isCompacting: false })),
+      cleanupInstance: vi.fn(),
+    };
+    setContextEngine(inner);
+    await getContextEngine().compactInstance('i1');
+    expect(inner.compactInstance).toHaveBeenCalledWith('i1');
+    expect(hoisted.coordinator.compactInstance).not.toHaveBeenCalled();
+  });
 });

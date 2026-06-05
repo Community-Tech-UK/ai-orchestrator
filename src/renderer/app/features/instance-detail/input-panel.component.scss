@@ -270,6 +270,16 @@ app-copilot-model-selector {
   border-color: var(--border-color);
 }
 
+.file-chip.clickable,
+.file-preview-card.clickable {
+  cursor: pointer;
+}
+
+.file-chip.clickable:hover,
+.file-preview-card.clickable:hover {
+  border-color: var(--primary-color);
+}
+
 .preview-thumbnail {
   width: 52px;
   height: 52px;

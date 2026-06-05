@@ -145,6 +145,10 @@ export function createInitializationSteps(
       name: 'Unified model catalog',
       fn: () => {
         try {
+          // Seed the committed offline snapshot BEFORE the catalog is built, so
+          // the catalog's initial rebuild picks up models.dev pricing + context
+          // windows for the supported providers even fully offline. Idempotent.
+          getModelsDevService().loadOfflineSnapshot();
           getUnifiedModelCatalog(); // ensure singleton is constructed
           // Fire-and-forget — never throws (fail-soft by design).
           getModelsDevService().refresh().catch(() => {

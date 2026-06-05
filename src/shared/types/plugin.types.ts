@@ -47,6 +47,45 @@ export interface PluginLoadReport {
   error?: string;
 }
 
+/**
+ * Runtime lifecycle state of a loaded plugin. Distinct from the load-time
+ * `PluginLoadPhase` progression (which describes how a plugin was loaded):
+ * this describes its CURRENT health once loaded and dispatching.
+ * - `active`      — detected, slot runtime ready, no current failure streak.
+ * - `inactive`    — not detected in this environment (intentional, not an error).
+ * - `failed`      — load/registration failed (never became dispatchable).
+ * - `degraded`    — dispatchable but currently in a runtime-error streak (below the
+ *                   quarantine threshold); recovers to `active` on the next success.
+ * - `quarantined` — disabled after repeated runtime failures; skipped in dispatch
+ *                   until its source file changes on disk (hot-reload recovery) or
+ *                   the manager cache is fully reset.
+ */
+export type PluginLifecycleState =
+  | 'active'
+  | 'inactive'
+  | 'failed'
+  | 'degraded'
+  | 'quarantined';
+
+/**
+ * Mutable per-plugin runtime-health record, keyed by absolute plugin file path.
+ * Drives the degraded/quarantined transitions and is surfaced for Doctor/UI.
+ */
+export interface PluginRuntimeHealth {
+  state: PluginLifecycleState;
+  /** Total successful + failed dispatch operations observed. */
+  totalInvocations: number;
+  /** Lifetime failure count. */
+  totalFailures: number;
+  /** Consecutive failures since the last success (resets to 0 on success). */
+  consecutiveFailures: number;
+  /** True once the consecutive-failure threshold was crossed. */
+  quarantined: boolean;
+  lastError?: string;
+  lastErrorAt?: number;
+  quarantinedAt?: number;
+}
+
 export interface PluginTrackerEvent {
   event: string;
   timestamp: number;

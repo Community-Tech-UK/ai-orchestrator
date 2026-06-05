@@ -54,6 +54,7 @@
     "generate:aliases": "node scripts/generate-register-aliases.js",
     "generate:ipc": "node scripts/generate-preload-channels.js",
     "generate:cursor-models": "tsx scripts/generate-cursor-models.ts",
+    "sync:model-catalog": "tsx scripts/sync-model-catalog.ts",
     "install:git-hooks": "node scripts/install-git-hooks.js",
     "postinstall": "node scripts/rebuild-native-modules.js && node scripts/install-git-hooks.js",
     "rebuild:native": "node scripts/rebuild-native-modules.js",

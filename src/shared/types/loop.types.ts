@@ -13,16 +13,18 @@ export type LoopContextStrategy = 'fresh-child' | 'hybrid' | 'same-session';
 export type LoopProvider = 'claude' | 'codex';
 
 export interface LoopHardCaps {
-  /** Max iterations before forced stop. Default 50. */
+  /** Max iterations before forced stop. Default 500. */
   maxIterations: number;
   /** Wall-time budget in milliseconds. Default 8h. */
   maxWallTimeMs: number;
   /** Token spend cap (approx — measured per iteration). Default 1_000_000. */
   maxTokens: number;
   /**
-   * Cost cap in cents. Null means unbounded. Default 1000 ($10) so a loop
-   * started with no explicit spend config still has a ceiling (LF-3). Set to
-   * null only deliberately for unbounded subscription usage. A non-null cost
+   * Cost cap in cents. Null means unbounded. Default 50000 ($500) — a high
+   * backstop so a loop started with no explicit spend config still has a
+   * ceiling (LF-3) without biting normal subscription runs (where the dollar
+   * estimate is inaccurate). Set to null only deliberately for fully unbounded
+   * usage. A non-null cost
    * cap is a precondition for operator-reviewed completion and branch-and-select
    * exploration (LF-3a / LF-5) — both can sit paused/fan-out and burn spend.
    */
@@ -126,6 +128,18 @@ export interface LoopCompletionConfig {
    * to signal "nothing left to do." Default 'There are no outstanding issues'.
    */
   noOutstandingPhrase?: string;
+  /**
+   * review-driven only: max consecutive CRITICAL no-progress iterations that
+   * make NO production change AND do NOT advance the clean-review streak before
+   * the loop stops itself as `completed-needs-review`. Review-driven loops are
+   * exempt from the structural no-progress *pause* (their convergence looks
+   * like a stall), so without this guard a loop that is neither converging nor
+   * editing anything spins until a hard cap or the circuit breaker trips
+   * (reported as a misleading `error`). Default 3 — CRITICAL already implies a
+   * sustained stall, so a few more confirm "stuck re-reviewing" while bounding
+   * wasted cost. Ignored in `'gated'` mode.
+   */
+  maxStalledReviewIterations?: number;
   /** Path glob matched against rename events. */
   completedFilenamePattern: string; // default '*_[Cc]ompleted.md'
   /** Regex applied to iteration output. */
@@ -418,13 +432,14 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
     reviewStyle: 'debate',
     contextStrategy: 'same-session',
     caps: {
-      maxIterations: 50,
+      maxIterations: 500,
       maxWallTimeMs: 8 * 60 * 60 * 1000,
       maxTokens: 1_000_000,
-      // LF-3: default to a $10 ceiling. Previously null (unbounded), which the
-      // design docs flagged as a footgun — a runaway loop with no spend guard.
-      // Renderer surfaces this and lets the user clear it to null for no cap.
-      maxCostCents: 1000,
+      // LF-3: default to a $500 backstop. Previously $10, which prematurely
+      // killed subscription loops where the dollar estimate is inaccurate;
+      // previously null (unbounded), flagged as a footgun. Renderer surfaces
+      // this and lets the user clear it to null for no cap.
+      maxCostCents: 50000,
       maxToolCallsPerIteration: 200,
       maxCompletionAttempts: 3,
     },
@@ -466,6 +481,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       mode: 'gated',
       requiredCleanReviewPasses: 2,
       noOutstandingPhrase: 'There are no outstanding issues',
+      maxStalledReviewIterations: 3,
       completedFilenamePattern: '*_[Cc]ompleted.md',
       donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
       doneSentinelFile: 'DONE.txt',
@@ -804,6 +820,16 @@ export interface LoopState {
    * gated mode.
    */
   consecutiveCleanReviewPasses?: number;
+  /**
+   * review-driven mode: count of consecutive iterations that hit CRITICAL
+   * no-progress while making NO production change AND not advancing the
+   * clean-review streak (i.e. the agent is re-reviewing settled work without
+   * converging or editing). Resets to 0 on any non-stalled iteration. When it
+   * reaches `completion.maxStalledReviewIterations` the loop self-terminates as
+   * `completed-needs-review` instead of spinning to a cap / circuit breaker.
+   * In-memory only; undefined/0 in gated mode.
+   */
+  reviewDrivenStallIterations?: number;
 }
 
 export type { LoopActivityEvent, LoopActivityKind, LoopRunSummary, LoopStreamEvent } from './loop-stream.types';

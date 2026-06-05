@@ -9,6 +9,7 @@ import { LOOP_STATE_DIR_NAME } from './loop-artifact-paths';
 import { collectWorkspaceDiff } from './loop-diff';
 import {
   computeReviewThreadSet,
+  dedupeAndRankFindings,
   diffReviewThreads,
 } from './review-thread-fingerprint';
 import type {
@@ -239,8 +240,15 @@ export async function runFreshEyesReviewGate(args: {
     return { blocked: false, ran: true, errored: false };
   }
 
+  // Collapse cross-reviewer duplicates and order worst-first so the agent sees
+  // each distinct blocker once. This affects presentation only — the block
+  // decision was already made above by the severity filter.
+  const ranked = dedupeAndRankFindings(blocking);
+  const dedupedFindings = ranked.map((r) => r.finding);
+  const orderedSeverities = [...new Set(ranked.map((r) => r.finding.severity))];
+
   const prevThreads = state.unresolvedReviewThreads ?? [];
-  const currThreads = computeReviewThreadSet(blocking);
+  const currThreads = computeReviewThreadSet(dedupedFindings);
   const threadDiff = diffReviewThreads(prevThreads, currThreads);
   state.unresolvedReviewThreads = currThreads;
 
@@ -254,20 +262,22 @@ export async function runFreshEyesReviewGate(args: {
 
   const interventionMessage =
     `Fresh-eyes cross-model review (${reviewResult.reviewersUsed.join(', ') || 'reviewers'}) ` +
-    `blocked completion with ${blocking.length} ${blocking.length === 1 ? 'issue' : 'issues'} ` +
-    `(severities: ${[...new Set(blocking.map((f) => f.severity))].join(', ')}):\n\n` +
-    blocking
-      .map(
-        (f, i) =>
-          `${i + 1}. [${f.severity.toUpperCase()}] ${f.title}${f.file ? ` (${f.file})` : ''}\n   ${f.body}`,
-      )
+    `blocked completion with ${ranked.length} ${ranked.length === 1 ? 'issue' : 'issues'} ` +
+    `(severities: ${orderedSeverities.join(', ')}):\n\n` +
+    ranked
+      .map((r, i) => {
+        const f = r.finding;
+        const corroboration =
+          r.corroborations > 1 ? ` [flagged ${r.corroborations} times]` : '';
+        return `${i + 1}. [${f.severity.toUpperCase()}] ${f.title}${f.file ? ` (${f.file})` : ''}${corroboration}\n   ${f.body}`;
+      })
       .join('\n\n') +
     persistenceNote +
     `\n\nAddress each item, then re-attempt completion.`;
 
   state.pendingInterventions.push(interventionMessage);
   setConvergenceNote(
-    `${blocking.length} blocking review finding(s) remained` +
+    `${ranked.length} blocking review finding(s) remained` +
       (threadDiff.persisted.length > 0
         ? `, ${threadDiff.persisted.length} unresolved across multiple rounds`
         : '') +
@@ -277,14 +287,14 @@ export async function runFreshEyesReviewGate(args: {
     loopRunId: state.id,
     signal: signalId,
     reviewersUsed: reviewResult.reviewersUsed,
-    blockingFindings: blocking,
+    blockingFindings: dedupedFindings,
     summary: reviewResult.summary,
   });
   logger.info('Fresh-eyes review blocked completion - injected interventions', {
     loopRunId: state.id,
     signal: signalId,
-    blocking: blocking.length,
-    severities: [...new Set(blocking.map((f) => f.severity))],
+    blocking: ranked.length,
+    severities: orderedSeverities,
   });
   return { blocked: true, ran: true, errored: false };
 }

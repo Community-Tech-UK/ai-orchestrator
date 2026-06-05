@@ -31,7 +31,7 @@ import {
 import { InstanceManager } from '../../instance/instance-manager';
 import { WindowManager } from '../../window-manager';
 import { getSettingsManager } from '../../core/config/settings-manager';
-import { getCompactionCoordinator } from '../../context/compaction-coordinator';
+import { getContextEngine } from '../../context/context-engine';
 import { getRemoteObserverServer } from '../../remote/observer-server';
 import { getSelfPermissionGranter } from '../../security/self-permission-granter';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
@@ -594,8 +594,7 @@ export function registerInstanceHandlers(deps: {
           payload,
           'INSTANCE_COMPACT'
         );
-        const coordinator = getCompactionCoordinator();
-        const result = await coordinator.compactInstance(validated.instanceId);
+        const result = await getContextEngine().compactInstance(validated.instanceId);
         return { success: true, data: result };
       } catch (error) {
         return {

@@ -63,7 +63,13 @@ import { InstanceSpawner } from './lifecycle/instance-spawner';
 import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handler';
 import { buildInstanceRecord } from './lifecycle/instance-create-builder';
 import { resolveInitialModel } from './lifecycle/resolve-initial-model';
-import { applyOutputStyle, isOutputStyleInjectableProvider } from './output-style';
+import {
+  applyOutputStyle,
+  applyResolvedOutputStyle,
+  isOutputStyleInjectableProvider,
+  isOutputStyleName,
+} from './output-style';
+import { getOutputStyleRegistry } from './output-style-registry';
 import { PlanModeManager } from './lifecycle/plan-mode-manager';
 import { RestartPolicyHelpers } from './lifecycle/restart-policy-helpers';
 import {
@@ -1005,7 +1011,22 @@ export class InstanceLifecycleManager extends EventEmitter {
         if (instance.depth === 0) {
           const outputStyle = this.settings.getAll().outputStyle;
           if (outputStyle && outputStyle !== 'default' && isOutputStyleInjectableProvider(config.provider)) {
-            const styled = applyOutputStyle(systemPrompt, outputStyle);
+            let styled = systemPrompt;
+            if (isOutputStyleName(outputStyle)) {
+              // Built-in style (unchanged behaviour — append-only).
+              styled = applyOutputStyle(systemPrompt, outputStyle);
+            } else {
+              // User-authored `.md` style: append or full-prompt-swap (mode: replace).
+              const userStyle = await getOutputStyleRegistry()
+                .resolveUserStyle(instance.workingDirectory, outputStyle)
+                .catch((err) => {
+                  logger.warn('User output-style resolution failed', { outputStyle, error: String(err) });
+                  return null;
+                });
+              if (userStyle) {
+                styled = applyResolvedOutputStyle(systemPrompt, userStyle);
+              }
+            }
             if (styled !== systemPrompt) {
               systemPrompt = styled;
               logger.info('Applied output style to system prompt', { outputStyle });

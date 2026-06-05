@@ -65,6 +65,10 @@ import type {
   OutputMessage,
 } from '../../core/state/instance/instance.types';
 import { ComposerToolbarComponent } from './composer-toolbar.component';
+import {
+  ImageLightboxComponent,
+  type LightboxItem,
+} from '../../shared/components/image-lightbox/image-lightbox.component';
 import type { NlWorkflowSuggestion } from '../../../../shared/types/workflow.types';
 
 const LOOP_START_ACK_TIMEOUT_MS = 30_000;
@@ -78,6 +82,7 @@ const LOOP_START_ACK_TIMEOUT_MS = 30_000;
     ComposerToolbarComponent,
     LoopToggleComponent,
     LoopConfigPanelComponent,
+    ImageLightboxComponent,
   ],
   templateUrl: './input-panel.component.html',
   styleUrl: './input-panel.component.scss',
@@ -99,6 +104,7 @@ export class InputPanelComponent implements OnDestroy {
   protected voice = inject(VoiceConversationStore);
   private filePreviewUrls = new Map<File, string>();
   private textareaRef = viewChild<ElementRef<HTMLTextAreaElement>>('textareaRef');
+  private imageLightbox = viewChild(ImageLightboxComponent);
 
   instanceId = input.required<string>();
   disabled = input<boolean>(false);
@@ -144,6 +150,24 @@ export class InputPanelComponent implements OnDestroy {
       this.filePreviewUrls.set(file, url);
     }
     return this.filePreviewUrls.get(file)!;
+  }
+
+  // Items shown in the full-screen lightbox (mirrors pendingFilePreviews order)
+  lightboxItems = computed<LightboxItem[]>(() =>
+    this.pendingFilePreviews().map(preview => ({
+      name: preview.file.name,
+      src: preview.previewUrl,
+      isImage: preview.isImage,
+      icon: preview.icon,
+      size: preview.size,
+    })),
+  );
+
+  openLightbox(file: File): void {
+    const index = this.pendingFilePreviews().findIndex(preview => preview.file === file);
+    if (index >= 0) {
+      this.imageLightbox()?.open(index);
+    }
   }
 
   sendMessage = output<string>();

@@ -1,4 +1,8 @@
-import { NO_ERRORS_SCHEMA, signal } from '@angular/core';
+import {
+  NO_ERRORS_SCHEMA,
+  signal,
+  ɵresolveComponentResources as resolveComponentResources,
+} from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import type { LoopIterationPayload, LoopStatePayload } from '@contracts/schemas/loop';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,6 +10,10 @@ import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { LoopIpcService, type LoopActivityPayload } from '../../core/services/ipc/loop-ipc.service';
 import { LoopStore } from '../../core/state/loop.store';
 import { LoopControlComponent } from './loop-control.component';
+
+// Angular verifies standalone component resources before TestBed applies the
+// metadata override below, so resolve the extracted stylesheet for JIT tests.
+await resolveComponentResources(() => Promise.resolve(''));
 
 describe('LoopControlComponent', () => {
   let fixture: ComponentFixture<LoopControlComponent>;
@@ -81,7 +89,12 @@ describe('LoopControlComponent', () => {
     };
 
     TestBed.overrideComponent(LoopControlComponent, {
-      add: { schemas: [NO_ERRORS_SCHEMA] },
+      set: {
+        styles: [],
+        styleUrl: undefined,
+        styleUrls: [],
+        schemas: [NO_ERRORS_SCHEMA],
+      },
     });
 
     await TestBed.configureTestingModule({
@@ -165,14 +178,24 @@ describe('LoopControlComponent', () => {
     }));
     fixture.detectChanges();
 
-    const prompt = vi.spyOn(window, 'prompt').mockReturnValueOnce('try a different verification path');
-    try {
-      bannerButton('Inject hint').click();
-      await settle(fixture);
-      expect(ipc.intervene).toHaveBeenCalledWith('loop-1', 'try a different verification path');
-    } finally {
-      prompt.mockRestore();
-    }
+    // The banner "Inject hint" opens the in-app modal (window.prompt is a
+    // no-op in the sandboxed renderer). The modal element is wired in, and
+    // submitting it routes the hint to the active loop id.
+    const ci = fixture.componentInstance as unknown as {
+      hintModalOpen: () => boolean;
+      onHintSubmitted: (message: string) => Promise<void>;
+    };
+    bannerButton('Inject hint').click();
+    await settle(fixture);
+
+    expect(ci.hintModalOpen()).toBe(true);
+    expect(fixture.nativeElement.querySelector('app-prompt-modal')).toBeTruthy();
+
+    await ci.onHintSubmitted('try a different verification path');
+    await settle(fixture);
+
+    expect(ci.hintModalOpen()).toBe(false);
+    expect(ipc.intervene).toHaveBeenCalledWith('loop-1', 'try a different verification path');
 
     bannerButton('Resume anyway').click();
     await settle(fixture);

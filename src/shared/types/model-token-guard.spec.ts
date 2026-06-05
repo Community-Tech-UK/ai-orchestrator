@@ -33,6 +33,8 @@ const ALLOWLIST = new Set<string>([
   'src/main/core/config/settings-manager.ts',
   // historical pricing keyed by full API id (cost tracking for old models)
   'src/main/rlm/token-counter.ts',
+  // generated models.dev catalog snapshot keyed by provider model ids
+  'src/main/providers/models-dev-snapshot.generated.ts',
   'src/renderer/app/features/verification/shared/services/verification.service.ts',
 ]);
 

@@ -197,6 +197,32 @@ export interface ProviderSpawnedEvent {
   pid: number;
 }
 
+/**
+ * Why a completed response is considered degraded (adapter-layer detection, A3).
+ *
+ * - `'delayed'`         — stream stalled / took far longer than its tiny output
+ *   warranted (stream-idle watchdog fired, or long elapsed time with near-zero
+ *   content).
+ * - `'synthetic'`       — non-cancelled near-empty output dominated by whitespace
+ *   (shell hallucination / replay artefact pattern).
+ * - `'cancelled'`       — the process was interrupted mid-response; the partial
+ *   output is incomplete.
+ * - `'duplicate-stale'` — content is byte-for-byte identical to the prior response
+ *   for the same session.
+ * - `'partial-replay'`  — content is highly similar (but not identical) to the
+ *   prior response, indicating a replay rather than a fresh answer.
+ *
+ * Canonical home for the union so it survives RPC transport. The adapter-side
+ * classifier (`src/main/cli/adapters/degraded-output-classifier.ts`) re-exports
+ * this type rather than defining its own copy.
+ */
+export type DegradedReason =
+  | 'delayed'
+  | 'synthetic'
+  | 'cancelled'
+  | 'duplicate-stale'
+  | 'partial-replay';
+
 /** Response turn completed. */
 export interface ProviderCompleteEvent {
   kind: 'complete';
@@ -214,6 +240,12 @@ export interface ProviderCompleteEvent {
   rateLimit?: ProviderRateLimitDiagnostics;
   /** Provider quota summary. */
   quota?: ProviderQuotaDiagnostics;
+  /**
+   * Set by the adapter-layer degraded-output classifier (A3) when the
+   * `detectDegradedAdapterOutput` setting is enabled and the response looked
+   * degraded. Absent on healthy turns (the default).
+   */
+  degradedReason?: DegradedReason;
 }
 
 // ============================================

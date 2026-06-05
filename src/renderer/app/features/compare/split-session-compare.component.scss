@@ -61,11 +61,12 @@
   flex: 1;
   min-width: 0;
   appearance: none;
-  background: var(--bg-tertiary);
+  // background-COLOR (not shorthand) so the global select chevron SVG survives.
+  background-color: var(--bg-tertiary);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
   border-radius: 4px;
-  padding: 4px 8px;
+  padding: 4px 28px 4px 8px; // room for the global chevron
   font-size: 13px;
   font-family: inherit;
   cursor: pointer;

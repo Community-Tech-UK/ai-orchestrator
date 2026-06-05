@@ -87,9 +87,9 @@
 }
 
 .interval-cell select {
-  padding: 4px 8px;
+  padding: 4px 30px 4px 8px; // room for the global chevron
   font-size: 0.8125rem;
-  background: var(--bg-elevated);
+  background-color: var(--bg-elevated); // not `background` — keep the chevron SVG
   color: var(--text-primary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);

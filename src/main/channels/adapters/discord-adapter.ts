@@ -685,7 +685,7 @@ export class DiscordAdapter extends BaseChannelAdapter {
       timestamp: message.createdTimestamp ?? Date.now(),
     };
 
-    this.emit('message', inbound);
+    this.emitInboundMessage(inbound);
   }
 
   private async handleInteraction(interaction: DiscordInteraction): Promise<void> {
@@ -752,7 +752,7 @@ export class DiscordAdapter extends BaseChannelAdapter {
     };
 
     this.lastMessageAt = inbound.timestamp;
-    this.emit('message', inbound);
+    this.emitInboundMessage(inbound);
   }
 
   private async handleAutocompleteInteraction(interaction: DiscordInteraction): Promise<void> {

@@ -413,7 +413,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
             ...response.usage,
             duration
           };
-          this.emit('complete', response);
+          this.completeResponse(response);
           resolve(response);
         } else {
           reject(new Error(`Gemini exited with code ${code}`));

@@ -13,8 +13,13 @@ export type WorkspaceSnapshot = Map<string, WorkspaceSnapshotEntry>;
 const WORKSPACE_SNAPSHOT_MAX_FILES = 5_000;
 const WORKSPACE_SNAPSHOT_MAX_FILE_BYTES = 5 * 1024 * 1024;
 const WORKSPACE_SNAPSHOT_IGNORED_DIRS = new Set([
+  // Loop runtime state. `.aio-loop-state` holds the loop's own NOTES.md /
+  // OUTSTANDING.md / DONE.txt, rewritten EVERY iteration — counting it as a
+  // file change manufactures false "progress" and masks a genuine stall.
   '.aio-loop-attachments',
   '.aio-loop-control',
+  '.aio-loop-state',
+  // JS/TS build + tool caches.
   '.angular',
   '.cache',
   '.git',
@@ -27,8 +32,31 @@ const WORKSPACE_SNAPSHOT_IGNORED_DIRS = new Set([
   'dist',
   'node_modules',
   'out',
+  // JVM build artifacts. Gradle rewrites its cache on every build, so a
+  // Java/Kotlin loop that compiles each iteration would otherwise show dozens
+  // of churning `.gradle/...` files and never read as "no progress".
+  '.gradle',
+  '.kotlin',
+  'bin',
+  'target',
 ]);
 const WORKSPACE_SNAPSHOT_IGNORED_FILES = new Set(['.DS_Store']);
+
+/**
+ * True when any path segment is an ignored directory (or the file itself is
+ * ignored). Used to keep build/loop-state artifacts out of BOTH the filesystem
+ * walk and the `git diff` path — the latter would otherwise leak tracked
+ * artifacts (e.g. a repo that committed `.gradle/`) into the progress signal.
+ */
+function isIgnoredWorkspaceRelPath(relPath: string): boolean {
+  const segments = relPath.split(/[\\/]/).filter(Boolean);
+  if (segments.length === 0) return false;
+  for (let i = 0; i < segments.length - 1; i++) {
+    if (WORKSPACE_SNAPSHOT_IGNORED_DIRS.has(segments[i])) return true;
+  }
+  const leaf = segments[segments.length - 1];
+  return WORKSPACE_SNAPSHOT_IGNORED_DIRS.has(leaf) || WORKSPACE_SNAPSHOT_IGNORED_FILES.has(leaf);
+}
 
 /**
  * Best-effort file change detection: shells out to `git diff --numstat HEAD`
@@ -51,6 +79,9 @@ export function snapshotFileChangesViaGit(cwd: string): LoopFileChange[] {
       const additions = Number.parseInt(parts[0], 10);
       const deletions = Number.parseInt(parts[1], 10);
       const relPath = parts[2];
+      // Drop build/loop-state artifacts even when they're git-tracked, so they
+      // never feed the loop's progress / work-hash signals.
+      if (isIgnoredWorkspaceRelPath(relPath)) continue;
       const abs = path.resolve(cwd, relPath);
       let contentHash = '';
       try {

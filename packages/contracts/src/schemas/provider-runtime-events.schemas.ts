@@ -2,6 +2,15 @@ import { z } from 'zod';
 
 export const ProviderNameSchema = z.enum(['claude', 'codex', 'gemini', 'copilot', 'anthropic-api', 'cursor']);
 
+/** Adapter-layer degraded-output reasons (A3). Keep in sync with the `DegradedReason` type. */
+export const DegradedReasonSchema = z.enum([
+  'delayed',
+  'synthetic',
+  'cancelled',
+  'duplicate-stale',
+  'partial-replay',
+]);
+
 const ProviderRuntimeAttachmentSchema = z.object({
   name: z.string(),
   type: z.string(),
@@ -114,6 +123,7 @@ const ProviderCompleteEventSchema = z.object({
   tokensUsed: z.number().int().nonnegative().optional(),
   costUsd: z.number().nonnegative().optional(),
   durationMs: z.number().int().nonnegative().optional(),
+  degradedReason: DegradedReasonSchema.optional(),
   ...ProviderApiDiagnosticsSchema,
 });
 

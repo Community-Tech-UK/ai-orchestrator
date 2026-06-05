@@ -140,7 +140,10 @@ select {
   width: 100%;
   min-height: 34px;
   padding: var(--spacing-xs) var(--spacing-sm);
-  background: var(--surface-sunken-bg);
+  // background-COLOR (not the `background` shorthand) so the global select
+  // chevron SVG survives; leave room for it on the right.
+  padding-right: 32px;
+  background-color: var(--surface-sunken-bg);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-primary);

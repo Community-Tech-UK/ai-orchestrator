@@ -27,6 +27,7 @@ import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { HistoryIpcService } from '../../core/services/ipc/history-ipc.service';
 import { InstanceRowComponent } from './instance-row.component';
 import { ContextMenuComponent, type ContextMenuItem } from '../../shared/components/context-menu/context-menu.component';
+import { PromptModalComponent } from '../../shared/components/prompt-modal/prompt-modal.component';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
 import type { RecentDirectoryEntry } from '../../../../shared/types/recent-directories.types';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
@@ -73,7 +74,7 @@ import {
 @Component({
   selector: 'app-instance-list',
   standalone: true,
-  imports: [NgTemplateOutlet, ScrollingModule, InstanceRowComponent, DragDropModule, ContextMenuComponent],
+  imports: [NgTemplateOutlet, ScrollingModule, InstanceRowComponent, DragDropModule, ContextMenuComponent, PromptModalComponent],
   templateUrl: './instance-list.component.html',
   styleUrl: './instance-list.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -143,14 +144,18 @@ export class InstanceListComponent implements OnDestroy {
   private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly FILTER_DEBOUNCE_MS = 250;
 
+  // The status filter ('active' vs 'all') only hides sessions/projects from the
+  // view — it never changes the persisted ordering. Both reorder handlers
+  // (onDrop / onProjectDrop -> getNextProjectPathOrder) perform a stable subset
+  // reorder: they walk the full persisted order and only reshuffle the visible
+  // entries into their existing slots, leaving hidden items in place. So
+  // reordering is safe under the status filter and must stay enabled there.
   isDragDisabled = computed(() =>
     this.filterInput().length > 0 ||
-      this.statusFilter() !== 'all' ||
       this.locationFilter() !== 'all'
   );
   isProjectDragDisabled = computed(() =>
     this.filterInput().length > 0 ||
-      this.statusFilter() !== 'all' ||
       this.locationFilter() !== 'all' ||
       this.openProjectMenuKey() !== null
   );
@@ -615,13 +620,31 @@ export class InstanceListComponent implements OnDestroy {
     return items;
   }
 
-  private async renameLiveInstance(instance: Instance, displayTitle: string): Promise<void> {
-    const nextName = window.prompt('Rename session', displayTitle)?.trim();
-    if (!nextName || nextName === displayTitle) {
-      return;
-    }
+  // ── Rename modal (window.prompt is a no-op in the sandboxed renderer) ──
+  protected renameModalOpen = signal(false);
+  protected renameInitial = signal('');
+  private renameTargetId: string | null = null;
+  private renameOriginal = '';
 
-    await this.store.renameInstance(instance.id, nextName);
+  private renameLiveInstance(instance: Instance, displayTitle: string): void {
+    this.renameTargetId = instance.id;
+    this.renameOriginal = displayTitle;
+    this.renameInitial.set(displayTitle);
+    this.renameModalOpen.set(true);
+  }
+
+  protected async onRenameSubmitted(name: string): Promise<void> {
+    this.renameModalOpen.set(false);
+    const targetId = this.renameTargetId;
+    const nextName = name.trim();
+    this.renameTargetId = null;
+    if (!targetId || !nextName || nextName === this.renameOriginal) return;
+    await this.store.renameInstance(targetId, nextName);
+  }
+
+  protected onRenameCancelled(): void {
+    this.renameModalOpen.set(false);
+    this.renameTargetId = null;
   }
 
   private async copyLiveTranscript(instanceId: string): Promise<void> {

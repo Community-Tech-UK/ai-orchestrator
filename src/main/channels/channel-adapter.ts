@@ -7,6 +7,7 @@ import type {
   ChannelPlatform,
   ChannelConnectionStatus,
   ChannelConfig,
+  ChannelInboundWatermark,
   InboundChannelMessage,
   SendOptions,
   SentMessage,
@@ -52,6 +53,13 @@ export abstract class BaseChannelAdapter extends EventEmitter {
     maxPending: 3,
     codeExpiryMs: 60 * 60 * 1000, // 1 hour
   };
+
+  /**
+   * Per-chat inbound intake state (B6 idempotent delivery + watermark). Bounded
+   * per chat; the number of distinct chats is naturally small (paired senders).
+   */
+  private readonly inboundWatermarks = new Map<string, ChannelInboundWatermark>();
+  private static readonly INBOUND_DEDUP_PER_CHAT = 256;
 
   get status(): ChannelConnectionStatus {
     return this._status;
@@ -197,5 +205,76 @@ export abstract class BaseChannelAdapter extends EventEmitter {
     }
 
     return chunks;
+  }
+
+  /**
+   * Idempotent inbound intake (B6). Concrete adapters MUST route inbound messages
+   * through this instead of emitting `'message'` directly: it dedups by the
+   * platform message id (per chat, FIFO-bounded) so a reconnect/replay can't
+   * re-route an already-handled message, advances the per-chat watermark, and
+   * only then emits `'message'`.
+   *
+   * @returns `true` if the message was accepted and emitted, `false` if it was a
+   *          duplicate and suppressed.
+   */
+  protected emitInboundMessage(msg: InboundChannelMessage): boolean {
+    if (!this.acceptInbound(msg)) {
+      return false;
+    }
+    this.emit('message', msg);
+    return true;
+  }
+
+  /**
+   * Record an inbound message against the per-chat watermark. Returns `false`
+   * when the message's id was already seen for that chat (duplicate intake).
+   */
+  private acceptInbound(msg: InboundChannelMessage): boolean {
+    const chatId = msg.chatId;
+    const dedupId = msg.messageId || msg.id;
+    let wm = this.inboundWatermarks.get(chatId);
+    if (!wm) {
+      wm = { chatId, recentIds: [], lastTimestamp: 0, processedCount: 0 };
+      this.inboundWatermarks.set(chatId, wm);
+    }
+
+    if (dedupId && wm.recentIds.includes(dedupId)) {
+      return false;
+    }
+
+    if (dedupId) {
+      wm.recentIds.push(dedupId);
+      if (wm.recentIds.length > BaseChannelAdapter.INBOUND_DEDUP_PER_CHAT) {
+        wm.recentIds.shift();
+      }
+    }
+    if (msg.timestamp >= wm.lastTimestamp) {
+      wm.lastTimestamp = msg.timestamp;
+      wm.lastMessageId = dedupId || undefined;
+    }
+    wm.processedCount += 1;
+    return true;
+  }
+
+  /**
+   * Observable inbound watermark for a chat (diagnostics / "attached from" UIs).
+   * Returns a defensive copy, or `undefined` if no inbound has been seen.
+   */
+  getInboundWatermark(chatId: string): ChannelInboundWatermark | undefined {
+    const wm = this.inboundWatermarks.get(chatId);
+    return wm ? { ...wm, recentIds: [...wm.recentIds] } : undefined;
+  }
+
+  /**
+   * Clear inbound dedup state. Call when a deliberate full replay is wanted
+   * (e.g. an operator-requested resync); by default state persists across
+   * reconnects so replays stay idempotent.
+   */
+  protected resetInboundWatermark(chatId?: string): void {
+    if (chatId) {
+      this.inboundWatermarks.delete(chatId);
+    } else {
+      this.inboundWatermarks.clear();
+    }
   }
 }

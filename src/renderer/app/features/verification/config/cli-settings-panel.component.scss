@@ -174,11 +174,11 @@
     .detail-row input[type="number"],
     .detail-row select {
       flex: 1;
-      padding: 8px 12px;
+      padding: 8px 32px 8px 12px; // room for the global chevron
       border: 1px solid var(--border-color);
       border-radius: 6px;
       font-size: 13px;
-      background: var(--bg-primary);
+      background-color: var(--bg-primary); // not `background` — keep the chevron SVG
     }
 
     .path-input {

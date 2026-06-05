@@ -37,6 +37,24 @@ export interface InboundChannelMessage {
   timestamp: number;
 }
 
+/**
+ * Per-chat inbound intake state for a channel adapter (B6). Drives idempotent
+ * delivery: the adapter records recently-seen message ids so a platform replay
+ * or reconnect cannot re-route a message that was already handled, and tracks a
+ * watermark (the highest accepted timestamp = the ack position) for diagnostics.
+ */
+export interface ChannelInboundWatermark {
+  chatId: string;
+  /** Recently-accepted message ids, FIFO-bounded, used for dedup. */
+  recentIds: string[];
+  /** Highest accepted inbound timestamp for this chat (the ack position). */
+  lastTimestamp: number;
+  /** Message id at the watermark, if any. */
+  lastMessageId?: string;
+  /** Count of accepted (non-duplicate) inbound messages for this chat. */
+  processedCount: number;
+}
+
 export interface ChannelResponse {
   channelMessageId: string;
   platform: ChannelPlatform;

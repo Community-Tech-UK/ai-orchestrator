@@ -135,6 +135,15 @@ class ComposerToolbarStubComponent {
   @Input() currentModel: string | undefined = undefined;
 }
 
+@Component({
+  selector: 'app-image-lightbox',
+  standalone: true,
+  template: '',
+})
+class ImageLightboxStubComponent {
+  @Input() items: unknown[] = [];
+}
+
 describe('InputPanelComponent queued message editing', () => {
   let fixture: ComponentFixture<InputPanelComponent>;
 
@@ -154,6 +163,7 @@ describe('InputPanelComponent queued message editing', () => {
           LoopToggleStubComponent,
           LoopConfigPanelStubComponent,
           ComposerToolbarStubComponent,
+          ImageLightboxStubComponent,
         ],
       },
     });

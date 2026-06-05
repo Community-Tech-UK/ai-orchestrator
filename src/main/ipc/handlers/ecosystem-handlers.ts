@@ -19,6 +19,7 @@ import { getMarkdownCommandRegistry } from '../../commands/markdown-command-regi
 import { getAgentRegistry } from '../../agents/agent-registry';
 import { getToolRegistry } from '../../tools/tool-registry';
 import { getOrchestratorPluginManager } from '../../plugins/plugin-manager';
+import { getOutputStyleRegistry } from '../../instance/output-style-registry';
 import { BrowserWindow } from 'electron';
 import chokidar from 'chokidar';
 import { getLogger } from '../../logging/logger';
@@ -33,12 +34,14 @@ export function registerEcosystemHandlers(instanceManager: InstanceManager): voi
     const agents = await getAgentRegistry().listAgents(workingDirectory);
     const tools = await getToolRegistry().listTools(workingDirectory);
     const plugins = await getOrchestratorPluginManager().listPlugins(workingDirectory, instanceManager);
+    const outputStyles = await getOutputStyleRegistry().listUserStyles(workingDirectory);
 
     const dirs = [
       ...commands.scanDirs,
       ...agents.scanDirs,
       ...tools.scanDirs,
       ...plugins.scanDirs,
+      ...outputStyles.scanDirs,
     ];
 
     // De-dupe, keep stable order.
@@ -68,6 +71,7 @@ export function registerEcosystemHandlers(instanceManager: InstanceManager): voi
         getAgentRegistry().clearCache(workingDirectory);
         getToolRegistry().clearCache(workingDirectory);
         getOrchestratorPluginManager().clearCache(workingDirectory);
+        getOutputStyleRegistry().clearCache(workingDirectory);
 
         const commands = await getMarkdownCommandRegistry().listCommands(
           workingDirectory
@@ -78,6 +82,7 @@ export function registerEcosystemHandlers(instanceManager: InstanceManager): voi
           workingDirectory,
           instanceManager
         );
+        const outputStyles = await getOutputStyleRegistry().listUserStyles(workingDirectory);
 
         return {
           success: true,
@@ -86,7 +91,8 @@ export function registerEcosystemHandlers(instanceManager: InstanceManager): voi
             commands,
             agents,
             tools,
-            plugins
+            plugins,
+            outputStyles
           }
         };
       } catch (error) {

@@ -70,14 +70,16 @@ export function createBrowserDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
       return ipcRenderer.invoke(ch.BROWSER_NAVIGATE, payload);
     },
     browserClick: (payload: BrowserTargetPayload & {
-      selector: string;
+      selector?: string;
+      uid?: string;
       actionHint?: string;
       requestId?: string;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.BROWSER_CLICK, payload);
     },
     browserType: (payload: BrowserTargetPayload & {
-      selector: string;
+      selector?: string;
+      uid?: string;
       value: string;
       actionHint?: string;
       requestId?: string;
@@ -85,13 +87,14 @@ export function createBrowserDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
       return ipcRenderer.invoke(ch.BROWSER_TYPE, payload);
     },
     browserFillForm: (payload: BrowserTargetPayload & {
-      fields: Array<{ selector: string; value: string; actionHint?: string }>;
+      fields: Array<{ selector?: string; uid?: string; value: string; actionHint?: string }>;
       requestId?: string;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.BROWSER_FILL_FORM, payload);
     },
     browserSelect: (payload: BrowserTargetPayload & {
-      selector: string;
+      selector?: string;
+      uid?: string;
       value: string;
       actionHint?: string;
       requestId?: string;
@@ -188,6 +191,20 @@ export function createBrowserDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
     },
     browserSnapshot: (payload: BrowserTargetPayload): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.BROWSER_SNAPSHOT, payload);
+    },
+    browserAccessibilitySnapshot: (payload: BrowserTargetPayload & {
+      interestingOnly?: boolean;
+      limit?: number;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_ACCESSIBILITY_SNAPSHOT, payload);
+    },
+    browserEvaluate: (payload: BrowserTargetPayload & {
+      expression: string;
+      awaitPromise?: boolean;
+      actionHint?: string;
+      requestId?: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.BROWSER_EVALUATE, payload);
     },
     browserScreenshot: (payload: BrowserTargetPayload & {
       maxWidth?: number;

@@ -5,95 +5,18 @@ import type { ModelDisplayInfo } from '../../../shared/types/provider.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
 import { CURSOR_DEFAULT_MODELS, discoverCursorModels } from './cursor-cli-adapter.models';
+import type {
+  CursorAssistantEvent,
+  CursorCliConfig,
+  CursorEvent,
+  CursorResultEvent,
+  CursorToolCallEvent,
+  ResultState,
+  StreamContext,
+} from './cursor-cli-adapter.types';
 
 const logger = getLogger('CursorCliAdapter');
-
-// ============ Cursor stream-JSON event types ============
-
-interface CursorSystemInitEvent {
-  type: 'system';
-  subtype: 'init';
-  session_id?: string;
-  model?: string;
-  cwd?: string;
-  apiKeySource?: string;
-  permissionMode?: string;
-}
-
-interface CursorUserEvent {
-  type: 'user';
-  message: { role: 'user'; content: unknown[] };
-  session_id?: string;
-}
-
-interface CursorAssistantEvent {
-  type: 'assistant';
-  message: { role: 'assistant'; content: { type: 'text'; text: string }[] };
-  session_id?: string;
-  timestamp_ms?: number;
-  model_call_id?: string;
-}
-
-interface CursorToolCallEvent {
-  type: 'tool_call';
-  subtype: 'started' | 'completed';
-  call_id: string;
-  tool_call: Record<string, unknown>;
-  session_id?: string;
-  is_error?: boolean;
-}
-
-interface CursorResultEvent {
-  type: 'result';
-  subtype: 'success' | 'error';
-  is_error: boolean;
-  duration_ms?: number;
-  duration_api_ms?: number;
-  result?: string;
-  session_id?: string;
-  request_id?: string;
-}
-
-type CursorEvent =
-  | CursorSystemInitEvent
-  | CursorUserEvent
-  | CursorAssistantEvent
-  | CursorToolCallEvent
-  | CursorResultEvent;
-
-interface ResultState {
-  /** Captured so retry paths (Tasks 21, 22) can replay the message. */
-  message: CliMessage;
-  /** Promise resolve handle from sendMessage's Promise constructor. */
-  resolver: (r: CliResponse) => void;
-  /** Promise reject handle from sendMessage's Promise constructor. */
-  rejecter: (e: Error) => void;
-  /** Set true after the first terminal event (result or error) is consumed. */
-  completed: boolean;
-  /** Task 21 — set true once adapter retried without --resume. Prevents retry loops. */
-  retriedWithoutResume: boolean;
-  /** Task 22 — set true once adapter retried without --stream-partial-output. */
-  retriedWithoutPartial: boolean;
-}
-
-interface StreamContext {
-  streamingMessageId(): string | null;
-  setStreamingMessageId(id: string): void;
-  appendStreamingContent(chunk: string): void;
-  getStreamingContent(): string;
-  markDeltaSeen(): void;
-  hasDeltaSeen(): boolean;
-}
-
-// ============ Exported config interface ============
-
-export interface CursorCliConfig {
-  model?: string;
-  workingDir?: string;
-  systemPrompt?: string;
-  yoloMode?: boolean;
-  timeout?: number;
-}
+export type { CursorCliConfig };
 
 export class CursorCliAdapter extends BaseCliAdapter {
   private cliConfig: CursorCliConfig;
@@ -508,7 +431,7 @@ export class CursorCliAdapter extends BaseCliAdapter {
       // this path is only exercised if cursor-agent exits unexpectedly).
       const response = this.parseOutput(this.outputBuffer);
       response.usage = { ...response.usage, duration };
-      this.emit('complete', response);
+      this.completeResponse(response);
       const rs = this.activeResultState;
       this.process = null;
       this.activeResultState = null;
@@ -628,13 +551,78 @@ export class CursorCliAdapter extends BaseCliAdapter {
   }
 
   parseOutput(raw: string): CliResponse {
-    // Minimal implementation for Task 17 — Tasks 18-20 will refine this
-    // once assistant/result events are being captured into structured data.
+    // Best-effort reconstruction from the raw NDJSON buffer. Only reached as the
+    // close-time fallback when cursor-agent exits WITHOUT a terminal `result`
+    // event (e.g. a mid-turn crash) — the normal path resolves via
+    // handleResultEvent. Mirrors handleAssistantEvent's delta/final reconciliation
+    // so streamed assistant text is neither lost nor double-counted.
+    let accumulated = '';
+    let deltaSeen = false;
+    let resultText: string | null = null;
+    let sessionId: string | undefined;
+    let requestId: string | undefined;
+
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      let event: CursorEvent;
+      try {
+        event = JSON.parse(trimmed) as CursorEvent;
+      } catch {
+        continue; // ignore non-JSON / partial trailing lines
+      }
+
+      if (event.type === 'assistant') {
+        // Buffered pre-tool-call copies carry BOTH timestamp_ms and model_call_id
+        // and must not be counted (matches handleAssistantEvent).
+        if (event.timestamp_ms && event.model_call_id) continue;
+
+        const parts = Array.isArray(event.message?.content) ? event.message.content : [];
+        let text = '';
+        for (const p of parts as { type?: string; text?: string }[]) {
+          if (p && p.type === 'text' && typeof p.text === 'string') text += p.text;
+        }
+        sessionId = event.session_id ?? sessionId;
+        if (!text) continue;
+
+        if (event.timestamp_ms) {
+          // Incremental delta.
+          deltaSeen = true;
+          accumulated += text;
+        } else if (deltaSeen && accumulated.length > 0) {
+          // Final reconciled against the streamed deltas.
+          if (text === accumulated || accumulated.startsWith(text)) {
+            // final ⊆ streamed — nothing to add
+          } else if (text.startsWith(accumulated)) {
+            accumulated += text.slice(accumulated.length);
+          } else {
+            accumulated += text; // defensive: don't lose text
+          }
+        } else {
+          // No deltas seen — the final is the whole message.
+          accumulated += text;
+        }
+      } else if (event.type === 'result') {
+        // A result line in the buffer normally completes the call before this
+        // fallback runs; prefer its text if one is somehow present.
+        if (typeof event.result === 'string') resultText = event.result;
+        sessionId = event.session_id ?? sessionId;
+        requestId = event.request_id ?? requestId;
+      } else {
+        sessionId = (event as { session_id?: string }).session_id ?? sessionId;
+      }
+    }
+
+    const content = resultText ?? accumulated;
+    const outputTokens = content ? this.estimateTokens(content) : 0;
+
     return {
       id: this.generateResponseId(),
-      content: '',
+      content,
       role: 'assistant',
-      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      usage: { inputTokens: 0, outputTokens, totalTokens: outputTokens },
+      metadata: { sessionId, requestId },
       raw,
     };
   }
@@ -948,7 +936,7 @@ export class CursorCliAdapter extends BaseCliAdapter {
       metadata: { sessionId: event.session_id, requestId: event.request_id },
       raw: this.outputBuffer,
     };
-    this.emit('complete', response);
+    this.completeResponse(response);
     resultState.resolver(response);
   }
 

@@ -20,6 +20,8 @@ const ALLOWED_TOOLS = [
   'browser.list_grants',
   'browser.revoke_grant',
   'browser.snapshot',
+  'browser.accessibility_snapshot',
+  'browser.evaluate',
   'browser.screenshot',
   'browser.console_messages',
   'browser.network_requests',
@@ -82,13 +84,16 @@ describe('browser-mcp-tools', () => {
       },
       additionalProperties: false,
     });
+    // selector is optional now that a uid handle (from accessibility_snapshot)
+    // can target elements inside closed shadow roots that no selector can reach.
     expect(click?.inputSchema).toMatchObject({
       type: 'object',
-      required: ['profileId', 'targetId', 'selector'],
+      required: ['profileId', 'targetId'],
       properties: {
         profileId: { type: 'string' },
         targetId: { type: 'string' },
         selector: { type: 'string' },
+        uid: { type: 'string' },
       },
       additionalProperties: false,
     });

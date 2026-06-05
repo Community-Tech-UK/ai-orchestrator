@@ -193,6 +193,31 @@ describe('observeAdapterRuntimeEvents', () => {
     expect(events[0]?.event).toEqual({ kind: 'complete' });
   });
 
+  it('propagates the A3 degradedReason tag from the CliResponse onto the complete event', () => {
+    const adapter = new EventEmitter();
+    const events: NormalizedAdapterRuntimeEvent[] = [];
+    observeAdapterRuntimeEvents(adapter, (event) => events.push(event));
+
+    adapter.emit('complete', {
+      id: 'x',
+      content: '',
+      role: 'assistant',
+      degradedReason: 'delayed',
+    });
+
+    expect(events[0]?.event).toEqual({ kind: 'complete', degradedReason: 'delayed' });
+  });
+
+  it('omits degradedReason on healthy (untagged) completions', () => {
+    const adapter = new EventEmitter();
+    const events: NormalizedAdapterRuntimeEvent[] = [];
+    observeAdapterRuntimeEvents(adapter, (event) => events.push(event));
+
+    adapter.emit('complete', { id: 'x', content: 'ok', role: 'assistant' });
+
+    expect(events[0]?.event).toEqual({ kind: 'complete' });
+  });
+
   it('removes listeners when cleanup is called', () => {
     const adapter = new EventEmitter();
     const events: NormalizedAdapterRuntimeEvent[] = [];

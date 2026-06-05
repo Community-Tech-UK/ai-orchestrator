@@ -40,6 +40,67 @@ export function shortTime(timestamp: number): string {
   ].join(':');
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+/**
+ * Extract a human-readable argument summary from a loop activity `detail`
+ * record — the actual command / file / pattern behind an otherwise opaque
+ * "Using tool: Bash" row.
+ *
+ * Tool activity carries `detail.input` (the tool's arguments) end-to-end
+ * from the CLI adapter (e.g. `{ name: 'Bash', input: { command } }`), but
+ * the activity feed previously rendered only the bare `message`, so every
+ * tool call collapsed to the same blank-looking line. This recovers the
+ * action-defining field per common tool shape, falling back to a compact
+ * JSON of the remaining args. Whitespace is collapsed to keep it to one
+ * legible line; returns `''` when there's nothing useful to show.
+ */
+export function summarizeToolDetail(detail?: Record<string, unknown>): string {
+  if (!detail) return '';
+  const input = isPlainRecord(detail['input']) ? detail['input'] : detail;
+  const str = (key: string): string => {
+    const value = input[key];
+    return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+  };
+
+  // Most action-defining field first, per common Claude/CLI tool schemas.
+  const command = str('command');
+  if (command) return command;
+
+  const pattern = str('pattern');
+  if (pattern) {
+    const path = str('path');
+    return path ? `${pattern}  ·  ${path}` : pattern;
+  }
+
+  const filePath = str('file_path') || str('notebook_path') || str('path');
+  if (filePath) return filePath;
+
+  const url = str('url');
+  if (url) return url;
+
+  const query = str('query');
+  if (query) return query;
+
+  const prose = str('prompt') || str('description');
+  if (prose) return prose;
+
+  // Fallback: compact JSON of the args minus identity/timing noise.
+  const noise = new Set(['id', 'name', 'startedAt', 'durationMs']);
+  const slim: Record<string, unknown> = {};
+  for (const key of Object.keys(input)) {
+    if (!noise.has(key)) slim[key] = input[key];
+  }
+  if (Object.keys(slim).length === 0) return '';
+  try {
+    return JSON.stringify(slim).replace(/\s+/g, ' ').trim();
+  } catch {
+    return '';
+  }
+}
+
 /** Activity-feed event-kind label. Falls through to the raw kind for
  *  forward-compat with new event types added later by the coordinator. */
 export function activityKindLabel(kind: string): string {

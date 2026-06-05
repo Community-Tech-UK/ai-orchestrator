@@ -12,6 +12,7 @@ import {
   loopStatusPill,
   relativeTime,
   shortTime,
+  summarizeToolDetail,
   terminalStatusLabel,
 } from './loop-formatters.util';
 
@@ -242,5 +243,42 @@ describe('formatCostCents', () => {
     expect(formatCostCents(7)).toBe('$0.07');
     expect(formatCostCents(150)).toBe('$1.50');
     expect(formatCostCents(99_999)).toBe('$999.99');
+  });
+});
+
+describe('summarizeToolDetail', () => {
+  it('returns empty string for missing detail', () => {
+    expect(summarizeToolDetail(undefined)).toBe('');
+    expect(summarizeToolDetail({})).toBe('');
+  });
+
+  it('surfaces the bash command from tool_use input', () => {
+    expect(summarizeToolDetail({ name: 'Bash', input: { command: 'npm run test' } })).toBe('npm run test');
+  });
+
+  it('collapses internal whitespace to keep it one legible line', () => {
+    expect(summarizeToolDetail({ input: { command: 'grep -rn foo\n  bar' } })).toBe('grep -rn foo bar');
+  });
+
+  it('shows the file path for read/edit/write tools', () => {
+    expect(summarizeToolDetail({ name: 'Read', input: { file_path: '/tmp/x.ts' } })).toBe('/tmp/x.ts');
+  });
+
+  it('shows pattern and path for search tools', () => {
+    expect(summarizeToolDetail({ name: 'Grep', input: { pattern: 'TODO', path: 'src' } })).toBe('TODO  ·  src');
+  });
+
+  it('prefers url then query then prose fields', () => {
+    expect(summarizeToolDetail({ input: { url: 'https://example.com' } })).toBe('https://example.com');
+    expect(summarizeToolDetail({ input: { query: 'how to' } })).toBe('how to');
+    expect(summarizeToolDetail({ input: { description: 'run the migration' } })).toBe('run the migration');
+  });
+
+  it('reads from a flat detail object when there is no nested input', () => {
+    expect(summarizeToolDetail({ command: 'ls -la' })).toBe('ls -la');
+  });
+
+  it('falls back to compact JSON of the args minus identity noise', () => {
+    expect(summarizeToolDetail({ name: 'X', id: '1', input: { foo: 1, bar: true } })).toBe('{"foo":1,"bar":true}');
   });
 });

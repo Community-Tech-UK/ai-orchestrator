@@ -138,9 +138,10 @@
 
       .filter-select {
         padding: var(--spacing-xs) var(--spacing-sm);
+        padding-right: 30px; // room for the global chevron
         border-radius: var(--radius-sm);
         border: 1px solid var(--border-color);
-        background: var(--bg-secondary);
+        background-color: var(--bg-secondary); // not `background` — keep the chevron SVG
         color: var(--text-primary);
         font-size: 13px;
       }

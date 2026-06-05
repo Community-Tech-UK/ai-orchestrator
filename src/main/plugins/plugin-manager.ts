@@ -35,17 +35,18 @@ import { getReactionEngine } from '../reactions';
 import { getSessionContinuityManager } from '../session/session-continuity';
 import type { OutputMessage } from '../../shared/types/instance.types';
 import type {
+  PluginLifecycleState,
   PluginLoadPhase,
   PluginLoadReport,
   PluginNotification,
   PluginPhaseResult,
+  PluginRuntimeHealth,
   PluginHookEvent,
   PluginHookPayloads,
   PluginRuntimeForSlot,
   PluginSlot,
   PluginTelemetryRecord,
   PluginTrackerEvent,
-  PluginRecord,
   NotifierPlugin,
   TelemetryExporterPlugin,
   TrackerPlugin,
@@ -54,10 +55,25 @@ import type {
 import type { PluginManifest } from '@sdk/plugins';
 import { PluginManifestSchema } from '@contracts/schemas/plugin';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
-import { toOutputMessageFromProviderEnvelope } from '../providers/provider-output-event';
 import { getPluginRegistry } from './plugin-registry';
 import { resolveProjectScanRoots } from '../util/project-scan-roots';
 import type { ReactionEvent } from '../reactions/reaction.types';
+import {
+  isRecord,
+  isStringRecord,
+  toInstanceCreatedPayload,
+  toInstanceOutputPayloadFromEnvelope,
+  toInstanceStateChangedPayload,
+  toNotificationPayload,
+  toPermissionAskPayload,
+  toSessionCompactingPayload,
+  toSessionResumedPayload,
+  toTelemetryRecord,
+  toTrackerEvent,
+  toVerificationCompletedPayload,
+  toVerificationErrorPayload,
+  toVerificationStartedPayload,
+} from './plugin-manager-payloads';
 
 const logger = getLogger('PluginManager');
 
@@ -68,33 +84,6 @@ function isPathSafe(filePath: string, baseDir: string): boolean {
   const resolved = path.resolve(filePath);
   const resolvedBase = path.resolve(baseDir);
   return resolved.startsWith(resolvedBase + path.sep) || resolved === resolvedBase;
-}
-
-function isRecord(value: unknown): value is PluginRecord {
-  return typeof value === 'object' && value !== null;
-}
-
-function isOutputMessage(value: unknown): value is OutputMessage {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  const type = value['type'];
-  return (
-    typeof value['id'] === 'string' &&
-    typeof value['timestamp'] === 'number' &&
-    typeof value['content'] === 'string' &&
-    (type === 'assistant' ||
-      type === 'user' ||
-      type === 'system' ||
-      type === 'tool_use' ||
-      type === 'tool_result' ||
-      type === 'error')
-  );
-}
-
-function isStringRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
 }
 
 function isNotifierPlugin(value: unknown): value is NotifierPlugin {
@@ -130,246 +119,6 @@ function validateSlotRuntime(slot: PluginSlot, runtime: unknown): string | null 
     default:
       return null;
   }
-}
-
-function toTrackerEvent(event: ReactionEvent): PluginTrackerEvent {
-  return {
-    event: `reaction.${event.type}`,
-    timestamp: event.timestamp,
-    instanceId: event.instanceId,
-    data: {
-      priority: event.priority,
-      ...(event.message ? { message: event.message } : {}),
-      ...event.data,
-    },
-  };
-}
-
-function toNotificationPayload(
-  event: ReactionEvent,
-  priority: string | undefined,
-  channels: string[],
-): PluginNotification {
-  return {
-    event: `reaction.${event.type}`,
-    title: event.type,
-    message: event.message ?? `Reaction event: ${event.type}`,
-    timestamp: event.timestamp,
-    priority,
-    instanceId: event.instanceId,
-    channels,
-    data: {
-      reactionType: event.type,
-      ...event.data,
-    },
-  };
-}
-
-function toTelemetryRecord(envelope: ProviderRuntimeEventEnvelope): PluginTelemetryRecord {
-  return {
-    event: `provider.${envelope.event.kind}`,
-    timestamp: envelope.timestamp,
-    attributes: {
-      provider: envelope.provider,
-      instanceId: envelope.instanceId,
-      ...(envelope.sessionId ? { sessionId: envelope.sessionId } : {}),
-      seq: envelope.seq,
-    },
-    data: envelope.event as unknown as PluginRecord,
-  };
-}
-
-function toInstanceCreatedPayload(payload: unknown): PluginHookPayloads['instance.created'] | null {
-  if (!isRecord(payload)) return null;
-  const rawId = payload['id'];
-  const rawWorkingDirectory = payload['workingDirectory'];
-  if (typeof rawId !== 'string' || typeof rawWorkingDirectory !== 'string') {
-    return null;
-  }
-
-  const provider = typeof payload['provider'] === 'string' ? payload['provider'] : undefined;
-  return {
-    ...payload,
-    id: rawId,
-    instanceId: rawId,
-    workingDirectory: rawWorkingDirectory,
-    ...(provider ? { provider } : {}),
-  };
-}
-
-function toInstanceOutputPayload(payload: unknown): PluginHookPayloads['instance.output'] | null {
-  if (!isRecord(payload)) return null;
-  if (typeof payload['instanceId'] !== 'string' || !isOutputMessage(payload['message'])) {
-    return null;
-  }
-
-  return {
-    instanceId: payload['instanceId'],
-    message: payload['message'],
-  };
-}
-
-function toInstanceOutputPayloadFromEnvelope(
-  envelope: ProviderRuntimeEventEnvelope,
-): PluginHookPayloads['instance.output'] | null {
-  const message = toOutputMessageFromProviderEnvelope(envelope);
-  if (!message) {
-    return null;
-  }
-
-  return {
-    instanceId: envelope.instanceId,
-    message,
-  };
-}
-
-function toInstanceStateChangedPayload(
-  payload: unknown,
-): PluginHookPayloads['instance.stateChanged'] | null {
-  if (!isRecord(payload)) return null;
-  if (
-    typeof payload['instanceId'] !== 'string'
-    || typeof payload['status'] !== 'string'
-    || typeof payload['previousStatus'] !== 'string'
-  ) {
-    return null;
-  }
-
-  return {
-    instanceId: payload['instanceId'],
-    previousState: payload['previousStatus'],
-    newState: payload['status'],
-    timestamp: typeof payload['timestamp'] === 'number' ? payload['timestamp'] : Date.now(),
-  };
-}
-
-function toPermissionAskPayload(
-  payload: unknown,
-): PluginHookPayloads['permission.ask'] | null {
-  if (!isRecord(payload) || typeof payload['instanceId'] !== 'string') {
-    return null;
-  }
-
-  const metadata = isRecord(payload['metadata']) ? payload['metadata'] : {};
-  const type = typeof metadata['type'] === 'string' ? metadata['type'] : '';
-  if (type !== 'deferred_permission' && type !== 'permission_denial') {
-    return null;
-  }
-
-  const toolName =
-    typeof metadata['tool_name'] === 'string'
-      ? metadata['tool_name']
-      : typeof metadata['action'] === 'string'
-        ? metadata['action']
-        : 'unknown';
-  const toolInput = isRecord(metadata['tool_input']) ? metadata['tool_input'] : {};
-  const command =
-    typeof toolInput['command'] === 'string'
-      ? toolInput['command']
-      : typeof metadata['path'] === 'string'
-        ? metadata['path']
-        : undefined;
-
-  return {
-    instanceId: payload['instanceId'],
-    toolName,
-    ...(command ? { command } : {}),
-  };
-}
-
-function toSessionResumedPayload(payload: unknown): PluginHookPayloads['session.resumed'] | null {
-  if (!isRecord(payload) || !isRecord(payload['state'])) {
-    return null;
-  }
-
-  const state = payload['state'];
-  if (typeof state['instanceId'] !== 'string' || typeof state['sessionId'] !== 'string') {
-    return null;
-  }
-
-  return {
-    instanceId: state['instanceId'],
-    sessionId: state['sessionId'],
-  };
-}
-
-function toSessionCompactingPayload(
-  payload: unknown,
-): PluginHookPayloads['session.compacting'] | null {
-  if (!isRecord(payload)) {
-    return null;
-  }
-  if (
-    typeof payload['instanceId'] !== 'string'
-    || typeof payload['messageCount'] !== 'number'
-    || typeof payload['tokenCount'] !== 'number'
-  ) {
-    return null;
-  }
-
-  return {
-    instanceId: payload['instanceId'],
-    messageCount: payload['messageCount'],
-    tokenCount: payload['tokenCount'],
-  };
-}
-
-function toVerificationStartedPayload(
-  payload: unknown,
-): PluginHookPayloads['verification.started'] | null {
-  if (!isRecord(payload)) return null;
-  if (typeof payload['id'] !== 'string' || typeof payload['instanceId'] !== 'string') {
-    return null;
-  }
-
-  return {
-    ...payload,
-    id: payload['id'],
-    verificationId: payload['id'],
-    instanceId: payload['instanceId'],
-  };
-}
-
-function toVerificationCompletedPayload(
-  payload: unknown,
-): PluginHookPayloads['verification.completed'] | null {
-  if (!isRecord(payload) || typeof payload['id'] !== 'string') {
-    return null;
-  }
-
-  const request = isRecord(payload['request']) ? payload['request'] : null;
-  const instanceId =
-    typeof payload['instanceId'] === 'string'
-      ? payload['instanceId']
-      : typeof request?.['instanceId'] === 'string'
-        ? request['instanceId']
-        : '';
-
-  return {
-    ...payload,
-    id: payload['id'],
-    verificationId: payload['id'],
-    instanceId,
-  };
-}
-
-function toVerificationErrorPayload(
-  payload: unknown,
-): PluginHookPayloads['verification.error'] | null {
-  if (!isRecord(payload) || !isRecord(payload['request'])) {
-    return null;
-  }
-
-  const request = payload['request'];
-  const verificationId = typeof request['id'] === 'string' ? request['id'] : '';
-  const instanceId = typeof request['instanceId'] === 'string' ? request['instanceId'] : '';
-
-  return {
-    request,
-    error: payload['error'],
-    verificationId,
-    instanceId,
-  };
 }
 
 /**
@@ -448,6 +197,45 @@ function buildPhase(
   };
 }
 
+/** Internal health record — public health plus the on-disk mtime that gates hot-reload recovery. */
+interface InternalPluginHealth extends PluginRuntimeHealth {
+  /** mtime (ms) of the plugin file at the load that produced this record. */
+  loadedMtimeMs?: number;
+}
+
+function freshHealth(mtimeMs?: number): InternalPluginHealth {
+  return {
+    state: 'active',
+    totalInvocations: 0,
+    totalFailures: 0,
+    consecutiveFailures: 0,
+    quarantined: false,
+    ...(mtimeMs !== undefined ? { loadedMtimeMs: mtimeMs } : {}),
+  };
+}
+
+/**
+ * Derive the surfaced lifecycle state from a plugin's load outcome + runtime health.
+ * Load-time outcome decides `failed`/`inactive`; runtime health decides the rest.
+ */
+function computePluginLifecycle(
+  loadReport: PluginLoadReport,
+  health: InternalPluginHealth | undefined,
+): PluginLifecycleState {
+  if (health?.quarantined) return 'quarantined';
+  if (!loadReport.ready) {
+    return loadReport.detected ? 'failed' : 'inactive';
+  }
+  if (health && health.consecutiveFailures > 0) return 'degraded';
+  return 'active';
+}
+
+/** Strip internal-only fields before surfacing health over IPC. */
+function toPublicHealth(health: InternalPluginHealth): PluginRuntimeHealth {
+  const { loadedMtimeMs: _loadedMtimeMs, ...pub } = health;
+  return pub;
+}
+
 function isPluginModuleDefinition(value: unknown): value is PluginModuleDefinition {
   return isRecord(value) && (
     'hooks' in value ||
@@ -485,6 +273,17 @@ export class OrchestratorPluginManager {
     startedAt: number;
   }>();
   private initialized = false;
+
+  /**
+   * Per-plugin runtime health, keyed by absolute plugin file path. Survives the
+   * 10s cache TTL (a passively-reloaded plugin keeps its quarantine) but is reset
+   * when the source file's mtime changes (hot-reload recovery) or on a full
+   * cache clear.
+   */
+  private runtimeHealth = new Map<string, InternalPluginHealth>();
+
+  /** Consecutive runtime failures that trip quarantine (plugin then skipped in dispatch). */
+  private static readonly QUARANTINE_THRESHOLD = 3;
 
   static getInstance(): OrchestratorPluginManager {
     if (!OrchestratorPluginManager.instance) {
@@ -602,6 +401,15 @@ export class OrchestratorPluginManager {
     for (const dir of dirs) {
       const files = await this.walkJsFiles(dir);
       for (const filePath of files) {
+        let mtimeMs: number | undefined;
+        try {
+          mtimeMs = (await fs.stat(filePath)).mtimeMs;
+        } catch {
+          mtimeMs = undefined;
+        }
+        // Reset health if the file changed on disk (hot-reload recovery), else
+        // preserve an existing quarantine across the passive cache-TTL reload.
+        this.reconcileHealthOnLoad(filePath, mtimeMs);
         const phases: PluginPhaseResult[] = [];
         let manifest: PluginManifest | undefined;
         let detected = true;
@@ -758,7 +566,15 @@ export class OrchestratorPluginManager {
   }
 
   async listPlugins(workingDirectory: string, instanceManager: InstanceManager): Promise<{
-    plugins: { filePath: string; hookKeys: string[]; manifest?: PluginManifest; slot: PluginSlot; loadReport: PluginLoadReport }[];
+    plugins: {
+      filePath: string;
+      hookKeys: string[];
+      manifest?: PluginManifest;
+      slot: PluginSlot;
+      loadReport: PluginLoadReport;
+      lifecycle: PluginLifecycleState;
+      health?: PluginRuntimeHealth;
+    }[];
     scanDirs: string[];
     errors: { filePath: string; error: string }[];
   }> {
@@ -766,13 +582,18 @@ export class OrchestratorPluginManager {
     const plugins = await this.getPlugins(workingDirectory, ctx);
     const errors = this.cacheByWorkingDir.get(workingDirectory)?.errors || [];
     const list = plugins
-      .map((p) => ({
-        filePath: p.filePath,
-        hookKeys: Object.keys(p.hooks || {}).sort(),
-        manifest: p.manifest,
-        slot: p.slot,
-        loadReport: p.loadReport,
-      }))
+      .map((p) => {
+        const health = this.runtimeHealth.get(p.filePath);
+        return {
+          filePath: p.filePath,
+          hookKeys: Object.keys(p.hooks || {}).sort(),
+          manifest: p.manifest,
+          slot: p.slot,
+          loadReport: p.loadReport,
+          lifecycle: computePluginLifecycle(p.loadReport, health),
+          ...(health ? { health: toPublicHealth(health) } : {}),
+        };
+      })
       .sort((a, b) => a.filePath.localeCompare(b.filePath));
     return {
       plugins: list,
@@ -786,6 +607,10 @@ export class OrchestratorPluginManager {
       this.cacheByWorkingDir.clear();
       this.configLoadedByWorkingDir.clear();
       getPluginRegistry().clear();
+      // A full clear is the explicit reset path (tests, post-install): plugins
+      // start fresh. A scoped clear is the routine UI-refresh path and must NOT
+      // wipe quarantine — that recovers only on a real file change (mtime).
+      this.runtimeHealth.clear();
       return;
     }
     this.cacheByWorkingDir.delete(workingDirectory);
@@ -800,6 +625,12 @@ export class OrchestratorPluginManager {
     label: string,
     operation: () => void | Promise<void>,
   ): Promise<void> {
+    // Single dispatch chokepoint: a quarantined plugin is skipped everywhere
+    // (hooks + every slot runtime) so a pathological plugin can't keep burning
+    // the per-call timeout budget or spamming the log on every event.
+    if (this.isPluginQuarantined(plugin.filePath)) {
+      return;
+    }
     try {
       const result = operation();
       if (result instanceof Promise) {
@@ -816,8 +647,77 @@ export class OrchestratorPluginManager {
           clearTimeout(timeoutId!);
         }
       }
+      this.recordPluginSuccess(plugin.filePath);
     } catch (err) {
-      logger.warn(`Plugin ${label} error [${plugin.filePath}]: ${err instanceof Error ? err.message : String(err)}`);
+      this.recordPluginFailure(plugin.filePath, label, err);
+    }
+  }
+
+  /** True if the plugin at this path is quarantined (skipped in dispatch). */
+  isPluginQuarantined(filePath: string): boolean {
+    return this.runtimeHealth.get(filePath)?.quarantined === true;
+  }
+
+  /** Record a successful dispatch; a degraded (non-quarantined) plugin recovers to active. */
+  private recordPluginSuccess(filePath: string): void {
+    const health = this.runtimeHealth.get(filePath);
+    if (!health) {
+      const seeded = freshHealth();
+      seeded.totalInvocations = 1;
+      this.runtimeHealth.set(filePath, seeded);
+      return;
+    }
+    health.totalInvocations += 1;
+    health.consecutiveFailures = 0;
+    if (!health.quarantined) {
+      health.state = 'active';
+    }
+  }
+
+  /**
+   * Record a failed dispatch. Transitions the plugin to `degraded`, then
+   * `quarantined` once the consecutive-failure threshold is crossed.
+   */
+  private recordPluginFailure(filePath: string, label: string, err: unknown): void {
+    const message = err instanceof Error ? err.message : String(err);
+    const health = this.runtimeHealth.get(filePath) ?? freshHealth();
+    health.totalInvocations += 1;
+    health.totalFailures += 1;
+    health.consecutiveFailures += 1;
+    health.lastError = message;
+    health.lastErrorAt = Date.now();
+    if (
+      !health.quarantined &&
+      health.consecutiveFailures >= OrchestratorPluginManager.QUARANTINE_THRESHOLD
+    ) {
+      health.quarantined = true;
+      health.state = 'quarantined';
+      health.quarantinedAt = Date.now();
+      logger.error(
+        `Plugin quarantined after ${health.consecutiveFailures} consecutive failures — ` +
+          `skipped in dispatch until its file changes [${filePath}] (last ${label}: ${message})`,
+      );
+    } else if (!health.quarantined) {
+      health.state = 'degraded';
+      logger.warn(`Plugin ${label} error [${filePath}]: ${message}`);
+    }
+    this.runtimeHealth.set(filePath, health);
+  }
+
+  /**
+   * Reconcile runtime health against the plugin file on each load. A first load
+   * seeds a baseline; a changed mtime resets health (hot-reload recovery for a
+   * fixed plugin); an unchanged mtime preserves an existing quarantine across the
+   * passive cache-TTL reload.
+   */
+  private reconcileHealthOnLoad(filePath: string, mtimeMs: number | undefined): void {
+    const existing = this.runtimeHealth.get(filePath);
+    if (!existing) {
+      this.runtimeHealth.set(filePath, freshHealth(mtimeMs));
+      return;
+    }
+    if (mtimeMs !== undefined && existing.loadedMtimeMs !== mtimeMs) {
+      this.runtimeHealth.set(filePath, freshHealth(mtimeMs));
     }
   }
 

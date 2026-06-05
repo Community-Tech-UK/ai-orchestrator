@@ -14,7 +14,6 @@ import { getPauseCoordinator } from '../../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../../pause/orchestrator-paused-error';
 import type { FileAttachment } from '../../../shared/types/instance.types';
 import type { DegradedOutputSignals } from './degraded-output-classifier';
-import { classifyDegradedOutput } from './degraded-output-classifier';
 import type {
   AdapterRuntimeCapabilities,
   CliAdapterConfig,
@@ -24,19 +23,18 @@ import type {
   CliStatus,
   InterruptResult,
 } from './base-cli-adapter.types';
+import {
+  computeBoundedTrigramSimilarity,
+  ndjsonSafeStringify,
+} from './base-cli-adapter-utils';
+import {
+  isDegradedDetectionEnabled,
+  tagResponseFromStreamState,
+  tagResponseIfDegraded,
+} from './base-cli-adapter-degraded-output';
 
 const logger = getLogger('BaseCliAdapter');
-
-/**
- * JSON.stringify that escapes U+2028 and U+2029.
- * These are valid JSON but act as line terminators in JavaScript,
- * silently splitting NDJSON messages when present in string values.
- */
-export function ndjsonSafeStringify(value: unknown): string {
-  return JSON.stringify(value)
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029');
-}
+export { computeBoundedTrigramSimilarity, ndjsonSafeStringify };
 
 export type {
   AdapterRuntimeCapabilities,
@@ -82,6 +80,23 @@ export abstract class BaseCliAdapter extends EventEmitter {
   protected responseStartedAt = 0;
   /** Set to true if the stream-idle watchdog fired during the current response. */
   protected streamIdleDidFire = false;
+  /**
+   * Timestamp (ms) of the first observed output/activity of the CURRENT turn, or
+   * 0 if none yet. Used as the elapsed-time origin so the signal is per-turn even
+   * for persistent-session adapters (ACP, codex app-server) that spawn one
+   * process and run many turns over it. Re-armed (set to 0) after each completed
+   * turn. Falls back to `responseStartedAt` (spawn time) when a turn produced no
+   * activity at all (a genuinely hung/empty turn, which we still want to flag).
+   */
+  private turnFirstActivityAt = 0;
+  /**
+   * Content of the previous finalized response on this adapter instance, used to
+   * detect duplicate-stale / partial-replay output. Only written while the
+   * `detectDegradedAdapterOutput` flag is on; null until the first tagged turn.
+   * Persists across turns within the adapter lifetime (a session), intentionally
+   * NOT reset per-spawn so cross-turn duplicates are detectable.
+   */
+  private priorResponseContent: string | null = null;
 
   /** Tracks all active child processes across all adapter instances for orphan cleanup. */
   private static activeProcesses = new Set<ChildProcess>();
@@ -463,12 +478,19 @@ export abstract class BaseCliAdapter extends EventEmitter {
     // emit when the process is demonstrably alive — codex's app-server
     // reasoning summaries, mcp tool calls, exec-mode liveness pings, etc.
     // External callers can also nudge the watchdog via `noteActivity()`.
-    proc.stdout?.on('data', () => this.resetStreamIdleWatchdog(generation));
-    proc.stderr?.on('data', () => {
-      this.emit('stderr');
+    proc.stdout?.on('data', () => {
+      this.markTurnActivity();
       this.resetStreamIdleWatchdog(generation);
     });
-    const heartbeatListener = () => this.resetStreamIdleWatchdog(generation);
+    proc.stderr?.on('data', () => {
+      this.emit('stderr');
+      this.markTurnActivity();
+      this.resetStreamIdleWatchdog(generation);
+    });
+    const heartbeatListener = () => {
+      this.markTurnActivity();
+      this.resetStreamIdleWatchdog(generation);
+    };
     this.on('heartbeat', heartbeatListener);
     proc.on('close', () => {
       this.processAlive = false;
@@ -537,7 +559,20 @@ export abstract class BaseCliAdapter extends EventEmitter {
    */
   noteActivity(): void {
     if (!this.streamIdleTimer) return;
+    this.markTurnActivity();
     this.resetStreamIdleWatchdog();
+  }
+
+  /**
+   * A3: record the first activity timestamp of the current turn (used as the
+   * per-turn elapsed-time origin). Idempotent within a turn — only the first
+   * call after a re-arm takes effect. Cheap enough to run unconditionally on the
+   * hot output path; the per-turn re-arm happens in {@link completeResponse}.
+   */
+  private markTurnActivity(): void {
+    if (this.turnFirstActivityAt === 0) {
+      this.turnFirstActivityAt = Date.now();
+    }
   }
 
   /**
@@ -631,15 +666,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
    * or throws (e.g. in tests that don't boot Electron).
    */
   protected isDegradedDetectionEnabled(): boolean {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { getSettingsManager } = require('../core/config/settings-manager') as {
-        getSettingsManager: () => { get: (key: string) => unknown };
-      };
-      return getSettingsManager().get('detectDegradedAdapterOutput') === true;
-    } catch {
-      return false;
-    }
+    return isDegradedDetectionEnabled();
   }
 
   /**
@@ -675,25 +702,64 @@ export abstract class BaseCliAdapter extends EventEmitter {
   ): void {
     // Fast-path: flag is off (default) → byte-identical behavior to before A3.
     if (!this.isDegradedDetectionEnabled()) return;
+    tagResponseIfDegraded({ adapterName: this.getName(), response, signals });
+  }
 
-    // Flag is on — run the classifier, fail-soft on any exception.
-    try {
-      const result = classifyDegradedOutput(signals);
-      if (result.degraded && result.reason) {
-        response.degradedReason = result.reason;
-        logger.debug('A3: degraded output detected', {
-          adapter: this.getName(),
-          reason: result.reason,
-          contentLength: signals.contentLength,
-          elapsedMs: signals.elapsedMs,
-        });
-      }
-    } catch (err) {
-      logger.warn('A3: degraded-output classifier threw unexpectedly (ignored)', {
-        adapter: this.getName(),
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+  /**
+   * A3: Finalize and emit a completed response.
+   *
+   * This is the single seam every adapter should funnel terminal responses
+   * through instead of calling `this.emit('complete', response)` directly. It
+   * runs the adapter-layer degraded-output classifier (tagging
+   * `response.degradedReason` in place when the feature flag is on) and then
+   * emits the `'complete'` event with the same object reference, so both the
+   * event consumer and any awaited promise observe the tag.
+   *
+   * When `detectDegradedAdapterOutput` is off (the default) this is a thin
+   * wrapper around `emit` with zero extra work.
+   *
+   * @param response The finalized CliResponse to tag and emit.
+   * @param opts.cancelled Set true when the response is a partial emitted on an
+   *   interrupt/kill path, so it can be classified `'cancelled'`.
+   */
+  protected completeResponse(
+    response: CliResponse,
+    opts?: { cancelled?: boolean },
+  ): void {
+    this.tagResponseFromStreamState(response, opts);
+    this.emit('complete', response);
+    // A3: re-arm per-turn state so persistent-session adapters (one process,
+    // many turns) measure each subsequent turn independently. Done outside the
+    // flag gate so state stays correct even if the flag is toggled mid-session.
+    this.turnFirstActivityAt = 0;
+    this.streamIdleDidFire = false;
+  }
+
+  /**
+   * A3: Compute the standard degraded-output signals from this adapter's own
+   * stream state (elapsed time, idle-watchdog flag) plus the response content
+   * (emptiness ratio, duplicate/replay similarity vs the previous turn), then
+   * tag the response. No-op and near-zero cost when the flag is off.
+   *
+   * Separated from `completeResponse` so adapters that build their response
+   * before the emit site can tag without re-emitting, and so it is unit-testable
+   * in isolation.
+   */
+  protected tagResponseFromStreamState(
+    response: CliResponse,
+    opts?: { cancelled?: boolean },
+  ): void {
+    // Fast-path: flag off → no classification, no prior-content bookkeeping.
+    if (!this.isDegradedDetectionEnabled()) return;
+    this.priorResponseContent = tagResponseFromStreamState({
+      adapterName: this.getName(),
+      response,
+      opts,
+      priorResponseContent: this.priorResponseContent,
+      turnFirstActivityAt: this.turnFirstActivityAt,
+      responseStartedAt: this.responseStartedAt,
+      streamIdleDidFire: this.streamIdleDidFire,
+    });
   }
 
   /**
@@ -712,26 +778,4 @@ export abstract class BaseCliAdapter extends EventEmitter {
     return Math.ceil(content.length / 4);
   }
 
-  /**
-   * Create a timeout promise
-   */
-  protected createTimeout(ms: number, message: string): Promise<never> {
-    return new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(message)), ms);
-    });
-  }
-
-  /**
-   * Run with timeout wrapper
-   */
-  protected async withTimeout<T>(
-    promise: Promise<T>,
-    timeoutMs?: number
-  ): Promise<T> {
-    const timeout = timeoutMs || this.config.timeout || 300000;
-    return Promise.race([
-      promise,
-      this.createTimeout(timeout, `${this.getName()} CLI timeout after ${timeout}ms`),
-    ]);
-  }
 }

@@ -22,9 +22,11 @@ import {
   loopPauseReason,
   loopStatusPill,
   shortTime,
+  summarizeToolDetail,
   terminalStatusLabel,
 } from './loop-formatters.util';
 import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
+import { PromptModalComponent } from '../../shared/components/prompt-modal/prompt-modal.component';
 
 /**
  * Shows the Loop Mode HUD for one chat:
@@ -44,7 +46,7 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
 @Component({
   selector: 'app-loop-control',
   standalone: true,
-  imports: [SlicePipe, LoopPastRunsPanelComponent],
+  imports: [SlicePipe, LoopPastRunsPanelComponent, PromptModalComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (banner(); as b) {
@@ -160,7 +162,12 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
               <div class="la-row" [class.error]="event.kind === 'error'" [class.warn]="event.kind === 'stream-idle' || event.kind === 'input_required'">
                 <span class="la-time">{{ time(event.timestamp) }}</span>
                 <span class="la-kind">{{ kindLabel(event.kind) }}</span>
-                <span class="la-message">{{ event.message }}</span>
+                <span class="la-message">
+                  {{ event.message }}
+                  @if (event.kind === 'tool_use' && toolDetail(event.detail); as d) {
+                    <span class="la-tool-arg">{{ d }}</span>
+                  }
+                </span>
               </div>
             }
           </div>
@@ -184,6 +191,26 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
           </div>
 
           <div class="li-section-title">Iterations</div>
+          @if (currentIterationStats(); as cur) {
+            <div class="li-current">
+              <div class="li-current-head">
+                <span>iter {{ cur.seq }} · {{ cur.stage }} · in progress…</span>
+                <span>{{ duration(currentIterationElapsed()) }} · {{ cur.toolCount }} tool calls</span>
+              </div>
+              @if (cur.toolBreakdown) {
+                <div class="li-current-line"><span class="li-current-label">Tools</span> {{ cur.toolBreakdown }}</div>
+              }
+              @if (cur.lastToolArg) {
+                <div class="li-current-line">
+                  <span class="li-current-label">Latest</span> {{ cur.lastToolName }}
+                  <code class="li-current-arg">{{ cur.lastToolArg }}</code>
+                </div>
+              }
+              @if (cur.lastAssistant) {
+                <div class="li-current-line li-current-assistant">{{ cur.lastAssistant }}</div>
+              }
+            </div>
+          }
           @if (inspectorIterations().length > 0) {
             <div class="li-iterations">
               @for (iter of inspectorIterations(); track iter.id) {
@@ -215,7 +242,7 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
                 </details>
               }
             </div>
-          } @else {
+          } @else if (!currentIterationStats()) {
             <div class="li-empty">No persisted iteration records are available yet. The live activity feed below still shows child CLI events as they arrive.</div>
           }
 
@@ -226,7 +253,12 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
                 <div class="li-activity-row" [class.error]="event.kind === 'error'" [class.warn]="event.kind === 'stream-idle' || event.kind === 'input_required'">
                   <span class="la-time">{{ time(event.timestamp) }}</span>
                   <span class="la-kind">{{ kindLabel(event.kind) }}</span>
-                  <span class="li-activity-message">{{ event.message }}</span>
+                  <span class="li-activity-message">
+                    {{ event.message }}
+                    @if (event.kind === 'tool_use' && toolDetail(event.detail); as d) {
+                      <span class="li-tool-arg">{{ d }}</span>
+                    }
+                  </span>
                 </div>
               }
             </div>
@@ -347,449 +379,19 @@ import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
         }
       </div>
     }
+
+    <app-prompt-modal
+      [isOpen]="hintModalOpen()"
+      title="Inject a hint"
+      message="This is added to the next loop iteration as a steering instruction. The loop keeps running."
+      placeholder="e.g. Skip councils that need a login; move on to the next one."
+      confirmLabel="Inject hint"
+      [multiline]="true"
+      (submitted)="onHintSubmitted($event)"
+      (cancelled)="onHintCancelled()"
+    />
   `,
-  styles: [`
-    :host {
-      display: block;
-      flex: 0 0 auto;
-      position: relative;
-      z-index: 20;
-      pointer-events: auto;
-      -webkit-app-region: no-drag;
-    }
-
-    button {
-      -webkit-app-region: no-drag;
-    }
-
-    .loop-status {
-      display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-      padding: 6px 10px; margin: 6px 0;
-      border: 1px solid rgba(95,142,224,0.45); background: rgba(95,142,224,0.1);
-      border-radius: 6px; font-size: 12px;
-    }
-    .loop-status.paused { border-color: rgba(247,192,122,0.6); background: rgba(247,192,122,0.08); }
-    .ls-text { flex: 1; }
-    .ls-actions { display: flex; gap: 4px; }
-    .ls-actions button {
-      padding: 3px 8px; font-size: 11px; font: inherit;
-      background: rgba(255,255,255,0.05); color: inherit;
-      border: 1px solid rgba(255,255,255,0.12); border-radius: 4px;
-      cursor: pointer;
-    }
-    .ls-stop { color: #f78c7c !important; }
-    .ls-accept {
-      color: #8edc8e !important;
-      font-weight: 600;
-      border-color: rgba(142,220,142,0.5) !important;
-      background: rgba(142,220,142,0.12) !important;
-    }
-
-    /* LF-8 status pill — the always-on "what state is this loop in" badge. */
-    .ls-pill {
-      font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
-      padding: 2px 7px; border-radius: 3px; text-transform: uppercase;
-      background: rgba(255,255,255,0.08); white-space: nowrap;
-    }
-    .ls-pill[data-pill="running"]         { color: #8fb8ff; background: rgba(95,142,224,0.18); }
-    .ls-pill[data-pill="awaiting-review"],
-    .ls-pill[data-pill="needs-review"]    { color: #f7c07a; background: rgba(247,192,122,0.20); }
-    .ls-pill[data-pill="no-progress"]     { color: #f7c07a; background: rgba(247,192,122,0.16); }
-    .ls-pill[data-pill="blocked"]         { color: #f78c7c; background: rgba(247,140,124,0.20); }
-    .ls-pill[data-pill="paused"]          { color: #cfcfd6; background: rgba(255,255,255,0.10); }
-    .ls-pill[data-pill="done"]            { color: #8edc8e; background: rgba(142,220,142,0.18); }
-    .ls-pill[data-pill="stopped"]         { color: #f78c7c; background: rgba(247,140,124,0.16); }
-
-    /* LF-8 verdict chip — latest progress health, always visible. */
-    .ls-verdict {
-      font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
-      padding: 2px 6px; border-radius: 3px;
-      font-family: var(--font-mono, monospace);
-    }
-    .ls-verdict[data-verdict="OK"]       { color: #8edc8e; background: rgba(142,220,142,0.14); }
-    .ls-verdict[data-verdict="WARN"]     { color: #f7c07a; background: rgba(247,192,122,0.14); }
-    .ls-verdict[data-verdict="CRITICAL"] { color: #f78c7c; background: rgba(247,140,124,0.16); }
-
-    /* LF-8 completion-gate stepper — declared → verify → rename → review → stop. */
-    .loop-gate {
-      display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-      margin: -2px 0 6px; padding: 5px 10px;
-      border: 1px solid rgba(255,255,255,0.08);
-      background: rgba(255,255,255,0.025);
-      border-radius: 6px; font-size: 10px;
-    }
-    .lg-step {
-      position: relative;
-      padding: 1px 8px; border-radius: 999px;
-      font-family: var(--font-mono, monospace);
-      text-transform: uppercase; letter-spacing: 0.04em;
-      border: 1px solid rgba(255,255,255,0.12);
-    }
-    .lg-step:not(:last-child)::after {
-      content: '→'; position: absolute; right: -8px; top: 50%; transform: translateY(-50%);
-      opacity: 0.4; font-family: inherit;
-    }
-    .lg-step[data-state="done"]    { color: #8edc8e; border-color: rgba(142,220,142,0.4); background: rgba(142,220,142,0.10); }
-    .lg-step[data-state="blocked"] { color: #f78c7c; border-color: rgba(247,140,124,0.55); background: rgba(247,140,124,0.14); font-weight: 700; }
-    .lg-step[data-state="pending"] { color: rgba(231,231,234,0.55); }
-
-    /* LF-8 read-only run-config summary — what spawned the active run. */
-    .loop-runcfg {
-      margin: -2px 0 6px; padding: 4px 10px;
-      border: 1px solid rgba(255,255,255,0.08);
-      background: rgba(255,255,255,0.02);
-      border-radius: 6px; font-size: 11px;
-    }
-    .loop-runcfg > summary {
-      cursor: pointer; opacity: 0.7; font-weight: 600; list-style: revert;
-    }
-    .loop-runcfg-rows { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
-    .lrc-row { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; line-height: 1.4; }
-    .lrc-label {
-      font-family: var(--font-mono, monospace); font-size: 10px;
-      letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.55;
-    }
-    .lrc-value { overflow-wrap: anywhere; opacity: 0.92; }
-
-    .loop-activity {
-      margin: -2px 0 6px;
-      padding: 8px 10px;
-      border: 1px solid rgba(255,255,255,0.1);
-      background: rgba(255,255,255,0.035);
-      border-radius: 6px;
-      font-size: 11px;
-    }
-    .la-title {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      margin-bottom: 6px;
-      opacity: 0.75;
-      font-weight: 600;
-    }
-    .la-title code {
-      max-width: 58%;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-weight: 400;
-    }
-    .la-list { display: flex; flex-direction: column; gap: 3px; }
-    .la-row {
-      display: grid;
-      grid-template-columns: 54px 72px minmax(0, 1fr);
-      gap: 8px;
-      line-height: 1.35;
-      opacity: 0.82;
-    }
-    .la-row.error { color: #f78c7c; }
-    .la-row.warn { color: #f7c07a; }
-    .la-time, .la-kind {
-      font-family: var(--font-mono, monospace);
-      font-size: 10px;
-      opacity: 0.7;
-      text-transform: uppercase;
-    }
-    .la-message {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .la-empty { opacity: 0.55; }
-
-    .loop-inspector {
-      margin: 6px 0;
-      padding: 10px;
-      border: 1px solid rgba(95,142,224,0.28);
-      background: rgba(95,142,224,0.055);
-      border-radius: 6px;
-      font-size: 11px;
-    }
-    .li-head,
-    .li-head-actions {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-    }
-    .li-head {
-      margin-bottom: 8px;
-      font-weight: 600;
-    }
-    .li-head button {
-      padding: 3px 8px;
-      font: inherit;
-      background: rgba(255,255,255,0.05);
-      color: inherit;
-      border: 1px solid rgba(255,255,255,0.12);
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    .li-head button:disabled { opacity: 0.45; cursor: not-allowed; }
-    .li-loading { opacity: 0.6; font-weight: 400; }
-    .li-section-title {
-      margin: 8px 0 4px;
-      font-family: var(--font-mono, monospace);
-      font-size: 10px;
-      letter-spacing: 0.06em;
-      opacity: 0.62;
-      text-transform: uppercase;
-    }
-    .li-iterations {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-    .li-iter {
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 5px;
-      background: rgba(0,0,0,0.18);
-    }
-    .li-iter summary {
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 7px 8px;
-      cursor: pointer;
-      font-weight: 600;
-    }
-    .li-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-      gap: 10px;
-      padding: 0 8px 8px;
-    }
-    .li-subtitle {
-      margin: 6px 0 3px;
-      font-weight: 600;
-      opacity: 0.76;
-    }
-    .li-iter p {
-      margin: 0 0 4px;
-      line-height: 1.4;
-      overflow-wrap: anywhere;
-    }
-    .li-iter pre {
-      margin: 0;
-      max-height: 260px;
-      overflow: auto;
-      padding: 7px;
-      border-radius: 4px;
-      background: rgba(0,0,0,0.28);
-      font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-      font-size: 10px;
-      line-height: 1.45;
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-    }
-    .li-empty {
-      padding: 7px 8px;
-      border: 1px dashed rgba(255,255,255,0.1);
-      border-radius: 4px;
-      opacity: 0.62;
-    }
-    .li-activity {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      max-height: 300px;
-      overflow: auto;
-    }
-    .li-activity-row {
-      display: grid;
-      grid-template-columns: 54px 72px minmax(0, 1fr);
-      gap: 8px;
-      line-height: 1.4;
-      opacity: 0.86;
-    }
-    .li-activity-row.error { color: #f78c7c; }
-    .li-activity-row.warn { color: #f7c07a; }
-    .li-activity-message {
-      min-width: 0;
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-    }
-    @media (max-width: 760px) {
-      .li-grid { grid-template-columns: 1fr; }
-      .li-iter summary { flex-direction: column; }
-    }
-
-    .loop-banner {
-      display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
-      padding: 8px 10px; margin: 6px 0;
-      border-radius: 6px; font-size: 12px;
-      border: 1px solid; line-height: 1.4;
-    }
-    .loop-banner.warn { background: rgba(247,192,122,0.12); border-color: rgba(247,192,122,0.45); }
-    .loop-banner.danger { background: rgba(247,124,124,0.12); border-color: rgba(247,124,124,0.45); }
-    .loop-banner.review { background: rgba(142,196,247,0.10); border-color: rgba(142,196,247,0.45); }
-    .banner-accept {
-      color: #8edc8e !important; font-weight: 600;
-      border-color: rgba(142,220,142,0.5) !important;
-      background: rgba(142,220,142,0.12) !important;
-    }
-    .loop-banner-title { font-weight: 600; }
-    .loop-banner-msg { flex: 1; }
-    .loop-banner-actions { display: flex; gap: 4px; }
-    .loop-banner-actions button {
-      padding: 3px 8px; font-size: 11px;
-      background: rgba(255,255,255,0.06); color: inherit;
-      border: 1px solid rgba(255,255,255,0.12); border-radius: 4px;
-      cursor: pointer;
-    }
-
-    .loop-summary {
-      padding: 8px 10px; margin: 6px 0;
-      border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
-      background: rgba(255,255,255,0.04); font-size: 12px;
-    }
-    /* Status-themed surface — completed gets a green tint so a successful
-     * loop pops visually instead of looking the same as a cancelled one.
-     * Other terminal states keep the neutral base. */
-    .loop-summary[data-status="completed"] {
-      border-color: rgba(142, 220, 142, 0.45);
-      background: rgba(142, 220, 142, 0.10);
-    }
-    .loop-summary[data-status="completed-needs-review"] {
-      border-color: rgba(142, 196, 247, 0.45);
-      background: rgba(142, 196, 247, 0.08);
-    }
-    .loop-summary[data-status="error"] {
-      border-color: rgba(247, 140, 124, 0.45);
-      background: rgba(247, 140, 124, 0.08);
-    }
-    .loop-summary[data-status="failed"] {
-      border-color: rgba(247, 140, 124, 0.45);
-      background: rgba(247, 140, 124, 0.08);
-    }
-    .loop-summary[data-status="cap-reached"],
-    .loop-summary[data-status="no-progress"] {
-      border-color: rgba(247, 192, 122, 0.45);
-      background: rgba(247, 192, 122, 0.08);
-    }
-    .lsum-title { display: flex; justify-content: space-between; align-items: center; font-weight: 600; gap: 8px; }
-    .lsum-title-text { display: inline-flex; align-items: center; gap: 6px; }
-    .lsum-status-pill {
-      font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
-      padding: 1px 6px; border-radius: 3px;
-      background: rgba(255,255,255,0.08);
-      font-weight: 700;
-    }
-    .lsum-status-pill[data-status="completed"]   { color: #8edc8e; background: rgba(142,220,142,0.18); }
-    .lsum-status-pill[data-status="completed-needs-review"] { color: #8ec4f7; background: rgba(142,196,247,0.18); }
-    .lsum-status-pill[data-status="cancelled"]   { color: #c8b482; background: rgba(200,180,130,0.16); }
-    .lsum-status-pill[data-status="failed"]      { color: #f78c7c; background: rgba(247,140,124,0.18); }
-    .lsum-status-pill[data-status="cap-reached"] { color: #f7c07a; background: rgba(247,192,122,0.18); }
-    .lsum-status-pill[data-status="error"]       { color: #f78c7c; background: rgba(247,140,124,0.18); }
-    .lsum-status-pill[data-status="no-progress"] { color: #f7c07a; background: rgba(247,192,122,0.18); }
-    .lsum-close { background: none; border: none; color: inherit; cursor: pointer; font-size: 14px; padding: 0; }
-    .lsum-line { margin-top: 4px; opacity: 0.85; }
-    .lsum-reason { margin-top: 2px; opacity: 0.65; font-size: 11px; }
-
-    .lsum-recap {
-      margin-top: 10px;
-      padding-top: 8px;
-      border-top: 1px dashed rgba(255,255,255,0.12);
-      display: flex; flex-direction: column; gap: 8px;
-    }
-    .lsum-recap-stats {
-      display: flex; flex-wrap: wrap; gap: 4px 14px;
-      font-size: 11px;
-    }
-    .lsum-stat { display: inline-flex; align-items: baseline; gap: 4px; }
-    .lsum-stat-label {
-      font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
-      opacity: 0.55;
-    }
-    .lsum-stat-value { font-weight: 600; opacity: 0.95; }
-    .lsum-stat-value.ok  { color: #8edc8e; }
-    .lsum-stat-value.bad { color: #f78c7c; }
-    .lsum-files {
-      list-style: none;
-      margin: 0; padding: 4px 0 0;
-      display: flex; flex-direction: column; gap: 2px;
-      font-size: 11px;
-    }
-    .lsum-file {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 8px;
-      padding: 1px 0;
-    }
-    .lsum-file code {
-      font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-      font-size: 11px;
-      background: none; padding: 0;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      min-width: 0; flex: 1;
-    }
-    .lsum-file-diff {
-      display: inline-flex; gap: 6px;
-      font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-      font-size: 10px;
-      flex-shrink: 0;
-    }
-    .lsum-file-add { color: #8edc8e; }
-    .lsum-file-del { color: #f78c7c; }
-    .lsum-file-more { opacity: 0.55; font-style: italic; }
-    .lsum-recap-output { display: flex; flex-direction: column; gap: 3px; }
-    .lsum-recap-label {
-      font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
-      opacity: 0.55;
-    }
-    .lsum-recap-pre {
-      margin: 0;
-      padding: 8px 10px;
-      max-height: 280px;
-      overflow: auto;
-      background: rgba(0,0,0,0.28);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 4px;
-      font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-      font-size: 11px;
-      line-height: 1.5;
-      white-space: pre-wrap;
-      word-break: break-word;
-      color: inherit;
-    }
-    .lsum-prompt-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
-    .lsum-prompt-btn {
-      padding: 3px 8px; font-size: 11px; font: inherit;
-      background: rgba(255,255,255,0.05); color: inherit;
-      border: 1px solid rgba(255,255,255,0.12); border-radius: 4px;
-      cursor: pointer;
-    }
-    .lsum-prompt-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .lsum-prompt-block {
-      margin-top: 6px;
-      padding: 8px 10px;
-      background: rgba(0,0,0,0.25);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 4px;
-      max-height: 320px;
-      overflow: auto;
-    }
-    .lsum-prompt-label {
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      opacity: 0.6;
-      margin-bottom: 2px;
-    }
-    .lsum-prompt-label + .lsum-prompt-pre { margin-top: 0; }
-    .lsum-prompt-pre {
-      margin: 0 0 8px 0;
-      font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-      font-size: 11px;
-      line-height: 1.45;
-      white-space: pre-wrap;
-      word-break: break-word;
-      color: inherit;
-    }
-    .lsum-prompt-pre:last-child { margin-bottom: 0; }
-    code { font-size: 11px; padding: 1px 4px; background: rgba(255,255,255,0.08); border-radius: 3px; }
-  `],
+  styleUrl: './loop-control.component.scss',
 })
 export class LoopControlComponent implements OnDestroy {
   chatId = input<string | null>(null);
@@ -807,6 +409,7 @@ export class LoopControlComponent implements OnDestroy {
   protected copiedSummaryPart = signal<'initial' | 'iteration' | null>(null);
   protected inspectorExpanded = signal(false);
   protected inspectorLoading = signal(false);
+  protected hintModalOpen = signal(false);
   private copyClearHandle: ReturnType<typeof setTimeout> | null = null;
   private lastSummaryRunId: string | null = null;
   private lastInspectableLoopId: string | null = null;
@@ -937,6 +540,44 @@ export class LoopControlComponent implements OnDestroy {
   });
   latestIterationSeq = computed(() => this.inspectorIterations()[0]?.seq ?? -1);
 
+  /**
+   * Live summary of the iteration that is *currently running* — derived from
+   * the activity stream for the loop, scoped to the running iteration's seq.
+   * This is what fills the inspector while iteration 0 is still in flight and
+   * no iteration record has been persisted yet (records are written on
+   * iteration end), so the trace isn't just "No persisted records".
+   */
+  currentIterationStats = computed(() => {
+    const running = this.runningIteration();
+    const loopId = this.inspectableLoopId();
+    if (!running || !loopId) return null;
+    const events = this.store.activityForLoop(loopId)().filter((e) => e.seq === running.seq);
+    const toolEvents = events.filter((e) => e.kind === 'tool_use');
+    const toolName = (detail?: Record<string, unknown>, message?: string): string => {
+      const name = detail && typeof detail['name'] === 'string' ? detail['name'] : '';
+      return name || (message ?? '').replace(/^Using tool:\s*/i, '').trim() || 'tool';
+    };
+    const counts = new Map<string, number>();
+    for (const e of toolEvents) {
+      const name = toolName(e.detail, e.message);
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    const lastTool = toolEvents.length > 0 ? toolEvents[toolEvents.length - 1] : null;
+    const lastAssistant = [...events].reverse().find((e) => e.kind === 'assistant')?.message ?? null;
+    return {
+      seq: running.seq,
+      stage: running.stage,
+      toolCount: toolEvents.length,
+      toolBreakdown: [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, count]) => `${name}×${count}`)
+        .join(', '),
+      lastToolName: lastTool ? toolName(lastTool.detail, lastTool.message) : '',
+      lastToolArg: lastTool ? summarizeToolDetail(lastTool.detail) : '',
+      lastAssistant,
+    };
+  });
+
   elapsed = computed(() => {
     this.tick();
     const a = this.active();
@@ -1066,11 +707,23 @@ export class LoopControlComponent implements OnDestroy {
     await this.store.acceptCompletion(loopId);
   }
 
-  async onInjectHint(): Promise<void> {
-    const loopId = this.controlLoopId(); if (!loopId) return;
-    const message = window.prompt('Inject a hint for the next iteration:');
-    if (!message?.trim()) return;
-    await this.store.intervene(loopId, message.trim());
+  /** Opens the in-app hint modal. (window.prompt is a no-op in the
+   *  sandboxed Electron renderer, so the prompt must be in-app.) */
+  onInjectHint(): void {
+    if (!this.controlLoopId()) return;
+    this.hintModalOpen.set(true);
+  }
+
+  async onHintSubmitted(message: string): Promise<void> {
+    this.hintModalOpen.set(false);
+    const loopId = this.controlLoopId();
+    const trimmed = message.trim();
+    if (!loopId || !trimmed) return;
+    await this.store.intervene(loopId, trimmed);
+  }
+
+  onHintCancelled(): void {
+    this.hintModalOpen.set(false);
   }
 
   onDismissBanner(): void {
@@ -1151,6 +804,7 @@ export class LoopControlComponent implements OnDestroy {
   protected cost(cents: number): string  { return formatCostCents(cents); }
   protected time(ts: number): string     { return shortTime(ts); }
   protected kindLabel(kind: string): string { return activityKindLabel(kind); }
+  protected toolDetail(detail?: Record<string, unknown>): string { return summarizeToolDetail(detail); }
   protected summaryStatusLabel(status: 'completed' | 'completed-needs-review' | 'cancelled' | 'failed' | 'cap-reached' | 'error' | 'no-progress'): string {
     return terminalStatusLabel(status);
   }

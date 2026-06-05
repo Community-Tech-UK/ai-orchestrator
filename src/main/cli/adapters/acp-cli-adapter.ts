@@ -548,7 +548,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
         this.emitFinalAssistantFlushes(turn);
       }
       this.emit('status', 'idle');
-      this.emit('complete', response);
+      this.completeResponse(response);
       return response;
     } catch (error) {
       if (this.currentPrompt) {

@@ -14,3 +14,4 @@ export {
   PanelZoneContentDirective,
   type PanelDescriptor,
 } from './panel-zone/panel-zone.component';
+export { PromptModalComponent } from './prompt-modal/prompt-modal.component';

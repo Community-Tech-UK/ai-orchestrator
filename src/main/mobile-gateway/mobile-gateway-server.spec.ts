@@ -20,6 +20,7 @@ import {
 } from './mobile-gateway-server';
 import { MobileDeviceRegistry, type MobileDevicePersistence } from './mobile-device-registry';
 import { MobileApnsSender } from './mobile-apns-sender';
+import { _resetIdempotencyStoreForTesting } from '../transport/idempotency-store';
 import type { Instance, InstanceCreateConfig } from '../../shared/types/instance.types';
 import type { MobileMessageDto, MobileMessagesResumeDto, MobilePauseDto } from '../../shared/types/mobile-gateway.types';
 
@@ -301,6 +302,7 @@ describe('MobileGatewayServer', () => {
   }
 
   beforeEach(async () => {
+    _resetIdempotencyStoreForTesting();
     source = new FakeInstanceSource();
     source.instances = [inst({ id: 'a', status: 'busy' })];
     registry = new MobileDeviceRegistry(memPersistence());
@@ -853,6 +855,119 @@ describe('MobileGatewayServer', () => {
     });
     expect(term.status).toBe(200);
     expect(source.terminateInstance).toHaveBeenCalledWith('a', false);
+  });
+
+  // ---- B2 idempotency: at-most-once for input / interrupt / respond / terminate ----
+
+  it('dedupes a retried input with the same idempotencyKey (queued once)', async () => {
+    const token = await pairToken();
+    const first = await authed(token, '/api/instances/a/input', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'do the thing', idempotencyKey: 'k-input-1' }),
+    });
+    expect(first.status).toBe(200);
+    expect((await first.json()).duplicate).toBeUndefined();
+
+    const retry = await authed(token, '/api/instances/a/input', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'do the thing', idempotencyKey: 'k-input-1' }),
+    });
+    expect(retry.status).toBe(200);
+    expect((await retry.json()).duplicate).toBe(true);
+    // sendInput ran exactly once despite two deliveries.
+    expect(source.sendInput).toHaveBeenCalledTimes(1);
+  });
+
+  it('still queues two distinct inputs without an idempotencyKey', async () => {
+    const token = await pairToken();
+    await authed(token, '/api/instances/a/input', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'one' }),
+    });
+    await authed(token, '/api/instances/a/input', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'two' }),
+    });
+    expect(source.sendInput).toHaveBeenCalledTimes(2);
+  });
+
+  it('dedupes a retried interrupt with the same idempotencyKey (fired once)', async () => {
+    const token = await pairToken();
+    const first = await authed(token, '/api/instances/a/interrupt', {
+      method: 'POST',
+      body: JSON.stringify({ idempotencyKey: 'k-int-1' }),
+    });
+    expect(first.status).toBe(200);
+    expect((await first.json()).duplicate).toBeUndefined();
+
+    const retry = await authed(token, '/api/instances/a/interrupt', {
+      method: 'POST',
+      body: JSON.stringify({ idempotencyKey: 'k-int-1' }),
+    });
+    expect(retry.status).toBe(200);
+    expect((await retry.json()).duplicate).toBe(true);
+    expect(source.interruptInstance).toHaveBeenCalledTimes(1);
+  });
+
+  it('interrupt without a key still fires every time (back-compat)', async () => {
+    const token = await pairToken();
+    await authed(token, '/api/instances/a/interrupt', { method: 'POST' });
+    await authed(token, '/api/instances/a/interrupt', { method: 'POST' });
+    expect(source.interruptInstance).toHaveBeenCalledTimes(2);
+  });
+
+  it('dedupes a retried terminate with the same idempotencyKey (runs once)', async () => {
+    const token = await pairToken();
+    const first = await authed(token, '/api/instances/a/terminate', {
+      method: 'POST',
+      body: JSON.stringify({ graceful: false, idempotencyKey: 'k-term-1' }),
+    });
+    expect(first.status).toBe(200);
+    const retry = await authed(token, '/api/instances/a/terminate', {
+      method: 'POST',
+      body: JSON.stringify({ graceful: false, idempotencyKey: 'k-term-1' }),
+    });
+    expect((await retry.json()).duplicate).toBe(true);
+    expect(source.terminateInstance).toHaveBeenCalledTimes(1);
+  });
+
+  it('dedupes a retried respond by requestId (resumes once)', async () => {
+    const token = await pairToken();
+    source.emit('instance:input-required', {
+      instanceId: 'a',
+      requestId: 'req-idem',
+      metadata: { type: 'deferred_permission', tool_name: 'Bash', tool_input: { command: 'ls' } },
+    });
+    const first = await authed(token, '/api/instances/a/respond', {
+      method: 'POST',
+      body: JSON.stringify({ requestId: 'req-idem', decisionAction: 'allow' }),
+    });
+    expect(first.status).toBe(200);
+    // The prompt is cleared after the first respond, so a retry would otherwise
+    // 404 — the idempotency guard returns a clean duplicate:true instead.
+    const retry = await authed(token, '/api/instances/a/respond', {
+      method: 'POST',
+      body: JSON.stringify({ requestId: 'req-idem', decisionAction: 'allow' }),
+    });
+    expect(retry.status).toBe(200);
+    expect((await retry.json()).duplicate).toBe(true);
+    expect(source.resumeAfterDeferredPermission).toHaveBeenCalledTimes(1);
+  });
+
+  it('keys idempotency per instance — same key on different instances is independent', async () => {
+    source.instances = [inst({ id: 'a' }), inst({ id: 'b' })];
+    const token = await pairToken();
+    await authed(token, '/api/instances/a/input', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'x', idempotencyKey: 'shared' }),
+    });
+    const onB = await authed(token, '/api/instances/b/input', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'x', idempotencyKey: 'shared' }),
+    });
+    // Same client key but different instance → not a duplicate.
+    expect((await onB.json()).duplicate).toBeUndefined();
+    expect(source.sendInput).toHaveBeenCalledTimes(2);
   });
 
   it('gets and sets pause state', async () => {

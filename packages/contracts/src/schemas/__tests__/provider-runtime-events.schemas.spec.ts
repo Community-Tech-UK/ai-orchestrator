@@ -122,6 +122,21 @@ describe('ProviderRuntimeEventEnvelopeSchema', () => {
       quota: { exhausted: false },
     });
 
+    // A3: degradedReason is an additive optional field on complete events.
+    const degradedEvent = ProviderRuntimeEventEnvelopeSchema.parse({
+        ...baseEnv,
+        event: { kind: 'complete', degradedReason: 'partial-replay' },
+      }).event;
+    expect(degradedEvent).toMatchObject({ kind: 'complete', degradedReason: 'partial-replay' });
+
+    // An unknown degraded reason is rejected by the enum.
+    expect(() =>
+      ProviderRuntimeEventEnvelopeSchema.parse({
+        ...baseEnv,
+        event: { kind: 'complete', degradedReason: 'made-up' },
+      }),
+    ).toThrow();
+
     const contextEvent = ProviderRuntimeEventEnvelopeSchema.parse({
         ...baseEnv,
         event: {

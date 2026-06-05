@@ -86,6 +86,8 @@ export interface BrowserGatewayServiceOptions {
     | 'refreshTarget'
     | 'navigate'
     | 'snapshot'
+    | 'accessibilitySnapshot'
+    | 'evaluate'
     | 'screenshot'
     | 'consoleMessages'
     | 'networkRequests'

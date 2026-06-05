@@ -30,6 +30,8 @@ export const BROWSER_CHANNELS = {
   BROWSER_LIST_GRANTS: 'browser:list-grants',
   BROWSER_REVOKE_GRANT: 'browser:revoke-grant',
   BROWSER_SNAPSHOT: 'browser:snapshot',
+  BROWSER_ACCESSIBILITY_SNAPSHOT: 'browser:accessibility-snapshot',
+  BROWSER_EVALUATE: 'browser:evaluate',
   BROWSER_SCREENSHOT: 'browser:screenshot',
   BROWSER_CONSOLE_MESSAGES: 'browser:console-messages',
   BROWSER_NETWORK_REQUESTS: 'browser:network-requests',

@@ -273,6 +273,7 @@ export class IpcMainHandler {
     registerMcpHandlers({ windowManager: this.windowManager });
     registerBrowserGatewayHandlers({
       ensureTrustedSender: this.ensureTrustedSender.bind(this),
+      instanceManager: this.instanceManager,
     });
 
     // LSP handlers

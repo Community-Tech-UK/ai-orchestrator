@@ -4,11 +4,13 @@
 
 import { EventEmitter } from 'events';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
-import { BaseCliAdapter, type AdapterRuntimeCapabilities, type CliResponse } from '../cli/adapters/base-cli-adapter';
+import { BaseCliAdapter, type CliResponse } from '../cli/adapters/base-cli-adapter';
 // History archiving moved exclusively to instance-lifecycle.ts terminateInstance()
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
 import { getOutputStorageManager } from '../memory';
+import { getCostTracker } from '../core/system/cost-tracker';
+import { normalizeUsage, type UsageLike } from '../../shared/util/usage-normalization';
 import { getHookManager } from '../hooks/hook-manager';
 import { emitPluginHook } from '../plugins/hook-emitter';
 import { getFileEditBus } from './file-edit-bus';
@@ -43,6 +45,15 @@ import { getPauseCoordinator } from '../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../pause/orchestrator-paused-error';
 import { extractTodoToolItems } from './todo-tool-parser';
 import { extractProviderErrorDiagnostics } from './instance-communication.diagnostics';
+import {
+  getAdapterRuntimeCapabilities,
+  isContextOverflowMessage,
+  isCorruptedSessionMessage,
+  isRecoverableAcpPromptTurnError,
+  isRecoverableStatelessExecTurnError,
+  isSessionNotFoundMessage,
+  isStatelessExecAdapter,
+} from './instance-communication-adapter-helpers';
 import {
   CIRCUIT_BREAKER_CONFIG,
   ACTIVE_CHILD_TURN_STATUSES,
@@ -91,93 +102,6 @@ export class InstanceCommunicationManager extends EventEmitter {
     this.deps = deps;
   }
 
-  private getAdapterRuntimeCapabilities(adapter: CliAdapter): AdapterRuntimeCapabilities {
-    if (adapter instanceof BaseCliAdapter) {
-      return adapter.getRuntimeCapabilities();
-    }
-    return {
-      supportsResume: false,
-      supportsForkSession: false,
-      supportsNativeCompaction: false,
-      supportsPermissionPrompts: false,
-      supportsDeferPermission: false,
-      selfManagedAutoCompaction: false,
-    };
-  }
-
-  /**
-   * Returns true for adapters that run in exec-per-message mode (stateless sessions)
-   * where context threshold warnings and exit handling are not meaningful.
-   *
-   * Codex in app-server mode is stateful — context accumulates across turns
-   * and requires proactive warnings and proper exit handling.
-   *
-   * Copilot, Gemini, and the exec-mode Codex adapter all spawn a fresh child
-   * process per user turn and emit an `exit` event from their own terminate()
-   * override. Treating those per-turn exits as "instance crashed" would tear
-   * down the child instance after the first successful reply — which is
-   * exactly the "Child exited without producing any output" bug seen when
-   * spawning Copilot children.
-   */
-  private isStatelessExecAdapter(adapter: CliAdapter): boolean {
-    const runtimeCapabilities = this.getAdapterRuntimeCapabilities(adapter);
-
-    // Adapters with native compaction support or native permission prompts are
-    // stateful session transports. ACP-backed providers fall into this bucket.
-    if (
-      runtimeCapabilities.supportsNativeCompaction
-      || runtimeCapabilities.supportsPermissionPrompts
-      || runtimeCapabilities.supportsDeferPermission
-    ) {
-      return false;
-    }
-    const adapterName = adapter.getName().toLowerCase();
-    return (
-      adapterName.includes('codex') ||
-      adapterName.includes('gemini') ||
-      adapterName.includes('copilot')
-    );
-  }
-
-  /**
-   * Stateless exec adapters spawn a fresh child per turn, so a single turn failure
-   * should not poison the long-lived orchestrator instance. Fatal cases like
-   * corrupted sessions, missing resume state, or real context overflow are handled
-   * separately and should still bubble through the normal error path.
-   */
-  private isRecoverableStatelessExecTurnError(adapter: CliAdapter, error: Error): boolean {
-    if (!this.isStatelessExecAdapter(adapter)) {
-      return false;
-    }
-
-    const errorText = error instanceof Error ? error.message : String(error ?? '');
-    if (!errorText.trim()) {
-      return true;
-    }
-
-    if (this.isCorruptedSessionMessage(errorText)) {
-      return false;
-    }
-
-    if (/no conversation found/i.test(errorText) || /session.*not.*found/i.test(errorText)) {
-      return false;
-    }
-
-    const classified = getErrorRecoveryManager().classifyError(error);
-    return !(classified.category === ErrorCategory.RESOURCE && classified.technicalDetails?.includes('context'));
-  }
-
-  /**
-   * ACP prompt timeouts mean the current turn failed to close its JSON-RPC
-   * `session/prompt` request. The streamed output may be partial, but the
-   * instance itself should remain retryable: Copilot/Cursor can accept a
-   * fresh prompt or be restarted manually. Treating this as fatal strands the
-   * input box in "instance is error" after a single hung turn.
-   */
-  private isRecoverableAcpPromptTurnError(errorMessage: string): boolean {
-    return /^ACP session\/prompt request timed out after \d+ms(?: without a session\/update)? \(id=.+\)\./.test(errorMessage)
-      || errorMessage === 'ACP prompt turn was cancelled by the client.';
-  }
 
   /**
    * Get or create circuit breaker state for an instance
@@ -230,8 +154,61 @@ export class InstanceCommunicationManager extends EventEmitter {
       ...(response.usage?.totalTokens !== undefined ? { tokensUsed: response.usage.totalTokens } : {}),
       ...(response.usage?.cost !== undefined ? { costUsd: response.usage.cost } : {}),
       ...(response.usage?.duration !== undefined ? { durationMs: response.usage.duration } : {}),
+      // A3: surface the adapter-layer degraded-output tag onto the normalized
+      // event so downstream consumers (renderer, coordinator) can see it.
+      ...(response.degradedReason ? { degradedReason: response.degradedReason } : {}),
       ...extractProviderErrorDiagnostics(response.metadata),
     };
+  }
+
+  /**
+   * Record per-turn provider token usage into the cost tracker.
+   *
+   * This is the seam that makes live spend actually flow somewhere: the cost
+   * tracker's `recordUsage` had no runtime caller, so budget alerts, the cost
+   * analytics page, and the action/cost circuit breaker (which keys off the
+   * `cost-recorded` event) never saw real usage. Each completed turn carries an
+   * authoritative `CliResponse.usage`; we route it through the shared
+   * {@link normalizeUsage} entry point (covering the 15+ provider field
+   * conventions) and record one cost entry per turn.
+   *
+   * Provider-supplied cost (e.g. Claude's `total_cost_usd`) is trusted when
+   * present. Fail-soft by design — cost accounting must never break the
+   * turn-complete path.
+   */
+  private recordCompletionCost(instanceId: string, instance: Instance, response: CliResponse): void {
+    try {
+      const usage = normalizeUsage(response.usage as UsageLike | undefined);
+      if (!usage) {
+        return;
+      }
+      const input = usage.input ?? 0;
+      const output = usage.output ?? 0;
+      const cacheRead = usage.cacheRead ?? 0;
+      const cacheWrite = usage.cacheWrite ?? 0;
+      // A usage object that carried only non-token fields (e.g. duration) has
+      // nothing billable to record.
+      if (input === 0 && output === 0 && cacheRead === 0 && cacheWrite === 0) {
+        return;
+      }
+      // currentModel is the user-visible pick; fall back to the provider name so
+      // grouping stays meaningful. The pricing table tolerates unknown ids via a
+      // default rate, and a provider-supplied cost (below) bypasses pricing.
+      const model = instance.currentModel || instance.provider;
+      const providerCost = response.usage?.cost;
+      getCostTracker().recordUsage(
+        instanceId,
+        instance.sessionId,
+        model,
+        input,
+        output,
+        cacheRead,
+        cacheWrite,
+        typeof providerCost === 'number' ? providerCost : undefined,
+      );
+    } catch (err) {
+      logger.debug('recordCompletionCost failed', { instanceId, error: String(err) });
+    }
   }
 
   /**
@@ -844,7 +821,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       ...summarizeInputResponse(response, permissionKey),
     });
 
-    const capabilities = this.getAdapterRuntimeCapabilities(adapter);
+    const capabilities = getAdapterRuntimeCapabilities(adapter);
     if (!capabilities.supportsPermissionPrompts) {
       throw new Error('This provider does not support interactive permission prompts.');
     }
@@ -939,7 +916,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         }
         message = this.withRuntimeMetadata(message, adapterGenerationAtSubscribe, turnId);
 
-        if (message.type === 'error' && this.isSessionNotFoundMessage(message.content)) {
+        if (message.type === 'error' && isSessionNotFoundMessage(message.content)) {
           instance.sessionResumeBlacklisted = true;
           logger.warn('Session id blacklisted due to resume failure output', {
             instanceId,
@@ -1128,7 +1105,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         // Detect corrupted session errors (empty user messages stored in CLI history).
         // These surface as API 400 "user messages must have non-empty content" on --resume.
         // Show a clear recovery message instead of a cryptic API error.
-        if (message.type === 'error' && this.isCorruptedSessionMessage(message.content)) {
+        if (message.type === 'error' && isCorruptedSessionMessage(message.content)) {
           logger.warn('Corrupted session detected via output path', { instanceId, content: message.content });
 
           const recoveryMessage: OutputMessage = {
@@ -1155,7 +1132,7 @@ export class InstanceCommunicationManager extends EventEmitter {
 
         // Detect context-overflow errors arriving via NDJSON stdout path
         // (these bypass the adapter 'error' event and need explicit handling)
-        if (message.type === 'error' && this.isContextOverflowMessage(message.content)) {
+        if (message.type === 'error' && isContextOverflowMessage(message.content)) {
           const tokenInfo = extractOverflowTokenCount(message.content);
           logger.warn('Context overflow detected via output path', {
             instanceId,
@@ -1207,7 +1184,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('status')) {
         return;
       }
-      const normalizedStatus = status === 'error' && this.isStatelessExecAdapter(adapter)
+      const normalizedStatus = status === 'error' && isStatelessExecAdapter(adapter)
         ? 'idle'
         : status;
 
@@ -1323,7 +1300,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         // adapters that don't emit cumulativeTokens (e.g. Claude).
         instance.totalTokensUsed = usage.cumulativeTokens ?? usage.used;
         this.deps.queueUpdate(instanceId, instance.status, usage);
-        if (!this.isStatelessExecAdapter(adapter)) {
+        if (!isStatelessExecAdapter(adapter)) {
           this.checkContextWarningThreshold(instanceId, instance, usage);
         }
       }
@@ -1373,7 +1350,22 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (isStaleAdapterEvent('complete')) {
         return;
       }
+      // A3: when the adapter-layer classifier tagged this turn as degraded
+      // (only possible with `detectDegradedAdapterOutput` enabled), surface it
+      // as an observable warning. The normalized event below also carries the
+      // reason for renderer/coordinator consumers.
+      if (response.degradedReason) {
+        logger.warn('Adapter reported degraded output for completed turn', {
+          instanceId,
+          degradedReason: response.degradedReason,
+          contentLength: response.content?.length ?? 0,
+        });
+      }
       emitProviderRuntimeEvent(this.toProviderCompleteEvent(response));
+      const completedInstance = this.deps.getInstance(instanceId);
+      if (completedInstance) {
+        this.recordCompletionCost(instanceId, completedInstance, response);
+      }
       this.deps.onToolStateChange?.(instanceId, 'idle');
     });
 
@@ -1386,7 +1378,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         ? String(payloadMetadata['approvalTraceId'])
         : `approval-forward-${payload.id}`;
 
-      const capabilities = this.getAdapterRuntimeCapabilities(adapter);
+      const capabilities = getAdapterRuntimeCapabilities(adapter);
       if (!capabilities.supportsPermissionPrompts) {
         logger.info('[APPROVAL_TRACE] communication_drop_input_required', {
           approvalTraceId,
@@ -1441,8 +1433,8 @@ export class InstanceCommunicationManager extends EventEmitter {
         return;
       }
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const recoverableStatelessExecError = this.isRecoverableStatelessExecTurnError(adapter, error);
-      const recoverableAcpPromptTurnError = this.isRecoverableAcpPromptTurnError(errorMessage);
+      const recoverableStatelessExecError = isRecoverableStatelessExecTurnError(adapter, error);
+      const recoverableAcpPromptTurnError = isRecoverableAcpPromptTurnError(errorMessage);
       const recoverableTurnError = recoverableStatelessExecError || recoverableAcpPromptTurnError;
       emitProviderRuntimeEvent({
         kind: 'error',
@@ -1469,7 +1461,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       // the next respawn (including auto-respawn from this adapter's exit)
       // cannot loop on it.
       const errText = errorMessage;
-      if (this.isSessionNotFoundMessage(errText)) {
+      if (isSessionNotFoundMessage(errText)) {
         instance.sessionResumeBlacklisted = true;
         logger.warn('Session id blacklisted due to resume failure', {
           instanceId,
@@ -1667,7 +1659,7 @@ export class InstanceCommunicationManager extends EventEmitter {
         timestamp: Date.now(),
       });
 
-      if (this.isStatelessExecAdapter(adapter)) {
+      if (isStatelessExecAdapter(adapter)) {
         logger.info('Ignoring per-turn process exit for stateless exec adapter', {
           instanceId,
           adapter: adapter.getName(),
@@ -2001,35 +1993,6 @@ export class InstanceCommunicationManager extends EventEmitter {
   // ============================================
 
   /**
-   * Check if a message content indicates a context overflow / prompt-too-long error.
-   * Delegates to the PTL retry module's pattern set for comprehensive detection.
-   */
-  private isContextOverflowMessage(content: string): boolean {
-    if (!content) return false;
-    return isContextOverflowError(content);
-  }
-
-  /**
-   * Check if a message indicates a corrupted session (e.g., empty user messages
-   * stored in CLI history that cause API 400 on --resume)
-   */
-  private isCorruptedSessionMessage(content: string): boolean {
-    if (!content) return false;
-    const lower = content.toLowerCase();
-    return (
-      lower.includes('user messages must have non-empty content') ||
-      lower.includes('must have non-empty content') ||
-      lower.includes('messages must have non-empty') ||
-      lower.includes('invalid_request_error') && lower.includes('non-empty')
-    );
-  }
-
-  private isSessionNotFoundMessage(content: string): boolean {
-    if (!content) return false;
-    return /no conversation found/i.test(content) || /session.*not.*found/i.test(content);
-  }
-
-  /**
    * Check if context usage has crossed the warning threshold and send delegation guidance
    */
   private checkContextWarningThreshold(
@@ -2060,7 +2023,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     // some way?", not "does the orchestrator have a programmatic hook?".
     const adapter = this.deps.getAdapter(instanceId);
     if (adapter) {
-      const capabilities = this.getAdapterRuntimeCapabilities(adapter);
+      const capabilities = getAdapterRuntimeCapabilities(adapter);
       if (
         capabilities.selfManagedAutoCompaction === true
         || capabilities.supportsNativeCompaction

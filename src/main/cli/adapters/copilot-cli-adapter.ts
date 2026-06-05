@@ -553,7 +553,7 @@ export class CopilotCliAdapter extends BaseCliAdapter {
 
         const response = this.parseOutput(this.outputBuffer);
         response.usage = { ...response.usage, duration };
-        this.emit('complete', response);
+        this.completeResponse(response);
         this.process = null;
         resolve(response);
       });

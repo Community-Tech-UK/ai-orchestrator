@@ -149,6 +149,17 @@ export interface CliToolCall {
 export interface CliUsage {
   inputTokens?: number;
   outputTokens?: number;
+  /**
+   * Prompt tokens served from the provider's cache on this turn. Billed at a
+   * reduced rate (≈10% of the input rate for Anthropic). Kept separate from
+   * `inputTokens` so cost accounting can price the cached portion correctly.
+   */
+  cacheReadTokens?: number;
+  /**
+   * Prompt tokens written to the provider's cache on this turn. Billed at (or
+   * above) the input rate. Kept separate from `inputTokens` for accurate cost.
+   */
+  cacheWriteTokens?: number;
   totalTokens?: number;
   cost?: number;
   duration?: number;

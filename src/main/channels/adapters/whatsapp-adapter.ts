@@ -234,7 +234,7 @@ export class WhatsAppAdapter extends BaseChannelAdapter {
       timestamp: (message.timestamp ?? Math.floor(Date.now() / 1000)) * 1000,
     };
 
-    this.emit('message', inbound);
+    this.emitInboundMessage(inbound);
   }
 
   private findChromePath(): string | null {

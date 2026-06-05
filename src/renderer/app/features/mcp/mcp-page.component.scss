@@ -699,11 +699,13 @@
   width: 100%;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
-  background: var(--bg-primary);
+  background-color: var(--bg-primary); // not `background` — keep the <select> chevron SVG
   color: var(--text-primary);
   padding: var(--spacing-xs) var(--spacing-sm);
   font-size: 12px;
 }
+// Leave room for the global chevron on the <select> (not the textarea).
+.select { padding-right: 30px; }
 
 .textarea {
   min-height: 80px;

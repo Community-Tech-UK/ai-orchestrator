@@ -14,6 +14,7 @@ import { ensureContextSectionSummaryColumns } from './rlm-schema-context-section
 import { RLM_MIGRATIONS_001_015 } from './rlm-migrations-001-015';
 import { RLM_MIGRATIONS_016_021 } from './rlm-migrations-016-021';
 import { RLM_MIGRATIONS_022_035 } from './rlm-migrations-022-035';
+import { RLM_MIGRATIONS_036_040 } from './rlm-migrations-036-040';
 
 /**
  * Migrations to be applied in order
@@ -22,6 +23,7 @@ export const MIGRATIONS: Migration[] = [
   ...RLM_MIGRATIONS_001_015,
   ...RLM_MIGRATIONS_016_021,
   ...RLM_MIGRATIONS_022_035,
+  ...RLM_MIGRATIONS_036_040,
 ];
 
 /**

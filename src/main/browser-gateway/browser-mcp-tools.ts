@@ -22,6 +22,8 @@ const TOOL_NAMES = [
   'browser.list_grants',
   'browser.revoke_grant',
   'browser.snapshot',
+  'browser.accessibility_snapshot',
+  'browser.evaluate',
   'browser.screenshot',
   'browser.console_messages',
   'browser.network_requests',
@@ -52,7 +54,17 @@ const targetIdProp = {
 };
 const selectorProp = {
   ...stringProp,
-  description: 'CSS selector for the target page element.',
+  description:
+    'CSS selector for the target page element. Optional when uid is provided '
+    + '(a selector cannot resolve elements inside a closed shadow root).',
+};
+const uidProp = {
+  ...stringProp,
+  description:
+    'Robust element handle from browser.accessibility_snapshot (the node uid). '
+    + 'Resolved via the DevTools protocol, so it reaches elements inside open '
+    + 'AND closed shadow roots where a CSS selector cannot. Supported on shared '
+    + 'existing Chrome tabs. Provide selector, uid, or both.',
 };
 const requestIdProp = {
   ...stringProp,
@@ -145,17 +157,19 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     profileId: profileIdProp,
     targetId: targetIdProp,
     selector: selectorProp,
+    uid: uidProp,
     actionHint: stringProp,
     requestId: requestIdProp,
-  }, ['profileId', 'targetId', 'selector']),
+  }, ['profileId', 'targetId']),
   'browser.type': objectSchema({
     profileId: profileIdProp,
     targetId: targetIdProp,
     selector: selectorProp,
+    uid: uidProp,
     value: stringProp,
     actionHint: stringProp,
     requestId: requestIdProp,
-  }, ['profileId', 'targetId', 'selector', 'value']),
+  }, ['profileId', 'targetId', 'value']),
   'browser.fill_form': objectSchema({
     profileId: profileIdProp,
     targetId: targetIdProp,
@@ -163,9 +177,10 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
       type: 'array',
       items: objectSchema({
         selector: selectorProp,
+        uid: uidProp,
         value: stringProp,
         actionHint: stringProp,
-      }, ['selector', 'value']),
+      }, ['value']),
     },
     requestId: requestIdProp,
   }, ['profileId', 'targetId', 'fields']),
@@ -173,10 +188,11 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     profileId: profileIdProp,
     targetId: targetIdProp,
     selector: selectorProp,
+    uid: uidProp,
     value: stringProp,
     actionHint: stringProp,
     requestId: requestIdProp,
-  }, ['profileId', 'targetId', 'selector', 'value']),
+  }, ['profileId', 'targetId', 'value']),
   'browser.upload_file': objectSchema({
     profileId: profileIdProp,
     targetId: targetIdProp,
@@ -240,6 +256,35 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     reason: stringProp,
   }, ['grantId']),
   'browser.snapshot': targetSchema,
+  'browser.accessibility_snapshot': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    interestingOnly: {
+      ...booleanProp,
+      description:
+        'When true (default) only semantically meaningful nodes are returned, like '
+        + 'the DevTools accessibility tree. The tree pierces open AND closed shadow '
+        + 'roots (and same-origin iframes), so it surfaces inputs/buttons that '
+        + 'browser.query_elements cannot see. Each node has a uid usable as the target '
+        + 'for click/type/select/fill_form; a uid stays valid until that node is removed '
+        + 'or the page navigates (a stale uid returns a clear "could not be resolved" error).',
+    },
+    limit: numberProp,
+  }, ['profileId', 'targetId']),
+  'browser.evaluate': objectSchema({
+    profileId: profileIdProp,
+    targetId: targetIdProp,
+    expression: {
+      ...stringProp,
+      description:
+        'JavaScript expression evaluated in the page. Last-resort escape hatch; '
+        + 'requires an approved grant. The JSON-serialized result is returned (redacted '
+        + 'and length-capped).',
+    },
+    awaitPromise: booleanProp,
+    actionHint: stringProp,
+    requestId: requestIdProp,
+  }, ['profileId', 'targetId', 'expression']),
   'browser.screenshot': objectSchema({
     profileId: profileIdProp,
     targetId: targetIdProp,
@@ -284,5 +329,9 @@ export function createBrowserMcpTools(
     description: `${UNTRUSTED_WARNING} Calls the managed Browser Gateway tool ${name}.`,
     inputSchema: TOOL_SCHEMAS[name],
     handler: async (args) => client.call(name, args),
+    // browser.screenshot returns base64 image bytes in `data`; emit it as an
+    // MCP image content block so clients can render it instead of receiving
+    // an unreadable base64 text blob.
+    producesImage: name === 'browser.screenshot',
   }));
 }

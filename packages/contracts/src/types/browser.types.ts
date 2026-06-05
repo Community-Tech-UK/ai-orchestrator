@@ -310,20 +310,29 @@ export interface BrowserElementCandidate {
 }
 
 export interface BrowserClickRequest extends BrowserTargetRequest {
-  selector: string;
+  /** CSS selector. Optional when `uid` is provided. */
+  selector?: string;
+  /** Robust CDP element handle from browser.accessibility_snapshot (pierces closed shadow roots). */
+  uid?: string;
   actionHint?: string;
   requestId?: string;
 }
 
 export interface BrowserTypeRequest extends BrowserTargetRequest {
-  selector: string;
+  /** CSS selector. Optional when `uid` is provided. */
+  selector?: string;
+  /** Robust CDP element handle from browser.accessibility_snapshot (pierces closed shadow roots). */
+  uid?: string;
   value: string;
   actionHint?: string;
   requestId?: string;
 }
 
 export interface BrowserFillFormField {
-  selector: string;
+  /** CSS selector. Optional when `uid` is provided. */
+  selector?: string;
+  /** Robust CDP element handle from browser.accessibility_snapshot (pierces closed shadow roots). */
+  uid?: string;
   value: string;
   actionHint?: string;
 }
@@ -334,10 +343,47 @@ export interface BrowserFillFormRequest extends BrowserTargetRequest {
 }
 
 export interface BrowserSelectRequest extends BrowserTargetRequest {
-  selector: string;
+  /** CSS selector. Optional when `uid` is provided. */
+  selector?: string;
+  /** Robust CDP element handle from browser.accessibility_snapshot (pierces closed shadow roots). */
+  uid?: string;
   value: string;
   actionHint?: string;
   requestId?: string;
+}
+
+export interface BrowserAccessibilitySnapshotRequest extends BrowserTargetRequest {
+  interestingOnly?: boolean;
+  limit?: number;
+}
+
+export interface BrowserAccessibilityNode {
+  /** Stringified backendDOMNodeId; pass as `uid` to click/type/select/fill_form. */
+  uid: string;
+  role: string;
+  name?: string;
+  value?: string;
+  description?: string;
+  checked?: boolean | 'mixed';
+  selected?: boolean;
+  expanded?: boolean;
+  disabled?: boolean;
+  focused?: boolean;
+  level?: number;
+}
+
+export interface BrowserEvaluateRequest extends BrowserTargetRequest {
+  expression: string;
+  awaitPromise?: boolean;
+  actionHint?: string;
+  requestId?: string;
+}
+
+export interface BrowserEvaluateResult {
+  /** JSON-serialized return value (length-capped and redacted). */
+  json?: string;
+  type?: string;
+  truncated?: boolean;
 }
 
 export interface BrowserUploadFileRequest extends BrowserTargetRequest {

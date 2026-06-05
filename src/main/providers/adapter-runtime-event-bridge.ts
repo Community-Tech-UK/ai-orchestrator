@@ -142,6 +142,8 @@ export function observeAdapterRuntimeEvents(
       ...definedNumberField('tokensUsed', response.usage?.totalTokens),
       ...definedNumberField('costUsd', response.usage?.cost),
       ...definedNumberField('durationMs', response.usage?.duration),
+      // A3: surface the adapter-layer degraded-output tag (absent on healthy turns).
+      ...(response.degradedReason ? { degradedReason: response.degradedReason } : {}),
       ...extractProviderApiDiagnostics(response.metadata),
     };
     emit(event, response);

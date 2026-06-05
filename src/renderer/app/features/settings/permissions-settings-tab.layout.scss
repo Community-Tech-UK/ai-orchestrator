@@ -162,8 +162,9 @@
 
 .scope-select {
   padding: var(--spacing-xs) var(--spacing-sm);
+  padding-right: 30px; // room for the global chevron
   border-radius: var(--radius-sm);
-  background: var(--bg-primary);
+  background-color: var(--bg-primary); // not `background` — keep the chevron SVG
   border: 1px solid var(--border-color);
   color: var(--text-primary);
   font-size: 12px;

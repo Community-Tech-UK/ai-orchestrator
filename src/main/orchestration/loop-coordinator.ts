@@ -19,12 +19,11 @@
  */
 
 import { EventEmitter } from 'events';
-import { createHash, randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
 import * as path from 'path';
 import { getLogger } from '../logging/logger';
 import {
   defaultCrossModelReviewConfig,
-  defaultLoopConfig,
   defaultSemanticProgressConfig,
   type LoopConfig,
   type LoopErrorRecord,
@@ -46,7 +45,7 @@ import {
 } from './loop-completion-detector';
 import { LoopProgressDetector } from './loop-progress-detector';
 import { LoopStageMachine } from './loop-stage-machine';
-import { resolveLoopArtifactPaths } from './loop-artifact-paths';
+import { LOOP_STATE_DIR_NAME } from './loop-artifact-paths';
 import {
   saveLoopAttachments,
   cleanupLoopAttachments,
@@ -77,7 +76,9 @@ import {
   sleep,
   type VerifyOutcomeLike,
 } from './loop-coordinator-utils';
-import { resolveCompletion } from './evidence-resolver';
+import { resolveCompletion, type EvidenceResolution } from './evidence-resolver';
+import { EvidenceStore } from './evidence-store';
+import { getRLMDatabase } from '../persistence/rlm-database';
 import {
   computeCompletionEvidenceHash,
   pushBoundedEvidence,
@@ -105,16 +106,30 @@ import {
 import {
   classifyDegradedIteration as classifyDegradedIterationHelper,
   getBlockOverrideInterventionText as getBlockOverrideInterventionTextHelper,
+  isCircuitBreakerOpenError,
   isToolchainClassBlock as isToolchainClassBlockHelper,
   runWorkspaceLivenessProbe as runWorkspaceLivenessProbeHelper,
 } from './loop-coordinator-block-utils';
-import { defaultLoopExplorationConfig, LOOP_MAX_PLAN_REGENERATIONS } from '../../shared/types/loop.types';
+import { defaultLoopExplorationConfig } from '../../shared/types/loop.types';
 import { streamLoopEvents } from './loop-stream';
 import {
   evaluateReviewDrivenCompletion as evaluateReviewDrivenCompletionGate,
   runFreshEyesReviewGate as runFreshEyesReviewGateHelper,
   type FreshEyesGateResult,
 } from './loop-coordinator-completion-gates';
+import {
+  applyLoopPlanRegenerationOnStall,
+  archiveBlockedFileForIntent as archiveBlockedFileForIntentHelper,
+  canRegenerateLoopPlanOnStall,
+  checkLoopHardCaps,
+  cloneLoopStateForBroadcast,
+  describeLoopCapReason,
+  materializeLoopConfig,
+  moveBlockedFileAside as moveBlockedFileAsideHelper,
+  rememberLoopTerminalIntent,
+  readBlockedFileIfPresent as readBlockedFileIfPresentHelper,
+  syntheticChildResultFromTerminalIntent as syntheticChildResultFromTerminalIntentHelper,
+} from './loop-coordinator-state-helpers';
 
 export { computeWorkHash } from './loop-work-hash';
 export type {
@@ -130,6 +145,25 @@ const logger = getLogger('LoopCoordinator');
 /** Approximate Claude Sonnet cost in cents per 1M tokens, rounded up. */
 const COST_PER_M_TOKENS_CENTS = 1500;
 const DEFAULT_ITERATION_TIMEOUT_MS = 30 * 60 * 1000;
+
+/**
+ * Backoff before retrying an iteration that was rejected by an OPEN circuit
+ * breaker. The loop-orchestration breaker (see `default-invokers.ts`) uses a
+ * 60s reset window, after which it transitions to HALF_OPEN and allows a test
+ * call through. We wait slightly longer than that window so the retry lands in
+ * HALF_OPEN instead of being instantly re-rejected inside the same OPEN window.
+ */
+const LOOP_BREAKER_OPEN_BACKOFF_MS = 65 * 1000;
+
+/**
+ * Maximum consecutive breaker-open backoffs for a single iteration before the
+ * loop gives up and terminates. Bounds total added latency (~LOOP_MAX ×
+ * BACKOFF) when a provider is genuinely down, while still riding out a
+ * transient trip that self-heals within a window or two. Counted independently
+ * of the degraded-iteration retry budget — a breaker trip is not a degraded
+ * iteration.
+ */
+const LOOP_MAX_BREAKER_OPEN_WAITS = 3;
 
 /** Result the LLM-invocation handler must return to the coordinator. */
 export interface LoopChildResult {
@@ -303,6 +337,118 @@ export class LoopCoordinator extends EventEmitter {
     this.loopMemoryStore = store;
   }
 
+  /**
+   * A4 — durable evidence journal. Records the distinct authority states
+   * (`verified` / `reviewed` / `fixed`) gathered at the completion-decision
+   * seam so completion evidence survives a restart and so a later attempt can
+   * detect a contradiction (e.g. verify regressing after a previous pass).
+   *
+   * Injectable for tests; lazily bound to the RLM database on first use in
+   * production. `null` (the unbound default) means "evidence journalling is a
+   * no-op" — the loop must never break because the journal is unavailable.
+   */
+  private evidenceStore: EvidenceStore | null = null;
+  /** True once we've attempted the lazy production bind (so we only try once). */
+  private evidenceStoreResolved = false;
+
+  /** Override the evidence store (tests / durable persistence). */
+  setEvidenceStore(store: EvidenceStore | null): void {
+    this.evidenceStore = store;
+    this.evidenceStoreResolved = true;
+  }
+
+  /**
+   * Resolve the evidence store fail-soft. Returns the injected store if set;
+   * otherwise lazily binds to the RLM database, but only once it is
+   * initialised. If the database isn't ready (e.g. a unit test that never
+   * stood up RLM), returns `null` and journalling is skipped silently.
+   */
+  private resolveEvidenceStore(): EvidenceStore | null {
+    if (this.evidenceStore) return this.evidenceStore;
+    if (this.evidenceStoreResolved) return null;
+    this.evidenceStoreResolved = true;
+    try {
+      const rlm = getRLMDatabase();
+      if (!rlm.isInitialized()) return null;
+      this.evidenceStore = EvidenceStore.getInstance(rlm.getDb());
+      return this.evidenceStore;
+    } catch (err) {
+      logger.warn('LoopCoordinator: evidence store unavailable (journalling disabled)', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * A4 — persist the authority evidence gathered at a completion attempt and
+   * detect contradictions against previously-persisted evidence.
+   *
+   * Records the three resolver authority states distinctly:
+   *   - `verified` when the verify command passed this attempt.
+   *   - `reviewed` when the fresh-eyes cross-model review ran clean.
+   * (`fixed` is written separately by the operator-acceptance flow.)
+   *
+   * Contradiction: if verify FAILS this attempt but a `verified` record
+   * already exists for the same target, the work regressed something it had
+   * passing — surface a convergence note so the operator/agent sees it.
+   *
+   * Fail-soft throughout: a journal failure must never break the loop.
+   */
+  private recordCompletionEvidence(
+    state: LoopState,
+    candidate: CompletionSignalEvidence,
+    ev: {
+      verifyPassed: boolean;
+      freshEyesRan: boolean;
+      freshEyesBlockingCount: number;
+      freshEyesErrored: boolean;
+      resolution: EvidenceResolution;
+    },
+  ): void {
+    const store = this.resolveEvidenceStore();
+    if (!store) return;
+    const loopId = state.id;
+    const target = candidate.id;
+
+    // Contradiction: verify regressed after a prior pass for this target.
+    if (ev.resolution.outcome === 'verify-failed') {
+      const priorVerified = store.getForTarget(loopId, target, 'verified');
+      if (priorVerified.length > 0) {
+        const note =
+          `verify regressed after ${priorVerified.length} previous pass(es) — ` +
+          'the work broke something that was passing before';
+        const existing = this.convergenceNotes.get(loopId);
+        this.convergenceNotes.set(loopId, existing ? `${existing}; ${note}` : note);
+        logger.info('Loop verify regressed after a prior pass', {
+          loopRunId: loopId,
+          target,
+          priorPasses: priorVerified.length,
+        });
+      }
+      return; // nothing positive to persist on a failed verify
+    }
+
+    if (ev.verifyPassed) {
+      store.record({
+        loopId,
+        target,
+        kind: 'verify-passed',
+        state: 'verified',
+        sourceMetadata: { signalId: candidate.id, attempt: state.completionAttempts },
+      });
+    }
+    if (ev.freshEyesRan && ev.freshEyesBlockingCount === 0 && !ev.freshEyesErrored) {
+      store.record({
+        loopId,
+        target,
+        kind: 'fresh-eyes-clean',
+        state: 'reviewed',
+        sourceMetadata: { signalId: candidate.id, verifyPassed: ev.verifyPassed },
+      });
+    }
+  }
+
   static getInstance(): LoopCoordinator {
     if (!this.instance) this.instance = new LoopCoordinator();
     return this.instance;
@@ -329,6 +475,8 @@ export class LoopCoordinator extends EventEmitter {
       this.instance.intentPersistHook = null;
       this.instance.adapterCleanupHook = null;
       this.instance.terminalCleanupPromises.clear();
+      this.instance.evidenceStore = null;
+      this.instance.evidenceStoreResolved = false;
       this.instance.removeAllListeners();
       this.instance = null;
     }
@@ -459,7 +607,7 @@ export class LoopCoordinator extends EventEmitter {
     // "caller explicitly chose on/off" (their choice always wins).
     const userExplicitlySetCrossModelReview =
       partialConfig.completion?.crossModelReview !== undefined;
-    const config = this.materializeConfig(partialConfig);
+    const config = materializeLoopConfig(partialConfig);
     if (!config.initialPrompt.trim()) throw new Error('initialPrompt is required');
     if (!config.workspaceCwd.trim()) throw new Error('workspaceCwd is required');
 
@@ -1001,9 +1149,9 @@ export class LoopCoordinator extends EventEmitter {
           return;
         }
       }
-      const capHit = this.checkHardCaps(state);
+      const capHit = checkLoopHardCaps(state);
       if (capHit) {
-        const reason = this.describeCapReason(state, capHit);
+        const reason = describeLoopCapReason(state, capHit, this.convergenceNotes.get(state.id));
         this.emit('loop:cap-reached', { loopRunId: state.id, cap: capHit, reason });
         this.terminate(state, 'cap-reached', reason);
         return;
@@ -1029,7 +1177,7 @@ export class LoopCoordinator extends EventEmitter {
       // when it genuinely cannot proceed. Honor that contract: if we find
       // one in the workspace, pause the loop and surface it as a no-progress
       // banner so the operator can intervene with a hint.
-      const blockedFile = await this.readBlockedFileIfPresent(state);
+      const blockedFile = await readBlockedFileIfPresentHelper(state);
       if (blockedFile && state.status === 'running') {
         const probeCfg = state.config.blockSanityProbe;
         const probeEnabled = probeCfg?.enabled !== false; // default-on when undefined
@@ -1095,7 +1243,7 @@ export class LoopCoordinator extends EventEmitter {
         // This is a READ-ONLY check — the single increment + directive happens
         // in `maybeRegeneratePlanOnStall` at the post-iteration site, so a stall
         // never burns two of the cap budget in one pass.
-        if (this.canRegeneratePlanOnStall(state)) {
+        if (canRegenerateLoopPlanOnStall(state, this.planRegenerations.get(state.id) ?? 0)) {
           logger.info('Loop kill switch bypassed for disposable-plan regeneration', {
             loopRunId: state.id,
             signal: block.id,
@@ -1186,14 +1334,17 @@ export class LoopCoordinator extends EventEmitter {
       // existing error / normal-processing path. Disabled → exactly one attempt.
       const retryCfg = state.config.degradedIterationRetry;
       const maxRetries = retryCfg?.enabled === false ? 0 : Math.max(0, retryCfg?.maxRetries ?? 2);
-      for (let attempt = 0; ; attempt++) {
+      let degradedAttempts = 0;
+      let breakerOpenWaits = 0;
+      let invocationAttempts = 0;
+      for (;;) {
         childResult = null;
         invocationError = null;
         try {
           childResult = await this.invokeChild(state, prompt, stage, forceContextReset);
         } catch (err) {
           invocationError = err instanceof Error ? err.message : String(err);
-          logger.error('Iteration invocation failed', err instanceof Error ? err : new Error(invocationError), { loopRunId: state.id, seq, attempt });
+          logger.error('Iteration invocation failed', err instanceof Error ? err : new Error(invocationError), { loopRunId: state.id, seq, attempt: invocationAttempts });
         } finally {
           await this.importTerminalIntentsForBoundary(state, {
             maxIterationSeq: seq,
@@ -1201,16 +1352,53 @@ export class LoopCoordinator extends EventEmitter {
             terminalEligible: state.status === 'running',
           });
         }
+        invocationAttempts++;
 
         // Never retry over a filed terminal intent (block/complete/fail) — hand
         // off to the normal terminal-intent flow. Also stop if the loop was
-        // cancelled/terminated mid-attempt, or the retry budget is spent.
+        // cancelled/terminated mid-attempt.
         if (state.terminalIntentPending) break;
         if (this.isTerminalStatus(state.status) || this.cancelFlags.get(state.id)) break;
-        if (attempt >= maxRetries) break;
 
+        // Circuit-breaker-OPEN is a transient, self-healing rejection — NOT a
+        // degraded iteration and NOT a fatal error. The breaker reopens to
+        // HALF_OPEN after its reset window, so retrying immediately (the old
+        // behaviour) just gets every attempt re-rejected inside the same OPEN
+        // window and kills an otherwise-progressing loop. Back off past the
+        // reset window and retry on a fresh session, bounded and independent of
+        // the degraded-iteration retry budget.
+        if (!childResult && isCircuitBreakerOpenError(invocationError)) {
+          if (breakerOpenWaits >= LOOP_MAX_BREAKER_OPEN_WAITS) break;
+          breakerOpenWaits++;
+          this.emit('loop:activity', {
+            loopRunId: state.id,
+            seq,
+            stage,
+            timestamp: Date.now(),
+            kind: 'status',
+            message: `Circuit breaker open — backing off ${Math.round(LOOP_BREAKER_OPEN_BACKOFF_MS / 1000)}s before retry (${breakerOpenWaits}/${LOOP_MAX_BREAKER_OPEN_WAITS})`,
+            detail: { reason: 'circuit-breaker-open', invocationError: invocationError ?? undefined },
+          });
+          logger.warn('Loop iteration rejected by open circuit breaker; backing off before retry', {
+            loopRunId: state.id,
+            seq,
+            attempt: breakerOpenWaits,
+            invocationError,
+          });
+          await sleep(LOOP_BREAKER_OPEN_BACKOFF_MS);
+          // The loop may have been cancelled/terminated while we waited.
+          if (this.isTerminalStatus(state.status) || this.cancelFlags.get(state.id)) break;
+          // Force a fresh session so a wedged same-session adapter recycles.
+          forceContextReset = true;
+          continue;
+        }
+
+        // Degraded-iteration resilience (transient invocation error / void
+        // iteration): retry the SAME seq a bounded number of times.
+        if (degradedAttempts >= maxRetries) break;
         const degraded = this.classifyDegradedIteration(childResult, invocationError);
         if (!degraded) break;
+        degradedAttempts++;
 
         this.emit('loop:activity', {
           loopRunId: state.id,
@@ -1218,10 +1406,10 @@ export class LoopCoordinator extends EventEmitter {
           stage,
           timestamp: Date.now(),
           kind: 'status',
-          message: `Degraded iteration (${degraded}) — retrying with a fresh session (attempt ${attempt + 2}/${maxRetries + 1})`,
+          message: `Degraded iteration (${degraded}) — retrying with a fresh session (attempt ${degradedAttempts + 1}/${maxRetries + 1})`,
           detail: { reason: degraded, invocationError: invocationError ?? undefined },
         });
-        logger.warn('Retrying degraded loop iteration', { loopRunId: state.id, seq, attempt, reason: degraded });
+        logger.warn('Retrying degraded loop iteration', { loopRunId: state.id, seq, attempt: degradedAttempts, reason: degraded });
         // Force a fresh session on retry so a wedged same-session adapter recycles.
         forceContextReset = true;
       }
@@ -1513,6 +1701,17 @@ export class LoopCoordinator extends EventEmitter {
         // --- map resolution to coordinator actions ---
         state.lastCompletionOutcome = resolution.outcome ?? state.lastCompletionOutcome;
 
+        // A4: durably journal the authority evidence gathered this attempt
+        // (verify-passed → 'verified', clean fresh-eyes → 'reviewed') and
+        // detect contradictions (verify regressing after a prior pass).
+        this.recordCompletionEvidence(state, candidate, {
+          verifyPassed: v2.status === 'passed',
+          freshEyesRan,
+          freshEyesBlockingCount,
+          freshEyesErrored,
+          resolution,
+        });
+
         // claude2_todo #1c: record this attempt's *evidence hash* into a bounded
         // ring buffer. Identical evidence (same trigger signal, same verify
         // outcome, same belt-and-braces state, same unresolved review threads)
@@ -1773,6 +1972,62 @@ export class LoopCoordinator extends EventEmitter {
         return;
       }
 
+      // -- terminal: review-driven stall → clean stop --
+      // review-driven loops are exempt from the structural no-progress *pause*
+      // (their convergence looks like a stall to the detector). But a loop that
+      // is NEITHER converging (no clean-review streak) NOR making production
+      // changes, while the detector reports CRITICAL, is genuinely stuck
+      // re-reviewing settled work. Without this guard it burns tokens until a
+      // hard cap or the circuit breaker trips — surfacing as a misleading
+      // `error` (see the one-more-floor 3h/$8 spin). Stop as a SUCCESSFUL
+      // `completed-needs-review` so a human can glance, with a convergence note.
+      if (reviewDriven && evaluation.verdict === 'CRITICAL') {
+        const madeProductionChange = iteration.filesChanged.some(
+          (f) =>
+            !f.path.includes(`${LOOP_STATE_DIR_NAME}/`) &&
+            !f.path.includes(`${LOOP_STATE_DIR_NAME}\\`),
+        );
+        const advancingConvergence = (state.consecutiveCleanReviewPasses ?? 0) > 0;
+        if (!madeProductionChange && !advancingConvergence) {
+          state.reviewDrivenStallIterations = (state.reviewDrivenStallIterations ?? 0) + 1;
+          const limit = Math.max(1, state.config.completion.maxStalledReviewIterations ?? 3);
+          const primary = evaluation.primary ?? evaluation.signals[0];
+          if (state.reviewDrivenStallIterations >= limit) {
+            const reason =
+              `Review-driven loop stalled: ${state.reviewDrivenStallIterations} consecutive ` +
+              `CRITICAL no-progress iterations with no production changes and no clean-review ` +
+              `convergence` +
+              (primary ? ` (${primary.message})` : '') +
+              `. Stopped for human review instead of spinning to a cap / circuit breaker.`;
+            if (!this.convergenceNotes.has(state.id)) {
+              this.convergenceNotes.set(
+                state.id,
+                `review-driven stall: ${primary?.message ?? 'no progress, no convergence'}`,
+              );
+            }
+            this.recordLoopLearning(state, 'no-progress');
+            this.emit('loop:completed-needs-review', {
+              loopRunId: state.id,
+              reason,
+              acceptedByOperator: false,
+            });
+            this.terminate(state, 'completed-needs-review', reason);
+            return;
+          }
+          logger.info('Review-driven stall accumulating', {
+            loopRunId: state.id,
+            seq,
+            stall: state.reviewDrivenStallIterations,
+            limit,
+            signal: primary?.message,
+          });
+        } else {
+          state.reviewDrivenStallIterations = 0;
+        }
+      } else if (reviewDriven) {
+        state.reviewDrivenStallIterations = 0;
+      }
+
       // -- terminal: completion --
       if (stopWithSignal) {
         if (state.terminalIntentPending?.kind === 'complete') {
@@ -1993,32 +2248,6 @@ export class LoopCoordinator extends EventEmitter {
 
   // ============ Internal — helpers ============
 
-  private materializeConfig(p: Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string }): LoopConfig {
-    const base = defaultLoopConfig(p.workspaceCwd, p.initialPrompt);
-    // Belt-and-braces default: when a plan file is configured, require its
-    // *_Completed.md rename to actually happen during the run before we accept
-    // any completion signal. The renderer always sends an explicit value via
-    // `p.completion.requireCompletedFileRename`, so user choice still wins;
-    // this only auto-enables for programmatic callers (tests, future MCP entry
-    // points) that omit the field. Without this gate, a stale Completed.md
-    // from a prior run could be mistaken for in-run completion evidence.
-    if (p.planFile && p.completion?.requireCompletedFileRename === undefined) {
-      base.completion.requireCompletedFileRename = true;
-    }
-    return {
-      ...base,
-      ...p,
-      caps: { ...base.caps, ...(p.caps ?? {}) },
-      progressThresholds: {
-        ...base.progressThresholds,
-        ...(p.progressThresholds ?? {}),
-        stageWarnIterations: { ...base.progressThresholds.stageWarnIterations, ...(p.progressThresholds?.stageWarnIterations ?? {}) },
-        stageCriticalIterations: { ...base.progressThresholds.stageCriticalIterations, ...(p.progressThresholds?.stageCriticalIterations ?? {}) },
-      },
-      completion: { ...base.completion, ...(p.completion ?? {}) },
-    };
-  }
-
   private appendLoopControlPrompt(state: LoopState, prompt: string): string {
     const loopControl = this.loopControls.get(state.id);
     if (!loopControl) return prompt;
@@ -2141,14 +2370,7 @@ export class LoopCoordinator extends EventEmitter {
   }
 
   private rememberTerminalIntent(state: LoopState, intent: LoopTerminalIntent): void {
-    const history = state.terminalIntentHistory ?? [];
-    const existingIndex = history.findIndex((item) => item.id === intent.id);
-    if (existingIndex >= 0) {
-      history[existingIndex] = intent;
-    } else {
-      history.push(intent);
-    }
-    state.terminalIntentHistory = history;
+    rememberLoopTerminalIntent(state, intent);
   }
 
   private transitionTerminalIntent(
@@ -2203,7 +2425,6 @@ export class LoopCoordinator extends EventEmitter {
   ): 'invocation-error' | 'void-iteration' | null {
     return classifyDegradedIterationHelper(childResult, invocationError);
   }
-
 
   private async pauseForBlockIntent(state: LoopState, intent: LoopTerminalIntent): Promise<void> {
     const probeCfg = state.config.blockSanityProbe;
@@ -2272,157 +2493,46 @@ export class LoopCoordinator extends EventEmitter {
     intent: LoopTerminalIntent,
     invocationError: string | null,
   ): LoopChildResult {
-    const output = [
-      `Loop-control ${intent.kind} intent recorded: ${intent.summary}`,
-      invocationError ? `Provider invocation also failed: ${invocationError}` : '',
-    ].filter(Boolean).join('\n');
-    return {
-      childInstanceId: null,
-      output,
-      tokens: 0,
-      filesChanged: [],
-      toolCalls: [],
-      errors: invocationError
-        ? [{ bucket: 'provider-invocation-error', exactHash: createHash('sha256').update(invocationError).digest('hex'), excerpt: invocationError }]
-        : [],
-      testPassCount: null,
-      testFailCount: null,
-      exitedCleanly: false,
-    };
+    return syntheticChildResultFromTerminalIntentHelper(intent, invocationError);
   }
 
   private async archiveBlockedFileForIntent(state: LoopState, intent: LoopTerminalIntent): Promise<void> {
     const loopControl = this.loopControls.get(state.id);
-    if (!loopControl) return;
-    const fs = await import('node:fs/promises');
-    const blockedPath = await this.firstExistingBlockedFile(state);
-    if (!blockedPath) {
-      // Operator (or another process) removed it between the iteration ending
-      // and this archive running. The structured intent path proceeds unchanged.
-      return;
-    }
-    const target = path.join(loopControl.controlDir, `blocked-handled-${intent.iterationSeq}.md`);
-    try {
-      await fs.rename(blockedPath, target);
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException | undefined)?.code;
-      if (code === 'ENOENT') {
-        // Operator (or another process) removed BLOCKED.md between the
-        // iteration ending and this archive running. The structured
-        // intent path proceeds unchanged.
-        logger.debug?.('BLOCKED.md absent at archive time — operator likely removed it', {
-          loopRunId: state.id,
-          intentId: intent.id,
-        });
-        return;
-      }
-      // EACCES, EBUSY, EXDEV, EEXIST, etc. — leave BLOCKED.md in place
-      // and surface the failure so the next pre-flight that re-pauses on
-      // the residual file is at least explained to the operator.
-      const reason = err instanceof Error ? err.message : String(err);
-      logger.warn('Failed to archive BLOCKED.md after structured block intent', {
+    await archiveBlockedFileForIntentHelper({
+      state,
+      intent,
+      loopControlDir: loopControl?.controlDir,
+      debugAbsent: () => logger.debug?.('BLOCKED.md absent at archive time — operator likely removed it', {
         loopRunId: state.id,
         intentId: intent.id,
-        errorCode: code ?? null,
-        error: reason,
-      });
-      this.emit('loop:claimed-done-but-failed', {
+      }),
+      warn: ({ errorCode, error }) => logger.warn('Failed to archive BLOCKED.md after structured block intent', {
+        loopRunId: state.id,
+        intentId: intent.id,
+        errorCode,
+        error,
+      }),
+      emitArchiveFailure: (failure) => this.emit('loop:claimed-done-but-failed', {
         loopRunId: state.id,
         signal: 'declared-complete',
-        failure: `block intent recorded but BLOCKED.md could not be archived (${code ?? 'unknown'}): ${reason}. The next iteration will re-pause on the residual file until you resolve it manually.`,
-      });
-    }
+        failure,
+      }),
+    });
   }
 
   private async moveBlockedFileAside(state: LoopState): Promise<void> {
-    const fs = await import('node:fs/promises');
-    const blockedPath = await this.firstExistingBlockedFile(state);
-    if (!blockedPath) return;
     const loopControl = this.loopControls.get(state.id);
-    const preferredTarget = loopControl
-      ? path.join(loopControl.controlDir, `blocked-overridden-${state.totalIterations}.md`)
-      : path.join(state.config.workspaceCwd, 'BLOCKED.overridden.md');
-
-    try {
-      await fs.rename(blockedPath, preferredTarget);
-      return;
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException | undefined)?.code;
-      if (code === 'ENOENT') return;
-      if (!loopControl) {
+    await moveBlockedFileAsideHelper({
+      state,
+      loopControlDir: loopControl?.controlDir,
+      warn: ({ errorCode, error }) => {
         logger.warn('Failed to move BLOCKED.md aside after override', {
           loopRunId: state.id,
-          errorCode: code ?? null,
-          error: err instanceof Error ? err.message : String(err),
+          errorCode,
+          error,
         });
-        return;
-      }
-    }
-
-    const fallbackTarget = path.join(state.config.workspaceCwd, 'BLOCKED.overridden.md');
-    try {
-      await fs.rename(blockedPath, fallbackTarget);
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException | undefined)?.code;
-      if (code === 'ENOENT') return;
-      logger.warn('Failed to move BLOCKED.md aside after override', {
-        loopRunId: state.id,
-        errorCode: code ?? null,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  /**
-   * Candidate BLOCKED.md locations, in priority order: the per-run state dir
-   * (where the prompt instructs the agent to write it) first, then the
-   * workspace root (tolerant fallback — the agent may write there out of habit,
-   * and a false-positive here only *pauses* the loop, never falsely completes
-   * it). Scoping the read to the state dir is what keeps two concurrent loops
-   * in one workspace from pausing each other.
-   */
-  private blockedFileCandidates(state: LoopState): string[] {
-    const scoped = resolveLoopArtifactPaths(state.config.workspaceCwd, state.id).blocked;
-    return [scoped, path.join(state.config.workspaceCwd, 'BLOCKED.md')];
-  }
-
-  /** First existing BLOCKED.md across the candidate locations, or null. */
-  private async firstExistingBlockedFile(state: LoopState): Promise<string | null> {
-    const fs = await import('node:fs/promises');
-    for (const candidate of this.blockedFileCandidates(state)) {
-      try {
-        await fs.access(candidate);
-        return candidate;
-      } catch {
-        // Not at this location — try the next.
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Read `BLOCKED.md` (per-run state dir, then workspace root) if it exists.
-   * Returns the trimmed contents (truncated to a reasonable size) so it can be
-   * surfaced to the operator. Returns null when absent or unreadable.
-   *
-   * The convention is: the AI writes BLOCKED.md when genuinely stuck, then
-   * exits. We pause the loop and let the operator intervene. After the
-   * operator resumes, the file is left alone — they can delete it manually
-   * if it's no longer relevant; otherwise the next iteration will trip again.
-   */
-  private async readBlockedFileIfPresent(state: LoopState): Promise<{ message: string } | null> {
-    const fs = await import('node:fs/promises');
-    const target = await this.firstExistingBlockedFile(state);
-    if (!target) return null;
-    try {
-      const raw = await fs.readFile(target, 'utf8');
-      const trimmed = raw.trim();
-      if (!trimmed) return null;
-      const message = trimmed.length > 4096 ? `${trimmed.slice(0, 4096)}\n…(truncated)` : trimmed;
-      return { message };
-    } catch {
-      return null;
-    }
+      },
+    });
   }
 
   private async waitWhilePaused(loopRunId: string): Promise<void> {
@@ -2430,43 +2540,6 @@ export class LoopCoordinator extends EventEmitter {
     await new Promise<void>((resolve) => {
       this.pauseGates.set(loopRunId, { resolve });
     });
-  }
-
-  private checkHardCaps(state: LoopState): null | 'iterations' | 'wall-time' | 'tokens' | 'cost' {
-    const caps = state.config.caps;
-    if (state.totalIterations >= caps.maxIterations) return 'iterations';
-    if (Date.now() - state.startedAt >= caps.maxWallTimeMs) return 'wall-time';
-    if (state.totalTokens >= caps.maxTokens) return 'tokens';
-    if (caps.maxCostCents !== null && state.totalCostCents >= caps.maxCostCents) return 'cost';
-    return null;
-  }
-
-  /**
-   * Build a human-readable cap-stop reason that explains *why* the loop
-   * stopped without converging. Prefers the most recent convergence obstacle
-   * (verify red, unverifiable, rename gate unmet, blocking review findings);
-   * falls back to the last iteration's verify status so the operator can tell
-   * "capped while still red/blocking" from "capped while genuinely idle".
-   */
-  private describeCapReason(
-    state: LoopState,
-    cap: 'iterations' | 'wall-time' | 'tokens' | 'cost',
-  ): string {
-    const parts = [`cap=${cap}`, `after ${state.totalIterations} iteration(s)`];
-    const note = this.convergenceNotes.get(state.id);
-    if (note) {
-      parts.push(`stopped while ${note}`);
-    } else {
-      const verify = state.lastIteration?.verifyStatus;
-      if (verify === 'failed') {
-        parts.push('stopped while the last verify was FAILING');
-      } else if (verify === 'passed') {
-        parts.push('last verify passed but no clean completion was accepted');
-      } else {
-        parts.push('no completion was attempted (agent never reached a verifiable done state)');
-      }
-    }
-    return parts.join('; ');
   }
 
   private terminate(state: LoopState, status: LoopState['status'], reason?: string): void {
@@ -2503,6 +2576,10 @@ export class LoopCoordinator extends EventEmitter {
     // Best-effort cleanup of any attachment files we wrote into the workspace.
     void cleanupLoopAttachments(state.config.workspaceCwd, state.id);
     void cleanupLoopControl(loopControl);
+    // A4: drop this run's evidence journal so the table stays compact. Evidence
+    // is per-loop-run and only consumed within the run (contradiction
+    // detection); a terminated run never resumes under the same id. Fail-soft.
+    this.evidenceStore?.deleteForLoop(state.id);
     // FU-8: kick off the adapter-cleanup hook (CLI child teardown) and
     // remember the promise so `awaitTerminalCleanup` / `cancelLoop`
     // callers can wait on real shutdown. Hook errors are swallowed —
@@ -2528,51 +2605,24 @@ export class LoopCoordinator extends EventEmitter {
     }
   }
 
-  /**
-   * LF-4 — disposable-plan regeneration on stall. When `plan.regenerateOnStall`
-   * is set and the per-streak cap isn't reached, inject a "throw out the plan
-   * and regenerate" directive, clear the WARN streak, and return true (the
-   * caller continues/bypasses the pause). Returns false when disabled or capped
-   * (the caller pauses normally). Bounded by `LOOP_MAX_PLAN_REGENERATIONS` so it
-   * can't loop forever.
-   */
-  /**
-   * LF-4 — read-only check: is the loop still eligible to regenerate its plan
-   * on stall (enabled + under the cap)? Used by the pre-iteration kill switch
-   * to decide bypass-vs-pause WITHOUT consuming budget; the actual increment +
-   * directive injection happens once per iteration in
-   * {@link maybeRegeneratePlanOnStall} at the post-iteration site.
-   */
-  private canRegeneratePlanOnStall(state: LoopState): boolean {
-    if (!state.config.plan?.regenerateOnStall) return false;
-    return (this.planRegenerations.get(state.id) ?? 0) < LOOP_MAX_PLAN_REGENERATIONS;
-  }
-
   private maybeRegeneratePlanOnStall(state: LoopState, seq: number): boolean {
-    if (!state.config.plan?.regenerateOnStall) return false;
     const done = this.planRegenerations.get(state.id) ?? 0;
-    if (done >= LOOP_MAX_PLAN_REGENERATIONS) {
-      logger.info('Loop disposable-plan regeneration cap reached — pausing', {
-        loopRunId: state.id,
-        attempts: done,
-      });
+    const regenerated = applyLoopPlanRegenerationOnStall({
+      state,
+      seq,
+      done,
+      emit: (eventName, payload) => this.emit(eventName, payload),
+    });
+    if (!regenerated) {
+      if (state.config.plan?.regenerateOnStall) {
+        logger.info('Loop disposable-plan regeneration cap reached — pausing', {
+          loopRunId: state.id,
+          attempts: done,
+        });
+      }
       return false;
     }
     this.planRegenerations.set(state.id, done + 1);
-    // Clear the WARN/stall streak so the regenerated approach gets a clean slate.
-    state.recentWarnIterationSeqs = [];
-    state.pendingInterventions.push(
-      'The current plan/approach is STALLING (repeated no-progress). Treat the plan as ' +
-      'disposable: throw it out and regenerate it from the goal. Re-derive the task list in ' +
-      '`LOOP_TASKS.md` from scratch, pick a DIFFERENT approach for the stuck part, and proceed. ' +
-      `(disposable-plan regeneration ${done + 1}/${LOOP_MAX_PLAN_REGENERATIONS})`,
-    );
-    this.emit('loop:plan-regenerated', {
-      loopRunId: state.id,
-      seq,
-      attempt: done + 1,
-      max: LOOP_MAX_PLAN_REGENERATIONS,
-    });
     logger.info('Loop disposable-plan regeneration injected on stall', {
       loopRunId: state.id,
       seq,
@@ -2611,21 +2661,7 @@ export class LoopCoordinator extends EventEmitter {
 
   /** Deep-ish clone for safe broadcast — strips cycles and large arrays. */
   private cloneStateForBroadcast(s: LoopState): LoopState {
-    return {
-      ...s,
-      config: { ...s.config },
-      pendingInterventions: [...s.pendingInterventions],
-      recentWarnIterationSeqs: [...s.recentWarnIterationSeqs],
-      completionAttempts: s.completionAttempts,
-      loopControl: s.loopControl ? { ...s.loopControl } : undefined,
-      terminalIntentPending: s.terminalIntentPending
-        ? { ...s.terminalIntentPending, evidence: s.terminalIntentPending.evidence.map((item) => ({ ...item })) }
-        : undefined,
-      terminalIntentHistory: (s.terminalIntentHistory ?? []).map((intent) => ({
-        ...intent,
-        evidence: intent.evidence.map((item) => ({ ...item })),
-      })),
-    };
+    return cloneLoopStateForBroadcast(s);
   }
 }
 

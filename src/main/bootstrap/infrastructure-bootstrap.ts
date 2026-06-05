@@ -73,11 +73,15 @@ export function registerInfrastructureBootstrap(): void {
     domain: 'infrastructure',
     failureMode: 'degraded',
     init: () => {
-      // Fire-and-forget: refresh() is fail-soft and never throws, so a slow or
-      // offline models.dev never blocks startup. Pricing falls back to the
-      // committed snapshot until the overlay populates.
+      // Seed the committed offline snapshot synchronously first, so pricing +
+      // context windows for the supported providers are correct immediately and
+      // fully offline. The live refresh below overwrites individual entries when
+      // it lands. Fire-and-forget: refresh() is fail-soft and never throws, so a
+      // slow or offline models.dev never blocks startup.
       const { getModelsDevService } = require('../providers/models-dev-service') as typeof import('../providers/models-dev-service');
-      void getModelsDevService().refresh();
+      const modelsDev = getModelsDevService();
+      modelsDev.loadOfflineSnapshot();
+      void modelsDev.refresh();
     },
   });
 

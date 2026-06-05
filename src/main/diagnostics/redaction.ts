@@ -1,4 +1,5 @@
 import * as os from 'os';
+import { detectSecretsInContent } from '../security/secret-detector';
 
 export interface RedactionOptions {
   homeDir?: string;
@@ -124,6 +125,21 @@ function redactString(
         ? 'Bearer <redacted-secret>'
         : '<redacted-secret>',
     );
+  }
+
+  // Union with the canonical security detector so the bundle catches provider
+  // key formats the local patterns above miss (Google/Gemini AIza…, AWS AKIA…,
+  // Stripe sk_/rk_, Slack xox…, GitLab glpat-, SendGrid SG., fine-grained
+  // GitHub PATs, npm_/pypi- tokens, PEM private keys, db connection strings).
+  // The two sets are complementary — the local patterns still cover generic
+  // `sk-`/`gh*_`/Bearer tokens the detector does not. Replace highest-index
+  // spans first so earlier indices stay valid as we splice.
+  const detected = detectSecretsInContent(output);
+  if (detected.length > 0) {
+    const sorted = [...detected].sort((a, b) => b.startIndex - a.startIndex);
+    for (const secret of sorted) {
+      output = output.slice(0, secret.startIndex) + '<redacted-secret>' + output.slice(secret.endIndex);
+    }
   }
 
   output = output.replace(/process\.env\.([A-Z0-9_]+)/gi, (_match, name: string) => {

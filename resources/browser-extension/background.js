@@ -319,26 +319,63 @@ async function executeBrowserCommand(command) {
         await stopControlledTab(tabId);
       }
     }
-    case 'click':
+    case 'click': {
+      const uid = optionalUidValue(command.payload?.uid);
+      if (uid !== null) {
+        return clickByUid(requireTargetTabId(command), uid);
+      }
       return runInTargetTab(command, 'click', [
         requirePayloadString(command, 'selector'),
       ]);
-    case 'type':
+    }
+    case 'type': {
+      const uid = optionalUidValue(command.payload?.uid);
+      const value = requirePayloadString(command, 'value');
+      if (uid !== null) {
+        return typeByUid(requireTargetTabId(command), uid, value);
+      }
       return runInTargetTab(command, 'type', [
         requirePayloadString(command, 'selector'),
-        requirePayloadString(command, 'value'),
+        value,
       ]);
+    }
     case 'fill_form':
-      return runInTargetTab(command, 'fill_form', [
-        Array.isArray(command.payload?.fields) ? command.payload.fields : [],
-      ]);
-    case 'select':
+      return fillFormCommand(command);
+    case 'select': {
+      const uid = optionalUidValue(command.payload?.uid);
+      const value = requirePayloadString(command, 'value');
+      if (uid !== null) {
+        return selectByUid(requireTargetTabId(command), uid, value);
+      }
       return runInTargetTab(command, 'select', [
         requirePayloadString(command, 'selector'),
-        requirePayloadString(command, 'value'),
+        value,
       ]);
+    }
     case 'upload_file':
       return uploadFileInTargetTab(command);
+    case 'accessibility_snapshot': {
+      const tabId = requireTargetTabId(command);
+      await startControlledTab(tabId);
+      try {
+        return await captureAccessibilitySnapshot(tabId, {
+          interestingOnly: command.payload?.interestingOnly !== false,
+          limit: typeof command.payload?.limit === 'number' ? command.payload.limit : 2000,
+        });
+      } finally {
+        await stopControlledTab(tabId);
+      }
+    }
+    case 'evaluate': {
+      const tabId = requireTargetTabId(command);
+      const expression = requirePayloadString(command, 'expression');
+      await startControlledTab(tabId);
+      try {
+        return await evaluateInTab(tabId, expression, command.payload?.awaitPromise !== false);
+      } finally {
+        await stopControlledTab(tabId);
+      }
+    }
     case 'download_file':
       return downloadFileFromTargetTab(command);
     case 'snapshot': {
@@ -474,6 +511,383 @@ async function withDebugger(tabId, callback) {
   } finally {
     await chrome.debugger.detach(debuggee).catch(() => undefined);
   }
+}
+
+const CDP_UID_OBJECT_GROUP = 'aio-uid';
+
+function optionalUidValue(uid) {
+  return typeof uid === 'string' && uid ? uid : null;
+}
+
+// uid is the stringified CDP backendDOMNodeId returned by accessibility_snapshot.
+function parseBackendNodeId(uid) {
+  const backendNodeId = Number.parseInt(uid, 10);
+  if (!Number.isInteger(backendNodeId) || backendNodeId <= 0 || String(backendNodeId) !== String(uid)) {
+    throw new Error(`Invalid browser element uid: ${uid}`);
+  }
+  return backendNodeId;
+}
+
+// Resolve a backendDOMNodeId to a live RemoteObject and run `functionDeclaration`
+// with `this` bound to that element, reusing an already-attached debugger
+// session. Unlike document.querySelector this reaches elements inside CLOSED
+// shadow roots, because the node is resolved through the DevTools protocol
+// rather than the page's DOM-visibility rules. The backendNodeId comes from
+// accessibility_snapshot and stays valid until the node is removed or the page
+// navigates (a stale uid surfaces as a clear "could not be resolved" error).
+async function resolveAndCallOnDebuggee(debuggee, uid, functionDeclaration, args = []) {
+  const backendNodeId = parseBackendNodeId(uid);
+  const resolved = await chrome.debugger.sendCommand(debuggee, 'DOM.resolveNode', {
+    backendNodeId,
+    objectGroup: CDP_UID_OBJECT_GROUP,
+  });
+  const objectId = resolved?.object?.objectId;
+  if (!objectId) {
+    throw new Error(`Browser element uid could not be resolved: ${uid}`);
+  }
+  const evaluation = await chrome.debugger.sendCommand(debuggee, 'Runtime.callFunctionOn', {
+    objectId,
+    functionDeclaration,
+    arguments: args.map((value) => ({ value })),
+    returnByValue: true,
+    awaitPromise: true,
+    silent: false,
+  });
+  if (evaluation?.exceptionDetails) {
+    throw new Error(
+      evaluation.exceptionDetails.exception?.description
+      || evaluation.exceptionDetails.text
+      || 'browser_uid_action_failed',
+    );
+  }
+  return evaluation?.result?.value;
+}
+
+// Single-action convenience: attach the debugger, resolve+act, release, detach.
+async function callOnBackendNode(tabId, uid, functionDeclaration, args = []) {
+  return withDebugger(tabId, async (debuggee) => {
+    await chrome.debugger.sendCommand(debuggee, 'DOM.enable').catch(() => undefined);
+    try {
+      return await resolveAndCallOnDebuggee(debuggee, uid, functionDeclaration, args);
+    } finally {
+      await chrome.debugger.sendCommand(debuggee, 'Runtime.releaseObjectGroup', {
+        objectGroup: CDP_UID_OBJECT_GROUP,
+      }).catch(() => undefined);
+    }
+  });
+}
+
+async function clickByUid(tabId, uid) {
+  await startControlledTab(tabId);
+  try {
+    const result = await callOnBackendNode(tabId, uid, `(${uidClickFn.toString()})`);
+    await reportTab(await chrome.tabs.get(tabId));
+    return result;
+  } finally {
+    await stopControlledTab(tabId);
+  }
+}
+
+async function typeByUid(tabId, uid, value) {
+  await startControlledTab(tabId);
+  try {
+    const result = await callOnBackendNode(tabId, uid, `(${uidTypeFn.toString()})`, [value]);
+    await reportTab(await chrome.tabs.get(tabId));
+    return result;
+  } finally {
+    await stopControlledTab(tabId);
+  }
+}
+
+async function selectByUid(tabId, uid, value) {
+  await startControlledTab(tabId);
+  try {
+    const result = await callOnBackendNode(tabId, uid, `(${uidSelectFn.toString()})`, [value]);
+    await reportTab(await chrome.tabs.get(tabId));
+    return result;
+  } finally {
+    await stopControlledTab(tabId);
+  }
+}
+
+async function typeBySelectorInTab(tabId, selector, value) {
+  const injectionResults = await chrome.scripting.executeScript({
+    target: { tabId, allFrames: true },
+    func: pageBridgeScript,
+    args: ['type', [selector, value]],
+  });
+  const frameResults = (injectionResults ?? [])
+    .map((entry) => entry?.result)
+    .filter((entry) => entry != null);
+  return mergeFrameResults('type', frameResults, [selector, value]);
+}
+
+// fill_form supports per-field uid (robust, closed-shadow-safe) and per-field
+// selector. When no field uses a uid this is the original all-frames page-bridge
+// path; otherwise the debugger is attached ONCE for the whole form and each uid
+// field is resolved within that single session (avoids per-field attach/detach
+// banner flicker and latency).
+async function fillFormCommand(command) {
+  const fields = Array.isArray(command.payload?.fields) ? command.payload.fields : [];
+  const usesUid = fields.some((field) => field && optionalUidValue(field.uid) !== null);
+  if (!usesUid) {
+    return runInTargetTab(command, 'fill_form', [fields]);
+  }
+
+  const tabId = requireTargetTabId(command);
+  const typeFn = `(${uidTypeFn.toString()})`;
+  await startControlledTab(tabId);
+  try {
+    const results = await withDebugger(tabId, async (debuggee) => {
+      await chrome.debugger.sendCommand(debuggee, 'DOM.enable').catch(() => undefined);
+      const out = [];
+      try {
+        for (const field of fields) {
+          const value = String(field?.value ?? '');
+          const uid = optionalUidValue(field?.uid);
+          if (uid !== null) {
+            const applied = await resolveAndCallOnDebuggee(debuggee, uid, typeFn, [value]);
+            out.push({ ...(field?.selector ? { selector: field.selector } : {}), uid, ...applied });
+          } else if (typeof field?.selector === 'string' && field.selector) {
+            const applied = await typeBySelectorInTab(tabId, field.selector, value);
+            out.push({ selector: field.selector, ...applied });
+          } else {
+            throw new Error('Browser fill_form field requires a selector or uid.');
+          }
+        }
+      } finally {
+        await chrome.debugger.sendCommand(debuggee, 'Runtime.releaseObjectGroup', {
+          objectGroup: CDP_UID_OBJECT_GROUP,
+        }).catch(() => undefined);
+      }
+      return out;
+    });
+    await reportTab(await chrome.tabs.get(tabId));
+    return results;
+  } finally {
+    await stopControlledTab(tabId);
+  }
+}
+
+// --- Self-contained element operations run via Runtime.callFunctionOn -------
+// These run in the page's MAIN world with `this` bound to the resolved element.
+// They intentionally duplicate the pageBridgeScript event logic because
+// callFunctionOn requires a standalone, self-contained function body.
+
+function uidClickFn() {
+  const element = this;
+  element.scrollIntoView({ block: 'center', inline: 'center' });
+  const rect = element.getBoundingClientRect
+    ? element.getBoundingClientRect()
+    : { left: 0, top: 0, width: 0, height: 0 };
+  const clientX = rect.left + rect.width / 2;
+  const clientY = rect.top + rect.height / 2;
+  const mouseInit = {
+    bubbles: true, cancelable: true, composed: true, view: window, clientX, clientY, button: 0,
+  };
+  const pointerInit = {
+    ...mouseInit, pointerId: 1, pointerType: 'mouse', isPrimary: true, width: 1, height: 1,
+  };
+  try { if (element.focus) element.focus(); } catch (error) { void error; }
+  const PointerEventCtor = typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
+  element.dispatchEvent(new PointerEventCtor('pointerover', { ...pointerInit, buttons: 0 }));
+  element.dispatchEvent(new MouseEvent('mouseover', { ...mouseInit, buttons: 0 }));
+  element.dispatchEvent(new PointerEventCtor('pointerdown', { ...pointerInit, buttons: 1 }));
+  element.dispatchEvent(new MouseEvent('mousedown', { ...mouseInit, buttons: 1 }));
+  element.dispatchEvent(new PointerEventCtor('pointerup', { ...pointerInit, buttons: 0 }));
+  element.dispatchEvent(new MouseEvent('mouseup', { ...mouseInit, buttons: 0 }));
+  element.dispatchEvent(new MouseEvent('click', { ...mouseInit, buttons: 0 }));
+  return {
+    tagName: element.tagName,
+    text: (element.innerText || element.textContent || '').slice(0, 1000),
+    disabled: Boolean(element.disabled),
+    connected: element.isConnected !== false,
+  };
+}
+
+function uidTypeFn(value) {
+  const element = this;
+  element.scrollIntoView({ block: 'center', inline: 'center' });
+  try { if (element.focus) element.focus(); } catch (error) { void error; }
+  const prototype = typeof HTMLTextAreaElement !== 'undefined' && element instanceof HTMLTextAreaElement
+    ? HTMLTextAreaElement.prototype
+    : typeof HTMLInputElement !== 'undefined' && element instanceof HTMLInputElement
+      ? HTMLInputElement.prototype
+      : typeof HTMLSelectElement !== 'undefined' && element instanceof HTMLSelectElement
+        ? HTMLSelectElement.prototype
+        : null;
+  const descriptor = prototype && Object.getOwnPropertyDescriptor(prototype, 'value');
+  if (element.isContentEditable) {
+    element.textContent = value;
+  } else if (descriptor && typeof descriptor.set === 'function') {
+    descriptor.set.call(element, value);
+  } else {
+    element.value = value;
+  }
+  element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+  element.dispatchEvent(new Event('change', { bubbles: true }));
+  const valueAfter = element.isContentEditable
+    ? (element.textContent || '')
+    : (typeof element.value === 'string' ? element.value : '');
+  return {
+    tagName: element.tagName,
+    valueAfter: String(valueAfter).slice(0, 1000),
+    valueApplied: valueAfter === value,
+    disabled: Boolean(element.disabled),
+    readOnly: Boolean(element.readOnly),
+  };
+}
+
+function uidSelectFn(value) {
+  const element = this;
+  element.scrollIntoView({ block: 'center', inline: 'center' });
+  if (element.tagName === 'SELECT') {
+    try { if (element.focus) element.focus(); } catch (error) { void error; }
+    const options = Array.from(element.options || []);
+    const match = options.find((option) => option.value === value)
+      || options.find((option) => (option.label || '').trim() === String(value).trim())
+      || options.find((option) => (option.textContent || '').trim().toLowerCase() === String(value).trim().toLowerCase());
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+    if (descriptor && typeof descriptor.set === 'function') {
+      descriptor.set.call(element, match ? match.value : value);
+    } else {
+      element.value = match ? match.value : value;
+    }
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+    return {
+      tagName: element.tagName,
+      selectedValue: typeof element.value === 'string' ? element.value : undefined,
+      matchedOption: match ? (match.label || match.textContent || match.value || '').trim().slice(0, 200) : null,
+    };
+  }
+  // A uid points at a single node, but a custom dropdown's option is a SEPARATE
+  // node, so uid select cannot reach it. Fail honestly (rather than report a
+  // misleading success) and tell the caller how to proceed.
+  throw new Error(
+    'uid select requires a native <select>; for a custom dropdown, click the control by uid, '
+    + 're-run accessibility_snapshot, then click the option by its uid.',
+  );
+}
+
+// Capture a flattened accessibility tree via CDP. The AX tree pierces open AND
+// closed shadow roots (and same-origin iframes; cross-origin OOPIFs are not
+// traversed), so it surfaces inputs that deepQuerySelector (which can only walk
+// node.shadowRoot) cannot see when the page attached a closed shadow root before
+// our content-script patch ran. Each node carries a `uid` (the backendDOMNodeId)
+// usable as the robust target for click/type/etc.
+async function captureAccessibilitySnapshot(tabId, options) {
+  const interestingOnly = options.interestingOnly !== false;
+  const limit = Math.max(1, Math.min(typeof options.limit === 'number' ? options.limit : 2000, 2000));
+  return withDebugger(tabId, async (debuggee) => {
+    await chrome.debugger.sendCommand(debuggee, 'DOM.enable').catch(() => undefined);
+    await chrome.debugger.sendCommand(debuggee, 'Accessibility.enable').catch(() => undefined);
+    const tree = await chrome.debugger.sendCommand(debuggee, 'Accessibility.getFullAXTree', {});
+    const nodes = Array.isArray(tree?.nodes) ? tree.nodes : [];
+    const out = [];
+    for (const node of nodes) {
+      if (out.length >= limit) {
+        break;
+      }
+      if (interestingOnly && node.ignored) {
+        continue;
+      }
+      if (typeof node.backendDOMNodeId !== 'number') {
+        continue;
+      }
+      const role = node.role?.value;
+      if (typeof role !== 'string' || !role) {
+        continue;
+      }
+      if (interestingOnly && (role === 'none' || role === 'generic' || role === 'InlineTextBox')) {
+        continue;
+      }
+      const entry = { uid: String(node.backendDOMNodeId), role };
+      const name = node.name?.value;
+      if (typeof name === 'string' && name.trim()) {
+        entry.name = name.slice(0, 2000);
+      }
+      const value = node.value?.value;
+      if (typeof value === 'string' && value) {
+        entry.value = value.slice(0, 2000);
+      }
+      const description = node.description?.value;
+      if (typeof description === 'string' && description) {
+        entry.description = description.slice(0, 2000);
+      }
+      for (const property of node.properties ?? []) {
+        const raw = property?.value?.value;
+        switch (property?.name) {
+          case 'checked':
+            entry.checked = raw === 'mixed' ? 'mixed' : raw === true || raw === 'true';
+            break;
+          case 'selected':
+            entry.selected = raw === true || raw === 'true';
+            break;
+          case 'expanded':
+            entry.expanded = raw === true || raw === 'true';
+            break;
+          case 'disabled':
+            entry.disabled = raw === true || raw === 'true';
+            break;
+          case 'focused':
+            entry.focused = raw === true || raw === 'true';
+            break;
+          case 'level':
+            if (typeof raw === 'number') {
+              entry.level = raw;
+            }
+            break;
+          default:
+            break;
+        }
+      }
+      out.push(entry);
+    }
+    return { nodes: out };
+  });
+}
+
+// Evaluate an arbitrary expression via CDP Runtime.evaluate and return a
+// JSON-serialized, length-capped representation of the result. This is a
+// last-resort escape hatch; the gateway gates it behind an explicit grant.
+async function evaluateInTab(tabId, expression, awaitPromise) {
+  return withDebugger(tabId, async (debuggee) => {
+    const evaluation = await chrome.debugger.sendCommand(debuggee, 'Runtime.evaluate', {
+      expression,
+      returnByValue: true,
+      awaitPromise: awaitPromise !== false,
+      userGesture: true,
+      timeout: 10_000,
+    });
+    if (evaluation?.exceptionDetails) {
+      throw new Error(
+        evaluation.exceptionDetails.exception?.description
+        || evaluation.exceptionDetails.text
+        || 'browser_evaluate_failed',
+      );
+    }
+    const remote = evaluation?.result ?? {};
+    let json;
+    try {
+      if (Object.prototype.hasOwnProperty.call(remote, 'value')) {
+        json = JSON.stringify(remote.value);
+      } else if (typeof remote.unserializableValue === 'string') {
+        json = remote.unserializableValue;
+      } else if (typeof remote.description === 'string') {
+        json = remote.description;
+      }
+    } catch (error) {
+      void error;
+      json = typeof remote.description === 'string' ? remote.description : '';
+    }
+    const truncated = typeof json === 'string' && json.length > 20_000;
+    return {
+      ...(typeof remote.type === 'string' ? { type: remote.type } : {}),
+      ...(typeof json === 'string' ? { json: json.slice(0, 20_000) } : {}),
+      ...(truncated ? { truncated: true } : {}),
+    };
+  });
 }
 
 function resolveFileInputScript(selector) {

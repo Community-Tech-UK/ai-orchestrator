@@ -92,10 +92,10 @@
 }
 
 .scope-select {
-  padding: 6px 8px;
+  padding: 6px 30px 6px 8px; // room for the global chevron
   border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
-  background: var(--bg-tertiary);
+  background-color: var(--bg-tertiary); // not `background` — keep the chevron SVG
   color: var(--text-primary);
   font-size: 12px;
 }

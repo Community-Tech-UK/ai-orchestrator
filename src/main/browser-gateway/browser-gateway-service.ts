@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import type {
-  BrowserActionClass,
-  BrowserAllowedOrigin,
+  BrowserAccessibilityNode,
+  BrowserAccessibilitySnapshotRequest,
   BrowserApprovalRequest,
   BrowserApprovalRequestLookup,
   BrowserApprovalStatusRequest,
@@ -13,6 +13,8 @@ import type {
   BrowserDownloadFileRequest,
   BrowserDownloadFileResult,
   BrowserElementCandidate,
+  BrowserEvaluateRequest,
+  BrowserEvaluateResult,
   BrowserFillFormRequest,
   BrowserGatewayResult,
   BrowserListApprovalRequestsRequest,
@@ -71,6 +73,12 @@ import {
   redactBrowserText,
   redactElementContext,
 } from './browser-redaction';
+import {
+  normalizeAccessibilityNodes,
+  normalizeEvaluateResult,
+} from './browser-gateway-normalizers';
+import { readBrowserTargetData } from './browser-gateway-read-target-data';
+import { BrowserManualHandoffOperations } from './browser-manual-handoff-operations';
 import {
   classifyBrowserFillForm,
 } from './browser-action-classifier';
@@ -154,6 +162,8 @@ export class BrowserGatewayService {
     | 'refreshTarget'
     | 'navigate'
     | 'snapshot'
+    | 'accessibilitySnapshot'
+    | 'evaluate'
     | 'screenshot'
     | 'consoleMessages'
     | 'networkRequests'
@@ -182,6 +192,7 @@ export class BrowserGatewayService {
   private readonly resultRecorder: BrowserGatewayResultRecorder;
   private readonly existingTabOperations: BrowserExistingTabOperations;
   private readonly approvalOperations: BrowserGatewayApprovalOperations;
+  private readonly manualHandoffOperations: BrowserManualHandoffOperations;
 
   constructor(options: BrowserGatewayServiceOptions = {}) {
     this.profileStore = options.profileStore ?? getBrowserProfileStore();
@@ -204,6 +215,13 @@ export class BrowserGatewayService {
       approvalStore: this.approvalStore,
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
       autoApproveApproval: (approval) => this.autoApproveApproval(approval),
+    });
+    this.manualHandoffOperations = new BrowserManualHandoffOperations({
+      approvalStore: this.approvalStore,
+      extensionTabStore: this.extensionTabStore,
+      profileStore: this.profileStore,
+      getLiveTarget: (profileId, targetId) => this.getLiveTarget(profileId, targetId),
+      result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
     });
     this.approvalOperations = new BrowserGatewayApprovalOperations({
       approvalStore: this.approvalStore,
@@ -1088,6 +1106,159 @@ export class BrowserGatewayService {
     );
   }
 
+  async accessibilitySnapshot(
+    request: BrowserGatewayContext & BrowserAccessibilitySnapshotRequest,
+  ): Promise<BrowserGatewayResult<BrowserAccessibilityNode[] | null>> {
+    const interestingOnly = request.interestingOnly !== false;
+    const limit = request.limit ?? 2000;
+    const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
+    if (existingTab) {
+      const originDecision = isOriginAllowed(existingTab.url, existingTab.allowedOrigins);
+      if (!originDecision.allowed) {
+        return this.result({
+          context: request,
+          profileId: existingTab.profileId,
+          targetId: existingTab.targetId,
+          action: 'accessibility_snapshot',
+          toolName: 'browser.accessibility_snapshot',
+          actionClass: 'read',
+          decision: 'denied',
+          outcome: 'not_run',
+          reason: originDecision.reason,
+          summary: `Existing-tab accessibility snapshot denied by Browser Gateway origin policy: ${originDecision.reason}`,
+          url: existingTab.url,
+          data: null,
+        });
+      }
+      try {
+        const data = normalizeAccessibilityNodes(
+          await this.existingTabOperations.sendCommand(existingTab, 'accessibility_snapshot', {
+            interestingOnly,
+            limit,
+          }),
+          limit,
+        );
+        return this.result({
+          context: request,
+          profileId: existingTab.profileId,
+          targetId: existingTab.targetId,
+          action: 'accessibility_snapshot',
+          toolName: 'browser.accessibility_snapshot',
+          actionClass: 'read',
+          decision: 'allowed',
+          outcome: 'succeeded',
+          summary: `Read ${data.length} accessibility nodes from selected existing Chrome tab`,
+          origin: originDecision.origin,
+          url: existingTab.url,
+          data,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return this.result({
+          context: request,
+          profileId: existingTab.profileId,
+          targetId: existingTab.targetId,
+          action: 'accessibility_snapshot',
+          toolName: 'browser.accessibility_snapshot',
+          actionClass: 'read',
+          decision: 'allowed',
+          outcome: 'failed',
+          reason: message,
+          summary: `Existing-tab accessibility snapshot failed: ${message}`,
+          origin: originDecision.origin,
+          url: existingTab.url,
+          data: null,
+        });
+      }
+    }
+
+    return this.readTargetData(
+      request,
+      'accessibility_snapshot',
+      'browser.accessibility_snapshot',
+      'accessibility tree',
+      async (profileId, targetId) =>
+        normalizeAccessibilityNodes(
+          await this.driver.accessibilitySnapshot(profileId, targetId, { interestingOnly, limit }),
+          limit,
+        ),
+    );
+  }
+
+  async evaluate(
+    request: BrowserGatewayContext & BrowserEvaluateRequest,
+  ): Promise<BrowserGatewayResult<BrowserEvaluateResult | null>> {
+    // Arbitrary JS execution is the most powerful browser capability, so it is
+    // always gated behind an explicit grant (hardStop). YOLO/autonomous
+    // auto-approve predicates may still satisfy the gate, consistent with the
+    // rest of the mutating-action model. The expression is surfaced via the
+    // action hint so the approving user sees exactly what JS they are approving,
+    // and a benign ':root' selector lets the managed-profile gate inspect a real
+    // element (avoiding a misleading element_context_unavailable approval).
+    const expressionPreview = request.expression.slice(0, 400);
+    const evaluateHint = request.actionHint
+      ? `${request.actionHint}: ${expressionPreview}`
+      : `evaluate: ${expressionPreview}`;
+    const prepared = await this.actionGuard.prepareMutatingAction(
+      request,
+      'evaluate',
+      'browser.evaluate',
+      ':root',
+      evaluateHint,
+      {
+        actionClass: 'unknown',
+        hardStop: true,
+        reason: 'browser_evaluate_requires_user',
+      },
+    );
+    if (prepared.result) {
+      return prepared.result as BrowserGatewayResult<BrowserEvaluateResult | null>;
+    }
+    const recheck = this.actionGuard.recheckPreparedGrant(request, 'evaluate', 'browser.evaluate', prepared);
+    if (recheck) {
+      return recheck as BrowserGatewayResult<BrowserEvaluateResult | null>;
+    }
+    try {
+      const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
+      const raw = existingTab
+        ? await this.existingTabOperations.sendCommand(existingTab, 'evaluate', {
+          expression: request.expression,
+          awaitPromise: request.awaitPromise !== false,
+        })
+        : await this.driver.evaluate(
+          request.profileId,
+          request.targetId,
+          request.expression,
+          request.awaitPromise !== false,
+        );
+      const data = normalizeEvaluateResult(raw);
+      return this.result({
+        context: request,
+        profileId: request.profileId,
+        targetId: request.targetId,
+        action: 'evaluate',
+        toolName: 'browser.evaluate',
+        actionClass: prepared.actionClass,
+        decision: 'allowed',
+        outcome: 'succeeded',
+        summary: 'browser.evaluate executed under approved grant',
+        origin: prepared.origin,
+        url: prepared.url,
+        grantId: prepared.grant.id,
+        autonomous: prepared.grant.autonomous,
+        data,
+      });
+    } catch (error) {
+      return this.actionGuard.mutationFailed(
+        request,
+        'evaluate',
+        'browser.evaluate',
+        prepared,
+        error,
+      ) as BrowserGatewayResult<BrowserEvaluateResult | null>;
+    }
+  }
+
   async requireUserForMutatingAction(
     request: BrowserGatewayMutatingActionRequest,
   ): Promise<BrowserGatewayResult<null>> {
@@ -1110,7 +1281,7 @@ export class BrowserGatewayService {
   async requestUserLogin(
     request: BrowserGatewayContext & BrowserRequestUserLoginRequest,
   ): Promise<BrowserGatewayResult<null>> {
-    return this.createManualHandoffApproval({
+    return this.manualHandoffOperations.createManualHandoffApproval({
       request,
       toolName: 'browser.request_user_login',
       action: 'request_user_login',
@@ -1125,7 +1296,7 @@ export class BrowserGatewayService {
     request: BrowserGatewayContext & BrowserManualStepRequest,
   ): Promise<BrowserGatewayResult<null>> {
     const kind = request.kind ?? 'manual_review';
-    return this.createManualHandoffApproval({
+    return this.manualHandoffOperations.createManualHandoffApproval({
       request,
       toolName: 'browser.pause_for_manual_step',
       action: 'pause_for_manual_step',
@@ -1139,11 +1310,15 @@ export class BrowserGatewayService {
   async click(
     request: BrowserGatewayContext & BrowserClickRequest,
   ): Promise<BrowserGatewayResult<null>> {
+    const uidGuard = this.guardUidTargeting(request, 'click', 'browser.click');
+    if (uidGuard) {
+      return uidGuard;
+    }
     const prepared = await this.actionGuard.prepareMutatingAction(
       request,
       'click',
       'browser.click',
-      request.selector,
+      this.actionTargetLabel(request),
       request.actionHint,
     );
     if (prepared.result) {
@@ -1157,11 +1332,9 @@ export class BrowserGatewayService {
     try {
       const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
       if (existingTab) {
-        await this.existingTabOperations.sendCommand(existingTab, 'click', {
-          selector: request.selector,
-        });
+        await this.existingTabOperations.sendCommand(existingTab, 'click', this.actionTargetPayload(request));
       } else {
-        await this.driver.click(request.profileId, request.targetId, request.selector);
+        await this.driver.click(request.profileId, request.targetId, request.selector!);
       }
       if (prepared.grant.mode === 'per_action') {
         this.grantStore.consumeGrant(prepared.grant.id);
@@ -1207,11 +1380,15 @@ export class BrowserGatewayService {
   async type(
     request: BrowserGatewayContext & BrowserTypeRequest,
   ): Promise<BrowserGatewayResult<null>> {
+    const uidGuard = this.guardUidTargeting(request, 'type', 'browser.type');
+    if (uidGuard) {
+      return uidGuard;
+    }
     const prepared = await this.actionGuard.prepareMutatingAction(
       request,
       'type',
       'browser.type',
-      request.selector,
+      this.actionTargetLabel(request),
       request.actionHint,
     );
     if (prepared.result) {
@@ -1225,11 +1402,11 @@ export class BrowserGatewayService {
       const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
       if (existingTab) {
         await this.existingTabOperations.sendCommand(existingTab, 'type', {
-          selector: request.selector,
+          ...this.actionTargetPayload(request),
           value: request.value,
         });
       } else {
-        await this.driver.type(request.profileId, request.targetId, request.selector, request.value);
+        await this.driver.type(request.profileId, request.targetId, request.selector!, request.value);
       }
       return this.actionGuard.mutationSucceeded(request, 'type', 'browser.type', prepared);
     } catch (error) {
@@ -1240,11 +1417,15 @@ export class BrowserGatewayService {
   async select(
     request: BrowserGatewayContext & BrowserSelectRequest,
   ): Promise<BrowserGatewayResult<null>> {
+    const uidGuard = this.guardUidTargeting(request, 'select', 'browser.select');
+    if (uidGuard) {
+      return uidGuard;
+    }
     const prepared = await this.actionGuard.prepareMutatingAction(
       request,
       'select',
       'browser.select',
-      request.selector,
+      this.actionTargetLabel(request),
       request.actionHint,
     );
     if (prepared.result) {
@@ -1258,11 +1439,11 @@ export class BrowserGatewayService {
       const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
       if (existingTab) {
         await this.existingTabOperations.sendCommand(existingTab, 'select', {
-          selector: request.selector,
+          ...this.actionTargetPayload(request),
           value: request.value,
         });
       } else {
-        await this.driver.select(request.profileId, request.targetId, request.selector, request.value);
+        await this.driver.select(request.profileId, request.targetId, request.selector!, request.value);
       }
       return this.actionGuard.mutationSucceeded(request, 'select', 'browser.select', prepared);
     } catch (error) {
@@ -1530,7 +1711,7 @@ export class BrowserGatewayService {
         request,
         'fill_form',
         'browser.fill_form',
-        firstField.selector,
+        this.fillFieldTargetLabel(firstField),
         firstField.actionHint,
         {
           actionClass: 'input',
@@ -1559,11 +1740,15 @@ export class BrowserGatewayService {
       }
     }
 
+    if (request.fields.some((field) => Boolean(field.uid))) {
+      return this.denyUidRequiresExistingTab(request, 'fill_form', 'browser.fill_form');
+    }
+
     const gate = await this.actionGuard.prepareMutatingAction(
       request,
       'fill_form',
       'browser.fill_form',
-      firstField.selector,
+      this.fillFieldTargetLabel(firstField),
       firstField.actionHint,
       {
         actionClass: 'input',
@@ -1578,13 +1763,13 @@ export class BrowserGatewayService {
     for (const field of request.fields) {
       try {
         inspectedFields.push({
-          selector: field.selector,
+          selector: field.selector!,
           actionHint: field.actionHint,
           elementContext: redactElementContext(
             await this.driver.inspectElement(
               request.profileId,
               request.targetId,
-              field.selector,
+              field.selector!,
             ),
           ),
         });
@@ -1593,7 +1778,7 @@ export class BrowserGatewayService {
           request,
           'fill_form',
           'browser.fill_form',
-          field.selector,
+          field.selector!,
           field.actionHint,
           {
             actionClass: 'unknown',
@@ -1613,7 +1798,7 @@ export class BrowserGatewayService {
         request,
         'fill_form',
         'browser.fill_form',
-        firstField.selector,
+        this.fillFieldTargetLabel(firstField),
         firstField.actionHint,
         classification,
       );
@@ -1637,7 +1822,7 @@ export class BrowserGatewayService {
       request,
       'fill_form',
       'browser.fill_form',
-      request.fields[0]!.selector,
+      this.fillFieldTargetLabel(request.fields[0]!),
       request.fields[0]!.actionHint,
       classification,
     );
@@ -1655,7 +1840,7 @@ export class BrowserGatewayService {
     }
     try {
       await this.driver.fillForm(request.profileId, request.targetId, request.fields.map((field) => ({
-        selector: field.selector,
+        selector: field.selector!,
         value: field.value,
       })));
       return this.actionGuard.mutationSucceeded(request, 'fill_form', 'browser.fill_form', prepared);
@@ -1889,147 +2074,6 @@ export class BrowserGatewayService {
     return this.approvalOperations.revokeGrant(request);
   }
 
-  private async createManualHandoffApproval(params: {
-    request: BrowserGatewayContext & {
-      profileId: string;
-      targetId?: string;
-      reason?: string;
-    };
-    toolName: 'browser.request_user_login' | 'browser.pause_for_manual_step';
-    action: 'request_user_login' | 'pause_for_manual_step';
-    actionClass: BrowserActionClass;
-    resultReason: string;
-    defaultPrompt: string;
-    summary: string;
-  }): Promise<BrowserGatewayResult<null>> {
-    const scope = await this.resolveManualHandoffScope(params.request);
-    if (!scope.allowedOrigin) {
-      return this.result({
-        context: params.request,
-        profileId: params.request.profileId,
-        targetId: params.request.targetId,
-        action: params.action,
-        toolName: params.toolName,
-        actionClass: params.actionClass,
-        decision: 'denied',
-        outcome: 'not_run',
-        reason: scope.error ?? 'manual_handoff_scope_unavailable',
-        summary: `${params.toolName} denied because Browser Gateway could not resolve an allowed browser scope`,
-        url: scope.url,
-        data: null,
-      });
-    }
-
-    const prompt = params.request.reason?.trim() || params.defaultPrompt;
-    const approval = this.approvalStore.createRequest({
-      instanceId: params.request.instanceId ?? 'unknown',
-      provider: providerFromContext(params.request.provider),
-      profileId: params.request.profileId,
-      targetId: params.request.targetId,
-      toolName: params.toolName,
-      action: params.action,
-      actionClass: params.actionClass,
-      origin: scope.origin,
-      url: scope.url,
-      elementContext: redactElementContext({
-        nearbyText: prompt,
-      }),
-      proposedGrant: {
-        mode: 'per_action',
-        allowedOrigins: [scope.allowedOrigin],
-        allowedActionClasses: ['read'],
-        allowExternalNavigation: false,
-        autonomous: false,
-      },
-      expiresAt: Date.now() + 30 * 60 * 1000,
-    });
-
-    // Note: manual-handoff prompts (login / captcha / 2FA / pause-for-manual-step)
-    // are intentionally NOT auto-approved, even under YOLO mode. These represent a
-    // genuine human task the agent cannot perform itself, so auto-approving them
-    // would let the agent proceed as if the human had acted — silently breaking the
-    // flow. YOLO auto-approves permission gates, not human-in-the-loop handoffs.
-    return this.result({
-      context: params.request,
-      profileId: params.request.profileId,
-      targetId: params.request.targetId,
-      action: params.action,
-      toolName: params.toolName,
-      actionClass: params.actionClass,
-      decision: 'requires_user',
-      outcome: 'not_run',
-      requestId: approval.requestId,
-      reason: params.resultReason,
-      summary: params.summary,
-      origin: scope.origin,
-      url: scope.url,
-      data: null,
-    });
-  }
-
-  private async resolveManualHandoffScope(request: {
-    profileId: string;
-    targetId?: string;
-  }): Promise<{
-    allowedOrigin?: BrowserAllowedOrigin;
-    origin?: string;
-    url?: string;
-    error?: string;
-  }> {
-    if (request.targetId) {
-      const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
-      if (existingTab) {
-        const decision = isOriginAllowed(existingTab.url, existingTab.allowedOrigins);
-        if (!decision.allowed) {
-          return {
-            error: decision.reason,
-            origin: decision.origin,
-            url: existingTab.url,
-          };
-        }
-        return {
-          allowedOrigin: decision.matchedOrigin,
-          origin: decision.origin,
-          url: existingTab.url,
-        };
-      }
-    }
-
-    const profile = this.profileStore.getProfile(request.profileId);
-    if (!profile) {
-      return { error: 'profile_not_found' };
-    }
-
-    const { target, error } = request.targetId
-      ? await this.getLiveTarget(request.profileId, request.targetId)
-      : { target: null, error: undefined };
-    if (request.targetId && !target) {
-      return { error: error ?? 'target_not_found' };
-    }
-
-    const currentUrl = target?.url ?? profile.defaultUrl;
-    if (currentUrl) {
-      const decision = isOriginAllowed(currentUrl, profile.allowedOrigins);
-      if (!decision.allowed) {
-        return {
-          error: decision.reason,
-          origin: decision.origin,
-          url: currentUrl,
-        };
-      }
-      return {
-        allowedOrigin: decision.matchedOrigin,
-        origin: decision.origin,
-        url: currentUrl,
-      };
-    }
-
-    const firstAllowedOrigin = profile.allowedOrigins[0];
-    return firstAllowedOrigin
-      ? { allowedOrigin: firstAllowedOrigin }
-      : { error: 'no_allowed_origins_configured' };
-  }
-
   private getTarget(profileId: string, targetId: string): BrowserTarget | null {
     return (
       this.targetRegistry
@@ -2095,81 +2139,73 @@ export class BrowserGatewayService {
     label: string,
     read: (profileId: string, targetId: string) => Promise<T>,
   ): Promise<BrowserGatewayResult<T | null>> {
-    const profile = this.profileStore.getProfile(request.profileId);
-    const { target, error } = profile
-      ? await this.getLiveTarget(request.profileId, request.targetId)
-      : { target: null, error: undefined };
-    const currentUrl = target?.url;
-    if (!profile || !target || !currentUrl) {
-      return this.result({
-        context: request,
-        profileId: request.profileId,
-        targetId: request.targetId,
-        action,
-        toolName,
-        actionClass: 'read',
-        decision: 'denied',
-        outcome: 'not_run',
-        reason: error ?? 'profile_target_or_url_not_found',
-        summary: error
-          ? `${label} denied because the live browser target could not be refreshed: ${error}`
-          : `${label} denied because the profile, target, or URL was not found`,
-        data: null,
-      });
-    }
+    return readBrowserTargetData({
+      request,
+      action,
+      toolName,
+      label,
+      profileStore: this.profileStore,
+      getLiveTarget: (profileId, targetId) => this.getLiveTarget(profileId, targetId),
+      result: <R>(input: BrowserGatewayResultInput<R>) => this.result(input),
+      read,
+    });
+  }
 
-    const originDecision = isOriginAllowed(currentUrl, profile.allowedOrigins);
-    if (!originDecision.allowed) {
-      return this.result({
-        context: request,
-        profileId: profile.id,
-        targetId: target.id,
-        action,
-        toolName,
-        actionClass: 'read',
-        decision: 'denied',
-        outcome: 'not_run',
-        reason: originDecision.reason,
-        summary: `${label} denied by Browser Gateway origin policy: ${originDecision.reason}`,
-        url: currentUrl,
-        data: null,
-      });
+  // uid (CDP backendNodeId) targeting is resolved by the Chrome extension via
+  // the DevTools protocol, which only exists for shared existing tabs. Managed
+  // Puppeteer profiles still use selector-based acting, so a uid-only request
+  // against a managed profile is rejected rather than silently mis-targeted.
+  private guardUidTargeting(
+    request: BrowserGatewayContext & { profileId: string; targetId: string; uid?: string },
+    action: string,
+    toolName: string,
+  ): BrowserGatewayResult<null> | null {
+    if (!request.uid) {
+      return null;
     }
+    if (this.extensionTabStore.getTab(request.profileId, request.targetId)) {
+      return null;
+    }
+    return this.denyUidRequiresExistingTab(request, action, toolName);
+  }
 
-    try {
-      const data = await read(profile.id, target.id);
-      return this.result({
-        context: request,
-        profileId: profile.id,
-        targetId: target.id,
-        action,
-        toolName,
-        actionClass: 'read',
-        decision: 'allowed',
-        outcome: 'succeeded',
-        summary: `Read ${label} from allowed origin`,
-        origin: originDecision.origin,
-        url: currentUrl,
-        data,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return this.result({
-        context: request,
-        profileId: profile.id,
-        targetId: target.id,
-        action,
-        toolName,
-        actionClass: 'read',
-        decision: 'allowed',
-        outcome: 'failed',
-        reason: message,
-        summary: `${label} failed: ${message}`,
-        origin: originDecision.origin,
-        url: currentUrl,
-        data: null,
-      });
-    }
+  private denyUidRequiresExistingTab(
+    request: BrowserGatewayContext & { profileId: string; targetId: string },
+    action: string,
+    toolName: string,
+  ): BrowserGatewayResult<null> {
+    return this.result({
+      context: request,
+      profileId: request.profileId,
+      targetId: request.targetId,
+      action,
+      toolName,
+      actionClass: 'unknown',
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'uid_targeting_requires_existing_tab',
+      summary: `${toolName} uid targeting is only supported on shared existing Chrome tabs; use a CSS selector for managed profiles`,
+      data: null,
+    });
+  }
+
+  // Label passed to the action guard for classification/audit. Prefers the CSS
+  // selector; falls back to a uid marker so audit records remain meaningful.
+  private actionTargetLabel(request: { selector?: string; uid?: string }): string {
+    return request.selector ?? `uid:${request.uid}`;
+  }
+
+  private fillFieldTargetLabel(field: { selector?: string; uid?: string }): string {
+    return field.selector ?? `uid:${field.uid}`;
+  }
+
+  // Target identity forwarded to the extension command: a selector, a uid, or
+  // both. The extension prefers uid when present.
+  private actionTargetPayload(request: { selector?: string; uid?: string }): Record<string, unknown> {
+    return {
+      ...(request.selector ? { selector: request.selector } : {}),
+      ...(request.uid ? { uid: request.uid } : {}),
+    };
   }
 
   private result<T>(params: BrowserGatewayResultInput<T>): BrowserGatewayResult<T> {

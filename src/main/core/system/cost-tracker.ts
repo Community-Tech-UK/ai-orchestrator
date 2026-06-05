@@ -6,6 +6,10 @@
 
 import { EventEmitter } from 'events';
 import { computeTokenCost } from '../../../shared/data/model-pricing';
+import type { SqliteDriver, SqliteStatement } from '../../db/sqlite-driver';
+import { getLogger } from '../../logging/logger';
+
+const logger = getLogger('CostTracker');
 
 /**
  * Cost entry for a single API call
@@ -21,6 +25,35 @@ export interface CostEntry {
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
   cost: number;
+}
+
+/** Persisted row shape for the `cost_entries` table (snake_case columns). */
+interface CostEntryRow {
+  id: string;
+  timestamp: number;
+  instance_id: string;
+  session_id: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  cost: number;
+}
+
+function rowToEntry(row: CostEntryRow): CostEntry {
+  return {
+    id: row.id,
+    timestamp: row.timestamp,
+    instanceId: row.instance_id,
+    sessionId: row.session_id,
+    model: row.model,
+    inputTokens: row.input_tokens,
+    outputTokens: row.output_tokens,
+    cacheReadTokens: row.cache_read_tokens,
+    cacheWriteTokens: row.cache_write_tokens,
+    cost: row.cost,
+  };
 }
 
 /**
@@ -88,6 +121,76 @@ export class CostTracker extends EventEmitter {
   private budget: BudgetConfig = { ...DEFAULT_BUDGET };
   private alertedThresholds: Set<string> = new Set();
   private maxEntries: number = 10000;
+  private db: SqliteDriver | null = null;
+  private insertStmt: SqliteStatement | null = null;
+
+  /**
+   * Attach the RLM database so cost entries persist across restarts.
+   *
+   * Best-effort: if the table/statement can't be prepared, the tracker keeps
+   * working in-memory only. On attach, the most recent `maxEntries` rows are
+   * rehydrated into memory (chronological order) so summaries, budget windows
+   * and the analytics page reflect history from before the restart.
+   */
+  setDatabase(db: SqliteDriver): void {
+    try {
+      this.insertStmt = db.prepare(`
+        INSERT OR REPLACE INTO cost_entries
+          (id, timestamp, instance_id, session_id, model,
+           input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      this.db = db;
+      // Flush any entries recorded before persistence was attached (INSERT OR
+      // REPLACE keyed by id makes this idempotent), then rehydrate the window so
+      // nothing is lost regardless of call ordering.
+      for (const entry of this.entries) {
+        this.persistEntry(entry);
+      }
+      this.loadFromDb();
+      logger.info('CostTracker persistence enabled', { loaded: this.entries.length });
+    } catch (err) {
+      this.db = null;
+      this.insertStmt = null;
+      logger.warn('CostTracker could not enable persistence — in-memory only', { error: String(err) });
+    }
+  }
+
+  /** Rehydrate the in-memory window from the most recent persisted rows. */
+  private loadFromDb(): void {
+    if (!this.db) return;
+    const rows = this.db
+      .prepare(
+        `SELECT id, timestamp, instance_id, session_id, model,
+                input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost
+         FROM cost_entries ORDER BY timestamp DESC LIMIT ?`,
+      )
+      .all<CostEntryRow>(this.maxEntries);
+    // Rows came back newest-first; reverse so the array stays chronological
+    // (matching push-on-record order).
+    this.entries = rows.reverse().map(rowToEntry);
+  }
+
+  /** Best-effort write-through of a single entry to the persistence table. */
+  private persistEntry(entry: CostEntry): void {
+    if (!this.insertStmt) return;
+    try {
+      this.insertStmt.run(
+        entry.id,
+        entry.timestamp,
+        entry.instanceId,
+        entry.sessionId,
+        entry.model,
+        entry.inputTokens,
+        entry.outputTokens,
+        entry.cacheReadTokens ?? 0,
+        entry.cacheWriteTokens ?? 0,
+        entry.cost,
+      );
+    } catch (err) {
+      logger.warn('Failed to persist cost entry', { error: String(err) });
+    }
+  }
 
   /**
    * Calculate cost for a given usage
@@ -110,7 +213,14 @@ export class CostTracker extends EventEmitter {
   }
 
   /**
-   * Record a cost entry
+   * Record a cost entry.
+   *
+   * When `providerCostUsd` is a finite, non-negative number it is trusted as
+   * the authoritative cost for this entry (e.g. the Claude CLI's
+   * `total_cost_usd`, which already bakes in cache pricing) instead of deriving
+   * cost from the per-model token rate table. Token counts are still stored for
+   * analytics either way. When the override is absent, cost is computed from the
+   * pricing table via {@link calculateCost}.
    */
   recordUsage(
     instanceId: string,
@@ -119,9 +229,15 @@ export class CostTracker extends EventEmitter {
     inputTokens: number,
     outputTokens: number,
     cacheReadTokens: number = 0,
-    cacheWriteTokens: number = 0
+    cacheWriteTokens: number = 0,
+    providerCostUsd?: number
   ): CostEntry {
-    const cost = this.calculateCost(model, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens);
+    const cost =
+      typeof providerCostUsd === 'number' &&
+      Number.isFinite(providerCostUsd) &&
+      providerCostUsd >= 0
+        ? providerCostUsd
+        : this.calculateCost(model, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens);
 
     const entry: CostEntry = {
       id: crypto.randomUUID(),
@@ -138,10 +254,14 @@ export class CostTracker extends EventEmitter {
 
     this.entries.push(entry);
 
-    // Prune old entries if needed
+    // Prune old entries if needed (in-memory window only; the DB keeps history
+    // until an explicit clearEntries()/cleanup()).
     if (this.entries.length > this.maxEntries) {
       this.entries = this.entries.slice(-this.maxEntries);
     }
+
+    // Write-through to the persistence table so history survives a restart.
+    this.persistEntry(entry);
 
     // Check budget alerts
     this.checkBudgetAlerts(sessionId);
@@ -346,7 +466,33 @@ export class CostTracker extends EventEmitter {
   clearEntries(): void {
     this.entries = [];
     this.alertedThresholds.clear();
+    if (this.db) {
+      try {
+        this.db.prepare('DELETE FROM cost_entries').run();
+      } catch (err) {
+        logger.warn('Failed to clear persisted cost entries', { error: String(err) });
+      }
+    }
     this.emit('entries-cleared');
+  }
+
+  /**
+   * Delete persisted cost entries older than `olderThanMs` and drop them from
+   * the in-memory window too. Returns the number of rows deleted. Best-effort;
+   * no-op when persistence is not enabled.
+   */
+  cleanup(olderThanMs: number): number {
+    const cutoff = Date.now() - olderThanMs;
+    this.entries = this.entries.filter((e) => e.timestamp >= cutoff);
+    if (!this.db) return 0;
+    try {
+      const result = this.db.prepare('DELETE FROM cost_entries WHERE timestamp < ?').run(cutoff);
+      logger.info('CostTracker cleanup complete', { deleted: result.changes, cutoff });
+      return result.changes;
+    } catch (err) {
+      logger.warn('CostTracker cleanup failed', { error: String(err) });
+      return 0;
+    }
   }
 
   /**

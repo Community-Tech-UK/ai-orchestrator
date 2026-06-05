@@ -16,8 +16,14 @@
  * See: docs/plans/2026-05-30-loop-adapter-degraded-output-detection.md
  */
 
+import type { DegradedReason } from '@contracts/types/provider-runtime-events';
+
 /**
  * Classification of why a response is considered degraded.
+ *
+ * The canonical union lives in `@contracts/types/provider-runtime-events` so it
+ * can travel over RPC on `ProviderCompleteEvent.degradedReason`. It is re-exported
+ * here so adapter-side callers keep a single, local import.
  *
  * - `'delayed'`         — The stream took significantly longer than normal and
  *                         produced little/no content (stream-idle timeout fired
@@ -35,12 +41,7 @@
  *                         message rather than a fresh response (high similarity
  *                         ratio flagged by caller).
  */
-export type DegradedReason =
-  | 'delayed'
-  | 'synthetic'
-  | 'cancelled'
-  | 'duplicate-stale'
-  | 'partial-replay';
+export type { DegradedReason };
 
 /**
  * Plain-data signals passed into the classifier.

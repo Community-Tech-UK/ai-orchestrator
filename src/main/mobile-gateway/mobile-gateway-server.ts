@@ -882,7 +882,7 @@ export class MobileGatewayServer {
               return await this.handleRespond(req, res, instanceId);
             }
             if (action === 'interrupt' && method === 'POST') {
-              return this.handleInterrupt(res, instanceId);
+              return await this.handleInterrupt(req, res, instanceId);
             }
             if (action === 'terminate' && method === 'POST') {
               return await this.handleTerminate(req, res, instanceId);
@@ -1010,6 +1010,7 @@ export class MobileGatewayServer {
     const body = (await readJsonBody(req)) as {
       message?: unknown;
       attachments?: unknown;
+      idempotencyKey?: unknown;
     };
     const message = typeof body.message === 'string' ? body.message : '';
     const attachments = Array.isArray(body.attachments)
@@ -1021,6 +1022,16 @@ export class MobileGatewayServer {
     }
     if (!this.source().getInstance(instanceId)) {
       this.sendJson(res, 404, { error: 'Instance not found' });
+      return;
+    }
+    // B2: at-most-once — a retried input with the same key must not be queued
+    // twice. Optional key (no natural requestId on a free-form message), so the
+    // guard only engages when the client supplies one.
+    const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : undefined;
+    if (idempotencyKey && getIdempotencyStore().isDuplicate(
+      IdempotencyStore.compose('input', instanceId, idempotencyKey),
+    )) {
+      this.sendJson(res, 200, { ok: true, duplicate: true });
       return;
     }
     await this.source().sendInput(instanceId, message, attachments);
@@ -1137,9 +1148,22 @@ export class MobileGatewayServer {
     this.sendJson(res, 200, { ok: true, resumed: true });
   }
 
-  private handleInterrupt(res: ServerResponse, instanceId: string): void {
+  private async handleInterrupt(
+    req: IncomingMessage,
+    res: ServerResponse,
+    instanceId: string,
+  ): Promise<void> {
     if (!this.source().getInstance(instanceId)) {
       this.sendJson(res, 404, { error: 'Instance not found' });
+      return;
+    }
+    const body = (await readJsonBody(req).catch(() => ({}))) as { idempotencyKey?: unknown };
+    // B2: at-most-once — a retried interrupt with the same key must not fire twice.
+    const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : undefined;
+    if (idempotencyKey && getIdempotencyStore().isDuplicate(
+      IdempotencyStore.compose('interrupt', instanceId, idempotencyKey),
+    )) {
+      this.sendJson(res, 200, { ok: true, duplicate: true });
       return;
     }
     const accepted = this.source().interruptInstance(instanceId);
