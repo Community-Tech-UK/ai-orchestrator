@@ -4923,10 +4923,6 @@
       "lines": 3029
     },
     {
-      "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 2995
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
       "lines": 2952
     },
@@ -4957,6 +4953,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase3-4-6-7.COMPLETED.md",
       "lines": 2659
+    },
+    {
+      "path": "src/main/orchestration/loop-coordinator.ts",
+      "lines": 2594
     },
     {
       "path": "src/main/instance/instance-manager.ts",
@@ -5047,12 +5047,8 @@
       "lines": 1803
     },
     {
-      "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1796
-    },
-    {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1732
+      "lines": 1750
     },
     {
       "path": "src/main/session/session-continuity.ts",
@@ -5060,7 +5056,11 @@
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.spec.ts",
-      "lines": 1654
+      "lines": 1661
+    },
+    {
+      "path": "src/main/orchestration/default-invokers.ts",
+      "lines": 1636
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -5463,6 +5463,10 @@
       "lines": 940
     },
     {
+      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
+      "lines": 914
+    },
+    {
       "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
       "lines": 908
     },
@@ -5529,10 +5533,6 @@
     {
       "path": "src/main/automations/automation-retry-integration.spec.ts",
       "lines": 872
-    },
-    {
-      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
-      "lines": 871
     },
     {
       "path": "src/renderer/app/features/stats/stats-page.component.ts",
@@ -5620,10 +5620,6 @@
     },
     {
       "path": "docs/plans/2026-02-22-token-memory-optimization-design.md",
-      "lines": 816
-    },
-    {
-      "path": "src/main/ipc/handlers/app-handlers.ts",
       "lines": 816
     },
     {

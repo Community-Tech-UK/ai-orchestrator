@@ -179,6 +179,8 @@
       [workspaceCwd]="workingDirectory() || ''"
       [firstMessageHint]="message()"
       [seedPrompt]="pendingSeedPrompt()"
+      [defaultProvider]="loopDefaultProvider()"
+      [availableProviders]="loopProviderOptions"
       (dismissed)="onLoopPanelDismissed()"
       (validityChange)="onLoopValidityChange($event)"
       (configChange)="onLoopConfigChange($event)"

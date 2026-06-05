@@ -32,7 +32,7 @@ export const LoopCompletionOutcomeSchema = z.enum([
   'review-blocked',
 ]);
 export const LoopVerdictSchema = z.enum(['OK', 'WARN', 'CRITICAL']);
-export const LoopProviderSchema = z.enum(['claude', 'codex']);
+export const LoopProviderSchema = z.enum(['claude', 'codex', 'gemini', 'copilot', 'cursor']);
 export const LoopReviewStyleSchema = z.enum(['single', 'debate', 'star-chamber']);
 export const LoopContextStrategySchema = z.enum(['fresh-child', 'hybrid', 'same-session']);
 

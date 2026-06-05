@@ -11,7 +11,15 @@
  */
 
 import { LIMITS } from '../../shared/constants/limits';
-import { MODEL_PRICING } from '../../shared/types/provider.types';
+import {
+  countSpecialTokens,
+  getModelFamily,
+  isLikelyCode,
+  lookupPricing,
+  MODEL_PATTERNS,
+} from './token-counter-config';
+
+export { getModelFamily } from './token-counter-config';
 
 export type ModelFamily = 'gpt-4' | 'gpt-3.5' | 'claude' | 'llama' | 'unknown';
 
@@ -88,145 +96,6 @@ export interface EstimationTelemetry {
   meanAbsErrorPct: number;
   /** Epoch-ms timestamp of the most recent sample. */
   lastSampleAt: number;
-}
-
-/**
- * Token encoding patterns for different model families
- * These are approximations based on model documentation and empirical testing
- */
-const MODEL_PATTERNS = {
-  // GPT-4 and GPT-3.5 use cl100k_base encoding (~4 chars per token on average)
-  // But with better handling of special characters and code
-  'gpt-4': {
-    avgCharsPerToken: 3.5,
-    codeMultiplier: 0.85, // Code tends to tokenize more efficiently
-    whitespaceWeight: 0.3, // Whitespace often merges with adjacent tokens
-  },
-  'gpt-3.5': {
-    avgCharsPerToken: 3.5,
-    codeMultiplier: 0.85,
-    whitespaceWeight: 0.3,
-  },
-  // Claude uses a similar tokenizer but with slightly different characteristics
-  'claude': {
-    avgCharsPerToken: 3.8,
-    codeMultiplier: 0.9,
-    whitespaceWeight: 0.25,
-  },
-  // Llama models use SentencePiece which has different characteristics
-  'llama': {
-    avgCharsPerToken: 3.2,
-    codeMultiplier: 0.95,
-    whitespaceWeight: 0.35,
-  },
-  'unknown': {
-    avgCharsPerToken: 4.0, // Conservative estimate
-    codeMultiplier: 1.0,
-    whitespaceWeight: 0.3,
-  },
-} as const;
-
-/**
- * Detect if content appears to be code
- */
-function isLikelyCode(text: string): boolean {
-  const codeIndicators = [
-    /^(import|export|const|let|var|function|class|interface|type)\s/m,
-    /[{}[\]();]/,
-    /^\s*(\/\/|\/\*|\*|#)/m,
-    /=>/,
-    /\.\w+\(/,
-    /:\s*(string|number|boolean|void|any|unknown)/,
-  ];
-
-  const matchCount = codeIndicators.filter((pattern) => pattern.test(text)).length;
-  return matchCount >= 2;
-}
-
-/**
- * Count special tokens that typically get their own token
- */
-function countSpecialTokens(text: string): number {
-  // Count newlines, special punctuation that often gets separate tokens
-  const newlines = (text.match(/\n/g) || []).length;
-  const specialPunct = (text.match(/[{}()[\]<>]/g) || []).length;
-
-  return Math.floor(newlines * 0.5 + specialPunct * 0.3);
-}
-
-/**
- * Get the model family from a model identifier
- */
-export function getModelFamily(model?: string): ModelFamily {
-  if (!model) return 'unknown';
-
-  const lowerModel = model.toLowerCase();
-
-  if (lowerModel.includes('gpt-4') || lowerModel.includes('gpt4')) {
-    return 'gpt-4';
-  }
-  if (lowerModel.includes('gpt-3.5') || lowerModel.includes('gpt35') || lowerModel.includes('turbo')) {
-    return 'gpt-3.5';
-  }
-  if (lowerModel.includes('claude') || lowerModel.includes('anthropic')) {
-    return 'claude';
-  }
-  if (lowerModel.includes('llama') || lowerModel.includes('mistral') || lowerModel.includes('vicuna')) {
-    return 'llama';
-  }
-
-  return 'unknown';
-}
-
-/**
- * Legacy pricing fallback for retired Claude 3.x / GPT-3.5 / GPT-4 models.
- * These aren't in the canonical `MODEL_PRICING` table (which covers 4.x+ only),
- * but historical cost reports may still reference them.
- */
-const LEGACY_PRICING: readonly (readonly [string, { input: number; output: number }])[] = [
-  ['claude-3-5-sonnet', { input: 3.0, output: 15.0 }],
-  ['claude-3-5-haiku', { input: 0.8, output: 4.0 }],
-  ['claude-3-opus', { input: 15.0, output: 75.0 }],
-  ['claude-3-sonnet', { input: 3.0, output: 15.0 }],
-  ['claude-3-haiku', { input: 0.25, output: 1.25 }],
-  ['gpt-4', { input: 30.0, output: 60.0 }],
-  ['gpt-3.5', { input: 0.5, output: 1.5 }],
-];
-
-/** MODEL_PRICING entries sorted by key length desc so the most specific match wins first. */
-const PRICING_ENTRIES_BY_SPECIFICITY = Object.entries(MODEL_PRICING)
-  .map(([k, v]) => [k.toLowerCase(), v] as const)
-  .sort((a, b) => b[0].length - a[0].length);
-
-/**
- * Resolve pricing for a model from the canonical `MODEL_PRICING` table.
- *
- * Lookup order:
- *   1. Exact match in `MODEL_PRICING`.
- *   2. Legacy (Claude 3.x, GPT-3.5/4) substring match — checked before the
- *      bare `opus`/`haiku`/`sonnet` aliases so retired models don't get
- *      mispriced as current ones.
- *   3. `MODEL_PRICING` substring match, most-specific-key-first (handles
- *      provider-prefixed IDs like `anthropic.claude-opus-4-7`).
- *   4. Returns `{ input: 0, output: 0 }` for unknown models — safer than
- *      a silent wrong default.
- */
-function lookupPricing(model?: string): { input: number; output: number } {
-  const lowerModel = (model || '').toLowerCase();
-  if (!lowerModel) return { input: 0, output: 0 };
-
-  const exact = MODEL_PRICING[lowerModel];
-  if (exact) return exact;
-
-  for (const [legacyKey, pricing] of LEGACY_PRICING) {
-    if (lowerModel.includes(legacyKey)) return pricing;
-  }
-
-  for (const [key, pricing] of PRICING_ENTRIES_BY_SPECIFICITY) {
-    if (lowerModel.includes(key)) return pricing;
-  }
-
-  return { input: 0, output: 0 };
 }
 
 /**

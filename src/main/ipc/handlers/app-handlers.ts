@@ -3,7 +3,7 @@
  * Handles app readiness, version info, dialogs, and file system operations
  */
 
-import { execFile, spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { ipcMain, dialog, shell, clipboard } from 'electron';
@@ -25,6 +25,7 @@ import {
 } from '@contracts/schemas/file-operations';
 import { getCapabilityProbe } from '../../bootstrap/capability-probe';
 import { ensureScratchDirectory } from '../../util/scratch-directory';
+import { openTerminalAtDirectory } from './app-terminal';
 
 const execFileAsync = promisify(execFile);
 
@@ -102,163 +103,6 @@ async function copyFileReferenceToClipboard(filePath: string): Promise<'native' 
   clipboard.writeBuffer('text/uri-list', Buffer.from(`${fileUrl}\n`, 'utf8'));
   clipboard.writeBuffer('x-special/gnome-copied-files', Buffer.from(`copy\n${fileUrl}\n`, 'utf8'));
   return 'uri-list';
-}
-
-/**
- * Spawn the platform-native terminal application at the given directory.
- *
- * Strategy:
- * - macOS: macOS has no system-wide "default terminal" setting (unlike the
- *   default browser), so we try a preference-ordered list of popular
- *   third-party terminals (iTerm, Warp, WezTerm, kitty, Alacritty, Hyper,
- *   Ghostty) via `open -a <app> "<dir>"`, taking the first one that's actually
- *   installed, and fall back to the always-present Terminal.app.
- * - Windows: prefer Windows Terminal (`wt -d "<dir>"`); fall back to
- *   `cmd.exe /K cd /d "<dir>"`.
- * - Linux: try `x-terminal-emulator` (Debian/Ubuntu alternatives), then
- *   common terminals (gnome-terminal, konsole, xfce4-terminal, xterm).
- *
- * The terminal is detached so the user can keep working in the app and the
- * terminal outlives the orchestrator (handy for long-running shells).
- */
-async function openTerminalAtDirectory(
-  dirPath: string,
-): Promise<{ success: true; terminal: string } | { success: false; message: string }> {
-  if (process.platform === 'darwin') {
-    // Preference order: popular third-party terminals first, Terminal.app last
-    // as the guaranteed fallback. `open -a` exits non-zero when the app isn't
-    // installed, so tryOpenMacApp walks the list until one succeeds.
-    const macCandidates = ['iTerm', 'Warp', 'WezTerm', 'kitty', 'Alacritty', 'Hyper', 'Ghostty', 'Terminal'];
-    const errors: string[] = [];
-    for (const app of macCandidates) {
-      const attempt = await tryOpenMacApp(app, dirPath);
-      if (attempt.success) {
-        return { success: true, terminal: app };
-      }
-      errors.push(`${app}: ${attempt.message}`);
-    }
-    return {
-      success: false,
-      message: `No supported terminal application was found. Tried: ${errors.join('; ')}`,
-    };
-  }
-
-  if (process.platform === 'win32') {
-    // Try Windows Terminal first (modern, Win10+/Win11 default)
-    const wtAttempt = await trySpawn('wt.exe', ['-d', dirPath]);
-    if (wtAttempt.success) {
-      return { success: true, terminal: 'Windows Terminal' };
-    }
-
-    // Fallback to cmd.exe via `start` so the new window is detached
-    const cmdAttempt = await trySpawn(
-      'cmd.exe',
-      ['/c', 'start', '""', '/D', dirPath, 'cmd.exe'],
-    );
-    if (cmdAttempt.success) {
-      return { success: true, terminal: 'Command Prompt' };
-    }
-
-    return {
-      success: false,
-      message: `Failed to launch a terminal. wt: ${wtAttempt.message}; cmd: ${cmdAttempt.message}`,
-    };
-  }
-
-  // Linux / other unix
-  const candidates: { cmd: string; args: (dir: string) => string[]; label: string }[] = [
-    { cmd: 'x-terminal-emulator', args: (dir) => ['--working-directory', dir], label: 'x-terminal-emulator' },
-    { cmd: 'gnome-terminal', args: (dir) => [`--working-directory=${dir}`], label: 'GNOME Terminal' },
-    { cmd: 'konsole', args: (dir) => ['--workdir', dir], label: 'Konsole' },
-    { cmd: 'xfce4-terminal', args: (dir) => [`--working-directory=${dir}`], label: 'Xfce Terminal' },
-    { cmd: 'alacritty', args: (dir) => ['--working-directory', dir], label: 'Alacritty' },
-    { cmd: 'kitty', args: (dir) => ['--directory', dir], label: 'kitty' },
-    { cmd: 'tilix', args: (dir) => ['--working-directory', dir], label: 'Tilix' },
-    { cmd: 'xterm', args: (dir) => ['-e', `cd "${dir.replace(/"/g, '\\"')}" && exec $SHELL`], label: 'xterm' },
-  ];
-
-  const errors: string[] = [];
-  for (const candidate of candidates) {
-    const attempt = await trySpawn(candidate.cmd, candidate.args(dirPath));
-    if (attempt.success) {
-      return { success: true, terminal: candidate.label };
-    }
-    errors.push(`${candidate.cmd}: ${attempt.message}`);
-  }
-
-  return {
-    success: false,
-    message: `No supported terminal emulator was found. Tried: ${errors.join('; ')}`,
-  };
-}
-
-/**
- * Try to spawn a detached process; resolves true if the spawn succeeded
- * (i.e. the binary exists and didn't synchronously error). Used by
- * `openTerminalAtDirectory` to walk a fallback list cleanly.
- */
-function trySpawn(
-  cmd: string,
-  args: string[],
-): Promise<{ success: true } | { success: false; message: string }> {
-  return new Promise((resolve) => {
-    try {
-      const proc = spawn(cmd, args, { detached: true, stdio: 'ignore' });
-      let settled = false;
-      proc.once('error', (err) => {
-        if (settled) return;
-        settled = true;
-        resolve({ success: false, message: err.message });
-      });
-      proc.once('spawn', () => {
-        if (settled) return;
-        settled = true;
-        proc.unref();
-        resolve({ success: true });
-      });
-    } catch (error) {
-      resolve({ success: false, message: (error as Error).message });
-    }
-  });
-}
-
-/**
- * macOS-specific: launch a directory in a named terminal app via
- * `open -a <app> "<dir>"`, resolving success only if `open` exits 0.
- *
- * Unlike {@link trySpawn} (which resolves as soon as the child *spawns*),
- * `/usr/bin/open` always spawns successfully — it only reports a missing app
- * via a non-zero exit code afterwards. We therefore wait for `close` and
- * inspect the exit code so the caller can fall through to the next candidate.
- * `open` returns immediately once the target app is launched, so this does not
- * block on the terminal's lifetime.
- */
-function tryOpenMacApp(
-  app: string,
-  dirPath: string,
-): Promise<{ success: true } | { success: false; message: string }> {
-  return new Promise((resolve) => {
-    try {
-      const proc = spawn('/usr/bin/open', ['-a', app, dirPath], { stdio: 'ignore' });
-      let settled = false;
-      proc.once('error', (err) => {
-        if (settled) return;
-        settled = true;
-        resolve({ success: false, message: err.message });
-      });
-      proc.once('close', (code) => {
-        if (settled) return;
-        settled = true;
-        if (code === 0) {
-          resolve({ success: true });
-        } else {
-          resolve({ success: false, message: `open exited with code ${code ?? 'null'}` });
-        }
-      });
-    } catch (error) {
-      resolve({ success: false, message: (error as Error).message });
-    }
-  });
 }
 
 export function registerAppHandlers(deps: AppHandlerDependencies): void {

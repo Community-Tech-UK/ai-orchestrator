@@ -37,7 +37,7 @@ const hoisted = vi.hoisted(() => ({
     loopRunId: string;
     chatId: string;
     workspaceCwd: string;
-    provider: 'claude' | 'codex' | 'gemini' | 'copilot';
+    provider: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor';
     resumeAt: number;
     reason: string;
     source: 'quota' | 'notice';
@@ -207,6 +207,21 @@ describe('Loop Mode invoker plumbing', () => {
     expect(callArg.options.workingDirectory).not.toBe(process.cwd());
   });
 
+  it('resolves and creates loop child adapters for non-Claude chat providers', async () => {
+    registerDefaultLoopInvoker({} as never);
+    hoisted.resolveCliType.mockResolvedValueOnce('gemini');
+    hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 10 } });
+
+    const result = emitIteration({ provider: 'gemini' });
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+    await result;
+
+    expect(hoisted.resolveCliType).toHaveBeenCalledWith('gemini', 'claude');
+    const callArg = hoisted.createAdapter.mock.calls[0][0];
+    expect(callArg.cliType).toBe('gemini');
+  });
+
   it('forwards iterationTimeoutMs to the adapter spawn options as timeout', async () => {
     registerDefaultLoopInvoker({} as never);
     hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 1 } });
@@ -287,6 +302,34 @@ describe('Loop Mode invoker plumbing', () => {
           loopRunId: 'loop-quota',
         },
         prompt: expect.stringContaining('loop-quota'),
+      }),
+    }));
+    cancel?.();
+  });
+
+  it('preserves concrete non-Claude providers in provider-limit resume automations', async () => {
+    registerDefaultLoopInvoker({} as never);
+    expect(hoisted.providerLimitSchedulerRef.current).toBeTypeOf('function');
+
+    const cancel = hoisted.providerLimitSchedulerRef.current!({
+      loopRunId: 'loop-gemini-quota',
+      chatId: 'chat-gemini',
+      workspaceCwd: '/tmp/ws',
+      provider: 'gemini',
+      resumeAt: Date.now() + 60_000,
+      reason: 'daily window exhausted',
+      source: 'quota',
+      action: 'throttle',
+      windowId: 'gemini.daily',
+    });
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+
+    expect(hoisted.createAutomationWithScheduling).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Resume loop after gemini quota reset',
+      action: expect.objectContaining({
+        workingDirectory: '/tmp/ws',
+        provider: 'gemini',
       }),
     }));
     cancel?.();

@@ -4,7 +4,7 @@
  * (Claude Code, OpenAI Codex, Google Gemini, etc.)
  */
 
-import { spawn, spawnSync, ChildProcess } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { getLogger } from '../../logging/logger';
 import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
@@ -33,6 +33,7 @@ import {
   tagResponseFromStreamState,
   tagResponseIfDegraded,
 } from './base-cli-adapter-degraded-output';
+import { killProcessGroup } from './base-cli-process-utils';
 
 const logger = getLogger('BaseCliAdapter');
 export { computeBoundedTrigramSimilarity, ndjsonSafeStringify };
@@ -111,7 +112,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
    */
   static killAllActiveProcesses(): void {
     for (const proc of BaseCliAdapter.activeProcesses) {
-      BaseCliAdapter.killProcessGroup(proc.pid, 'SIGTERM');
+      killProcessGroup(proc.pid, 'SIGTERM');
     }
     BaseCliAdapter.activeProcesses.clear();
   }
@@ -162,7 +163,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
 
     // Phase 1: polite signal to the whole set.
     for (const proc of procs) {
-      BaseCliAdapter.killProcessGroup(proc.pid, 'SIGTERM');
+      killProcessGroup(proc.pid, 'SIGTERM');
     }
 
     // Phase 2: wait for natural exit or the grace deadline.
@@ -170,59 +171,9 @@ export abstract class BaseCliAdapter extends EventEmitter {
 
     // Phase 3: hard-kill anything still standing.
     for (const proc of pending) {
-      BaseCliAdapter.killProcessGroup(proc.pid, 'SIGKILL');
+      killProcessGroup(proc.pid, 'SIGKILL');
     }
     BaseCliAdapter.activeProcesses.clear();
-  }
-
-  /**
-   * Kill an entire process group (the CLI process and all its children,
-   * including MCP servers). Requires the process to have been spawned
-   * with `detached: true` so it has its own process group.
-   * Falls back to single-process kill if group kill fails.
-   */
-  private static killProcessGroup(pid: number | undefined, signal: NodeJS.Signals): boolean {
-    if (pid === undefined) return false;
-    if (process.platform === 'win32') {
-      try {
-        const result = spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
-          timeout: 5000,
-          windowsHide: true,
-        });
-        if (result.error && (result.error as NodeJS.ErrnoException).code === 'ENOENT') {
-          try {
-            process.kill(pid, signal);
-            return true;
-          } catch {
-            return false;
-          }
-        }
-        return result.status === 0;
-      } catch {
-        try {
-          process.kill(pid, signal);
-          return true;
-        } catch {
-          return false;
-        }
-      }
-    }
-    try {
-      // Negative PID sends signal to the entire process group
-      process.kill(-pid, signal);
-      return true;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ESRCH') {
-        // Group kill failed for non-ESRCH reason — try single process
-        try {
-          process.kill(pid, signal);
-          return true;
-        } catch {
-          return false;
-        }
-      }
-      return false;
-    }
   }
 
   /**
@@ -321,13 +272,13 @@ export abstract class BaseCliAdapter extends EventEmitter {
 
     if (graceful) {
       // Send SIGTERM to entire process group (CLI + MCP servers)
-      BaseCliAdapter.killProcessGroup(pid, 'SIGTERM');
+      killProcessGroup(pid, 'SIGTERM');
 
       // Wait for graceful shutdown with timeout
       await new Promise<void>((resolve) => {
         const timeout = setTimeout(() => {
           if (this.process && !this.process.killed) {
-            BaseCliAdapter.killProcessGroup(pid, 'SIGKILL');
+            killProcessGroup(pid, 'SIGKILL');
           }
           resolve();
         }, 5000);
@@ -338,7 +289,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
         });
       });
     } else {
-      BaseCliAdapter.killProcessGroup(pid, 'SIGKILL');
+      killProcessGroup(pid, 'SIGKILL');
     }
 
     this.process = null;
@@ -358,7 +309,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
 
     try {
       // Send SIGINT (equivalent to Ctrl+C in terminal)
-      const accepted = BaseCliAdapter.killProcessGroup(this.process.pid, 'SIGINT');
+      const accepted = killProcessGroup(this.process.pid, 'SIGINT');
       // Note: Don't emit status here - the instance manager handles status updates
       // after interrupt. The CLI will emit 'waiting_for_input' when it's ready.
       if (!accepted) {

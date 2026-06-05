@@ -127,9 +127,10 @@
       <section class="row split">
         <div>
           <label for="loop-cfg-provider">Provider</label>
-          <select id="loop-cfg-provider" [ngModel]="provider()" (ngModelChange)="provider.set($event)">
-            <option value="claude">Claude</option>
-            <option value="codex">Codex</option>
+          <select id="loop-cfg-provider" [ngModel]="provider()" (ngModelChange)="onProviderChange($event)">
+            @for (option of providerOptions(); track option) {
+              <option [value]="option">{{ providerLabel(option) }}</option>
+            }
           </select>
         </div>
         <div>

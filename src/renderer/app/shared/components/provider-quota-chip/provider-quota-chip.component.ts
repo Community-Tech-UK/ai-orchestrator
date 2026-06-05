@@ -42,6 +42,7 @@ const BAND_COLORS: Record<QuotaChipBand, { fg: string; bg: string }> = {
   red:    { fg: '#ef4444', bg: 'rgba(239,68,68,0.14)' },
 };
 const NEUTRAL = { fg: '#9a9aa0', bg: 'rgba(154,154,160,0.10)' };
+const STRIP_NEUTRAL_FG = '#d4d4d8';
 
 const PROVIDER_LABELS: Record<ProviderId, string> = {
   claude: 'Claude',
@@ -77,7 +78,7 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
         <span class="strip" data-testid="quota-strip">
           @if (stripEntries().length > 0) {
             @for (entry of stripEntries(); track entry.provider) {
-              <span class="provider-entry" [class.warn]="entry.percent >= 75" [class.danger]="entry.percent >= 90">
+              <span class="provider-entry" [style.color]="entry.fg">
                 <span class="provider-code">{{ entry.code }}</span>
                 <span class="provider-value">{{ entry.value }}</span>
               </span>
@@ -144,9 +145,7 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
       width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
     }
     .strip { display: inline-flex; align-items: center; gap: 8px; }
-    .provider-entry { display: inline-flex; align-items: baseline; gap: 3px; color: inherit; }
-    .provider-entry.warn { color: #f97316; }
-    .provider-entry.danger { color: #ef4444; }
+    .provider-entry { display: inline-flex; align-items: baseline; gap: 3px; }
     .provider-code { font-weight: 700; }
     .provider-value { opacity: 0.82; font-variant-numeric: tabular-nums; }
     .text { text-transform: none; }
@@ -246,7 +245,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
 
   readonly stripEntries = computed(() => {
     const snaps = this.store.snapshots();
-    const entries: { provider: ProviderId; code: string; value: string; percent: number }[] = [];
+    const entries: { provider: ProviderId; code: string; value: string; percent: number; fg: string }[] = [];
     for (const provider of PROVIDER_ORDER) {
       const snap = snaps[provider];
       if (!snap?.ok) continue;
@@ -257,6 +256,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
           code: PROVIDER_CODES[provider],
           value: `${Math.round(this.windowPercent(window))}%`,
           percent: this.windowPercent(window),
+          fg: stripEntryColor(this.windowPercent(window)),
         });
       } else {
         entries.push({
@@ -264,6 +264,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
           code: PROVIDER_CODES[provider],
           value: snap.plan ?? 'ok',
           percent: 0,
+          fg: STRIP_NEUTRAL_FG,
         });
       }
     }
@@ -371,6 +372,12 @@ function formatUpdatedAge(takenAt: number, now: number): string {
   const totalHours = Math.floor(totalMin / 60);
   if (totalHours < 24) return `updated ${totalHours}h ago`;
   return `updated ${Math.floor(totalHours / 24)}d ago`;
+}
+
+function stripEntryColor(percent: number): string {
+  if (percent >= 90) return BAND_COLORS.red.fg;
+  if (percent >= 75) return BAND_COLORS.orange.fg;
+  return STRIP_NEUTRAL_FG;
 }
 
 const PROVIDER_ORDER: ProviderId[] = ['claude', 'codex', 'gemini', 'copilot', 'cursor'];

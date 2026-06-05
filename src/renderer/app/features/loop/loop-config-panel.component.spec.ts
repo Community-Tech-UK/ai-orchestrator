@@ -74,6 +74,28 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.completion?.requiredCleanReviewPasses).toBe(2);
   });
 
+  it('defaults the loop provider from the current chat provider', () => {
+    fixture.componentRef.setInput('defaultProvider', 'codex');
+    fixture.detectChanges();
+
+    const config = component.buildConfig();
+
+    expect(config?.provider).toBe('codex');
+  });
+
+  it('offers the available chat providers as loop provider overrides', () => {
+    fixture.componentRef.setInput('availableProviders', ['gemini', 'copilot', 'cursor']);
+    component.showAdvanced.set(true);
+    fixture.detectChanges();
+
+    const options = Array.from(
+      fixture.nativeElement.querySelectorAll('#loop-cfg-provider option'),
+      (option: Element) => (option as HTMLOptionElement).value,
+    );
+
+    expect(options).toEqual(['gemini', 'copilot', 'cursor']);
+  });
+
   it('emits the chosen completion mode and clean-pass count', () => {
     component.completionMode.set('gated');
     component.requiredCleanPasses.set(4);

@@ -549,6 +549,14 @@ export class InputPanelComponent implements OnDestroy {
 
   /** Provider list shown in the compact picker on the new-session surface. */
   readonly draftPickerProviders: PickerProvider[] = DEFAULT_INSTANCE_PROVIDERS;
+  readonly loopProviderOptions: PickerProvider[] = DEFAULT_INSTANCE_PROVIDERS;
+  readonly loopDefaultProvider = computed<PickerProvider>(() =>
+    this.toLoopProvider(
+      this.isDraftComposer()
+        ? this.selectedProvider()
+        : this.provider(),
+    ),
+  );
 
   onCompactPickerSelectionChange(selection: PendingSelection): void {
     // Order matters: setProvider clears model+reasoning to per-provider
@@ -557,6 +565,16 @@ export class InputPanelComponent implements OnDestroy {
     this.newSessionDraft.setProvider(selection.provider);
     this.newSessionDraft.setModel(selection.model);
     this.newSessionDraft.setReasoningEffort(selection.reasoning);
+  }
+
+  private toLoopProvider(provider: ProviderType | InstanceProvider | null | undefined): PickerProvider {
+    return provider === 'claude'
+      || provider === 'codex'
+      || provider === 'gemini'
+      || provider === 'copilot'
+      || provider === 'cursor'
+      ? provider
+      : 'claude';
   }
 
   /** Effective YOLO mode: draft override ?? settings default */

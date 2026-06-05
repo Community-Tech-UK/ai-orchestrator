@@ -228,9 +228,10 @@ export type LoopPauseReason = 'awaiting-review' | 'no-progress' | 'blocked' | 'p
 
 /**
  * Classify *why* a paused loop is paused, from data the store already has.
- * A BLOCKED signal wins; an unverifiable completion (or a manual-review loop
- * with no no-progress banner) is awaiting operator sign-off; a no-progress
- * banner is structural; otherwise it's a plain manual pause.
+ * A BLOCKED signal wins; an unverifiable completion is awaiting operator
+ * sign-off; a no-progress banner is structural; otherwise it's a plain pause.
+ * `manualReviewOnly` by itself is just startup config, not evidence that the
+ * loop has declared completion.
  */
 export function loopPauseReason(input: {
   manualReviewOnly?: boolean;
@@ -241,7 +242,6 @@ export function loopPauseReason(input: {
   if (input.bannerKind === 'no-progress' && input.bannerSignalId === 'BLOCKED') return 'blocked';
   if (input.lastCompletionOutcome === 'unverifiable') return 'awaiting-review';
   if (input.bannerKind === 'no-progress') return 'no-progress';
-  if (input.manualReviewOnly) return 'awaiting-review';
   return 'paused';
 }
 

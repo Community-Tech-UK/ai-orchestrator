@@ -1,7 +1,12 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LoopIpcService, type LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 import { DEFAULT_LOOP_PROMPT, LoopPromptHistoryService } from './loop-prompt-history.service';
+import {
+  DEFAULT_INSTANCE_PROVIDERS,
+  PROVIDER_MENU_LABELS,
+} from '../models/provider-menu.component';
+import type { PickerProvider } from '../models/compact-model-picker.types';
 
 // Defaults that match defaultLoopConfig() in src/shared/types/loop.types.ts.
 // We must include all sub-fields whenever caps/completion/progressThresholds
@@ -84,6 +89,18 @@ export class LoopConfigPanelComponent {
    *  applied (e.g. consecutive Reattempts on different runs); we react to
    *  every update rather than only the initial value. */
   seedPrompt = input<string | null>(null);
+  private defaultProviderSignal = signal<PickerProvider>('claude');
+  private availableProvidersSignal = signal<PickerProvider[]>(DEFAULT_INSTANCE_PROVIDERS);
+
+  /** Concrete chat/session provider to use unless the user overrides it. */
+  @Input() set defaultProvider(value: PickerProvider | null | undefined) {
+    this.defaultProviderSignal.set(this.resolveProvider(value, DEFAULT_INSTANCE_PROVIDERS));
+  }
+
+  /** Providers available on the chat/session picker. `auto` is resolved before loop start. */
+  @Input() set availableProviders(value: PickerProvider[] | null | undefined) {
+    this.availableProvidersSignal.set(value && value.length > 0 ? value : DEFAULT_INSTANCE_PROVIDERS);
+  }
 
   dismissed = output<void>();
   /** Emits whenever the panel's submittability changes. Lets the host
@@ -115,7 +132,7 @@ export class LoopConfigPanelComponent {
   maxDollars = signal<number | null>(500);
   verifyCommand = signal('');
   quickVerifyCommand = signal('');
-  provider = signal<'claude' | 'codex'>('claude');
+  provider = signal<PickerProvider>('claude');
   reviewStyle = signal<'single' | 'debate' | 'star-chamber'>('debate');
   contextStrategy = signal<'fresh-child' | 'hybrid' | 'same-session'>('same-session');
   initialStage = signal<'PLAN' | 'REVIEW' | 'IMPLEMENT'>('IMPLEMENT');
@@ -137,6 +154,11 @@ export class LoopConfigPanelComponent {
   compactionThresholdPct = computed(() => Math.round(this.compactionResetUtilization() * 100));
   operatorReviewedCompletion = signal(false);
   freshEyesReview = signal(false);
+  providerOptions = computed<PickerProvider[]>(() => {
+    const providers = this.availableProvidersSignal();
+    return providers.length > 0 ? providers : DEFAULT_INSTANCE_PROVIDERS;
+  });
+  private providerManuallyOverridden = false;
   /**
    * Completion strategy. 'review-driven' (default) keeps re-reviewing with
    * fresh eyes and fixing what it finds until N consecutive clean passes;
@@ -169,6 +191,17 @@ export class LoopConfigPanelComponent {
       const seed = this.seedPrompt();
       if (seed != null && seed.length > 0) {
         this.prompt.set(seed);
+      }
+    });
+    // Default the loop provider from the chat/session provider. Once the user
+    // changes the advanced provider selector, keep that override unless the
+    // selected provider disappears from the available list.
+    effect(() => {
+      const providers = this.providerOptions();
+      const fallback = this.resolveProvider(this.defaultProviderSignal(), providers);
+      const current = this.provider();
+      if (!providers.includes(current) || !this.providerManuallyOverridden) {
+        untracked(() => this.provider.set(fallback));
       }
     });
     // Pre-fill the prompt: most recent saved > canonical default.
@@ -271,6 +304,23 @@ export class LoopConfigPanelComponent {
   onBranchFanoutChange(value: number | string | null): void {
     const numeric = typeof value === 'number' ? value : Number(value);
     this.branchFanout.set(numeric);
+  }
+
+  onProviderChange(value: string): void {
+    const provider = this.resolveProvider(value, this.providerOptions());
+    this.providerManuallyOverridden = true;
+    this.provider.set(provider);
+  }
+
+  providerLabel(provider: PickerProvider): string {
+    return PROVIDER_MENU_LABELS[provider];
+  }
+
+  private resolveProvider(value: string | null | undefined, providers: PickerProvider[]): PickerProvider {
+    const provider = value === 'claude' || value === 'codex' || value === 'gemini' || value === 'copilot' || value === 'cursor'
+      ? value
+      : 'claude';
+    return providers.includes(provider) ? provider : (providers[0] ?? 'claude');
   }
 
   /**

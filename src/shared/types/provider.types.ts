@@ -185,6 +185,18 @@ export const CLAUDE_PINNED_MODELS = {
 } as const;
 
 /**
+ * Legacy Claude model aliases used only for substring pricing fallbacks.
+ * App code should import these instead of hardcoding retired model IDs.
+ */
+export const CLAUDE_LEGACY_PRICING_ALIASES = {
+  SONNET_35: 'claude-3-5-sonnet',
+  HAIKU_35: 'claude-3-5-haiku',
+  OPUS_3: 'claude-3-opus',
+  SONNET_3: 'claude-3-sonnet',
+  HAIKU_3: 'claude-3-haiku',
+} as const;
+
+/**
  * OpenAI model identifiers
  */
 export const OPENAI_MODELS = {

@@ -1,6 +1,6 @@
 import { getLogger } from '../logging/logger';
 import type { InstanceManager } from '../instance/instance-manager';
-import type { Instance, InstanceStatus } from '../../shared/types/instance.types';
+import type { Instance } from '../../shared/types/instance.types';
 import type {
   Automation,
   AutomationFireOutcome,
@@ -22,44 +22,25 @@ import {
   DEFAULT_RETRY_BASE_DELAY_MS,
   computeRetryDelayMs,
 } from './automation-retry';
-import { toWorkspaceId } from '../../shared/utils/workspace-key';
 import {
   deliverRunSummaryToChannel,
   writeFullOutput,
   type RunTracking,
 } from './automation-runner-helpers';
+import {
+  automationFromSnapshot,
+  automationShellFromRunSnapshot,
+  FAILURE_STATUSES,
+  WAIT_STATUSES,
+} from './automation-runner-snapshots';
+import type {
+  RetrySchedulerCallback,
+  ThreadWakeupRunnerFactory,
+} from './automation-runner-types';
 
 const logger = getLogger('AutomationRunner');
 
-const FAILURE_STATUSES = new Set<InstanceStatus>([
-  'error',
-  'failed',
-  'terminated',
-  'cancelled',
-  'superseded',
-]);
-
-const WAIT_STATUSES = new Set<InstanceStatus>([
-  'waiting_for_input',
-  'waiting_for_permission',
-]);
-
-type ThreadWakeupRunnerFactory = (
-  manager: InstanceManager,
-  store: AutomationStore,
-  now: () => number,
-) => ThreadWakeupRunner;
-
-/**
- * Callback registered by the scheduler so the runner can schedule a retry
- * without a circular dependency.  The scheduler is the sole owner of timers.
- */
-export type RetrySchedulerCallback = (
-  originalRun: AutomationRun,
-  nextAttempt: number,
-  maxAttempts: number,
-  delayMs: number,
-) => void;
+export type { RetrySchedulerCallback } from './automation-runner-types';
 
 export class AutomationRunner {
   private instanceManager: InstanceManager | null = null;
@@ -207,7 +188,7 @@ export class AutomationRunner {
     if (claimed.snapshot.destination.kind === 'thread') {
       const terminal = await this.requireThreadWakeupRunner().fireThreadWakeup({
         run: claimed.run,
-        automation: this.automationFromSnapshot(claimed.automation, claimed.snapshot),
+        automation: automationFromSnapshot(claimed.automation, claimed.snapshot),
         destination: claimed.snapshot.destination,
       });
       this.handleTerminalRun(terminal);
@@ -481,21 +462,6 @@ export class AutomationRunner {
     return this.threadWakeupRunner;
   }
 
-  private automationFromSnapshot(
-    automation: Automation,
-    snapshot: ClaimedAutomationRun['snapshot'],
-  ): Automation {
-    return {
-      ...automation,
-      name: snapshot.name,
-      schedule: snapshot.schedule,
-      missedRunPolicy: snapshot.missedRunPolicy,
-      concurrencyPolicy: snapshot.concurrencyPolicy,
-      destination: snapshot.destination,
-      action: snapshot.action,
-    };
-  }
-
   private handleTerminalRun(run: AutomationRun): void {
     this.events.emitRunChanged({ automationId: run.automationId, run });
     this.events.emitRunTerminal({
@@ -655,23 +621,7 @@ export class AutomationRunner {
     if (snapshotForSystemAction) {
       const systemRun = this.dispatchSystemActionIfHandled({
         run: retryRun,
-        automation: {
-          id: retryRun.automationId,
-          name: snapshotForSystemAction.name,
-          enabled: true,
-          active: true,
-          workspaceId: toWorkspaceId(snapshotForSystemAction.action.workingDirectory),
-          schedule: snapshotForSystemAction.schedule,
-          missedRunPolicy: snapshotForSystemAction.missedRunPolicy,
-          concurrencyPolicy: snapshotForSystemAction.concurrencyPolicy,
-          destination: snapshotForSystemAction.destination,
-          action: snapshotForSystemAction.action,
-          nextFireAt: null,
-          lastFiredAt: null,
-          lastRunId: null,
-          createdAt: retryRun.createdAt,
-          updatedAt: retryRun.updatedAt,
-        },
+        automation: automationShellFromRunSnapshot(retryRun),
         snapshot: snapshotForSystemAction,
       });
       if (systemRun) {
@@ -683,27 +633,7 @@ export class AutomationRunner {
     if (retryRun.configSnapshot?.destination.kind === 'thread') {
       const terminal = await this.requireThreadWakeupRunner().fireThreadWakeup({
         run: retryRun,
-        automation: this.automationFromSnapshot(
-          // Build a minimal Automation shell from the snapshot for the wakeup runner.
-          {
-            id: retryRun.automationId,
-            name: retryRun.configSnapshot.name,
-            enabled: true,
-            active: true,
-            workspaceId: toWorkspaceId(retryRun.configSnapshot.action.workingDirectory),
-            schedule: retryRun.configSnapshot.schedule,
-            missedRunPolicy: retryRun.configSnapshot.missedRunPolicy,
-            concurrencyPolicy: retryRun.configSnapshot.concurrencyPolicy,
-            destination: retryRun.configSnapshot.destination,
-            action: retryRun.configSnapshot.action,
-            nextFireAt: null,
-            lastFiredAt: null,
-            lastRunId: null,
-            createdAt: retryRun.createdAt,
-            updatedAt: retryRun.updatedAt,
-          },
-          retryRun.configSnapshot,
-        ),
+        automation: automationFromSnapshot(automationShellFromRunSnapshot(retryRun), retryRun.configSnapshot),
         destination: retryRun.configSnapshot.destination,
       });
       this.handleTerminalRun(terminal);

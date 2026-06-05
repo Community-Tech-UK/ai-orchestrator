@@ -534,6 +534,13 @@ vi.mock('../../../shared/types/provider.types', () => ({
     GEMINI_25_PRO: 'gemini-2.5-pro',
     GEMINI_25_FLASH: 'gemini-2.5-flash',
   },
+  CLAUDE_LEGACY_PRICING_ALIASES: {
+    SONNET_35: 'claude-3-5-sonnet',
+    HAIKU_35: 'claude-3-5-haiku',
+    OPUS_3: 'claude-3-opus',
+    SONNET_3: 'claude-3-sonnet',
+    HAIKU_3: 'claude-3-haiku',
+  },
   getModelsForProvider: vi.fn().mockReturnValue([]),
   // Read at module-load time by cursor-cli-adapter.models.ts
   // (`PROVIDER_MODEL_LIST['cursor'] ?? []`), which is now pulled in via

@@ -19,6 +19,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
 import { coerceToFailoverError } from '../core/failover-error';
 import { getDefaultModelForCli } from '../../shared/types/provider.types';
+import type { ProviderId } from '../../shared/types/provider-quota.types';
 import { getModelRouter, resolveRoutedModel } from '../routing';
 import type { CliType } from '../cli/cli-detection';
 import {
@@ -39,7 +40,7 @@ interface ProviderLimitResumeRequest {
   loopRunId: string;
   chatId: string;
   workspaceCwd: string;
-  provider: 'claude' | 'codex' | 'gemini' | 'copilot';
+  provider: ProviderId;
   resumeAt: number;
   reason: string;
   source: 'quota' | 'notice';
@@ -828,7 +829,7 @@ import { getLoopCoordinator } from './loop-coordinator';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { registerLoopSafetyAdvisor } from './loop-safety-advisor';
 import type { LoopChildResult } from './loop-coordinator';
-import type { LoopErrorRecord, LoopToolCallRecord } from '../../shared/types/loop.types';
+import type { LoopErrorRecord, LoopProvider, LoopToolCallRecord } from '../../shared/types/loop.types';
 import { defaultLoopContextConfig } from '../../shared/types/loop.types';
 import { shouldRecycleLoopContext } from './loop-context-discipline';
 import {
@@ -843,180 +844,21 @@ import { DurableLoopMemoryStore } from './loop-memory';
 import { maybeExternalizeLoopOutput } from './loop-output-externalize';
 import { getWorktreeManager } from '../workspace/git/worktree-manager';
 import {
+  classifyIterationErrors,
+  createPersistentLoopAdapter,
+  enableAdapterResume,
+  parseTestCounts,
+} from './default-loop-invoker-helpers';
+export {
+  classifyIterationErrors,
+  parseTestCounts,
+} from './default-loop-invoker-helpers';
+import {
   mergeFileChanges,
   snapshotFileChangesViaGit,
   snapshotFileChangesViaWorkspace,
   snapshotWorkspaceFiles,
 } from './loop-workspace-snapshot';
-
-function enableAdapterResume(adapter: unknown): void {
-  const setResume = (adapter as { setResume?: (resume: boolean) => void } | null | undefined)?.setResume;
-  if (typeof setResume === 'function') setResume.call(adapter, true);
-}
-
-/**
- * Build a long-lived CLI adapter for `contextStrategy: 'same-session'`
- * loops. Lifecycle is owned by the loop invoker — created once on the
- * first iteration of the run, torn down when the coordinator broadcasts
- * a terminal state. Same spawn options as a fresh-child invocation, but
- * we pass through the stream-idle override up front since the adapter
- * is reused.
- */
-async function createPersistentLoopAdapter(opts: {
-  provider: 'claude' | 'codex';
-  workingDirectory: string;
-  timeoutMs?: number;
-  streamIdleTimeoutMs?: number;
-  env?: Record<string, string>;
-}): Promise<unknown> {
-  const cliType = await resolveCliType(opts.provider as Parameters<typeof resolveCliType>[0], 'claude');
-  const model = resolveDefaultModel(cliType, undefined);
-  const adapter = getProviderRuntimeService().createAdapter({
-    cliType,
-    options: {
-      workingDirectory: opts.workingDirectory,
-      model,
-      // Loop children are hidden one-shot processes. They cannot surface
-      // permission cards, so non-YOLO Bash hooks can deadlock the whole loop.
-      yoloMode: true,
-      // Generous wall-clock cap so a long iteration doesn't die on a
-      // spawn-level timeout.
-      timeout: opts.timeoutMs ?? 30 * 60 * 1000,
-      env: opts.env,
-    },
-  });
-  if (typeof opts.streamIdleTimeoutMs === 'number') {
-    const setter = (adapter as { setStreamIdleTimeoutMs?: (ms: number) => void }).setStreamIdleTimeoutMs;
-    if (typeof setter === 'function') setter.call(adapter, opts.streamIdleTimeoutMs);
-  }
-  return adapter;
-}
-
-/**
- * FU-5: parse common test-runner summary lines out of an iteration's
- * accumulated output and return aggregate pass/fail counts. Used by the
- * loop invoker to populate `LoopIteration.testPassCount` /
- * `testFailCount` so the D-prime test-stagnation signal has real data
- * to evaluate.
- *
- * Returns `{ pass: null, fail: null }` when no runner summary is
- * recognised — the progress detector already handles null counts
- * (treats them as "no reliable measurement").
- */
-export function parseTestCounts(output: string): { pass: number | null; fail: number | null } {
-  if (!output) return { pass: null, fail: null };
-  let pass: number | null = null;
-  let fail: number | null = null;
-  const set = (p: number | null, f: number | null): void => {
-    if (p !== null) pass = p;
-    if (f !== null) fail = f;
-  };
-  const setFailOnly = (f: number): void => {
-    if (!Number.isFinite(f)) return;
-    set(pass ?? 0, f);
-  };
-
-  // vitest: "Test Files  3 passed (3)" and "Tests   10 passed | 2 failed (12)"
-  //         The pipe form may have just "passed"; failed-only appears on its
-  //         own "Tests  N failed" line.
-  for (const m of output.matchAll(/Tests\s+(?:[^\n|]*\|)?\s*(\d+)\s+passed(?:\s*\|\s*(\d+)\s+failed)?/gi)) {
-    const p = Number.parseInt(m[1], 10);
-    const f = m[2] != null ? Number.parseInt(m[2], 10) : 0;
-    if (Number.isFinite(p)) set(p, f);
-  }
-  for (const line of output.split(/\r?\n/)) {
-    if (/\bpassed\b/i.test(line)) continue;
-    const m = line.match(/^\s*Tests\s+(\d+)\s+failed\b/i);
-    if (m) setFailOnly(Number.parseInt(m[1], 10));
-  }
-
-  // jest: "Tests:       1 failed, 1 skipped, 5 passed, 7 total"
-  for (const m of output.matchAll(/Tests:\s+(?:(\d+)\s+failed,?\s+)?(?:\d+\s+skipped,?\s+)?(\d+)\s+passed,?\s+\d+\s+total/gi)) {
-    const f = m[1] != null ? Number.parseInt(m[1], 10) : 0;
-    const p = Number.parseInt(m[2], 10);
-    if (Number.isFinite(p)) set(p, f);
-  }
-  for (const m of output.matchAll(/Tests:\s+(\d+)\s+failed,?\s+\d+\s+total/gi)) {
-    setFailOnly(Number.parseInt(m[1], 10));
-  }
-
-  // pytest: "===== 10 passed, 2 failed in 1.20s =====" (failed optional)
-  for (const m of output.matchAll(/={3,}[^=\n]*?\b(\d+)\s+passed\b(?:[^=\n]*?\b(\d+)\s+failed\b)?[^=\n]*={3,}/gi)) {
-    const p = Number.parseInt(m[1], 10);
-    const f = m[2] != null ? Number.parseInt(m[2], 10) : 0;
-    if (Number.isFinite(p)) set(p, f);
-  }
-  for (const line of output.split(/\r?\n/)) {
-    if (/\bpassed\b/i.test(line)) continue;
-    const m = line.match(/={3,}[^=\n]*?\b(\d+)\s+failed\b[^=\n]*={3,}/i);
-    if (m) setFailOnly(Number.parseInt(m[1], 10));
-  }
-
-  // mocha: "10 passing" and "2 failing" on separate lines.
-  for (const m of output.matchAll(/(\d+)\s+passing\b/gi)) {
-    const p = Number.parseInt(m[1], 10);
-    if (Number.isFinite(p)) set(p, fail);
-  }
-  for (const m of output.matchAll(/(\d+)\s+failing\b/gi)) {
-    const f = Number.parseInt(m[1], 10);
-    if (Number.isFinite(f)) set(pass ?? 0, f);
-  }
-
-  // cargo test: "test result: ok. 5 passed; 0 failed; ..."
-  for (const m of output.matchAll(/test result:[^\n]*?(\d+)\s+passed;\s*(\d+)\s+failed/gi)) {
-    const p = Number.parseInt(m[1], 10);
-    const f = Number.parseInt(m[2], 10);
-    if (Number.isFinite(p)) set(p, f);
-  }
-
-  return { pass, fail };
-}
-
-/**
- * FU-5: classify free-form CLI output into coarse error buckets so the
- * loop's error-repeat signal (E) has data to work with. Returns one
- * error record per distinct error-signature seen in the output (capped
- * to a small number so a flood of errors doesn't explode the iteration
- * size). Buckets are intentionally generic — the goal is "did the same
- * kind of error happen N iterations in a row", not exact diagnosis.
- */
-export function classifyIterationErrors(output: string): LoopErrorRecord[] {
-  if (!output) return [];
-  const records: LoopErrorRecord[] = [];
-  const seen = new Set<string>();
-  const push = (bucket: string, excerpt: string): void => {
-    const hash = createHash('sha256').update(`${bucket}:${excerpt}`).digest('hex').slice(0, 16);
-    if (seen.has(hash)) return;
-    seen.add(hash);
-    records.push({ bucket, exactHash: hash, excerpt: excerpt.slice(0, 512) });
-  };
-  // Cap on number of distinct errors to record per iteration.
-  const MAX = 10;
-  // TypeScript / compile errors: "error TS1234:" or "TS1234: <msg>"
-  for (const m of output.matchAll(/(?:^|\n).{0,40}(?:error\s+)?TS(\d{3,5})[:\s][^\n]{0,200}/gi)) {
-    push(`ts-${m[1]}`, m[0].trim());
-    if (records.length >= MAX) return records;
-  }
-  // ESLint-style: "  N:N  error  <msg>  <rule>"
-  for (const m of output.matchAll(/\b\d+:\d+\s+error\s+[^\n]{0,200}/gi)) {
-    push('eslint', m[0].trim());
-    if (records.length >= MAX) return records;
-  }
-  // Runtime errors — Python tracebacks AND Node/JS stack traces share the
-  // `XxxError: msg` shape. We classify both into the same `runtime-<name>`
-  // bucket so signal E's repeat detector treats them uniformly. The
-  // `Exception:` alternation catches Python's bare Exception class.
-  for (const m of output.matchAll(/(?:^|\n)([A-Z][A-Za-z]*Error|Exception):\s[^\n]{0,200}/gm)) {
-    push(`runtime-${m[1].toLowerCase()}`, m[0].trim());
-    if (records.length >= MAX) return records;
-  }
-  // Generic "FAILED" / "failed:" lines (test runners, build tools)
-  for (const m of output.matchAll(/(?:^|\n)[^\n]{0,40}\b(FAILED|failed:)[^\n]{0,200}/g)) {
-    push('test-failure', m[0].trim());
-    if (records.length >= MAX) return records;
-  }
-  return records;
-}
 
 function branchSelectErr(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -1381,11 +1223,11 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   // its pre-iteration pre-flight can park before spilling into paid overage.
   // Guarded for test stubs (plain EventEmitter coordinators).
   const setQuotaSnapshotProvider = (coordinator as {
-    setQuotaSnapshotProvider?: (fn: (provider: 'claude' | 'codex' | 'gemini' | 'copilot') => unknown) => void;
+    setQuotaSnapshotProvider?: (fn: (provider: ProviderId) => unknown) => void;
   }).setQuotaSnapshotProvider;
   if (typeof setQuotaSnapshotProvider === 'function') {
     setQuotaSnapshotProvider.call(coordinator, (provider) =>
-      getProviderQuotaService().getSnapshot(provider as 'claude' | 'codex' | 'gemini' | 'copilot'),
+      getProviderQuotaService().getSnapshot(provider),
     );
   }
 
@@ -1407,7 +1249,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       correlationId: string;
       loopRunId: string;
       chatId: string;
-      provider: 'claude' | 'codex';
+      provider: LoopProvider;
       model?: string;
       workspaceCwd: string;
       stage: string;
@@ -1744,9 +1586,7 @@ function scheduleProviderLimitResume(params: {
       },
       action: {
         workingDirectory: request.workspaceCwd,
-        provider: request.provider === 'claude' || request.provider === 'codex'
-          ? request.provider
-          : 'auto',
+        provider: request.provider,
         systemAction: {
           type: 'loopProviderLimitResume',
           loopRunId: request.loopRunId,

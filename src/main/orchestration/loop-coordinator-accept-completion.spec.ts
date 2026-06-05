@@ -129,6 +129,28 @@ describe('LoopCoordinator.acceptCompletion (LF-7)', () => {
     expect(liveState(state.id)?.status).toBe('running');
   });
 
+  it('returns false when a manual-review loop is paused before any completion attempt', async () => {
+    // Hang the first iteration, then manually pause the loop before it has
+    // emitted any DONE evidence. Manual-review-only is a startup capability,
+    // not proof that the work is ready for operator sign-off.
+    coordinator.on('loop:invoke-iteration', () => { /* never call back */ });
+    const state = await coordinator.startLoop('chat-accept-premature', {
+      initialPrompt: 'do the thing',
+      workspaceCwd: workspace,
+      completion: { ...defaultLoopConfig(workspace, 'x').completion, verifyCommand: '' },
+    });
+
+    expect(coordinator.pauseLoop(state.id)).toBe(true);
+    expect(liveState(state.id)?.status).toBe('paused');
+    expect(liveState(state.id)?.lastCompletionOutcome).toBeUndefined();
+
+    const ok = await coordinator.acceptCompletion(state.id);
+
+    expect(ok).toBe(false);
+    expect(liveState(state.id)?.status).toBe('paused');
+    expect(liveState(state.id)?.lastCompletionOutcome).toBeUndefined();
+  });
+
   it('runs verify on accept and terminates completed when it passes', async () => {
     let completed: { acceptedByOperator?: boolean } | null = null;
     coordinator.on('loop:completed', (p: unknown) => {

@@ -9,8 +9,8 @@ export type LoopReviewStyle =
 /** Where the iteration's LLM context comes from. */
 export type LoopContextStrategy = 'fresh-child' | 'hybrid' | 'same-session';
 
-/** Provider for child iterations. v1 supports Claude default, Codex for star-chamber. */
-export type LoopProvider = 'claude' | 'codex';
+/** Concrete provider for child iterations. `auto` is resolved before persistence. */
+export type LoopProvider = 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor';
 
 export interface LoopHardCaps {
   /** Max iterations before forced stop. Default 500. */

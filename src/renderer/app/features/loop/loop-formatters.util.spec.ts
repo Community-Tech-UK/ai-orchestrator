@@ -140,7 +140,7 @@ describe('loopStatusPill (LF-8)', () => {
 
   it('distinguishes the three pause flavours', () => {
     expect(loopStatusPill({ status: 'paused', lastCompletionOutcome: 'unverifiable' }).kind).toBe('awaiting-review');
-    expect(loopStatusPill({ status: 'paused', manualReviewOnly: true }).kind).toBe('awaiting-review');
+    expect(loopStatusPill({ status: 'paused', manualReviewOnly: true }).kind).toBe('paused');
     expect(loopStatusPill({ status: 'paused', bannerKind: 'no-progress', bannerSignalId: 'BLOCKED' }).kind).toBe('blocked');
     expect(loopStatusPill({ status: 'paused', bannerKind: 'no-progress', bannerSignalId: 'A' }).kind).toBe('no-progress');
     expect(loopStatusPill({ status: 'paused' }).kind).toBe('paused');
@@ -148,11 +148,11 @@ describe('loopStatusPill (LF-8)', () => {
 });
 
 describe('loopPauseReason (LF-8)', () => {
-  it('prioritises BLOCKED, then unverifiable, then no-progress, then manual', () => {
+  it('prioritises BLOCKED, then unverifiable, then no-progress', () => {
     expect(loopPauseReason({ bannerKind: 'no-progress', bannerSignalId: 'BLOCKED' })).toBe('blocked');
     expect(loopPauseReason({ lastCompletionOutcome: 'unverifiable' })).toBe('awaiting-review');
     expect(loopPauseReason({ bannerKind: 'no-progress', bannerSignalId: 'A' })).toBe('no-progress');
-    expect(loopPauseReason({ manualReviewOnly: true })).toBe('awaiting-review');
+    expect(loopPauseReason({ manualReviewOnly: true })).toBe('paused');
     expect(loopPauseReason({})).toBe('paused');
   });
 });

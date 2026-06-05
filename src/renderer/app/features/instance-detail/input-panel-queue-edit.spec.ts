@@ -118,6 +118,8 @@ class LoopConfigPanelStubComponent {
   @Input() workspaceCwd = '';
   @Input() firstMessageHint = '';
   @Input() seedPrompt: string | null = null;
+  @Input() defaultProvider = 'claude';
+  @Input() availableProviders: string[] = [];
   @Output() dismissed = new EventEmitter<void>();
   @Output() validityChange = new EventEmitter<boolean>();
   @Output() configChange = new EventEmitter<LoopStartConfigInput | null>();

@@ -26,13 +26,10 @@ import {
   defaultCrossModelReviewConfig,
   defaultSemanticProgressConfig,
   type LoopConfig,
-  type LoopErrorRecord,
-  type LoopFileChange,
   type LoopIteration,
   type LoopStage,
   type LoopState,
   type LoopStreamEvent,
-  type LoopToolCallRecord,
   type CompletionSignalEvidence,
   type ProgressSignalEvidence,
   type LoopTerminalIntent,
@@ -57,9 +54,6 @@ import {
   buildLoopControlEnv,
   cleanupLoopControl,
   cloneIntentWithStatus,
-  commitImportedIntent,
-  importLoopTerminalIntents,
-  latestIntentByReceivedAt,
   listArchivedImportedIntents,
   prepareLoopControl,
   publicLoopControlMetadata,
@@ -100,7 +94,6 @@ import {
 } from './loop-branch-select';
 import {
   defaultLoopMemoryStore,
-  distillLearning,
   type LoopMemoryStore,
 } from './loop-memory';
 import {
@@ -116,11 +109,21 @@ import type {
   ProviderQuotaSnapshot,
 } from '../../shared/types/provider-quota.types';
 import { isProviderNotice } from '../cli/provider-notice';
+import { isParkingDecision } from './loop-quota-throttle';
 import {
-  evaluateQuotaThrottle,
-  isParkingDecision,
-  type QuotaThrottleDecision,
-} from './loop-quota-throttle';
+  COST_PER_M_TOKENS_CENTS,
+  DEFAULT_ITERATION_TIMEOUT_MS,
+  LOOP_BREAKER_OPEN_BACKOFF_MS,
+  LOOP_MAX_BREAKER_OPEN_WAITS,
+  type LoopAdapterCleanupHook,
+  type LoopChildResult,
+  type LoopIntentPersistHook,
+  type LoopIterationHook,
+  type LoopRuntimeContext,
+  type PauseGate,
+  type ProviderLimitResumeScheduler,
+} from './loop-coordinator.types';
+import { LoopProviderLimitHandler } from './loop-provider-limit-handler';
 import { streamLoopEvents } from './loop-stream';
 import {
   evaluateReviewDrivenCompletion as evaluateReviewDrivenCompletionGate,
@@ -140,6 +143,8 @@ import {
   readBlockedFileIfPresent as readBlockedFileIfPresentHelper,
   syntheticChildResultFromTerminalIntent as syntheticChildResultFromTerminalIntentHelper,
 } from './loop-coordinator-state-helpers';
+import { recordLoopLearningForState } from './loop-learning-recorder';
+import { importTerminalIntentsForBoundary as importTerminalIntentsForBoundaryHelper } from './loop-terminal-intent-importer';
 
 export { computeWorkHash } from './loop-work-hash';
 export type {
@@ -150,124 +155,17 @@ export type {
   FreshEyesSeverity,
 } from './loop-fresh-eyes-reviewer';
 
+export type {
+  LoopAdapterCleanupHook,
+  LoopChildResult,
+  LoopIntentPersistHook,
+  LoopIterationHook,
+  LoopRuntimeContext,
+  ProviderLimitResumeScheduleRequest,
+  ProviderLimitResumeScheduler,
+} from './loop-coordinator.types';
+
 const logger = getLogger('LoopCoordinator');
-
-/** Approximate Claude Sonnet cost in cents per 1M tokens, rounded up. */
-const COST_PER_M_TOKENS_CENTS = 1500;
-const DEFAULT_ITERATION_TIMEOUT_MS = 30 * 60 * 1000;
-
-/**
- * Backoff before retrying an iteration that was rejected by an OPEN circuit
- * breaker. The loop-orchestration breaker (see `default-invokers.ts`) uses a
- * 60s reset window, after which it transitions to HALF_OPEN and allows a test
- * call through. We wait slightly longer than that window so the retry lands in
- * HALF_OPEN instead of being instantly re-rejected inside the same OPEN window.
- */
-const LOOP_BREAKER_OPEN_BACKOFF_MS = 65 * 1000;
-
-/**
- * Maximum consecutive breaker-open backoffs for a single iteration before the
- * loop gives up and terminates. Bounds total added latency (~LOOP_MAX ×
- * BACKOFF) when a provider is genuinely down, while still riding out a
- * transient trip that self-heals within a window or two. Counted independently
- * of the degraded-iteration retry budget — a breaker trip is not a degraded
- * iteration.
- */
-const LOOP_MAX_BREAKER_OPEN_WAITS = 3;
-
-/** Result the LLM-invocation handler must return to the coordinator. */
-export interface LoopChildResult {
-  /** Unique id of the child instance (for observability / linking). */
-  childInstanceId: string | null;
-  /** Full text the agent emitted during the iteration. */
-  output: string;
-  /** Token usage. */
-  tokens: number;
-  /** Files changed during the iteration (already diffed by the caller). */
-  filesChanged: LoopFileChange[];
-  /** Tool calls observed during the iteration. */
-  toolCalls: LoopToolCallRecord[];
-  /** Errors classified during the iteration. */
-  errors: LoopErrorRecord[];
-  /** Test pass count after the iteration (or null if no tests run). */
-  testPassCount: number | null;
-  /** Test fail count after the iteration (or null if no tests run). */
-  testFailCount: number | null;
-  /** Did the child exit cleanly? */
-  exitedCleanly: boolean;
-  /**
-   * LF-1: set by the invoker when it recycled the loop's persistent
-   * same-session adapter to a fresh session after this iteration (context
-   * utilization crossed the configured threshold). The coordinator emits
-   * `loop:context-compacted` and records an ITERATION_LOG note.
-   */
-  contextCompacted?: { previousUtilization: number; newUtilization: number; reason: string };
-}
-
-interface PauseGate { resolve: () => void }
-
-/**
- * Listener-of-listeners for completed loops. Allows callers (e.g. the
- * persistence layer) to react after an iteration is fully recorded but
- * before the loop emits its public events.
- */
-interface IterationHookContext {
-  state: LoopState;
-  iteration: LoopIteration;
-}
-
-export type LoopIterationHook = (ctx: IterationHookContext) => Promise<void> | void;
-
-/**
- * Hook for durable persistence of terminal intents. Called by the
- * coordinator *before* the source intent file is archived from
- * `<controlDir>/intents/` to `<controlDir>/imported/`. The hook must
- * throw on failure so the coordinator can leave the source file in
- * place for the next boundary to retry. See NB2 in the spec at
- * `docs/plans/2026-05-12-loop-terminal-control-spec.md`.
- */
-export type LoopIntentPersistHook = (intent: LoopTerminalIntent) => Promise<void> | void;
-
-/**
- * Hook for tearing down per-loop CLI adapters when a loop reaches a
- * terminal state. The coordinator awaits this hook (via
- * `awaitTerminalCleanup`) before reporting the loop as fully shut
- * down. Registered once per coordinator by the default invoker so
- * that long-running CLI children aren't orphaned when the loop
- * cancels mid-iteration. See FU-8 in
- * `docs/plans/2026-05-26-loop-mode-reliability.md`.
- */
-export type LoopAdapterCleanupHook = (loopRunId: string) => Promise<void>;
-
-export interface ProviderLimitResumeScheduleRequest {
-  loopRunId: string;
-  chatId: string;
-  workspaceCwd: string;
-  provider: ProviderId;
-  resumeAt: number;
-  reason: string;
-  source: 'quota' | 'notice';
-  action: QuotaThrottleDecision['action'] | 'notice';
-  windowId?: string;
-}
-
-export type ProviderLimitResumeScheduler = (
-  request: ProviderLimitResumeScheduleRequest,
-) => (() => void) | void;
-
-export interface LoopRuntimeContext {
-  /**
-   * Prior visible-session transcript used as read-only background for loop
-   * children. Kept outside LoopState/config so it is not shown as the user's
-   * goal or persisted as loop configuration.
-   */
-  existingSessionContext?: string;
-  /**
-   * LF-6: prior-run observations surfaced from cross-loop memory at startLoop,
-   * injected into each iteration prompt (token-bounded, "not binding").
-   */
-  priorObservations?: string[];
-}
 
 export class LoopCoordinator extends EventEmitter {
   private static instance: LoopCoordinator | null = null;
@@ -370,33 +268,30 @@ export class LoopCoordinator extends EventEmitter {
    * so the behaviour is a clean no-op unless the host wires the real
    * `ProviderQuotaService`. Injectable for tests.
    */
-  private quotaSnapshotProvider: (provider: ProviderId) => ProviderQuotaSnapshot | null = () => null;
-
-  /** Whether the loop may ride paid overage (decision #3). Default: never. */
-  private allowOverage = false;
-
-  /** Pending provider-limit resume cancellers, keyed by loopRunId. */
-  private resumeCancellers = new Map<string, () => void>();
-
-  /** Optional durable scheduler hook. Defaults to an in-process timer. */
-  private providerLimitResumeScheduler: ProviderLimitResumeScheduler | null = null;
+  private providerLimitHandler = new LoopProviderLimitHandler({
+    emit: (eventName, payload) => this.emit(eventName, payload),
+    cloneStateForBroadcast: (state) => this.cloneStateForBroadcast(state),
+    setConvergenceNote: (loopRunId, reason) => this.convergenceNotes.set(loopRunId, reason),
+    terminate: (state, status, reason) => this.terminate(state, status, reason),
+    resumeLoop: (loopRunId) => this.resumeLoop(loopRunId),
+  });
 
   /** Current model downshift override, keyed by loopRunId. */
   private downshiftModelByLoop = new Map<string, string>();
 
   /** Override the quota snapshot source (production wiring / tests). */
   setQuotaSnapshotProvider(fn: (provider: ProviderId) => ProviderQuotaSnapshot | null): void {
-    this.quotaSnapshotProvider = fn;
+    this.providerLimitHandler.setQuotaSnapshotProvider(fn);
   }
 
   /** Opt into riding paid overage credits (decision #3 alternative). */
   setAllowOverage(allow: boolean): void {
-    this.allowOverage = allow;
+    this.providerLimitHandler.setAllowOverage(allow);
   }
 
   /** Override provider-limit resume scheduling (production automation wiring / tests). */
   setProviderLimitResumeScheduler(scheduler: ProviderLimitResumeScheduler | null): void {
-    this.providerLimitResumeScheduler = scheduler;
+    this.providerLimitHandler.setProviderLimitResumeScheduler(scheduler);
   }
 
   /**
@@ -976,7 +871,7 @@ export class LoopCoordinator extends EventEmitter {
     if (!state) return false;
     if (state.status !== 'paused') return false;
     // A manual resume supersedes any pending provider-limit auto-resume timer.
-    this.clearResumeTimer(loopRunId);
+    this.providerLimitHandler.clearResumeTimer(loopRunId);
     state.status = 'running';
     const gate = this.pauseGates.get(loopRunId);
     if (gate) {
@@ -1046,11 +941,13 @@ export class LoopCoordinator extends EventEmitter {
    * start/pause/resume/intervene/cancel, so a loop with no verify command could
    * never reach a clean terminal state from the UI.
    *
-   * Valid only when the loop is `paused` AND it is awaiting review
-   * (`manualReviewOnly`) or has a pending `complete` terminal intent. When a
-   * verify command exists, it is run once: pass → terminate `completed`,
-   * fail → reject (stay paused, surface the failure). With no verify command,
-   * terminate `completed-needs-review`. Returns true iff the loop terminated.
+   * Valid only when the loop is `paused` AND it is awaiting review from an
+   * actual completion attempt (`lastCompletionOutcome === 'unverifiable'`) or
+   * has a pending `complete` terminal intent. `manualReviewOnly` is startup
+   * config, not completion evidence. When a verify command exists, it is run
+   * once: pass → terminate `completed`, fail → reject (stay paused, surface
+   * the failure). With no verify command, terminate `completed-needs-review`.
+   * Returns true iff the loop terminated.
    */
   async acceptCompletion(loopRunId: string): Promise<boolean> {
     const state = this.active.get(loopRunId);
@@ -1060,11 +957,13 @@ export class LoopCoordinator extends EventEmitter {
       return false;
     }
     const eligible =
-      state.manualReviewOnly || state.terminalIntentPending?.kind === 'complete';
+      state.lastCompletionOutcome === 'unverifiable'
+      || state.terminalIntentPending?.kind === 'complete';
     if (!eligible) {
       logger.info('acceptCompletion ignored — loop is not awaiting review', {
         loopRunId,
         manualReviewOnly: state.manualReviewOnly,
+        lastCompletionOutcome: state.lastCompletionOutcome,
         pendingKind: state.terminalIntentPending?.kind,
       });
       return false;
@@ -1227,7 +1126,7 @@ export class LoopCoordinator extends EventEmitter {
       // quota window. At ≥90% (or exhausted, or already on paid overage) we
       // park instead of starting a turn that would spill into real money.
       if (state.status === 'running') {
-        const throttle = this.evaluateLoopQuotaThrottle(state);
+        const throttle = this.providerLimitHandler.evaluateLoopQuotaThrottle(state);
         if (throttle.action === 'downshift' && throttle.downshift) {
           this.downshiftModelByLoop.set(state.id, throttle.downshift.model);
           this.emit('loop:activity', {
@@ -1244,7 +1143,7 @@ export class LoopCoordinator extends EventEmitter {
             },
           });
         } else if (isParkingDecision(throttle)) {
-          const outcome = this.handleProviderLimit(state, {
+          const outcome = this.providerLimitHandler.handleProviderLimit(state, {
             reason: throttle.reason ?? 'provider usage limit reached',
             resumeAt: throttle.resumeAt ?? null,
             source: 'quota',
@@ -1546,8 +1445,8 @@ export class LoopCoordinator extends EventEmitter {
       // detection — park (auto-resume when we know the reset) or terminate with
       // a distinct `provider-limit` reason.
       if (isProviderNotice(childResult.output)) {
-        const derived = this.deriveProviderLimitResume(state);
-        const outcome = this.handleProviderLimit(state, {
+        const derived = this.providerLimitHandler.deriveProviderLimitResume(state);
+        const outcome = this.providerLimitHandler.handleProviderLimit(state, {
           reason: `provider usage/limit notice in iteration output: "${excerpt(childResult.output).slice(0, 160)}"`,
           resumeAt: derived.resumeAt,
           source: 'notice',
@@ -2135,7 +2034,12 @@ export class LoopCoordinator extends EventEmitter {
                 `review-driven stall: ${primary?.message ?? 'no progress, no convergence'}`,
               );
             }
-            this.recordLoopLearning(state, 'no-progress');
+            recordLoopLearningForState({
+              state,
+              status: 'no-progress',
+              note: this.convergenceNotes.get(state.id),
+              store: this.loopMemoryStore,
+            });
             this.emit('loop:completed-needs-review', {
               loopRunId: state.id,
               reason,
@@ -2270,7 +2174,12 @@ export class LoopCoordinator extends EventEmitter {
         if (primary && !this.convergenceNotes.has(state.id)) {
           this.convergenceNotes.set(state.id, `no-progress: ${primary.message}`);
         }
-        this.recordLoopLearning(state, 'no-progress');
+        recordLoopLearningForState({
+          state,
+          status: 'no-progress',
+          note: this.convergenceNotes.get(state.id),
+          store: this.loopMemoryStore,
+        });
         this.emit('loop:paused-no-progress', { loopRunId: state.id, signal: primary });
         this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
         logger.info('Loop paused — no-progress CRITICAL', { loopRunId: state.id, signal: primary });
@@ -2389,114 +2298,17 @@ export class LoopCoordinator extends EventEmitter {
     state: LoopState,
     options: { maxIterationSeq: number; exactIterationSeq?: number; terminalEligible: boolean },
   ): Promise<void> {
-    if (this.isTerminalStatus(state.status) || this.cancelFlags.get(state.id)) return;
-    const loopControl = this.loopControls.get(state.id);
-    if (!loopControl) return;
-    let imported: Awaited<ReturnType<typeof importLoopTerminalIntents>>;
-    try {
-      imported = await importLoopTerminalIntents(loopControl, options);
-    } catch (err) {
-      if (!this.isTerminalStatus(state.status) && !this.cancelFlags.get(state.id)) {
-        logger.warn('Failed to import loop-control intents', {
-          loopRunId: state.id,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-      return;
-    }
-    for (const rejection of imported.rejected) {
-      this.emit('loop:activity', {
-        loopRunId: state.id,
-        seq: options.exactIterationSeq ?? state.totalIterations,
-        stage: state.currentStage,
-        timestamp: Date.now(),
-        kind: 'error',
-        message: `Rejected loop-control intent: ${rejection.reason}`,
-        detail: { filePath: rejection.filePath },
-      });
-    }
-    if (imported.accepted.length === 0) return;
-
-    const latest = latestIntentByReceivedAt(imported.accepted);
-    if (!latest) return;
-
-    // Build the in-memory transition set BEFORE persisting. We need
-    // each intent's final status (`accepted`/`superseded`) to land in
-    // the same DB row that the persist hook receives — otherwise the
-    // store sees `status='pending'` and the partial unique index on
-    // accepted rows is never exercised.
-    if (state.terminalIntentPending && state.terminalIntentPending.id !== latest.id) {
-      this.transitionTerminalIntent(state, state.terminalIntentPending, 'superseded', `superseded by ${latest.id}`);
-    }
-    const persistOrder: { intent: LoopTerminalIntent; filePath: string | undefined }[] = [];
-    for (const intent of imported.accepted) {
-      if (intent.id === latest.id) continue;
-      const superseded = cloneIntentWithStatus(intent, 'superseded', `superseded by ${latest.id}`);
-      this.rememberTerminalIntent(state, superseded);
-      persistOrder.push({ intent: superseded, filePath: intent.filePath });
-    }
-    this.rememberTerminalIntent(state, latest);
-    persistOrder.push({ intent: latest, filePath: latest.filePath });
-    state.terminalIntentPending = latest;
-
-    // NB2: persist every intent we just added to history BEFORE moving
-    // any source file out of `intents/`. If the persist hook throws we
-    // leave the source files where they are so the next boundary will
-    // re-import — the importer is idempotent on intent id and the DB
-    // upsert collapses retries into no-ops.
-    const persistHook = this.intentPersistHook;
-    if (persistHook) {
-      for (const entry of persistOrder) {
-        try {
-          await persistHook(entry.intent);
-        } catch (err) {
-          logger.warn('Intent persist hook failed — leaving source file in intents/ for next boundary', {
-            loopRunId: state.id,
-            intentId: entry.intent.id,
-            error: err instanceof Error ? err.message : String(err),
-          });
-          this.emit('loop:terminal-intent-rejected', {
-            loopRunId: state.id,
-            intent: cloneIntentWithStatus(entry.intent, 'rejected', 'persist-hook-failed'),
-            reason: err instanceof Error ? err.message : String(err),
-          });
-          // Drop the in-memory pending pointer so the next boundary
-          // reconstructs from disk rather than acting on a half-persisted
-          // intent. terminalIntentHistory keeps the attempt for debugging.
-          if (state.terminalIntentPending?.id === entry.intent.id) {
-            state.terminalIntentPending = undefined;
-          }
-          return;
-        }
-      }
-    }
-
-    // Persistence succeeded for every recorded intent — now it's safe
-    // to archive their source files. Archive failures here are
-    // observability noise, not data loss: the DB row is committed and
-    // the next boundary's importer is idempotent if the file lingers
-    // in `intents/`.
-    for (const entry of persistOrder) {
-      if (!entry.filePath) continue;
-      await commitImportedIntent(loopControl, entry.filePath).catch((err: unknown) => {
-        logger.warn('Failed to archive imported intent file after persistence; retry on next boundary', {
-          loopRunId: state.id,
-          intentId: entry.intent.id,
-          filePath: entry.filePath,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
-    }
-
-    this.emit('loop:terminal-intent-recorded', { loopRunId: state.id, intent: latest });
-    this.emit('loop:activity', {
-      loopRunId: state.id,
-      seq: latest.iterationSeq,
-      stage: state.currentStage,
-      timestamp: Date.now(),
-      kind: 'status',
-      message: `Loop-control ${latest.kind} intent recorded: ${latest.summary}`,
-      detail: { intentId: latest.id, kind: latest.kind },
+    await importTerminalIntentsForBoundaryHelper({
+      state,
+      loopControl: this.loopControls.get(state.id),
+      options,
+      isTerminalStatus: (status) => this.isTerminalStatus(status),
+      isCancelled: (loopRunId) => this.cancelFlags.get(loopRunId) === true,
+      emit: (eventName, payload) => this.emit(eventName, payload),
+      transitionTerminalIntent: (targetState, intent, status, reason) =>
+        this.transitionTerminalIntent(targetState, intent, status, reason),
+      rememberTerminalIntent: (targetState, intent) => this.rememberTerminalIntent(targetState, intent),
+      persistHook: this.intentPersistHook,
     });
   }
 
@@ -2673,196 +2485,6 @@ export class LoopCoordinator extends EventEmitter {
     });
   }
 
-  // ============ Usage-aware throttling helpers ============
-
-  /** Map the loop's provider to the quota-service provider id. */
-  private quotaIdForLoopProvider(state: LoopState): ProviderId {
-    return state.config.provider === 'codex' ? 'codex' : 'claude';
-  }
-
-  /** Evaluate the throttle ladder for the loop's active provider window. */
-  private evaluateLoopQuotaThrottle(state: LoopState): QuotaThrottleDecision {
-    let snapshot: ProviderQuotaSnapshot | null = null;
-    try {
-      snapshot = this.quotaSnapshotProvider(this.quotaIdForLoopProvider(state));
-    } catch (err) {
-      logger.debug('Quota snapshot provider threw; skipping throttle', {
-        loopRunId: state.id,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return { action: 'continue' };
-    }
-    return evaluateQuotaThrottle(snapshot, { allowOverage: this.allowOverage });
-  }
-
-  /**
-   * When a provider *notice* fires (reactive path) we have no reset time from
-   * the text itself; derive one from the latest quota snapshot's binding /
-   * exhausted window so the loop can still auto-resume when the window resets.
-   */
-  private deriveProviderLimitResume(state: LoopState): {
-    resumeAt: number | null;
-    windowId?: string;
-  } {
-    let snapshot: ProviderQuotaSnapshot | null = null;
-    try {
-      snapshot = this.quotaSnapshotProvider(this.quotaIdForLoopProvider(state));
-    } catch {
-      snapshot = null;
-    }
-    if (!snapshot || !snapshot.ok) return { resumeAt: null };
-    // Prefer the most-utilized window that carries a future reset time.
-    const now = Date.now();
-    let best: { resetsAt: number; id: string } | null = null;
-    let bestPct = -1;
-    for (const w of snapshot.windows) {
-      if (w.resetsAt == null || w.resetsAt <= now || w.limit <= 0) continue;
-      const pct = (w.used / w.limit) * 100;
-      if (pct > bestPct) {
-        bestPct = pct;
-        best = { resetsAt: w.resetsAt, id: w.id };
-      }
-    }
-    return best ? { resumeAt: best.resetsAt, windowId: best.id } : { resumeAt: null };
-  }
-
-  /**
-   * Central handler for "the active provider won't let us continue".
-   *
-   * Returns:
-   *   • 'parked'     — paused with an auto-resume scheduled at the window reset.
-   *   • 'terminated' — stopped as `provider-limit` (no reset to resume at).
-   *   • 'skipped'    — took no action; the caller should continue normally.
-   *
-   * `mustStop` is set on the reactive (notice) path — we *know* we hit the wall,
-   * so we always park-or-terminate and never 'skip'. The preventive (quota)
-   * path may 'skip' when the snapshot is stale (its window already reset but
-   * `used` hasn't refreshed) or when it's a soft throttle (≥90% but <100%, not
-   * overage) with no known reset, where killing the run would be premature.
-   */
-  private handleProviderLimit(
-    state: LoopState,
-    opts: {
-      reason: string;
-      resumeAt: number | null;
-      source: 'quota' | 'notice';
-      action: QuotaThrottleDecision['action'] | 'notice';
-      windowId?: string;
-      mustStop?: boolean;
-    },
-  ): 'parked' | 'terminated' | 'skipped' {
-    const now = Date.now();
-    const reset = opts.resumeAt;
-
-    if (!opts.mustStop) {
-      // Stale-snapshot guard: the window's own reset has already passed, so the
-      // cached `used` predates the reset — let the next poll refresh it instead
-      // of acting on stale data (this is what prevents an auto-resumed loop from
-      // immediately re-terminating on the pre-reset snapshot).
-      if (reset != null && reset <= now) return 'skipped';
-      // Soft throttle with no schedulable resume → defer to the reactive
-      // backstop rather than terminating a run that isn't actually at the wall.
-      if (opts.action === 'throttle' && (reset == null || reset <= now)) return 'skipped';
-    }
-
-    const willResume = typeof reset === 'number' && reset > now;
-    this.emit('loop:provider-limit', {
-      loopRunId: state.id,
-      reason: opts.reason,
-      source: opts.source,
-      action: opts.action,
-      windowId: opts.windowId,
-      resumeAt: willResume ? reset : null,
-      willResume,
-    });
-
-    if (willResume) {
-      // Park: finish nothing new, block the next pre-flight, schedule resume.
-      state.status = 'paused';
-      this.convergenceNotes.set(state.id, opts.reason);
-      this.scheduleResume(state, {
-        resumeAt: reset as number,
-        reason: opts.reason,
-        source: opts.source,
-        action: opts.action,
-        windowId: opts.windowId,
-      });
-      this.emit('loop:state-changed', {
-        loopRunId: state.id,
-        state: this.cloneStateForBroadcast(state),
-      });
-      logger.info('Loop parked on provider limit; will auto-resume at window reset', {
-        loopRunId: state.id,
-        resumeAt: reset,
-        source: opts.source,
-      });
-      return 'parked';
-    }
-
-    // No known reset — terminate cleanly rather than spin or pause forever.
-    this.terminate(state, 'provider-limit', opts.reason);
-    return 'terminated';
-  }
-
-  private scheduleResume(
-    state: LoopState,
-    opts: {
-      resumeAt: number;
-      reason: string;
-      source: 'quota' | 'notice';
-      action: QuotaThrottleDecision['action'] | 'notice';
-      windowId?: string;
-    },
-  ): void {
-    this.clearResumeTimer(state.id);
-    const request: ProviderLimitResumeScheduleRequest = {
-      loopRunId: state.id,
-      chatId: state.chatId,
-      workspaceCwd: state.config.workspaceCwd,
-      provider: this.quotaIdForLoopProvider(state),
-      resumeAt: opts.resumeAt,
-      reason: opts.reason,
-      source: opts.source,
-      action: opts.action,
-      windowId: opts.windowId,
-    };
-
-    let cancel: (() => void) | void = undefined;
-    try {
-      cancel = this.providerLimitResumeScheduler?.(request);
-    } catch (err) {
-      logger.warn('Provider-limit resume scheduler failed; falling back to in-process timer', {
-        loopRunId: state.id,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-    if (!cancel) cancel = this.scheduleInProcessResume(state.id, opts.resumeAt);
-    this.resumeCancellers.set(state.id, cancel);
-  }
-
-  /** Schedule an in-process auto-resume at (or shortly after) `resumeAt`. */
-  private scheduleInProcessResume(loopRunId: string, resumeAt: number): () => void {
-    // Small buffer so the window has definitely rolled over server-side.
-    const delay = Math.max(0, resumeAt - Date.now()) + 5_000;
-    const timer = setTimeout(() => {
-      this.resumeCancellers.delete(loopRunId);
-      const resumed = this.resumeLoop(loopRunId);
-      logger.info('Loop auto-resume timer fired after provider-limit park', {
-        loopRunId,
-        resumed,
-      });
-    }, delay);
-    if (typeof timer.unref === 'function') timer.unref();
-    return () => clearTimeout(timer);
-  }
-
-  private clearResumeTimer(loopRunId: string): void {
-    const cancel = this.resumeCancellers.get(loopRunId);
-    if (!cancel) return;
-    cancel();
-    this.resumeCancellers.delete(loopRunId);
-  }
-
   private terminate(state: LoopState, status: LoopState['status'], reason?: string): void {
     // Idempotent: if we're already in a terminal state we must not emit
     // duplicate cancelled/error events. Without this, a force-terminate from
@@ -2870,7 +2492,7 @@ export class LoopCoordinator extends EventEmitter {
     // emit `loop:cancelled` twice and double-clean attachments.
     if (this.isTerminalStatus(state.status)) return;
     // Cancel any pending provider-limit auto-resume; this run is over.
-    this.clearResumeTimer(state.id);
+    this.providerLimitHandler.clearResumeTimer(state.id);
     this.downshiftModelByLoop.delete(state.id);
     state.status = status;
     state.endedAt = Date.now();
@@ -2880,7 +2502,12 @@ export class LoopCoordinator extends EventEmitter {
       terminalIntent: state.terminalIntentHistory?.at(-1),
     };
     // LF-6: distill a terminal learning BEFORE the convergence note is cleared.
-    this.recordLoopLearning(state, status);
+    recordLoopLearningForState({
+      state,
+      status,
+      note: this.convergenceNotes.get(state.id),
+      store: this.loopMemoryStore,
+    });
     const watcher = this.watchers.get(state.id);
     if (watcher) {
       void watcher.stop();
@@ -2953,34 +2580,6 @@ export class LoopCoordinator extends EventEmitter {
       attempt: done + 1,
     });
     return true;
-  }
-
-  /**
-   * LF-6 — distill + persist a cross-loop learning record. Best-effort: any
-   * failure is logged and swallowed (memory must never break the loop). Reads
-   * the convergence note as the "why" / dead-end, so call it before that note
-   * is cleared in terminate().
-   */
-  private recordLoopLearning(state: LoopState, status: string): void {
-    try {
-      const note = this.convergenceNotes.get(state.id);
-      const record = distillLearning({
-        workspaceCwd: state.config.workspaceCwd,
-        goal: state.config.initialPrompt,
-        status,
-        reason: state.endReason ?? note ?? status,
-        lastCompletionOutcome: state.lastCompletionOutcome,
-        deadEnds: note ? [note] : [],
-      });
-      void Promise.resolve(this.loopMemoryStore.recordLearning(record)).catch((err) => {
-        logger.warn('recordLoopLearning persist failed', {
-          loopRunId: state.id,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
-    } catch (err) {
-      logger.warn('recordLoopLearning threw', { loopRunId: state.id, error: String(err) });
-    }
   }
 
   /** Deep-ish clone for safe broadcast — strips cycles and large arrays. */

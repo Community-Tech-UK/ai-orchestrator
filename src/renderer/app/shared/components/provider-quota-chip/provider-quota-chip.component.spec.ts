@@ -226,6 +226,43 @@ describe('ProviderQuotaChipComponent', () => {
       expect(popover?.textContent).toContain('Cursor included');
     });
 
+    it('colors each strip entry by its own percentage rather than inheriting the worst provider color', () => {
+      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [makeWindow(100, 100)]));
+      store.setSnapshot('codex', makeSnapshot('codex', 'plus', true, [
+        { ...makeWindow(7, 100), id: 'codex.weekly', label: 'Codex weekly' },
+      ]));
+      store.setSnapshot('gemini', makeSnapshot('gemini', 'personal', true, [
+        { ...makeWindow(46, 100), id: 'gemini.daily', label: 'Gemini daily' },
+      ]));
+      store.setSnapshot('copilot', makeSnapshot('copilot', 'pro', true, [
+        { ...makeWindow(83, 100), id: 'copilot.monthly', label: 'Copilot monthly' },
+      ]));
+      store.setSnapshot('cursor', makeSnapshot('cursor', 'pro', true, [
+        { ...makeWindow(9, 100), id: 'cursor.included', label: 'Cursor included' },
+      ]));
+      store.setWorst({ provider: 'claude', window: makeWindow(100, 100) });
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      const entries = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="quota-strip"] .provider-entry'));
+      const findEntry = (code: string) => entries.find((entry) => entry.textContent?.startsWith(code));
+
+      const claude = findEntry('CC');
+      const codex = findEntry('CX');
+      const gemini = findEntry('GM');
+      const copilot = findEntry('CP');
+      const cursor = findEntry('CU');
+
+      expect(claude?.style.color).toBeTruthy();
+      expect(codex?.style.color).toBeTruthy();
+      expect(gemini?.style.color).toBeTruthy();
+      expect(copilot?.style.color).toBeTruthy();
+      expect(cursor?.style.color).toBeTruthy();
+      expect(codex?.style.color).not.toBe(claude?.style.color);
+      expect(gemini?.style.color).not.toBe(claude?.style.color);
+      expect(cursor?.style.color).not.toBe(claude?.style.color);
+    });
+
     it('shows per-provider freshness and refresh controls in the detail popover', () => {
       const now = Date.now();
       (component as unknown as { nowMs: { set(value: number): void } }).nowMs.set(now);
