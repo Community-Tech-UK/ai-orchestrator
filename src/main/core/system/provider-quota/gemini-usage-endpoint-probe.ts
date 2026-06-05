@@ -26,9 +26,6 @@ const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const USER_AGENT = 'GeminiCLI-usage-poller';
 const DEFAULT_TIMEOUT_MS = 10_000;
 const EXPIRY_SKEW_MS = 90_000;
-// Public OAuth client shipped by gemini-cli; this is not a user secret.
-const GEMINI_CLIENT_ID = process.env['AIO_GEMINI_OAUTH_CLIENT_ID'] ?? '';
-const GEMINI_CLIENT_SECRET = process.env['AIO_GEMINI_OAUTH_CLIENT_SECRET'] ?? '';
 
 export type GeminiQuotaFileReader = (filePath: string) => Promise<string>;
 
@@ -40,8 +37,15 @@ export type GeminiQuotaFetch = (
 
 export type GeminiTokenRefreshFetch = (
   refreshToken: string,
-  opts: { signal: AbortSignal; timeoutMs: number },
+  opts: GeminiTokenRefreshOptions,
 ) => Promise<{ accessToken: string; expiresInSec: number }>;
+
+export interface GeminiTokenRefreshOptions {
+  signal: AbortSignal;
+  timeoutMs: number;
+  clientId?: string;
+  clientSecret?: string;
+}
 
 export interface GeminiUsageEndpointProbeOptions {
   configDir?: string;
@@ -59,6 +63,13 @@ interface GeminiOAuthCreds {
   access_token?: string;
   expiry_date?: number;
   refresh_token?: string;
+  client_id?: string;
+  client_secret?: string;
+}
+
+interface GeminiOAuthClient {
+  clientId?: string;
+  clientSecret?: string;
 }
 
 interface GeminiQuotaBucket {
@@ -183,12 +194,31 @@ export class GeminiUsageEndpointProbe implements ProviderQuotaProbe {
     if (!refreshToken) return null;
 
     try {
-      const refreshed = await this.refreshToken(refreshToken, { signal, timeoutMs: this.timeoutMs });
+      const refreshed = await this.refreshToken(refreshToken, {
+        signal,
+        timeoutMs: this.timeoutMs,
+        ...this.resolveOAuthClient(creds),
+      });
       return refreshed.accessToken;
     } catch (err) {
       logger.debug(`Gemini OAuth refresh failed: ${(err as Error).message}`);
       return null;
     }
+  }
+
+  private resolveOAuthClient(creds: GeminiOAuthCreds): GeminiOAuthClient {
+    return {
+      clientId: firstTrimmed(
+        this.env['AIO_GEMINI_OAUTH_CLIENT_ID'],
+        this.env['GEMINI_OAUTH_CLIENT_ID'],
+        creds.client_id,
+      ),
+      clientSecret: firstTrimmed(
+        this.env['AIO_GEMINI_OAUTH_CLIENT_SECRET'],
+        this.env['GEMINI_OAUTH_CLIENT_SECRET'],
+        creds.client_secret,
+      ),
+    };
   }
 }
 
@@ -264,6 +294,14 @@ function clampPct(value: number): number {
   return Math.round(clamped * 1000) / 1000;
 }
 
+function firstTrimmed(...values: Array<string | undefined>): string | undefined {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) return trimmed;
+  }
+  return undefined;
+}
+
 function failedSnapshot(takenAt: number, error: string): ProviderQuotaSnapshot {
   return {
     provider: 'gemini',
@@ -317,7 +355,14 @@ const defaultFetchQuota: GeminiQuotaFetch = async (accessToken, project, { signa
   }
 };
 
-const defaultRefreshToken: GeminiTokenRefreshFetch = async (refreshToken, { signal, timeoutMs }) => {
+const defaultRefreshToken: GeminiTokenRefreshFetch = async (
+  refreshToken,
+  { signal, timeoutMs, clientId, clientSecret },
+) => {
+  if (!clientId || !clientSecret) {
+    throw new Error('Gemini OAuth client metadata is not configured');
+  }
+
   const timeoutController = new AbortController();
   const timer = setTimeout(() => timeoutController.abort(), timeoutMs);
   const onCallerAbort = () => timeoutController.abort();
@@ -326,8 +371,8 @@ const defaultRefreshToken: GeminiTokenRefreshFetch = async (refreshToken, { sign
 
   try {
     const body = new URLSearchParams({
-      client_id: GEMINI_CLIENT_ID,
-      client_secret: GEMINI_CLIENT_SECRET,
+      client_id: clientId,
+      client_secret: clientSecret,
       refresh_token: refreshToken,
       grant_type: 'refresh_token',
     });

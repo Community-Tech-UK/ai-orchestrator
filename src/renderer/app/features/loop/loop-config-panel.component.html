@@ -146,8 +146,8 @@
       <section class="row">
         <label for="loop-cfg-context">Context strategy <span class="hint">(how iterations carry state)</span></label>
         <select id="loop-cfg-context" [ngModel]="contextStrategy()" (ngModelChange)="contextStrategy.set($event)">
-          <option value="fresh-child">Fresh child — each iter is a new CLI process; state lives on disk (NOTES.md, plan file)</option>
-          <option value="same-session">Same session — keep one CLI alive, conversation persists across iters (Ralph-loop style)</option>
+          <option value="fresh-child">Fresh child — default; each iter starts clean and reloads state from disk</option>
+          <option value="same-session">Same session — advanced continuity mode; conversation persists across iters</option>
           <option value="hybrid">Hybrid — not yet implemented; falls back to fresh-child</option>
         </select>
       </section>

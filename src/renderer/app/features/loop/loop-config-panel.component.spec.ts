@@ -117,6 +117,12 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.caps?.maxTokens).toBeNull();
   });
 
+  it('defaults each loop iteration to a fresh child context', () => {
+    const config = component.buildConfig();
+
+    expect(config?.contextStrategy).toBe('fresh-child');
+  });
+
   it('defaults the context recycle threshold to 60%', () => {
     const config = component.buildConfig();
 

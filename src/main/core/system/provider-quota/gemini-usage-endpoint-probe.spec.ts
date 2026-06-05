@@ -4,6 +4,7 @@ import {
   parseGeminiQuotaPayload,
   type GeminiQuotaFileReader,
   type GeminiQuotaFetch,
+  type GeminiTokenRefreshOptions,
   type GeminiTokenRefreshFetch,
 } from './gemini-usage-endpoint-probe';
 
@@ -98,6 +99,43 @@ describe('GeminiUsageEndpointProbe', () => {
 
     expect(refreshes).toEqual(['existing-refresh-token']);
     expect(snap!.ok).toBe(true);
+  });
+
+  it('passes OAuth client metadata from runtime credentials when refreshing', async () => {
+    const refreshCalls: GeminiTokenRefreshOptions[] = [];
+    const refreshToken: GeminiTokenRefreshFetch = async (_refreshTokenValue, opts) => {
+      refreshCalls.push(opts);
+      return { accessToken: 'fresh-access-token', expiresInSec: 3600 };
+    };
+    const fetchQuota: GeminiQuotaFetch = async () => ({
+      status: 200,
+      body: { buckets: [{ modelId: 'gemini-2.5-pro', remainingFraction: 0.5 }] },
+    });
+
+    const probe = new GeminiUsageEndpointProbe({
+      readFile: reader({
+        'oauth_creds.json': JSON.stringify({
+          access_token: 'expired-access-token',
+          expiry_date: Date.now() - 1000,
+          refresh_token: 'existing-refresh-token',
+          client_id: 'fixture-client-id',
+          client_secret: 'fixture-client-marker',
+        }),
+        'gemini_project': 'cloudaicompanion-prod',
+      }),
+      refreshToken,
+      fetchQuota,
+    });
+
+    const snap = await probe.probe({ signal: new AbortController().signal });
+
+    expect(snap!.ok).toBe(true);
+    expect(refreshCalls).toEqual([
+      expect.objectContaining({
+        clientId: 'fixture-client-id',
+        clientSecret: 'fixture-client-marker',
+      }),
+    ]);
   });
 
   it('parses quota buckets by model family using the lowest remaining fraction', () => {

@@ -402,7 +402,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
     workspaceCwd,
     provider: 'claude',
     reviewStyle: 'debate',
-    contextStrategy: 'same-session',
+    contextStrategy: 'fresh-child',
     caps: {
       maxIterations: 500,
       maxWallTimeMs: 8 * 60 * 60 * 1000,

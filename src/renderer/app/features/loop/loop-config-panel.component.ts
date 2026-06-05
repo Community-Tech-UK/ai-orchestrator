@@ -134,7 +134,7 @@ export class LoopConfigPanelComponent {
   quickVerifyCommand = signal('');
   provider = signal<PickerProvider>('claude');
   reviewStyle = signal<'single' | 'debate' | 'star-chamber'>('debate');
-  contextStrategy = signal<'fresh-child' | 'hybrid' | 'same-session'>('same-session');
+  contextStrategy = signal<'fresh-child' | 'hybrid' | 'same-session'>('fresh-child');
   initialStage = signal<'PLAN' | 'REVIEW' | 'IMPLEMENT'>('IMPLEMENT');
   /** Per-iteration wall-clock cap, exposed in minutes for UI sanity. */
   iterationTimeoutMin = signal(30);
