@@ -15,7 +15,11 @@
 
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ComposerToolbarComponent, deriveComposerPickerSelection } from './composer-toolbar.component';
+import {
+  ComposerToolbarComponent,
+  deriveComposerPickerSelection,
+  shouldHydrateComposerPickerSelection,
+} from './composer-toolbar.component';
 import { InstanceIpcService } from '../../core/services/ipc';
 import type { ContextUsage } from '../../core/state/instance/instance.types';
 
@@ -202,5 +206,53 @@ describe('deriveComposerPickerSelection', () => {
 
   it('uses null model when the instance has no model yet', () => {
     expect(deriveComposerPickerSelection('cursor', undefined).model).toBeNull();
+  });
+});
+
+describe('shouldHydrateComposerPickerSelection', () => {
+  const cursorComposer = deriveComposerPickerSelection('cursor', 'composer-2.5');
+  const cursorAuto = deriveComposerPickerSelection('cursor', 'auto');
+  const cursorUnknown = deriveComposerPickerSelection('cursor', undefined);
+
+  it('hydrates when the picker still has a null model placeholder', () => {
+    expect(
+      shouldHydrateComposerPickerSelection(
+        { provider: 'cursor', model: null, reasoning: null },
+        cursorComposer,
+      ),
+    ).toBe(true);
+  });
+
+  it('hydrates when the picker still shows the auto sentinel', () => {
+    expect(
+      shouldHydrateComposerPickerSelection(
+        { provider: 'cursor', model: 'auto', reasoning: null },
+        cursorComposer,
+      ),
+    ).toBe(true);
+  });
+
+  it('does not hydrate when the user already picked a concrete model', () => {
+    expect(
+      shouldHydrateComposerPickerSelection(
+        { provider: 'cursor', model: 'gpt-5.3-codex', reasoning: null },
+        cursorComposer,
+      ),
+    ).toBe(false);
+  });
+
+  it('does not hydrate when derived model is still auto or unknown', () => {
+    expect(
+      shouldHydrateComposerPickerSelection(
+        { provider: 'cursor', model: null, reasoning: null },
+        cursorAuto,
+      ),
+    ).toBe(false);
+    expect(
+      shouldHydrateComposerPickerSelection(
+        { provider: 'cursor', model: null, reasoning: null },
+        cursorUnknown,
+      ),
+    ).toBe(false);
   });
 });

@@ -125,7 +125,8 @@ export type TerminalLoopStatus =
   | 'failed'
   | 'cap-reached'
   | 'error'
-  | 'no-progress';
+  | 'no-progress'
+  | 'provider-limit';
 
 export function terminalStatusLabel(status: TerminalLoopStatus): string {
   switch (status) {
@@ -136,6 +137,7 @@ export function terminalStatusLabel(status: TerminalLoopStatus): string {
     case 'cap-reached':            return 'cap reached';
     case 'error':                  return 'error';
     case 'no-progress':            return 'no progress';
+    case 'provider-limit':         return 'provider limit';
   }
 }
 
@@ -155,6 +157,7 @@ export function loopStatusLabel(status: string): string {
     case 'cap-reached':            return 'cap';
     case 'error':                  return 'error';
     case 'no-progress':            return 'no-progress';
+    case 'provider-limit':         return 'provider limit';
     case 'paused':                 return 'paused';
     case 'running':                return 'running';
     default:                       return status;
@@ -216,6 +219,7 @@ export function loopStatusPill(input: {
     case 'error':       return { kind: 'stopped', label: 'ERROR' };
     case 'cap-reached': return { kind: 'stopped', label: 'CAP REACHED' };
     case 'no-progress': return { kind: 'no-progress', label: 'NO PROGRESS' };
+    case 'provider-limit': return { kind: 'stopped', label: 'PROVIDER LIMIT' };
     default:            return { kind: 'paused', label: String(input.status).toUpperCase() };
   }
 }

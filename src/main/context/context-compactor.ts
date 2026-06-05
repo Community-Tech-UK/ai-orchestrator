@@ -12,6 +12,7 @@ import { EventEmitter } from 'events';
 import { getLLMService, type LLMService } from '../rlm/llm-service';
 import { getLogger } from '../logging/logger';
 import { LIMITS } from '../../shared/constants/limits';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import { Microcompact, type MicrocompactTurn, type MicrocompactResult } from './microcompact';
 import { ContextCollapse, type CollapsibleTurn, type ApplyResult } from './context-collapse';
 
@@ -935,8 +936,7 @@ ${commandsSection}
   }
 
   private estimateTokens(text: string): number {
-    // Rough estimation: ~4 characters per token
-    return Math.ceil(text.length / 4);
+    return sharedEstimateTokens(text);
   }
 
   private generateId(): string {

@@ -111,6 +111,16 @@ import {
   runWorkspaceLivenessProbe as runWorkspaceLivenessProbeHelper,
 } from './loop-coordinator-block-utils';
 import { defaultLoopExplorationConfig } from '../../shared/types/loop.types';
+import type {
+  ProviderId,
+  ProviderQuotaSnapshot,
+} from '../../shared/types/provider-quota.types';
+import { isProviderNotice } from '../cli/provider-notice';
+import {
+  evaluateQuotaThrottle,
+  isParkingDecision,
+  type QuotaThrottleDecision,
+} from './loop-quota-throttle';
 import { streamLoopEvents } from './loop-stream';
 import {
   evaluateReviewDrivenCompletion as evaluateReviewDrivenCompletionGate,
@@ -229,6 +239,22 @@ export type LoopIntentPersistHook = (intent: LoopTerminalIntent) => Promise<void
  */
 export type LoopAdapterCleanupHook = (loopRunId: string) => Promise<void>;
 
+export interface ProviderLimitResumeScheduleRequest {
+  loopRunId: string;
+  chatId: string;
+  workspaceCwd: string;
+  provider: ProviderId;
+  resumeAt: number;
+  reason: string;
+  source: 'quota' | 'notice';
+  action: QuotaThrottleDecision['action'] | 'notice';
+  windowId?: string;
+}
+
+export type ProviderLimitResumeScheduler = (
+  request: ProviderLimitResumeScheduleRequest,
+) => (() => void) | void;
+
 export interface LoopRuntimeContext {
   /**
    * Prior visible-session transcript used as read-only background for loop
@@ -335,6 +361,42 @@ export class LoopCoordinator extends EventEmitter {
   /** Override the cross-loop memory store (tests / durable persistence). */
   setLoopMemoryStore(store: LoopMemoryStore): void {
     this.loopMemoryStore = store;
+  }
+
+  /**
+   * Usage-aware throttling: supplies the latest quota snapshot for a provider
+   * so the pre-iteration pre-flight can park the loop *before* it spills into
+   * paid overage. Defaults to "no data" (always returns null ⇒ no throttling),
+   * so the behaviour is a clean no-op unless the host wires the real
+   * `ProviderQuotaService`. Injectable for tests.
+   */
+  private quotaSnapshotProvider: (provider: ProviderId) => ProviderQuotaSnapshot | null = () => null;
+
+  /** Whether the loop may ride paid overage (decision #3). Default: never. */
+  private allowOverage = false;
+
+  /** Pending provider-limit resume cancellers, keyed by loopRunId. */
+  private resumeCancellers = new Map<string, () => void>();
+
+  /** Optional durable scheduler hook. Defaults to an in-process timer. */
+  private providerLimitResumeScheduler: ProviderLimitResumeScheduler | null = null;
+
+  /** Current model downshift override, keyed by loopRunId. */
+  private downshiftModelByLoop = new Map<string, string>();
+
+  /** Override the quota snapshot source (production wiring / tests). */
+  setQuotaSnapshotProvider(fn: (provider: ProviderId) => ProviderQuotaSnapshot | null): void {
+    this.quotaSnapshotProvider = fn;
+  }
+
+  /** Opt into riding paid overage credits (decision #3 alternative). */
+  setAllowOverage(allow: boolean): void {
+    this.allowOverage = allow;
+  }
+
+  /** Override provider-limit resume scheduling (production automation wiring / tests). */
+  setProviderLimitResumeScheduler(scheduler: ProviderLimitResumeScheduler | null): void {
+    this.providerLimitResumeScheduler = scheduler;
   }
 
   /**
@@ -913,6 +975,8 @@ export class LoopCoordinator extends EventEmitter {
     const state = this.active.get(loopRunId);
     if (!state) return false;
     if (state.status !== 'paused') return false;
+    // A manual resume supersedes any pending provider-limit auto-resume timer.
+    this.clearResumeTimer(loopRunId);
     state.status = 'running';
     const gate = this.pauseGates.get(loopRunId);
     if (gate) {
@@ -1091,7 +1155,8 @@ export class LoopCoordinator extends EventEmitter {
       status === 'failed' ||
       status === 'cap-reached' ||
       status === 'error' ||
-      status === 'no-progress'
+      status === 'no-progress' ||
+      status === 'provider-limit'
     );
   }
 
@@ -1155,6 +1220,43 @@ export class LoopCoordinator extends EventEmitter {
         this.emit('loop:cap-reached', { loopRunId: state.id, cap: capHit, reason });
         this.terminate(state, 'cap-reached', reason);
         return;
+      }
+
+      // -- usage-aware throttle (preventive) --
+      // Before spawning another paid iteration, consult the active provider's
+      // quota window. At ≥90% (or exhausted, or already on paid overage) we
+      // park instead of starting a turn that would spill into real money.
+      if (state.status === 'running') {
+        const throttle = this.evaluateLoopQuotaThrottle(state);
+        if (throttle.action === 'downshift' && throttle.downshift) {
+          this.downshiftModelByLoop.set(state.id, throttle.downshift.model);
+          this.emit('loop:activity', {
+            loopRunId: state.id,
+            seq: state.totalIterations,
+            stage: state.currentStage,
+            timestamp: Date.now(),
+            kind: 'status',
+            message: `Provider quota high — downshifting to ${throttle.downshift.model}`,
+            detail: {
+              reason: throttle.reason,
+              bindingWindowId: throttle.window?.id,
+              targetWindowId: throttle.downshift.windowId,
+            },
+          });
+        } else if (isParkingDecision(throttle)) {
+          const outcome = this.handleProviderLimit(state, {
+            reason: throttle.reason ?? 'provider usage limit reached',
+            resumeAt: throttle.resumeAt ?? null,
+            source: 'quota',
+            action: throttle.action,
+            windowId: throttle.window?.id,
+          });
+          if (outcome === 'terminated') return;
+          if (outcome === 'parked') continue; // next pass blocks in waitWhilePaused
+          // 'skipped' (stale/soft) → fall through and spawn this iteration.
+        } else {
+          this.downshiftModelByLoop.delete(state.id);
+        }
       }
       await this.importTerminalIntentsForBoundary(state, {
         maxIterationSeq: state.totalIterations,
@@ -1430,6 +1532,34 @@ export class LoopCoordinator extends EventEmitter {
         logger.info('Iteration completed after loop was cancelled — dropping result', {
           loopRunId: state.id,
           seq,
+        });
+        return;
+      }
+
+      // -- usage-aware reactive backstop --
+      // Independent of polling: a throttled/over-limit provider does NOT throw
+      // — it prints a human-readable notice ("You've hit your session limit ·
+      // resets 6:30pm") as the assistant message and exits 0. Without this
+      // guard the loop would record that notice as a normal iteration and grind
+      // to `cap-reached`, spending real money the whole way. Detect it BEFORE
+      // counting the turn: don't accumulate stats, don't run progress/completion
+      // detection — park (auto-resume when we know the reset) or terminate with
+      // a distinct `provider-limit` reason.
+      if (isProviderNotice(childResult.output)) {
+        const derived = this.deriveProviderLimitResume(state);
+        const outcome = this.handleProviderLimit(state, {
+          reason: `provider usage/limit notice in iteration output: "${excerpt(childResult.output).slice(0, 160)}"`,
+          resumeAt: derived.resumeAt,
+          source: 'notice',
+          action: 'notice',
+          windowId: derived.windowId,
+          mustStop: true,
+        });
+        logger.warn('Loop hit a provider usage/limit notice', {
+          loopRunId: state.id,
+          seq,
+          outcome,
+          resumeAt: derived.resumeAt,
         });
         return;
       }
@@ -2223,6 +2353,7 @@ export class LoopCoordinator extends EventEmitter {
         loopRunId: state.id,
         chatId: state.chatId,
         provider: state.config.provider,
+        model: this.downshiftModelByLoop.get(state.id),
         workspaceCwd: state.config.workspaceCwd,
         stage,
         seq: state.totalIterations,
@@ -2542,12 +2673,205 @@ export class LoopCoordinator extends EventEmitter {
     });
   }
 
+  // ============ Usage-aware throttling helpers ============
+
+  /** Map the loop's provider to the quota-service provider id. */
+  private quotaIdForLoopProvider(state: LoopState): ProviderId {
+    return state.config.provider === 'codex' ? 'codex' : 'claude';
+  }
+
+  /** Evaluate the throttle ladder for the loop's active provider window. */
+  private evaluateLoopQuotaThrottle(state: LoopState): QuotaThrottleDecision {
+    let snapshot: ProviderQuotaSnapshot | null = null;
+    try {
+      snapshot = this.quotaSnapshotProvider(this.quotaIdForLoopProvider(state));
+    } catch (err) {
+      logger.debug('Quota snapshot provider threw; skipping throttle', {
+        loopRunId: state.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { action: 'continue' };
+    }
+    return evaluateQuotaThrottle(snapshot, { allowOverage: this.allowOverage });
+  }
+
+  /**
+   * When a provider *notice* fires (reactive path) we have no reset time from
+   * the text itself; derive one from the latest quota snapshot's binding /
+   * exhausted window so the loop can still auto-resume when the window resets.
+   */
+  private deriveProviderLimitResume(state: LoopState): {
+    resumeAt: number | null;
+    windowId?: string;
+  } {
+    let snapshot: ProviderQuotaSnapshot | null = null;
+    try {
+      snapshot = this.quotaSnapshotProvider(this.quotaIdForLoopProvider(state));
+    } catch {
+      snapshot = null;
+    }
+    if (!snapshot || !snapshot.ok) return { resumeAt: null };
+    // Prefer the most-utilized window that carries a future reset time.
+    const now = Date.now();
+    let best: { resetsAt: number; id: string } | null = null;
+    let bestPct = -1;
+    for (const w of snapshot.windows) {
+      if (w.resetsAt == null || w.resetsAt <= now || w.limit <= 0) continue;
+      const pct = (w.used / w.limit) * 100;
+      if (pct > bestPct) {
+        bestPct = pct;
+        best = { resetsAt: w.resetsAt, id: w.id };
+      }
+    }
+    return best ? { resumeAt: best.resetsAt, windowId: best.id } : { resumeAt: null };
+  }
+
+  /**
+   * Central handler for "the active provider won't let us continue".
+   *
+   * Returns:
+   *   • 'parked'     — paused with an auto-resume scheduled at the window reset.
+   *   • 'terminated' — stopped as `provider-limit` (no reset to resume at).
+   *   • 'skipped'    — took no action; the caller should continue normally.
+   *
+   * `mustStop` is set on the reactive (notice) path — we *know* we hit the wall,
+   * so we always park-or-terminate and never 'skip'. The preventive (quota)
+   * path may 'skip' when the snapshot is stale (its window already reset but
+   * `used` hasn't refreshed) or when it's a soft throttle (≥90% but <100%, not
+   * overage) with no known reset, where killing the run would be premature.
+   */
+  private handleProviderLimit(
+    state: LoopState,
+    opts: {
+      reason: string;
+      resumeAt: number | null;
+      source: 'quota' | 'notice';
+      action: QuotaThrottleDecision['action'] | 'notice';
+      windowId?: string;
+      mustStop?: boolean;
+    },
+  ): 'parked' | 'terminated' | 'skipped' {
+    const now = Date.now();
+    const reset = opts.resumeAt;
+
+    if (!opts.mustStop) {
+      // Stale-snapshot guard: the window's own reset has already passed, so the
+      // cached `used` predates the reset — let the next poll refresh it instead
+      // of acting on stale data (this is what prevents an auto-resumed loop from
+      // immediately re-terminating on the pre-reset snapshot).
+      if (reset != null && reset <= now) return 'skipped';
+      // Soft throttle with no schedulable resume → defer to the reactive
+      // backstop rather than terminating a run that isn't actually at the wall.
+      if (opts.action === 'throttle' && (reset == null || reset <= now)) return 'skipped';
+    }
+
+    const willResume = typeof reset === 'number' && reset > now;
+    this.emit('loop:provider-limit', {
+      loopRunId: state.id,
+      reason: opts.reason,
+      source: opts.source,
+      action: opts.action,
+      windowId: opts.windowId,
+      resumeAt: willResume ? reset : null,
+      willResume,
+    });
+
+    if (willResume) {
+      // Park: finish nothing new, block the next pre-flight, schedule resume.
+      state.status = 'paused';
+      this.convergenceNotes.set(state.id, opts.reason);
+      this.scheduleResume(state, {
+        resumeAt: reset as number,
+        reason: opts.reason,
+        source: opts.source,
+        action: opts.action,
+        windowId: opts.windowId,
+      });
+      this.emit('loop:state-changed', {
+        loopRunId: state.id,
+        state: this.cloneStateForBroadcast(state),
+      });
+      logger.info('Loop parked on provider limit; will auto-resume at window reset', {
+        loopRunId: state.id,
+        resumeAt: reset,
+        source: opts.source,
+      });
+      return 'parked';
+    }
+
+    // No known reset — terminate cleanly rather than spin or pause forever.
+    this.terminate(state, 'provider-limit', opts.reason);
+    return 'terminated';
+  }
+
+  private scheduleResume(
+    state: LoopState,
+    opts: {
+      resumeAt: number;
+      reason: string;
+      source: 'quota' | 'notice';
+      action: QuotaThrottleDecision['action'] | 'notice';
+      windowId?: string;
+    },
+  ): void {
+    this.clearResumeTimer(state.id);
+    const request: ProviderLimitResumeScheduleRequest = {
+      loopRunId: state.id,
+      chatId: state.chatId,
+      workspaceCwd: state.config.workspaceCwd,
+      provider: this.quotaIdForLoopProvider(state),
+      resumeAt: opts.resumeAt,
+      reason: opts.reason,
+      source: opts.source,
+      action: opts.action,
+      windowId: opts.windowId,
+    };
+
+    let cancel: (() => void) | void = undefined;
+    try {
+      cancel = this.providerLimitResumeScheduler?.(request);
+    } catch (err) {
+      logger.warn('Provider-limit resume scheduler failed; falling back to in-process timer', {
+        loopRunId: state.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    if (!cancel) cancel = this.scheduleInProcessResume(state.id, opts.resumeAt);
+    this.resumeCancellers.set(state.id, cancel);
+  }
+
+  /** Schedule an in-process auto-resume at (or shortly after) `resumeAt`. */
+  private scheduleInProcessResume(loopRunId: string, resumeAt: number): () => void {
+    // Small buffer so the window has definitely rolled over server-side.
+    const delay = Math.max(0, resumeAt - Date.now()) + 5_000;
+    const timer = setTimeout(() => {
+      this.resumeCancellers.delete(loopRunId);
+      const resumed = this.resumeLoop(loopRunId);
+      logger.info('Loop auto-resume timer fired after provider-limit park', {
+        loopRunId,
+        resumed,
+      });
+    }, delay);
+    if (typeof timer.unref === 'function') timer.unref();
+    return () => clearTimeout(timer);
+  }
+
+  private clearResumeTimer(loopRunId: string): void {
+    const cancel = this.resumeCancellers.get(loopRunId);
+    if (!cancel) return;
+    cancel();
+    this.resumeCancellers.delete(loopRunId);
+  }
+
   private terminate(state: LoopState, status: LoopState['status'], reason?: string): void {
     // Idempotent: if we're already in a terminal state we must not emit
     // duplicate cancelled/error events. Without this, a force-terminate from
     // `cancelLoop` followed by runLoop's own next-iter cancel check would
     // emit `loop:cancelled` twice and double-clean attachments.
     if (this.isTerminalStatus(state.status)) return;
+    // Cancel any pending provider-limit auto-resume; this run is over.
+    this.clearResumeTimer(state.id);
+    this.downshiftModelByLoop.delete(state.id);
     state.status = status;
     state.endedAt = Date.now();
     state.endReason = reason ?? status;

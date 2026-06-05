@@ -13,9 +13,12 @@ import { ɵresolveComponentResources as resolveComponentResources } from '@angul
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { signal } from '@angular/core';
 import { CliHealthSettingsTabComponent } from './cli-health-settings-tab.component';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
 import { CliUpdatePillStore } from '../../core/state/cli-update-pill.store';
+import { SettingsStore } from '../../core/state/settings.store';
+import { DEFAULT_SETTINGS } from '../../../../shared/types/settings.types';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
 const styles = readFileSync(
@@ -51,14 +54,19 @@ describe('CliHealthSettingsTabComponent', () => {
   const updateAllClis = vi.fn();
   const pillRefresh = vi.fn(async () => { /* noop */ });
 
+  const setSetting = vi.fn(async () => { /* noop */ });
+  const settingsSignal = signal({ ...DEFAULT_SETTINGS });
+
   const ipc = { diagnoseAllClis, updateCli, updateAllClis };
   const cliUpdates = { refresh: pillRefresh };
+  const settingsStore = { settings: settingsSignal.asReadonly(), set: setSetting };
 
   let fixture: ComponentFixture<CliHealthSettingsTabComponent>;
   let component: CliHealthSettingsTabComponent;
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    settingsSignal.set({ ...DEFAULT_SETTINGS });
     diagnoseAllClis.mockResolvedValue({ success: true, data: { entries: [] } });
 
     await TestBed.configureTestingModule({
@@ -66,6 +74,7 @@ describe('CliHealthSettingsTabComponent', () => {
       providers: [
         { provide: ProviderIpcService, useValue: ipc },
         { provide: CliUpdatePillStore, useValue: cliUpdates },
+        { provide: SettingsStore, useValue: settingsStore },
       ],
     }).compileComponents();
 
@@ -127,5 +136,16 @@ describe('CliHealthSettingsTabComponent', () => {
 
     expect(updateAllClis).not.toHaveBeenCalled();
     expect(pillRefresh).not.toHaveBeenCalled();
+  });
+
+  it('reflects the persisted cliUpdatePolicy in the segmented control', () => {
+    expect(component.updatePolicy()).toBe('notify');
+    settingsSignal.set({ ...DEFAULT_SETTINGS, cliUpdatePolicy: 'auto' });
+    expect(component.updatePolicy()).toBe('auto');
+  });
+
+  it('persists a new policy when the control changes', () => {
+    component.onPolicyChange('auto');
+    expect(setSetting).toHaveBeenCalledWith('cliUpdatePolicy', 'auto');
   });
 });

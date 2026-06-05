@@ -145,6 +145,16 @@ describe('MarkdownService.renderSync command stripping', () => {
     expect(html).toContain('second');
   });
 
+  it('formats streamed assistant text before rendering markdown', () => {
+    const html = service.renderSync(
+      "I'll read the plan. Now let me explore `loop-coordinator.ts`:Now add imports.",
+    );
+
+    expect(html).toContain('loop-coordinator.ts');
+    expect(html).toContain('Now add imports');
+    expect(html).toMatch(/plan\.|<br>|Now let me/);
+  });
+
   it('uses ClipboardService for code-block copy buttons', async () => {
     document.body.innerHTML = [
       '<button data-copy-id="copy-1">Copy</button>',

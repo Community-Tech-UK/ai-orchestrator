@@ -13,6 +13,7 @@
 
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 
 const logger = getLogger('JITLoader');
 
@@ -677,7 +678,7 @@ export class JITContextLoader extends EventEmitter {
   }
 
   private estimateTokens(text: string): number {
-    return Math.ceil(text.length / 4);
+    return sharedEstimateTokens(text);
   }
 
   private async withTimeout<T>(

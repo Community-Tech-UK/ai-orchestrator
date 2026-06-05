@@ -2,7 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { filterDisplayItems } from './output-stream-item-filter';
 import type { DisplayItem } from './display-item-processor.service';
 
-function thoughtGroup(id: string, opts: { empty?: boolean } = {}): DisplayItem {
+function thoughtGroup(id: string, opts: { empty?: boolean; noThinking?: boolean } = {}): DisplayItem {
+  if (opts.noThinking) {
+    return {
+      id,
+      type: 'thought-group',
+      thinking: [],
+      thoughts: [],
+    };
+  }
+
   return {
     id,
     type: 'thought-group',
@@ -32,7 +41,7 @@ function workCycle(id: string, children: DisplayItem[]): DisplayItem {
 }
 
 // Stub matching the showThinking=false semantics: a thought-group is "empty"
-// (renders nothing) when it has no standalone response.
+// (renders nothing in the accordion path) when it has no standalone response.
 const isThoughtGroupEmpty = (item: DisplayItem): boolean => !item.response;
 
 describe('filterDisplayItems', () => {
@@ -56,8 +65,20 @@ describe('filterDisplayItems', () => {
     expect(result.map((i) => i.id)).toEqual(['a', 'c']);
   });
 
-  it('strips empty thought-groups when thinking is hidden', () => {
-    const items = [message('a'), thoughtGroup('empty', { empty: true }), message('c')];
+  it('promotes thought-only groups to assistant messages when thinking is hidden', () => {
+    const items = [message('a'), thoughtGroup('planning', { empty: true }), message('c')];
+    const result = filterDisplayItems(items, {
+      hideToolGroups: false,
+      hideEmptyThoughts: true,
+      isThoughtGroupEmpty,
+    });
+    expect(result.map((i) => i.id)).toEqual(['a', 'msg-planning', 'c']);
+    expect(result[1].type).toBe('message');
+    expect(result[1].message?.content).toBe('reasoning');
+  });
+
+  it('drops truly empty thought-groups when thinking is hidden', () => {
+    const items = [message('a'), thoughtGroup('blank', { noThinking: true }), message('c')];
     const result = filterDisplayItems(items, {
       hideToolGroups: false,
       hideEmptyThoughts: true,
@@ -76,9 +97,9 @@ describe('filterDisplayItems', () => {
     expect(result.map((i) => i.id)).toEqual(['withResponse']);
   });
 
-  it('removes empty thought-groups from work-cycle children', () => {
+  it('promotes hidden thought-groups inside work-cycle children', () => {
     const cycle = workCycle('cycle', [
-      thoughtGroup('empty', { empty: true }),
+      thoughtGroup('planning', { empty: true }),
       message('err'),
     ]);
     const result = filterDisplayItems([cycle], {
@@ -87,13 +108,14 @@ describe('filterDisplayItems', () => {
       isThoughtGroupEmpty,
     });
     expect(result).toHaveLength(1);
-    expect(result[0].children?.map((c) => c.id)).toEqual(['err']);
+    expect(result[0].children?.map((c) => c.id)).toEqual(['msg-planning', 'err']);
+    expect(result[0].children?.[0].type).toBe('message');
   });
 
-  it('drops a work-cycle whose children are all filtered out', () => {
+  it('drops a work-cycle whose children are all truly empty thought-groups', () => {
     const cycle = workCycle('cycle', [
-      thoughtGroup('empty1', { empty: true }),
-      thoughtGroup('empty2', { empty: true }),
+      thoughtGroup('blank1', { noThinking: true }),
+      thoughtGroup('blank2', { noThinking: true }),
     ]);
     const result = filterDisplayItems([cycle], {
       hideToolGroups: false,
@@ -106,7 +128,7 @@ describe('filterDisplayItems', () => {
   it('applies both filters together and preserves a non-empty work-cycle', () => {
     const cycle = workCycle('cycle', [
       thoughtGroup('keep', { empty: false }),
-      thoughtGroup('drop', { empty: true }),
+      thoughtGroup('drop', { noThinking: true }),
       toolGroup('tool'),
     ]);
     const result = filterDisplayItems([cycle, toolGroup('topTool'), message('m')], {
@@ -120,7 +142,7 @@ describe('filterDisplayItems', () => {
 
   it('does not mutate the original work-cycle children', () => {
     const cycle = workCycle('cycle', [
-      thoughtGroup('empty', { empty: true }),
+      thoughtGroup('planning', { empty: true }),
       message('err'),
     ]);
     filterDisplayItems([cycle], {
@@ -128,6 +150,6 @@ describe('filterDisplayItems', () => {
       hideEmptyThoughts: true,
       isThoughtGroupEmpty,
     });
-    expect(cycle.children?.map((c) => c.id)).toEqual(['empty', 'err']);
+    expect(cycle.children?.map((c) => c.id)).toEqual(['planning', 'err']);
   });
 });

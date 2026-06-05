@@ -24,6 +24,7 @@ import { getRLMDatabase } from '../persistence/rlm-database';
 import { OrchestrationEventStore } from '../orchestration/event-store/orchestration-event-store';
 import { isFeatureEnabled } from '../../shared/constants/feature-flags';
 import { registerDefaultQuotaProbes } from '../core/system/provider-quota';
+import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { getPromptHistoryService } from '../prompt-history/prompt-history-service';
 import {
   registerMemoryStatsHandlers,
@@ -300,6 +301,11 @@ export class IpcMainHandler {
     // QUOTA_REFRESH IPC call has them available.
     registerDefaultQuotaProbes();
     registerQuotaHandlers({ windowManager: this.windowManager });
+    // Low-frequency idle poll (60s) keeps usage windows fresh even when no
+    // loop/adapter activity is driving refreshes, so the throttle ladder can
+    // react to ">=90%" before a loop spills into paid overage. Gated by the
+    // pause-coordinator inside the service; the timer is unref'd.
+    getProviderQuotaService().startIdleRefresh(60_000);
 
     // Debug command handlers
     registerDebugHandlers();

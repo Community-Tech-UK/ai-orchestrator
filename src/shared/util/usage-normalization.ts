@@ -9,6 +9,19 @@
  *   - OpenAI / Azure OpenAI
  *   - Canonical / internal representation
  *   - Various cache token naming conventions
+ *
+ * ## Contract (locked by usage-normalization.spec.ts)
+ *   - **Precedence:** for each canonical field the aliases are resolved by a
+ *     `??` chain, so the first *defined* (non-null/undefined) value wins —
+ *     canonical → camelCase → snake_case. A `null`/`undefined` alias falls
+ *     through to the next; a present-but-*invalid* higher-precedence value does
+ *     NOT (it is dropped, not back-filled) — conservative by design.
+ *   - **Validity:** a resolved value is kept only if it is a finite,
+ *     non-negative number (see {@link asFiniteNumber}); `0` is valid. NaN,
+ *     ±Infinity, negatives, and non-numbers are dropped per-field.
+ *   - **Emptiness:** the result contains only the fields that resolved to a
+ *     valid value; if none did, the function returns `undefined` (never an
+ *     empty object) so callers can treat "no usage" as a single falsy case.
  */
 
 // ---------------------------------------------------------------------------

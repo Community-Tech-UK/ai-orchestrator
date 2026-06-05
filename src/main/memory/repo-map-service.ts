@@ -33,6 +33,7 @@ import * as path from 'node:path';
 import ignore from 'ignore';
 import { DEFAULT_CODE_INDEX_IGNORES } from '../codemem/code-index-watcher';
 import { workspaceHashForPath } from '../codemem/symbol-id';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 
 // ─── tunables ────────────────────────────────────────────────────────────────
 
@@ -151,7 +152,7 @@ function getCasStoreLazy(): RepoMapStoreAccessor | null {
 }
 
 function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+  return sharedEstimateTokens(text);
 }
 
 // ─── RepoMapService ───────────────────────────────────────────────────────────

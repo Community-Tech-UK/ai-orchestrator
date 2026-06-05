@@ -46,6 +46,8 @@ export class ProviderQuotaService extends EventEmitter {
   private snapshots = new Map<ProviderId, ProviderQuotaSnapshot | null>();
   private probes = new Map<ProviderId, ProviderQuotaProbe>();
   private timers = new Map<ProviderId, NodeJS.Timeout>();
+  /** Low-frequency whole-fleet poll so windows stay fresh even when idle. */
+  private idleTimer: NodeJS.Timeout | null = null;
   /** Keys: `<provider>:<windowId>:<threshold>`. Once added, suppresses re-emission. */
   private alertedKeys = new Set<string>();
   /** Last `used` value seen per (provider, windowId), for window-reset detection. */
@@ -176,10 +178,42 @@ export class ProviderQuotaService extends EventEmitter {
     }
   }
 
+  /**
+   * Start a single low-frequency poll across every registered probe so the
+   * usage windows stay fresh even when no loop or adapter activity is driving
+   * `quota-auto-refresh`. This is what lets the throttle ladder see ">=90%"
+   * *before* a loop starts spilling into paid overage.
+   *
+   * Ticks are naturally suppressed while paused (the per-provider `refresh()`
+   * short-circuits on the pause-coordinator), so we don't special-case it here.
+   * `intervalMs <= 0` disables the idle poll. Calling again replaces the timer.
+   * Unlike `startPolling`, this does NOT fire an immediate refresh — adapter
+   * lifecycle hooks and the renderer's initial `refreshAll()` already cover the
+   * cold-start case, and we don't want to stack a probe burst on boot.
+   */
+  startIdleRefresh(intervalMs: number): void {
+    this.stopIdleRefresh();
+    if (intervalMs <= 0) return;
+    const t = setInterval(() => {
+      if (this.isPaused || getPauseCoordinator().isPaused()) return;
+      void this.refreshAll();
+    }, intervalMs);
+    if (typeof t.unref === 'function') t.unref();
+    this.idleTimer = t;
+  }
+
+  stopIdleRefresh(): void {
+    if (this.idleTimer) {
+      clearInterval(this.idleTimer);
+      this.idleTimer = null;
+    }
+  }
+
   /** Test-only: undo all state and remove listeners. */
   _resetForTesting(): void {
     for (const t of this.timers.values()) clearInterval(t);
     this.timers.clear();
+    this.stopIdleRefresh();
     this.probes.clear();
     this.alertedKeys.clear();
     this.lastUsed.clear();

@@ -440,8 +440,8 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     // `cursor-agent --list-models` dynamically and surfaces the full
     // (~130-model) list. This curated set is only the offline fallback plus the
     // pinned/family/tier overlay applied onto that live list — intentionally
-    // just the latest useful models (latest Claude / Codex + Composer), with
-    // `auto` first + pinned. Pinned set capped at 5.
+    // just the latest useful models (latest Claude / Codex / GPT + Composer),
+    // with `auto` first + pinned. Pinned set capped at 5.
     //
     // Regenerate from the installed CLI with `npm run generate:cursor-models`
     // (selection policy lives in scripts/generate-cursor-models.ts). The entries
@@ -451,6 +451,7 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: 'composer-2.5', name: 'Composer 2.5', tier: 'balanced', pinned: true, family: 'Composer' },
     { id: 'claude-opus-4-8-thinking-high', name: 'Opus 4.8', tier: 'powerful', pinned: true, family: 'Claude' },
     { id: 'gpt-5.3-codex', name: 'Codex 5.3', tier: 'balanced', pinned: true, family: 'Codex' },
+    { id: 'gpt-5.5-high', name: 'GPT 5.5 High', tier: 'balanced', pinned: true, family: 'GPT' },
     // cursor-models:generated:end
   ],
 };

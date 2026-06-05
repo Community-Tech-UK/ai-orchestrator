@@ -22,6 +22,11 @@ import { RecentDirectoriesIpcService } from '../../core/services/ipc/recent-dire
 import { SettingsStore } from '../../core/state/settings.store';
 import type { RecentDirectoriesOptions } from '../../../../shared/types/recent-directories.types';
 import { InstructionInspectorComponent } from './instruction-inspector.component';
+import {
+  mergeOutputStyleOptions,
+  type BuiltInOutputStyleDto,
+  type UserOutputStyleDto,
+} from './output-style-options';
 
 type EcosystemKind = 'command' | 'agent' | 'tool' | 'plugin';
 
@@ -58,6 +63,11 @@ interface EcosystemListResponse {
     scanDirs: string[];
     errors: { filePath: string; error: string }[];
   };
+  outputStyles?: {
+    styles: UserOutputStyleDto[];
+    scanDirs: string[];
+  };
+  builtInOutputStyles?: BuiltInOutputStyleDto[];
 }
 
 interface EcosystemChangedEventPayload {
@@ -202,6 +212,52 @@ interface FileReadTextResponse {
               }
             </div>
           </div>
+
+          <div class="section">
+            <div class="section-title">
+              <span>Output style</span>
+            </div>
+            <p class="section-hint">
+              Sets how new agents communicate. Click one to make it active for new
+              sessions. Built-in styles add a directive; your own
+              <code>.md</code> styles can replace the whole prompt.
+            </p>
+            <div class="list">
+              @for (style of outputStyleOptions(); track style.name) {
+                <button
+                  class="item"
+                  [class.active]="activeOutputStyle() === style.name"
+                  (click)="setOutputStyle(style.name)"
+                  title="{{ style.filePath || (style.source === 'built-in' ? 'Built in to the app' : '') }}"
+                >
+                  <div class="item-title">
+                    {{ style.label }}
+                    <span class="pill" [class.builtin]="style.source === 'built-in'">{{
+                      style.source === 'built-in' ? 'built-in' : 'custom'
+                    }}</span>
+                    @if (activeOutputStyle() === style.name) {
+                      <span class="pill active-pill">active</span>
+                    }
+                  </div>
+                  @if (style.description) {
+                    <div class="item-sub">{{ style.description }}</div>
+                  } @else if (style.source === 'user' && style.mode === 'replace') {
+                    <div class="item-sub">Replaces the full system prompt</div>
+                  }
+                </button>
+              }
+            </div>
+            @if (outputStyleScanDirs().length > 0) {
+              <div class="scan">
+                <div class="scan-title">Where the app looks for your output styles</div>
+                <div class="scan-list">
+                  @for (d of outputStyleScanDirs(); track d) {
+                    <div class="scan-item">{{ d }}</div>
+                  }
+                </div>
+              </div>
+            }
+          </div>
         </div>
 
         <div class="right">
@@ -332,6 +388,18 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
   agents = computed(() => this.ecosystem()?.agents.agents ?? []);
   tools = computed(() => this.ecosystem()?.tools.tools ?? []);
   plugins = computed(() => this.ecosystem()?.plugins.plugins ?? []);
+
+  /** Built-in + user output styles, merged for the picker. */
+  outputStyleOptions = computed(() =>
+    mergeOutputStyleOptions(
+      this.ecosystem()?.builtInOutputStyles,
+      this.ecosystem()?.outputStyles?.styles,
+    ),
+  );
+  /** The currently-active output style (global `outputStyle` setting). */
+  activeOutputStyle = computed(() => this.settingsStore.settings().outputStyle || 'default');
+  /** Directories scanned for user-authored output styles. */
+  outputStyleScanDirs = computed(() => this.ecosystem()?.outputStyles?.scanDirs ?? []);
 
   constructor() {
     void this.loadRecentDirectories();
@@ -472,6 +540,15 @@ export class EcosystemSettingsTabComponent implements OnDestroy {
     this.fileContent.set('');
     this.fileTruncated.set(false);
     if (filePath) void this.loadSelectedFile();
+  }
+
+  /**
+   * Make an output style the active one. Persists the global `outputStyle`
+   * setting; the main process applies it to the system prompt of new root
+   * sessions (built-ins append, user `.md` styles may replace).
+   */
+  setOutputStyle(name: string): void {
+    void this.settingsStore.set('outputStyle', name);
   }
 
   overrideFiles = computed(() => {

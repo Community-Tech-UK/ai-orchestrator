@@ -6,6 +6,9 @@
 
 import { RLMContextManager } from '../rlm/context-manager';
 import { getLogger } from '../logging/logger';
+// Pure, dependency-free heuristic — safe to import inside the context worker
+// (adds zero electron importers; see context-worker-import-isolation.spec.ts).
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 // Deep-import getUnifiedMemory from the controller module rather than the
 // '../memory' barrel. InstanceContextManager runs inside the context worker
 // thread, where the barrel's eager re-exports (project-memory-brief,
@@ -1195,7 +1198,7 @@ export class InstanceContextManager implements InstanceContextPort {
   }
 
   private estimateTokens(text: string): number {
-    return Math.ceil(text.length / 4);
+    return sharedEstimateTokens(text);
   }
 
   private async withTimeout<T>(

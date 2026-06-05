@@ -179,6 +179,26 @@
   border-color: rgba(147, 197, 253, 0.35);
 }
 
+.pill.active-pill {
+  color: var(--success-color, #6ee7b7);
+  border-color: rgba(110, 231, 183, 0.4);
+}
+
+.section-hint {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+
+  code {
+    font-size: 11px;
+    padding: 1px 4px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-tertiary);
+  }
+}
+
 .empty {
   padding: 12px;
   font-size: 12px;

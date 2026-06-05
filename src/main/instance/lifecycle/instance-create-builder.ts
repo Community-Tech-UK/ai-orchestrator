@@ -75,6 +75,11 @@ export function buildInstanceRecord(
     workingDirectory: parentContext.workingDirectory,
     yoloMode: parentContext.yoloMode,
     provider: config.provider || 'auto',
+    // Seed from the caller's explicit pick so the renderer chip matches the
+    // draft composer before Phase-2 async init resolves settings fallbacks.
+    ...(config.modelOverride?.trim()
+      ? { currentModel: config.modelOverride.trim() }
+      : {}),
     executionLocation: { type: 'local' },
     diffStats: undefined,
 

@@ -29,6 +29,7 @@ import { ProviderQuotaStore } from '../../../core/state/provider-quota.store';
 import type {
   ProviderId,
   ProviderQuotaSnapshot,
+  ProviderQuotaWindow,
 } from '../../../../../shared/types/provider-quota.types';
 
 export type QuotaChipVariant = 'window' | 'plan' | 'empty';
@@ -55,37 +56,105 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <span
-      class="chip"
-      [class.window]="variant() === 'window'"
-      [class.plan]="variant() === 'plan'"
-      [class.empty]="variant() === 'empty'"
-      [style.color]="palette().fg"
-      [style.background]="palette().bg"
-      [title]="tooltip()"
-    >
-      <span class="dot" [style.background]="palette().fg"></span>
-      <span class="text">{{ primaryText() }}</span>
-      @if (secondaryText()) {
-        <span class="aux">· {{ secondaryText() }}</span>
+    <span class="quota-shell">
+      <button
+        type="button"
+        class="chip"
+        data-testid="quota-toggle"
+        [class.window]="variant() === 'window'"
+        [class.plan]="variant() === 'plan'"
+        [class.empty]="variant() === 'empty'"
+        [class.open]="popoverOpen()"
+        [style.color]="palette().fg"
+        [style.background]="palette().bg"
+        [title]="tooltip()"
+        [attr.aria-expanded]="popoverOpen()"
+        aria-label="Provider quota details"
+        (click)="togglePopover()"
+      >
+        <span class="dot" [style.background]="palette().fg"></span>
+        <span class="strip" data-testid="quota-strip">
+          @if (stripEntries().length > 0) {
+            @for (entry of stripEntries(); track entry.provider) {
+              <span class="provider-entry" [class.warn]="entry.percent >= 75" [class.danger]="entry.percent >= 90">
+                <span class="provider-code">{{ entry.code }}</span>
+                <span class="provider-value">{{ entry.value }}</span>
+              </span>
+            }
+          } @else {
+            <span class="text">{{ primaryText() }}</span>
+            @if (secondaryText()) {
+              <span class="aux">· {{ secondaryText() }}</span>
+            }
+          }
+        </span>
+      </button>
+
+      @if (popoverOpen()) {
+        <span class="popover" data-testid="quota-popover" role="dialog" aria-label="Provider quota details">
+          @for (provider of detailEntries(); track provider.provider) {
+            <span class="provider-detail">
+              <span class="provider-heading">{{ provider.label }}</span>
+              @if (provider.windows.length > 0) {
+                @for (window of provider.windows; track window.id) {
+                  <span class="window-row">
+                    <span class="window-label">{{ window.label }}</span>
+                    <span class="window-value">{{ formatWindowValue(window) }}</span>
+                    <span class="bar"><span class="bar-fill" [style.width.%]="windowPercent(window)"></span></span>
+                    @if (window.resetsAt) {
+                      <span class="window-reset">resets {{ formatReset(window.resetsAt) }}</span>
+                    }
+                  </span>
+                }
+              } @else {
+                <span class="window-row muted">{{ provider.status }}</span>
+              }
+            </span>
+          }
+        </span>
       }
     </span>
   `,
   styles: [`
-    :host { display: inline-flex; }
+    :host { display: inline-flex; position: relative; }
+    .quota-shell { display: inline-flex; position: relative; }
     .chip {
       display: inline-flex; align-items: center; gap: 6px;
-      padding: 5px 10px 5px 8px; border-radius: 999px;
-      font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.02em;
-      white-space: nowrap; cursor: default;
+      padding: 5px 10px 5px 8px; border-radius: 999px; border: 0;
+      font: inherit; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0;
+      white-space: nowrap; cursor: pointer;
       transition: all var(--transition-normal, 0.2s);
     }
+    .chip.open { box-shadow: 0 0 0 1px currentColor; }
     .chip.empty { font-weight: 500; opacity: 0.85; }
     .dot {
       width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
     }
+    .strip { display: inline-flex; align-items: center; gap: 8px; }
+    .provider-entry { display: inline-flex; align-items: baseline; gap: 3px; color: inherit; }
+    .provider-entry.warn { color: #f97316; }
+    .provider-entry.danger { color: #ef4444; }
+    .provider-code { font-weight: 700; }
+    .provider-value { opacity: 0.82; font-variant-numeric: tabular-nums; }
     .text { text-transform: none; }
     .aux { opacity: 0.75; font-weight: 500; }
+    .popover {
+      position: absolute; right: 0; top: calc(100% + 8px); z-index: 20;
+      display: grid; gap: 10px; width: min(340px, 90vw);
+      padding: 12px; border: 1px solid var(--border-color, rgba(255,255,255,0.16));
+      border-radius: 8px; background: var(--surface-elevated, #202124);
+      color: var(--text-primary, #f5f5f5); box-shadow: 0 12px 32px rgba(0,0,0,0.28);
+      text-align: left;
+    }
+    .provider-detail { display: grid; gap: 6px; }
+    .provider-heading { font-size: 0.75rem; font-weight: 700; }
+    .window-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; font-size: 0.72rem; }
+    .window-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .window-value { font-variant-numeric: tabular-nums; opacity: 0.82; }
+    .bar { grid-column: 1 / -1; height: 4px; border-radius: 999px; overflow: hidden; background: rgba(255,255,255,0.12); }
+    .bar-fill { display: block; height: 100%; background: currentColor; }
+    .window-reset { grid-column: 1 / -1; opacity: 0.68; }
+    .muted { color: var(--text-secondary, #a0a0a0); }
   `],
 })
 export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
@@ -94,6 +163,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   /** Live tick used solely to re-render the "resets in" hint each minute. */
   private readonly nowMs = signal(Date.now());
   private nowTimer: ReturnType<typeof setInterval> | null = null;
+  readonly popoverOpen = signal(false);
 
   readonly variant = computed<QuotaChipVariant>(() => {
     if (this.store.mostConstrainedWindow()) return 'window';
@@ -150,6 +220,53 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     return '';
   });
 
+  readonly stripEntries = computed(() => {
+    const snaps = this.store.snapshots();
+    const entries: { provider: ProviderId; code: string; value: string; percent: number }[] = [];
+    for (const provider of PROVIDER_ORDER) {
+      const snap = snaps[provider];
+      if (!snap?.ok) continue;
+      const window = this.mostUsedWindow(snap);
+      if (window) {
+        entries.push({
+          provider,
+          code: PROVIDER_CODES[provider],
+          value: `${Math.round(this.windowPercent(window))}%`,
+          percent: this.windowPercent(window),
+        });
+      } else {
+        entries.push({
+          provider,
+          code: PROVIDER_CODES[provider],
+          value: snap.plan ?? 'ok',
+          percent: 0,
+        });
+      }
+    }
+    return entries;
+  });
+
+  readonly detailEntries = computed(() => {
+    const snaps = this.store.snapshots();
+    return PROVIDER_ORDER
+      .map((provider) => {
+        const snap = snaps[provider];
+        if (!snap) return null;
+        return {
+          provider,
+          label: PROVIDER_LABELS[provider],
+          status: snap.ok ? `Signed in · ${snap.plan ?? 'unknown plan'}` : (snap.error ?? 'Unavailable'),
+          windows: snap.ok ? snap.windows.filter((window) => window.limit > 0) : [],
+        };
+      })
+      .filter((entry): entry is {
+        provider: ProviderId;
+        label: string;
+        status: string;
+        windows: ProviderQuotaWindow[];
+      } => entry !== null);
+  });
+
   ngOnInit(): void {
     void this.store.initialize();
     // Refresh "resets in" copy once a minute. Doesn't keep the loop alive.
@@ -163,15 +280,47 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     if (this.nowTimer) clearInterval(this.nowTimer);
   }
 
+  togglePopover(): void {
+    this.popoverOpen.update((open) => !open);
+  }
+
+  windowPercent(window: ProviderQuotaWindow): number {
+    if (window.limit <= 0) return 0;
+    return Math.max(0, Math.min(100, (window.used / window.limit) * 100));
+  }
+
+  formatWindowValue(window: ProviderQuotaWindow): string {
+    return `${window.used}/${window.limit} ${window.unit}`;
+  }
+
+  formatReset(resetsAt: number): string {
+    const ms = resetsAt - this.nowMs();
+    if (ms <= 0) return 'now';
+    return `in ${formatDuration(ms)}`;
+  }
+
   /** First provider with `ok: true` snapshot, in stable order. */
   private firstOkSnapshot(): ProviderQuotaSnapshot | null {
     const snaps = this.store.snapshots();
-    const order: ProviderId[] = ['claude', 'codex', 'gemini', 'copilot'];
-    for (const p of order) {
+    for (const p of PROVIDER_ORDER) {
       const s = snaps[p];
       if (s && s.ok) return s;
     }
     return null;
+  }
+
+  private mostUsedWindow(snapshot: ProviderQuotaSnapshot): ProviderQuotaWindow | null {
+    let best: ProviderQuotaWindow | null = null;
+    let bestPercent = -1;
+    for (const window of snapshot.windows) {
+      if (window.limit <= 0) continue;
+      const percent = this.windowPercent(window);
+      if (percent > bestPercent) {
+        best = window;
+        bestPercent = percent;
+      }
+    }
+    return best;
   }
 }
 
@@ -183,3 +332,11 @@ function formatDuration(ms: number): string {
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
 }
+
+const PROVIDER_ORDER: ProviderId[] = ['claude', 'codex', 'gemini', 'copilot'];
+const PROVIDER_CODES: Record<ProviderId, string> = {
+  claude: 'CC',
+  codex: 'CX',
+  gemini: 'GM',
+  copilot: 'CP',
+};

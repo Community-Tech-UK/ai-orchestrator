@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "scripts/generate-architecture-inventory.js",
   "ipc": {
-    "channelCount": 962,
+    "channelCount": 963,
     "channels": [
       {
         "name": "INSTANCE_CREATE",
@@ -4735,84 +4735,89 @@
         "line": 1193
       },
       {
+        "name": "LOOP_PROVIDER_LIMIT",
+        "value": "loop:provider-limit",
+        "line": 1198
+      },
+      {
         "name": "LOOP_CANCELLED",
         "value": "loop:cancelled",
-        "line": 1194
+        "line": 1199
       },
       {
         "name": "LOOP_ERROR",
         "value": "loop:error",
-        "line": 1195
+        "line": 1200
       },
       {
         "name": "LOOP_STATE_CHANGED",
         "value": "loop:state-changed",
-        "line": 1196
+        "line": 1201
       },
       {
         "name": "MOBILE_GATEWAY_GET_STATUS",
         "value": "mobile-gateway:get-status",
-        "line": 1198
+        "line": 1203
       },
       {
         "name": "MOBILE_GATEWAY_START",
         "value": "mobile-gateway:start",
-        "line": 1199
+        "line": 1204
       },
       {
         "name": "MOBILE_GATEWAY_STOP",
         "value": "mobile-gateway:stop",
-        "line": 1200
+        "line": 1205
       },
       {
         "name": "MOBILE_GATEWAY_ISSUE_PAIRING",
         "value": "mobile-gateway:issue-pairing",
-        "line": 1201
+        "line": 1206
       },
       {
         "name": "MOBILE_GATEWAY_LIST_DEVICES",
         "value": "mobile-gateway:list-devices",
-        "line": 1202
+        "line": 1207
       },
       {
         "name": "MOBILE_GATEWAY_REVOKE_DEVICE",
         "value": "mobile-gateway:revoke-device",
-        "line": 1203
+        "line": 1208
       },
       {
         "name": "TERMINAL_SPAWN",
         "value": "terminal:spawn",
-        "line": 1206
+        "line": 1211
       },
       {
         "name": "TERMINAL_WRITE",
         "value": "terminal:write",
-        "line": 1207
+        "line": 1212
       },
       {
         "name": "TERMINAL_RESIZE",
         "value": "terminal:resize",
-        "line": 1208
+        "line": 1213
       },
       {
         "name": "TERMINAL_KILL",
         "value": "terminal:kill",
-        "line": 1209
+        "line": 1214
       },
       {
         "name": "TERMINAL_OUTPUT",
         "value": "terminal:output",
-        "line": 1212
+        "line": 1217
       },
       {
         "name": "TERMINAL_EXIT",
         "value": "terminal:exit",
-        "line": 1213
+        "line": 1218
       },
       {
         "name": "TERMINAL_SPAWNED",
         "value": "terminal:spawned",
-        "line": 1214
+        "line": 1219
       }
     ]
   },
@@ -4911,11 +4916,15 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3168
+      "lines": 3169
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
       "lines": 3029
+    },
+    {
+      "path": "src/main/orchestration/loop-coordinator.ts",
+      "lines": 2995
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -4946,10 +4955,6 @@
       "lines": 2695
     },
     {
-      "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 2671
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase3-4-6-7.COMPLETED.md",
       "lines": 2659
     },
@@ -4974,6 +4979,10 @@
       "lines": 2243
     },
     {
+      "path": "src/main/instance/instance-communication.ts",
+      "lines": 2166
+    },
+    {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
       "lines": 2118
     },
@@ -4984,10 +4993,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-c-reliability-lifecycle.md",
       "lines": 2112
-    },
-    {
-      "path": "src/main/instance/instance-communication.ts",
-      "lines": 2106
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
@@ -5042,16 +5047,16 @@
       "lines": 1803
     },
     {
+      "path": "src/main/orchestration/default-invokers.ts",
+      "lines": 1794
+    },
+    {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
       "lines": 1732
     },
     {
       "path": "src/main/session/session-continuity.ts",
       "lines": 1710
-    },
-    {
-      "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1677
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.spec.ts",
@@ -5151,7 +5156,7 @@
     },
     {
       "path": "src/main/memory/unified-controller.ts",
-      "lines": 1320
+      "lines": 1321
     },
     {
       "path": "src/main/ipc/orchestration-ipc-handler.ts",
@@ -5206,12 +5211,12 @@
       "lines": 1240
     },
     {
-      "path": "docs/superpowers/plans/2026-03-21-discord-whatsapp-channels_completed.md",
-      "lines": 1239
+      "path": "src/main/instance/instance-context.ts",
+      "lines": 1240
     },
     {
-      "path": "src/main/instance/instance-context.ts",
-      "lines": 1237
+      "path": "docs/superpowers/plans/2026-03-21-discord-whatsapp-channels_completed.md",
+      "lines": 1239
     },
     {
       "path": "docs/superpowers/plans/2026-03-14-session-recovery-features.md",
@@ -5570,6 +5575,14 @@
       "lines": 845
     },
     {
+      "path": "src/shared/types/loop.types.ts",
+      "lines": 845
+    },
+    {
+      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
+      "lines": 842
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-05-bash-validation-pipeline-design.md",
       "lines": 841
     },
@@ -5579,10 +5592,6 @@
     },
     {
       "path": "src/main/orchestration/child-result-storage.ts",
-      "lines": 836
-    },
-    {
-      "path": "src/shared/types/loop.types.ts",
       "lines": 836
     },
     {
@@ -5596,6 +5605,10 @@
     {
       "path": "src/main/indexing/benchmarks/benchmark-utils.ts",
       "lines": 820
+    },
+    {
+      "path": "src/renderer/app/core/state/instance/instance-messaging.store.ts",
+      "lines": 819
     },
     {
       "path": "src/renderer/app/features/training/training-page.component.ts",
@@ -5640,10 +5653,6 @@
     {
       "path": "src/main/core/config/claude-md-loader.ts",
       "lines": 804
-    },
-    {
-      "path": "src/renderer/app/core/state/instance/instance-messaging.store.ts",
-      "lines": 803
     },
     {
       "path": "src/main/memory/procedural-store.ts",

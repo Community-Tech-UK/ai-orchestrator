@@ -22,6 +22,7 @@ import { getPromptCacheManager, CacheableContext } from '../memory/prompt-cache'
 import { getContextEditingFallback, ContextState } from '../memory/context-editing-fallback';
 import { getMetricsCollector } from '../learning/metrics-collector';
 import { generateId } from '../../shared/utils/id-generator';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import type {
   ProviderType,
   ProviderCapabilities,
@@ -617,11 +618,7 @@ function systemPromptToText(systemPrompt: CacheableSystemPrompt | string): strin
 }
 
 function estimateTokens(text: string): number {
-  const normalized = text.trim();
-  if (!normalized) {
-    return 0;
-  }
-  return Math.ceil(normalized.length / 4);
+  return sharedEstimateTokens(text.trim());
 }
 
 function prunePromptWeightBreakdown(

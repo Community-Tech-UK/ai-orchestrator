@@ -1,4 +1,5 @@
 import { getLogger } from '../logging/logger';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import { getObservationStore } from './observation-store';
 import type { Reflection, ObservationConfig } from './observation.types';
 import { DEFAULT_OBSERVATION_CONFIG } from './observation.types';
@@ -101,7 +102,7 @@ export class PolicyAdapter {
       for (const reflection of filtered) {
         // Estimate tokens for this reflection (including formatting)
         const reflectionText = `- **${reflection.title}** (confidence: ${Math.round(reflection.confidence * 100)}%): ${reflection.insight}\n`;
-        const estimatedTokens = reflectionText.length / 4;
+        const estimatedTokens = sharedEstimateTokens(reflectionText);
 
         if (currentTokens + estimatedTokens > budget) {
           this.logger.debug('Token budget reached, stopping reflection selection', {

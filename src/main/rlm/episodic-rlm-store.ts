@@ -18,6 +18,7 @@ import type {
   SessionOutcome
 } from '../../shared/types/unified-memory.types';
 import { RLMDatabase, getRLMDatabase } from '../persistence/rlm-database';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import { VectorStore, getVectorStore } from '../rlm/vector-store';
 import { ContextSectionRow } from '../persistence/rlm-database.types';
 import { getLogger } from '../logging/logger';
@@ -187,7 +188,7 @@ export class EpisodicRLMStore extends EventEmitter {
         name: `Session: ${session.sessionId}`,
         type: SESSION_TYPE,
         content,
-        tokens: Math.ceil(content.length / 4),
+        tokens: sharedEstimateTokens(content),
         startOffset: 0,
         endOffset: content.length,
         depth: 0
@@ -337,7 +338,7 @@ export class EpisodicRLMStore extends EventEmitter {
         name: `Pattern: ${pattern.id}`,
         type: PATTERN_TYPE,
         content,
-        tokens: Math.ceil(content.length / 4),
+        tokens: sharedEstimateTokens(content),
         startOffset: 0,
         endOffset: content.length,
         depth: 0
@@ -373,7 +374,7 @@ export class EpisodicRLMStore extends EventEmitter {
         name: `Pattern: ${pattern.id}`,
         type: PATTERN_TYPE,
         content,
-        tokens: Math.ceil(content.length / 4),
+        tokens: sharedEstimateTokens(content),
         startOffset: 0,
         endOffset: content.length,
         depth: 0

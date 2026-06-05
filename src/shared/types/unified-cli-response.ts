@@ -4,6 +4,8 @@
  * into a common structure for the multi-agent verification system
  */
 
+import { estimateTokens as sharedEstimateTokens } from '../utils/token-estimate';
+
 /**
  * Source information for CLI responses
  */
@@ -302,8 +304,7 @@ export class BaseResponseNormalizer implements ResponseNormalizer {
   }
 
   protected estimateTokens(content: string): number {
-    // Rough estimate: ~4 characters per token
-    return Math.ceil(content.length / 4);
+    return sharedEstimateTokens(content);
   }
 
   protected inferImportance(text: string): 'high' | 'medium' | 'low' {

@@ -9,6 +9,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 
 export interface EmbeddingConfig {
   provider: 'ollama' | 'openai' | 'voyage' | 'local' | 'auto';
@@ -292,7 +293,7 @@ export class EmbeddingService extends EventEmitter {
       return {
         embedding: data.embedding,
         model,
-        tokens: Math.ceil(text.length / 4), // Rough estimate
+        tokens: sharedEstimateTokens(text), // Rough estimate
         cached: false,
         provider: 'ollama',
       };
@@ -333,7 +334,7 @@ export class EmbeddingService extends EventEmitter {
       return {
         embedding: data.data[0].embedding,
         model,
-        tokens: data.usage?.total_tokens || Math.ceil(text.length / 4),
+        tokens: data.usage?.total_tokens || sharedEstimateTokens(text),
         cached: false,
         provider: 'openai',
       };
@@ -387,7 +388,7 @@ export class EmbeddingService extends EventEmitter {
       return {
         embedding: data.data[0].embedding,
         model,
-        tokens: data.usage?.total_tokens || Math.ceil(text.length / 4),
+        tokens: data.usage?.total_tokens || sharedEstimateTokens(text),
         cached: false,
         provider: 'voyage',
       };
@@ -408,7 +409,7 @@ export class EmbeddingService extends EventEmitter {
     return {
       embedding,
       model: 'local-tfidf',
-      tokens: Math.ceil(text.length / 4),
+      tokens: sharedEstimateTokens(text),
       cached: false,
       provider: 'local',
     };

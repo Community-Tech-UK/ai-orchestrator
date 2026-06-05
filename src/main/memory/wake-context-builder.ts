@@ -23,6 +23,7 @@ import type {
 import { DEFAULT_WAKE_CONTEXT_CONFIG } from '../../shared/types/wake-context.types';
 import type { WakeHintRow } from '../persistence/rlm-database.types';
 import { normalizeProjectMemoryKey } from './project-memory-key';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 
 const logger = getLogger('WakeContextBuilder');
 
@@ -307,8 +308,7 @@ export function getWakeContextBuilder(): WakeContextBuilder {
 // ============ Helpers ============
 
 function estimateTokens(text: string): number {
-  // Rough estimate: ~4 characters per token
-  return Math.ceil(text.length / 4);
+  return sharedEstimateTokens(text);
 }
 
 function looksProjectLikeWing(wing: string): boolean {

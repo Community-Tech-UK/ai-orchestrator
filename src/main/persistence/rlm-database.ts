@@ -11,6 +11,7 @@ import * as path from 'path';
 import { createHash } from 'node:crypto';
 import * as os from 'node:os';
 import { EventEmitter } from 'events';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import type {
   ContextStoreRow,
   ContextSectionRow,
@@ -217,7 +218,7 @@ export class RLMDatabase extends EventEmitter {
       section.type,
       section.name,
       section.content.length,
-      Math.ceil(section.content.length / 4),
+      sharedEstimateTokens(section.content),
       Date.now(),
       section.content
     );

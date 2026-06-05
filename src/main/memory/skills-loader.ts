@@ -13,6 +13,7 @@ import * as path from 'path';
 import { EmbeddingService, getEmbeddingService } from '../rlm/embedding-service';
 import { SkillRegistry, getSkillRegistry } from '../skills/skill-registry';
 import type { SkillBundle, LoadedSkill } from '../../shared/types/skill.types';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import type {
   SkillManifest,
   SkillManifestEntry,
@@ -395,7 +396,7 @@ export class SkillsLoader extends EventEmitter {
   // ============ Utilities ============
 
   private estimateTokens(text: string): number {
-    return Math.ceil(text.length / 4);
+    return sharedEstimateTokens(text);
   }
 
   // ============ Statistics ============

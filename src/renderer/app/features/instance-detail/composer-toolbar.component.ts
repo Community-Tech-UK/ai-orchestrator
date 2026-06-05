@@ -147,6 +147,8 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
 })
 export class ComposerToolbarComponent {
   private readonly ipc = inject(InstanceIpcService);
+  /** Tracks which instance the picker was last fully seeded for. */
+  private lastSeededInstanceId: string | null = null;
 
   constructor() {
     // Re-seed the picker from the bound instance's provider + model whenever the
@@ -154,17 +156,30 @@ export class ComposerToolbarComponent {
     // [instanceId]/[provider]/[currentModel] inputs swap when you switch
     // sessions, so seeding once (the old ngOnInit) leaked the previous
     // instance's selection into the next — e.g. a Cursor pick showing up as
-    // "Cursor · Auto" on a Claude session. Tracking only instanceId() keeps the
-    // user's in-flight pick within a single instance while preventing the bleed;
-    // provider()/currentModel() are read untracked so unrelated model updates
-    // don't clobber a selection mid-change.
+    // "Cursor · Auto" on a Claude session.
+    //
+    // On instance switch we always reset. Within a single instance we also
+    // hydrate when `currentModel` arrives from Phase-2 spawn (it is absent on
+    // the first IPC payload) but only while the picker still shows a placeholder
+    // (null / `auto`). That fixes draft→live regressions like "Composer 2.5"
+    // flipping to Auto without clobbering an in-flight user pick.
     effect(() => {
-      this.instanceId(); // reset trigger: the bound instance changed
-      untracked(() => {
-        this.pendingSelection.set(
-          deriveComposerPickerSelection(this.provider(), this.currentModel()),
-        );
-      });
+      const instanceId = this.instanceId();
+      const provider = this.provider();
+      const currentModel = this.currentModel();
+      const derived = deriveComposerPickerSelection(provider, currentModel);
+      const instanceChanged = instanceId !== this.lastSeededInstanceId;
+
+      if (instanceChanged) {
+        this.lastSeededInstanceId = instanceId;
+        this.pendingSelection.set(derived);
+        return;
+      }
+
+      const pending = untracked(() => this.pendingSelection());
+      if (shouldHydrateComposerPickerSelection(pending, derived)) {
+        this.pendingSelection.set(derived);
+      }
     });
   }
 
@@ -243,4 +258,30 @@ export function deriveComposerPickerSelection(
 ): PendingSelection {
   const pickerProvider: PickerProvider = (provider === 'ollama' ? 'claude' : provider) as PickerProvider;
   return { provider: pickerProvider, model: currentModel ?? null, reasoning: null };
+}
+
+/**
+ * Whether the live toolbar should adopt a newly-arrived instance model without
+ * overwriting an explicit in-flight user pick. Placeholder states (null model
+ * or the Cursor `auto` sentinel) are hydrated; concrete divergent picks are not.
+ */
+export function shouldHydrateComposerPickerSelection(
+  pending: PendingSelection | null,
+  derived: PendingSelection,
+): boolean {
+  const derivedModel = derived.model?.trim();
+  if (!derivedModel || derivedModel.toLowerCase() === 'auto') {
+    return false;
+  }
+
+  if (!pending || pending.provider !== derived.provider) {
+    return true;
+  }
+
+  const pendingModel = pending.model?.trim().toLowerCase() ?? null;
+  if (pendingModel === null || pendingModel === 'auto') {
+    return pendingModel !== derivedModel.toLowerCase();
+  }
+
+  return false;
 }

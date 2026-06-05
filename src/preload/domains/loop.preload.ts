@@ -95,6 +95,7 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
     onLoopNotesCurated: sub(ch.LOOP_NOTES_CURATED),
     onLoopFailed: sub(ch.LOOP_FAILED),
     onLoopCapReached: sub(ch.LOOP_CAP_REACHED),
+    onLoopProviderLimit: sub(ch.LOOP_PROVIDER_LIMIT),
     onLoopCancelled: sub(ch.LOOP_CANCELLED),
     onLoopError: sub(ch.LOOP_ERROR),
   };

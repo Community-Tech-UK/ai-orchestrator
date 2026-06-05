@@ -12,6 +12,7 @@ import type {
   SkillMetadata,
 } from '../../shared/types/skill.types';
 import { SkillFrontmatterSchema } from '@contracts/schemas/plugin';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 
 const MAX_CACHED_SKILLS = 50;
 
@@ -42,8 +43,8 @@ export class SkillLoader extends EventEmitter {
 
   private constructor() {
     super();
-    // Simple token estimation (roughly 4 chars per token)
-    this.tokenEstimator = (text: string) => Math.ceil(text.length / 4);
+    // Shared CJK-aware heuristic (Latin text == legacy ~4 chars/token).
+    this.tokenEstimator = (text: string) => sharedEstimateTokens(text);
   }
 
   // ============ Skill Discovery ============

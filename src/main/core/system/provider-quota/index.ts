@@ -7,16 +7,41 @@
  */
 
 import { getProviderQuotaService } from '../provider-quota-service';
-import { ClaudeQuotaProbe } from './claude-quota-probe';
+import { ClaudeUsageEndpointProbe } from './claude-usage-endpoint-probe';
 import { CopilotQuotaProbe } from './copilot-quota-probe';
 import { CodexQuotaProbe } from './codex-quota-probe';
 import { GeminiQuotaProbe } from './gemini-quota-probe';
+import { CompositeQuotaProbe } from './composite-quota-probe';
+import { UsageMonitorSource } from './usage-monitor-source';
 
 export { ClaudeQuotaProbe } from './claude-quota-probe';
 export type {
   ClaudeAuthStatusExec,
   ClaudeQuotaProbeOptions,
 } from './claude-quota-probe';
+
+export { ClaudeUsageEndpointProbe, parseUsagePayload } from './claude-usage-endpoint-probe';
+export type {
+  ClaudeUsageEndpointProbeOptions,
+  UsageFetch,
+} from './claude-usage-endpoint-probe';
+
+export {
+  ClaudeCredentialsReader,
+} from './claude-credentials-reader';
+export type {
+  ClaudeCredentialsReaderOptions,
+  ClaudeOAuthCredential,
+  CredentialResult,
+  CredentialFailureReason,
+  SecurityExec,
+  CredentialsFileReader,
+} from './claude-credentials-reader';
+
+export { UsageMonitorSource } from './usage-monitor-source';
+export type { UsageMonitorSourceOptions } from './usage-monitor-source';
+
+export { CompositeQuotaProbe } from './composite-quota-probe';
 
 export { CopilotQuotaProbe } from './copilot-quota-probe';
 export type {
@@ -46,8 +71,21 @@ export type {
  */
 export function registerDefaultQuotaProbes(): void {
   const service = getProviderQuotaService();
-  service.registerProbe(new ClaudeQuotaProbe());
-  service.registerProbe(new CopilotQuotaProbe());
-  service.registerProbe(new CodexQuotaProbe());
-  service.registerProbe(new GeminiQuotaProbe());
+  // One shared reader for the optional standalone-monitor state.json so the
+  // composite wrappers don't each stat/read the file independently.
+  const usageMonitor = new UsageMonitorSource();
+
+  // Claude: the OAuth usage endpoint is the source of truth for numerical
+  // windows (5-hour / weekly / per-model / overage credits). The older
+  // auth-status `ClaudeQuotaProbe` is retained as a utility but no longer the
+  // registered probe — the endpoint also reports login state (401 ⇒ signed out).
+  //
+  // Each native probe is wrapped in a CompositeQuotaProbe so that, when the
+  // standalone token-usage-monitor is running, its `state.json` fills any
+  // windows the native poll can't populate yet (Codex live WS, etc.). The
+  // native poll always wins when it has real windows.
+  service.registerProbe(new CompositeQuotaProbe(new ClaudeUsageEndpointProbe(), usageMonitor));
+  service.registerProbe(new CompositeQuotaProbe(new CopilotQuotaProbe(), usageMonitor));
+  service.registerProbe(new CompositeQuotaProbe(new CodexQuotaProbe(), usageMonitor));
+  service.registerProbe(new CompositeQuotaProbe(new GeminiQuotaProbe(), usageMonitor));
 }

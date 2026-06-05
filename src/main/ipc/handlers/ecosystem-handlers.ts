@@ -20,6 +20,7 @@ import { getAgentRegistry } from '../../agents/agent-registry';
 import { getToolRegistry } from '../../tools/tool-registry';
 import { getOrchestratorPluginManager } from '../../plugins/plugin-manager';
 import { getOutputStyleRegistry } from '../../instance/output-style-registry';
+import { listOutputStyles } from '../../instance/output-style';
 import { BrowserWindow } from 'electron';
 import chokidar from 'chokidar';
 import { getLogger } from '../../logging/logger';
@@ -84,6 +85,13 @@ export function registerEcosystemHandlers(instanceManager: InstanceManager): voi
         );
         const outputStyles = await getOutputStyleRegistry().listUserStyles(workingDirectory);
 
+        // Built-in styles are the curated source of truth (output-style.ts); the
+        // renderer picker merges them with the discovered user styles above.
+        const builtInOutputStyles = listOutputStyles().map((s) => ({
+          name: s.name,
+          label: s.label,
+        }));
+
         return {
           success: true,
           data: {
@@ -92,7 +100,8 @@ export function registerEcosystemHandlers(instanceManager: InstanceManager): voi
             agents,
             tools,
             plugins,
-            outputStyles
+            outputStyles,
+            builtInOutputStyles
           }
         };
       } catch (error) {

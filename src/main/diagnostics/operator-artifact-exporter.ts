@@ -12,6 +12,7 @@ import type {
   OperatorArtifactExportResult,
 } from '../../shared/types/diagnostics.types';
 import { getDoctorService } from './doctor-service';
+import { getTokenCounter } from '../rlm/token-counter';
 import { redactValue } from './redaction';
 import { createStoredZip, type ZipEntryInput } from './zip-writer';
 
@@ -107,6 +108,13 @@ export class OperatorArtifactExporter {
       name: 'lifecycle-tail.ndjson',
       content: await this.readLifecycleTail(),
       source: 'lifecycle trace tail',
+      redacted: true,
+    });
+
+    entries.push({
+      name: 'token-estimation-telemetry.json',
+      content: stringify(getTokenCounter().getAllEstimationTelemetry()),
+      source: 'TokenCounter estimate-vs-actual drift telemetry (per model family)',
       redacted: true,
     });
 

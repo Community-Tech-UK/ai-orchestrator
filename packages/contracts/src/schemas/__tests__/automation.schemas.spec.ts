@@ -55,6 +55,24 @@ describe('AutomationCreatePayloadSchema destination', () => {
 
     expect(parsed.action.reasoningEffort).toBe('workflow');
   });
+
+  it('accepts internal loop resume system actions', () => {
+    const parsed = AutomationCreatePayloadSchema.parse({
+      ...baseCreatePayload,
+      action: {
+        ...baseAction,
+        systemAction: {
+          type: 'loopProviderLimitResume',
+          loopRunId: 'loop-1',
+        },
+      },
+    });
+
+    expect(parsed.action.systemAction).toEqual({
+      type: 'loopProviderLimitResume',
+      loopRunId: 'loop-1',
+    });
+  });
 });
 
 describe('AutomationUpdatePayloadSchema destination', () => {

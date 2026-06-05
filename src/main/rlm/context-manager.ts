@@ -225,10 +225,8 @@ export class RLMContextManager extends EventEmitter {
           });
 
           const tokens = {
-            input: Math.ceil(
-              (request.context.length + request.prompt.length) / 4
-            ),
-            output: Math.ceil(response.length / 4)
+            input: defaultEstimateTokens(request.context) + defaultEstimateTokens(request.prompt),
+            output: defaultEstimateTokens(response)
           };
 
           request.callback(response, tokens);

@@ -14,6 +14,7 @@ import { EventEmitter } from 'events';
 import { getLLMService } from '../rlm/llm-service';
 import { getLogger } from '../logging/logger';
 import { getWakeContextBuilder } from './wake-context-builder';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 
 const unifiedLogger = getLogger('UnifiedMemoryController');
 const MAX_EPISODIC_SESSIONS = 5000;
@@ -1122,7 +1123,7 @@ export class UnifiedMemoryController extends EventEmitter {
   }
 
   private estimateTokens(text: string): number {
-    return Math.ceil(text.length / 4);
+    return sharedEstimateTokens(text);
   }
 
   private patternSimilarity(a: string, b: string): number {
@@ -1151,7 +1152,7 @@ export class UnifiedMemoryController extends EventEmitter {
   }
 
   private async callSummarizer(content: string): Promise<string> {
-    const estimatedTokens = Math.ceil(content.length / 4);
+    const estimatedTokens = sharedEstimateTokens(content);
     const targetTokens = Math.max(200, Math.floor(estimatedTokens * 0.3));
 
     try {

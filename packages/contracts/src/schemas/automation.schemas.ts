@@ -67,6 +67,10 @@ export const AutomationActionSchema = z.object({
   reasoningEffort: AutomationReasoningEffortSchema.optional(),
   forceNodeId: z.string().uuid().optional(),
   attachments: z.array(AutomationFileAttachmentSchema).max(10).optional(),
+  systemAction: z.object({
+    type: z.literal('loopProviderLimitResume'),
+    loopRunId: z.string().min(1).max(200),
+  }).optional(),
 });
 
 export const AutomationDestinationSchema = z.discriminatedUnion('kind', [

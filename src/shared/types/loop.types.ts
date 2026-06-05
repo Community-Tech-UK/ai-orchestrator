@@ -532,7 +532,16 @@ export type LoopStatus =
   | 'failed'
   | 'error'
   | 'no-progress'
-  | 'cap-reached';
+  | 'cap-reached'
+  /**
+   * Usage-aware throttling terminal state: the loop stopped because the
+   * active provider signalled a usage/rate limit (a provider notice in the
+   * iteration output, or an exhausted quota window) instead of grinding into
+   * paid overage and reporting a misleading `cap-reached`. Distinct so the UI
+   * can say "hit provider limit — resumes when the window resets" and the
+   * operator isn't left thinking the work itself stalled.
+   */
+  | 'provider-limit';
 // LF-8: `idle` and `verify-failed` were dead enum values — the coordinator
 // never emitted them (terminate() is only called with the states above), so
 // they implied lifecycle states the system never reached. Removed.

@@ -22,6 +22,7 @@ import { Worker } from 'node:worker_threads';
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type { RlmContextInfo, ContextBudget, UnifiedMemoryContextInfo } from './instance-types';
 import type { InstanceContextPort } from './instance-context-port';
@@ -156,7 +157,7 @@ function snapshotOutputMessage(msg: OutputMessage): ContextWorkerOutputMsg {
 }
 
 function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+  return sharedEstimateTokens(text);
 }
 
 // ── ContextWorkerClient ────────────────────────────────────────────────────────

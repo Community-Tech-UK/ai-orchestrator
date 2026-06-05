@@ -1,6 +1,6 @@
 import type { OutputMessage } from '../../shared/types/instance.types';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 
-const CHARS_PER_TOKEN = 4;
 const RECENT_TURNS_THRESHOLD = 5;
 const MIN_TURNS = 3;
 const TOOL_TRUNCATE_LIMIT = 200;
@@ -67,7 +67,7 @@ function formatMessage(message: OutputMessage, truncateToolOutput: boolean): str
 }
 
 function estimateTokens(text: string): number {
-  return Math.ceil(text.length / CHARS_PER_TOKEN);
+  return sharedEstimateTokens(text);
 }
 
 export function buildRecoveryPacket(messages: OutputMessage[], reason: string): RecoveryPacket {

@@ -15,6 +15,10 @@ export const LoopStatusSchema = z.enum([
   'error',
   'no-progress',
   'cap-reached',
+  // Usage-aware throttling: the loop stopped because the active provider
+  // returned a usage/rate-limit notice (or its quota window is exhausted),
+  // rather than grinding iterations into paid overage as `cap-reached`.
+  'provider-limit',
   // LF-8: `idle` / `verify-failed` removed — dead states the coordinator never emitted.
 ]);
 

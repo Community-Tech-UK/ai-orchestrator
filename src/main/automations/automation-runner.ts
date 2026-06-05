@@ -16,6 +16,7 @@ import { getAutomationEvents } from './automation-events';
 import { ThreadWakeupRunner } from './thread-wakeup-runner';
 import { SessionRevivalService } from '../session/session-revival-service';
 import { emitPluginHook } from '../plugins/hook-emitter';
+import { getLoopCoordinator } from '../orchestration/loop-coordinator';
 import {
   DEFAULT_MAX_RETRY_ATTEMPTS,
   DEFAULT_RETRY_BASE_DELAY_MS,
@@ -197,6 +198,12 @@ export class AutomationRunner {
   }
 
   private async dispatchRun(claimed: ClaimedAutomationRun, manager: InstanceManager): Promise<void> {
+    const systemRun = this.dispatchSystemActionIfHandled(claimed);
+    if (systemRun) {
+      this.handleTerminalRun(systemRun);
+      return;
+    }
+
     if (claimed.snapshot.destination.kind === 'thread') {
       const terminal = await this.requireThreadWakeupRunner().fireThreadWakeup({
         run: claimed.run,
@@ -344,6 +351,34 @@ export class AutomationRunner {
 
   private handleInstanceRemoved(instanceId: string): void {
     this.failTrackedInstance(instanceId, 'Automation instance was removed');
+  }
+
+  private dispatchSystemActionIfHandled(claimed: ClaimedAutomationRun): AutomationRun | null {
+    const action = claimed.snapshot.action.systemAction;
+    if (!action) return null;
+
+    if (action.type === 'loopProviderLimitResume') {
+      const resumed = getLoopCoordinator().resumeLoop(action.loopRunId);
+      if (!resumed && claimed.snapshot.destination.kind === 'thread') {
+        logger.warn('Loop provider-limit resume system action could not directly resume; falling back to thread wakeup', {
+          automationId: claimed.run.automationId,
+          runId: claimed.run.id,
+          loopRunId: action.loopRunId,
+        });
+        return null;
+      }
+      return this.store.terminalizeRun(
+        claimed.run.id,
+        resumed ? 'succeeded' : 'failed',
+        resumed ? undefined : `Loop ${action.loopRunId} is not paused or active`,
+        resumed
+          ? `Loop ${action.loopRunId} resumed after provider quota reset.`
+          : `Loop ${action.loopRunId} could not be resumed after provider quota reset.`,
+        this.now(),
+      );
+    }
+
+    return null;
   }
 
   private reconcileInstanceState(instance: Instance): void {
@@ -615,6 +650,35 @@ export class AutomationRunner {
       deliveryMode: retryRun.deliveryMode,
       timestamp: Date.now(),
     });
+
+    const snapshotForSystemAction = retryRun.configSnapshot;
+    if (snapshotForSystemAction) {
+      const systemRun = this.dispatchSystemActionIfHandled({
+        run: retryRun,
+        automation: {
+          id: retryRun.automationId,
+          name: snapshotForSystemAction.name,
+          enabled: true,
+          active: true,
+          workspaceId: toWorkspaceId(snapshotForSystemAction.action.workingDirectory),
+          schedule: snapshotForSystemAction.schedule,
+          missedRunPolicy: snapshotForSystemAction.missedRunPolicy,
+          concurrencyPolicy: snapshotForSystemAction.concurrencyPolicy,
+          destination: snapshotForSystemAction.destination,
+          action: snapshotForSystemAction.action,
+          nextFireAt: null,
+          lastFiredAt: null,
+          lastRunId: null,
+          createdAt: retryRun.createdAt,
+          updatedAt: retryRun.updatedAt,
+        },
+        snapshot: snapshotForSystemAction,
+      });
+      if (systemRun) {
+        this.handleTerminalRun(systemRun);
+        return;
+      }
+    }
 
     if (retryRun.configSnapshot?.destination.kind === 'thread') {
       const terminal = await this.requireThreadWakeupRunner().fireThreadWakeup({

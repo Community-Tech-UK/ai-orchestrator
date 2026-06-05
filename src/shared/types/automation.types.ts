@@ -41,6 +41,10 @@ export interface AutomationAction {
   reasoningEffort?: AutomationReasoningEffort;
   forceNodeId?: string;
   attachments?: FileAttachment[];
+  systemAction?: {
+    type: 'loopProviderLimitResume';
+    loopRunId: string;
+  };
 }
 
 export type AutomationDestination =

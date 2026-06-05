@@ -285,4 +285,57 @@ describe('ProviderQuotaService', () => {
       expect(probe.calls).toBe(after + 1); // exactly one tick of the 5s timer
     });
   });
+
+  describe('idle refresh', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('does NOT fire immediately but refreshes every interval', async () => {
+      const probe = new FakeProbe('claude', makeSnapshot('claude', 50, 100));
+      svc.registerProbe(probe);
+      svc.startIdleRefresh(1000);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(probe.calls).toBe(0); // no immediate burst on idle poll
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(probe.calls).toBe(1);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(probe.calls).toBe(2);
+    });
+
+    it('refreshes every registered probe on a tick', async () => {
+      const claude = new FakeProbe('claude', makeSnapshot('claude', 50, 100));
+      const codex = new FakeProbe('codex', makeSnapshot('codex', 10, 100));
+      svc.registerProbe(claude);
+      svc.registerProbe(codex);
+      svc.startIdleRefresh(1000);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(claude.calls).toBe(1);
+      expect(codex.calls).toBe(1);
+    });
+
+    it('stopIdleRefresh cancels future ticks', async () => {
+      const probe = new FakeProbe('claude', makeSnapshot('claude', 50, 100));
+      svc.registerProbe(probe);
+      svc.startIdleRefresh(1000);
+      await vi.advanceTimersByTimeAsync(1000);
+      const before = probe.calls;
+      svc.stopIdleRefresh();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(probe.calls).toBe(before);
+    });
+
+    it('intervalMs=0 disables the idle poll', async () => {
+      const probe = new FakeProbe('claude', makeSnapshot('claude', 50, 100));
+      svc.registerProbe(probe);
+      svc.startIdleRefresh(0);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(probe.calls).toBe(0);
+    });
+  });
 });

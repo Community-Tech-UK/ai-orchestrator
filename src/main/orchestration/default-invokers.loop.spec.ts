@@ -28,8 +28,21 @@ const hoisted = vi.hoisted(() => ({
   setStreamIdleTimeoutMs: vi.fn(),
   setResume: vi.fn(),
   createAdapter: vi.fn(),
+  createAutomationWithScheduling: vi.fn(),
+  deleteAutomation: vi.fn(),
   resolveCliType: vi.fn(),
   getBreaker: vi.fn(),
+  providerLimitSchedulerRef: { current: null as unknown as ((request: {
+    loopRunId: string;
+    chatId: string;
+    workspaceCwd: string;
+    provider: 'claude' | 'codex' | 'gemini' | 'copilot';
+    resumeAt: number;
+    reason: string;
+    source: 'quota' | 'notice';
+    action: string;
+    windowId?: string;
+  }) => (() => void) | void) | null },
   loopCoordinatorRef: { current: null as unknown as EventEmitter },
   adapterRef: { current: null as unknown as EventEmitter & {
     sendMessage: ReturnType<typeof vi.fn>;
@@ -82,6 +95,12 @@ vi.mock('../../shared/types/provider.types', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../shared/types/provider.types')>()),
   getDefaultModelForCli: vi.fn(() => 'default-model'),
 }));
+vi.mock('../automations/automation-create-service', () => ({
+  createAutomationWithScheduling: hoisted.createAutomationWithScheduling,
+}));
+vi.mock('../automations', () => ({
+  getAutomationStore: vi.fn(() => ({ delete: hoisted.deleteAutomation })),
+}));
 
 import { registerDefaultLoopInvoker, buildLoopBranchSelectorDeps } from './default-invokers';
 import type { BranchSelectInput } from './loop-branch-select';
@@ -119,6 +138,10 @@ describe('Loop Mode invoker plumbing', () => {
     // (used by the #20 safety advisor) to match the real coordinator contract.
     hoisted.loopCoordinatorRef.current = Object.assign(new EventEmitter(), {
       registerIterationHook: vi.fn(() => () => {}),
+      setProviderLimitResumeScheduler: vi.fn((fn) => {
+        hoisted.providerLimitSchedulerRef.current = fn;
+      }),
+      resumeLoop: vi.fn(() => true),
     });
     hoisted.sendMessage.mockReset();
     hoisted.sendRaw.mockReset().mockResolvedValue(undefined);
@@ -126,6 +149,9 @@ describe('Loop Mode invoker plumbing', () => {
     hoisted.setStreamIdleTimeoutMs.mockReset();
     hoisted.setResume.mockReset();
     hoisted.createAdapter.mockReset();
+    hoisted.createAutomationWithScheduling.mockReset().mockResolvedValue({ id: 'automation-1' });
+    hoisted.deleteAutomation.mockReset().mockResolvedValue({ runningInstanceIds: [] });
+    hoisted.providerLimitSchedulerRef.current = null;
     hoisted.resolveCliType.mockReset().mockResolvedValue('claude');
     hoisted.getBreaker.mockImplementation(() => ({
       execute: vi.fn(async <T>(fn: () => Promise<T>) => fn()),
@@ -228,6 +254,41 @@ describe('Loop Mode invoker plumbing', () => {
     expect(callArg.options.yoloMode).toBe(true);
     expect(callArg.options.permissionHookPath).toBeUndefined();
     expect(callArg.options.rtk).toBeUndefined();
+  });
+
+  it('registers a provider-limit resume scheduler that creates a one-time automation', async () => {
+    registerDefaultLoopInvoker({} as never);
+    expect(hoisted.providerLimitSchedulerRef.current).toBeTypeOf('function');
+
+    const cancel = hoisted.providerLimitSchedulerRef.current!({
+      loopRunId: 'loop-quota',
+      chatId: 'chat-quota',
+      workspaceCwd: '/tmp/ws',
+      provider: 'claude',
+      resumeAt: Date.now() + 60_000,
+      reason: '5-hour session at 95%',
+      source: 'quota',
+      action: 'throttle',
+      windowId: 'claude.5h',
+    });
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+
+    expect(hoisted.createAutomationWithScheduling).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Resume loop after claude quota reset',
+      schedule: expect.objectContaining({ type: 'oneTime' }),
+      destination: expect.objectContaining({ kind: 'thread', instanceId: 'chat-quota' }),
+      action: expect.objectContaining({
+        workingDirectory: '/tmp/ws',
+        provider: 'claude',
+        systemAction: {
+          type: 'loopProviderLimitResume',
+          loopRunId: 'loop-quota',
+        },
+        prompt: expect.stringContaining('loop-quota'),
+      }),
+    }));
+    cancel?.();
   });
 
   it('falls back to a generous 30-minute default when iterationTimeoutMs is unset', async () => {

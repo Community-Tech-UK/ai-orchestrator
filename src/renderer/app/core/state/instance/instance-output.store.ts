@@ -12,6 +12,7 @@ import type {
   FileAttachment,
 } from '../../../../../shared/types/instance.types';
 import { LIMITS } from '../../../../../shared/constants/limits';
+import { stabilizeThinkingBlocks } from '../../../../../shared/utils/thinking-extractor';
 import { ImageAttachmentService, type ImageAttachmentSink } from '../../../features/instance-detail/image-attachment.service';
 
 function getAccumulatedStreamingContent(message: OutputMessage): string {
@@ -103,7 +104,9 @@ export class InstanceOutputStore implements ImageAttachmentSink {
                 ...outputBuffer[existingIdx],
                 content: accumulatedContent,
                 metadata: msg.metadata,
-                thinking: msg.thinking ?? outputBuffer[existingIdx].thinking,
+                thinking: msg.thinking
+                  ? stabilizeThinkingBlocks(outputBuffer[existingIdx].thinking, msg.thinking)
+                  : outputBuffer[existingIdx].thinking,
                 thinkingExtracted: msg.thinkingExtracted ?? outputBuffer[existingIdx].thinkingExtracted,
               };
             } else {

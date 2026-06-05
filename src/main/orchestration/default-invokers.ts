@@ -35,6 +35,18 @@ import type { z } from 'zod';
 
 const logger = getLogger('DefaultInvokers');
 
+interface ProviderLimitResumeRequest {
+  loopRunId: string;
+  chatId: string;
+  workspaceCwd: string;
+  provider: 'claude' | 'codex' | 'gemini' | 'copilot';
+  resumeAt: number;
+  reason: string;
+  source: 'quota' | 'notice';
+  action: string;
+  windowId?: string;
+}
+
 type DebateInvocationSchema =
   | typeof DebateResponseInvocationPayloadSchema
   | typeof DebateCritiqueInvocationPayloadSchema
@@ -813,6 +825,7 @@ import { spawnSync } from 'child_process';
 import { createHash } from 'crypto';
 import * as pathLoop from 'path';
 import { getLoopCoordinator } from './loop-coordinator';
+import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { registerLoopSafetyAdvisor } from './loop-safety-advisor';
 import type { LoopChildResult } from './loop-coordinator';
 import type { LoopErrorRecord, LoopToolCallRecord } from '../../shared/types/loop.types';
@@ -1271,7 +1284,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
 
   const isTerminalLoopStatus = (status: string): boolean =>
     status === 'completed' || status === 'completed-needs-review' || status === 'cancelled' || status === 'cap-reached'
-    || status === 'failed' || status === 'error' || status === 'no-progress';
+    || status === 'failed' || status === 'error' || status === 'no-progress' || status === 'provider-limit';
 
   // FU-8: cleanup function that tears down every adapter we own for a
   // given loop. Two callers may invoke this concurrently (the awaitable
@@ -1364,12 +1377,38 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     }
   }
 
+  // Usage-aware throttling: feed the loop the live provider quota snapshot so
+  // its pre-iteration pre-flight can park before spilling into paid overage.
+  // Guarded for test stubs (plain EventEmitter coordinators).
+  const setQuotaSnapshotProvider = (coordinator as {
+    setQuotaSnapshotProvider?: (fn: (provider: 'claude' | 'codex' | 'gemini' | 'copilot') => unknown) => void;
+  }).setQuotaSnapshotProvider;
+  if (typeof setQuotaSnapshotProvider === 'function') {
+    setQuotaSnapshotProvider.call(coordinator, (provider) =>
+      getProviderQuotaService().getSnapshot(provider as 'claude' | 'codex' | 'gemini' | 'copilot'),
+    );
+  }
+
+  const setProviderLimitResumeScheduler = (coordinator as {
+    setProviderLimitResumeScheduler?: (fn: (request: ProviderLimitResumeRequest) => (() => void) | void) => void;
+    resumeLoop?: (loopRunId: string) => boolean;
+  }).setProviderLimitResumeScheduler;
+  if (typeof setProviderLimitResumeScheduler === 'function') {
+    setProviderLimitResumeScheduler.call(coordinator, (request: ProviderLimitResumeRequest) =>
+      scheduleProviderLimitResume({ request, resumeLoop: (loopRunId) => {
+        const resume = (coordinator as { resumeLoop?: (id: string) => boolean }).resumeLoop;
+        return typeof resume === 'function' ? resume.call(coordinator, loopRunId) : false;
+      } }),
+    );
+  }
+
   coordinator.on('loop:invoke-iteration', async (payload: unknown) => {
     interface Payload {
       correlationId: string;
       loopRunId: string;
       chatId: string;
       provider: 'claude' | 'codex';
+      model?: string;
       workspaceCwd: string;
       stage: string;
       seq: number;
@@ -1551,7 +1590,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         // can't see any of the user's project files.
         workingDirectory: p.workspaceCwd,
         requestedProvider: p.provider,
-        payloadModel: undefined,
+        payloadModel: p.model,
         // Opt this (Loop Mode) call into cost-tiered routing. Routing only
         // actually fires when the router is enabled and no explicit model was
         // requested; otherwise the strong default is used as before.
@@ -1673,4 +1712,82 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       p.callback({ error: message });
     }
   });
+}
+
+function scheduleProviderLimitResume(params: {
+  request: ProviderLimitResumeRequest;
+  resumeLoop: (loopRunId: string) => boolean;
+}): () => void {
+  const { request, resumeLoop } = params;
+  let automationId: string | null = null;
+  let cancelled = false;
+
+  void (async () => {
+    const { createAutomationWithScheduling } = await import('../automations/automation-create-service');
+    const automation = await createAutomationWithScheduling({
+      name: `Resume loop after ${request.provider} quota reset`,
+      description: `Auto-created provider-limit wake for loop ${request.loopRunId}.`,
+      enabled: true,
+      schedule: {
+        type: 'oneTime',
+        runAt: request.resumeAt + 5_000,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      },
+      missedRunPolicy: 'runOnce',
+      concurrencyPolicy: 'skip',
+      destination: {
+        kind: 'thread',
+        instanceId: request.chatId,
+        reviveIfArchived: true,
+      },
+      action: {
+        workingDirectory: request.workspaceCwd,
+        provider: request.provider === 'claude' || request.provider === 'codex'
+          ? request.provider
+          : 'auto',
+        systemAction: {
+          type: 'loopProviderLimitResume',
+          loopRunId: request.loopRunId,
+        },
+        prompt: [
+          `Provider quota window reset for loop ${request.loopRunId}.`,
+          `Reason: ${request.reason}`,
+          'AIO will try to resume the paused loop directly. If direct resume is unavailable, report the loop status and next action.',
+        ].join('\n'),
+      },
+    });
+    automationId = automation?.id ?? null;
+    if (cancelled && automationId) {
+      const { getAutomationStore } = await import('../automations');
+      await getAutomationStore().delete(automationId);
+    }
+  })().catch((err) => {
+    logger.warn('Failed to create durable provider-limit resume automation', {
+      loopRunId: request.loopRunId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+
+  const delay = Math.max(0, request.resumeAt - Date.now()) + 5_000;
+  const timer = setTimeout(() => {
+    const resumed = resumeLoop(request.loopRunId);
+    logger.info('Provider-limit local resume timer fired', {
+      loopRunId: request.loopRunId,
+      resumed,
+    });
+  }, delay);
+  if (typeof timer.unref === 'function') timer.unref();
+
+  return () => {
+    cancelled = true;
+    clearTimeout(timer);
+    if (!automationId) return;
+    void import('../automations')
+      .then(({ getAutomationStore }) => getAutomationStore().delete(automationId as string))
+      .catch((err) => logger.warn('Failed to delete provider-limit resume automation', {
+        loopRunId: request.loopRunId,
+        automationId,
+        error: err instanceof Error ? err.message : String(err),
+      }));
+  };
 }

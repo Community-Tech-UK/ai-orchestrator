@@ -12,6 +12,7 @@ import {
 import type { CliType } from '../cli/cli-detection';
 import type { ResumeAttemptResult } from '../cli/adapters/base-cli-adapter';
 import type { ExecutionLocation } from '../../shared/types/worker-node.types';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import {
   getDefaultModelForCli,
   getProviderModelContextWindow,
@@ -1165,7 +1166,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             if (wakeText && wakeText.trim().length > 30) {
               systemPrompt = `${systemPrompt}\n\n---\n\n${wakeText}`;
               logger.info('Injected wake-up context into system prompt', {
-                tokenEstimate: Math.ceil(wakeText.length / 4),
+                tokenEstimate: sharedEstimateTokens(wakeText),
               });
             }
           } catch (err) {

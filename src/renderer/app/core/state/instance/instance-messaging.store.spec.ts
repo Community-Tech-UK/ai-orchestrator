@@ -152,6 +152,30 @@ describe('InstanceMessagingStore', () => {
     });
   });
 
+  it('does not show the renderer timeout for a long-running Cursor ACP turn before the backend timeout can resolve', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ provider: 'cursor', status: 'idle' }));
+    ipcMock.sendInput.mockImplementation(() => new Promise(() => undefined));
+
+    void currentStore.sendInput('inst-1', 'long cursor turn');
+
+    await vi.advanceTimersByTimeAsync(60_100);
+
+    let instance = currentStateService.getInstance('inst-1');
+    expect(instance?.status).toBe('busy');
+    expect(instance?.outputBuffer).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+
+    instance = currentStateService.getInstance('inst-1');
+    expect(instance?.status).toBe('idle');
+    expect(instance?.outputBuffer[instance.outputBuffer.length - 1]).toMatchObject({
+      type: 'error',
+      content: expect.stringContaining('timed out after 660s'),
+    });
+  });
+
   it('replays seeded queued initial prompts without adding a duplicate user bubble', async () => {
     const currentStore = store!;
     const currentStateService = stateService!;

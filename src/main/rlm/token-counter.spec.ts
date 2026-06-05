@@ -313,6 +313,83 @@ describe('TokenCounter', () => {
     });
   });
 
+  describe('estimate-vs-actual telemetry', () => {
+    it('returns null when no samples have been recorded', () => {
+      expect(tokenCounter.getEstimationTelemetry('claude-3-haiku')).toBeNull();
+      expect(tokenCounter.getAllEstimationTelemetry()).toEqual({});
+    });
+
+    it('records a paired sample and reports it (ungated — works without enabling calibration)', () => {
+      expect(tokenCounter.getCalibrateTokenCounts()).toBe(false); // telemetry must not need the gate
+      const text = 'Hello world, this is a completion output text.';
+      const estimated = tokenCounter.countTokensRaw(text, 'claude-3-haiku');
+      expect(tokenCounter.recordEstimationSample(estimated, text, 'claude-3-haiku')).toBe(true);
+
+      const telemetry = tokenCounter.getEstimationTelemetry('claude-3-haiku');
+      expect(telemetry).not.toBeNull();
+      expect(telemetry?.sampleCount).toBe(1);
+      // actual === estimated → ratio 1.0, zero error
+      expect(telemetry?.medianRatio).toBeCloseTo(1.0, 5);
+      expect(telemetry?.meanAbsErrorPct).toBeCloseTo(0, 5);
+    });
+
+    it('does NOT mutate token counts (correction factor stays 1.0)', () => {
+      const text = 'Some completion output that the provider under-counted heavily.';
+      const estimated = tokenCounter.countTokensRaw(text, 'claude-3-haiku');
+      // Record a sample where actual is 3× the estimate — would shift calibration
+      // hard IF this fed calibration, but telemetry must leave counts untouched.
+      tokenCounter.recordEstimationSample(estimated * 3, text, 'claude-3-haiku');
+      expect(tokenCounter.getCorrectionFactor('claude-3-haiku')).toBe(1.0);
+      expect(tokenCounter.countTokens(text, 'claude-3-haiku')).toBe(
+        tokenCounter.countTokens(text, 'claude-3-haiku'),
+      );
+    });
+
+    it('computes median ratio when the heuristic under-counts', () => {
+      const text = 'Repeatable completion text for ratio math.';
+      const estimated = tokenCounter.countTokensRaw(text, 'gpt-4');
+      // Three samples all at 2× the estimate → median ratio 2.0
+      for (let i = 0; i < 3; i++) {
+        tokenCounter.recordEstimationSample(estimated * 2, text, 'gpt-4');
+      }
+      const telemetry = tokenCounter.getEstimationTelemetry('gpt-4');
+      expect(telemetry?.sampleCount).toBe(3);
+      expect(telemetry?.medianRatio).toBeCloseTo(2.0, 5);
+      // |2e - e| / 2e = 0.5 → 50%
+      expect(telemetry?.meanAbsErrorPct).toBeCloseTo(50, 5);
+    });
+
+    it('keeps telemetry separate per model family', () => {
+      const text = 'Cross-family isolation text.';
+      const claudeEst = tokenCounter.countTokensRaw(text, 'claude-3-haiku');
+      const gptEst = tokenCounter.countTokensRaw(text, 'gpt-4');
+      tokenCounter.recordEstimationSample(claudeEst * 2, text, 'claude-3-haiku');
+      tokenCounter.recordEstimationSample(gptEst, text, 'gpt-4');
+
+      const all = tokenCounter.getAllEstimationTelemetry();
+      expect(all['claude']?.medianRatio).toBeCloseTo(2.0, 5);
+      expect(all['gpt-4']?.medianRatio).toBeCloseTo(1.0, 5);
+    });
+
+    it('drops invalid samples (empty text, non-positive actual, zero estimate)', () => {
+      expect(tokenCounter.recordEstimationSample(10, '', 'claude-3-haiku')).toBe(false);
+      expect(tokenCounter.recordEstimationSample(0, 'non-empty', 'claude-3-haiku')).toBe(false);
+      expect(tokenCounter.recordEstimationSample(-5, 'non-empty', 'claude-3-haiku')).toBe(false);
+      expect(tokenCounter.recordEstimationSample(Number.NaN, 'non-empty', 'claude-3-haiku')).toBe(false);
+      expect(tokenCounter.getEstimationTelemetry('claude-3-haiku')).toBeNull();
+    });
+
+    it('bounds retained samples per family', () => {
+      const text = 'Bounded buffer text sample.';
+      const estimated = tokenCounter.countTokensRaw(text, 'gpt-4');
+      for (let i = 0; i < 120; i++) {
+        tokenCounter.recordEstimationSample(estimated, text, 'gpt-4');
+      }
+      // MAX_TELEMETRY_SAMPLES = 50
+      expect(tokenCounter.getEstimationTelemetry('gpt-4')?.sampleCount).toBe(50);
+    });
+  });
+
   describe('countTokensRaw()', () => {
     it('returns a positive integer for non-empty text', () => {
       const raw = tokenCounter.countTokensRaw('hello world');

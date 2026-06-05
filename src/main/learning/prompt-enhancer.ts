@@ -10,6 +10,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import {
   PromptEnhancement,
   EnhancementApplied,
@@ -399,7 +400,7 @@ export class PromptEnhancer extends EventEmitter {
   }
 
   private estimateTokens(text: string): number {
-    return Math.ceil(text.length / 4);
+    return sharedEstimateTokens(text);
   }
 
   // ============ Manual Enhancement API ============

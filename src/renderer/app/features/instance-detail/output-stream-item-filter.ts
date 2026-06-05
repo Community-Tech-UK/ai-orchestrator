@@ -7,6 +7,11 @@
  * collapsed work-cycle's summary honest: it must not advertise "1 thought" or
  * "2 Bash" for content that would render to an empty box. Work-cycles whose
  * children all get filtered out are dropped entirely.
+ *
+ * When thinking is hidden, thought-groups that carry extracted planning text
+ * but no standalone response are promoted to regular assistant messages so
+ * Cursor/Codex narration is still visible (formatted via markdown), instead
+ * of vanishing from the transcript.
  */
 
 import type { DisplayItem } from './display-item-processor.service';
@@ -29,6 +34,70 @@ export interface DisplayItemFilterOptions {
   isThoughtGroupEmpty: (item: DisplayItem) => boolean;
 }
 
+function joinThoughtContent(item: DisplayItem): string {
+  const fromBlocks = item.thinking?.map((block) => block.content.trim()).filter(Boolean) ?? [];
+  if (fromBlocks.length > 0) {
+    return fromBlocks.join('\n\n');
+  }
+  const fromLegacy = item.thoughts?.map((thought) => thought.trim()).filter(Boolean) ?? [];
+  return fromLegacy.join('\n\n');
+}
+
+/**
+ * When thinking display is off, a thought-group with extracted narration but
+ * no response body would otherwise be dropped entirely. Promote it to a normal
+ * assistant message so the user still sees the text.
+ */
+function promoteHiddenThoughtGroup(
+  item: DisplayItem,
+  isThoughtGroupEmpty: (item: DisplayItem) => boolean,
+): DisplayItem | null {
+  if (item.type !== 'thought-group' || !isThoughtGroupEmpty(item)) {
+    return item;
+  }
+
+  const thinkingContent = joinThoughtContent(item);
+  if (!thinkingContent) {
+    return null;
+  }
+
+  const baseMessage = item.response ?? {
+    id: item.id.replace(/^thought-/, 'msg-'),
+    type: 'assistant' as const,
+    content: '',
+    timestamp: item.timestamp ?? Date.now(),
+  };
+
+  return {
+    id: `msg-${item.id}`,
+    type: 'message',
+    message: {
+      ...baseMessage,
+      type: 'assistant',
+      content: thinkingContent,
+    },
+    timestamp: item.timestamp ?? baseMessage.timestamp,
+    bufferIndex: item.bufferIndex,
+  };
+}
+
+function resolveItemForDisplay(
+  item: DisplayItem,
+  options: DisplayItemFilterOptions,
+): DisplayItem | null {
+  const { hideToolGroups, hideEmptyThoughts, isThoughtGroupEmpty } = options;
+
+  if (hideToolGroups && item.type === 'tool-group') {
+    return null;
+  }
+
+  if (hideEmptyThoughts && item.type === 'thought-group' && isThoughtGroupEmpty(item)) {
+    return promoteHiddenThoughtGroup(item, isThoughtGroupEmpty);
+  }
+
+  return item;
+}
+
 /**
  * Filter the display-item list for the current visibility settings.
  *
@@ -39,38 +108,28 @@ export function filterDisplayItems<T extends DisplayItem>(
   items: T[],
   options: DisplayItemFilterOptions,
 ): T[] {
-  const { hideToolGroups, hideEmptyThoughts, isThoughtGroupEmpty } = options;
+  const { hideToolGroups, hideEmptyThoughts } = options;
   if (!hideToolGroups && !hideEmptyThoughts) {
     return items;
   }
 
-  const keep = (item: DisplayItem): boolean => {
-    if (hideToolGroups && item.type === 'tool-group') {
-      return false;
-    }
-    if (
-      hideEmptyThoughts &&
-      item.type === 'thought-group' &&
-      isThoughtGroupEmpty(item)
-    ) {
-      return false;
-    }
-    return true;
-  };
-
   const result: T[] = [];
   for (const item of items) {
-    if (!keep(item)) {
+    const resolved = resolveItemForDisplay(item, options);
+    if (!resolved) {
       continue;
     }
-    if (item.type === 'work-cycle' && item.children) {
-      const filtered = item.children.filter(keep);
-      if (filtered.length === 0) {
+
+    if (resolved.type === 'work-cycle' && resolved.children) {
+      const filteredChildren = resolved.children
+        .map((child) => resolveItemForDisplay(child, options))
+        .filter((child): child is DisplayItem => child !== null);
+      if (filteredChildren.length === 0) {
         continue;
       }
-      result.push({ ...item, children: filtered } as T);
+      result.push({ ...resolved, children: filteredChildren } as T);
     } else {
-      result.push(item);
+      result.push(resolved as T);
     }
   }
   return result;

@@ -43,6 +43,11 @@ export const LOOP_CHANNELS = {
   LOOP_PLAN_REGENERATED: 'loop:plan-regenerated',
   LOOP_FAILED: 'loop:failed',
   LOOP_CAP_REACHED: 'loop:cap-reached',
+  /** Usage-aware throttling: the active provider hit a usage/rate limit. The
+   *  loop either parked (auto-resume at the window reset) or terminated as
+   *  `provider-limit` — distinct from `cap-reached` so the UI/operator knows
+   *  it was a quota wall, not a stalled task. */
+  LOOP_PROVIDER_LIMIT: 'loop:provider-limit',
   LOOP_CANCELLED: 'loop:cancelled',
   LOOP_ERROR: 'loop:error',
   LOOP_STATE_CHANGED: 'loop:state-changed',

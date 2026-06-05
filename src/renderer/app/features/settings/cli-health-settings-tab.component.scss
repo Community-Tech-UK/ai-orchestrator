@@ -34,6 +34,37 @@
   max-width: 52ch;
 }
 
+.update-policy {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: var(--spacing-md);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+}
+
+.update-policy-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-width: 56ch;
+}
+
+.field-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.field-hint {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
 .btn {
   padding: 0.5rem 0.875rem;
   border-radius: var(--radius-sm);

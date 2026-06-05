@@ -53,14 +53,19 @@ function makeWindow(used: number, limit: number, resetsAt: number | null = null)
   };
 }
 
-function makeSnapshot(provider: ProviderId, plan: string | undefined, ok = true): ProviderQuotaSnapshot {
+function makeSnapshot(
+  provider: ProviderId,
+  plan: string | undefined,
+  ok = true,
+  windows: ProviderQuotaWindow[] = [],
+): ProviderQuotaSnapshot {
   return {
     provider,
     takenAt: Date.now(),
     source: 'cli-result',
     ok,
     plan,
-    windows: [],
+    windows,
   };
 }
 
@@ -112,7 +117,7 @@ describe('ProviderQuotaChipComponent', () => {
 
     it('shows the provider name and plan tier', () => {
       const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
-      expect(text.toLowerCase()).toContain('claude');
+      expect(text).toContain('CC');
       expect(text.toLowerCase()).toContain('max');
     });
   });
@@ -173,6 +178,30 @@ describe('ProviderQuotaChipComponent', () => {
       store.setWorst({ provider: 'claude', window: makeWindow(60, 100) });
       fixture.detectChanges();
       expect(component.variant()).toBe('window');
+    });
+  });
+
+  describe('strip and popover', () => {
+    it('renders one compact provider entry per snapshot and opens details on click', () => {
+      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [makeWindow(95, 100)]));
+      store.setSnapshot('codex', makeSnapshot('codex', 'plus', true, [
+        { ...makeWindow(4, 100), id: 'codex.weekly', label: 'Codex weekly' },
+      ]));
+      store.setWorst({ provider: 'claude', window: makeWindow(95, 100) });
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      expect(host.querySelector('[data-testid="quota-strip"]')?.textContent).toContain('CC');
+      expect(host.querySelector('[data-testid="quota-strip"]')?.textContent).toContain('CX');
+
+      const button = host.querySelector('button[data-testid="quota-toggle"]') as HTMLButtonElement;
+      expect(button).toBeTruthy();
+      button.click();
+      fixture.detectChanges();
+
+      const popover = host.querySelector('[data-testid="quota-popover"]');
+      expect(popover?.textContent).toContain('5-hour messages');
+      expect(popover?.textContent).toContain('Codex weekly');
     });
   });
 });

@@ -5,6 +5,7 @@
  * and returns the cleaned response content.
  */
 
+import { formatAssistantTextForDisplay, splitNarrationFromResponse } from './assistant-text-format';
 import { generateId } from './id-generator';
 
 /**
@@ -149,14 +150,27 @@ export function extractThinkingContent(
     headerResult.extracted.forEach((t) => {
       thinking.push({
         id: generateId(),
-        content: t.trim(),
+        content: formatAssistantTextForDisplay(t.trim()),
         format: 'header',
       });
     });
+
+    // 4. Cursor/Codex-style stream-of-consciousness narration without headers.
+    if (thinking.length === 0) {
+      const narrationResult = extractNarrationStyleThinking(cleaned);
+      cleaned = narrationResult.cleaned;
+      narrationResult.extracted.forEach((t) => {
+        thinking.push({
+          id: generateId(),
+          content: formatAssistantTextForDisplay(t.trim()),
+          format: 'header',
+        });
+      });
+    }
   }
 
   // Clean up extra whitespace from extraction
-  cleaned = cleaned.trim().replace(/\n{3,}/g, '\n\n');
+  cleaned = formatAssistantTextForDisplay(cleaned.trim().replace(/\n{3,}/g, '\n\n'));
 
   // Remove leading separators if thinking was extracted
   if (thinking.length > 0) {
@@ -221,15 +235,39 @@ export function stripBracketThinkingTags(content: string): {
 }
 
 /**
+ * Detect and extract stream-of-consciousness planning narration (common in
+ * Cursor agent output) that lacks explicit thinking tags or markdown headers.
+ */
+export function extractNarrationStyleThinking(content: string): {
+  cleaned: string;
+  extracted: string[];
+} {
+  const split = splitNarrationFromResponse(content);
+  if (!split) {
+    return { cleaned: content, extracted: [] };
+  }
+
+  const thinking = split.thinking.trim();
+  const response = split.response.trim();
+
+  if (thinking && response) {
+    return { cleaned: response, extracted: [thinking] };
+  }
+
+  if (thinking && !response) {
+    return { cleaned: '', extracted: [thinking] };
+  }
+
+  return { cleaned: content, extracted: [] };
+}
+
+/**
  * Detect and extract header-style thinking (bold headers + reasoning)
  *
  * Pattern detection:
  * 1. Starts with **Header** or # Header
  * 2. Followed by paragraph(s) of reasoning
  * 3. Ends with separator (---, multiple blank lines, or transition phrase)
- *
- * @param content The content to process
- * @returns Object with cleaned content and extracted thinking blocks
  */
 export function extractHeaderStyleThinking(content: string): {
   cleaned: string;
@@ -371,6 +409,30 @@ function splitHeaderThinkingBody(body: string): { response: string; thinking: st
   }
 
   return null;
+}
+
+/**
+ * Preserve block ids across streaming updates so the thought-process panel
+ * does not re-mount on every chunk when extractThinkingContent assigns new ids.
+ */
+export function stabilizeThinkingBlocks(
+  previous: ThinkingBlock[] | undefined,
+  next: ThinkingBlock[] | undefined,
+): ThinkingBlock[] | undefined {
+  if (!next?.length) {
+    return next;
+  }
+  if (!previous?.length) {
+    return next;
+  }
+
+  return next.map((block, index) => {
+    const prior = previous[index];
+    if (prior && prior.format === block.format) {
+      return { ...block, id: prior.id, timestamp: prior.timestamp ?? block.timestamp };
+    }
+    return block;
+  });
 }
 
 /**

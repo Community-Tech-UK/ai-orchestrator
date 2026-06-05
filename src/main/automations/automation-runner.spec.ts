@@ -22,6 +22,16 @@ vi.mock('../channels/channel-manager', () => ({
   }),
 }));
 
+const loopCoordinatorMocks = vi.hoisted(() => ({
+  resumeLoop: vi.fn(),
+}));
+
+vi.mock('../orchestration/loop-coordinator', () => ({
+  getLoopCoordinator: vi.fn(() => ({
+    resumeLoop: loopCoordinatorMocks.resumeLoop,
+  })),
+}));
+
 function makeAutomation(): Automation {
   return {
     id: 'automation-1',
@@ -94,6 +104,7 @@ describe('AutomationRunner thread wakeups', () => {
     claimNextPending: vi.fn(),
     failRunningRuns: vi.fn(),
     recordRunOutcome: vi.fn(),
+    terminalizeRun: vi.fn(),
   } as unknown as AutomationStore;
   const manager = Object.assign(new EventEmitter(), {
     createInstance: vi.fn(),
@@ -117,6 +128,15 @@ describe('AutomationRunner thread wakeups', () => {
     vi.mocked(store.claimNextPending).mockReturnValue(null);
     vi.mocked(store.failRunningRuns).mockReturnValue([]);
     vi.mocked(store.recordRunOutcome).mockReturnValue({ automation: null, autoDisabled: false });
+    vi.mocked(store.terminalizeRun).mockImplementation((runId, status, error, outputSummary) => ({
+      ...run,
+      id: runId,
+      status,
+      error: error ?? null,
+      outputSummary: outputSummary ?? null,
+      finishedAt: 3_000,
+    }));
+    loopCoordinatorMocks.resumeLoop.mockReset().mockReturnValue(true);
     fireThreadWakeup.mockResolvedValue(completed);
     threadWakeupFactory.mockReturnValue({ fireThreadWakeup });
   });
@@ -151,5 +171,48 @@ describe('AutomationRunner thread wakeups', () => {
         historyEntryId: 'history-1',
       }),
     });
+  });
+
+  it('directly resumes loop provider-limit system actions without waking a thread', async () => {
+    const automation = makeAutomation();
+    automation.action = {
+      ...automation.action,
+      systemAction: {
+        type: 'loopProviderLimitResume',
+        loopRunId: 'loop-quota',
+      },
+    };
+    const run = makeRun();
+    run.configSnapshot = {
+      ...run.configSnapshot!,
+      action: automation.action,
+    };
+    vi.mocked(store.get).mockResolvedValue(automation);
+    vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
+
+    const runner = new AutomationRunner(
+      store,
+      undefined,
+      () => 2_000,
+      threadWakeupFactory,
+    );
+    runner.initialize(manager);
+
+    const result = await runner.fire('automation-1', {
+      trigger: 'scheduled',
+      scheduledAt: 2_000,
+    });
+
+    expect(result.status).toBe('started');
+    expect(loopCoordinatorMocks.resumeLoop).toHaveBeenCalledWith('loop-quota');
+    expect(fireThreadWakeup).not.toHaveBeenCalled();
+    expect(manager.createInstance).not.toHaveBeenCalled();
+    expect(store.terminalizeRun).toHaveBeenCalledWith(
+      'run-1',
+      'succeeded',
+      undefined,
+      'Loop loop-quota resumed after provider quota reset.',
+      2_000,
+    );
   });
 });

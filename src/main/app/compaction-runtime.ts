@@ -2,6 +2,7 @@ import { ContextCompactor } from '../context/context-compactor';
 import { getCompactionCoordinator } from '../context/compaction-coordinator';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 
@@ -78,7 +79,7 @@ export function setupCompactionCoordinator(
           .map(msg => ({
             role: msg.type as 'user' | 'assistant',
             content: msg.content,
-            tokenCount: Math.ceil(msg.content.length / 4),
+            tokenCount: sharedEstimateTokens(msg.content),
           }));
 
         for (const turn of turns) {

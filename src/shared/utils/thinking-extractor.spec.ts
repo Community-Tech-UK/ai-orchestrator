@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   extractThinkingContent,
+  stabilizeThinkingBlocks,
   stripXmlThinkingTags,
   stripBracketThinkingTags,
   extractHeaderStyleThinking,
@@ -652,6 +653,17 @@ Hey! I'm here.`;
 
       expect(result.hasThinking).toBe(true);
       expect(result.response).toBe(`Hey! I'm here.`);
+    });
+  });
+
+  describe('stabilizeThinkingBlocks', () => {
+    it('preserves block ids across streaming updates with the same format', () => {
+      const previous = [{ id: 'stable-1', content: 'Planning…', format: 'header' as const }];
+      const next = [{ id: 'new-id', content: 'Planning… more text', format: 'header' as const }];
+
+      const stabilized = stabilizeThinkingBlocks(previous, next);
+      expect(stabilized?.[0].id).toBe('stable-1');
+      expect(stabilized?.[0].content).toBe('Planning… more text');
     });
   });
 });

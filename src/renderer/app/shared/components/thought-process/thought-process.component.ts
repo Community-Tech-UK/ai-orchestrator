@@ -9,6 +9,7 @@
 
 import { Component, input, computed, inject, ChangeDetectionStrategy } from '@angular/core';
 import type { ThinkingContent } from '../../../../../shared/types/instance.types';
+import { MarkdownService } from '../../../core/services/markdown.service';
 import { ExpansionStateService } from '../../../features/instance-detail/expansion-state.service';
 
 @Component({
@@ -35,13 +36,13 @@ import { ExpansionStateService } from '../../../features/instance-detail/expansi
                     <span class="block-format">{{ formatLabel(block.format) }}</span>
                   </div>
                 }
-                <div class="thought-item">{{ block.content }}</div>
+                <div class="thought-item markdown-content" [innerHTML]="renderThinkingBlock(block.id, block.content)"></div>
               </div>
             }
           } @else {
             <!-- Legacy: string array -->
             @for (thought of thoughts(); track $index) {
-              <div class="thought-item">{{ thought }}</div>
+              <div class="thought-item markdown-content" [innerHTML]="renderThinkingBlock(undefined, thought)"></div>
             }
           }
         </div>
@@ -177,6 +178,8 @@ export class ThoughtProcessComponent {
   itemId = input<string>('');
 
   private expansionState = inject(ExpansionStateService);
+  private markdown = inject(MarkdownService);
+  private renderedBlockCache = new Map<string, ReturnType<MarkdownService['render']>>();
 
   isExpanded = computed(() => this.expansionState.isExpanded(this.instanceId(), this.itemId()));
 
@@ -191,6 +194,17 @@ export class ThoughtProcessComponent {
 
   toggle(): void {
     this.expansionState.toggleExpanded(this.instanceId(), this.itemId());
+  }
+
+  renderThinkingBlock(blockId: string | undefined, content: string) {
+    const cacheKey = blockId ? `${blockId}:${content.length}:${content.slice(-48)}` : content;
+    const cached = this.renderedBlockCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const rendered = this.markdown.render(content);
+    this.renderedBlockCache.set(cacheKey, rendered);
+    return rendered;
   }
 
   /**

@@ -13,11 +13,15 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnInit,
+  computed,
   inject,
   signal,
 } from '@angular/core';
 import { ProviderIpcService } from '../../core/services/ipc/provider-ipc.service';
 import { CliUpdatePillStore } from '../../core/state/cli-update-pill.store';
+import { SettingsStore } from '../../core/state/settings.store';
+import { SegmentedControlComponent, type SegmentOption } from './ui/segmented-control.component';
+import type { CliUpdatePolicy } from '../../../../shared/types/settings.types';
 
 interface CliInstall {
   path: string;
@@ -83,6 +87,7 @@ interface CliUpdateResult {
   standalone: true,
   selector: 'app-cli-health-settings-tab',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [SegmentedControlComponent],
   template: `
     <div class="cli-health-tab">
       <div class="tab-header">
@@ -112,6 +117,25 @@ interface CliUpdateResult {
             {{ loading() ? 'Scanning...' : 'Refresh' }}
           </button>
         </div>
+      </div>
+
+      <div class="update-policy">
+        <div class="update-policy-text">
+          <span class="field-label">Automatic updates</span>
+          <span class="field-hint">
+            How AI Orchestrator handles newer published versions of these CLIs.
+            <strong>Off</strong> stops checking entirely.
+            <strong>Notify</strong> (default) shows an “Update available” badge so you
+            can update with one click. <strong>Auto</strong> installs safe updates in the
+            background — only while no agents are running.
+          </span>
+        </div>
+        <app-segmented-control
+          ariaLabel="Automatic CLI update policy"
+          [options]="policyOptions"
+          [value]="updatePolicy()"
+          (valueChange)="onPolicyChange($event)"
+        />
       </div>
 
       @if (error()) {
@@ -260,6 +284,18 @@ interface CliUpdateResult {
 export class CliHealthSettingsTabComponent implements OnInit {
   private readonly ipc = inject(ProviderIpcService);
   private readonly cliUpdates = inject(CliUpdatePillStore);
+  private readonly settings = inject(SettingsStore);
+
+  /** Current `cliUpdatePolicy` setting, driving the segmented control. */
+  readonly updatePolicy = computed<CliUpdatePolicy>(
+    () => this.settings.settings().cliUpdatePolicy ?? 'notify',
+  );
+
+  readonly policyOptions: SegmentOption[] = [
+    { value: 'off', label: 'Off' },
+    { value: 'notify', label: 'Notify' },
+    { value: 'auto', label: 'Auto' },
+  ];
 
   readonly entries = signal<CliDiagnosisEntry[]>([]);
   readonly loading = signal(false);
@@ -371,6 +407,16 @@ export class CliHealthSettingsTabComponent implements OnInit {
     } finally {
       this.updating.set(new Set<string>());
     }
+  }
+
+  /**
+   * Persist a new auto-update policy. The main-process settings manager emits
+   * `setting:cliUpdatePolicy`, which `CliAutoUpdateService` is subscribed to, so
+   * flipping to "Auto" takes effect immediately (it re-evaluates pending
+   * updates) without a restart.
+   */
+  onPolicyChange(value: string): void {
+    void this.settings.set('cliUpdatePolicy', value as CliUpdatePolicy);
   }
 
   toggle(cli: string): void {

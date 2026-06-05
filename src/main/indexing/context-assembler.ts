@@ -7,6 +7,7 @@
  */
 
 import type { SqliteDriver } from '../db/sqlite-driver';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import type {
   AssembledContext,
   ContextChunk,
@@ -404,8 +405,7 @@ export class ContextAssembler {
    * Estimate token count for text (rough approximation).
    */
   private estimateTokens(text: string): number {
-    // Rough estimation: ~4 characters per token for code
-    return Math.ceil(text.length / 4);
+    return sharedEstimateTokens(text);
   }
 
   /**

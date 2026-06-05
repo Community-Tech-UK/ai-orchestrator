@@ -49,6 +49,48 @@ interface CalibrationEntry {
 const MAX_CALIBRATION_SAMPLES = 20;
 
 /**
+ * A single estimate-vs-actual observation for drift telemetry.
+ * `estimated` is the raw (unpadded, uncalibrated) heuristic count for the same
+ * text the provider reported `actual` tokens for.
+ */
+interface EstimationSample {
+  estimated: number;
+  actual: number;
+  timestamp: number;
+}
+
+/** Maximum estimate-vs-actual telemetry samples to retain per model family. */
+const MAX_TELEMETRY_SAMPLES = 50;
+
+/**
+ * Aggregate estimate-vs-actual drift statistics for one model family.
+ *
+ * This is pure observability — it reports how far the heuristic estimator
+ * drifts from real provider token counts, WITHOUT changing any count. It is the
+ * evidence an operator/developer inspects before deciding whether enabling
+ * calibration (which DOES mutate counts) is warranted.
+ */
+export interface EstimationTelemetry {
+  /** The model family these stats are aggregated over. */
+  family: ModelFamily;
+  /** Number of paired (estimated, actual) samples recorded. */
+  sampleCount: number;
+  /**
+   * Median of `actual / estimated` across samples. `> 1` means the heuristic
+   * systematically UNDER-counts (real tokens exceed the estimate); `< 1` means
+   * it over-counts. `1` is perfectly calibrated.
+   */
+  medianRatio: number;
+  /**
+   * Mean absolute percentage error of the heuristic vs the provider actual:
+   * `mean(|actual - estimated| / actual) * 100`. Lower is better.
+   */
+  meanAbsErrorPct: number;
+  /** Epoch-ms timestamp of the most recent sample. */
+  lastSampleAt: number;
+}
+
+/**
  * Token encoding patterns for different model families
  * These are approximations based on model documentation and empirical testing
  */
@@ -219,6 +261,16 @@ export class TokenCounter {
   /** Derived correction factors from calibration (actual/estimated ratio) */
   private correctionFactors = new Map<ModelFamily, number>();
 
+  /**
+   * Estimate-vs-actual telemetry, keyed by ModelFamily.
+   *
+   * UNLIKE calibration, this is recorded **unconditionally** (no gate): it only
+   * *observes* drift and never feeds back into `countTokens()`, so it cannot
+   * corrupt anything. It is the diagnostic evidence used to decide whether
+   * enabling calibration would actually help (and in which direction).
+   */
+  private estimationSamples = new Map<ModelFamily, EstimationSample[]>();
+
   // Private constructor for singleton pattern
   private constructor() {
     // Intentionally empty - initialization happens via setModelFamily()
@@ -238,6 +290,7 @@ export class TokenCounter {
     if (this.instance) {
       this.instance.calibrationData.clear();
       this.instance.correctionFactors.clear();
+      this.instance.estimationSamples.clear();
       this.instance.calibrateTokenCounts = false;
     }
     this.instance = null;
@@ -380,6 +433,80 @@ export class TokenCounter {
   getCorrectionFactor(model?: string): number {
     const family = model ? getModelFamily(model) : this.modelFamily;
     return this.correctionFactors.get(family) ?? 1.0;
+  }
+
+  /**
+   * Record one estimate-vs-actual telemetry sample.
+   *
+   * Feed this the provider-reported token count (`actualTokens`) alongside the
+   * EXACT text that count was for (e.g. a completion's output text paired with
+   * its `output_tokens`). It computes the raw heuristic estimate for the same
+   * text and stores the pair so {@link getEstimationTelemetry} can report drift.
+   *
+   * This is intentionally **ungated** and side-effect-free with respect to
+   * counting: it never changes `countTokens()` output. Mismatched or zero
+   * inputs are dropped rather than recorded.
+   *
+   * @returns `true` if the sample was recorded, `false` if it was dropped as
+   *   invalid (empty text, non-positive actual, or zero estimate).
+   */
+  recordEstimationSample(actualTokens: number, text: string, model?: string): boolean {
+    if (!text || !Number.isFinite(actualTokens) || actualTokens <= 0) return false;
+
+    const estimated = this.countTokensRaw(text, model);
+    if (estimated <= 0) return false;
+
+    const family = model ? getModelFamily(model) : this.modelFamily;
+    const samples = this.estimationSamples.get(family) ?? [];
+    samples.push({ estimated, actual: actualTokens, timestamp: Date.now() });
+
+    // Keep only the most recent samples (bounded memory).
+    if (samples.length > MAX_TELEMETRY_SAMPLES) {
+      samples.splice(0, samples.length - MAX_TELEMETRY_SAMPLES);
+    }
+    this.estimationSamples.set(family, samples);
+    return true;
+  }
+
+  /**
+   * Aggregate estimate-vs-actual drift stats for a model family, or `null` if
+   * no telemetry has been recorded for it yet.
+   */
+  getEstimationTelemetry(model?: string): EstimationTelemetry | null {
+    const family = model ? getModelFamily(model) : this.modelFamily;
+    const samples = this.estimationSamples.get(family);
+    if (!samples || samples.length === 0) return null;
+
+    const ratios = samples.map((s) => s.actual / s.estimated).sort((a, b) => a - b);
+    const mid = Math.floor(ratios.length / 2);
+    const medianRatio = ratios.length % 2 === 0
+      ? (ratios[mid - 1] + ratios[mid]) / 2
+      : ratios[mid];
+
+    const meanAbsErrorPct =
+      (samples.reduce((sum, s) => sum + Math.abs(s.actual - s.estimated) / s.actual, 0) /
+        samples.length) * 100;
+
+    return {
+      family,
+      sampleCount: samples.length,
+      medianRatio,
+      meanAbsErrorPct,
+      lastSampleAt: samples[samples.length - 1].timestamp,
+    };
+  }
+
+  /**
+   * Aggregate estimate-vs-actual drift stats for every family that has
+   * telemetry, keyed by family. Useful for a diagnostics surface.
+   */
+  getAllEstimationTelemetry(): Partial<Record<ModelFamily, EstimationTelemetry>> {
+    const out: Partial<Record<ModelFamily, EstimationTelemetry>> = {};
+    for (const family of this.estimationSamples.keys()) {
+      const telemetry = this.getEstimationTelemetry(family);
+      if (telemetry) out[family] = telemetry;
+    }
+    return out;
   }
 
   /**

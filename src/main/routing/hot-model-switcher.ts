@@ -11,6 +11,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import type { Instance } from '../../shared/types/instance.types';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
@@ -521,7 +522,7 @@ export class HotModelSwitcher extends EventEmitter {
   }
 
   private estimateTokens(text: string): number {
-    return Math.ceil(text.length / 4);
+    return sharedEstimateTokens(text);
   }
 
   private compressToolOutput(content: string): string {

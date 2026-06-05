@@ -104,6 +104,29 @@ export class WindowManager {
     // Show context menu on right-click (Electron doesn't show one by default)
     this.mainWindow.webContents.on('context-menu', (_event, params) => {
       const menuItems: Electron.MenuItemConstructorOptions[] = [];
+      const webContents = this.mainWindow?.webContents;
+
+      // Spelling suggestions for the misspelled word under the cursor.
+      // Chromium underlines the word (spellcheck is on by default), but the
+      // suggestions only appear if we add them to the menu ourselves.
+      if (params.misspelledWord && webContents) {
+        if (params.dictionarySuggestions.length > 0) {
+          for (const suggestion of params.dictionarySuggestions) {
+            menuItems.push({
+              label: suggestion,
+              click: () => webContents.replaceMisspelling(suggestion)
+            });
+          }
+        } else {
+          menuItems.push({ label: 'No spelling suggestions', enabled: false });
+        }
+        menuItems.push({
+          label: 'Add to Dictionary',
+          click: () =>
+            webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord)
+        });
+        menuItems.push({ type: 'separator' });
+      }
 
       if (params.mediaType === 'image' && params.srcURL) {
         menuItems.push({

@@ -45,6 +45,16 @@ describe('buildInstanceRecord', () => {
     expect(instance.abortController).toBeInstanceOf(AbortController);
   });
 
+  it('seeds currentModel from an explicit modelOverride before async init', () => {
+    const instance = buildInstanceRecord(
+      buildConfig({ provider: 'cursor', modelOverride: 'composer-2.5' }),
+      buildAgent(),
+      { defaultYoloMode: false, getParent: () => undefined },
+    );
+
+    expect(instance.currentModel).toBe('composer-2.5');
+  });
+
   it('applies configured parent inheritance before registration', () => {
     const parent = {
       agentId: 'parent-agent',

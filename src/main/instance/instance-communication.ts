@@ -54,6 +54,7 @@ import {
   isSessionNotFoundMessage,
   isStatelessExecAdapter,
 } from './instance-communication-adapter-helpers';
+import { stabilizeThinkingBlocks } from '../../shared/utils/thinking-extractor';
 import {
   CIRCUIT_BREAKER_CONFIG,
   ACTIVE_CHILD_TURN_STATUSES,
@@ -77,6 +78,14 @@ export class InstanceCommunicationManager extends EventEmitter {
 
   // Circuit breaker state per instance
   private circuitBreakers = new Map<string, CircuitBreakerState>();
+
+  /**
+   * Monotonic count of estimate-vs-actual telemetry samples recorded, used only
+   * to throttle the periodic drift log. NOT the retained-sample count (that is
+   * bounded in {@link TokenCounter}), so this keeps incrementing and the log
+   * cadence stays correct instead of firing on every turn once the buffer fills.
+   */
+  private estimationSampleCount = 0;
 
   // Context overflow failsafe tracking
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -208,6 +217,51 @@ export class InstanceCommunicationManager extends EventEmitter {
       );
     } catch (err) {
       logger.debug('recordCompletionCost failed', { instanceId, error: String(err) });
+    }
+  }
+
+  /**
+   * Feed an estimate-vs-actual token telemetry sample from a completed turn.
+   *
+   * A completion's `content` is the exact text the provider tokenized into
+   * `usage.outputTokens`, so the (text, actual-output-tokens) pair is clean —
+   * this is the one place a genuinely-paired sample is available. Turns that
+   * carry tool calls are skipped: their `output_tokens` include tool-call /
+   * structured-output tokens NOT present in `content`, which would skew the pair.
+   *
+   * Pure observability — this never mutates token counts (it does NOT enable or
+   * feed calibration). It records the heuristic estimator's real-world drift so
+   * the accuracy of {@link TokenCounter} is measurable. Fail-soft by design.
+   */
+  private recordEstimationTelemetry(instance: Instance, response: CliResponse): void {
+    try {
+      if (response.toolCalls && response.toolCalls.length > 0) return;
+      const text = response.content;
+      const actualOutput = response.usage?.outputTokens;
+      if (!text || typeof actualOutput !== 'number' || actualOutput <= 0) return;
+
+      const model = instance.currentModel || instance.provider;
+      const counter = getTokenCounter();
+      if (!counter.recordEstimationSample(actualOutput, text, model)) return;
+
+      // Surface drift periodically (every 25 recorded samples) so the heuristic's
+      // real-world accuracy is operator-visible without a dedicated UI. Cadence is
+      // driven by a monotonic counter — NOT the bounded retained-sample count,
+      // which plateaus and would otherwise log on every turn once the buffer fills.
+      this.estimationSampleCount += 1;
+      if (this.estimationSampleCount % 25 === 0) {
+        const telemetry = counter.getEstimationTelemetry(model);
+        if (telemetry) {
+          logger.info('Token estimate-vs-actual drift', {
+            family: telemetry.family,
+            sampleCount: telemetry.sampleCount,
+            medianRatio: Number(telemetry.medianRatio.toFixed(3)),
+            meanAbsErrorPct: Number(telemetry.meanAbsErrorPct.toFixed(1)),
+          });
+        }
+      }
+    } catch (err) {
+      logger.debug('recordEstimationTelemetry failed', { error: String(err) });
     }
   }
 
@@ -1365,6 +1419,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       const completedInstance = this.deps.getInstance(instanceId);
       if (completedInstance) {
         this.recordCompletionCost(instanceId, completedInstance, response);
+        this.recordEstimationTelemetry(completedInstance, response);
       }
       this.deps.onToolStateChange?.(instanceId, 'idle');
     });
@@ -1933,7 +1988,12 @@ export class InstanceCommunicationManager extends EventEmitter {
           ...instance.outputBuffer[existingIndex],
           content: accumulatedContent,
           metadata: message.metadata,
-          thinking: message.thinking ?? instance.outputBuffer[existingIndex].thinking,
+          thinking: message.thinking
+            ? stabilizeThinkingBlocks(
+                instance.outputBuffer[existingIndex].thinking,
+                message.thinking,
+              )
+            : instance.outputBuffer[existingIndex].thinking,
           thinkingExtracted: message.thinkingExtracted ?? instance.outputBuffer[existingIndex].thinkingExtracted,
         };
         this.emit('output', {

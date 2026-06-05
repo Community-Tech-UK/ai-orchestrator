@@ -19,6 +19,9 @@ import type { CliUpdateStrategy } from '../../shared/types/diagnostics.types';
 
 const logger = getLogger('CliUpdateService');
 
+/** Official Ollama macOS/Linux updater — re-runs the upstream install script. */
+const OLLAMA_INSTALL_SCRIPT_CMD = 'curl -fsSL https://ollama.com/install.sh | sh';
+
 const DEFAULT_UPDATE_TIMEOUT_MS = 300_000;
 const OUTPUT_PREVIEW_MAX_CHARS = 12_000;
 
@@ -165,6 +168,7 @@ function lockKeyFor(strategy: CliUpdateStrategy, cli: CliType): string {
       return 'pm:homebrew';
     case 'self-update':
     case 'gh-extension':
+    case 'install-script':
       return `cli:${cli}`;
   }
 }
@@ -365,6 +369,10 @@ export class CliUpdateService {
       }
     }
 
+    if (type === 'ollama') {
+      return this.buildOllamaPlan(base, activePath);
+    }
+
     const spec = CLI_UPDATE_SPECS[type];
     if (!spec) {
       return {
@@ -390,6 +398,47 @@ export class CliUpdateService {
     return {
       ...base,
       reason: `${displayName} does not expose a safe automatic updater for this install path.`,
+    };
+  }
+
+  /**
+   * Ollama ships via three common paths: Homebrew (`Cellar/ollama`), the
+   * official macOS app (symlink at `/usr/local/bin/ollama`), and the Linux
+   * install script (`/usr/bin/ollama`). Path prefix alone is not enough —
+   * `/usr/local/bin/ollama` is the official symlink, not Homebrew.
+   */
+  private buildOllamaPlan(base: CliUpdatePlan, activePath: string | undefined): CliUpdatePlan {
+    if (!activePath) {
+      return {
+        ...base,
+        reason: `${base.displayName} path could not be determined.`,
+      };
+    }
+
+    const resolved = this.resolveRealPath(activePath);
+
+    // Direct app-bundle binary — the desktop app has its own updater. The
+    // standard `/usr/local/bin/ollama` shim resolves here too; that case is
+    // handled below via the install script.
+    if (this.pathIsUnder(activePath, '/Applications/Ollama.app')) {
+      return {
+        ...base,
+        reason: `${base.displayName} is bundled with Ollama.app. Use the menu bar app (Restart to Update) or re-run the installer from ollama.com.`,
+      };
+    }
+
+    if (this.isHomebrewCellarPath(resolved)) {
+      const command = this.resolveHomebrewCommand(resolved);
+      return this.withCommand(base, command, ['upgrade', 'ollama'], 'homebrew');
+    }
+
+    if (this.platform === 'darwin' || this.platform === 'linux') {
+      return this.withCommand(base, '/bin/sh', ['-c', OLLAMA_INSTALL_SCRIPT_CMD], 'install-script');
+    }
+
+    return {
+      ...base,
+      reason: `${base.displayName} does not expose a safe automatic updater for this install path.`,
     };
   }
 
@@ -546,7 +595,12 @@ export class CliUpdateService {
   }
 
   private isHomebrewPath(activePath: string): boolean {
-    return activePath.startsWith('/opt/homebrew/') || activePath.startsWith('/usr/local/');
+    return this.isHomebrewCellarPath(this.resolveRealPath(activePath));
+  }
+
+  /** True when the resolved binary lives under a Homebrew Cellar tree. */
+  private isHomebrewCellarPath(resolvedPath: string): boolean {
+    return resolvedPath.includes('/Cellar/');
   }
 
   private resolveHomebrewCommand(activePath: string): string {

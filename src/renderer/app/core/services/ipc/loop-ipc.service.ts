@@ -277,6 +277,34 @@ export class LoopIpcService {
     if (!this.api) return () => { /* noop */ };
     return this.api.onLoopCapReached((p) => this.ngZone.run(() => cb(p as { loopRunId: string; cap: string })));
   }
+  onProviderLimit(
+    cb: (data: {
+      loopRunId: string;
+      reason: string;
+      source: 'quota' | 'notice';
+      action: string;
+      windowId?: string;
+      resumeAt: number | null;
+      willResume: boolean;
+    }) => void,
+  ): () => void {
+    if (!this.api) return () => { /* noop */ };
+    return this.api.onLoopProviderLimit((p) =>
+      this.ngZone.run(() =>
+        cb(
+          p as {
+            loopRunId: string;
+            reason: string;
+            source: 'quota' | 'notice';
+            action: string;
+            windowId?: string;
+            resumeAt: number | null;
+            willResume: boolean;
+          },
+        ),
+      ),
+    );
+  }
   onCancelled(cb: (data: { loopRunId: string }) => void): () => void {
     if (!this.api) return () => { /* noop */ };
     return this.api.onLoopCancelled((p) => this.ngZone.run(() => cb(p as { loopRunId: string })));

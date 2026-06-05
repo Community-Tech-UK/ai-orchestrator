@@ -3,6 +3,8 @@
  * Validated design from Claude Code skill loading patterns
  */
 
+import { estimateTokens as sharedEstimateTokens } from '../utils/token-estimate';
+
 export interface SkillMetadata {
   name: string;
   description: string;
@@ -136,8 +138,7 @@ export function createSkillBundle(
 }
 
 export function estimateTokens(content: string): number {
-  // Rough estimate: ~4 characters per token
-  return Math.ceil(content.length / 4);
+  return sharedEstimateTokens(content);
 }
 
 export function calculateMatchConfidence(trigger: string, text: string): number {

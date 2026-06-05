@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import { getLogger } from '../logging/logger';
 import { generateId } from '../../shared/utils/id-generator';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import type {
   RawObservation,
   ObservationLevel,
@@ -169,7 +170,7 @@ export class ObservationIngestor extends EventEmitter {
       : metadata;
 
     // Create raw observation
-    const tokenEstimate = Math.ceil(boundedContent.length / 4);
+    const tokenEstimate = sharedEstimateTokens(boundedContent);
     const observation: RawObservation = {
       id: `obs-${generateId()}`,
       timestamp: Date.now(),

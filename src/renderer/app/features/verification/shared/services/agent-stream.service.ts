@@ -11,6 +11,7 @@ import { Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
 import { Subject, BehaviorSubject, Observable } from 'rxjs';
 import { takeUntil, filter } from 'rxjs/operators';
 import { ElectronIpcService } from '../../../../core/services/ipc';
+import { estimateTokens as sharedEstimateTokens } from '../../../../../../shared/utils/token-estimate';
 
 // ============================================
 // Types
@@ -423,7 +424,6 @@ export class AgentStreamService implements OnDestroy {
   }
 
   private estimateTokens(content: string): number {
-    // Rough estimate: ~4 characters per token
-    return Math.ceil(content.length / 4);
+    return sharedEstimateTokens(content);
   }
 }

@@ -54,7 +54,7 @@ export interface CliInstallSummary {
  * auto-apply safety gate (npm/bun/pnpm/self-update are unattended-safe) and the
  * update concurrency lock.
  */
-export type CliUpdateStrategy = 'npm' | 'bun' | 'pnpm' | 'self-update' | 'gh-extension' | 'homebrew';
+export type CliUpdateStrategy = 'npm' | 'bun' | 'pnpm' | 'self-update' | 'gh-extension' | 'homebrew' | 'install-script';
 
 export interface CliUpdatePlanSummary {
   cli: string;

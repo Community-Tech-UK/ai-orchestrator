@@ -69,6 +69,7 @@ describe('OperatorArtifactExporter', () => {
     expect(result.manifest.files).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: 'doctor-report.json' }),
+        expect.objectContaining({ name: 'token-estimation-telemetry.json' }),
         expect.objectContaining({ name: 'selected-session-diagnostics.json' }),
         expect.objectContaining({ name: 'manifest.json', sha256: 'self-described' }),
       ]),

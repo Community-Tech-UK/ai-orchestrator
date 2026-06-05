@@ -126,6 +126,59 @@ describe('CliUpdateService', () => {
     });
   });
 
+  it('uses the official install script for a standalone /usr/local/bin/ollama symlink', async () => {
+    const appBinary = '/Applications/Ollama.app/Contents/Resources/ollama';
+    const detection = makeDetection({
+      one: {
+        ollama: makeInfo('ollama', '/usr/local/bin/ollama', '0.30.4'),
+      },
+      installs: {
+        ollama: [{ path: '/usr/local/bin/ollama', version: '0.30.4' }],
+      },
+    });
+
+    const service = new CliUpdateService({
+      detection,
+      platform: 'darwin',
+      realpath: (p) => (p === '/usr/local/bin/ollama' ? appBinary : p),
+    });
+
+    await expect(service.getUpdatePlan('ollama')).resolves.toMatchObject({
+      cli: 'ollama',
+      supported: true,
+      command: '/bin/sh',
+      args: ['-c', 'curl -fsSL https://ollama.com/install.sh | sh'],
+      strategy: 'install-script',
+    });
+  });
+
+  it('uses brew upgrade for a Homebrew Cellar Ollama install', async () => {
+    const cellarPath = '/opt/homebrew/Cellar/ollama/0.5.0/bin/ollama';
+    const detection = makeDetection({
+      one: {
+        ollama: makeInfo('ollama', '/opt/homebrew/bin/ollama', '0.5.0'),
+      },
+      installs: {
+        ollama: [{ path: '/opt/homebrew/bin/ollama', version: '0.5.0' }],
+      },
+    });
+
+    const service = new CliUpdateService({
+      detection,
+      platform: 'darwin',
+      exists: (p) => p === '/opt/homebrew/bin/brew',
+      realpath: (p) => (p === '/opt/homebrew/bin/ollama' ? cellarPath : p),
+    });
+
+    await expect(service.getUpdatePlan('ollama')).resolves.toMatchObject({
+      cli: 'ollama',
+      supported: true,
+      command: '/opt/homebrew/bin/brew',
+      args: ['upgrade', 'ollama'],
+      strategy: 'homebrew',
+    });
+  });
+
   it('runs update commands sequentially for installed CLIs and refreshes versions', async () => {
     const detection = makeDetection({
       all: [makeInfo('codex', '/node/bin/codex', '0.123.0')],

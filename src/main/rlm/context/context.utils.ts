@@ -6,16 +6,19 @@
  */
 
 import * as crypto from 'crypto';
+import { estimateTokens as sharedEstimateTokens } from '../../../shared/utils/token-estimate';
 
 /**
  * Estimate token count for a text string.
- * Uses rough approximation: 1 token ≈ 4 characters for English.
+ * Delegates to the shared, CJK-aware heuristic in
+ * `src/shared/utils/token-estimate.ts` (identical to the legacy
+ * `Math.ceil(text.length / 4)` for Latin text).
  *
  * @param text - Text to estimate tokens for
  * @returns Estimated token count
  */
 export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+  return sharedEstimateTokens(text);
 }
 
 /**

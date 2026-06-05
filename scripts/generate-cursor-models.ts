@@ -25,6 +25,7 @@
  *   - Composer  — highest `composer-<maj>.<min>` (base, non-fast).
  *   - Claude    — highest Opus `*-thinking-high` (non-fast) → "Opus <maj>.<min>".
  *   - Codex     — highest base `gpt-<maj>.<min>-codex` → "Codex <maj>.<min>".
+ *   - GPT       — highest base `gpt-<maj>.<min>-high` → "GPT <maj>.<min> High".
  *
  * Usage:
  *   npm run generate:cursor-models           # rewrite the block in place
@@ -192,6 +193,27 @@ function selectCodex(ids: string[]): GeneratedEntry | null {
   };
 }
 
+// Headline GPT is the base `gpt-<maj>.<min>-high` (high-reasoning chat variant,
+// displayed e.g. "GPT-5.5 1M High") — not the codex fork, the `-fast` speed
+// variant, the other reasoning efforts (`-low`/`-medium`/`-none`/`-extra-high`),
+// or the `-mini` forks.
+function gptVersion(id: string): number[] | null {
+  const m = id.match(/^gpt-(\d+)\.(\d+)-high$/);
+  return m ? [Number(m[1]), Number(m[2])] : null;
+}
+
+function selectGpt(ids: string[]): GeneratedEntry | null {
+  const id = pickNewest(ids, gptVersion);
+  if (!id) return null;
+  const v = gptVersion(id)!;
+  return {
+    idExpr: quote(id),
+    name: `GPT ${v[0]}.${v[1]} High`,
+    tier: 'balanced',
+    family: 'GPT',
+  };
+}
+
 /** The fixed `auto` sentinel — kept identical to the existing source line. */
 const AUTO_ENTRY: GeneratedEntry = {
   idExpr: 'CURSOR_MODELS.AUTO',
@@ -201,10 +223,11 @@ const AUTO_ENTRY: GeneratedEntry = {
 };
 
 function buildEntries(ids: string[]): GeneratedEntry[] {
-  const slots: Array<{ name: string; entry: GeneratedEntry | null }> = [
+  const slots: { name: string; entry: GeneratedEntry | null }[] = [
     { name: 'Composer', entry: selectComposer(ids) },
     { name: 'Claude (Opus)', entry: selectClaudeOpus(ids) },
     { name: 'Codex', entry: selectCodex(ids) },
+    { name: 'GPT', entry: selectGpt(ids) },
   ];
 
   const missing = slots.filter((slot) => slot.entry === null).map((s) => s.name);

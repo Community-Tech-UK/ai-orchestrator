@@ -69,6 +69,16 @@ jobs:
       - name: Check provider parity checklist
         run: npm run check:provider-parity
 
+      # Non-blocking: surfaces drift between the committed offline model-catalog
+      # snapshot and live models.dev. Kept out of the hard gate on purpose — the
+      # snapshot tracks an external source that publishes new models on its own
+      # cadence, so an unrelated PR must not fail just because models.dev moved.
+      # `--check` is fail-soft when models.dev is unreachable (exit 0). When this
+      # step shows red, run `npm run sync:model-catalog` and commit the refresh.
+      - name: Check model-catalog snapshot drift
+        run: npm run sync:model-catalog -- --check
+        continue-on-error: true
+
       # Allowlisted: protobufjs transitive CVE is unfixable upstream (package.json overrides).
       # New high-severity vulnerabilities will now fail the build.
       - name: Security audit

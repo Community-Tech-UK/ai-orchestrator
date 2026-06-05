@@ -12,6 +12,7 @@ import type {
 import { getLLMService } from '../rlm/llm-service';
 import { retryWithBackoff } from '../core/error-recovery';
 import { getLogger } from '../logging/logger';
+import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 
 const answerLogger = getLogger('AnswerAgent');
 
@@ -352,7 +353,7 @@ export class AnswerAgent extends EventEmitter {
   // ============ Utilities ============
 
   private estimateTokens(text: string): number {
-    return Math.ceil(text.length / 4);
+    return sharedEstimateTokens(text);
   }
 
   // ============ Context for Training ============

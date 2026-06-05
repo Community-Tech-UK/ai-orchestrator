@@ -14,7 +14,8 @@ import { PauseStore } from '../pause/pause.store';
 
 /** Maximum number of transient-failure retries before dropping a queued message. */
 const MAX_QUEUE_RETRIES = 3;
-const SEND_INPUT_IPC_TIMEOUT_MS = 60_000;
+const DEFAULT_SEND_INPUT_IPC_TIMEOUT_MS = 60_000;
+const ACP_SEND_INPUT_IPC_TIMEOUT_MS = 11 * 60_000;
 
 interface SendInputImmediateOptions {
   skipUserBubble?: boolean;
@@ -459,7 +460,8 @@ export class InstanceMessagingStore {
         message,
         attachments,
         retryCount > 0 || options.skipUserBubble === true
-      )
+      ),
+      this.getSendInputTimeoutMs(target.instance.provider)
     );
 
     // If send failed, decide whether to retry or drop
@@ -588,17 +590,20 @@ export class InstanceMessagingStore {
   // Private Helpers
   // ============================================
 
-  private async sendInputWithTimeout(operation: Promise<IpcResponse>): Promise<IpcResponse> {
+  private async sendInputWithTimeout(
+    operation: Promise<IpcResponse>,
+    timeoutMs: number
+  ): Promise<IpcResponse> {
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<IpcResponse>((resolve) => {
       timeoutId = setTimeout(() => {
         resolve({
           success: false,
           error: {
-            message: `Send input timed out after ${SEND_INPUT_IPC_TIMEOUT_MS / 1000}s. The app cleared the optimistic busy state; please retry after checking the session.`,
+            message: `Send input timed out after ${timeoutMs / 1000}s. The app cleared the optimistic busy state; please retry after checking the session.`,
           },
         });
-      }, SEND_INPUT_IPC_TIMEOUT_MS);
+      }, timeoutMs);
     });
 
     try {
@@ -608,6 +613,17 @@ export class InstanceMessagingStore {
         clearTimeout(timeoutId);
       }
     }
+  }
+
+  private getSendInputTimeoutMs(provider: Instance['provider']): number {
+    // ACP prompt turns can legitimately run for up to 10 minutes before the
+    // adapter's own prompt timeout resolves the IPC call with an authoritative
+    // result. Keep the renderer guard beyond that backend ceiling so it only
+    // catches a truly wedged IPC bridge, not normal long Cursor/Copilot turns.
+    if (provider === 'cursor' || provider === 'copilot') {
+      return ACP_SEND_INPUT_IPC_TIMEOUT_MS;
+    }
+    return DEFAULT_SEND_INPUT_IPC_TIMEOUT_MS;
   }
 
   private resolveMessageTarget(

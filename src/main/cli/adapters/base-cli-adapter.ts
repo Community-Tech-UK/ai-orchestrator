@@ -13,6 +13,7 @@ import { buildCliSpawnOptions } from '../cli-environment';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../../pause/orchestrator-paused-error';
 import type { FileAttachment } from '../../../shared/types/instance.types';
+import { estimateTokens as sharedEstimateTokens } from '../../../shared/utils/token-estimate';
 import type { DegradedOutputSignals } from './degraded-output-classifier';
 import type {
   AdapterRuntimeCapabilities,
@@ -774,8 +775,7 @@ export abstract class BaseCliAdapter extends EventEmitter {
    * Estimate token usage from content length (rough approximation)
    */
   protected estimateTokens(content: string): number {
-    // Rough estimate: ~4 characters per token
-    return Math.ceil(content.length / 4);
+    return sharedEstimateTokens(content);
   }
 
 }
