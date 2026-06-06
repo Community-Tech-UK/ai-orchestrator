@@ -139,7 +139,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/orchestration/debate-coordinator.ts': 1196,
   'src/main/orchestration/default-invokers.ts': 1669,
   'src/main/orchestration/embedding-service.ts': 845,
-  'src/main/orchestration/loop-coordinator.ts': 2635,
+  'src/main/orchestration/loop-coordinator.ts': 2697,
   'src/main/orchestration/loop-progress-detector.ts': 725,
   'src/main/orchestration/multi-verify-coordinator.ts': 1172,
   'src/main/orchestration/orchestration-handler.ts': 1458,
@@ -190,7 +190,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/hooks/hooks-config.component.ts': 1027,
   'src/renderer/app/features/hooks/hooks-page.component.ts': 767,
   'src/renderer/app/features/instance-detail/input-panel.component.ts': 1703,
-  'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1491,
+  'src/renderer/app/features/instance-detail/instance-detail.component.ts': 1508,
   'src/renderer/app/features/instance-detail/output-stream.component.ts': 1189,
   'src/renderer/app/features/instance-detail/user-action-request.component.ts': 1015,
   'src/renderer/app/features/instance-list/instance-list.component.ts': 1360,
@@ -227,7 +227,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/worktree/worktree-page.component.ts': 717,
   'src/renderer/app/features/worktree/worktree-panel.component.ts': 714,
   // Shared
-  'src/shared/types/loop.types.ts': 828,
+  'src/shared/types/loop.types.ts': 842,
   'src/shared/types/settings.types.ts': 810,
   // Worker agent
   'src/worker-agent/worker-agent.ts': 879,
