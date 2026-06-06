@@ -1217,7 +1217,12 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               // Claude sometimes asks questions via AskUserQuestion tool_use blocks
               // without a top-level input_required event.
               if (block.name === 'AskUserQuestion') {
-                this.emitAskUserQuestionInputRequired(toolUseId, toolInput, assistantTimestamp);
+                this.emitAskUserQuestionInputRequired(
+                  toolUseId,
+                  toolInput,
+                  assistantTimestamp,
+                  assistantContent
+                );
               }
             }
           }
@@ -1777,9 +1782,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private emitAskUserQuestionInputRequired(
     toolUseId: string | undefined,
     input: unknown,
-    timestamp: number
+    timestamp: number,
+    fallbackText?: string
   ): void {
-    const prompt = this.buildAskUserQuestionPrompt(input);
+    const prompt = this.buildAskUserQuestionPrompt(input, fallbackText);
     if (!prompt) {
       return;
     }
@@ -1828,9 +1834,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     });
   }
 
-  private buildAskUserQuestionPrompt(input: unknown): string {
+  private buildAskUserQuestionPrompt(input: unknown, fallbackText?: string): string {
+    const fallbackPrompt = this.extractAskUserQuestionFallback(fallbackText);
     if (!input || typeof input !== 'object') {
-      return 'Input required from Claude. Please provide your response.';
+      return fallbackPrompt || 'Input required from Claude. Please provide your response.';
     }
 
     const data = input as Record<string, unknown>;
@@ -1858,6 +1865,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     }
     if (directQuestion) {
       parts.push(directQuestion);
+    } else if (fallbackPrompt) {
+      parts.push(fallbackPrompt);
     } else if (parts.length === 0) {
       parts.push('Claude requested input via AskUserQuestion.');
     }
@@ -1866,6 +1875,20 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     }
 
     return parts.join('\n').trim();
+  }
+
+  private extractAskUserQuestionFallback(text: string | undefined): string | undefined {
+    const normalized = text?.replace(/\r\n/g, '\n').trim();
+    if (!normalized) {
+      return undefined;
+    }
+
+    const paragraphs = normalized
+      .split(/\n\s*\n/)
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+    const questionParagraph = [...paragraphs].reverse().find((part) => part.includes('?'));
+    return questionParagraph || normalized;
   }
 
   private readString(obj: Record<string, unknown>, keys: string[]): string | undefined {

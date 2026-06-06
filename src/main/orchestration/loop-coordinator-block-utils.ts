@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import * as path from 'path';
 import { promisify } from 'node:util';
 import type { LoopTerminalIntentEvidence } from '../../shared/types/loop.types';
+import type { DegradedReason } from '../cli/adapters/degraded-output-classifier';
 
 const execFileAsync = promisify(execFile);
 
@@ -9,6 +10,8 @@ export interface DegradedIterationChildResult {
   output: string;
   filesChanged: unknown[];
   toolCalls: unknown[];
+  /** A3: adapter-layer degraded classification, when the feature flag was on. */
+  degradedReason?: DegradedReason;
 }
 
 export function getBlockOverrideInterventionText(): string {
@@ -115,9 +118,15 @@ export function isCircuitBreakerOpenError(invocationError: string | null | undef
 export function classifyDegradedIteration(
   childResult: DegradedIterationChildResult | null,
   invocationError: string | null,
-): 'invocation-error' | 'void-iteration' | null {
+): 'invocation-error' | 'void-iteration' | 'adapter-degraded' | null {
   if (!childResult) {
     return invocationError ? 'invocation-error' : null;
+  }
+  // A3: adapter-layer degraded classification takes priority over the void check
+  // so the retry loop knows the root cause. Only fires when the feature flag was
+  // on during the iteration; all DegradedReason values warrant a fresh-session retry.
+  if (childResult.degradedReason) {
+    return 'adapter-degraded';
   }
   const noOutput = childResult.output.trim().length === 0;
   const noWork = childResult.filesChanged.length === 0 && childResult.toolCalls.length === 0;

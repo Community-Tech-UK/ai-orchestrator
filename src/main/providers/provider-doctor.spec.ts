@@ -8,6 +8,7 @@ import {
   ProviderDoctor,
   classifyProbeFailure,
   buildRepairActions,
+  buildRuntimeLogBundle,
 } from './provider-doctor';
 import type { ProbeResult, DiagnosisResult } from './provider-doctor';
 import type { ProviderProbeErrorKind } from '../../shared/types/provider-doctor.types';
@@ -390,5 +391,92 @@ describe('ProviderDoctor probe errorKind population', () => {
     const result = await probe!.run('anthropic-api');
     expect(result.status).toBe('fail');
     expect(result.errorKind).toBe('endpoint_unreachable');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildRuntimeLogBundle — B4 redacted runtime-log bundles
+// ---------------------------------------------------------------------------
+
+describe('buildRuntimeLogBundle', () => {
+  it('returns undefined when all probes pass', () => {
+    const probes = [
+      makeProbe('cli_installed', 'pass'),
+      makeProbe('authenticated', 'pass'),
+    ];
+    expect(buildRuntimeLogBundle(probes)).toBeUndefined();
+  });
+
+  it('returns undefined when all probes are skipped', () => {
+    expect(buildRuntimeLogBundle([makeProbe('authenticated', 'skip')])).toBeUndefined();
+  });
+
+  it('includes failed probe messages in entries', () => {
+    const probes = [
+      makeProbe('cli_installed', 'fail', { message: 'claude not found in PATH' }),
+      makeProbe('authenticated', 'pass'),
+    ];
+    const bundle = buildRuntimeLogBundle(probes);
+    expect(bundle).toBeDefined();
+    expect(bundle!.entries).toHaveLength(1);
+    expect(bundle!.entries[0]).toContain('cli_installed');
+    expect(bundle!.entries[0]).toContain('claude not found in PATH');
+  });
+
+  it('includes timeout probes in entries', () => {
+    const probes = [makeProbe('reachable', 'timeout', { message: 'probe timed out' })];
+    const bundle = buildRuntimeLogBundle(probes);
+    expect(bundle).toBeDefined();
+    expect(bundle!.entries[0]).toContain('reachable');
+    expect(bundle!.entries[0]).toContain('probe timed out');
+  });
+
+  it('redacts Anthropic-style API keys', () => {
+    const key = 'sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    const probes = [makeProbe('authenticated', 'fail', { message: `API key ${key} is invalid` })];
+    const bundle = buildRuntimeLogBundle(probes)!;
+    expect(bundle.entries[0]).not.toContain(key);
+    expect(bundle.entries[0]).toContain('[REDACTED]');
+    expect(bundle.redactedCount).toBeGreaterThan(0);
+  });
+
+  it('redacts bearer tokens', () => {
+    const probes = [
+      makeProbe('authenticated', 'fail', { message: 'Authorization: Bearer eyJhbGciOiJSUzI1NiJ9.payload.signature' }),
+    ];
+    const bundle = buildRuntimeLogBundle(probes)!;
+    expect(bundle.entries[0]).not.toContain('eyJhbGciOiJSUzI1NiJ9.payload.signature');
+    expect(bundle.entries[0]).toContain('[REDACTED]');
+  });
+
+  it('leaves non-secret content intact', () => {
+    const probes = [makeProbe('cli_installed', 'fail', { message: 'claude not found in PATH /usr/bin' })];
+    const bundle = buildRuntimeLogBundle(probes)!;
+    expect(bundle.entries[0]).toContain('not found in PATH');
+    expect(bundle.redactedCount).toBe(0);
+  });
+
+  it('collects entries from all failed probes', () => {
+    const probes = [
+      makeProbe('cli_installed', 'fail'),
+      makeProbe('authenticated', 'fail'),
+      makeProbe('cli_shadow_check', 'pass'),
+    ];
+    const bundle = buildRuntimeLogBundle(probes)!;
+    expect(bundle.entries).toHaveLength(2);
+  });
+
+  it('diagnose() attaches logBundle when probes fail', async () => {
+    ProviderDoctor._resetForTesting();
+    const doctor = ProviderDoctor.getInstance();
+    const diagnosis = await doctor.diagnose('claude-cli');
+    const hasFailed = diagnosis.probes.some(p => p.status === 'fail' || p.status === 'timeout');
+    if (hasFailed) {
+      expect(diagnosis.logBundle).toBeDefined();
+      expect(Array.isArray(diagnosis.logBundle!.entries)).toBe(true);
+      expect(diagnosis.logBundle!.entries.length).toBeGreaterThan(0);
+    } else {
+      expect(diagnosis.logBundle).toBeUndefined();
+    }
   });
 });

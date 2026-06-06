@@ -127,7 +127,7 @@ export const LoopCompletionConfigSchema = z.object({
   mode: LoopCompletionModeSchema.optional(),
   /** review-driven: consecutive clean fresh-eyes passes required to stop. */
   requiredCleanReviewPasses: z.number().int().positive().max(20).optional(),
-  /** review-driven: exact line the model emits to signal nothing left to do. */
+  /** review-driven: preferred no-actionable-issues wording / high-confidence shortcut. */
   noOutstandingPhrase: z.string().min(1).optional(),
   completedFilenamePattern: z.string().min(1),
   donePromiseRegex: z.string().min(1),

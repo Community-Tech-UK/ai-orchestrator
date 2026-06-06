@@ -42,7 +42,6 @@ import {
 } from './loop-completion-detector';
 import { LoopProgressDetector } from './loop-progress-detector';
 import { LoopStageMachine } from './loop-stage-machine';
-import { LOOP_STATE_DIR_NAME } from './loop-artifact-paths';
 import {
   saveLoopAttachments,
   cleanupLoopAttachments,
@@ -89,6 +88,10 @@ import {
   type LoopSemanticProgressReviewer,
 } from './loop-semantic-progress';
 import {
+  defaultCleanReviewClassifier,
+  type LoopCleanReviewClassifier,
+} from './loop-clean-review-classifier';
+import {
   defaultBranchSelector,
   type LoopBranchSelector,
 } from './loop-branch-select';
@@ -127,6 +130,7 @@ import { LoopProviderLimitHandler } from './loop-provider-limit-handler';
 import { streamLoopEvents } from './loop-stream';
 import {
   evaluateReviewDrivenCompletion as evaluateReviewDrivenCompletionGate,
+  isReviewDrivenProductionChange,
   runFreshEyesReviewGate as runFreshEyesReviewGateHelper,
   type FreshEyesGateResult,
 } from './loop-coordinator-completion-gates';
@@ -235,6 +239,18 @@ export class LoopCoordinator extends EventEmitter {
   /** Override the semantic-progress reviewer (tests / DI). */
   setSemanticProgressReviewer(reviewer: LoopSemanticProgressReviewer): void {
     this.semanticProgressReviewer = reviewer;
+  }
+
+  /**
+   * Review-driven completion classifier. It judges the child's review message
+   * semantically ("no actionable issues remain") instead of requiring one
+   * exact magic phrase.
+   */
+  private cleanReviewClassifier: LoopCleanReviewClassifier = defaultCleanReviewClassifier;
+
+  /** Override the clean-review classifier (tests / DI). */
+  setCleanReviewClassifier(classifier: LoopCleanReviewClassifier): void {
+    this.cleanReviewClassifier = classifier;
   }
 
   /**
@@ -377,7 +393,10 @@ export class LoopCoordinator extends EventEmitter {
           'the work broke something that was passing before';
         const existing = this.convergenceNotes.get(loopId);
         this.convergenceNotes.set(loopId, existing ? `${existing}; ${note}` : note);
-        logger.info('Loop verify regressed after a prior pass', {
+        // A4: schedule a forced fresh-eyes pass on the next completion attempt
+        // so a second opinion evaluates the workspace before accepting again.
+        state.freshEyesForcedByContradiction = true;
+        logger.info('Loop verify regressed after a prior pass — forcing fresh-eyes on next attempt', {
           loopRunId: loopId,
           target,
           priorPasses: priorVerified.length,
@@ -2012,9 +2031,7 @@ export class LoopCoordinator extends EventEmitter {
       // `completed-needs-review` so a human can glance, with a convergence note.
       if (reviewDriven && evaluation.verdict === 'CRITICAL') {
         const madeProductionChange = iteration.filesChanged.some(
-          (f) =>
-            !f.path.includes(`${LOOP_STATE_DIR_NAME}/`) &&
-            !f.path.includes(`${LOOP_STATE_DIR_NAME}\\`),
+          (f) => isReviewDrivenProductionChange(f.path),
         );
         const advancingConvergence = (state.consecutiveCleanReviewPasses ?? 0) > 0;
         if (!madeProductionChange && !advancingConvergence) {
@@ -2214,6 +2231,7 @@ export class LoopCoordinator extends EventEmitter {
       completionDetector: this.completionDetector,
       runFreshEyesReviewGate: (signalId, reviewIteration, verifyOutput) =>
         this.runFreshEyesReviewGate(state, signalId, reviewIteration, verifyOutput),
+      classifyCleanReview: this.cleanReviewClassifier,
       emit: (eventName, payload) => this.emit(eventName, payload),
     });
   }
@@ -2365,7 +2383,7 @@ export class LoopCoordinator extends EventEmitter {
   private classifyDegradedIteration(
     childResult: LoopChildResult | null,
     invocationError: string | null,
-  ): 'invocation-error' | 'void-iteration' | null {
+  ): 'invocation-error' | 'void-iteration' | 'adapter-degraded' | null {
     return classifyDegradedIterationHelper(childResult, invocationError);
   }
 

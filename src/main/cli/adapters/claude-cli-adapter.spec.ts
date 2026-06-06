@@ -78,6 +78,44 @@ describe('ClaudeCliAdapter AskUserQuestion handling', () => {
 
     expect(onInputRequired).toHaveBeenCalledTimes(1);
   });
+
+  it('uses preceding assistant question text when AskUserQuestion input is empty', () => {
+    const adapter = new ClaudeCliAdapter();
+    const onInputRequired = vi.fn();
+    adapter.on('input_required', onInputRequired);
+    const processCliMessage = (
+      adapter as unknown as { processCliMessage: (message: unknown) => void }
+    ).processCliMessage.bind(adapter);
+
+    processCliMessage({
+      type: 'assistant',
+      timestamp: 789,
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: [
+              'I can continue in two ways.',
+              '',
+              'How would you like me to proceed on native coverage?',
+            ].join('\n'),
+          },
+          {
+            type: 'tool_use',
+            id: 'tool-ask-empty',
+            name: 'AskUserQuestion',
+            input: {},
+          },
+        ],
+      },
+    });
+
+    expect(onInputRequired).toHaveBeenCalledTimes(1);
+    const payload = onInputRequired.mock.calls[0][0] as { prompt: string; metadata?: Record<string, unknown> };
+    expect(payload.prompt).toBe('How would you like me to proceed on native coverage?');
+    expect(payload.prompt).not.toContain('Claude requested input via AskUserQuestion');
+    expect(payload.metadata?.['type']).toBe('ask_user_question');
+  });
 });
 
 describe('ClaudeCliAdapter context window seeding', () => {

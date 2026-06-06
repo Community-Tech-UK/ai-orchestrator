@@ -24,6 +24,21 @@ export type ProviderProbeErrorKind =
   | 'unknown';
 
 /**
+ * Redacted bundle of recent runtime log lines collected from failed probes.
+ * Secret patterns (API keys, tokens, passwords) are scrubbed before storage.
+ * Useful for attaching to doctor diagnoses without leaking credentials.
+ */
+export interface RuntimeLogBundle {
+  /**
+   * Sanitized log lines from failed probes (probe name prefix + message).
+   * At most 50 lines; each line is at most 512 characters.
+   */
+  entries: string[];
+  /** Number of secret-pattern substitutions made across all entries. */
+  redactedCount: number;
+}
+
+/**
  * A structured, human-readable repair action derived from a failed probe.
  * command is a PREVIEW shell template — it contains no secrets and is
  * never executed automatically.

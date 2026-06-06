@@ -67,13 +67,13 @@ export interface LoopProgressThresholds {
  *
  * - `'review-driven'` (the default for user-started loops): the loop's *engine*
  *   is a fresh-eyes self-review. Each iteration the model re-reviews its own
- *   work, fixes anything not done or done wrong, and only emits the
- *   `noOutstandingPhrase` when — after a genuine fresh pass — it found nothing
- *   to fix and changed no production code. The loop stops after
- *   `requiredCleanReviewPasses` consecutive such clean passes. There is no
- *   verify-gate / rename-gate / evidence-ladder; the review IS the stop
- *   condition. Mirrors the proven manual workflow ("re-review with fresh eyes,
- *   fix anything not done") without a human typing it each round.
+ *   work, fixes anything not done or done wrong, and only reports a clean
+ *   review when — after a genuine fresh pass — it found nothing to fix and
+ *   changed no production code. The loop stops after `requiredCleanReviewPasses`
+ *   consecutive semantically clean passes. There is no verify-gate /
+ *   rename-gate / evidence-ladder; the review IS the stop condition. Mirrors
+ *   the proven manual workflow ("re-review with fresh eyes, fix anything not
+ *   done") without a human typing it each round.
  * - `'gated'`: the legacy evidence-ladder path — a sufficient completion signal
  *   (declared-complete / forensic markers) gated by verify + belt-and-braces +
  *   optional cross-model review. Still fully supported; opt in explicitly.
@@ -89,15 +89,17 @@ export interface LoopCompletionConfig {
    */
   mode?: LoopCompletionMode;
   /**
-   * review-driven only: number of consecutive clean fresh-eyes passes (model
-   * emits `noOutstandingPhrase` AND changed no production code) required before
-   * the loop stops. Default 2 — one clean pass can be lazy, two in a row is a
-   * strong signal. Ignored in `'gated'` mode.
+   * review-driven only: number of consecutive clean fresh-eyes passes required
+   * before the loop stops. A clean pass is semantically classified as "no
+   * actionable issues remain" and has no production-code changes. Default 2 —
+   * one clean pass can be lazy, two in a row is a strong signal. Ignored in
+   * `'gated'` mode.
    */
   requiredCleanReviewPasses?: number;
   /**
-   * review-driven only: the exact line the model must emit (case-insensitive)
-   * to signal "nothing left to do." Default 'There are no outstanding issues'.
+   * review-driven only: preferred wording for the model to signal "nothing
+   * left to do." The runtime also accepts equivalent no-actionable-issues
+   * sentiment; this phrase remains a high-confidence shortcut and prompt hint.
    */
   noOutstandingPhrase?: string;
   /**
@@ -793,10 +795,11 @@ export interface LoopState {
    */
   repeatedEvidenceCount?: number;
   /**
-   * review-driven mode: count of consecutive clean fresh-eyes passes (model
-   * emitted the no-outstanding phrase AND changed no production code this
-   * iteration). Resets to 0 on any iteration that changes production code or
-   * does not emit the phrase. The loop converges when this reaches
+   * review-driven mode: count of consecutive clean fresh-eyes passes. A pass
+   * means the review output semantically says no actionable issues remain AND
+   * no production code changed this iteration. Resets to 0 on any iteration
+   * that changes production code or reports unresolved/ambiguous work. The
+   * loop converges when this reaches
    * `completion.requiredCleanReviewPasses`. In-memory only; undefined/0 in
    * gated mode.
    */
@@ -811,6 +814,14 @@ export interface LoopState {
    * In-memory only; undefined/0 in gated mode.
    */
   reviewDrivenStallIterations?: number;
+  /**
+   * A4: one-shot flag set by `recordCompletionEvidence` when a verify
+   * contradiction is detected (verify failed after a prior verified pass).
+   * On the next completion attempt `runFreshEyesReviewGate` checks this flag
+   * and forces fresh-eyes even when `crossModelReview` is disabled or absent,
+   * then clears it. In-memory only; not persisted.
+   */
+  freshEyesForcedByContradiction?: boolean;
 }
 
 export type { LoopActivityEvent, LoopActivityKind, LoopRunSummary, LoopStreamEvent } from './loop-stream.types';

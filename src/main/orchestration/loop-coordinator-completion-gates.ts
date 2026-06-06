@@ -4,6 +4,7 @@ import type {
   LoopStage,
   LoopState,
 } from '../../shared/types/loop.types';
+import { defaultCrossModelReviewConfig } from '../../shared/types/loop.types';
 import type { LoopCompletionDetector } from './loop-completion-detector';
 import { LOOP_STATE_DIR_NAME } from './loop-artifact-paths';
 import { collectWorkspaceDiff } from './loop-diff';
@@ -16,6 +17,7 @@ import type {
   FreshEyesReviewer,
   FreshEyesReviewerResult,
 } from './loop-fresh-eyes-reviewer';
+import type { LoopCleanReviewClassifier } from './loop-clean-review-classifier';
 import type { LoopStageMachine } from './loop-stage-machine';
 import { excerpt } from './loop-coordinator-utils';
 
@@ -50,6 +52,7 @@ export async function evaluateReviewDrivenCompletion(args: {
     iteration: LoopIteration,
     verifyOutput: string,
   ) => Promise<FreshEyesGateResult>;
+  classifyCleanReview: LoopCleanReviewClassifier;
   emit: LoopEmit;
 }): Promise<{ status: 'completed' | 'completed-needs-review'; reason: string } | null> {
   const {
@@ -61,20 +64,23 @@ export async function evaluateReviewDrivenCompletion(args: {
     stage,
     completionDetector,
     runFreshEyesReviewGate,
+    classifyCleanReview,
     emit,
   } = args;
   const cfg = state.config.completion;
-  const phrase = (cfg.noOutstandingPhrase ?? 'There are no outstanding issues').trim().toLowerCase();
   const required = Math.max(1, cfg.requiredCleanReviewPasses ?? 2);
 
-  const productionChanges = iteration.filesChanged.filter(
-    (f) => !f.path.includes(`${LOOP_STATE_DIR_NAME}/`) && !f.path.includes(`${LOOP_STATE_DIR_NAME}\\`),
-  );
-  const sentinelPresent = (fullOutput ?? '').toLowerCase().includes(phrase);
+  const productionChanges = iteration.filesChanged.filter((f) => isReviewDrivenProductionChange(f.path));
   const noProductionChanges = productionChanges.length === 0;
+  const reviewVerdict = await classifyCleanReview({
+    goal: state.config.initialPrompt,
+    workspaceCwd: state.config.workspaceCwd,
+    iterationOutput: fullOutput ?? '',
+    config: cfg,
+  });
 
   let verifyOk = true;
-  if (sentinelPresent && noProductionChanges && cfg.verifyCommand?.trim()) {
+  if (reviewVerdict.clean && noProductionChanges && cfg.verifyCommand?.trim()) {
     const v = await completionDetector.runVerify(state.config);
     iteration.verifyStatus = v.status === 'skipped' ? 'not-run' : v.status;
     iteration.verifyOutputExcerpt = excerpt(v.output);
@@ -88,7 +94,7 @@ export async function evaluateReviewDrivenCompletion(args: {
     }
   }
 
-  const cleanPass = sentinelPresent && noProductionChanges && verifyOk;
+  const cleanPass = reviewVerdict.clean && noProductionChanges && verifyOk;
 
   if (cleanPass) {
     state.consecutiveCleanReviewPasses = (state.consecutiveCleanReviewPasses ?? 0) + 1;
@@ -100,7 +106,7 @@ export async function evaluateReviewDrivenCompletion(args: {
       timestamp: Date.now(),
       kind: 'status',
       message: `Clean fresh-eyes review pass ${count}/${required}`,
-      detail: { consecutiveCleanReviewPasses: count, required },
+      detail: { consecutiveCleanReviewPasses: count, required, reason: reviewVerdict.reason },
     });
     if (count >= required) {
       if (state.config.completion.crossModelReview?.enabled) {
@@ -144,6 +150,16 @@ export async function evaluateReviewDrivenCompletion(args: {
   return null;
 }
 
+export function isReviewDrivenProductionChange(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, '/').replace(/^\.\/+/, '');
+  if (normalized.includes(`${LOOP_STATE_DIR_NAME}/`)) return false;
+  if (normalized === LOOP_STATE_DIR_NAME) return false;
+  if (normalized.startsWith('server/')) return false;
+  if (/\.(db|db-shm|db-wal|sqlite|sqlite3|mv\.db)$/i.test(normalized)) return false;
+  if (/\/logs?\//i.test(normalized) || /(^|\/)latest\.log$/i.test(normalized)) return false;
+  return true;
+}
+
 export async function runFreshEyesReviewGate(args: {
   state: LoopState;
   signalId: string;
@@ -155,8 +171,18 @@ export async function runFreshEyesReviewGate(args: {
 }): Promise<FreshEyesGateResult> {
   const { state, signalId, iteration, verifyOutput, reviewer, emit, setConvergenceNote } = args;
   const reviewCfg = state.config.completion.crossModelReview;
-  if (!reviewCfg || !reviewCfg.enabled) {
+  // A4: consume the one-shot contradiction flag before the enabled check so a
+  // contradiction-forced review runs even when crossModelReview is off/absent.
+  const forcedByContradiction = state.freshEyesForcedByContradiction === true;
+  if (forcedByContradiction) {
+    state.freshEyesForcedByContradiction = false;
+  }
+  const effectiveCfg = (reviewCfg?.enabled ? reviewCfg : null) ?? (forcedByContradiction ? defaultCrossModelReviewConfig() : null);
+  if (!effectiveCfg) {
     return { blocked: false, ran: false, errored: false };
+  }
+  if (forcedByContradiction && !reviewCfg?.enabled) {
+    logger.info('Running forced fresh-eyes review after verify contradiction', { loopRunId: state.id });
   }
 
   emit('loop:fresh-eyes-review-started', { loopRunId: state.id, signal: signalId });
@@ -183,7 +209,7 @@ export async function runFreshEyesReviewGate(args: {
       terminalIntent: state.terminalIntentPending?.kind === 'complete'
         ? state.terminalIntentPending
         : undefined,
-      config: reviewCfg,
+      config: effectiveCfg,
     });
   } catch (err) {
     logger.warn('Fresh-eyes reviewer threw - letting completion proceed', {
@@ -199,7 +225,7 @@ export async function runFreshEyesReviewGate(args: {
   }
 
   const blocking = reviewResult.findings.filter((f) =>
-    (reviewCfg.blockingSeverities as readonly string[]).includes(f.severity),
+    (effectiveCfg.blockingSeverities as readonly string[]).includes(f.severity),
   );
 
   if (blocking.length === 0) {

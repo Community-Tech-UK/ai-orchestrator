@@ -4,13 +4,13 @@
  * The loop's engine is a relentless fresh-eyes self-review: each iteration the
  * model fixes what it finds, and the loop converges only after
  * `requiredCleanReviewPasses` consecutive CLEAN passes — a clean pass being an
- * iteration where the model emitted the no-outstanding phrase AND changed no
- * production code. Behaviours guarded here:
+ * iteration where the review output semantically reports no actionable issues
+ * AND changed no production code. Behaviours guarded here:
  *   1. Converges to `completed` after N consecutive clean passes; not before.
  *   2. A production-code change resets the clean-pass streak.
  *   3. Loop bookkeeping (.aio-loop-state/*) does NOT count as a production change.
  *   4. Converges to `completed-needs-review` when OUTSTANDING.md flags human items.
- *   5. Emitting the phrase without the exact text is not a clean pass.
+ *   5. Ambiguous completion claims are not clean passes.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult, type FreshEyesReviewerResult } from './loop-coordinator';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import { defaultLoopConfig, type LoopFileChange } from '../../shared/types/loop.types';
+import { classifyCleanReviewText } from './loop-clean-review-classifier';
 
 const PHRASE = 'There are no outstanding issues';
 
@@ -30,6 +31,9 @@ beforeEach(() => {
   workspace = mkdtempSync(join(tmpdir(), 'loop-review-driven-'));
   writeFileSync(join(workspace, 'STAGE.md'), 'IMPLEMENT\n');
   coordinator = new LoopCoordinator();
+  coordinator.setCleanReviewClassifier(async (input) =>
+    classifyCleanReviewText(input.iterationOutput, input.config.noOutstandingPhrase),
+  );
 });
 
 afterEach(() => {
@@ -119,7 +123,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 describe('LoopCoordinator review-driven completion', () => {
   it('converges to `completed` after N consecutive clean passes, not before', async () => {
     const completed = waitForEvent<{ signal: string }>('loop:completed');
-    // Two clean passes (phrase + no changes) → converge at iteration 2.
+    // Two clean passes (clear no-issues review + no changes) → converge at iteration 2.
     const driver = driveLoop([
       childResult(`Did some work.\n${PHRASE}`),
       childResult(`Re-reviewed, nothing left.\n${PHRASE}`),
@@ -179,6 +183,48 @@ describe('LoopCoordinator review-driven completion', () => {
       if (state) await coordinator.cancelLoop(state.id);
     }
   }, 25_000);
+
+  it('counts semantic no-issues review output as clean without the exact phrase', async () => {
+    const completed = waitForEvent<{ signal: string }>('loop:completed', 8_000);
+    const driver = driveLoop([
+      childResult('I re-reviewed the implementation and did not find any actionable issues.'),
+      childResult('I checked again and found no remaining work to do.'),
+    ]);
+
+    let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
+    try {
+      state = await startReviewDrivenLoop('chat-rd-semantic-clean');
+      await completed;
+      expect(coordinator.getLoop(state.id)?.status).toBe('completed');
+      expect(driver.invocations()).toBe(2);
+    } finally {
+      if (state) await coordinator.cancelLoop(state.id);
+    }
+  }, 12_000);
+
+  it('ignores generated server runtime artifacts when deciding a review pass is clean', async () => {
+    const completed = waitForEvent<{ signal: string }>('loop:completed', 8_000);
+    const runtimeFiles = [
+      fileChange('server/logs/latest.log'),
+      fileChange('server/plugins/CoreProtect/database.db'),
+      fileChange('server/plugins/OneMoreFloor/database.db-wal'),
+      fileChange('server/plugins/FancyHolograms/holograms.yml'),
+    ];
+    const driver = driveLoop([
+      childResult('Fresh review found no actionable issues left.', runtimeFiles),
+      childResult('Second review also found nothing left to fix.', runtimeFiles),
+    ]);
+
+    let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
+    try {
+      state = await startReviewDrivenLoop('chat-rd-runtime-artifacts');
+      await completed;
+      expect(coordinator.getLoop(state.id)?.status).toBe('completed');
+      expect(driver.invocations()).toBe(2);
+    } finally {
+      if (state) await coordinator.cancelLoop(state.id);
+    }
+  }, 12_000);
 
   it('converges to `completed-needs-review` when OUTSTANDING.md flags human items', async () => {
     const needsReview = waitForEvent<{ reason: string }>('loop:completed-needs-review');
@@ -297,7 +343,7 @@ describe('LoopCoordinator review-driven completion', () => {
     }
   }, 30_000);
 
-  it('does not treat output without the exact phrase as a clean pass', async () => {
+  it('does not treat ambiguous completion claims as a clean pass', async () => {
     driveLoop([
       childResult('I think it is basically done now.'),
       childResult('Looks fine to me, shipping.'),

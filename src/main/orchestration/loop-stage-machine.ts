@@ -560,7 +560,7 @@ Begin.`;
     const notesRel = `${sd}/NOTES.md`;
     const outstandingRel = `${sd}/OUTSTANDING.md`;
     const blockedRel = `${sd}/BLOCKED.md`;
-    const phrase = (config.completion.noOutstandingPhrase ?? 'There are no outstanding issues').trim();
+    const preferredCleanStatement = (config.completion.noOutstandingPhrase ?? 'There are no outstanding issues').trim();
     const required = Math.max(1, config.completion.requiredCleanReviewPasses ?? 2);
     const verifyCmd = config.completion.verifyCommand?.trim();
 
@@ -616,11 +616,11 @@ ${config.initialPrompt}
 ## How this loop stops
 The loop ends after **${required} consecutive** iterations where, after a genuine fresh-eyes pass, you (a) made **no** code changes and (b) found nothing left to fix that you can act on.
 
-When — and ONLY when — that is true this iteration (you changed no production code, and everything remaining is either done or sits under "## Needs human" in \`${outstandingRel}\`), end your message with this exact line on its own:
+When — and ONLY when — that is true this iteration (you changed no production code, and everything remaining is either done or sits under "## Needs human" in \`${outstandingRel}\`), end your message with a clear statement that there are no actionable issues or remaining autonomous work. Preferred wording:
 
-${phrase}
+${preferredCleanStatement}
 
-Do **not** write that line in any other situation. If you changed code or found anything actionable, keep working — do not write it. Writing it prematurely just delays the real finish, because the loop re-checks and will reset the moment it sees more changes.
+Do **not** write an equivalent clean statement in any other situation. If you changed code or found anything actionable, keep working. Claiming a clean review prematurely just delays the real finish, because the loop re-checks and will reset the moment it sees more changes.
 
 ## Safety
 This loop ${config.allowDestructiveOps ? 'DOES' : 'DOES NOT'} allow destructive operations (\`rm -rf\`, \`git push --force\`, schema drops). Honor that.

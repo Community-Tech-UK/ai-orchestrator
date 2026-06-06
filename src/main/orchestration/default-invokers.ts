@@ -7,6 +7,7 @@
  */
 
 import type { InstanceManager } from '../instance/instance-manager';
+import type { DegradedReason } from '../cli/adapters/degraded-output-classifier';
 import { getLogger } from '../logging/logger';
 import { getMultiVerifyCoordinator } from './multi-verify-coordinator';
 import { getReviewCoordinator } from '../agents/review-coordinator';
@@ -403,7 +404,7 @@ async function invokeCliTextResponse(params: {
   activity?: (activity: LoopInvocationActivity) => void;
   onAdapterReady?: (adapter: CliAdapter) => (() => void) | void;
   cleanupAdapter?: (adapter: CliAdapter, graceful: boolean) => Promise<void>;
-}): Promise<ReturnType<typeof normalizeInvocationTextResult>> {
+}): Promise<ReturnType<typeof normalizeInvocationTextResult> & { degradedReason?: DegradedReason }> {
   const instance = params.instanceId
     ? params.instanceManager.getInstance(params.instanceId)
     : undefined;
@@ -524,9 +525,13 @@ async function invokeCliTextResponse(params: {
     breakerKey: params.breakerKey,
     model,
     tokens: normalized.tokens,
+    ...(response.degradedReason ? { degradedReason: response.degradedReason } : {}),
   });
 
-  return normalized;
+  return {
+    ...normalized,
+    ...(response.degradedReason ? { degradedReason: response.degradedReason } : {}),
+  };
 }
 
 function logInvocationFailure(params: {
@@ -1513,6 +1518,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         testPassCount,
         testFailCount,
         exitedCleanly: true,
+        ...(result.degradedReason ? { degradedReason: result.degradedReason } : {}),
       };
 
       // LF-1: context discipline for the loop's OWN persistent same-session

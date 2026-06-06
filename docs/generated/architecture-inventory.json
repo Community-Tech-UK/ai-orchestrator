@@ -4956,7 +4956,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 2594
+      "lines": 2612
     },
     {
       "path": "src/main/instance/instance-manager.ts",
@@ -4984,7 +4984,7 @@
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2118
+      "lines": 2141
     },
     {
       "path": "docs/superpowers/plans/2026-04-09-resilient-codex-resume-and-agent-observability_completed.md",
@@ -5060,7 +5060,7 @@
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1636
+      "lines": 1642
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -5591,6 +5591,10 @@
       "lines": 832
     },
     {
+      "path": "src/shared/types/loop.types.ts",
+      "lines": 828
+    },
+    {
       "path": "src/renderer/app/features/debate/enhanced-debate-visualization.component.ts",
       "lines": 821
     },
@@ -5604,10 +5608,6 @@
     },
     {
       "path": "src/main/memory/critique-agent.ts",
-      "lines": 817
-    },
-    {
-      "path": "src/shared/types/loop.types.ts",
       "lines": 817
     },
     {

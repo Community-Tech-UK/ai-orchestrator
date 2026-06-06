@@ -14,7 +14,7 @@ import { checkClaudeCliAuthentication } from './claude-cli-auth';
 import { checkCodexCliAuthentication } from './codex-cli-auth';
 import { checkGeminiCliAuthentication } from './gemini-cli-auth';
 import { CliDetectionService, type CliType, type CliShadowReport } from '../cli/cli-detection';
-import type { ProviderProbeErrorKind, RepairAction } from '../../shared/types/provider-doctor.types';
+import type { ProviderProbeErrorKind, RepairAction, RuntimeLogBundle } from '../../shared/types/provider-doctor.types';
 import { getProviderRuntimeRegistry } from './provider-runtime-registry';
 
 const logger = getLogger('ProviderDoctor');
@@ -46,11 +46,17 @@ export interface DiagnosisResult {
   recommendations: string[];
   /** Structured repair actions derived from failed probe error kinds. */
   repairActions: RepairAction[];
+  /**
+   * Redacted runtime-log bundle: sanitized messages from failed probes,
+   * stripped of secret patterns (API keys, tokens, passwords). Safe to
+   * surface in the Doctor UI and include in operator-artifact bundles.
+   */
+  logBundle?: RuntimeLogBundle;
   timestamp: number;
 }
 
 // Re-export the taxonomy types so callers only need to import from this module.
-export type { ProviderProbeErrorKind, RepairAction };
+export type { ProviderProbeErrorKind, RepairAction, RuntimeLogBundle };
 
 const CRITICAL_PROBES = new Set(['cli_installed', 'sdk_available']);
 
@@ -224,6 +230,65 @@ export function buildRepairActions(diagnosis: DiagnosisResult): RepairAction[] {
   }
 
   return actions;
+}
+
+// ---------------------------------------------------------------------------
+// Runtime-log bundle builder
+// ---------------------------------------------------------------------------
+
+/** Patterns that look like secrets — matched case-insensitively on each log line. */
+const SECRET_PATTERNS: RegExp[] = [
+  /\bsk-[A-Za-z0-9_-]{20,}\b/g,               // Anthropic / OpenAI API keys
+  /\bey[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+\b/g, // JWT tokens
+  /Bearer\s+[A-Za-z0-9._~+/=\-]{16,}/gi,        // Bearer tokens in headers
+  /password\s*[:=]\s*\S+/gi,                     // password=... / password: ...
+  /token\s*[:=]\s*[A-Za-z0-9._~+/=\-]{8,}/gi,   // token=... / token: ...
+  /api[_-]?key\s*[:=]\s*\S+/gi,                  // api_key=... / apikey: ...
+  /secret\s*[:=]\s*\S+/gi,                        // secret=... / secret: ...
+];
+
+/**
+ * Redact secret patterns from a single log line.
+ * Returns the redacted line and the number of substitutions made.
+ */
+function redactLine(line: string): { text: string; count: number } {
+  let text = line;
+  let count = 0;
+  for (const pattern of SECRET_PATTERNS) {
+    const before = text;
+    text = text.replace(pattern, (_match, ..._args) => {
+      count++;
+      return '[REDACTED]';
+    });
+    // Reset lastIndex for global regexes used with .replace
+    if (before !== text) pattern.lastIndex = 0;
+  }
+  return { text, count };
+}
+
+/**
+ * Build a redacted runtime-log bundle from the failed probes in a diagnosis.
+ * Collects probe name + message, truncates, and scrubs secret patterns.
+ * Returns undefined when there are no failed probes to bundle.
+ */
+export function buildRuntimeLogBundle(probes: ProbeResult[]): RuntimeLogBundle | undefined {
+  const failed = probes.filter((p) => p.status === 'fail' || p.status === 'timeout');
+  if (failed.length === 0) return undefined;
+
+  const MAX_ENTRIES = 50;
+  const MAX_LINE_LEN = 512;
+
+  const entries: string[] = [];
+  let totalRedacted = 0;
+
+  for (const probe of failed.slice(0, MAX_ENTRIES)) {
+    const raw = `[${probe.name}] ${probe.message}`.slice(0, MAX_LINE_LEN * 2);
+    const { text, count } = redactLine(raw);
+    entries.push(text.slice(0, MAX_LINE_LEN));
+    totalRedacted += count;
+  }
+
+  return { entries, redactedCount: totalRedacted };
 }
 
 // ---------------------------------------------------------------------------
@@ -536,6 +601,9 @@ export class ProviderDoctor {
     // Populate repairActions after the base object is created so
     // buildRepairActions can read diagnosis.provider.
     diagnosis.repairActions = buildRepairActions(diagnosis);
+    // Attach redacted runtime-log bundle from failed probes (B4).
+    const logBundle = buildRuntimeLogBundle(results);
+    if (logBundle) diagnosis.logBundle = logBundle;
 
     this.lastDiagnosis.set(provider, diagnosis);
     getProviderRuntimeRegistry().applyDiagnosis(diagnosis);

@@ -10,6 +10,7 @@ import type {
   ProviderId,
 } from '../../shared/types/provider-quota.types';
 import type { QuotaThrottleDecision } from './loop-quota-throttle';
+import type { DegradedReason } from '../cli/adapters/degraded-output-classifier';
 
 export const COST_PER_M_TOKENS_CENTS = 1500;
 export const DEFAULT_ITERATION_TIMEOUT_MS = 30 * 60 * 1000;
@@ -27,6 +28,8 @@ export interface LoopChildResult {
   testFailCount: number | null;
   exitedCleanly: boolean;
   contextCompacted?: { previousUtilization: number; newUtilization: number; reason: string };
+  /** A3: adapter-layer degraded classification, when the feature flag was on. */
+  degradedReason?: DegradedReason;
 }
 
 export interface PauseGate {
