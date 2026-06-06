@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "scripts/generate-architecture-inventory.js",
   "ipc": {
-    "channelCount": 963,
+    "channelCount": 967,
     "channels": [
       {
         "name": "INSTANCE_CREATE",
@@ -4818,13 +4818,34 @@
         "name": "TERMINAL_SPAWNED",
         "value": "terminal:spawned",
         "line": 1219
+      },
+      {
+        "name": "AUXILIARY_LLM_LIST_CANDIDATES",
+        "value": "auxiliary-llm:list-candidates",
+        "line": 1221
+      },
+      {
+        "name": "AUXILIARY_LLM_PROBE_ENDPOINT",
+        "value": "auxiliary-llm:probe-endpoint",
+        "line": 1222
+      },
+      {
+        "name": "AUXILIARY_LLM_TEST_GENERATE",
+        "value": "auxiliary-llm:test-generate",
+        "line": 1223
+      },
+      {
+        "name": "AUXILIARY_LLM_SAVE_SETTINGS",
+        "value": "auxiliary-llm:save-settings",
+        "line": 1224
       }
     ]
   },
   "preload": {
-    "domainCount": 25,
+    "domainCount": 26,
     "domains": [
       "automation.preload.ts",
+      "auxiliary-llm.preload.ts",
       "browser.preload.ts",
       "chat.preload.ts",
       "communication.preload.ts",
@@ -4920,7 +4941,7 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
-      "lines": 3029
+      "lines": 3038
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -4996,7 +5017,7 @@
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2105
+      "lines": 2109
     },
     {
       "path": "docs/superpowers/plans/2026-04-13-codemem-phase1-index-and-lsp-facade_completed.md",
@@ -5139,6 +5160,10 @@
       "lines": 1334
     },
     {
+      "path": "src/main/memory/unified-controller.ts",
+      "lines": 1333
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-02-phase-d-architecture-state.md",
       "lines": 1328
     },
@@ -5153,10 +5178,6 @@
     {
       "path": "src/renderer/app/features/knowledge/knowledge-page.component.ts",
       "lines": 1322
-    },
-    {
-      "path": "src/main/memory/unified-controller.ts",
-      "lines": 1321
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
@@ -5363,6 +5384,10 @@
       "lines": 1020
     },
     {
+      "path": "src/main/context/context-compactor.ts",
+      "lines": 1004
+    },
+    {
       "path": "src/main/ipc/handlers/session-handlers.ts",
       "lines": 1003
     },
@@ -5381,6 +5406,10 @@
     {
       "path": "src/main/repo-jobs/repo-job-service.ts",
       "lines": 989
+    },
+    {
+      "path": "src/main/rlm/llm-service.ts",
+      "lines": 985
     },
     {
       "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
@@ -5423,10 +5452,6 @@
       "lines": 963
     },
     {
-      "path": "src/main/rlm/llm-service.ts",
-      "lines": 962
-    },
-    {
       "path": "docs/superpowers/plans/2026-05-03-browser-gateway-first-milestone_completed.md",
       "lines": 958
     },
@@ -5437,10 +5462,6 @@
     {
       "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
       "lines": 954
-    },
-    {
-      "path": "src/main/context/context-compactor.ts",
-      "lines": 952
     },
     {
       "path": "src/renderer/app/features/editor/editor-page.component.ts",

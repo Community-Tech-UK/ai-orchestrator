@@ -24,7 +24,8 @@ export type SettingsTab =
   | 'worktrees'
   | 'snapshots'
   | 'archive'
-  | 'remote-config';
+  | 'remote-config'
+  | 'auxiliary-models';
 
 /** Tabs whose content is an embedded full-width feature page (no 760px cap). */
 export const WIDE_TABS: ReadonlySet<SettingsTab> = new Set<SettingsTab>([
@@ -101,6 +102,13 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Control how many agents can run and how they spawn child work.',
     group: 'Agent behavior',
     keywords: 'children instances nesting limits idle',
+  },
+  {
+    id: 'auxiliary-models',
+    label: 'Auxiliary Models',
+    summary: 'Route helper calls through local or cheap models.',
+    group: 'Agent behavior',
+    keywords: 'ollama local gemma auxiliary llm routing cheap',
   },
   {
     id: 'review',

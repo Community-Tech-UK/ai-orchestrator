@@ -64,3 +64,4 @@ export { registerRuntimePluginHandlers } from './runtime-plugin-handlers';
 export { registerRtkHandlers } from './rtk-handlers';
 export { registerLoopHandlers } from './loop-handlers';
 export { registerTerminalHandlers } from './terminal-handlers';
+export { registerAuxiliaryLlmHandlers } from './auxiliary-llm-handlers';

@@ -49,7 +49,9 @@ export const COORDINATOR_TO_NODE = {
   SERVICE_STATUS: 'service.status',
   SERVICE_RESTART: 'service.restart',
   SERVICE_STOP: 'service.stop',
-  SERVICE_UNINSTALL: 'service.uninstall'
+  SERVICE_UNINSTALL: 'service.uninstall',
+  AUXILIARY_MODEL_LIST: 'auxiliaryModel.list',
+  AUXILIARY_MODEL_GENERATE: 'auxiliaryModel.generate',
 } as const;
 
 export type RpcScope = 'instance' | 'service';

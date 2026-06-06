@@ -30,7 +30,7 @@ import type {
   OutputMessage,
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
-import type { CliStatus } from './base-cli-adapter';
+import type { CliSpawnMode, CliStatus } from './base-cli-adapter';
 
 const logger = getLogger('OllamaCliAdapter');
 
@@ -96,6 +96,9 @@ export interface OllamaCliConfig {
 // ── Adapter ───────────────────────────────────────────────────────────────────
 
 export class OllamaCliAdapter extends BaseCliAdapter {
+  /** B9: Ollama has no local process — it talks to the Ollama REST server. */
+  protected override spawnMode: CliSpawnMode = 'http';
+
   private readonly ollamaConfig: OllamaCliConfig;
   private readonly host: string;
   private readonly port: number;

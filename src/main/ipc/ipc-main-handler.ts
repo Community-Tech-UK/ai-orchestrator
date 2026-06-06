@@ -96,6 +96,7 @@ import {
   registerRtkHandlers,
   registerLoopHandlers,
   registerTerminalHandlers,
+  registerAuxiliaryLlmHandlers,
 } from './handlers';
 import { registerLspFeedback } from '../codemem/lsp-feedback-registration';
 import { registerCircuitBreaker } from '../security/circuit-breaker-registration';
@@ -253,6 +254,9 @@ export class IpcMainHandler {
 
     // RTK token-savings panel
     registerRtkHandlers();
+
+    // Auxiliary LLM (local/cheap-model routing for helper calls)
+    registerAuxiliaryLlmHandlers();
 
     // Loop Mode (autonomous fix→verify→fix loop)
     registerLoopHandlers({

@@ -171,6 +171,47 @@ export interface CliUsage {
 }
 
 /**
+ * B9 — How an adapter is actually talking to its underlying CLI/agent right now.
+ * This is a *runtime* fact (decided at spawn, and for some adapters revised on a
+ * fallback), distinct from the static capability probe in the Doctor.
+ *
+ *  - `app-server`       persistent JSON-RPC app-server (Codex `codex app-server`)
+ *  - `acp`              persistent JSON-RPC over stdio, Agent Client Protocol
+ *                       (Copilot / Cursor via `--acp --stdio`)
+ *  - `subprocess-stream` long-lived child process with piped stdio streaming
+ *                       (Claude / Gemini headless stream mode) — the default
+ *  - `subprocess-exec`  one child process spawned per message (Codex `exec`
+ *                       fallback when app-server is unavailable)
+ *  - `http`             no local process; REST calls to a server (Ollama)
+ *  - `remote`           delegated to a worker node, which owns the real spawn
+ *  - `unknown`          not yet spawned / indeterminate
+ */
+export type CliSpawnMode =
+  | 'app-server'
+  | 'acp'
+  | 'subprocess-stream'
+  | 'subprocess-exec'
+  | 'http'
+  | 'remote'
+  | 'unknown';
+
+/**
+ * B9 — Emitted when an adapter's spawn mode is first established or changes at
+ * runtime. The canonical case is Codex silently degrading from `app-server` to
+ * `subprocess-exec` when app-server init fails — previously invisible, now a
+ * first-class signal the instance layer can surface to the operator.
+ */
+export interface SpawnModeChange {
+  mode: CliSpawnMode;
+  /** Previous mode, if this is a runtime transition rather than the initial set. */
+  previous?: CliSpawnMode;
+  /** Human-readable reason, e.g. the app-server init failure message. */
+  reason?: string;
+  /** True when this represents a degradation from a preferred mode (e.g. fallback). */
+  degraded?: boolean;
+}
+
+/**
  * Status of a CLI tool
  */
 export interface CliStatus {
@@ -219,7 +260,8 @@ export type CliEvent =
   | 'error'       // Error occurred
   | 'complete'    // Response finished
   | 'exit'        // Process exited
-  | 'spawned';    // Process spawned
+  | 'spawned'     // Process spawned
+  | 'spawn_mode'; // B9: spawn mode established or changed at runtime
 
 /**
  * Event handler types for CLI adapters
@@ -233,4 +275,5 @@ export interface CliAdapterEvents {
   'complete': (response: CliResponse) => void;
   'exit': (code: number | null, signal: string | null) => void;
   'spawned': (pid: number) => void;
+  'spawn_mode': (change: SpawnModeChange) => void;
 }

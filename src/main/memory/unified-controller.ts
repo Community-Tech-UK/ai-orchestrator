@@ -12,6 +12,7 @@
 
 import { EventEmitter } from 'events';
 import { getLLMService } from '../rlm/llm-service';
+import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import { getLogger } from '../logging/logger';
 import { getWakeContextBuilder } from './wake-context-builder';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
@@ -1156,6 +1157,17 @@ export class UnifiedMemoryController extends EventEmitter {
     const targetTokens = Math.max(200, Math.floor(estimatedTokens * 0.3));
 
     try {
+      // Try auxiliary LLM first (local/cheap model), fall back to primary LLM
+      const aux = getAuxiliaryLlmService();
+      const { text: auxText, decision: auxDecision } = await aux.generate(
+        'memoryDistillation',
+        'You are a memory distillation system. Summarize the following memory entries concisely, preserving key facts and decisions.',
+        content
+      );
+      if (auxDecision.source !== 'fallback' && auxText.trim()) {
+        return auxText;
+      }
+
       const llmService = getLLMService();
       const summary = await llmService.summarize({
         requestId: `unified-summary-${Date.now()}`,

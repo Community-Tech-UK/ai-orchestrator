@@ -14,7 +14,7 @@
  * A6: "kill sleeps" — tests wait on receipts/turn-completion, never wall-clock.
  */
 
-import type { CliEvent, CliResponse, CliToolCall } from './base-cli-adapter.types';
+import type { CliEvent, CliResponse, CliToolCall, SpawnModeChange } from './base-cli-adapter.types';
 
 /** Maps each adapter event name to the payload recorded for it. */
 export interface ReceiptPayloadMap {
@@ -26,6 +26,7 @@ export interface ReceiptPayloadMap {
   complete: CliResponse;
   exit: { code: number | null; signal: string | null };
   spawned: number;
+  spawn_mode: SpawnModeChange;
 }
 
 /** A single recorded lifecycle event. */

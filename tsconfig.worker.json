@@ -17,6 +17,7 @@
     "src/main/remote-node/sync/**/*.ts",
     "src/main/remote-node/security-filter.ts",
     "src/main/remote-node/worker-node-rpc.ts",
+    "src/main/remote-node/rpc-schemas.ts",
     "src/main/remote-node/node-filesystem-handler.ts",
     "src/shared/types/**/*.ts"
   ],

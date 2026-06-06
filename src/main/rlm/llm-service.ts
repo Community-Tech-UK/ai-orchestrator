@@ -27,6 +27,7 @@ import {
   SUMMARIZE_SYSTEM_PROMPT,
   SUBQUERY_SYSTEM_PROMPT,
 } from './llm-service.constants';
+import { getAuxiliaryLlmService } from './auxiliary-llm-service';
 
 // Re-export public API so existing importers are unaffected.
 export type {
@@ -118,6 +119,28 @@ export class LLMService extends EventEmitter {
 ${request.content}
 
 Summary:`;
+
+    // Try auxiliary LLM first (local/cheap model) before calling the primary LLM.
+    try {
+      const { text: auxText, decision: auxDecision } = await getAuxiliaryLlmService().generate(
+        'compression',
+        SUMMARIZE_SYSTEM_PROMPT,
+        userPrompt
+      );
+      if (auxDecision.source !== 'fallback' && auxText.trim()) {
+        const originalTokens = this.countTokens(request.content);
+        const summaryTokens = this.countTokens(auxText);
+        this.emit('summarize:complete', {
+          requestId: request.requestId,
+          summary: auxText,
+          originalTokens,
+          summaryTokens,
+        } as SummarizeResponse);
+        return auxText;
+      }
+    } catch {
+      // Auxiliary service unavailable in this context — fall through to primary LLM
+    }
 
     try {
       const summary = await this.generateCompletion(SUMMARIZE_SYSTEM_PROMPT, userPrompt);

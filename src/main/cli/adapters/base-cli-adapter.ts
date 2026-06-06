@@ -21,8 +21,10 @@ import type {
   CliCapabilities,
   CliMessage,
   CliResponse,
+  CliSpawnMode,
   CliStatus,
   InterruptResult,
+  SpawnModeChange,
 } from './base-cli-adapter.types';
 import {
   computeBoundedTrigramSimilarity,
@@ -47,11 +49,13 @@ export type {
   CliEvent,
   CliMessage,
   CliResponse,
+  CliSpawnMode,
   CliStatus,
   CliToolCall,
   CliUsage,
   InterruptResult,
   ResumeAttemptResult,
+  SpawnModeChange,
   TurnInterruptCompletion,
 } from './base-cli-adapter.types';
 
@@ -72,6 +76,16 @@ export abstract class BaseCliAdapter extends EventEmitter {
   protected process: ChildProcess | null = null;
   protected sessionId: string | null = null;
   protected outputBuffer = '';
+
+  /**
+   * B9 — the transport this adapter is currently using. Defaults to
+   * `subprocess-stream` (the persistent piped-subprocess path that Claude/Gemini
+   * headless mode use). Adapters with a different transport declare it by
+   * overriding this field or calling {@link setSpawnMode} once their mode is
+   * known (e.g. Codex after deciding app-server vs exec). Read via
+   * {@link getSpawnMode}; surfaced to diagnostics and the instance layer.
+   */
+  protected spawnMode: CliSpawnMode = 'subprocess-stream';
 
   /** Stream idle watchdog timer — resets on each stdout chunk */
   private streamIdleTimer: NodeJS.Timeout | null = null;
@@ -358,6 +372,37 @@ export abstract class BaseCliAdapter extends EventEmitter {
    */
   getConfig(): CliAdapterConfig {
     return { ...this.config };
+  }
+
+  /**
+   * B9 — the transport this adapter is currently using. See {@link CliSpawnMode}.
+   */
+  getSpawnMode(): CliSpawnMode {
+    return this.spawnMode;
+  }
+
+  /**
+   * B9 — record the adapter's spawn mode and emit a `spawn_mode` event so the
+   * instance layer can surface it (and so a silent degradation, e.g. Codex
+   * app-server → exec, becomes a first-class, observable signal rather than a
+   * buried warn log). No-op when the mode is unchanged.
+   */
+  protected setSpawnMode(
+    mode: CliSpawnMode,
+    opts: { reason?: string; degraded?: boolean } = {},
+  ): void {
+    if (mode === this.spawnMode) {
+      return;
+    }
+    const previous = this.spawnMode;
+    this.spawnMode = mode;
+    const change: SpawnModeChange = {
+      mode,
+      previous,
+      ...(opts.reason !== undefined ? { reason: opts.reason } : {}),
+      ...(opts.degraded !== undefined ? { degraded: opts.degraded } : {}),
+    };
+    this.emit('spawn_mode', change);
   }
 
   /**

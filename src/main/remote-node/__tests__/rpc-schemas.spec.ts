@@ -9,6 +9,8 @@ import {
   TerminalOutputParamsSchema,
   TerminalExitParamsSchema,
   ProviderDiagnoseParamsSchema,
+  AuxiliaryModelListParamsSchema,
+  AuxiliaryModelGenerateParamsSchema,
   COORDINATOR_TO_NODE_PARAM_SCHEMAS,
   validateRpcParams,
 } from '../rpc-schemas';
@@ -108,6 +110,90 @@ describe('rpc-schemas', () => {
 
     it('registers provider.diagnose in the coordinator->node schema map', () => {
       expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['provider.diagnose']).toBe(ProviderDiagnoseParamsSchema);
+    });
+  });
+
+  describe('AuxiliaryModelListParamsSchema', () => {
+    it('accepts ollama as provider', () => {
+      expect(AuxiliaryModelListParamsSchema.safeParse({ provider: 'ollama' }).success).toBe(true);
+    });
+
+    it('accepts openai-compatible as provider', () => {
+      expect(AuxiliaryModelListParamsSchema.safeParse({ provider: 'openai-compatible' }).success).toBe(true);
+    });
+
+    it('rejects missing provider', () => {
+      expect(AuxiliaryModelListParamsSchema.safeParse({}).success).toBe(false);
+    });
+
+    it('rejects unknown provider value', () => {
+      expect(AuxiliaryModelListParamsSchema.safeParse({ provider: 'anthropic' }).success).toBe(false);
+    });
+
+    it('registers auxiliaryModel.list in the coordinator->node schema map', () => {
+      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['auxiliaryModel.list']).toBe(AuxiliaryModelListParamsSchema);
+    });
+  });
+
+  describe('AuxiliaryModelGenerateParamsSchema', () => {
+    const validGenerate = {
+      provider: 'ollama',
+      model: 'llama3.2:3b',
+      systemPrompt: 'You are a helpful assistant.',
+      userPrompt: 'Summarize this text.',
+      temperature: 0.7,
+      maxOutputTokens: 512,
+      timeoutMs: 30000,
+      requireJson: false,
+    };
+
+    it('accepts a valid generate request', () => {
+      expect(AuxiliaryModelGenerateParamsSchema.safeParse(validGenerate).success).toBe(true);
+    });
+
+    it('rejects empty model string', () => {
+      expect(
+        AuxiliaryModelGenerateParamsSchema.safeParse({ ...validGenerate, model: '' }).success
+      ).toBe(false);
+    });
+
+    it('rejects negative timeout', () => {
+      expect(
+        AuxiliaryModelGenerateParamsSchema.safeParse({ ...validGenerate, timeoutMs: -1 }).success
+      ).toBe(false);
+    });
+
+    it('rejects zero timeout', () => {
+      expect(
+        AuxiliaryModelGenerateParamsSchema.safeParse({ ...validGenerate, timeoutMs: 0 }).success
+      ).toBe(false);
+    });
+
+    it('rejects negative maxOutputTokens', () => {
+      expect(
+        AuxiliaryModelGenerateParamsSchema.safeParse({ ...validGenerate, maxOutputTokens: -100 }).success
+      ).toBe(false);
+    });
+
+    it('rejects temperature above 2', () => {
+      expect(
+        AuxiliaryModelGenerateParamsSchema.safeParse({ ...validGenerate, temperature: 2.5 }).success
+      ).toBe(false);
+    });
+
+    it('rejects temperature below 0', () => {
+      expect(
+        AuxiliaryModelGenerateParamsSchema.safeParse({ ...validGenerate, temperature: -0.1 }).success
+      ).toBe(false);
+    });
+
+    it('rejects missing provider', () => {
+      const { provider: _, ...withoutProvider } = validGenerate;
+      expect(AuxiliaryModelGenerateParamsSchema.safeParse(withoutProvider).success).toBe(false);
+    });
+
+    it('registers auxiliaryModel.generate in the coordinator->node schema map', () => {
+      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['auxiliaryModel.generate']).toBe(AuxiliaryModelGenerateParamsSchema);
     });
   });
 

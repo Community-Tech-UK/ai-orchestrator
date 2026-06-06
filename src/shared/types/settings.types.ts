@@ -7,6 +7,8 @@
  * 3. Default config (built-in defaults)
  */
 
+import type { AuxiliaryLlmRoutingMode } from './auxiliary-llm.types';
+
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type DisplayDensity = 'comfortable' | 'compact';
 export type SidebarStyle = 'standard' | 'compact';
@@ -330,6 +332,13 @@ export interface AppSettings {
    * no classification runs, no tag is added, zero overhead on the streaming path.
    */
   detectDegradedAdapterOutput: boolean;
+
+  // Auxiliary LLM (local/cheap model routing for helper calls)
+  auxiliaryLlmEnabled: boolean;
+  auxiliaryLlmRoutingMode: AuxiliaryLlmRoutingMode;
+  auxiliaryLlmAllowRemoteWorkerModels: boolean;
+  auxiliaryLlmEndpointsJson: string;
+  auxiliaryLlmSlotsJson: string;
 }
 
 /**
@@ -473,6 +482,21 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   // A3 — adapter-layer degraded-output detection (off by default)
   detectDegradedAdapterOutput: false,
+
+  // Auxiliary LLM
+  auxiliaryLlmEnabled: true,
+  auxiliaryLlmRoutingMode: 'local-first',
+  auxiliaryLlmAllowRemoteWorkerModels: true,
+  auxiliaryLlmEndpointsJson: '[]',
+  auxiliaryLlmSlotsJson: JSON.stringify({
+    compression: { enabled: true, provider: 'auto', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: false },
+    memoryDistillation: { enabled: true, provider: 'auto', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: false },
+    webExtract: { enabled: true, provider: 'auto', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.1, timeoutMs: 30000, requireJson: false, allowFrontierFallback: false },
+    titleGeneration: { enabled: true, provider: 'auto', maxInputTokens: 12000, maxOutputTokens: 128, temperature: 0.2, timeoutMs: 15000, requireJson: false, allowFrontierFallback: false },
+    routingClassification: { enabled: true, provider: 'auto', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 15000, requireJson: true, allowFrontierFallback: false },
+    approvalScoring: { enabled: true, provider: 'auto', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 15000, requireJson: true, allowFrontierFallback: false },
+    loopScoring: { enabled: true, provider: 'auto', maxInputTokens: 32000, maxOutputTokens: 1024, temperature: 0, timeoutMs: 30000, requireJson: true, allowFrontierFallback: false },
+  }),
 };
 
 export { SETTINGS_METADATA } from './settings-metadata';

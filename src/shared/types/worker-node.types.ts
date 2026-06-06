@@ -3,6 +3,13 @@ import type { DiscoveredProject } from './remote-fs.types';
 
 export type NodePlatform = 'darwin' | 'win32' | 'linux';
 
+export interface WorkerLocalModelCapability {
+  provider: 'ollama' | 'openai-compatible';
+  baseUrl: string;
+  models: string[];
+  healthy: boolean;
+}
+
 export interface WorkerNodeCapabilities {
   platform: NodePlatform;
   arch: string;
@@ -19,6 +26,7 @@ export interface WorkerNodeCapabilities {
   workingDirectories: string[];
   browsableRoots: string[];
   discoveredProjects: DiscoveredProject[];
+  localModelEndpoints?: WorkerLocalModelCapability[];
 }
 
 export interface WorkerNodeInfo {

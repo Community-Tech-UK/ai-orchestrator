@@ -33,6 +33,7 @@ import {
   InterruptResult,
   CliMessage,
   CliResponse,
+  CliSpawnMode,
   CliStatus,
   CliToolCall,
   ResumeAttemptResult,
@@ -250,6 +251,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
   // ─── App-server mode state ────────────────────────────────────────
   /** Whether app-server mode is active (vs exec fallback). */
   private useAppServer = false;
+  /** B9: Codex is app-server or exec — never the streaming default; unknown until spawn decides. */
+  protected override spawnMode: CliSpawnMode = 'unknown';
   /** Persistent app-server client (only in app-server mode). */
   private appServerClient: AppServerClient | null = null;
   /** Current thread ID in the app-server (replaces conversation history). */
@@ -458,6 +461,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
           ),
         ]);
         this.useAppServer = true;
+        this.setSpawnMode('app-server');
         logger.info('Codex adapter using app-server mode');
       } catch (err) {
         // Falling back to exec mode silently here is how users ended up
@@ -469,6 +473,9 @@ export class CodexCliAdapter extends BaseCliAdapter {
           isTimeout: reason.includes('timed out'),
         });
         this.useAppServer = false;
+        // B9: app-server was preferred and available but failed to init — this is
+        // a degradation, now surfaced as an explicit signal (not just a warn log).
+        this.setSpawnMode('subprocess-exec', { reason, degraded: true });
         if (!this.config.env?.['CODEX_HOME']) {
           this.prepareCodexHome();
         }
@@ -479,6 +486,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
       if (!this.config.env?.['CODEX_HOME']) {
         this.prepareCodexHome();
       }
+      // B9: not a degradation — app-server simply isn't available in this CLI.
+      this.setSpawnMode('subprocess-exec');
       logger.info('Codex adapter using exec mode (app-server not available)');
     }
 

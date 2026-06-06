@@ -20,6 +20,10 @@ import {
   RPC_ERROR_CODES
 } from '../main/remote-node/worker-node-rpc';
 import {
+  AuxiliaryModelListParamsSchema,
+  AuxiliaryModelGenerateParamsSchema,
+} from '../main/remote-node/rpc-schemas';
+import {
   FsRpcError,
   type NodeFilesystemHandler
 } from '../main/remote-node/node-filesystem-handler';
@@ -270,6 +274,18 @@ export class WorkerRpcDispatcher {
           }, 250);
           return;
         }
+        case COORDINATOR_TO_NODE.AUXILIARY_MODEL_LIST: {
+          const validated = AuxiliaryModelListParamsSchema.parse(params);
+          const models = await this.handleAuxiliaryModelList(validated.provider);
+          result = { models };
+          break;
+        }
+        case COORDINATOR_TO_NODE.AUXILIARY_MODEL_GENERATE: {
+          const validated = AuxiliaryModelGenerateParamsSchema.parse(params);
+          const text = await this.handleAuxiliaryModelGenerate(validated);
+          result = { text };
+          break;
+        }
         default:
           this.deps.sendError(
             msg.id!,
@@ -283,6 +299,52 @@ export class WorkerRpcDispatcher {
       const message = err instanceof Error ? err.message : String(err);
       this.deps.sendError(msg.id!, this.getRpcErrorCode(msg.method, err), message);
     }
+  }
+
+  private async handleAuxiliaryModelList(provider: 'ollama' | 'openai-compatible'): Promise<string[]> {
+    if (provider === 'ollama') {
+      const resp = await fetch('http://127.0.0.1:11434/api/tags', { method: 'GET' });
+      if (!resp.ok) throw new Error(`Ollama list failed: ${resp.status}`);
+      const data = await resp.json() as { models?: Array<{ name: string }> };
+      return (data.models ?? []).map((m) => m.name);
+    }
+    throw new Error(`Unsupported provider: ${provider}`);
+  }
+
+  private async handleAuxiliaryModelGenerate(params: {
+    provider: string;
+    model: string;
+    systemPrompt: string;
+    userPrompt: string;
+    temperature: number;
+    maxOutputTokens: number;
+    timeoutMs: number;
+    requireJson: boolean;
+  }): Promise<string> {
+    if (params.provider === 'ollama') {
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), params.timeoutMs);
+      try {
+        const resp = await fetch('http://127.0.0.1:11434/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: params.model,
+            prompt: `${params.systemPrompt}\n\nUser: ${params.userPrompt}`,
+            stream: false,
+            format: params.requireJson ? 'json' : undefined,
+            options: { temperature: params.temperature, num_predict: params.maxOutputTokens },
+          }),
+          signal: controller.signal,
+        });
+        if (!resp.ok) throw new Error(`Ollama generate failed: ${resp.status}`);
+        const data = await resp.json() as { response: string };
+        return data.response ?? '';
+      } finally {
+        clearTimeout(tid);
+      }
+    }
+    throw new Error(`Unsupported provider: ${params.provider}`);
   }
 
   private getRpcErrorCode(method: string | undefined, err: unknown): number {

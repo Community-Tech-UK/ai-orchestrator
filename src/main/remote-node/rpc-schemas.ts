@@ -31,6 +31,12 @@ const WorkerNodeCapabilitiesSchema = z.object({
     name: z.string(),
     markers: z.array(z.string()),
   })).default([]),
+  localModelEndpoints: z.array(z.object({
+    provider: z.enum(['ollama', 'openai-compatible']),
+    baseUrl: z.string(),
+    models: z.array(z.string()),
+    healthy: z.boolean(),
+  })).optional(),
 });
 
 // -- Node -> Coordinator schemas -----------------------------------------------
@@ -161,6 +167,21 @@ export const ProviderDiagnoseParamsSchema = z.object({
   provider: z.enum(['claude', 'codex', 'gemini', 'copilot', 'cursor']),
 });
 
+export const AuxiliaryModelListParamsSchema = z.object({
+  provider: z.enum(['ollama', 'openai-compatible']),
+});
+
+export const AuxiliaryModelGenerateParamsSchema = z.object({
+  provider: z.enum(['ollama', 'openai-compatible']),
+  model: z.string().min(1),
+  systemPrompt: z.string(),
+  userPrompt: z.string(),
+  temperature: z.number().min(0).max(2),
+  maxOutputTokens: z.number().int().positive(),
+  timeoutMs: z.number().int().positive(),
+  requireJson: z.boolean(),
+});
+
 // -- Schema map for method-based lookup ---------------------------------------
 
 export const RPC_PARAM_SCHEMAS: Record<string, z.ZodType> = {
@@ -203,6 +224,8 @@ export const COORDINATOR_TO_NODE_PARAM_SCHEMAS: Record<string, z.ZodType> = {
   'terminal.resize': TerminalResizeParamsSchema,
   'terminal.kill': TerminalKillParamsSchema,
   'provider.diagnose': ProviderDiagnoseParamsSchema,
+  'auxiliaryModel.list': AuxiliaryModelListParamsSchema,
+  'auxiliaryModel.generate': AuxiliaryModelGenerateParamsSchema,
 };
 
 /**

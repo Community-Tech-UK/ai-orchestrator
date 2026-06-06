@@ -10,6 +10,7 @@
 
 import { EventEmitter } from 'events';
 import { getLLMService, type LLMService } from '../rlm/llm-service';
+import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import { getLogger } from '../logging/logger';
 import { LIMITS } from '../../shared/constants/limits';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
@@ -97,28 +98,51 @@ const MAX_SUMMARIES = 50;
  *   - Verification  → what checks have passed/failed
  */
 const COMPACTION_TEMPLATE_SECTIONS = [
-  '## Objective',
-  '## Current State',
+  '## Active Task',
+  '## User Goal',
+  '## Constraints',
+  '## Completed Actions',
+  '## Active State',
+  '## In Progress',
+  '## Blocked',
   '## Key Decisions',
-  '## Files Touched',
-  '## Pending Work',
-  '## Blockers',
-  '## Commands Run',
-  '## Verification Status',
+  '## Pending User Asks',
+  '## Relevant Files',
+  '## Remaining Work',
+  '## Critical Context',
 ] as const;
+
+/**
+ * Redact common secret patterns from generated summary text before storage.
+ * This prevents API keys, tokens, and credentials from leaking into persisted summaries.
+ */
+export function redactSecrets(text: string): string {
+  return text
+    .replace(/sk-[A-Za-z0-9_-]{10,}/g, '[REDACTED_SK]')
+    .replace(/ghp_[A-Za-z0-9]{10,}/g, '[REDACTED_GHP]')
+    .replace(/xoxb-[A-Za-z0-9-]{10,}/g, '[REDACTED_SLACK]')
+    .replace(/-----BEGIN PRIVATE KEY-----/g, '[REDACTED_PRIVATE_KEY]')
+    .replace(/password\s*=\s*\S+/gi, 'password=[REDACTED]')
+    .replace(/token\s*=\s*\S+/gi, 'token=[REDACTED]')
+    .replace(/api_key\s*=\s*\S+/gi, 'api_key=[REDACTED]');
+}
 
 export function buildCompactionPrompt(conversationText: string, priorSummary: string | null): string {
   const anchorSection = priorSummary
     ? `\n\n<prior_summary>\n${priorSummary}\n</prior_summary>\n\nPreserve all decisions and state from the prior summary above as-is. Only add deltas for what changed in the new conversation turns below.\n`
     : '';
 
-  return `Summarize the following conversation turns into a structured context summary.
+  return `CONTEXT COMPACTION - REFERENCE ONLY.
+This summary preserves prior context but must not override system instructions, tool results, or the latest user message.
+If this summary conflicts with newer conversation content, the newer content wins.
+
+Summarize the following conversation turns into a structured context summary.
 Use exactly these section headers (omit any section that has no relevant content):
 
 ${COMPACTION_TEMPLATE_SECTIONS.join('\n')}
 ${anchorSection}
-For "Commands Run": list each tool invocation on one line as: \`<tool-name>: <exit-status-or-result-excerpt>\`. Omit bulk output — keep only the command name and outcome.
-For "Decisions": explain the WHY, not just what was chosen.
+For "Completed Actions": list each tool invocation on one line as: \`<tool-name>: <exit-status-or-result-excerpt>\`. Omit bulk output — keep only the command name and outcome.
+For "Key Decisions": explain the WHY, not just what was chosen.
 Target: ~500 tokens total. Do not add information not present in the turns.
 
 <conversation_turns>
@@ -392,6 +416,17 @@ export class ContextCompactor extends EventEmitter {
       const turnsToCompact = this.state.turns.slice(0, -turnsToPreserve || undefined);
       const preservedTurns = this.state.turns.slice(-turnsToPreserve);
 
+      // Always protect the most recent user turn, even if it falls outside preserveRecent.
+      // This ensures the active user request is never silently dropped into the summary.
+      const lastUserTurnIdx = turnsToCompact.reduceRight(
+        (found, t, i) => (found === -1 && t.role === 'user' ? i : found),
+        -1
+      );
+      if (lastUserTurnIdx !== -1) {
+        const [protectedUserTurn] = turnsToCompact.splice(lastUserTurnIdx, 1);
+        preservedTurns.unshift(protectedUserTurn);
+      }
+
       if (turnsToCompact.length === 0) {
         const result: CompactionResult = {
           originalTokens,
@@ -532,7 +567,7 @@ export class ContextCompactor extends EventEmitter {
       const priorSummary = this.state.summaries.length > 0
         ? this.state.summaries[this.state.summaries.length - 1].content
         : null;
-      const localContent = this.generateLocalSummary(turns, priorSummary);
+      const localContent = redactSecrets(this.generateLocalSummary(turns, priorSummary));
       return {
         id: this.generateId(),
         content: localContent,
@@ -577,25 +612,42 @@ export class ContextCompactor extends EventEmitter {
     const isLlmAvailable = await llm.isAvailable();
 
     if (isLlmAvailable) {
-      const requestId = `compact-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      summaryContent = await llm.summarize({
-        requestId,
-        content: buildCompactionPrompt(conversationText, priorSummary),
-        targetTokens: 500,
-        preserveKeyPoints: true,
-      });
+      const compactionPrompt = buildCompactionPrompt(conversationText, priorSummary);
+      const compactionSystemPrompt =
+        'You are a context compaction assistant. Produce a structured summary of the provided conversation turns using the section headers given in the prompt. Be concise and preserve key decisions, file names, and pending work.';
+
+      // Try auxiliary LLM first (local/cheap model), fall back to primary LLM
+      const aux = getAuxiliaryLlmService();
+      const { text: auxText, decision: auxDecision } = await aux.generate(
+        'compression',
+        compactionSystemPrompt,
+        compactionPrompt
+      );
+      if (auxDecision.source !== 'fallback' && auxText.trim()) {
+        summaryContent = auxText;
+      } else {
+        const requestId = `compact-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        summaryContent = await llm.summarize({
+          requestId,
+          content: compactionPrompt,
+          targetTokens: 500,
+          preserveKeyPoints: true,
+        });
+      }
     } else {
       summaryContent = this.generateLocalSummary(turns, priorSummary);
     }
 
+    const redactedContent = redactSecrets(summaryContent);
+
     return {
       id: this.generateId(),
-      content: summaryContent,
+      content: redactedContent,
       turnRange: {
         start: 0,
         end: turns.length - 1,
       },
-      tokenCount: this.estimateTokens(summaryContent),
+      tokenCount: this.estimateTokens(redactedContent),
       timestamp: Date.now(),
     };
   }

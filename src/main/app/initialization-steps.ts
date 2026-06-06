@@ -71,6 +71,8 @@ import {
 } from './indexing-initialization-steps';
 import { createOrchestratorToolsStep } from './orchestrator-tools-step';
 import { createMobileGatewayStep, createWorkerNodeSubsystemStep } from './remote-gateway-initialization-steps';
+import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
+import { getSettingsManager } from '../core/config/settings-manager';
 
 const logger = getLogger('AppInitialization');
 
@@ -156,6 +158,35 @@ export function createInitializationSteps(
           });
         } catch (error) {
           logger.warn('Unified model catalog initialization failed; catalog will use static fallback', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+    },
+    {
+      name: 'Auxiliary LLM service',
+      fn: () => {
+        try {
+          const settings = getSettingsManager();
+          const applyAuxiliaryConfig = () => {
+            try {
+              getAuxiliaryLlmService().configure({
+                auxiliaryLlmEnabled: settings.get('auxiliaryLlmEnabled'),
+                auxiliaryLlmRoutingMode: settings.get('auxiliaryLlmRoutingMode'),
+                auxiliaryLlmAllowRemoteWorkerModels: settings.get('auxiliaryLlmAllowRemoteWorkerModels'),
+                auxiliaryLlmEndpointsJson: settings.get('auxiliaryLlmEndpointsJson'),
+                auxiliaryLlmSlotsJson: settings.get('auxiliaryLlmSlotsJson'),
+              });
+            } catch (err) {
+              logger.warn('Failed to apply auxiliary LLM config', {
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          };
+          applyAuxiliaryConfig();
+          settings.on('setting-changed', applyAuxiliaryConfig);
+        } catch (error) {
+          logger.warn('Auxiliary LLM service initialization failed; helper calls will use primary LLM', {
             error: error instanceof Error ? error.message : String(error),
           });
         }

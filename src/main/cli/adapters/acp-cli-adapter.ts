@@ -20,6 +20,7 @@ import {
   type TurnInterruptCompletion,
   type CliMessage,
   type CliResponse,
+  type CliSpawnMode,
   type CliStatus,
   type CliToolCall,
   type ResumeAttemptResult,
@@ -275,6 +276,9 @@ function optionalString(value: unknown): string | undefined {
 
 export class AcpCliAdapter extends BaseCliAdapter {
   private static readonly MAX_SYSTEM_PROMPT_CHARS = 4000;
+
+  /** B9: ACP speaks JSON-RPC over stdio (Agent Client Protocol). */
+  protected override spawnMode: CliSpawnMode = 'acp';
 
   private readonly acpConfig: AcpCliAdapterConfig;
   private readonly pendingRequests = new Map<string, AcpPendingRequest>();

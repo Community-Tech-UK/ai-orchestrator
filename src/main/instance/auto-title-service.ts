@@ -22,6 +22,7 @@ import {
 } from '../../shared/types/title-derivation';
 import { getLogger } from '../logging/logger';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 
 const logger = getLogger('AutoTitle');
 
@@ -206,6 +207,30 @@ export class AutoTitleService {
     const truncatedMessage = trimmed.length > MAX_INPUT_LENGTH
       ? trimmed.slice(0, MAX_INPUT_LENGTH) + '...'
       : trimmed;
+
+    // Try auxiliary LLM (local/cheap model) first — much cheaper than a full CLI spawn
+    const auxSystemPrompt =
+      'You generate very short tab titles (3-6 words) that summarize a task. ' +
+      'Lead with the most distinctive word. Reply with ONLY the title — no quotes, no trailing punctuation.';
+    const auxUserPrompt = labels.length > 0
+      ? `${truncatedMessage}\n\nAttached: ${labels.join(', ')}`
+      : truncatedMessage;
+    try {
+      const { text: auxTitle, decision: auxDecision } = await getAuxiliaryLlmService().generate(
+        'titleGeneration',
+        auxSystemPrompt,
+        auxUserPrompt
+      );
+      if (auxDecision.source !== 'fallback' && auxTitle.trim()) {
+        const cleaned = auxTitle.trim().replace(/^["']|["']$/g, '').replace(/[.!?]+$/, '').trim();
+        if (cleaned.length >= 3) {
+          logger.debug('Auto-title via auxiliary model', { source: auxDecision.source, model: auxDecision.model });
+          return cleaned;
+        }
+      }
+    } catch {
+      // Auxiliary unavailable — fall through to CLI adapter
+    }
 
     let cliType: Awaited<ReturnType<typeof resolveCliType>> | null = null;
     for (const candidate of FAST_PROVIDER_PREFERENCE) {

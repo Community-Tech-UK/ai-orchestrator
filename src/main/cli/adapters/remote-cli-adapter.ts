@@ -14,7 +14,7 @@ import type { WorkerNodeConnectionServer } from '../../remote-node/worker-node-c
 import { getWorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 import type { CliType } from '../cli-detection';
 import type { UnifiedSpawnOptions } from './adapter-factory';
-import type { AdapterRuntimeCapabilities, CliResponse, InterruptResult } from './base-cli-adapter';
+import type { AdapterRuntimeCapabilities, CliResponse, CliSpawnMode, InterruptResult } from './base-cli-adapter';
 import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../../pause/orchestrator-paused-error';
@@ -278,6 +278,11 @@ export class RemoteCliAdapter extends EventEmitter {
 
   getName(): string {
     return `remote:${this.requestedCliType}`;
+  }
+
+  /** B9: this adapter delegates the real spawn to a worker node. */
+  getSpawnMode(): CliSpawnMode {
+    return 'remote';
   }
 
   async checkStatus(): Promise<{ available: boolean; error?: string }> {

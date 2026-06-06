@@ -24,7 +24,7 @@ vi.mock('../../../shared/constants/limits', () => ({
   },
 }));
 
-import { ContextCompactor, buildCompactionPrompt } from '../context-compactor';
+import { ContextCompactor, buildCompactionPrompt, redactSecrets } from '../context-compactor';
 import type { ConversationTurn, ToolCallRecord } from '../context-compactor';
 
 function makeTurn(overrides?: Partial<ConversationTurn>): Omit<ConversationTurn, 'id' | 'timestamp'> {
@@ -227,16 +227,27 @@ describe('ContextCompactor', () => {
   });
 
   describe('buildCompactionPrompt (anchored template)', () => {
-    it('includes all required section headers in the prompt', () => {
+    it('includes the reference-only safety preamble', () => {
       const prompt = buildCompactionPrompt('some conversation text', null);
-      expect(prompt).toContain('## Objective');
-      expect(prompt).toContain('## Current State');
+      expect(prompt).toContain('CONTEXT COMPACTION - REFERENCE ONLY');
+      expect(prompt).toContain('must not override system instructions, tool results, or the latest user message');
+      expect(prompt).toContain('the newer content wins');
+    });
+
+    it('includes all 12 required section headers in the prompt', () => {
+      const prompt = buildCompactionPrompt('some conversation text', null);
+      expect(prompt).toContain('## Active Task');
+      expect(prompt).toContain('## User Goal');
+      expect(prompt).toContain('## Constraints');
+      expect(prompt).toContain('## Completed Actions');
+      expect(prompt).toContain('## Active State');
+      expect(prompt).toContain('## In Progress');
+      expect(prompt).toContain('## Blocked');
       expect(prompt).toContain('## Key Decisions');
-      expect(prompt).toContain('## Files Touched');
-      expect(prompt).toContain('## Pending Work');
-      expect(prompt).toContain('## Blockers');
-      expect(prompt).toContain('## Commands Run');
-      expect(prompt).toContain('## Verification Status');
+      expect(prompt).toContain('## Pending User Asks');
+      expect(prompt).toContain('## Relevant Files');
+      expect(prompt).toContain('## Remaining Work');
+      expect(prompt).toContain('## Critical Context');
     });
 
     it('embeds conversation text in the prompt', () => {
@@ -260,6 +271,80 @@ describe('ContextCompactor', () => {
     it('instructs LLM to add only deltas when a prior summary is present', () => {
       const prompt = buildCompactionPrompt('new conversation', '## Objective\nFix bug');
       expect(prompt).toContain('Only add deltas for what changed');
+    });
+  });
+
+  describe('latest user turn protection in compact()', () => {
+    it('preserves the last user turn even when it falls outside preserveRecent', async () => {
+      // preserveRecent = 2, but we want the last user turn (index 7 of 10) protected
+      // even though recent window only covers indices 8-9
+      compactor.updateConfig({
+        maxContextTokens: 1100,
+        autoCompact: false,
+        triggerThreshold: 0.85,
+        preserveRecent: 2,
+      });
+
+      // Add 8 turns: alternating user/assistant, then 2 assistant-only turns
+      // so the last user turn is NOT in the most-recent 2
+      for (let i = 0; i < 8; i++) {
+        compactor.addTurn(makeTurn({
+          tokenCount: 100,
+          role: i % 2 === 0 ? 'user' : 'assistant',
+          content: `turn ${i}`,
+        }));
+      }
+      // Add 2 more assistant turns so the recent window is all-assistant
+      compactor.addTurn(makeTurn({ tokenCount: 100, role: 'assistant', content: 'assistant extra 1' }));
+      compactor.addTurn(makeTurn({ tokenCount: 100, role: 'assistant', content: 'assistant extra 2' }));
+
+      const result = await compactor.compact();
+      expect(result.summaryGenerated).toBe(true);
+
+      // The preserved turns must contain at least one user turn (the last one protected)
+      const state = compactor.getState();
+      const hasUserTurn = state.turns.some(t => t.role === 'user');
+      expect(hasUserTurn).toBe(true);
+    });
+  });
+
+  describe('redactSecrets', () => {
+    it('redacts sk- API keys', () => {
+      expect(redactSecrets('key: sk-abc123456789')).toBe('key: [REDACTED_SK]');
+    });
+
+    it('redacts GitHub personal access tokens', () => {
+      expect(redactSecrets('auth: ghp_abcdefghijk')).toBe('auth: [REDACTED_GHP]');
+    });
+
+    it('redacts Slack bot tokens', () => {
+      expect(redactSecrets('slack: xoxb-abc123-def456')).toBe('slack: [REDACTED_SLACK]');
+    });
+
+    it('redacts private key headers', () => {
+      expect(redactSecrets('key: -----BEGIN PRIVATE KEY-----')).toBe('key: [REDACTED_PRIVATE_KEY]');
+    });
+
+    it('redacts password assignments', () => {
+      expect(redactSecrets('password=my-secret-value')).toBe('password=[REDACTED]');
+    });
+
+    it('redacts token assignments', () => {
+      expect(redactSecrets('token=my-secret-value')).toBe('token=[REDACTED]');
+    });
+
+    it('redacts api_key assignments', () => {
+      expect(redactSecrets('api_key=my-secret-value')).toBe('api_key=[REDACTED]');
+    });
+
+    it('is case-insensitive for password/token/api_key', () => {
+      expect(redactSecrets('PASSWORD=hunter2')).toBe('password=[REDACTED]');
+      expect(redactSecrets('Token=abc123')).toBe('token=[REDACTED]');
+    });
+
+    it('leaves clean text unchanged', () => {
+      const clean = 'This is a normal summary with no secrets.';
+      expect(redactSecrets(clean)).toBe(clean);
     });
   });
 

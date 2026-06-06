@@ -1,7 +1,7 @@
 import * as os from 'os';
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
-import type { WorkerNodeCapabilities, NodePlatform } from '../shared/types/worker-node.types';
+import type { WorkerNodeCapabilities, WorkerLocalModelCapability, NodePlatform } from '../shared/types/worker-node.types';
 import type { CanonicalCliType } from '../shared/types/settings.types';
 import { ProjectDiscovery } from '../main/remote-node/project-discovery';
 
@@ -19,6 +19,8 @@ export async function reportCapabilities(
   const discovery = new ProjectDiscovery();
   const projects = await discovery.scan(workingDirectories);
 
+  const localModelEndpoints = await detectLocalModelEndpoints();
+
   return {
     platform: process.platform as NodePlatform,
     arch: process.arch,
@@ -35,7 +37,39 @@ export async function reportCapabilities(
     workingDirectories,
     browsableRoots: workingDirectories,
     discoveredProjects: projects,
+    localModelEndpoints,
   };
+}
+
+async function detectLocalModelEndpoints(): Promise<WorkerLocalModelCapability[]> {
+  const endpoints: WorkerLocalModelCapability[] = [];
+
+  // Probe local Ollama — the coordinator must NOT use the 127.0.0.1 URL directly;
+  // it is worker-local and only accessed via the auxiliaryModel RPC proxy.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 2000);
+  try {
+    const response = await fetch('http://127.0.0.1:11434/api/tags', {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (response.ok) {
+      const data = await response.json() as { models?: Array<{ name: string }> };
+      const models = (data.models ?? []).map((m) => m.name);
+      endpoints.push({
+        provider: 'ollama',
+        baseUrl: 'http://127.0.0.1:11434',
+        models,
+        healthy: true,
+      });
+    }
+  } catch {
+    clearTimeout(timeoutId);
+    // Ollama not available — normal, do not include
+  }
+
+  return endpoints;
 }
 
 type DetectableCliType = CanonicalCliType | 'ollama';
