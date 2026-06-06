@@ -1,4 +1,5 @@
 import type { FileAttachment } from '../shared/types/instance.types';
+import { DEFAULT_OLLAMA_KEEP_ALIVE } from '../shared/types/auxiliary-llm.types';
 import type {
   FsReadDirectoryParams,
   FsReadFileParams,
@@ -332,6 +333,7 @@ export class WorkerRpcDispatcher {
             model: params.model,
             prompt: `${params.systemPrompt}\n\nUser: ${params.userPrompt}`,
             stream: false,
+            keep_alive: DEFAULT_OLLAMA_KEEP_ALIVE,
             format: params.requireJson ? 'json' : undefined,
             options: { temperature: params.temperature, num_predict: params.maxOutputTokens },
           }),

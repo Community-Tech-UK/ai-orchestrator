@@ -60,26 +60,11 @@ vi.mock('./metadata-extractor', () => ({
   })),
 }));
 
-vi.mock('../rlm/vector-store', () => ({
-  getVectorStore: vi.fn(() => ({
-    addEmbedding: vi.fn().mockResolvedValue(undefined),
-    removeBySection: vi.fn().mockResolvedValue(undefined),
-    clearStore: vi.fn().mockResolvedValue(undefined),
-  })),
-}));
-
 vi.mock('./bm25-search', () => ({
   getBM25Search: vi.fn(() => ({
     addDocument: vi.fn(),
     removeDocument: vi.fn(),
     clearStore: vi.fn(),
-  })),
-}));
-
-vi.mock('../rlm/embedding-service', () => ({
-  getEmbeddingService: vi.fn(() => ({
-    embedBatch: vi.fn().mockResolvedValue([]),
-    embed: vi.fn().mockResolvedValue({ embedding: [0.1, 0.2] }),
   })),
 }));
 

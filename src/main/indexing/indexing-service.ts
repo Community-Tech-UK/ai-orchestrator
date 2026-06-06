@@ -28,7 +28,6 @@ import { MerkleTreeManager, getMerkleTreeManager } from './merkle-tree';
 import { TreeSitterChunker, getTreeSitterChunker } from './tree-sitter-chunker';
 import { MetadataExtractor, getMetadataExtractor } from './metadata-extractor';
 import { BM25Search, getBM25Search } from './bm25-search';
-import { VectorStore, getVectorStore } from '../rlm/vector-store';
 import { RLMContextManager } from '../rlm/context-manager';
 import { RLMDatabase } from '../persistence/rlm-database';
 import { generateId } from '../rlm/context/context.utils';
@@ -66,7 +65,6 @@ export class CodebaseIndexingService extends EventEmitter {
   private merkleTree: MerkleTreeManager;
   private chunker: TreeSitterChunker;
   private metadataExtractor: MetadataExtractor;
-  private vectorStore: VectorStore;
   private bm25: BM25Search;
   private contextManager: RLMContextManager;
 
@@ -92,7 +90,6 @@ export class CodebaseIndexingService extends EventEmitter {
       overlapTokens: this.config.overlapTokens,
     });
     this.metadataExtractor = getMetadataExtractor();
-    this.vectorStore = getVectorStore();
     this.bm25 = getBM25Search(this.db['db']);
     this.contextManager = RLMContextManager.getInstance();
   }
@@ -147,10 +144,14 @@ export class CodebaseIndexingService extends EventEmitter {
       this.state.totalFiles = filesToProcess.length;
       this.emitProgress();
 
-      // Process files in batches
+      // Process files in batches.
+      // NOTE: persistChunks() persists each chunk to the context store + BM25
+      // index (its side effects) and returns descriptors that were previously
+      // fed to embedding generation. Code chunks are no longer embedded into a
+      // vector store — no read path consumes code embeddings (agent + UI search
+      // use the BM25/symbol/ripgrep codemem path) — so the return is discarded.
       this.state.status = 'chunking';
       const allChunks: ProcessedChunk[] = [];
-      const persistedChunks: PersistedChunk[] = [];
 
       for (let i = 0; i < filesToProcess.length; i += this.config.batchSize) {
         if (this.state.cancelled) {
@@ -165,7 +166,7 @@ export class CodebaseIndexingService extends EventEmitter {
 
         // Persist batch if configured
         if (this.config.persistAfterBatch) {
-          persistedChunks.push(...await this.persistChunks(storeId, batchChunks));
+          await this.persistChunks(storeId, batchChunks);
         }
       }
 
@@ -177,13 +178,8 @@ export class CodebaseIndexingService extends EventEmitter {
 
       // Persist all chunks if not done incrementally
       if (!this.config.persistAfterBatch) {
-        persistedChunks.push(...await this.persistChunks(storeId, allChunks));
+        await this.persistChunks(storeId, allChunks);
       }
-
-      // Generate embeddings
-      this.state.status = 'embedding';
-      this.emitProgress();
-      await this.generateEmbeddings(storeId, persistedChunks);
 
       // Save merkle tree
       await this.saveMerkleTree(storeId, absoluteRoot, currentTree);
@@ -230,9 +226,8 @@ export class CodebaseIndexingService extends EventEmitter {
         metadata,
       }));
 
-      // Persist and embed
-      const persistedChunks = await this.persistChunks(storeId, processedChunks);
-      await this.generateEmbeddings(storeId, persistedChunks);
+      // Persist to the context store + BM25 index (code chunks are not embedded).
+      await this.persistChunks(storeId, processedChunks);
 
       this.emit('file:indexed', { storeId, filePath: absolutePath });
     } catch (error) {
@@ -274,8 +269,6 @@ export class CodebaseIndexingService extends EventEmitter {
    * Get index statistics for a store.
    */
   async getStats(storeId: string): Promise<IndexStats> {
-    const ftsStats = this.bm25.getStats(storeId);
-    const vectorStats = await this.vectorStore.getStats();
     const storeStats = this.contextManager.getStoreStats(storeId);
 
     return {
@@ -283,7 +276,7 @@ export class CodebaseIndexingService extends EventEmitter {
       totalFiles: 0, // Would need to track this
       totalChunks: storeStats?.sections || 0,
       totalTokens: storeStats?.totalTokens || 0,
-      totalEmbeddings: vectorStats?.totalVectors || 0,
+      totalEmbeddings: 0, // Code chunks are not embedded into a vector store.
       lastIndexedAt: Date.now(),
       indexSize: 0, // Would need to calculate
     };
@@ -557,33 +550,6 @@ export class CodebaseIndexingService extends EventEmitter {
   }
 
   // ==========================================================================
-  // Private: Embedding Generation
-  // ==========================================================================
-
-  private async generateEmbeddings(storeId: string, chunks: PersistedChunk[]): Promise<void> {
-    // Throttle embedding generation
-    for (let i = 0; i < chunks.length; i++) {
-      if (this.state.cancelled) break;
-
-      const { chunk, sectionId } = chunks[i];
-
-      try {
-        await this.vectorStore.addSection(storeId, sectionId, chunk.content);
-        this.state.embeddedChunks++;
-
-        // Throttle
-        if (i > 0 && i % 10 === 0) {
-          await new Promise((resolve) => setTimeout(resolve, this.config.minIntervalMs));
-        }
-
-        this.emitProgress();
-      } catch (error) {
-        logger.error('Failed to embed chunk', error instanceof Error ? error : undefined, { filePath: chunk.filePath });
-      }
-    }
-  }
-
-  // ==========================================================================
   // Private: Removal
   // ==========================================================================
 
@@ -600,9 +566,6 @@ export class CodebaseIndexingService extends EventEmitter {
       for (const section of sections) {
         // Remove from FTS
         this.bm25.removeDocument(section.id);
-
-        // Remove from vector store
-        await this.vectorStore.removeSection(section.id);
 
         // Remove from context store
         this.contextManager.removeSection(storeId, section.id);
@@ -621,7 +584,6 @@ export class CodebaseIndexingService extends EventEmitter {
   private async clearStoreIndex(storeId: string): Promise<void> {
     try {
       this.bm25.clearStore(storeId);
-      this.vectorStore.clearStore(storeId);
 
       const sections = [...this.contextManager.listSections(storeId)];
       for (const section of sections) {

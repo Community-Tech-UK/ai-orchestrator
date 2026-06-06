@@ -16,6 +16,12 @@ import { checkGeminiCliAuthentication } from './gemini-cli-auth';
 import { CliDetectionService, type CliType, type CliShadowReport } from '../cli/cli-detection';
 import type { ProviderProbeErrorKind, RepairAction, RuntimeLogBundle } from '../../shared/types/provider-doctor.types';
 import { getProviderRuntimeRegistry } from './provider-runtime-registry';
+import {
+  buildRepairActions,
+  classifyAuthKind,
+  inferUninstallHint,
+} from './provider-doctor-repair';
+import { buildRuntimeLogBundle } from './provider-doctor-log-bundle';
 
 const logger = getLogger('ProviderDoctor');
 
@@ -55,241 +61,11 @@ export interface DiagnosisResult {
   timestamp: number;
 }
 
-// Re-export the taxonomy types so callers only need to import from this module.
 export type { ProviderProbeErrorKind, RepairAction, RuntimeLogBundle };
+export { buildRepairActions, classifyProbeFailure } from './provider-doctor-repair';
+export { buildRuntimeLogBundle } from './provider-doctor-log-bundle';
 
 const CRITICAL_PROBES = new Set(['cli_installed', 'sdk_available']);
-
-// ---------------------------------------------------------------------------
-// Error classification
-// ---------------------------------------------------------------------------
-
-/**
- * Maps a failed ProbeResult to a typed ProviderProbeErrorKind.
- * Only call this when probe.status === 'fail'.
- */
-export function classifyProbeFailure(probe: ProbeResult): ProviderProbeErrorKind {
-  const msg = probe.message.toLowerCase();
-
-  switch (probe.name) {
-    case 'cli_installed':
-      return 'cli_not_found';
-
-    case 'cli_shadow_check': {
-      const report = probe.metadata?.['report'] as CliShadowReport | undefined;
-      if (report && report.installs.length >= 2) {
-        // If the versions differ, surface the more specific kind.
-        const versions = new Set(report.installs.map((i) => i.version));
-        return versions.size > 1 ? 'cli_version_mismatch' : 'cli_shadow_install';
-      }
-      return 'cli_shadow_install';
-    }
-
-    case 'authenticated':
-      // Distinguish expired vs missing tokens when the message gives us a hint.
-      if (msg.includes('expired') || msg.includes('invalid') || msg.includes('revoked')) {
-        return 'auth_expired';
-      }
-      return 'auth_missing';
-
-    case 'reachable':
-      return 'endpoint_unreachable';
-
-    default:
-      return 'unknown';
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Repair action builder
-// ---------------------------------------------------------------------------
-
-/** Install command previews — no secrets, generic paths only. */
-const INSTALL_COMMANDS: Record<string, string> = {
-  'claude-cli':     'npm install -g @anthropic-ai/claude-code',
-  'codex-cli':      'npm install -g @openai/codex',
-  'gemini-cli':     'npm install -g @google/gemini-cli',
-  'copilot':        'gh extension install github/gh-copilot  # or: npm install -g @github/copilot',
-  'cursor':         'Install Cursor from https://cursor.sh and add cursor-agent to PATH',
-  'anthropic-api':  'npm install -g @anthropic-ai/claude-code',
-};
-
-const LOGIN_COMMANDS: Record<string, string> = {
-  'claude-cli':    'claude auth login',
-  'codex-cli':     'codex login',
-  'gemini-cli':    'gemini  # follow the interactive auth prompts',
-  'anthropic-api': 'export ANTHROPIC_API_KEY=<your-key>',
-};
-
-/**
- * Derives structured RepairActions from failed probes in a DiagnosisResult.
- * Commands are static install/login templates — never auto-executed, never
- * contain secrets or user-specific paths.
- */
-export function buildRepairActions(diagnosis: DiagnosisResult): RepairAction[] {
-  const actions: RepairAction[] = [];
-
-  for (const probe of diagnosis.probes) {
-    if (probe.status !== 'fail') continue;
-
-    const kind = probe.errorKind ?? classifyProbeFailure(probe);
-    const provider = diagnosis.provider;
-
-    switch (kind) {
-      case 'cli_not_found': {
-        const cmd = INSTALL_COMMANDS[provider] ?? 'Check provider documentation to install the CLI';
-        actions.push({
-          kind,
-          command: cmd,
-          description: `Install the ${provider} CLI so the binary is accessible on PATH.`,
-          severity: 'critical',
-        });
-        break;
-      }
-
-      case 'cli_shadow_install': {
-        const report = probe.metadata?.['report'] as CliShadowReport | undefined;
-        if (report && report.installs.length >= 2) {
-          const stale = report.installs.slice(1);
-          const hint = stale
-            .map((i) => {
-              const h = inferUninstallHint(i.path);
-              return h ?? `# remove manually: ${i.path}`;
-            })
-            .join('\n');
-          actions.push({
-            kind,
-            command: hint,
-            description: 'Remove stale shadow CLI installs so only the active copy remains.',
-            severity: 'warning',
-          });
-        } else {
-          actions.push({
-            kind,
-            command: '# Locate and remove the duplicate CLI binary',
-            description: 'Multiple CLI installs detected — remove extras to avoid version conflicts.',
-            severity: 'warning',
-          });
-        }
-        break;
-      }
-
-      case 'cli_version_mismatch': {
-        const installCmd = INSTALL_COMMANDS[provider] ?? '# reinstall the CLI';
-        actions.push({
-          kind,
-          command: `${installCmd}  # then remove older copies from PATH`,
-          description: 'Multiple CLI installs with different versions — update to a single consistent version.',
-          severity: 'warning',
-        });
-        break;
-      }
-
-      case 'auth_missing': {
-        const loginCmd = LOGIN_COMMANDS[provider] ?? '# run the provider login command';
-        actions.push({
-          kind,
-          command: loginCmd,
-          description: `Authenticate the ${provider} CLI so it can communicate with the provider.`,
-          severity: 'critical',
-        });
-        break;
-      }
-
-      case 'auth_expired': {
-        const loginCmd = LOGIN_COMMANDS[provider] ?? '# re-run the provider login command';
-        actions.push({
-          kind,
-          command: loginCmd,
-          description: `Credentials for ${provider} are expired or invalid — re-authenticate.`,
-          severity: 'critical',
-        });
-        break;
-      }
-
-      case 'endpoint_unreachable': {
-        actions.push({
-          kind,
-          command: 'curl -s -o /dev/null -w "%{http_code}" https://api.anthropic.com/',
-          description: 'Verify network connectivity to the provider API endpoint and check proxy settings.',
-          severity: 'warning',
-        });
-        break;
-      }
-
-      default: {
-        actions.push({
-          kind: 'unknown',
-          command: `# Probe "${probe.name}" failed: ${probe.message}`,
-          description: `Investigate the "${probe.name}" probe failure for ${provider}.`,
-          severity: 'info',
-        });
-        break;
-      }
-    }
-  }
-
-  return actions;
-}
-
-// ---------------------------------------------------------------------------
-// Runtime-log bundle builder
-// ---------------------------------------------------------------------------
-
-/** Patterns that look like secrets — matched case-insensitively on each log line. */
-const SECRET_PATTERNS: RegExp[] = [
-  /\bsk-[A-Za-z0-9_-]{20,}\b/g,               // Anthropic / OpenAI API keys
-  /\bey[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+\b/g, // JWT tokens
-  /Bearer\s+[A-Za-z0-9._~+/=\-]{16,}/gi,        // Bearer tokens in headers
-  /password\s*[:=]\s*\S+/gi,                     // password=... / password: ...
-  /token\s*[:=]\s*[A-Za-z0-9._~+/=\-]{8,}/gi,   // token=... / token: ...
-  /api[_-]?key\s*[:=]\s*\S+/gi,                  // api_key=... / apikey: ...
-  /secret\s*[:=]\s*\S+/gi,                        // secret=... / secret: ...
-];
-
-/**
- * Redact secret patterns from a single log line.
- * Returns the redacted line and the number of substitutions made.
- */
-function redactLine(line: string): { text: string; count: number } {
-  let text = line;
-  let count = 0;
-  for (const pattern of SECRET_PATTERNS) {
-    const before = text;
-    text = text.replace(pattern, (_match, ..._args) => {
-      count++;
-      return '[REDACTED]';
-    });
-    // Reset lastIndex for global regexes used with .replace
-    if (before !== text) pattern.lastIndex = 0;
-  }
-  return { text, count };
-}
-
-/**
- * Build a redacted runtime-log bundle from the failed probes in a diagnosis.
- * Collects probe name + message, truncates, and scrubs secret patterns.
- * Returns undefined when there are no failed probes to bundle.
- */
-export function buildRuntimeLogBundle(probes: ProbeResult[]): RuntimeLogBundle | undefined {
-  const failed = probes.filter((p) => p.status === 'fail' || p.status === 'timeout');
-  if (failed.length === 0) return undefined;
-
-  const MAX_ENTRIES = 50;
-  const MAX_LINE_LEN = 512;
-
-  const entries: string[] = [];
-  let totalRedacted = 0;
-
-  for (const probe of failed.slice(0, MAX_ENTRIES)) {
-    const raw = `[${probe.name}] ${probe.message}`.slice(0, MAX_LINE_LEN * 2);
-    const { text, count } = redactLine(raw);
-    entries.push(text.slice(0, MAX_LINE_LEN));
-    totalRedacted += count;
-  }
-
-  return { entries, redactedCount: totalRedacted };
-}
 
 // ---------------------------------------------------------------------------
 // ProviderDoctor
@@ -689,39 +465,4 @@ export class ProviderDoctor {
 
 export function getProviderDoctor(): ProviderDoctor {
   return ProviderDoctor.getInstance();
-}
-
-// ---------------------------------------------------------------------------
-// Private helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Classifies an auth failure message into expired vs missing.
- * Used internally in the authenticated probe handlers.
- */
-function classifyAuthKind(message: string): ProviderProbeErrorKind {
-  const lower = message.toLowerCase();
-  if (lower.includes('expired') || lower.includes('invalid') || lower.includes('revoked')) {
-    return 'auth_expired';
-  }
-  return 'auth_missing';
-}
-
-/**
- * Best-effort hint on how to remove a stale CLI copy based on its install
- * path.  Returns null when we can't confidently suggest a command.
- */
-function inferUninstallHint(installPath: string): string | null {
-  if (installPath.startsWith('/opt/homebrew/')) {
-    const binName = installPath.split('/').pop();
-    return `/opt/homebrew/bin/npm uninstall -g <package>  # ${binName} under Homebrew's node`;
-  }
-  if (installPath.startsWith('/usr/local/')) {
-    const binName = installPath.split('/').pop();
-    return `/usr/local/bin/npm uninstall -g <package>  # ${binName} under system npm`;
-  }
-  if (installPath.includes('/.nvm/versions/node/')) {
-    return 'nvm install handled — keep this one if it is the newest';
-  }
-  return null;
 }

@@ -20,6 +20,7 @@
 
 import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
+import { readFileSync } from 'fs';
 import * as path from 'path';
 import { getLogger } from '../logging/logger';
 import {
@@ -42,6 +43,8 @@ import {
 } from './loop-completion-detector';
 import { LoopProgressDetector } from './loop-progress-detector';
 import { LoopStageMachine } from './loop-stage-machine';
+import { resolveLoopArtifactPaths } from './loop-artifact-paths';
+import { parseOutstandingSections } from './loop-stage-markdown';
 import {
   saveLoopAttachments,
   cleanupLoopAttachments,
@@ -2269,11 +2272,64 @@ export class LoopCoordinator extends EventEmitter {
         1,
         state.config.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
       );
-      const timeout = setTimeout(() => {
+      const streamIdleTimeoutMs = Math.max(
+        1,
+        state.config.streamIdleTimeoutMs ?? 5 * 60 * 1000,
+      );
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      let lastActivityAt = 0;
+      const seq = state.totalIterations;
+
+      const onActivity = (payload: unknown): void => {
+        const activity = payload as {
+          loopRunId?: string;
+          seq?: number;
+          kind?: string;
+        };
+        if (activity.loopRunId !== state.id || activity.seq !== seq) return;
+        if (activity.kind === 'stream-idle' || activity.kind === 'error') return;
+        lastActivityAt = Date.now();
+      };
+
+      const cleanup = (): void => {
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = undefined;
+        }
+        this.off('loop:activity', onActivity);
+      };
+
+      const scheduleTimeout = (delayMs: number): void => {
+        timeout = setTimeout(handleTimeout, Math.max(1, delayMs));
+      };
+
+      const handleTimeout = (): void => {
+        timeout = undefined;
         if (settled) return;
+        const idleMs = lastActivityAt > 0 ? Date.now() - lastActivityAt : Number.POSITIVE_INFINITY;
+        if (lastActivityAt > 0 && idleMs < streamIdleTimeoutMs) {
+          const nextDelayMs = Math.max(
+            1,
+            Math.min(iterationTimeoutMs, streamIdleTimeoutMs - idleMs),
+          );
+          logger.info('Loop iteration timeout checkpoint extended while child is active', {
+            loopRunId: state.id,
+            seq,
+            iterationTimeoutMs,
+            streamIdleTimeoutMs,
+            idleMs,
+            nextDelayMs,
+          });
+          scheduleTimeout(nextDelayMs);
+          return;
+        }
         settled = true;
+        cleanup();
         reject(new Error(`Loop iteration timed out after ${iterationTimeoutMs}ms`));
-      }, iterationTimeoutMs);
+      };
+
+      this.on('loop:activity', onActivity);
+      scheduleTimeout(iterationTimeoutMs);
 
       this.emit('loop:invoke-iteration', {
         correlationId,
@@ -2296,7 +2352,7 @@ export class LoopCoordinator extends EventEmitter {
         callback: (result: LoopChildResult | { error: string }) => {
           if (settled) return;
           settled = true;
-          clearTimeout(timeout);
+          cleanup();
           if ('error' in result) reject(new Error(result.error));
           else resolve(result);
         },
@@ -2503,6 +2559,31 @@ export class LoopCoordinator extends EventEmitter {
     });
   }
 
+  /**
+   * Best-effort capture of the loop's OUTSTANDING.md into `state.outstanding`.
+   * Runs once at termination (a cold path), so a synchronous read of the small
+   * per-run file is acceptable and keeps `terminate()` synchronous. The
+   * deterministic artifact path is re-derived from `(workspaceCwd, loopRunId)`
+   * — the same path the stage machine / agent use. Silent on any failure
+   * (missing file, read error) so it can never block loop termination.
+   */
+  private captureOutstanding(state: LoopState): void {
+    try {
+      const paths = resolveLoopArtifactPaths(state.config.workspaceCwd, state.id);
+      const raw = readFileSync(paths.outstanding, 'utf8');
+      const { needsHuman, openQuestions } = parseOutstandingSections(raw);
+      if (needsHuman.length === 0 && openQuestions.length === 0) return;
+      state.outstanding = {
+        needsHuman,
+        openQuestions,
+        raw,
+        capturedAt: Date.now(),
+      };
+    } catch {
+      // No OUTSTANDING.md, or unreadable — nothing to capture.
+    }
+  }
+
   private terminate(state: LoopState, status: LoopState['status'], reason?: string): void {
     // Idempotent: if we're already in a terminal state we must not emit
     // duplicate cancelled/error events. Without this, a force-terminate from
@@ -2519,6 +2600,10 @@ export class LoopCoordinator extends EventEmitter {
       lastIterationSeq: state.totalIterations - 1,
       terminalIntent: state.terminalIntentHistory?.at(-1),
     };
+    // Capture the agent's OUTSTANDING.md (Needs human / Open questions) so the
+    // human-gated work is persisted + surfaced instead of being lost in the
+    // hidden per-run state dir. Best-effort; failures never block termination.
+    this.captureOutstanding(state);
     // LF-6: distill a terminal learning BEFORE the convergence note is cleared.
     recordLoopLearningForState({
       state,

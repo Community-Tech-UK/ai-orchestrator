@@ -28,6 +28,8 @@ export type ConfigSourceLevel = typeof CONFIG_SOURCE_PRECEDENCE[number];
 const LEGACY_APP_NAME = 'claude-orchestrator';
 const CODEBASE_AUTOINDEX_DISABLED_MIGRATION_KEY =
   '__migration_codebase_auto_index_disabled_20260527';
+const AUX_SLOT_TIMEOUT_MIGRATION_KEY =
+  '__migration_auxiliary_slot_timeouts_20260606';
 
 // Type for the internal store with the methods we need
 interface Store<T> {
@@ -103,6 +105,9 @@ export class SettingsManager extends EventEmitter {
     this.migrateCliProviderAlias();
     // Existing installs may have persisted the old, heavy auto-index default.
     this.migrateLegacyCodebaseAutoIndexDefault();
+    // Existing installs may have persisted the old 15s auxiliary slot timeouts,
+    // which are too short for a cold local-model load.
+    this.migrateAuxiliarySlotTimeouts();
     // Seed per-provider model memory from existing defaultModel/defaultCli on
     // first launch after this feature lands. This avoids an empty map showing
     // 'opus' for Claude and nothing else.
@@ -178,6 +183,51 @@ export class SettingsManager extends EventEmitter {
     }
 
     migrationStore.set(CODEBASE_AUTOINDEX_DISABLED_MIGRATION_KEY, true);
+  }
+
+  /**
+   * Raise auxiliary slot timeouts that still hold the old 15s default.
+   *
+   * A cold local-model load (e.g. a ~20GB Ollama model into VRAM) can take
+   * ~17-22s, which exceeds the original 15s timeout used for titleGeneration,
+   * routingClassification, and approvalScoring — so the first call after the
+   * model unloads always aborts. DEFAULT_SETTINGS now ships 45s, but
+   * electron-store keeps already-persisted values. This one-shot migration only
+   * touches slots that still equal the exact old default (15000), so it never
+   * clobbers a value the user intentionally customised.
+   */
+  private migrateAuxiliarySlotTimeouts(): void {
+    const migrationStore = this.store as unknown as MigrationStore;
+    if (migrationStore.get(AUX_SLOT_TIMEOUT_MIGRATION_KEY) === true) {
+      return;
+    }
+
+    const OLD_DEFAULT_MS = 15000;
+    const NEW_DEFAULT_MS = 45000;
+    const SLOTS_TO_RAISE = ['titleGeneration', 'routingClassification', 'approvalScoring'];
+
+    const raw = this.store.get('auxiliaryLlmSlotsJson');
+    if (typeof raw === 'string') {
+      try {
+        const slots = JSON.parse(raw) as Record<string, { timeoutMs?: number } | undefined>;
+        let changed = false;
+        for (const name of SLOTS_TO_RAISE) {
+          const slot = slots[name];
+          if (slot && slot.timeoutMs === OLD_DEFAULT_MS) {
+            slot.timeoutMs = NEW_DEFAULT_MS;
+            changed = true;
+          }
+        }
+        if (changed) {
+          logger.info('Raising persisted auxiliary slot timeouts for cold local-model loads');
+          this.store.set('auxiliaryLlmSlotsJson', JSON.stringify(slots));
+        }
+      } catch {
+        // Malformed JSON — leave as-is; AuxiliaryLlmService falls back to defaults.
+      }
+    }
+
+    migrationStore.set(AUX_SLOT_TIMEOUT_MIGRATION_KEY, true);
   }
 
   /**

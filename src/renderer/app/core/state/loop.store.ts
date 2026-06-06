@@ -1,86 +1,40 @@
 import { computed, Injectable, signal, inject } from '@angular/core';
 import type {
   LoopIterationPayload,
+  LoopOutstandingItemPayload,
   LoopRunSummaryPayload,
   LoopStatePayload,
 } from '@contracts/schemas/loop';
-import { LoopIpcService, type LoopActivityPayload, type LoopStartConfigInput } from '../services/ipc/loop-ipc.service';
+import {
+  LoopIpcService,
+  type LoopActivityPayload,
+  type LoopOutstandingStatus,
+  type LoopStartConfigInput,
+} from '../services/ipc/loop-ipc.service';
+import type {
+  LoopBanner,
+  LoopFinalSummary,
+  LoopFinalSummaryLastIteration,
+  LoopRunningIteration,
+} from './loop-store.types';
 
 /**
  * One active loop per chat in v1. The store holds:
  *  - per-chat active loop state (or undefined)
  *  - latest no-progress / claimed-done-but-failed banner per chat
  *  - latest completion summary per chat (for the summary card)
- */
-
-export interface LoopBannerNoProgress {
-  kind: 'no-progress';
-  loopRunId: string;
-  signalId: string;
-  message: string;
-  shownAt: number;
-}
-
-export interface LoopBannerClaimedFailed {
-  kind: 'claimed-failed';
-  loopRunId: string;
-  signal: string;
-  failure: string;
-  shownAt: number;
-}
-
-export type LoopBanner = LoopBannerNoProgress | LoopBannerClaimedFailed;
-
-/**
- * Compact snapshot of the loop's final iteration. Captured into the
- * summary card so the renderer can show "what was changed / what the
- * agent said at the end" without a follow-up `getIterations` IPC.
  *
- * This is intentionally a subset of `LoopIterationPayload` — only the
- * fields the summary card needs — so a future iteration-shape change
- * doesn't ripple into store consumers that just want a recap.
+ * Presentational types live in `loop-store.types.ts` (re-exported below) to keep
+ * this file under its LOC ceiling.
  */
-export interface LoopFinalSummaryLastIteration {
-  seq: number;
-  stage: 'PLAN' | 'REVIEW' | 'IMPLEMENT';
-  outputExcerpt: string;
-  filesChanged: { path: string; additions: number; deletions: number }[];
-  testPassCount: number | null;
-  testFailCount: number | null;
-  verifyStatus: 'not-run' | 'passed' | 'failed';
-  verifyOutputExcerpt: string;
-  progressVerdict: 'OK' | 'WARN' | 'CRITICAL';
-}
-
-export interface LoopFinalSummary {
-  loopRunId: string;
-  status: 'completed' | 'completed-needs-review' | 'cancelled' | 'failed' | 'cap-reached' | 'error' | 'no-progress' | 'provider-limit';
-  reason: string;
-  iterations: number;
-  tokens: number;
-  costCents: number;
-  startedAt: number;
-  endedAt: number;
-  /** The goal/ask the loop was started with (iteration 0 prompt). Captured
-   *  so the user can copy/inspect it after the loop ends without having to
-   *  re-open the loop config panel. */
-  initialPrompt: string;
-  /** Optional continuation directive used on iterations 1+. Empty when the
-   *  loop re-used `initialPrompt` for every iteration. */
-  iterationPrompt?: string;
-  /** Snapshot of the loop's final iteration so the summary card can show
-   *  the agent's closing message + diff stats without round-tripping to
-   *  the main process. Absent when the loop terminated before any
-   *  iteration completed. */
-  lastIteration?: LoopFinalSummaryLastIteration;
-}
-
-export interface LoopRunningIteration {
-  loopRunId: string;
-  seq: number;
-  stage: string;
-  startedAt: number;
-}
+export type {
+  LoopBanner,
+  LoopBannerNoProgress,
+  LoopBannerClaimedFailed,
+  LoopFinalSummary,
+  LoopFinalSummaryLastIteration,
+  LoopRunningIteration,
+} from './loop-store.types';
 
 @Injectable({ providedIn: 'root' })
 export class LoopStore {
@@ -100,6 +54,13 @@ export class LoopStore {
   private runningIterationByLoop = signal<Map<string, LoopRunningIteration>>(new Map());
   /** Map of loopRunId → recent child CLI activity events. */
   private activityByLoop = signal<Map<string, LoopActivityPayload[]>>(new Map());
+
+  /** Aggregated outstanding items (latest query result). */
+  private outstandingItems = signal<LoopOutstandingItemPayload[]>([]);
+  /** True while an outstanding query is in flight. */
+  private outstandingLoading = signal(false);
+  /** The scope of the last outstanding query, replayed when a change event arrives. */
+  private lastOutstandingScope: { workspaceCwd?: string; status?: LoopOutstandingStatus | 'all' } = {};
 
   private wired = false;
 
@@ -158,6 +119,17 @@ export class LoopStore {
     }
     return ids;
   });
+
+  // ────── outstanding selectors ──────
+
+  /** Latest queried outstanding items. */
+  readonly outstanding = this.outstandingItems.asReadonly();
+  /** True while an outstanding query is in flight. */
+  readonly outstandingIsLoading = this.outstandingLoading.asReadonly();
+  /** Count of still-open items in the latest query result. */
+  readonly openOutstandingCount = computed(
+    () => this.outstandingItems().filter((i) => i.status === 'open').length,
+  );
 
   // ────── lifecycle ──────
 
@@ -317,6 +289,57 @@ export class LoopStore {
       if (!chatId) return;
       this.setBanner(chatId, null);
     });
+
+    // Outstanding items persisted / changed → refresh the panel using the
+    // scope of the last query so the open count + list stay live.
+    this.ipc.onOutstandingChanged(() => {
+      void this.loadOutstanding(this.lastOutstandingScope);
+    });
+  }
+
+  // ────── outstanding commands ──────
+
+  /** Load aggregated outstanding items into the store (remembers the scope so
+   *  change events can replay it). */
+  async loadOutstanding(
+    scope: { workspaceCwd?: string; status?: LoopOutstandingStatus | 'all' } = {},
+  ): Promise<void> {
+    this.lastOutstandingScope = scope;
+    this.outstandingLoading.set(true);
+    try {
+      const res = await this.ipc.listOutstanding(scope);
+      if (res.success && res.data) {
+        this.outstandingItems.set(res.data.items);
+      }
+    } finally {
+      this.outstandingLoading.set(false);
+    }
+  }
+
+  /** Mark one outstanding item resolved / dismissed / re-opened. Optimistically
+   *  updates local state; a change event re-syncs from the source of truth. */
+  async setOutstandingStatus(id: string, status: LoopOutstandingStatus): Promise<boolean> {
+    const res = await this.ipc.setOutstandingStatus(id, status);
+    if (res.success && res.data?.ok) {
+      this.outstandingItems.update((items) =>
+        items.map((item) =>
+          item.id === id
+            ? { ...item, status, resolvedAt: status === 'open' ? null : Date.now(), updatedAt: Date.now() }
+            : item,
+        ),
+      );
+      return true;
+    }
+    return false;
+  }
+
+  /** Export the workspace's open outstanding items to a consolidated OUTSTANDING.md. */
+  async exportOutstanding(
+    workspaceCwd: string,
+    destPath?: string,
+  ): Promise<{ path: string; itemCount: number } | null> {
+    const res = await this.ipc.exportOutstanding(workspaceCwd, destPath);
+    return res.success && res.data ? res.data : null;
   }
 
   // ────── commands ──────

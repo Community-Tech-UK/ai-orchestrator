@@ -43,6 +43,7 @@ import { HistoryIpcService } from '../../core/services/ipc/history-ipc.service';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import { OrchestrationHudComponent } from '../orchestration/orchestration-hud.component';
 import { LoopControlComponent } from '../loop/loop-control.component';
+import { LoopOutstandingPanelComponent } from '../loop/loop-outstanding-panel.component';
 import { LoopStore } from '../../core/state/loop.store';
 import { LoopPromptHistoryService } from '../loop/loop-prompt-history.service';
 import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
@@ -109,6 +110,7 @@ interface HistoryPreviewView {
     OrchestrationHudComponent,
     ChildDiagnosticBundleModalComponent,
     LoopControlComponent,
+    LoopOutstandingPanelComponent,
     CheckpointTimelineComponent
   ],
   templateUrl: './instance-detail.component.html',
@@ -190,7 +192,20 @@ export class InstanceDetailComponent {
   showCheckpointInspector = signal(false);
   /** Number of restorable session snapshots for the current instance (E1). */
   checkpointCount = signal(0);
-  enteringInspectorToggle = signal<'todo' | 'review' | 'children' | 'checkpoint' | null>(null);
+  /** Aggregated outstanding items (Needs human / Open questions) inspector. */
+  showOutstandingInspector = signal(false);
+  enteringInspectorToggle = signal<'todo' | 'review' | 'children' | 'checkpoint' | 'outstanding' | null>(null);
+
+  /** Open outstanding-item count for this instance's workspace — gates the
+   *  toggle + drives its badge. Reads the loop store's latest query result
+   *  filtered to this instance's working directory (the detail view shows one
+   *  instance at a time, so the store's scope tracks it). */
+  outstandingOpenCount = computed(() => {
+    const wd = this.instance()?.workingDirectory;
+    if (!wd) return 0;
+    return this.loopStore.outstanding().filter((i) => i.workspaceCwd === wd && i.status === 'open').length;
+  });
+  hasOutstanding = computed(() => this.outstandingOpenCount() > 0);
 
   // Review panel state — driven by output events from InstanceReviewPanelComponent
   reviewHasContent = signal(false);
@@ -199,6 +214,7 @@ export class InstanceDetailComponent {
   // Container visibility — only render the toggle bar when at least one toggle has content
   anyInspectorVisible = computed(() =>
     this.todoStore.hasTodos() || this.reviewHasContent() || this.hasChildren() || this.hasCheckpoints()
+    || this.hasOutstanding()
   );
 
   // Computed: show the checkpoint toggle only when the instance has restorable
@@ -279,6 +295,15 @@ export class InstanceDetailComponent {
         });
     }
 
+    // Outstanding items: reset the panel and (best-effort) load the open set
+    // for this instance's workspace so the toggle + badge reflect captured
+    // human-gated work without the user opening the panel first.
+    this.showOutstandingInspector.set(false);
+    const workspaceCwd = inst?.workingDirectory;
+    if (workspaceCwd) {
+      void this.loopStore.loadOutstanding({ workspaceCwd, status: 'open' });
+    }
+
     // Reset welcome-screen state so it doesn't bleed across sessions.
     this.welcomeCoordinator.resetState();
   });
@@ -286,7 +311,7 @@ export class InstanceDetailComponent {
   // Computed: any inspector is open
   hasActiveInspector = computed(() =>
     this.showTodoInspector() || this.showReviewInspector() || this.showChildrenInspector()
-    || this.showCheckpointInspector()
+    || this.showCheckpointInspector() || this.showOutstandingInspector()
   );
 
   // Computed: show children toggle only when instance has children
@@ -1432,7 +1457,7 @@ export class InstanceDetailComponent {
     this.showReviewInspector.set(true);
   }
 
-  onInspectorToggleAnimationEnd(toggle: 'todo' | 'review' | 'children' | 'checkpoint'): void {
+  onInspectorToggleAnimationEnd(toggle: 'todo' | 'review' | 'children' | 'checkpoint' | 'outstanding'): void {
     if (this.enteringInspectorToggle() === toggle) {
       this.enteringInspectorToggle.set(null);
     }

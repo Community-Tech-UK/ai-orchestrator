@@ -80,6 +80,35 @@ the coordinator's Tailscale MagicDNS name when available, then its `100.x.y.z`
 Tailscale IP, then a normal LAN IP. Keep the coordinator bound to `0.0.0.0` so
 it accepts connections on the Tailscale interface.
 
+### Auxiliary Model Access (local LLMs over the remote network)
+
+Auxiliary routing (compression, memory distillation, titles, classification,
+scoring) can use local models — e.g. Ollama on a Windows/RTX host — running on a
+remote machine. There are two ways to reach them:
+
+**Preferred — via the worker-agent RPC proxy (no extra exposure).** Enroll the
+remote host as a worker node (see above). The worker probes its own
+`http://127.0.0.1:11434/api/tags` on heartbeat and reports any local models as
+`localModelEndpoints`. The coordinator discovers them automatically and routes
+generation through the existing encrypted RPC channel — Ollama never has to
+listen on the LAN. The discovered endpoint shows up with source `worker-node`
+under **Settings → Auxiliary Models**.
+
+**Direct — via a manual Tailscale/LAN endpoint.** When you want the coordinator
+to call Ollama directly, expose it on `0.0.0.0:11434` on the remote host and add
+its Tailscale hostname (`http://<host>.<tailnet>.ts.net:11434`) or LAN IP
+(`http://192.168.x.x:11434`) as a manual endpoint under **Settings → Auxiliary
+Models**. Tailscale encrypts the connection, so no additional TLS setup is
+required for private-network auxiliary calls. Only private ranges are accepted
+(`localhost`/`127.0.0.1`, `192.168.*`, `10.*`, `172.16-31.*`, `100.*`); public
+internet IPs are rejected because Ollama has no authentication.
+
+> **Warning:** Never open port `11434` on a public-facing firewall — Ollama is
+> unauthenticated. Keep it on Tailscale or a trusted LAN only.
+
+See `docs/runbooks/AUXILIARY_LOCAL_MODELS.md` for full model setup, slot
+reference, and troubleshooting.
+
 ### SSH Tunnel (port forwarding)
 
 Forward the coordinator port through an SSH tunnel when Tailscale is unavailable:

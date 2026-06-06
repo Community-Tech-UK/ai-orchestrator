@@ -298,3 +298,77 @@ describe('LoopStore terminal intents', () => {
     ]);
   });
 });
+
+describe('LoopStore outstanding items', () => {
+  function seedRunWithOutstanding(overrides: Partial<LoopState> = {}) {
+    const state = makeState({
+      status: 'completed-needs-review',
+      outstanding: {
+        needsHuman: ['Deploy to device and confirm camera works', 'Run on a GPU box'],
+        openQuestions: ['Should we cache the model?'],
+        raw: '## Needs human\n- ...',
+        capturedAt: 1_700_000_200_000,
+      },
+      ...overrides,
+    });
+    store.upsertRun(state); // satisfy FK before inserting items
+    store.saveOutstandingItems(state);
+    return state;
+  }
+
+  it('persists needs-human + open-question rows from the state snapshot', () => {
+    seedRunWithOutstanding();
+    const items = store.listOutstandingItems({ workspaceCwd: '/tmp/project' });
+    expect(items).toHaveLength(3);
+    expect(items.filter((i) => i.kind === 'needs-human')).toHaveLength(2);
+    expect(items.filter((i) => i.kind === 'open-question')).toHaveLength(1);
+    expect(items.every((i) => i.status === 'open')).toBe(true);
+    expect(items.every((i) => i.loopStatus === 'completed-needs-review')).toBe(true);
+  });
+
+  it('is a no-op when the state carries no outstanding snapshot', () => {
+    const state = makeState();
+    store.upsertRun(state);
+    store.saveOutstandingItems(state);
+    expect(store.listOutstandingItems({})).toHaveLength(0);
+  });
+
+  it('re-capture is idempotent and preserves a user-set status', () => {
+    const state = seedRunWithOutstanding();
+    const target = store.listOutstandingItems({ workspaceCwd: '/tmp/project' })[0];
+    expect(store.setOutstandingItemStatus(target.id, 'resolved')).toBe(true);
+
+    // Re-capture the same run (e.g. a second terminal state-change).
+    store.saveOutstandingItems(state);
+
+    const after = store.listOutstandingItems({ workspaceCwd: '/tmp/project', status: 'all' });
+    expect(after).toHaveLength(3); // no duplicates
+    expect(after.find((i) => i.id === target.id)?.status).toBe('resolved');
+  });
+
+  it('filters by status and counts only open items', () => {
+    seedRunWithOutstanding();
+    const open = store.listOutstandingItems({ workspaceCwd: '/tmp/project', status: 'open' });
+    store.setOutstandingItemStatus(open[0].id, 'dismissed');
+
+    expect(store.countOpenOutstanding({ workspaceCwd: '/tmp/project' })).toBe(2);
+    expect(store.listOutstandingItems({ workspaceCwd: '/tmp/project', status: 'open' })).toHaveLength(2);
+    expect(store.listOutstandingItems({ workspaceCwd: '/tmp/project', status: 'dismissed' })).toHaveLength(1);
+    expect(store.listOutstandingItems({ workspaceCwd: '/tmp/project', status: 'all' })).toHaveLength(3);
+  });
+
+  it('scopes listing + counting to a workspace', () => {
+    seedRunWithOutstanding();
+    seedRunWithOutstanding({
+      id: 'loop-2',
+      config: { ...defaultLoopConfig('/tmp/other', 'goal'), iterationPrompt: 'x' },
+    });
+    expect(store.countOpenOutstanding({ workspaceCwd: '/tmp/project' })).toBe(3);
+    expect(store.countOpenOutstanding({ workspaceCwd: '/tmp/other' })).toBe(3);
+    expect(store.countOpenOutstanding({})).toBe(6);
+  });
+
+  it('setOutstandingItemStatus returns false for an unknown id', () => {
+    expect(store.setOutstandingItemStatus('does-not-exist', 'resolved')).toBe(false);
+  });
+});

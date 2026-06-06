@@ -79,10 +79,6 @@ export const DEFAULT_INDEXING_CONFIG: IndexingConfig = {
   ],
   maxFileSize: 1024 * 1024, // 1MB
 
-  // Embedding
-  embeddingProvider: 'auto',
-  embeddingModel: undefined,
-
   // Persistence
   persistAfterBatch: true,
   compactOnCompletion: true,

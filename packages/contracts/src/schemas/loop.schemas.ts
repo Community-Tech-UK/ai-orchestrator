@@ -413,6 +413,28 @@ export const LoopRunSummarySchema = z.object({
   /** Optional continuation directive used on iterations 1+. Null when the
    *  loop re-used `initialPrompt` for every iteration. */
   iterationPrompt: z.string().nullable(),
+  /** Count of still-open outstanding items captured from this run. Optional —
+   *  only populated by callers that join the outstanding table. */
+  openOutstandingCount: z.number().int().nonnegative().optional(),
+});
+
+// ============ Outstanding items ============
+
+export const LoopOutstandingItemKindSchema = z.enum(['needs-human', 'open-question']);
+export const LoopOutstandingItemStatusSchema = z.enum(['open', 'resolved', 'dismissed']);
+
+export const LoopOutstandingItemSchema = z.object({
+  id: z.string(),
+  loopRunId: z.string(),
+  chatId: z.string(),
+  workspaceCwd: z.string(),
+  kind: LoopOutstandingItemKindSchema,
+  text: z.string(),
+  status: LoopOutstandingItemStatusSchema,
+  loopStatus: LoopStatusSchema,
+  createdAt: z.number().int(),
+  updatedAt: z.number().int(),
+  resolvedAt: z.number().int().nullable(),
 });
 
 // ============ IPC payload schemas ============
@@ -459,6 +481,25 @@ export const LoopInferVerifyPayloadSchema = z.object({
   workspaceCwd: z.string().min(1),
 });
 
+export const LoopListOutstandingPayloadSchema = z.object({
+  /** Scope to one workspace. Omit to list across all workspaces. */
+  workspaceCwd: z.string().min(1).optional(),
+  /** Resolution filter. Defaults server-side to `'open'`. */
+  status: z.enum(['open', 'resolved', 'dismissed', 'all']).optional(),
+  limit: z.number().int().positive().max(1000).optional(),
+});
+
+export const LoopSetOutstandingStatusPayloadSchema = z.object({
+  id: z.string().min(1),
+  status: LoopOutstandingItemStatusSchema,
+});
+
+export const LoopExportOutstandingPayloadSchema = z.object({
+  workspaceCwd: z.string().min(1),
+  /** Optional absolute destination path. Defaults to `<workspaceCwd>/OUTSTANDING.md`. */
+  destPath: z.string().min(1).optional(),
+});
+
 // ============ Inferred types ============
 
 export type LoopConfigPayload = z.infer<typeof LoopConfigSchema>;
@@ -474,3 +515,7 @@ export type LoopInterveneePayload = z.infer<typeof LoopInterveneePayloadSchema>;
 export type LoopListByChatPayload = z.infer<typeof LoopListByChatPayloadSchema>;
 export type LoopGetIterationsPayload = z.infer<typeof LoopGetIterationsPayloadSchema>;
 export type LoopInferVerifyPayload = z.infer<typeof LoopInferVerifyPayloadSchema>;
+export type LoopOutstandingItemPayload = z.infer<typeof LoopOutstandingItemSchema>;
+export type LoopListOutstandingPayload = z.infer<typeof LoopListOutstandingPayloadSchema>;
+export type LoopSetOutstandingStatusPayload = z.infer<typeof LoopSetOutstandingStatusPayloadSchema>;
+export type LoopExportOutstandingPayload = z.infer<typeof LoopExportOutstandingPayloadSchema>;

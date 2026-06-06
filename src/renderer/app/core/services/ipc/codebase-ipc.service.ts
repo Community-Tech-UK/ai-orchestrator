@@ -147,7 +147,10 @@ export class CodebaseIpcService implements OnDestroy {
   // ============================================
 
   /**
-   * Perform hybrid search (BM25 + vector + reranking)
+   * Search the indexed codebase. Backed by the codemem retrieval path
+   * (BM25 full-text + symbol search, with a ripgrep fallback). Results are
+   * returned in the legacy HybridSearchResult shape for renderer compatibility;
+   * code is not embedded into a vector store.
    */
   async search(options: HybridSearchOptions): Promise<IpcResponse<HybridSearchResult[]>> {
     if (!this.api?.codebaseSearch) {

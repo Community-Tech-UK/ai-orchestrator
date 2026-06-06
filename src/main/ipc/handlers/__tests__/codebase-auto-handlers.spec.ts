@@ -100,7 +100,6 @@ const codemem = {
 
 vi.mock('../../../indexing', () => ({
   getCodebaseIndexingService: () => indexingService,
-  getHybridSearchService: () => ({ search: vi.fn() }),
   getCodebaseFileWatcher: () => fileWatcher,
   getCodebaseIndexingAutoCoordinator: () => autoCoordinator,
 }));

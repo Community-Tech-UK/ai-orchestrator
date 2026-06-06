@@ -65,6 +65,8 @@ The legacy RLM codebase index is off by default. Manual legacy index buttons and
 
 When legacy indexing is explicitly enabled or manually triggered, it runs through the background indexing lane. The Electron main process owns scheduling and status only; the indexing loop runs outside the main process.
 
+As of 2026-06 the legacy path no longer generates code embeddings or runs hybrid vector search — that pipeline was removed because no read path consumed it. The legacy index is BM25 + symbols only.
+
 ## Vector Store Policy
 
 Do not add LanceDB, `sqlite-vec`, or another vector database to the canonical code-index path in this pass. Vector DB additions are deferred until they have:

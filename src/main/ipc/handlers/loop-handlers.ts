@@ -9,12 +9,16 @@ import {
   LoopListByChatPayloadSchema,
   LoopGetIterationsPayloadSchema,
   LoopInferVerifyPayloadSchema,
+  LoopListOutstandingPayloadSchema,
+  LoopSetOutstandingStatusPayloadSchema,
+  LoopExportOutstandingPayloadSchema,
 } from '@contracts/schemas/loop';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getLoopCoordinator } from '../../orchestration/loop-coordinator';
 import { getLoopStore } from '../../orchestration/loop-store';
 import { inferLoopVerifyCommand } from '../../orchestration/loop-verify-command';
 import { prepareLoopStartConfig } from '../../orchestration/loop-start-config';
+import { exportOutstandingMarkdown } from '../../orchestration/loop-outstanding-export';
 import {
   buildLoopInterveneChatEvent,
   buildLoopStartChatEvent,
@@ -78,6 +82,22 @@ export function registerLoopHandlers(deps: {
         logger.warn('Failed to append loop terminal summary', {
           loopRunId: data.loopRunId,
           chatId: data.state.chatId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      // Persist the captured OUTSTANDING.md items so human-gated work survives
+      // in the aggregated Outstanding panel, then nudge the renderer to refresh.
+      try {
+        store.saveOutstandingItems(data.state);
+        if (data.state.outstanding) {
+          send(IPC_CHANNELS.LOOP_OUTSTANDING_CHANGED, {
+            loopRunId: data.loopRunId,
+            workspaceCwd: data.state.config.workspaceCwd,
+          });
+        }
+      } catch (err) {
+        logger.warn('Failed to persist loop outstanding items', {
+          loopRunId: data.loopRunId,
           error: err instanceof Error ? err.message : String(err),
         });
       }
@@ -290,6 +310,47 @@ export function registerLoopHandlers(deps: {
       return { success: true, data: { inferred } };
     } catch (error) {
       return errorResponse('LOOP_INFER_VERIFY_FAILED', error);
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.LOOP_LIST_OUTSTANDING, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(LoopListOutstandingPayloadSchema, payload, 'LOOP_LIST_OUTSTANDING');
+      const items = store.listOutstandingItems({
+        workspaceCwd: validated.workspaceCwd,
+        status: validated.status,
+        limit: validated.limit,
+      });
+      return { success: true, data: { items } };
+    } catch (error) {
+      return errorResponse('LOOP_LIST_OUTSTANDING_FAILED', error);
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.LOOP_SET_OUTSTANDING_STATUS, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(LoopSetOutstandingStatusPayloadSchema, payload, 'LOOP_SET_OUTSTANDING_STATUS');
+      const ok = store.setOutstandingItemStatus(validated.id, validated.status);
+      if (ok) send(IPC_CHANNELS.LOOP_OUTSTANDING_CHANGED, { itemId: validated.id });
+      return { success: true, data: { ok } };
+    } catch (error) {
+      return errorResponse('LOOP_SET_OUTSTANDING_STATUS_FAILED', error);
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.LOOP_EXPORT_OUTSTANDING, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(LoopExportOutstandingPayloadSchema, payload, 'LOOP_EXPORT_OUTSTANDING');
+      const items = store.listOutstandingItems({ workspaceCwd: validated.workspaceCwd, status: 'open' });
+      const result = await exportOutstandingMarkdown({
+        workspaceCwd: validated.workspaceCwd,
+        items,
+        generatedAt: Date.now(),
+        destPath: validated.destPath,
+      });
+      return { success: true, data: result };
+    } catch (error) {
+      return errorResponse('LOOP_EXPORT_OUTSTANDING_FAILED', error);
     }
   });
 }

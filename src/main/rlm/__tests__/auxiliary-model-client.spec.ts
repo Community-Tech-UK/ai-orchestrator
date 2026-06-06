@@ -150,6 +150,29 @@ describe('generateWithOllama', () => {
     expect(result).toBe('generated text');
   });
 
+  it('sends a default keep_alive so the model stays resident', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(mockResponse({ response: 'ok' }, true));
+    vi.stubGlobal('fetch', mockFetch);
+    const { generateWithOllama } = await import('../auxiliary-model-client');
+    const { DEFAULT_OLLAMA_KEEP_ALIVE } = await import('../../../shared/types/auxiliary-llm.types');
+    await generateWithOllama('http://127.0.0.1:11434', BASE_GENERATE_REQUEST);
+
+    const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(options.body as string);
+    expect(body.keep_alive).toBe(DEFAULT_OLLAMA_KEEP_ALIVE);
+  });
+
+  it('honours an explicit keepAlive override', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(mockResponse({ response: 'ok' }, true));
+    vi.stubGlobal('fetch', mockFetch);
+    const { generateWithOllama } = await import('../auxiliary-model-client');
+    await generateWithOllama('http://127.0.0.1:11434', { ...BASE_GENERATE_REQUEST, keepAlive: '2h' });
+
+    const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(options.body as string);
+    expect(body.keep_alive).toBe('2h');
+  });
+
   it('throws with "timed out" on AbortError', async () => {
     const abortError = new Error('The operation was aborted');
     abortError.name = 'AbortError';

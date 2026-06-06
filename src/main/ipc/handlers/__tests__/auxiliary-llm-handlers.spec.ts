@@ -151,6 +151,21 @@ describe('auxiliary-llm-handlers', () => {
       expect(result.success).toBe(true);
       expect((result.data as { text: string }).text).toBe('Hello!');
     });
+
+    it('uses a slot-aware JSON default prompt for JSON slots when none is provided', async () => {
+      serviceMocks.generate.mockResolvedValue({
+        text: '{"score":0.1,"confidence":0.9,"reason":"low risk"}',
+        decision: { slot: 'approvalScoring', source: 'local', reason: 'ok' },
+      });
+      await loadHandlers();
+
+      await invoke('auxiliary-llm:test-generate', { slot: 'approvalScoring' });
+
+      const [slot, systemPrompt] = serviceMocks.generate.mock.calls[0] as [string, string, string];
+      expect(slot).toBe('approvalScoring');
+      // JSON slots must instruct the model to emit JSON, not a generic greeting.
+      expect(systemPrompt).toContain('JSON');
+    });
   });
 
   describe('save-settings', () => {

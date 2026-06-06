@@ -24,6 +24,17 @@ export type AuxiliaryLlmProvider =
 
 export type AuxiliaryLlmRoutingMode = 'off' | 'local-first' | 'cheap-first' | 'manual-only';
 
+/**
+ * Default Ollama `keep_alive` for auxiliary generation calls.
+ *
+ * Without this, Ollama unloads the model after ~5 minutes idle, so every helper
+ * call after a lull pays the full cold load (e.g. ~17s to load a 20GB model into
+ * VRAM) — which can exceed a slot's timeout. Keeping the model resident for 30
+ * minutes means only the first call per session is cold. Applied by both the
+ * direct client (`generateWithOllama`) and the worker-node RPC dispatcher.
+ */
+export const DEFAULT_OLLAMA_KEEP_ALIVE = '30m';
+
 export interface AuxiliaryLlmModelInfo {
   id: string;
   name: string;

@@ -8,7 +8,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const LOOP_SCHEMA_VERSION = 4;
+export const LOOP_SCHEMA_VERSION = 5;
 
 interface LoopMigration {
   version: number;
@@ -128,6 +128,37 @@ const MIGRATIONS: LoopMigration[] = [
     name: '004_loop_runs_manual_review_only',
     up: `
       ALTER TABLE loop_runs ADD COLUMN manual_review_only INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    // Outstanding-items capture: when a loop terminates, the structured
+    // OUTSTANDING.md sections (Needs human / Open questions) are persisted as
+    // individual rows here so the human-gated work survives the chat scroll-back
+    // and can be aggregated per workspace + marked resolved/dismissed in the UI.
+    // The id is a deterministic sha256(loopRunId|kind|text) so re-capturing the
+    // same run upserts (preserving any user-set status) instead of duplicating.
+    version: 5,
+    name: '005_loop_outstanding_items',
+    up: `
+      CREATE TABLE IF NOT EXISTS loop_outstanding_items (
+        id TEXT PRIMARY KEY,
+        loop_run_id TEXT NOT NULL REFERENCES loop_runs(id) ON DELETE CASCADE,
+        chat_id TEXT NOT NULL,
+        workspace_cwd TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        text TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open',
+        loop_status TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        resolved_at INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_loop_outstanding_workspace
+        ON loop_outstanding_items(workspace_cwd, status, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_loop_outstanding_run
+        ON loop_outstanding_items(loop_run_id);
     `,
   },
 ];

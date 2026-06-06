@@ -81,6 +81,7 @@ export function buildLoopTerminalChatSummary(state: LoopState): ChatSystemEventI
     `Loop ended - ${state.status}`,
     '',
     ...summaryLines(state, last),
+    ...outstandingLines(state),
     ...evidenceLines(last),
   ].join('\n');
 
@@ -124,6 +125,27 @@ function summaryLines(state: LoopState, last: LoopIteration | undefined): string
       lines.push(`Tests: ${last.testPassCount ?? 0} passed, ${last.testFailCount ?? 0} failed`);
     }
     lines.push(`Files changed: ${last.filesChanged.length}${formatFileList(last.filesChanged.map((file) => file.path))}`);
+  }
+  return lines;
+}
+
+/**
+ * Render the captured OUTSTANDING.md sections (Needs human / Open questions)
+ * into the terminal summary so the human-gated work is visible in the chat
+ * transcript itself — not just in the hidden per-run state dir or the
+ * aggregated Outstanding panel. Empty when nothing was captured.
+ */
+function outstandingLines(state: LoopState): string[] {
+  const outstanding = state.outstanding;
+  if (!outstanding) return [];
+  const { needsHuman, openQuestions } = outstanding;
+  if (needsHuman.length === 0 && openQuestions.length === 0) return [];
+  const lines: string[] = [];
+  if (needsHuman.length > 0) {
+    lines.push('', 'Needs human:', ...needsHuman.map((item) => `- ${item}`));
+  }
+  if (openQuestions.length > 0) {
+    lines.push('', 'Open questions:', ...openQuestions.map((item) => `- ${item}`));
   }
   return lines;
 }

@@ -455,6 +455,53 @@ describe('LoopCoordinator terminal intents', () => {
     });
   });
 
+  it('extends the child invocation backstop while matching loop activity is recent', async () => {
+    const errors: string[] = [];
+    const iterationComplete = waitForEvent<{ seq: number }>(coordinator, 'loop:iteration-complete', 1000);
+    coordinator.on('loop:error', ({ error }: { error: string }) => errors.push(error));
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as {
+        loopRunId: string;
+        seq: number;
+        stage: string;
+        callback: (result: LoopChildResult | { error: string }) => void;
+      };
+      setTimeout(() => {
+        coordinator.emit('loop:activity', {
+          loopRunId: p.loopRunId,
+          seq: p.seq,
+          stage: p.stage,
+          timestamp: Date.now(),
+          kind: 'status',
+          message: 'CLI status: busy',
+        });
+      }, 15);
+      setTimeout(() => {
+        p.callback(iterationResult('finished after active timeout checkpoint'));
+      }, 45);
+    });
+
+    const state = await coordinator.startLoop('chat-active-timeout-extension', {
+      initialPrompt: 'do thing',
+      workspaceCwd: workspace,
+      caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1, maxWallTimeMs: 250 },
+      iterationTimeoutMs: 25,
+      streamIdleTimeoutMs: 100,
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
+      },
+    });
+
+    try {
+      await expect(iterationComplete).resolves.toMatchObject({ seq: 0 });
+      expect(errors).toEqual([]);
+      expect(coordinator.getLoop(state.id)?.totalIterations).toBe(1);
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  });
+
   it('prefers a structured block intent over a simultaneous BLOCKED.md file and archives the file', async () => {
     const paused = waitForEvent(coordinator, 'loop:paused-no-progress');
     coordinator.on('loop:invoke-iteration', async (payload: unknown) => {

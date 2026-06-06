@@ -49,7 +49,11 @@ describe('LoopStore', () => {
     onFailed: ReturnType<typeof vi.fn>;
     onCapReached: ReturnType<typeof vi.fn>;
     onError: ReturnType<typeof vi.fn>;
+    onOutstandingChanged: ReturnType<typeof vi.fn>;
     acceptCompletion: ReturnType<typeof vi.fn>;
+    listOutstanding: ReturnType<typeof vi.fn>;
+    setOutstandingStatus: ReturnType<typeof vi.fn>;
+    exportOutstanding: ReturnType<typeof vi.fn>;
   };
   let store: LoopStore;
 
@@ -99,7 +103,11 @@ describe('LoopStore', () => {
       onFailed: vi.fn((cb) => subscribe(listeners.failed, cb)),
       onCapReached: vi.fn((cb) => subscribe(listeners.capReached, cb)),
       onError: vi.fn((cb) => subscribe(listeners.error, cb)),
+      onOutstandingChanged: vi.fn(() => () => { /* noop unsubscribe */ }),
       acceptCompletion: vi.fn(),
+      listOutstanding: vi.fn(async () => ({ success: true, data: { items: [] } })),
+      setOutstandingStatus: vi.fn(async () => ({ success: true, data: { ok: true } })),
+      exportOutstanding: vi.fn(async () => ({ success: true, data: { path: '/tmp/OUTSTANDING.md', itemCount: 0 } })),
     };
 
     TestBed.configureTestingModule({

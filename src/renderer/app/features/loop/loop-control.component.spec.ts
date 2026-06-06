@@ -32,6 +32,7 @@ describe('LoopControlComponent', () => {
     getIterations: ReturnType<typeof vi.fn>;
     onStateChanged: ReturnType<typeof vi.fn>;
     onIterationStarted: ReturnType<typeof vi.fn>;
+    onOutstandingChanged: ReturnType<typeof vi.fn>;
     onActivity: ReturnType<typeof vi.fn>;
     onIterationComplete: ReturnType<typeof vi.fn>;
     onPausedNoProgress: ReturnType<typeof vi.fn>;
@@ -70,6 +71,7 @@ describe('LoopControlComponent', () => {
       }),
       onStateChanged: vi.fn((cb) => subscribe(listeners.stateChanged, cb)),
       onIterationStarted: vi.fn(() => noop),
+      onOutstandingChanged: vi.fn(() => noop),
       onActivity: vi.fn((cb) => subscribe(listeners.activity, cb)),
       onIterationComplete: vi.fn(() => noop),
       onPausedNoProgress: vi.fn((cb) => subscribe(listeners.pausedNoProgress, cb)),

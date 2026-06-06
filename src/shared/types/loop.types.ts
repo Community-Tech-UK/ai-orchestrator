@@ -2,6 +2,13 @@
 
 import type { LoopHardCaps } from './loop-config.types';
 export type { LoopHardCaps } from './loop-config.types';
+import type { LoopOutstanding } from './loop-outstanding.types';
+export type {
+  LoopOutstanding,
+  LoopOutstandingItem,
+  LoopOutstandingItemKind,
+  LoopOutstandingItemStatus,
+} from './loop-outstanding.types';
 
 /** What "fresh eyes" looks like at REVIEW stage. */
 export type LoopReviewStyle =
@@ -692,6 +699,13 @@ export interface LoopState {
    */
   endReason?: string;
   endEvidence?: Record<string, unknown>;
+  /**
+   * Structured snapshot of OUTSTANDING.md captured when the loop terminates.
+   * Populated best-effort in `terminate()` so the terminal chat summary and the
+   * broadcast state carry the human-gated items + open questions the agent
+   * couldn't resolve autonomously. Undefined when no OUTSTANDING.md was written.
+   */
+  outstanding?: LoopOutstanding;
   /** Pending interventions to inject at next iteration. */
   pendingInterventions: string[];
   /** Workspace-local loop-control transport metadata, excluding the secret. */

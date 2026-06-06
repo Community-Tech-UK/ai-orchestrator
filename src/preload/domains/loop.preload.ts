@@ -75,8 +75,20 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
       ipcRenderer.invoke(ch.LOOP_GET_ITERATIONS, { loopRunId, fromSeq, toSeq }),
     loopInferVerify: (workspaceCwd: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_INFER_VERIFY, { workspaceCwd }),
+    loopListOutstanding: (
+      params: { workspaceCwd?: string; status?: 'open' | 'resolved' | 'dismissed' | 'all'; limit?: number },
+    ): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.LOOP_LIST_OUTSTANDING, params),
+    loopSetOutstandingStatus: (
+      id: string,
+      status: 'open' | 'resolved' | 'dismissed',
+    ): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.LOOP_SET_OUTSTANDING_STATUS, { id, status }),
+    loopExportOutstanding: (workspaceCwd: string, destPath?: string): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.LOOP_EXPORT_OUTSTANDING, { workspaceCwd, destPath }),
 
     onLoopStateChanged: sub(ch.LOOP_STATE_CHANGED),
+    onLoopOutstandingChanged: sub(ch.LOOP_OUTSTANDING_CHANGED),
     onLoopStarted: sub(ch.LOOP_STARTED),
     onLoopIterationStarted: sub(ch.LOOP_ITERATION_STARTED),
     onLoopActivity: sub(ch.LOOP_ACTIVITY),

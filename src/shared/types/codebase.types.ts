@@ -171,10 +171,6 @@ export interface IndexingConfig {
   excludePatterns: string[];
   maxFileSize: number;
 
-  // Embedding
-  embeddingProvider: 'auto' | 'ollama' | 'openai' | 'voyage' | 'local';
-  embeddingModel?: string;
-
   // Persistence
   persistAfterBatch: boolean;
   compactOnCompletion: boolean;

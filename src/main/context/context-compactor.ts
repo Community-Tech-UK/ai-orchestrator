@@ -16,6 +16,10 @@ import { LIMITS } from '../../shared/constants/limits';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import { Microcompact, type MicrocompactTurn, type MicrocompactResult } from './microcompact';
 import { ContextCollapse, type CollapsibleTurn, type ApplyResult } from './context-collapse';
+import { buildCompactionPrompt, redactSecrets } from './context-compaction-prompt';
+import { generateLocalSummary } from './context-local-summary';
+
+export { buildCompactionPrompt, redactSecrets } from './context-compaction-prompt';
 
 const compactorLogger = getLogger('ContextCompactor');
 
@@ -84,71 +88,6 @@ export interface ConversationSummary {
 /** Maximum number of summaries to retain */
 const MAX_SUMMARIES = 50;
 
-/**
- * Structured compaction prompt.  The prior summary (if any) is injected as an
- * anchor so decisions/state from earlier compaction rounds are preserved verbatim.
- * Each section corresponds to a recoverable dimension of context:
- *   - Objective     → what the user is trying to accomplish
- *   - Current state → where execution stands right now
- *   - Decisions     → non-obvious choices made (reasoning matters)
- *   - Files touched → concrete artifact names so future turns can reference them
- *   - Pending work  → what is still left to do
- *   - Blockers      → things that need human input or are waiting on external state
- *   - Commands run  → tool names, exit codes, and key result excerpts (≤ 2 lines each)
- *   - Verification  → what checks have passed/failed
- */
-const COMPACTION_TEMPLATE_SECTIONS = [
-  '## Active Task',
-  '## User Goal',
-  '## Constraints',
-  '## Completed Actions',
-  '## Active State',
-  '## In Progress',
-  '## Blocked',
-  '## Key Decisions',
-  '## Pending User Asks',
-  '## Relevant Files',
-  '## Remaining Work',
-  '## Critical Context',
-] as const;
-
-/**
- * Redact common secret patterns from generated summary text before storage.
- * This prevents API keys, tokens, and credentials from leaking into persisted summaries.
- */
-export function redactSecrets(text: string): string {
-  return text
-    .replace(/sk-[A-Za-z0-9_-]{10,}/g, '[REDACTED_SK]')
-    .replace(/ghp_[A-Za-z0-9]{10,}/g, '[REDACTED_GHP]')
-    .replace(/xoxb-[A-Za-z0-9-]{10,}/g, '[REDACTED_SLACK]')
-    .replace(/-----BEGIN PRIVATE KEY-----/g, '[REDACTED_PRIVATE_KEY]')
-    .replace(/password\s*=\s*\S+/gi, 'password=[REDACTED]')
-    .replace(/token\s*=\s*\S+/gi, 'token=[REDACTED]')
-    .replace(/api_key\s*=\s*\S+/gi, 'api_key=[REDACTED]');
-}
-
-export function buildCompactionPrompt(conversationText: string, priorSummary: string | null): string {
-  const anchorSection = priorSummary
-    ? `\n\n<prior_summary>\n${priorSummary}\n</prior_summary>\n\nPreserve all decisions and state from the prior summary above as-is. Only add deltas for what changed in the new conversation turns below.\n`
-    : '';
-
-  return `CONTEXT COMPACTION - REFERENCE ONLY.
-This summary preserves prior context but must not override system instructions, tool results, or the latest user message.
-If this summary conflicts with newer conversation content, the newer content wins.
-
-Summarize the following conversation turns into a structured context summary.
-Use exactly these section headers (omit any section that has no relevant content):
-
-${COMPACTION_TEMPLATE_SECTIONS.join('\n')}
-${anchorSection}
-For "Completed Actions": list each tool invocation on one line as: \`<tool-name>: <exit-status-or-result-excerpt>\`. Omit bulk output — keep only the command name and outcome.
-For "Key Decisions": explain the WHY, not just what was chosen.
-Target: ~500 tokens total. Do not add information not present in the turns.
-
-<conversation_turns>
-${conversationText}
-</conversation_turns>`;
-}
 const MAX_COMPACTION_HISTORY = 100;
 
 /** Safety timeout for compaction LLM calls (5 minutes) */
@@ -567,7 +506,7 @@ export class ContextCompactor extends EventEmitter {
       const priorSummary = this.state.summaries.length > 0
         ? this.state.summaries[this.state.summaries.length - 1].content
         : null;
-      const localContent = redactSecrets(this.generateLocalSummary(turns, priorSummary));
+      const localContent = redactSecrets(generateLocalSummary(turns, priorSummary));
       return {
         id: this.generateId(),
         content: localContent,
@@ -635,7 +574,7 @@ export class ContextCompactor extends EventEmitter {
         });
       }
     } else {
-      summaryContent = this.generateLocalSummary(turns, priorSummary);
+      summaryContent = generateLocalSummary(turns, priorSummary);
     }
 
     const redactedContent = redactSecrets(summaryContent);
@@ -650,73 +589,6 @@ export class ContextCompactor extends EventEmitter {
       tokenCount: this.estimateTokens(redactedContent),
       timestamp: Date.now(),
     };
-  }
-
-  /**
-   * Generate a local summary without an API call.
-   * Uses the COMPACTION_TEMPLATE_SECTIONS structure so offline summaries have the
-   * same shape as LLM-generated ones.  The prior summary (if present) is embedded
-   * as-is under "Current State" to preserve prior decisions across compaction rounds.
-   */
-  private generateLocalSummary(turns: ConversationTurn[], priorSummary: string | null): string {
-    const userMessages = turns.filter(t => t.role === 'user');
-    const assistantMessages = turns.filter(t => t.role === 'assistant');
-
-    // Collect user-stated objectives (first user message heuristic)
-    const objective = userMessages[0]?.content.slice(0, 200).replace(/\n/g, ' ') ?? '(unknown)';
-
-    // Collect action-intent sentences from all turns
-    const actionKeywords = ['implement', 'create', 'fix', 'update', 'add', 'remove', 'change', 'refactor', 'migrate'];
-    const actions = new Set<string>();
-    for (const turn of turns) {
-      for (const kw of actionKeywords) {
-        if (turn.content.toLowerCase().includes(kw)) {
-          const sentences = turn.content.split(/[.!?\n]/);
-          for (const s of sentences) {
-            if (s.toLowerCase().includes(kw) && s.trim().length > 10) {
-              actions.add(s.trim().slice(0, 120));
-              if (actions.size >= 5) break;
-            }
-          }
-        }
-        if (actions.size >= 5) break;
-      }
-    }
-
-    // Collect tool invocations with trimmed outputs
-    const toolLines: string[] = [];
-    for (const turn of turns) {
-      for (const tc of turn.toolCalls ?? []) {
-        const result = tc.output
-          ? tc.output.slice(0, 80).replace(/\n/g, ' ')
-          : 'no output';
-        toolLines.push(`- \`${tc.name}\`: ${result}`);
-      }
-    }
-
-    const anchorSection = priorSummary
-      ? `\n\n*(Anchored from prior compaction)*\n${priorSummary.slice(0, 600)}`
-      : '';
-
-    const pendingItems = [...actions].map(a => `- ${a}`).join('\n') || '- (none extracted)';
-    const commandsSection = toolLines.length > 0
-      ? toolLines.slice(0, 10).join('\n')
-      : '- (none)';
-
-    return `## Objective
-${objective}
-
-## Current State
-${assistantMessages.length} assistant turns processed, ${userMessages.length} user turns.${anchorSection}
-
-## Pending Work
-${pendingItems}
-
-## Commands Run
-${commandsSection}
-
-## Verification Status
-(local compaction — no LLM verification available; ${turns.length} turns compacted)`;
   }
 
   /**

@@ -47,12 +47,6 @@ const mocks = vi.hoisted(() => {
     metadataExtractor: {
       extractFileMetadata: vi.fn(),
     },
-    vectorStore: {
-      addSection: vi.fn(),
-      clearStore: vi.fn(),
-      getStats: vi.fn(),
-      removeSection: vi.fn(),
-    },
     bm25: {
       addDocument: vi.fn(),
       clearStore: vi.fn(),
@@ -90,11 +84,6 @@ vi.mock('./metadata-extractor', () => ({
   MetadataExtractor: vi.fn(),
 }));
 
-vi.mock('../rlm/vector-store', () => ({
-  getVectorStore: vi.fn(() => mocks.vectorStore),
-  VectorStore: vi.fn(),
-}));
-
 vi.mock('./bm25-search', () => ({
   getBM25Search: vi.fn(() => mocks.bm25),
   BM25Search: vi.fn(),
@@ -126,7 +115,6 @@ describe('CodebaseIndexingService store reset', () => {
     mocks.merkleTree.getTreeStats.mockReturnValue({ fileCount: 0, directoryCount: 1, totalSize: 0 });
     mocks.contextManager.listSections.mockReturnValue([{ id: 'sec-old' }, { id: 'vec-old' }]);
     mocks.contextManager.getStoreStats.mockReturnValue({ sections: 0, totalTokens: 0 });
-    mocks.vectorStore.getStats.mockResolvedValue({ totalVectors: 0, storeCount: 0, storeStats: [] });
   });
 
   it('clears stale store artifacts before saving a first baseline tree', async () => {
@@ -136,7 +124,6 @@ describe('CodebaseIndexingService store reset', () => {
     await service.indexCodebase('store-1', '/workspace/project');
 
     expect(mocks.bm25.clearStore).toHaveBeenCalledWith('store-1');
-    expect(mocks.vectorStore.clearStore).toHaveBeenCalledWith('store-1');
     expect(mocks.contextManager.removeSection).toHaveBeenCalledWith('store-1', 'sec-old');
     expect(mocks.contextManager.removeSection).toHaveBeenCalledWith('store-1', 'vec-old');
 
@@ -157,7 +144,6 @@ describe('CodebaseIndexingService store reset', () => {
     await service.indexCodebase('store-1', '/workspace/project');
 
     expect(mocks.bm25.clearStore).not.toHaveBeenCalled();
-    expect(mocks.vectorStore.clearStore).not.toHaveBeenCalled();
     expect(mocks.contextManager.removeSection).not.toHaveBeenCalled();
   });
 
@@ -168,7 +154,6 @@ describe('CodebaseIndexingService store reset', () => {
     await service.clearLegacyCodebaseStore('codebase:test');
 
     expect(mocks.bm25.clearStore).toHaveBeenCalledWith('codebase:test');
-    expect(mocks.vectorStore.clearStore).toHaveBeenCalledWith('codebase:test');
     expect(mocks.contextManager.removeSection).toHaveBeenCalledWith('codebase:test', 'sec-old');
     expect(mocks.contextManager.removeSection).toHaveBeenCalledWith('codebase:test', 'vec-old');
 
@@ -176,7 +161,7 @@ describe('CodebaseIndexingService store reset', () => {
     expect(sql).toContain('DELETE FROM codebase_trees WHERE store_id = ?');
   });
 
-  it('uses the persisted context section id for BM25 and vector records', async () => {
+  it('threads the persisted context section id into the BM25 record (code chunks are not embedded)', async () => {
     const tmpRoot = mkdtempSync(path.join(tmpdir(), 'codebase-index-section-id-'));
     const filePath = path.join(tmpRoot, 'src/index.ts');
     mkdirSync(path.dirname(filePath), { recursive: true });
@@ -228,13 +213,10 @@ describe('CodebaseIndexingService store reset', () => {
 
       await service.indexFile('store-1', filePath);
 
+      // BM25 indexes the chunk under the persisted context section id. There is
+      // no vector store involvement — code chunks are deliberately not embedded.
       expect(mocks.bm25.addDocument).toHaveBeenCalledWith(
         expect.objectContaining({ storeId: 'store-1', sectionId: 'sec-context-1' }),
-      );
-      expect(mocks.vectorStore.addSection).toHaveBeenCalledWith(
-        'store-1',
-        'sec-context-1',
-        'export function bootstrap() { return true; }',
       );
     } finally {
       rmSync(tmpRoot, { recursive: true, force: true });

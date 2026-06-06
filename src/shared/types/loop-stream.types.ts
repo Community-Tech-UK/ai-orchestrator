@@ -73,4 +73,7 @@ export interface LoopRunSummary {
   /** Optional continuation directive used on iterations 1+. Null when the
    *  loop re-used `initialPrompt` for every iteration. */
   iterationPrompt: string | null;
+  /** Count of still-open (un-resolved, un-dismissed) outstanding items captured
+   *  from this run's OUTSTANDING.md. Omitted (undefined) when not computed. */
+  openOutstandingCount?: number;
 }

@@ -5,7 +5,10 @@
  * Used by AuxiliaryLlmService to dispatch helper calls to local/cheap models.
  */
 
-import type { AuxiliaryLlmModelInfo } from '../../shared/types/auxiliary-llm.types';
+import {
+  DEFAULT_OLLAMA_KEEP_ALIVE,
+  type AuxiliaryLlmModelInfo,
+} from '../../shared/types/auxiliary-llm.types';
 
 export interface AuxiliaryGenerateRequest {
   systemPrompt: string;
@@ -15,6 +18,12 @@ export interface AuxiliaryGenerateRequest {
   maxOutputTokens: number;
   timeoutMs: number;
   requireJson: boolean;
+  /**
+   * Ollama `keep_alive` duration (e.g. '30m'). Keeps the model resident between
+   * calls so only the first call pays the cold-load cost. Defaults to
+   * DEFAULT_OLLAMA_KEEP_ALIVE. Ignored by OpenAI-compatible endpoints.
+   */
+  keepAlive?: string;
 }
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
@@ -115,6 +124,7 @@ export async function generateWithOllama(
     model: request.model,
     prompt: `${request.systemPrompt}\n\n${request.userPrompt}`,
     stream: false,
+    keep_alive: request.keepAlive ?? DEFAULT_OLLAMA_KEEP_ALIVE,
     ...(request.requireJson ? { format: 'json' } : {}),
     options: {
       temperature: request.temperature,

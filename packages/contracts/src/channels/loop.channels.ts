@@ -15,6 +15,13 @@ export const LOOP_CHANNELS = {
   /** LF-3a: preview the verify command the loop would auto-infer for a
    *  workspace, so the config panel can show "verify: <inferred>" before start. */
   LOOP_INFER_VERIFY: 'loop:infer-verify',
+  /** List aggregated outstanding items (Needs human / Open questions) captured
+   *  from completed loop runs, optionally scoped to a workspace. */
+  LOOP_LIST_OUTSTANDING: 'loop:list-outstanding',
+  /** Set one outstanding item's resolution status (open / resolved / dismissed). */
+  LOOP_SET_OUTSTANDING_STATUS: 'loop:set-outstanding-status',
+  /** Export the workspace's open outstanding items to a consolidated OUTSTANDING.md. */
+  LOOP_EXPORT_OUTSTANDING: 'loop:export-outstanding',
 
   // Events (main → renderer)
   LOOP_STARTED: 'loop:started',
@@ -51,4 +58,7 @@ export const LOOP_CHANNELS = {
   LOOP_CANCELLED: 'loop:cancelled',
   LOOP_ERROR: 'loop:error',
   LOOP_STATE_CHANGED: 'loop:state-changed',
+  /** Emitted after a terminal loop persists outstanding items, or after an item's
+   *  status changes — tells the renderer's Outstanding panel to refresh. */
+  LOOP_OUTSTANDING_CHANGED: 'loop:outstanding-changed',
 } as const;

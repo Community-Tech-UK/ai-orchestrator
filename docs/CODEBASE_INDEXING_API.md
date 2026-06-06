@@ -5,7 +5,7 @@ Complete API reference for the codebase indexing system.
 ## Table of Contents
 
 - [CodebaseIndexingService](#codebaseindexingservice)
-- [HybridSearchService](#hybridsearchservice)
+- [HybridSearchService (removed)](#hybridsearchservice-removed-2026-06)
 - [BM25Search](#bm25search)
 - [MerkleTreeManager](#merkletreemanager)
 - [TreeSitterChunker](#treesitterchunker)
@@ -139,88 +139,22 @@ indexingService.on('indexing:cancelled', () => {});
 
 ---
 
-## HybridSearchService
+## HybridSearchService (removed 2026-06)
 
-Combines BM25 and vector search with RRF fusion.
+`HybridSearchService` and `ContextAssembler` combined BM25 with vector search over
+code embeddings (RRF fusion + HyDE expansion). They were **removed in 2026-06**: no
+read path ever consumed code embeddings, so the entire code-vector pipeline (embedding
+generation in `CodebaseIndexingService` plus the hybrid reader) was deleted. See
+`docs/plans/2026-06-06-code-vector-search-removal-plan.md`.
 
-**Location:** `src/main/indexing/hybrid-search.ts`
+Code search now runs through the codemem retrieval path
+(`getCodeRetrievalService().search(...)` — BM25 full-text + symbols, with a ripgrep
+fallback). See [docs/CODEBASE_INDEXING.md](./CODEBASE_INDEXING.md).
 
-### Constructor
-
-```typescript
-constructor(db: Database, config?: Partial<SearchConfig>)
-```
-
-### Methods
-
-#### search
-
-Perform hybrid search.
-
-```typescript
-async search(options: HybridSearchOptions): Promise<HybridSearchResult[]>
-```
-
-**Parameters:**
-```typescript
-interface HybridSearchOptions {
-  query: string;           // Search query
-  storeId: string;         // Index store to search
-  topK?: number;           // Number of results (default: 10)
-  useHyDE?: boolean;       // Enable HyDE expansion (default: true)
-  bm25Weight?: number;     // BM25 weight (default: 0.4)
-  vectorWeight?: number;   // Vector weight (default: 0.6)
-  minScore?: number;       // Minimum score threshold (default: 0.3)
-  rerank?: boolean;        // Enable reranking (default: true)
-  filePatterns?: string[]; // Filter by file patterns
-}
-```
-
-**Returns:**
-```typescript
-interface HybridSearchResult {
-  sectionId: string;
-  filePath: string;
-  content: string;
-  startLine: number;
-  endLine: number;
-  score: number;
-  bm25Score?: number;
-  vectorScore?: number;
-  rerankScore?: number;
-  matchType: 'bm25' | 'vector' | 'hybrid';
-  language?: string;
-  chunkType?: ChunkType;
-  symbolName?: string;
-}
-```
-
-**Example:**
-```typescript
-const results = await searchService.search({
-  query: 'user authentication middleware',
-  storeId: 'project-123',
-  topK: 20,
-  useHyDE: true,
-  filePatterns: ['src/**/*.ts'],
-});
-```
-
-#### configure
-
-Update search configuration.
-
-```typescript
-configure(config: Partial<SearchConfig>): void
-```
-
-#### getConfig
-
-Get current configuration.
-
-```typescript
-getConfig(): SearchConfig
-```
+The `HybridSearchOptions` / `HybridSearchResult` **types** are retained as the
+renderer-compatible shape that codemem results are mapped into (`matchType` is `'bm25'`
+or `'hybrid'` for symbol hits); code is not embedded into a vector store. The shared
+`VectorStore` / `EmbeddingService` stack remains in use for non-code memory.
 
 ---
 
@@ -614,11 +548,11 @@ interface IndexingConfig {
   includePatterns: string[];
   excludePatterns: string[];
   maxFileSize: number;
-  embeddingProvider: 'auto' | 'ollama' | 'openai' | 'voyage' | 'local';
-  embeddingModel?: string;
   persistAfterBatch: boolean;
   compactOnCompletion: boolean;
 }
+// Note: embeddingProvider / embeddingModel were removed in 2026-06 along with
+// code-embedding generation (code chunks are not embedded into a vector store).
 ```
 
 ### SearchConfig
@@ -696,7 +630,6 @@ Most services have singleton accessors:
 
 ```typescript
 import { getCodebaseIndexingService } from './indexing/indexing-service';
-import { getHybridSearchService } from './indexing/hybrid-search';
 import { getBM25Search } from './indexing/bm25-search';
 import { getMerkleTreeManager } from './indexing/merkle-tree';
 import { getTreeSitterChunker } from './indexing/tree-sitter-chunker';
@@ -704,5 +637,4 @@ import { getMetadataExtractor } from './indexing/metadata-extractor';
 
 // Reset singletons (useful for testing)
 import { resetCodebaseIndexingService } from './indexing/indexing-service';
-import { resetHybridSearchService } from './indexing/hybrid-search';
 ```

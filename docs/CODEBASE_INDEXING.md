@@ -1,13 +1,22 @@
 # Codebase Indexing
 
-AI Orchestrator uses `codemem` as the canonical automatic code index. The older RLM BM25 + embedding codebase index still exists for diagnostics and manual comparison, but it is no longer the default path for workspace-open indexing or injected code context.
+AI Orchestrator uses `codemem` as the canonical automatic code index. The older RLM BM25 codebase index still exists for diagnostics and manual comparison, but it is no longer the default path for workspace-open indexing or injected code context.
+
+> **Code embeddings removed (2026-06).** The legacy RLM indexer previously embedded
+> every code chunk into a vector store and shipped a hybrid BM25 + vector search
+> (`HybridSearchService` / `ContextAssembler`). No read path ever consumed those
+> code embeddings — agent and UI search both use the codemem BM25/symbol/ripgrep
+> path — so the embedding generation and the hybrid/vector reader were removed. The
+> shared `VectorStore`/`EmbeddingService` stack remains in use for non-code memory
+> (observations, episodic sessions, RLM context search). See
+> `docs/plans/2026-06-06-code-vector-search-removal-plan.md`.
 
 ## Current Paths
 
 | Path | Default | Purpose |
 |------|---------|---------|
 | `codemem` | On | Automatic workspace indexing, file-change updates, symbol navigation, and indexed context retrieval |
-| Legacy RLM codebase index | Off | Manual diagnostics for the older BM25/vector search path |
+| Legacy RLM codebase index | Off | Manual diagnostics for the older BM25 search path (no longer embeds code) |
 
 `DEFAULT_SETTINGS.codebaseAutoIndexEnabled` is `false`. The related setting is labeled as legacy in the settings UI so it is clear that enabling it runs the heavier RLM indexing path.
 
@@ -58,7 +67,7 @@ Agents should treat this block as a starting point and verify important details 
 
 ## Legacy RLM Index
 
-Manual legacy index buttons and IPC handlers remain available for diagnostics. They are useful when comparing the older hybrid BM25/vector retrieval path against codemem, or when investigating regressions in legacy codebase-search behavior.
+Manual legacy index buttons and IPC handlers remain available for diagnostics. They are useful when comparing the older BM25 retrieval path against codemem, or when investigating regressions in legacy codebase-search behavior. (The legacy path no longer embeds code or runs hybrid vector search — that reader was removed in 2026-06.)
 
 The legacy index runs through a background indexing lane instead of executing the indexing loop in the Electron main process. It should not be enabled as the normal automatic index unless debugging the legacy path.
 
