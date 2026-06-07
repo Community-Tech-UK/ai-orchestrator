@@ -41,6 +41,14 @@ export interface RecoveryPlanInput {
   adapterGeneration: number;
   hasConversation?: boolean;
   sessionResumeBlacklisted?: boolean;
+  /**
+   * Set `false` when the provider session is brand-new and has not yet been
+   * flushed to disk by the CLI (first turn still in flight). Native resume is
+   * then skipped in favour of replay, because `--resume <sessionId>` would
+   * fail with "No conversation found with session ID". `true`/`undefined`
+   * leave resume eligible.
+   */
+  providerSessionPersisted?: boolean;
   allowFreshWithoutConversation?: boolean;
   replayUnsafeReason?: string;
 }
@@ -104,6 +112,9 @@ export function planSessionRecovery(input: RecoveryPlanInput): RecoveryPlan {
     input.capabilities.supportsResume
     && requestedSessionId
     && !input.sessionResumeBlacklisted
+    // Skip native resume while the session is known-unpersisted (fresh first
+    // turn). Only an explicit `false` blocks; `undefined` keeps resume eligible.
+    && input.providerSessionPersisted !== false
   ) {
     return {
       kind: input.capabilities.supportsForkSession ? 'provider-fork' : 'native-resume',
@@ -118,10 +129,12 @@ export function planSessionRecovery(input: RecoveryPlanInput): RecoveryPlan {
     return {
       kind: 'replay-fallback',
       packetId: `${input.instanceId}:${input.reason}:${input.adapterGeneration}`,
-      confidence: input.sessionResumeBlacklisted ? 'medium' : 'low',
+      confidence: input.sessionResumeBlacklisted || input.providerSessionPersisted === false ? 'medium' : 'low',
       reason: input.sessionResumeBlacklisted
         ? 'provider session id is blacklisted'
-        : 'native resume is unavailable or missing a provider session id',
+        : input.providerSessionPersisted === false
+          ? 'provider session not yet persisted (fresh first turn)'
+          : 'native resume is unavailable or missing a provider session id',
     };
   }
 

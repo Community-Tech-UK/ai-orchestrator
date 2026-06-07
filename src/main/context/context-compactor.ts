@@ -564,7 +564,7 @@ export class ContextCompactor extends EventEmitter {
       );
       if (auxDecision.source !== 'fallback' && auxText.trim()) {
         summaryContent = auxText;
-      } else {
+      } else if (auxDecision.allowFrontierFallback) {
         const requestId = `compact-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         summaryContent = await llm.summarize({
           requestId,
@@ -572,6 +572,11 @@ export class ContextCompactor extends EventEmitter {
           targetTokens: 500,
           preserveKeyPoints: true,
         });
+      } else {
+        // Frontier fallback is disabled for the compression slot — keep all
+        // content local with the deterministic summary rather than sending it
+        // to the primary (cloud) model.
+        summaryContent = generateLocalSummary(turns, priorSummary);
       }
     } else {
       summaryContent = generateLocalSummary(turns, priorSummary);

@@ -127,27 +127,21 @@ function setupAutomationEventForwarding(windowManager: WindowManager): void {
 
 function setupMemoryEventForwarding({ instanceManager, windowManager }: IpcRuntimeWiringDeps): void {
   instanceManager.on('memory:stats', (stats) => {
-    windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.MEMORY_STATS_UPDATE, stats);
+    windowManager.sendToRenderer(IPC_CHANNELS.MEMORY_STATS_UPDATE, stats);
   });
 
   instanceManager.on('memory:warning', (stats) => {
-    windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.MEMORY_WARNING, {
+    windowManager.sendToRenderer(IPC_CHANNELS.MEMORY_WARNING, {
         ...stats,
         message: `Memory usage warning: ${stats.heapUsedMB}MB heap used`,
-      });
+    });
   });
 
   instanceManager.on('memory:critical', (stats) => {
-    windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.MEMORY_CRITICAL, {
+    windowManager.sendToRenderer(IPC_CHANNELS.MEMORY_CRITICAL, {
         ...stats,
         message: `Critical memory usage: ${stats.heapUsedMB}MB heap used. Idle instances may be terminated.`,
-      });
+    });
   });
 }
 
@@ -155,72 +149,58 @@ function setupRlmEventForwarding(windowManager: WindowManager): void {
   const rlm = RLMContextManager.getInstance();
 
   rlm.on('store:created', (store) => {
-    windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.RLM_STORE_UPDATED, {
+    windowManager.sendToRenderer(IPC_CHANNELS.RLM_STORE_UPDATED, {
         storeId: store.id,
         store: serializeContextStoreForIpc(store),
-      });
+    });
   });
 
   rlm.on('section:added', ({ store, section }) => {
     if (isHighVolumeContextStore(store)) {
       return;
     }
-    windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.RLM_SECTION_ADDED, {
+    windowManager.sendToRenderer(IPC_CHANNELS.RLM_SECTION_ADDED, {
         storeId: store.id,
         section: serializeContextSectionForIpc(section),
-      });
-    windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.RLM_STORE_UPDATED, {
+    });
+    windowManager.sendToRenderer(IPC_CHANNELS.RLM_STORE_UPDATED, {
         storeId: store.id,
         store: serializeContextStoreForIpc(store, {
           includeSections: true,
           sectionLimit: 500,
         }),
-      });
+    });
   });
 
   rlm.on('section:removed', ({ store, section }) => {
     if (isHighVolumeContextStore(store)) {
       return;
     }
-    windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.RLM_SECTION_REMOVED, {
+    windowManager.sendToRenderer(IPC_CHANNELS.RLM_SECTION_REMOVED, {
         storeId: store.id,
         sectionId: section.id,
-      });
-    windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.RLM_STORE_UPDATED, {
+    });
+    windowManager.sendToRenderer(IPC_CHANNELS.RLM_STORE_UPDATED, {
         storeId: store.id,
         store: serializeContextStoreForIpc(store, {
           includeSections: true,
           sectionLimit: 500,
         }),
-      });
+    });
   });
 
   rlm.on('query:executed', ({ session, queryResult }) => {
-    windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.RLM_QUERY_COMPLETE, {
+    windowManager.sendToRenderer(IPC_CHANNELS.RLM_QUERY_COMPLETE, {
         sessionId: session.id,
         queryResult,
-      });
+    });
   });
 
   rlm.on('summary:created', ({ storeId, section }) => {
-    windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.RLM_SECTION_ADDED, {
+    windowManager.sendToRenderer(IPC_CHANNELS.RLM_SECTION_ADDED, {
         storeId,
         section: serializeContextSectionForIpc(section),
-      });
+    });
   });
 }
 
@@ -228,7 +208,7 @@ function setupDebateEventForwarding(windowManager: WindowManager): void {
   try {
     const debate = getDebateCoordinator();
     const send = (channel: string, data: unknown) =>
-      windowManager.getMainWindow()?.webContents.send(channel, data);
+      windowManager.sendToRenderer(channel, data);
 
     debate.on('debate:started', (data) => send(IPC_CHANNELS.DEBATE_EVENT_STARTED, data));
     debate.on('debate:round-complete', (data) => send(IPC_CHANNELS.DEBATE_EVENT_ROUND_COMPLETE, data));
@@ -245,7 +225,7 @@ function setupVerificationEventForwarding(windowManager: WindowManager): void {
   try {
     const verify = getMultiVerifyCoordinator();
     const send = (channel: string, data: unknown) =>
-      windowManager.getMainWindow()?.webContents.send(channel, data);
+      windowManager.sendToRenderer(channel, data);
 
     verify.on('verification:started', (data) => send(IPC_CHANNELS.VERIFICATION_EVENT_STARTED, data));
     verify.on('verification:progress', (data) => send(IPC_CHANNELS.VERIFICATION_EVENT_PROGRESS, data));
@@ -260,7 +240,7 @@ function setupTrainingEventForwarding(windowManager: WindowManager): void {
   try {
     const training = getTrainingLoop();
     const send = (channel: string, data: unknown) =>
-      windowManager.getMainWindow()?.webContents.send(channel, data);
+      windowManager.sendToRenderer(channel, data);
 
     training.on('training:started', (data) => send(IPC_CHANNELS.TRAINING_EVENT_STARTED, data));
     training.on('training:completed', (data) => send(IPC_CHANNELS.TRAINING_EVENT_COMPLETED, data));
@@ -274,7 +254,7 @@ function setupHotSwitchEventForwarding(windowManager: WindowManager): void {
   try {
     const switcher = getHotModelSwitcher();
     const send = (channel: string, data: unknown) =>
-      windowManager.getMainWindow()?.webContents.send(channel, data);
+      windowManager.sendToRenderer(channel, data);
 
     switcher.on('switch:started', (data) => send(IPC_CHANNELS.HOT_SWITCH_EVENT_STARTED, data));
     switcher.on('switch:completed', (data) => send(IPC_CHANNELS.HOT_SWITCH_EVENT_COMPLETED, data));
@@ -288,21 +268,18 @@ function setupChannelEventForwarding(windowManager: WindowManager): void {
   const channelManager = getChannelManager();
 
   channelManager.onEvent((event) => {
-    const mainWindow = windowManager.getMainWindow();
-    if (!mainWindow) return;
-
     switch (event.type) {
       case 'status':
-        mainWindow.webContents.send(IPC_CHANNELS.CHANNEL_STATUS_CHANGED, event.data);
+        windowManager.sendToRenderer(IPC_CHANNELS.CHANNEL_STATUS_CHANGED, event.data);
         break;
       case 'message':
-        mainWindow.webContents.send(IPC_CHANNELS.CHANNEL_MESSAGE_RECEIVED, event.data);
+        windowManager.sendToRenderer(IPC_CHANNELS.CHANNEL_MESSAGE_RECEIVED, event.data);
         break;
       case 'error':
-        mainWindow.webContents.send(IPC_CHANNELS.CHANNEL_ERROR, event.data);
+        windowManager.sendToRenderer(IPC_CHANNELS.CHANNEL_ERROR, event.data);
         break;
       case 'response-sent':
-        mainWindow.webContents.send(IPC_CHANNELS.CHANNEL_RESPONSE_SENT, event.data);
+        windowManager.sendToRenderer(IPC_CHANNELS.CHANNEL_RESPONSE_SENT, event.data);
         break;
     }
   });
@@ -312,15 +289,11 @@ function setupReactionEventForwarding(windowManager: WindowManager): void {
   const engine = getReactionEngine();
 
   engine.on('reaction:event', (event: unknown) => {
-    const mainWindow = windowManager.getMainWindow();
-    if (!mainWindow) return;
-    mainWindow.webContents.send(IPC_CHANNELS.REACTION_EVENT, event);
+    windowManager.sendToRenderer(IPC_CHANNELS.REACTION_EVENT, event);
   });
 
   engine.on('reaction:escalated', (event: unknown) => {
-    const mainWindow = windowManager.getMainWindow();
-    if (!mainWindow) return;
-    mainWindow.webContents.send(IPC_CHANNELS.REACTION_ESCALATED, event);
+    windowManager.sendToRenderer(IPC_CHANNELS.REACTION_ESCALATED, event);
   });
 }
 
@@ -330,7 +303,7 @@ function setupKnowledgeEventForwarding(windowManager: WindowManager): void {
     const miner = getConversationMiner();
     const wake = getWakeContextBuilder();
     const send = (channel: string, data: unknown) =>
-      windowManager.getMainWindow()?.webContents.send(channel, data);
+      windowManager.sendToRenderer(channel, data);
 
     kg.on('graph:fact-added', (data) => send(IPC_CHANNELS.KG_EVENT_FACT_ADDED, data));
     kg.on('graph:fact-invalidated', (data) => send(IPC_CHANNELS.KG_EVENT_FACT_INVALIDATED, data));

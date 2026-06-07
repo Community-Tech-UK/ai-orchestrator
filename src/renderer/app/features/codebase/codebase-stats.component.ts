@@ -31,10 +31,6 @@ import type { IndexStats, WatcherStatus } from '../../../../shared/types/codebas
           <span class="stat-label">Chunks</span>
         </div>
         <div class="stat-item">
-          <span class="stat-value">{{ stats()?.totalEmbeddings || 0 }}</span>
-          <span class="stat-label">Embeddings</span>
-        </div>
-        <div class="stat-item">
           <span class="stat-value">{{ formatBytes(stats()?.indexSize || 0) }}</span>
           <span class="stat-label">Index Size</span>
         </div>

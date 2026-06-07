@@ -246,6 +246,11 @@ export interface AppSettings {
   remoteNodesTlsKeyPath: string;
   remoteNodesRegisteredNodes: string;
 
+  // Thin-client WebSocket API (web/mobile/event transport)
+  thinClientWsEnabled: boolean;
+  thinClientWsHost: string;
+  thinClientWsPort: number;
+
   // Mobile Gateway (phone control app — see docs/mobile-app/)
   mobileGatewayEnabled: boolean;
   mobileGatewayPort: number;
@@ -332,6 +337,13 @@ export interface AppSettings {
    * no classification runs, no tag is added, zero overhead on the streaming path.
    */
   detectDegradedAdapterOutput: boolean;
+
+  /**
+   * D4 — offload local Claude/Gemini child-process stdio handling from the
+   * Electron main thread to the CLI spawn worker. Default off while the pilot
+   * path is validated in production.
+   */
+  enableSpawnWorkerOffload: boolean;
 
   // Auxiliary LLM (local/cheap model routing for helper calls)
   auxiliaryLlmEnabled: boolean;
@@ -437,6 +449,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   remoteNodesTlsKeyPath: '',
   remoteNodesRegisteredNodes: '{}',
 
+  // Thin-client WebSocket API
+  thinClientWsEnabled: true,
+  thinClientWsHost: '127.0.0.1',
+  thinClientWsPort: 4880,
+
   // Mobile Gateway (phone control app)
   mobileGatewayEnabled: false,
   mobileGatewayPort: 4879,
@@ -483,14 +500,17 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // A3 — adapter-layer degraded-output detection (off by default)
   detectDegradedAdapterOutput: false,
 
+  // D4 — CLI spawn worker offload pilot (off by default)
+  enableSpawnWorkerOffload: false,
+
   // Auxiliary LLM
   auxiliaryLlmEnabled: true,
   auxiliaryLlmRoutingMode: 'local-first',
   auxiliaryLlmAllowRemoteWorkerModels: true,
   auxiliaryLlmEndpointsJson: '[]',
   auxiliaryLlmSlotsJson: JSON.stringify({
-    compression: { enabled: true, provider: 'auto', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: false },
-    memoryDistillation: { enabled: true, provider: 'auto', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: false },
+    compression: { enabled: true, provider: 'auto', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: true },
+    memoryDistillation: { enabled: true, provider: 'auto', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: true },
     webExtract: { enabled: true, provider: 'auto', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.1, timeoutMs: 30000, requireJson: false, allowFrontierFallback: false },
     titleGeneration: { enabled: true, provider: 'auto', maxInputTokens: 12000, maxOutputTokens: 128, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: false },
     routingClassification: { enabled: true, provider: 'auto', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 45000, requireJson: true, allowFrontierFallback: false },

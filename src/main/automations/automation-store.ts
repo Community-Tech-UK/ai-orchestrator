@@ -535,6 +535,17 @@ export class AutomationStore {
     return rows.map((row) => this.mapRun(row));
   }
 
+  listActiveRuns(): AutomationRun[] {
+    const rows = this.db.prepare(`
+      SELECT *
+      FROM automation_runs
+      WHERE status IN ('pending', 'running')
+      ORDER BY scheduled_at ASC, created_at ASC
+    `).all<AutomationRunRow>();
+
+    return rows.map((row) => this.mapRun(row));
+  }
+
   getRun(runId: string): AutomationRun | null {
     const row = this.getRunRow(runId);
     return row ? this.mapRun(row) : null;

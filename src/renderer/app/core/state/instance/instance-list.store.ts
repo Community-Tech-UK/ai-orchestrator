@@ -82,13 +82,14 @@ export class InstanceListStore {
     this.stateService.setLoading(true);
 
     try {
-      const response = (await this.ipc.listInstances()) as {
+      const response = (await this.ipc.stateResync()) as {
         success: boolean;
-        data?: unknown[];
+        data?: { instances?: unknown[] };
       };
-      if (response.success && response.data && Array.isArray(response.data)) {
+      const snapshotInstances = response.data?.instances;
+      if (response.success && Array.isArray(snapshotInstances)) {
         const instances = new Map<string, Instance>();
-        for (const data of response.data) {
+        for (const data of snapshotInstances) {
           const item = data as Record<string, unknown>;
           instances.set(item['id'] as string, this.deserializeInstance(item));
         }

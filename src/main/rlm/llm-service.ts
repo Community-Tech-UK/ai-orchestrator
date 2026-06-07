@@ -138,6 +138,18 @@ Summary:`;
         } as SummarizeResponse);
         return auxText;
       }
+      if (!auxDecision.allowFrontierFallback) {
+        // Frontier fallback disabled for the compression slot — return the
+        // deterministic local summary instead of calling the primary (cloud) LLM.
+        const summary = this.fallbackSummarize(request.content, request.targetTokens);
+        this.emit('summarize:complete', {
+          requestId: request.requestId,
+          summary,
+          originalTokens: this.countTokens(request.content),
+          summaryTokens: this.countTokens(summary),
+        } as SummarizeResponse);
+        return summary;
+      }
     } catch {
       // Auxiliary service unavailable in this context — fall through to primary LLM
     }

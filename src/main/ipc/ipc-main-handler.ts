@@ -31,6 +31,10 @@ import {
   serializeInstanceForIpc,
   setupIpcEventForwarding,
 } from './ipc-main-runtime-wiring';
+import { registerStateResyncHandler } from '../event-bus/state-resync-ipc-handler';
+import { buildStateSyncSnapshot } from '../event-bus/state-sync-snapshot';
+import { createThinClientCommandExecutor } from '../event-bus/thin-client-command-executor';
+import { initializeThinClientWsServer } from '../event-bus/thin-client-ws-server';
 
 // Import extracted handlers
 import {
@@ -201,6 +205,21 @@ export class IpcMainHandler {
     registerAppHandlers({
       windowManager: this.windowManager,
       getIpcAuthToken: () => this.ipcAuthToken
+    });
+    registerStateResyncHandler({
+      instanceManager: this.instanceManager,
+      ensureAuthorized: this.ensureAuthorized.bind(this),
+      getSeq: () => this.windowManager.getRendererSnapshotSeq(),
+    });
+    initializeThinClientWsServer({
+      getIpcAuthToken: () => this.ipcAuthToken,
+      buildStateSnapshot: (seq) => buildStateSyncSnapshot({
+        instanceManager: this.instanceManager,
+        getSeq: () => seq,
+      }),
+      executeCommand: createThinClientCommandExecutor({
+        instanceManager: this.instanceManager,
+      }),
     });
 
     if (isFeatureEnabled('EVENT_SOURCING')) {

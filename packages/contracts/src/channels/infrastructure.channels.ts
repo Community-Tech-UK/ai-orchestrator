@@ -12,6 +12,9 @@ export const INFRASTRUCTURE_CHANNELS = {
   APP_OPEN_DOCS: 'app:open-docs',
   APP_GET_SCRATCH_DIRECTORY: 'app:get-scratch-directory',
 
+  // Thin-client state sync
+  STATE_RESYNC: 'state:resync',
+
   // Settings operations
   SETTINGS_GET_ALL: 'settings:get-all',
   SETTINGS_GET: 'settings:get',

@@ -59,6 +59,40 @@ describe('PluginPackageManager', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('defaults newly installed runtime plugin manifests to worker isolation', async () => {
+    const source = await writeRuntimePlugin(sourceRoot, 'Worker Default Plugin');
+    const manager = new PluginPackageManager({ pluginRoot, storePath });
+
+    await manager.install({ type: 'directory', value: source });
+
+    const manifestRaw = await fs.readFile(
+      path.join(pluginRoot, 'worker-default-plugin', '.codex-plugin', 'plugin.json'),
+      'utf-8',
+    );
+    expect(JSON.parse(manifestRaw)).toMatchObject({
+      name: 'Worker Default Plugin',
+      isolation: 'worker',
+    });
+  });
+
+  it('preserves an explicit legacy isolation setting on install', async () => {
+    const source = await writeRuntimePlugin(sourceRoot, 'Legacy Plugin', '1.0.0', {
+      isolation: 'legacy',
+    });
+    const manager = new PluginPackageManager({ pluginRoot, storePath });
+
+    await manager.install({ type: 'directory', value: source });
+
+    const manifestRaw = await fs.readFile(
+      path.join(pluginRoot, 'legacy-plugin', '.codex-plugin', 'plugin.json'),
+      'utf-8',
+    );
+    expect(JSON.parse(manifestRaw)).toMatchObject({
+      name: 'Legacy Plugin',
+      isolation: 'legacy',
+    });
+  });
+
   it('installs a single-file runtime plugin when a sidecar manifest is present', async () => {
     const source = await writeRuntimePlugin(sourceRoot, 'File Plugin');
     const manager = new PluginPackageManager({ pluginRoot, storePath });

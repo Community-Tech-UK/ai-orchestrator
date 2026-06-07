@@ -158,6 +158,32 @@ describe('PluginManifestSchema', () => {
     expect(packaged.source?.type).toBe('url');
     expect(packaged.dependencies?.[0]?.optional).toBe(true);
   });
+
+  it('accepts advisory capability declarations and isolation mode', () => {
+    const result = PluginManifestSchema.parse({
+      name: 'networked-worker',
+      version: '1.0.0',
+      isolation: 'worker',
+      capabilities: ['network', 'filesystem.read', 'spawn.process'],
+    });
+
+    expect(result.isolation).toBe('worker');
+    expect(result.capabilities).toEqual(['network', 'filesystem.read', 'spawn.process']);
+  });
+
+  it('rejects unknown or excessive capability declarations', () => {
+    expect(() => PluginManifestSchema.parse({
+      name: 'bad-capability',
+      version: '1.0.0',
+      capabilities: ['network', 'process.exit'],
+    })).toThrow(ZodError);
+
+    expect(() => PluginManifestSchema.parse({
+      name: 'too-many-capabilities',
+      version: '1.0.0',
+      capabilities: Array.from({ length: 11 }, (_, index) => `capability-${index}`),
+    })).toThrow(ZodError);
+  });
 });
 
 describe('Runtime plugin package-manager schemas', () => {

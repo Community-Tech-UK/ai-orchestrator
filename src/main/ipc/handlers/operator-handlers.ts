@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron';
+import { ipcMain } from 'electron';
 import { IPC_CHANNELS, type IpcResponse } from '../../../shared/types/ipc.types';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
@@ -11,6 +11,7 @@ import {
   getOperatorDatabase,
   getOperatorRunRunner,
 } from '../../operator';
+import { getMainEventBus } from '../../event-bus/main-event-bus';
 
 let operatorEventForwardingRegistered = false;
 
@@ -64,11 +65,9 @@ function registerOperatorEventForwarding(): void {
     return;
   }
   operatorEventForwardingRegistered = true;
+  const eventBus = getMainEventBus();
   getOperatorEventBus().subscribe((payload) => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (window.isDestroyed()) continue;
-      window.webContents.send(IPC_CHANNELS.OPERATOR_EVENT, payload);
-    }
+    eventBus.emitRendererEvent(IPC_CHANNELS.OPERATOR_EVENT, payload);
   });
 }
 

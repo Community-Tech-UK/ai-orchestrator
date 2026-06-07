@@ -19,7 +19,7 @@ On the worker machine you need:
    - `codex` (OpenAI Codex CLI)
    - `gemini` (Gemini CLI)
    - `gh` (GitHub Copilot via `gh copilot`)
-   - `ollama` (detected but not yet routed)
+   - `ollama` (detected and routed for auxiliary local-model calls — see [Local Model Discovery](#local-model-discovery-auxiliary-routing))
 4. **npm** — for installing dependencies and building.
 5. **(Optional) Google Chrome or Edge** — if you want browser automation tasks routed here. The reporter checks standard install paths on Windows (`C:\Program Files\Google\Chrome\Application\chrome.exe`, `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`).
 6. **(Optional) NVIDIA GPU with `nvidia-smi`** — if you want GPU tasks routed here. The reporter runs `nvidia-smi --query-gpu=name,memory.total` to detect GPU name and VRAM.
@@ -162,6 +162,14 @@ Or create a Windows service with `node-windows`, or simply run it in a terminal 
 Back on the Mac, the orchestrator should show the worker node in the **Remote Nodes** section of Settings with a "connected" status and node count. The node's capabilities (CPU cores, memory, GPU, installed CLIs, browser availability) are reported on connection and refreshed every heartbeat.
 
 You can also check the observer dashboard (if running) — the snapshot includes a `workerNodes` array.
+
+## Local Model Discovery (Auxiliary Routing)
+
+When a worker agent reports capabilities on heartbeat, it probes `http://127.0.0.1:11434/api/tags` (2 s timeout). If Ollama is running on the worker host, the discovered models appear as `localModelEndpoints` in the heartbeat payload.
+
+The coordinator picks these up automatically. No extra configuration is needed — once the worker is connected, open **Settings → Auxiliary Models** to see the discovered endpoints.
+
+The coordinator never connects to `127.0.0.1:11434` on the worker directly (that address is worker-local). All auxiliary generation calls are proxied through the existing encrypted worker-agent RPC channel, so Ollama never has to be exposed on the LAN. See [`runbooks/AUXILIARY_LOCAL_MODELS.md`](runbooks/AUXILIARY_LOCAL_MODELS.md) for the full Windows/RTX setup and model recommendations.
 
 ## Auto-Discovery via mDNS
 

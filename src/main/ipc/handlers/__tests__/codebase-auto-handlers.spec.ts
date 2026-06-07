@@ -44,6 +44,7 @@ const mainWindow = {
 
 const windowManager = {
   getMainWindow: () => mainWindow as unknown as Electron.BrowserWindow,
+  sendToRenderer: (channel: string, payload: unknown) => sentMessages.push({ channel, payload }),
 } as unknown as import('../../../window-manager').WindowManager;
 
 // ─── Mock the indexing module so registerCodebaseHandlers can wire up ───────
@@ -151,7 +152,6 @@ describe('codebase auto-index handlers', () => {
       filesIndexed: 2,
       chunksCreated: 3,
       tokensProcessed: 0,
-      embeddingsCreated: 0,
       duration: 12,
       errors: [],
     });
@@ -174,7 +174,6 @@ describe('codebase auto-index handlers', () => {
       totalFiles: 10,
       processedFiles: 4,
       totalChunks: 12,
-      embeddedChunks: 0,
       currentFile: '/repo/src/main.ts',
     };
 
@@ -304,7 +303,6 @@ describe('codebase auto-index handlers', () => {
       totalFiles: 20,
       processedFiles: 10,
       totalChunks: 0,
-      embeddedChunks: 0,
       rootPath: '/repo',
       currentFile: '/repo/src/auth.ts',
     });

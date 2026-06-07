@@ -25,9 +25,7 @@ export function registerTodoHandlers(deps: {
 
   // Set up event forwarding to renderer
   todos.on('todos:changed', (sessionId, list) => {
-    deps.windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.TODO_LIST_CHANGED, { sessionId, list });
+    deps.windowManager.sendToRenderer(IPC_CHANNELS.TODO_LIST_CHANGED, { sessionId, list });
   });
 
   // Get TODO list for a session

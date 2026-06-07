@@ -267,7 +267,7 @@ export function registerCostHandlers(deps: {
   // ============================================
 
   const sendToRenderer = (channel: string, data: unknown): void => {
-    deps.windowManager.getMainWindow()?.webContents.send(channel, data);
+    deps.windowManager.sendToRenderer(channel, data);
   };
 
   // Live usage: the tracker emits `cost-recorded` on every recorded turn. The

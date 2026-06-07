@@ -94,4 +94,14 @@ export interface AuxiliaryLlmDecision {
   model?: string;
   source: 'local' | 'cheap-cloud' | 'fallback';
   reason: string;
+  /**
+   * Whether the caller may escalate to a frontier/cloud model when this result
+   * is a fallback (i.e. no local/cheap model produced output). Mirrors the
+   * slot's `allowFrontierFallback` setting. When `false`, callers must use a
+   * deterministic local fallback instead of a frontier model — a hard "never
+   * send this slot's content to the cloud" guarantee for privacy/cost. When the
+   * auxiliary service is disabled or the slot is turned off, this is `true`
+   * (the user is not relying on local routing, so normal behavior applies).
+   */
+  allowFrontierFallback: boolean;
 }

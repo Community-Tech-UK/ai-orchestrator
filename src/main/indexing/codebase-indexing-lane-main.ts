@@ -121,7 +121,6 @@ async function handleRun(message: RunJobMessage): Promise<void> {
         filesIndexed: stats.filesIndexed,
         chunksCreated: stats.chunksCreated,
         tokensProcessed: stats.tokensProcessed,
-        embeddingsCreated: stats.embeddingsCreated,
         duration: stats.duration,
         errors: stats.errors,
         completedAt: Date.now(),

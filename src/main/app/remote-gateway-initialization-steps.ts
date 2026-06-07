@@ -1,4 +1,5 @@
 import { getSettingsManager } from '../core/config/settings-manager';
+import { getThinClientWsServer } from '../event-bus/thin-client-ws-server';
 import { getLogger } from '../logging/logger';
 import { getMobileGatewayServer } from '../mobile-gateway/mobile-gateway-server';
 import {
@@ -60,6 +61,28 @@ export function createWorkerNodeSubsystemStep(
       logger.info('Worker node subsystem started', {
         port: config.serverPort,
         host: config.serverHost,
+      });
+    },
+  };
+}
+
+export function createThinClientWsStep(): AppInitializationStep {
+  return {
+    name: 'Thin-client WebSocket',
+    fn: async () => {
+      const settings = getSettingsManager();
+      if (!settings.get('thinClientWsEnabled')) {
+        logger.info('Thin-client WebSocket disabled');
+        return;
+      }
+
+      const status = await getThinClientWsServer().start({
+        host: settings.get('thinClientWsHost'),
+        port: settings.get('thinClientWsPort'),
+      });
+      logger.info('Thin-client WebSocket started from boot', {
+        host: status.host,
+        port: status.port,
       });
     },
   };

@@ -1277,6 +1277,18 @@ export class InstanceCommunicationManager extends EventEmitter {
 
         const previousStatus = this.transitionAdapterStatus(instanceId, instance, normalizedStatus);
         instance.lastActivity = Date.now();
+
+        // A settled turn (busy → ready-for-input) proves the provider has
+        // flushed this session to disk, so a later `--resume <sessionId>` is
+        // safe. Flip the fresh-session guard exactly once; `undefined` (restored
+        // / woken sessions) is left untouched. See Instance.providerSessionPersisted.
+        if (
+          instance.providerSessionPersisted === false
+          && previousStatus === 'busy'
+          && (normalizedStatus === 'idle' || normalizedStatus === 'ready' || normalizedStatus === 'waiting_for_input')
+        ) {
+          instance.providerSessionPersisted = true;
+        }
         const notifyChildTurnCompleted = this.shouldNotifyChildTurnCompleted(
           instance,
           previousStatus,

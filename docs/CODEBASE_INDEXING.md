@@ -9,7 +9,7 @@ AI Orchestrator uses `codemem` as the canonical automatic code index. The older 
 > path — so the embedding generation and the hybrid/vector reader were removed. The
 > shared `VectorStore`/`EmbeddingService` stack remains in use for non-code memory
 > (observations, episodic sessions, RLM context search). See
-> `docs/plans/2026-06-06-code-vector-search-removal-plan.md`.
+> `docs/plans/2026-06-06-code-vector-search-removal-plan_completed.md`.
 
 ## Current Paths
 
@@ -65,15 +65,42 @@ The service resolves the workspace root, asks codemem to warm the index if neede
 
 Agents should treat this block as a starting point and verify important details against repository files before editing.
 
+**This is BM25 pre-injection, not pure agentic retrieval.** `IndexedCodebaseContextService`
+runs a codemem **BM25** query against the parent message and injects up to
+`DEFAULT_MAX_TOKENS` (**~900 tokens**) of matched code snippets into each parent turn,
+wired through `context-engine.ts` → `buildIndexedCodebaseContext(instance, message)`. So
+AIO's code retrieval is a **lexical hybrid**: pre-injected BM25 context *plus* whatever
+agentic tool search the child CLI runs. There is no vector/embedding step in this path —
+code is not embedded (see [Legacy RLM Index](#legacy-rlm-index)).
+
 ## Legacy RLM Index
 
 Manual legacy index buttons and IPC handlers remain available for diagnostics. They are useful when comparing the older BM25 retrieval path against codemem, or when investigating regressions in legacy codebase-search behavior. (The legacy path no longer embeds code or runs hybrid vector search — that reader was removed in 2026-06.)
 
 The legacy index runs through a background indexing lane instead of executing the indexing loop in the Electron main process. It should not be enabled as the normal automatic index unless debugging the legacy path.
 
+## Codemem MCP Tools Are Provider-Specific
+
+The `mcp__codemem__*` symbol tools (`find_symbol`, `workspace_symbols`, `find_references`,
+`call_hierarchy`, etc.) are **not delivered to every provider**. They are gated by the
+`codememEnabled` setting (default `true`) and then wired per provider:
+
+| Provider | Codemem MCP tools | How |
+|----------|-------------------|-----|
+| Claude | Yes | `buildCodememMcpConfig` → `--mcp-config` JSON |
+| Copilot | Yes | same `--mcp-config` path |
+| Codex | **No** | synthetic `CODEX_HOME` TOML omits the codemem bridge (`static-mcp-codex-config.ts` deliberately skips the dynamic inline bridges) |
+| Gemini | **No** | Gemini settings path wires only browser-gateway, not codemem |
+
+Do **not** assume a child instance can call `mcp__codemem__*`. Claude/Copilot children can;
+Codex/Gemini children rely on their own native file tools (`grep`/`glob`/read) plus the
+BM25 pre-injected context block above. The `CODEBASE_SEARCH` IPC (used by the renderer
+panel and `IndexedCodebaseContextService`) goes through `CodeRetrievalService` directly and
+is provider-independent.
+
 ## Operational Notes
 
-- Prefer codemem tools for code navigation and symbol lookup.
+- Prefer codemem tools for code navigation and symbol lookup **where the provider exposes them** (Claude/Copilot; see the table above).
 - Prefer plain `rg` for one-off text search or file discovery.
 - Do not add a vector database to the canonical path until it has benchmark evidence, packaging validation, and a clear quality gain over codemem FTS plus symbols.
 - Keep generated/dependency folders excluded from automatic indexing by default.

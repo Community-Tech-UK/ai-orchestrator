@@ -1168,6 +1168,12 @@ export class UnifiedMemoryController extends EventEmitter {
         return auxText;
       }
 
+      if (!auxDecision.allowFrontierFallback) {
+        // Frontier fallback is disabled for the memoryDistillation slot — keep
+        // memory content local rather than sending it to the primary (cloud) model.
+        return this.heuristicLocalSummary(content, targetTokens);
+      }
+
       const llmService = getLLMService();
       const summary = await llmService.summarize({
         requestId: `unified-summary-${Date.now()}`,
@@ -1181,11 +1187,15 @@ export class UnifiedMemoryController extends EventEmitter {
         error: (error as Error).message,
         contentLength: content.length,
       });
-      // Fallback: extract key sentences heuristically
-      const sentences = content.split(/[.!?\n]+/).filter(s => s.trim().length > 20);
-      const selected = sentences.slice(0, Math.max(3, Math.floor(sentences.length * 0.2)));
-      return `[Auto-summary] ${selected.join('. ').slice(0, targetTokens * 4)}`;
+      return this.heuristicLocalSummary(content, targetTokens);
     }
+  }
+
+  /** Deterministic, fully-local summary: pick key sentences heuristically. */
+  private heuristicLocalSummary(content: string, targetTokens: number): string {
+    const sentences = content.split(/[.!?\n]+/).filter((s) => s.trim().length > 20);
+    const selected = sentences.slice(0, Math.max(3, Math.floor(sentences.length * 0.2)));
+    return `[Auto-summary] ${selected.join('. ').slice(0, targetTokens * 4)}`;
   }
 
   // ============ Persistence ============

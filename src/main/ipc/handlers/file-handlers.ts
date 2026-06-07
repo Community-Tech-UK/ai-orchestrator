@@ -416,25 +416,19 @@ export function registerFileHandlers(deps: {
 
   // Forward watcher events to renderer
   watcherManager.on('file-changed', (data) => {
-    windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.WATCHER_FILE_CHANGED, data);
+    windowManager.sendToRenderer(IPC_CHANNELS.WATCHER_FILE_CHANGED, data);
   });
 
   watcherManager.on('file-added', (data) => {
-    windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.WATCHER_FILE_CHANGED, data);
+    windowManager.sendToRenderer(IPC_CHANNELS.WATCHER_FILE_CHANGED, data);
   });
 
   watcherManager.on('file-removed', (data) => {
-    windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.WATCHER_FILE_CHANGED, data);
+    windowManager.sendToRenderer(IPC_CHANNELS.WATCHER_FILE_CHANGED, data);
   });
 
   watcherManager.on('error', (data) => {
-    windowManager.getMainWindow()?.webContents.send(IPC_CHANNELS.WATCHER_ERROR, data);
+    windowManager.sendToRenderer(IPC_CHANNELS.WATCHER_ERROR, data);
   });
 
   // ============================================

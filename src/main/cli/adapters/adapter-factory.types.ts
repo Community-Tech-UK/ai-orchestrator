@@ -12,6 +12,7 @@ import type { GeminiCliAdapter } from './gemini-cli-adapter';
 import type { OllamaCliAdapter } from './ollama-cli-adapter';
 import type { AcpCliAdapter } from './acp-cli-adapter';
 import type { RemoteCliAdapter } from './remote-cli-adapter';
+import type { CliAdapterWorkerProxy } from '../spawn-worker/cli-adapter-worker-proxy';
 import type { InstanceLaunchMode } from '../../../shared/types/instance.types';
 import type { BrowserGatewayMcpConfigOptions } from '../../browser-gateway/browser-mcp-config';
 import type { ChromeDevtoolsMcpConfigOptions } from '../../browser-gateway/chrome-devtools-mcp-config';
@@ -93,4 +94,5 @@ export type CliAdapter =
   | GeminiCliAdapter
   | OllamaCliAdapter
   | AcpCliAdapter
-  | RemoteCliAdapter;
+  | RemoteCliAdapter
+  | CliAdapterWorkerProxy;

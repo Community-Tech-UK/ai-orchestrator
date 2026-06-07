@@ -91,11 +91,10 @@ getProgress(): IndexingProgress
 **Returns:**
 ```typescript
 {
-  status: 'idle' | 'scanning' | 'chunking' | 'embedding' | 'complete' | 'error' | 'cancelled',
+  status: 'idle' | 'scanning' | 'chunking' | 'complete' | 'error' | 'cancelled',
   totalFiles: number,
   processedFiles: number,
   totalChunks: number,
-  embeddedChunks: number,
   currentFile?: string,
   startedAt?: number,
   completedAt?: number,
@@ -145,7 +144,7 @@ indexingService.on('indexing:cancelled', () => {});
 code embeddings (RRF fusion + HyDE expansion). They were **removed in 2026-06**: no
 read path ever consumed code embeddings, so the entire code-vector pipeline (embedding
 generation in `CodebaseIndexingService` plus the hybrid reader) was deleted. See
-`docs/plans/2026-06-06-code-vector-search-removal-plan.md`.
+`docs/plans/2026-06-06-code-vector-search-removal-plan_completed.md`.
 
 Code search now runs through the codemem retrieval path
 (`getCodeRetrievalService().search(...)` — BM25 full-text + symbols, with a ripgrep

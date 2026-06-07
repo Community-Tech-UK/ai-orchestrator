@@ -30,6 +30,8 @@ const CODEBASE_AUTOINDEX_DISABLED_MIGRATION_KEY =
   '__migration_codebase_auto_index_disabled_20260527';
 const AUX_SLOT_TIMEOUT_MIGRATION_KEY =
   '__migration_auxiliary_slot_timeouts_20260606';
+const AUX_FRONTIER_FALLBACK_MIGRATION_KEY =
+  '__migration_auxiliary_frontier_fallback_20260606';
 
 // Type for the internal store with the methods we need
 interface Store<T> {
@@ -108,6 +110,10 @@ export class SettingsManager extends EventEmitter {
     // Existing installs may have persisted the old 15s auxiliary slot timeouts,
     // which are too short for a cold local-model load.
     this.migrateAuxiliarySlotTimeouts();
+    // allowFrontierFallback is now enforced. Existing installs persisted it as
+    // `false` while it was inert; flip the two text slots back to the new `true`
+    // default so they don't silently lose primary-LLM quality on upgrade.
+    this.migrateAuxiliaryFrontierFallbackDefault();
     // Seed per-provider model memory from existing defaultModel/defaultCli on
     // first launch after this feature lands. This avoids an empty map showing
     // 'opus' for Claude and nothing else.
@@ -228,6 +234,51 @@ export class SettingsManager extends EventEmitter {
     }
 
     migrationStore.set(AUX_SLOT_TIMEOUT_MIGRATION_KEY, true);
+  }
+
+  /**
+   * `allowFrontierFallback` used to be an inert flag persisted as `false` for
+   * every slot. It is now enforced: when `false`, a slot will never escalate to
+   * the primary (cloud) model and instead uses a deterministic local summary.
+   *
+   * For the two text slots (compression, memoryDistillation) the new default is
+   * `true` so behavior is unchanged for users without a local model. This
+   * one-shot migration flips persisted `false → true` for exactly those two
+   * slots when they still hold the old default, so existing installs don't get a
+   * silent compaction/memory quality regression on upgrade. Slots the user
+   * intentionally set to `false` after this lands are preserved (the migration
+   * runs once). Advisory slots (titles/classification/scoring) are left as-is.
+   */
+  private migrateAuxiliaryFrontierFallbackDefault(): void {
+    const migrationStore = this.store as unknown as MigrationStore;
+    if (migrationStore.get(AUX_FRONTIER_FALLBACK_MIGRATION_KEY) === true) {
+      return;
+    }
+
+    const SLOTS_TO_ENABLE = ['compression', 'memoryDistillation'];
+
+    const raw = this.store.get('auxiliaryLlmSlotsJson');
+    if (typeof raw === 'string') {
+      try {
+        const slots = JSON.parse(raw) as Record<string, { allowFrontierFallback?: boolean } | undefined>;
+        let changed = false;
+        for (const name of SLOTS_TO_ENABLE) {
+          const slot = slots[name];
+          if (slot && slot.allowFrontierFallback === false) {
+            slot.allowFrontierFallback = true;
+            changed = true;
+          }
+        }
+        if (changed) {
+          logger.info('Enabling frontier fallback for compression/memoryDistillation (new default)');
+          this.store.set('auxiliaryLlmSlotsJson', JSON.stringify(slots));
+        }
+      } catch {
+        // Malformed JSON — leave as-is; AuxiliaryLlmService falls back to defaults.
+      }
+    }
+
+    migrationStore.set(AUX_FRONTIER_FALLBACK_MIGRATION_KEY, true);
   }
 
   /**

@@ -5,11 +5,28 @@ import { getLogger } from '../logging/logger';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
+import type { ContextUsage } from '../../shared/types/instance.types';
 
 const logger = getLogger('CompactionRuntime');
 
 interface NativeCompactionAdapter {
   compactContext?: () => Promise<boolean>;
+}
+
+function buildPostCompactionUsage(previousUsage: ContextUsage): ContextUsage {
+  return {
+    used: 0,
+    total: previousUsage.total,
+    percentage: 0,
+    ...(previousUsage.cumulativeTokens !== undefined
+      ? { cumulativeTokens: previousUsage.cumulativeTokens }
+      : {}),
+    ...(previousUsage.costEstimate !== undefined
+      ? { costEstimate: previousUsage.costEstimate }
+      : {}),
+    source: 'post-compaction-reset',
+    isEstimated: true,
+  };
 }
 
 export function setupCompactionCoordinator(
@@ -169,15 +186,19 @@ export function setupCompactionCoordinator(
 
   coordinator.on('compaction-completed', (payload) => {
     const { instanceId, result } = payload;
-    windowManager.sendToRenderer('instance:compact-status', {
-      instanceId,
-      ...result,
-      status: 'completed',
-    });
 
     if (result.success) {
       const instance = instanceManager.getInstance(instanceId);
       if (instance) {
+        if (!result.newUsage && result.previousUsage) {
+          result.newUsage = buildPostCompactionUsage(result.previousUsage);
+          instance.contextUsage = result.newUsage;
+          instanceManager.updateInstanceStatus(instanceId, instance.status, {
+            reason: 'context-compacted',
+            method: result.method,
+          });
+        }
+
         const boundaryMessage = {
           id: crypto.randomUUID(),
           timestamp: Date.now(),
@@ -193,6 +214,12 @@ export function setupCompactionCoordinator(
         instanceManager.emitOutputMessage(instanceId, boundaryMessage);
       }
     }
+
+    windowManager.sendToRenderer('instance:compact-status', {
+      instanceId,
+      ...result,
+      status: 'completed',
+    });
   });
 
   coordinator.on('compaction-error', (payload) => {

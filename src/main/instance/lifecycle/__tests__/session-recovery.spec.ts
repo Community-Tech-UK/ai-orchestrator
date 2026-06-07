@@ -60,6 +60,48 @@ describe('SessionRecoveryHandler', () => {
     });
   });
 
+  it('plans replay fallback instead of native resume when the session is not yet persisted', () => {
+    const plan = planSessionRecovery({
+      instanceId: 'instance-1',
+      reason: 'interrupt',
+      previousProviderSessionId: 'session-abc',
+      provider: 'claude',
+      cwd: '/tmp/project',
+      capabilities: {
+        supportsResume: true,
+        supportsForkSession: false,
+      },
+      adapterGeneration: 1,
+      hasConversation: true,
+      // Fresh first turn still in flight — CLI has not flushed the session.
+      providerSessionPersisted: false,
+    });
+
+    expect(plan).toMatchObject({
+      kind: 'replay-fallback',
+      reason: 'provider session not yet persisted (fresh first turn)',
+    });
+  });
+
+  it('still plans native resume once the session has been persisted', () => {
+    const plan = planSessionRecovery({
+      instanceId: 'instance-1',
+      reason: 'interrupt',
+      previousProviderSessionId: 'session-abc',
+      provider: 'claude',
+      cwd: '/tmp/project',
+      capabilities: {
+        supportsResume: true,
+        supportsForkSession: false,
+      },
+      adapterGeneration: 1,
+      hasConversation: true,
+      providerSessionPersisted: true,
+    });
+
+    expect(plan).toMatchObject({ kind: 'native-resume', requestedSessionId: 'session-abc' });
+  });
+
   it('plans replay fallback instead of native resume for blacklisted sessions', () => {
     const plan = planSessionRecovery({
       instanceId: 'instance-1',

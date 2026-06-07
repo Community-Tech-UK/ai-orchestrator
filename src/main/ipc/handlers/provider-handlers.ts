@@ -482,21 +482,15 @@ export function registerProviderHandlers(
 
   // Forward plugin events to renderer
   pluginManager.on('plugin-loaded', (pluginId) => {
-    deps.windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.PLUGINS_LOADED, { pluginId });
+    deps.windowManager.sendToRenderer(IPC_CHANNELS.PLUGINS_LOADED, { pluginId });
   });
 
   pluginManager.on('plugin-unloaded', (pluginId) => {
-    deps.windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.PLUGINS_UNLOADED, { pluginId });
+    deps.windowManager.sendToRenderer(IPC_CHANNELS.PLUGINS_UNLOADED, { pluginId });
   });
 
   pluginManager.on('plugin-error', (pluginId, error) => {
-    deps.windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.PLUGINS_ERROR, { pluginId, error: error.message });
+    deps.windowManager.sendToRenderer(IPC_CHANNELS.PLUGINS_ERROR, { pluginId, error: error.message });
   });
 
   // Forward unified-catalog refreshes to the renderer (A1 consume-half) so a
@@ -505,9 +499,7 @@ export function registerProviderHandlers(
   getUnifiedModelCatalog().on(
     CATALOG_UPDATED_EVENT,
     (payload: CatalogUpdatedPayload) => {
-      deps.windowManager
-        .getMainWindow()
-        ?.webContents.send(IPC_CHANNELS.MODELS_CATALOG_UPDATED, payload);
+      deps.windowManager.sendToRenderer(IPC_CHANNELS.MODELS_CATALOG_UPDATED, payload);
     },
   );
 }

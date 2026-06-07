@@ -37,7 +37,6 @@ const codebaseIndexingLaneResultSchema = z.object({
   filesIndexed: z.number().int().nonnegative(),
   chunksCreated: z.number().int().nonnegative(),
   tokensProcessed: z.number().int().nonnegative(),
-  embeddingsCreated: z.number().int().nonnegative(),
   duration: z.number().nonnegative(),
   errors: z.array(indexingErrorSchema),
   completedAt: z.number().int().nonnegative(),
@@ -108,7 +107,6 @@ export class CodebaseIndexingLaneGateway extends EventEmitter implements AutoInd
       filesIndexed: result.filesIndexed,
       chunksCreated: result.chunksCreated,
       tokensProcessed: result.tokensProcessed,
-      embeddingsCreated: result.embeddingsCreated,
       duration: result.duration,
       errors: result.errors,
     };
@@ -124,7 +122,6 @@ export class CodebaseIndexingLaneGateway extends EventEmitter implements AutoInd
       totalFiles: progress.total ?? progress.completed,
       processedFiles: progress.completed,
       totalChunks: 0,
-      embeddedChunks: 0,
       rootPath: job.coalesceKey,
       currentFile: progress.message,
     };
@@ -139,7 +136,6 @@ export class CodebaseIndexingLaneGateway extends EventEmitter implements AutoInd
       totalFiles: 0,
       processedFiles: 0,
       totalChunks: 0,
-      embeddedChunks: 0,
       rootPath: job.coalesceKey,
       startedAt: job.startedAt,
       completedAt: job.completedAt,
@@ -189,7 +185,6 @@ function toIndexingStatus(phase: string): IndexingStatus {
     phase === 'idle'
     || phase === 'scanning'
     || phase === 'chunking'
-    || phase === 'embedding'
     || phase === 'complete'
     || phase === 'error'
     || phase === 'cancelled'

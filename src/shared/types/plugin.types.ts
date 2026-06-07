@@ -22,6 +22,16 @@ export type PluginSlot =
   | 'notifier'
   | 'telemetry_exporter';
 
+export type PluginCapability =
+  | 'network'
+  | 'filesystem.read'
+  | 'filesystem.write'
+  | 'spawn.process'
+  | 'manager.read'
+  | 'manager.write';
+
+export type PluginIsolation = 'legacy' | 'worker';
+
 export type PluginLoadPhase =
   | 'manifest_load'
   | 'manifest_validation'

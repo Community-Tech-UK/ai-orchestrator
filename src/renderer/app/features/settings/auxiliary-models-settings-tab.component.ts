@@ -10,6 +10,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnInit,
+  computed,
   inject,
   signal,
 } from '@angular/core';
@@ -20,6 +21,8 @@ import type {
   AuxiliaryLlmCandidate,
   AuxiliaryLlmDecision,
   AuxiliaryLlmSlot,
+  AuxiliaryLlmSlotConfig,
+  AuxiliaryLlmSlotConfigMap,
 } from '../../../../shared/types/auxiliary-llm.types';
 
 const ROUTING_MODES = [
@@ -200,6 +203,9 @@ const PROVIDERS = ['ollama', 'openai-compatible'] as const;
           <thead>
             <tr>
               <th>Slot</th>
+              <th title="When on, this slot may fall back to the main cloud model if no local/cheap model is available. Turn off to keep this slot's content local-only (privacy / hard cost control) — it uses a deterministic local summary instead.">
+                Cloud fallback
+              </th>
               <th>Test</th>
             </tr>
           </thead>
@@ -207,6 +213,14 @@ const PROVIDERS = ['ollama', 'openai-compatible'] as const;
             @for (slot of slots; track slot) {
               <tr>
                 <td>{{ slot }}</td>
+                <td>
+                  <input
+                    type="checkbox"
+                    [checked]="frontierFallbackEnabled(slot)"
+                    (change)="onFrontierFallbackChange(slot, $event)"
+                    [attr.aria-label]="'Allow cloud fallback for ' + slot"
+                  />
+                </td>
                 <td>
                   <button
                     type="button"
@@ -221,6 +235,10 @@ const PROVIDERS = ['ollama', 'openai-compatible'] as const;
             }
           </tbody>
         </table>
+        <p class="field-hint">
+          Cloud fallback off = this slot never sends content to the main model;
+          if no local model is available it uses a local deterministic summary.
+        </p>
       </div>
 
       <!-- Test output -->
@@ -269,6 +287,15 @@ export class AuxiliaryModelsSettingsTabComponent implements OnInit {
   protected readonly testDecision = signal<AuxiliaryLlmDecision | null>(null);
   protected readonly testError = signal<string | null>(null);
 
+  /** Parsed slot config map from persisted settings (reactive). */
+  protected readonly slotConfigs = computed<Partial<AuxiliaryLlmSlotConfigMap>>(() => {
+    try {
+      return JSON.parse(this.settingsStore.get('auxiliaryLlmSlotsJson')) as Partial<AuxiliaryLlmSlotConfigMap>;
+    } catch {
+      return {};
+    }
+  });
+
   ngOnInit(): void {
     void this.refreshCandidates();
   }
@@ -276,6 +303,23 @@ export class AuxiliaryModelsSettingsTabComponent implements OnInit {
   onEnabledChange(event: Event): void {
     const checked = (event.target as HTMLInputElement).checked;
     void this.settingsStore.set('auxiliaryLlmEnabled', checked);
+  }
+
+  /** Whether a slot is allowed to fall back to the main/cloud model. Defaults to true. */
+  protected frontierFallbackEnabled(slot: AuxiliaryLlmSlot): boolean {
+    return this.slotConfigs()[slot]?.allowFrontierFallback ?? true;
+  }
+
+  onFrontierFallbackChange(slot: AuxiliaryLlmSlot, event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    const slots = this.slotConfigs();
+    const existing = slots[slot];
+    if (!existing) return; // unknown/missing slot config — nothing to update
+    const next: AuxiliaryLlmSlotConfigMap = {
+      ...(slots as AuxiliaryLlmSlotConfigMap),
+      [slot]: { ...existing, allowFrontierFallback: checked } as AuxiliaryLlmSlotConfig,
+    };
+    void this.settingsStore.set('auxiliaryLlmSlotsJson', JSON.stringify(next));
   }
 
   onRoutingModeChange(event: Event): void {

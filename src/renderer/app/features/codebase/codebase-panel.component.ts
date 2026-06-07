@@ -84,7 +84,7 @@ export class CodebasePanelComponent implements OnInit, OnDestroy {
 
   isIndexing = computed(() => {
     const status = this.indexingProgress()?.status;
-    return status === 'scanning' || status === 'chunking' || status === 'embedding';
+    return status === 'scanning' || status === 'chunking';
   });
 
   hasIndex = computed(() => {

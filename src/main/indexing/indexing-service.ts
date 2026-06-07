@@ -2,7 +2,8 @@
  * Codebase Indexing Service
  *
  * Main orchestrator for codebase indexing. Coordinates file scanning,
- * chunking, metadata extraction, and embedding generation.
+ * chunking, and metadata extraction, persisting chunks to the context store
+ * and BM25 index. Code chunks are not embedded into a vector store.
  */
 
 import * as fs from 'fs';
@@ -41,7 +42,6 @@ interface IndexingState {
   totalFiles: number;
   processedFiles: number;
   totalChunks: number;
-  embeddedChunks: number;
   currentFile?: string;
   startedAt?: number;
   completedAt?: number;
@@ -73,7 +73,6 @@ export class CodebaseIndexingService extends EventEmitter {
     totalFiles: 0,
     processedFiles: 0,
     totalChunks: 0,
-    embeddedChunks: 0,
     errors: [],
     cancelled: false,
   };
@@ -257,7 +256,6 @@ export class CodebaseIndexingService extends EventEmitter {
       totalFiles: this.state.totalFiles,
       processedFiles: this.state.processedFiles,
       totalChunks: this.state.totalChunks,
-      embeddedChunks: this.state.embeddedChunks,
       currentFile: this.state.currentFile,
       startedAt: this.state.startedAt,
       completedAt: this.state.completedAt,
@@ -276,7 +274,6 @@ export class CodebaseIndexingService extends EventEmitter {
       totalFiles: 0, // Would need to track this
       totalChunks: storeStats?.sections || 0,
       totalTokens: storeStats?.totalTokens || 0,
-      totalEmbeddings: 0, // Code chunks are not embedded into a vector store.
       lastIndexedAt: Date.now(),
       indexSize: 0, // Would need to calculate
     };
@@ -610,7 +607,6 @@ export class CodebaseIndexingService extends EventEmitter {
       totalFiles: 0,
       processedFiles: 0,
       totalChunks: 0,
-      embeddedChunks: 0,
       errors: [],
       cancelled: false,
     };
@@ -625,7 +621,6 @@ export class CodebaseIndexingService extends EventEmitter {
       filesIndexed: this.state.processedFiles,
       chunksCreated: this.state.totalChunks,
       tokensProcessed: 0, // Would need to sum from chunks
-      embeddingsCreated: this.state.embeddedChunks,
       duration: (this.state.completedAt || Date.now()) - (this.state.startedAt || Date.now()),
       errors: this.state.errors,
     };

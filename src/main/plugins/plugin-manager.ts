@@ -56,6 +56,7 @@ import type { PluginManifest } from '@sdk/plugins';
 import { PluginManifestSchema } from '@contracts/schemas/plugin';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import { getPluginRegistry } from './plugin-registry';
+import { PluginWorkerHost, type PluginWorkerContext, type PluginWorkerRuntime } from './plugin-worker-host';
 import { resolveProjectScanRoots } from '../util/project-scan-roots';
 import type { ReactionEvent } from '../reactions/reaction.types';
 import {
@@ -144,7 +145,6 @@ export function validateManifest(
 }
 
 export interface OrchestratorPluginContext {
-  instanceManager: InstanceManager;
   appPath: string;
   homeDir: string | null;
 }
@@ -171,6 +171,7 @@ interface LoadedPlugin {
   hooks: TypedOrchestratorHooks;
   slot: PluginSlot;
   runtime?: PluginRuntimeForSlot<PluginSlot>;
+  workerHost?: PluginWorkerHost;
   loadReport: PluginLoadReport;
   manifest?: PluginManifest;
 }
@@ -262,6 +263,15 @@ function normalizePluginModule(
   };
 }
 
+function shouldUseWorkerIsolation(manifest: PluginManifest | undefined): boolean {
+  return manifest?.isolation === 'worker';
+}
+
+function getAdvisoryCapabilityWarnings(manifest: PluginManifest | undefined): string[] {
+  const capabilities = manifest?.capabilities ?? [];
+  return capabilities.filter((capability) => capability === 'network' || capability === 'spawn.process');
+}
+
 export class OrchestratorPluginManager {
   private static instance: OrchestratorPluginManager | null = null;
 
@@ -348,9 +358,8 @@ export class OrchestratorPluginManager {
     return dirs;
   }
 
-  private buildContext(instanceManager: InstanceManager): OrchestratorPluginContext {
+  private buildContext(): OrchestratorPluginContext {
     return {
-      instanceManager,
       appPath: app.getAppPath(),
       homeDir: this.getHomeDir(),
     };
@@ -389,6 +398,88 @@ export class OrchestratorPluginManager {
     const moduleUrl = `${pathToFileURL(filePath).href}?t=${Date.now()}`;
     const mod = await import(moduleUrl);
     return (mod && (mod.default || mod)) as OrchestratorPluginModule;
+  }
+
+  private warnForManifestCapabilities(filePath: string, manifest: PluginManifest | undefined): void {
+    for (const capability of getAdvisoryCapabilityWarnings(manifest)) {
+      logger.warn('Plugin declares advisory capability that is not OS-enforced yet', {
+        filePath,
+        capability,
+      });
+    }
+  }
+
+  private warnForLegacyIsolation(filePath: string, manifest: PluginManifest | undefined): void {
+    if (shouldUseWorkerIsolation(manifest)) {
+      return;
+    }
+    logger.warn('Plugin loaded in legacy in-process isolation; add "isolation": "worker" to plugin.json to isolate dispatches', {
+      filePath,
+    });
+  }
+
+  private async loadWorkerPlugin(
+    filePath: string,
+    ctx: PluginWorkerContext,
+    manifest: PluginManifest | undefined,
+    phases: PluginPhaseResult[],
+  ): Promise<LoadedPlugin> {
+    const workerHost = new PluginWorkerHost({
+      filePath,
+      context: ctx,
+      ...(manifest?.slot ? { requestedSlot: manifest.slot } : manifest?.hooks ? { requestedSlot: 'hook' } : {}),
+    });
+    const workerRuntime: PluginWorkerRuntime = await workerHost.start();
+    phases.push(buildPhase('instantiation', 'succeeded', 'Plugin loaded in worker isolation'));
+    phases.push(buildPhase(
+      'detect',
+      workerRuntime.detected ? 'succeeded' : 'skipped',
+      workerRuntime.detected ? undefined : 'detect() returned false',
+    ));
+    phases.push(buildPhase(
+      'slot_registration',
+      workerRuntime.ready ? 'succeeded' : workerRuntime.detected ? 'failed' : 'skipped',
+      workerRuntime.ready
+        ? undefined
+        : workerRuntime.detected
+          ? 'Worker plugin did not expose a runtime'
+          : 'Plugin not detected in current environment',
+    ));
+
+    const runtime =
+      workerRuntime.slot === 'hook'
+        ? workerRuntime.hooks
+        : workerRuntime.slot === 'notifier'
+          ? workerRuntime.notifier
+          : workerRuntime.slot === 'tracker'
+            ? workerRuntime.tracker
+            : workerRuntime.slot === 'telemetry_exporter'
+              ? workerRuntime.telemetryExporter
+              : undefined;
+    const ready = workerRuntime.detected && workerRuntime.ready && runtime !== undefined;
+    const loadReport: PluginLoadReport = {
+      slot: workerRuntime.slot,
+      detected: workerRuntime.detected,
+      ready,
+      phases: [
+        ...phases,
+        buildPhase(
+          'ready',
+          ready ? 'succeeded' : workerRuntime.detected ? 'failed' : 'skipped',
+          ready ? undefined : workerRuntime.detected ? 'Plugin slot registration failed' : 'Plugin not detected in current environment',
+        ),
+      ],
+    };
+
+    return {
+      filePath,
+      hooks: workerRuntime.hooks,
+      manifest,
+      slot: workerRuntime.slot,
+      runtime: runtime as PluginRuntimeForSlot<PluginSlot> | undefined,
+      workerHost,
+      loadReport,
+    };
   }
 
   private async loadPluginsForWorkingDirectory(
@@ -449,6 +540,15 @@ export class OrchestratorPluginManager {
             phases.push(buildPhase('manifest_load', 'skipped', 'plugin.json not present'));
             phases.push(buildPhase('manifest_validation', 'skipped', 'plugin.json not present'));
           }
+
+          this.warnForManifestCapabilities(filePath, manifest);
+
+          if (shouldUseWorkerIsolation(manifest)) {
+            plugins.push(await this.loadWorkerPlugin(filePath, ctx, manifest, phases));
+            continue;
+          }
+
+          this.warnForLegacyIsolation(filePath, manifest);
 
           const loaded = await this.loadModule(filePath);
           phases.push(buildPhase('instantiation', 'succeeded'));
@@ -546,6 +646,7 @@ export class OrchestratorPluginManager {
     const now = Date.now();
     if (cached && now - cached.loadedAt < CACHE_TTL_MS) return cached.plugins;
 
+    this.stopCacheWorkers(workingDirectory);
     const { plugins, errors } = await this.loadPluginsForWorkingDirectory(workingDirectory, ctx);
     this.cacheByWorkingDir.set(workingDirectory, {
       loadedAt: now,
@@ -565,6 +666,22 @@ export class OrchestratorPluginManager {
     return plugins;
   }
 
+  private stopCacheWorkers(workingDirectory?: string): void {
+    if (workingDirectory) {
+      const cached = this.cacheByWorkingDir.get(workingDirectory);
+      for (const plugin of cached?.plugins ?? []) {
+        void plugin.workerHost?.stop();
+      }
+      return;
+    }
+
+    for (const entry of this.cacheByWorkingDir.values()) {
+      for (const plugin of entry.plugins) {
+        void plugin.workerHost?.stop();
+      }
+    }
+  }
+
   async listPlugins(workingDirectory: string, instanceManager: InstanceManager): Promise<{
     plugins: {
       filePath: string;
@@ -578,7 +695,7 @@ export class OrchestratorPluginManager {
     scanDirs: string[];
     errors: { filePath: string; error: string }[];
   }> {
-    const ctx = this.buildContext(instanceManager);
+    const ctx = this.buildContext();
     const plugins = await this.getPlugins(workingDirectory, ctx);
     const errors = this.cacheByWorkingDir.get(workingDirectory)?.errors || [];
     const list = plugins
@@ -604,6 +721,7 @@ export class OrchestratorPluginManager {
 
   clearCache(workingDirectory?: string): void {
     if (!workingDirectory) {
+      this.stopCacheWorkers();
       this.cacheByWorkingDir.clear();
       this.configLoadedByWorkingDir.clear();
       getPluginRegistry().clear();
@@ -613,6 +731,7 @@ export class OrchestratorPluginManager {
       this.runtimeHealth.clear();
       return;
     }
+    this.stopCacheWorkers(workingDirectory);
     this.cacheByWorkingDir.delete(workingDirectory);
     this.configLoadedByWorkingDir.delete(workingDirectory);
     getPluginRegistry().clear(workingDirectory);
@@ -650,6 +769,9 @@ export class OrchestratorPluginManager {
       this.recordPluginSuccess(plugin.filePath);
     } catch (err) {
       this.recordPluginFailure(plugin.filePath, label, err);
+      if (this.isPluginQuarantined(plugin.filePath)) {
+        void plugin.workerHost?.stop();
+      }
     }
   }
 
@@ -892,7 +1014,7 @@ export class OrchestratorPluginManager {
     if (this.initialized) return;
     this.initialized = true;
 
-    const ctx = this.buildContext(instanceManager);
+    const ctx = this.buildContext();
 
     instanceManager.on('instance:created', (payload: unknown) => {
       const pluginPayload = toInstanceCreatedPayload(payload);

@@ -143,6 +143,7 @@ export class IpcFacadeService {
   appReady = this.app.appReady.bind(this.app);
   getVersion = this.app.getVersion.bind(this.app);
   getStartupCapabilities = this.app.getStartupCapabilities.bind(this.app);
+  stateResync = this.app.stateResync.bind(this.app);
   onStartupCapabilities = this.app.onStartupCapabilities.bind(this.app);
 
   // ============================================

@@ -163,20 +163,14 @@ export function registerQuotaHandlers(deps: {
   // ============================================
 
   quotaService.on('quota-updated', (snapshot) => {
-    deps.windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.QUOTA_UPDATED, snapshot);
+    deps.windowManager.sendToRenderer(IPC_CHANNELS.QUOTA_UPDATED, snapshot);
   });
 
   quotaService.on('quota-warning', (alert) => {
-    deps.windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.QUOTA_WARNING, alert);
+    deps.windowManager.sendToRenderer(IPC_CHANNELS.QUOTA_WARNING, alert);
   });
 
   quotaService.on('quota-exhausted', (alert) => {
-    deps.windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.QUOTA_EXHAUSTED, alert);
+    deps.windowManager.sendToRenderer(IPC_CHANNELS.QUOTA_EXHAUSTED, alert);
   });
 }

@@ -10,6 +10,8 @@ describe('InstanceListStore', () => {
   let stateService: InstanceStateService;
   let ipc: {
     createInstance: ReturnType<typeof vi.fn>;
+    listInstances: ReturnType<typeof vi.fn>;
+    stateResync: ReturnType<typeof vi.fn>;
     restartInstance: ReturnType<typeof vi.fn>;
     restartFreshInstance: ReturnType<typeof vi.fn>;
     changeModel: ReturnType<typeof vi.fn>;
@@ -37,6 +39,18 @@ describe('InstanceListStore', () => {
           launchMode: 'orchestrated',
           provider: 'claude',
           outputBuffer: [],
+        },
+      }),
+      listInstances: vi.fn().mockResolvedValue({ success: true, data: [] }),
+      stateResync: vi.fn().mockResolvedValue({
+        success: true,
+        data: {
+          instances: [],
+          loopRuns: [],
+          automationRuns: [],
+          pauseState: { isPaused: false, reasons: [], pausedAt: null, lastChange: 0 },
+          memoryPressure: 'normal',
+          seq: 0,
         },
       }),
       restartInstance: vi.fn().mockResolvedValue({ success: true }),
@@ -155,6 +169,46 @@ describe('InstanceListStore', () => {
 
     expect(stateService.getInstance('restored-instance')).toBeDefined();
     expect(stateService.state().selectedInstanceId).toBeNull();
+  });
+
+  it('loads initial instances from the state:resync snapshot instead of the legacy instance list', async () => {
+    ipc.stateResync.mockResolvedValue({
+      success: true,
+      data: {
+        instances: [
+          {
+            id: 'snapshot-instance',
+            displayName: 'Snapshot instance',
+            createdAt: 1,
+            historyThreadId: 'thread-snapshot',
+            parentId: null,
+            childrenIds: [],
+            status: 'idle',
+            lastActivity: 2,
+            sessionId: 'session-snapshot',
+            workingDirectory: '/tmp/project',
+            yoloMode: false,
+            provider: 'claude',
+            outputBuffer: [],
+          },
+        ],
+        loopRuns: [],
+        automationRuns: [],
+        pauseState: { isPaused: false, reasons: [], pausedAt: null, lastChange: 0 },
+        memoryPressure: 'normal',
+        seq: 5,
+      },
+    });
+
+    await store.loadInitialInstances();
+
+    expect(ipc.stateResync).toHaveBeenCalledOnce();
+    expect(ipc.listInstances).not.toHaveBeenCalled();
+    expect(stateService.getInstance('snapshot-instance')).toMatchObject({
+      id: 'snapshot-instance',
+      displayName: 'Snapshot instance',
+    });
+    expect(stateService.state().loading).toBe(false);
   });
 
   it('returns the created instance id when creating a blank instance', async () => {

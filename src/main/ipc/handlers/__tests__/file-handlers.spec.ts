@@ -116,6 +116,7 @@ function makeMockWindowManager(): WindowManager {
   const fakeWindow = { webContents: { send: vi.fn() } };
   return {
     getMainWindow: vi.fn().mockReturnValue(fakeWindow),
+    sendToRenderer: vi.fn(),
   } as unknown as WindowManager;
 }
 
@@ -274,10 +275,7 @@ describe('file-handlers', () => {
   // ----------------------------------------------------------
   describe('watcher event forwarding', () => {
     it('forwards file-changed events to the renderer', () => {
-      const mainWindow = windowManager.getMainWindow()!;
-      const sendSpy = mainWindow.webContents.send as unknown as ReturnType<
-        typeof vi.fn
-      >;
+      const sendSpy = windowManager.sendToRenderer as unknown as ReturnType<typeof vi.fn>;
 
       watcherManagerMock.emit('file-changed', {
         path: '/x',
@@ -291,10 +289,7 @@ describe('file-handlers', () => {
     });
 
     it('forwards watcher error events on the dedicated channel', () => {
-      const mainWindow = windowManager.getMainWindow()!;
-      const sendSpy = mainWindow.webContents.send as unknown as ReturnType<
-        typeof vi.fn
-      >;
+      const sendSpy = windowManager.sendToRenderer as unknown as ReturnType<typeof vi.fn>;
 
       watcherManagerMock.emit('error', { message: 'oops' });
 

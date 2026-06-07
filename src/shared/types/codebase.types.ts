@@ -181,7 +181,6 @@ export interface IndexingProgress {
   totalFiles: number;
   processedFiles: number;
   totalChunks: number;
-  embeddedChunks: number;
   rootPath?: string;
   currentFile?: string;
   startedAt?: number;
@@ -194,7 +193,6 @@ export type IndexingStatus =
   | 'idle'
   | 'scanning'
   | 'chunking'
-  | 'embedding'
   | 'complete'
   | 'error'
   | 'cancelled';
@@ -203,7 +201,6 @@ export interface IndexingStats {
   filesIndexed: number;
   chunksCreated: number;
   tokensProcessed: number;
-  embeddingsCreated: number;
   duration: number;
   errors: IndexingError[];
 }
@@ -219,7 +216,6 @@ export interface IndexStats {
   totalFiles: number;
   totalChunks: number;
   totalTokens: number;
-  totalEmbeddings: number;
   lastIndexedAt: number;
   indexSize: number;
 }

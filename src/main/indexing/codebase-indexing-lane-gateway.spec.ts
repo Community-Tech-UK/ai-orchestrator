@@ -13,7 +13,6 @@ class FakeRuntime extends EventEmitter {
     filesIndexed: 7,
     chunksCreated: 21,
     tokensProcessed: 400,
-    embeddingsCreated: 21,
     duration: 12,
     errors: [{ file: '/repo/src/bad.ts', error: 'bad import', recoverable: true }],
     completedAt: 1_000,
@@ -54,7 +53,6 @@ describe('CodebaseIndexingLaneGateway', () => {
       filesIndexed: 7,
       chunksCreated: 21,
       tokensProcessed: 400,
-      embeddingsCreated: 21,
       duration: 12,
       errors: [{ file: '/repo/src/bad.ts', error: 'bad import', recoverable: true }],
       completedAt: 1_000,
@@ -127,7 +125,6 @@ describe('CodebaseIndexingLaneGateway', () => {
         filesIndexed: 7,
         chunksCreated: 21,
         tokensProcessed: 400,
-        embeddingsCreated: 21,
         duration: 12,
         errors: [{ file: '/repo/src/bad.ts', error: 'bad import', recoverable: true }],
       }));
@@ -162,7 +159,7 @@ describe('CodebaseIndexingLaneGateway', () => {
       running: [{
         ...makeJob('running-job', '/repo', 'running'),
         progress: {
-          phase: 'embedding',
+          phase: 'scanning',
           completed: 5,
           total: 10,
           message: '/repo/src/auth.ts',
@@ -175,7 +172,7 @@ describe('CodebaseIndexingLaneGateway', () => {
     });
 
     expect(gateway.getIndexCodebaseProgress('/repo')).toEqual(expect.objectContaining({
-      status: 'embedding',
+      status: 'scanning',
       rootPath: '/repo',
       processedFiles: 5,
       totalFiles: 10,

@@ -143,7 +143,6 @@ describe('recent directories IPC codebase auto-index integration', () => {
         filesIndexed: 1,
         chunksCreated: 2,
         tokensProcessed: 12,
-        embeddingsCreated: 2,
         duration: 5,
         errors: [],
       })),

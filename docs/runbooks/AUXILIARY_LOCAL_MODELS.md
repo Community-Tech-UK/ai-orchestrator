@@ -103,6 +103,22 @@ Open Settings → Auxiliary Models:
 - `routingClassification` is advisory only. Model routing decisions are not changed.
 - Main chat agents, file mutations, shell execution, security review, and cross-model verification always use the configured frontier provider.
 
+### Cloud fallback (`allowFrontierFallback`)
+
+Each slot has an `allowFrontierFallback` flag (the **Cloud fallback** checkbox in
+Settings → Auxiliary Models → Slots):
+
+- **On (default for `compression` and `memoryDistillation`):** if no local/cheap
+  model produces output, the slot falls back to the main (cloud) model so quality
+  is preserved even without a local model.
+- **Off:** the slot will **never** send its content to the cloud model. When no
+  local model is available it uses a deterministic, fully-local summary instead.
+  Turn this off for **privacy** (keep conversation/memory content off the cloud)
+  or **hard cost control**.
+
+Set it per slot in the UI, or in `auxiliaryLlmSlotsJson`. Existing installs are
+migrated once so the two text slots keep their previous cloud-fallback behavior.
+
 ---
 
 ## Troubleshooting

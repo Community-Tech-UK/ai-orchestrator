@@ -4,7 +4,7 @@
  * Displays the current indexing progress with:
  * - Progress bar with percentage
  * - Current file being processed
- * - Status label (scanning/chunking/embedding/complete)
+ * - Status label (scanning/chunking/complete)
  * - Cancel button
  */
 
@@ -51,7 +51,7 @@ import type { IndexingProgress, IndexingStatus } from '../../../../shared/types/
         </span>
         @if (progress()?.totalChunks) {
           <span class="chunks-count">
-            {{ progress()?.embeddedChunks || 0 }} / {{ progress()?.totalChunks }} chunks embedded
+            {{ progress()?.totalChunks }} chunks
           </span>
         }
       </div>
@@ -121,11 +121,6 @@ import type { IndexingProgress, IndexingStatus } from '../../../../shared/types/
     .status-badge.chunking {
       background: rgba(168, 85, 247, 0.2);
       color: #a855f7;
-    }
-
-    .status-badge.embedding {
-      background: rgba(245, 158, 11, 0.2);
-      color: #f59e0b;
     }
 
     .status-badge.complete {
@@ -236,7 +231,7 @@ export class IndexingProgressComponent {
   /** Whether indexing is active */
   isActive = computed(() => {
     const status = this.progress()?.status;
-    return status === 'scanning' || status === 'chunking' || status === 'embedding';
+    return status === 'scanning' || status === 'chunking';
   });
 
   /** Progress percentage */
@@ -257,7 +252,6 @@ export class IndexingProgressComponent {
       idle: 'Idle',
       scanning: 'Scanning',
       chunking: 'Chunking',
-      embedding: 'Embedding',
       complete: 'Complete',
       error: 'Error',
       cancelled: 'Cancelled',

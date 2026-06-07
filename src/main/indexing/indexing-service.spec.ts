@@ -123,7 +123,6 @@ describe('CodebaseIndexingService', () => {
         totalFiles: number;
         processedFiles: number;
         totalChunks: number;
-        embeddedChunks: number;
         currentFile?: string;
         startedAt?: number;
         completedAt?: number;
@@ -137,7 +136,6 @@ describe('CodebaseIndexingService', () => {
         totalFiles: 0,
         processedFiles: 0,
         totalChunks: 0,
-        embeddedChunks: 0,
       };
 
       // Verify structure
@@ -154,7 +152,6 @@ describe('CodebaseIndexingService', () => {
         filesIndexed: number;
         chunksCreated: number;
         tokensProcessed: number;
-        embeddingsCreated: number;
         duration: number;
         errors: Array<{ file: string; error: string; recoverable: boolean }>;
       }
@@ -164,7 +161,6 @@ describe('CodebaseIndexingService', () => {
         filesIndexed: 0,
         chunksCreated: 0,
         tokensProcessed: 0,
-        embeddingsCreated: 0,
         duration: 0,
         errors: [],
       };

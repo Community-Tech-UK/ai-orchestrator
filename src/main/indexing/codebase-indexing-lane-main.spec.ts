@@ -90,14 +90,12 @@ describe('codebase indexing lane main entrypoint', () => {
             totalFiles: 10,
             processedFiles: 4,
             totalChunks: 12,
-            embeddedChunks: 0,
             currentFile: `${rootPath}/src/main.ts`,
           });
           return {
             filesIndexed: 10,
             chunksCreated: 30,
             tokensProcessed: 400,
-            embeddingsCreated: 30,
             duration: 12,
             errors: [],
           };
@@ -145,7 +143,6 @@ describe('codebase indexing lane main entrypoint', () => {
         filesIndexed: 10,
         chunksCreated: 30,
         tokensProcessed: 400,
-        embeddingsCreated: 30,
         duration: 12,
         errors: [],
         completedAt: expect.any(Number),
@@ -207,7 +204,6 @@ describe('codebase indexing lane main entrypoint', () => {
       filesIndexed: 2,
       chunksCreated: 4,
       tokensProcessed: 0,
-      embeddingsCreated: 0,
       duration: 1,
       errors: [],
     });
@@ -273,7 +269,6 @@ describe('codebase indexing lane main entrypoint', () => {
       filesIndexed: 2,
       chunksCreated: 4,
       tokensProcessed: 0,
-      embeddingsCreated: 0,
       duration: 1,
       errors: [],
     });

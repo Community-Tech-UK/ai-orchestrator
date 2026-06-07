@@ -3,7 +3,7 @@
  * Handles LLM service operations including streaming responses
  */
 
-import { ipcMain, BrowserWindow, IpcMainInvokeEvent } from 'electron';
+import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../shared/types/ipc.types';
 import { getLLMService, StreamChunk } from '../rlm/llm-service';
 import { getTokenCounter } from '../rlm/token-counter';
@@ -16,23 +16,13 @@ import {
   LLMTruncateTokensPayloadSchema,
   LLMSetConfigPayloadSchema,
 } from '@contracts/schemas/provider';
-
-/**
- * Get the main window for sending events
- */
-function getMainWindow(): BrowserWindow | null {
-  const windows = BrowserWindow.getAllWindows();
-  return windows.length > 0 ? windows[0] : null;
-}
+import { getMainEventBus } from '../event-bus/main-event-bus';
 
 /**
  * Send a streaming chunk to the renderer
  */
 function sendStreamChunk(chunk: StreamChunk): void {
-  const mainWindow = getMainWindow();
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send(IPC_CHANNELS.LLM_STREAM_CHUNK, chunk);
-  }
+  getMainEventBus().emitRendererEvent(IPC_CHANNELS.LLM_STREAM_CHUNK, chunk);
 }
 
 /**

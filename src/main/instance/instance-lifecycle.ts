@@ -1821,6 +1821,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           adapterGeneration: instance.adapterGeneration ?? 0,
           hasConversation,
           sessionResumeBlacklisted: instance.sessionResumeBlacklisted === true,
+          providerSessionPersisted: instance.providerSessionPersisted,
         });
         const canAttemptNativeResume =
           (recoveryPlan.kind === 'native-resume' || recoveryPlan.kind === 'provider-fork')

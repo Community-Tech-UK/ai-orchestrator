@@ -55,9 +55,7 @@ export function registerMcpHandlers(deps: {
 
   const broadcastMultiProviderState = async (): Promise<void> => {
     const state = await getCliMcpConfigService().getMultiProviderState();
-    deps.windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.MCP_MULTI_PROVIDER_STATE_CHANGED, state);
+    deps.windowManager.sendToRenderer(IPC_CHANNELS.MCP_MULTI_PROVIDER_STATE_CHANGED, state);
   };
 
   try {
@@ -74,37 +72,29 @@ export function registerMcpHandlers(deps: {
 
   // Set up event forwarding to renderer
   mcp.on('server:connected', (serverId) => {
-    deps.windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.MCP_SERVER_STATUS_CHANGED, {
+    deps.windowManager.sendToRenderer(IPC_CHANNELS.MCP_SERVER_STATUS_CHANGED, {
         serverId,
         status: 'connected'
-      });
+    });
   });
 
   mcp.on('server:disconnected', (serverId) => {
-    deps.windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.MCP_SERVER_STATUS_CHANGED, {
+    deps.windowManager.sendToRenderer(IPC_CHANNELS.MCP_SERVER_STATUS_CHANGED, {
         serverId,
         status: 'disconnected'
-      });
+    });
   });
 
   mcp.on('server:error', (serverId, error) => {
-    deps.windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.MCP_SERVER_STATUS_CHANGED, {
+    deps.windowManager.sendToRenderer(IPC_CHANNELS.MCP_SERVER_STATUS_CHANGED, {
         serverId,
         status: 'error',
         error
-      });
+    });
   });
 
   mcp.on('server:phase', (serverId, phase, phaseState, error) => {
-    deps.windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.MCP_SERVER_STATUS_CHANGED, {
+    deps.windowManager.sendToRenderer(IPC_CHANNELS.MCP_SERVER_STATUS_CHANGED, {
         serverId,
         status:
           phaseState === 'failed'
@@ -115,27 +105,21 @@ export function registerMcpHandlers(deps: {
         phase,
         phaseState,
         ...(error ? { error } : {}),
-      });
+    });
   });
 
   mcp.on('tools:updated', () => {
-    deps.windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.MCP_STATE_CHANGED, { type: 'tools' });
+    deps.windowManager.sendToRenderer(IPC_CHANNELS.MCP_STATE_CHANGED, { type: 'tools' });
   });
 
   mcp.on('resources:updated', () => {
-    deps.windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.MCP_STATE_CHANGED, {
+    deps.windowManager.sendToRenderer(IPC_CHANNELS.MCP_STATE_CHANGED, {
         type: 'resources'
-      });
+    });
   });
 
   mcp.on('prompts:updated', () => {
-    deps.windowManager
-      .getMainWindow()
-      ?.webContents.send(IPC_CHANNELS.MCP_STATE_CHANGED, { type: 'prompts' });
+    deps.windowManager.sendToRenderer(IPC_CHANNELS.MCP_STATE_CHANGED, { type: 'prompts' });
   });
 
   // Get full MCP state

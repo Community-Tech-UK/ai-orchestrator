@@ -23,6 +23,7 @@ import {
   getWorkerNodeConnectionServer,
   getWorkerNodeHealth,
 } from './remote-node';
+import { getThinClientWsServer } from './event-bus/thin-client-ws-server';
 import { teardownAll } from './bootstrap';
 import { BaseCliAdapter } from './cli/adapters/base-cli-adapter';
 import { runCleanupFunctions } from './util/cleanup-registry';
@@ -33,6 +34,7 @@ import { createInitializationSteps } from './app/initialization-steps';
 import { shutdownTracer } from './observability/otel-setup';
 import { shutdownMetrics } from './observability/otel-metrics';
 import { getChatServiceIfInitialized } from './chats';
+import { shutdownCliSpawnWorkerGateway } from './cli/spawn-worker/cli-spawn-worker-gateway';
 
 // Register built-in provider adapters once at startup so the instance
 // manager (and future consumers) can look them up by ProviderName.
@@ -203,6 +205,7 @@ class AIOrchestratorApp {
     logger.info('Cleaning up');
     try { getWorkerNodeHealth().stopAll(); } catch { /* best effort */ }
     try { getWorkerNodeConnectionServer().stop(); } catch { /* best effort */ }
+    try { await getThinClientWsServer().stop(); } catch { /* best effort */ }
 
     // CRITICAL: await terminateAll so every instance is archived to history
     // before the process exits. Without this, conversations are lost on quit.
@@ -215,6 +218,7 @@ class AIOrchestratorApp {
     await shutdownMetrics();
     // Session state already saved synchronously in cleanupSync()
     await runCleanupFunctions();
+    await shutdownCliSpawnWorkerGateway();
     // Kill any orphaned child processes that were not cleaned up by terminateAll.
     // Use the escalating drain (SIGTERM → grace → SIGKILL) so a wedged orphan
     // CLI can't survive quit; the sync best-effort variant is reserved for the

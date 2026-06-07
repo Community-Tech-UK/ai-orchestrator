@@ -5,11 +5,18 @@ import {
 } from '../cli/adapters/adapter-factory';
 import type { CliType } from '../cli/cli-detection';
 import type { ExecutionLocation } from '../../shared/types/worker-node.types';
+import type { AppSettings } from '../../shared/types/settings.types';
 import type {
   AdapterRuntimeCapabilities,
   InterruptResult,
   ResumeAttemptResult,
 } from '../cli/adapters/base-cli-adapter';
+import { getSettingsManager } from '../core/config/settings-manager';
+import { CliAdapterWorkerProxy } from '../cli/spawn-worker/cli-adapter-worker-proxy';
+import {
+  getCliSpawnWorkerGateway,
+  type CliSpawnGatewayPort,
+} from '../cli/spawn-worker/cli-spawn-worker-gateway';
 import {
   getProviderRuntimeRegistry,
   runtimeDescriptorForSpawn,
@@ -34,6 +41,8 @@ export type ProviderRuntimeAdapterCreator = (input: ProviderRuntimeStartInput) =
 export interface ProviderRuntimeServiceDeps {
   registry?: ProviderRuntimeRegistry;
   createAdapter?: ProviderRuntimeAdapterCreator;
+  settings?: Partial<Pick<ReturnType<typeof getSettingsManager>, 'get'>>;
+  spawnWorkerGateway?: CliSpawnGatewayPort;
 }
 
 const DEFAULT_RUNTIME_CAPABILITIES: AdapterRuntimeCapabilities = {
@@ -48,16 +57,24 @@ const DEFAULT_RUNTIME_CAPABILITIES: AdapterRuntimeCapabilities = {
 export class ProviderRuntimeService implements ProviderRuntimeContract {
   private readonly registry: ProviderRuntimeRegistry;
   private readonly createAdapterFn: ProviderRuntimeAdapterCreator;
+  private readonly settings?: Partial<Pick<ReturnType<typeof getSettingsManager>, 'get'>>;
+  private readonly spawnWorkerGateway?: CliSpawnGatewayPort;
+  private readonly hasInjectedCreateAdapter: boolean;
 
   constructor(deps: ProviderRuntimeServiceDeps = {}) {
     this.registry = deps.registry ?? getProviderRuntimeRegistry();
+    this.hasInjectedCreateAdapter = Boolean(deps.createAdapter);
     this.createAdapterFn = deps.createAdapter
       ?? ((input) => createCliAdapter(input.cliType, input.options, input.executionLocation));
+    this.settings = deps.settings;
+    this.spawnWorkerGateway = deps.spawnWorkerGateway;
   }
 
   createAdapter(input: ProviderRuntimeStartInput): CliAdapter {
     try {
-      const adapter = this.createAdapterFn(input);
+      const adapter = this.shouldUseSpawnWorker(input)
+        ? this.createSpawnWorkerProxy(input)
+        : this.createAdapterFn(input);
       this.registry.recordAvailable({
         provider: input.cliType,
         runtime: runtimeDescriptorForSpawn(
@@ -83,6 +100,43 @@ export class ProviderRuntimeService implements ProviderRuntimeContract {
       });
       throw error;
     }
+  }
+
+  private shouldUseSpawnWorker(input: ProviderRuntimeStartInput): boolean {
+    if (this.readSpawnWorkerSetting() !== true) {
+      return false;
+    }
+    if (input.executionLocation?.type === 'remote') {
+      return false;
+    }
+    if (input.options.launchMode === 'interactive') {
+      return false;
+    }
+    return input.cliType === 'claude' || input.cliType === 'gemini';
+  }
+
+  private readSpawnWorkerSetting(): boolean {
+    try {
+      if (!this.settings && this.hasInjectedCreateAdapter) {
+        return false;
+      }
+      const settings = this.settings ?? getSettingsManager();
+      return settings.get?.('enableSpawnWorkerOffload' as keyof AppSettings) === true;
+    } catch {
+      return false;
+    }
+  }
+
+  private createSpawnWorkerProxy(input: ProviderRuntimeStartInput): CliAdapter {
+    if (input.cliType !== 'claude' && input.cliType !== 'gemini') {
+      return this.createAdapterFn(input);
+    }
+    return new CliAdapterWorkerProxy({
+      cliType: input.cliType,
+      instanceId: input.options.instanceId ?? `${input.cliType}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      options: input.options,
+      gateway: this.spawnWorkerGateway ?? getCliSpawnWorkerGateway(),
+    }) as CliAdapter;
   }
 
   getCapabilities(adapter?: CliAdapter): AdapterRuntimeCapabilities {

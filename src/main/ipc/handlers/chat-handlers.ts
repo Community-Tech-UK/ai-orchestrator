@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron';
+import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
@@ -17,6 +17,7 @@ import {
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getChatService } from '../../chats';
+import { getMainEventBus } from '../../event-bus/main-event-bus';
 
 let chatEventForwardingRegistered = false;
 
@@ -147,11 +148,9 @@ function registerChatEventForwarding(instanceManager: InstanceManager): void {
   }
   chatEventForwardingRegistered = true;
   const service = getChatService({ instanceManager });
+  const eventBus = getMainEventBus();
   service.events.on('chat:event', (payload) => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (window.isDestroyed()) continue;
-      window.webContents.send(IPC_CHANNELS.CHAT_EVENT, payload);
-    }
+    eventBus.emitRendererEvent(IPC_CHANNELS.CHAT_EVENT, payload);
   });
 }
 

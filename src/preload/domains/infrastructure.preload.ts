@@ -35,6 +35,9 @@ export function createInfrastructureDomain(
     getScratchDirectory: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.APP_GET_SCRATCH_DIRECTORY);
     },
+    stateResync: (): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.STATE_RESYNC, _withAuth());
+    },
     onStartupCapabilities: (callback: (data: unknown) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, data: unknown) => callback(data);
       ipcRenderer.on(ch.APP_STARTUP_CAPABILITIES, handler);

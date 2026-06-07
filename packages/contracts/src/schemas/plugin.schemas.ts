@@ -73,6 +73,21 @@ export const PluginSlotSchema = z.enum([
 
 export type PluginSlot = z.infer<typeof PluginSlotSchema>;
 
+export const PluginCapabilitySchema = z.enum([
+  'network',
+  'filesystem.read',
+  'filesystem.write',
+  'spawn.process',
+  'manager.read',
+  'manager.write',
+]);
+
+export type PluginCapability = z.infer<typeof PluginCapabilitySchema>;
+
+export const PluginIsolationSchema = z.enum(['legacy', 'worker']);
+
+export type PluginIsolation = z.infer<typeof PluginIsolationSchema>;
+
 export const PluginPackageSourceSchema = z.object({
   type: z.enum(['file', 'directory', 'zip', 'url']),
   value: z.string().min(1).max(5000),
@@ -106,6 +121,8 @@ export const PluginManifestSchema = z.object({
   author: z.string().max(200).optional(),
   slot: PluginSlotSchema.optional(),
   hooks: z.array(PluginHookEventSchema).optional(),
+  isolation: PluginIsolationSchema.optional(),
+  capabilities: z.array(PluginCapabilitySchema).max(10).optional(),
   config: z.object({
     schema: z.record(z.string(), z.unknown()),
   }).optional(),

@@ -59,14 +59,9 @@ export function registerCliVerificationHandlers(
   const cliDetection = CliDetectionService.getInstance();
   const coordinator = getCliVerificationCoordinator();
 
-  // Helper to safely get the main window and send events
+  // Route verification push events through the central thin-client event bus.
   const sendToRenderer = (channel: string, data: unknown): void => {
-    const mainWindow = windowManager.getMainWindow();
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(channel, data);
-    } else {
-      logger.warn('Cannot send to renderer: no main window available', { channel });
-    }
+    windowManager.sendToRenderer(channel, data);
   };
 
   // ============================================

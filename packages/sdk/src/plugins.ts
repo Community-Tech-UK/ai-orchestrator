@@ -27,6 +27,16 @@ export type PluginSlot =
   | 'notifier'
   | 'telemetry_exporter';
 
+export type PluginCapability =
+  | 'network'
+  | 'filesystem.read'
+  | 'filesystem.write'
+  | 'spawn.process'
+  | 'manager.read'
+  | 'manager.write';
+
+export type PluginIsolation = 'legacy' | 'worker';
+
 export type PluginLoadPhase =
   | 'manifest_load'
   | 'manifest_validation'
@@ -319,7 +329,23 @@ export interface PluginManifest {
   author?: string;
   slot?: PluginSlot;
   hooks?: string[];
+  isolation?: PluginIsolation;
+  capabilities?: PluginCapability[];
   config?: {
     schema: Record<string, unknown>; // JSON Schema for plugin config
+  };
+  source?: {
+    type: 'file' | 'directory' | 'zip' | 'url';
+    value: string;
+    checksum?: string;
+  };
+  dependencies?: {
+    name: string;
+    version?: string;
+    optional?: boolean;
+  }[];
+  compatibility?: {
+    orchestrator?: string;
+    providers?: string[];
   };
 }

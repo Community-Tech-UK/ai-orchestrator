@@ -50,10 +50,7 @@ export function registerCodebaseHandlers(windowManager: WindowManager): void {
 
   // Helper to safely send events to renderer
   const sendToRenderer = (channel: string, data: unknown): void => {
-    const mainWindow = windowManager.getMainWindow();
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(channel, data);
-    }
+    windowManager.sendToRenderer(channel, data);
   };
 
   // Forward progress events to renderer

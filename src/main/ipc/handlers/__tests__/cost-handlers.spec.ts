@@ -32,6 +32,7 @@ function setup(): { tracker: CostTracker; sent: Sent[] } {
     getMainWindow: () => ({
       webContents: { send: (channel: string, data: unknown) => sent.push({ channel, data }) },
     }),
+    sendToRenderer: (channel: string, data: unknown) => sent.push({ channel, data }),
   };
   registerCostHandlers({ windowManager: windowManager as never });
   return { tracker: holder.tracker!, sent };

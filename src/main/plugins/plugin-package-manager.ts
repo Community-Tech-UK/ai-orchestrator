@@ -159,6 +159,7 @@ export class PluginPackageManager {
 
     await fs.rm(tempInstallPath, { recursive: true, force: true });
     await fs.cp(stagedPath, tempInstallPath, { recursive: true });
+    await this.ensureWorkerIsolationDefault(tempInstallPath);
 
     try {
       if (hadExisting) {
@@ -175,6 +176,17 @@ export class PluginPackageManager {
       }
       throw error;
     }
+  }
+
+  private async ensureWorkerIsolationDefault(pluginPath: string): Promise<void> {
+    const manifestPath = path.join(pluginPath, '.codex-plugin', 'plugin.json');
+    const raw = await fs.readFile(manifestPath, 'utf-8');
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (parsed['isolation'] !== undefined) {
+      return;
+    }
+    parsed['isolation'] = 'worker';
+    await fs.writeFile(manifestPath, `${JSON.stringify(parsed, null, 2)}\n`, 'utf-8');
   }
 
   private async clearRuntimePluginCache(): Promise<void> {

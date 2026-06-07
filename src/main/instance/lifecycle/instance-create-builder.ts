@@ -26,6 +26,14 @@ export function buildInstanceRecord(
 ): Instance {
   const sessionId = config.sessionId || generateId();
   const historyThreadId = config.historyThreadId || sessionId;
+  // A genuinely fresh session (not a resume, no restored transcript) has not
+  // been persisted to disk by the provider CLI yet. Mark it so an interrupt /
+  // steer during the first turn replays into a fresh session instead of
+  // attempting a doomed `--resume` that the CLI rejects with "No conversation
+  // found with session ID". Restored/resumed sessions stay `undefined`
+  // (resume allowed) because they demonstrably existed in a prior run.
+  const isFreshSession =
+    !config.resume && !(config.initialOutputBuffer && config.initialOutputBuffer.length > 0);
   const contextInheritance = resolveContextInheritance(config);
   const parentContext = resolveParentContext(config, resolvedAgent, contextInheritance, options);
   const now = options.now?.() ?? Date.now();
@@ -70,6 +78,7 @@ export function buildInstanceRecord(
     processId: null,
     providerSessionId: sessionId,
     sessionId,
+    providerSessionPersisted: isFreshSession ? false : undefined,
     restartEpoch: 0,
     adapterGeneration: 0,
     workingDirectory: parentContext.workingDirectory,

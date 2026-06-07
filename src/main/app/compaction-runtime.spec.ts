@@ -53,6 +53,62 @@ describe('setupCompactionCoordinator', () => {
     expect(sendInput).not.toHaveBeenCalled();
   });
 
+  it('resets renderer context usage after successful native compaction when no provider context event follows', async () => {
+    const compactContext = vi.fn(async () => true);
+    const instance = {
+      id: 'inst-1',
+      status: 'busy',
+      contextUsage: {
+        used: 188_000,
+        total: 200_000,
+        percentage: 94,
+        cumulativeTokens: 500_000,
+        source: 'provider-usage',
+      },
+      outputBuffer: [],
+    };
+    const updateInstanceStatus = vi.fn();
+    const emitOutputMessage = vi.fn();
+
+    const instanceManager = {
+      getAdapterRuntimeCapabilities: vi.fn(() => ({ supportsNativeCompaction: true })),
+      getAdapter: vi.fn(() => ({ compactContext })),
+      getInstance: vi.fn(() => instance),
+      sendInput: vi.fn(),
+      emitOutputMessage,
+      updateInstanceStatus,
+    } as unknown as InstanceManager;
+
+    setupCompactionCoordinator(instanceManager, makeWindowManager());
+    const coordinator = CompactionCoordinator.getInstance();
+
+    coordinator.setAutoCompact(false);
+    coordinator.onContextUpdate('inst-1', instance.contextUsage);
+    const result = await coordinator.compactInstance('inst-1');
+
+    expect(result.success).toBe(true);
+    expect(instance.contextUsage).toMatchObject({
+      used: 0,
+      total: 200_000,
+      percentage: 0,
+      source: 'post-compaction-reset',
+      isEstimated: true,
+    });
+    expect(updateInstanceStatus).toHaveBeenCalledWith('inst-1', 'busy', {
+      reason: 'context-compacted',
+      method: 'native',
+    });
+    expect(emitOutputMessage).toHaveBeenCalledWith(
+      'inst-1',
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          previousUsage: expect.objectContaining({ percentage: 94 }),
+          newUsage: expect.objectContaining({ percentage: 0 }),
+        }),
+      }),
+    );
+  });
+
   it('does NOT fall back to sending /compact as user text when no compactContext exists', async () => {
     // Regression: the runtime used to call `adapter.sendInput("/compact")` in
     // this case. For Claude CLI in `--input-format stream-json` mode that text

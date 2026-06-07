@@ -5,6 +5,7 @@
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
 import type { StartupCapabilityReport } from '../../../../../shared/types/startup-capability.types';
+import type { StateSyncSnapshot } from '../../../../../shared/types/thin-client-event.types';
 
 @Injectable({ providedIn: 'root' })
 export class AppIpcService {
@@ -45,6 +46,11 @@ export class AppIpcService {
     if (!this.api) return null;
     const response = await this.api.getStartupCapabilities();
     return response.success ? (response.data as StartupCapabilityReport) : null;
+  }
+
+  async stateResync(): Promise<IpcResponse<StateSyncSnapshot>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.stateResync() as Promise<IpcResponse<StateSyncSnapshot>>;
   }
 
   onStartupCapabilities(callback: (report: StartupCapabilityReport) => void): () => void {

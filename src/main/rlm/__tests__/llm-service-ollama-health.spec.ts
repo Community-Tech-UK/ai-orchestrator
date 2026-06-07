@@ -71,6 +71,45 @@ describe('LLMService.summarize() — auxiliary routing', () => {
     // generate should have been called once per summarize() invocation
     expect(auxMockControls.generate).toHaveBeenCalledTimes(2);
   });
+
+  it('uses a local fallback (never the frontier model) when aux falls back and allowFrontierFallback is false', async () => {
+    auxMockControls.generate.mockResolvedValue({
+      text: '',
+      decision: { source: 'fallback' as const, provider: 'local-fallback' as const, slot: 'compression', reason: 'no local model', allowFrontierFallback: false },
+    });
+
+    const { getLLMService } = await import('../llm-service');
+    const service = getLLMService();
+    // Spy on the private frontier call — it must NOT be invoked.
+    const frontierSpy = vi.spyOn(service as unknown as { generateCompletion: (s: string, u: string) => Promise<string> }, 'generateCompletion');
+
+    const events: unknown[] = [];
+    service.on('summarize:complete', (ev) => events.push(ev));
+
+    const result = await service.summarize({ requestId: 'r-nf', content: 'sensitive content to keep local', targetTokens: 50, preserveKeyPoints: false });
+
+    expect(frontierSpy).not.toHaveBeenCalled();
+    expect(typeof result).toBe('string');
+    expect(events).toHaveLength(1); // still emits summarize:complete
+  });
+
+  it('escalates to the frontier model when aux falls back and allowFrontierFallback is true', async () => {
+    auxMockControls.generate.mockResolvedValue({
+      text: '',
+      decision: { source: 'fallback' as const, provider: 'local-fallback' as const, slot: 'compression', reason: 'no local model', allowFrontierFallback: true },
+    });
+
+    const { getLLMService } = await import('../llm-service');
+    const service = getLLMService();
+    const frontierSpy = vi
+      .spyOn(service as unknown as { generateCompletion: (s: string, u: string) => Promise<string> }, 'generateCompletion')
+      .mockResolvedValue('frontier summary');
+
+    const result = await service.summarize({ requestId: 'r-ff', content: 'content', targetTokens: 50, preserveKeyPoints: false });
+
+    expect(frontierSpy).toHaveBeenCalledTimes(1);
+    expect(result).toBe('frontier summary');
+  });
 });
 
 describe('LLMService Ollama health checks', () => {

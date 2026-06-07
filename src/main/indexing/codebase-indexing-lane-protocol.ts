@@ -13,7 +13,6 @@ export interface CodebaseIndexingLaneResult {
   filesIndexed: number;
   chunksCreated: number;
   tokensProcessed: number;
-  embeddingsCreated: number;
   duration: number;
   errors: IndexingError[];
   completedAt: number;

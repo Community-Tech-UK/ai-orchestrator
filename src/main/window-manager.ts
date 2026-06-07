@@ -10,6 +10,8 @@ import * as path from 'path';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { getLogger } from './logging/logger';
 import { getSettingsManager } from './core/config/settings-manager';
+import { ElectronWindowTransport } from './event-bus/electron-window-transport';
+import { getMainEventBus, type MainEventBus } from './event-bus/main-event-bus';
 
 const logger = getLogger('WindowManager');
 const SAMPLE_DURATION_SECONDS = 5;
@@ -19,9 +21,14 @@ export class WindowManager {
   private mainWindow: BrowserWindow | null = null;
   private isDev: boolean;
   private sampleCaptureInFlight = new Set<number>();
+  private readonly mainEventBus: MainEventBus;
+  private readonly electronWindowTransport: ElectronWindowTransport;
 
   constructor() {
     this.isDev = process.env['NODE_ENV'] === 'development' || !app.isPackaged;
+    this.mainEventBus = getMainEventBus();
+    this.electronWindowTransport = new ElectronWindowTransport(() => this.mainWindow?.webContents);
+    this.mainEventBus.addTransport(this.electronWindowTransport);
   }
 
   async createMainWindow(): Promise<BrowserWindow> {
@@ -389,7 +396,7 @@ export class WindowManager {
             label: 'Settings…',
             accelerator: 'Cmd+,',
             click: () => {
-              this.mainWindow?.webContents.send(IPC_CHANNELS.MENU_OPEN_SETTINGS);
+              this.sendToRenderer(IPC_CHANNELS.MENU_OPEN_SETTINGS);
             }
           },
           { type: 'separator' },
@@ -409,7 +416,7 @@ export class WindowManager {
             label: 'New Instance',
             accelerator: 'CmdOrCtrl+N',
             click: () => {
-              this.mainWindow?.webContents.send(IPC_CHANNELS.MENU_NEW_INSTANCE);
+              this.sendToRenderer(IPC_CHANNELS.MENU_NEW_INSTANCE);
             }
           },
           { type: 'separator' },
@@ -462,9 +469,11 @@ export class WindowManager {
   }
 
   sendToRenderer(channel: string, ...args: unknown[]): void {
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send(channel, ...args);
-    }
+    this.mainEventBus.emitRendererEvent(channel, ...args);
+  }
+
+  getRendererSnapshotSeq(): number {
+    return this.mainEventBus.getSnapshotSeqForTransport(this.electronWindowTransport);
   }
 
   isMainWindowFocused(): boolean {

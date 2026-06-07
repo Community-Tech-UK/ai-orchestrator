@@ -18,6 +18,7 @@ type IpcHandler = (event: unknown, payload?: unknown) => Promise<unknown>;
 const handlers = new Map<string, IpcHandler>();
 
 const mockWebContentsSend = vi.fn();
+const mockSendToRenderer = vi.fn();
 const mockGetMainWindow = vi.fn().mockReturnValue({
   webContents: { send: mockWebContentsSend },
 });
@@ -126,6 +127,7 @@ async function invoke(
 function makeMockWindowManager(): WindowManager {
   return {
     getMainWindow: mockGetMainWindow,
+    sendToRenderer: mockSendToRenderer,
   } as unknown as WindowManager;
 }
 
@@ -654,7 +656,7 @@ describe('mcp-handlers', () => {
       const callback = serverConnectedCall![1] as (serverId: string) => void;
       callback('server-1');
 
-      expect(mockWebContentsSend).toHaveBeenCalledWith(
+      expect(mockSendToRenderer).toHaveBeenCalledWith(
         IPC_CHANNELS.MCP_SERVER_STATUS_CHANGED,
         { serverId: 'server-1', status: 'connected' }
       );
@@ -667,7 +669,7 @@ describe('mcp-handlers', () => {
       const callback = call![1] as (serverId: string) => void;
       callback('server-2');
 
-      expect(mockWebContentsSend).toHaveBeenCalledWith(
+      expect(mockSendToRenderer).toHaveBeenCalledWith(
         IPC_CHANNELS.MCP_SERVER_STATUS_CHANGED,
         { serverId: 'server-2', status: 'disconnected' }
       );
@@ -680,7 +682,7 @@ describe('mcp-handlers', () => {
       const callback = call![1] as (serverId: string, error: string) => void;
       callback('server-3', 'something went wrong');
 
-      expect(mockWebContentsSend).toHaveBeenCalledWith(
+      expect(mockSendToRenderer).toHaveBeenCalledWith(
         IPC_CHANNELS.MCP_SERVER_STATUS_CHANGED,
         { serverId: 'server-3', status: 'error', error: 'something went wrong' }
       );
@@ -693,7 +695,7 @@ describe('mcp-handlers', () => {
       const callback = call![1] as () => void;
       callback();
 
-      expect(mockWebContentsSend).toHaveBeenCalledWith(
+      expect(mockSendToRenderer).toHaveBeenCalledWith(
         IPC_CHANNELS.MCP_STATE_CHANGED,
         { type: 'tools' }
       );

@@ -90,7 +90,6 @@ function makeFakes(): Fakes {
         filesIndexed: stats.filesIndexed ?? 5,
         chunksCreated: stats.chunksCreated ?? 25,
         tokensProcessed: stats.tokensProcessed ?? 0,
-        embeddingsCreated: stats.embeddingsCreated ?? 25,
         duration: stats.duration ?? 1,
         errors: stats.errors ?? [],
       });
@@ -375,7 +374,6 @@ describe('CodebaseIndexingAutoCoordinator', () => {
       totalFiles: 10,
       processedFiles: 4,
       totalChunks: 12,
-      embeddedChunks: 0,
       rootPath: rootA,
     });
 

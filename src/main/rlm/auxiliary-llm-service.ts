@@ -23,6 +23,7 @@ import type {
   AuxiliaryLlmDecision,
   AuxiliaryLlmModelInfo,
 } from '../../shared/types/auxiliary-llm.types';
+import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import {
   probeOllamaEndpoint,
   listOllamaModels,
@@ -40,7 +41,14 @@ import { getLogger } from '../logging/logger';
 
 const AUXILIARY_MODEL_GENERATE_METHOD = 'auxiliaryModel.generate';
 
-function isNodeConnectedLazy(nodeId: string): boolean {
+// ─── Remote-node access seams ───────────────────────────────────────────────
+// These are lazy-required (not top-level imported) because worker-node-connection
+// and service-rpc-client transitively import electron via remote-auth →
+// settings-manager, which crashes in worker_thread contexts. The indirection
+// also gives tests an injection point (vitest cannot mock a native require()).
+// See src/main/instance/__tests__/context-worker-import-isolation.spec.ts.
+
+function defaultIsNodeConnected(nodeId: string): boolean {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getWorkerNodeConnectionServer } = require('../remote-node/worker-node-connection') as typeof import('../remote-node/worker-node-connection');
@@ -50,7 +58,7 @@ function isNodeConnectedLazy(nodeId: string): boolean {
   }
 }
 
-async function sendServiceRpcLazy<T>(
+async function defaultSendServiceRpc<T>(
   nodeId: string,
   method: string,
   params: unknown,
@@ -59,6 +67,43 @@ async function sendServiceRpcLazy<T>(
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { sendServiceRpc } = require('../remote-node/service-rpc-client') as typeof import('../remote-node/service-rpc-client');
   return sendServiceRpc<T>(nodeId, method, params, timeoutMs);
+}
+
+/**
+ * Connected worker nodes (with their reported capabilities). Returns an empty
+ * list if the registry cannot be loaded (e.g. worker context).
+ */
+function defaultConnectedWorkerNodes(): WorkerNodeInfo[] {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getWorkerNodeRegistry } = require('../remote-node/worker-node-registry') as typeof import('../remote-node/worker-node-registry');
+    return getWorkerNodeRegistry().getAllNodes().filter((n) => n.status === 'connected');
+  } catch {
+    return [];
+  }
+}
+
+let isNodeConnectedLazy = defaultIsNodeConnected;
+let sendServiceRpcLazy: <T>(nodeId: string, method: string, params: unknown, timeoutMs: number) => Promise<T> =
+  defaultSendServiceRpc;
+let getConnectedWorkerNodesLazy = defaultConnectedWorkerNodes;
+
+/** Test-only: override the remote-node access seams. */
+export function __setAuxiliaryRemoteHooksForTesting(hooks: {
+  isNodeConnected?: (nodeId: string) => boolean;
+  sendServiceRpc?: <T>(nodeId: string, method: string, params: unknown, timeoutMs: number) => Promise<T>;
+  connectedWorkerNodes?: () => WorkerNodeInfo[];
+}): void {
+  if (hooks.isNodeConnected) isNodeConnectedLazy = hooks.isNodeConnected;
+  if (hooks.sendServiceRpc) sendServiceRpcLazy = hooks.sendServiceRpc;
+  if (hooks.connectedWorkerNodes) getConnectedWorkerNodesLazy = hooks.connectedWorkerNodes;
+}
+
+/** Test-only: restore the production lazy-require seams. */
+export function __resetAuxiliaryRemoteHooksForTesting(): void {
+  isNodeConnectedLazy = defaultIsNodeConnected;
+  sendServiceRpcLazy = defaultSendServiceRpc;
+  getConnectedWorkerNodesLazy = defaultConnectedWorkerNodes;
 }
 
 const logger = getLogger('AuxiliaryLlmService');
@@ -71,6 +116,15 @@ const PROBE_TIMEOUT_MS = 5_000;
 
 const JSON_FALLBACK_TEXT =
   '{"score":0,"confidence":0,"reason":"No auxiliary model available"}';
+
+/** Compact, stable `host:port` key for an endpoint URL (falls back to the raw value). */
+function hostKeyFromUrl(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl;
+  }
+}
 
 /** Slots that return empty string (not JSON) on fallback. */
 const EMPTY_FALLBACK_SLOTS = new Set<AuxiliaryLlmSlot>(['compression', 'memoryDistillation']);
@@ -190,6 +244,24 @@ export class AuxiliaryLlmService extends EventEmitter {
       candidates.push(await this.probeCandidate(endpoint));
     }
 
+    // Surface local models reported by connected worker nodes. This data comes
+    // from the heartbeat — we never dial the worker's 127.0.0.1 directly;
+    // generation is proxied through the worker-agent RPC channel.
+    const persistedIds = new Set(this.endpoints.map((ep) => ep.id));
+    for (const wc of this.workerNodeEndpoints()) {
+      if (persistedIds.has(wc.endpoint.id)) continue; // avoid duplicating a persisted entry
+      candidates.push({
+        endpoint: wc.endpoint,
+        models: wc.models,
+        healthy: wc.healthy,
+        reason: wc.healthy
+          ? wc.models.length === 0
+            ? 'No models reported'
+            : undefined
+          : 'Worker Ollama unhealthy',
+      });
+    }
+
     return candidates;
   }
 
@@ -200,14 +272,17 @@ export class AuxiliaryLlmService extends EventEmitter {
     systemPrompt: string,
     userPrompt: string
   ): Promise<{ text: string; decision: AuxiliaryLlmDecision }> {
-    // Check service-level disabled / routing-mode off
+    // Check service-level disabled / routing-mode off. The user is not relying
+    // on local routing here, so the caller should behave normally → allow
+    // frontier fallback.
     if (!this.enabled || this.routingMode === 'off') {
-      return this.buildFallback(slot, 'Service disabled or routing mode is off');
+      return this.buildFallback(slot, 'Service disabled or routing mode is off', true);
     }
 
     const slotConfig = this.slots[slot];
     if (!slotConfig?.enabled) {
-      return this.buildFallback(slot, 'Slot is disabled');
+      // Slot explicitly turned off → normal (frontier-allowed) behavior.
+      return this.buildFallback(slot, 'Slot is disabled', true);
     }
 
     // Truncate prompt if needed
@@ -216,7 +291,9 @@ export class AuxiliaryLlmService extends EventEmitter {
     // Resolve endpoint + model according to routing mode
     const resolved = await this.resolveEndpointForSlot(slot, slotConfig);
     if (!resolved) {
-      return this.buildFallback(slot, 'No healthy auxiliary endpoint/model available');
+      // Slot was enabled and we tried local routing but found nothing healthy —
+      // honor the slot's frontier-fallback policy.
+      return this.buildFallback(slot, 'No healthy auxiliary endpoint/model available', slotConfig.allowFrontierFallback);
     }
 
     const { endpoint, model } = resolved;
@@ -237,12 +314,13 @@ export class AuxiliaryLlmService extends EventEmitter {
         model,
         source,
         reason: `Routed via ${this.routingMode} to ${endpoint.label}`,
+        allowFrontierFallback: slotConfig.allowFrontierFallback,
       };
       return { text, decision };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.warn(`Auxiliary generation failed for slot "${slot}": ${message}`);
-      return this.buildFallback(slot, `Generation error: ${message}`);
+      return this.buildFallback(slot, `Generation error: ${message}`, slotConfig.allowFrontierFallback);
     }
   }
 
@@ -293,7 +371,9 @@ export class AuxiliaryLlmService extends EventEmitter {
       enabled: true,
     };
 
-    const ordered = [localOllama, ...this.enabledEndpoints()];
+    // local-first prefers local models: localhost, then worker-local Ollama,
+    // then any configured endpoints (which may include cheap cloud).
+    const ordered = [localOllama, ...this.autoWorkerEndpoints(), ...this.enabledEndpoints()];
 
     for (const ep of ordered) {
       const result = await this.tryEndpointForSlot(ep, slotConfig);
@@ -324,7 +404,7 @@ export class AuxiliaryLlmService extends EventEmitter {
       (ep) => ep.source === 'localhost' || ep.provider === 'ollama'
     );
 
-    const ordered = [...cheapCloud, ...local, localOllama];
+    const ordered = [...cheapCloud, ...local, ...this.autoWorkerEndpoints(), localOllama];
     for (const ep of ordered) {
       const result = await this.tryEndpointForSlot(ep, slotConfig);
       if (result) return result;
@@ -382,6 +462,10 @@ export class AuxiliaryLlmService extends EventEmitter {
 
   private async listModels(ep: AuxiliaryLlmEndpointConfig): Promise<AuxiliaryLlmModelInfo[]> {
     try {
+      if (ep.source === 'worker-node') {
+        // Never dial the worker's localhost — use the models reported on heartbeat.
+        return this.workerNodeModels(ep);
+      }
       if (ep.provider === 'ollama') {
         return await listOllamaModels(ep.baseUrl, PROBE_TIMEOUT_MS);
       }
@@ -390,6 +474,25 @@ export class AuxiliaryLlmService extends EventEmitter {
     } catch {
       return [];
     }
+  }
+
+  /** Models a connected worker reported for the given endpoint (no direct dial). */
+  private workerNodeModels(ep: AuxiliaryLlmEndpointConfig): AuxiliaryLlmModelInfo[] {
+    if (!ep.workerNodeId) return [];
+    for (const node of getConnectedWorkerNodesLazy()) {
+      if (node.id !== ep.workerNodeId) continue;
+      for (const cap of node.capabilities.localModelEndpoints ?? []) {
+        if (cap.provider === ep.provider && cap.baseUrl === ep.baseUrl) {
+          return cap.models.map<AuxiliaryLlmModelInfo>((m) => ({
+            id: m,
+            name: m,
+            provider: cap.provider,
+            endpointId: ep.id,
+          }));
+        }
+      }
+    }
+    return [];
   }
 
   // ─── Private: actual HTTP call ──────────────────────────────────────────────
@@ -490,7 +593,8 @@ export class AuxiliaryLlmService extends EventEmitter {
 
   private buildFallback(
     slot: AuxiliaryLlmSlot,
-    reason: string
+    reason: string,
+    allowFrontierFallback: boolean
   ): { text: string; decision: AuxiliaryLlmDecision } {
     const text = EMPTY_FALLBACK_SLOTS.has(slot) ? '' : JSON_FALLBACK_TEXT;
     const decision: AuxiliaryLlmDecision = {
@@ -498,6 +602,7 @@ export class AuxiliaryLlmService extends EventEmitter {
       provider: 'local-fallback',
       source: 'fallback',
       reason,
+      allowFrontierFallback,
     };
     return { text, decision };
   }
@@ -510,6 +615,60 @@ export class AuxiliaryLlmService extends EventEmitter {
         ep.enabled &&
         (this.allowRemoteWorkerModels || ep.source !== 'worker-node')
     );
+  }
+
+  /**
+   * Build auxiliary endpoint configs (with reported models + health) from the
+   * local models advertised by connected worker nodes. Gated by
+   * allowRemoteWorkerModels. The baseUrl is worker-local and is NEVER dialed
+   * directly by the coordinator — listing and generation for these endpoints go
+   * through the worker-agent RPC channel.
+   */
+  private workerNodeEndpoints(): Array<{
+    endpoint: AuxiliaryLlmEndpointConfig;
+    models: AuxiliaryLlmModelInfo[];
+    healthy: boolean;
+  }> {
+    if (!this.allowRemoteWorkerModels) return [];
+
+    const result: Array<{
+      endpoint: AuxiliaryLlmEndpointConfig;
+      models: AuxiliaryLlmModelInfo[];
+      healthy: boolean;
+    }> = [];
+    for (const node of getConnectedWorkerNodesLazy()) {
+      for (const cap of node.capabilities.localModelEndpoints ?? []) {
+        // Include host:port so a node advertising two endpoints of the same
+        // provider (e.g. two Ollama instances on different ports) yields
+        // distinct ids instead of one silently overwriting the other.
+        const hostKey = hostKeyFromUrl(cap.baseUrl);
+        const endpoint: AuxiliaryLlmEndpointConfig = {
+          id: `worker:${node.id}:${cap.provider}:${hostKey}`,
+          label: `${node.name} · ${cap.provider}`,
+          provider: cap.provider,
+          baseUrl: cap.baseUrl,
+          source: 'worker-node',
+          workerNodeId: node.id,
+          enabled: true,
+        };
+        const models = cap.models.map<AuxiliaryLlmModelInfo>((m) => ({
+          id: m,
+          name: m,
+          provider: cap.provider,
+          endpointId: endpoint.id,
+        }));
+        result.push({ endpoint, models, healthy: cap.healthy });
+      }
+    }
+    return result;
+  }
+
+  /** Auto-discovered worker endpoints that are not already persisted in config. */
+  private autoWorkerEndpoints(): AuxiliaryLlmEndpointConfig[] {
+    const persistedIds = new Set(this.endpoints.map((e) => e.id));
+    return this.workerNodeEndpoints()
+      .map((w) => w.endpoint)
+      .filter((e) => !persistedIds.has(e.id));
   }
 
   // ─── Private: candidate probing (for discoverCandidates) ───────────────────

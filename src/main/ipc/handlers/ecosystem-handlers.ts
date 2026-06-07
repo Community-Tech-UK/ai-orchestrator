@@ -21,9 +21,9 @@ import { getToolRegistry } from '../../tools/tool-registry';
 import { getOrchestratorPluginManager } from '../../plugins/plugin-manager';
 import { getOutputStyleRegistry } from '../../instance/output-style-registry';
 import { listOutputStyles } from '../../instance/output-style';
-import { BrowserWindow } from 'electron';
 import chokidar from 'chokidar';
 import { getLogger } from '../../logging/logger';
+import { getMainEventBus } from '../../event-bus/main-event-bus';
 
 const logger = getLogger('EcosystemHandlers');
 
@@ -137,17 +137,15 @@ export function registerEcosystemHandlers(instanceManager: InstanceManager): voi
         });
 
         const emitChanged = (event: string, filePath: string) => {
-          for (const win of BrowserWindow.getAllWindows()) {
-            try {
-              win.webContents.send(IPC_CHANNELS.ECOSYSTEM_CHANGED, {
-                workingDirectory: wd,
-                event,
-                path: filePath,
-                timestamp: Date.now(),
-              });
-            } catch (error) {
-              logger.warn('Failed to send ecosystem changed event to renderer window', { event, filePath, error: error instanceof Error ? error.message : String(error) });
-            }
+          try {
+            getMainEventBus().emitRendererEvent(IPC_CHANNELS.ECOSYSTEM_CHANGED, {
+              workingDirectory: wd,
+              event,
+              path: filePath,
+              timestamp: Date.now(),
+            });
+          } catch (error) {
+            logger.warn('Failed to send ecosystem changed event to renderer window', { event, filePath, error: error instanceof Error ? error.message : String(error) });
           }
         };
 

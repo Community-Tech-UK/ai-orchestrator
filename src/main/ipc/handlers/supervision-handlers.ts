@@ -3,7 +3,7 @@
  * Handles supervision tree operations, hierarchy visualization, and worker management
  */
 
-import { ipcMain, IpcMainInvokeEvent, BrowserWindow } from 'electron';
+import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import { getSupervisorTree } from '../../process';
 import { validateIpcPayload } from '@contracts/schemas/common';
@@ -13,6 +13,7 @@ import {
   SupervisionHandleFailurePayloadSchema,
 } from '@contracts/schemas/orchestration';
 import { getCircuitBreakerRegistry } from '../../process/circuit-breaker';
+import { getMainEventBus } from '../../event-bus/main-event-bus';
 
 export function registerSupervisionHandlers(): void {
   const supervisorTree = getSupervisorTree();
@@ -244,14 +245,10 @@ export function registerSupervisionHandlers(): void {
 
 function setupSupervisionEventForwarding(): void {
   const supervisorTree = getSupervisorTree();
+  const eventBus = getMainEventBus();
 
   const forwardToRenderer = (channel: string, data: any) => {
-    const windows = BrowserWindow.getAllWindows();
-    for (const win of windows) {
-      if (!win.isDestroyed()) {
-        win.webContents.send(channel, data);
-      }
-    }
+    eventBus.emitRendererEvent(channel, data);
   };
 
   // Forward worker events

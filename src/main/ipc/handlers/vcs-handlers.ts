@@ -74,10 +74,7 @@ export function registerVcsHandlers(deps?: {
     const wm = deps.windowManager;
     const watcher = getGitStatusWatcher();
     watcher.on('status-changed', (event: GitStatusChangedEvent) => {
-      wm.getMainWindow()?.webContents.send(
-        IPC_CHANNELS.VCS_STATUS_CHANGED,
-        event,
-      );
+      wm.sendToRenderer(IPC_CHANNELS.VCS_STATUS_CHANGED, event);
     });
   }
 
@@ -677,10 +674,7 @@ export function registerVcsHandlers(deps?: {
 
   function sendProgress(event: VcsOperationProgressEvent): void {
     if (!deps?.windowManager) return;
-    const win = deps.windowManager.getMainWindow();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send(IPC_CHANNELS.VCS_OPERATION_PROGRESS, event);
-    }
+    deps.windowManager.sendToRenderer(IPC_CHANNELS.VCS_OPERATION_PROGRESS, event);
   }
 
   ipcMain.handle(

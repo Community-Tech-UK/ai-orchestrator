@@ -113,12 +113,10 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
 
         settings.set(validatedPayload.key as keyof AppSettings, validatedPayload.value as any);
         // Notify renderer of change
-        deps.windowManager
-          .getMainWindow()
-          ?.webContents.send(IPC_CHANNELS.SETTINGS_CHANGED, {
+        deps.windowManager.sendToRenderer(IPC_CHANNELS.SETTINGS_CHANGED, {
             key: validatedPayload.key,
             value: validatedPayload.value
-          });
+        });
         return { success: true };
       } catch (error) {
         return {
@@ -152,11 +150,9 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
 
         settings.update(settingsData as Partial<AppSettings>);
         // Notify renderer of changes
-        deps.windowManager
-          .getMainWindow()
-          ?.webContents.send(IPC_CHANNELS.SETTINGS_CHANGED, {
+        deps.windowManager.sendToRenderer(IPC_CHANNELS.SETTINGS_CHANGED, {
             settings: settings.getAll()
-          });
+        });
         return { success: true };
       } catch (error) {
         return {
@@ -178,11 +174,9 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
       try {
         settings.reset();
         // Notify renderer
-        deps.windowManager
-          .getMainWindow()
-          ?.webContents.send(IPC_CHANNELS.SETTINGS_CHANGED, {
+        deps.windowManager.sendToRenderer(IPC_CHANNELS.SETTINGS_CHANGED, {
             settings: settings.getAll()
-          });
+        });
         return {
           success: true,
           data: settings.getAll()
@@ -216,12 +210,10 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
         settings.resetOne(validated.key as keyof AppSettings);
         const value = settings.get(validated.key as keyof AppSettings);
         // Notify renderer
-        deps.windowManager
-          .getMainWindow()
-          ?.webContents.send(IPC_CHANNELS.SETTINGS_CHANGED, {
+        deps.windowManager.sendToRenderer(IPC_CHANNELS.SETTINGS_CHANGED, {
             key: validated.key,
             value
-          });
+        });
         return {
           success: true,
           data: value
@@ -656,12 +648,10 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
           return { success: true, data: { cancelled: true } };
         }
         // Notify renderer that settings changed so stores reload
-        deps.windowManager
-          .getMainWindow()
-          ?.webContents.send(IPC_CHANNELS.SETTINGS_CHANGED, {
+        deps.windowManager.sendToRenderer(IPC_CHANNELS.SETTINGS_CHANGED, {
             key: '__imported__',
             value: null,
-          });
+        });
         return { success: true, data: result };
       } catch (error) {
         return {

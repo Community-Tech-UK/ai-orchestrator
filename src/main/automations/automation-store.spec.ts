@@ -202,6 +202,30 @@ describe('AutomationStore', () => {
     expect(store.listRuns()).toEqual([]);
   });
 
+  it('lists active runs independently of recent terminal history', async () => {
+    const automation = await store.create({
+      name: 'Active run lookup',
+      schedule: { type: 'cron', expression: '0 * * * *', timezone: 'UTC' },
+      missedRunPolicy: 'notify',
+      concurrencyPolicy: 'skip',
+      action: {
+        prompt: 'Keep running',
+        workingDirectory: '/tmp',
+      },
+    }, 1_000, 100);
+
+    const active = store.decideAndInsertRun(automation, 'manual', 1_000, 1_000);
+    expect(active.kind).toBe('started');
+
+    for (let i = 0; i < 250; i += 1) {
+      const skipped = store.recordSkipped(automation, 'webhook', 2_000 + i, `terminal ${i}`, 2_000 + i);
+      expect(skipped.status).toBe('skipped');
+    }
+
+    expect(store.listRuns({ limit: 200 }).some((run) => run.id === active.run.id)).toBe(false);
+    expect(store.listActiveRuns()).toEqual([active.run]);
+  });
+
   it('clears one-time schedule state on failure without deactivating the automation', async () => {
     const automation = await store.create({
       name: 'One-time check',

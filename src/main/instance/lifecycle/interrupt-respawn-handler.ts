@@ -548,6 +548,7 @@ export class InterruptRespawnHandler {
         adapterGeneration: instance.adapterGeneration ?? 0,
         hasConversation,
         sessionResumeBlacklisted: resumeBlacklisted,
+        providerSessionPersisted: instance.providerSessionPersisted,
       });
       const canAttemptNativeResume =
         recoveryPlan.kind === 'native-resume' || recoveryPlan.kind === 'provider-fork';
@@ -634,6 +635,9 @@ export class InterruptRespawnHandler {
             instance.sessionId = fallbackSessionId;
             // Fresh session — unblock future resume attempts against the new id.
             instance.sessionResumeBlacklisted = false;
+            // New fresh session is not yet persisted; block a premature
+            // re-resume until its first turn settles.
+            instance.providerSessionPersisted = false;
             const fallbackOptions: UnifiedSpawnOptions = {
               ...spawnOptions,
               resume: false,
@@ -677,6 +681,8 @@ export class InterruptRespawnHandler {
         if (actuallyResumed) {
           // Clear any stale blacklist — resume just succeeded against this id.
           instance.sessionResumeBlacklisted = false;
+          // A confirmed native resume proves the session is on disk.
+          instance.providerSessionPersisted = true;
         }
         logger.info('Process respawned successfully', { instanceId, pid, resumed: actuallyResumed });
 
@@ -869,6 +875,7 @@ export class InterruptRespawnHandler {
         adapterGeneration: instance.adapterGeneration ?? 0,
         hasConversation,
         sessionResumeBlacklisted: resumeBlacklisted,
+        providerSessionPersisted: instance.providerSessionPersisted,
       });
       const shouldResume =
         recoveryPlan.kind === 'native-resume' || recoveryPlan.kind === 'provider-fork';
@@ -950,6 +957,9 @@ export class InterruptRespawnHandler {
             instance.sessionId = fallbackSessionId;
             // Fresh session — unblock future resume attempts against the new id.
             instance.sessionResumeBlacklisted = false;
+            // New fresh session is not yet persisted; block a premature
+            // re-resume until its first turn settles.
+            instance.providerSessionPersisted = false;
             const fallbackOptions: UnifiedSpawnOptions = {
               ...spawnOptions,
               resume: false,
@@ -988,6 +998,8 @@ export class InterruptRespawnHandler {
         if (actuallyResumed) {
           // Clear any stale blacklist — resume just succeeded against this id.
           instance.sessionResumeBlacklisted = false;
+          // A confirmed native resume proves the session is on disk.
+          instance.providerSessionPersisted = true;
         }
         logger.info('Auto-respawn successful', { instanceId, pid, resumed: actuallyResumed });
 

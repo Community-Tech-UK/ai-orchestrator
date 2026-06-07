@@ -46,6 +46,41 @@ describe('buildInstanceRecord', () => {
     expect(instance.abortController).toBeInstanceOf(AbortController);
   });
 
+  it('marks a brand-new session as not-yet-persisted to block premature resume', () => {
+    const instance = buildInstanceRecord(buildConfig({ provider: 'claude' }), buildAgent(), {
+      defaultYoloMode: false,
+      getParent: () => undefined,
+    });
+
+    expect(instance.providerSessionPersisted).toBe(false);
+  });
+
+  it('leaves resumed sessions eligible for native resume (persisted flag undefined)', () => {
+    const instance = buildInstanceRecord(
+      buildConfig({ provider: 'claude', sessionId: 'session-abc', resume: true }),
+      buildAgent(),
+      { defaultYoloMode: false, getParent: () => undefined },
+    );
+
+    expect(instance.providerSessionPersisted).toBeUndefined();
+  });
+
+  it('leaves restored sessions (with transcript) eligible for native resume', () => {
+    const instance = buildInstanceRecord(
+      buildConfig({
+        provider: 'claude',
+        sessionId: 'session-abc',
+        initialOutputBuffer: [
+          { id: 'm1', type: 'user', content: 'hi', timestamp: 1 },
+        ],
+      }),
+      buildAgent(),
+      { defaultYoloMode: false, getParent: () => undefined },
+    );
+
+    expect(instance.providerSessionPersisted).toBeUndefined();
+  });
+
   it('preserves an explicit interactive launch mode before registration', () => {
     const instance = buildInstanceRecord(
       buildConfig({ provider: 'claude', launchMode: 'interactive' }),

@@ -70,7 +70,11 @@ import {
   createProjectKnowledgeAutoMirrorCoordinatorStep,
 } from './indexing-initialization-steps';
 import { createOrchestratorToolsStep } from './orchestrator-tools-step';
-import { createMobileGatewayStep, createWorkerNodeSubsystemStep } from './remote-gateway-initialization-steps';
+import {
+  createMobileGatewayStep,
+  createThinClientWsStep,
+  createWorkerNodeSubsystemStep,
+} from './remote-gateway-initialization-steps';
 import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import { getSettingsManager } from '../core/config/settings-manager';
 
@@ -413,6 +417,7 @@ export function createInitializationSteps(
       },
     },
     { name: 'Load balancer', fn: () => { getLoadBalancer(); } },
+    createThinClientWsStep(),
     createWorkerNodeSubsystemStep(context),
     createMobileGatewayStep(instanceManager),
     {

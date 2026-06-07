@@ -50,12 +50,16 @@ describe('manifest validation', () => {
       description: 'Desc',
       author: 'Me',
       hooks: ['instance.created'],
+      isolation: 'worker',
+      capabilities: ['network'],
     });
     expect(result.valid).toBe(true);
     if (result.valid) {
       expect(result.manifest.description).toBe('Desc');
       expect(result.manifest.author).toBe('Me');
       expect(result.manifest.hooks).toEqual(['instance.created']);
+      expect(result.manifest.isolation).toBe('worker');
+      expect(result.manifest.capabilities).toEqual(['network']);
     }
   });
 

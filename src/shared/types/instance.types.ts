@@ -332,6 +332,23 @@ export interface Instance {
    */
   sessionResumeBlacklisted?: boolean;
   /**
+   * Tri-state guard against resuming a brand-new session before the provider
+   * CLI has flushed it to disk.
+   *
+   * - `false`  → a fresh session was started this run and has NOT yet completed
+   *              a turn, so `--resume <sessionId>` would race the CLI's initial
+   *              flush and fail with "No conversation found with session ID".
+   *              Recovery must replay into a fresh session instead of resuming.
+   * - `true`   → at least one turn has settled (or a native resume succeeded),
+   *              proving the session is on disk and safely resumable.
+   * - `undefined` → unknown / not applicable (e.g. restored or woken sessions
+   *              that demonstrably existed in a prior run); resume is allowed.
+   *
+   * Purely a runtime guard — never persisted, because the `false` window only
+   * exists during a live process's first turn and never spans hibernate/wake.
+   */
+  providerSessionPersisted?: boolean;
+  /**
    * Timestamp of the last completed respawn (interrupt or unexpected-exit).
    * Used to suppress the auto-respawn path when a user-triggered respawn
    * has just finished, so a CLI that dies seconds later doesn't immediately

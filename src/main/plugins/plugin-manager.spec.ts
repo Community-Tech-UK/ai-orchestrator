@@ -53,6 +53,31 @@ vi.mock('../core/config/settings-manager', () => ({
   }),
 }));
 
+const mockPluginWorkerHostInstances: {
+  start: ReturnType<typeof vi.fn>;
+  stop: ReturnType<typeof vi.fn>;
+  options: unknown;
+}[] = [];
+
+vi.mock('./plugin-worker-host', () => ({
+  PluginWorkerHost: vi.fn().mockImplementation((options: unknown) => {
+    const instance = {
+      options,
+      start: vi.fn().mockResolvedValue({
+        slot: 'hook',
+        detected: true,
+        ready: true,
+        hooks: {
+          'instance.removed': vi.fn().mockResolvedValue(undefined),
+        },
+      }),
+      stop: vi.fn().mockResolvedValue(undefined),
+    };
+    mockPluginWorkerHostInstances.push(instance);
+    return instance;
+  }),
+}));
+
 import * as fsPromises from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
@@ -72,6 +97,7 @@ beforeEach(() => {
   mockDebateCoordinator.removeAllListeners();
   mockConsensusCoordinator.removeAllListeners();
   mockSessionContinuity.removeAllListeners();
+  mockPluginWorkerHostInstances.length = 0;
 });
 
 describe('OrchestratorPluginManager', () => {
@@ -262,6 +288,79 @@ describe('OrchestratorPluginManager', () => {
       homeDir: '/tmp/test-home',
     }));
     expect(getPluginRegistry().getRuntimes(tmpDir, 'notifier')).toHaveLength(1);
+
+    await fsPromises.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('passes SDK-only context to module factories and create hooks', async () => {
+    const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
+    const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'ctx-plugin');
+    await fsPromises.mkdir(pluginDir, { recursive: true });
+
+    const pluginFile = path.join(pluginDir, 'index.js');
+    await fsPromises.writeFile(pluginFile, 'module.exports = {};');
+
+    const moduleFactory = vi.fn().mockReturnValue({
+      slot: 'notifier',
+      create: vi.fn().mockResolvedValue({ notify: vi.fn() }),
+    });
+    const manager = OrchestratorPluginManager.getInstance();
+
+    vi.spyOn(
+      manager as unknown as { loadModule: (filePath: string) => Promise<unknown> },
+      'loadModule',
+    ).mockResolvedValue(moduleFactory);
+
+    await manager.listPlugins(tmpDir, {} as never);
+
+    const factoryContext = moduleFactory.mock.calls[0]?.[0] as Record<string, unknown>;
+    const createContext = moduleFactory.mock.results[0]?.value.create.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(factoryContext).toEqual({
+      appPath: '/tmp/test-app',
+      homeDir: '/tmp/test-home',
+    });
+    expect(createContext).toEqual({
+      appPath: '/tmp/test-app',
+      homeDir: '/tmp/test-home',
+    });
+    expect(factoryContext).not.toHaveProperty('instanceManager');
+    expect(createContext).not.toHaveProperty('instanceManager');
+
+    await fsPromises.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('loads worker-isolated manifest plugins through PluginWorkerHost', async () => {
+    const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
+    const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'worker-plugin');
+    await fsPromises.mkdir(pluginDir, { recursive: true });
+
+    const pluginFile = path.join(pluginDir, 'index.js');
+    await fsPromises.writeFile(pluginFile, 'module.exports = {};');
+    await fsPromises.writeFile(
+      path.join(pluginDir, 'plugin.json'),
+      JSON.stringify({
+        name: 'worker-plugin',
+        version: '1.0.0',
+        isolation: 'worker',
+        hooks: ['instance.removed'],
+      }),
+    );
+
+    const manager = OrchestratorPluginManager.getInstance();
+    const result = await manager.listPlugins(tmpDir, {} as never);
+
+    const pluginEntry = result.plugins.find((plugin) => plugin.filePath === pluginFile);
+    expect(pluginEntry?.loadReport.ready).toBe(true);
+    expect(pluginEntry?.hookKeys).toEqual(['instance.removed']);
+    expect(mockPluginWorkerHostInstances).toHaveLength(1);
+    expect(mockPluginWorkerHostInstances[0]?.options).toMatchObject({
+      filePath: pluginFile,
+      requestedSlot: 'hook',
+      context: {
+        appPath: '/tmp/test-app',
+        homeDir: '/tmp/test-home',
+      },
+    });
 
     await fsPromises.rm(tmpDir, { recursive: true, force: true });
   });
