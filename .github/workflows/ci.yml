@@ -10,6 +10,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+
 jobs:
   quality:
     name: Lint, Typecheck, Test, Build Smoke
