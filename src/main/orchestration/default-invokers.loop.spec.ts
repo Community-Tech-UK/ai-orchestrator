@@ -681,6 +681,58 @@ describe('Loop Mode invoker plumbing', () => {
       expect(hoisted.setResume).not.toHaveBeenCalledWith(false);
     });
 
+    it('creates a loop-owned Codex adapter instead of borrowing the live Codex chat adapter', async () => {
+      const parentSendMessage = vi.fn().mockResolvedValue({ content: 'wrong adapter', usage: { totalTokens: 1 } });
+      const parentAdapter = Object.assign(new EventEmitter(), {
+        sendMessage: parentSendMessage,
+        terminate: vi.fn(),
+        setStreamIdleTimeoutMs: vi.fn(),
+        setResume: vi.fn(),
+      });
+      const instanceManager = {
+        getInstance: vi.fn(() => ({
+          id: 'chat-codex',
+          provider: 'codex',
+          workingDirectory: '/tmp/ws',
+        })),
+        getAdapter: vi.fn(() => parentAdapter),
+      };
+      registerDefaultLoopInvoker(instanceManager as never);
+      hoisted.resolveCliType.mockResolvedValue('codex');
+      hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 5 } });
+
+      const iter0 = new Promise<LoopChildResult | { error: string }>((resolve) => {
+        hoisted.loopCoordinatorRef.current.emit('loop:invoke-iteration', {
+          correlationId: 'loop-codex::0',
+          loopRunId: 'loop-codex',
+          chatId: 'chat-codex',
+          provider: 'codex',
+          workspaceCwd: '/tmp/ws',
+          stage: 'PLAN',
+          seq: 0,
+          prompt: 'iter 0',
+          config: { contextStrategy: 'same-session' },
+          callback: resolve,
+        });
+      });
+      await new Promise<void>((r) => setImmediate(r));
+      await new Promise<void>((r) => setImmediate(r));
+      await iter0;
+
+      expect(instanceManager.getAdapter).toHaveBeenCalledWith('chat-codex');
+      expect(parentSendMessage).not.toHaveBeenCalled();
+      expect(hoisted.createAdapter).toHaveBeenCalledTimes(1);
+      expect(hoisted.createAdapter.mock.calls[0][0]).toMatchObject({
+        cliType: 'codex',
+        options: {
+          workingDirectory: '/tmp/ws',
+          yoloMode: true,
+        },
+      });
+      expect(hoisted.sendMessage).toHaveBeenCalledTimes(1);
+      expect(hoisted.terminate).not.toHaveBeenCalled();
+    });
+
     it('reuses the same adapter across iterations and skips per-iteration termination', async () => {
       registerDefaultLoopInvoker({} as never);
       hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 5 } });

@@ -1773,7 +1773,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
       }
 
       case 'thread/compacted': {
-        // Codex auto-compacted the thread. Emit a system message and refresh context usage.
+        // Codex auto-compacted the thread. Clear cached occupancy immediately
+        // so UI pressure indicators do not stay pinned to the pre-compact turn.
         logger.info('Thread compacted by Codex app-server', { threadId: state.threadId });
         this.emit('output', {
           id: generateId(),
@@ -1782,7 +1783,17 @@ export class CodexCliAdapter extends BaseCliAdapter {
           content: 'Codex automatically compacted the conversation to free context space.',
           metadata: { threadCompacted: true },
         });
-        // Context usage will be updated by the next thread/tokenUsage/updated notification.
+        this.lastTurnTokens = 0;
+        const contextWindow = this.resolveContextWindow();
+        this.emit('context', {
+          used: 0,
+          total: contextWindow,
+          percentage: 0,
+          cumulativeTokens: this.cumulativeTokensUsed,
+          costEstimate: this.cumulativeCostUsd,
+          source: 'thread-compacted',
+          isEstimated: true,
+        });
         break;
       }
 
@@ -2146,30 +2157,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
    * because exec mode has no persistent client state to rebuild.
    */
   private async execSendMessage(message: string, attachments?: FileAttachment[]): Promise<void> {
-    try {
-      await this.execSendMessageInner(message, attachments);
-    } catch (err) {
-      if (!this.isRecoverableThreadResumeError(err)) {
-        throw err;
-      }
-      const previousSessionId = this.sessionId;
-      logger.warn('Codex exec resume failed, retrying with a fresh session', {
-        previousSessionId,
-        cause: err instanceof Error ? err.message : String(err),
-      });
-
-      // Clear resume state so buildArgs() picks `codex exec` (not `exec resume`).
-      // A fresh placeholder keeps `sessionId` non-null for downstream consumers
-      // until the new turn captures a real threadId from codex stdout.
-      this.sessionId = `codex-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      this.shouldResumeNextTurn = false;
-      this.resumeCursor = null;
-      // System prompt + conversation history are re-sent on a fresh thread.
-      this.systemPromptSent = false;
-      this.rtkAwarenessSent = false;
-
-      await this.execSendMessageInner(message, attachments);
-    }
+    await this.execSendMessageInner(message, attachments);
   }
 
   /**
@@ -2287,6 +2275,19 @@ export class CodexCliAdapter extends BaseCliAdapter {
   }
 
   async sendMessage(message: CliMessage): Promise<CliResponse> {
+    try {
+      return await this.sendMessageExec(message);
+    } catch (err) {
+      if (!this.isRecoverableThreadResumeError(err) || !this.shouldUseResumeCommand()) {
+        throw err;
+      }
+
+      this.clearStaleExecResumeState(err);
+      return await this.sendMessageExec(message);
+    }
+  }
+
+  private async sendMessageExec(message: CliMessage): Promise<CliResponse> {
     const normalizedMessage = await this.normalizeMessage(message);
     const preparedMessage = this.prepareMessageForExecution(normalizedMessage);
 
@@ -2346,12 +2347,14 @@ export class CodexCliAdapter extends BaseCliAdapter {
           throw lastError;
         }
 
-        if (resumeCommandAtStart && this.isRecoverableThreadResumeError(lastError)) {
-          logger.info('Codex exec resume failed with a stale thread/session id - skipping same-command retry', {
-            attempt,
-            maxAttempts,
-            errorMessage: lastError.message,
-          });
+        if (this.isRecoverableThreadResumeError(lastError)) {
+          if (resumeCommandAtStart) {
+            logger.info('Codex exec resume failed with a stale thread/session id - skipping same-command retry', {
+              attempt,
+              maxAttempts,
+              errorMessage: lastError.message,
+            });
+          }
           throw lastError;
         }
 
@@ -2369,6 +2372,24 @@ export class CodexCliAdapter extends BaseCliAdapter {
     }
 
     throw lastError || new Error('Codex execution failed without a diagnostic error.');
+  }
+
+  private clearStaleExecResumeState(error: unknown): void {
+    const previousSessionId = this.sessionId;
+    logger.warn('Codex exec resume failed, retrying with a fresh session', {
+      previousSessionId,
+      cause: error instanceof Error ? error.message : String(error),
+    });
+
+    // Clear resume state so buildArgs() picks `codex exec` (not `exec resume`).
+    // A fresh placeholder keeps `sessionId` non-null for downstream consumers
+    // until the new turn captures a real threadId from codex stdout.
+    this.sessionId = `codex-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    this.shouldResumeNextTurn = false;
+    this.resumeCursor = null;
+    // System prompt + conversation history are re-sent on a fresh thread.
+    this.systemPromptSent = false;
+    this.rtkAwarenessSent = false;
   }
 
   async *sendMessageStream(message: CliMessage): AsyncIterable<string> {

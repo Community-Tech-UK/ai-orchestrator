@@ -911,6 +911,14 @@ function commitWorktreeChanges(cwd: string): void {
   }
 }
 
+function canBorrowParentLoopAdapter(loopProvider: LoopProvider, liveProvider: string | undefined): boolean {
+  // Claude's CLI session model is safe to borrow for "continue this chat"
+  // loops. Codex exec/app-server threads are external rollout ids that can be
+  // evicted independently of the visible chat, so Loop Mode should own its own
+  // adapter/session instead of inheriting the parent chat's resume cursor.
+  return loopProvider === 'claude' && liveProvider === 'claude';
+}
+
 /**
  * LF-5 — list-wise LLM scoring of candidate diffs (best-effort). Returns a
  * map of candidate id → score (0..1); `{}` on any failure so the caller falls
@@ -1359,13 +1367,10 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     const loopActiveTimeoutMs = p.streamIdleTimeoutMs ?? LOOP_DEFAULT_ACTIVE_TIMEOUT_MS;
 
     // Adapter selection priority for this iteration:
-    //   1. The parent instance's existing adapter, when `p.chatId` resolves to
-    //      a live instance. This is the path that makes loops "proper sessions":
-    //      the CLI process is the instance's CLI, its session file on disk gets
-    //      every turn, and the session survives restart through the normal
-    //      session-continuity / history-restore machinery. The loop coordinator
-    //      borrows the adapter — it does NOT own its lifecycle, so we explicitly
-    //      skip the trackActiveAdapter / cleanupAdapter wiring below.
+    //   1. The parent instance's existing adapter, only for providers whose
+    //      session model is safe to borrow. This preserves Claude's "continue
+    //      this chat" behavior while avoiding Codex inheriting a stale external
+    //      rollout/thread id from the visible chat.
     //   2. A `same-session` persistent loop adapter — pre-fix legacy path for
     //      loops with no parent instance (chat-detail loops where the chat has
     //      no live runtime; pure-workspace loops). Owned by this listener.
@@ -1380,7 +1385,12 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     const liveAdapter = liveInstance ? instanceManager.getAdapter?.(p.chatId) : undefined;
     // A borrowed live adapter is already running, so loop-control env cannot
     // be injected retroactively. Use a loop-owned adapter when control is on.
-    if (!p.loopControlEnv && liveAdapter && isBaseCliAdapterLike(liveAdapter)) {
+    if (
+      !p.loopControlEnv &&
+      liveAdapter &&
+      canBorrowParentLoopAdapter(p.provider, liveInstance?.provider) &&
+      isBaseCliAdapterLike(liveAdapter)
+    ) {
       reusedAdapter = liveAdapter;
       borrowedFromInstance = true;
     }

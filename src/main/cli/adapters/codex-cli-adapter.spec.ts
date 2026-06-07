@@ -469,6 +469,58 @@ Hey! I'm here. What do you want to tackle?`;
   });
 
   describe('app-server assistant streaming', () => {
+    it('resets cached context usage when Codex reports native thread compaction', () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        createTurnCaptureState(threadId: string): unknown;
+        handleTurnNotification(
+          state: unknown,
+          notification: { method: string; params: Record<string, unknown> },
+        ): void;
+      };
+      const state = internals.createTurnCaptureState('thread-1');
+      const contextEvents: {
+        cumulativeTokens?: number;
+        isEstimated?: boolean;
+        percentage: number;
+        total: number;
+        used: number;
+      }[] = [];
+
+      adapter.on('context', (usage) => contextEvents.push(usage));
+
+      internals.handleTurnNotification(state, {
+        method: 'thread/tokenUsage/updated',
+        params: {
+          threadId: 'thread-1',
+          tokenUsage: {
+            modelContextWindow: 200_000,
+            last: { totalTokens: 188_000 },
+            total: { totalTokens: 500_000 },
+          },
+        },
+      });
+      internals.handleTurnNotification(state, {
+        method: 'thread/compacted',
+        params: { threadId: 'thread-1' },
+      });
+
+      expect(contextEvents).toHaveLength(2);
+      expect(contextEvents[0]).toMatchObject({
+        used: 188_000,
+        total: 200_000,
+        percentage: 94,
+        cumulativeTokens: 500_000,
+      });
+      expect(contextEvents[1]).toMatchObject({
+        used: 0,
+        total: 200_000,
+        percentage: 0,
+        cumulativeTokens: 500_000,
+        isEstimated: true,
+      });
+    });
+
     it('emits assistant deltas with a stable id and reconciles the final item', () => {
       const adapter = new CodexCliAdapter();
       const internals = adapter as unknown as {
@@ -1158,6 +1210,42 @@ Hey! I'm here. What do you want to tackle?`;
         expect(outputs.some((output) => output.type === 'assistant' && output.content === 'recovered')).toBe(true);
       });
 
+      it('recovers direct sendMessage callers from stale Codex exec resume ids', async () => {
+        const adapter = await spawnExecAdapter();
+        (adapter as unknown as { sessionId: string }).sessionId = '019de664-fb9c-7ae3-b91c-0893e58c0b10';
+        (adapter as unknown as { shouldResumeNextTurn: boolean }).shouldResumeNextTurn = true;
+
+        const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+
+        queueCodexRun(spawnSpy, {
+          code: 1,
+          stderrLines: [
+            'Reading prompt from stdin...',
+            'Error: thread/resume: thread/resume failed: no rollout found for thread id 019de664-fb9c-7ae3-b91c-0893e58c0b10 (code -32600)',
+          ],
+        });
+        queueCodexRun(spawnSpy, {
+          stdoutLines: [
+            '{"type":"thread.started","thread_id":"thread-fresh-after-direct-retry"}',
+            '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"direct recovered"}}',
+            '{"type":"turn.completed","usage":{"input_tokens":11,"output_tokens":6}}',
+          ],
+        });
+
+        const response = await adapter.sendMessage({ role: 'user', content: 'retry me directly' });
+
+        const firstArgs = spawnSpy.mock.calls[0][0] as string[];
+        const secondArgs = spawnSpy.mock.calls[1][0] as string[];
+        expect(response.content).toBe('direct recovered');
+        expect(spawnSpy).toHaveBeenCalledTimes(2);
+        expect(firstArgs.slice(0, 2)).toEqual(['exec', 'resume']);
+        expect(firstArgs).toContain('019de664-fb9c-7ae3-b91c-0893e58c0b10');
+        expect(secondArgs.slice(0, 2)).toEqual(['exec', '--json']);
+        expect(secondArgs).not.toContain('resume');
+        expect(secondArgs).not.toContain('019de664-fb9c-7ae3-b91c-0893e58c0b10');
+        expect(adapter.getSessionId()).toBe('thread-fresh-after-direct-retry');
+      });
+
       it('clears session id and retries with fresh exec when resume fails with thread-not-found', async () => {
         const adapter = await spawnExecAdapter();
         (adapter as unknown as { sessionId: string }).sessionId = 'thread-old';
@@ -1170,11 +1258,18 @@ Hey! I'm here. What do you want to tackle?`;
           scanSource: 'native',
         };
 
-        const innerSpy = vi.spyOn(
-          adapter as unknown as { execSendMessageInner(m: string, a?: unknown): Promise<void> },
-          'execSendMessageInner'
+        const executeSpy = vi.spyOn(
+          adapter as unknown as {
+            executePreparedMessage(): Promise<{
+              code: number | null;
+              diagnostics: { fatal: boolean }[];
+              raw: string;
+              response: { content: string; id: string; metadata: Record<string, unknown>; role: 'assistant' };
+            }>;
+          },
+          'executePreparedMessage'
         );
-        innerSpy
+        executeSpy
           .mockImplementationOnce(async () => {
             // At first call, adapter still has the stale resume state.
             throw new Error('Thread does not exist: thread-old');
@@ -1183,11 +1278,23 @@ Hey! I'm here. What do you want to tackle?`;
             // Second call: caller has cleared resume state — verify here.
             expect((adapter as unknown as { shouldResumeNextTurn: boolean }).shouldResumeNextTurn).toBe(false);
             expect((adapter as unknown as { sessionId: string }).sessionId).not.toBe('thread-old');
+            return {
+              code: 0,
+              diagnostics: [],
+              raw: '',
+              response: {
+                id: 'resp-fresh',
+                role: 'assistant',
+                content: 'fresh',
+                metadata: {},
+              },
+            };
           });
 
-        await adapter.sendInput('retry me');
+        const response = await adapter.sendMessage({ role: 'user', content: 'retry me' });
 
-        expect(innerSpy).toHaveBeenCalledTimes(2);
+        expect(response.content).toBe('fresh');
+        expect(executeSpy).toHaveBeenCalledTimes(2);
         expect((adapter as unknown as { shouldResumeNextTurn: boolean }).shouldResumeNextTurn).toBe(false);
         expect((adapter as unknown as { sessionId: string }).sessionId).not.toBe('thread-old');
         expect((adapter as unknown as { resumeCursor: unknown }).resumeCursor).toBeNull();
@@ -1211,15 +1318,15 @@ Hey! I'm here. What do you want to tackle?`;
         (adapter as unknown as { sessionId: string }).sessionId = 'thread-old';
         (adapter as unknown as { shouldResumeNextTurn: boolean }).shouldResumeNextTurn = true;
 
-        const innerSpy = vi.spyOn(
-          adapter as unknown as { execSendMessageInner(m: string, a?: unknown): Promise<void> },
-          'execSendMessageInner'
+        const executeSpy = vi.spyOn(
+          adapter as unknown as { executePreparedMessage(): Promise<unknown> },
+          'executePreparedMessage'
         );
-        innerSpy.mockRejectedValue(new Error('Thread does not exist'));
+        executeSpy.mockRejectedValue(new Error('Thread does not exist'));
 
-        await expect(adapter.sendInput('retry me')).rejects.toThrow(/thread does not exist/i);
+        await expect(adapter.sendMessage({ role: 'user', content: 'retry me' })).rejects.toThrow(/thread does not exist/i);
 
-        expect(innerSpy).toHaveBeenCalledTimes(2);
+        expect(executeSpy).toHaveBeenCalledTimes(2);
       });
     });
   });
