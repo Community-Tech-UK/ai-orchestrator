@@ -67,6 +67,7 @@ export class WorkerAgent extends EventEmitter {
   private readonly notifier: WorkerInstanceNotifier;
   private readonly rpcDispatcher: WorkerRpcDispatcher;
   private activeCoordinatorUrl: string | null = null;
+  private retryRegistrationWithRecovery = false;
 
   constructor(private readonly config: WorkerConfig) {
     super();
@@ -249,16 +250,20 @@ export class WorkerAgent extends EventEmitter {
   buildRegistrationMessage(): RpcMessage {
     const id = `reg-${Date.now()}`;
     this.pendingRegistrationId = id;
+    const params: Record<string, unknown> = {
+      nodeId: this.config.nodeId,
+      name: this.config.name,
+      capabilities: this.capabilities,
+      token: this.config.nodeToken ?? this.config.authToken,
+    };
+    if (this.retryRegistrationWithRecovery && this.config.nodeToken && this.config.recoveryToken) {
+      params['recoveryToken'] = this.config.recoveryToken;
+    }
     return {
       jsonrpc: '2.0',
       id,
       method: NODE_TO_COORDINATOR.REGISTER,
-      params: {
-        nodeId: this.config.nodeId,
-        name: this.config.name,
-        capabilities: this.capabilities,
-        token: this.config.nodeToken ?? this.config.authToken
-      }
+      params,
     };
   }
 
@@ -397,11 +402,20 @@ export class WorkerAgent extends EventEmitter {
         typeof msg.result === 'object'
       ) {
         const enrollment = msg.result as EnrollmentResult;
+        let changed = false;
         if (enrollment.token) {
           this.config.nodeToken = enrollment.token;
-          persistConfig(DEFAULT_CONFIG_PATH, this.config);
-          this.pendingRegistrationId = null;
+          changed = true;
         }
+        if (enrollment.recoveryToken) {
+          this.config.recoveryToken = enrollment.recoveryToken;
+          changed = true;
+        }
+        if (changed) {
+          persistConfig(DEFAULT_CONFIG_PATH, this.config);
+        }
+        this.retryRegistrationWithRecovery = false;
+        this.pendingRegistrationId = null;
       }
       return;
     }
@@ -417,6 +431,22 @@ export class WorkerAgent extends EventEmitter {
       ? String((error as { message: unknown }).message)
       : 'registration rejected';
     this.pendingRegistrationId = null;
+    const justTriedRecovery = this.retryRegistrationWithRecovery;
+    if (justTriedRecovery) {
+      this.retryRegistrationWithRecovery = false;
+      console.warn(
+        `Registration recovery rejected (${message}); falling back to pairing token if available`
+      );
+    }
+
+    if (!justTriedRecovery && this.config.nodeToken && this.config.recoveryToken) {
+      console.warn(
+        `Registration rejected (${message}); retrying with same-node recovery token`
+      );
+      this.retryRegistrationWithRecovery = true;
+      this.ws?.close(4001, 'Retry registration with recovery token');
+      return;
+    }
 
     if (this.config.nodeToken && this.config.authToken) {
       console.warn(

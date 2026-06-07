@@ -91,6 +91,7 @@ export interface RpcError {
 export interface EnrollmentResult {
   nodeId: string;
   token: string;
+  recoveryToken?: string;
 }
 
 // -- Standard JSON-RPC Error Codes --

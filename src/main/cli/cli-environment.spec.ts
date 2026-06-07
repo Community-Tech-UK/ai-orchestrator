@@ -48,6 +48,23 @@ describe('cli-environment', () => {
     );
   });
 
+  it('includes Ollama Windows install directories for stripped Electron and worker PATHs', () => {
+    const env = {
+      LOCALAPPDATA: 'C:\\Users\\User\\AppData\\Local',
+      ProgramFiles: 'C:\\Program Files',
+      'ProgramFiles(x86)': 'C:\\Program Files (x86)',
+      USERPROFILE: 'C:\\Users\\User',
+    } as NodeJS.ProcessEnv;
+
+    expect(getCliAdditionalPaths(env, 'win32')).toEqual(
+      expect.arrayContaining([
+        'C:\\Users\\User\\AppData\\Local\\Programs\\Ollama',
+        'C:\\Program Files\\Ollama',
+        'C:\\Program Files (x86)\\Ollama',
+      ]),
+    );
+  });
+
   it('keeps $HOME-relative node/npm bin dirs on Windows (bash-style nvm installs node + the agent CLI there)', () => {
     // Regression guard: dropping these on Windows broke worker spawn because
     // `C:\Users\x/.nvm/versions/node/current/bin` (forward slashes resolve on
@@ -178,5 +195,20 @@ describe('cli-environment', () => {
       shell: true,
       windowsHide: true,
     });
+  });
+
+  it('preserves Windows Path casing while expanding command lookup directories', () => {
+    const env = {
+      APPDATA: 'C:\\Users\\User\\AppData\\Roaming',
+      LOCALAPPDATA: 'C:\\Users\\User\\AppData\\Local',
+      Path: 'C:\\Existing\\Bin',
+      USERPROFILE: 'C:\\Users\\User',
+    } as NodeJS.ProcessEnv;
+
+    const builtEnv = buildCliEnv(env, 'win32');
+
+    expect(builtEnv['PATH']).toContain('C:\\Users\\User\\AppData\\Local\\Programs\\Ollama');
+    expect(builtEnv['PATH']).toContain(';C:\\Existing\\Bin');
+    expect(builtEnv['Path']).toBe(builtEnv['PATH']);
   });
 });

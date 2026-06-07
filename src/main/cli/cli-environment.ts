@@ -125,6 +125,10 @@ function getPathDelimiter(platform: NodeJS.Platform): string {
   return platform === 'win32' ? ';' : ':';
 }
 
+function getExistingPathValue(env: NodeJS.ProcessEnv): string {
+  return env['PATH'] || env['Path'] || env['path'] || '';
+}
+
 export function getCliAdditionalPaths(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
@@ -181,6 +185,12 @@ export function getCliAdditionalPaths(
     `${programFiles}\\Git\\bin`,
     `${programFilesX86}\\Git\\cmd`,
     `${localAppData}\\Programs\\Git\\cmd`,
+    // Ollama's Windows installer writes binaries here and adds this directory
+    // to the user's PATH. Packaged Electron apps and worker services can start
+    // with a stripped PATH, so include it explicitly.
+    `${localAppData}\\Programs\\Ollama`,
+    `${programFiles}\\Ollama`,
+    `${programFilesX86}\\Ollama`,
     // winget / Microsoft Store app execution aliases (Python launcher etc.).
     `${localAppData}\\Microsoft\\WindowsApps`,
     // Yarn classic global bin.
@@ -208,7 +218,7 @@ export function buildCliPath(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
 ): string {
-  const currentPath = env['PATH'] || '';
+  const currentPath = getExistingPathValue(env);
   return [...getCliAdditionalPaths(env, platform), currentPath]
     .filter(Boolean)
     .join(getPathDelimiter(platform));
@@ -218,9 +228,11 @@ export function buildCliEnv(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
 ): NodeJS.ProcessEnv {
+  const path = buildCliPath(env, platform);
   return {
     ...env,
-    PATH: buildCliPath(env, platform),
+    PATH: path,
+    ...(platform === 'win32' ? { Path: path } : {}),
   };
 }
 

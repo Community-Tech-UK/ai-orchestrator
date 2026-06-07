@@ -47,6 +47,13 @@ export class NodeIdentityStore {
     return undefined;
   }
 
+  findByRecoveryToken(token: string): NodeIdentity | undefined {
+    for (const identity of this.nodes.values()) {
+      if (identity.recoveryToken === token) return identity;
+    }
+    return undefined;
+  }
+
   findByToken(token: string): NodeIdentity | undefined {
     return this.findByTransportToken(token);
   }
@@ -110,6 +117,9 @@ function normalizeIdentity(nodeId: string, identity: Partial<NodeIdentity>): Nod
       : nodeId,
     transportToken,
     token: transportToken,
+    recoveryToken: typeof identity.recoveryToken === 'string' && identity.recoveryToken.trim().length > 0
+      ? identity.recoveryToken
+      : undefined,
     issuedAt,
     createdAt: issuedAt,
     lastSeenAt: typeof identity.lastSeenAt === 'number' ? identity.lastSeenAt : issuedAt,

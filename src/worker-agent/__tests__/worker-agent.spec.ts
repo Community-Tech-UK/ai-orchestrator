@@ -259,6 +259,77 @@ describe('WorkerAgent', () => {
     expect(workerConfigMockState.persistConfig).toHaveBeenCalled();
   });
 
+  it('retries registration with a recovery token before falling back to pairing', async () => {
+    const config: WorkerConfig = {
+      ...mockConfig,
+      authToken: 'fresh-pairing-token',
+      nodeToken: 'stale-node-token',
+      recoveryToken: 'same-node-recovery-token',
+      reconnectIntervalMs: 1000,
+    };
+    agent = new WorkerAgent(config);
+
+    const connect = agent.connect();
+    await Promise.resolve();
+    wsMockState.instances[0].emit('open');
+    await connect;
+
+    const firstRegistration = JSON.parse(wsMockState.instances[0].send.mock.calls[0][0] as string) as {
+      id: string;
+      params: { token: string; recoveryToken?: string };
+    };
+    expect(firstRegistration.params).toMatchObject({
+      token: 'stale-node-token',
+    });
+    expect(firstRegistration.params.recoveryToken).toBeUndefined();
+
+    wsMockState.instances[0].emit('message', JSON.stringify({
+      jsonrpc: '2.0',
+      id: firstRegistration.id,
+      error: { code: -32000, message: 'Invalid or expired pairing token' },
+    }));
+    wsMockState.instances[0].emit('close');
+
+    await vi.advanceTimersByTimeAsync(1000);
+    wsMockState.instances[1].emit('open');
+
+    const secondRegistration = JSON.parse(wsMockState.instances[1].send.mock.calls[0][0] as string) as {
+      params: { token: string; recoveryToken?: string };
+    };
+    expect(secondRegistration.params).toMatchObject({
+      token: 'stale-node-token',
+      recoveryToken: 'same-node-recovery-token',
+    });
+    expect(config.nodeToken).toBe('stale-node-token');
+    expect(workerConfigMockState.persistConfig).not.toHaveBeenCalled();
+  });
+
+  it('persists a recovery token returned by the coordinator during registration', () => {
+    const config: WorkerConfig = { ...mockConfig };
+    agent = new WorkerAgent(config);
+    const msg = (agent as unknown as { buildRegistrationMessage: () => { id: string } }).buildRegistrationMessage();
+
+    (agent as unknown as { handleMessage: (raw: string) => void }).handleMessage(JSON.stringify({
+      jsonrpc: '2.0',
+      id: msg.id,
+      result: {
+        nodeId: 'test-node-1',
+        token: 'fresh-node-token',
+        recoveryToken: 'fresh-recovery-token',
+      },
+    }));
+
+    expect(config.nodeToken).toBe('fresh-node-token');
+    expect(config.recoveryToken).toBe('fresh-recovery-token');
+    expect(workerConfigMockState.persistConfig).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        nodeToken: 'fresh-node-token',
+        recoveryToken: 'fresh-recovery-token',
+      }),
+    );
+  });
+
   it('builds an ordered, de-duplicated candidate URL list', () => {
     expect(
       buildCoordinatorCandidates(
@@ -384,6 +455,123 @@ describe('WorkerAgent', () => {
       identity: { username: 'DESKTOP\\james' },
       provider: { provider: 'copilot', authenticated: true },
     });
+  });
+
+  it('handles auxiliaryModel.generate for an openai-compatible (LM Studio) endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ choices: [{ message: { content: 'a concise title' } }] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await (agent as unknown as {
+        handleRpcRequest: (msg: unknown) => Promise<void>;
+      }).handleRpcRequest({
+        jsonrpc: '2.0',
+        id: 6,
+        method: 'auxiliaryModel.generate',
+        params: {
+          provider: 'openai-compatible',
+          model: 'qwen2.5-coder-7b',
+          systemPrompt: 'You generate titles.',
+          userPrompt: 'Summarize this conversation.',
+          temperature: 0.2,
+          maxOutputTokens: 128,
+          timeoutMs: 30000,
+          requireJson: false,
+        },
+      });
+
+      // Routed to the LM Studio OpenAI-compatible chat-completions endpoint.
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe('http://127.0.0.1:1234/v1/chat/completions');
+      const body = JSON.parse((init as { body: string }).body);
+      expect(body.model).toBe('qwen2.5-coder-7b');
+      expect(body.messages).toEqual([
+        { role: 'system', content: 'You generate titles.' },
+        { role: 'user', content: 'Summarize this conversation.' },
+      ]);
+      expect(body.response_format).toBeUndefined();
+
+      const payload = JSON.parse(wsSend.mock.calls[0][0] as string);
+      expect(payload.result).toEqual({ text: 'a concise title' });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('requests JSON response_format for openai-compatible generate when requireJson is set', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ choices: [{ message: { content: '{"score":1}' } }] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await (agent as unknown as {
+        handleRpcRequest: (msg: unknown) => Promise<void>;
+      }).handleRpcRequest({
+        jsonrpc: '2.0',
+        id: 7,
+        method: 'auxiliaryModel.generate',
+        params: {
+          provider: 'openai-compatible',
+          model: 'phi-4',
+          systemPrompt: 'Score it.',
+          userPrompt: 'Input.',
+          temperature: 0,
+          maxOutputTokens: 512,
+          timeoutMs: 30000,
+          requireJson: true,
+        },
+      });
+
+      const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body);
+      expect(body.response_format).toEqual({ type: 'json_object' });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('forwards num_ctx to the local Ollama generate call when provided', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ response: 'compressed' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await (agent as unknown as {
+        handleRpcRequest: (msg: unknown) => Promise<void>;
+      }).handleRpcRequest({
+        jsonrpc: '2.0',
+        id: 8,
+        method: 'auxiliaryModel.generate',
+        params: {
+          provider: 'ollama',
+          model: 'qwen3:14b',
+          systemPrompt: 'You compress.',
+          userPrompt: 'A very long document...',
+          temperature: 0.2,
+          maxOutputTokens: 4096,
+          timeoutMs: 60000,
+          requireJson: false,
+          numCtx: 32768,
+        },
+      });
+
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe('http://127.0.0.1:11434/api/generate');
+      const body = JSON.parse((init as { body: string }).body);
+      expect(body.options.num_ctx).toBe(32768);
+      expect(body.options.num_predict).toBe(4096);
+
+      const payload = JSON.parse(wsSend.mock.calls[0][0] as string);
+      expect(payload.result).toEqual({ text: 'compressed' });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('forwards permission requests from the local instance manager', () => {

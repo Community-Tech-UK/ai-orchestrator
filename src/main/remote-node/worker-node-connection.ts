@@ -161,6 +161,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
 
   broadcastNodesToRenderer(nodes: WorkerNodeInfo[]): void {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { BrowserWindow } = require('electron');
       for (const win of BrowserWindow.getAllWindows()) {
         win.webContents.send(IPC_CHANNELS.REMOTE_NODE_NODES_CHANGED, nodes);
@@ -371,11 +372,13 @@ export class WorkerNodeConnectionServer extends EventEmitter {
 
     // Authenticate registration via session token or pairing token exchange.
     const token = typeof params?.['token'] === 'string' ? params['token'] : undefined;
+    const recoveryToken = typeof params?.['recoveryToken'] === 'string' ? params['recoveryToken'] : undefined;
     const name = typeof params?.['name'] === 'string' ? params['name'] : newNodeId;
     const auth = getRemoteAuthService().authenticateRegistration({
       nodeId: newNodeId,
       nodeName: name,
       token,
+      recoveryToken,
     });
     if (auth.status === 'rejected') {
       const errorResponse = createRpcError(
@@ -414,6 +417,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
         sessionId: auth.session.sessionId,
         nodeId: auth.session.nodeId,
         token: auth.session.token,
+        recoveryToken: auth.session.recoveryToken,
       },
     });
   }

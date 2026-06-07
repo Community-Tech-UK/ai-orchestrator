@@ -62,6 +62,8 @@ export interface NodeIdentity {
   transportToken: string;
   /** Backward-compatible alias for transportToken. */
   token: string;
+  /** Same-node recovery token used to rotate a stale transport token. */
+  recoveryToken?: string;
   issuedAt: number;
   /** Backward-compatible alias for issuedAt. */
   createdAt: number;

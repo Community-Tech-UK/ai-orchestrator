@@ -42,6 +42,8 @@ export interface RemoteSession {
   transportToken: string;
   /** Backward-compatible alias for transportToken. */
   token: string;
+  /** Same-node recovery token used to rotate a stale transport token. */
+  recoveryToken?: string;
   issuedAt: number;
   /** Backward-compatible alias for issuedAt. */
   createdAt: number;
@@ -51,6 +53,7 @@ export interface RemoteSession {
 
 export type RemoteRegistrationResult =
   | { status: 'registered'; session: RemoteSession }
+  | { status: 'recovered'; session: RemoteSession }
   | { status: 'paired'; session: RemoteSession }
   | { status: 'rejected'; reason: string };
 
@@ -77,6 +80,7 @@ export class RemoteAuthService {
     nodeId: string;
     nodeName: string;
     token?: string | null;
+    recoveryToken?: string | null;
   }): RemoteRegistrationResult {
     this.ensureLoadedFromSettings();
     this.pruneExpiredPairings();
@@ -101,7 +105,7 @@ export class RemoteAuthService {
       if (touched) {
         this.persistSessions();
       }
-      const session = touched ?? existingSession;
+      const session = this.ensureRecoveryToken(touched ?? existingSession);
       return {
         status: 'registered',
         session: this.toRemoteSession(session),
@@ -116,6 +120,23 @@ export class RemoteAuthService {
         status: 'paired',
         session: this.issueSession(params.nodeId, params.nodeName, pairing),
       };
+    }
+
+    const recoveryToken = params.recoveryToken?.trim();
+    if (recoveryToken) {
+      const recoverySession = getNodeIdentityStore().findByRecoveryToken(recoveryToken);
+      if (recoverySession) {
+        if (recoverySession.nodeId !== params.nodeId) {
+          return {
+            status: 'rejected',
+            reason: `Recovery token belongs to node "${recoverySession.nodeId}"`,
+          };
+        }
+        return {
+          status: 'recovered',
+          session: this.rotateSessionToken(recoverySession, params.nodeName),
+        };
+      }
     }
 
     return { status: 'rejected', reason: 'Invalid or expired pairing token' };
@@ -212,6 +233,7 @@ export class RemoteAuthService {
       nodeName,
       transportToken,
       token: transportToken,
+      recoveryToken: generateToken(),
       issuedAt,
       createdAt: issuedAt,
       lastSeenAt: issuedAt,
@@ -222,6 +244,43 @@ export class RemoteAuthService {
     this.persistSessions();
     logger.info('Issued remote node session token', { nodeId, nodeName });
     return this.toRemoteSession(identity);
+  }
+
+  private ensureRecoveryToken(identity: NodeIdentity): NodeIdentity {
+    if (identity.recoveryToken) {
+      return identity;
+    }
+
+    const next: NodeIdentity = {
+      ...identity,
+      recoveryToken: generateToken(),
+    };
+    getNodeIdentityStore().set(next);
+    this.persistSessions();
+    logger.info('Issued remote node recovery token', { nodeId: next.nodeId, nodeName: next.nodeName });
+    return next;
+  }
+
+  private rotateSessionToken(identity: NodeIdentity, nodeName: string): RemoteSession {
+    const issuedAt = Date.now();
+    const transportToken = generateToken();
+    const next: NodeIdentity = {
+      ...identity,
+      sessionId: randomUUID(),
+      nodeName,
+      transportToken,
+      token: transportToken,
+      issuedAt,
+      createdAt: issuedAt,
+      lastSeenAt: issuedAt,
+    };
+    getNodeIdentityStore().set(next);
+    this.persistSessions();
+    logger.info('Rotated remote node session token via recovery token', {
+      nodeId: next.nodeId,
+      nodeName: next.nodeName,
+    });
+    return this.toRemoteSession(next);
   }
 
   private ensureLoadedFromSettings(): void {
@@ -267,6 +326,7 @@ export class RemoteAuthService {
       nodeName: identity.nodeName,
       transportToken: identity.transportToken,
       token: identity.transportToken,
+      recoveryToken: identity.recoveryToken,
       issuedAt: identity.issuedAt,
       createdAt: identity.issuedAt,
       lastSeenAt: identity.lastSeenAt,

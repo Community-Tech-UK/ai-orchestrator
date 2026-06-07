@@ -49,6 +49,85 @@ describe('RemoteAuthService', () => {
     expect(settings.get('remoteNodesRegisteredNodes')).toEqual(expect.any(String));
   });
 
+  it('issues a same-node recovery token when a node is paired', () => {
+    const service = new RemoteAuthService();
+    const pairing = service.issuePairingCredential({ label: 'recoverable-node' });
+
+    const result = service.authenticateRegistration({
+      nodeId: 'node-1',
+      nodeName: 'Worker',
+      token: pairing.token,
+    });
+
+    expect(result.status).toBe('paired');
+    if (result.status !== 'rejected') {
+      expect(result.session.recoveryToken).toMatch(/^[0-9a-f]{64}$/);
+    }
+
+    const persisted = JSON.parse(settings.get('remoteNodesRegisteredNodes') as string) as Record<
+      string,
+      { recoveryToken?: string }
+    >;
+    expect(persisted['node-1'].recoveryToken).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('rotates a stale session token when the same node presents its recovery token', () => {
+    const service = new RemoteAuthService();
+    const pairing = service.issuePairingCredential({ label: 'recoverable-node' });
+    const paired = service.authenticateRegistration({
+      nodeId: 'node-1',
+      nodeName: 'Worker',
+      token: pairing.token,
+    });
+
+    expect(paired.status).toBe('paired');
+    if (paired.status === 'rejected') {
+      throw new Error('expected initial pairing to succeed');
+    }
+
+    const recovered = service.authenticateRegistration({
+      nodeId: 'node-1',
+      nodeName: 'Worker',
+      token: 'stale-session-token',
+      recoveryToken: paired.session.recoveryToken,
+    });
+
+    expect(recovered.status).toBe('recovered');
+    if (recovered.status !== 'rejected') {
+      expect(recovered.session.token).not.toBe(paired.session.token);
+      expect(recovered.session.recoveryToken).toBe(paired.session.recoveryToken);
+      expect(service.validateSessionToken(recovered.session.token, 'node-1')).toBe(true);
+      expect(service.validateSessionToken(paired.session.token, 'node-1')).toBe(false);
+    }
+  });
+
+  it('rejects recovery tokens presented for a different node id', () => {
+    const service = new RemoteAuthService();
+    const pairing = service.issuePairingCredential({ label: 'recoverable-node' });
+    const paired = service.authenticateRegistration({
+      nodeId: 'node-1',
+      nodeName: 'Worker',
+      token: pairing.token,
+    });
+
+    expect(paired.status).toBe('paired');
+    if (paired.status === 'rejected') {
+      throw new Error('expected initial pairing to succeed');
+    }
+
+    const recovered = service.authenticateRegistration({
+      nodeId: 'node-2',
+      nodeName: 'Imposter',
+      token: 'stale-session-token',
+      recoveryToken: paired.session.recoveryToken,
+    });
+
+    expect(recovered).toEqual({
+      status: 'rejected',
+      reason: 'Recovery token belongs to node "node-1"',
+    });
+  });
+
   it('accepts a persisted manual pairing token as a one-time pairing credential', () => {
     const service = new RemoteAuthService();
 

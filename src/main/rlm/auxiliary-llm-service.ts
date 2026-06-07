@@ -34,10 +34,13 @@ import {
 } from './auxiliary-model-client';
 import { getTokenCounter } from './token-counter';
 import { getLogger } from '../logging/logger';
+import { computeNumCtx, hostKeyFromUrl } from './auxiliary-llm-utils';
 // remote-node imports are lazy — worker-node-connection and service-rpc-client
 // transitively import electron via remote-auth → settings-manager, which
 // crashes in worker_thread contexts. We must NOT top-level-import them.
 // See src/main/instance/__tests__/context-worker-import-isolation.spec.ts.
+
+export { computeNumCtx } from './auxiliary-llm-utils';
 
 const AUXILIARY_MODEL_GENERATE_METHOD = 'auxiliaryModel.generate';
 
@@ -117,15 +120,6 @@ const PROBE_TIMEOUT_MS = 5_000;
 const JSON_FALLBACK_TEXT =
   '{"score":0,"confidence":0,"reason":"No auxiliary model available"}';
 
-/** Compact, stable `host:port` key for an endpoint URL (falls back to the raw value). */
-function hostKeyFromUrl(baseUrl: string): string {
-  try {
-    return new URL(baseUrl).host;
-  } catch {
-    return baseUrl;
-  }
-}
-
 /** Slots that return empty string (not JSON) on fallback. */
 const EMPTY_FALLBACK_SLOTS = new Set<AuxiliaryLlmSlot>(['compression', 'memoryDistillation']);
 
@@ -155,8 +149,6 @@ function parseDefaultSlots(): AuxiliaryLlmSlotConfigMap {
     return {} as AuxiliaryLlmSlotConfigMap;
   }
 }
-
-// ─── Service ──────────────────────────────────────────────────────────────────
 
 export class AuxiliaryLlmService extends EventEmitter {
   private static instance: AuxiliaryLlmService | null = null;
@@ -298,9 +290,11 @@ export class AuxiliaryLlmService extends EventEmitter {
 
     const { endpoint, model } = resolved;
 
-    // Determine source category
+    // Worker-node localhost models count as local; only manual remote APIs are cheap-cloud.
     const source: AuxiliaryLlmDecision['source'] =
-      endpoint.source === 'localhost' || endpoint.provider === 'ollama'
+      endpoint.source === 'localhost' ||
+      endpoint.source === 'worker-node' ||
+      endpoint.provider === 'ollama'
         ? 'local'
         : 'cheap-cloud';
 
@@ -504,8 +498,12 @@ export class AuxiliaryLlmService extends EventEmitter {
     systemPrompt: string,
     userPrompt: string
   ): Promise<string> {
-    // Worker-node endpoints: proxy the call via RPC so the coordinator never
-    // connects to the worker's 127.0.0.1 directly.
+    // OpenAI-compatible servers ignore numCtx; Ollama uses it to avoid clipping long prompts.
+    const tokenCounter = getTokenCounter();
+    const promptTokens = tokenCounter.countTokens(systemPrompt) + tokenCounter.countTokens(userPrompt);
+    const numCtx = computeNumCtx(promptTokens, slotConfig.maxOutputTokens, slotConfig.maxInputTokens);
+
+    // Proxy worker-node endpoints; the coordinator must not dial worker localhost directly.
     if (ep.source === 'worker-node') {
       if (!ep.workerNodeId) {
         throw new Error('Worker-node endpoint missing workerNodeId');
@@ -522,6 +520,7 @@ export class AuxiliaryLlmService extends EventEmitter {
           maxOutputTokens: slotConfig.maxOutputTokens,
           timeoutMs: slotConfig.timeoutMs,
           requireJson: slotConfig.requireJson,
+          numCtx,
         },
         slotConfig.timeoutMs + 1000,
       );
@@ -536,6 +535,7 @@ export class AuxiliaryLlmService extends EventEmitter {
       maxOutputTokens: slotConfig.maxOutputTokens,
       timeoutMs: slotConfig.timeoutMs,
       requireJson: slotConfig.requireJson,
+      numCtx,
     };
 
     if (ep.provider === 'ollama') {

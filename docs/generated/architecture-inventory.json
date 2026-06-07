@@ -5173,6 +5173,10 @@
       "lines": 1378
     },
     {
+      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
+      "lines": 1368
+    },
+    {
       "path": "src/renderer/app/core/state/source-control.store.spec.ts",
       "lines": 1345
     },
@@ -5183,10 +5187,6 @@
     {
       "path": "src/main/memory/unified-controller.ts",
       "lines": 1343
-    },
-    {
-      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
-      "lines": 1334
     },
     {
       "path": "src/renderer/app/features/instance-list/instance-list.component.ts",

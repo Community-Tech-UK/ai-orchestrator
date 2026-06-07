@@ -21,6 +21,7 @@ vi.mock('fs', async (importOriginal) => {
   return {
     ...actual,
     accessSync: vi.fn(() => { throw new Error('not found'); }),
+    existsSync: vi.fn(() => false),
   };
 });
 
@@ -31,23 +32,75 @@ vi.mock('../main/remote-node/project-discovery', () => ({
 }));
 
 import { reportCapabilities } from './capability-reporter';
+import * as fs from 'fs';
+import { execFileSync } from 'child_process';
 
 describe('capability-reporter', () => {
+  const originalPlatform = process.platform;
+  const originalHome = process.env['HOME'];
+  const originalPath = process.env['PATH'];
+
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    process.env['HOME'] = '/var/empty/aio-capability-reporter-test';
+    process.env['PATH'] = '/usr/bin:/bin:/usr/sbin:/sbin';
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    vi.mocked(execFileSync).mockImplementation((cmd: string, args: string[]) => {
+      if (Array.isArray(args) && args[0] === 'claude') {
+        return Buffer.from('/usr/local/bin/claude');
+      }
+      throw new Error('not found');
+    });
   });
 
   afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+    if (originalHome === undefined) {
+      delete process.env['HOME'];
+    } else {
+      process.env['HOME'] = originalHome;
+    }
+    if (originalPath === undefined) {
+      delete process.env['PATH'];
+    } else {
+      process.env['PATH'] = originalPath;
+    }
     vi.unstubAllGlobals();
   });
+
+  /**
+   * Build a URL-aware fetch mock. `detectLocalModelEndpoints` probes Ollama
+   * (`/api/tags`) and LM Studio (`/v1/models`) independently, so tests route by
+   * URL. A route set to `undefined` simulates a connection refusal for that
+   * server.
+   */
+  function mockFetchByUrl(routes: {
+    ollamaTags?: { ok: boolean; status?: number; json?: () => Promise<unknown> };
+    lmStudioModels?: { ok: boolean; status?: number; json?: () => Promise<unknown> };
+  }): void {
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      if (typeof url === 'string' && url.includes('/api/tags')) {
+        return routes.ollamaTags
+          ? Promise.resolve(routes.ollamaTags)
+          : Promise.reject(new Error('ECONNREFUSED'));
+      }
+      if (typeof url === 'string' && url.includes('/v1/models')) {
+        return routes.lmStudioModels
+          ? Promise.resolve(routes.lmStudioModels)
+          : Promise.reject(new Error('ECONNREFUSED'));
+      }
+      return Promise.reject(new Error(`unexpected fetch url: ${String(url)}`));
+    }));
+  }
 
   describe('detectLocalModelEndpoints via reportCapabilities', () => {
     it('includes Ollama endpoint when /api/tags responds successfully', async () => {
       const mockModels = [{ name: 'llama3.2:3b' }, { name: 'mistral:7b' }];
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({ models: mockModels }),
-      }));
+      mockFetchByUrl({
+        ollamaTags: { ok: true, json: () => Promise.resolve({ models: mockModels }) },
+        // LM Studio not running
+      });
 
       const caps = await reportCapabilities(['/workspace']);
 
@@ -61,16 +114,61 @@ describe('capability-reporter', () => {
     });
 
     it('includes Ollama endpoint with empty models list when /api/tags returns no models field', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({}),
-      }));
+      mockFetchByUrl({
+        ollamaTags: { ok: true, json: () => Promise.resolve({}) },
+      });
 
       const caps = await reportCapabilities(['/workspace']);
 
       expect(caps.localModelEndpoints).toBeDefined();
       expect(caps.localModelEndpoints).toHaveLength(1);
       expect(caps.localModelEndpoints![0].models).toEqual([]);
+    });
+
+    it('includes LM Studio (openai-compatible) endpoint when /v1/models responds successfully', async () => {
+      mockFetchByUrl({
+        // Ollama not running
+        lmStudioModels: {
+          ok: true,
+          json: () => Promise.resolve({ data: [{ id: 'qwen2.5-coder-7b' }, { id: 'phi-4' }] }),
+        },
+      });
+
+      const caps = await reportCapabilities(['/workspace']);
+
+      expect(caps.localModelEndpoints).toHaveLength(1);
+      const endpoint = caps.localModelEndpoints![0];
+      expect(endpoint.provider).toBe('openai-compatible');
+      expect(endpoint.baseUrl).toBe('http://127.0.0.1:1234');
+      expect(endpoint.models).toEqual(['qwen2.5-coder-7b', 'phi-4']);
+      expect(endpoint.healthy).toBe(true);
+    });
+
+    it('reports both Ollama and LM Studio endpoints when both are running', async () => {
+      mockFetchByUrl({
+        ollamaTags: { ok: true, json: () => Promise.resolve({ models: [{ name: 'llama3.2' }] }) },
+        lmStudioModels: { ok: true, json: () => Promise.resolve({ data: [{ id: 'phi-4' }] }) },
+      });
+
+      const caps = await reportCapabilities(['/workspace']);
+
+      expect(caps.localModelEndpoints).toHaveLength(2);
+      expect(caps.localModelEndpoints!.map((e) => e.provider)).toEqual([
+        'ollama',
+        'openai-compatible',
+      ]);
+    });
+
+    it('omits LM Studio entry when /v1/models returns a non-ok status', async () => {
+      mockFetchByUrl({
+        ollamaTags: { ok: true, json: () => Promise.resolve({ models: [{ name: 'llama3.2' }] }) },
+        lmStudioModels: { ok: false, status: 404 },
+      });
+
+      const caps = await reportCapabilities(['/workspace']);
+
+      expect(caps.localModelEndpoints).toHaveLength(1);
+      expect(caps.localModelEndpoints![0].provider).toBe('ollama');
     });
 
     it('omits Ollama entry when /api/tags returns a non-ok status', async () => {
@@ -90,6 +188,94 @@ describe('capability-reporter', () => {
       const caps = await reportCapabilities(['/workspace']);
 
       expect(caps.localModelEndpoints).toEqual([]);
+    });
+
+    it('reports installed Windows LM Studio as unhealthy when the server is offline', async () => {
+      const originalPlatform = process.platform;
+      const originalLocalAppData = process.env['LOCALAPPDATA'];
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      process.env['LOCALAPPDATA'] = 'C:\\Users\\User\\AppData\\Local';
+      // LM Studio installed (exe present), Ollama absent. `lms` CLI not on PATH
+      // (execFileSync mock throws for everything but `claude`).
+      vi.mocked(fs.existsSync).mockImplementation(
+        (path) => path === 'C:\\Users\\User\\AppData\\Local\\Programs\\lm-studio\\LM Studio.exe',
+      );
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')));
+
+      try {
+        const caps = await reportCapabilities(['/workspace']);
+
+        expect(caps.localModelEndpoints).toEqual([
+          {
+            provider: 'openai-compatible',
+            baseUrl: 'http://127.0.0.1:1234',
+            models: [],
+            healthy: false,
+          },
+        ]);
+      } finally {
+        Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+        if (originalLocalAppData === undefined) {
+          delete process.env['LOCALAPPDATA'];
+        } else {
+          process.env['LOCALAPPDATA'] = originalLocalAppData;
+        }
+      }
+    });
+
+    it('reports installed macOS LM Studio as unhealthy when the server is offline', async () => {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+      // LM Studio app bundle present, no live server. (The `lms` CLI check falls
+      // through to this install-path probe.)
+      vi.mocked(fs.existsSync).mockImplementation((path) => path === '/Applications/LM Studio.app');
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')));
+
+      try {
+        const caps = await reportCapabilities(['/workspace']);
+
+        expect(caps.localModelEndpoints).toEqual([
+          {
+            provider: 'openai-compatible',
+            baseUrl: 'http://127.0.0.1:1234',
+            models: [],
+            healthy: false,
+          },
+        ]);
+      } finally {
+        Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+      }
+    });
+
+    it('reports installed Windows Ollama as unhealthy when the server is offline', async () => {
+      const originalPlatform = process.platform;
+      const originalLocalAppData = process.env['LOCALAPPDATA'];
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      process.env['LOCALAPPDATA'] = 'C:\\Users\\User\\AppData\\Local';
+      vi.mocked(fs.existsSync).mockImplementation(
+        (path) => path === 'C:\\Users\\User\\AppData\\Local\\Programs\\Ollama\\ollama.exe',
+      );
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')));
+
+      try {
+        const caps = await reportCapabilities(['/workspace']);
+
+        expect(caps.localModelEndpoints).toEqual([
+          {
+            provider: 'ollama',
+            baseUrl: 'http://127.0.0.1:11434',
+            models: [],
+            healthy: false,
+          },
+        ]);
+      } finally {
+        Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+        if (originalLocalAppData === undefined) {
+          delete process.env['LOCALAPPDATA'];
+        } else {
+          process.env['LOCALAPPDATA'] = originalLocalAppData;
+        }
+      }
     });
 
     it('omits Ollama entry when fetch is aborted (2 s timeout)', async () => {

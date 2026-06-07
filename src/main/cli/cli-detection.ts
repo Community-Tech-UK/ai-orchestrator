@@ -205,7 +205,10 @@ export const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
       '/opt/homebrew/bin/ollama',
       '/usr/local/bin/ollama',
       `${process.env['HOME']}/.ollama/bin/ollama`,
-      '/Applications/Ollama.app/Contents/MacOS/ollama'
+      '/Applications/Ollama.app/Contents/MacOS/ollama',
+      `${process.env['LOCALAPPDATA']}\\Programs\\Ollama\\ollama.exe`,
+      `${process.env['ProgramFiles']}\\Ollama\\ollama.exe`,
+      `${process.env['ProgramFiles(x86)']}\\Ollama\\ollama.exe`
     ]
   }
 };

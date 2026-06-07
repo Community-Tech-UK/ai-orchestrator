@@ -503,7 +503,48 @@ describe('AuxiliaryLlmService — worker-node discovery and routing', () => {
     expect(nodeId).toBe('node-1');
     expect(method).toBe('auxiliaryModel.generate');
     expect((params as { model: string }).model).toBe('gemma4:12b');
+    // A sized context window is forwarded so the worker's Ollama isn't capped at
+    // its ~4k default for long-input slots.
+    expect((params as { numCtx: number }).numCtx).toBeGreaterThanOrEqual(4096);
     expect(mocks.generateOllama).not.toHaveBeenCalled();
+  });
+
+  it('routes to a worker LM Studio (openai-compatible) endpoint and labels it local', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(false); // no localhost Ollama
+    remoteState.rpc = vi.fn().mockResolvedValue({ text: 'summary from worker LM Studio' });
+
+    remoteState.nodes = [{
+      id: 'node-1',
+      name: 'Windows 5090',
+      status: 'connected',
+      capabilities: {
+        localModelEndpoints: [{
+          provider: 'openai-compatible',
+          baseUrl: 'http://127.0.0.1:1234',
+          models: ['qwen2.5-coder-7b'],
+          healthy: true,
+        }],
+      },
+    }];
+    remoteState.connected = new Set(['node-1']);
+    service.configure(baseSettings());
+
+    const { text, decision } = await service.generate('compression', 'You compress.', 'Long text.');
+
+    expect(text).toBe('summary from worker LM Studio');
+    // A worker's own localhost LM Studio runs locally on the worker — it must be
+    // categorised as 'local', not 'cheap-cloud'.
+    expect(decision.source).toBe('local');
+    expect(decision.provider).toBe('openai-compatible');
+    expect(decision.endpointId).toBe('worker:node-1:openai-compatible:127.0.0.1:1234');
+    expect(decision.model).toBe('qwen2.5-coder-7b');
+
+    const [nodeId, method, params] = remoteState.rpc.mock.calls[0];
+    expect(nodeId).toBe('node-1');
+    expect(method).toBe('auxiliaryModel.generate');
+    expect((params as { provider: string }).provider).toBe('openai-compatible');
   });
 
   it('gives distinct ids to two same-provider endpoints on one worker (no collision)', async () => {
@@ -557,5 +598,35 @@ describe('AuxiliaryLlmService — worker-node discovery and routing', () => {
     const { decision } = await service.generate('compression', 'sys', 'user');
     expect(decision.source).toBe('fallback');
     expect(remoteState.rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('computeNumCtx', () => {
+  it('rounds a small prompt up to the minimum bucket', async () => {
+    const { computeNumCtx } = await import('../auxiliary-llm-service');
+    // ~30 prompt tokens + 128 output + 512 headroom => one 8192 bucket, but the
+    // floor is NUM_CTX_MIN (4096); 8192 wins here.
+    expect(computeNumCtx(30, 128, 12_000)).toBe(8_192);
+  });
+
+  it('sizes the window to the prompt, bucketed to 8192', async () => {
+    const { computeNumCtx } = await import('../auxiliary-llm-service');
+    // 20000 + 2048 + 512 = 22560 -> ceil to 24576 (3 * 8192)
+    expect(computeNumCtx(20_000, 2_048, 96_000)).toBe(24_576);
+  });
+
+  it('clamps to the default ceiling for normally-sized slots', async () => {
+    const { computeNumCtx } = await import('../auxiliary-llm-service');
+    // Huge prompt token estimate but slot maxInputTokens is modest -> ceiling
+    // stays at the 131072 default.
+    expect(computeNumCtx(500_000, 4_096, 96_000)).toBe(131_072);
+  });
+
+  it('raises the ceiling so a slot is never re-truncated below its own maxInputTokens', async () => {
+    const { computeNumCtx } = await import('../auxiliary-llm-service');
+    // Slot deliberately configured huge (200k). The window must accommodate the
+    // slot's budget rather than clamp to the 131072 default and silently chop.
+    const result = computeNumCtx(200_000, 4_096, 200_000);
+    expect(result).toBeGreaterThanOrEqual(200_000 + 4_096);
   });
 });

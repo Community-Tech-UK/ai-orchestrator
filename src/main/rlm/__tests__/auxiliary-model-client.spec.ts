@@ -162,6 +162,28 @@ describe('generateWithOllama', () => {
     expect(body.keep_alive).toBe(DEFAULT_OLLAMA_KEEP_ALIVE);
   });
 
+  it('passes num_ctx into options so long prompts are not truncated to the default', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(mockResponse({ response: 'ok' }, true));
+    vi.stubGlobal('fetch', mockFetch);
+    const { generateWithOllama } = await import('../auxiliary-model-client');
+    await generateWithOllama('http://127.0.0.1:11434', { ...BASE_GENERATE_REQUEST, numCtx: 32768 });
+
+    const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(options.body as string);
+    expect(body.options.num_ctx).toBe(32768);
+  });
+
+  it('omits num_ctx when not provided (Ollama keeps its own default)', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(mockResponse({ response: 'ok' }, true));
+    vi.stubGlobal('fetch', mockFetch);
+    const { generateWithOllama } = await import('../auxiliary-model-client');
+    await generateWithOllama('http://127.0.0.1:11434', BASE_GENERATE_REQUEST);
+
+    const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(options.body as string);
+    expect(body.options.num_ctx).toBeUndefined();
+  });
+
   it('honours an explicit keepAlive override', async () => {
     const mockFetch = vi.fn().mockResolvedValue(mockResponse({ response: 'ok' }, true));
     vi.stubGlobal('fetch', mockFetch);

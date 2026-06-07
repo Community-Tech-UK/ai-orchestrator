@@ -1246,6 +1246,40 @@ Hey! I'm here. What do you want to tackle?`;
         expect(adapter.getSessionId()).toBe('thread-fresh-after-direct-retry');
       });
 
+      it('does not mark a thread id emitted by a failed fresh exec as resumable', async () => {
+        const adapter = await spawnExecAdapter();
+
+        const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+
+        queueCodexRun(spawnSpy, {
+          code: 1,
+          stdoutLines: [
+            '{"type":"thread.started","thread_id":"thread-half-created"}',
+          ],
+          stderrLines: [
+            'Reading prompt from stdin...',
+          ],
+        });
+
+        await expect(
+          (adapter as unknown as {
+            executePreparedMessage(
+              message: { role: 'user'; content: string },
+              options: { timeoutMs: number; phase: 'startup' | 'turn' },
+            ): Promise<unknown>;
+          }).executePreparedMessage(
+            { role: 'user', content: 'fresh attempt' },
+            { timeoutMs: 1_000, phase: 'startup' },
+          )
+        ).rejects.toThrow(/Reading prompt from stdin/);
+
+        const firstArgs = spawnSpy.mock.calls[0][0] as string[];
+        expect(spawnSpy).toHaveBeenCalledTimes(1);
+        expect(firstArgs.slice(0, 2)).toEqual(['exec', '--json']);
+        expect((adapter as unknown as { shouldResumeNextTurn: boolean }).shouldResumeNextTurn).toBe(false);
+        expect(adapter.getSessionId()).not.toBe('thread-half-created');
+      });
+
       it('clears session id and retries with fresh exec when resume fails with thread-not-found', async () => {
         const adapter = await spawnExecAdapter();
         (adapter as unknown as { sessionId: string }).sessionId = 'thread-old';

@@ -1,5 +1,6 @@
 import type { FileAttachment } from '../shared/types/instance.types';
 import { DEFAULT_OLLAMA_KEEP_ALIVE } from '../shared/types/auxiliary-llm.types';
+import { OLLAMA_LOCAL_BASE_URL, LMSTUDIO_LOCAL_BASE_URL } from './local-model-config';
 import type {
   FsReadDirectoryParams,
   FsReadFileParams,
@@ -304,10 +305,16 @@ export class WorkerRpcDispatcher {
 
   private async handleAuxiliaryModelList(provider: 'ollama' | 'openai-compatible'): Promise<string[]> {
     if (provider === 'ollama') {
-      const resp = await fetch('http://127.0.0.1:11434/api/tags', { method: 'GET' });
+      const resp = await fetch(`${OLLAMA_LOCAL_BASE_URL}/api/tags`, { method: 'GET' });
       if (!resp.ok) throw new Error(`Ollama list failed: ${resp.status}`);
       const data = await resp.json() as { models?: Array<{ name: string }> };
       return (data.models ?? []).map((m) => m.name);
+    }
+    if (provider === 'openai-compatible') {
+      const resp = await fetch(`${LMSTUDIO_LOCAL_BASE_URL}/v1/models`, { method: 'GET' });
+      if (!resp.ok) throw new Error(`OpenAI-compatible list failed: ${resp.status}`);
+      const data = await resp.json() as { data?: Array<{ id: string }> };
+      return (data.data ?? []).map((m) => m.id);
     }
     throw new Error(`Unsupported provider: ${provider}`);
   }
@@ -321,12 +328,13 @@ export class WorkerRpcDispatcher {
     maxOutputTokens: number;
     timeoutMs: number;
     requireJson: boolean;
+    numCtx?: number;
   }): Promise<string> {
     if (params.provider === 'ollama') {
       const controller = new AbortController();
       const tid = setTimeout(() => controller.abort(), params.timeoutMs);
       try {
-        const resp = await fetch('http://127.0.0.1:11434/api/generate', {
+        const resp = await fetch(`${OLLAMA_LOCAL_BASE_URL}/api/generate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -335,13 +343,47 @@ export class WorkerRpcDispatcher {
             stream: false,
             keep_alive: DEFAULT_OLLAMA_KEEP_ALIVE,
             format: params.requireJson ? 'json' : undefined,
-            options: { temperature: params.temperature, num_predict: params.maxOutputTokens },
+            options: {
+              temperature: params.temperature,
+              num_predict: params.maxOutputTokens,
+              ...(params.numCtx ? { num_ctx: params.numCtx } : {}),
+            },
           }),
           signal: controller.signal,
         });
         if (!resp.ok) throw new Error(`Ollama generate failed: ${resp.status}`);
         const data = await resp.json() as { response: string };
         return data.response ?? '';
+      } finally {
+        clearTimeout(tid);
+      }
+    }
+    if (params.provider === 'openai-compatible') {
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), params.timeoutMs);
+      try {
+        const body: Record<string, unknown> = {
+          model: params.model,
+          messages: [
+            { role: 'system', content: params.systemPrompt },
+            { role: 'user', content: params.userPrompt },
+          ],
+          temperature: params.temperature,
+          max_tokens: params.maxOutputTokens,
+          stream: false,
+        };
+        if (params.requireJson) {
+          body['response_format'] = { type: 'json_object' };
+        }
+        const resp = await fetch(`${LMSTUDIO_LOCAL_BASE_URL}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        if (!resp.ok) throw new Error(`OpenAI-compatible generate failed: ${resp.status}`);
+        const data = await resp.json() as { choices?: Array<{ message?: { content?: string } }> };
+        return data.choices?.[0]?.message?.content ?? '';
       } finally {
         clearTimeout(tid);
       }

@@ -15,6 +15,7 @@ export interface WorkerConfig {
   coordinatorUrls?: string[];
   authToken: string;
   nodeToken?: string;
+  recoveryToken?: string;
   namespace: string;
   maxConcurrentInstances: number;
   workingDirectories: string[];

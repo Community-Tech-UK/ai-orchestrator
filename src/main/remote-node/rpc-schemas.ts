@@ -180,6 +180,9 @@ export const AuxiliaryModelGenerateParamsSchema = z.object({
   maxOutputTokens: z.number().int().positive(),
   timeoutMs: z.number().int().positive(),
   requireJson: z.boolean(),
+  // Optional Ollama context window (tokens). Older coordinators omit it; the
+  // worker then falls back to Ollama's default. Ignored for openai-compatible.
+  numCtx: z.number().int().positive().optional(),
 });
 
 // -- Schema map for method-based lookup ---------------------------------------

@@ -2655,11 +2655,6 @@ export class CodexCliAdapter extends BaseCliAdapter {
         );
         const raw = [state.rawStdout.trim(), state.rawStderr.trim()].filter(Boolean).join('\n');
 
-        if (parsed.threadId && this.supportsNativeResume()) {
-          this.sessionId = parsed.threadId;
-          this.shouldResumeNextTurn = true;
-        }
-
         this.process = null;
         this.emit('exit', code, signal);
 
@@ -2667,6 +2662,11 @@ export class CodexCliAdapter extends BaseCliAdapter {
           const diagnosticSummary = state.diagnostics.map((diagnostic) => diagnostic.line).join('\n');
           reject(new Error(diagnosticSummary || `Codex exited with code ${code}`));
           return;
+        }
+
+        if (parsed.threadId && this.supportsNativeResume()) {
+          this.sessionId = parsed.threadId;
+          this.shouldResumeNextTurn = true;
         }
 
         resolve({

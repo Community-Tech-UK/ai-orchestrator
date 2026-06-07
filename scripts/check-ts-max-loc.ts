@@ -61,7 +61,7 @@ const WARN_ONLY =
  */
 const ALLOWLIST: Record<string, number> = {
   // Main process — app
-  'src/main/app/initialization-steps.ts': 710,
+  'src/main/app/initialization-steps.ts': 715,
   // Benchmarks
   'benchmarks/external-benchmarks/swe-bench/adapter.ts': 795,
   'benchmarks/external-benchmarks/swe-bench/runner.ts': 888,
@@ -70,7 +70,7 @@ const ALLOWLIST: Record<string, number> = {
   'packages/contracts/src/schemas/session.schemas.ts': 743,
   'packages/contracts/src/types/transport.types.ts': 1832,
   // Main process — automations
-  'src/main/automations/automation-store.ts': 847,
+  'src/main/automations/automation-store.ts': 852,
   // Main process — browser gateway
   'src/main/browser-gateway/browser-gateway-service.ts': 2202,
   // Main process — channels
@@ -80,14 +80,14 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/cli/adapters/acp-cli-adapter.ts': 2142,
   'src/main/cli/adapters/base-cli-adapter.ts': 778,
   'src/main/cli/adapters/claude-cli-adapter.ts': 2141,
-  'src/main/cli/adapters/codex-cli-adapter.ts': 3038,
+  'src/main/cli/adapters/codex-cli-adapter.ts': 3059,
   'src/main/cli/adapters/copilot-cli-adapter.ts': 978,
   'src/main/cli/adapters/cursor-cli-adapter.ts': 1047,
   'src/main/cli/adapters/gemini-cli-adapter.ts': 887,
   // Main process — codemem
   'src/main/codemem/code-index-manager.ts': 782,
   // Main process — context
-  'src/main/context/context-compactor.ts': 876,
+  'src/main/context/context-compactor.ts': 881,
   'src/main/context/jit-loader.ts': 773,
   // Main process — core
   'src/main/core/config/claude-md-loader.ts': 804,
@@ -98,12 +98,12 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/indexing/benchmarks/benchmark-utils.ts': 820,
   'src/main/indexing/tree-sitter-chunker.ts': 716,
   // Main process — instance
-  'src/main/instance/instance-communication.ts': 2173,
+  'src/main/instance/instance-communication.ts': 2185,
   'src/main/instance/instance-context.ts': 1240,
-  'src/main/instance/instance-lifecycle.ts': 3184,
+  'src/main/instance/instance-lifecycle.ts': 3185,
   'src/main/instance/instance-manager.ts': 2542,
   'src/main/instance/instance-orchestration.ts': 1516,
-  'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1077,
+  'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1089,
   // Main process — IPC handlers
   'src/main/ipc/handlers/app-handlers.ts': 767,
   'src/main/ipc/handlers/instance-handlers.ts': 1101,
@@ -129,7 +129,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/memory/procedural-store.ts': 802,
   'src/main/memory/project-memory-brief.ts': 997,
   'src/main/memory/r1-memory-manager.ts': 793,
-  'src/main/memory/unified-controller.ts': 1333,
+  'src/main/memory/unified-controller.ts': 1343,
   // Main process — orchestration
   'src/main/orchestration/child-result-storage.ts': 836,
   'src/main/orchestration/cli-verification-extension.ts': 973,
@@ -146,7 +146,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/orchestration/supervisor.ts': 735,
   'src/main/orchestration/voting.ts': 777,
   // Main process — plugins
-  'src/main/plugins/plugin-manager.ts': 1235,
+  'src/main/plugins/plugin-manager.ts': 1257,
   // Main process — providers
   'src/main/providers/model-discovery.ts': 552,
   // Main process — remote
@@ -157,7 +157,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/rlm/ast-chunker.ts': 766,
   'src/main/rlm/episodic-rlm-store.ts': 766,
   'src/main/rlm/hyde-service.ts': 716,
-  'src/main/rlm/llm-service.ts': 985,
+  'src/main/rlm/llm-service.ts': 997,
   'src/main/rlm/smart-compaction.ts': 879,
   // Main process — security
   'src/main/security/permission-manager.ts': 1624,
@@ -175,7 +175,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/core/services/ipc/memory-ipc.service.ts': 724,
   'src/renderer/app/core/services/ipc/orchestration-ipc.service.ts': 745,
   // Renderer — stores
-  'src/renderer/app/core/state/instance/instance-list.store.ts': 982,
+  'src/renderer/app/core/state/instance/instance-list.store.ts': 983,
   'src/renderer/app/core/state/instance/instance-messaging.store.ts': 774,
   'src/renderer/app/core/state/instance/instance.store.ts': 775,
   'src/renderer/app/core/state/source-control.store.ts': 976,

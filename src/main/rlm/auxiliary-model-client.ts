@@ -24,6 +24,13 @@ export interface AuxiliaryGenerateRequest {
    * DEFAULT_OLLAMA_KEEP_ALIVE. Ignored by OpenAI-compatible endpoints.
    */
   keepAlive?: string;
+  /**
+   * Ollama `num_ctx` (context window in tokens). Ollama defaults to ~4k and
+   * silently truncates longer prompts, so callers should size this to fit the
+   * prompt + output. Ignored by OpenAI-compatible endpoints, which fix the
+   * context window when the model is loaded.
+   */
+  numCtx?: number;
 }
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
@@ -129,6 +136,7 @@ export async function generateWithOllama(
     options: {
       temperature: request.temperature,
       num_predict: request.maxOutputTokens,
+      ...(request.numCtx ? { num_ctx: request.numCtx } : {}),
     },
   };
 

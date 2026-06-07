@@ -25,6 +25,7 @@ npm run build               # Build for production
 npx tsc --noEmit            # TypeScript compilation check
 npx tsc --noEmit -p tsconfig.spec.json  # Spec files must also compile
 npm run lint                # ESLint check (uses ng lint)
+npm run check:ts-max-loc    # TypeScript file size ratchet; fix any violations
 npm run test                # Run tests (uses vitest)
 ```
 
@@ -44,7 +45,8 @@ npm run test                # Run tests (uses vitest)
 1. Run `npx tsc --noEmit` - Must pass with no errors
 2. Run `npx tsc --noEmit -p tsconfig.spec.json` - Spec/test files must also compile
 3. Run `npm run lint` or `npx eslint <modified-files>` - Fix any errors introduced
-4. If tests exist for modified code, run them
+4. Run `npm run check:ts-max-loc` - Fix any TypeScript file size violations
+5. If tests exist for modified code, run them
 
 ### Code Style
 
@@ -77,6 +79,7 @@ When implementing features from `bigchange_*.md` files:
    - `npx tsc --noEmit` - TypeScript must pass
    - `npx tsc --noEmit -p tsconfig.spec.json` - Spec files must also compile
    - `npm run lint` - Fix any lint errors
+   - `npm run check:ts-max-loc` - Fix any TypeScript file size violations
 5. **Audit integration** - Ensure new code is actually used:
    - Imports are added where needed
    - Singletons are initialized in `src/main/index.ts`

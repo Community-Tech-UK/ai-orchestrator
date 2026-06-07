@@ -4,6 +4,11 @@ import { execFileSync } from 'child_process';
 import type { WorkerNodeCapabilities, WorkerLocalModelCapability, NodePlatform } from '../shared/types/worker-node.types';
 import type { CanonicalCliType } from '../shared/types/settings.types';
 import { ProjectDiscovery } from '../main/remote-node/project-discovery';
+import {
+  OLLAMA_LOCAL_BASE_URL,
+  LMSTUDIO_LOCAL_BASE_URL,
+  LOCAL_MODEL_PROBE_TIMEOUT_MS,
+} from './local-model-config';
 
 /**
  * Detect local capabilities (CLIs, browser, GPU, memory) for reporting
@@ -44,38 +49,94 @@ export async function reportCapabilities(
 async function detectLocalModelEndpoints(): Promise<WorkerLocalModelCapability[]> {
   const endpoints: WorkerLocalModelCapability[] = [];
 
-  // Probe local Ollama — the coordinator must NOT use the 127.0.0.1 URL directly;
-  // it is worker-local and only accessed via the auxiliaryModel RPC proxy.
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 2000);
-  try {
-    const response = await fetch('http://127.0.0.1:11434/api/tags', {
-      method: 'GET',
-      signal: controller.signal,
+  // Probe worker-local model servers. The coordinator must NOT use these
+  // 127.0.0.1 URLs directly — they are worker-local and only ever accessed via
+  // the auxiliaryModel RPC proxy.
+  const ollama = await probeOllamaCapability();
+  if (ollama) {
+    endpoints.push(ollama);
+  } else if (isOllamaInstalled()) {
+    // Installed but not currently responding — advertise as unhealthy so the
+    // coordinator can surface it (e.g. "start Ollama") rather than hide it.
+    endpoints.push({
+      provider: 'ollama',
+      baseUrl: OLLAMA_LOCAL_BASE_URL,
+      models: [],
+      healthy: false,
     });
-    clearTimeout(timeoutId);
-    if (response.ok) {
-      const data = await response.json() as { models?: Array<{ name: string }> };
-      const models = (data.models ?? []).map((m) => m.name);
-      endpoints.push({
-        provider: 'ollama',
-        baseUrl: 'http://127.0.0.1:11434',
-        models,
-        healthy: true,
-      });
-    }
-  } catch {
-    clearTimeout(timeoutId);
-    // Ollama not available — normal, do not include
+  }
+
+  // LM Studio (OpenAI-compatible server on the default port). Mirrors the
+  // Ollama handling: advertise the live endpoint when the local server is
+  // running, otherwise advertise it as unhealthy when LM Studio is installed so
+  // the coordinator can surface "start the LM Studio local server".
+  const lmStudio = await probeLmStudioCapability();
+  if (lmStudio) {
+    endpoints.push(lmStudio);
+  } else if (isLmStudioInstalled()) {
+    endpoints.push({
+      provider: 'openai-compatible',
+      baseUrl: LMSTUDIO_LOCAL_BASE_URL,
+      models: [],
+      healthy: false,
+    });
   }
 
   return endpoints;
 }
 
+/** Probe Ollama's native `/api/tags`. Returns null when unreachable. */
+async function probeOllamaCapability(): Promise<WorkerLocalModelCapability | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), LOCAL_MODEL_PROBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${OLLAMA_LOCAL_BASE_URL}/api/tags`, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const data = await response.json() as { models?: { name: string }[] };
+    return {
+      provider: 'ollama',
+      baseUrl: OLLAMA_LOCAL_BASE_URL,
+      models: (data.models ?? []).map((m) => m.name),
+      healthy: true,
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/** Probe LM Studio's OpenAI-compatible `/v1/models`. Returns null when unreachable. */
+async function probeLmStudioCapability(): Promise<WorkerLocalModelCapability | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), LOCAL_MODEL_PROBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${LMSTUDIO_LOCAL_BASE_URL}/v1/models`, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const data = await response.json() as { data?: { id: string }[] };
+    return {
+      provider: 'openai-compatible',
+      baseUrl: LMSTUDIO_LOCAL_BASE_URL,
+      models: (data.data ?? []).map((m) => m.id),
+      healthy: true,
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 type DetectableCliType = CanonicalCliType | 'ollama';
 
 function detectClis(): CanonicalCliType[] {
-  const clis: Array<{ name: DetectableCliType; command: string }> = [
+  const clis: { name: DetectableCliType; command: string }[] = [
     { name: 'claude', command: 'claude' },
     { name: 'codex', command: 'codex' },
     { name: 'gemini', command: 'gemini' },
@@ -104,6 +165,57 @@ function isCommandAvailable(command: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isOllamaInstalled(): boolean {
+  for (const installPath of getOllamaInstallPaths()) {
+    if (installPath && fs.existsSync(installPath)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getOllamaInstallPaths(): string[] {
+  if (process.platform === 'win32') {
+    return [
+      `${process.env['LOCALAPPDATA'] ?? ''}\\Programs\\Ollama\\ollama.exe`,
+      `${process.env['ProgramFiles'] ?? ''}\\Ollama\\ollama.exe`,
+      `${process.env['ProgramFiles(x86)'] ?? ''}\\Ollama\\ollama.exe`,
+    ];
+  }
+  return [];
+}
+
+function isLmStudioInstalled(): boolean {
+  // The `lms` CLI ships with LM Studio and is the most reliable cross-platform
+  // signal; fall back to known install locations when it is not on PATH.
+  if (isCommandAvailable('lms')) {
+    return true;
+  }
+  for (const installPath of getLmStudioInstallPaths()) {
+    if (installPath && fs.existsSync(installPath)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getLmStudioInstallPaths(): string[] {
+  if (process.platform === 'win32') {
+    const localAppData = process.env['LOCALAPPDATA'] ?? '';
+    return [
+      `${localAppData}\\Programs\\lm-studio\\LM Studio.exe`,
+      `${localAppData}\\Programs\\LM Studio\\LM Studio.exe`,
+      `${process.env['ProgramFiles'] ?? ''}\\LM Studio\\LM Studio.exe`,
+    ];
+  }
+  if (process.platform === 'darwin') {
+    return ['/Applications/LM Studio.app'];
+  }
+  // Linux: LM Studio ships as an AppImage with no canonical install path, so we
+  // rely on the `lms` CLI check above plus the per-user config directory.
+  return [`${process.env['HOME'] ?? ''}/.lmstudio`];
 }
 
 function detectBrowser(): boolean {
