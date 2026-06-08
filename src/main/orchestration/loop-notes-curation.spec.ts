@@ -77,8 +77,8 @@ describe('curateNotesContent (LF-3)', () => {
 });
 
 describe('defaultLoopConfig cost cap (LF-3)', () => {
-  it('defaults maxCostCents to a $500 backstop (50000 cents)', () => {
+  it('defaults maxCostCents to null for ordinary unbounded loops', () => {
     const cfg = defaultLoopConfig('/tmp/ws', 'goal');
-    expect(cfg.caps.maxCostCents).toBe(50000);
+    expect(cfg.caps.maxCostCents).toBeNull();
   });
 });

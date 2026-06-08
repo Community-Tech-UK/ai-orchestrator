@@ -33,6 +33,13 @@ function stateWithTokens(totalTokens: number, maxTokens: number | null): LoopSta
   };
 }
 
+function stateWithCost(totalCostCents: number, maxCostCents: number | null): LoopState {
+  const state = stateWithTokens(0, null);
+  state.totalCostCents = totalCostCents;
+  state.config.caps.maxCostCents = maxCostCents;
+  return state;
+}
+
 function stateWithIterations(totalIterations: number): LoopState {
   return {
     ...stateWithTokens(0, null),
@@ -60,6 +67,15 @@ describe('LoopCoordinator state helpers', () => {
     expect(config.caps.maxIterations).toBeNull();
   });
 
+  it('materializes omitted maxCostCents as an unbounded cost cap', () => {
+    const config = materializeLoopConfig({
+      initialPrompt: 'do work',
+      workspaceCwd: '/tmp/workspace',
+    });
+
+    expect(config.caps.maxCostCents).toBeNull();
+  });
+
   it('does not stop on iteration count when maxIterations is null', () => {
     expect(checkLoopHardCaps(stateWithIterations(10_000))).toBeNull();
   });
@@ -70,5 +86,9 @@ describe('LoopCoordinator state helpers', () => {
 
   it('does not stop on token usage even when an old numeric maxTokens cap is present', () => {
     expect(checkLoopHardCaps(stateWithTokens(7_242_440, 1_000_000))).toBeNull();
+  });
+
+  it('does not stop on cost when maxCostCents is null', () => {
+    expect(checkLoopHardCaps(stateWithCost(53_203, null))).toBeNull();
   });
 });

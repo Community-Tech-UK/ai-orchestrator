@@ -21,6 +21,46 @@
   margin-right: auto;
 }
 
+.setup-topbar {
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--spacing-md);
+}
+
+.setup-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  min-height: 36px;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.setup-back-btn:hover {
+  border-color: var(--glass-border-hover);
+  background: var(--glass-medium);
+  color: var(--text-primary);
+}
+
+.setup-back-btn svg {
+  flex: 0 0 auto;
+  transition: transform var(--transition-fast);
+}
+
+.setup-back-btn:hover svg {
+  transform: translateX(-2px);
+}
+
 /* ── Hero ── */
 .setup-hero {
   display: flex;

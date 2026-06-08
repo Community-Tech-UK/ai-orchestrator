@@ -126,10 +126,9 @@ export class LoopConfigPanelComponent {
   planFile = signal('');
   maxIterations = signal<number | null>(null);
   maxHours = signal(8);
-  // LF-3: default to a $500 spend ceiling (mirrors defaultLoopConfig). Clear the
-  // field to null for an unbounded run. Operator-reviewed completion requires a
-  // non-null cap (LF-3a) — the validationError below enforces that.
-  maxDollars = signal<number | null>(500);
+  // Default unbounded for ordinary plan loops. Operator-reviewed completion and
+  // branch-select fan-out require a non-null cap; validationError enforces that.
+  maxDollars = signal<number | null>(null);
   verifyCommand = signal('');
   quickVerifyCommand = signal('');
   provider = signal<PickerProvider>('claude');

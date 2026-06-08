@@ -1,4 +1,19 @@
 <div class="setup-center">
+  <div class="setup-topbar">
+    <button
+      type="button"
+      class="setup-back-btn"
+      aria-label="Back to workspace"
+      title="Back to workspace"
+      (click)="goToWorkspace()"
+    >
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M19 12H5" /><path d="M12 19l-7-7 7-7" />
+      </svg>
+      <span>Back</span>
+    </button>
+  </div>
+
   <header class="setup-hero" [attr.data-status]="heroStatus()">
     <div class="hero-text">
       <p class="hero-eyebrow">Setup &amp; readiness</p>

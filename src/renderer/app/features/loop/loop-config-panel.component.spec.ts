@@ -105,10 +105,10 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.completion?.requiredCleanReviewPasses).toBe(4);
   });
 
-  it('defaults to a $500 spend-cap backstop (LF-3)', () => {
+  it('does not set a hidden spend cap by default', () => {
     const config = component.buildConfig();
 
-    expect(config?.caps?.maxCostCents).toBe(50000);
+    expect(config?.caps?.maxCostCents).toBeNull();
   });
 
   it('does not set a hidden token cap by default', () => {
@@ -135,12 +135,12 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.context?.compaction.resetAtUtilization).toBe(0.6);
   });
 
-  it('allows clearing the spend cap to null for an unbounded run', () => {
-    component.maxDollars.set(null);
+  it('emits an explicit spend cap when provided', () => {
+    component.maxDollars.set(500);
 
     const config = component.buildConfig();
 
-    expect(config?.caps?.maxCostCents).toBeNull();
+    expect(config?.caps?.maxCostCents).toBe(50000);
   });
 
   it('keeps the verify command control visible without opening advanced settings', () => {
@@ -153,6 +153,7 @@ describe('LoopConfigPanelComponent', () => {
   });
 
   it('can opt into operator-reviewed completion for loops without a verifier', () => {
+    component.maxDollars.set(500);
     component.operatorReviewedCompletion.set(true);
     fixture.detectChanges();
 
@@ -205,6 +206,7 @@ describe('LoopConfigPanelComponent', () => {
   it('emits branch-select config only when explicitly enabled', () => {
     expect(component.buildConfig()?.exploration).toBeUndefined();
 
+    component.maxDollars.set(500);
     component.branchSelect.set(true);
     component.branchFanout.set(4);
     fixture.detectChanges();

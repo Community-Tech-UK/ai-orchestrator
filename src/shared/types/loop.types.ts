@@ -416,11 +416,10 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       maxIterations: null,
       maxWallTimeMs: 8 * 60 * 60 * 1000,
       maxTokens: null,
-      // LF-3: default to a $500 backstop. Previously $10, which prematurely
-      // killed subscription loops where the dollar estimate is inaccurate;
-      // previously null (unbounded), flagged as a footgun. Renderer surfaces
-      // this and lets the user clear it to null for no cap.
-      maxCostCents: 50000,
+      // Default unbounded for subscription-plan loops where the dollar estimate
+      // is not the user's operative budget. Riskier loop modes that pause or
+      // fan out still require the user to set an explicit spend cap.
+      maxCostCents: null,
       maxToolCallsPerIteration: 200,
       maxCompletionAttempts: 3,
     },

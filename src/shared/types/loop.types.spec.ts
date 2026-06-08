@@ -13,4 +13,10 @@ describe('defaultLoopConfig', () => {
 
     expect(config.caps.maxIterations).toBeNull();
   });
+
+  it('defaults the cost cap to null for unbounded plan loops', () => {
+    const config = defaultLoopConfig('/tmp/project', 'finish the backlog');
+
+    expect(config.caps.maxCostCents).toBeNull();
+  });
 });

@@ -28,8 +28,8 @@ export async function prepareLoopStartConfig(
   const verifyCommand = config.completion?.verifyCommand?.trim() ?? '';
   // LF-3a: operator-reviewed loops sit paused waiting for a human Accept and get
   // resumed/re-attempted repeatedly, so they're the most likely to burn spend.
-  // Require a non-null cost cap. (Omitted caps inherit the $10 default in
-  // materializeConfig, so this only rejects an explicit "unbounded" choice.)
+  // Require a non-null cost cap because ordinary loops now default to
+  // unbounded cost for subscription-plan usage.
   if (
     config.completion?.allowOperatorReviewedCompletion &&
     config.caps?.maxCostCents === null
