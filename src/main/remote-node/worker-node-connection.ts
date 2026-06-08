@@ -26,7 +26,8 @@ const RPC_TIMEOUT_MS = 30_000;
 interface PendingRpc {
   resolve: (value: unknown) => void;
   reject: (reason: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+  timer: ReturnType<typeof setTimeout> | null;
+  nodeId: string;
 }
 
 export class WorkerNodeConnectionServer extends EventEmitter {
@@ -132,7 +133,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
 
     // Cancel all pending RPC requests
     for (const [id, pending] of this.pending) {
-      clearTimeout(pending.timer);
+      if (pending.timer) clearTimeout(pending.timer);
       pending.reject(new Error('Server shutting down'));
       this.pending.delete(id);
     }
@@ -185,25 +186,36 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     const id = `coord-${++this.requestCounter}`;
     const request = createRpcRequest(id, method, params, undefined, scope);
     const timeout = timeoutMs ?? RPC_TIMEOUT_MS;
+    // A non-positive timeout disables the timer entirely. Required for RPCs
+    // whose worker-side handler blocks for an unbounded duration — notably
+    // `instance.sendInput`, where the Codex app-server adapter stays inside
+    // sendInput() for the ENTIRE turn. A fixed timeout would falsely fail any
+    // turn longer than it, even while output streams back over notifications.
+    // Such requests are instead bounded by node disconnect (rejectPendingForNode)
+    // and the coordinator's own stuck-process watchdog.
+    const timeoutDisabled = timeout <= 0;
 
     return new Promise<T>((resolve, reject) => {
       // Register pending RPC and start timeout BEFORE checking socket state.
       // This avoids a TOCTOU race where the socket closes between the check
       // and the send() call — the timeout handles cleanup either way.
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`RPC timeout after ${timeout}ms: ${method} (id=${id})`));
-      }, timeout);
+      const timer = timeoutDisabled
+        ? null
+        : setTimeout(() => {
+            this.pending.delete(id);
+            reject(new Error(`RPC timeout after ${timeout}ms: ${method} (id=${id})`));
+          }, timeout);
 
       this.pending.set(id, {
         resolve: resolve as (value: unknown) => void,
         reject,
         timer,
+        nodeId,
       });
 
       const ws = this.nodeToSocket.get(nodeId);
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
         this.pending.delete(id);
         reject(new Error(`Node not connected: ${nodeId}`));
         return;
@@ -211,12 +223,26 @@ export class WorkerNodeConnectionServer extends EventEmitter {
 
       ws.send(JSON.stringify(request), (err) => {
         if (err) {
-          clearTimeout(timer);
+          if (timer) clearTimeout(timer);
           this.pending.delete(id);
           reject(err);
         }
       });
     });
+  }
+
+  /**
+   * Reject every pending RPC awaiting a response from the given node. Called
+   * when a node's WebSocket truly disconnects so that in-flight requests fail
+   * promptly instead of hanging until their (possibly disabled) timeout.
+   */
+  private rejectPendingForNode(nodeId: string, reason: string): void {
+    for (const [id, pending] of this.pending) {
+      if (pending.nodeId !== nodeId) continue;
+      if (pending.timer) clearTimeout(pending.timer);
+      this.pending.delete(id);
+      pending.reject(new Error(reason));
+    }
   }
 
   sendNotification(nodeId: string, method: string, params?: unknown): void {
@@ -328,6 +354,10 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       }
       this.nodeToSocket.delete(nodeId);
       this.socketToNode.delete(ws);
+      // Fail any in-flight RPCs to this node now, rather than letting them hang
+      // until their timeout (or forever, for timeout-disabled requests such as
+      // instance.sendInput).
+      this.rejectPendingForNode(nodeId, `Node disconnected: ${nodeId}`);
       logger.info('Node WebSocket disconnected', { nodeId });
       this.emit('node:ws-disconnected', nodeId);
     });
@@ -448,7 +478,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       return;
     }
 
-    clearTimeout(pending.timer);
+    if (pending.timer) clearTimeout(pending.timer);
     this.pending.delete(response.id);
 
     if (response.error) {

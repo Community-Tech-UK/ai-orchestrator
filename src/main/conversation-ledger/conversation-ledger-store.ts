@@ -19,6 +19,16 @@ import type {
 
 const logger = getLogger('ConversationLedgerStore');
 
+/**
+ * Absolute backstop on how many message rows a single `getMessages` call may
+ * materialize. A worker thread's V8 heap (a few GB) can be exhausted by one
+ * `.all()` over a very long transcript — which aborts the whole process with an
+ * OOM. No production read path should ever request an unbounded transcript, but
+ * this cap guarantees a stray caller degrades to "most recent N" instead of
+ * crashing the app. Tail-preserving (keeps the newest rows).
+ */
+const ABSOLUTE_MAX_MESSAGE_ROWS = 5000;
+
 interface ThreadRow {
   id: string;
   provider: ConversationProvider;
@@ -179,7 +189,12 @@ export class ConversationLedgerStore {
   upsertMessages(
     threadId: string,
     messages: ConversationMessageUpsertInput[]
-  ): ConversationMessageRecord[] {
+  ): void {
+    // Intentionally does NOT read the transcript back: the previous
+    // `return this.getMessages(threadId)` materialized the entire (growing)
+    // conversation into the worker heap on every turn — an unbounded `.all()`
+    // that the sole caller discarded, and a latent OOM. Callers that need the
+    // freshly-appended records use `appendMessagesWithThreadTouch` instead.
     const write = this.db.transaction(() => {
       for (const message of messages) {
         this.upsertMessage(threadId, message);
@@ -188,7 +203,6 @@ export class ConversationLedgerStore {
         .run(Date.now(), threadId);
     });
     write();
-    return this.getMessages(threadId);
   }
 
   replaceThreadMessagesFromImport(
@@ -196,7 +210,7 @@ export class ConversationLedgerStore {
     messages: ConversationMessageUpsertInput[],
     cursor?: ConversationSyncCursorUpsertInput
   ): ReconciliationResult {
-    const before = this.getMessages(threadId).length;
+    const before = this.countMessages(threadId);
     const write = this.db.transaction(() => {
       this.db.prepare('DELETE FROM conversation_messages WHERE thread_id = ?').run(threadId);
       for (const message of messages) {
@@ -225,21 +239,52 @@ export class ConversationLedgerStore {
     threadId: string,
     options: ConversationMessagesQuery = {}
   ): ConversationMessageRecord[] {
-    const params: unknown[] = [threadId];
-    const where = ['thread_id = ?'];
+    const explicitLimit = options.limit ? Math.max(1, Math.min(options.limit, 1000)) : null;
+
     if (options.afterSequence !== undefined) {
-      where.push('sequence > ?');
-      params.push(options.afterSequence);
+      // Forward window after a cursor: an ascending slice is the correct page.
+      const limit = explicitLimit ?? ABSOLUTE_MAX_MESSAGE_ROWS;
+      const rows = this.db.prepare(`
+        SELECT * FROM conversation_messages
+        WHERE thread_id = ? AND sequence > ?
+        ORDER BY sequence ASC
+        LIMIT ?
+      `).all<MessageRow>(threadId, options.afterSequence, limit);
+      if (!explicitLimit && rows.length === limit) {
+        logger.warn(
+          `getMessages(${threadId}, afterSequence=${options.afterSequence}) hit the ` +
+          `${ABSOLUTE_MAX_MESSAGE_ROWS}-row cap; result truncated — use pagination.`,
+        );
+      }
+      return rows.map(messageRowToRecord);
     }
-    const limit = options.limit ? Math.max(1, Math.min(options.limit, 1000)) : null;
-    const sql = `
-      SELECT * FROM conversation_messages
-      WHERE ${where.join(' AND ')}
-      ORDER BY sequence ASC
-      ${limit ? 'LIMIT ?' : ''}
-    `;
-    if (limit) params.push(limit);
-    return this.db.prepare(sql).all<MessageRow>(...params).map(messageRowToRecord);
+
+    if (explicitLimit) {
+      return this.db.prepare(`
+        SELECT * FROM conversation_messages
+        WHERE thread_id = ?
+        ORDER BY sequence ASC
+        LIMIT ?
+      `).all<MessageRow>(threadId, explicitLimit).map(messageRowToRecord);
+    }
+
+    // Unbounded request: cap to the most recent ABSOLUTE_MAX_MESSAGE_ROWS (tail)
+    // so a pathological transcript can never OOM the worker, then re-sort ASC.
+    const rows = this.db.prepare(`
+      SELECT * FROM (
+        SELECT * FROM conversation_messages
+        WHERE thread_id = ?
+        ORDER BY sequence DESC
+        LIMIT ?
+      ) ORDER BY sequence ASC
+    `).all<MessageRow>(threadId, ABSOLUTE_MAX_MESSAGE_ROWS);
+    if (rows.length === ABSOLUTE_MAX_MESSAGE_ROWS) {
+      logger.warn(
+        `getMessages(${threadId}) returned the most recent ${ABSOLUTE_MAX_MESSAGE_ROWS} ` +
+        `messages of a larger transcript (absolute cap) — use pagination for older messages.`,
+      );
+    }
+    return rows.map(messageRowToRecord);
   }
 
   upsertSyncCursor(input: ConversationSyncCursorUpsertInput): ConversationSyncCursorRecord {

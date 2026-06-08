@@ -85,6 +85,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/cli/adapters/cursor-cli-adapter.ts': 1047,
   'src/main/cli/adapters/gemini-cli-adapter.ts': 887,
   // Main process — codemem
+  'src/main/codemem/cas-store.ts': 729,
   'src/main/codemem/code-index-manager.ts': 782,
   // Main process — context
   'src/main/context/context-compactor.ts': 881,

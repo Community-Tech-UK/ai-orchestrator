@@ -31,6 +31,14 @@ import { InternalOrchestratorConversationAdapter } from './internal-orchestrator
 
 const logger = getLogger('ConversationLedgerService');
 const DEFAULT_CONVERSATION_WINDOW_LIMIT = 200;
+/**
+ * Hard ceiling on how many messages `getFullConversation` will materialize.
+ * Beyond this, we return the most recent window (with the true total) rather
+ * than loading the entire transcript — an unbounded read that can exhaust the
+ * conversation worker's V8 heap and abort the whole process. Callers fetch
+ * older messages via `getConversationPageBefore`.
+ */
+const MAX_FULL_CONVERSATION_MESSAGES = 1000;
 
 export interface ConversationLedgerServiceConfig {
   dbPath?: string;
@@ -137,8 +145,18 @@ export class ConversationLedgerService {
     if (!thread) {
       throw new ConversationLedgerServiceError(`Conversation ${threadId} not found`, 'CONVERSATION_NOT_FOUND');
     }
+    const totalMessages = await this.port.countMessages(threadId);
+    if (totalMessages > MAX_FULL_CONVERSATION_MESSAGES) {
+      logger.warn(
+        `Conversation ${threadId} has ${totalMessages} messages; returning the most recent ` +
+        `${MAX_FULL_CONVERSATION_MESSAGES} to avoid exhausting the worker heap. ` +
+        `Use pagination (getConversationPageBefore) for older messages.`,
+      );
+      const recent = await this.port.getRecentMessages(threadId, MAX_FULL_CONVERSATION_MESSAGES);
+      return this.buildConversation(thread, recent, totalMessages);
+    }
     const messages = await this.port.getMessages(threadId);
-    return this.buildConversation(thread, messages, messages.length);
+    return this.buildConversation(thread, messages, totalMessages);
   }
 
   async getRecentConversation(

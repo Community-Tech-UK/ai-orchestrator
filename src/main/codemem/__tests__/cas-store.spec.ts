@@ -228,6 +228,42 @@ describe('CasStore', () => {
     expect(symbols[0]?.name).toBe('second');
   });
 
+  it('countWorkspaceSymbols returns the row count without materializing symbols', () => {
+    expect(store.countWorkspaceSymbols('w1')).toBe(0);
+    store.replaceWorkspaceSymbolsForFile('w1', 'src/a.ts', [
+      {
+        workspaceHash: 'w1',
+        symbolId: 'sym-1',
+        pathFromRoot: 'src/a.ts',
+        name: 'alpha',
+        kind: 'function',
+        containerName: null,
+        startLine: 0,
+        startCharacter: 0,
+        endLine: 1,
+        endCharacter: 1,
+        signature: 'alpha()',
+        docComment: null,
+      },
+      {
+        workspaceHash: 'w1',
+        symbolId: 'sym-2',
+        pathFromRoot: 'src/a.ts',
+        name: 'beta',
+        kind: 'function',
+        containerName: null,
+        startLine: 2,
+        startCharacter: 0,
+        endLine: 3,
+        endCharacter: 1,
+        signature: 'beta()',
+        docComment: null,
+      },
+    ]);
+    expect(store.countWorkspaceSymbols('w1')).toBe(2);
+    expect(store.countWorkspaceSymbols('other-workspace')).toBe(0);
+  });
+
   it('searchWorkspaceSymbols finds exact and partial matches', () => {
     store.replaceWorkspaceSymbolsForFile('w1', 'src/a.ts', [
       {

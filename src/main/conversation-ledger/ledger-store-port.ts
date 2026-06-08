@@ -52,7 +52,7 @@ export interface LedgerStorePort {
   upsertMessages(
     threadId: string,
     messages: ConversationMessageUpsertInput[],
-  ): Promise<ConversationMessageRecord[]>;
+  ): Promise<void>;
   appendMessagesWithThreadTouch(
     threadId: string,
     inputs: AppendMessageInput[],
@@ -118,8 +118,8 @@ export class InProcessLedgerStorePort implements LedgerStorePort {
   async upsertMessages(
     threadId: string,
     messages: ConversationMessageUpsertInput[],
-  ): Promise<ConversationMessageRecord[]> {
-    return this.store.upsertMessages(threadId, messages);
+  ): Promise<void> {
+    this.store.upsertMessages(threadId, messages);
   }
 
   async appendMessagesWithThreadTouch(

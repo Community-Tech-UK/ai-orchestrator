@@ -164,8 +164,8 @@ export class ConversationLedgerWorkerClient implements LedgerStorePort {
   async upsertMessages(
     threadId: string,
     messages: ConversationMessageUpsertInput[],
-  ): Promise<ConversationMessageRecord[]> {
-    return (await this.call('upsertMessages', [threadId, messages])) as ConversationMessageRecord[];
+  ): Promise<void> {
+    await this.call('upsertMessages', [threadId, messages]);
   }
 
   async appendMessagesWithThreadTouch(

@@ -241,6 +241,7 @@ describe('ProjectCodeIndexBridge', () => {
       isIndexingEnabled: vi.fn(() => overrides.indexingEnabled ?? true),
       ensureWorkspace,
       listManifestEntries: vi.fn(() => overrides.manifestEntries ?? []),
+      countWorkspaceSymbols: vi.fn(() => (overrides.symbols ?? []).length),
       listWorkspaceSymbols: vi.fn(() => overrides.symbols ?? []),
     };
   }

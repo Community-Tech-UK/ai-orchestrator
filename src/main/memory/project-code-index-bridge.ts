@@ -41,6 +41,7 @@ export interface ProjectCodeIndexSource {
   isIndexingEnabled(): boolean;
   ensureWorkspace(rootPath: string): Promise<{ workspaceHash: string; lastIndexedAt: number | null }>;
   listManifestEntries(workspaceHash: string): WorkspaceManifestRow[];
+  countWorkspaceSymbols(workspaceHash: string): number;
   listWorkspaceSymbols(workspaceHash: string): WorkspaceSymbolRecord[];
 }
 
@@ -87,6 +88,10 @@ export class CodememProjectCodeIndexSource implements ProjectCodeIndexSource {
 
   listManifestEntries(workspaceHash: string): WorkspaceManifestRow[] {
     return getCodemem().store.listManifestEntries(workspaceHash);
+  }
+
+  countWorkspaceSymbols(workspaceHash: string): number {
+    return getCodemem().store.countWorkspaceSymbols(workspaceHash);
   }
 
   listWorkspaceSymbols(workspaceHash: string): WorkspaceSymbolRecord[] {
@@ -198,9 +203,12 @@ export class ProjectCodeIndexBridge {
         this.limits.timeoutMs,
       );
       const manifestEntries = this.deps.source.listManifestEntries(workspace.workspaceHash);
-      const workspaceSymbols = this.deps.source.listWorkspaceSymbols(workspace.workspaceHash);
 
-      if (workspaceSymbols.length > this.limits.maxSymbols) {
+      // Count first, BEFORE materializing: a too-large symbol set must be
+      // rejected without loading every row into memory (an unbounded read that
+      // can exhaust the heap and abort the process).
+      const symbolCount = this.deps.source.countWorkspaceSymbols(workspace.workspaceHash);
+      if (symbolCount > this.limits.maxSymbols) {
         return this.writeTerminalStatus(
           root,
           'failed',
@@ -209,10 +217,12 @@ export class ProjectCodeIndexBridge {
             reason: 'limit_exceeded',
             limit: 'symbols',
             workspaceHash: workspace.workspaceHash,
-            observedSymbols: workspaceSymbols.length,
+            observedSymbols: symbolCount,
           },
         );
       }
+
+      const workspaceSymbols = this.deps.source.listWorkspaceSymbols(workspace.workspaceHash);
 
       return this.syncSnapshot(root, workspace, manifestEntries, workspaceSymbols);
     } catch (error) {

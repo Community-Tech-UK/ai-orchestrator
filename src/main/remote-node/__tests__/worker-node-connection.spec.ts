@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
+import { WebSocket } from 'ws';
 
 // Mock the logger to avoid electron / filesystem dependencies
 vi.mock('../../logging/logger', () => ({
@@ -36,13 +37,20 @@ import { WorkerNodeConnectionServer } from '../worker-node-connection';
 // ---------------------------------------------------------------------------
 
 /** Minimal fake `ws` WebSocket: an EventEmitter with send/close spies. */
-function makeFakeWs(): EventEmitter & { send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> } {
+function makeFakeWs(): EventEmitter & {
+  send: ReturnType<typeof vi.fn>;
+  close: ReturnType<typeof vi.fn>;
+  readyState: number;
+} {
   const ws = new EventEmitter() as EventEmitter & {
     send: ReturnType<typeof vi.fn>;
     close: ReturnType<typeof vi.fn>;
+    readyState: number;
   };
   ws.send = vi.fn();
   ws.close = vi.fn();
+  // sendRpc only transmits when the socket reports OPEN.
+  ws.readyState = WebSocket.OPEN;
   return ws;
 }
 
@@ -99,5 +107,82 @@ describe('WorkerNodeConnectionServer — socket replacement race', () => {
     wsB.emit('close');
     expect(disconnected).toEqual([NODE_ID]);
     expect(internals.nodeToSocket.has(NODE_ID)).toBe(false);
+  });
+});
+
+describe('WorkerNodeConnectionServer — sendRpc timeout & disconnect', () => {
+  beforeEach(() => {
+    WorkerNodeConnectionServer._resetForTesting();
+    mockRemoteAuth.authenticateRegistration.mockClear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function connectNode() {
+    const server = WorkerNodeConnectionServer.getInstance();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const internals = server as any;
+    const ws = makeFakeWs();
+    internals.handleConnection(ws);
+    ws.emit('message', registerMessage());
+    return { server, internals, ws };
+  }
+
+  it('does not time out an RPC when the timeout is disabled (timeoutMs <= 0)', async () => {
+    vi.useFakeTimers();
+    const { server, internals } = connectNode();
+
+    let settled: 'resolved' | 'rejected' | 'pending' = 'pending';
+    const promise = server
+      .sendRpc(NODE_ID, 'instance.sendInput', { instanceId: 'i-1' }, 0)
+      .then(() => { settled = 'resolved'; })
+      .catch(() => { settled = 'rejected'; });
+
+    // The default 30s RPC timeout must NOT fire — a blocking remote turn can run
+    // far longer than that while output streams back over notifications.
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(settled).toBe('pending');
+    expect(internals.pending.size).toBe(1);
+
+    // Worker eventually responds → the RPC resolves.
+    const [pendingId] = [...internals.pending.keys()];
+    internals.handleRpcResponse({ jsonrpc: '2.0', id: pendingId, result: { ok: true } });
+    await promise;
+    expect(settled).toBe('resolved');
+    expect(internals.pending.size).toBe(0);
+  });
+
+  it('still times out an RPC that uses the default timeout', async () => {
+    vi.useFakeTimers();
+    const { server, internals } = connectNode();
+
+    const rejection = server
+      .sendRpc(NODE_ID, 'node.ping', {})
+      .catch((err: Error) => err.message);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    const message = await rejection;
+    expect(message).toContain('RPC timeout after 30000ms');
+    expect(internals.pending.size).toBe(0);
+  });
+
+  it('rejects pending RPCs when the node disconnects', async () => {
+    const { server, internals, ws } = connectNode();
+
+    const rejection = server
+      .sendRpc(NODE_ID, 'instance.sendInput', { instanceId: 'i-1' }, 0)
+      .catch((err: Error) => err.message);
+
+    expect(internals.pending.size).toBe(1);
+
+    // The node's active socket closes — in-flight RPCs must reject immediately
+    // rather than hang (the timeout is disabled for this request).
+    ws.emit('close');
+
+    const message = await rejection;
+    expect(message).toContain('Node disconnected');
+    expect(internals.pending.size).toBe(0);
   });
 });

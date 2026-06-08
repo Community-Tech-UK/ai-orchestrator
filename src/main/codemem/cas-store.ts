@@ -1,3 +1,4 @@
+import { getLogger } from '../logging/logger';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import type {
   Chunk,
@@ -8,6 +9,19 @@ import type {
   WorkspaceRoot,
   WorkspaceHash,
 } from './types';
+
+const logger = getLogger('CasStore');
+
+/**
+ * Absolute backstop on how many symbol rows `listWorkspaceSymbols` will
+ * materialize in one call. A pathologically large workspace can hold millions
+ * of symbols; loading them all into a JS array at once can exhaust the heap and
+ * abort the process. Callers that enforce their own (lower) ceiling should
+ * count first via `countWorkspaceSymbols`; this cap only guarantees a stray
+ * unbounded read degrades to "first N" instead of crashing. Set comfortably
+ * above PROJECT_CODE_INDEX_MAX_SYMBOLS (100k) so legitimate reads are unaffected.
+ */
+const ABSOLUTE_MAX_WORKSPACE_SYMBOL_ROWS = 250_000;
 
 interface ChunkRow {
   content_hash: string;
@@ -380,10 +394,27 @@ export class CasStore {
     return row ? this.mapWorkspaceSymbol(row) : null;
   }
 
+  /** Cheap symbol-row count for a workspace — lets callers enforce a ceiling
+   *  without materializing (and OOM-ing on) the full symbol set first. */
+  countWorkspaceSymbols(workspaceHash: WorkspaceHash): number {
+    const row = this.db.prepare(
+      'SELECT COUNT(*) AS count FROM workspace_symbols WHERE workspace_hash = ?',
+    ).get(workspaceHash) as { count: number } | undefined;
+    return row?.count ?? 0;
+  }
+
   listWorkspaceSymbols(workspaceHash: WorkspaceHash): WorkspaceSymbolRecord[] {
-    return (this.db.prepare(
-      'SELECT * FROM workspace_symbols WHERE workspace_hash = ? ORDER BY path_from_root, start_line, start_character',
-    ).all(workspaceHash) as WorkspaceSymbolRow[]).map((row) => this.mapWorkspaceSymbol(row));
+    const rows = this.db.prepare(
+      'SELECT * FROM workspace_symbols WHERE workspace_hash = ? ' +
+      'ORDER BY path_from_root, start_line, start_character LIMIT ?',
+    ).all(workspaceHash, ABSOLUTE_MAX_WORKSPACE_SYMBOL_ROWS) as WorkspaceSymbolRow[];
+    if (rows.length === ABSOLUTE_MAX_WORKSPACE_SYMBOL_ROWS) {
+      logger.warn(
+        `listWorkspaceSymbols(${workspaceHash}) hit the ${ABSOLUTE_MAX_WORKSPACE_SYMBOL_ROWS}-row ` +
+        `cap; result truncated. Enforce a lower ceiling via countWorkspaceSymbols.`,
+      );
+    }
+    return rows.map((row) => this.mapWorkspaceSymbol(row));
   }
 
   searchWorkspaceSymbols(

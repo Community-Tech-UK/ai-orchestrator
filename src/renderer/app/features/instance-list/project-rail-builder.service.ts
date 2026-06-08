@@ -14,7 +14,6 @@ import {
 } from './history-rail-filtering';
 import {
   CHATS_KEY,
-  MIN_VISIBLE_HISTORY_THREADS,
   ORPHANED_CHILDREN_KEY,
   getInstanceThreadId,
   type HierarchicalInstance,
@@ -619,18 +618,8 @@ export class ProjectRailBuilderService {
       dedupedEntries.push(entry);
     }
 
-    const activeEntries = dedupedEntries.filter((entry) => !entry.archivedAt || alwaysIncludeIds.has(entry.id));
-    const archivedFallbackIds = new Set(
-      activeEntries.length === 0
-        ? []
-        : dedupedEntries
-            .filter((entry) => !!entry.archivedAt)
-            .slice(0, Math.max(0, MIN_VISIBLE_HISTORY_THREADS - activeEntries.length))
-            .map((entry) => entry.id),
-    );
-
     return dedupedEntries.filter(
-      (entry) => alwaysIncludeIds.has(entry.id) || !entry.archivedAt || archivedFallbackIds.has(entry.id),
+      (entry) => alwaysIncludeIds.has(entry.id) || !entry.archivedAt,
     );
   }
 

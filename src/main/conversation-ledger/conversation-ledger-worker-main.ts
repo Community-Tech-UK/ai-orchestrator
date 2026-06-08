@@ -104,8 +104,10 @@ function callStore(method: LedgerStoreMethod, args: unknown[]): unknown {
       return store.hasMessageWithNativeId(args[0] as string, args[1] as string);
     case 'upsertThread':
       return store.upsertThread(args[0] as ConversationThreadUpsertInput);
-    case 'upsertMessages':
-      return store.upsertMessages(args[0] as string, args[1] as ConversationMessageUpsertInput[]);
+    case 'upsertMessages': {
+      store.upsertMessages(args[0] as string, args[1] as ConversationMessageUpsertInput[]);
+      return undefined;
+    }
     case 'appendMessagesWithThreadTouch':
       return store.appendMessagesWithThreadTouch(args[0] as string, args[1] as AppendMessageInput[]);
     case 'replaceThreadMessagesFromImport':

@@ -100,11 +100,13 @@ describe('RemoteCliAdapter', () => {
       await adapter.spawn();
       await adapter.sendInput('Hello, world!');
 
+      // The trailing 0 disables the RPC timeout: blocking worker adapters (Codex)
+      // stay inside sendInput() for the whole, unbounded turn.
       expect(connection.sendRpc).toHaveBeenNthCalledWith(2, TARGET_NODE_ID, 'instance.sendInput', {
         instanceId: REMOTE_INSTANCE_ID,
         message: 'Hello, world!',
         attachments: undefined,
-      });
+      }, 0);
     });
 
     it('includes attachments in the sendInput RPC when provided', async () => {
@@ -123,7 +125,7 @@ describe('RemoteCliAdapter', () => {
         instanceId: REMOTE_INSTANCE_ID,
         message: 'Check this file',
         attachments,
-      });
+      }, 0);
     });
 
     it('throws if not yet spawned', async () => {

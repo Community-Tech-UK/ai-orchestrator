@@ -189,6 +189,12 @@ export class RemoteCliAdapter extends EventEmitter {
       throw new OrchestratorPausedError('Remote input refused while orchestrator is paused');
     }
 
+    // No RPC timeout: some worker-side adapters (notably the Codex app-server)
+    // block inside sendInput() for the ENTIRE turn before responding, and turns
+    // are unbounded in length. A fixed timeout would falsely fail healthy turns
+    // that run longer than it — even though output streams back over separate
+    // notifications meanwhile. Stuck turns are handled by the coordinator's own
+    // stuck-process watchdog; a node disconnect rejects this RPC promptly.
     await this.nodeConnection.sendRpc(
       this.targetNodeId,
       'instance.sendInput',
@@ -197,6 +203,7 @@ export class RemoteCliAdapter extends EventEmitter {
         message,
         attachments,
       },
+      0,
     );
   }
 
