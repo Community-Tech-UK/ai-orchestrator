@@ -87,6 +87,25 @@ const PROVIDERS = ['ollama', 'openai-compatible'] as const;
         </div>
       </div>
 
+      <!-- Use this machine's localhost Ollama -->
+      <div class="card">
+        <div class="field-row">
+          <div>
+            <div class="field-label">Use this machine's local Ollama</div>
+            <div class="field-hint">
+              When off, auxiliary routing skips this Mac's localhost Ollama and
+              prefers remote worker nodes (e.g. a GPU box). Ollama keeps running
+              for other features such as embeddings.
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            [checked]="settingsStore.get('auxiliaryLlmUseLocalhostOllama')"
+            (change)="onUseLocalhostOllamaChange($event)"
+          />
+        </div>
+      </div>
+
       <!-- Discovered candidates -->
       <div class="card">
         <div class="card-head">
@@ -303,6 +322,11 @@ export class AuxiliaryModelsSettingsTabComponent implements OnInit {
   onEnabledChange(event: Event): void {
     const checked = (event.target as HTMLInputElement).checked;
     void this.settingsStore.set('auxiliaryLlmEnabled', checked);
+  }
+
+  onUseLocalhostOllamaChange(event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    void this.settingsStore.set('auxiliaryLlmUseLocalhostOllama', checked);
   }
 
   /** Whether a slot is allowed to fall back to the main/cloud model. Defaults to true. */

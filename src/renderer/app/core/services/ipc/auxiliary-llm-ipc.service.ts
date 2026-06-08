@@ -51,6 +51,7 @@ export class AuxiliaryLlmIpcService {
     auxiliaryLlmEnabled?: boolean;
     auxiliaryLlmRoutingMode?: string;
     auxiliaryLlmAllowRemoteWorkerModels?: boolean;
+    auxiliaryLlmUseLocalhostOllama?: boolean;
     auxiliaryLlmEndpointsJson?: string;
     auxiliaryLlmSlotsJson?: string;
   }): Promise<IpcResponse<{ ok: boolean }>> {

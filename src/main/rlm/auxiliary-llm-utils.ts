@@ -1,3 +1,25 @@
+import type { AuxiliaryLlmEndpointConfig } from '../../shared/types/auxiliary-llm.types';
+
+/** Default Ollama REST endpoint on the coordinator's own machine. */
+export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
+
+/**
+ * The coordinator's own localhost Ollama endpoint, or null when the user has
+ * turned off `auxiliaryLlmUseLocalhostOllama` (e.g. to push all offload onto a
+ * remote GPU worker without stopping the local Ollama that embeddings use).
+ */
+export function localhostOllamaEndpoint(useLocalhost: boolean): AuxiliaryLlmEndpointConfig | null {
+  if (!useLocalhost) return null;
+  return {
+    id: 'ollama-localhost',
+    label: 'Ollama (localhost)',
+    provider: 'ollama',
+    baseUrl: DEFAULT_OLLAMA_URL,
+    source: 'localhost',
+    enabled: true,
+  };
+}
+
 // Ollama defaults num_ctx to a small value (~4k) and silently truncates longer
 // prompts. We size the context window to fit the actual prompt + planned output
 // so long-input slots aren't quietly chopped. Sizes are bucketed so the value is

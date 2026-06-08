@@ -194,6 +194,7 @@ export function registerAuxiliaryLlmHandlers(): void {
         auxiliaryLlmEnabled?: boolean;
         auxiliaryLlmRoutingMode?: string;
         auxiliaryLlmAllowRemoteWorkerModels?: boolean;
+        auxiliaryLlmUseLocalhostOllama?: boolean;
         auxiliaryLlmEndpointsJson?: string;
         auxiliaryLlmSlotsJson?: string;
       };
@@ -203,6 +204,7 @@ export function registerAuxiliaryLlmHandlers(): void {
         'auxiliaryLlmEnabled',
         'auxiliaryLlmRoutingMode',
         'auxiliaryLlmAllowRemoteWorkerModels',
+        'auxiliaryLlmUseLocalhostOllama',
         'auxiliaryLlmEndpointsJson',
         'auxiliaryLlmSlotsJson',
       ] as const;
@@ -219,6 +221,7 @@ export function registerAuxiliaryLlmHandlers(): void {
         auxiliaryLlmEnabled: current.auxiliaryLlmEnabled,
         auxiliaryLlmRoutingMode: current.auxiliaryLlmRoutingMode,
         auxiliaryLlmAllowRemoteWorkerModels: current.auxiliaryLlmAllowRemoteWorkerModels,
+        auxiliaryLlmUseLocalhostOllama: current.auxiliaryLlmUseLocalhostOllama,
         auxiliaryLlmEndpointsJson: current.auxiliaryLlmEndpointsJson,
         auxiliaryLlmSlotsJson: current.auxiliaryLlmSlotsJson,
       });

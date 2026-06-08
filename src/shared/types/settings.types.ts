@@ -349,6 +349,13 @@ export interface AppSettings {
   auxiliaryLlmEnabled: boolean;
   auxiliaryLlmRoutingMode: AuxiliaryLlmRoutingMode;
   auxiliaryLlmAllowRemoteWorkerModels: boolean;
+  /**
+   * Whether to use this (coordinator) machine's own localhost Ollama for
+   * auxiliary routing. Turn off to keep offload on remote worker nodes (e.g. a
+   * dedicated GPU box) without stopping the local Ollama, which other features
+   * such as embeddings still use.
+   */
+  auxiliaryLlmUseLocalhostOllama: boolean;
   auxiliaryLlmEndpointsJson: string;
   auxiliaryLlmSlotsJson: string;
 }
@@ -507,6 +514,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   auxiliaryLlmEnabled: true,
   auxiliaryLlmRoutingMode: 'local-first',
   auxiliaryLlmAllowRemoteWorkerModels: true,
+  auxiliaryLlmUseLocalhostOllama: true,
   auxiliaryLlmEndpointsJson: '[]',
   auxiliaryLlmSlotsJson: JSON.stringify({
     compression: { enabled: true, provider: 'auto', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: true },

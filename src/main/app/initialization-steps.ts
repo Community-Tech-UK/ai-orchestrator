@@ -178,6 +178,7 @@ export function createInitializationSteps(
                 auxiliaryLlmEnabled: settings.get('auxiliaryLlmEnabled'),
                 auxiliaryLlmRoutingMode: settings.get('auxiliaryLlmRoutingMode'),
                 auxiliaryLlmAllowRemoteWorkerModels: settings.get('auxiliaryLlmAllowRemoteWorkerModels'),
+                auxiliaryLlmUseLocalhostOllama: settings.get('auxiliaryLlmUseLocalhostOllama'),
                 auxiliaryLlmEndpointsJson: settings.get('auxiliaryLlmEndpointsJson'),
                 auxiliaryLlmSlotsJson: settings.get('auxiliaryLlmSlotsJson'),
               });

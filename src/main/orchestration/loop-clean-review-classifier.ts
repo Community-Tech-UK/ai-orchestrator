@@ -35,33 +35,91 @@ export const defaultCleanReviewClassifier: LoopCleanReviewClassifier = async (in
   return deterministic.confidence > 0 ? deterministic : model;
 };
 
+/** Result of the auxiliary (local) backend for clean-review classification. */
+interface CleanReviewAuxResult {
+  text: string;
+  source: string;
+  allowFrontierFallback: boolean;
+}
+type CleanReviewAuxBackend = (prompt: string, context: string) => Promise<CleanReviewAuxResult>;
+/** Frontier/primary backend. Returns null when unavailable. */
+type CleanReviewFrontierBackend = (prompt: string, context: string) => Promise<string | null>;
+
+// Production backends use lazy require() so worker contexts never eagerly pull in
+// electron-laden modules (auxiliary-llm-service → remote-node → settings-manager).
+// They are injectable for tests via __setCleanReviewModelBackendsForTesting,
+// mirroring the seam convention used elsewhere (e.g. auxiliary-llm-service).
+const defaultAuxBackend: CleanReviewAuxBackend = async (prompt, context) => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { getAuxiliaryLlmService } = require('../rlm/auxiliary-llm-service') as typeof import('../rlm/auxiliary-llm-service');
+  const { text, decision } = await getAuxiliaryLlmService().generate('loopScoring', prompt, context);
+  return { text, source: decision.source, allowFrontierFallback: decision.allowFrontierFallback };
+};
+
+const defaultFrontierBackend: CleanReviewFrontierBackend = async (prompt, context) => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { getLLMService } = require('../rlm/llm-service') as typeof import('../rlm/llm-service');
+  const llm = getLLMService();
+  if (!(await llm.isAvailable())) return null;
+  return llm.subQuery({ requestId: `loop-clean-review-${Date.now()}`, prompt, context, depth: 0 });
+};
+
+let auxBackend: CleanReviewAuxBackend = defaultAuxBackend;
+let frontierBackend: CleanReviewFrontierBackend = defaultFrontierBackend;
+
+/** Test-only: override the model backends. */
+export function __setCleanReviewModelBackendsForTesting(backends: {
+  aux?: CleanReviewAuxBackend;
+  frontier?: CleanReviewFrontierBackend;
+}): void {
+  if (backends.aux) auxBackend = backends.aux;
+  if (backends.frontier) frontierBackend = backends.frontier;
+}
+
+/** Test-only: restore production backends. */
+export function __resetCleanReviewModelBackendsForTesting(): void {
+  auxBackend = defaultAuxBackend;
+  frontierBackend = defaultFrontierBackend;
+}
+
 async function runModelCleanReviewClassifier(
   input: LoopCleanReviewClassifierInput,
 ): Promise<LoopCleanReviewClassification> {
+  const context = [
+    `GOAL:\n${input.goal}`,
+    `WORKSPACE:\n${input.workspaceCwd}`,
+    `REVIEW OUTPUT:\n${input.iterationOutput.slice(0, 5000)}`,
+  ].join('\n\n');
+  const prompt =
+    'Classify whether the REVIEW OUTPUT says there are no actionable issues, ' +
+    'no remaining work, and nothing left to fix for the GOAL. Do not require ' +
+    'any exact phrase; judge the sentiment. Return ONLY JSON:\n' +
+    '{"clean": <true|false>, "confidence": <number 0..1>, "reason": "<short sentence>"}\n' +
+    'Return clean=false for vague shipping confidence, unresolved work, blocked/cannot-verify language, or ambiguity.';
+
+  // Prefer the auxiliary (local) model for this low-stakes semantic check — this
+  // is the `loopScoring` offload slot. Only escalate to the primary/frontier LLM
+  // when the slot's frontier-fallback policy allows it (i.e. no local model was
+  // available and the user hasn't opted into a hard local-only guarantee).
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getLLMService } = require('../rlm/llm-service') as typeof import('../rlm/llm-service');
-    const llm = getLLMService();
-    if (!(await llm.isAvailable())) return UNCLEAR_CLEAN_REVIEW;
+    const aux = await auxBackend(prompt, context);
+    if (aux.source !== 'fallback') {
+      return parseCleanReviewClassification(aux.text);
+    }
+    if (!aux.allowFrontierFallback) {
+      // Local unavailable and frontier disallowed for this slot → stay unclear
+      // rather than burning a frontier call. The caller folds this back into the
+      // deterministic verdict.
+      return UNCLEAR_CLEAN_REVIEW;
+    }
+    // else: fall through to the frontier/primary LLM below.
+  } catch {
+    // Auxiliary service unavailable in this context — fall through to primary LLM.
+  }
 
-    const context = [
-      `GOAL:\n${input.goal}`,
-      `WORKSPACE:\n${input.workspaceCwd}`,
-      `REVIEW OUTPUT:\n${input.iterationOutput.slice(0, 5000)}`,
-    ].join('\n\n');
-    const prompt =
-      'Classify whether the REVIEW OUTPUT says there are no actionable issues, ' +
-      'no remaining work, and nothing left to fix for the GOAL. Do not require ' +
-      'any exact phrase; judge the sentiment. Return ONLY JSON:\n' +
-      '{"clean": <true|false>, "confidence": <number 0..1>, "reason": "<short sentence>"}\n' +
-      'Return clean=false for vague shipping confidence, unresolved work, blocked/cannot-verify language, or ambiguity.';
-
-    const raw = await llm.subQuery({
-      requestId: `loop-clean-review-${Date.now()}`,
-      prompt,
-      context,
-      depth: 0,
-    });
+  try {
+    const raw = await frontierBackend(prompt, context);
+    if (raw == null) return UNCLEAR_CLEAN_REVIEW;
     return parseCleanReviewClassification(raw);
   } catch {
     return UNCLEAR_CLEAN_REVIEW;

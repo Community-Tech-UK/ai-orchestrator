@@ -34,7 +34,7 @@ import {
 } from './auxiliary-model-client';
 import { getTokenCounter } from './token-counter';
 import { getLogger } from '../logging/logger';
-import { computeNumCtx, hostKeyFromUrl } from './auxiliary-llm-utils';
+import { computeNumCtx, hostKeyFromUrl, localhostOllamaEndpoint } from './auxiliary-llm-utils';
 // remote-node imports are lazy — worker-node-connection and service-rpc-client
 // transitively import electron via remote-auth → settings-manager, which
 // crashes in worker_thread contexts. We must NOT top-level-import them.
@@ -114,7 +114,6 @@ const logger = getLogger('AuxiliaryLlmService');
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const HEALTH_CACHE_TTL_MS = 60_000;
-const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
 const PROBE_TIMEOUT_MS = 5_000;
 
 const JSON_FALLBACK_TEXT =
@@ -130,6 +129,7 @@ type AuxiliaryLlmConfigSubset = Pick<
   | 'auxiliaryLlmEnabled'
   | 'auxiliaryLlmRoutingMode'
   | 'auxiliaryLlmAllowRemoteWorkerModels'
+  | 'auxiliaryLlmUseLocalhostOllama'
   | 'auxiliaryLlmEndpointsJson'
   | 'auxiliaryLlmSlotsJson'
 >;
@@ -156,6 +156,7 @@ export class AuxiliaryLlmService extends EventEmitter {
   private enabled = true;
   private routingMode: AppSettings['auxiliaryLlmRoutingMode'] = 'local-first';
   private allowRemoteWorkerModels = true;
+  private useLocalhostOllama = true;
   private endpoints: AuxiliaryLlmEndpointConfig[] = [];
   private slots: AuxiliaryLlmSlotConfigMap = parseDefaultSlots();
 
@@ -183,6 +184,7 @@ export class AuxiliaryLlmService extends EventEmitter {
     this.enabled = settings.auxiliaryLlmEnabled;
     this.routingMode = settings.auxiliaryLlmRoutingMode;
     this.allowRemoteWorkerModels = settings.auxiliaryLlmAllowRemoteWorkerModels;
+    this.useLocalhostOllama = settings.auxiliaryLlmUseLocalhostOllama;
 
     // Parse endpoints
     try {
@@ -217,16 +219,12 @@ export class AuxiliaryLlmService extends EventEmitter {
   async discoverCandidates(): Promise<AuxiliaryLlmCandidate[]> {
     const candidates: AuxiliaryLlmCandidate[] = [];
 
-    // Always probe Ollama localhost
-    const localOllama: AuxiliaryLlmEndpointConfig = {
-      id: 'ollama-localhost',
-      label: 'Ollama (localhost)',
-      provider: 'ollama',
-      baseUrl: DEFAULT_OLLAMA_URL,
-      source: 'localhost',
-      enabled: true,
-    };
-    candidates.push(await this.probeCandidate(localOllama));
+    // Probe the coordinator's localhost Ollama unless it has been excluded from
+    // auxiliary routing (auxiliaryLlmUseLocalhostOllama = false).
+    const localOllama = localhostOllamaEndpoint(this.useLocalhostOllama);
+    if (localOllama) {
+      candidates.push(await this.probeCandidate(localOllama));
+    }
 
     // Probe all configured endpoints
     const endpointsToProbe = this.endpoints.filter(
@@ -355,19 +353,15 @@ export class AuxiliaryLlmService extends EventEmitter {
     _slot: AuxiliaryLlmSlot,
     slotConfig: AuxiliaryLlmSlotConfig
   ): Promise<{ endpoint: AuxiliaryLlmEndpointConfig; model: string } | null> {
-    // Build ordered list: localhost/ollama endpoints first, then others
-    const localOllama: AuxiliaryLlmEndpointConfig = {
-      id: 'ollama-localhost',
-      label: 'Ollama (localhost)',
-      provider: 'ollama',
-      baseUrl: DEFAULT_OLLAMA_URL,
-      source: 'localhost',
-      enabled: true,
-    };
+    const localOllama = localhostOllamaEndpoint(this.useLocalhostOllama);
 
-    // local-first prefers local models: localhost, then worker-local Ollama,
-    // then any configured endpoints (which may include cheap cloud).
-    const ordered = [localOllama, ...this.autoWorkerEndpoints(), ...this.enabledEndpoints()];
+    // local-first prefers local models: localhost (if enabled), then worker-local
+    // Ollama, then any configured endpoints (which may include cheap cloud).
+    const ordered = [
+      ...(localOllama ? [localOllama] : []),
+      ...this.autoWorkerEndpoints(),
+      ...this.enabledEndpoints(),
+    ];
 
     for (const ep of ordered) {
       const result = await this.tryEndpointForSlot(ep, slotConfig);
@@ -380,15 +374,7 @@ export class AuxiliaryLlmService extends EventEmitter {
     _slot: AuxiliaryLlmSlot,
     slotConfig: AuxiliaryLlmSlotConfig
   ): Promise<{ endpoint: AuxiliaryLlmEndpointConfig; model: string } | null> {
-    // Cheap-cloud (openai-compatible, non-localhost) first, then local
-    const localOllama: AuxiliaryLlmEndpointConfig = {
-      id: 'ollama-localhost',
-      label: 'Ollama (localhost)',
-      provider: 'ollama',
-      baseUrl: DEFAULT_OLLAMA_URL,
-      source: 'localhost',
-      enabled: true,
-    };
+    const localOllama = localhostOllamaEndpoint(this.useLocalhostOllama);
 
     const configured = this.enabledEndpoints();
     const cheapCloud = configured.filter(
@@ -398,7 +384,14 @@ export class AuxiliaryLlmService extends EventEmitter {
       (ep) => ep.source === 'localhost' || ep.provider === 'ollama'
     );
 
-    const ordered = [...cheapCloud, ...local, ...this.autoWorkerEndpoints(), localOllama];
+    // Cheap-cloud (openai-compatible, non-localhost) first, then local, then
+    // worker-local, then the coordinator's localhost Ollama (if enabled).
+    const ordered = [
+      ...cheapCloud,
+      ...local,
+      ...this.autoWorkerEndpoints(),
+      ...(localOllama ? [localOllama] : []),
+    ];
     for (const ep of ordered) {
       const result = await this.tryEndpointForSlot(ep, slotConfig);
       if (result) return result;

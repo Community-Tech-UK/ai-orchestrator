@@ -90,6 +90,7 @@ function baseSettings(overrides: Partial<{
   auxiliaryLlmEnabled: boolean;
   auxiliaryLlmRoutingMode: 'off' | 'local-first' | 'cheap-first' | 'manual-only';
   auxiliaryLlmAllowRemoteWorkerModels: boolean;
+  auxiliaryLlmUseLocalhostOllama: boolean;
   auxiliaryLlmEndpointsJson: string;
   auxiliaryLlmSlotsJson: string;
 }> = {}) {
@@ -97,6 +98,7 @@ function baseSettings(overrides: Partial<{
     auxiliaryLlmEnabled: true,
     auxiliaryLlmRoutingMode: 'local-first' as const,
     auxiliaryLlmAllowRemoteWorkerModels: true,
+    auxiliaryLlmUseLocalhostOllama: true,
     auxiliaryLlmEndpointsJson: '[]',
     auxiliaryLlmSlotsJson: JSON.stringify({
       compression: { enabled: true, provider: 'auto', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: false },
@@ -507,6 +509,39 @@ describe('AuxiliaryLlmService — worker-node discovery and routing', () => {
     // its ~4k default for long-input slots.
     expect((params as { numCtx: number }).numCtx).toBeGreaterThanOrEqual(4096);
     expect(mocks.generateOllama).not.toHaveBeenCalled();
+  });
+
+  it('skips this machine localhost Ollama when auxiliaryLlmUseLocalhostOllama is false, routing to the worker', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    // localhost Ollama is healthy and has models — but it must be ignored.
+    mocks.probeOllama.mockResolvedValue(true);
+    mocks.listOllama.mockResolvedValue([{ id: 'mac-model', name: 'mac-model', provider: 'ollama', endpointId: 'local' }]);
+    mocks.generateOllama.mockResolvedValue('should not be used');
+    remoteState.rpc = vi.fn().mockResolvedValue({ text: 'from worker' });
+
+    seedConnectedWorker();
+    service.configure(baseSettings({ auxiliaryLlmUseLocalhostOllama: false }));
+
+    const { text, decision } = await service.generate('compression', 'sys', 'user');
+
+    expect(text).toBe('from worker');
+    expect(decision.endpointId).toBe('worker:node-1:ollama:127.0.0.1:11434');
+    // The coordinator's own localhost Ollama must NOT have been generated against.
+    expect(mocks.generateOllama).not.toHaveBeenCalled();
+  });
+
+  it('omits the localhost Ollama candidate from discovery when the toggle is off', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(true);
+
+    service.configure(baseSettings({ auxiliaryLlmUseLocalhostOllama: false }));
+    const candidates = await service.discoverCandidates();
+
+    expect(candidates.some((c) => c.endpoint.id === 'ollama-localhost')).toBe(false);
+    // And we never probed the localhost endpoint.
+    expect(mocks.probeOllama).not.toHaveBeenCalled();
   });
 
   it('routes to a worker LM Studio (openai-compatible) endpoint and labels it local', async () => {
