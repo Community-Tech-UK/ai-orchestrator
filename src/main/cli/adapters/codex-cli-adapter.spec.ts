@@ -5,6 +5,14 @@ import { join } from 'path';
 import { PassThrough } from 'stream';
 import { EventEmitter } from 'events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// Keep all real exports; only stub the process-tree killer so idle-timeout
+// tests don't signal real PIDs.
+vi.mock('./codex/app-server-client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./codex/app-server-client')>();
+  return { ...actual, terminateProcessTree: vi.fn() };
+});
+
 import { CodexCliAdapter } from './codex-cli-adapter';
 
 type MockChildProcess = Omit<ChildProcess, 'killed'> & EventEmitter & {
@@ -1357,6 +1365,55 @@ Hey! I'm here. What do you want to tackle?`;
         expect(firstArgs).toContain('gpt-5.3-codex');
         // Fallback omits --model so codex uses its own config.toml default.
         expect(secondArgs).not.toContain('--model');
+      });
+
+      it('escalates the idle budget startup → turn once codex emits stdout (tolerates long reasoning gaps)', async () => {
+        const adapter = await spawnExecAdapter();
+        // Turn budget = 2000ms; the startup budget passed below is 80ms.
+        (adapter as unknown as { cliConfig: { timeout?: number } }).cliConfig.timeout = 2000;
+        const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+        const proc = createMockProcess();
+        spawnSpy.mockReturnValueOnce(proc as unknown as ChildProcess);
+
+        const exec = (adapter as unknown as {
+          executePreparedMessage(
+            message: { role: 'user'; content: string },
+            options: { timeoutMs: number; phase: 'startup' | 'turn' },
+          ): Promise<{ response: { content: string } }>;
+        }).executePreparedMessage({ role: 'user', content: 'go' }, { timeoutMs: 80, phase: 'startup' });
+
+        // First stdout arrives immediately → budget escalates to the 2000ms turn
+        // budget. Then stay silent for 250ms — well past the 80ms startup budget.
+        // Without escalation this would have been killed "during startup".
+        proc.stdout.write('{"type":"thread.started","thread_id":"t1"}\n');
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        proc.stdout.write('{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"done"}}\n');
+        proc.stdout.end();
+        proc.stderr.end();
+        proc.emitClose(0, null);
+
+        const result = await exec;
+        expect(result.response.content).toBe('done');
+      });
+
+      it('still fails fast during a cold start that produces no stdout', async () => {
+        const adapter = await spawnExecAdapter();
+        const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+        const proc = createMockProcess();
+        spawnSpy.mockReturnValueOnce(proc as unknown as ChildProcess);
+
+        const exec = (adapter as unknown as {
+          executePreparedMessage(
+            message: { role: 'user'; content: string },
+            options: { timeoutMs: number; phase: 'startup' | 'turn' },
+          ): Promise<unknown>;
+        }).executePreparedMessage({ role: 'user', content: 'go' }, { timeoutMs: 60, phase: 'startup' });
+
+        // Only the benign stdin notice on stderr — no stdout ever arrives, so the
+        // budget never escalates and the startup watchdog fires.
+        proc.stderr.write('Reading prompt from stdin...\n');
+
+        await expect(exec).rejects.toThrow(/timed out after 60ms during startup/);
       });
 
       it('clears session id and retries with fresh exec when resume fails with thread-not-found', async () => {

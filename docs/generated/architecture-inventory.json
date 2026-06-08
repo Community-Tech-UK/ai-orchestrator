@@ -4966,7 +4966,7 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
-      "lines": 3107
+      "lines": 3127
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -5141,6 +5141,10 @@
       "lines": 1508
     },
     {
+      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
+      "lines": 1504
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-audit-phase2.COMPLETED.md",
       "lines": 1478
     },
@@ -5155,10 +5159,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-04-agentic-harness-hardening_completed.md",
       "lines": 1456
-    },
-    {
-      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
-      "lines": 1447
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency.md",

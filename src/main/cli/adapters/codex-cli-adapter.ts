@@ -2527,6 +2527,16 @@ export class CodexCliAdapter extends BaseCliAdapter {
       let lastActivityAt = startedAt;
       let receivedAnyData = false;
       let idleTimer: NodeJS.Timeout | null = null;
+
+      // The startup budget (EXEC_STARTUP_MS, 60s) only guards the cold start — it
+      // must not kill a healthy multi-minute first turn that goes silent >60s
+      // inside one reasoning block (observed: 800KB stdout + 69 completed items,
+      // then a >60s gap → killed "during startup"). Start tight to catch
+      // cold-start hangs, then escalate to the turn budget once real stdout
+      // proves codex is producing — matching how every later turn is bounded.
+      const turnBudgetMs = this.resolveTurnIdleTimeoutMs();
+      let currentBudgetMs = options.timeoutMs;
+      let effectivePhase: CodexExecPhase = options.phase;
       const fireIdleTimeout = () => {
         if (!this.process) return;
         const elapsedMs = Date.now() - startedAt;
@@ -2541,8 +2551,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
           : null;
         logger.warn('Codex exec idle timeout — killing process tree', {
           pid: this.process.pid,
-          phase: options.phase,
-          idleBudgetMs: options.timeoutMs,
+          phase: effectivePhase,
+          idleBudgetMs: currentBudgetMs,
           silentMs,
           elapsedMs,
           receivedAnyData,
@@ -2557,7 +2567,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
         terminateProcessTree(this.process.pid);
         this.process = null;
         clearLivenessTimer();
-        reject(new CodexTimeoutError(options.phase, options.timeoutMs, {
+        reject(new CodexTimeoutError(effectivePhase, currentBudgetMs, {
           networkErrorCount: networkErrors.length,
           lastNetworkError,
         }));
@@ -2565,7 +2575,16 @@ export class CodexCliAdapter extends BaseCliAdapter {
       const resetIdleTimer = () => {
         lastActivityAt = Date.now();
         if (idleTimer) clearTimeout(idleTimer);
-        idleTimer = setTimeout(fireIdleTimeout, options.timeoutMs);
+        idleTimer = setTimeout(fireIdleTimeout, currentBudgetMs);
+      };
+      // Promote startup → turn budget on first real stdout (proves codex is
+      // producing). Stderr alone (the immediate stdin notice) must NOT promote,
+      // so a genuine cold-start hang after that line still fails fast.
+      const escalateIdleBudgetToTurn = () => {
+        if (effectivePhase !== 'startup' || currentBudgetMs >= turnBudgetMs) return;
+        effectivePhase = 'turn';
+        currentBudgetMs = turnBudgetMs;
+        logger.info('Codex exec escalated idle budget startup → turn on first stdout', { startupBudgetMs: options.timeoutMs, turnBudgetMs });
       };
       const clearIdleTimer = () => {
         if (idleTimer) {
@@ -2604,6 +2623,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
       childProcess.stdout?.on('data', (data) => {
         receivedAnyData = true;
+        escalateIdleBudgetToTurn();
         resetIdleTimer();
         const chunk = data.toString();
         state.rawStdout += chunk;
