@@ -1416,6 +1416,55 @@ Hey! I'm here. What do you want to tackle?`;
         await expect(exec).rejects.toThrow(/timed out after 60ms during startup/);
       });
 
+      it('returns a partial transcript on idle timeout when allowPartialOnTimeout is set', async () => {
+        const adapter = await spawnExecAdapter();
+        // Turn budget = 150ms; the 60ms startup budget escalates on first stdout.
+        (adapter as unknown as { cliConfig: { timeout?: number } }).cliConfig.timeout = 150;
+        const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+        const proc = createMockProcess();
+        spawnSpy.mockReturnValueOnce(proc as unknown as ChildProcess);
+
+        const exec = (adapter as unknown as {
+          executePreparedMessage(
+            message: { role: 'user'; content: string; metadata?: Record<string, unknown> },
+            options: { timeoutMs: number; phase: 'startup' | 'turn' },
+          ): Promise<{ response: { content: string; metadata?: Record<string, unknown> } }>;
+        }).executePreparedMessage(
+          { role: 'user', content: 'go', metadata: { allowPartialOnTimeout: true } },
+          { timeoutMs: 60, phase: 'startup' },
+        );
+
+        // Codex emits a meaningful message, then stalls (never closes) → the idle
+        // watchdog fires. With allowPartialOnTimeout the accumulated transcript is
+        // returned instead of being discarded.
+        proc.stdout.write('{"type":"thread.started","thread_id":"t1"}\n');
+        proc.stdout.write('{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"partial progress"}}\n');
+
+        const result = await exec;
+        expect(result.response.content).toContain('partial progress');
+        expect(result.response.metadata?.['timedOut']).toBe(true);
+        expect(result.response.metadata?.['partial']).toBe(true);
+      });
+
+      it('still rejects on idle timeout when allowPartialOnTimeout is not set, even with output', async () => {
+        const adapter = await spawnExecAdapter();
+        (adapter as unknown as { cliConfig: { timeout?: number } }).cliConfig.timeout = 150;
+        const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+        const proc = createMockProcess();
+        spawnSpy.mockReturnValueOnce(proc as unknown as ChildProcess);
+
+        const exec = (adapter as unknown as {
+          executePreparedMessage(
+            message: { role: 'user'; content: string },
+            options: { timeoutMs: number; phase: 'startup' | 'turn' },
+          ): Promise<unknown>;
+        }).executePreparedMessage({ role: 'user', content: 'go' }, { timeoutMs: 60, phase: 'startup' });
+
+        proc.stdout.write('{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"work"}}\n');
+
+        await expect(exec).rejects.toThrow(/timed out/);
+      });
+
       it('clears session id and retries with fresh exec when resume fails with thread-not-found', async () => {
         const adapter = await spawnExecAdapter();
         (adapter as unknown as { sessionId: string }).sessionId = 'thread-old';

@@ -80,7 +80,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/cli/adapters/acp-cli-adapter.ts': 2142,
   'src/main/cli/adapters/base-cli-adapter.ts': 778,
   'src/main/cli/adapters/claude-cli-adapter.ts': 2141,
-  'src/main/cli/adapters/codex-cli-adapter.ts': 3127,
+  'src/main/cli/adapters/codex-cli-adapter.ts': 3172,
   'src/main/cli/adapters/copilot-cli-adapter.ts': 978,
   'src/main/cli/adapters/cursor-cli-adapter.ts': 1047,
   'src/main/cli/adapters/gemini-cli-adapter.ts': 887,

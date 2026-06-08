@@ -2549,7 +2549,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
         const lastNetworkError = networkErrors.length > 0
           ? networkErrors[networkErrors.length - 1]?.line ?? null
           : null;
-        logger.warn('Codex exec idle timeout — killing process tree', {
+        logger.warn('Codex exec idle timeout', {
           pid: this.process.pid,
           phase: effectivePhase,
           idleBudgetMs: currentBudgetMs,
@@ -2567,6 +2567,51 @@ export class CodexCliAdapter extends BaseCliAdapter {
         terminateProcessTree(this.process.pid);
         this.process = null;
         clearLivenessTimer();
+
+        // Loop Mode opts into partial results (allowPartialOnTimeout): when codex
+        // produced meaningful output before stalling, return that transcript
+        // instead of discarding a whole session of work. The loop then records a
+        // (partial) iteration and continues from disk state next turn. Without
+        // this, one >budget reasoning gap silently throws away everything codex
+        // did — files edited, commands run — and the loop sees 0 iterations.
+        if (message.metadata?.['allowPartialOnTimeout'] === true) {
+          const partial = parseCodexExecTranscript(
+            state.rawStdout,
+            state.diagnostics,
+            this.generateResponseId(),
+          );
+          if (partial.hasMeaningfulOutput) {
+            if (partial.threadId && this.supportsNativeResume()) {
+              this.sessionId = partial.threadId;
+              this.shouldResumeNextTurn = true;
+            }
+            const raw = [state.rawStdout.trim(), state.rawStderr.trim()].filter(Boolean).join('\n');
+            logger.warn('Codex exec idle timeout after partial output — returning partial transcript', {
+              phase: effectivePhase,
+              idleBudgetMs: currentBudgetMs,
+              elapsedMs,
+              stdoutBytes: state.rawStdout.length,
+            });
+            resolve({
+              code: null,
+              diagnostics: state.diagnostics,
+              raw,
+              response: {
+                ...partial.response,
+                metadata: {
+                  ...partial.response.metadata,
+                  diagnostics: state.diagnostics,
+                  timedOut: true,
+                  partial: true,
+                  idleBudgetMs: currentBudgetMs,
+                },
+                raw,
+              },
+            });
+            return;
+          }
+        }
+
         reject(new CodexTimeoutError(effectivePhase, currentBudgetMs, {
           networkErrorCount: networkErrors.length,
           lastNetworkError,
