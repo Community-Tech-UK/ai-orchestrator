@@ -69,6 +69,8 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
         [attr.aria-haspopup]="'menu'"
         [attr.aria-expanded]="menuOpen()"
         [attr.aria-controls]="menuId"
+        [disabled]="_disabledReason() ? true : null"
+        [attr.title]="_disabledReason() ?? null"
         (click)="toggleMenu()"
       >
         <span class="compact-picker__dot" [style.background]="providerColor()"></span>
@@ -141,8 +143,12 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
       max-width: 100%;
       white-space: nowrap;
     }
-    .compact-picker__chip:hover {
+    .compact-picker__chip:hover:not(:disabled) {
       background: var(--bg-tertiary, rgba(127,127,127,0.12));
+    }
+    .compact-picker__chip:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
     }
     .compact-picker__dot {
       display: inline-block;
@@ -199,6 +205,7 @@ export class CompactModelPickerComponent {
   private readonly _hasMessages = signal(false);
   private readonly _selection = signal<PendingSelection | null>(null);
   private readonly _providers = signal<PickerProvider[] | null>(null);
+  protected readonly _disabledReason = signal<string | null>(null);
 
   @Input() set mode(value: CompactPickerMode) {
     this._mode.set(value);
@@ -225,6 +232,16 @@ export class CompactModelPickerComponent {
   @Input() set selection(value: PendingSelection | null | undefined) {
     this._selection.set(value ?? null);
     if (value) this.controller.setSelection(value);
+  }
+  /**
+   * When set, the picker trigger is disabled and the menu cannot be opened; the
+   * string is shown as a tooltip explaining why (e.g. "Model changes are only
+   * available while the instance is waiting for user input"). Lets a host gate
+   * the whole picker to match a backend rule rather than letting the user make a
+   * change that would be silently rejected.
+   */
+  @Input() set disabledReason(value: string | null | undefined) {
+    this._disabledReason.set(value ?? null);
   }
 
   @Output() selectionChange = new EventEmitter<PendingSelection>();
@@ -360,6 +377,7 @@ export class CompactModelPickerComponent {
   // --- Menu toggle ---
 
   protected toggleMenu(): void {
+    if (this._disabledReason()) return;
     this.menuOpen.update((v) => !v);
   }
 
@@ -372,6 +390,7 @@ export class CompactModelPickerComponent {
    * legacy name for back-compat with `ModelPickerFocusService`.
    */
   openModelMenu(): void {
+    if (this._disabledReason()) return;
     this.menuOpen.set(true);
   }
 

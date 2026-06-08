@@ -5102,7 +5102,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1681
+      "lines": 1683
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",

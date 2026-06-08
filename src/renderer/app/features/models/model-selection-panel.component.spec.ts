@@ -182,6 +182,45 @@ describe('ModelSelectionPanelComponent', () => {
     ]);
   });
 
+  // Mirrors the controller's Claude reasoning list (high is the default).
+  const CLAUDE_REASONING_OPTIONS: UnifiedReasoningOption[] = [
+    { id: 'low', label: 'Low' },
+    { id: 'medium', label: 'Medium' },
+    { id: 'high', label: 'High', isDefault: true },
+    { id: 'xhigh', label: 'Extra' },
+    { id: 'max', label: 'Max' },
+    { id: 'workflow', label: 'Workflow' },
+  ];
+
+  it('displays max on the selected row when selectedReasoning=max', () => {
+    setInputs({
+      selectedReasoning: 'max',
+      reasoningOptionsForProvider: (provider) => provider === 'claude' ? CLAUDE_REASONING_OPTIONS : [],
+    });
+    const select = fixture.nativeElement.querySelector('.model-picker-row__reasoning') as HTMLSelectElement;
+    expect(select.value).toBe('max');
+  });
+
+  it('emits max when the user picks Max', () => {
+    setInputs({
+      selectedReasoning: null,
+      reasoningOptionsForProvider: (provider) => provider === 'claude' ? CLAUDE_REASONING_OPTIONS : [],
+    });
+    const emitted: UnifiedSelection[] = [];
+    fixture.componentInstance.selection.subscribe((selection) => emitted.push(selection));
+
+    const select = fixture.nativeElement.querySelector('.model-picker-row__reasoning') as HTMLSelectElement;
+    expect(select.value).toBe('high'); // default fallback shown
+
+    select.value = 'max';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    fixture.detectChanges();
+
+    expect(emitted).toEqual([
+      { kind: 'reasoning', provider: 'claude', modelId: 'claude-opus-4-7', level: 'max' },
+    ]);
+  });
+
   it('shows provider default reasoning for non-current rows', () => {
     setInputs({
       selectedModelId: 'claude-sonnet-4-6',

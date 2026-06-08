@@ -357,6 +357,35 @@ describe('CodeIndexManager (incremental)', () => {
     expect(rootAfter).toBe(rootBefore);
   });
 
+  it('skips full Merkle recompute for oversized manifests during incremental updates', async () => {
+    await writeFile(
+      join(workDir, 'src/auth.ts'),
+      'export function issueSessionToken(userId: string): string { return `session:${userId}`; }\n',
+    );
+    const largeManifestMgr = new CodeIndexManager({
+      store,
+      debounceMs: 30,
+      maxIncrementalMerkleRecomputeManifestEntries: 1,
+    });
+    const result = await largeManifestMgr.coldIndex(workDir);
+    const rootBefore = store.getWorkspaceRoot(result.workspaceHash)?.merkleRootHash;
+
+    await writeFile(
+      join(workDir, 'src/auth.ts'),
+      'export function refreshSessionToken(userId: string): string { return `refresh:${userId}`; }\n',
+    );
+
+    await largeManifestMgr.onFileChange(join(workDir, 'src/auth.ts'), result.workspaceHash);
+
+    expect(rootBefore).toMatch(/^[a-f0-9]{64}$/);
+    expect(store.getWorkspaceRoot(result.workspaceHash)?.merkleRootHash).toBeNull();
+    expect(store.searchWorkspaceChunks(result.workspaceHash, 'refresh session token', 5)[0]).toEqual(
+      expect.objectContaining({ pathFromRoot: 'src/auth.ts' }),
+    );
+
+    await largeManifestMgr.stop();
+  });
+
   it('start watches the workspace and emits code-index:changed after edits', async () => {
     const result = await mgr.coldIndex(workDir);
     const seen: string[] = [];

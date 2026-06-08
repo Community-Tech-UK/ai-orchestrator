@@ -133,6 +133,29 @@ describe('CasStore', () => {
     expect(rows[0]?.contentHash).toBe('c2');
   });
 
+  it('counts and pages manifest entries without requiring a full materialized read', () => {
+    store.upsertManifestEntry({
+      workspaceHash: 'w1',
+      pathFromRoot: 'src/b.ts',
+      contentHash: 'c2',
+      merkleLeafHash: 'm2',
+      mtime: 2_000,
+    });
+    store.upsertManifestEntry({
+      workspaceHash: 'w1',
+      pathFromRoot: 'src/a.ts',
+      contentHash: 'c1',
+      merkleLeafHash: 'm1',
+      mtime: 1_000,
+    });
+
+    expect(store.countManifestEntries('w1')).toBe(2);
+    expect(store.countManifestEntries('other-workspace')).toBe(0);
+    expect(store.listManifestEntries('w1', { limit: 1 })).toEqual([
+      expect.objectContaining({ pathFromRoot: 'src/a.ts' }),
+    ]);
+  });
+
   it('upsertWorkspaceRoot writes and reads back', () => {
     store.upsertWorkspaceRoot({
       workspaceHash: 'w1',

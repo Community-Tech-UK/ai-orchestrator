@@ -1,7 +1,7 @@
 /**
  * IndexWorkerGateway — main-process gateway to the codemem index worker.
  *
- * Owns the lifecycle of the index-worker-main.ts worker thread. Routes
+ * Owns the lifecycle of the index-worker-main.ts child process. Routes
  * warm-workspace requests as RPC with per-call timeouts so that slow indexing
  * never blocks the Electron main event loop. Handles worker crash with a
  * single restart attempt; on second crash, stays in degraded mode and all
@@ -10,7 +10,7 @@
  * Follows the LspWorkerGateway pattern (injectable workerFactory for testing).
  */
 
-import { Worker } from 'node:worker_threads';
+import { fork, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
@@ -39,9 +39,14 @@ interface PendingRpc {
   timeout: NodeJS.Timeout;
 }
 
+export interface IndexWorkerProcessHandle extends EventEmitter {
+  postMessage(msg: IndexWorkerInboundMsg): void;
+  terminate(): Promise<number>;
+}
+
 export interface IndexWorkerGatewayOptions {
   rpcTimeoutMs?: number;
-  workerFactory?: (userDataPath: string) => Worker;
+  workerFactory?: (userDataPath: string) => IndexWorkerProcessHandle;
   userDataPath?: string;
 }
 
@@ -72,28 +77,56 @@ function getElectronUserDataPath(): string | undefined {
   }
 }
 
-function makeWorker(userDataPath: string): Worker {
+function makeWorker(userDataPath: string): IndexWorkerProcessHandle {
   const jsEntry = path.join(__dirname, 'index-worker-main.js');
-  if (existsSync(jsEntry)) {
-    return new Worker(jsEntry, { workerData: { userDataPath } });
-  }
-  const tsEntry = path.join(__dirname, 'index-worker-main.ts');
-  return new Worker(tsEntry, {
-    workerData: { userDataPath },
-    execArgv: ['--import', 'tsx'],
+  const entry = existsSync(jsEntry) ? jsEntry : path.join(__dirname, 'index-worker-main.ts');
+  const child = fork(entry, [], {
+    env: {
+      ...process.env,
+      AIO_USER_DATA_PATH: userDataPath,
+      ELECTRON_RUN_AS_NODE: '1',
+    },
+    execArgv: entry.endsWith('.ts') ? ['--import', 'tsx'] : [],
+    stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
   });
+  return new ChildProcessIndexWorkerHandle(child);
+}
+
+class ChildProcessIndexWorkerHandle extends EventEmitter implements IndexWorkerProcessHandle {
+  constructor(private readonly child: ChildProcess) {
+    super();
+    child.on('message', (message) => this.emit('message', message));
+    child.on('error', (error) => this.emit('error', error));
+    child.on('exit', (code) => this.emit('exit', code));
+  }
+
+  postMessage(msg: IndexWorkerInboundMsg): void {
+    if (!this.child.connected) {
+      throw new Error('index worker child process IPC is disconnected');
+    }
+    this.child.send(msg);
+  }
+
+  async terminate(): Promise<number> {
+    if (this.child.exitCode !== null) {
+      return this.child.exitCode ?? 0;
+    }
+    this.child.kill();
+    return 0;
+  }
 }
 
 // ── IndexWorkerGateway ────────────────────────────────────────────────────────
 
 export class IndexWorkerGateway extends EventEmitter {
-  private worker: Worker | null = null;
+  private worker: IndexWorkerProcessHandle | null = null;
   private rpcId = 0;
   private pending = new Map<number, PendingRpc>();
   private isDegraded = false;
   private restartAttempts = 0;
+  private shuttingDown = false;
   private readonly defaultRpcTimeoutMs: number;
-  private readonly workerFactory: (userDataPath: string) => Worker;
+  private readonly workerFactory: (userDataPath: string) => IndexWorkerProcessHandle;
   private readonly userDataPath: string;
   private metrics = { processed: 0, dropped: 0, lastError: null as string | null };
 
@@ -107,10 +140,12 @@ export class IndexWorkerGateway extends EventEmitter {
 
   async start(): Promise<void> {
     if (this.worker) return;
+    this.shuttingDown = false;
     this.startWorker();
   }
 
   async stop(): Promise<void> {
+    this.shuttingDown = true;
     this.failAllPending(new Error('shutdown'));
     if (this.worker) {
       try {
@@ -269,7 +304,7 @@ export class IndexWorkerGateway extends EventEmitter {
       w.on('message', (msg: IndexWorkerOutboundMsg) => this.handleMessage(msg));
       w.on('error', (err) => this.handleWorkerError(err));
       w.on('exit', (code) => {
-        if (code !== 0) {
+        if (code !== 0 && !this.shuttingDown) {
           this.handleWorkerError(new Error(`Index worker exited with code ${code}`));
         }
       });
@@ -307,13 +342,17 @@ export class IndexWorkerGateway extends EventEmitter {
     this.metrics.lastError = err.message;
     this.failAllPending(err);
     this.worker = null;
+    if (this.shuttingDown) {
+      return;
+    }
     this.markDegraded(err.message);
     if (this.restartAttempts < MAX_RESTART_ATTEMPTS) {
       this.restartAttempts++;
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         this.isDegraded = false;
         this.startWorker();
       }, RESTART_BACKOFF_MS);
+      timer.unref?.();
     }
   }
 

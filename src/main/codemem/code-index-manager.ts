@@ -26,6 +26,7 @@ const MAX_INDEXED_FILE_BYTES = 10 * 1024 * 1024;
 const DEFAULT_MAX_NATIVE_WATCH_FILES = 1_500;
 const DEFAULT_MAX_WATCHED_WORKSPACES = 3;
 const DEFAULT_POLLING_INTERVAL_MS = 30_000;
+const DEFAULT_MAX_INCREMENTAL_MERKLE_RECOMPUTE_MANIFEST_ENTRIES = 50_000;
 
 export interface CodeIndexManagerOptions {
   store: CasStore;
@@ -34,6 +35,7 @@ export interface CodeIndexManagerOptions {
   maxNativeWatchFiles?: number;
   maxWatchedWorkspaces?: number;
   pollingIntervalMs?: number;
+  maxIncrementalMerkleRecomputeManifestEntries?: number;
 }
 
 export interface ColdIndexResult {
@@ -48,10 +50,17 @@ export class CodeIndexManager extends EventEmitter {
   private readonly metadataExtractor = getMetadataExtractor();
   private readonly watcher: CodeIndexWatcher;
   private readonly workspacePaths = new Map<WorkspaceHash, string>();
+  private readonly maxIncrementalMerkleRecomputeManifestEntries: number;
+  private readonly loggedLargeIncrementalManifests = new Set<WorkspaceHash>();
 
   constructor(protected readonly opts: CodeIndexManagerOptions) {
     super();
     this.chunker = opts.chunker ?? getTreeSitterChunker();
+    this.maxIncrementalMerkleRecomputeManifestEntries = Math.max(
+      0,
+      opts.maxIncrementalMerkleRecomputeManifestEntries
+        ?? DEFAULT_MAX_INCREMENTAL_MERKLE_RECOMPUTE_MANIFEST_ENTRIES,
+    );
     this.watcher = new CodeIndexWatcher({
       debounceMs: opts.debounceMs ?? 75,
       maxNativeWatchFiles: Math.max(0, opts.maxNativeWatchFiles ?? DEFAULT_MAX_NATIVE_WATCH_FILES),
@@ -691,8 +700,36 @@ export class CodeIndexManager extends EventEmitter {
       });
     }
 
-    this.recomputeRootHash(workspaceHash);
+    this.refreshRootHashAfterIncrementalChange(workspaceHash);
     return relativePath;
+  }
+
+  private refreshRootHashAfterIncrementalChange(workspaceHash: WorkspaceHash): void {
+    const manifestEntries = this.opts.store.countManifestEntries(workspaceHash);
+    if (manifestEntries <= this.maxIncrementalMerkleRecomputeManifestEntries) {
+      this.recomputeRootHash(workspaceHash);
+      return;
+    }
+
+    const workspaceRoot = this.opts.store.getWorkspaceRoot(workspaceHash);
+    if (!workspaceRoot) {
+      return;
+    }
+
+    this.opts.store.upsertWorkspaceRoot({
+      ...workspaceRoot,
+      merkleRootHash: null,
+      lastIndexedAt: Date.now(),
+    });
+
+    if (!this.loggedLargeIncrementalManifests.has(workspaceHash)) {
+      this.loggedLargeIncrementalManifests.add(workspaceHash);
+      logger.warn('Skipped full Merkle recompute for large incremental code-index update', {
+        workspaceHash,
+        manifestEntries,
+        maxEntries: this.maxIncrementalMerkleRecomputeManifestEntries,
+      });
+    }
   }
 
   private resolveWorkspacePath(workspaceHash: WorkspaceHash): string | null {

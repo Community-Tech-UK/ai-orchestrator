@@ -1,10 +1,10 @@
 /**
- * Codemem Index Worker — runs in a worker_thread.
+ * Codemem Index Worker — runs in an isolated worker process.
  *
  * Owns CasStore, CodeIndexManager, PeriodicScan, and its own codemem.sqlite
  * connection. No Database object is shared with the main thread. Both
- * connections use WAL mode + busy_timeout so concurrent reads and writes
- * across threads are handled safely.
+ * connections use WAL mode + busy_timeout so concurrent reads and writes are
+ * handled safely.
  *
  * Entrypoint resolution follows the LSP worker precedent:
  *   1. Built:  index-worker-main.js from __dirname
@@ -29,9 +29,33 @@ import type {
   WarmWorkspaceResult,
 } from './index-worker-protocol';
 
-if (isMainThread) {
-  throw new Error('index-worker-main must run in a worker thread');
+interface WorkerTransport {
+  postMessage(message: IndexWorkerOutboundMsg): void;
+  onMessage(listener: (message: IndexWorkerInboundMsg) => void): void;
 }
+
+function createTransport(): WorkerTransport {
+  if (parentPort) {
+    const port = parentPort;
+    return {
+      postMessage: (message) => port.postMessage(message),
+      onMessage: (listener) => port.on('message', listener),
+    };
+  }
+
+  if (isMainThread && typeof process.send === 'function') {
+    return {
+      postMessage: (message) => process.send?.(message),
+      onMessage: (listener) => {
+        process.on('message', (message) => listener(message as IndexWorkerInboundMsg));
+      },
+    };
+  }
+
+  throw new Error('index-worker-main must run in a worker thread or child process');
+}
+
+const transport = createTransport();
 
 // ── Path resolution ────────────────────────────────────────────────────────────
 
@@ -47,6 +71,7 @@ function getElectronUserDataPath(): string | undefined {
 
 const userDataPath =
   (workerData as { userDataPath?: string } | null)?.userDataPath ??
+  process.env['AIO_USER_DATA_PATH'] ??
   getElectronUserDataPath() ??
   path.join(os.tmpdir(), 'ai-orchestrator');
 
@@ -72,7 +97,7 @@ indexManager.on('code-index:changed', (event: { workspaceHash: string; paths: st
     return;
   }
 
-  parentPort!.postMessage({
+  transport.postMessage({
     type: 'code-index-changed',
     workspacePath,
     workspaceHash: event.workspaceHash,
@@ -85,7 +110,7 @@ indexManager.on('code-index:changed', (event: { workspaceHash: string; paths: st
 
 function respond(id: number, result?: unknown, error?: string): void {
   const msg: IndexWorkerOutboundMsg = { type: 'rpc-response', id, result, error };
-  parentPort!.postMessage(msg);
+  transport.postMessage(msg);
 }
 
 // ── Message routing ───────────────────────────────────────────────────────────
@@ -95,7 +120,7 @@ type HeavyIndexWorkerMsg = WarmWorkspaceMsg | RebuildIndexMsg;
 let heavyWorkQueue: Promise<void> = Promise.resolve();
 let shuttingDown = false;
 
-parentPort!.on('message', (msg: IndexWorkerInboundMsg) => {
+transport.onMessage((msg: IndexWorkerInboundMsg) => {
   if (isHeavyMessage(msg)) {
     queueHeavyMessage(msg);
     return;
@@ -259,7 +284,7 @@ function degradedWarmWorkspaceResult(normalizedPath: string): WarmWorkspaceResul
 }
 
 // Signal readiness after all synchronous initialisation is complete.
-parentPort!.postMessage({ type: 'ready' } satisfies IndexWorkerOutboundMsg);
+transport.postMessage({ type: 'ready' } satisfies IndexWorkerOutboundMsg);
 
 function buildStatusSnapshot(
   workspacePath: string,

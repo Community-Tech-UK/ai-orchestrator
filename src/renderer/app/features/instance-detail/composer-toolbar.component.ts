@@ -33,7 +33,9 @@ import { DecimalPipe } from '@angular/common';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import { InstanceIpcService } from '../../core/services/ipc';
 import type { ContextUsage } from '../../core/state/instance/instance.types';
-import type { InstanceProvider } from '../../core/state/instance/instance.types';
+import type { InstanceProvider, InstanceStatus } from '../../core/state/instance/instance.types';
+import type { ReasoningEffort } from '../../../../shared/types/provider.types';
+import { getModelSwitchUnavailableReason } from '../../../../shared/types/instance-status-policy';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
 import { DEFAULT_INSTANCE_PROVIDERS } from '../models/provider-menu.component';
 
@@ -90,6 +92,7 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
           mode="pending-create"
           [providers]="pickerProviders"
           [selection]="pickerSelection()!"
+          [disabledReason]="modelSwitchDisabledReason()"
           (selectionChange)="onPickerSelectionChange($event)"
         />
       }
@@ -167,7 +170,8 @@ export class ComposerToolbarComponent {
       const instanceId = this.instanceId();
       const provider = this.provider();
       const currentModel = this.currentModel();
-      const derived = deriveComposerPickerSelection(provider, currentModel);
+      const currentReasoning = this.currentReasoningEffort() ?? null;
+      const derived = deriveComposerPickerSelection(provider, currentModel, currentReasoning);
       const instanceChanged = instanceId !== this.lastSeededInstanceId;
 
       if (instanceChanged) {
@@ -179,6 +183,19 @@ export class ComposerToolbarComponent {
       const pending = untracked(() => this.pendingSelection());
       if (shouldHydrateComposerPickerSelection(pending, derived)) {
         this.pendingSelection.set(derived);
+        return;
+      }
+
+      // Reconcile the reasoning effort from backend truth even when the model is
+      // unchanged. The picker (pending-create mode) has no other source for the
+      // instance's actual effort, so without this it would only ever display the
+      // provider default (e.g. Claude's "High"), masking a real Max/Extra/etc.
+      // and snapping a just-applied pick back to the default. Only writes when
+      // the value genuinely diverges to avoid clobbering an in-flight pick whose
+      // backend confirmation has not arrived yet (that confirmation re-runs this
+      // effect with a matching value, making it a no-op).
+      if (pending && pending.reasoning !== derived.reasoning) {
+        this.pendingSelection.set({ ...pending, reasoning: derived.reasoning });
       }
     });
   }
@@ -194,6 +211,28 @@ export class ComposerToolbarComponent {
 
   /** Current model for the instance (drives picker initial state). */
   currentModel = input<string | undefined>(undefined);
+
+  /**
+   * Current reasoning effort for the instance. The picker is the sole UI for
+   * effort on a live instance, so it must reflect the real backend value rather
+   * than always re-deriving to the provider default. `null`/`undefined` mean
+   * "provider default" (the picker then badges e.g. Claude's High).
+   */
+  currentReasoningEffort = input<ReasoningEffort | null | undefined>(undefined);
+
+  /** Live instance status. Drives gating of the picker — the backend only
+   * accepts model/reasoning switches while waiting for user input, so the
+   * picker is disabled (with an explanatory tooltip) otherwise to avoid a
+   * silently-rejected change. */
+  instanceStatus = input<InstanceStatus | undefined>(undefined);
+
+  /**
+   * Reason the picker is disabled, or `undefined` when a switch is allowed.
+   * Mirrors the backend's `changeModel` precondition so the UI matches it.
+   */
+  readonly modelSwitchDisabledReason = computed(() =>
+    getModelSwitchUnavailableReason(this.instanceStatus()),
+  );
 
   /** Provider list for the picker — same wide list used by new-session. */
   readonly pickerProviders = DEFAULT_INSTANCE_PROVIDERS;
@@ -255,9 +294,10 @@ export class ComposerToolbarComponent {
 export function deriveComposerPickerSelection(
   provider: InstanceProvider,
   currentModel: string | undefined,
+  reasoning: ReasoningEffort | null = null,
 ): PendingSelection {
   const pickerProvider: PickerProvider = (provider === 'ollama' ? 'claude' : provider) as PickerProvider;
-  return { provider: pickerProvider, model: currentModel ?? null, reasoning: null };
+  return { provider: pickerProvider, model: currentModel ?? null, reasoning: reasoning ?? null };
 }
 
 /**

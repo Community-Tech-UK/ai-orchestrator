@@ -288,4 +288,74 @@ describe('IndexWorkerGateway', () => {
     expect(stopMsg).toBeDefined();
     expect(stopMsg![0].workspacePath).toBe('/some-workspace');
   });
+
+  it('does not mark degraded when the worker exits during an intentional stop', async () => {
+    const shutdownPromise = gateway.stop();
+    const shutdownMsg = fakeWorker.postMessage.mock.calls
+      .map(([message]) => message as { type?: string; id?: number })
+      .find((message) => message.type === 'shutdown');
+    expect(shutdownMsg?.id).toBeDefined();
+
+    fakeWorker.emit('message', { type: 'rpc-response', id: shutdownMsg!.id });
+    await shutdownPromise;
+
+    fakeWorker.emit('exit', null);
+
+    expect(gateway.getMetrics().degraded).toBe(false);
+  });
+});
+
+describe('IndexWorkerGateway default process isolation', () => {
+  afterEach(() => {
+    vi.doUnmock('node:child_process');
+    vi.doUnmock('node:worker_threads');
+    vi.doUnmock('node:fs');
+    vi.resetModules();
+  });
+
+  it('starts the production codemem worker as a child process instead of a worker_thread', async () => {
+    vi.resetModules();
+    const child = Object.assign(new EventEmitter(), {
+      send: vi.fn((message: { type?: string; id?: number }) => {
+        if (message.type === 'shutdown') {
+          queueMicrotask(() => child.emit('message', { type: 'rpc-response', id: message.id }));
+        }
+      }),
+      kill: vi.fn(),
+      connected: true,
+    });
+    const fork = vi.fn(() => child);
+    const Worker = vi.fn(() => createFakeWorker());
+
+    vi.doMock('node:child_process', () => ({
+      default: { fork },
+      fork,
+    }));
+    vi.doMock('node:worker_threads', () => ({
+      default: { Worker },
+      Worker,
+    }));
+    vi.doMock('node:fs', () => ({
+      default: { existsSync: vi.fn(() => true) },
+      existsSync: vi.fn(() => true),
+    }));
+
+    const { IndexWorkerGateway } = await import('../index-worker-gateway');
+    const isolatedGateway = new IndexWorkerGateway({ userDataPath: '/tmp/test', rpcTimeoutMs: 50 });
+
+    await isolatedGateway.start();
+
+    expect(fork).toHaveBeenCalledWith(
+      expect.stringContaining('index-worker-main.js'),
+      [],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          AIO_USER_DATA_PATH: '/tmp/test',
+        }),
+      }),
+    );
+    expect(Worker).not.toHaveBeenCalled();
+
+    await isolatedGateway.stop();
+  });
 });

@@ -21,9 +21,11 @@ export class PeriodicScan {
       return { scanned: 0, mismatched: 0, reindexed: false };
     }
 
-    const manifestEntries = this.opts.store.listManifestEntries(workspaceHash);
-    const sampleSize = Math.min(this.opts.sampleSize ?? 100, manifestEntries.length);
-    const sample = this.takeDeterministicSample(manifestEntries, sampleSize);
+    const manifestEntries = this.opts.store.countManifestEntries(workspaceHash);
+    const sampleSize = Math.min(this.opts.sampleSize ?? 100, manifestEntries);
+    const sample = sampleSize === 0
+      ? []
+      : this.opts.store.listManifestEntries(workspaceHash, { limit: sampleSize });
 
     let mismatched = 0;
     const mismatchedPaths: string[] = [];
@@ -57,9 +59,4 @@ export class PeriodicScan {
     return { scanned: sampleSize, mismatched, reindexed: mismatchedPaths.length > 0 };
   }
 
-  private takeDeterministicSample<T>(items: T[], sampleSize: number): T[] {
-    return [...items]
-      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
-      .slice(0, sampleSize);
-  }
 }

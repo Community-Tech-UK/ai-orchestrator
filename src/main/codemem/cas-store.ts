@@ -260,9 +260,32 @@ export class CasStore {
     );
   }
 
-  listManifestEntries(workspaceHash: WorkspaceHash): WorkspaceManifestRow[] {
-    return (this.db.prepare('SELECT * FROM workspace_manifest WHERE workspace_hash = ?')
-      .all(workspaceHash) as WorkspaceManifestRowRecord[])
+  countManifestEntries(workspaceHash: WorkspaceHash): number {
+    const row = this.db.prepare(
+      'SELECT COUNT(*) AS count FROM workspace_manifest WHERE workspace_hash = ?',
+    ).get(workspaceHash) as { count: number } | undefined;
+    return row?.count ?? 0;
+  }
+
+  listManifestEntries(
+    workspaceHash: WorkspaceHash,
+    options: { limit?: number; offset?: number } = {},
+  ): WorkspaceManifestRow[] {
+    const params: (string | number)[] = [workspaceHash];
+    let sql = 'SELECT * FROM workspace_manifest WHERE workspace_hash = ? ORDER BY path_from_root ASC';
+
+    if (options.limit !== undefined) {
+      const limit = Math.max(1, Math.floor(options.limit));
+      sql += ' LIMIT ?';
+      params.push(limit);
+      if (options.offset !== undefined) {
+        sql += ' OFFSET ?';
+        params.push(Math.max(0, Math.floor(options.offset)));
+      }
+    }
+
+    return (this.db.prepare(sql)
+      .all(...params) as WorkspaceManifestRowRecord[])
       .map((row) => ({
         workspaceHash: row.workspace_hash,
         pathFromRoot: row.path_from_root,

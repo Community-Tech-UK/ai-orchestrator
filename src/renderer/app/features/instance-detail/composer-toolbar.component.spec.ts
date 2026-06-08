@@ -173,6 +173,20 @@ describe('ComposerToolbarComponent', () => {
 
     expect(ipcStub.changeModel).not.toHaveBeenCalled();
   });
+
+  // ── 9. Picker gating mirrors the backend changeModel precondition ────────
+
+  it('allows the picker when the instance is waiting for user input', () => {
+    overrideInputs(component, {});
+    (component as unknown as Record<string, unknown>)['instanceStatus'] = () => 'waiting_for_input';
+    expect(component.modelSwitchDisabledReason()).toBeUndefined();
+  });
+
+  it('disables the picker with a reason while the instance is processing', () => {
+    overrideInputs(component, {});
+    (component as unknown as Record<string, unknown>)['instanceStatus'] = () => 'processing';
+    expect(component.modelSwitchDisabledReason()).toContain('waiting for user input');
+  });
 });
 
 // Regression for the cross-instance leak: the live composer is a single reused
@@ -206,6 +220,23 @@ describe('deriveComposerPickerSelection', () => {
 
   it('uses null model when the instance has no model yet', () => {
     expect(deriveComposerPickerSelection('cursor', undefined).model).toBeNull();
+  });
+
+  it('defaults reasoning to null when not provided (provider default)', () => {
+    expect(deriveComposerPickerSelection('claude', 'opus').reasoning).toBeNull();
+  });
+
+  it('carries the instance reasoning effort through so the picker reflects it', () => {
+    // Regression: the live composer is the only reasoning UI for an instance.
+    // Hardcoding reasoning:null here made the picker always show the provider
+    // default (Claude "High"), masking a real Max/Extra and snapping a just-
+    // applied pick back to the default.
+    expect(deriveComposerPickerSelection('claude', 'opus', 'max')).toEqual({
+      provider: 'claude',
+      model: 'opus',
+      reasoning: 'max',
+    });
+    expect(deriveComposerPickerSelection('claude', 'opus', 'xhigh').reasoning).toBe('xhigh');
   });
 });
 

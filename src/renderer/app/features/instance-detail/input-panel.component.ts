@@ -47,6 +47,7 @@ import { ProviderStateService } from '../../core/services/provider-state.service
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { SettingsStore } from '../../core/state/settings.store';
 import { getPrimaryModelForProvider, normalizeModelForProvider } from '../../../../shared/types/provider.types';
+import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 import type { AgentProfile } from '../../../../shared/types/agent.types';
 import type { CommandResolutionResult } from '../../../../shared/types/command.types';
 import {
@@ -136,6 +137,7 @@ export class InputPanelComponent implements OnDestroy {
   instanceStatus = input<InstanceStatus>('idle');
   provider = input<InstanceProvider>('claude');
   currentModel = input<string | undefined>(undefined);
+  currentReasoningEffort = input<ReasoningEffort | null | undefined>(undefined);
   workingDirectory = input<string | null>(null);
   loopChatId = input<string | null>(null);
   contextUsage = input<ContextUsage | undefined>(undefined);

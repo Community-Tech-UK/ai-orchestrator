@@ -181,4 +181,80 @@ describe('codemem index worker main', () => {
     expect(rpcResult(1)).toEqual(expect.objectContaining({ indexed: true, absPath: '/repo-a' }));
     expect(rpcResult(2)).toEqual(expect.objectContaining({ indexed: true, absPath: '/repo-b' }));
   });
+
+  it('accepts child-process IPC when launched outside worker_threads', async () => {
+    vi.resetModules();
+    vi.doMock('node:worker_threads', () => ({
+      default: {
+        parentPort: null,
+        isMainThread: true,
+        workerData: null,
+      },
+      parentPort: null,
+      isMainThread: true,
+      workerData: null,
+    }));
+
+    const send = vi.fn();
+    const messageHandlers: Array<(message: unknown) => void> = [];
+    const originalSendDescriptor = Object.getOwnPropertyDescriptor(process, 'send');
+    const originalOn = process.on.bind(process);
+    Object.defineProperty(process, 'send', {
+      configurable: true,
+      value: send,
+    });
+    vi.spyOn(process, 'on').mockImplementation((eventName, listener) => {
+      if (eventName === 'message') {
+        messageHandlers.push(listener as (message: unknown) => void);
+        return process;
+      }
+      return originalOn(eventName, listener);
+    });
+    process.env.AIO_USER_DATA_PATH = '/tmp/aio-index-child-test';
+    store.getIndexStatus.mockReturnValue({
+      workspaceHash: 'hash:/repo',
+      absPath: '/repo',
+      state: 'complete',
+      phase: 'watching',
+      totalFiles: 2,
+      processedFiles: 2,
+      totalChunks: 4,
+      processedChunks: 4,
+      currentPath: null,
+      startedAt: 100,
+      updatedAt: 200,
+      completedAt: 200,
+      errorMessage: null,
+      cancelRequested: false,
+    });
+
+    try {
+      await importWorker();
+      expect(messageHandlers).toHaveLength(1);
+
+      messageHandlers[0]?.({
+        type: 'get-index-status',
+        id: 99,
+        workspacePath: '/repo',
+      });
+      await flushMicrotasks();
+
+      expect(send).toHaveBeenCalledWith({ type: 'ready' });
+      expect(send).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'rpc-response',
+        id: 99,
+        result: expect.objectContaining({
+          workspacePath: '/repo',
+          state: 'complete',
+        }),
+      }));
+    } finally {
+      delete process.env.AIO_USER_DATA_PATH;
+      if (originalSendDescriptor) {
+        Object.defineProperty(process, 'send', originalSendDescriptor);
+      } else {
+        Reflect.deleteProperty(process, 'send');
+      }
+    }
+  });
 });

@@ -106,6 +106,29 @@ describe('CompactModelPickerComponent', () => {
     expect(chip.getAttribute('aria-expanded')).toBe('true');
   });
 
+  it('disables the chip and refuses to open when disabledReason is set', () => {
+    fixture.componentRef.setInput('mode', 'live-instance');
+    fixture.componentRef.setInput('chat', chatRecord());
+    fixture.componentRef.setInput('disabledReason', 'Busy — try again when idle');
+    fixture.detectChanges();
+
+    const chip = fixture.nativeElement.querySelector('.compact-picker__chip') as HTMLButtonElement;
+    expect(chip.disabled).toBe(true);
+    expect(chip.getAttribute('title')).toBe('Busy — try again when idle');
+
+    chip.click();
+    fixture.detectChanges();
+    expect(chip.getAttribute('aria-expanded')).toBe('false');
+
+    // Re-enabling lets it open again.
+    fixture.componentRef.setInput('disabledReason', null);
+    fixture.detectChanges();
+    expect(chip.disabled).toBe(false);
+    chip.click();
+    fixture.detectChanges();
+    expect(chip.getAttribute('aria-expanded')).toBe('true');
+  });
+
   it('chip stays clickable even when the chat is locked-on-messages', () => {
     // Locking is now applied at the menu level (per-provider rows) rather
     // than at the chip — clicking the chip must still open the menu so the
