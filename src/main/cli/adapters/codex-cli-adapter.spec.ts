@@ -1271,13 +1271,92 @@ Hey! I'm here. What do you want to tackle?`;
             { role: 'user', content: 'fresh attempt' },
             { timeoutMs: 1_000, phase: 'startup' },
           )
-        ).rejects.toThrow(/Reading prompt from stdin/);
+        // The benign "Reading prompt from stdin..." stderr notice is filtered
+        // out of failure reasons; with no stdout error event the surfaced reason
+        // falls back to the exit-code message.
+        ).rejects.toThrow(/exited with code 1/);
 
         const firstArgs = spawnSpy.mock.calls[0][0] as string[];
         expect(spawnSpy).toHaveBeenCalledTimes(1);
         expect(firstArgs.slice(0, 2)).toEqual(['exec', '--json']);
         expect((adapter as unknown as { shouldResumeNextTurn: boolean }).shouldResumeNextTurn).toBe(false);
         expect(adapter.getSessionId()).not.toBe('thread-half-created');
+      });
+
+      it('surfaces the codex turn.failed error from stdout, not the benign stdin notice', async () => {
+        const adapter = await spawnExecAdapter();
+        const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+
+        const innerError = JSON.stringify({
+          type: 'error',
+          status: 400,
+          error: {
+            type: 'invalid_request_error',
+            message: "The 'gpt-5.3-codex' model is not supported when using Codex with a ChatGPT account.",
+          },
+        });
+        queueCodexRun(spawnSpy, {
+          code: 1,
+          stdoutLines: [
+            '{"type":"thread.started","thread_id":"thread-fail"}',
+            JSON.stringify({ type: 'turn.failed', error: { message: innerError } }),
+          ],
+          stderrLines: ['Reading prompt from stdin...'],
+        });
+
+        // The real cause is double-encoded inside turn.failed on stdout; the only
+        // stderr line is the benign stdin notice. The surfaced error must be the
+        // real one, with the nested JSON unwrapped.
+        await expect(
+          adapter.sendMessage({ role: 'user', content: 'do work' })
+        ).rejects.toThrow(/not supported when using Codex with a ChatGPT account/);
+      });
+
+      it('falls back to codex default model when the requested model is unavailable', async () => {
+        const adapter = new CodexCliAdapter({ model: 'gpt-5.3-codex' });
+        vi.spyOn(adapter, 'checkStatus').mockResolvedValue({
+          available: true,
+          authenticated: true,
+          path: 'codex',
+          version: '0.137.0',
+          metadata: { appServerAvailable: false },
+        });
+        await adapter.spawn();
+        const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+
+        const innerError = JSON.stringify({
+          type: 'error',
+          status: 400,
+          error: { message: "The 'gpt-5.3-codex' model is not supported when using Codex with a ChatGPT account." },
+        });
+        // First attempt: codex rejects the routed model.
+        queueCodexRun(spawnSpy, {
+          code: 1,
+          stdoutLines: [
+            '{"type":"thread.started","thread_id":"thread-bad-model"}',
+            JSON.stringify({ type: 'turn.failed', error: { message: innerError } }),
+          ],
+          stderrLines: ['Reading prompt from stdin...'],
+        });
+        // Fallback attempt (no --model → codex default): succeeds.
+        queueCodexRun(spawnSpy, {
+          stdoutLines: [
+            '{"type":"thread.started","thread_id":"thread-default"}',
+            '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"done"}}',
+            '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}',
+          ],
+        });
+
+        const res = await adapter.sendMessage({ role: 'user', content: 'do work' });
+        expect(res.content).toBe('done');
+        expect(spawnSpy).toHaveBeenCalledTimes(2);
+
+        const firstArgs = spawnSpy.mock.calls[0][0] as string[];
+        const secondArgs = spawnSpy.mock.calls[1][0] as string[];
+        expect(firstArgs).toContain('--model');
+        expect(firstArgs).toContain('gpt-5.3-codex');
+        // Fallback omits --model so codex uses its own config.toml default.
+        expect(secondArgs).not.toContain('--model');
       });
 
       it('clears session id and retries with fresh exec when resume fails with thread-not-found', async () => {

@@ -4966,7 +4966,7 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
-      "lines": 3059
+      "lines": 3107
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -5106,7 +5106,7 @@
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1652
+      "lines": 1670
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -5157,6 +5157,10 @@
       "lines": 1456
     },
     {
+      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
+      "lines": 1447
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency.md",
       "lines": 1411
     },
@@ -5171,10 +5175,6 @@
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
       "lines": 1378
-    },
-    {
-      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
-      "lines": 1368
     },
     {
       "path": "src/renderer/app/core/state/source-control.store.spec.ts",

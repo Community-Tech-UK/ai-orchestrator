@@ -14,6 +14,7 @@ const hoisted = vi.hoisted(() => ({
   createCliAdapter: vi.fn(),
   resolveCliType: vi.fn(),
   getBreaker: vi.fn(),
+  readCodexAuthMode: vi.fn(() => 'unknown' as 'chatgpt' | 'api-key' | 'unknown'),
   instanceManager: {
     getInstance: vi.fn(),
     getAllInstances: vi.fn(),
@@ -63,6 +64,10 @@ vi.mock('../core/circuit-breaker', () => ({
 
 vi.mock('../core/failover-error', () => ({
   coerceToFailoverError: vi.fn(() => null),
+}));
+
+vi.mock('../providers/codex-auth-mode', () => ({
+  readCodexAuthMode: hoisted.readCodexAuthMode,
 }));
 
 vi.mock('../../shared/types/provider.types', async (importOriginal) => ({
@@ -212,6 +217,10 @@ describe('default orchestration invokers', () => {
 });
 
 describe('resolveModelForInvocation (intent-routing Phase 2)', () => {
+  beforeEach(() => {
+    hoisted.readCodexAuthMode.mockReturnValue('unknown');
+  });
+
   it('without a routingIntent, resolves the strong default (verify/review/debate/workflow path)', () => {
     // getDefaultModelForCli is mocked to 'default-model'.
     expect(
@@ -257,5 +266,32 @@ describe('resolveModelForInvocation (intent-routing Phase 2)', () => {
         routingIntent: 'loop',
       }),
     ).toBe('sonnet');
+  });
+
+  it('skips cost-tier routing for codex under ChatGPT-account auth (uses default model)', () => {
+    hoisted.readCodexAuthMode.mockReturnValue('chatgpt');
+    const model = resolveModelForInvocation({
+      cliType: 'codex',
+      requestedProvider: 'codex',
+      payloadModel: undefined,
+      prompt: 'list',
+      routingIntent: 'loop',
+    });
+    // getDefaultModelForCli is mocked to 'default-model' — i.e. routing was
+    // skipped rather than resolving a cheaper (and unavailable) codex tier.
+    expect(model).toBe('default-model');
+  });
+
+  it('still cost-routes codex under API-key auth', () => {
+    hoisted.readCodexAuthMode.mockReturnValue('api-key');
+    const model = resolveModelForInvocation({
+      cliType: 'codex',
+      requestedProvider: 'codex',
+      payloadModel: undefined,
+      prompt: 'list',
+      routingIntent: 'loop',
+    });
+    expect(model).not.toBe('default-model');
+    expect(typeof model).toBe('string');
   });
 });

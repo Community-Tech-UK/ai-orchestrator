@@ -15,6 +15,7 @@ import { getDebateCoordinator } from './debate-coordinator';
 import { getWorkflowManager } from '../workflows/workflow-manager';
 import { resolveCliType, type CliAdapter, type UnifiedSpawnOptions } from '../cli/adapters/adapter-factory';
 import { getProviderRuntimeService } from '../providers/provider-runtime-service';
+import { readCodexAuthMode } from '../providers/codex-auth-mode';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
@@ -92,6 +93,23 @@ export function resolveModelForInvocation(args: {
       args.requestedProvider && args.requestedProvider !== 'auto'
         ? args.requestedProvider
         : args.cliType;
+
+    // Codex under ChatGPT-account auth only offers the account's allotted
+    // models. The cost-router's cheaper codex tiers map to `*-codex` ids that
+    // ChatGPT auth rejects with a 400 ("model is not supported when using Codex
+    // with a ChatGPT account"), which breaks every loop iteration. Skip routing
+    // entirely in that case and use the always-valid default model.
+    const isCodex = args.cliType === 'codex' || provider === 'codex';
+    if (isCodex && readCodexAuthMode() === 'chatgpt') {
+      const fallback = resolveDefaultModel(args.cliType, args.payloadModel);
+      logger.info('Skipping cost-tier routing for codex under ChatGPT-account auth', {
+        intent: args.routingIntent,
+        provider,
+        model: fallback,
+      });
+      return fallback;
+    }
+
     const decision = resolveRoutedModel(args.prompt, { provider });
     logger.info('Routed invocation model', {
       intent: args.routingIntent,

@@ -74,6 +74,7 @@ import { extractCodexAppServerError, formatCodexAppServerError } from './codex/a
 import { CodexHomeManager } from './codex/codex-home-manager';
 import { classifyCodexDiagnostic, type CodexDiagnostic } from './codex/exec-diagnostics';
 import { parseCodexExecTranscript } from './codex/exec-transcript-parser';
+import { isBenignCodexStdinNotice, isCodexModelUnavailableError } from './codex/exec-error-classifier';
 import { extractReasoningSections, mergeReasoningSections, shorten } from './codex/reasoning';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 
@@ -281,6 +282,15 @@ export class CodexCliAdapter extends BaseCliAdapter {
    * resume or a fresh session.
    */
   private hasCompletedExecTurn = false;
+
+  /**
+   * Set after codex rejects the configured `--model` as unavailable for the
+   * active account (e.g. the orchestrator's static catalog routed a Loop-Mode
+   * iteration to a `*-codex` id that ChatGPT-account auth doesn't offer). Once
+   * set, `buildArgs()` omits `--model` so codex falls back to its own
+   * `config.toml` default, which is always valid for the signed-in account.
+   */
+  private execModelArgSuppressed = false;
 
   // ─── Resume cursor state ──────────────────────────────────────────
   private sessionScanner = new CodexSessionScanner();
@@ -2278,6 +2288,27 @@ export class CodexCliAdapter extends BaseCliAdapter {
     try {
       return await this.sendMessageExec(message);
     } catch (err) {
+      // The orchestrator's static model catalog can route a turn to a model id
+      // the installed codex CLI / signed-in account doesn't actually offer —
+      // e.g. Loop Mode resolving the codex "balanced" tier to `gpt-5.3-codex`,
+      // which a ChatGPT-account login rejects with a 400. Codex surfaces this on
+      // stdout and exits non-zero. Retry once with `--model` omitted so codex
+      // uses its own config.toml default (always valid for the active account)
+      // instead of failing every iteration.
+      if (
+        this.cliConfig.model &&
+        !this.execModelArgSuppressed &&
+        isCodexModelUnavailableError(err)
+      ) {
+        logger.warn('Codex rejected the requested model; retrying with codex default model', {
+          requestedModel: this.cliConfig.model,
+          cause: err instanceof Error ? err.message : String(err),
+        });
+        this.execModelArgSuppressed = true;
+        // buildArgs() now omits `--model`; codex picks its config.toml default.
+        return await this.sendMessageExec(message);
+      }
+
       if (!this.isRecoverableThreadResumeError(err) || !this.shouldUseResumeCommand()) {
         throw err;
       }
@@ -2358,6 +2389,13 @@ export class CodexCliAdapter extends BaseCliAdapter {
           throw lastError;
         }
 
+        // A model-unavailable rejection won't fix itself by re-running the same
+        // args — surface it immediately so `sendMessage` can retry once with the
+        // codex default model instead of burning a same-model attempt here.
+        if (isCodexModelUnavailableError(lastError)) {
+          throw lastError;
+        }
+
         if (attempt >= maxAttempts) {
           throw lastError;
         }
@@ -2408,7 +2446,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
     const useResume = this.shouldUseResumeCommand();
     const args: string[] = useResume ? ['exec', 'resume'] : ['exec'];
 
-    if (this.cliConfig.model) {
+    if (this.cliConfig.model && !this.execModelArgSuppressed) {
       args.push('--model', this.cliConfig.model);
     }
 
@@ -2659,8 +2697,18 @@ export class CodexCliAdapter extends BaseCliAdapter {
         this.emit('exit', code, signal);
 
         if (code !== 0 && !parsed.hasMeaningfulOutput) {
-          const diagnosticSummary = state.diagnostics.map((diagnostic) => diagnostic.line).join('\n');
-          reject(new Error(diagnosticSummary || `Codex exited with code ${code}`));
+          // Codex reports real failures (model unavailable, 4xx/5xx, refusals)
+          // as `error`/`turn.failed` events on STDOUT — the only STDERR line is
+          // the benign "Reading prompt from stdin..." notice. Prefer the parsed
+          // stdout error; fall back to stderr diagnostics with the benign notice
+          // stripped so it never becomes the surfaced reason on its own.
+          const diagnosticSummary = state.diagnostics
+            .map((diagnostic) => diagnostic.line)
+            .filter((line) => !isBenignCodexStdinNotice(line))
+            .join('\n');
+          const message =
+            parsed.errorMessage || diagnosticSummary || `Codex exited with code ${code}`;
+          reject(new Error(message));
           return;
         }
 

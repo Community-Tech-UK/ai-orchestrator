@@ -8,6 +8,15 @@ export interface CodexParsedTranscript {
   hasMeaningfulOutput: boolean;
   response: CliResponse & { metadata: Record<string, unknown>; thinking?: ThinkingBlock[] };
   threadId?: string;
+  /**
+   * Human-readable error surfaced by codex on a failed turn. Codex emits
+   * failures as `{"type":"error",...}` / `{"type":"turn.failed",...}` events on
+   * STDOUT (the only stderr line is the benign "Reading prompt from stdin..."),
+   * so without parsing these the real cause (e.g. "model is not supported when
+   * using Codex with a ChatGPT account") is lost. Populated only when the
+   * transcript contained an error/turn.failed event.
+   */
+  errorMessage?: string;
 }
 
 export function parseCodexExecTranscript(
@@ -21,6 +30,7 @@ export function parseCodexExecTranscript(
   const toolCalls: CliToolCall[] = [];
   let usage: CliUsage | undefined;
   let threadId: string | undefined;
+  let errorMessage: string | undefined;
 
   for (const line of lines) {
     try {
@@ -39,6 +49,17 @@ export function parseCodexExecTranscript(
           threadId = id;
           continue;
         }
+      }
+
+      if (type === 'error' || type === 'turn.failed') {
+        const rawMessage = type === 'turn.failed'
+          ? extractTurnFailedMessage(event)
+          : (typeof event['message'] === 'string' ? event['message'] : undefined);
+        const cleaned = cleanCodexErrorMessage(rawMessage);
+        if (cleaned && !errorMessage) {
+          errorMessage = cleaned;
+        }
+        continue;
       }
 
       if (type === 'turn.completed' && event['usage'] && typeof event['usage'] === 'object') {
@@ -159,6 +180,7 @@ export function parseCodexExecTranscript(
 
   return {
     hasMeaningfulOutput: extracted.response.trim().length > 0 || toolCalls.length > 0,
+    errorMessage,
     response: {
       id: responseId,
       content: extracted.response,
@@ -174,6 +196,49 @@ export function parseCodexExecTranscript(
     },
     threadId,
   };
+}
+
+function extractTurnFailedMessage(event: Record<string, unknown>): string | undefined {
+  const error = event['error'];
+  if (error && typeof error === 'object') {
+    const message = (error as Record<string, unknown>)['message'];
+    if (typeof message === 'string') {
+      return message;
+    }
+  }
+  if (typeof event['message'] === 'string') {
+    return event['message'];
+  }
+  return undefined;
+}
+
+/**
+ * Codex frequently double-encodes its error payloads — the `message` field is
+ * itself a JSON string like `{"type":"error","status":400,"error":{"message":
+ * "The 'gpt-5.3-codex' model is not supported ..."}}`. Unwrap one level so the
+ * surfaced error is the human-readable sentence, not raw JSON.
+ */
+function cleanCodexErrorMessage(raw: string | undefined): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      const nestedError = parsed['error'];
+      const nestedMessage =
+        nestedError && typeof nestedError === 'object'
+          ? (nestedError as Record<string, unknown>)['message']
+          : undefined;
+      const inner = nestedMessage ?? parsed['message'];
+      if (typeof inner === 'string' && inner.trim()) {
+        return inner.trim();
+      }
+    } catch {
+      // Not valid JSON — fall through and return the raw string.
+    }
+  }
+  return trimmed;
 }
 
 function extractTextFromItem(item: Record<string, unknown>): string | undefined {
