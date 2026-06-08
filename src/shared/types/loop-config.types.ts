@@ -1,6 +1,6 @@
 export interface LoopHardCaps {
-  /** Max iterations before forced stop. Default 500. */
-  maxIterations: number;
+  /** Max iterations before forced stop. Null means unbounded. Default null. */
+  maxIterations: number | null;
   /** Wall-time budget in milliseconds. Default 8h. */
   maxWallTimeMs: number;
   /** Deprecated and ignored. Retained only for persisted/IPC compatibility. */

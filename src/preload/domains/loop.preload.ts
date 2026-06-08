@@ -13,7 +13,7 @@ export interface LoopConfigInput {
   reviewStyle?: 'single' | 'debate' | 'star-chamber';
   contextStrategy?: 'fresh-child' | 'hybrid' | 'same-session';
   caps?: Partial<{
-    maxIterations: number;
+    maxIterations: number | null;
     maxWallTimeMs: number;
     maxTokens: number | null;
     maxCostCents: number | null;

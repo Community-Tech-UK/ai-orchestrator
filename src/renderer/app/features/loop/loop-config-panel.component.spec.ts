@@ -117,6 +117,12 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.caps?.maxTokens).toBeNull();
   });
 
+  it('does not set a hidden iteration cap by default', () => {
+    const config = component.buildConfig();
+
+    expect(config?.caps?.maxIterations).toBeNull();
+  });
+
   it('defaults each loop iteration to a fresh child context', () => {
     const config = component.buildConfig();
 

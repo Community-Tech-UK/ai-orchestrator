@@ -7,4 +7,10 @@ describe('defaultLoopConfig', () => {
 
     expect(config.contextStrategy).toBe('fresh-child');
   });
+
+  it('defaults the iteration cap to null for unbounded loops', () => {
+    const config = defaultLoopConfig('/tmp/project', 'finish the backlog');
+
+    expect(config.caps.maxIterations).toBeNull();
+  });
 });

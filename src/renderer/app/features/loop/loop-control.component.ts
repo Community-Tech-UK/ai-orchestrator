@@ -107,7 +107,7 @@ import { PromptModalComponent } from '../../shared/components/prompt-modal/promp
           <span class="ls-verdict" [attr.data-verdict]="verdict" title="Latest progress verdict">{{ verdict }}</span>
         }
         <span class="ls-text">
-          {{ runningIteration() ? ('iteration ' + runningIteration()!.seq + ' running') : (a.totalIterations + ' iterations run') }}/{{ a.config.caps.maxIterations }}
+          {{ runningIteration() ? ('iteration ' + runningIteration()!.seq + ' running') : (a.totalIterations + ' iterations run') }}/{{ iterationCapLabel(a.config.caps.maxIterations) }}
           · stage {{ runningIteration()?.stage ?? a.currentStage }}
           · current {{ runningIteration() ? duration(currentIterationElapsed()) : 'idle' }}
           · total {{ duration(elapsed()) }}
@@ -513,7 +513,7 @@ export class LoopControlComponent implements OnDestroy {
       { label: 'Provider', value: c.provider },
       { label: 'Context', value: c.contextStrategy },
       { label: 'Start stage', value: c.initialStage },
-      { label: 'Caps', value: `${c.caps.maxIterations} iters · ${humanDuration(c.caps.maxWallTimeMs)} · ${cost}` },
+      { label: 'Caps', value: `${this.iterationCapLabel(c.caps.maxIterations)} iters · ${humanDuration(c.caps.maxWallTimeMs)} · ${cost}` },
       { label: 'Verify', value: c.completion.verifyCommand || (a.manualReviewOnly ? 'manual review (no command)' : 'auto-detected') },
       { label: 'Options', value: flags.length ? flags.join(', ') : 'defaults' },
     ];
@@ -805,6 +805,7 @@ export class LoopControlComponent implements OnDestroy {
   protected time(ts: number): string     { return shortTime(ts); }
   protected kindLabel(kind: string): string { return activityKindLabel(kind); }
   protected toolDetail(detail?: Record<string, unknown>): string { return summarizeToolDetail(detail); }
+  protected iterationCapLabel(maxIterations: number | null): string { return maxIterations === null ? '∞' : String(maxIterations); }
   protected summaryStatusLabel(status: 'completed' | 'completed-needs-review' | 'cancelled' | 'failed' | 'cap-reached' | 'error' | 'no-progress' | 'provider-limit'): string {
     return terminalStatusLabel(status);
   }

@@ -124,9 +124,9 @@ export class LoopConfigPanelComponent {
 
   prompt = signal('');
   planFile = signal('');
-  maxIterations = signal(500);
+  maxIterations = signal<number | null>(null);
   maxHours = signal(8);
-  // LF-3: default to a $10 spend ceiling (mirrors defaultLoopConfig). Clear the
+  // LF-3: default to a $500 spend ceiling (mirrors defaultLoopConfig). Clear the
   // field to null for an unbounded run. Operator-reviewed completion requires a
   // non-null cap (LF-3a) — the validationError below enforces that.
   maxDollars = signal<number | null>(500);
@@ -260,7 +260,8 @@ export class LoopConfigPanelComponent {
 
   validationError = computed(() => {
     if (!this.prompt().trim()) return 'Prompt is required.';
-    if (this.maxIterations() < 1) return 'Max iterations must be at least 1.';
+    const maxIterations = this.maxIterations();
+    if (maxIterations !== null && maxIterations < 1) return 'Max iterations must be at least 1, or blank for no cap.';
     if (this.maxHours() < 1) return 'Max wall time must be at least 1 hour.';
     const maxDollars = this.maxDollars();
     if (maxDollars !== null && maxDollars < 1) return 'Max spend must be at least $1, or blank for no cap.';
@@ -299,6 +300,15 @@ export class LoopConfigPanelComponent {
   onCompactionThresholdPctChange(value: number | string | null): void {
     const numeric = typeof value === 'number' ? value : Number(value);
     this.compactionResetUtilization.set(numeric / 100);
+  }
+
+  onMaxIterationsChange(value: number | string | null): void {
+    if (value === null || value === '') {
+      this.maxIterations.set(null);
+      return;
+    }
+    const numeric = typeof value === 'number' ? value : Number(value);
+    this.maxIterations.set(numeric);
   }
 
   onBranchFanoutChange(value: number | string | null): void {

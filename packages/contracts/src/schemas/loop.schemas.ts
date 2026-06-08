@@ -52,7 +52,7 @@ export const CompletionSignalIdSchema = z.enum([
 // ============ Config ============
 
 export const LoopHardCapsSchema = z.object({
-  maxIterations: z.number().int().positive().max(1000),
+  maxIterations: z.number().int().positive().max(1000).nullable(),
   maxWallTimeMs: z.number().int().positive().max(24 * 60 * 60 * 1000),
   maxTokens: z.number().int().positive().max(100_000_000).nullable(),
   maxCostCents: z.number().int().nonnegative().max(1_000_000).nullable(),

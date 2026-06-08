@@ -413,7 +413,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
     reviewStyle: 'debate',
     contextStrategy: 'fresh-child',
     caps: {
-      maxIterations: 500,
+      maxIterations: null,
       maxWallTimeMs: 8 * 60 * 60 * 1000,
       maxTokens: null,
       // LF-3: default to a $500 backstop. Previously $10, which prematurely

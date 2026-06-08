@@ -33,6 +33,13 @@ function stateWithTokens(totalTokens: number, maxTokens: number | null): LoopSta
   };
 }
 
+function stateWithIterations(totalIterations: number): LoopState {
+  return {
+    ...stateWithTokens(0, null),
+    totalIterations,
+  };
+}
+
 describe('LoopCoordinator state helpers', () => {
   it('normalizes legacy numeric maxTokens inputs to no token cap', () => {
     const config = materializeLoopConfig({
@@ -42,6 +49,19 @@ describe('LoopCoordinator state helpers', () => {
     });
 
     expect(config.caps.maxTokens).toBeNull();
+  });
+
+  it('materializes omitted maxIterations as an unbounded iteration cap', () => {
+    const config = materializeLoopConfig({
+      initialPrompt: 'do work',
+      workspaceCwd: '/tmp/workspace',
+    });
+
+    expect(config.caps.maxIterations).toBeNull();
+  });
+
+  it('does not stop on iteration count when maxIterations is null', () => {
+    expect(checkLoopHardCaps(stateWithIterations(10_000))).toBeNull();
   });
 
   it('does not stop on token usage when maxTokens is null', () => {

@@ -37,7 +37,7 @@ export function materializeLoopConfig(
 
 export function checkLoopHardCaps(state: LoopState): null | 'iterations' | 'wall-time' | 'tokens' | 'cost' {
   const caps = state.config.caps;
-  if (state.totalIterations >= caps.maxIterations) return 'iterations';
+  if (caps.maxIterations !== null && state.totalIterations >= caps.maxIterations) return 'iterations';
   if (Date.now() - state.startedAt >= caps.maxWallTimeMs) return 'wall-time';
   if (caps.maxCostCents !== null && state.totalCostCents >= caps.maxCostCents) return 'cost';
   return null;

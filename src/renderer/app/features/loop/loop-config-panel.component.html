@@ -83,8 +83,8 @@
 
   <section class="row split">
     <div>
-      <label for="loop-cfg-cap-iter">Max iterations</label>
-      <input id="loop-cfg-cap-iter" type="number" min="1" max="500" [ngModel]="maxIterations()" (ngModelChange)="maxIterations.set($event)" />
+      <label for="loop-cfg-cap-iter">Max iterations <span class="hint">(blank = no cap)</span></label>
+      <input id="loop-cfg-cap-iter" type="number" min="1" max="1000" placeholder="No cap" [ngModel]="maxIterations()" (ngModelChange)="onMaxIterationsChange($event)" />
     </div>
     <div>
       <label for="loop-cfg-cap-hours">Max hours</label>

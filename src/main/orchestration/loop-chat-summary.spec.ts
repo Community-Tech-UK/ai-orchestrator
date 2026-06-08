@@ -33,7 +33,7 @@ describe('buildLoopStartChatEvent', () => {
         workspaceCwd: '/work/project',
         provider: 'claude',
         reviewStyle: 'debate',
-        iterationCap: 500,
+        iterationCap: null,
         maxWallTimeMs: 8 * 60 * 60 * 1000,
       }),
     });

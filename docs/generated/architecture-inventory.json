@@ -5674,7 +5674,7 @@
     },
     {
       "path": "src/renderer/app/features/loop/loop-control.component.ts",
-      "lines": 812
+      "lines": 813
     },
     {
       "path": "src/main/ipc/handlers/__tests__/session-handlers.spec.ts",
