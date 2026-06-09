@@ -1,5 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import type { ChatCreateInput, ChatDetail, ChatEvent, ChatRecord } from '../../../../shared/types/chat.types';
+import type { ChatCreateInput, ChatDetail, ChatEvent, ChatRecord, ChatUiState } from '../../../../shared/types/chat.types';
 import type {
   ConversationLedgerConversation,
   ConversationMessageRecord,
@@ -26,6 +26,7 @@ export class ChatStore {
   private initialized = false;
   private initializationPromise: Promise<void> | null = null;
   private unsubscribeChatEvents: (() => void) | null = null;
+  private restoredUiState = false;
 
   readonly chats = this._chats.asReadonly();
   readonly selectedChatId = this._selectedChatId.asReadonly();
@@ -50,7 +51,8 @@ export class ChatStore {
       return this.initializationPromise;
     }
     this.subscribeToChatEvents();
-    this.initializationPromise = this.loadChats().then(() => {
+    this.initializationPromise = this.loadChats().then(async () => {
+      await this.restoreUiState();
       this.initialized = true;
     }).finally(() => {
       this.initializationPromise = null;
@@ -78,11 +80,13 @@ export class ChatStore {
   async select(chatId: string): Promise<void> {
     await this.initialize();
     this._selectedChatId.set(chatId);
+    void this.persistUiState(chatId);
     await this.loadDetail(chatId);
   }
 
   deselect(): void {
     this._selectedChatId.set(null);
+    void this.persistUiState(null);
   }
 
   async selectFirstChat(): Promise<void> {
@@ -101,6 +105,7 @@ export class ChatStore {
       if (response.success && response.data) {
         this.mergeDetail(response.data);
         this._selectedChatId.set(response.data.chat.id);
+        void this.persistUiState(response.data.chat.id);
         await this.loadChats();
       } else {
         this._error.set(response.error?.message ?? 'Failed to create chat');
@@ -133,6 +138,7 @@ export class ChatStore {
       });
       if (this._selectedChatId() === chatId) {
         this._selectedChatId.set(null);
+        void this.persistUiState(null);
       }
     } else {
       this._error.set(response.error?.message ?? 'Failed to archive chat');
@@ -244,6 +250,7 @@ export class ChatStore {
     this.unsubscribeChatEvents = null;
     this.initialized = false;
     this.initializationPromise = null;
+    this.restoredUiState = false;
   }
 
   private async loadDetail(chatId: string): Promise<void> {
@@ -285,6 +292,7 @@ export class ChatStore {
       });
       if (this._selectedChatId() === event.chatId) {
         this._selectedChatId.set(null);
+        void this.persistUiState(null);
       }
     }
     if (event.type === 'transcript-appended') {
@@ -356,6 +364,36 @@ export class ChatStore {
       this.mergeChat(response.data.chat);
     } else {
       this._error.set(response.error?.message ?? fallback);
+    }
+  }
+
+  private async restoreUiState(): Promise<void> {
+    if (this.restoredUiState) {
+      return;
+    }
+    this.restoredUiState = true;
+    const response = await this.ipc.getUiState();
+    if (!response.success || !response.data?.selectedChatId) {
+      return;
+    }
+    const chatId = response.data.selectedChatId;
+    if (!this._chats().some((chat) => chat.id === chatId)) {
+      void this.persistUiState(null);
+      return;
+    }
+    this._selectedChatId.set(chatId);
+    await this.loadDetail(chatId);
+  }
+
+  private async persistUiState(selectedChatId: string | null): Promise<void> {
+    const openChatIds = selectedChatId ? [selectedChatId] : [];
+    const state: Pick<ChatUiState, 'selectedChatId' | 'openChatIds'> = {
+      selectedChatId,
+      openChatIds,
+    };
+    const response = await this.ipc.setUiState(state);
+    if (!response.success) {
+      this._error.set(response.error?.message ?? 'Failed to persist chat restore state');
     }
   }
 

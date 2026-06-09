@@ -17,6 +17,8 @@ describe('ChatIpcService', () => {
     chatSetYolo: vi.fn(),
     chatLoadOlderMessages: vi.fn(),
     chatSendMessage: vi.fn(),
+    chatGetUiState: vi.fn(),
+    chatSetUiState: vi.fn(),
     onChatEvent: vi.fn(),
   };
 
@@ -35,6 +37,8 @@ describe('ChatIpcService', () => {
       api.chatSetYolo,
       api.chatLoadOlderMessages,
       api.chatSendMessage,
+      api.chatGetUiState,
+      api.chatSetUiState,
     ]) {
       method.mockResolvedValue({ success: true });
     }
@@ -69,6 +73,8 @@ describe('ChatIpcService', () => {
     await service.setYolo('chat-1', true);
     await service.loadOlderMessages('chat-1', 20, 10);
     await service.sendMessage('chat-1', 'Hello');
+    await service.getUiState();
+    await service.setUiState({ selectedChatId: 'chat-2', openChatIds: ['chat-1', 'chat-2'] });
 
     expect(api.chatList).toHaveBeenCalledWith({ includeArchived: true });
     expect(api.chatGet).toHaveBeenCalledWith({ chatId: 'chat-1' });
@@ -82,6 +88,11 @@ describe('ChatIpcService', () => {
     expect(api.chatSetYolo).toHaveBeenCalledWith({ chatId: 'chat-1', yolo: true });
     expect(api.chatLoadOlderMessages).toHaveBeenCalledWith({ chatId: 'chat-1', beforeSequence: 20, limit: 10 });
     expect(api.chatSendMessage).toHaveBeenCalledWith({ chatId: 'chat-1', text: 'Hello', attachments: undefined });
+    expect(api.chatGetUiState).toHaveBeenCalledWith();
+    expect(api.chatSetUiState).toHaveBeenCalledWith({
+      selectedChatId: 'chat-2',
+      openChatIds: ['chat-1', 'chat-2'],
+    });
   });
 
   it('runs chat event callbacks inside Angular zone', () => {

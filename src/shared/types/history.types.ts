@@ -139,6 +139,12 @@ export interface ConversationHistoryEntry {
    * recognizable at a glance. Absent on manual and legacy threads.
    */
   isAutomation?: boolean;
+
+  /**
+   * Internal worker/probe sessions can be retained for restore/search/debugging
+   * without cluttering the project rail's primary workspace folders.
+   */
+  hideFromProjectRail?: boolean;
 }
 
 /**

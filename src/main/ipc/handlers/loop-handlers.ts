@@ -83,7 +83,7 @@ export function registerLoopHandlers(deps: {
       store.upsertRun(data.state);
       store.upsertCheckpoint(buildLoopCheckpoint({
         state: data.state,
-        history: [],
+        history: data.state.lastIteration ? [data.state.lastIteration] : [],
       }));
     } catch { /* logged below */ }
     if (isTerminalLoopStatus(data.state.status)) {

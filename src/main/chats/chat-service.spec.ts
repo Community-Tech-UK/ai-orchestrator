@@ -474,6 +474,35 @@ describe('ChatService', () => {
     expect(secondInstanceManager.inputs[0].message).toBe('Continue now');
   });
 
+  it('persists selected/open chat UI state and filters stale ids on restore', async () => {
+    const { service } = createHarness();
+    const first = await service.createChat({
+      provider: 'claude',
+      currentCwd: '/work/first',
+      name: 'First',
+    });
+    const second = await service.createChat({
+      provider: 'codex',
+      currentCwd: '/work/second',
+      name: 'Second',
+    });
+
+    expect(service.setUiState({
+      selectedChatId: second.chat.id,
+      openChatIds: [first.chat.id, second.chat.id, 'missing-chat'],
+    })).toMatchObject({
+      selectedChatId: second.chat.id,
+      openChatIds: [first.chat.id, second.chat.id],
+    });
+
+    await service.archiveChat(second.chat.id);
+
+    expect(service.getUiState()).toMatchObject({
+      selectedChatId: first.chat.id,
+      openChatIds: [first.chat.id],
+    });
+  });
+
   it('persists normalized tool events as tool ledger messages for audit attribution', async () => {
     const { service, instanceManager } = createHarness();
     const chat = await service.createChat({

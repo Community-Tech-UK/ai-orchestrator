@@ -8,6 +8,12 @@ import { CLIPBOARD_TOAST } from './clipboard-toast.token';
 const ONE_PIXEL_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9ZptKbsAAAAASUVORK5CYII=';
 
+function onePixelPngBlob(): Blob {
+  const base64 = ONE_PIXEL_PNG.split(',')[1] ?? '';
+  const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+  return new Blob([bytes], { type: 'image/png' });
+}
+
 describe('ClipboardServiceImpl', () => {
   let originalClipboard: typeof navigator.clipboard | undefined;
 
@@ -161,7 +167,7 @@ describe('ClipboardServiceImpl', () => {
         { provide: ElectronIpcService, useValue: { invoke } },
       ],
     });
-    const png = await fetch(ONE_PIXEL_PNG).then((response) => response.blob());
+    const png = onePixelPngBlob();
 
     const result = await TestBed.inject(ClipboardServiceImpl).copyImage(png);
 
@@ -184,7 +190,7 @@ describe('ClipboardServiceImpl', () => {
         { provide: ElectronIpcService, useValue: { invoke } },
       ],
     });
-    const png = await fetch(ONE_PIXEL_PNG).then((response) => response.blob());
+    const png = onePixelPngBlob();
 
     await TestBed.inject(ClipboardServiceImpl).copyImage(png);
 
@@ -212,7 +218,7 @@ describe('ClipboardServiceImpl', () => {
         { provide: ElectronIpcService, useValue: { invoke } },
       ],
     });
-    const png = await fetch(ONE_PIXEL_PNG).then((response) => response.blob());
+    const png = onePixelPngBlob();
 
     const result = await TestBed.inject(ClipboardServiceImpl).copyImage(png);
 

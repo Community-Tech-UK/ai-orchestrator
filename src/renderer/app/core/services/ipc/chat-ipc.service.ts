@@ -5,6 +5,7 @@ import type {
   ChatEvent,
   ChatProvider,
   ChatRecord,
+  ChatUiState,
 } from '../../../../../shared/types/chat.types';
 import type { ConversationMessagePage } from '../../../../../shared/types/conversation-ledger.types';
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
@@ -116,6 +117,22 @@ export class ChatIpcService {
       return { success: false, error: { message: 'Not in Electron' } };
     }
     return this.api.chatSendMessage({ chatId, text, attachments }) as Promise<IpcResponse<ChatDetail>>;
+  }
+
+  async getUiState(): Promise<IpcResponse<ChatUiState>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.chatGetUiState() as Promise<IpcResponse<ChatUiState>>;
+  }
+
+  async setUiState(
+    state: Pick<ChatUiState, 'selectedChatId' | 'openChatIds'>,
+  ): Promise<IpcResponse<ChatUiState>> {
+    if (!this.api) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.chatSetUiState(state) as Promise<IpcResponse<ChatUiState>>;
   }
 
   onChatEvent(callback: (event: ChatEvent) => void): () => void {

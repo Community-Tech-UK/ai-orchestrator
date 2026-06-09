@@ -13,6 +13,7 @@ import {
   ChatSetProviderPayloadSchema,
   ChatSetReasoningPayloadSchema,
   ChatSetYoloPayloadSchema,
+  ChatUiStatePayloadSchema,
 } from '@contracts/schemas/chat';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import type { InstanceManager } from '../../instance/instance-manager';
@@ -138,6 +139,23 @@ export function registerChatHandlers(deps: { instanceManager: InstanceManager })
       return { success: true, data: await service.sendMessage(validated) };
     } catch (error) {
       return chatError(error, 'CHAT_SEND_MESSAGE_FAILED');
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.CHAT_UI_STATE_GET, async (): Promise<IpcResponse> => {
+    try {
+      return { success: true, data: service.getUiState() };
+    } catch (error) {
+      return chatError(error, 'CHAT_UI_STATE_GET_FAILED');
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.CHAT_UI_STATE_SET, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(ChatUiStatePayloadSchema, payload, 'CHAT_UI_STATE_SET');
+      return { success: true, data: service.setUiState(validated) };
+    } catch (error) {
+      return chatError(error, 'CHAT_UI_STATE_SET_FAILED');
     }
   });
 }

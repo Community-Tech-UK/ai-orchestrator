@@ -192,6 +192,7 @@ export function createOrchestratorToolsStep(instanceManager: InstanceManager): A
             // itself calls run_on_node is seen at the next depth.
             metadata: {
               spawnDepth: spawnDecision.childDepth,
+              hideFromProjectRail: true,
               ...(meta?.callerInstanceId
                 ? { spawnParentInstanceId: meta.callerInstanceId }
                 : {}),

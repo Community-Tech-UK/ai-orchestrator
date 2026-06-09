@@ -43,6 +43,12 @@ export function createChatDomain(
     chatSendMessage: (payload: unknown): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.CHAT_SEND_MESSAGE, payload),
 
+    chatGetUiState: (): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CHAT_UI_STATE_GET, {}),
+
+    chatSetUiState: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CHAT_UI_STATE_SET, payload),
+
     onChatEvent: (callback: (payload: unknown) => void): (() => void) => {
       const listener = (_event: IpcRendererEvent, payload: unknown) => callback(payload);
       ipcRenderer.on(ch.CHAT_EVENT, listener);

@@ -270,27 +270,31 @@ describe('WorkerNodeRegistry', () => {
       expect(registry.selectNode(noPrefs)).toBeNull();
     });
 
-    it('filters out nodes lacking browser runtime when requiresBrowser is true', () => {
+    it('filters out nodes lacking browser automation when requiresBrowser is true', () => {
       registry.registerNode(makeNode('no-browser', {
         capabilities: makeCapabilities({ hasBrowserRuntime: false }),
       }));
-      registry.registerNode(makeNode('has-browser', {
-        capabilities: makeCapabilities({ hasBrowserRuntime: true }),
+      registry.registerNode(makeNode('chrome-only', {
+        capabilities: makeCapabilities({ hasBrowserRuntime: true, hasBrowserMcp: false }),
+      }));
+      registry.registerNode(makeNode('automation-ready', {
+        capabilities: makeCapabilities({ hasBrowserRuntime: true, hasBrowserMcp: true }),
       }));
       const prefs: NodePlacementPrefs = { requiresBrowser: true };
-      expect(registry.selectNode(prefs)?.id).toBe('has-browser');
+      expect(registry.selectNode(prefs)?.id).toBe('automation-ready');
     });
 
-    it('returns null when requiresBrowser=true but no node has browser runtime', () => {
+    it('returns null when requiresBrowser=true but no node has browser automation', () => {
       registry.registerNode(makeNode('no-browser', {
         capabilities: makeCapabilities({ hasBrowserRuntime: false }),
+      }));
+      registry.registerNode(makeNode('chrome-only', {
+        capabilities: makeCapabilities({ hasBrowserRuntime: true, hasBrowserMcp: false }),
       }));
       expect(registry.selectNode({ requiresBrowser: true })).toBeNull();
     });
 
-    it('prefers an automation-ready node (hasBrowserMcp) over Chrome-only when browser is required', () => {
-      // Give the Chrome-only node an otherwise-better score (more free memory)
-      // to prove the +40 readiness boost is what flips the choice.
+    it('requires an automation-ready node even when Chrome-only nodes score higher otherwise', () => {
       registry.registerNode(makeNode('chrome-only', {
         capabilities: makeCapabilities({
           hasBrowserRuntime: true,

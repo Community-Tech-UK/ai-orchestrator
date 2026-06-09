@@ -36,9 +36,23 @@ import {
   tagResponseIfDegraded,
 } from './base-cli-adapter-degraded-output';
 import { killProcessGroup } from './base-cli-process-utils';
+import {
+  resolveWindowsCliLauncher,
+  buildWindowsShellFreeTarget,
+  logWindowsLauncherResolution,
+  WindowsCliLauncher,
+} from './windows-cli-spawn';
 
 const logger = getLogger('BaseCliAdapter');
 export { computeBoundedTrigramSimilarity, ndjsonSafeStringify };
+
+/** Resolved spawn launcher. `detached` defaults to `!shell` when omitted. */
+export interface SpawnTarget {
+  command: string;
+  args: string[];
+  shell: boolean;
+  detached?: boolean;
+}
 
 export type {
   AdapterRuntimeCapabilities,
@@ -422,6 +436,36 @@ export abstract class BaseCliAdapter extends EventEmitter {
 
   // ============ Protected Helper Methods ============
 
+  /** Cached Windows launcher resolution: `undefined` = unattempted; `null` = failed. */
+  private resolvedWindowsLauncher: WindowsCliLauncher | null | undefined;
+
+  /**
+   * Resolve the final spawn target just before `spawn()`. On Windows this maps
+   * the `<cli>.cmd`/`.ps1` shim to a directly-spawnable launcher (native
+   * `claude.exe`, or `node.exe` + package script for codex/copilot/…) with
+   * `shell: false`, so a proper argv array survives cmd.exe (which otherwise
+   * mangles args per DEP0190 — truncating at a multi-line `--system-prompt` and
+   * dropping `--mcp-config`). Resolution failure falls back to the `shell: true`
+   * shim; off-Windows / shell-false → identity. Subclasses may override.
+   */
+  protected resolveSpawnTarget(
+    command: string,
+    args: string[],
+    spawnOptions: { shell?: boolean | string; env?: NodeJS.ProcessEnv },
+  ): SpawnTarget {
+    const shell = Boolean(spawnOptions.shell);
+    if (process.platform !== 'win32' || !shell) {
+      return { command, args, shell };
+    }
+    if (this.resolvedWindowsLauncher === undefined) {
+      this.resolvedWindowsLauncher = resolveWindowsCliLauncher(command, spawnOptions.env ?? process.env);
+      logWindowsLauncherResolution(logger, this.getName(), command, this.resolvedWindowsLauncher);
+    }
+    return this.resolvedWindowsLauncher
+      ? buildWindowsShellFreeTarget(this.resolvedWindowsLauncher, args)
+      : { command, args, shell: true };
+  }
+
   /**
    * Spawn a CLI process with given arguments
    */
@@ -439,11 +483,16 @@ export abstract class BaseCliAdapter extends EventEmitter {
     const mergedEnv = { ...safeEnv, ...this.config.env };
     const spawnOptions = buildCliSpawnOptions(mergedEnv);
 
-    const proc = spawn(this.config.command, fullArgs, {
+    const target = this.resolveSpawnTarget(this.config.command, fullArgs, spawnOptions);
+    const useShell = target.shell;
+    const detached = target.detached ?? !useShell;
+
+    const proc = spawn(target.command, target.args, {
       cwd: this.config.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      detached: !spawnOptions.shell,
       ...spawnOptions,
+      shell: useShell,
+      detached,
     });
 
     // Increment generation so stale watchdog callbacks from a previous

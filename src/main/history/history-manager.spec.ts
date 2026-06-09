@@ -323,6 +323,30 @@ describe('HistoryManager', () => {
     expect(manualEntry?.isAutomation).toBeUndefined();
   });
 
+  it('carries project rail hide provenance from internal worker metadata into the archived entry', async () => {
+    const { HistoryManager } = await import('./history-manager');
+    const manager = new HistoryManager();
+
+    const workerInstance = makeInstance({
+      id: 'instance-worker',
+      historyThreadId: 'thread-worker',
+      sessionId: 'session-worker',
+      metadata: { spawnDepth: 1, spawnParentInstanceId: 'parent-instance' },
+      outputBuffer: [message('m-worker', 'user', 'run diagnostics on windows', 10)],
+    });
+
+    await manager.archiveInstance(workerInstance, 'completed');
+
+    const entry = manager.getEntries().find((item) => item.historyThreadId === 'thread-worker');
+    expect(entry?.hideFromProjectRail).toBe(true);
+    if (!entry) {
+      throw new Error('Expected worker history entry to be archived');
+    }
+
+    const conversation = await manager.loadConversation(entry.id);
+    expect(conversation?.entry.hideFromProjectRail).toBe(true);
+  });
+
   it('backfills isAutomation for legacy entries with an "Automation:" displayName on load', async () => {
     const storageDir = path.join(userDataDir, 'conversation-history');
     fs.mkdirSync(storageDir, { recursive: true });

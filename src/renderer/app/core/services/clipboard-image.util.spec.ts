@@ -4,11 +4,18 @@ import { blobToClipboardCompatibleDataUrl } from './clipboard-image.util';
 const ONE_PIXEL_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9ZptKbsAAAAASUVORK5CYII=';
 
+function onePixelPngBlob(): Blob {
+  const base64 = ONE_PIXEL_PNG.split(',')[1] ?? '';
+  const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+  return new Blob([bytes], { type: 'image/png' });
+}
+
 describe('blobToClipboardCompatibleDataUrl', () => {
   it('returns the original data URL for PNG blobs', async () => {
-    const png = await fetch(ONE_PIXEL_PNG).then((response) => response.blob());
+    const png = onePixelPngBlob();
+    const dataUrl = await blobToClipboardCompatibleDataUrl(png);
 
-    await expect(blobToClipboardCompatibleDataUrl(png)).resolves.toMatch(/^data:image\/png/);
+    expect(dataUrl).toMatch(/^data:image\/png/);
   });
 
   it('returns null or a converted data URL for undecodable non-PNG blobs', async () => {

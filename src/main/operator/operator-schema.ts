@@ -124,6 +124,13 @@ export function createOperatorTables(db: SqliteDriver): void {
 
     CREATE INDEX IF NOT EXISTS idx_chats_ledger_thread
       ON chats(ledger_thread_id);
+
+    CREATE TABLE IF NOT EXISTS chat_ui_state (
+      scope TEXT PRIMARY KEY,
+      selected_chat_id TEXT,
+      open_chat_ids_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `);
 
   ensureChatsReasoningEffortColumn(db);

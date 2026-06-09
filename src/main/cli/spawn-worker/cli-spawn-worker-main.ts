@@ -3,6 +3,7 @@ import { isMainThread, parentPort } from 'node:worker_threads';
 import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
 import { buildCliSpawnOptions } from '../cli-environment';
 import { killProcessGroup } from '../adapters/base-cli-process-utils';
+import { resolveWindowsSpawn } from '../adapters/windows-cli-spawn';
 import type {
   SpawnWorkerInboundMsg,
   SpawnWorkerOutboundMsg,
@@ -111,11 +112,25 @@ function spawnInstance(msg: Extract<SpawnWorkerInboundMsg, { type: 'spawn' }>): 
   delete safeEnv['CLAUDECODE'];
   const mergedEnv = { ...safeEnv, ...msg.env };
   const spawnOptions = buildCliSpawnOptions(mergedEnv);
-  const proc = spawn(msg.command, msg.args, {
+
+  // Mirror BaseCliAdapter.resolveSpawnTarget: on Windows, resolve the `<cli>.cmd`
+  // shim to a directly-spawnable launcher and switch to shell:false so a proper
+  // argv array survives cmd.exe (which otherwise mangles the inline
+  // --system-prompt / --mcp-config built by buildWorkerArgs). Any resolution
+  // failure leaves the original shell-shim spawn untouched, so it can't regress.
+  const target = resolveWindowsSpawn(
+    msg.command,
+    msg.args,
+    Boolean(spawnOptions.shell),
+    spawnOptions.env ?? mergedEnv,
+  );
+
+  const proc = spawn(target.command, target.args, {
     cwd: msg.cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
-    detached: !spawnOptions.shell,
     ...spawnOptions,
+    shell: target.shell,
+    detached: target.detached,
   });
   const generation = ++generationCounter;
   const session: ManagedSpawn = {

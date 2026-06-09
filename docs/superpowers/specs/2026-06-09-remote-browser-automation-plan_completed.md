@@ -10,7 +10,7 @@ port remains future work. Operator guide:
 
 - **Path 1** — worker owns a managed Chrome (remote-debugging, dedicated profile)
   and injects `chrome-devtools` MCP into spawned agents; capability reporting +
-  routing prefer browser-ready nodes.
+  browser-intent routing require browser-ready nodes.
 - **Settings UI Tier 1** — per-node readiness badge (Ready / Chrome only / Off).
 - **Settings UI Tier 2** — per-node enable toggle + profile/headless fields via a
   privileged `config.update` coordinator→node RPC (service-scoped); worker applies,
@@ -116,21 +116,19 @@ append its own** chrome-devtools MCP entry here.
 
 ### Tasks
 
-1. **Worker-side browser-MCP config builder.**
-   New `src/worker-agent/browser-mcp-injection.ts` that returns an MCP server spec for
-   `chrome-devtools-mcp`. Two modes (configurable):
-   - **(a) MCP-launched Chrome** — let `chrome-devtools-mcp` own Chrome via
-     `--userDataDir <automation-profile> --executablePath <chrome>` (or `--isolated` for a
-     throwaway profile). Simplest.
-   - **(b) Worker-managed Chrome** — worker launches a persistent Chrome with
-     `--remote-debugging-port` + a chosen profile and passes `--browserUrl http://127.0.0.1:<port>`.
-     Better when a single long-lived logged-in session is shared across turns.
-   Resolve `chrome.exe` from the same paths as `capability-reporter.ts:detectBrowser()`.
+1. **Worker-side browser-MCP injection.**
+   Implemented with worker-managed Chrome: the worker launches a persistent Chrome with
+   `--remote-debugging-port` + the configured automation profile, then passes
+   `--browserUrl http://127.0.0.1:<port>` through the shared
+   `chrome-devtools-mcp-config.ts` builder. The originally considered
+   MCP-launched Chrome mode was intentionally not shipped because the supported
+   settings/login flow depends on a persistent worker-owned profile.
 
 2. **Wire it into the spawn path.**
    In `local-instance-manager.ts:spawn`, when browser automation is enabled for this node,
-   append the builder's output to `params.mcpConfig` before `createCliAdapter`. Gate behind a
-   worker config flag (default off) so plain nodes are unaffected.
+   pass the resolved `chromeDevtoolsMcp` option into `createCliAdapter`; adapter helpers merge
+   the provider-specific MCP config with any existing `params.mcpConfig`. Gate behind a worker
+   config flag (default off) so plain nodes are unaffected.
 
 3. **Automation profile / session story.**
    - Document the **profile-lock constraint**: Chrome locks a `user-data-dir`, so the

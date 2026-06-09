@@ -2,8 +2,9 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { ScratchDirectoryService } from '../../core/services/scratch-directory.service';
+import type { Instance } from '../../core/state/instance.store';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
-import { ProjectRailBuilderService } from './project-rail-builder.service';
+import { ProjectRailBuilderService, type ProjectRailBuildInput } from './project-rail-builder.service';
 
 function makeHistoryEntry(
   id: string,
@@ -24,6 +25,60 @@ function makeHistoryEntry(
     sessionId: `session-${id}`,
     provider: 'codex',
     currentModel: 'gpt-5.5',
+    ...overrides,
+  };
+}
+
+function makeInstance(
+  id: string,
+  overrides: Partial<Instance> = {},
+): Instance {
+  return {
+    id,
+    displayName: id,
+    createdAt: 1000,
+    historyThreadId: `thread-${id}`,
+    parentId: null,
+    childrenIds: [],
+    agentId: 'build',
+    agentMode: 'build',
+    provider: 'codex',
+    status: 'idle',
+    contextUsage: {
+      used: 0,
+      total: 200000,
+      percentage: 0,
+    },
+    lastActivity: 1000,
+    providerSessionId: `session-${id}`,
+    sessionId: `session-${id}`,
+    restartEpoch: 0,
+    workingDirectory: '/Users/james/work/project',
+    yoloMode: false,
+    launchMode: 'orchestrated',
+    outputBuffer: [],
+    ...overrides,
+  };
+}
+
+function buildInput(overrides: Partial<ProjectRailBuildInput> = {}): ProjectRailBuildInput {
+  return {
+    instances: [],
+    historyEntries: [],
+    recentDirectories: [],
+    filter: '',
+    status: 'all',
+    location: 'all',
+    historyVisibility: 'all',
+    historyTimeWindow: 'all',
+    selectedId: null,
+    selectedHistoryEntryId: null,
+    collapsed: new Set<string>(),
+    collapsedProjects: new Set<string>(),
+    collapsedHistoryParentIds: new Set<string>(),
+    historySortMode: 'last-interacted',
+    rootInstanceOrder: [],
+    showEmptyProjects: false,
     ...overrides,
   };
 }
@@ -59,29 +114,45 @@ describe('ProjectRailBuilderService', () => {
   });
 
   it('does not backfill archived history rows to meet the minimum visible history count', () => {
-    const groups = service.buildProjectGroups({
-      instances: [],
+    const groups = service.buildProjectGroups(buildInput({
       historyEntries: [
         makeHistoryEntry('archived-newer', { endedAt: 3000, archivedAt: 4000 }),
         makeHistoryEntry('active-older', { endedAt: 2000, archivedAt: null }),
       ],
-      recentDirectories: [],
-      filter: '',
-      status: 'all',
-      location: 'all',
-      historyVisibility: 'all',
-      historyTimeWindow: 'all',
-      selectedId: null,
-      selectedHistoryEntryId: null,
-      collapsed: new Set<string>(),
-      collapsedProjects: new Set<string>(),
-      collapsedHistoryParentIds: new Set<string>(),
-      historySortMode: 'last-interacted',
-      rootInstanceOrder: [],
-      showEmptyProjects: false,
-    });
+    }));
 
     expect(groups).toHaveLength(1);
     expect(groups[0]?.historyItems.map((item) => item.entry.id)).toEqual(['active-older']);
+  });
+
+  it('hides live run_on_node worker instances from project folders', () => {
+    const groups = service.buildProjectGroups(buildInput({
+      instances: [
+        makeInstance('remote-worker', {
+          metadata: { spawnDepth: 1, spawnParentInstanceId: 'parent-1' },
+          executionLocation: { type: 'remote', nodeId: 'windows-pc' },
+        }),
+        makeInstance('normal-remote', {
+          executionLocation: { type: 'remote', nodeId: 'windows-pc' },
+        }),
+      ],
+    }));
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.liveItems.map((item) => item.instance.id)).toEqual(['normal-remote']);
+    expect(groups[0]?.sessionCount).toBe(1);
+  });
+
+  it('hides archived worker calls marked hidden from project folders', () => {
+    const groups = service.buildProjectGroups(buildInput({
+      historyEntries: [
+        makeHistoryEntry('hidden-worker', { hideFromProjectRail: true, endedAt: 3000 }),
+        makeHistoryEntry('visible-thread', { endedAt: 2000 }),
+      ],
+    }));
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.historyItems.map((item) => item.entry.id)).toEqual(['visible-thread']);
+    expect(groups[0]?.sessionCount).toBe(1);
   });
 });

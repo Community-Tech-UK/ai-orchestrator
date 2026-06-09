@@ -48,8 +48,9 @@ node with Chrome:
 2. Tick **Enable browser automation**, optionally set a profile directory and
    headless mode, and click **Apply**. This pushes the change to the node over a
    privileged (service-scoped) `config.update` RPC; the node persists it, restarts
-   its managed Chrome if needed, and re-reports capabilities — the badge flips to
-   **Ready** within a heartbeat.
+   its managed Chrome if needed, and re-reports capabilities. A freshly-enabled
+   node normally shows **Enabled (starts on first use)** within a heartbeat, then
+   flips to **Ready** after the first browser-enabled spawn launches Chrome.
 3. Under **One-time profile login**, use **Copy command** (run it on the node) or
    **Run on node** (launches the login Chrome on that machine's screen). Log in,
    then close that Chrome window.

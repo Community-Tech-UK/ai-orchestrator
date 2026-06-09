@@ -47,8 +47,11 @@ export function dataUrlToClipboardCompatibleDataUrl(dataUrl: string): Promise<st
 }
 
 async function blobToDataUrl(blob: Blob): Promise<string | null> {
+  const mime = blob.type || 'application/octet-stream';
   try {
-    const mime = blob.type || 'application/octet-stream';
+    if (typeof blob.arrayBuffer !== 'function') {
+      return blobToDataUrlWithFileReader(blob);
+    }
     const bytes = new Uint8Array(await blob.arrayBuffer());
     let binary = '';
     const chunkSize = 0x8000;
@@ -57,6 +60,19 @@ async function blobToDataUrl(blob: Blob): Promise<string | null> {
     }
     return `data:${mime};base64,${btoa(binary)}`;
   } catch {
-    return null;
+    return blobToDataUrlWithFileReader(blob);
   }
+}
+
+function blobToDataUrlWithFileReader(blob: Blob): Promise<string | null> {
+  if (typeof FileReader === 'undefined') {
+    return Promise.resolve(null);
+  }
+
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(blob);
+  });
 }

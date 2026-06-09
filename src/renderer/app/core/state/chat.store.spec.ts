@@ -21,6 +21,8 @@ describe('ChatStore', () => {
     setYolo: vi.fn(),
     loadOlderMessages: vi.fn(),
     sendMessage: vi.fn(),
+    getUiState: vi.fn(),
+    setUiState: vi.fn(),
     onChatEvent: vi.fn((handler: (event: ChatEvent) => void) => {
       chatEventHandler = handler;
       return () => {
@@ -33,6 +35,14 @@ describe('ChatStore', () => {
     vi.clearAllMocks();
     chatEventHandler = null;
     ipc.list.mockResolvedValue({ success: true, data: [chatRecord('chat-1'), chatRecord('chat-2')] });
+    ipc.getUiState.mockResolvedValue({
+      success: true,
+      data: { selectedChatId: null, openChatIds: [], updatedAt: 0 },
+    });
+    ipc.setUiState.mockResolvedValue({
+      success: true,
+      data: { selectedChatId: null, openChatIds: [], updatedAt: 0 },
+    });
     ipc.get.mockImplementation(async (chatId: string) => ({
       success: true,
       data: chatDetail(chatRecord(chatId)),
@@ -174,6 +184,41 @@ describe('ChatStore', () => {
       hasOlder: false,
       oldestSequence: 1,
       newestSequence: 4,
+    });
+  });
+
+  it('restores the last selected chat during initialization after an app crash', async () => {
+    ipc.getUiState.mockResolvedValueOnce({
+      success: true,
+      data: {
+        selectedChatId: 'chat-2',
+        openChatIds: ['chat-1', 'chat-2'],
+        updatedAt: 1234,
+      },
+    });
+    const store = TestBed.inject(ChatStore);
+
+    await store.initialize();
+
+    expect(store.selectedChatId()).toBe('chat-2');
+    expect(ipc.get).toHaveBeenCalledWith('chat-2');
+    expect(store.selectedDetail()?.chat.id).toBe('chat-2');
+  });
+
+  it('persists selected and deselected chat UI state through IPC', async () => {
+    const store = TestBed.inject(ChatStore);
+
+    await store.initialize();
+    await store.select('chat-1');
+    store.deselect();
+
+    expect(ipc.setUiState).toHaveBeenNthCalledWith(1, {
+      selectedChatId: 'chat-1',
+      openChatIds: ['chat-1'],
+    });
+    expect(ipc.setUiState).toHaveBeenNthCalledWith(2, {
+      selectedChatId: null,
+      openChatIds: [],
     });
   });
 });

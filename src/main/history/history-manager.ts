@@ -249,6 +249,10 @@ export class HistoryManager {
           Boolean(instance.metadata?.['automationId'])
           || previousEntries.some((e) => e.isAutomation)
           || undefined,
+        hideFromProjectRail:
+          this.shouldHideInstanceFromProjectRail(instance)
+          || previousEntries.some((e) => e.hideFromProjectRail)
+          || undefined,
       };
 
       // Create conversation data
@@ -1069,6 +1073,11 @@ export class HistoryManager {
     if (changed > 0) {
       logger.info('Backfilled automation flags for legacy history entries', { count: changed });
     }
+  }
+
+  private shouldHideInstanceFromProjectRail(instance: Instance): boolean {
+    return instance.metadata?.['hideFromProjectRail'] === true
+      || typeof instance.metadata?.['spawnDepth'] === 'number';
   }
 
   /**

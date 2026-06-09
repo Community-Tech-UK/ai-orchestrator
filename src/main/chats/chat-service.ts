@@ -9,6 +9,7 @@ import type {
   ChatProvider,
   ChatRecord,
   ChatSendMessageInput,
+  ChatUiState,
 } from '../../shared/types/chat.types';
 import type { ReasoningEffort } from '../../shared/types/provider.types';
 import type {
@@ -22,22 +23,23 @@ import {
 } from '../conversation-ledger';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { Instance } from '../../shared/types/instance.types';
-import { frontLoadTitle } from '../../shared/types/history.types';
-import { deriveAttachmentTaskTitle, isLowSignalTitle } from '../../shared/types/title-derivation';
 import { getLogger } from '../logging/logger';
 import { getOperatorDatabase } from '../operator/operator-database';
 import { addAllowedRoot } from '../security/path-validator';
 import { ChatStore } from './chat-store';
+import {
+  buildReplayBlock,
+  CHAT_REPLAY_MESSAGE_LIMIT,
+  maybeAutoName,
+  normalizeChatName,
+} from './chat-service-helpers';
 import { ChatTranscriptBridge, createUserLedgerMessage } from './chat-transcript-bridge';
+import { ChatUiStateStore } from './chat-ui-state-store';
 import type { SqliteDriver } from '../db/sqlite-driver';
 
 const logger = getLogger('ChatService');
-const UNTITLED_CHAT = 'Untitled chat';
-const REPLAY_TURN_PAIR_LIMIT = 10;
-const REPLAY_CHAR_BUDGET = 24_000;
 const CHAT_DETAIL_MESSAGE_LIMIT = 200;
 const CHAT_LOAD_OLDER_LIMIT = 200;
-const CHAT_REPLAY_MESSAGE_LIMIT = (REPLAY_TURN_PAIR_LIMIT * 2) + 2;
 
 export interface ChatServiceConfig {
   db?: SqliteDriver;
@@ -76,6 +78,7 @@ export class ChatService {
   private readonly ledger: ConversationLedgerService;
   private readonly instanceManager: InstanceManager;
   private readonly store: ChatStore;
+  private readonly uiStateStore: ChatUiStateStore;
   private readonly bridge: ChatTranscriptBridge;
   private initialized = false;
   private migrationDone: Promise<void> = Promise.resolve();
@@ -117,7 +120,9 @@ export class ChatService {
     this.ledger = config.ledger ?? getConversationLedgerService();
     this.instanceManager = config.instanceManager;
     this.events = config.eventBus ?? new EventEmitter();
-    this.store = new ChatStore(config.db ?? getOperatorDatabase().db);
+    const db = config.db ?? getOperatorDatabase().db;
+    this.store = new ChatStore(db);
+    this.uiStateStore = new ChatUiStateStore(db);
     this.bridge = new ChatTranscriptBridge({
       ledger: this.ledger,
       chatStore: this.store,
@@ -156,6 +161,17 @@ export class ChatService {
   listChats(options: { includeArchived?: boolean } = {}): ChatRecord[] {
     this.initialize();
     return this.store.list(options);
+  }
+
+  getUiState(): ChatUiState {
+    this.initialize();
+    return this.filterUiState(this.uiStateStore.get());
+  }
+
+  setUiState(input: Pick<ChatUiState, 'selectedChatId' | 'openChatIds'>): ChatUiState {
+    this.initialize();
+    this.uiStateStore.set(input);
+    return this.getUiState();
   }
 
   async getChat(chatId: string): Promise<ChatDetail> {
@@ -547,6 +563,23 @@ export class ChatService {
     return chat;
   }
 
+  private filterUiState(state: ChatUiState): ChatUiState {
+    const activeChatIds = new Set(this.store.list().map((chat) => chat.id));
+    const openChatIds = state.openChatIds.filter((id) => activeChatIds.has(id));
+    const selectedChatId = state.selectedChatId && activeChatIds.has(state.selectedChatId)
+      ? state.selectedChatId
+      : openChatIds[0] ?? null;
+    const filtered = { selectedChatId, openChatIds, updatedAt: state.updatedAt };
+    if (
+      filtered.selectedChatId !== state.selectedChatId
+      || filtered.openChatIds.length !== state.openChatIds.length
+      || filtered.openChatIds.some((id, index) => id !== state.openChatIds[index])
+    ) {
+      return this.uiStateStore.set(filtered);
+    }
+    return filtered;
+  }
+
   private assertBootstrapComplete(chat: ChatRecord): void {
     if (!chat.provider || !chat.currentCwd) {
       throw new Error('Pick a provider and working directory before sending a chat message');
@@ -621,75 +654,4 @@ export function getChatService(config: ChatServiceConfig): ChatService {
 
 export function getChatServiceIfInitialized(): ChatService | null {
   return ChatService.getIfInitialized();
-}
-
-function normalizeChatName(name: string | undefined): string {
-  const trimmed = name?.trim();
-  return trimmed || UNTITLED_CHAT;
-}
-
-function maybeAutoName(
-  chat: ChatRecord,
-  text: string,
-  attachmentNames: readonly string[] = [],
-): string | null {
-  if (chat.name !== UNTITLED_CHAT) {
-    return null;
-  }
-  // Strip generic lead-ins ("Please …", "review this PR", a bare URL) so the
-  // stored chat name is recognizable within its first ~30 chars — the same
-  // treatment the workspace rail applies to thread titles.
-  const compact = frontLoadTitle(text);
-
-  // Generic filler ("Please implement this") with a file attached: the file is
-  // the subject. Fold its (cleaned) name in subject-first so the name stays
-  // recognizable once the rail truncates — matching AutoTitleService's instant
-  // title. Also covers the no-prose case (compact === '').
-  if (attachmentNames.length > 0 && (!compact || isLowSignalTitle(compact))) {
-    const fromAttachment = deriveAttachmentTaskTitle(text, attachmentNames);
-    if (fromAttachment) {
-      return truncateChatName(fromAttachment);
-    }
-  }
-
-  if (!compact) {
-    return null;
-  }
-  return truncateChatName(compact);
-}
-
-/** Trim an auto-derived chat name to the rail-visible length at a word boundary. */
-function truncateChatName(name: string): string {
-  if (name.length <= 44) {
-    return name;
-  }
-  const slice = name.slice(0, 44);
-  const lastSpace = slice.lastIndexOf(' ');
-  return `${slice.slice(0, lastSpace > 20 ? lastSpace : 44).trim()}...`;
-}
-
-function buildReplayBlock(
-  messages: ChatDetail['conversation']['messages'],
-  previousCwd: string,
-  currentCwd: string,
-): string {
-  const turns = messages
-    .filter((message) => message.role === 'user' || message.role === 'assistant')
-    .slice(-REPLAY_TURN_PAIR_LIMIT * 2)
-    .map((message) => `${message.role}: ${message.content.trim()}`)
-    .filter((line) => line.length > 0);
-
-  while (turns.join('\n\n').length > REPLAY_CHAR_BUDGET && turns.length > 1) {
-    turns.shift();
-  }
-
-  if (turns.length === 0) {
-    return '';
-  }
-
-  return [
-    `[Context from prior conversation, working directory was ${previousCwd}:]`,
-    turns.join('\n\n'),
-    `[Continue, working directory is now ${currentCwd}.]`,
-  ].join('\n');
 }

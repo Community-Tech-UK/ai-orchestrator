@@ -27,6 +27,12 @@ export interface ChatDetail {
   currentInstance: Instance | null;
 }
 
+export interface ChatUiState {
+  selectedChatId: string | null;
+  openChatIds: string[];
+  updatedAt: number;
+}
+
 export interface ChatCreateInput {
   name?: string;
   provider: ChatProvider;

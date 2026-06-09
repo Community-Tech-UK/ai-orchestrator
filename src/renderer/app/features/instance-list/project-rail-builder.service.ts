@@ -55,10 +55,12 @@ export class ProjectRailBuilderService {
   buildProjectGroups(input: ProjectRailBuildInput): ProjectGroup[] {
     const filter = input.filter.trim().toLowerCase();
     const activityCutoff = getHistoryTimeWindowCutoff(input.historyTimeWindow);
-    const childrenByParent = this.projectGroupComputation.buildChildrenMap(input.instances);
-    const instanceMap = new Map(input.instances.map((instance) => [instance.id, instance]));
+    const visibleInstances = input.instances.filter((instance) => !this.isProjectRailHiddenInstance(instance));
+    const visibleHistoryEntries = input.historyEntries.filter((entry) => !entry.hideFromProjectRail);
+    const childrenByParent = this.projectGroupComputation.buildChildrenMap(visibleInstances);
+    const instanceMap = new Map(visibleInstances.map((instance) => [instance.id, instance]));
     const historyPartition = this.projectGroupComputation.partitionHistoryEntriesByParent(
-      input.historyEntries,
+      visibleHistoryEntries,
       instanceMap,
     );
     const visibleHistoryEntriesByParent = this.buildVisibleHistoryEntriesByParent(
@@ -99,7 +101,7 @@ export class ProjectRailBuilderService {
     );
     const groups = new Map<string, ProjectGroup>();
 
-    for (const root of getOrderedRootInstances(input.instances, input.rootInstanceOrder)) {
+    for (const root of getOrderedRootInstances(visibleInstances, input.rootInstanceOrder)) {
       const projectKey = this.paths.getProjectKey(root.workingDirectory);
       const title = this.paths.getProjectTitle(root.workingDirectory);
       const subtitle = this.paths.getProjectSubtitle(root.workingDirectory);
@@ -211,7 +213,7 @@ export class ProjectRailBuilderService {
       recentDirectoriesByKey.delete(projectKey);
     }
 
-    const orphanedLiveRoots = getOrderedOrphanedChildInstances(input.instances, instanceMap)
+    const orphanedLiveRoots = getOrderedOrphanedChildInstances(visibleInstances, instanceMap)
       .map((root) =>
         this.projectGroupComputation.buildVisibleItems(
           root,
@@ -645,5 +647,10 @@ export class ProjectRailBuilderService {
     }
 
     return group.lastActivity;
+  }
+
+  private isProjectRailHiddenInstance(instance: Instance): boolean {
+    return instance.metadata?.['hideFromProjectRail'] === true
+      || typeof instance.metadata?.['spawnDepth'] === 'number';
   }
 }

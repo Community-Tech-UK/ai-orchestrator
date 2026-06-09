@@ -10,6 +10,7 @@ import {
   ChatSetProviderPayloadSchema,
   ChatSetReasoningPayloadSchema,
   ChatSetYoloPayloadSchema,
+  ChatUiStatePayloadSchema,
 } from '../chat.schemas';
 
 describe('chat schemas', () => {
@@ -100,6 +101,26 @@ describe('chat schemas', () => {
     expect(ChatSendMessagePayloadSchema.safeParse({
       chatId: 'chat-1',
       text: '',
+    }).success).toBe(false);
+  });
+
+  it('validates bounded chat UI-state payloads for crash restore', () => {
+    expect(ChatUiStatePayloadSchema.parse({
+      selectedChatId: 'chat-2',
+      openChatIds: ['chat-1', 'chat-2'],
+    })).toEqual({
+      selectedChatId: 'chat-2',
+      openChatIds: ['chat-1', 'chat-2'],
+    });
+
+    expect(ChatUiStatePayloadSchema.safeParse({
+      selectedChatId: null,
+      openChatIds: [],
+    }).success).toBe(true);
+
+    expect(ChatUiStatePayloadSchema.safeParse({
+      selectedChatId: 'chat-1',
+      openChatIds: Array.from({ length: 21 }, (_, index) => `chat-${index}`),
     }).success).toBe(false);
   });
 });

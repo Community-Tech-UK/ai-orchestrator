@@ -14,5 +14,7 @@ export const CHAT_CHANNELS = {
   CHAT_SET_YOLO: 'chat:set-yolo',
   CHAT_LOAD_OLDER_MESSAGES: 'chat:load-older-messages',
   CHAT_SEND_MESSAGE: 'chat:send-message',
+  CHAT_UI_STATE_GET: 'chat:ui-state-get',
+  CHAT_UI_STATE_SET: 'chat:ui-state-set',
   CHAT_EVENT: 'chat:event',
 } as const;

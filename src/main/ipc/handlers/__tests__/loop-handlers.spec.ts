@@ -184,6 +184,34 @@ describe('registerLoopHandlers terminal summaries', () => {
     }));
   });
 
+  it('does not overwrite the latest checkpoint history tail on the state change emitted after an iteration', () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const iterationHook = hoisted.coordinator.registerIterationHook.mock.calls[0]?.[0] as
+      ((payload: { state: LoopState; iteration: LoopIteration }) => void) | undefined;
+    const stateHandler = hoisted.coordinator.on.mock.calls.find((call) =>
+      call[0] === 'loop:state-changed'
+    )?.[1] as ((data: { loopRunId: string; state: LoopState }) => void) | undefined;
+    const iteration = makeLoopIteration({ loopRunId: 'loop-1', seq: 7 });
+    const state = makeLoopState({
+      status: 'running',
+      endedAt: null,
+      lastIteration: iteration,
+    });
+
+    iterationHook?.({ state, iteration });
+    stateHandler?.({ loopRunId: state.id, state });
+
+    expect(hoisted.store.upsertCheckpoint).toHaveBeenLastCalledWith(expect.objectContaining({
+      loopRunId: state.id,
+      historyTail: [iteration],
+    }));
+  });
+
   it('appends a durable chat summary when a loop enters a terminal state', () => {
     const windowManager = { sendToRenderer: vi.fn() };
     const instanceManager = makeInstanceManager([]);

@@ -115,21 +115,15 @@ export class WorkerNodeRegistry extends EventEmitter {
 
     // --- Hard filters ---
     if (node.activeInstances >= caps.maxConcurrentInstances) return -Infinity;
-    if (prefs.requiresBrowser && !caps.hasBrowserRuntime) return -Infinity;
+    // Browser intent requires actual automation wiring. A Chrome-only node can
+    // report readiness/setup state, but spawned agents will not receive browser
+    // tools unless the node advertises hasBrowserMcp.
+    if (prefs.requiresBrowser && !caps.hasBrowserMcp) return -Infinity;
     if (prefs.requiresGpu && !caps.gpuName) return -Infinity;
     if (prefs.requiresCli && !caps.supportedClis.includes(prefs.requiresCli)) return -Infinity;
 
     // --- Base capability match ---
     let score = 100;
-
-    // Browser-automation readiness (+40). `hasBrowserRuntime` only means Chrome
-    // is installed; `hasBrowserMcp` means the node has browser automation wired
-    // and will actually inject chrome-devtools tools into spawned agents. When a
-    // job needs a browser, strongly prefer a node that's truly ready over one
-    // that merely has Chrome.
-    if (prefs.requiresBrowser && caps.hasBrowserMcp) {
-      score += 40;
-    }
 
     // Platform preference (+20)
     if (prefs.preferPlatform && caps.platform === prefs.preferPlatform) {
