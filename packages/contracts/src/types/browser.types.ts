@@ -66,6 +66,12 @@ export interface BrowserProfile {
   userDataDir?: string;
   allowedOrigins: BrowserAllowedOrigin[];
   defaultUrl?: string;
+  /**
+   * When set, this profile runs on a remote worker node: the gateway drives that
+   * node's Chrome over the CDP tunnel (Path 2) instead of launching Chrome
+   * locally. All governance (approval/grant/audit) still runs on the coordinator.
+   */
+  executionNodeId?: string;
   status: BrowserProfileStatus;
   debugPort?: number;
   debugEndpoint?: string;

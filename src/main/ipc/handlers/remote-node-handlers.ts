@@ -16,7 +16,10 @@ import {
   RemoteNodeStartServerPayloadSchema,
   RemoteNodeProviderDiagnosePayloadSchema,
   RemoteNodeServiceActionPayloadSchema,
+  RemoteNodeUpdateBrowserAutomationPayloadSchema,
+  RemoteNodeRunBrowserLoginPayloadSchema,
 } from '@contracts/schemas/remote-node';
+import { runBrowserLoginOnNode } from '../../remote-node/browser-login-launcher';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getLogger } from '../../logging/logger';
 import {
@@ -385,6 +388,51 @@ export function registerRemoteNodeHandlers(): void {
           success: false,
           error: {
             code: 'REMOTE_NODE_SERVICE_UNINSTALL_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.REMOTE_NODE_UPDATE_BROWSER_AUTOMATION,
+    async (_event, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = RemoteNodeUpdateBrowserAutomationPayloadSchema.parse(payload);
+        const data = await sendServiceRpc(
+          validated.nodeId,
+          COORDINATOR_TO_NODE.CONFIG_UPDATE,
+          { browserAutomation: validated.browserAutomation },
+          30_000,
+        );
+        return { success: true, data };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REMOTE_NODE_UPDATE_BROWSER_AUTOMATION_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.REMOTE_NODE_RUN_BROWSER_LOGIN,
+    async (_event, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = RemoteNodeRunBrowserLoginPayloadSchema.parse(payload);
+        const data = await runBrowserLoginOnNode(validated.nodeId, validated.url);
+        return { success: true, data };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REMOTE_NODE_RUN_BROWSER_LOGIN_FAILED',
             message: (error as Error).message,
             timestamp: Date.now(),
           },

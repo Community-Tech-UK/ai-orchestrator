@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   LoopCompletionConfigSchema,
+  LoopConfigSchema,
   LoopCrossModelReviewConfigSchema,
   LoopHardCapsSchema,
   LoopTerminalIntentSchema,
@@ -246,6 +247,61 @@ describe('Loop schemas — type/schema drift guards', () => {
       const parsed = LoopStateSchema.parse(minimalState);
       expect(parsed.uncompletedPlanFilesAtStart).toEqual([]);
       expect(parsed.terminalIntentHistory).toEqual([]);
+    });
+  });
+
+  describe('LoopConfigSchema long-run caps', () => {
+    it('accepts a 50-hour maxWallTimeMs loop cap', () => {
+      const config = {
+        initialPrompt: 'run for a long time',
+        workspaceCwd: '/repo',
+        provider: 'claude',
+        reviewStyle: 'single',
+        contextStrategy: 'fresh-child',
+        caps: {
+          maxIterations: null,
+          maxWallTimeMs: 50 * 60 * 60 * 1000,
+          maxTokens: null,
+          maxCostCents: null,
+          maxToolCallsPerIteration: 200,
+        },
+        progressThresholds: {
+          identicalHashWarnConsecutive: 2,
+          identicalHashCriticalConsecutive: 3,
+          identicalHashCriticalWindow: 3,
+          similarityWarnMean: 0.85,
+          similarityCriticalMean: 0.92,
+          stageWarnIterations: { PLAN: 3, REVIEW: 3, IMPLEMENT: 8 },
+          stageCriticalIterations: { PLAN: 5, REVIEW: 5, IMPLEMENT: 12 },
+          errorRepeatWarnInWindow: 3,
+          errorRepeatCriticalInWindow: 4,
+          tokensWithoutProgressWarn: 25_000,
+          tokensWithoutProgressCritical: 60_000,
+          pauseOnTokenBurn: false,
+          toolRepeatWarnPerIteration: 5,
+          toolRepeatCriticalPerIteration: 8,
+          testStagnationWarnIterations: 3,
+          testStagnationCriticalIterations: 5,
+          churnRatioWarn: 0.3,
+          churnRatioCritical: 0.5,
+          warnEscalationWindow: 5,
+          warnEscalationCount: 3,
+        },
+        completion: {
+          completedFilenamePattern: '*_[Cc]ompleted.md',
+          donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
+          doneSentinelFile: 'DONE.txt',
+          verifyCommand: 'true',
+          allowOperatorReviewedCompletion: false,
+          verifyTimeoutMs: 600_000,
+          runVerifyTwice: true,
+          requireCompletedFileRename: false,
+        },
+        initialStage: 'IMPLEMENT',
+        allowDestructiveOps: false,
+      };
+
+      expect(LoopConfigSchema.safeParse(config).success).toBe(true);
     });
   });
 

@@ -3,6 +3,41 @@ import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
 
+/**
+ * Opt-in browser automation for a worker node. When enabled, the worker owns a
+ * single Chrome launched with remote debugging against a dedicated profile, and
+ * injects a `chrome-devtools` MCP server (attached via `--browserUrl`) into every
+ * CLI instance it spawns — giving remote agents `mcp__chrome-devtools__*` tools.
+ *
+ * SECURITY: chrome-devtools-mcp has no approval/grant/audit layer. Only enable on
+ * trusted, owned nodes, and point `profileDir` at a DEDICATED automation profile
+ * (logged into only the sites the agent should touch) — never the user's everyday
+ * Chrome profile.
+ */
+export interface WorkerBrowserAutomationConfig {
+  /** Master switch. Default false. */
+  enabled: boolean;
+  /**
+   * Chrome `--user-data-dir` for the dedicated automation profile. Chrome locks
+   * a user-data-dir to one process, so this MUST NOT be the directory the user's
+   * everyday Chrome is running from. Defaults to
+   * `~/.orchestrator/browser-automation-profile`.
+   */
+  profileDir?: string;
+  /**
+   * Launch Chrome headless (`--headless=new`). Default false — headful is fine on
+   * an unattended node and some sites behave differently headless.
+   */
+  headless?: boolean;
+  /** Override the Chrome executable path; auto-detected when omitted. */
+  chromePath?: string;
+  /**
+   * Fixed remote-debugging port for the managed Chrome. Default 0 → pick an
+   * ephemeral free port at launch (avoids collisions with the user's own Chrome).
+   */
+  remoteDebuggingPort?: number;
+}
+
 export interface WorkerConfig {
   nodeId: string;
   name: string;
@@ -21,6 +56,8 @@ export interface WorkerConfig {
   workingDirectories: string[];
   reconnectIntervalMs: number;
   heartbeatIntervalMs: number;
+  /** Opt-in browser automation (default disabled). */
+  browserAutomation?: WorkerBrowserAutomationConfig;
 }
 
 interface PairingConfigFile {
@@ -100,7 +137,45 @@ function normalizeFileConfig(fileConfig: Partial<WorkerConfig> & PairingConfigFi
     normalized.coordinatorUrl = `${protocol}://${fileConfig.host}:${fileConfig.port}`;
   }
 
+  normalized.browserAutomation = normalizeBrowserAutomation(fileConfig.browserAutomation);
+
   return normalized;
+}
+
+/**
+ * Sanitize the untrusted `browserAutomation` block from disk. Returns undefined
+ * (feature off) for anything that isn't an object explicitly enabling it, so a
+ * malformed or partial block can never silently turn browser automation on.
+ */
+function normalizeBrowserAutomation(
+  raw: unknown,
+): WorkerBrowserAutomationConfig | undefined {
+  if (!raw || typeof raw !== 'object') {
+    return undefined;
+  }
+  const obj = raw as Record<string, unknown>;
+  if (obj['enabled'] !== true) {
+    return undefined;
+  }
+  const result: WorkerBrowserAutomationConfig = { enabled: true };
+  if (typeof obj['profileDir'] === 'string' && obj['profileDir'].trim().length > 0) {
+    result.profileDir = obj['profileDir'];
+  }
+  if (typeof obj['headless'] === 'boolean') {
+    result.headless = obj['headless'];
+  }
+  if (typeof obj['chromePath'] === 'string' && obj['chromePath'].trim().length > 0) {
+    result.chromePath = obj['chromePath'];
+  }
+  if (isValidPort(obj['remoteDebuggingPort'])) {
+    result.remoteDebuggingPort = obj['remoteDebuggingPort'];
+  }
+  return result;
+}
+
+/** Default automation profile dir — sibling of the worker config file. */
+export function defaultBrowserAutomationProfileDir(): string {
+  return path.join(os.homedir(), '.orchestrator', 'browser-automation-profile');
 }
 
 function isValidPort(port: unknown): port is number {

@@ -19,6 +19,7 @@
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { LOOP_TEXT_FILE_MAX_BYTES, readUtf8FileHeadSync } from './bounded-file-read';
 
 export type WorkspaceDiffSource = 'git' | 'none';
 
@@ -83,13 +84,12 @@ function readUntrackedHead(absPath: string, maxChars: number): { text: string; t
   try {
     const stat = fs.statSync(absPath);
     if (!stat.isFile()) return null;
-    const buf = fs.readFileSync(absPath);
+    const readLimit = Math.min(Math.max(maxChars, 8_000), LOOP_TEXT_FILE_MAX_BYTES);
+    const read = readUtf8FileHeadSync(absPath, readLimit);
     // Skip obvious binaries: a NUL byte in the leading window is a strong hint.
-    const probe = buf.subarray(0, Math.min(buf.length, 8_000));
-    if (probe.includes(0)) return { text: '(binary file omitted)', truncated: false };
-    const text = buf.toString('utf8');
-    if (text.length <= maxChars) return { text, truncated: false };
-    return { text: text.slice(0, maxChars), truncated: true };
+    if (read.text.includes('\0')) return { text: '(binary file omitted)', truncated: false };
+    if (!read.truncated && read.text.length <= maxChars) return { text: read.text, truncated: false };
+    return { text: read.text.slice(0, maxChars), truncated: true };
   } catch {
     return null;
   }

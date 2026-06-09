@@ -62,6 +62,14 @@ export interface AuxiliaryLlmSlotConfig {
   provider?: AuxiliaryLlmProvider | 'auto';
   endpointId?: string;
   model?: string;
+  /**
+   * Quality tier for this slot. When set and no explicit `model` is pinned, the
+   * router uses the tier's configured model (`auxiliaryLlmQuickModel` /
+   * `auxiliaryLlmQualityModel`) — letting the user pick two models once (e.g. a
+   * small fast model for scoring, a larger model for compression) instead of
+   * assigning a model to every slot. An explicit `model` always wins.
+   */
+  tier?: 'quick' | 'quality';
   maxInputTokens: number;
   maxOutputTokens: number;
   temperature: number;

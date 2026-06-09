@@ -10,6 +10,8 @@ export type {
   LoopOutstandingItemStatus,
 } from './loop-outstanding.types';
 
+export const DEFAULT_LOOP_MAX_WALL_TIME_MS = 50 * 60 * 60 * 1000;
+
 /** What "fresh eyes" looks like at REVIEW stage. */
 export type LoopReviewStyle =
   | 'single'         // single agent at REVIEW
@@ -414,7 +416,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
     contextStrategy: 'fresh-child',
     caps: {
       maxIterations: null,
-      maxWallTimeMs: 8 * 60 * 60 * 1000,
+      maxWallTimeMs: DEFAULT_LOOP_MAX_WALL_TIME_MS,
       maxTokens: null,
       // Default unbounded for subscription-plan loops where the dollar estimate
       // is not the user's operative budget. Riskier loop modes that pause or

@@ -51,6 +51,7 @@
     "generate:architecture": "node scripts/generate-architecture-inventory.js --write",
     "smoke:electron": "node scripts/electron-smoke-check.js",
     "smoke:provider-events": "tsx scripts/provider-event-stress-smoke.ts",
+    "soak:long-loop": "tsx scripts/soak-long-loop.ts",
     "generate:aliases": "node scripts/generate-register-aliases.js",
     "generate:ipc": "node scripts/generate-preload-channels.js",
     "generate:cursor-models": "tsx scripts/generate-cursor-models.ts",

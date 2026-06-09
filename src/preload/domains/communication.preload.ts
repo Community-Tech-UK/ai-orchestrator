@@ -88,6 +88,21 @@ export function createCommunicationDomain(
     remoteNodeServiceUninstall: (nodeId: string): Promise<unknown> =>
       ipcRenderer.invoke(ch.REMOTE_NODE_SERVICE_UNINSTALL, { nodeId }),
 
+    remoteNodeUpdateBrowserAutomation: (
+      nodeId: string,
+      browserAutomation: {
+        enabled: boolean;
+        profileDir?: string;
+        headless?: boolean;
+        chromePath?: string;
+        remoteDebuggingPort?: number;
+      },
+    ): Promise<unknown> =>
+      ipcRenderer.invoke(ch.REMOTE_NODE_UPDATE_BROWSER_AUTOMATION, { nodeId, browserAutomation }),
+
+    remoteNodeRunBrowserLogin: (nodeId: string, url?: string): Promise<unknown> =>
+      ipcRenderer.invoke(ch.REMOTE_NODE_RUN_BROWSER_LOGIN, { nodeId, url }),
+
     onRemoteNodeEvent: (callback: (event: unknown) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, data: unknown) =>
         callback(data);

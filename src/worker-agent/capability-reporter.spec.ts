@@ -288,6 +288,77 @@ describe('capability-reporter', () => {
     });
   });
 
+  describe('browser capabilities (hasBrowserRuntime / hasBrowserMcp)', () => {
+    const MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+
+    /** Make Chrome's macOS bundle path resolvable (or not) via fs.accessSync. */
+    function chromeInstalled(installed: boolean): void {
+      vi.mocked(fs.accessSync).mockImplementation((p: fs.PathLike) => {
+        if (installed && p === MAC_CHROME) return;
+        throw new Error('not found');
+      });
+    }
+
+    beforeEach(() => {
+      // Use darwin so Chrome detection is a pure fs.accessSync check (the fs
+      // namespace mock is reliably applied to the module under test).
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')));
+    });
+
+    it('reports hasBrowserRuntime from Chrome presence and hasBrowserMcp=false by default', async () => {
+      chromeInstalled(true);
+      const caps = await reportCapabilities(['/workspace']);
+      expect(caps.hasBrowserRuntime).toBe(true);
+      // Automation flag omitted → off, even though Chrome exists.
+      expect(caps.hasBrowserMcp).toBe(false);
+    });
+
+    it('reports hasBrowserMcp=true only when enabled AND Chrome is present', async () => {
+      chromeInstalled(true);
+      const caps = await reportCapabilities(['/workspace'], 10, {
+        enabled: true,
+        headless: false,
+        profileDir: '/tmp/auto-profile',
+        running: false,
+      });
+      expect(caps.hasBrowserRuntime).toBe(true);
+      expect(caps.hasBrowserMcp).toBe(true);
+      // The non-secret summary is echoed into capabilities for the UI.
+      expect(caps.browserAutomation).toEqual({
+        enabled: true,
+        headless: false,
+        profileDir: '/tmp/auto-profile',
+        running: false,
+      });
+    });
+
+    it('reports hasBrowserMcp=false when a disabled summary is supplied', async () => {
+      chromeInstalled(true);
+      const caps = await reportCapabilities(['/workspace'], 10, {
+        enabled: false,
+        headless: false,
+        profileDir: '/tmp/auto-profile',
+        running: false,
+      });
+      expect(caps.hasBrowserRuntime).toBe(true);
+      expect(caps.hasBrowserMcp).toBe(false);
+      expect(caps.browserAutomation?.enabled).toBe(false);
+    });
+
+    it('reports hasBrowserMcp=false when enabled but Chrome is absent', async () => {
+      chromeInstalled(false);
+      const caps = await reportCapabilities(['/workspace'], 10, {
+        enabled: true,
+        headless: false,
+        profileDir: '/tmp/auto-profile',
+        running: false,
+      });
+      expect(caps.hasBrowserRuntime).toBe(false);
+      expect(caps.hasBrowserMcp).toBe(false);
+    });
+  });
+
   describe('GPU detection still works with RTX-style nvidia-smi output', () => {
     it('parses RTX-style nvidia-smi CSV output and returns valid capability shape', async () => {
       const { execFileSync } = await import('child_process');

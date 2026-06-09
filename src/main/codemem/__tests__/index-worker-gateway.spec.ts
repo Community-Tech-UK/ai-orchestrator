@@ -303,6 +303,33 @@ describe('IndexWorkerGateway', () => {
 
     expect(gateway.getMetrics().degraded).toBe(false);
   });
+
+  it('does not restart after stop while a crash restart backoff is pending', async () => {
+    vi.useFakeTimers();
+    try {
+      const { IndexWorkerGateway } = await import('../index-worker-gateway');
+      const workers: FakeWorker[] = [];
+      const stoppingGateway = new IndexWorkerGateway({
+        workerFactory: () => {
+          const w = createFakeWorker();
+          workers.push(w);
+          return w;
+        },
+        rpcTimeoutMs: 50,
+        userDataPath: '/tmp/test',
+      });
+      await stoppingGateway.start();
+
+      workers[0].emit('error', new Error('crash before stop'));
+      await stoppingGateway.stop();
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      expect(workers).toHaveLength(1);
+      expect(stoppingGateway.getMetrics().degraded).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('IndexWorkerGateway default process isolation', () => {

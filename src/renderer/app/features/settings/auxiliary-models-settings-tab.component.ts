@@ -214,6 +214,43 @@ const PROVIDERS = ['ollama', 'openai-compatible'] as const;
         </div>
       </div>
 
+      <!-- Quick & quality tier models -->
+      <div class="card">
+        <div class="section-title">Quick &amp; quality models</div>
+        <p class="section-desc">
+          Pick two models once. Slots tagged <strong>quick</strong> (scoring,
+          routing, titles) use the quick model; <strong>quality</strong> slots
+          (compression, distillation) use the quality model. A per-slot model
+          override below always wins. Hit Refresh above to populate the lists.
+        </p>
+        <div class="field-row">
+          <label class="field-label" for="quick-model">Quick model (small/fast)</label>
+          <select
+            id="quick-model"
+            [value]="settingsStore.get('auxiliaryLlmQuickModel')"
+            (change)="onTierModelChange('auxiliaryLlmQuickModel', $event)"
+          >
+            <option value="">Auto (first available)</option>
+            @for (m of availableModels(); track m) {
+              <option [value]="m">{{ m }}</option>
+            }
+          </select>
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="quality-model">Quality model (larger)</label>
+          <select
+            id="quality-model"
+            [value]="settingsStore.get('auxiliaryLlmQualityModel')"
+            (change)="onTierModelChange('auxiliaryLlmQualityModel', $event)"
+          >
+            <option value="">Auto (first available)</option>
+            @for (m of availableModels(); track m) {
+              <option [value]="m">{{ m }}</option>
+            }
+          </select>
+        </div>
+      </div>
+
       <!-- Slot table -->
       <div class="card">
         <div class="section-title">Slots</div>
@@ -222,6 +259,12 @@ const PROVIDERS = ['ollama', 'openai-compatible'] as const;
           <thead>
             <tr>
               <th>Slot</th>
+              <th title="Which tier model this slot uses by default (quick = small/fast, quality = larger). Set the two tier models above.">
+                Tier
+              </th>
+              <th title="Override the tier model for this slot with a specific model. Auto = use the slot's tier model (or first available if no tier model is set).">
+                Model override
+              </th>
               <th title="When on, this slot may fall back to the main cloud model if no local/cheap model is available. Turn off to keep this slot's content local-only (privacy / hard cost control) — it uses a deterministic local summary instead.">
                 Cloud fallback
               </th>
@@ -231,7 +274,33 @@ const PROVIDERS = ['ollama', 'openai-compatible'] as const;
           <tbody>
             @for (slot of slots; track slot) {
               <tr>
-                <td>{{ slot }}</td>
+                <td>
+                  {{ slot }}
+                  <div class="field-hint">&rarr; {{ effectiveSlotModelLabel(slot) }}</div>
+                </td>
+                <td>
+                  <select
+                    [value]="slotTier(slot)"
+                    (change)="onSlotTierChange(slot, $event)"
+                    [attr.aria-label]="'Tier for ' + slot"
+                  >
+                    <option value="">None</option>
+                    <option value="quick">quick</option>
+                    <option value="quality">quality</option>
+                  </select>
+                </td>
+                <td>
+                  <select
+                    [value]="slotModel(slot)"
+                    (change)="onSlotModelChange(slot, $event)"
+                    [attr.aria-label]="'Model override for ' + slot"
+                  >
+                    <option value="">Auto (use tier)</option>
+                    @for (m of availableModels(); track m) {
+                      <option [value]="m">{{ m }}</option>
+                    }
+                  </select>
+                </td>
                 <td>
                   <input
                     type="checkbox"
@@ -315,6 +384,25 @@ export class AuxiliaryModelsSettingsTabComponent implements OnInit {
     }
   });
 
+  /**
+   * Flat, de-duplicated list of model ids offered in the per-slot dropdown.
+   * Sourced from discovered endpoint candidates (including remote worker-node
+   * LM Studio / Ollama models) plus any model already pinned to a slot — so a
+   * configured model still shows even when its endpoint isn't currently visible.
+   */
+  protected readonly availableModels = computed<string[]>(() => {
+    const ids = new Set<string>();
+    for (const c of this.candidates()) {
+      for (const m of c.models) ids.add(m.id);
+    }
+    const slots = this.slotConfigs();
+    for (const slot of this.slots) {
+      const model = slots[slot]?.model;
+      if (model) ids.add(model);
+    }
+    return Array.from(ids).sort();
+  });
+
   ngOnInit(): void {
     void this.refreshCandidates();
   }
@@ -332,6 +420,80 @@ export class AuxiliaryModelsSettingsTabComponent implements OnInit {
   /** Whether a slot is allowed to fall back to the main/cloud model. Defaults to true. */
   protected frontierFallbackEnabled(slot: AuxiliaryLlmSlot): boolean {
     return this.slotConfigs()[slot]?.allowFrontierFallback ?? true;
+  }
+
+  /** Currently pinned model-override id for a slot ('' = auto/tier). */
+  protected slotModel(slot: AuxiliaryLlmSlot): string {
+    return this.slotConfigs()[slot]?.model ?? '';
+  }
+
+  /** Current tier for a slot ('' = none). */
+  protected slotTier(slot: AuxiliaryLlmSlot): string {
+    return this.slotConfigs()[slot]?.tier ?? '';
+  }
+
+  /**
+   * Human-readable model this slot will resolve to: an explicit override, else
+   * the configured tier model, else an auto-pick label. (The exact auto-picked
+   * id is shown by the Test button, which reports the real routing decision.)
+   */
+  protected effectiveSlotModelLabel(slot: AuxiliaryLlmSlot): string {
+    const cfg = this.slotConfigs()[slot];
+    if (cfg?.model) return cfg.model;
+    if (cfg?.tier === 'quick') {
+      const m = this.settingsStore.get('auxiliaryLlmQuickModel');
+      return m ? `${m} (quick)` : 'Auto · quick (smallest)';
+    }
+    if (cfg?.tier === 'quality') {
+      const m = this.settingsStore.get('auxiliaryLlmQualityModel');
+      return m ? `${m} (quality)` : 'Auto · quality (largest)';
+    }
+    return 'Auto (first available)';
+  }
+
+  /** Persist the quick/quality tier model id. */
+  onTierModelChange(
+    key: 'auxiliaryLlmQuickModel' | 'auxiliaryLlmQualityModel',
+    event: Event,
+  ): void {
+    const value = (event.target as HTMLSelectElement).value;
+    void this.settingsStore.set(key, value);
+  }
+
+  onSlotTierChange(slot: AuxiliaryLlmSlot, event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    const slots = this.slotConfigs();
+    const existing = slots[slot];
+    if (!existing) return; // unknown/missing slot config — nothing to update
+    const nextSlot: AuxiliaryLlmSlotConfig = { ...existing };
+    if (value === 'quick' || value === 'quality') {
+      nextSlot.tier = value;
+    } else {
+      delete nextSlot.tier;
+    }
+    const next: AuxiliaryLlmSlotConfigMap = {
+      ...(slots as AuxiliaryLlmSlotConfigMap),
+      [slot]: nextSlot,
+    };
+    void this.settingsStore.set('auxiliaryLlmSlotsJson', JSON.stringify(next));
+  }
+
+  onSlotModelChange(slot: AuxiliaryLlmSlot, event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    const slots = this.slotConfigs();
+    const existing = slots[slot];
+    if (!existing) return; // unknown/missing slot config — nothing to update
+    const nextSlot: AuxiliaryLlmSlotConfig = { ...existing };
+    if (value) {
+      nextSlot.model = value;
+    } else {
+      delete nextSlot.model; // 'Auto' — fall back to first available model
+    }
+    const next: AuxiliaryLlmSlotConfigMap = {
+      ...(slots as AuxiliaryLlmSlotConfigMap),
+      [slot]: nextSlot,
+    };
+    void this.settingsStore.set('auxiliaryLlmSlotsJson', JSON.stringify(next));
   }
 
   onFrontierFallbackChange(slot: AuxiliaryLlmSlot, event: Event): void {

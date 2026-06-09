@@ -26,6 +26,7 @@ export * from './error-recovery.types';
 export * from './codebase.types';
 export * from './coordinator-progress.types';
 export * from './tool-permission.types';
+export * from './ask-user-question.types';
 export * from './plugin.types';
 export * from './terminal.types';
 export * from './orchestration-hud.types';

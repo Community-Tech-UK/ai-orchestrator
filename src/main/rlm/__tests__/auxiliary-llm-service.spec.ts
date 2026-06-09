@@ -93,6 +93,8 @@ function baseSettings(overrides: Partial<{
   auxiliaryLlmUseLocalhostOllama: boolean;
   auxiliaryLlmEndpointsJson: string;
   auxiliaryLlmSlotsJson: string;
+  auxiliaryLlmQuickModel: string;
+  auxiliaryLlmQualityModel: string;
 }> = {}) {
   return {
     auxiliaryLlmEnabled: true,
@@ -100,6 +102,8 @@ function baseSettings(overrides: Partial<{
     auxiliaryLlmAllowRemoteWorkerModels: true,
     auxiliaryLlmUseLocalhostOllama: true,
     auxiliaryLlmEndpointsJson: '[]',
+    auxiliaryLlmQuickModel: '',
+    auxiliaryLlmQualityModel: '',
     auxiliaryLlmSlotsJson: JSON.stringify({
       compression: { enabled: true, provider: 'auto', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: false },
       memoryDistillation: { enabled: true, provider: 'auto', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: false },
@@ -509,6 +513,111 @@ describe('AuxiliaryLlmService — worker-node discovery and routing', () => {
     // its ~4k default for long-input slots.
     expect((params as { numCtx: number }).numCtx).toBeGreaterThanOrEqual(4096);
     expect(mocks.generateOllama).not.toHaveBeenCalled();
+  });
+
+  it('skips a worker endpoint whose LM Studio is reported down, falling back without an RPC', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(false); // coordinator localhost down too
+    remoteState.rpc = vi.fn().mockResolvedValue({ text: 'should not be called' });
+
+    // Node connected, but its heartbeat reports the local model server unhealthy.
+    remoteState.nodes = [{
+      id: 'node-1',
+      name: 'Windows 5090',
+      status: 'connected',
+      capabilities: {
+        localModelEndpoints: [{
+          provider: 'ollama',
+          baseUrl: 'http://127.0.0.1:11434',
+          models: ['gemma4:12b'],
+          healthy: false,
+        }],
+      },
+    }];
+    remoteState.connected = new Set(['node-1']);
+    service.configure(baseSettings());
+
+    const { decision } = await service.generate('compression', 'sys', 'user');
+
+    expect(decision.source).toBe('fallback');
+    expect(remoteState.rpc).not.toHaveBeenCalled();
+  });
+
+  it('uses the quality-tier model for a quality slot instead of auto-picking the first', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(false); // localhost down — worker only
+    remoteState.rpc = vi.fn().mockResolvedValue({ text: 'done' });
+
+    seedConnectedWorker(); // worker offers gemma4:12b (first) and gemma4:26b
+    service.configure(baseSettings({
+      auxiliaryLlmQualityModel: 'gemma4:26b',
+      auxiliaryLlmSlotsJson: JSON.stringify({
+        compression: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: false },
+      }),
+    }));
+
+    const { decision } = await service.generate('compression', 'sys', 'user');
+
+    // Tier model wins over the auto first-available (gemma4:12b).
+    expect(decision.model).toBe('gemma4:26b');
+    const [, , params] = remoteState.rpc.mock.calls[0];
+    expect((params as { model: string }).model).toBe('gemma4:26b');
+  });
+
+  it('auto-picks the smallest worker model for a quick slot when no tier model is set', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(false);
+    remoteState.rpc = vi.fn().mockResolvedValue({ text: 'done' });
+
+    // Worker offers a small and a large model; quick tier, no quickModel set.
+    remoteState.nodes = [{
+      id: 'node-1',
+      name: 'Windows 5090',
+      status: 'connected',
+      capabilities: {
+        localModelEndpoints: [{
+          provider: 'ollama',
+          baseUrl: 'http://127.0.0.1:11434',
+          models: ['qwen3-35b', 'nemotron-4b'],
+          healthy: true,
+        }],
+      },
+    }];
+    remoteState.connected = new Set(['node-1']);
+
+    service.configure(baseSettings({
+      auxiliaryLlmSlotsJson: JSON.stringify({
+        loopScoring: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 32000, maxOutputTokens: 1024, temperature: 0, timeoutMs: 30000, requireJson: false, allowFrontierFallback: false },
+      }),
+    }));
+
+    const { decision } = await service.generate('loopScoring', 'sys', 'user');
+
+    // Smallest by size score wins for quick, not the first-listed (qwen3-35b).
+    expect(decision.model).toBe('nemotron-4b');
+  });
+
+  it('lets an explicit per-slot model override the tier model', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(false);
+    remoteState.rpc = vi.fn().mockResolvedValue({ text: 'done' });
+
+    seedConnectedWorker();
+    service.configure(baseSettings({
+      auxiliaryLlmQualityModel: 'gemma4:26b',
+      auxiliaryLlmSlotsJson: JSON.stringify({
+        compression: { enabled: true, provider: 'auto', tier: 'quality', model: 'gemma4:12b', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: false },
+      }),
+    }));
+
+    const { decision } = await service.generate('compression', 'sys', 'user');
+
+    // Explicit per-slot pin beats the quality-tier model.
+    expect(decision.model).toBe('gemma4:12b');
   });
 
   it('skips this machine localhost Ollama when auxiliaryLlmUseLocalhostOllama is false, routing to the worker', async () => {

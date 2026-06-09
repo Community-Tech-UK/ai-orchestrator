@@ -197,6 +197,8 @@ export function registerAuxiliaryLlmHandlers(): void {
         auxiliaryLlmUseLocalhostOllama?: boolean;
         auxiliaryLlmEndpointsJson?: string;
         auxiliaryLlmSlotsJson?: string;
+        auxiliaryLlmQuickModel?: string;
+        auxiliaryLlmQualityModel?: string;
       };
 
       const manager = getSettingsManager();
@@ -207,6 +209,8 @@ export function registerAuxiliaryLlmHandlers(): void {
         'auxiliaryLlmUseLocalhostOllama',
         'auxiliaryLlmEndpointsJson',
         'auxiliaryLlmSlotsJson',
+        'auxiliaryLlmQuickModel',
+        'auxiliaryLlmQualityModel',
       ] as const;
 
       for (const key of allowedKeys) {
@@ -224,6 +228,8 @@ export function registerAuxiliaryLlmHandlers(): void {
         auxiliaryLlmUseLocalhostOllama: current.auxiliaryLlmUseLocalhostOllama,
         auxiliaryLlmEndpointsJson: current.auxiliaryLlmEndpointsJson,
         auxiliaryLlmSlotsJson: current.auxiliaryLlmSlotsJson,
+        auxiliaryLlmQuickModel: current.auxiliaryLlmQuickModel,
+        auxiliaryLlmQualityModel: current.auxiliaryLlmQualityModel,
       });
 
       return { success: true, data: { ok: true } };

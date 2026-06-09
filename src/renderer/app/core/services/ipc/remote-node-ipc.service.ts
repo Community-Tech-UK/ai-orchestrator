@@ -1,7 +1,11 @@
 // src/renderer/app/core/services/ipc/remote-node-ipc.service.ts
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService } from './electron-ipc.service';
-import type { RemotePairingCredentialInfo, WorkerNodeInfo } from '../../../../../shared/types/worker-node.types';
+import type {
+  RemotePairingCredentialInfo,
+  WorkerNodeInfo,
+  WorkerNodeBrowserAutomationSummary,
+} from '../../../../../shared/types/worker-node.types';
 import type { ServiceStatus } from '../../../../../shared/types/service.types';
 import type { CanonicalCliType } from '../../../../../shared/types/settings.types';
 
@@ -10,6 +14,14 @@ export type RemoteNodeDiagnosableProvider = Exclude<CanonicalCliType, 'auto'>;
 export interface RemoteNodeServerConfig {
   port?: number;
   host?: string;
+}
+
+export interface BrowserAutomationConfigInput {
+  enabled: boolean;
+  profileDir?: string;
+  headless?: boolean;
+  chromePath?: string;
+  remoteDebuggingPort?: number;
 }
 
 export interface RemoteNodeEvent {
@@ -210,6 +222,41 @@ export class RemoteNodeIpcService {
     if (result && !result.success) {
       throw new Error(result.error?.message ?? 'Failed to uninstall service');
     }
+  }
+
+  /**
+   * Push a browser-automation config change to a node (privileged: service
+   * scope). Returns the resulting non-secret summary the node reports back.
+   */
+  async updateBrowserAutomation(
+    nodeId: string,
+    browserAutomation: BrowserAutomationConfigInput,
+  ): Promise<WorkerNodeBrowserAutomationSummary | null> {
+    if (!this.api) return null;
+    const result = await this.api.remoteNodeUpdateBrowserAutomation(
+      nodeId,
+      browserAutomation,
+    ) as IpcResult | null;
+    if (!result?.success) {
+      throw new Error(result?.error?.message ?? 'Failed to update browser automation');
+    }
+    const data = result.data as { browserAutomation?: WorkerNodeBrowserAutomationSummary } | undefined;
+    return data?.browserAutomation ?? null;
+  }
+
+  /**
+   * Launch a headful Chrome on the node against its automation profile so the
+   * operator can log it into the target site (the window opens on the node's
+   * screen). Returns the remote terminal session id.
+   */
+  async runBrowserLogin(nodeId: string, url?: string): Promise<string | null> {
+    if (!this.api) return null;
+    const result = await this.api.remoteNodeRunBrowserLogin(nodeId, url) as IpcResult | null;
+    if (!result?.success) {
+      throw new Error(result?.error?.message ?? 'Failed to start login on node');
+    }
+    const data = result.data as { sessionId?: string } | undefined;
+    return data?.sessionId ?? null;
   }
 
   onNodeEvent(callback: (event: RemoteNodeEvent) => void): () => void {

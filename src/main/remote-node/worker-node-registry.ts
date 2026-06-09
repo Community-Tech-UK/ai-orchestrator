@@ -122,6 +122,15 @@ export class WorkerNodeRegistry extends EventEmitter {
     // --- Base capability match ---
     let score = 100;
 
+    // Browser-automation readiness (+40). `hasBrowserRuntime` only means Chrome
+    // is installed; `hasBrowserMcp` means the node has browser automation wired
+    // and will actually inject chrome-devtools tools into spawned agents. When a
+    // job needs a browser, strongly prefer a node that's truly ready over one
+    // that merely has Chrome.
+    if (prefs.requiresBrowser && caps.hasBrowserMcp) {
+      score += 40;
+    }
+
     // Platform preference (+20)
     if (prefs.preferPlatform && caps.platform === prefs.preferPlatform) {
       score += 20;
@@ -177,9 +186,11 @@ const NODE_PLATFORM_ALIASES: Record<string, NodePlatform> = {
 
 /**
  * Resolve a non-exact `node` value (a capability tag) to a connected worker.
- * Supports gpu / browser / docker, platform aliases (windows/mac/linux), and
- * CLI names (claude/codex/gemini/copilot/cursor). Prefers the node with the
- * most spare instance capacity. Pure — operates only on the supplied list.
+ * Supports gpu / browser / browser-mcp / docker, platform aliases
+ * (windows/mac/linux), and CLI names (claude/codex/gemini/copilot/cursor).
+ * `browser` prefers an automation-ready node but accepts Chrome-installed;
+ * `browser-mcp` requires automation to be wired. Prefers the node with the most
+ * spare instance capacity. Pure — operates only on the supplied list.
  */
 export function matchNodeByCapabilityTag(
   tag: string,
@@ -194,7 +205,12 @@ export function matchNodeByCapabilityTag(
       (a.capabilities.maxConcurrentInstances - a.activeInstances),
   );
   if (t === 'gpu') return ranked.find((n) => !!n.capabilities.gpuName);
-  if (t === 'browser') return ranked.find((n) => n.capabilities.hasBrowserRuntime);
+  if (t === 'browser') {
+    // Prefer a browser-automation-ready node; fall back to Chrome-installed.
+    return ranked.find((n) => n.capabilities.hasBrowserMcp)
+      ?? ranked.find((n) => n.capabilities.hasBrowserRuntime);
+  }
+  if (t === 'browser-mcp') return ranked.find((n) => n.capabilities.hasBrowserMcp);
   if (t === 'docker') return ranked.find((n) => n.capabilities.hasDocker);
   const platform = NODE_PLATFORM_ALIASES[t];
   if (platform) return ranked.find((n) => n.capabilities.platform === platform);

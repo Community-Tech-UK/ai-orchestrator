@@ -1,5 +1,6 @@
 import type { FileAttachment } from '../shared/types/instance.types';
 import { DEFAULT_OLLAMA_KEEP_ALIVE } from '../shared/types/auxiliary-llm.types';
+import { generateOpenAiCompatibleOnWorker } from './worker-auxiliary-generate';
 import { OLLAMA_LOCAL_BASE_URL, LMSTUDIO_LOCAL_BASE_URL } from './local-model-config';
 import type {
   FsReadDirectoryParams,
@@ -24,7 +25,9 @@ import {
 import {
   AuxiliaryModelListParamsSchema,
   AuxiliaryModelGenerateParamsSchema,
+  ConfigUpdateParamsSchema,
 } from '../main/remote-node/rpc-schemas';
+import type { WorkerNodeBrowserAutomationSummary } from '../shared/types/worker-node.types';
 import {
   FsRpcError,
   type NodeFilesystemHandler
@@ -39,7 +42,14 @@ import {
   isDiagnosableProvider
 } from './provider-runtime-diagnostics';
 import type { SyncHandler } from './sync-handler';
-import type { WorkerConfig } from './worker-config';
+import type { WorkerBrowserAutomationConfig, WorkerConfig } from './worker-config';
+import type { WorkerCdpTunnel } from './worker-cdp-tunnel';
+import {
+  BrowserCdpOpenParamsSchema,
+  BrowserCdpSendParamsSchema,
+  BrowserCdpCloseParamsSchema,
+  BrowserStopManagedParamsSchema,
+} from '../main/remote-node/rpc-schemas';
 import type { WorkerTerminalHandler } from './worker-terminal-handler';
 import type { RpcMessage } from './worker-rpc-types';
 import { validateScope } from './worker-rpc-types';
@@ -50,6 +60,11 @@ interface WorkerRpcDispatcherDeps {
   getFilesystemHandler: () => NodeFilesystemHandler;
   getSyncHandler: () => SyncHandler;
   getTerminalHandler: () => WorkerTerminalHandler;
+  applyConfigUpdate: (update: {
+    browserAutomation?: WorkerBrowserAutomationConfig;
+  }) => Promise<WorkerNodeBrowserAutomationSummary | undefined>;
+  getCdpTunnel: () => WorkerCdpTunnel;
+  stopManagedBrowser: () => Promise<void>;
   sendResult: (id: string | number, result: unknown) => void;
   sendError: (id: string | number, code: number, message: string) => void;
 }
@@ -276,6 +291,65 @@ export class WorkerRpcDispatcher {
           }, 250);
           return;
         }
+        case COORDINATOR_TO_NODE.CONFIG_UPDATE: {
+          // Privileged: turning on browser automation enables an ungoverned
+          // automation surface, so require the same scope as service.* methods.
+          const err = validateScope(msg, 'service');
+          if (err) {
+            this.deps.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
+            return;
+          }
+          const validated = ConfigUpdateParamsSchema.parse(params);
+          const summary = await this.deps.applyConfigUpdate({
+            browserAutomation: validated.browserAutomation,
+          });
+          result = { browserAutomation: summary };
+          break;
+        }
+        case COORDINATOR_TO_NODE.BROWSER_CDP_OPEN: {
+          const err = validateScope(msg, 'service');
+          if (err) {
+            this.deps.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
+            return;
+          }
+          const validated = BrowserCdpOpenParamsSchema.parse(params);
+          await this.deps.getCdpTunnel().open(validated.sessionId);
+          result = { ok: true };
+          break;
+        }
+        case COORDINATOR_TO_NODE.BROWSER_CDP_SEND: {
+          const err = validateScope(msg, 'service');
+          if (err) {
+            this.deps.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
+            return;
+          }
+          const validated = BrowserCdpSendParamsSchema.parse(params);
+          this.deps.getCdpTunnel().send(validated.sessionId, validated.frame);
+          result = { ok: true };
+          break;
+        }
+        case COORDINATOR_TO_NODE.BROWSER_CDP_CLOSE: {
+          const err = validateScope(msg, 'service');
+          if (err) {
+            this.deps.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
+            return;
+          }
+          const validated = BrowserCdpCloseParamsSchema.parse(params);
+          this.deps.getCdpTunnel().close(validated.sessionId);
+          result = { ok: true };
+          break;
+        }
+        case COORDINATOR_TO_NODE.BROWSER_STOP_MANAGED: {
+          const err = validateScope(msg, 'service');
+          if (err) {
+            this.deps.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
+            return;
+          }
+          BrowserStopManagedParamsSchema.parse(params);
+          await this.deps.stopManagedBrowser();
+          result = { ok: true };
+          break;
+        }
         case COORDINATOR_TO_NODE.AUXILIARY_MODEL_LIST: {
           const validated = AuxiliaryModelListParamsSchema.parse(params);
           const models = await this.handleAuxiliaryModelList(validated.provider);
@@ -359,34 +433,7 @@ export class WorkerRpcDispatcher {
       }
     }
     if (params.provider === 'openai-compatible') {
-      const controller = new AbortController();
-      const tid = setTimeout(() => controller.abort(), params.timeoutMs);
-      try {
-        const body: Record<string, unknown> = {
-          model: params.model,
-          messages: [
-            { role: 'system', content: params.systemPrompt },
-            { role: 'user', content: params.userPrompt },
-          ],
-          temperature: params.temperature,
-          max_tokens: params.maxOutputTokens,
-          stream: false,
-        };
-        if (params.requireJson) {
-          body['response_format'] = { type: 'json_object' };
-        }
-        const resp = await fetch(`${LMSTUDIO_LOCAL_BASE_URL}/v1/chat/completions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-        if (!resp.ok) throw new Error(`OpenAI-compatible generate failed: ${resp.status}`);
-        const data = await resp.json() as { choices?: Array<{ message?: { content?: string } }> };
-        return data.choices?.[0]?.message?.content ?? '';
-      } finally {
-        clearTimeout(tid);
-      }
+      return generateOpenAiCompatibleOnWorker(LMSTUDIO_LOCAL_BASE_URL, params);
     }
     throw new Error(`Unsupported provider: ${params.provider}`);
   }

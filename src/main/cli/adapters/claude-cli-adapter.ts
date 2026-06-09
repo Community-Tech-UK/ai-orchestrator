@@ -22,6 +22,7 @@ import { processAttachments, buildMessageWithFiles } from '../file-handler';
 import { getLogger } from '../../logging/logger';
 import { buildDeferPermissionHookCommand } from '../hooks/hook-path-resolver';
 import { HOST_CLI_CLOUD_SCHEDULER_TOOLS } from './host-cli-tool-policy';
+import { buildAskUserQuestionPrompt, parseAskUserQuestions } from './ask-user-question-prompt';
 import type { CliStreamMessage } from '../../../shared/types/cli.types';
 import type {
   OutputMessage,
@@ -1785,10 +1786,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     timestamp: number,
     fallbackText?: string
   ): void {
-    const prompt = this.buildAskUserQuestionPrompt(input, fallbackText);
+    const prompt = buildAskUserQuestionPrompt(input, fallbackText);
     if (!prompt) {
       return;
     }
+    const questions = parseAskUserQuestions(input);
 
     const dedupeKey = toolUseId || `prompt:${prompt}`;
     if (this.emittedAskUserQuestionKeys.has(dedupeKey)) {
@@ -1814,6 +1816,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         type: 'ask_user_question',
         tool_use_id: toolUseId,
         input,
+        questions,
         approvalTraceId,
         traceStage: 'adapter:ask_user_question_emit'
       }
@@ -1832,73 +1835,6 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         traceStage: 'adapter:ask_user_question_output'
       }
     });
-  }
-
-  private buildAskUserQuestionPrompt(input: unknown, fallbackText?: string): string {
-    const fallbackPrompt = this.extractAskUserQuestionFallback(fallbackText);
-    if (!input || typeof input !== 'object') {
-      return fallbackPrompt || 'Input required from Claude. Please provide your response.';
-    }
-
-    const data = input as Record<string, unknown>;
-    const directQuestion = this.readString(data, ['question', 'prompt', 'message', 'text']);
-    const title = this.readString(data, ['title', 'header']);
-
-    const options = Array.isArray(data['options']) ? data['options'] : [];
-    const optionLines = options
-      .map((opt, index) => {
-        if (typeof opt === 'string' && opt.trim().length > 0) {
-          return `${index + 1}. ${opt.trim()}`;
-        }
-        if (opt && typeof opt === 'object') {
-          const obj = opt as Record<string, unknown>;
-          const label = this.readString(obj, ['label', 'title', 'value', 'id']);
-          return label ? `${index + 1}. ${label}` : '';
-        }
-        return '';
-      })
-      .filter((line) => line.length > 0);
-
-    const parts: string[] = [];
-    if (title) {
-      parts.push(title);
-    }
-    if (directQuestion) {
-      parts.push(directQuestion);
-    } else if (fallbackPrompt) {
-      parts.push(fallbackPrompt);
-    } else if (parts.length === 0) {
-      parts.push('Claude requested input via AskUserQuestion.');
-    }
-    if (optionLines.length > 0) {
-      parts.push('', 'Options:', ...optionLines);
-    }
-
-    return parts.join('\n').trim();
-  }
-
-  private extractAskUserQuestionFallback(text: string | undefined): string | undefined {
-    const normalized = text?.replace(/\r\n/g, '\n').trim();
-    if (!normalized) {
-      return undefined;
-    }
-
-    const paragraphs = normalized
-      .split(/\n\s*\n/)
-      .map((part) => part.trim())
-      .filter((part) => part.length > 0);
-    const questionParagraph = [...paragraphs].reverse().find((part) => part.includes('?'));
-    return questionParagraph || normalized;
-  }
-
-  private readString(obj: Record<string, unknown>, keys: string[]): string | undefined {
-    for (const key of keys) {
-      const value = obj[key];
-      if (typeof value === 'string' && value.trim().length > 0) {
-        return value.trim();
-      }
-    }
-    return undefined;
   }
 
   private summarizeLogText(value: string, maxLength = 160): string {

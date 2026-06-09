@@ -10,6 +10,25 @@ export interface WorkerLocalModelCapability {
   healthy: boolean;
 }
 
+/**
+ * Non-secret summary of a node's browser-automation configuration, surfaced in
+ * capabilities so the coordinator UI can reflect current settings. Deliberately
+ * excludes anything sensitive (no tokens; the profile is the operator's own).
+ */
+export interface WorkerNodeBrowserAutomationSummary {
+  enabled: boolean;
+  headless: boolean;
+  /** Resolved automation profile directory (operator-owned path). */
+  profileDir: string;
+  /**
+   * Whether the managed Chrome is actually up right now. Enablement is lazy —
+   * Chrome only launches on the first browser-enabled spawn — so an enabled node
+   * is typically `running: false` until first use. The UI distinguishes
+   * "enabled (starts on first use)" from "ready (Chrome verified up)".
+   */
+  running: boolean;
+}
+
 export interface WorkerNodeCapabilities {
   platform: NodePlatform;
   arch: string;
@@ -21,6 +40,8 @@ export interface WorkerNodeCapabilities {
   supportedClis: CanonicalCliType[];
   hasBrowserRuntime: boolean;
   hasBrowserMcp: boolean;
+  /** Present when the node reports browser-automation config (newer workers). */
+  browserAutomation?: WorkerNodeBrowserAutomationSummary;
   hasDocker: boolean;
   maxConcurrentInstances: number;
   workingDirectories: string[];

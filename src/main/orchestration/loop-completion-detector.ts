@@ -28,6 +28,7 @@ import { getLogger } from '../logging/logger';
 import { parsePlanChecklist, LOOP_TASKS_FILE, INVESTIGATION_REPORT_FILE } from './loop-stage-machine';
 import { parseTaskLedger } from './loop-task-ledger';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
+import { readUtf8FileHead } from './bounded-file-read';
 import type {
   CompletionSignalEvidence,
   LoopConfig,
@@ -378,7 +379,7 @@ export class LoopCompletionDetector {
     if (config.planFile && !state.planChecklistFullyCheckedAtStart) {
       const planPath = path.resolve(config.workspaceCwd, config.planFile);
       try {
-        const text = await fsp.readFile(planPath, 'utf8');
+        const text = (await readUtf8FileHead(planPath)).text;
         const { checked, fullyChecked } = parsePlanChecklist(text);
         if (fullyChecked) {
           out.push({
@@ -402,7 +403,7 @@ export class LoopCompletionDetector {
     //    (subject to verify-before-stop). A pre-resolved ledger from a prior run
     //    is ignored (staleness guard), and an empty ledger (no items) is a no-op.
     try {
-      const ledgerText = await fsp.readFile(artifactPaths.tasks, 'utf8');
+      const ledgerText = (await readUtf8FileHead(artifactPaths.tasks)).text;
       const ledger = parseTaskLedger(ledgerText);
       if (ledger.total > 0) {
         if (ledger.complete) {
@@ -443,7 +444,7 @@ export class LoopCompletionDetector {
       const reportPath = loopStateFile(artifactPaths, INVESTIGATION_REPORT_FILE);
       let report = '';
       try {
-        report = await fsp.readFile(reportPath, 'utf8');
+        report = (await readUtf8FileHead(reportPath)).text;
       } catch {
         // Missing — treated as not-yet-substantive below.
       }

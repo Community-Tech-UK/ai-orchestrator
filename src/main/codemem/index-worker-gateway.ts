@@ -10,10 +10,10 @@
  * Follows the LspWorkerGateway pattern (injectable workerFactory for testing).
  */
 
-import { fork, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
+import { createIsolatedWorkerProcess, type IsolatedWorkerProcess } from '../runtime/isolated-worker-process';
 import type {
   CodeIndexStatusSnapshot,
   IndexWorkerInboundMsg,
@@ -39,10 +39,8 @@ interface PendingRpc {
   timeout: NodeJS.Timeout;
 }
 
-export interface IndexWorkerProcessHandle extends EventEmitter {
-  postMessage(msg: IndexWorkerInboundMsg): void;
-  terminate(): Promise<number>;
-}
+export type IndexWorkerProcessHandle =
+  IsolatedWorkerProcess<IndexWorkerInboundMsg, IndexWorkerOutboundMsg>;
 
 export interface IndexWorkerGatewayOptions {
   rpcTimeoutMs?: number;
@@ -80,40 +78,11 @@ function getElectronUserDataPath(): string | undefined {
 function makeWorker(userDataPath: string): IndexWorkerProcessHandle {
   const jsEntry = path.join(__dirname, 'index-worker-main.js');
   const entry = existsSync(jsEntry) ? jsEntry : path.join(__dirname, 'index-worker-main.ts');
-  const child = fork(entry, [], {
-    env: {
-      ...process.env,
-      AIO_USER_DATA_PATH: userDataPath,
-      ELECTRON_RUN_AS_NODE: '1',
-    },
-    execArgv: entry.endsWith('.ts') ? ['--import', 'tsx'] : [],
-    stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+  return createIsolatedWorkerProcess<IndexWorkerInboundMsg, IndexWorkerOutboundMsg>({
+    name: 'index worker child process',
+    entrypoint: entry,
+    env: { AIO_USER_DATA_PATH: userDataPath },
   });
-  return new ChildProcessIndexWorkerHandle(child);
-}
-
-class ChildProcessIndexWorkerHandle extends EventEmitter implements IndexWorkerProcessHandle {
-  constructor(private readonly child: ChildProcess) {
-    super();
-    child.on('message', (message) => this.emit('message', message));
-    child.on('error', (error) => this.emit('error', error));
-    child.on('exit', (code) => this.emit('exit', code));
-  }
-
-  postMessage(msg: IndexWorkerInboundMsg): void {
-    if (!this.child.connected) {
-      throw new Error('index worker child process IPC is disconnected');
-    }
-    this.child.send(msg);
-  }
-
-  async terminate(): Promise<number> {
-    if (this.child.exitCode !== null) {
-      return this.child.exitCode ?? 0;
-    }
-    this.child.kill();
-    return 0;
-  }
 }
 
 // ── IndexWorkerGateway ────────────────────────────────────────────────────────
@@ -125,6 +94,7 @@ export class IndexWorkerGateway extends EventEmitter {
   private isDegraded = false;
   private restartAttempts = 0;
   private shuttingDown = false;
+  private restartTimer: NodeJS.Timeout | null = null;
   private readonly defaultRpcTimeoutMs: number;
   private readonly workerFactory: (userDataPath: string) => IndexWorkerProcessHandle;
   private readonly userDataPath: string;
@@ -146,6 +116,10 @@ export class IndexWorkerGateway extends EventEmitter {
 
   async stop(): Promise<void> {
     this.shuttingDown = true;
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
     this.failAllPending(new Error('shutdown'));
     if (this.worker) {
       try {
@@ -348,11 +322,15 @@ export class IndexWorkerGateway extends EventEmitter {
     this.markDegraded(err.message);
     if (this.restartAttempts < MAX_RESTART_ATTEMPTS) {
       this.restartAttempts++;
-      const timer = setTimeout(() => {
+      this.restartTimer = setTimeout(() => {
+        this.restartTimer = null;
+        if (this.shuttingDown) {
+          return;
+        }
         this.isDegraded = false;
         this.startWorker();
       }, RESTART_BACKOFF_MS);
-      timer.unref?.();
+      this.restartTimer.unref?.();
     }
   }
 

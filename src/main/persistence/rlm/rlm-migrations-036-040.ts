@@ -48,4 +48,15 @@ export const RLM_MIGRATIONS_036_040: Migration[] = [
       -- additive analytics column in place on rollback.
     `,
   },
+  {
+    // Bind a browser profile to a remote worker node (Path 2). NULL = local.
+    name: '038_browser_profile_execution_node',
+    up: `
+      ALTER TABLE browser_profiles ADD COLUMN execution_node_id TEXT;
+    `,
+    down: `
+      -- SQLite cannot drop columns portably on older runtimes; leave the
+      -- additive column in place on rollback.
+    `,
+  },
 ];

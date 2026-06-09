@@ -43,6 +43,7 @@ import type { OrchestrationEvent } from '../orchestration-events';
 class InMemoryDb {
   private tables = new Map<string, unknown[]>();
   private indices = new Set<string>();
+  readonly preparedSql: string[] = [];
 
   exec(sql: string): void {
     const tableMatch = sql.match(/CREATE TABLE IF NOT EXISTS (\w+)/);
@@ -56,6 +57,7 @@ class InMemoryDb {
   }
 
   prepare(sql: string) {
+    this.preparedSql.push(sql);
     const tables = this.tables;
     const tableName = sql.includes('orchestration_command_receipts')
       ? 'orchestration_command_receipts'
@@ -109,6 +111,11 @@ class InMemoryDb {
         const filtered = mapped.filter((row) => {
           if (sql.includes('WHERE command_id')) return row['command_id'] === args[0];
           if (sql.includes('WHERE aggregate_id')) return row['aggregate_id'] === args[0];
+          if (sql.includes('WHERE type IN')) {
+            const limitArgCount = sql.includes('LIMIT') ? 1 : 0;
+            const types = args.slice(0, args.length - limitArgCount);
+            return types.includes(row['type']);
+          }
           if (sql.includes('WHERE type')) return row['type'] === args[0];
           return true;
         });
@@ -542,6 +549,50 @@ describe('OrchestrationEventStore', () => {
       eventId: 'evt-legacy',
       metadata: undefined,
     });
+  });
+
+  it('caps getAllEvents unless an explicit smaller limit is supplied', () => {
+    for (let index = 0; index < 3; index++) {
+      store.append({
+        id: `event-${index}`,
+        type: 'verification.requested',
+        aggregateId: `verify-${index}`,
+        timestamp: 100 + index,
+        payload: { index },
+      });
+    }
+
+    expect(store.getAllEvents({ limit: 2 }).map((event) => event.id)).toEqual(['event-0', 'event-1']);
+  });
+
+  it('projects active aggregates from only relevant bounded rows', () => {
+    const db = new InMemoryDb();
+    const scopedStore = new OrchestrationEventStore(db);
+    scopedStore.initialize();
+    for (let index = 0; index < 3; index++) {
+      scopedStore.append({
+        id: `noise-${index}`,
+        type: 'debate.round_completed',
+        aggregateId: `debate-${index}`,
+        timestamp: 10 + index,
+        payload: {},
+      });
+    }
+    scopedStore.append({
+      id: 'verification-1',
+      type: 'verification.requested',
+      aggregateId: 'verification-active',
+      timestamp: 20,
+      payload: {
+        id: 'verification-active',
+        instanceId: 'inst-1',
+        prompt: 'check this',
+        config: { agentCount: 3, timeout: 60000, synthesisStrategy: 'merge' },
+      },
+    });
+
+    expect(scopedStore.getActiveVerificationRequests()).toHaveLength(1);
+    expect(db.preparedSql.some((sql) => sql.includes('WHERE type IN'))).toBe(true);
   });
 });
 

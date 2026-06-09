@@ -72,6 +72,7 @@ describe('UserActionRequestComponent', () => {
     onUserActionRequest = () => undefined;
     onInputRequired = () => undefined;
     currentInstanceId = signal<string | null>(null);
+    vi.clearAllMocks();
     fakeIpc.listUserActionRequests.mockResolvedValue({ success: true, data: [] });
     fakeIpc.listUserActionRequestsForInstance.mockResolvedValue({ success: true, data: [] });
     fakeIpc.onUserActionRequest.mockImplementation((callback: (request: unknown) => void) => {
@@ -326,6 +327,116 @@ describe('UserActionRequestComponent', () => {
     await settle(fixture);
 
     expect(fakeIpc.respondToUserAction).toHaveBeenCalledWith('req-confirm', true, undefined);
+  });
+
+  // ── AskUserQuestion clickable options ────────────────────────────────────
+
+  it('renders clickable options for AskUserQuestion and submits selected labels to the CLI', async () => {
+    currentInstanceId.set('inst-a');
+    fixture.detectChanges();
+    await settle(fixture);
+
+    onInputRequired({
+      instanceId: 'inst-a',
+      requestId: 'req-auq',
+      prompt: 'Which posts should I comment on?\n\nOptions:\n1. Robyn Ball',
+      timestamp: 1_900_000_000_000,
+      metadata: {
+        type: 'ask_user_question',
+        tool_use_id: 'toolu_auq',
+        questions: [
+          {
+            header: 'Posts',
+            question: 'Which posts should I comment on?',
+            multiSelect: true,
+            options: [
+              { label: 'Robyn Ball', description: 'genuine confusion' },
+              { label: 'Janet Pearce', description: 'real question' },
+            ],
+          },
+        ],
+      },
+    });
+    fixture.detectChanges();
+    await settle(fixture);
+
+    // Options render as buttons
+    const optionButtons = Array.from(
+      fixture.nativeElement.querySelectorAll('.ask-option'),
+    ) as HTMLButtonElement[];
+    expect(optionButtons.length).toBe(2);
+    expect(fixture.nativeElement.textContent).toContain('Robyn Ball');
+    expect(fixture.nativeElement.textContent).toContain('genuine confusion');
+
+    // Submit is disabled until a selection is made
+    const submitBtn = fixture.nativeElement.querySelector('.btn-approve') as HTMLButtonElement;
+    expect(submitBtn.disabled).toBe(true);
+
+    // Select both options (multiSelect)
+    optionButtons[0].click();
+    optionButtons[1].click();
+    fixture.detectChanges();
+    await settle(fixture);
+
+    expect(submitBtn.disabled).toBe(false);
+
+    submitBtn.click();
+    fixture.detectChanges();
+    await settle(fixture);
+
+    // The compiled answer is sent back to the CLI via respondToInputRequired
+    const calls = (fakeIpc.respondToInputRequired as ReturnType<typeof vi.fn>).mock.calls;
+    const auqCall = calls.find((c: unknown[]) => c[1] === 'req-auq');
+    expect(auqCall).toBeDefined();
+    expect(auqCall![0]).toBe('inst-a');
+    expect(auqCall![2]).toBe('Posts: Robyn Ball, Janet Pearce');
+  });
+
+  it('single-select AskUserQuestion replaces the prior choice', async () => {
+    currentInstanceId.set('inst-a');
+    fixture.detectChanges();
+    await settle(fixture);
+
+    onInputRequired({
+      instanceId: 'inst-a',
+      requestId: 'req-auq-single',
+      prompt: 'Which flow?',
+      timestamp: 1_900_000_000_000,
+      metadata: {
+        type: 'ask_user_question',
+        tool_use_id: 'toolu_single',
+        questions: [
+          {
+            header: 'Flow',
+            question: 'Which posting flow?',
+            multiSelect: false,
+            options: [{ label: 'Approve each' }, { label: 'Autonomous' }],
+          },
+        ],
+      },
+    });
+    fixture.detectChanges();
+    await settle(fixture);
+
+    const optionButtons = Array.from(
+      fixture.nativeElement.querySelectorAll('.ask-option'),
+    ) as HTMLButtonElement[];
+
+    optionButtons[0].click();
+    fixture.detectChanges();
+    optionButtons[1].click(); // replaces the first in single-select mode
+    fixture.detectChanges();
+    await settle(fixture);
+
+    const submitBtn = fixture.nativeElement.querySelector('.btn-approve') as HTMLButtonElement;
+    submitBtn.click();
+    fixture.detectChanges();
+    await settle(fixture);
+
+    const calls = (fakeIpc.respondToInputRequired as ReturnType<typeof vi.fn>).mock.calls;
+    const singleCall = calls.find((c: unknown[]) => c[1] === 'req-auq-single');
+    expect(singleCall).toBeDefined();
+    expect(singleCall![2]).toBe('Flow: Autonomous');
   });
 });
 

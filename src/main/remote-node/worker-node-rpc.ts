@@ -17,7 +17,11 @@ export const NODE_TO_COORDINATOR = {
   INSTANCE_CONTEXT: 'instance.context',
   FS_EVENT: 'fs.event',
   TERMINAL_OUTPUT: 'terminal.output',
-  TERMINAL_EXIT: 'terminal.exit'
+  TERMINAL_EXIT: 'terminal.exit',
+  // Remote browser CDP tunnel (Path 2): frames from the node's Chrome back to
+  // the coordinator's puppeteer transport.
+  BROWSER_CDP_MESSAGE: 'browser.cdp.message',
+  BROWSER_CDP_CLOSED: 'browser.cdp.closed'
 } as const;
 
 /** Methods sent FROM coordinator TO worker node */
@@ -50,6 +54,16 @@ export const COORDINATOR_TO_NODE = {
   SERVICE_RESTART: 'service.restart',
   SERVICE_STOP: 'service.stop',
   SERVICE_UNINSTALL: 'service.uninstall',
+  CONFIG_UPDATE: 'config.update',
+  // Remote browser CDP tunnel (Path 2): the coordinator's gateway drives the
+  // node's Chrome by tunneling CDP frames over this connection.
+  BROWSER_CDP_OPEN: 'browser.cdp.open',
+  BROWSER_CDP_SEND: 'browser.cdp.send',
+  BROWSER_CDP_CLOSE: 'browser.cdp.close',
+  // Stop the worker's managed Chrome (frees the automation profile dir lock so a
+  // guided headful login can open it). Config stays enabled; Chrome relaunches
+  // lazily on the next browser-enabled spawn.
+  BROWSER_STOP_MANAGED: 'browser.stopManaged',
   AUXILIARY_MODEL_LIST: 'auxiliaryModel.list',
   AUXILIARY_MODEL_GENERATE: 'auxiliaryModel.generate',
 } as const;

@@ -16,7 +16,53 @@ describe('createOrchestratorToolsForwarderTools', () => {
       'read_node_output',
       'create_automation',
       'list_automations',
+      'delete_automation',
+      'update_automation',
+      'postpone_automation',
     ]);
+  });
+
+  it('forwards delete_automation invocations with the canonical method name', async () => {
+    const call = vi.fn(async () => ({ id: 'auto-1', name: 'Daily sweep', deleted: true, detachedInstanceIds: [] }));
+    const tool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'delete_automation',
+    );
+
+    const result = await tool!.handler({ id: 'auto-1' });
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.delete_automation', { id: 'auto-1' });
+    expect(result).toEqual({ id: 'auto-1', name: 'Daily sweep', deleted: true, detachedInstanceIds: [] });
+  });
+
+  it('forwards update_automation invocations with the canonical method name', async () => {
+    const call = vi.fn(async () => ({ id: 'auto-1' }));
+    const tool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'update_automation',
+    );
+
+    await tool!.handler({ id: 'auto-1', enabled: false });
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.update_automation', {
+      id: 'auto-1',
+      enabled: false,
+    });
+  });
+
+  it('forwards postpone_automation invocations with the canonical method name', async () => {
+    const call = vi.fn(async () => ({ id: 'auto-1' }));
+    const tool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'postpone_automation',
+    );
+
+    await tool!.handler({ id: 'auto-1', delayMinutes: 60 });
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.postpone_automation', {
+      id: 'auto-1',
+      delayMinutes: 60,
+    });
   });
 
   it('forwards create_automation invocations with the canonical method name', async () => {

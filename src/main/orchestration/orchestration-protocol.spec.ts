@@ -181,6 +181,13 @@ describe('generateOrchestrationPrompt', () => {
       expect(prompt).toMatch(/cadence is ambiguous[\s\S]*request_user_action/);
     });
 
+    it('documents the management tools for existing automations', () => {
+      expect(prompt).toContain('list_automations');
+      expect(prompt).toContain('update_automation');
+      expect(prompt).toContain('postpone_automation');
+      expect(prompt).toContain('delete_automation');
+    });
+
     it('steers scheduling to native create_automation and away from host CLI schedulers', () => {
       expect(prompt).toMatch(/native `create_automation`/);
       expect(prompt).toMatch(/Claude Code's `\/schedule`/);

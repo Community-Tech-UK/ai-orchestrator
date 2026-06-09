@@ -60,6 +60,7 @@ export const DEFAULT_SMART_COMPACTION_CONFIG: SmartCompactionConfig = {
   summaryTargetTokens: 500,
   autoCompact: true,
   minArchiveBatch: 5,
+  maxArchivedTurns: 500,
   // Smart compaction extensions
   earlyWarningThresholdPercent: 75,
   warningThresholdPercent: 80,

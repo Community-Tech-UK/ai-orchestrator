@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -98,5 +98,44 @@ describe('snapshotFileChangesViaGit', () => {
 
     const changes = snapshotFileChangesViaGit(workspace);
     expect(changes.map((c) => c.path)).toEqual(['src/Main.java']);
+  });
+
+  it('does not whole-file read large git-changed files while hashing', async () => {
+    workspace = mkdtempSync(join(tmpdir(), 'loop-snap-git-'));
+    const relPath = 'src/huge.md';
+    const absPath = join(workspace, relPath);
+    write(workspace, relPath, 'x'.repeat(6 * 1024 * 1024));
+    const runner = () => ({
+      status: 0,
+      stdout: `1\t1\t${relPath}\n`,
+    });
+    vi.resetModules();
+    const realFs = await vi.importActual<typeof import('node:fs')>('node:fs');
+    vi.doMock('fs', () => ({
+      ...realFs,
+      readFileSync: (pathLike: Parameters<typeof realFs.readFileSync>[0], ...args: unknown[]) => {
+        if (pathLike === absPath) {
+          throw new Error('unexpected whole-file read');
+        }
+        return realFs.readFileSync(pathLike, ...(args as []));
+      },
+    }));
+    const { snapshotFileChangesViaGit: snapshotWithMockedFs } = await import('./loop-workspace-snapshot');
+
+    try {
+      const changes = snapshotWithMockedFs(workspace, runner);
+
+      expect(changes).toEqual([
+        {
+          path: relPath,
+          additions: 1,
+          deletions: 1,
+          contentHash: expect.any(String),
+        },
+      ]);
+    } finally {
+      vi.doUnmock('fs');
+      vi.resetModules();
+    }
   });
 });

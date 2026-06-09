@@ -358,6 +358,14 @@ export interface AppSettings {
   auxiliaryLlmUseLocalhostOllama: boolean;
   auxiliaryLlmEndpointsJson: string;
   auxiliaryLlmSlotsJson: string;
+  /**
+   * Model ids used by the per-slot quality tiers. Slots tagged `tier: 'quick'`
+   * resolve to `auxiliaryLlmQuickModel` (small/fast — scoring, routing, titles)
+   * and `tier: 'quality'` to `auxiliaryLlmQualityModel` (larger — compression,
+   * distillation), unless a slot pins an explicit model. Empty = auto-pick.
+   */
+  auxiliaryLlmQuickModel: string;
+  auxiliaryLlmQualityModel: string;
 }
 
 /**
@@ -516,14 +524,16 @@ export const DEFAULT_SETTINGS: AppSettings = {
   auxiliaryLlmAllowRemoteWorkerModels: true,
   auxiliaryLlmUseLocalhostOllama: true,
   auxiliaryLlmEndpointsJson: '[]',
+  auxiliaryLlmQuickModel: '',
+  auxiliaryLlmQualityModel: '',
   auxiliaryLlmSlotsJson: JSON.stringify({
-    compression: { enabled: true, provider: 'auto', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: true },
-    memoryDistillation: { enabled: true, provider: 'auto', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: true },
-    webExtract: { enabled: true, provider: 'auto', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.1, timeoutMs: 30000, requireJson: false, allowFrontierFallback: false },
-    titleGeneration: { enabled: true, provider: 'auto', maxInputTokens: 12000, maxOutputTokens: 128, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: false },
-    routingClassification: { enabled: true, provider: 'auto', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 45000, requireJson: true, allowFrontierFallback: false },
-    approvalScoring: { enabled: true, provider: 'auto', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 45000, requireJson: true, allowFrontierFallback: false },
-    loopScoring: { enabled: true, provider: 'auto', maxInputTokens: 32000, maxOutputTokens: 1024, temperature: 0, timeoutMs: 30000, requireJson: true, allowFrontierFallback: false },
+    compression: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: true },
+    memoryDistillation: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: true },
+    webExtract: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.1, timeoutMs: 30000, requireJson: false, allowFrontierFallback: false },
+    titleGeneration: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 12000, maxOutputTokens: 128, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: false },
+    routingClassification: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 45000, requireJson: true, allowFrontierFallback: false },
+    approvalScoring: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 45000, requireJson: true, allowFrontierFallback: false },
+    loopScoring: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 32000, maxOutputTokens: 1024, temperature: 0, timeoutMs: 30000, requireJson: true, allowFrontierFallback: false },
   }),
 };
 

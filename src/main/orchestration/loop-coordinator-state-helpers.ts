@@ -10,6 +10,23 @@ import {
   LOOP_MAX_PLAN_REGENERATIONS,
 } from '../../shared/types/loop.types';
 import { resolveLoopArtifactPaths } from './loop-artifact-paths';
+import { readUtf8FileHead } from './bounded-file-read';
+
+function normalizeLoopCaps(
+  base: LoopConfig['caps'],
+  patch: Partial<LoopConfig['caps']> | undefined,
+): LoopConfig['caps'] {
+  const merged = { ...base, ...(patch ?? {}) };
+  const maxTokens = merged.maxTokens == null
+    ? null
+    : Math.max(1, Math.floor(merged.maxTokens));
+  return {
+    ...merged,
+    maxTokens,
+    maxWallTimeMs: Math.max(1, Math.floor(merged.maxWallTimeMs)),
+    maxToolCallsPerIteration: Math.max(1, Math.floor(merged.maxToolCallsPerIteration)),
+  };
+}
 
 export function materializeLoopConfig(
   p: Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string },
@@ -21,10 +38,7 @@ export function materializeLoopConfig(
   return {
     ...base,
     ...p,
-    // Token caps are intentionally disabled for loops. Keep accepting the
-    // field for persisted/IPC compatibility, but never materialize it as an
-    // operative hard cap.
-    caps: { ...base.caps, ...(p.caps ?? {}), maxTokens: null },
+    caps: normalizeLoopCaps(base.caps, p.caps),
     progressThresholds: {
       ...base.progressThresholds,
       ...(p.progressThresholds ?? {}),
@@ -39,6 +53,7 @@ export function checkLoopHardCaps(state: LoopState): null | 'iterations' | 'wall
   const caps = state.config.caps;
   if (caps.maxIterations !== null && state.totalIterations >= caps.maxIterations) return 'iterations';
   if (Date.now() - state.startedAt >= caps.maxWallTimeMs) return 'wall-time';
+  if (caps.maxTokens !== null && state.totalTokens >= caps.maxTokens) return 'tokens';
   if (caps.maxCostCents !== null && state.totalCostCents >= caps.maxCostCents) return 'cost';
   return null;
 }
@@ -174,12 +189,10 @@ export async function firstExistingBlockedFile(state: LoopState): Promise<string
 }
 
 export async function readBlockedFileIfPresent(state: LoopState): Promise<{ message: string } | null> {
-  const fs = await import('node:fs/promises');
   const target = await firstExistingBlockedFile(state);
   if (!target) return null;
   try {
-    const raw = await fs.readFile(target, 'utf8');
-    const trimmed = raw.trim();
+    const trimmed = (await readUtf8FileHead(target, 8 * 1024)).text.trim();
     if (!trimmed) return null;
     const message = trimmed.length > 4096 ? `${trimmed.slice(0, 4096)}\n…(truncated)` : trimmed;
     return { message };

@@ -31,16 +31,22 @@ import { defaultOperatorDbPath } from '../operator/operator-database';
 import {
   createOrchestratorToolDefinitions,
   CreateAutomationArgsSchema,
+  DeleteAutomationArgsSchema,
   GitBatchPullArgsSchema,
   ListAutomationsArgsSchema,
   ListRemoteNodesArgsSchema,
+  PostponeAutomationArgsSchema,
   ReadNodeOutputArgsSchema,
   RunOnNodeArgsSchema,
+  UpdateAutomationArgsSchema,
   type CreateAutomationFn,
+  type DeleteAutomationFn,
   type ListAutomationsFn,
   type ListRemoteNodesFn,
+  type PostponeAutomationFn,
   type ReadInstanceOutputFn,
   type SpawnRemoteInstanceFn,
+  type UpdateAutomationFn,
 } from './orchestrator-tools';
 import type { McpServerToolDefinition } from './mcp-server-tools';
 import { createToolsetRegistry } from '../tools/toolsets';
@@ -54,7 +60,7 @@ const logger = getLogger('OrchestratorToolsRpcServer');
  * alongside the depth guard enforced in the `run_on_node` handler.
  */
 const ORCHESTRATOR_TOOLSETS = createToolsetRegistry([
-  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'read_node_output', 'create_automation', 'list_automations'] },
+  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'read_node_output', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation'] },
   { name: 'orchestrator-tools-leaf', includes: ['orchestrator-tools-full'], tools: ['!run_on_node'] },
 ]);
 
@@ -117,6 +123,24 @@ export interface OrchestratorToolsRpcServerOptions {
    */
   listAutomations?: ListAutomationsFn | null;
   /**
+   * Deletes an automation (backs the `delete_automation` tool). Injected from
+   * main-process startup. When omitted, `delete_automation` rejects with an
+   * "unavailable" error.
+   */
+  deleteAutomation?: DeleteAutomationFn | null;
+  /**
+   * Updates an automation (backs the `update_automation` tool). Injected from
+   * main-process startup. When omitted, `update_automation` rejects with an
+   * "unavailable" error.
+   */
+  updateAutomation?: UpdateAutomationFn | null;
+  /**
+   * Postpones an automation's next run (backs the `postpone_automation` tool).
+   * Injected from main-process startup. When omitted, `postpone_automation`
+   * rejects with an "unavailable" error.
+   */
+  postponeAutomation?: PostponeAutomationFn | null;
+  /**
    * Returns whether the given instance may still spawn (i.e. is below the
    * configured spawn-depth limit). When it returns false, the spawn-capable
    * `run_on_node` tool is stripped from that instance's tool list (#18a). When
@@ -133,6 +157,9 @@ export interface OrchestratorToolsRpcServerOptions {
     readInstanceOutput: ReadInstanceOutputFn | null;
     createAutomation: CreateAutomationFn | null;
     listAutomations: ListAutomationsFn | null;
+    deleteAutomation: DeleteAutomationFn | null;
+    updateAutomation: UpdateAutomationFn | null;
+    postponeAutomation: PostponeAutomationFn | null;
   }) => McpServerToolDefinition[];
 }
 
@@ -147,6 +174,9 @@ export class OrchestratorToolsRpcServer {
   private readonly readInstanceOutput: ReadInstanceOutputFn | null;
   private readonly createAutomation: CreateAutomationFn | null;
   private readonly listAutomations: ListAutomationsFn | null;
+  private readonly deleteAutomation: DeleteAutomationFn | null;
+  private readonly updateAutomation: UpdateAutomationFn | null;
+  private readonly postponeAutomation: PostponeAutomationFn | null;
   private readonly resolveSpawnEligibility: ((instanceId: string) => boolean) | null;
   private readonly buckets = new Map<string, number[]>();
   private readonly toolFactory: NonNullable<OrchestratorToolsRpcServerOptions['toolFactory']>;
@@ -170,6 +200,9 @@ export class OrchestratorToolsRpcServer {
     this.readInstanceOutput = options.readInstanceOutput ?? null;
     this.createAutomation = options.createAutomation ?? null;
     this.listAutomations = options.listAutomations ?? null;
+    this.deleteAutomation = options.deleteAutomation ?? null;
+    this.updateAutomation = options.updateAutomation ?? null;
+    this.postponeAutomation = options.postponeAutomation ?? null;
     this.resolveSpawnEligibility = options.resolveSpawnEligibility ?? null;
     this.toolFactoryInjected = options.toolFactory !== undefined;
     this.toolFactory = options.toolFactory ?? createOrchestratorToolDefinitions;
@@ -280,6 +313,33 @@ export class OrchestratorToolsRpcServer {
         const tool = tools.find((t) => t.name === 'list_automations');
         if (!tool) {
           throw new Error('list_automations tool unavailable');
+        }
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.delete_automation': {
+        const validated = DeleteAutomationArgsSchema.parse(params.payload);
+        const tools = this.getToolsForInstance(params.instanceId);
+        const tool = tools.find((t) => t.name === 'delete_automation');
+        if (!tool) {
+          throw new Error('delete_automation tool unavailable');
+        }
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.update_automation': {
+        const validated = UpdateAutomationArgsSchema.parse(params.payload);
+        const tools = this.getToolsForInstance(params.instanceId);
+        const tool = tools.find((t) => t.name === 'update_automation');
+        if (!tool) {
+          throw new Error('update_automation tool unavailable');
+        }
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.postpone_automation': {
+        const validated = PostponeAutomationArgsSchema.parse(params.payload);
+        const tools = this.getToolsForInstance(params.instanceId);
+        const tool = tools.find((t) => t.name === 'postpone_automation');
+        if (!tool) {
+          throw new Error('postpone_automation tool unavailable');
         }
         return tool.handler(validated);
       }
@@ -397,6 +457,9 @@ export class OrchestratorToolsRpcServer {
         readInstanceOutput: this.readInstanceOutput,
         createAutomation: this.createAutomation,
         listAutomations: this.listAutomations,
+        deleteAutomation: this.deleteAutomation,
+        updateAutomation: this.updateAutomation,
+        postponeAutomation: this.postponeAutomation,
       }));
     }
     this.ensureRuntimeReady();
@@ -412,6 +475,9 @@ export class OrchestratorToolsRpcServer {
       readInstanceOutput: this.readInstanceOutput,
       createAutomation: this.createAutomation,
       listAutomations: this.listAutomations,
+      deleteAutomation: this.deleteAutomation,
+      updateAutomation: this.updateAutomation,
+      postponeAutomation: this.postponeAutomation,
     }));
   }
 

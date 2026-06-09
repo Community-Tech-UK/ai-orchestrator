@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { LoopConfigInput } from '@contracts/schemas/loop';
 import { IPC_CHANNELS } from '@contracts/channels';
 import type { InstanceManager } from '../../../instance/instance-manager';
-import { defaultLoopConfig, type LoopState } from '../../../../shared/types/loop.types';
+import { defaultLoopConfig, type LoopIteration, type LoopState } from '../../../../shared/types/loop.types';
 import { buildExistingSessionContext, registerLoopHandlers } from '../loop-handlers';
 import { ipcMain } from 'electron';
 
@@ -17,6 +17,7 @@ const hoisted = vi.hoisted(() => ({
     startLoop: vi.fn(),
     pauseLoop: vi.fn(),
     resumeLoop: vi.fn(),
+    restoreLoopFromCheckpoint: vi.fn(),
     intervene: vi.fn(),
     cancelLoop: vi.fn(),
     getLoop: vi.fn(),
@@ -24,10 +25,13 @@ const hoisted = vi.hoisted(() => ({
   store: {
     upsertRun: vi.fn(),
     insertIteration: vi.fn(),
+    upsertCheckpoint: vi.fn(),
     upsertTerminalIntent: vi.fn(),
     getRunSummary: vi.fn(),
     listRunsForChat: vi.fn(),
     getIterations: vi.fn(),
+    getCheckpoint: vi.fn(),
+    listResumableCheckpoints: vi.fn(),
   },
   chatService: {
     appendSystemEvent: vi.fn(),
@@ -92,6 +96,8 @@ beforeEach(() => {
     tempWorkspace = null;
   }
   vi.clearAllMocks();
+  hoisted.coordinator.getLoop.mockReturnValue(undefined);
+  hoisted.store.getCheckpoint.mockReturnValue(null);
   // Default: behave as if state.chatId is a real chat. Individual tests can
   // override this to exercise the instance-id fallback path.
   hoisted.chatService.tryGetChat.mockReturnValue({ id: 'chat-1' });
@@ -137,6 +143,47 @@ describe('buildExistingSessionContext', () => {
 });
 
 describe('registerLoopHandlers terminal summaries', () => {
+  it('persists a checkpoint whenever loop state changes', () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const state = makeLoopState({ status: 'running', endedAt: null });
+    const stateHandler = hoisted.coordinator.on.mock.calls.find((call) =>
+      call[0] === 'loop:state-changed'
+    )?.[1] as ((data: { loopRunId: string; state: LoopState }) => void) | undefined;
+
+    stateHandler?.({ loopRunId: state.id, state });
+
+    expect(hoisted.store.upsertCheckpoint).toHaveBeenCalledWith(expect.objectContaining({
+      loopRunId: state.id,
+      chatId: state.chatId,
+      status: state.status,
+    }));
+  });
+
+  it('persists a checkpoint when an iteration is sealed', () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const iterationHook = hoisted.coordinator.registerIterationHook.mock.calls[0]?.[0] as
+      ((payload: { state: LoopState; iteration: LoopIteration }) => void) | undefined;
+    const state = makeLoopState({ status: 'running', endedAt: null });
+    const iteration = makeLoopIteration({ loopRunId: state.id });
+
+    iterationHook?.({ state, iteration });
+
+    expect(hoisted.store.upsertCheckpoint).toHaveBeenCalledWith(expect.objectContaining({
+      loopRunId: state.id,
+      historyTail: [iteration],
+    }));
+  });
+
   it('appends a durable chat summary when a loop enters a terminal state', () => {
     const windowManager = { sendToRenderer: vi.fn() };
     const instanceManager = makeInstanceManager([]);
@@ -516,6 +563,41 @@ describe('LOOP_INTERVENE handler', () => {
   });
 });
 
+describe('LOOP_RESUME handler', () => {
+  it('restores a paused stored loop from checkpoint when LOOP_RESUME has no live coordinator state', async () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    const state = makeLoopState({ id: 'loop-stored', status: 'paused', endedAt: null });
+    const checkpoint = {
+      version: 1 as const,
+      loopRunId: state.id,
+      chatId: state.chatId,
+      status: state.status,
+      state,
+      historyTail: [],
+      convergenceNote: null,
+      planRegenerationCount: 0,
+      pendingContextReset: false,
+      updatedAt: 123,
+    };
+    hoisted.coordinator.resumeLoop.mockReturnValueOnce(false).mockReturnValueOnce(true);
+    hoisted.coordinator.getLoop.mockReturnValueOnce(undefined).mockReturnValueOnce(state);
+    hoisted.coordinator.restoreLoopFromCheckpoint.mockResolvedValue(state);
+    hoisted.store.getCheckpoint.mockReturnValue(checkpoint);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_RESUME);
+
+    const response = await handler({}, { loopRunId: 'loop-stored' });
+
+    expect(hoisted.coordinator.restoreLoopFromCheckpoint).toHaveBeenCalledWith(checkpoint);
+    expect(response.success).toBe(true);
+    expect(response.data).toEqual({ ok: true, state });
+  });
+});
+
 describe('terminal summary instance-id fallback', () => {
   it('routes the terminal summary to InstanceManager.emitSystemMessage for instance-detail loops', () => {
     const windowManager = { sendToRenderer: vi.fn() };
@@ -578,6 +660,34 @@ function makeLoopState(overrides: Partial<LoopState> = {}): LoopState {
     highestTestPassCount: 0,
     iterationsOnCurrentStage: 0,
     recentWarnIterationSeqs: [],
+    ...overrides,
+  };
+}
+
+function makeLoopIteration(overrides: Partial<LoopIteration> = {}): LoopIteration {
+  return {
+    id: 'iteration-1',
+    loopRunId: 'loop-1',
+    seq: 0,
+    stage: 'IMPLEMENT',
+    startedAt: 1,
+    endedAt: 2,
+    childInstanceId: 'child-1',
+    tokens: 10,
+    costCents: 1,
+    filesChanged: [],
+    toolCalls: [],
+    errors: [],
+    testPassCount: null,
+    testFailCount: null,
+    workHash: 'hash',
+    outputSimilarityToPrev: null,
+    outputExcerpt: '',
+    progressVerdict: 'OK',
+    progressSignals: [],
+    completionSignalsFired: [],
+    verifyStatus: 'not-run',
+    verifyOutputExcerpt: '',
     ...overrides,
   };
 }

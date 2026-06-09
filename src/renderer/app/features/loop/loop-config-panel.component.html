@@ -88,7 +88,7 @@
     </div>
     <div>
       <label for="loop-cfg-cap-hours">Max hours</label>
-      <input id="loop-cfg-cap-hours" type="number" min="1" max="24" [ngModel]="maxHours()" (ngModelChange)="maxHours.set($event)" />
+      <input id="loop-cfg-cap-hours" type="number" min="1" max="168" [ngModel]="maxHours()" (ngModelChange)="maxHours.set($event)" />
     </div>
     <div>
       <label for="loop-cfg-cap-cost">Max spend ($) <span class="hint">(blank = no cap)</span></label>

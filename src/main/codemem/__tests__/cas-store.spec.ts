@@ -438,4 +438,46 @@ describe('CasStore', () => {
     store.clearCancel('w1');
     expect(store.isCancelRequested('w1')).toBe(false);
   });
+
+  it('lists workspace index stats and deletes one workspace index without deleting shared chunks', () => {
+    store.upsertChunk(sampleChunk({ contentHash: 'c1', rawText: 'shared chunk' }));
+    store.upsertWorkspaceRoot({
+      workspaceHash: 'workspace-a',
+      absPath: '/repo-a',
+      headCommit: null,
+      primaryLanguage: 'typescript',
+      lastIndexedAt: 100,
+      merkleRootHash: null,
+      pagerankJson: null,
+    });
+    store.upsertManifestEntry({
+      workspaceHash: 'workspace-a',
+      pathFromRoot: 'src/a.ts',
+      contentHash: 'c1',
+      merkleLeafHash: 'm1',
+      mtime: 1,
+    });
+    store.replaceWorkspaceChunksForFile('workspace-a', 'src/a.ts', [{
+      workspaceHash: 'workspace-a',
+      pathFromRoot: 'src/a.ts',
+      chunkIndex: 0,
+      contentHash: 'c1',
+      startLine: 1,
+      endLine: 1,
+      language: 'typescript',
+      chunkType: 'function',
+      name: 'shared',
+      updatedAt: 1,
+    }]);
+
+    expect(store.listWorkspaceIndexStats()).toEqual([
+      expect.objectContaining({ workspaceHash: 'workspace-a', manifestEntries: 1, workspaceChunks: 1 }),
+    ]);
+
+    store.deleteWorkspaceIndex('workspace-a');
+    expect(store.getWorkspaceRoot('workspace-a')).toBeNull();
+    expect(store.countManifestEntries('workspace-a')).toBe(0);
+    expect(store.getChunk('c1')).toEqual(expect.objectContaining({ rawText: 'shared chunk' }));
+    expect(store.searchWorkspaceChunks('workspace-a', 'shared', 5)).toHaveLength(0);
+  });
 });

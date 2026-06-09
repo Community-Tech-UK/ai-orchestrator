@@ -30,6 +30,9 @@ export class RpcEventRouter {
     // terminal.output is a high-frequency PTY stream; like instance.output it
     // rides an already-authenticated WS, so we skip per-frame token checks.
     NODE_TO_COORDINATOR.TERMINAL_OUTPUT,
+    // browser.cdp.message is a high-frequency CDP frame stream (Path 2 remote
+    // browser tunnel) — same rationale as terminal.output.
+    NODE_TO_COORDINATOR.BROWSER_CDP_MESSAGE,
   ]);
 
   /**
@@ -231,6 +234,14 @@ export class RpcEventRouter {
         this.handleTerminalExitNotification(nodeId, notification);
         break;
       }
+      case NODE_TO_COORDINATOR.BROWSER_CDP_MESSAGE: {
+        this.handleBrowserCdpMessageNotification(nodeId, notification);
+        break;
+      }
+      case NODE_TO_COORDINATOR.BROWSER_CDP_CLOSED: {
+        this.handleBrowserCdpClosedNotification(nodeId, notification);
+        break;
+      }
       default:
         logger.warn('Unknown RPC notification method received', { nodeId, method: notification.method });
     }
@@ -385,6 +396,35 @@ export class RpcEventRouter {
     const exitCode = typeof params?.['exitCode'] === 'number' ? (params['exitCode'] as number) : null;
     const signal = typeof params?.['signal'] === 'string' ? (params['signal'] as string) : null;
     this.registry.emit('remote:terminal-exit', { nodeId, sessionId, exitCode, signal });
+  }
+
+  private handleBrowserCdpMessageNotification(nodeId: string, notification: RpcNotification): void {
+    if (!this.registry.getNode(nodeId)) {
+      logger.warn('Browser CDP message from unknown node', { nodeId });
+      return;
+    }
+    const params = notification.params as Record<string, unknown> | undefined;
+    const sessionId = params?.['sessionId'];
+    const frame = params?.['frame'];
+    if (typeof sessionId !== 'string' || typeof frame !== 'string') {
+      logger.warn('Malformed browser.cdp.message notification', { nodeId });
+      return;
+    }
+    this.registry.emit('remote:browser-cdp-message', { nodeId, sessionId, frame });
+  }
+
+  private handleBrowserCdpClosedNotification(nodeId: string, notification: RpcNotification): void {
+    if (!this.registry.getNode(nodeId)) {
+      logger.warn('Browser CDP closed from unknown node', { nodeId });
+      return;
+    }
+    const params = notification.params as Record<string, unknown> | undefined;
+    const sessionId = params?.['sessionId'];
+    if (typeof sessionId !== 'string') {
+      logger.warn('Malformed browser.cdp.closed notification', { nodeId });
+      return;
+    }
+    this.registry.emit('remote:browser-cdp-closed', { nodeId, sessionId });
   }
 
   private handleInstanceStateChange(nodeId: string, request: RpcRequest): void {

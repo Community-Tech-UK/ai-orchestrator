@@ -6,9 +6,12 @@ import { reportCapabilities } from './capability-reporter';
 import { DiscoveryClient } from './discovery-client';
 import { LocalInstanceManager } from './local-instance-manager';
 import { nextReconnectDelayMs, RECONNECT_CONFIG } from './reconnect-backoff';
-import type { WorkerConfig } from './worker-config';
+import type { WorkerBrowserAutomationConfig, WorkerConfig } from './worker-config';
 import { persistConfig } from './worker-config';
-import type { WorkerNodeCapabilities } from '../shared/types/worker-node.types';
+import type {
+  WorkerNodeBrowserAutomationSummary,
+  WorkerNodeCapabilities,
+} from '../shared/types/worker-node.types';
 import { NODE_TO_COORDINATOR } from '../main/remote-node/worker-node-rpc';
 import type { EnrollmentResult } from '../main/remote-node/worker-node-rpc';
 import { NodeFilesystemHandler } from '../main/remote-node/node-filesystem-handler';
@@ -16,6 +19,8 @@ import { SyncHandler } from './sync-handler';
 import { WorkerTerminalHandler } from './worker-terminal-handler';
 import { WorkerInstanceNotifier } from './worker-instance-notifier';
 import { WorkerRpcDispatcher } from './worker-rpc-dispatcher';
+import { WorkerBrowserManager } from './worker-browser-manager';
+import { WorkerCdpTunnel } from './worker-cdp-tunnel';
 import type { RpcMessage } from './worker-rpc-types';
 import type { DiscoveredCoordinator } from './discovery-client';
 
@@ -66,14 +71,25 @@ export class WorkerAgent extends EventEmitter {
   private terminalHandler: WorkerTerminalHandler | null = null;
   private readonly notifier: WorkerInstanceNotifier;
   private readonly rpcDispatcher: WorkerRpcDispatcher;
+  private readonly browserManager: WorkerBrowserManager;
+  private readonly cdpTunnel: WorkerCdpTunnel;
   private activeCoordinatorUrl: string | null = null;
   private retryRegistrationWithRecovery = false;
 
   constructor(private readonly config: WorkerConfig) {
     super();
+    // Always construct the manager (even when disabled) so browser automation
+    // can be turned on at runtime via a coordinator `config.update` without
+    // recreating the instance manager's reference.
+    this.browserManager = new WorkerBrowserManager({
+      config: config.browserAutomation ?? { enabled: false },
+    });
+    this.cdpTunnel = new WorkerCdpTunnel({ browserManager: this.browserManager });
+    this.wireCdpTunnelEvents();
     this.instanceManager = new LocalInstanceManager(
       config.workingDirectories,
-      config.maxConcurrentInstances
+      config.maxConcurrentInstances,
+      this.browserManager
     );
     this.notifier = new WorkerInstanceNotifier({
       getSocket: () => this.ws,
@@ -85,6 +101,9 @@ export class WorkerAgent extends EventEmitter {
       getFilesystemHandler: () => this.fsHandler!,
       getSyncHandler: () => this.getSyncHandler(),
       getTerminalHandler: () => this.getTerminalHandler(),
+      applyConfigUpdate: (update) => this.applyConfigUpdate(update),
+      getCdpTunnel: () => this.cdpTunnel,
+      stopManagedBrowser: () => this.browserManager.shutdown(),
       sendResult: (id, result) => this.notifier.sendResult(id, result),
       sendError: (id, code, message) => this.notifier.sendError(id, code, message),
     });
@@ -99,7 +118,8 @@ export class WorkerAgent extends EventEmitter {
     try {
       this.capabilities = await reportCapabilities(
         this.config.workingDirectories,
-        this.config.maxConcurrentInstances
+        this.config.maxConcurrentInstances,
+        this.browserManager.getSummary()
       );
       this.fsHandler = new NodeFilesystemHandler(
         this.config.workingDirectories
@@ -238,6 +258,8 @@ export class WorkerAgent extends EventEmitter {
     await this.instanceManager.terminateAll();
     this.fsHandler?.cleanupAllWatchers();
     this.terminalHandler?.killAll();
+    this.cdpTunnel.closeAll();
+    await this.browserManager.shutdown();
     if (this.ws) {
       this.ws.close(1000, 'Worker shutting down');
       this.ws = null;
@@ -272,23 +294,57 @@ export class WorkerAgent extends EventEmitter {
   }
 
   private startHeartbeat(): void {
-    this.heartbeatTimer = setInterval(async () => {
-      // Refresh capabilities (memory changes over time)
-      this.capabilities = await reportCapabilities(
-        this.config.workingDirectories,
-        this.config.maxConcurrentInstances
-      );
-      this.notifier.send({
-        jsonrpc: '2.0',
-        method: NODE_TO_COORDINATOR.HEARTBEAT,
-        params: {
-          nodeId: this.config.nodeId,
-          capabilities: this.capabilities,
-          activeInstances: this.instanceManager.getInstanceCount(),
-          token: this.config.nodeToken ?? this.config.authToken
-        }
-      });
+    this.heartbeatTimer = setInterval(() => {
+      void this.sendHeartbeat();
     }, this.config.heartbeatIntervalMs);
+  }
+
+  /** Refresh capabilities (memory/browser config change over time) and send. */
+  private async sendHeartbeat(): Promise<void> {
+    this.capabilities = await reportCapabilities(
+      this.config.workingDirectories,
+      this.config.maxConcurrentInstances,
+      this.browserManager.getSummary()
+    );
+    this.notifier.send({
+      jsonrpc: '2.0',
+      method: NODE_TO_COORDINATOR.HEARTBEAT,
+      params: {
+        nodeId: this.config.nodeId,
+        capabilities: this.capabilities,
+        activeInstances: this.instanceManager.getInstanceCount(),
+        token: this.config.nodeToken ?? this.config.authToken
+      }
+    });
+  }
+
+  /**
+   * Apply a coordinator `config.update` at runtime. Merges the browser-automation
+   * block into the persisted config, reconfigures the managed Chrome, and pushes
+   * a fresh heartbeat so the coordinator reflects the new capabilities promptly.
+   * Returns the resulting non-secret summary.
+   */
+  async applyConfigUpdate(update: {
+    browserAutomation?: WorkerBrowserAutomationConfig;
+  }): Promise<WorkerNodeBrowserAutomationSummary | undefined> {
+    if (update.browserAutomation) {
+      // Merge onto the existing block so a partial update (e.g. just toggling
+      // headless) doesn't wipe profileDir/chromePath. `enabled` is always present
+      // in the incoming payload, so the merged result is well-formed.
+      const merged: WorkerBrowserAutomationConfig = {
+        ...this.config.browserAutomation,
+        ...update.browserAutomation,
+      };
+      this.config.browserAutomation = merged;
+      persistConfig(DEFAULT_CONFIG_PATH, this.config);
+      await this.browserManager.reconfigure(merged);
+    }
+    // Only push a heartbeat when connected; otherwise the next reconnect reports
+    // the updated capabilities.
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      await this.sendHeartbeat();
+    }
+    return this.browserManager.getSummary();
   }
 
   private stopHeartbeat(): void {
@@ -516,6 +572,35 @@ export class WorkerAgent extends EventEmitter {
   }
 
   // -- Instance event forwarding ----------------------------------------------
+
+  /**
+   * Forward Chrome CDP frames (and socket close) from the tunnel up to the
+   * coordinator as notifications. These ride the already-authenticated WS, so
+   * the coordinator treats them as trusted high-frequency stream frames.
+   */
+  private wireCdpTunnelEvents(): void {
+    this.cdpTunnel.on('message', ({ sessionId, frame }) => {
+      this.notifier.send({
+        jsonrpc: '2.0',
+        method: NODE_TO_COORDINATOR.BROWSER_CDP_MESSAGE,
+        params: {
+          sessionId,
+          frame,
+          token: this.config.nodeToken ?? this.config.authToken,
+        },
+      });
+    });
+    this.cdpTunnel.on('closed', ({ sessionId }) => {
+      this.notifier.send({
+        jsonrpc: '2.0',
+        method: NODE_TO_COORDINATOR.BROWSER_CDP_CLOSED,
+        params: {
+          sessionId,
+          token: this.config.nodeToken ?? this.config.authToken,
+        },
+      });
+    });
+  }
 
   private wireInstanceEvents(): void {
     this.instanceManager.on(

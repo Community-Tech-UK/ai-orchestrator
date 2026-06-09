@@ -17,6 +17,7 @@ import * as path from 'node:path';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import { migrate } from './cas-schema';
 import { CasStore } from './cas-store';
+import { pruneCodememWorkspaces } from './codemem-pruner';
 import { CodeIndexManager } from './code-index-manager';
 import { searchHydratedChunks } from './workspace-chunk-search';
 import { workspaceHashForPath } from './symbol-id';
@@ -44,6 +45,7 @@ function createTransport(): WorkerTransport {
   }
 
   if (isMainThread && typeof process.send === 'function') {
+    process.once('disconnect', () => process.exit(0));
     return {
       postMessage: (message) => process.send?.(message),
       onMessage: (listener) => {
@@ -85,6 +87,20 @@ db.pragma('busy_timeout = 5000');
 migrate(db);
 
 const store = new CasStore(db);
+try {
+  if (
+    typeof store.listWorkspaceIndexStats === 'function' &&
+    typeof store.deleteWorkspaceIndex === 'function'
+  ) {
+    pruneCodememWorkspaces(store, {
+      maxWorkspaces: Number(process.env['AIO_CODEMEM_MAX_WORKSPACES'] ?? 10),
+      maxManifestEntriesPerWorkspace: Number(process.env['AIO_CODEMEM_MAX_MANIFEST_ENTRIES'] ?? 500_000),
+    });
+    db.pragma('wal_checkpoint(TRUNCATE)');
+  }
+} catch (error) {
+  console.warn('Codemem pruning skipped', error instanceof Error ? error.message : String(error));
+}
 const indexManager = new CodeIndexManager({ store });
 
 // Track which workspaces we've started watchers for.
@@ -111,6 +127,10 @@ indexManager.on('code-index:changed', (event: { workspaceHash: string; paths: st
 function respond(id: number, result?: unknown, error?: string): void {
   const msg: IndexWorkerOutboundMsg = { type: 'rpc-response', id, result, error };
   transport.postMessage(msg);
+}
+
+function exitAfterMessageFlush(): void {
+  setImmediate(() => process.exit(0));
 }
 
 // ── Message routing ───────────────────────────────────────────────────────────
@@ -216,7 +236,7 @@ async function handleControlMessage(msg: Exclude<IndexWorkerInboundMsg, HeavyInd
       await indexManager.stop().catch(() => undefined);
       db.close();
       respond(msg.id);
-      process.exit(0);
+      exitAfterMessageFlush();
       break;
     }
   }

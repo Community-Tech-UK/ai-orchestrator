@@ -238,6 +238,136 @@ export function createOrchestratorToolsForwarderTools(
         return client.call('orchestrator_tools.list_automations', args as Record<string, unknown>);
       },
     },
+    {
+      name: 'delete_automation',
+      description:
+        'Permanently delete a scheduled automation in AIO by its id. Use this when the user asks to "delete", "remove", or "get rid of" an automation. This cannot be undone — the automation and its schedule are removed. Any run currently in flight keeps running but is detached. To temporarily stop an automation without deleting it, use update_automation with enabled:false instead. Call list_automations first to find the id. Returns the deleted automation\'s id and name.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: {
+            type: 'string',
+            description: 'Id of the automation to delete (from list_automations).',
+          },
+        },
+        required: ['id'],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) {
+          throw new Error('delete_automation args must be an object');
+        }
+        return client.call('orchestrator_tools.delete_automation', args as Record<string, unknown>);
+      },
+    },
+    {
+      name: 'update_automation',
+      description:
+        'Update an existing AIO automation by its id. Use this to change an automation\'s prompt, name, description, schedule (cron or one-time runAt), timezone, working directory, provider, or to pause/resume it (enabled:false disables without deleting, enabled:true resumes). Only the fields you provide change; omit the rest. Provide cron OR runAt (not both) to change the schedule. Call list_automations first to find the id. Returns the updated automation\'s schedule summary and next run time.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Id of the automation to update (from list_automations).' },
+          name: { type: 'string', description: 'New title. Omit to leave unchanged.' },
+          prompt: {
+            type: 'string',
+            description: 'New instruction the scheduled agent runs each fire. Omit to leave unchanged.',
+          },
+          description: { type: 'string', description: 'New human-readable description. Omit to leave unchanged.' },
+          cron: {
+            type: 'string',
+            description:
+              'New 5-field cron expression for a recurring schedule. Provide this OR runAt. Omit both to leave the schedule unchanged.',
+          },
+          runAt: {
+            type: 'string',
+            description: 'New ISO-8601 timestamp for a one-time schedule. Provide this OR cron.',
+          },
+          timezone: {
+            type: 'string',
+            description: 'New IANA timezone (e.g. "America/New_York"). Omit to keep the existing timezone.',
+          },
+          workingDirectory: {
+            type: 'string',
+            description: 'New absolute working directory. Omit to leave unchanged.',
+          },
+          provider: {
+            type: 'string',
+            enum: ['claude', 'codex', 'gemini', 'copilot', 'cursor'],
+            description: 'New CLI provider. Omit to leave unchanged.',
+          },
+          model: {
+            type: 'string',
+            description: 'New model override for the spawned agent. Omit to leave unchanged.',
+          },
+          reasoningEffort: {
+            type: 'string',
+            enum: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow'],
+            description: 'New reasoning-effort level for the spawned agent. Omit to leave unchanged.',
+          },
+          yoloMode: {
+            type: 'boolean',
+            description:
+              'Whether each run executes with auto-approval (yolo) mode. Omit to leave unchanged.',
+          },
+          missedRunPolicy: {
+            type: 'string',
+            enum: ['skip', 'notify', 'runOnce'],
+            description:
+              'What to do when a scheduled fire was missed (app/machine asleep). Omit to leave unchanged.',
+          },
+          concurrencyPolicy: {
+            type: 'string',
+            enum: ['skip', 'queue'],
+            description:
+              'What to do when a previous run is still in flight at the next fire. Omit to leave unchanged.',
+          },
+          enabled: {
+            type: 'boolean',
+            description:
+              'Enable (resume) or disable (pause) the automation without deleting it. Omit to leave unchanged.',
+          },
+        },
+        required: ['id'],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) {
+          throw new Error('update_automation args must be an object');
+        }
+        return client.call('orchestrator_tools.update_automation', args as Record<string, unknown>);
+      },
+    },
+    {
+      name: 'postpone_automation',
+      description:
+        'Postpone (delay/snooze) an AIO automation\'s next run to a later time. Use this when the user asks to "postpone", "delay", "snooze", or "push back" an automation. For a one-time automation this reschedules its single run; for a recurring automation it skips ahead to the new time once and then resumes its normal cadence. Provide exactly one of untilIso (an absolute ISO-8601 time) or delayMinutes (relative push). Call list_automations first to find the id. Returns the new next run time.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Id of the automation to postpone (from list_automations).' },
+          untilIso: {
+            type: 'string',
+            description: 'Absolute new next-run time (ISO-8601). Provide this OR delayMinutes.',
+          },
+          delayMinutes: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 525600,
+            description:
+              'Push the next run this many minutes later than its current scheduled time (or later than now). Provide this OR untilIso.',
+          },
+        },
+        required: ['id'],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) {
+          throw new Error('postpone_automation args must be an object');
+        }
+        return client.call('orchestrator_tools.postpone_automation', args as Record<string, unknown>);
+      },
+    },
   ];
 }
 

@@ -129,6 +129,12 @@ Example:
 {"action":"create_automation","automation":{"name":"Daily CI check","schedule":{"type":"cron","expression":"0 9 * * *","timezone":"Europe/London"},"missedRunPolicy":"notify","concurrencyPolicy":"skip","action":{"prompt":"Check the current repo CI status and summarize any failures for the user.","provider":"auto"}}}
 \`\`\`
 
+**Managing existing automations.** Once an automation exists, manage it with the orchestrator tools — never edit it by hand or recreate a duplicate:
+- \`list_automations\` — see what already exists (and get each automation's \`id\`) before creating, changing, or describing one.
+- \`update_automation\` — change an automation's prompt, schedule, timezone, working directory, provider/model, or **pause/resume** it (\`enabled:false\` stops it firing without deleting; \`enabled:true\` resumes). Only the fields you pass change.
+- \`postpone_automation\` — push the next run later (snooze) via \`delayMinutes\` or an absolute \`untilIso\`; recurring automations resume their normal cadence afterward.
+- \`delete_automation\` — permanently remove an automation. Prefer \`update_automation\` with \`enabled:false\` when the user only wants to pause it.
+
 ### Retrieving Child Results
 
 Always prefer structured retrieval over raw output:

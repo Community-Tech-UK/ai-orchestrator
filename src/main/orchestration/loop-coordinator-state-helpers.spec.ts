@@ -48,14 +48,20 @@ function stateWithIterations(totalIterations: number): LoopState {
 }
 
 describe('LoopCoordinator state helpers', () => {
-  it('normalizes legacy numeric maxTokens inputs to no token cap', () => {
+  it('preserves explicit numeric maxTokens inputs as a token cap', () => {
     const config = materializeLoopConfig({
       initialPrompt: 'do work',
       workspaceCwd: '/tmp/workspace',
       caps: { ...defaultLoopConfig('/tmp/workspace', 'do work').caps, maxTokens: 1_000_000 },
     });
 
-    expect(config.caps.maxTokens).toBeNull();
+    expect(config.caps.maxTokens).toBe(1_000_000);
+  });
+
+  it('defaults to a 50-hour wall-time cap', () => {
+    const config = defaultLoopConfig('/tmp/workspace', 'do work');
+
+    expect(config.caps.maxWallTimeMs).toBe(50 * 60 * 60 * 1000);
   });
 
   it('materializes omitted maxIterations as an unbounded iteration cap', () => {
@@ -84,8 +90,8 @@ describe('LoopCoordinator state helpers', () => {
     expect(checkLoopHardCaps(stateWithTokens(7_242_440, null))).toBeNull();
   });
 
-  it('does not stop on token usage even when an old numeric maxTokens cap is present', () => {
-    expect(checkLoopHardCaps(stateWithTokens(7_242_440, 1_000_000))).toBeNull();
+  it('stops on token usage when maxTokens is configured', () => {
+    expect(checkLoopHardCaps(stateWithTokens(7_242_440, 1_000_000))).toBe('tokens');
   });
 
   it('does not stop on cost when maxCostCents is null', () => {

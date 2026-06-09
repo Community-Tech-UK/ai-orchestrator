@@ -400,6 +400,34 @@ describe('ContextWorkerClient', () => {
     }
   });
 
+  it('does not restart after shutdown while a crash restart backoff is pending', async () => {
+    vi.useFakeTimers();
+    try {
+      const { _resetContextWorkerClientForTesting, ContextWorkerClient } = await import('../context-worker-client');
+      _resetContextWorkerClientForTesting();
+
+      const workers: FakeWorker[] = [];
+      const shuttingDownClient = new ContextWorkerClient({
+        workerFactory: () => {
+          const w = createFakeWorker();
+          workers.push(w);
+          return w as unknown as Worker;
+        },
+        rpcTimeoutMs: 50,
+        userDataPath: '/tmp/test',
+      });
+
+      workers[0].emit('error', new Error('crash before shutdown'));
+      await shuttingDownClient.shutdown();
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      expect(workers).toHaveLength(1);
+      expect(shuttingDownClient.getMetrics().degraded).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // ── Synchronous in-process methods ──────────────────────────────────────────
 
   it('calculateContextBudget runs in-process without posting to worker', () => {
@@ -479,5 +507,48 @@ describe('ContextWorkerClient', () => {
     fakeWorker.emit('message', { type: 'rpc-response', id: msg.id });
     await p;
     expect(client.getMetrics().processed).toBe(1);
+  });
+});
+
+describe('ContextWorkerClient default process isolation', () => {
+  afterEach(() => {
+    vi.doUnmock('node:child_process');
+    vi.doUnmock('node:worker_threads');
+    vi.doUnmock('node:fs');
+    vi.resetModules();
+  });
+
+  it('starts the production context worker as a child process instead of a worker_thread', async () => {
+    vi.resetModules();
+    const child = Object.assign(new EventEmitter(), {
+      send: vi.fn((message: { type?: string; id?: number }) => {
+        if (message.type === 'shutdown') {
+          queueMicrotask(() => child.emit('message', { type: 'rpc-response', id: message.id }));
+        }
+      }),
+      kill: vi.fn(),
+      connected: true,
+      exitCode: null,
+    });
+    const fork = vi.fn(() => child);
+    const Worker = vi.fn(() => createFakeWorker());
+
+    vi.doMock('node:child_process', () => ({ default: { fork }, fork }));
+    vi.doMock('node:worker_threads', () => ({ default: { Worker }, Worker }));
+    vi.doMock('node:fs', () => ({ default: { existsSync: vi.fn(() => true) }, existsSync: vi.fn(() => true) }));
+
+    const { ContextWorkerClient } = await import('../context-worker-client');
+    const isolated = new ContextWorkerClient({ userDataPath: '/tmp/test', rpcTimeoutMs: 50 });
+
+    expect(fork).toHaveBeenCalledWith(
+      expect.stringContaining('context-worker-main.js'),
+      [],
+      expect.objectContaining({
+        env: expect.objectContaining({ AIO_USER_DATA_PATH: '/tmp/test' }),
+      }),
+    );
+    expect(Worker).not.toHaveBeenCalled();
+
+    await isolated.shutdown();
   });
 });

@@ -1,4 +1,5 @@
 import { app } from 'electron';
+import { statSync } from 'node:fs';
 import { getHookManager } from '../hooks/hook-manager';
 import {
   registerDefaultMultiVerifyInvoker,
@@ -58,8 +59,10 @@ import { setupCompactionCoordinator } from './compaction-runtime';
 import { setupInstanceEventForwarding } from './instance-event-forwarding';
 import { initializePauseFeatureRuntime } from './pause-feature-bootstrap';
 import { initializeMainProcessWatchdog } from '../runtime/main-process-watchdog';
+import { LongRunResourceGovernor } from '../runtime/long-run-resource-governor';
 import { getEventLoopLagMonitor } from '../runtime/event-loop-lag-monitor';
 import { getContextWorkerClient } from '../instance/context-worker-client';
+import { getLoopCoordinator } from '../orchestration/loop-coordinator';
 import { getUnifiedModelCatalog } from '../providers/unified-model-catalog-service';
 import { getModelsDevService } from '../providers/models-dev-service';
 import type { InstanceManager } from '../instance/instance-manager';
@@ -181,6 +184,8 @@ export function createInitializationSteps(
                 auxiliaryLlmUseLocalhostOllama: settings.get('auxiliaryLlmUseLocalhostOllama'),
                 auxiliaryLlmEndpointsJson: settings.get('auxiliaryLlmEndpointsJson'),
                 auxiliaryLlmSlotsJson: settings.get('auxiliaryLlmSlotsJson'),
+                auxiliaryLlmQuickModel: settings.get('auxiliaryLlmQuickModel'),
+                auxiliaryLlmQualityModel: settings.get('auxiliaryLlmQualityModel'),
               });
             } catch (err) {
               logger.warn('Failed to apply auxiliary LLM config', {
@@ -318,6 +323,10 @@ export function createInitializationSteps(
           if (totalReconciled > 0) {
             logger.info(`Loop store: reconciled ${totalReconciled} orphan terminal intent(s) from disk`);
           }
+          const resumableCheckpoints = service.store.listResumableCheckpoints();
+          if (resumableCheckpoints.length > 0) {
+            logger.info(`Loop store: ${resumableCheckpoints.length} loop checkpoint(s) available for manual resume`);
+          }
         } catch (error) {
           logger.warn('Loop store initialization failed; Loop Mode IPC will report degraded errors', {
             error: error instanceof Error ? error.message : String(error),
@@ -364,6 +373,22 @@ export function createInitializationSteps(
       fn: () => {
         getResourceGovernor().start({
           getInstanceManager: () => instanceManager,
+        });
+        const longRunGovernor = new LongRunResourceGovernor({
+          warnRssBytes: 12 * 1024 * 1024 * 1024,
+          criticalRssBytes: 18 * 1024 * 1024 * 1024,
+          maxCodememDbBytes: 25 * 1024 * 1024 * 1024,
+          maxRlmDbBytes: 12 * 1024 * 1024 * 1024,
+        });
+        getLoopCoordinator().setResourceGovernor(() => {
+          const userDataPath = app.getPath('userData');
+          return longRunGovernor.evaluate({
+            rssBytes: process.memoryUsage().rss,
+            codememDbBytes: safeFileSize(path.join(userDataPath, 'codemem.sqlite')),
+            rlmDbBytes: safeFileSize(path.join(userDataPath, 'rlm', 'rlm.db')),
+            contextWorkerDegraded: getContextWorkerClient().getMetrics().degraded,
+            indexWorkerDegraded: getCodemem().indexWorkerGateway.getMetrics().degraded,
+          });
         });
       },
     },
@@ -712,4 +737,12 @@ export function createInitializationSteps(
       },
     },
   ];
+}
+
+function safeFileSize(filePath: string): number {
+  try {
+    return statSync(filePath).size;
+  } catch {
+    return 0;
+  }
 }

@@ -9,6 +9,11 @@ import type {
   WorkspaceRoot,
   WorkspaceHash,
 } from './types';
+import {
+  deleteWorkspaceIndex as deleteWorkspaceIndexFromDb,
+  listWorkspaceIndexStats as listWorkspaceIndexStatsFromDb,
+  type WorkspaceIndexStats,
+} from './cas-workspace-index-maintenance';
 
 const logger = getLogger('CasStore');
 
@@ -598,6 +603,14 @@ export class CasStore {
       deleteChunksStmt.run(workspaceHash, pathFromRoot);
     });
     transaction();
+  }
+
+  listWorkspaceIndexStats(): WorkspaceIndexStats[] {
+    return listWorkspaceIndexStatsFromDb(this.db);
+  }
+
+  deleteWorkspaceIndex(workspaceHash: WorkspaceHash): void {
+    deleteWorkspaceIndexFromDb(this.db, workspaceHash);
   }
 
   upsertIndexStatus(status: CodeIndexStatusRecord): void {

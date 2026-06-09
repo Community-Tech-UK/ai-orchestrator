@@ -1,9 +1,9 @@
 /**
- * Context Worker — runs in a worker_thread.
+ * Context Worker — runs in a child process or worker_thread.
  *
  * Owns a fresh InstanceContextManager (and therefore its own RLMContextManager,
  * UnifiedMemoryController, VectorStore, EmbeddingService, and better-sqlite3
- * connection). No Database object is shared across thread boundaries.
+ * connection). No Database object is shared across process/thread boundaries.
  *
  * The RLM database is pre-initialised with explicit paths from workerData so
  * the worker never calls app.getPath() at a time when the Electron app object
@@ -18,8 +18,38 @@
 // thread. Worker threads are separate module realms, so they do not inherit the
 // main thread's Module._resolveFilename patch; without this, transitive
 // `@contracts/*` imports (e.g. via skill-loader) fail with "Cannot find module".
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-require('../register-aliases');
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function requireRegisterAliases(): void {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('../register-aliases');
+    return;
+  } catch (error) {
+    const message = errorMessage(error);
+    if (!message.includes('../register-aliases')) {
+      throw error;
+    }
+  }
+  try {
+    // Dev path: the entrypoint is TypeScript and no compiled
+    // register-aliases.js exists yet. The worker is launched with tsx support.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('../register-aliases.ts');
+  } catch (error) {
+    if (
+      process.env['VITEST'] === 'true' &&
+      errorMessage(error).includes('__dirname is not defined in ES module scope')
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
+
+requireRegisterAliases();
 
 import { parentPort, isMainThread, workerData } from 'node:worker_threads';
 import * as os from 'node:os';
@@ -43,10 +73,6 @@ import type {
   ContextWorkerOutputMsg,
 } from './context-worker-protocol';
 
-if (isMainThread) {
-  throw new Error('context-worker-main must run in a worker thread');
-}
-
 // ── Path resolution ────────────────────────────────────────────────────────────
 
 function getElectronUserDataPath(): string | undefined {
@@ -61,8 +87,38 @@ function getElectronUserDataPath(): string | undefined {
 
 const userDataPath =
   (workerData as { userDataPath?: string } | null)?.userDataPath ??
+  process.env['AIO_USER_DATA_PATH'] ??
   getElectronUserDataPath() ??
   path.join(os.tmpdir(), 'ai-orchestrator');
+
+// ── Transport ─────────────────────────────────────────────────────────────────
+
+interface ContextWorkerTransport {
+  postMessage(message: ContextWorkerOutboundMsg): void;
+  onMessage(listener: (message: ContextWorkerInboundMsg) => void): void;
+}
+
+function createTransport(): ContextWorkerTransport {
+  if (parentPort) {
+    const port = parentPort;
+    return {
+      postMessage: (message) => port.postMessage(message),
+      onMessage: (listener) => port.on('message', listener),
+    };
+  }
+  if (isMainThread && typeof process.send === 'function') {
+    process.once('disconnect', () => process.exit(0));
+    return {
+      postMessage: (message) => process.send?.(message),
+      onMessage: (listener) => {
+        process.on('message', (message) => listener(message as ContextWorkerInboundMsg));
+      },
+    };
+  }
+  throw new Error('context-worker-main must run in a worker thread or child process');
+}
+
+const transport = createTransport();
 
 // ── RLM database pre-init ─────────────────────────────────────────────────────
 
@@ -107,12 +163,16 @@ function makeOutputMessage(msg: ContextWorkerOutputMsg): OutputMessage {
 
 function respond(id: number, result?: unknown, error?: string): void {
   const msg: ContextWorkerOutboundMsg = { type: 'rpc-response', id, result, error };
-  parentPort!.postMessage(msg);
+  transport.postMessage(msg);
+}
+
+function exitAfterMessageFlush(): void {
+  setImmediate(() => process.exit(0));
 }
 
 // ── Message routing ───────────────────────────────────────────────────────────
 
-parentPort!.on('message', (msg: ContextWorkerInboundMsg) => {
+transport.onMessage((msg: ContextWorkerInboundMsg) => {
   void handleMessage(msg);
 });
 
@@ -294,11 +354,11 @@ async function handleMessage(msg: ContextWorkerInboundMsg): Promise<void> {
 
     case 'shutdown': {
       respond(msg.id);
-      process.exit(0);
+      exitAfterMessageFlush();
       break;
     }
   }
 }
 
 // Signal readiness after all synchronous initialisation is complete.
-parentPort!.postMessage({ type: 'ready' } satisfies ContextWorkerOutboundMsg);
+transport.postMessage({ type: 'ready' } satisfies ContextWorkerOutboundMsg);

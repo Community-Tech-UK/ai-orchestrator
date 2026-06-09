@@ -167,6 +167,117 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
     ).rejects.toThrow(/payload is required/);
   });
 
+  it('dispatches delete_automation to the matching tool with validated payload', async () => {
+    const deleteHandler = vi.fn(async (args: unknown) => ({ deleted: true, echoed: args }));
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'delete_automation',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: deleteHandler,
+        },
+      ],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 30,
+      method: 'orchestrator_tools.delete_automation',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: { id: 'auto-1' },
+      },
+    });
+
+    expect(deleteHandler).toHaveBeenCalledOnce();
+    expect(deleteHandler.mock.calls[0]?.[0]).toEqual({ id: 'auto-1' });
+    expect(result).toMatchObject({ deleted: true });
+  });
+
+  it('dispatches update_automation to the matching tool with validated payload', async () => {
+    const updateHandler = vi.fn(async (args: unknown) => ({ echoed: args }));
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'update_automation',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: updateHandler,
+        },
+      ],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 31,
+      method: 'orchestrator_tools.update_automation',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: { id: 'auto-1', enabled: false },
+      },
+    });
+
+    expect(updateHandler).toHaveBeenCalledOnce();
+    expect(updateHandler.mock.calls[0]?.[0]).toEqual({ id: 'auto-1', enabled: false });
+    expect(result).toEqual({ echoed: { id: 'auto-1', enabled: false } });
+  });
+
+  it('dispatches postpone_automation to the matching tool with validated payload', async () => {
+    const postponeHandler = vi.fn(async (args: unknown) => ({ echoed: args }));
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'postpone_automation',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: postponeHandler,
+        },
+      ],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 32,
+      method: 'orchestrator_tools.postpone_automation',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: { id: 'auto-1', delayMinutes: 60 },
+      },
+    });
+
+    expect(postponeHandler).toHaveBeenCalledOnce();
+    expect(postponeHandler.mock.calls[0]?.[0]).toEqual({ id: 'auto-1', delayMinutes: 60 });
+    expect(result).toEqual({ echoed: { id: 'auto-1', delayMinutes: 60 } });
+  });
+
+  it('rejects postpone_automation payloads that fail the schema (no delay/until)', async () => {
+    const postponeHandler = vi.fn();
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'postpone_automation',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: postponeHandler,
+        },
+      ],
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 33,
+        method: 'orchestrator_tools.postpone_automation',
+        params: {
+          instanceId: KNOWN_INSTANCE,
+          payload: { id: 'auto-1' },
+        },
+      }),
+    ).rejects.toThrow();
+    expect(postponeHandler).not.toHaveBeenCalled();
+  });
+
   it('dispatches run_on_node to the matching tool with validated payload', async () => {
     const runHandler = vi.fn(async (args: unknown) => ({ instanceId: 'inst-1', echoed: args }));
     const { server } = makeServer({

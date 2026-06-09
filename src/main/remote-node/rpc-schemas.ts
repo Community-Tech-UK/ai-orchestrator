@@ -22,6 +22,13 @@ const WorkerNodeCapabilitiesSchema = z.object({
   supportedClis: z.array(z.string()),
   hasBrowserRuntime: z.boolean(),
   hasBrowserMcp: z.boolean(),
+  browserAutomation: z.object({
+    enabled: z.boolean(),
+    headless: z.boolean(),
+    profileDir: z.string(),
+    // Older workers omit `running`; default keeps their heartbeats valid.
+    running: z.boolean().optional().default(false),
+  }).optional(),
   hasDocker: z.boolean(),
   maxConcurrentInstances: z.number().int().positive(),
   workingDirectories: z.array(z.string()),
@@ -167,6 +174,50 @@ export const ProviderDiagnoseParamsSchema = z.object({
   provider: z.enum(['claude', 'codex', 'gemini', 'copilot', 'cursor']),
 });
 
+// -- Node config update (privileged: scope=service) ---------------------------
+//
+// Coordinator -> Node. Currently scoped to the opt-in browser-automation block.
+// The worker validates this, merges it into its on-disk config, persists, and
+// re-applies (reconfigures the managed Chrome + re-reports capabilities). This
+// is a SENSITIVE capability (it turns on an ungoverned automation surface), so
+// the worker MUST require scope=service before acting.
+
+export const BrowserAutomationConfigSchema = z.object({
+  enabled: z.boolean(),
+  profileDir: z.string().min(1).max(1024).optional(),
+  headless: z.boolean().optional(),
+  chromePath: z.string().min(1).max(1024).optional(),
+  remoteDebuggingPort: z.number().int().min(1).max(65535).optional(),
+});
+
+export const ConfigUpdateParamsSchema = z.object({
+  browserAutomation: BrowserAutomationConfigSchema.optional(),
+});
+
+// -- Remote browser CDP tunnel (Path 2; privileged: scope=service) ------------
+//
+// The coordinator's gateway drives a node's Chrome by tunneling raw CDP frames
+// over the worker connection. `frame` is a CDP JSON-RPC message (opaque string);
+// `sessionId` correlates one puppeteer transport ↔ one Chrome CDP socket.
+
+export const BrowserCdpOpenParamsSchema = z.object({
+  sessionId: z.string().min(1).max(128),
+});
+
+export const BrowserCdpSendParamsSchema = z.object({
+  sessionId: z.string().min(1).max(128),
+  // CDP frames are bounded but can be large (e.g. screenshot results); cap to a
+  // generous ceiling to reject pathological payloads without truncating valid ones.
+  frame: z.string().max(64 * 1024 * 1024),
+});
+
+export const BrowserCdpCloseParamsSchema = z.object({
+  sessionId: z.string().min(1).max(128),
+});
+
+/** No params — stop the managed Chrome on the node. */
+export const BrowserStopManagedParamsSchema = z.object({});
+
 export const AuxiliaryModelListParamsSchema = z.object({
   provider: z.enum(['ollama', 'openai-compatible']),
 });
@@ -227,6 +278,11 @@ export const COORDINATOR_TO_NODE_PARAM_SCHEMAS: Record<string, z.ZodType> = {
   'terminal.resize': TerminalResizeParamsSchema,
   'terminal.kill': TerminalKillParamsSchema,
   'provider.diagnose': ProviderDiagnoseParamsSchema,
+  'config.update': ConfigUpdateParamsSchema,
+  'browser.cdp.open': BrowserCdpOpenParamsSchema,
+  'browser.cdp.send': BrowserCdpSendParamsSchema,
+  'browser.cdp.close': BrowserCdpCloseParamsSchema,
+  'browser.stopManaged': BrowserStopManagedParamsSchema,
   'auxiliaryModel.list': AuxiliaryModelListParamsSchema,
   'auxiliaryModel.generate': AuxiliaryModelGenerateParamsSchema,
 };

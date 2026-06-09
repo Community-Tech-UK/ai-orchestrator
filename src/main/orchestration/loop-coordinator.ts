@@ -20,7 +20,6 @@
 
 import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
-import { readFileSync } from 'fs';
 import * as path from 'path';
 import { getLogger } from '../logging/logger';
 import {
@@ -39,8 +38,8 @@ import {
 import {
   LoopCompletionDetector,
   CompletedFileWatcher,
-  isCompletedRenameForPlan,
 } from './loop-completion-detector';
+import { wireLoopCompletionWatcher } from './loop-completion-watcher-runtime';
 import { LoopProgressDetector } from './loop-progress-detector';
 import { LoopStageMachine } from './loop-stage-machine';
 import { resolveLoopArtifactPaths } from './loop-artifact-paths';
@@ -152,6 +151,9 @@ import {
 } from './loop-coordinator-state-helpers';
 import { recordLoopLearningForState } from './loop-learning-recorder';
 import { importTerminalIntentsForBoundary as importTerminalIntentsForBoundaryHelper } from './loop-terminal-intent-importer';
+import type { LoopCheckpoint } from './loop-checkpoint';
+import type { LongRunResourceDecision } from '../runtime/long-run-resource-governor';
+import { LOOP_TEXT_FILE_MAX_BYTES, readUtf8FileHeadSync } from './bounded-file-read';
 
 export { computeWorkHash } from './loop-work-hash';
 export type {
@@ -173,6 +175,8 @@ export type {
 } from './loop-coordinator.types';
 
 const logger = getLogger('LoopCoordinator');
+
+type LoopResourceGovernor = (state: LoopState) => LongRunResourceDecision | null;
 
 export class LoopCoordinator extends EventEmitter {
   private static instance: LoopCoordinator | null = null;
@@ -204,6 +208,7 @@ export class LoopCoordinator extends EventEmitter {
    */
   private pendingContextReset = new Set<string>();
   private watchers = new Map<string, CompletedFileWatcher>();
+  private restoredLoops = new Set<string>();
   private runtimeContexts = new Map<string, LoopRuntimeContext>();
   private loopControls = new Map<string, LoopControlRuntime>();
   private iterationHooks: LoopIterationHook[] = [];
@@ -216,6 +221,7 @@ export class LoopCoordinator extends EventEmitter {
    * (e.g. `cancelLoop`) can wait for full shutdown.
    */
   private terminalCleanupPromises = new Map<string, Promise<void>>();
+  private resourceGovernor: LoopResourceGovernor | null = null;
 
   private progressDetector = new LoopProgressDetector();
   private completionDetector = new LoopCompletionDetector();
@@ -279,6 +285,8 @@ export class LoopCoordinator extends EventEmitter {
   setLoopMemoryStore(store: LoopMemoryStore): void {
     this.loopMemoryStore = store;
   }
+
+  setResourceGovernor(governor: LoopResourceGovernor | null): void { this.resourceGovernor = governor; }
 
   /**
    * Usage-aware throttling: supplies the latest quota snapshot for a provider
@@ -448,6 +456,7 @@ export class LoopCoordinator extends EventEmitter {
       this.instance.planRegenerations.clear();
       this.instance.pendingContextReset.clear();
       this.instance.watchers.clear();
+      this.instance.restoredLoops.clear();
       this.instance.runtimeContexts.clear();
       this.instance.loopControls.clear();
       this.instance.iterationHooks = [];
@@ -830,39 +839,7 @@ export class LoopCoordinator extends EventEmitter {
       this.runtimeContexts.set(id, { existingSessionContext, priorObservations });
     }
 
-    // Wire watcher to mutate state. The watcher fires for ANY `*_completed.md`
-    // rename in the workspace, but a rename only counts as THIS loop finishing
-    // when it is THIS loop's configured plan file being renamed. Accepting any
-    // matching rename was a real defect: (a) an agent could "complete" the loop
-    // by renaming an unrelated doc (the incident — renaming two
-    // `token-efficiency-accuracy-*.md` blog drafts to `_completed.md` ended the
-    // run via this signal), and (b) a concurrent loop in the same workspace
-    // renaming ITS plan would falsely complete this loop. Gating on the
-    // configured plan's expected completed-name fixes both. A loop with no
-    // planFile has no file to rename — it must complete via DONE.txt + verify +
-    // ledger, never an arbitrary rename — so such renames are ignored here.
-    watcher.onCompleted((filePath) => {
-      if (!isCompletedRenameForPlan(state.config, filePath)) {
-        logger.info('CompletedFileWatcher ignored a *_completed.md rename not matching this loop\'s plan', {
-          id, filePath, planFile: state.config.planFile ?? null,
-        });
-        return;
-      }
-      state.completedFileRenameObserved = true;
-      logger.info('CompletedFileWatcher fired', { id, filePath });
-      this.emit('loop:completed-file-observed', { loopRunId: id, filePath });
-    });
-    // FU-9: if the operator reverts the rename (or deletes the completed
-    // file), clear the observation so the rename gate re-evaluates on the
-    // next completion attempt. Without this, a premature rename followed
-    // by an undo leaves the loop convinced completion already happened.
-    watcher.onUndone((filePath) => {
-      if (!state.completedFileRenameObserved) return;
-      if (!isCompletedRenameForPlan(state.config, filePath)) return;
-      state.completedFileRenameObserved = false;
-      logger.info('CompletedFileWatcher undone', { id, filePath });
-      this.emit('loop:completed-file-undone', { loopRunId: id, filePath });
-    });
+    wireLoopCompletionWatcher(watcher, state, (eventName, payload) => this.emit(eventName, payload));
 
     this.emit('loop:started', { loopRunId: id, chatId });
     this.emit('loop:state-changed', { loopRunId: id, state: this.cloneStateForBroadcast(state) });
@@ -873,6 +850,49 @@ export class LoopCoordinator extends EventEmitter {
       this.terminate(state, 'error', err instanceof Error ? err.message : String(err));
     });
 
+    return state;
+  }
+
+  async restoreLoopFromCheckpoint(checkpoint: LoopCheckpoint): Promise<LoopState> {
+    const state = checkpoint.state;
+    const existing = this.active.get(state.id);
+    if (existing) {
+      return existing;
+    }
+    if (state.status !== 'paused' && state.status !== 'provider-limit') {
+      throw new Error(`Cannot restore non-paused loop checkpoint: ${state.status}`);
+    }
+
+    const loopControl = await prepareLoopControl(
+      state.config.workspaceCwd,
+      state.id,
+      [...this.active.keys(), state.id],
+    );
+    const watcher = new CompletedFileWatcher(
+      state.config.workspaceCwd,
+      state.config.completion.completedFilenamePattern,
+      completedPlanWatchDirs(state.config),
+    );
+    watcher.start();
+    const existingCompletedFile = watcher.scanOnce();
+    if (existingCompletedFile) {
+      logger.info('Loop restore: pre-existing *_Completed.md present — ignored (only post-resume renames count)', {
+        id: state.id,
+        file: existingCompletedFile,
+      });
+    }
+    wireLoopCompletionWatcher(watcher, state, (eventName, payload) => this.emit(eventName, payload));
+    state.loopControl = publicLoopControlMetadata(loopControl);
+    this.loopControls.set(state.id, loopControl);
+    this.watchers.set(state.id, watcher);
+    this.active.set(state.id, state);
+    this.histories.set(state.id, checkpoint.historyTail);
+    this.cancelFlags.set(state.id, false);
+    this.restoredLoops.add(state.id);
+    if (checkpoint.convergenceNote) this.convergenceNotes.set(state.id, checkpoint.convergenceNote);
+    if (checkpoint.planRegenerationCount > 0) this.planRegenerations.set(state.id, checkpoint.planRegenerationCount);
+    if (checkpoint.pendingContextReset) this.pendingContextReset.add(state.id);
+    this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
     return state;
   }
 
@@ -887,11 +907,11 @@ export class LoopCoordinator extends EventEmitter {
     return true;
   }
 
-  /** Resume a paused loop. */
+  /** Resume a paused or provider-limited loop. */
   resumeLoop(loopRunId: string): boolean {
     const state = this.active.get(loopRunId);
     if (!state) return false;
-    if (state.status !== 'paused') return false;
+    if (state.status !== 'paused' && state.status !== 'provider-limit') return false;
     // A manual resume supersedes any pending provider-limit auto-resume timer.
     this.providerLimitHandler.clearResumeTimer(loopRunId);
     state.status = 'running';
@@ -899,10 +919,20 @@ export class LoopCoordinator extends EventEmitter {
     if (gate) {
       gate.resolve();
       this.pauseGates.delete(loopRunId);
+    } else if (this.restoredLoops.delete(loopRunId)) {
+      this.startRestoredLoopRunner(state);
     }
     this.emit('loop:state-changed', { loopRunId, state: this.cloneStateForBroadcast(state) });
     logger.info('Loop resumed', { loopRunId });
     return true;
+  }
+
+  private startRestoredLoopRunner(state: LoopState): void {
+    const stageMachine = new LoopStageMachine(state.config.workspaceCwd, state.id);
+    void this.runLoop(state, stageMachine).catch((err) => {
+      logger.error('Restored loop runtime error', err instanceof Error ? err : new Error(String(err)), { loopRunId: state.id });
+      this.terminate(state, 'error', err instanceof Error ? err.message : String(err));
+    });
   }
 
   /** Queue a user-supplied hint for the next iteration. */
@@ -1178,6 +1208,14 @@ export class LoopCoordinator extends EventEmitter {
         } else {
           this.downshiftModelByLoop.delete(state.id);
         }
+      }
+      const resourceDecision = this.resourceGovernor?.(state);
+      if (resourceDecision?.actions.includes('pause-loop')) {
+        state.status = 'paused';
+        this.convergenceNotes.set(state.id, `Paused by resource governor: ${resourceDecision.reasons.join(', ')}`);
+        this.emit('loop:paused-no-progress', { loopRunId: state.id, reason: 'resource-governor', decision: resourceDecision });
+        this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
+        continue;
       }
       await this.importTerminalIntentsForBoundary(state, {
         maxIterationSeq: state.totalIterations,
@@ -2570,7 +2608,7 @@ export class LoopCoordinator extends EventEmitter {
   private captureOutstanding(state: LoopState): void {
     try {
       const paths = resolveLoopArtifactPaths(state.config.workspaceCwd, state.id);
-      const raw = readFileSync(paths.outstanding, 'utf8');
+      const raw = readUtf8FileHeadSync(paths.outstanding, LOOP_TEXT_FILE_MAX_BYTES).text;
       const { needsHuman, openQuestions } = parseOutstandingSections(raw);
       if (needsHuman.length === 0 && openQuestions.length === 0) return;
       state.outstanding = {

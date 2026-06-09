@@ -74,10 +74,12 @@ vi.mock('../discovery-client', () => ({
 vi.mock('../worker-config', () => ({
   DEFAULT_CONFIG_PATH: '/tmp/aio-worker-node-test.json',
   persistConfig: workerConfigMockState.persistConfig,
+  defaultBrowserAutomationProfileDir: () => '/tmp/aio-auto-profile',
 }));
 
 // Mock capability-reporter
 vi.mock('../capability-reporter', () => ({
+  resolveChromeExecutablePath: () => '/fake/chrome',
   reportCapabilities: vi.fn(async () => ({
     platform: 'win32',
     arch: 'x64',

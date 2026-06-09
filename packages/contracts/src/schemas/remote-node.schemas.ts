@@ -37,6 +37,24 @@ export const RemoteNodeProviderDiagnosePayloadSchema = z.object({
   provider: z.enum(['claude', 'codex', 'gemini', 'copilot', 'cursor']),
 });
 
+export const RemoteNodeBrowserAutomationConfigSchema = z.object({
+  enabled: z.boolean(),
+  profileDir: z.string().trim().min(1).max(1024).optional(),
+  headless: z.boolean().optional(),
+  chromePath: z.string().trim().min(1).max(1024).optional(),
+  remoteDebuggingPort: z.number().int().min(1).max(65535).optional(),
+});
+
+export const RemoteNodeUpdateBrowserAutomationPayloadSchema = z.object({
+  nodeId: z.string().uuid(),
+  browserAutomation: RemoteNodeBrowserAutomationConfigSchema,
+});
+
+export const RemoteNodeRunBrowserLoginPayloadSchema = z.object({
+  nodeId: z.string().uuid(),
+  url: z.string().trim().max(2048).optional(),
+});
+
 export type ValidatedSetTokenPayload = z.infer<typeof RemoteNodeSetTokenPayloadSchema>;
 export type ValidatedIssuePairingPayload = z.infer<typeof RemoteNodeIssuePairingPayloadSchema>;
 export type ValidatedRevokePayload = z.infer<typeof RemoteNodeRevokePayloadSchema>;

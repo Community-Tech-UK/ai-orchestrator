@@ -1,3 +1,5 @@
+import type { AskUserQuestionEntry } from '../../../../shared/types/ask-user-question.types';
+
 export interface UserActionRequest {
   id: string;
   instanceId: string;
@@ -12,6 +14,14 @@ export interface UserActionRequest {
   }[];
   /** For ask_questions: list of questions to present with text inputs */
   questions?: string[];
+  /**
+   * For Claude Code `AskUserQuestion` prompts (delivered as `input_required`
+   * events): structured questions with clickable options. When present, the
+   * card renders selectable chips instead of a freeform text box, and the
+   * chosen answers are sent back to the CLI via the standard input_required
+   * response path.
+   */
+  askQuestions?: AskUserQuestionEntry[];
   context?: Record<string, unknown>;
   createdAt: number;
   /** Permission metadata for input_required requests (action, path, etc.) */

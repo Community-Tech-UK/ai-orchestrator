@@ -34,7 +34,7 @@ import {
 } from './auxiliary-model-client';
 import { getTokenCounter } from './token-counter';
 import { getLogger } from '../logging/logger';
-import { computeNumCtx, hostKeyFromUrl, localhostOllamaEndpoint } from './auxiliary-llm-utils';
+import { computeNumCtx, hostKeyFromUrl, localhostOllamaEndpoint, resolveSlotModel, pickModelForTier, workerEndpointHealthy } from './auxiliary-llm-utils';
 // remote-node imports are lazy — worker-node-connection and service-rpc-client
 // transitively import electron via remote-auth → settings-manager, which
 // crashes in worker_thread contexts. We must NOT top-level-import them.
@@ -132,6 +132,8 @@ type AuxiliaryLlmConfigSubset = Pick<
   | 'auxiliaryLlmUseLocalhostOllama'
   | 'auxiliaryLlmEndpointsJson'
   | 'auxiliaryLlmSlotsJson'
+  | 'auxiliaryLlmQuickModel'
+  | 'auxiliaryLlmQualityModel'
 >;
 
 interface HealthCacheEntry {
@@ -159,6 +161,8 @@ export class AuxiliaryLlmService extends EventEmitter {
   private useLocalhostOllama = true;
   private endpoints: AuxiliaryLlmEndpointConfig[] = [];
   private slots: AuxiliaryLlmSlotConfigMap = parseDefaultSlots();
+  private quickModel = '';
+  private qualityModel = '';
 
   // endpointId → health cache entry
   private healthCache = new Map<string, HealthCacheEntry>();
@@ -185,6 +189,8 @@ export class AuxiliaryLlmService extends EventEmitter {
     this.routingMode = settings.auxiliaryLlmRoutingMode;
     this.allowRemoteWorkerModels = settings.auxiliaryLlmAllowRemoteWorkerModels;
     this.useLocalhostOllama = settings.auxiliaryLlmUseLocalhostOllama;
+    this.quickModel = settings.auxiliaryLlmQuickModel?.trim() ?? '';
+    this.qualityModel = settings.auxiliaryLlmQualityModel?.trim() ?? '';
 
     // Parse endpoints
     try {
@@ -406,15 +412,17 @@ export class AuxiliaryLlmService extends EventEmitter {
     const healthy = await this.isEndpointHealthy(ep);
     if (!healthy) return null;
 
-    // If slot specifies a model, use it directly
-    if (slotConfig.model) {
-      return { endpoint: ep, model: slotConfig.model };
+    // Explicit per-slot model pin, or the slot's tier model, take precedence.
+    const preferred = resolveSlotModel(slotConfig, this.quickModel, this.qualityModel);
+    if (preferred) {
+      return { endpoint: ep, model: preferred };
     }
 
-    // Otherwise list models and pick the first available
+    // Otherwise auto-pick by tier (quick → smallest, quality → largest).
     const models = await this.listModels(ep);
     if (models.length === 0) return null;
-    return { endpoint: ep, model: models[0].id };
+    const picked = pickModelForTier(models.map((m) => m.id), slotConfig.tier);
+    return picked ? { endpoint: ep, model: picked } : null;
   }
 
   // ─── Private: health cache ──────────────────────────────────────────────────
@@ -428,9 +436,9 @@ export class AuxiliaryLlmService extends EventEmitter {
     let healthy: boolean;
     try {
       if (ep.source === 'worker-node') {
-        // For worker-node endpoints the health check is a live WebSocket connection
-        // check — we do not probe the worker's localhost URL directly.
-        healthy = ep.workerNodeId ? isNodeConnectedLazy(ep.workerNodeId) : false;
+        // Healthy only when the node is connected AND its heartbeat reports the local model server up.
+        healthy = !!ep.workerNodeId && isNodeConnectedLazy(ep.workerNodeId)
+          && workerEndpointHealthy(getConnectedWorkerNodesLazy(), ep.workerNodeId, ep.provider, ep.baseUrl);
       } else if (ep.provider === 'ollama') {
         healthy = await probeOllamaEndpoint(ep.baseUrl, PROBE_TIMEOUT_MS);
       } else {

@@ -373,6 +373,35 @@ describe('LoopStageMachine', () => {
     expect(log).toContain('WARN');
     expect(log).toContain('[A/WARN] identical hash');
   });
+
+  it('curateNotesIfNeeded does not shrink notes below the curation threshold', async () => {
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    await m.bootstrap(defaultLoopConfig(tmpDir, 'x'));
+    const original = `${'a'.repeat(15_000)}\nEND`;
+    fs.writeFileSync(m.paths.notes, original, 'utf8');
+
+    const result = await m.curateNotesIfNeeded({ maxChars: 24_000, keepTailChars: 12_000 });
+
+    expect(result.changed).toBe(false);
+    expect(fs.readFileSync(m.paths.notes, 'utf8')).toBe(original);
+  });
+
+  it('curateNotesIfNeeded bounds oversized notes while preserving the newest entries', async () => {
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    await m.bootstrap(defaultLoopConfig(tmpDir, 'x'));
+    const original = `OLD\n${'a'.repeat(30_000)}\nTAIL`;
+    fs.writeFileSync(m.paths.notes, original, 'utf8');
+
+    const result = await m.curateNotesIfNeeded({ maxChars: 24_000, keepTailChars: 1_000 });
+    const curated = fs.readFileSync(m.paths.notes, 'utf8');
+
+    expect(result.changed).toBe(true);
+    expect(result.elidedChars).toBeGreaterThan(0);
+    expect(curated).toContain('Older NOTES.md entries were elided');
+    expect(curated).toContain('TAIL');
+    expect(curated).not.toContain('OLD');
+    expect(curated.length).toBeLessThan(original.length);
+  });
 });
 
 describe('parsePlanChecklist (single-source-of-truth checkbox parser)', () => {

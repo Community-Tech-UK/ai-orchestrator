@@ -123,6 +123,12 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.caps?.maxIterations).toBeNull();
   });
 
+  it('defaults to a 50-hour wall-time cap', () => {
+    const config = component.buildConfig();
+
+    expect(config?.caps?.maxWallTimeMs).toBe(50 * 60 * 60 * 1000);
+  });
+
   it('defaults each loop iteration to a fresh child context', () => {
     const config = component.buildConfig();
 

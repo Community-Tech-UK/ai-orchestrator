@@ -9,6 +9,7 @@ interface WorkspaceSnapshotEntry {
 }
 
 export type WorkspaceSnapshot = Map<string, WorkspaceSnapshotEntry>;
+export type WorkspaceGitRunner = (args: string[], cwd: string) => { status: number | null; stdout: string };
 
 const WORKSPACE_SNAPSHOT_MAX_FILES = 5_000;
 const WORKSPACE_SNAPSHOT_MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -58,18 +59,26 @@ function isIgnoredWorkspaceRelPath(relPath: string): boolean {
   return WORKSPACE_SNAPSHOT_IGNORED_DIRS.has(leaf) || WORKSPACE_SNAPSHOT_IGNORED_FILES.has(leaf);
 }
 
+const defaultWorkspaceGitRunner: WorkspaceGitRunner = (args, cwd) => {
+  const result = spawnSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    timeout: 30_000,
+  });
+  return { status: result.status, stdout: result.stdout ?? '' };
+};
+
 /**
  * Best-effort file change detection: shells out to `git diff --numstat HEAD`
  * inside the workspace, then computes a content hash for each file. Returns
  * an empty list if not a git repo.
  */
-export function snapshotFileChangesViaGit(cwd: string): LoopFileChange[] {
+export function snapshotFileChangesViaGit(
+  cwd: string,
+  runner: WorkspaceGitRunner = defaultWorkspaceGitRunner,
+): LoopFileChange[] {
   try {
-    const numstat = spawnSync('git', ['diff', '--numstat', 'HEAD'], {
-      cwd,
-      encoding: 'utf8',
-      timeout: 30_000,
-    });
+    const numstat = runner(['diff', '--numstat', 'HEAD'], cwd);
     if (numstat.status !== 0 || !numstat.stdout) return [];
     const out: LoopFileChange[] = [];
     for (const line of numstat.stdout.trim().split('\n')) {
@@ -85,9 +94,9 @@ export function snapshotFileChangesViaGit(cwd: string): LoopFileChange[] {
       const abs = path.resolve(cwd, relPath);
       let contentHash = '';
       try {
-        if (fs.existsSync(abs) && fs.statSync(abs).isFile()) {
-          const buf = fs.readFileSync(abs);
-          contentHash = createHash('sha256').update(buf).digest('hex').slice(0, 16);
+        if (fs.existsSync(abs)) {
+          const stat = fs.statSync(abs);
+          if (stat.isFile()) contentHash = hashWorkspaceFile(abs, stat);
         }
       } catch { /* ignore */ }
       out.push({

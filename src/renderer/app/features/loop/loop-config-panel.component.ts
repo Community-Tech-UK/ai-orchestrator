@@ -16,6 +16,8 @@ const DEFAULT_CAPS = {
   maxTokens: null as number | null,
   maxToolCallsPerIteration: 200,
 };
+const DEFAULT_MAX_WALL_TIME_HOURS = 50;
+const MAX_WALL_TIME_HOURS = 7 * 24;
 const DEFAULT_COMPLETION = {
   completedFilenamePattern: '*_[Cc]ompleted.md',
   donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
@@ -125,7 +127,7 @@ export class LoopConfigPanelComponent {
   prompt = signal('');
   planFile = signal('');
   maxIterations = signal<number | null>(null);
-  maxHours = signal(8);
+  maxHours = signal(DEFAULT_MAX_WALL_TIME_HOURS);
   // Default unbounded for ordinary plan loops. Operator-reviewed completion and
   // branch-select fan-out require a non-null cap; validationError enforces that.
   maxDollars = signal<number | null>(null);
@@ -262,6 +264,7 @@ export class LoopConfigPanelComponent {
     const maxIterations = this.maxIterations();
     if (maxIterations !== null && maxIterations < 1) return 'Max iterations must be at least 1, or blank for no cap.';
     if (this.maxHours() < 1) return 'Max wall time must be at least 1 hour.';
+    if (this.maxHours() > MAX_WALL_TIME_HOURS) return 'Max wall time must be 168 hours or less.';
     const maxDollars = this.maxDollars();
     if (maxDollars !== null && maxDollars < 1) return 'Max spend must be at least $1, or blank for no cap.';
     if (this.compactContext()) {

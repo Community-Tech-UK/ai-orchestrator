@@ -1,9 +1,9 @@
 export interface LoopHardCaps {
   /** Max iterations before forced stop. Null means unbounded. Default null. */
   maxIterations: number | null;
-  /** Wall-time budget in milliseconds. Default 8h. */
+  /** Wall-time budget in milliseconds. Default 50h. */
   maxWallTimeMs: number;
-  /** Deprecated and ignored. Retained only for persisted/IPC compatibility. */
+  /** Token budget across the whole loop. Null means unbounded. Default null. */
   maxTokens: number | null;
   /**
    * Cost cap in cents. Null means unbounded. Default null for ordinary plan

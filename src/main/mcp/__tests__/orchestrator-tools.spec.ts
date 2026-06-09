@@ -550,6 +550,164 @@ describe('orchestrator MCP tools', () => {
     await expect(tool!.handler({})).rejects.toThrow(/unavailable/);
   });
 
+  it('delete_automation forwards the parsed id to the injected deleter', async () => {
+    const db = createDb();
+    const calls: unknown[] = [];
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      deleteAutomation: async (args) => {
+        calls.push(args);
+        return { id: args.id, name: 'Daily PR sweep', deleted: true, detachedInstanceIds: [] };
+      },
+    });
+    const tool = tools.find((t) => t.name === 'delete_automation');
+    expect(tool).toBeDefined();
+
+    const result = await tool!.handler({ id: 'auto-1' });
+
+    expect(calls).toEqual([{ id: 'auto-1' }]);
+    expect(result).toMatchObject({ id: 'auto-1', deleted: true });
+  });
+
+  it('delete_automation requires an id', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      deleteAutomation: async () => {
+        throw new Error('should not be called');
+      },
+    });
+    const tool = tools.find((t) => t.name === 'delete_automation');
+
+    await expect(tool!.handler({})).rejects.toThrow();
+  });
+
+  it('delete_automation rejects when no deleter is wired', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({ db, instanceId: null });
+    const tool = tools.find((t) => t.name === 'delete_automation');
+
+    await expect(tool!.handler({ id: 'auto-1' })).rejects.toThrow(/unavailable/);
+  });
+
+  it('update_automation forwards the parsed args to the injected updater', async () => {
+    const db = createDb();
+    const calls: unknown[] = [];
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      updateAutomation: async (args) => {
+        calls.push(args);
+        return {
+          id: args.id,
+          name: 'Daily PR sweep',
+          scheduleSummary: 'cron 0 9 * * 1-5 (UTC)',
+          nextRunAt: null,
+          enabled: false,
+          workingDirectory: '/repo',
+        };
+      },
+    });
+    const tool = tools.find((t) => t.name === 'update_automation');
+    expect(tool).toBeDefined();
+
+    const result = await tool!.handler({ id: 'auto-1', enabled: false });
+
+    expect(calls).toEqual([{ id: 'auto-1', enabled: false }]);
+    expect(result).toMatchObject({ id: 'auto-1', enabled: false });
+  });
+
+  it('update_automation rejects when both cron and runAt are provided', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      updateAutomation: async () => {
+        throw new Error('should not be called');
+      },
+    });
+    const tool = tools.find((t) => t.name === 'update_automation');
+
+    await expect(
+      tool!.handler({ id: 'auto-1', cron: '0 9 * * *', runAt: '2026-01-01T00:00:00Z' }),
+    ).rejects.toThrow();
+  });
+
+  it('update_automation rejects when no updater is wired', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({ db, instanceId: null });
+    const tool = tools.find((t) => t.name === 'update_automation');
+
+    await expect(tool!.handler({ id: 'auto-1', enabled: true })).rejects.toThrow(/unavailable/);
+  });
+
+  it('postpone_automation forwards the parsed args to the injected postponer', async () => {
+    const db = createDb();
+    const calls: unknown[] = [];
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      postponeAutomation: async (args) => {
+        calls.push(args);
+        return {
+          id: args.id,
+          name: 'Daily PR sweep',
+          scheduleSummary: 'cron 0 9 * * 1-5 (UTC)',
+          nextRunAt: 999,
+          enabled: true,
+          workingDirectory: '/repo',
+        };
+      },
+    });
+    const tool = tools.find((t) => t.name === 'postpone_automation');
+    expect(tool).toBeDefined();
+
+    const result = await tool!.handler({ id: 'auto-1', delayMinutes: 60 });
+
+    expect(calls).toEqual([{ id: 'auto-1', delayMinutes: 60 }]);
+    expect(result).toMatchObject({ id: 'auto-1', nextRunAt: 999 });
+  });
+
+  it('postpone_automation rejects when neither untilIso nor delayMinutes is provided', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      postponeAutomation: async () => {
+        throw new Error('should not be called');
+      },
+    });
+    const tool = tools.find((t) => t.name === 'postpone_automation');
+
+    await expect(tool!.handler({ id: 'auto-1' })).rejects.toThrow();
+  });
+
+  it('postpone_automation rejects when both untilIso and delayMinutes are provided', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: null,
+      postponeAutomation: async () => {
+        throw new Error('should not be called');
+      },
+    });
+    const tool = tools.find((t) => t.name === 'postpone_automation');
+
+    await expect(
+      tool!.handler({ id: 'auto-1', untilIso: '2026-01-01T00:00:00Z', delayMinutes: 60 }),
+    ).rejects.toThrow();
+  });
+
+  it('postpone_automation rejects when no postponer is wired', async () => {
+    const db = createDb();
+    const tools = createOrchestratorToolDefinitions({ db, instanceId: null });
+    const tool = tools.find((t) => t.name === 'postpone_automation');
+
+    await expect(tool!.handler({ id: 'auto-1', delayMinutes: 60 })).rejects.toThrow(/unavailable/);
+  });
+
   function createDb(): SqliteDriver {
     const db = defaultDriverFactory(':memory:');
     createOperatorTables(db);

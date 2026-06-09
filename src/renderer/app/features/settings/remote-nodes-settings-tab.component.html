@@ -492,6 +492,20 @@
         (browser, GPU, installed AI CLIs) and whether it's online right now.
       </p>
 
+      <app-inline-help variant="tip" heading="Browser automation per node">
+        <p>
+          <strong>Ready</strong> — agents spawned on this node get
+          <code>chrome-devtools</code> browser tools driving a logged-in Chrome.
+          <strong>Chrome only</strong> — Chrome is installed but automation isn't
+          enabled yet. <strong>Off</strong> — no Chrome runtime detected.
+        </p>
+        <p>
+          Enable it with the per-node toggle below. First-time setup also needs a
+          one-time profile login on that machine — see
+          <code>docs/remote-browser-automation-runbook.md</code>.
+        </p>
+      </app-inline-help>
+
       @if (nodeHealthEntries().length === 0) {
         <p class="field-hint">No computers have connected yet. Create a pairing code above and enter it on the other machine to connect one.</p>
       } @else {
@@ -535,17 +549,140 @@
               }
             </div>
 
-            @if (entry.supportsBrowser || entry.supportsGpu || entry.supportedClis.length > 0) {
-              <div class="badge-row">
-                @if (entry.supportsBrowser) {
-                  <span class="capability-chip">Browser</span>
-                }
-                @if (entry.supportsGpu) {
-                  <span class="capability-chip">GPU</span>
-                }
-                @for (cli of entry.supportedClis; track cli) {
-                  <span class="capability-chip">{{ cli }}</span>
-                }
+            <div class="badge-row">
+              <span
+                class="capability-chip browser-automation"
+                [attr.data-state]="browserAutomationState(entry)"
+                [title]="browserAutomationState(entry) === 'chrome-only'
+                  ? 'Chrome is installed but automation is not enabled on this node.'
+                  : browserAutomationState(entry) === 'off'
+                    ? 'No Chrome/Chromium runtime detected on this node.'
+                    : 'Agents spawned on this node get chrome-devtools browser tools.'"
+              >
+                {{ browserAutomationLabel(entry) }}
+              </span>
+              @if (entry.supportsGpu) {
+                <span class="capability-chip">GPU</span>
+              }
+              @for (cli of entry.supportedClis; track cli) {
+                <span class="capability-chip">{{ cli }}</span>
+              }
+              @if (entry.supportsBrowser) {
+                <button
+                  class="btn btn-secondary small"
+                  type="button"
+                  (click)="configuringNodeId() === entry.id ? cancelBrowserConfig() : openBrowserConfig(entry)"
+                >
+                  {{ configuringNodeId() === entry.id ? 'Close' : 'Configure browser automation' }}
+                </button>
+              }
+            </div>
+
+            @if (configuringNodeId() === entry.id) {
+              <div class="ba-config-form">
+                <label class="ba-row">
+                  <input
+                    type="checkbox"
+                    [checked]="baDraftEnabled()"
+                    (change)="baDraftEnabled.set(!baDraftEnabled())"
+                  />
+                  <span>Enable browser automation on this node</span>
+                </label>
+
+                <label class="ba-field">
+                  <span class="ba-label">Automation profile directory</span>
+                  <input
+                    type="text"
+                    class="ba-input"
+                    placeholder="Leave blank for default (~/.orchestrator/browser-automation-profile)"
+                    [value]="baDraftProfileDir()"
+                    (input)="baDraftProfileDir.set($any($event.target).value)"
+                  />
+                </label>
+
+                <label class="ba-row">
+                  <input
+                    type="checkbox"
+                    [checked]="baDraftHeadless()"
+                    (change)="baDraftHeadless.set(!baDraftHeadless())"
+                  />
+                  <span>Run Chrome headless</span>
+                </label>
+
+                <p class="field-hint ba-warning">
+                  Browser automation has no per-action approval — only enable it on
+                  trusted nodes, and point the profile at a dedicated Chrome profile
+                  (not your everyday browser). First use needs a one-time profile
+                  login on that machine.
+                </p>
+
+                <div class="ba-actions">
+                  <button
+                    class="btn btn-primary small"
+                    type="button"
+                    [disabled]="baBusy()"
+                    (click)="applyBrowserConfig()"
+                  >
+                    {{ baBusy() ? 'Applying…' : 'Apply' }}
+                  </button>
+                  <button
+                    class="btn btn-secondary small"
+                    type="button"
+                    [disabled]="baBusy()"
+                    (click)="cancelBrowserConfig()"
+                  >
+                    Cancel
+                  </button>
+                </div>
+
+                <div class="ba-login">
+                  <span class="ba-label">One-time profile login</span>
+                  @if (!entry.browserAutomation?.profileDir) {
+                    <p class="field-hint">Apply the config above first, then log the profile in here.</p>
+                  } @else {
+                    <label class="ba-field">
+                      <span class="ba-label">Login URL</span>
+                      <input
+                        type="text"
+                        class="ba-input"
+                        [value]="loginUrlDraft()"
+                        (input)="loginUrlDraft.set($any($event.target).value)"
+                      />
+                    </label>
+
+                    @if (loginCommandPreview(entry)) {
+                      <pre class="ba-command">{{ loginCommandPreview(entry) }}</pre>
+                    }
+
+                    <p class="field-hint ba-warning">
+                      Chrome opens on <strong>{{ entry.name }}</strong>'s own screen —
+                      you must be at that computer (or connected via remote desktop)
+                      to complete the login. Then close that Chrome window.
+                    </p>
+
+                    <div class="ba-actions">
+                      <button
+                        class="btn btn-secondary small"
+                        type="button"
+                        (click)="copyLoginCommand(entry)"
+                      >
+                        Copy command
+                      </button>
+                      <button
+                        class="btn btn-secondary small"
+                        type="button"
+                        [disabled]="loginBusy()"
+                        (click)="runLoginOnNode(entry)"
+                      >
+                        {{ loginBusy() ? 'Launching…' : 'Run on node' }}
+                      </button>
+                    </div>
+
+                    @if (loginNotice()) {
+                      <p class="field-hint">{{ loginNotice() }}</p>
+                    }
+                  }
+                </div>
               </div>
             }
           </div>

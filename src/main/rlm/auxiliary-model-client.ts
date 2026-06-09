@@ -9,6 +9,7 @@ import {
   DEFAULT_OLLAMA_KEEP_ALIVE,
   type AuxiliaryLlmModelInfo,
 } from '../../shared/types/auxiliary-llm.types';
+import { extractChatCompletionText } from '../../shared/utils/openai-response';
 
 export interface AuxiliaryGenerateRequest {
   systemPrompt: string;
@@ -246,27 +247,46 @@ export async function generateWithOpenAiCompatible(
   request: AuxiliaryGenerateRequest
 ): Promise<string> {
   const { controller, clear } = makeAbortController(request.timeoutMs);
-  const body: Record<string, unknown> = {
-    model: request.model,
-    messages: [
-      { role: 'system', content: request.systemPrompt },
-      { role: 'user', content: request.userPrompt },
-    ],
-    temperature: request.temperature,
-    max_tokens: request.maxOutputTokens,
+  const buildBody = (includeJsonFormat: boolean): Record<string, unknown> => {
+    const body: Record<string, unknown> = {
+      model: request.model,
+      messages: [
+        { role: 'system', content: request.systemPrompt },
+        { role: 'user', content: request.userPrompt },
+      ],
+      temperature: request.temperature,
+      max_tokens: request.maxOutputTokens,
+    };
+    if (includeJsonFormat) {
+      body['response_format'] = { type: 'json_object' };
+    }
+    return body;
   };
-  if (request.requireJson) {
-    body['response_format'] = { type: 'json_object' };
-  }
 
-  let response: Response;
-  try {
-    response = await fetch(`${baseUrl}/v1/chat/completions`, {
+  const post = (body: Record<string, unknown>): Promise<Response> =>
+    fetch(`${baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: openAiHeaders(apiKey),
       body: JSON.stringify(body),
       signal: controller.signal,
     });
+
+  let response: Response;
+  try {
+    response = await post(buildBody(request.requireJson));
+
+    // Some OpenAI-compatible servers (notably newer LM Studio builds) reject the
+    // standard `response_format: { type: 'json_object' }` with a 400 — they only
+    // accept 'json_schema' or 'text'. Retry once without response_format and
+    // rely on the prompt to elicit JSON instead of dropping to frontier fallback.
+    if (!response.ok && response.status === 400 && request.requireJson) {
+      const text = await response.text().catch(() => '');
+      if (text.includes('response_format')) {
+        response = await post(buildBody(false));
+      } else {
+        throw new Error(`OpenAI-compatible generate failed (400): ${text}`);
+      }
+    }
   } catch (err) {
     clear();
     const isAbort =
@@ -284,8 +304,5 @@ export async function generateWithOpenAiCompatible(
     throw new Error(`OpenAI-compatible generate failed (${response.status}): ${text}`);
   }
 
-  const data = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  return data.choices?.[0]?.message?.content ?? '';
+  return extractChatCompletionText(await response.json());
 }

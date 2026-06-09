@@ -322,4 +322,46 @@ describe('generateWithOpenAiCompatible', () => {
       })
     ).rejects.toThrow('timed out');
   });
+
+  it('retries without response_format when the server 400s on json_object (e.g. newer LM Studio)', async () => {
+    // First call: server rejects response_format with a 400 (LM Studio only
+    // accepts json_schema/text). Second call (retry without it): succeeds.
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockResponse({ error: "'response_format.type' must be 'json_schema' or 'text'" }, false, 400)
+      )
+      .mockResolvedValueOnce(mockResponse({ choices: [{ message: { content: '{"ok":true}' } }] }, true));
+    vi.stubGlobal('fetch', mockFetch);
+    const { generateWithOpenAiCompatible } = await import('../auxiliary-model-client');
+
+    const result = await generateWithOpenAiCompatible('http://localhost:1234', undefined, {
+      ...BASE_GENERATE_REQUEST,
+      requireJson: true,
+    });
+
+    expect(result).toBe('{"ok":true}');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    // First attempt included response_format; retry dropped it.
+    const firstBody = JSON.parse((mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string);
+    const retryBody = JSON.parse((mockFetch.mock.calls[1] as [string, RequestInit])[1].body as string);
+    expect(firstBody.response_format).toEqual({ type: 'json_object' });
+    expect(retryBody.response_format).toBeUndefined();
+  });
+
+  it('does not retry and surfaces the body when a 400 is unrelated to response_format', async () => {
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValue(mockResponse({ error: 'model not loaded' }, false, 400));
+    vi.stubGlobal('fetch', mockFetch);
+    const { generateWithOpenAiCompatible } = await import('../auxiliary-model-client');
+
+    await expect(
+      generateWithOpenAiCompatible('http://localhost:1234', undefined, {
+        ...BASE_GENERATE_REQUEST,
+        requireJson: true,
+      })
+    ).rejects.toThrow('model not loaded');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
 });

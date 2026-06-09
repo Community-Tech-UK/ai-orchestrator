@@ -15,7 +15,11 @@ import {
 import * as QRCode from 'qrcode';
 import { SettingsStore } from '../../core/state/settings.store';
 import { RemoteNodeIpcService, RemoteNodeServerStatus } from '../../core/services/ipc/remote-node-ipc.service';
-import type { RemotePairingCredentialInfo, WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
+import type {
+  RemotePairingCredentialInfo,
+  WorkerNodeInfo,
+  WorkerNodeBrowserAutomationSummary,
+} from '../../../../shared/types/worker-node.types';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { InlineHelpComponent } from './ui/inline-help.component';
 import { SaveStateBannerComponent, type SaveState } from './ui/save-state-banner.component';
@@ -23,34 +27,13 @@ import { ValidationRowComponent } from './ui/validation-row.component';
 import { CopyRowComponent } from './ui/copy-row.component';
 import { CodePreviewBlockComponent } from './ui/code-preview-block.component';
 import { DangerZoneComponent } from './ui/danger-zone.component';
-
-interface RegisteredNodeRecord {
-  sessionId?: string;
-  nodeId?: string;
-  nodeName?: string;
-  transportToken?: string;
-  token?: string;
-  issuedAt?: number;
-  createdAt?: number;
-  lastSeenAt?: number;
-  authMethod?: 'pairing_credential' | 'manual_pairing';
-  pairingLabel?: string;
-}
-
-interface NodeHealthEntry {
-  id: string;
-  name: string;
-  status: WorkerNodeInfo['status'];
-  address?: string;
-  createdAt?: number;
-  connectedAt?: number;
-  lastHeartbeat?: number;
-  lastSeenAt?: number;
-  pairingLabel?: string;
-  supportsBrowser: boolean;
-  supportsGpu: boolean;
-  supportedClis: string[];
-}
+import {
+  type RegisteredNodeRecord,
+  type NodeHealthEntry,
+  browserAutomationState,
+  browserAutomationLabel,
+  loginCommandPreview,
+} from './remote-nodes-browser-automation';
 
 @Component({
   standalone: true,
@@ -97,6 +80,17 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
 
   protected readonly liveNodes = signal<WorkerNodeInfo[]>([]);
   protected readonly connectedCount = signal(0);
+
+  // Per-node browser-automation config form (one node configured at a time).
+  protected readonly configuringNodeId = signal<string | null>(null);
+  protected readonly baDraftEnabled = signal(false);
+  protected readonly baDraftProfileDir = signal('');
+  protected readonly baDraftHeadless = signal(false);
+  protected readonly baBusy = signal(false);
+  // Tier 3 — guided profile login.
+  protected readonly loginUrlDraft = signal('https://www.facebook.com');
+  protected readonly loginBusy = signal(false);
+  protected readonly loginNotice = signal<string | null>(null);
 
   protected readonly error = signal<string | null>(null);
 
@@ -167,7 +161,10 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
           lastHeartbeat: live?.lastHeartbeat,
           lastSeenAt: registered?.lastSeenAt,
           pairingLabel: registered?.pairingLabel,
+          platform: live?.capabilities.platform,
           supportsBrowser: live?.capabilities.hasBrowserRuntime ?? false,
+          browserAutomationReady: live?.capabilities.hasBrowserMcp ?? false,
+          browserAutomation: live?.capabilities.browserAutomation,
           supportsGpu: Boolean(live?.capabilities.gpuName),
           supportedClis: live?.capabilities.supportedClis ?? [],
         };
@@ -416,6 +413,141 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     return token.length <= 18
       ? token
       : `${token.slice(0, 8)}...${token.slice(-6)}`;
+  }
+
+  /**
+   * Three-state browser-automation readiness for a node:
+   *  - `ready`       — automation wired (chrome-devtools MCP injected on spawn)
+   *  - `chrome-only` — Chrome installed but automation not enabled
+   *  - `off`         — no Chrome runtime detected
+   */
+  protected browserAutomationState = browserAutomationState;
+  protected browserAutomationLabel = browserAutomationLabel;
+
+  /** Open the per-node browser-automation config form, prefilled from the node. */
+  protected openBrowserConfig(entry: NodeHealthEntry): void {
+    this.configuringNodeId.set(entry.id);
+    this.baDraftEnabled.set(entry.browserAutomation?.enabled ?? entry.browserAutomationReady);
+    this.baDraftProfileDir.set(entry.browserAutomation?.profileDir ?? '');
+    this.baDraftHeadless.set(entry.browserAutomation?.headless ?? false);
+  }
+
+  protected cancelBrowserConfig(): void {
+    this.configuringNodeId.set(null);
+  }
+
+  /**
+   * The exact login command that "Run on node" would execute, for the node's
+   * reported profile + platform. Empty until the profile has been applied (so
+   * the previewed command matches what actually runs). Returns '' on any
+   * unsafe/unknown input rather than throwing into the template.
+   */
+  protected loginCommandPreview(entry: NodeHealthEntry): string {
+    return loginCommandPreview(entry, this.loginUrlDraft());
+  }
+
+  async copyLoginCommand(entry: NodeHealthEntry): Promise<void> {
+    const command = this.loginCommandPreview(entry);
+    if (command) {
+      await this.writeClipboard(command);
+    }
+  }
+
+  /** Fire the login Chrome on the node (opens on that machine's screen). */
+  async runLoginOnNode(entry: NodeHealthEntry): Promise<void> {
+    const ok = confirm(
+      `Open a login Chrome on "${entry.name}"?\n\n` +
+      "Chrome opens on that computer's screen and the node's managed Chrome is " +
+      'stopped first. You must be at that machine (or on remote desktop) to log in.',
+    );
+    if (!ok) {
+      return;
+    }
+    this.loginBusy.set(true);
+    this.loginNotice.set(null);
+    this.error.set(null);
+    try {
+      await this.ipc.runBrowserLogin(entry.id, this.loginUrlDraft().trim() || undefined);
+      this.loginNotice.set(
+        `Chrome is opening on ${entry.name}. Log in there, then close that window — the session will be reused.`,
+      );
+    } catch (err) {
+      this.error.set((err as Error).message);
+    } finally {
+      this.loginBusy.set(false);
+    }
+  }
+
+  /** Push the drafted browser-automation config to the node (service-scoped). */
+  async applyBrowserConfig(): Promise<void> {
+    const nodeId = this.configuringNodeId();
+    if (!nodeId) {
+      return;
+    }
+    const entry = this.nodeHealthEntries().find((e) => e.id === nodeId);
+    const wasEnabled = entry?.browserAutomation?.enabled ?? entry?.browserAutomationReady ?? false;
+
+    // Confirm the first time automation is turned on — it's a sensitive,
+    // ungoverned capability, so make enabling a deliberate action (the IPC layer
+    // shares the trusted-operator model with service.restart; this is the
+    // in-app authorization gate).
+    if (this.baDraftEnabled() && !wasEnabled) {
+      const ok = confirm(
+        `Enable browser automation on "${entry?.name ?? nodeId}"?\n\n` +
+        'Agents spawned on this node will be able to drive a logged-in Chrome ' +
+        'with no per-action approval. Only do this on a trusted node with a ' +
+        'dedicated automation profile.',
+      );
+      if (!ok) {
+        return;
+      }
+    }
+
+    this.baBusy.set(true);
+    this.error.set(null);
+    try {
+      const profileDir = this.baDraftProfileDir().trim();
+      const summary = await this.ipc.updateBrowserAutomation(nodeId, {
+        enabled: this.baDraftEnabled(),
+        headless: this.baDraftHeadless(),
+        ...(profileDir ? { profileDir } : {}),
+      });
+      // Apply the authoritative summary the node returned immediately, rather
+      // than waiting for the next heartbeat — keeps the badge + login section in
+      // sync without a second Configure click.
+      if (summary) {
+        this.patchNodeBrowserAutomation(nodeId, summary);
+        this.baDraftProfileDir.set(summary.profileDir);
+        this.baDraftHeadless.set(summary.headless);
+      }
+      // Reconcile with the registry in the background (best-effort).
+      void this.refreshNodes();
+    } catch (err) {
+      this.error.set((err as Error).message);
+    } finally {
+      this.baBusy.set(false);
+    }
+  }
+
+  /** Optimistically reflect a node's new browser-automation summary in the UI. */
+  private patchNodeBrowserAutomation(
+    nodeId: string,
+    summary: WorkerNodeBrowserAutomationSummary,
+  ): void {
+    this.liveNodes.update((nodes) =>
+      nodes.map((node) =>
+        node.id === nodeId
+          ? {
+              ...node,
+              capabilities: {
+                ...node.capabilities,
+                browserAutomation: summary,
+                hasBrowserMcp: summary.enabled && node.capabilities.hasBrowserRuntime,
+              },
+            }
+          : node,
+      ),
+    );
   }
 
   protected pairingExpiresSoon(pairing: RemotePairingCredentialInfo): boolean {

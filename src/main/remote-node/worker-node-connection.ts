@@ -11,6 +11,7 @@ import {
   isRpcResponse,
   isRpcNotification,
   RPC_ERROR_CODES,
+  COORDINATOR_TO_NODE,
 } from './worker-node-rpc';
 import type { RpcRequest, RpcResponse, RpcNotification, RpcScope } from './worker-node-rpc';
 import { getRemoteNodeConfig } from './remote-node-config';
@@ -23,11 +24,62 @@ const logger = getLogger('WorkerNodeConnection');
 
 const RPC_TIMEOUT_MS = 30_000;
 
+/**
+ * RPC methods that represent the coordinator actually *using* a remote node
+ * (the "slave machine") to do real work — spawning/driving agents, offloading
+ * auxiliary-LLM generation to the node's local model server, or opening a
+ * remote terminal. These are logged at `info` so it's visible at a glance
+ * whether offload is genuinely happening. Everything else (health pings,
+ * filesystem reads, sync, terminal keystrokes) is routine and logged at
+ * `debug` to keep the signal clean.
+ */
+const WORK_DISPATCH_METHODS = new Set<string>([
+  COORDINATOR_TO_NODE.INSTANCE_SPAWN,
+  COORDINATOR_TO_NODE.INSTANCE_SEND_INPUT,
+  COORDINATOR_TO_NODE.INSTANCE_INTERRUPT,
+  COORDINATOR_TO_NODE.INSTANCE_TERMINATE,
+  COORDINATOR_TO_NODE.INSTANCE_HIBERNATE,
+  COORDINATOR_TO_NODE.INSTANCE_WAKE,
+  COORDINATOR_TO_NODE.AUXILIARY_MODEL_GENERATE,
+  COORDINATOR_TO_NODE.AUXILIARY_MODEL_LIST,
+  COORDINATOR_TO_NODE.TERMINAL_CREATE,
+]);
+
+/**
+ * Extract only safe, non-sensitive scalar fields from RPC params for logging.
+ * Deliberately omits prompt/input/content/token fields so agent prompts and
+ * secrets never reach the logs.
+ */
+function summarizeRpcParams(params: unknown): Record<string, unknown> | undefined {
+  if (!params || typeof params !== 'object') return undefined;
+  const p = params as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of [
+    'instanceId',
+    'provider',
+    'model',
+    'slot',
+    'cliType',
+    'cwd',
+    'workingDirectory',
+    'terminalId',
+  ]) {
+    const value = p[key];
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      out[key] = value;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 interface PendingRpc {
   resolve: (value: unknown) => void;
   reject: (reason: Error) => void;
   timer: ReturnType<typeof setTimeout> | null;
   nodeId: string;
+  method: string;
+  startedAt: number;
+  isWork: boolean;
 }
 
 export class WorkerNodeConnectionServer extends EventEmitter {
@@ -186,6 +238,22 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     const id = `coord-${++this.requestCounter}`;
     const request = createRpcRequest(id, method, params, undefined, scope);
     const timeout = timeoutMs ?? RPC_TIMEOUT_MS;
+    const isWork = WORK_DISPATCH_METHODS.has(method);
+    const startedAt = Date.now();
+    const nodeName = getWorkerNodeRegistry().getNode(nodeId)?.name ?? nodeId;
+
+    if (isWork) {
+      const summary = summarizeRpcParams(params);
+      logger.info('Remote node: dispatching work', {
+        node: nodeName,
+        nodeId,
+        method,
+        requestId: id,
+        ...(summary ?? {}),
+      });
+    } else {
+      logger.debug('Remote node: sending RPC', { node: nodeName, nodeId, method, requestId: id });
+    }
     // A non-positive timeout disables the timer entirely. Required for RPCs
     // whose worker-side handler blocks for an unbounded duration — notably
     // `instance.sendInput`, where the Codex app-server adapter stays inside
@@ -211,12 +279,23 @@ export class WorkerNodeConnectionServer extends EventEmitter {
         reject,
         timer,
         nodeId,
+        method,
+        startedAt,
+        isWork,
       });
 
       const ws = this.nodeToSocket.get(nodeId);
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         if (timer) clearTimeout(timer);
         this.pending.delete(id);
+        if (isWork) {
+          logger.warn('Remote node: work dispatch failed — node not connected', {
+            node: nodeName,
+            nodeId,
+            method,
+            requestId: id,
+          });
+        }
         reject(new Error(`Node not connected: ${nodeId}`));
         return;
       }
@@ -241,6 +320,15 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       if (pending.nodeId !== nodeId) continue;
       if (pending.timer) clearTimeout(pending.timer);
       this.pending.delete(id);
+      if (pending.isWork) {
+        logger.warn('Remote node: work aborted — node disconnected', {
+          nodeId,
+          method: pending.method,
+          requestId: id,
+          latencyMs: Date.now() - pending.startedAt,
+          reason,
+        });
+      }
       pending.reject(new Error(reason));
     }
   }
@@ -480,6 +568,29 @@ export class WorkerNodeConnectionServer extends EventEmitter {
 
     if (pending.timer) clearTimeout(pending.timer);
     this.pending.delete(response.id);
+
+    if (pending.isWork) {
+      const latencyMs = Date.now() - pending.startedAt;
+      const nodeName = getWorkerNodeRegistry().getNode(pending.nodeId)?.name ?? pending.nodeId;
+      if (response.error) {
+        logger.warn('Remote node: work failed', {
+          node: nodeName,
+          nodeId: pending.nodeId,
+          method: pending.method,
+          requestId: response.id,
+          latencyMs,
+          error: `${response.error.code}: ${response.error.message}`,
+        });
+      } else {
+        logger.info('Remote node: work completed', {
+          node: nodeName,
+          nodeId: pending.nodeId,
+          method: pending.method,
+          requestId: response.id,
+          latencyMs,
+        });
+      }
+    }
 
     if (response.error) {
       pending.reject(

@@ -288,6 +288,28 @@ describe('WorkerNodeRegistry', () => {
       expect(registry.selectNode({ requiresBrowser: true })).toBeNull();
     });
 
+    it('prefers an automation-ready node (hasBrowserMcp) over Chrome-only when browser is required', () => {
+      // Give the Chrome-only node an otherwise-better score (more free memory)
+      // to prove the +40 readiness boost is what flips the choice.
+      registry.registerNode(makeNode('chrome-only', {
+        capabilities: makeCapabilities({
+          hasBrowserRuntime: true,
+          hasBrowserMcp: false,
+          availableMemoryMB: 8000,
+          totalMemoryMB: 8192,
+        }),
+      }));
+      registry.registerNode(makeNode('automation-ready', {
+        capabilities: makeCapabilities({
+          hasBrowserRuntime: true,
+          hasBrowserMcp: true,
+          availableMemoryMB: 1024,
+          totalMemoryMB: 8192,
+        }),
+      }));
+      expect(registry.selectNode({ requiresBrowser: true })?.id).toBe('automation-ready');
+    });
+
     it('filters out nodes lacking GPU when requiresGpu is true', () => {
       registry.registerNode(makeNode('no-gpu', {
         capabilities: makeCapabilities({ gpuName: undefined }),
@@ -469,6 +491,29 @@ describe('WorkerNodeRegistry', () => {
     it('returns undefined when no node advertises the capability', () => {
       const nodes = [makeNode('no-gpu', { capabilities: makeCapabilities({ gpuName: undefined }) })];
       expect(matchNodeByCapabilityTag('gpu', nodes)).toBeUndefined();
+    });
+
+    it('browser tag prefers an automation-ready node over Chrome-only', () => {
+      const nodes = [
+        makeNode('chrome-only', { capabilities: makeCapabilities({ hasBrowserRuntime: true, hasBrowserMcp: false }) }),
+        makeNode('automation', { capabilities: makeCapabilities({ hasBrowserRuntime: true, hasBrowserMcp: true }) }),
+      ];
+      expect(matchNodeByCapabilityTag('browser', nodes)?.id).toBe('automation');
+    });
+
+    it('browser tag falls back to Chrome-installed when none is automation-ready', () => {
+      const nodes = [
+        makeNode('plain', { capabilities: makeCapabilities({ hasBrowserRuntime: false }) }),
+        makeNode('chrome-only', { capabilities: makeCapabilities({ hasBrowserRuntime: true, hasBrowserMcp: false }) }),
+      ];
+      expect(matchNodeByCapabilityTag('browser', nodes)?.id).toBe('chrome-only');
+    });
+
+    it('browser-mcp tag matches only automation-ready nodes', () => {
+      const chromeOnly = [makeNode('chrome-only', { capabilities: makeCapabilities({ hasBrowserRuntime: true, hasBrowserMcp: false }) })];
+      expect(matchNodeByCapabilityTag('browser-mcp', chromeOnly)).toBeUndefined();
+      const ready = [makeNode('automation', { capabilities: makeCapabilities({ hasBrowserMcp: true }) })];
+      expect(matchNodeByCapabilityTag('browser-mcp', ready)?.id).toBe('automation');
     });
   });
 });

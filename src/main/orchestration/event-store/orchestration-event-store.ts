@@ -23,6 +23,12 @@ import {
 } from '../orchestration-commands';
 
 const logger = getLogger('OrchestrationEventStore');
+const DEFAULT_EVENT_REPLAY_LIMIT = 50_000;
+const MAX_EVENT_REPLAY_LIMIT = 100_000;
+
+function boundedLimit(limit: number | undefined, fallback: number): number {
+  return Math.max(1, Math.min(Math.floor(limit ?? fallback), MAX_EVENT_REPLAY_LIMIT));
+}
 
 export interface EventStoreDb {
   exec(sql: string): void;
@@ -169,11 +175,15 @@ export class OrchestrationEventStore {
     );
   }
 
-  getByAggregateId(aggregateId: string): OrchestrationEvent[] {
+  getByAggregateId(
+    aggregateId: string,
+    options: { limit?: number } = {},
+  ): OrchestrationEvent[] {
+    const limit = boundedLimit(options.limit, DEFAULT_EVENT_REPLAY_LIMIT);
     const stmt = this.db.prepareCached(
-      'SELECT * FROM orchestration_events WHERE aggregate_id = ? ORDER BY timestamp ASC',
+      'SELECT * FROM orchestration_events WHERE aggregate_id = ? ORDER BY timestamp ASC LIMIT ?',
     );
-    return (stmt.all(aggregateId) as EventRow[]).map(rowToEvent);
+    return (stmt.all(aggregateId, limit) as EventRow[]).map(rowToEvent);
   }
 
   getByType(type: OrchestrationEventType, limit = 100): OrchestrationEvent[] {
@@ -190,11 +200,12 @@ export class OrchestrationEventStore {
     return (stmt.all(limit) as EventRow[]).map(rowToEvent);
   }
 
-  getAllEvents(): OrchestrationEvent[] {
+  getAllEvents(options: { limit?: number } = {}): OrchestrationEvent[] {
+    const limit = boundedLimit(options.limit, DEFAULT_EVENT_REPLAY_LIMIT);
     const stmt = this.db.prepareCached(
-      'SELECT * FROM orchestration_events ORDER BY timestamp ASC',
+      'SELECT * FROM orchestration_events ORDER BY timestamp ASC LIMIT ?',
     );
-    return (stmt.all() as EventRow[]).map(rowToEvent);
+    return (stmt.all(limit) as EventRow[]).map(rowToEvent);
   }
 
   getActiveVerificationRequests(): VerificationRequest[] {
@@ -249,14 +260,9 @@ export class OrchestrationEventStore {
     relevantTypes: OrchestrationEventType[],
     projector: (events: OrchestrationEvent[]) => T | null,
   ): T[] {
-    const relevant = new Set<OrchestrationEventType>(relevantTypes);
     const aggregates = new Map<string, OrchestrationEvent[]>();
 
-    for (const event of this.getAllEvents()) {
-      if (!relevant.has(event.type)) {
-        continue;
-      }
-
+    for (const event of this.getEventsByTypes(relevantTypes)) {
       const events = aggregates.get(event.aggregateId) ?? [];
       events.push(event);
       aggregates.set(event.aggregateId, events);
@@ -271,5 +277,20 @@ export class OrchestrationEventStore {
     }
 
     return active;
+  }
+
+  private getEventsByTypes(
+    types: OrchestrationEventType[],
+    limit = DEFAULT_EVENT_REPLAY_LIMIT,
+  ): OrchestrationEvent[] {
+    if (types.length === 0) {
+      return [];
+    }
+    const placeholders = types.map(() => '?').join(',');
+    const stmt = this.db.prepareCached(
+      `SELECT * FROM orchestration_events WHERE type IN (${placeholders}) ORDER BY timestamp ASC LIMIT ?`,
+    );
+    return (stmt.all(...types, boundedLimit(limit, DEFAULT_EVENT_REPLAY_LIMIT)) as EventRow[])
+      .map(rowToEvent);
   }
 }

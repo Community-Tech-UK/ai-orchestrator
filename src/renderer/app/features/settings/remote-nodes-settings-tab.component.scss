@@ -371,6 +371,107 @@
   text-transform: capitalize;
 }
 
+// Per-node browser-automation config form.
+.ba-config-form {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+  background: var(--bg-secondary, var(--bg-primary));
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.ba-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.ba-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.ba-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #888);
+}
+
+.ba-input {
+  width: 100%;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border-color);
+  border-radius: 0.4rem;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+}
+
+.ba-warning {
+  margin: 0;
+}
+
+.ba-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.ba-login {
+  margin-top: 0.5rem;
+  padding-top: 0.6rem;
+  border-top: 1px dashed var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ba-command {
+  margin: 0;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border-color);
+  border-radius: 0.4rem;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.72rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+// Browser-automation readiness badge — three states.
+.capability-chip.browser-automation {
+  text-transform: none;
+  font-weight: 600;
+
+  &[data-state='ready'] {
+    border-color: var(--success-color, #2e7d32);
+    color: var(--success-color, #2e7d32);
+    background: color-mix(in srgb, var(--success-color, #2e7d32) 12%, transparent);
+  }
+
+  &[data-state='enabled'] {
+    border-color: var(--info-color, #1565c0);
+    color: var(--info-color, #1565c0);
+    background: color-mix(in srgb, var(--info-color, #1565c0) 12%, transparent);
+  }
+
+  &[data-state='chrome-only'] {
+    border-color: var(--warning-color, #b26a00);
+    color: var(--warning-color, #b26a00);
+    background: color-mix(in srgb, var(--warning-color, #b26a00) 12%, transparent);
+  }
+
+  &[data-state='off'] {
+    color: var(--text-secondary, #888);
+    opacity: 0.8;
+  }
+}
+
 @media (max-width: 720px) {
   .pairing-presentation {
     grid-template-columns: 1fr;

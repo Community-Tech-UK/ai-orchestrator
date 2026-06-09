@@ -167,7 +167,7 @@ describe('LoopControlComponent', () => {
     expect(text).toContain('Provider');
     expect(text).toContain('claude');           // provider value
     expect(text).toContain('same-session');     // context strategy value
-    expect(text).not.toContain('1.00M tok');    // legacy maxTokens is not an active cap
+    expect(text).toContain('1.00M tok');        // configured maxTokens is an active cap
   });
 
   it('routes visible no-progress banner controls to the loop id', async () => {

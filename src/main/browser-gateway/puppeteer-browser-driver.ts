@@ -14,6 +14,7 @@ import type {
 import {
   BrowserProcessLauncher,
 } from './browser-process-launcher';
+import { RoutingBrowserLauncher } from './routing-browser-launcher';
 import {
   normalizeAxTreeNodes,
   normalizeElementCandidates,
@@ -627,7 +628,11 @@ let puppeteerBrowserDriver: PuppeteerBrowserDriver | null = null;
 
 export function getPuppeteerBrowserDriver(): PuppeteerBrowserDriver {
   if (!puppeteerBrowserDriver) {
-    puppeteerBrowserDriver = new PuppeteerBrowserDriver();
+    // Route per-profile between a locally launched Chrome and a remote node's
+    // Chrome (Path 2). Local-only profiles behave exactly as before.
+    puppeteerBrowserDriver = new PuppeteerBrowserDriver({
+      launcher: new RoutingBrowserLauncher({ local: new BrowserProcessLauncher() }),
+    });
   }
   return puppeteerBrowserDriver;
 }

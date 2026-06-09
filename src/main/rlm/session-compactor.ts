@@ -62,6 +62,8 @@ export interface SessionCompactorConfig {
   autoCompact: boolean;
   /** Minimum turns to archive at once (default: 5) */
   minArchiveBatch: number;
+  /** Maximum archived turns to read back at once (default: 500) */
+  maxArchivedTurns: number;
 }
 
 export interface ArchivedTurn {
@@ -104,8 +106,15 @@ const DEFAULT_CONFIG: SessionCompactorConfig = {
   keepRecentTurns: 5,
   summaryTargetTokens: 500,
   autoCompact: true,
-  minArchiveBatch: 5
+  minArchiveBatch: 5,
+  maxArchivedTurns: 500,
 };
+
+const MAX_ARCHIVED_TURNS_PER_READ = 2_000;
+
+function boundedArchivedTurnLimit(limit: number | undefined): number {
+  return Math.max(1, Math.min(Math.floor(limit ?? DEFAULT_CONFIG.maxArchivedTurns), MAX_ARCHIVED_TURNS_PER_READ));
+}
 
 export class SessionCompactor extends EventEmitter {
   private config: SessionCompactorConfig;
@@ -452,10 +461,15 @@ ${turnContent}`,
   /**
    * Get archived turns for a session
    */
-  getArchivedTurns(sessionId: string): ArchivedTurn[] {
+  getArchivedTurns(
+    sessionId: string,
+    options: { maxArchivedTurns?: number } = {},
+  ): ArchivedTurn[] {
+    const limit = boundedArchivedTurnLimit(options.maxArchivedTurns ?? this.config.maxArchivedTurns);
+
     // Check in-memory cache first
     if (this.archivedTurns.has(sessionId)) {
-      return this.archivedTurns.get(sessionId)!;
+      return this.archivedTurns.get(sessionId)!.slice(-limit);
     }
 
     // Load from database
@@ -469,10 +483,11 @@ ${turnContent}`,
         SELECT id, session_id, turn_index, query_json, archived_at, summary_id
         FROM session_archived_turns
         WHERE session_id = ?
-        ORDER BY turn_index ASC
+        ORDER BY turn_index DESC
+        LIMIT ?
       `
         )
-        .all(sessionId) as ArchivedTurnRow[];
+        .all(sessionId, limit) as ArchivedTurnRow[];
 
       const archived = rows.map((row) => ({
         id: row.id,
@@ -481,7 +496,7 @@ ${turnContent}`,
         query: JSON.parse(row.query_json),
         archivedAt: row.archived_at,
         summaryId: row.summary_id ?? undefined
-      }));
+      })).reverse();
 
       this.archivedTurns.set(sessionId, archived);
       return archived;

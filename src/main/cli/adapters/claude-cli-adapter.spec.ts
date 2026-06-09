@@ -53,6 +53,86 @@ describe('ClaudeCliAdapter AskUserQuestion handling', () => {
     expect(payload.metadata?.['type']).toBe('ask_user_question');
   });
 
+  it('parses the real nested AskUserQuestion schema (questions[] with header/options)', () => {
+    const adapter = new ClaudeCliAdapter();
+    const onInputRequired = vi.fn();
+    adapter.on('input_required', onInputRequired);
+    const processCliMessage = (
+      adapter as unknown as { processCliMessage: (message: unknown) => void }
+    ).processCliMessage.bind(adapter);
+
+    processCliMessage({
+      type: 'assistant',
+      timestamp: 321,
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tool-ask-nested',
+            name: 'AskUserQuestion',
+            input: {
+              questions: [
+                {
+                  header: 'Posts',
+                  question: 'Which posts should I comment on?',
+                  multiSelect: true,
+                  options: [
+                    { label: 'Robyn Ball', description: 'genuine confusion' },
+                    { label: 'Janet Pearce', description: 'real question' },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    expect(onInputRequired).toHaveBeenCalledTimes(1);
+    const payload = onInputRequired.mock.calls[0][0] as { prompt: string };
+    expect(payload.prompt).toContain('Which posts should I comment on?');
+    expect(payload.prompt).toContain('Robyn Ball');
+    expect(payload.prompt).toContain('Janet Pearce');
+    expect(payload.prompt).toContain('genuine confusion');
+    expect(payload.prompt).toContain('select one or more');
+    expect(payload.prompt).not.toContain('Claude requested input via AskUserQuestion');
+  });
+
+  it('renders multiple AskUserQuestion entries from a single tool call', () => {
+    const adapter = new ClaudeCliAdapter();
+    const onInputRequired = vi.fn();
+    adapter.on('input_required', onInputRequired);
+    const processCliMessage = (
+      adapter as unknown as { processCliMessage: (message: unknown) => void }
+    ).processCliMessage.bind(adapter);
+
+    processCliMessage({
+      type: 'assistant',
+      timestamp: 654,
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tool-ask-multi',
+            name: 'AskUserQuestion',
+            input: {
+              questions: [
+                { header: 'Posts', question: 'Which posts?', options: [{ label: 'Robyn' }] },
+                { header: 'Flow', question: 'Which posting flow?', options: [{ label: 'Approve each' }] },
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    expect(onInputRequired).toHaveBeenCalledTimes(1);
+    const payload = onInputRequired.mock.calls[0][0] as { prompt: string };
+    expect(payload.prompt).toContain('Which posts?');
+    expect(payload.prompt).toContain('Which posting flow?');
+    expect(payload.prompt).toContain('Approve each');
+  });
+
   it('deduplicates repeated AskUserQuestion events for the same tool_use_id', () => {
     const adapter = new ClaudeCliAdapter();
     const onInputRequired = vi.fn();

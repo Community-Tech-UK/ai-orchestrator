@@ -1,15 +1,3 @@
-/**
- * Loop Stage Machine
- *
- * Owns the on-disk loop artifacts (STAGE.md, PLAN.md, NOTES.md,
- * ITERATION_LOG.md) and builds the per-iteration prompt. The agent reads
- * STAGE.md at the top of an iteration, does that stage's work, and
- * advances STAGE.md itself — the coordinator does NOT mutate STAGE.md
- * after bootstrap. This collapses the user's three-stage workflow
- * (PLAN/REVIEW/IMPLEMENT) into a single-loop state machine where the
- * agent owns its own progression.
- */
-
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { getLogger } from '../logging/logger';
@@ -20,10 +8,13 @@ import {
   curateNotesContent,
   hasPlanNameHint,
   isPlanLikeMarkdown,
+  NOTES_CURATION_MAX_CHARS,
+  NOTES_CURATION_KEEP_TAIL_CHARS,
   outstandingHasHumanItems,
   parsePlanChecklist,
   type NotesCurationResult,
 } from './loop-stage-markdown';
+import { LOOP_TEXT_FILE_MAX_BYTES, readUtf8FileHead, readUtf8FileTail } from './bounded-file-read';
 
 export {
   curateNotesContent,
@@ -57,6 +48,8 @@ const LOOP_TASKS_TEMPLATE =
   '<!-- Example:\n- [ ] Implement the parser\n- [~] Wire the coordinator\n- [-] Cross-model fan-out — deferred: out of scope for v1\n-->\n';
 
 const VALID_STAGES = new Set<LoopStage>(['PLAN', 'REVIEW', 'IMPLEMENT']);
+const LOOP_ARTIFACT_HEAD_BYTES = LOOP_TEXT_FILE_MAX_BYTES;
+const LOOP_NOTES_TAIL_BYTES = 64 * 1024;
 
 /**
  * Workspace snapshot captured by `LoopStageMachine.captureStartupSnapshot`
@@ -174,7 +167,7 @@ export class LoopStageMachine {
   /** Read STAGE.md. Returns initialStage from config if missing/invalid. */
   async readStage(config: LoopConfig): Promise<LoopStage> {
     try {
-      const text = (await fsp.readFile(this.paths.stage, 'utf8')).trim();
+      const text = (await readUtf8FileHead(this.paths.stage, 1024)).text.trim();
       const parsed = this.parseStage(text);
       if (parsed) return parsed;
       logger.warn('STAGE.md unparseable; defaulting to initialStage', { content: text.slice(0, 80) });
@@ -188,7 +181,7 @@ export class LoopStageMachine {
   async readPlan(config: LoopConfig): Promise<string | null> {
     if (!config.planFile) return null;
     try {
-      return await fsp.readFile(path.join(this.cwd, config.planFile), 'utf8');
+      return (await readUtf8FileHead(path.join(this.cwd, config.planFile), LOOP_ARTIFACT_HEAD_BYTES)).text;
     } catch {
       return null;
     }
@@ -235,7 +228,7 @@ export class LoopStageMachine {
   /** LF-4: read + parse `LOOP_TASKS.md`. Returns an empty ledger when absent. */
   async readTaskLedger(): Promise<LoopTaskLedger> {
     try {
-      const text = await fsp.readFile(this.paths.tasks, 'utf8');
+      const text = (await readUtf8FileHead(this.paths.tasks, LOOP_ARTIFACT_HEAD_BYTES)).text;
       return parseTaskLedger(text);
     } catch {
       return parseTaskLedger('');
@@ -273,7 +266,7 @@ export class LoopStageMachine {
   private async looksLikePlanDoc(basename: string): Promise<boolean> {
     if (hasPlanNameHint(basename)) return true;
     try {
-      const text = await fsp.readFile(path.join(this.cwd, basename), 'utf8');
+      const text = (await readUtf8FileHead(path.join(this.cwd, basename), LOOP_ARTIFACT_HEAD_BYTES)).text;
       return parsePlanChecklist(text).total > 0;
     } catch {
       return false;
@@ -293,7 +286,7 @@ export class LoopStageMachine {
   /** Read NOTES.md. Empty string if missing. */
   async readNotes(): Promise<string> {
     try {
-      return await fsp.readFile(this.paths.notes, 'utf8');
+      return (await readUtf8FileTail(this.paths.notes, LOOP_NOTES_TAIL_BYTES)).text;
     } catch {
       return '';
     }
@@ -309,7 +302,7 @@ export class LoopStageMachine {
   async readOutstanding(): Promise<{ raw: string; needsHuman: boolean }> {
     let raw = '';
     try {
-      raw = await fsp.readFile(this.paths.outstanding, 'utf8');
+      raw = (await readUtf8FileHead(this.paths.outstanding, LOOP_ARTIFACT_HEAD_BYTES)).text;
     } catch {
       return { raw: '', needsHuman: false };
     }
@@ -324,25 +317,37 @@ export class LoopStageMachine {
    * continues with the un-curated file. Returns the result so the coordinator
    * can log/emit the elision for observability.
    */
-  async curateNotesIfNeeded(
-    opts: { maxChars?: number; keepTailChars?: number } = {},
-  ): Promise<NotesCurationResult> {
+  async curateNotesIfNeeded(opts: { maxChars?: number; keepTailChars?: number } = {}): Promise<NotesCurationResult> {
     const notesPath = this.paths.notes;
     let content: string;
+    let boundedReadElidedBytes = 0;
     try {
-      content = await fsp.readFile(notesPath, 'utf8');
+      const readLimit = Math.min(
+        LOOP_TEXT_FILE_MAX_BYTES,
+        Math.max(opts.maxChars ?? NOTES_CURATION_MAX_CHARS, opts.keepTailChars ?? NOTES_CURATION_KEEP_TAIL_CHARS),
+      );
+      const read = await readUtf8FileTail(notesPath, readLimit);
+      boundedReadElidedBytes = read.truncated ? Math.max(0, read.sizeBytes - Buffer.byteLength(read.text, 'utf8')) : 0;
+      content = read.truncated
+        ? `# Loop Notes\n\n_[loop] NOTES.md exceeded the bounded read cap; preserving the newest entries._\n\n${read.text}`
+        : read.text;
     } catch {
       return { curated: '', changed: false, elidedChars: 0 };
     }
     const result = curateNotesContent(content, opts);
-    if (!result.changed) return result;
+    const writeResult = boundedReadElidedBytes > 0 ? {
+      curated: result.curated,
+      changed: true,
+      elidedChars: boundedReadElidedBytes + result.elidedChars,
+    } : result;
+    if (!writeResult.changed) return writeResult;
     try {
-      await fsp.writeFile(notesPath, result.curated, 'utf8');
+      await fsp.writeFile(notesPath, writeResult.curated, 'utf8');
     } catch (err) {
       logger.warn('Failed to write curated NOTES.md', { error: String(err) });
       return { curated: content, changed: false, elidedChars: 0 };
     }
-    return result;
+    return writeResult;
   }
 
   /**

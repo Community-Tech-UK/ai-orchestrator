@@ -5,6 +5,7 @@ import type { CliResponse, InterruptResult } from '../main/cli/adapters/base-cli
 import type { FileAttachment } from '../shared/types/instance.types';
 import { observeAdapterRuntimeEvents } from '../main/providers/adapter-runtime-event-bridge';
 import { toOutputMessageFromProviderOutputEvent } from '../main/providers/provider-output-event';
+import type { WorkerBrowserManager } from './worker-browser-manager';
 
 const ACTIVITY_WATCHDOG_INTERVAL_MS = 5_000;
 
@@ -51,11 +52,39 @@ export class LocalInstanceManager extends EventEmitter {
   private readonly hibernatedInstances = new Map<string, SpawnParams>();
   private readonly allowedDirs: string[];
   private readonly maxInstances: number;
+  private readonly browserManager: WorkerBrowserManager | null;
 
-  constructor(allowedDirs: string[], maxInstances = 10) {
+  constructor(
+    allowedDirs: string[],
+    maxInstances = 10,
+    browserManager: WorkerBrowserManager | null = null,
+  ) {
     super();
     this.allowedDirs = allowedDirs.map((d) => path.resolve(d));
     this.maxInstances = maxInstances;
+    this.browserManager = browserManager;
+  }
+
+  /**
+   * When browser automation is enabled on this node, ensure the managed Chrome
+   * is up and return a `chromeDevtoolsMcp` attach option for the spawn. Degrades
+   * gracefully: any failure logs and returns null so the instance still spawns,
+   * just without browser tools (better than failing the whole spawn).
+   */
+  private async resolveChromeDevtoolsMcp(): Promise<{ browserUrl: string } | null> {
+    if (!this.browserManager?.isEnabled()) {
+      return null;
+    }
+    try {
+      const browserUrl = await this.browserManager.ensureRunning();
+      return { browserUrl };
+    } catch (err) {
+      console.warn(
+        '[LocalInstanceManager] browser automation enabled but Chrome failed to start; spawning without browser tools',
+        err instanceof Error ? err.message : String(err),
+      );
+      return null;
+    }
   }
 
   getInstanceCount(): number {
@@ -119,6 +148,12 @@ export class LocalInstanceManager extends EventEmitter {
       throw new Error(`Worker at capacity (${this.maxInstances} instances)`);
     }
 
+    // Resolve browser automation before building the adapter so the
+    // chrome-devtools MCP server is baked into the spawn config. Lazy: this
+    // launches the managed Chrome on the first browser-enabled spawn, then
+    // reuses it for subsequent spawns.
+    const chromeDevtoolsMcp = await this.resolveChromeDevtoolsMcp();
+
     // Dynamic import to avoid pulling in Electron at module load time.
     // In the bundled worker agent, the adapter factory is tree-shaken to
     // only include the CLI adapters that are used.
@@ -134,6 +169,7 @@ export class LocalInstanceManager extends EventEmitter {
       resume: params.resume,
       forkSession: params.forkSession,
       mcpConfig: params.mcpConfig,
+      ...(chromeDevtoolsMcp ? { chromeDevtoolsMcp } : {}),
     });
 
     let runtimeObserverCleanup: () => void = () => undefined;

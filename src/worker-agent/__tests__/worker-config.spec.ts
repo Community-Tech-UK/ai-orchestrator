@@ -64,6 +64,66 @@ describe('loadWorkerConfig', () => {
     expect(config.coordinatorUrl).toBe('wss://100.68.10.5:4878');
   });
 
+  it('leaves browserAutomation undefined when absent', () => {
+    const configPath = path.join(tempDir, 'worker-node.json');
+    fs.writeFileSync(configPath, JSON.stringify({ token: 't', namespace: 'default' }));
+    const config = loadWorkerConfig(configPath);
+    expect(config.browserAutomation).toBeUndefined();
+  });
+
+  it('parses an enabled browserAutomation block', () => {
+    const configPath = path.join(tempDir, 'worker-node.json');
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        token: 't',
+        browserAutomation: {
+          enabled: true,
+          profileDir: 'C:/auto-profile',
+          headless: true,
+          chromePath: 'C:/chrome.exe',
+          remoteDebuggingPort: 9222,
+        },
+      }),
+    );
+    const config = loadWorkerConfig(configPath);
+    expect(config.browserAutomation).toEqual({
+      enabled: true,
+      profileDir: 'C:/auto-profile',
+      headless: true,
+      chromePath: 'C:/chrome.exe',
+      remoteDebuggingPort: 9222,
+    });
+  });
+
+  it('treats a block without enabled:true as off (never silently enabled)', () => {
+    const configPath = path.join(tempDir, 'worker-node.json');
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({ token: 't', browserAutomation: { profileDir: 'C:/x', headless: true } }),
+    );
+    const config = loadWorkerConfig(configPath);
+    expect(config.browserAutomation).toBeUndefined();
+  });
+
+  it('drops malformed optional fields but keeps enablement', () => {
+    const configPath = path.join(tempDir, 'worker-node.json');
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        token: 't',
+        browserAutomation: {
+          enabled: true,
+          profileDir: '   ',
+          headless: 'yes',
+          remoteDebuggingPort: 70000,
+        },
+      }),
+    );
+    const config = loadWorkerConfig(configPath);
+    expect(config.browserAutomation).toEqual({ enabled: true });
+  });
+
   it('lets copied UI host and port replace a stale persisted coordinatorUrl', () => {
     const configPath = path.join(tempDir, 'worker-node.json');
     fs.writeFileSync(

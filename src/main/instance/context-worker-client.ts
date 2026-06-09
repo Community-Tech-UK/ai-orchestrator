@@ -1,8 +1,8 @@
 /**
  * ContextWorkerClient — main-process implementation of InstanceContextPort.
  *
- * Routes all RLM and unified-memory work to a context-worker-main.ts worker
- * thread so that SQLite ingestion, embedding, and context retrieval do not
+ * Routes all RLM and unified-memory work to a context-worker-main.ts child
+ * process so that SQLite ingestion, embedding, and context retrieval do not
  * block the Electron main event loop.
  *
  * Contract:
@@ -18,10 +18,10 @@
  *   they never add worker round-trips to the user-input hot path.
  */
 
-import { Worker } from 'node:worker_threads';
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
+import { createIsolatedWorkerProcess, type IsolatedWorkerProcess } from '../runtime/isolated-worker-process';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type { RlmContextInfo, ContextBudget, UnifiedMemoryContextInfo } from './instance-types';
@@ -105,7 +105,7 @@ type RpcMsgWithId =
 
 export interface ContextWorkerClientOptions {
   rpcTimeoutMs?: number;
-  workerFactory?: (userDataPath: string) => Worker;
+  workerFactory?: (userDataPath: string) => ContextWorkerProcessHandle;
   userDataPath?: string;
 }
 
@@ -129,15 +129,16 @@ function getElectronUserDataPath(): string | undefined {
   }
 }
 
-function makeWorker(userDataPath: string): Worker {
+type ContextWorkerProcessHandle =
+  IsolatedWorkerProcess<ContextWorkerInboundMsg, ContextWorkerOutboundMsg>;
+
+function makeWorker(userDataPath: string): ContextWorkerProcessHandle {
   const jsEntry = path.join(__dirname, 'context-worker-main.js');
-  if (existsSync(jsEntry)) {
-    return new Worker(jsEntry, { workerData: { userDataPath } });
-  }
-  const tsEntry = path.join(__dirname, 'context-worker-main.ts');
-  return new Worker(tsEntry, {
-    workerData: { userDataPath },
-    execArgv: ['--import', 'tsx'],
+  const entry = existsSync(jsEntry) ? jsEntry : path.join(__dirname, 'context-worker-main.ts');
+  return createIsolatedWorkerProcess<ContextWorkerInboundMsg, ContextWorkerOutboundMsg>({
+    name: 'context worker',
+    entrypoint: entry,
+    env: { AIO_USER_DATA_PATH: userDataPath },
   });
 }
 
@@ -167,14 +168,16 @@ function estimateTokens(text: string): number {
 // ── ContextWorkerClient ────────────────────────────────────────────────────────
 
 export class ContextWorkerClient implements InstanceContextPort {
-  private worker: Worker | null = null;
+  private worker: ContextWorkerProcessHandle | null = null;
   private rpcId = 0;
   private pending = new Map<number, PendingRpc>();
   private inflight = 0;
   private isDegraded = false;
   private restartAttempts = 0;
+  private shuttingDown = false;
+  private restartTimer: NodeJS.Timeout | null = null;
   private readonly rpcTimeoutMs: number;
-  private readonly workerFactory: (userDataPath: string) => Worker;
+  private readonly workerFactory: (userDataPath: string) => ContextWorkerProcessHandle;
   private readonly userDataPath: string;
   private metrics = { processed: 0, dropped: 0, lastError: null as string | null };
 
@@ -461,6 +464,11 @@ export class ContextWorkerClient implements InstanceContextPort {
   // ── Lifecycle ────────────────────────────────────────────────────────────────
 
   async shutdown(): Promise<void> {
+    this.shuttingDown = true;
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
     this.failAllPending(new Error('shutdown'));
     if (this.worker) {
       try {
@@ -482,12 +490,13 @@ export class ContextWorkerClient implements InstanceContextPort {
 
   private startWorker(): void {
     if (this.worker) return;
+    this.shuttingDown = false;
     try {
       const w = this.workerFactory(this.userDataPath);
       w.on('message', (msg: ContextWorkerOutboundMsg) => this.handleMessage(msg));
       w.on('error', (err) => this.handleWorkerError(err));
       w.on('exit', (code) => {
-        if (code !== 0) {
+        if (code !== 0 && !this.shuttingDown) {
           this.handleWorkerError(new Error(`Context worker exited with code ${code}`));
         }
       });
@@ -525,6 +534,9 @@ export class ContextWorkerClient implements InstanceContextPort {
     this.metrics.lastError = err.message;
     this.failAllPending(err);
     this.worker = null;
+    if (this.shuttingDown) {
+      return;
+    }
     this.markDegraded(err.message);
     if (this.restartAttempts < MAX_RESTART_ATTEMPTS) {
       this.restartAttempts++;
@@ -534,10 +546,15 @@ export class ContextWorkerClient implements InstanceContextPort {
         maxAttempts: MAX_RESTART_ATTEMPTS,
         backoffMs: RESTART_BACKOFF_MS,
       });
-      setTimeout(() => {
+      this.restartTimer = setTimeout(() => {
+        this.restartTimer = null;
+        if (this.shuttingDown) {
+          return;
+        }
         this.isDegraded = false;
         this.startWorker();
       }, RESTART_BACKOFF_MS);
+      this.restartTimer.unref?.();
     } else {
       logger.error('Context worker exceeded restart attempts; staying degraded (memory/RLM context disabled this session)', undefined, {
         error: err.message,

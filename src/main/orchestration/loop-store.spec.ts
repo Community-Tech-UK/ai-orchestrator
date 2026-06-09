@@ -13,6 +13,7 @@ import Database from 'better-sqlite3';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import type {
   LoopConfig,
+  LoopIteration,
   LoopState,
 } from '../../shared/types/loop.types';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
@@ -45,6 +46,34 @@ function makeState(overrides: Partial<LoopState> = {}): LoopState {
     tokensSinceLastTestImprovement: 0,
     iterationsOnCurrentStage: 0,
     recentWarnIterationSeqs: [],
+    ...overrides,
+  };
+}
+
+function makeLoopIteration(overrides: Partial<LoopIteration> = {}): LoopIteration {
+  return {
+    id: `iter-${overrides.seq ?? 0}`,
+    loopRunId: 'loop-1',
+    seq: 0,
+    stage: 'IMPLEMENT',
+    startedAt: 1_700_000_000_000,
+    endedAt: 1_700_000_001_000,
+    childInstanceId: null,
+    tokens: 10,
+    costCents: 0,
+    filesChanged: [],
+    toolCalls: [],
+    errors: [],
+    testPassCount: null,
+    testFailCount: null,
+    workHash: 'hash',
+    outputSimilarityToPrev: null,
+    outputExcerpt: '',
+    progressVerdict: 'OK',
+    progressSignals: [],
+    completionSignalsFired: [],
+    verifyStatus: 'not-run',
+    verifyOutputExcerpt: '',
     ...overrides,
   };
 }
@@ -127,6 +156,69 @@ describe('LoopStore.getRunSummary', () => {
     expect(summary).not.toBeNull();
     expect(summary?.initialPrompt).toBe('');
     expect(summary?.iterationPrompt).toBeNull();
+  });
+});
+
+describe('LoopStore.getIterations pagination', () => {
+  it('caps getIterations by default and supports explicit pagination', () => {
+    const state = makeState({ id: 'loop-paged' });
+    store.upsertRun(state);
+    for (let seq = 0; seq < 3; seq++) {
+      store.insertIteration(makeLoopIteration({
+        id: `loop-paged-${seq}`,
+        loopRunId: 'loop-paged',
+        seq,
+      }));
+    }
+
+    expect(store.getIterations('loop-paged', undefined, undefined, { limit: 2 }).map((i) => i.seq)).toEqual([0, 1]);
+    expect(store.getIterations('loop-paged', undefined, undefined, { limit: 2, offset: 1 }).map((i) => i.seq)).toEqual([1, 2]);
+    expect(store.countIterations('loop-paged')).toBe(3);
+  });
+});
+
+describe('LoopStore checkpoints', () => {
+  it('round-trips the latest loop checkpoint', () => {
+    const state = makeState({ id: 'loop-checkpoint', status: 'running', endedAt: null });
+    store.upsertRun(state);
+    store.upsertCheckpoint({
+      version: 1,
+      loopRunId: state.id,
+      chatId: state.chatId,
+      status: 'running',
+      state,
+      historyTail: [],
+      convergenceNote: 'verify failed',
+      planRegenerationCount: 2,
+      pendingContextReset: true,
+      updatedAt: 1234,
+    });
+
+    expect(store.getCheckpoint(state.id)).toEqual(expect.objectContaining({
+      loopRunId: state.id,
+      convergenceNote: 'verify failed',
+      planRegenerationCount: 2,
+      pendingContextReset: true,
+    }));
+  });
+
+  it('lists resumable checkpoints for paused and provider-limit loops', () => {
+    const state = makeState({ id: 'loop-resumable', status: 'paused', endedAt: null });
+    store.upsertRun(state);
+    store.upsertCheckpoint({
+      version: 1,
+      loopRunId: state.id,
+      chatId: state.chatId,
+      status: 'paused',
+      state,
+      historyTail: [],
+      convergenceNote: null,
+      planRegenerationCount: 0,
+      pendingContextReset: false,
+      updatedAt: 1234,
+    });
+
+    expect(store.listResumableCheckpoints().map((checkpoint) => checkpoint.loopRunId)).toContain(state.id);
   });
 });
 

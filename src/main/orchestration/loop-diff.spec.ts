@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -75,6 +75,39 @@ describe('collectWorkspaceDiff', () => {
     expect(out.diff).toContain('+++ new file: newfile.ts');
     expect(out.diff).toContain('export const created = true;');
     expect(out.changedFiles).toContain('newfile.ts');
+  });
+
+  it('does not whole-file read huge untracked files', async () => {
+    workspace = mkdtempSync(join(tmpdir(), 'loop-diff-'));
+    const hugePath = join(workspace, 'huge.md');
+    writeFileSync(hugePath, 'x'.repeat(2 * 1024 * 1024));
+    vi.resetModules();
+    const realFs = await vi.importActual<typeof import('node:fs')>('node:fs');
+    vi.doMock('fs', () => ({
+      ...realFs,
+      readFileSync: (pathLike: Parameters<typeof realFs.readFileSync>[0], ...args: unknown[]) => {
+        if (pathLike === hugePath) {
+          throw new Error('unexpected whole-file read');
+        }
+        return realFs.readFileSync(pathLike, ...(args as []));
+      },
+    }));
+    const { collectWorkspaceDiff: collectWithMockedFs } = await import('./loop-diff');
+
+    try {
+      const out = collectWithMockedFs(
+        workspace,
+        { maxUntrackedFileChars: 128 },
+        fakeRunner({ untracked: 'huge.md\n' }),
+      );
+
+      expect(out.diff).toContain('+++ new file: huge.md');
+      expect(out.diff).toContain('untracked file truncated');
+      expect(out.changedFiles).toContain('huge.md');
+    } finally {
+      vi.doUnmock('fs');
+      vi.resetModules();
+    }
   });
 
   it('excludes the loop-control dir (secret token) and other internal noise from untracked output', () => {

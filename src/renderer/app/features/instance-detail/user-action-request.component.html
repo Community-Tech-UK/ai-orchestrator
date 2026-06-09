@@ -4,7 +4,7 @@
       <div class="request-card" [class]="'request-' + request.requestType">
         <div class="request-header">
           <span class="request-icon">{{
-            getRequestIcon(request.requestType)
+            isAskUserQuestion(request) ? '💬' : getRequestIcon(request.requestType)
           }}</span>
           <span class="request-title">{{ request.title }}</span>
         </div>
@@ -39,6 +39,63 @@
                 [disabled]="isResponding()"
               >
                 Submit Answers
+              </button>
+            </div>
+          </div>
+        } @else if (request.askQuestions && request.askQuestions.length > 0) {
+          <!-- AskUserQuestion: clickable option chips per question -->
+          <div class="ask-questions-form">
+            @for (entry of request.askQuestions; track $index; let qIndex = $index) {
+              <div class="ask-question">
+                <span class="ask-question-label">{{ entry.header || entry.question }}</span>
+                @if (entry.header && entry.header !== entry.question) {
+                  <span class="ask-question-sub">{{ entry.question }}</span>
+                }
+                @if (entry.options.length > 0) {
+                  @if (entry.multiSelect) {
+                    <span class="ask-question-hint">Select one or more</span>
+                  }
+                  <div class="ask-options">
+                    @for (option of entry.options; track option.label) {
+                      <button
+                        type="button"
+                        class="ask-option"
+                        [class.selected]="isAskOptionSelected(request.id, qIndex, option.label)"
+                        (click)="toggleAskOption(request.id, qIndex, option.label, entry.multiSelect)"
+                        [disabled]="isResponding()"
+                      >
+                        <span class="ask-option-label">{{ option.label }}</span>
+                        @if (option.description) {
+                          <span class="ask-option-desc">{{ option.description }}</span>
+                        }
+                      </button>
+                    }
+                  </div>
+                } @else {
+                  <textarea
+                    class="question-input"
+                    rows="2"
+                    [placeholder]="'Type your answer...'"
+                    [disabled]="isResponding()"
+                    (input)="onAskTextChange(request.id, qIndex, $event)"
+                  ></textarea>
+                }
+              </div>
+            }
+            <div class="request-actions">
+              <button
+                class="btn-reject"
+                (click)="onSkipAskUserQuestion(request)"
+                [disabled]="isResponding()"
+              >
+                Skip
+              </button>
+              <button
+                class="btn-approve"
+                (click)="onSubmitAskUserQuestion(request)"
+                [disabled]="isResponding() || !canSubmitAskUserQuestion(request)"
+              >
+                Submit
               </button>
             </div>
           </div>

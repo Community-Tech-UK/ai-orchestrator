@@ -20,6 +20,7 @@ interface BrowserProfileRow {
   user_data_dir: string | null;
   allowed_origins_json: string;
   default_url: string | null;
+  execution_node_id: string | null;
   status: BrowserProfile['status'];
   debug_port: number | null;
   debug_endpoint: string | null;
@@ -144,6 +145,28 @@ export class BrowserProfileStore {
     this.db.prepare(`DELETE FROM browser_profiles WHERE id = ?`).run(id);
   }
 
+  /**
+   * Bind (or unbind, with null) a profile to a remote worker node. When set, the
+   * gateway drives that node's Chrome over the CDP tunnel instead of launching
+   * Chrome locally.
+   */
+  setExecutionNode(id: string, nodeId: string | null): BrowserProfile {
+    const existing = this.getProfile(id);
+    if (!existing) {
+      throw new Error(`Browser profile ${id} not found`);
+    }
+    this.db
+      .prepare(
+        `UPDATE browser_profiles SET execution_node_id = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(nodeId, Date.now(), id);
+    const profile = this.getProfile(id);
+    if (!profile) {
+      throw new Error(`Browser profile ${id} disappeared during execution-node update`);
+    }
+    return profile;
+  }
+
   setRuntimeState(id: string, patch: BrowserRuntimeStatePatch): BrowserProfile {
     const existing = this.getProfile(id);
     if (!existing) {
@@ -203,6 +226,7 @@ export class BrowserProfileStore {
       userDataDir: row.user_data_dir ?? undefined,
       allowedOrigins: this.parseAllowedOrigins(row),
       defaultUrl: row.default_url ?? undefined,
+      executionNodeId: row.execution_node_id ?? undefined,
       status: row.status,
       debugPort: row.debug_port ?? undefined,
       debugEndpoint: row.debug_endpoint ?? undefined,

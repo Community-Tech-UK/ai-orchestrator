@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
+import { DEFAULT_LOOP_MAX_WALL_TIME_MS, defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
 import {
   buildLoopInterveneChatEvent,
   buildLoopStartChatEvent,
@@ -34,7 +34,7 @@ describe('buildLoopStartChatEvent', () => {
         provider: 'claude',
         reviewStyle: 'debate',
         iterationCap: null,
-        maxWallTimeMs: 8 * 60 * 60 * 1000,
+        maxWallTimeMs: DEFAULT_LOOP_MAX_WALL_TIME_MS,
       }),
     });
   });

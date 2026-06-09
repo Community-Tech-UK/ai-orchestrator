@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+const LOOP_MAX_WALL_TIME_MS_SCHEMA_CAP = 7 * 24 * 60 * 60 * 1000;
+
 // ============ Enums ============
 
 export const LoopStageSchema = z.enum(['PLAN', 'REVIEW', 'IMPLEMENT']);
@@ -53,7 +55,7 @@ export const CompletionSignalIdSchema = z.enum([
 
 export const LoopHardCapsSchema = z.object({
   maxIterations: z.number().int().positive().max(1000).nullable(),
-  maxWallTimeMs: z.number().int().positive().max(24 * 60 * 60 * 1000),
+  maxWallTimeMs: z.number().int().positive().max(LOOP_MAX_WALL_TIME_MS_SCHEMA_CAP),
   maxTokens: z.number().int().positive().max(100_000_000).nullable(),
   maxCostCents: z.number().int().nonnegative().max(1_000_000).nullable(),
   maxToolCallsPerIteration: z.number().int().positive().max(10_000),

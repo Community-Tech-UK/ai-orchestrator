@@ -8,7 +8,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const LOOP_SCHEMA_VERSION = 5;
+export const LOOP_SCHEMA_VERSION = 6;
 
 interface LoopMigration {
   version: number;
@@ -159,6 +159,27 @@ const MIGRATIONS: LoopMigration[] = [
 
       CREATE INDEX IF NOT EXISTS idx_loop_outstanding_run
         ON loop_outstanding_items(loop_run_id);
+    `,
+  },
+  {
+    version: 6,
+    name: '006_loop_checkpoints',
+    up: `
+      CREATE TABLE IF NOT EXISTS loop_checkpoints (
+        loop_run_id TEXT PRIMARY KEY REFERENCES loop_runs(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL,
+        chat_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        state_json TEXT NOT NULL,
+        history_tail_json TEXT NOT NULL,
+        convergence_note TEXT,
+        plan_regeneration_count INTEGER NOT NULL DEFAULT 0,
+        pending_context_reset INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_loop_checkpoints_status_updated
+        ON loop_checkpoints(status, updated_at DESC);
     `,
   },
 ];

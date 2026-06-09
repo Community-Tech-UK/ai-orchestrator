@@ -174,4 +174,28 @@ describe('BrowserProfileStore', () => {
 
     expect(store.getProfile(created.id)?.allowedOrigins).toEqual([]);
   });
+
+  it('binds and unbinds a profile to a remote execution node (migration 038)', () => {
+    const columns = db
+      .prepare(`PRAGMA table_info(browser_profiles)`)
+      .all<{ name: string }>()
+      .map((c) => c.name);
+    expect(columns).toContain('execution_node_id');
+
+    const created = store.createProfile({
+      label: 'Remote',
+      mode: 'session',
+      browser: 'chrome',
+      allowedOrigins: [],
+    });
+    // Defaults to local (undefined).
+    expect(store.getProfile(created.id)?.executionNodeId).toBeUndefined();
+
+    const bound = store.setExecutionNode(created.id, 'node-abc');
+    expect(bound.executionNodeId).toBe('node-abc');
+    expect(store.getProfile(created.id)?.executionNodeId).toBe('node-abc');
+
+    const unbound = store.setExecutionNode(created.id, null);
+    expect(unbound.executionNodeId).toBeUndefined();
+  });
 });

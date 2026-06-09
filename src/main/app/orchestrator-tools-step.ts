@@ -4,10 +4,17 @@ import { defaultOperatorDbPath } from '../operator/operator-database';
 import { getWorkerNodeRegistry } from '../remote-node';
 import { resolveWorkerNodeTarget } from '../remote-node/worker-node-registry';
 import { evaluateSpawn } from '../orchestration/subagent-spawn-guard';
-import { getAutomationStore } from '../automations';
-import { createAutomationWithScheduling } from '../automations/automation-create-service';
-import { validateCronExpression } from '../automations/automation-schedule';
-import type { AutomationSchedule, CreateAutomationInput } from '../../shared/types/automation.types';
+import {
+  getAutomationRunner,
+  getAutomationScheduler,
+  getAutomationStore,
+} from '../automations';
+import {
+  createAutomationWithScheduling,
+  handlePastOneTimeAutomation,
+} from '../automations/automation-create-service';
+import { getAutomationEvents } from '../automations/automation-events';
+import { createAutomationToolImplementations } from '../automations/automation-tool-impl';
 import type { Instance } from '../../shared/types/instance.types';
 import type { InstanceManager } from '../instance/instance-manager';
 import { getLogger } from '../logging/logger';
@@ -60,6 +67,22 @@ export function createOrchestratorToolsStep(instanceManager: InstanceManager): A
       const MAX_MESSAGE_CONTENT = 4000;
       const sleep = (ms: number): Promise<void> =>
         new Promise((resolve) => setTimeout(resolve, ms));
+      // Implementations backing create/list/delete/update/postpone automation
+      // MCP tools. Extracted to ../automations/automation-tool-impl.ts so the
+      // logic is integration-tested against a real in-memory store; here we wire
+      // the real singletons + caller-instance working-directory resolution.
+      const automationTools = createAutomationToolImplementations({
+        store: getAutomationStore(),
+        scheduler: getAutomationScheduler(),
+        runner: getAutomationRunner(),
+        events: getAutomationEvents(),
+        createWithScheduling: createAutomationWithScheduling,
+        handlePastOneTime: handlePastOneTimeAutomation,
+        resolveWorkingDirectory: (callerInstanceId) =>
+          callerInstanceId
+            ? instanceManager.getInstance(callerInstanceId)?.workingDirectory
+            : undefined,
+      });
       await initializeOrchestratorToolsRpcServer({
         operatorDbPath: defaultOperatorDbPath(),
         isKnownLocalInstance: (instanceId) => Boolean(instanceManager.getInstance(instanceId)),
@@ -221,99 +244,13 @@ export function createOrchestratorToolsStep(instanceManager: InstanceManager): A
             messages,
           };
         },
-        // Backs the `create_automation` MCP tool: build a CreateAutomationInput
-        // from the agent-supplied args and route it through the same
-        // create+schedule service the IPC handler uses (so events fire and the
-        // Automations UI updates live). Working directory defaults to the
-        // calling chat's project when the agent omits it.
-        createAutomation: async (args, meta) => {
-          const callerInstance = meta?.callerInstanceId
-            ? instanceManager.getInstance(meta.callerInstanceId)
-            : undefined;
-          const workingDirectory =
-            args.workingDirectory?.trim() || callerInstance?.workingDirectory?.trim() || '';
-          if (!workingDirectory) {
-            throw new Error(
-              'create_automation requires a workingDirectory; this session has no project folder set.',
-            );
-          }
-          const timezone =
-            args.timezone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-
-          let schedule: AutomationSchedule;
-          if (args.cron?.trim()) {
-            const expression = args.cron.trim();
-            try {
-              const next = validateCronExpression(expression, timezone);
-              if (!next) {
-                throw new Error('no upcoming run time');
-              }
-            } catch (error) {
-              throw new Error(
-                `Invalid cron expression "${expression}" (${timezone}): ${
-                  error instanceof Error ? error.message : String(error)
-                }`,
-              );
-            }
-            schedule = { type: 'cron', expression, timezone };
-          } else {
-            const runAt = Date.parse(args.runAt ?? '');
-            if (Number.isNaN(runAt)) {
-              throw new Error('runAt must be an ISO-8601 timestamp.');
-            }
-            schedule = { type: 'oneTime', runAt, timezone };
-          }
-
-          const input: CreateAutomationInput = {
-            name: args.name,
-            description: args.description,
-            enabled: args.enabled ?? true,
-            schedule,
-            concurrencyPolicy: 'skip',
-            action: {
-              prompt: args.prompt,
-              workingDirectory,
-              provider: args.provider,
-            },
-          };
-
-          const automation = await createAutomationWithScheduling(input);
-          if (!automation) {
-            throw new Error('Failed to create automation.');
-          }
-          const scheduleSummary =
-            schedule.type === 'cron'
-              ? `cron ${schedule.expression} (${timezone})`
-              : `once at ${new Date(schedule.runAt).toISOString()}`;
-          return {
-            id: automation.id,
-            name: automation.name,
-            scheduleSummary,
-            nextRunAt: automation.nextFireAt,
-            enabled: automation.enabled,
-            workingDirectory,
-          };
-        },
-        // Backs the read-only `list_automations` MCP tool.
-        listAutomations: async () => {
-          const automations = await getAutomationStore().list();
-          return {
-            count: automations.length,
-            automations: automations.map((a) => ({
-              id: a.id,
-              name: a.name,
-              ...(a.description ? { description: a.description } : {}),
-              scheduleSummary:
-                a.schedule.type === 'cron'
-                  ? `cron ${a.schedule.expression} (${a.schedule.timezone})`
-                  : `once at ${new Date(a.schedule.runAt).toISOString()}`,
-              enabled: a.enabled && a.active,
-              nextRunAt: a.nextFireAt,
-              lastRunAt: a.lastFiredAt,
-              workingDirectory: a.action.workingDirectory,
-            })),
-          };
-        },
+        // Automation MCP tools (create/list/delete/update/postpone) — logic
+        // lives in ../automations/automation-tool-impl.ts (integration-tested).
+        createAutomation: automationTools.createAutomation,
+        listAutomations: automationTools.listAutomations,
+        deleteAutomation: automationTools.deleteAutomation,
+        updateAutomation: automationTools.updateAutomation,
+        postponeAutomation: automationTools.postponeAutomation,
         // #18a/#19: strip the spawn-capable `run_on_node` tool from instances
         // that have already reached the spawn-depth limit — defense-in-depth
         // alongside the depth guard in the run_on_node handler.

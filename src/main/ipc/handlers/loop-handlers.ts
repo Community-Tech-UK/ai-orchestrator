@@ -15,6 +15,7 @@ import {
 } from '@contracts/schemas/loop';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getLoopCoordinator } from '../../orchestration/loop-coordinator';
+import { buildLoopCheckpoint } from '../../orchestration/loop-checkpoint';
 import { getLoopStore } from '../../orchestration/loop-store';
 import { inferLoopVerifyCommand } from '../../orchestration/loop-verify-command';
 import { prepareLoopStartConfig } from '../../orchestration/loop-start-config';
@@ -53,6 +54,10 @@ export function registerLoopHandlers(deps: {
     try {
       store.upsertRun(state);
       store.insertIteration(iteration);
+      store.upsertCheckpoint(buildLoopCheckpoint({
+        state,
+        history: [iteration],
+      }));
       // FU-3: a completed iteration means the loop is making progress
       // through restarts. Reset the consecutive-interruption counter so
       // a loop that crashed once and then ran a clean iteration is back
@@ -74,7 +79,13 @@ export function registerLoopHandlers(deps: {
 
   // Forward state changes to renderer.
   coordinator.on('loop:state-changed', (data: { loopRunId: string; state: LoopState }) => {
-    try { store.upsertRun(data.state); } catch { /* logged below */ }
+    try {
+      store.upsertRun(data.state);
+      store.upsertCheckpoint(buildLoopCheckpoint({
+        state: data.state,
+        history: [],
+      }));
+    } catch { /* logged below */ }
     if (isTerminalLoopStatus(data.state.status)) {
       try {
         appendLoopTerminalSummary(data.state, chatService, deps.instanceManager);
@@ -206,8 +217,16 @@ export function registerLoopHandlers(deps: {
   ipcMain.handle(IPC_CHANNELS.LOOP_RESUME, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(LoopByIdPayloadSchema, payload, 'LOOP_RESUME');
-      const ok = coordinator.resumeLoop(validated.loopRunId);
-      const state = coordinator.getLoop(validated.loopRunId);
+      let ok = coordinator.resumeLoop(validated.loopRunId);
+      let state = coordinator.getLoop(validated.loopRunId);
+      if (!ok && !state) {
+        const checkpoint = store.getCheckpoint(validated.loopRunId);
+        if (checkpoint) {
+          state = await coordinator.restoreLoopFromCheckpoint(checkpoint);
+          ok = coordinator.resumeLoop(validated.loopRunId);
+          state = coordinator.getLoop(validated.loopRunId);
+        }
+      }
       if (state) try { store.upsertRun(state); } catch { /* noop */ }
       return { success: true, data: { ok, state } };
     } catch (error) {

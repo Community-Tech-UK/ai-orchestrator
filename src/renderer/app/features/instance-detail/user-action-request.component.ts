@@ -23,6 +23,7 @@ import {
   shouldClearRequestAfterYoloEnabled
 } from './user-action-request.rules';
 import type { UserActionRequest } from './user-action-request.types';
+import type { AskUserQuestionEntry } from '../../../../shared/types/ask-user-question.types';
 
 export type { UserActionRequest } from './user-action-request.types';
 
@@ -56,6 +57,17 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
   /** Tracks user answers for ask_questions requests: requestId → Map<questionIndex, answer> */
   private questionAnswers = new Map<string, Map<number, string>>();
+
+  /**
+   * Tracks selected option labels for AskUserQuestion prompts:
+   * requestId → questionIndex → set of selected option labels.
+   */
+  private askSelections = new Map<string, Map<number, Set<string>>>();
+  /**
+   * Tracks free-text answers for AskUserQuestion entries that have no options:
+   * requestId → questionIndex → text.
+   */
+  private askTextAnswers = new Map<string, Map<number, string>>();
 
   private unsubscribeUserAction: (() => void) | null = null;
   private unsubscribeInputRequired: (() => void) | null = null;
@@ -145,14 +157,23 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
       }
 
       const isPermissionPrompt = metadata?.type === 'permission_denial' || metadata?.type === 'deferred_permission';
+      const askQuestions =
+        metadata?.type === 'ask_user_question'
+          ? this.coerceAskQuestions((payload.metadata as Record<string, unknown> | undefined)?.['questions'])
+          : undefined;
       const req: UserActionRequest = {
         id: payload.requestId,
         instanceId: payload.instanceId,
         requestType: 'input_required',
-        title: isPermissionPrompt ? 'Permission Required' : 'Input Required',
+        title: askQuestions?.length
+          ? 'Claude has a question'
+          : isPermissionPrompt
+            ? 'Permission Required'
+            : 'Input Required',
         message: payload.prompt,
         createdAt: payload.timestamp,
-        permissionMetadata: metadata // Store permission details for retry message
+        permissionMetadata: metadata, // Store permission details for retry message
+        askQuestions
       };
       this.pendingInputRequiredById.set(req.id, req);
       if (!this.inputRequiredScopes.has(req.id)) {
@@ -463,6 +484,162 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
 
     // Clean up answer tracking
     this.questionAnswers.delete(request.id);
+  }
+
+  /**
+   * Validate and normalize the structured `questions` array shipped on
+   * AskUserQuestion `input_required` metadata. Returns undefined when nothing
+   * actionable is present so the card falls back to the freeform text box.
+   */
+  private coerceAskQuestions(value: unknown): AskUserQuestionEntry[] | undefined {
+    if (!Array.isArray(value)) {
+      return undefined;
+    }
+    const entries: AskUserQuestionEntry[] = [];
+    for (const raw of value) {
+      if (!raw || typeof raw !== 'object') {
+        continue;
+      }
+      const obj = raw as Record<string, unknown>;
+      const question = typeof obj['question'] === 'string' ? obj['question'] : '';
+      const header = typeof obj['header'] === 'string' ? obj['header'] : undefined;
+      const options = Array.isArray(obj['options'])
+        ? obj['options']
+            .filter(
+              (opt): opt is { label: string; description?: string } =>
+                !!opt && typeof opt === 'object' && typeof (opt as { label?: unknown }).label === 'string'
+            )
+            .map((opt) => ({
+              label: opt.label,
+              description: typeof opt.description === 'string' ? opt.description : undefined
+            }))
+        : [];
+      if (!question && !header && options.length === 0) {
+        continue;
+      }
+      entries.push({
+        header,
+        question: question || header || 'Please choose an option',
+        multiSelect: obj['multiSelect'] === true,
+        options
+      });
+    }
+    return entries.length > 0 ? entries : undefined;
+  }
+
+  /** True when the request should render clickable AskUserQuestion options. */
+  isAskUserQuestion(request: UserActionRequest): boolean {
+    return !!request.askQuestions && request.askQuestions.length > 0;
+  }
+
+  isAskOptionSelected(requestId: string, questionIndex: number, label: string): boolean {
+    return this.askSelections.get(requestId)?.get(questionIndex)?.has(label) ?? false;
+  }
+
+  /**
+   * Toggle an option for a question. Single-select questions behave like radio
+   * buttons (selecting one replaces the prior choice); multi-select toggles.
+   */
+  toggleAskOption(
+    requestId: string,
+    questionIndex: number,
+    label: string,
+    multiSelect: boolean
+  ): void {
+    let byQuestion = this.askSelections.get(requestId);
+    if (!byQuestion) {
+      byQuestion = new Map();
+      this.askSelections.set(requestId, byQuestion);
+    }
+    const current = byQuestion.get(questionIndex) ?? new Set<string>();
+    if (multiSelect) {
+      if (current.has(label)) {
+        current.delete(label);
+      } else {
+        current.add(label);
+      }
+    } else {
+      const wasSelected = current.has(label);
+      current.clear();
+      if (!wasSelected) {
+        current.add(label);
+      }
+    }
+    byQuestion.set(questionIndex, current);
+  }
+
+  onAskTextChange(requestId: string, questionIndex: number, event: Event): void {
+    const target = event.target as HTMLTextAreaElement;
+    let byQuestion = this.askTextAnswers.get(requestId);
+    if (!byQuestion) {
+      byQuestion = new Map();
+      this.askTextAnswers.set(requestId, byQuestion);
+    }
+    byQuestion.set(questionIndex, target.value);
+  }
+
+  askTextValue(requestId: string, questionIndex: number): string {
+    return this.askTextAnswers.get(requestId)?.get(questionIndex) ?? '';
+  }
+
+  /** Enabled only once every question has a selection or non-empty text. */
+  canSubmitAskUserQuestion(request: UserActionRequest): boolean {
+    const questions = request.askQuestions;
+    if (!questions || questions.length === 0) {
+      return false;
+    }
+    return questions.every((entry, index) => {
+      if (entry.options.length > 0) {
+        return (this.askSelections.get(request.id)?.get(index)?.size ?? 0) > 0;
+      }
+      return this.askTextValue(request.id, index).trim().length > 0;
+    });
+  }
+
+  /**
+   * Compile the chosen options/text into a readable answer and send it back to
+   * the CLI through the standard input_required response path.
+   */
+  async onSubmitAskUserQuestion(request: UserActionRequest): Promise<void> {
+    const questions = request.askQuestions;
+    if (!questions || !this.canSubmitAskUserQuestion(request)) {
+      return;
+    }
+
+    const lines = questions.map((entry, index) => {
+      const heading = entry.header || entry.question;
+      let answer: string;
+      if (entry.options.length > 0) {
+        const selected = [...(this.askSelections.get(request.id)?.get(index) ?? new Set<string>())];
+        answer = selected.join(', ');
+      } else {
+        answer = this.askTextValue(request.id, index).trim();
+      }
+      return `${heading}: ${answer}`;
+    });
+
+    const responseText = lines.join('\n').trim();
+    if (!responseText) {
+      return;
+    }
+
+    await this.respond(request, true, responseText);
+    this.askSelections.delete(request.id);
+    this.askTextAnswers.delete(request.id);
+  }
+
+  /**
+   * Dismiss an AskUserQuestion without choosing. Sends a brief note back to the
+   * CLI so the turn isn't left waiting on input indefinitely.
+   */
+  async onSkipAskUserQuestion(request: UserActionRequest): Promise<void> {
+    await this.respond(
+      request,
+      true,
+      'No preference — please proceed with your own recommendation.'
+    );
+    this.askSelections.delete(request.id);
+    this.askTextAnswers.delete(request.id);
   }
 
   async onApprove(request: UserActionRequest): Promise<void> {

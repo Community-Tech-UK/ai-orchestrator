@@ -15,7 +15,10 @@ vi.mock('../../logging/logger', () => ({
 // The connection server only touches the registry inside start(); the handshake
 // path under test does not. Mock it to avoid pulling in electron deps on import.
 vi.mock('../worker-node-registry', () => ({
-  getWorkerNodeRegistry: () => new EventEmitter(),
+  getWorkerNodeRegistry: () => Object.assign(new EventEmitter(), {
+    getAllNodes: vi.fn(() => []),
+    getNode: vi.fn((nodeId: string) => ({ id: nodeId, name: nodeId })),
+  }),
 }));
 
 // Auth is exercised in remote-auth.spec.ts — here every registration succeeds.
