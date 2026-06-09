@@ -13,6 +13,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
+import { readFileSync } from 'fs';
 
 vi.mock('../../../logging/logger', () => ({
   getLogger: () => ({
@@ -291,7 +292,13 @@ describe('ClaudeCliAdapter', () => {
         const settingsIndex = args.indexOf('--settings');
         expect(settingsIndex).toBeGreaterThan(-1);
 
-        const settings = JSON.parse(args[settingsIndex + 1] ?? '{}') as {
+        // On win32 the inline-JSON --settings is materialized to a temp file
+        // path (cmd.exe would otherwise strip its quotes); read it back.
+        const settingsRaw = args[settingsIndex + 1] ?? '{}';
+        const settingsJson = settingsRaw.startsWith('{')
+          ? settingsRaw
+          : readFileSync(settingsRaw, 'utf-8');
+        const settings = JSON.parse(settingsJson) as {
           hooks?: {
             PreToolUse?: {
               hooks?: { command?: string }[];

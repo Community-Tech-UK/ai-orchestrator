@@ -4,6 +4,7 @@ import { execFileSync } from 'child_process';
 import type {
   WorkerNodeCapabilities,
   WorkerLocalModelCapability,
+  WorkerLoadedModel,
   NodePlatform,
   WorkerNodeBrowserAutomationSummary,
 } from '../shared/types/worker-node.types';
@@ -136,10 +137,50 @@ async function probeLmStudioCapability(): Promise<WorkerLocalModelCapability | n
       provider: 'openai-compatible',
       baseUrl: LMSTUDIO_LOCAL_BASE_URL,
       models: (data.data ?? []).map((m) => m.id),
+      loadedModels: await probeLmStudioLoadedModels(),
       healthy: true,
     };
   } catch {
     return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/** Shape of LM Studio's native `/api/v0/models` rows we care about. */
+interface LmStudioV0Model {
+  id: string;
+  state?: string;
+  loaded_context_length?: number;
+}
+
+/** Pure: extract loaded models + their context from an `/api/v0/models` body. */
+export function parseLmStudioLoadedModels(data: unknown): WorkerLoadedModel[] {
+  const rows = (data as { data?: LmStudioV0Model[] } | null)?.data ?? [];
+  return rows
+    .filter((m) => m.state === 'loaded')
+    .map((m) => ({ id: m.id, contextLength: m.loaded_context_length ?? 0 }));
+}
+
+/**
+ * LM Studio's native `/api/v0/models` exposes per-model load state and the
+ * context length each loaded model is resident with — richer than the
+ * OpenAI-compatible `/v1/models` (which lists every downloaded model with no
+ * load state). Returns undefined when the endpoint is unavailable so the
+ * coordinator falls back to its size-based pick.
+ */
+async function probeLmStudioLoadedModels(): Promise<WorkerLoadedModel[] | undefined> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), LOCAL_MODEL_PROBE_TIMEOUT_MS);
+  try {
+    const resp = await fetch(`${LMSTUDIO_LOCAL_BASE_URL}/api/v0/models`, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    if (!resp.ok) return undefined;
+    return parseLmStudioLoadedModels(await resp.json());
+  } catch {
+    return undefined;
   } finally {
     clearTimeout(timeoutId);
   }

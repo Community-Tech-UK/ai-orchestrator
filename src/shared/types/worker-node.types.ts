@@ -3,10 +3,25 @@ import type { DiscoveredProject } from './remote-fs.types';
 
 export type NodePlatform = 'darwin' | 'win32' | 'linux';
 
+export interface WorkerLoadedModel {
+  id: string;
+  /** Context window the model is *currently loaded* with (tokens). */
+  contextLength: number;
+}
+
 export interface WorkerLocalModelCapability {
   provider: 'ollama' | 'openai-compatible';
   baseUrl: string;
+  /** All models the server advertises (downloaded/available), loaded or not. */
   models: string[];
+  /**
+   * Models currently resident in memory, with their loaded context length. Lets
+   * the coordinator's auto-pick prefer a model that's already loaded with an
+   * adequate context window instead of JIT-loading a larger one at a tiny
+   * default context (which would overflow on big inputs). Optional — absent when
+   * the server doesn't expose load state.
+   */
+  loadedModels?: WorkerLoadedModel[];
   healthy: boolean;
 }
 

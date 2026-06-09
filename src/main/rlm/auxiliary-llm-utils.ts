@@ -140,6 +140,30 @@ export function workerEndpointHealthy(
 }
 
 /**
+ * Map of model id → loaded context length for a worker endpoint's currently
+ * resident models, from the heartbeat. Empty when the worker doesn't report
+ * load state (older worker, or a server without load-state visibility).
+ */
+export function workerLoadedContexts(
+  nodes: WorkerNodeInfo[],
+  workerNodeId: string | undefined,
+  provider: string,
+  baseUrl: string,
+): Map<string, number> {
+  const map = new Map<string, number>();
+  if (!workerNodeId) return map;
+  for (const node of nodes) {
+    if (node.id !== workerNodeId) continue;
+    for (const cap of node.capabilities.localModelEndpoints ?? []) {
+      if (cap.provider === provider && cap.baseUrl === baseUrl) {
+        for (const lm of cap.loadedModels ?? []) map.set(lm.id, lm.contextLength);
+      }
+    }
+  }
+  return map;
+}
+
+/**
  * Approximate parameter size for a model id, taken as the largest integer
  * immediately followed by `b`/`B` (e.g. `qwen3-35b-a3b` → 35, `nemotron-4b` →
  * 4). Ids with no such marker score 0. Used only to order tier auto-picks.
@@ -157,19 +181,40 @@ export function modelSizeScore(modelId: string): number {
 
 /**
  * Pick a model from a candidate list appropriate to a slot's tier when no
- * explicit/tier model is configured: `quick` → smallest by size score,
- * `quality` → largest. Embedding models are skipped (they can't chat). Falls
- * back to the first candidate when the tier is unset or no sizes are known.
+ * explicit/tier model is configured. Embedding models are skipped.
+ *
+ * When `loaded` (id → resident context length) is supplied and any candidate is
+ * loaded, the pick is restricted to loaded models — avoiding a JIT-load of a
+ * larger model at a tiny default context that would overflow on big inputs.
+ * Among loaded models: `quality` (large inputs) → largest context, then largest
+ * size; `quick` (latency-sensitive) → smallest size. With no loaded info it
+ * falls back to size only: `quick` → smallest, `quality` → largest.
  */
 export function pickModelForTier(
   modelIds: string[],
   tier?: 'quick' | 'quality',
+  loaded?: ReadonlyMap<string, number>,
 ): string | undefined {
   if (modelIds.length === 0) return undefined;
   const chat = modelIds.filter((id) => !/embed/i.test(id));
   const pool = chat.length > 0 ? chat : modelIds;
-  if (tier !== 'quick' && tier !== 'quality') return pool[0];
 
+  if (loaded && loaded.size > 0) {
+    const loadedPool = pool.filter((id) => loaded.has(id));
+    if (loadedPool.length > 0) {
+      if (tier === 'quality') {
+        return loadedPool.reduce((a, b) =>
+          loaded.get(b)! > loaded.get(a)!
+          || (loaded.get(b)! === loaded.get(a)! && modelSizeScore(b) > modelSizeScore(a)) ? b : a);
+      }
+      if (tier === 'quick') {
+        return loadedPool.reduce((a, b) => (modelSizeScore(b) < modelSizeScore(a) ? b : a));
+      }
+      return loadedPool[0];
+    }
+  }
+
+  if (tier !== 'quick' && tier !== 'quality') return pool[0];
   const scored = pool.map((id) => ({ id, score: modelSizeScore(id) }));
   const known = scored.filter((s) => s.score > 0);
   if (known.length === 0) return pool[0];

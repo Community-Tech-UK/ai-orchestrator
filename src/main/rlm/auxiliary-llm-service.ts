@@ -34,7 +34,7 @@ import {
 } from './auxiliary-model-client';
 import { getTokenCounter } from './token-counter';
 import { getLogger } from '../logging/logger';
-import { computeNumCtx, hostKeyFromUrl, localhostOllamaEndpoint, resolveSlotModel, pickModelForTier, workerEndpointHealthy, endpointAdvertisesModel, DEFAULT_SLOT_TIERS } from './auxiliary-llm-utils';
+import { computeNumCtx, hostKeyFromUrl, localhostOllamaEndpoint, resolveSlotModel, pickModelForTier, workerEndpointHealthy, workerLoadedContexts, endpointAdvertisesModel, DEFAULT_SLOT_TIERS } from './auxiliary-llm-utils';
 // remote-node imports are lazy — worker-node-connection and service-rpc-client
 // transitively import electron via remote-auth → settings-manager, which
 // crashes in worker_thread contexts. We must NOT top-level-import them.
@@ -322,8 +322,7 @@ export class AuxiliaryLlmService extends EventEmitter {
     slot: AuxiliaryLlmSlot,
     slotConfig: AuxiliaryLlmSlotConfig
   ): Promise<{ endpoint: AuxiliaryLlmEndpointConfig; model: string } | null> {
-    // If the slot has an explicit endpointId + model, try that first — but still
-    // validate the model is actually offered by that endpoint.
+    // Explicit endpointId + model first — but validate the endpoint offers it.
     if (slotConfig.endpointId && slotConfig.model) {
       const ep = this.endpoints.find((e) => e.id === slotConfig.endpointId && e.enabled);
       if (ep && (await this.isEndpointHealthy(ep))) {
@@ -418,7 +417,11 @@ export class AuxiliaryLlmService extends EventEmitter {
       return { endpoint: ep, model: preferred };
     }
     if (ids.length === 0) return null;
-    const picked = pickModelForTier(ids, tier);
+    // Prefer a model already loaded with adequate context (worker endpoints only).
+    const loaded = ep.source === 'worker-node'
+      ? workerLoadedContexts(getConnectedWorkerNodesLazy(), ep.workerNodeId, ep.provider, ep.baseUrl)
+      : undefined;
+    const picked = pickModelForTier(ids, tier, loaded);
     return picked ? { endpoint: ep, model: picked } : null;
   }
 

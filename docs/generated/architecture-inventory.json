@@ -5039,6 +5039,10 @@
       "lines": 2185
     },
     {
+      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
+      "lines": 2133
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-09-resilient-codex-resume-and-agent-observability_completed.md",
       "lines": 2117
     },
@@ -5061,10 +5065,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-remote-nodes-phase1-phase2.COMPLETED.md",
       "lines": 2078
-    },
-    {
-      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2077
     },
     {
       "path": "docs/superpowers/plans/2026-04-04-remote-nodes-settings_completed.md",
@@ -5467,6 +5467,10 @@
       "lines": 973
     },
     {
+      "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
+      "lines": 973
+    },
+    {
       "path": "src/main/ipc/handlers/vcs-handlers.ts",
       "lines": 972
     },
@@ -5521,10 +5525,6 @@
     {
       "path": "docs/superpowers/plans/2026-06-05-auxiliary-local-model-routing_completed.md",
       "lines": 935
-    },
-    {
-      "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
-      "lines": 932
     },
     {
       "path": "src/main/ipc/handlers/mcp-handlers.ts",

@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'fs';
 
 // Mock logger to avoid side-effects from logging stack during tests.
 vi.mock('../../logging/logger', () => ({
@@ -472,5 +473,44 @@ describe('ClaudeCliAdapter exclude-dynamic-sections capability gating', () => {
     const adapter = createClaudeAdapter({});
     setSupport(adapter, null);
     expect(getBuildArgs(adapter)).not.toContain(EXCLUDE_DYNAMIC_SECTIONS_FLAG);
+  });
+});
+
+describe('ClaudeCliAdapter Windows inline-JSON --mcp-config materialization', () => {
+  const originalPlatform = process.platform;
+  const setPlatform = (p: string) =>
+    Object.defineProperty(process, 'platform', { value: p, configurable: true });
+  afterEach(() => setPlatform(originalPlatform));
+
+  const INLINE = '{"mcpServers":{"chrome-devtools":{"command":"cmd","args":["/c","npx","-y","chrome-devtools-mcp@1.2.0","--browserUrl","http://127.0.0.1:9222"]}}}';
+
+  function mcpConfigArg(adapter: ClaudeCliAdapter): string {
+    const args = (
+      adapter as unknown as { buildArgs: (m: { role: 'user'; content: string }) => string[] }
+    ).buildArgs({ role: 'user', content: '' });
+    const i = args.indexOf('--mcp-config');
+    expect(i).toBeGreaterThanOrEqual(0);
+    return args[i + 1];
+  }
+
+  it('on win32, writes inline JSON to a temp file and passes the path (survives cmd.exe)', () => {
+    setPlatform('win32');
+    const adapter = new ClaudeCliAdapter({ mcpConfig: [INLINE] });
+    const arg = mcpConfigArg(adapter);
+    expect(arg.startsWith('{')).toBe(false); // not inline JSON
+    expect(arg.endsWith('.json')).toBe(true); // a file path
+    expect(readFileSync(arg, 'utf-8')).toBe(INLINE); // intact content
+  });
+
+  it('off-win32, passes inline JSON unchanged', () => {
+    setPlatform('darwin');
+    const adapter = new ClaudeCliAdapter({ mcpConfig: [INLINE] });
+    expect(mcpConfigArg(adapter)).toBe(INLINE);
+  });
+
+  it('leaves a file-path mcp-config entry untouched on win32', () => {
+    setPlatform('win32');
+    const adapter = new ClaudeCliAdapter({ mcpConfig: ['C:\\cfg\\mcp.json'] });
+    expect(mcpConfigArg(adapter)).toBe('C:\\cfg\\mcp.json');
   });
 });

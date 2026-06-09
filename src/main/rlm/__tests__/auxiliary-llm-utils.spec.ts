@@ -4,6 +4,7 @@ import {
   pickModelForTier,
   resolveSlotModel,
   workerEndpointHealthy,
+  workerLoadedContexts,
   endpointAdvertisesModel,
   backfillSlotTiers,
   DEFAULT_SLOT_TIERS,
@@ -68,6 +69,33 @@ describe('pickModelForTier', () => {
   it('returns undefined for an empty list', () => {
     expect(pickModelForTier([], 'quick')).toBeUndefined();
   });
+
+  describe('with loaded-model preference', () => {
+    // gemma is loaded with a big context; the larger qwen-35b is NOT loaded.
+    const ids = ['qwen/qwen3.6-35b-a3b', 'google/gemma-4-31b', 'nvidia/nemotron-3-nano-4b'];
+    const loaded = new Map<string, number>([
+      ['google/gemma-4-31b', 32768],
+      ['nvidia/nemotron-3-nano-4b', 16384],
+    ]);
+
+    it('quality picks the loaded model with the largest context, not the bigger unloaded one', () => {
+      // Without loaded info it would pick qwen-35b (largest size); with it, gemma wins.
+      expect(pickModelForTier(ids, 'quality', loaded)).toBe('google/gemma-4-31b');
+    });
+
+    it('quick picks the smallest loaded model', () => {
+      expect(pickModelForTier(ids, 'quick', loaded)).toBe('nvidia/nemotron-3-nano-4b');
+    });
+
+    it('falls back to size-based pick when nothing in the pool is loaded', () => {
+      const otherLoaded = new Map<string, number>([['some-other-model', 8192]]);
+      expect(pickModelForTier(ids, 'quality', otherLoaded)).toBe('qwen/qwen3.6-35b-a3b');
+    });
+
+    it('ignores an empty loaded map', () => {
+      expect(pickModelForTier(ids, 'quality', new Map())).toBe('qwen/qwen3.6-35b-a3b');
+    });
+  });
 });
 
 describe('workerEndpointHealthy', () => {
@@ -97,6 +125,36 @@ describe('workerEndpointHealthy', () => {
   it('is false when the node id is missing or unknown', () => {
     expect(workerEndpointHealthy([node(true)], undefined, 'openai-compatible', 'http://127.0.0.1:1234')).toBe(false);
     expect(workerEndpointHealthy([node(true)], 'other', 'openai-compatible', 'http://127.0.0.1:1234')).toBe(false);
+  });
+});
+
+describe('workerLoadedContexts', () => {
+  function node(loadedModels?: Array<{ id: string; contextLength: number }>): WorkerNodeInfo {
+    return {
+      id: 'node-1',
+      capabilities: {
+        localModelEndpoints: [
+          { provider: 'openai-compatible', baseUrl: 'http://127.0.0.1:1234', models: ['a', 'b'], loadedModels, healthy: true },
+        ],
+      },
+    } as unknown as WorkerNodeInfo;
+  }
+
+  it('maps loaded model ids to their context lengths', () => {
+    const m = workerLoadedContexts(
+      [node([{ id: 'a', contextLength: 32768 }, { id: 'b', contextLength: 4096 }])],
+      'node-1', 'openai-compatible', 'http://127.0.0.1:1234',
+    );
+    expect(m.get('a')).toBe(32768);
+    expect(m.get('b')).toBe(4096);
+  });
+
+  it('is empty when the worker reports no loaded models (older worker)', () => {
+    expect(workerLoadedContexts([node(undefined)], 'node-1', 'openai-compatible', 'http://127.0.0.1:1234').size).toBe(0);
+  });
+
+  it('is empty for an unknown node', () => {
+    expect(workerLoadedContexts([node([{ id: 'a', contextLength: 1 }])], 'other', 'openai-compatible', 'http://127.0.0.1:1234').size).toBe(0);
   });
 });
 

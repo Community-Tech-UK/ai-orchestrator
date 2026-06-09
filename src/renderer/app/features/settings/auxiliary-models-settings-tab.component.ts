@@ -45,6 +45,14 @@ const SLOTS: AuxiliaryLlmSlot[] = [
 
 const PROVIDERS = ['ollama', 'openai-compatible'] as const;
 
+/** Inline test state for a single slot row. */
+interface SlotTestState {
+  testing: boolean;
+  text: string | null;
+  decision: AuxiliaryLlmDecision | null;
+  error: string | null;
+}
+
 @Component({
   selector: 'app-auxiliary-models-settings-tab',
   standalone: true,
@@ -314,13 +322,33 @@ const PROVIDERS = ['ollama', 'openai-compatible'] as const;
                   <button
                     type="button"
                     class="btn"
-                    [disabled]="testingSlot() === slot"
+                    [disabled]="slotTest(slot)?.testing"
                     (click)="testSlot(slot)"
                   >
-                    {{ testingSlot() === slot ? 'Testing…' : 'Test' }}
+                    {{ slotTest(slot)?.testing ? 'Testing…' : 'Test' }}
                   </button>
                 </td>
               </tr>
+              @if (slotTest(slot); as t) {
+                @if (t.error) {
+                  <tr class="slot-test-row">
+                    <td colspan="5"><div class="error-banner">{{ t.error }}</div></td>
+                  </tr>
+                } @else if (t.text !== null) {
+                  <tr class="slot-test-row">
+                    <td colspan="5">
+                      <pre class="test-output">{{ t.text }}</pre>
+                      @if (t.decision; as d) {
+                        <div class="field-hint">
+                          Routed via <strong>{{ d.source }}</strong> to
+                          <strong>{{ d.endpointId ?? d.provider }}</strong>
+                          (model: {{ d.model ?? 'auto' }}) &mdash; {{ d.reason }}
+                        </div>
+                      }
+                    </td>
+                  </tr>
+                }
+              }
             }
           </tbody>
         </table>
@@ -332,25 +360,6 @@ const PROVIDERS = ['ollama', 'openai-compatible'] as const;
           manual OpenAI-compatible endpoint).
         </p>
       </div>
-
-      <!-- Test output -->
-      @if (testResult()) {
-        <div class="card">
-          <div class="section-title">Test result</div>
-          @if (testError()) {
-            <div class="error-banner">{{ testError() }}</div>
-          } @else {
-            <pre class="test-output">{{ testResult() }}</pre>
-            @if (testDecision(); as d) {
-              <div class="field-hint">
-                Routed via <strong>{{ d.source }}</strong> to
-                <strong>{{ d.endpointId ?? d.provider }}</strong>
-                (model: {{ d.model ?? 'auto' }}) &mdash; {{ d.reason }}
-              </div>
-            }
-          }
-        </div>
-      }
     </div>
   `,
   styleUrl: './auxiliary-models-settings-tab.component.scss',
@@ -374,10 +383,19 @@ export class AuxiliaryModelsSettingsTabComponent implements OnInit {
   protected readonly probeResult = signal<boolean | null>(null);
   protected readonly probeError = signal<string | null>(null);
 
-  protected readonly testingSlot = signal<AuxiliaryLlmSlot | null>(null);
-  protected readonly testResult = signal<string | null>(null);
-  protected readonly testDecision = signal<AuxiliaryLlmDecision | null>(null);
-  protected readonly testError = signal<string | null>(null);
+  /** Per-slot test state, keyed by slot, so each row shows its own result inline. */
+  protected readonly slotTests = signal<Partial<Record<AuxiliaryLlmSlot, SlotTestState>>>({});
+
+  protected slotTest(slot: AuxiliaryLlmSlot): SlotTestState | undefined {
+    return this.slotTests()[slot];
+  }
+
+  private setSlotTest(slot: AuxiliaryLlmSlot, patch: Partial<SlotTestState>): void {
+    this.slotTests.update((m) => {
+      const prev = m[slot] ?? { testing: false, text: null, decision: null, error: null };
+      return { ...m, [slot]: { ...prev, ...patch } };
+    });
+  }
 
   /** Parsed slot config map from persisted settings (reactive). */
   protected readonly slotConfigs = computed<Partial<AuxiliaryLlmSlotConfigMap>>(() => {
@@ -565,24 +583,21 @@ export class AuxiliaryModelsSettingsTabComponent implements OnInit {
   }
 
   async testSlot(slot: AuxiliaryLlmSlot): Promise<void> {
-    this.testingSlot.set(slot);
-    this.testResult.set(null);
-    this.testDecision.set(null);
-    this.testError.set(null);
+    this.setSlotTest(slot, { testing: true, text: null, decision: null, error: null });
     try {
       const resp = await this.ipc.testGenerate({ slot });
       if (!resp.success) {
-        this.testError.set(resp.error?.message ?? 'Test generate failed');
-        this.testResult.set('error');
+        this.setSlotTest(slot, { error: resp.error?.message ?? 'Test generate failed' });
         return;
       }
-      this.testResult.set(resp.data?.text ?? '(empty)');
-      this.testDecision.set(resp.data?.decision ?? null);
+      this.setSlotTest(slot, {
+        text: resp.data?.text ?? '(empty)',
+        decision: resp.data?.decision ?? null,
+      });
     } catch (err) {
-      this.testError.set(err instanceof Error ? err.message : String(err));
-      this.testResult.set('error');
+      this.setSlotTest(slot, { error: err instanceof Error ? err.message : String(err) });
     } finally {
-      this.testingSlot.set(null);
+      this.setSlotTest(slot, { testing: false });
     }
   }
 }

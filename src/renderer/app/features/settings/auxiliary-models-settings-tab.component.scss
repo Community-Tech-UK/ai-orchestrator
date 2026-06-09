@@ -199,6 +199,17 @@ select {
   color: var(--error-color);
 }
 
+// Inline per-slot test result, tied visually to the row above it.
+.slot-test-row td {
+  padding: 0 0.5rem 0.625rem 1.25rem;
+  border-left: 2px solid var(--accent-color, var(--border-color));
+  background: var(--glass-subtle);
+}
+
+.slot-test-row .field-hint {
+  margin-top: 0.375rem;
+}
+
 .test-output {
   font-family: var(--font-mono);
   font-size: 0.8125rem;

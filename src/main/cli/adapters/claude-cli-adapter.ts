@@ -4,6 +4,9 @@
  */
 
 import { createHash } from 'crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import {
   BaseCliAdapter,
   AdapterRuntimeCapabilities,
@@ -196,6 +199,51 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       sessionId: this.sessionId,
       mcpConfigCount: this.spawnOptions.mcpConfig.length,
     });
+  }
+
+  /** Temp dir holding inline-JSON args materialized to files on Windows. */
+  private inlineArgTempDir: string | null = null;
+  /** Dedup map: inline-JSON content → temp file path (stable across buildArgs calls). */
+  private readonly inlineArgFiles = new Map<string, string>();
+
+  /**
+   * On Windows the CLI is spawned with `shell: true` (it's `claude.cmd`), so the
+   * command line passes through cmd.exe — which strips the double-quotes from an
+   * inline-JSON argument (Node DEP0190: shell args are concatenated, not escaped),
+   * delivering invalid JSON to `claude.exe`. Proven live: `--mcp-config '{"x":1}'`
+   * arrived as `{x:1}`. A file PATH has no shell-special characters and survives
+   * intact, and `claude --mcp-config` / `--settings` both accept a file path. So
+   * on Windows we materialize inline-JSON args (those starting with `{`) to a temp
+   * file and pass the path. No-op on POSIX, where there is no shell layer.
+   */
+  private materializeInlineJsonArg(value: string): string {
+    if (process.platform !== 'win32' || !value.trimStart().startsWith('{')) {
+      return value;
+    }
+    const cached = this.inlineArgFiles.get(value);
+    if (cached) {
+      return cached;
+    }
+    if (!this.inlineArgTempDir) {
+      this.inlineArgTempDir = mkdtempSync(join(tmpdir(), 'aio-claude-args-'));
+    }
+    const file = join(this.inlineArgTempDir, `arg-${this.inlineArgFiles.size}.json`);
+    writeFileSync(file, value, 'utf-8');
+    this.inlineArgFiles.set(value, file);
+    return file;
+  }
+
+  private cleanupInlineArgTempDir(): void {
+    if (!this.inlineArgTempDir) {
+      return;
+    }
+    try {
+      rmSync(this.inlineArgTempDir, { recursive: true, force: true });
+    } catch {
+      /* best-effort; OS temp cleanup is the backstop */
+    }
+    this.inlineArgTempDir = null;
+    this.inlineArgFiles.clear();
   }
 
   private mapReasoningEffort(
@@ -830,7 +878,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
     const settingsOverlay = this.buildSettingsOverlay(permissionHookEnabled);
     if (settingsOverlay) {
-      args.push('--settings', settingsOverlay);
+      args.push('--settings', this.materializeInlineJsonArg(settingsOverlay));
     }
 
     if (this.spawnOptions.resume && this.sessionId) {
@@ -886,9 +934,13 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       args.push('--system-prompt', this.spawnOptions.systemPrompt);
     }
 
-    // MCP server configurations (file paths or inline JSON strings)
+    // MCP server configurations (file paths or inline JSON strings). On Windows
+    // inline JSON is materialized to a temp file path — see materializeInlineJsonArg.
     if (this.spawnOptions.mcpConfig && this.spawnOptions.mcpConfig.length > 0) {
-      args.push('--mcp-config', ...this.spawnOptions.mcpConfig);
+      args.push(
+        '--mcp-config',
+        ...this.spawnOptions.mcpConfig.map((entry) => this.materializeInlineJsonArg(entry)),
+      );
     }
 
     // Beta headers (API key users only) — e.g. context-1m-2025-08-07
@@ -943,6 +995,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     if (!this.process.pid) {
       throw new Error('Failed to spawn Claude CLI process');
     }
+
+    // Remove any temp files created for Windows inline-JSON args once the
+    // process exits (it has read them at startup by then).
+    this.process.once('exit', () => this.cleanupInlineArgTempDir());
 
     // Set up stdin formatter
     if (this.process.stdin) {

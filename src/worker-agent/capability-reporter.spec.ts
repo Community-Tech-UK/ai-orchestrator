@@ -31,9 +31,30 @@ vi.mock('../main/remote-node/project-discovery', () => ({
   })),
 }));
 
-import { reportCapabilities } from './capability-reporter';
+import { reportCapabilities, parseLmStudioLoadedModels } from './capability-reporter';
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
+
+describe('parseLmStudioLoadedModels', () => {
+  it('keeps only loaded models with their context length', () => {
+    expect(parseLmStudioLoadedModels({
+      data: [
+        { id: 'a', state: 'loaded', loaded_context_length: 32768 },
+        { id: 'b', state: 'not-loaded' },
+        { id: 'c', state: 'loaded', loaded_context_length: 4096 },
+      ],
+    })).toEqual([
+      { id: 'a', contextLength: 32768 },
+      { id: 'c', contextLength: 4096 },
+    ]);
+  });
+
+  it('defaults missing context length to 0 and tolerates malformed input', () => {
+    expect(parseLmStudioLoadedModels({ data: [{ id: 'a', state: 'loaded' }] })).toEqual([{ id: 'a', contextLength: 0 }]);
+    expect(parseLmStudioLoadedModels(null)).toEqual([]);
+    expect(parseLmStudioLoadedModels({})).toEqual([]);
+  });
+});
 
 describe('capability-reporter', () => {
   const originalPlatform = process.platform;
@@ -78,11 +99,19 @@ describe('capability-reporter', () => {
   function mockFetchByUrl(routes: {
     ollamaTags?: { ok: boolean; status?: number; json?: () => Promise<unknown> };
     lmStudioModels?: { ok: boolean; status?: number; json?: () => Promise<unknown> };
+    lmStudioV0?: { ok: boolean; status?: number; json?: () => Promise<unknown> };
   }): void {
     vi.stubGlobal('fetch', vi.fn((url: string) => {
       if (typeof url === 'string' && url.includes('/api/tags')) {
         return routes.ollamaTags
           ? Promise.resolve(routes.ollamaTags)
+          : Promise.reject(new Error('ECONNREFUSED'));
+      }
+      // Check the richer /api/v0/models route before /v1/models (the substrings
+      // don't overlap, but keep load-state probing explicit).
+      if (typeof url === 'string' && url.includes('/api/v0/models')) {
+        return routes.lmStudioV0
+          ? Promise.resolve(routes.lmStudioV0)
           : Promise.reject(new Error('ECONNREFUSED'));
       }
       if (typeof url === 'string' && url.includes('/v1/models')) {
@@ -142,6 +171,34 @@ describe('capability-reporter', () => {
       expect(endpoint.baseUrl).toBe('http://127.0.0.1:1234');
       expect(endpoint.models).toEqual(['qwen2.5-coder-7b', 'phi-4']);
       expect(endpoint.healthy).toBe(true);
+    });
+
+    it('reports LM Studio loaded models + context from /api/v0/models', async () => {
+      mockFetchByUrl({
+        lmStudioModels: {
+          ok: true,
+          json: () => Promise.resolve({ data: [{ id: 'gemma-31b' }, { id: 'qwen-35b' }, { id: 'nemotron-4b' }] }),
+        },
+        lmStudioV0: {
+          ok: true,
+          json: () => Promise.resolve({
+            data: [
+              { id: 'gemma-31b', state: 'loaded', loaded_context_length: 32768 },
+              { id: 'qwen-35b', state: 'not-loaded' },
+              { id: 'nemotron-4b', state: 'loaded', loaded_context_length: 16384 },
+            ],
+          }),
+        },
+      });
+
+      const caps = await reportCapabilities(['/workspace']);
+      const endpoint = caps.localModelEndpoints!.find((e) => e.provider === 'openai-compatible')!;
+
+      expect(endpoint.models).toEqual(['gemma-31b', 'qwen-35b', 'nemotron-4b']);
+      expect(endpoint.loadedModels).toEqual([
+        { id: 'gemma-31b', contextLength: 32768 },
+        { id: 'nemotron-4b', contextLength: 16384 },
+      ]);
     });
 
     it('reports both Ollama and LM Studio endpoints when both are running', async () => {

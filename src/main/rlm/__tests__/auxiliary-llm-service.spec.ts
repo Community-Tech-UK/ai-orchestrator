@@ -37,6 +37,7 @@ interface MockWorkerNode {
       provider: 'ollama' | 'openai-compatible';
       baseUrl: string;
       models: string[];
+      loadedModels?: Array<{ id: string; contextLength: number }>;
       healthy: boolean;
     }>;
   };
@@ -646,6 +647,46 @@ describe('AuxiliaryLlmService — worker-node discovery and routing', () => {
 
     // Default 'quick' tier → smallest model, despite no tier in the slot config.
     expect(decision.model).toBe('nemotron-4b');
+  });
+
+  it('quality auto-pick prefers the loaded big-context model over a larger unloaded one', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(false);
+    remoteState.rpc = vi.fn().mockResolvedValue({ text: 'done' });
+
+    // Worker advertises a larger (35b) model that is NOT loaded, plus gemma-31b
+    // loaded at 32k and nemotron-4b loaded at 16k.
+    remoteState.nodes = [{
+      id: 'node-1',
+      name: 'Windows 5090',
+      status: 'connected',
+      capabilities: {
+        localModelEndpoints: [{
+          provider: 'ollama',
+          baseUrl: 'http://127.0.0.1:11434',
+          models: ['qwen-35b', 'gemma-31b', 'nemotron-4b'],
+          loadedModels: [
+            { id: 'gemma-31b', contextLength: 32768 },
+            { id: 'nemotron-4b', contextLength: 16384 },
+          ],
+          healthy: true,
+        }],
+      },
+    }];
+    remoteState.connected = new Set(['node-1']);
+
+    service.configure(baseSettings({
+      auxiliaryLlmSlotsJson: JSON.stringify({
+        compression: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: false },
+      }),
+    }));
+
+    const { decision } = await service.generate('compression', 'sys', 'user');
+
+    // Without loaded info it would pick qwen-35b (largest size) → JIT @ 4096 → overflow.
+    // With loaded info, it picks the loaded gemma-31b @ 32k instead.
+    expect(decision.model).toBe('gemma-31b');
   });
 
   it('skips a worker endpoint whose LM Studio is reported down, falling back without an RPC', async () => {
