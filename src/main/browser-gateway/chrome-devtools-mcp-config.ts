@@ -30,7 +30,13 @@ interface ChromeDevtoolsBridgeSpec {
 }
 
 const DEFAULT_COMMAND = 'npx';
-const DEFAULT_BASE_ARGS = ['-y', 'chrome-devtools-mcp@latest'];
+// Pinned (not `@latest`) for deterministic behavior and a stable npx cache: the
+// first spawn fetches this exact version once and reuses it — no per-launch
+// re-resolution, no surprise upgrades mid-automation. Bump this deliberately
+// when adopting a newer chrome-devtools-mcp release (verify against the running
+// Chrome major). See docs/remote-browser-automation-runbook.md.
+export const CHROME_DEVTOOLS_MCP_VERSION = '1.2.0';
+const DEFAULT_BASE_ARGS = ['-y', `chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}`];
 const DEFAULT_SERVER_NAME = 'chrome-devtools';
 // chrome-devtools tools (performance traces, navigations) can legitimately run
 // for a while; keep the host tool timeout generous so slow-but-valid calls are
@@ -44,10 +50,34 @@ export function resolveChromeDevtoolsBridgeSpec(
     return null;
   }
   const baseArgs = options.baseArgs ?? DEFAULT_BASE_ARGS;
-  return {
-    command: options.command ?? DEFAULT_COMMAND,
-    args: [...baseArgs, '--browserUrl', options.browserUrl],
-  };
+  const command = options.command ?? DEFAULT_COMMAND;
+  const args = [...baseArgs, '--browserUrl', options.browserUrl];
+  return toWindowsSafeBridge(command, args);
+}
+
+/**
+ * On Windows, `npx` is not a real executable — there's only `npx.cmd` — and
+ * modern Node refuses to spawn a `.cmd` without a shell (CVE-2024-27980). MCP
+ * launchers (e.g. Claude Code) start stdio servers shell-less, so a bare `npx`
+ * server silently dies with ENOENT and its tools never register. Wrap such
+ * commands as `cmd /c <command> …`, which is the only form that spawns reliably
+ * shell-less. Verified live on a Windows worker:
+ *   spawn('npx')→ENOENT, spawn('npx.cmd')→EINVAL, spawn('cmd',['/c','npx',…])→ok.
+ *
+ * The builder runs on the machine that will run the server (the worker node for
+ * remote spawns), so `process.platform` reflects where `npx` resolves.
+ */
+function toWindowsSafeBridge(command: string, args: string[]): ChromeDevtoolsBridgeSpec {
+  if (process.platform === 'win32' && needsCmdWrapper(command)) {
+    return { command: 'cmd', args: ['/c', command, ...args] };
+  }
+  return { command, args };
+}
+
+function needsCmdWrapper(command: string): boolean {
+  const lower = command.toLowerCase();
+  // Already a shell, or a concrete .exe — leave alone.
+  return lower !== 'cmd' && lower !== 'cmd.exe' && !lower.endsWith('.exe');
 }
 
 function serverNameOf(options: ChromeDevtoolsMcpConfigOptions): string {

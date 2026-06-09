@@ -2,6 +2,9 @@ import { readFileSync, rmSync } from 'fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createGeminiAdapter } from '../adapter-factory';
 import type { GeminiCliAdapter } from '../gemini-cli-adapter';
+import { CHROME_DEVTOOLS_MCP_VERSION } from '../../../browser-gateway/chrome-devtools-mcp-config';
+
+const CHROME_DEVTOOLS_MCP_PACKAGE = `chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}`;
 
 function settingsPathOf(adapter: GeminiCliAdapter): string {
   const path = (adapter as unknown as {
@@ -35,7 +38,7 @@ describe('adapter factory — gemini chrome-devtools attach', () => {
     const settings = JSON.parse(readFileSync(path, 'utf-8'));
     expect(settings.mcpServers['chrome-devtools']).toMatchObject({
       command: 'npx',
-      args: ['-y', 'chrome-devtools-mcp@latest', '--browserUrl', 'http://127.0.0.1:31234'],
+      args: ['-y', CHROME_DEVTOOLS_MCP_PACKAGE, '--browserUrl', 'http://127.0.0.1:31234'],
     });
   });
 

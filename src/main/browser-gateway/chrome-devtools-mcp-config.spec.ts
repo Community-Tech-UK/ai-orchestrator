@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   buildChromeDevtoolsAcpMcpServers,
   buildChromeDevtoolsCodexConfigToml,
@@ -14,7 +14,49 @@ describe('chrome-devtools-mcp-config', () => {
   it('builds a bridge that injects --browserUrl after the package spec', () => {
     expect(resolveChromeDevtoolsBridgeSpec(options)).toEqual({
       command: 'npx',
-      args: ['-y', 'chrome-devtools-mcp@latest', '--browserUrl', BROWSER_URL],
+      args: ['-y', 'chrome-devtools-mcp@1.2.0', '--browserUrl', BROWSER_URL],
+    });
+  });
+
+  describe('on Windows', () => {
+    const originalPlatform = process.platform;
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+    });
+
+    it('wraps npx as `cmd /c npx …` (npx has no .exe; Node refuses bare .cmd)', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      expect(resolveChromeDevtoolsBridgeSpec(options)).toEqual({
+        command: 'cmd',
+        args: ['/c', 'npx', '-y', 'chrome-devtools-mcp@1.2.0', '--browserUrl', BROWSER_URL],
+      });
+    });
+
+    it('does not double-wrap a command that is already cmd or a concrete .exe', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      expect(resolveChromeDevtoolsBridgeSpec({ browserUrl: BROWSER_URL, command: 'cmd' })!.command).toBe('cmd');
+      expect(
+        resolveChromeDevtoolsBridgeSpec({ browserUrl: BROWSER_URL, command: 'C:\\tools\\cdp.exe' })!.command,
+      ).toBe('C:\\tools\\cdp.exe');
+    });
+
+    it('the Claude --mcp-config JSON uses cmd /c so the server actually spawns', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      const config = JSON.parse(buildChromeDevtoolsMcpConfigJson(options)!);
+      const server = config.mcpServers['chrome-devtools'];
+      expect(server.command).toBe('cmd');
+      expect(server.args[0]).toBe('/c');
+      expect(server.args).toContain('npx');
+      expect(server.args).toContain('chrome-devtools-mcp@1.2.0');
+      expect(server.args).toContain(BROWSER_URL);
+    });
+
+    it('the Codex TOML uses cmd /c as well', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      const toml = buildChromeDevtoolsCodexConfigToml(options)!;
+      expect(toml).toContain('command = "cmd"');
+      expect(toml).toContain('"/c"');
+      expect(toml).toContain('"npx"');
     });
   });
 
@@ -30,7 +72,7 @@ describe('chrome-devtools-mcp-config', () => {
     const config = JSON.parse(buildChromeDevtoolsMcpConfigJson(options)!);
     expect(config.mcpServers['chrome-devtools']).toEqual({
       command: 'npx',
-      args: ['-y', 'chrome-devtools-mcp@latest', '--browserUrl', BROWSER_URL],
+      args: ['-y', 'chrome-devtools-mcp@1.2.0', '--browserUrl', BROWSER_URL],
     });
   });
 
@@ -38,7 +80,7 @@ describe('chrome-devtools-mcp-config', () => {
     const toml = buildChromeDevtoolsCodexConfigToml(options)!;
     expect(toml).toContain('[mcp_servers."chrome-devtools"]');
     expect(toml).toContain('command = "npx"');
-    expect(toml).toContain('args = ["-y", "chrome-devtools-mcp@latest", "--browserUrl", "http://127.0.0.1:31234"]');
+    expect(toml).toContain('args = ["-y", "chrome-devtools-mcp@1.2.0", "--browserUrl", "http://127.0.0.1:31234"]');
     expect(toml).toContain('tool_timeout_sec = 130');
   });
 
@@ -46,7 +88,7 @@ describe('chrome-devtools-mcp-config', () => {
     const config = JSON.parse(buildChromeDevtoolsGeminiSettingsJson(options)!);
     const server = config.mcpServers['chrome-devtools'];
     expect(server.command).toBe('npx');
-    expect(server.args).toEqual(['-y', 'chrome-devtools-mcp@latest', '--browserUrl', BROWSER_URL]);
+    expect(server.args).toEqual(['-y', 'chrome-devtools-mcp@1.2.0', '--browserUrl', BROWSER_URL]);
     expect(server.timeout).toBe(130_000);
     expect(server.trust).toBe(false);
   });
@@ -55,7 +97,7 @@ describe('chrome-devtools-mcp-config', () => {
     const [server] = buildChromeDevtoolsAcpMcpServers(options);
     expect(server.name).toBe('chrome-devtools');
     expect(server.command).toBe('npx');
-    expect(server.args).toEqual(['-y', 'chrome-devtools-mcp@latest', '--browserUrl', BROWSER_URL]);
+    expect(server.args).toEqual(['-y', 'chrome-devtools-mcp@1.2.0', '--browserUrl', BROWSER_URL]);
     expect(server.env).toEqual([]);
   });
 

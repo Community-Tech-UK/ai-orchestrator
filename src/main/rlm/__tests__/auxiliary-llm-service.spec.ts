@@ -234,6 +234,50 @@ describe('AuxiliaryLlmService — manual-only routing', () => {
     expect(decision.source).toBe('fallback');
     expect(mocks.probeOllama).not.toHaveBeenCalled();
   });
+
+  function manualEndpointSettings(pinnedModel: string) {
+    return baseSettings({
+      auxiliaryLlmRoutingMode: 'manual-only',
+      auxiliaryLlmEndpointsJson: JSON.stringify([{
+        id: 'ep1', label: 'Manual', provider: 'openai-compatible',
+        baseUrl: 'http://localhost:9999', source: 'manual', enabled: true,
+      }]),
+      auxiliaryLlmSlotsJson: JSON.stringify({
+        compression: { enabled: true, provider: 'auto', endpointId: 'ep1', model: pinnedModel, maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: false },
+      }),
+    });
+  }
+
+  it('rejects an explicit endpointId+model the endpoint does not advertise', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOpenAi.mockResolvedValue(true);
+    mocks.listOpenAi.mockResolvedValue([
+      { id: 'model-a', name: 'model-a', provider: 'openai-compatible', endpointId: 'ep1' },
+    ]);
+    service.configure(manualEndpointSettings('model-b')); // pin a model the endpoint lacks
+
+    const { decision } = await service.generate('compression', 'sys', 'user');
+
+    expect(decision.source).toBe('fallback');
+    expect(mocks.generateOpenAi).not.toHaveBeenCalled();
+  });
+
+  it('uses an explicit endpointId+model the endpoint advertises', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOpenAi.mockResolvedValue(true);
+    mocks.listOpenAi.mockResolvedValue([
+      { id: 'model-b', name: 'model-b', provider: 'openai-compatible', endpointId: 'ep1' },
+    ]);
+    mocks.generateOpenAi.mockResolvedValue('manual ok');
+    service.configure(manualEndpointSettings('model-b'));
+
+    const { text, decision } = await service.generate('compression', 'sys', 'user');
+
+    expect(text).toBe('manual ok');
+    expect(decision.model).toBe('model-b');
+  });
 });
 
 describe('AuxiliaryLlmService — malformed JSON config', () => {
@@ -502,17 +546,106 @@ describe('AuxiliaryLlmService — worker-node discovery and routing', () => {
     expect(text).toBe('compressed by worker');
     expect(decision.source).toBe('local');
     expect(decision.endpointId).toBe('worker:node-1:ollama:127.0.0.1:11434');
-    expect(decision.model).toBe('gemma4:12b');
+    // compression defaults to the quality tier → largest available model (26b), not the first.
+    expect(decision.model).toBe('gemma4:26b');
     // RPC proxied to the selected node with the generate method — never a direct fetch.
     expect(remoteState.rpc).toHaveBeenCalledTimes(1);
     const [nodeId, method, params] = remoteState.rpc.mock.calls[0];
     expect(nodeId).toBe('node-1');
     expect(method).toBe('auxiliaryModel.generate');
-    expect((params as { model: string }).model).toBe('gemma4:12b');
+    expect((params as { model: string }).model).toBe('gemma4:26b');
     // A sized context window is forwarded so the worker's Ollama isn't capped at
     // its ~4k default for long-input slots.
     expect((params as { numCtx: number }).numCtx).toBeGreaterThanOrEqual(4096);
     expect(mocks.generateOllama).not.toHaveBeenCalled();
+  });
+
+  it('prefers the remote worker node over a healthy coordinator localhost Ollama (local-first)', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    // BOTH are healthy: coordinator localhost Ollama AND the connected worker.
+    mocks.probeOllama.mockResolvedValue(true);
+    mocks.listOllama.mockResolvedValue([{ id: 'llama3', name: 'llama3', provider: 'ollama', endpointId: 'local' }]);
+    mocks.generateOllama.mockResolvedValue('compressed locally');
+    remoteState.rpc = vi.fn().mockResolvedValue({ text: 'compressed by worker' });
+
+    seedConnectedWorker();
+    service.configure(baseSettings()); // local-first, localhost enabled, remote workers allowed
+
+    const { text, decision } = await service.generate('compression', 'You compress.', 'Long text.');
+
+    // For remote work we default to the remote node machine, not the host's Ollama.
+    expect(text).toBe('compressed by worker');
+    expect(decision.endpointId).toBe('worker:node-1:ollama:127.0.0.1:11434');
+    expect(remoteState.rpc).toHaveBeenCalledTimes(1);
+    // The coordinator's own localhost Ollama must NOT have been generated against.
+    expect(mocks.generateOllama).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the coordinator localhost Ollama when no worker endpoint is healthy', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(true); // coordinator localhost healthy
+    mocks.listOllama.mockResolvedValue([{ id: 'llama3', name: 'llama3', provider: 'ollama', endpointId: 'local' }]);
+    mocks.generateOllama.mockResolvedValue('compressed locally');
+    remoteState.rpc = vi.fn().mockResolvedValue({ text: 'should not be called' });
+
+    // Worker is connected but its Ollama is reported DOWN.
+    remoteState.nodes = [{
+      id: 'node-1',
+      name: 'Windows 5090',
+      status: 'connected',
+      capabilities: {
+        localModelEndpoints: [{
+          provider: 'ollama',
+          baseUrl: 'http://127.0.0.1:11434',
+          models: ['gemma4:26b'],
+          healthy: false,
+        }],
+      },
+    }];
+    remoteState.connected = new Set(['node-1']);
+    service.configure(baseSettings());
+
+    const { text, decision } = await service.generate('compression', 'You compress.', 'Long text.');
+
+    expect(text).toBe('compressed locally');
+    expect(decision.endpointId).toBe('ollama-localhost');
+    expect(remoteState.rpc).not.toHaveBeenCalled();
+  });
+
+  it('applies the name-based default tier for legacy slots with no tier (quick → smallest)', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(false);
+    remoteState.rpc = vi.fn().mockResolvedValue({ text: 'done' });
+
+    remoteState.nodes = [{
+      id: 'node-1',
+      name: 'Windows 5090',
+      status: 'connected',
+      capabilities: {
+        localModelEndpoints: [{
+          provider: 'ollama',
+          baseUrl: 'http://127.0.0.1:11434',
+          models: ['qwen3-35b', 'nemotron-4b'],
+          healthy: true,
+        }],
+      },
+    }];
+    remoteState.connected = new Set(['node-1']);
+
+    // loopScoring slot WITHOUT a tier (legacy persisted config) → default tier 'quick'.
+    service.configure(baseSettings({
+      auxiliaryLlmSlotsJson: JSON.stringify({
+        loopScoring: { enabled: true, provider: 'auto', maxInputTokens: 32000, maxOutputTokens: 1024, temperature: 0, timeoutMs: 30000, requireJson: false, allowFrontierFallback: false },
+      }),
+    }));
+
+    const { decision } = await service.generate('loopScoring', 'sys', 'user');
+
+    // Default 'quick' tier → smallest model, despite no tier in the slot config.
+    expect(decision.model).toBe('nemotron-4b');
   });
 
   it('skips a worker endpoint whose LM Studio is reported down, falling back without an RPC', async () => {
@@ -598,6 +731,28 @@ describe('AuxiliaryLlmService — worker-node discovery and routing', () => {
 
     // Smallest by size score wins for quick, not the first-listed (qwen3-35b).
     expect(decision.model).toBe('nemotron-4b');
+  });
+
+  it('ignores a tier model the endpoint does not advertise, auto-picking an available one', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(false);
+    remoteState.rpc = vi.fn().mockResolvedValue({ text: 'done' });
+
+    seedConnectedWorker(); // worker advertises gemma4:12b and gemma4:26b only
+    service.configure(baseSettings({
+      // quick model points at something the worker does NOT have.
+      auxiliaryLlmQuickModel: 'no-such-model',
+      auxiliaryLlmSlotsJson: JSON.stringify({
+        loopScoring: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 32000, maxOutputTokens: 1024, temperature: 0, timeoutMs: 30000, requireJson: false, allowFrontierFallback: false },
+      }),
+    }));
+
+    const { decision } = await service.generate('loopScoring', 'sys', 'user');
+
+    // Falls through to an availability-based auto-pick (quick → smallest advertised).
+    expect(decision.model).toBe('gemma4:12b');
+    expect((remoteState.rpc.mock.calls[0]![2] as { model: string }).model).toBe('gemma4:12b');
   });
 
   it('lets an explicit per-slot model override the tier model', async () => {

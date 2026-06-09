@@ -4,6 +4,9 @@ import { tmpdir } from 'os';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createCliAdapter, getCliDisplayName, mapSettingsToDetectionType } from '../adapter-factory';
 import { PermissionRegistry } from '../../../orchestration/permission-registry';
+import { CHROME_DEVTOOLS_MCP_VERSION } from '../../../browser-gateway/chrome-devtools-mcp-config';
+
+const CHROME_DEVTOOLS_MCP_PACKAGE = `chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}`;
 
 describe('adapter factory — copilot', () => {
   const testCopilotHome = join(tmpdir(), 'ai-orchestrator-test-copilot-home');
@@ -223,7 +226,7 @@ describe('adapter factory — copilot', () => {
     const config = readAdditionalMcpConfig(adapter);
     expect(config.mcpServers['chrome-devtools']).toMatchObject({
       command: 'npx',
-      args: ['-y', 'chrome-devtools-mcp@latest', '--browserUrl', 'http://127.0.0.1:31234'],
+      args: ['-y', CHROME_DEVTOOLS_MCP_PACKAGE, '--browserUrl', 'http://127.0.0.1:31234'],
     });
   });
 

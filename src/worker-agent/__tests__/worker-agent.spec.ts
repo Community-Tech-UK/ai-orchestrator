@@ -122,6 +122,7 @@ vi.mock('../provider-runtime-diagnostics', () => ({
 }));
 
 import { WorkerAgent, buildCoordinatorCandidates } from '../worker-agent';
+import { NO_THINK_DIRECTIVE } from '../../shared/utils/openai-response';
 
 const mockConfig: WorkerConfig = {
   nodeId: 'test-node-1',
@@ -491,7 +492,7 @@ describe('WorkerAgent', () => {
       const body = JSON.parse((init as { body: string }).body);
       expect(body.model).toBe('qwen2.5-coder-7b');
       expect(body.messages).toEqual([
-        { role: 'system', content: 'You generate titles.' },
+        { role: 'system', content: `${NO_THINK_DIRECTIVE}\n\nYou generate titles.` },
         { role: 'user', content: 'Summarize this conversation.' },
       ]);
       expect(body.response_format).toBeUndefined();

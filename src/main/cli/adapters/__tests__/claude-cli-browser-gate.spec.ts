@@ -11,6 +11,9 @@ vi.mock('../../../logging/logger', () => ({
 
 import { createClaudeAdapter } from '../adapter-factory';
 import { ClaudeCliAdapter } from '../claude-cli-adapter';
+import { CHROME_DEVTOOLS_MCP_VERSION } from '../../../browser-gateway/chrome-devtools-mcp-config';
+
+const CHROME_DEVTOOLS_MCP_PACKAGE = `chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}`;
 
 function buildArgs(adapter: ClaudeCliAdapter): string[] {
   return (
@@ -69,7 +72,7 @@ describe('Claude CLI browser gate', () => {
     const config = JSON.parse(args[mcpConfigIndex + 1]);
     expect(config.mcpServers['chrome-devtools']).toEqual({
       command: 'npx',
-      args: ['-y', 'chrome-devtools-mcp@latest', '--browserUrl', 'http://127.0.0.1:31234'],
+      args: ['-y', CHROME_DEVTOOLS_MCP_PACKAGE, '--browserUrl', 'http://127.0.0.1:31234'],
     });
   });
 

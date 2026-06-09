@@ -1,5 +1,47 @@
 import type { AuxiliaryLlmEndpointConfig, AuxiliaryLlmSlotConfig } from '../../shared/types/auxiliary-llm.types';
+import { DEFAULT_SLOT_TIERS } from '../../shared/types/auxiliary-llm.types';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
+
+// DEFAULT_SLOT_TIERS lives in shared so the settings migration, renderer, and
+// router all agree on the per-slot defaults. Re-exported here for callers that
+// already import tier helpers from this module.
+export { DEFAULT_SLOT_TIERS } from '../../shared/types/auxiliary-llm.types';
+
+/**
+ * Whether an endpoint can serve `model`. True when it advertises the id. When
+ * the model list is empty we only trust the pin for NON-worker endpoints — a
+ * worker node's list comes from its heartbeat and is authoritative, so an empty
+ * list there means the model genuinely isn't available; a manual endpoint's list
+ * may be a transient probe failure, so we honour the user's explicit pin.
+ */
+export function endpointAdvertisesModel(source: string, model: string, ids: string[]): boolean {
+  if (ids.includes(model)) return true;
+  return ids.length === 0 && source !== 'worker-node';
+}
+
+/**
+ * Backfill the default `tier` into any slot of a persisted `auxiliaryLlmSlotsJson`
+ * that lacks one. Returns the updated JSON string, or null when nothing changed
+ * or the input is unparseable (caller leaves the stored value untouched). Pure —
+ * unit-tested in lieu of an electron-store-bound settings-manager harness.
+ */
+export function backfillSlotTiers(raw: string): string | null {
+  let slots: Record<string, { tier?: string } | undefined>;
+  try {
+    slots = JSON.parse(raw) as Record<string, { tier?: string } | undefined>;
+  } catch {
+    return null;
+  }
+  let changed = false;
+  for (const [name, defaultTier] of Object.entries(DEFAULT_SLOT_TIERS)) {
+    const slot = slots[name];
+    if (slot && slot.tier === undefined) {
+      slot.tier = defaultTier;
+      changed = true;
+    }
+  }
+  return changed ? JSON.stringify(slots) : null;
+}
 
 /** Default Ollama REST endpoint on the coordinator's own machine. */
 export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
@@ -64,12 +106,13 @@ export function hostKeyFromUrl(baseUrl: string): string {
  */
 export function resolveSlotModel(
   slotConfig: AuxiliaryLlmSlotConfig,
+  tier: 'quick' | 'quality' | undefined,
   quickModel: string,
   qualityModel: string,
 ): string | undefined {
   if (slotConfig.model) return slotConfig.model;
-  if (slotConfig.tier === 'quick' && quickModel) return quickModel;
-  if (slotConfig.tier === 'quality' && qualityModel) return qualityModel;
+  if (tier === 'quick' && quickModel) return quickModel;
+  if (tier === 'quality' && qualityModel) return qualityModel;
   return undefined;
 }
 

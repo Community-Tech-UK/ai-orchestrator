@@ -9,6 +9,7 @@ import * as path from 'path';
 import { app } from 'electron';
 import type { AppSettings } from '../../../shared/types/settings.types';
 import { DEFAULT_SETTINGS } from '../../../shared/types/settings.types';
+import { backfillSlotTiers } from '../../rlm/auxiliary-llm-utils';
 import { getLogger } from '../../logging/logger';
 import { PAUSE_SETTING_VALIDATORS, type Validator } from './settings-validators';
 
@@ -32,6 +33,8 @@ const AUX_SLOT_TIMEOUT_MIGRATION_KEY =
   '__migration_auxiliary_slot_timeouts_20260606';
 const AUX_FRONTIER_FALLBACK_MIGRATION_KEY =
   '__migration_auxiliary_frontier_fallback_20260606';
+const AUX_SLOT_TIERS_MIGRATION_KEY =
+  '__migration_auxiliary_slot_tiers_20260609';
 
 // Type for the internal store with the methods we need
 interface Store<T> {
@@ -114,6 +117,10 @@ export class SettingsManager extends EventEmitter {
     // `false` while it was inert; flip the two text slots back to the new `true`
     // default so they don't silently lose primary-LLM quality on upgrade.
     this.migrateAuxiliaryFrontierFallbackDefault();
+    // Existing installs persisted slot configs before the quick/quality tier
+    // feature; backfill each slot's `tier` so the model-tier selection and UI
+    // reflect sensible defaults instead of "none".
+    this.migrateAuxiliarySlotTiers();
     // Seed per-provider model memory from existing defaultModel/defaultCli on
     // first launch after this feature lands. This avoids an empty map showing
     // 'opus' for Claude and nothing else.
@@ -279,6 +286,24 @@ export class SettingsManager extends EventEmitter {
     }
 
     migrationStore.set(AUX_FRONTIER_FALLBACK_MIGRATION_KEY, true);
+  }
+
+  private migrateAuxiliarySlotTiers(): void {
+    const migrationStore = this.store as unknown as MigrationStore;
+    if (migrationStore.get(AUX_SLOT_TIERS_MIGRATION_KEY) === true) {
+      return;
+    }
+
+    const raw = this.store.get('auxiliaryLlmSlotsJson');
+    if (typeof raw === 'string') {
+      const updated = backfillSlotTiers(raw);
+      if (updated !== null) {
+        logger.info('Backfilling auxiliary slot tiers (quick/quality) for existing config');
+        this.store.set('auxiliaryLlmSlotsJson', updated);
+      }
+    }
+
+    migrationStore.set(AUX_SLOT_TIERS_MIGRATION_KEY, true);
   }
 
   /**

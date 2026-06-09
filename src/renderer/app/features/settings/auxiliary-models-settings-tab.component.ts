@@ -17,12 +17,13 @@ import {
 import { FormsModule } from '@angular/forms';
 import { AuxiliaryLlmIpcService } from '../../core/services/ipc/auxiliary-llm-ipc.service';
 import { SettingsStore } from '../../core/state/settings.store';
-import type {
-  AuxiliaryLlmCandidate,
-  AuxiliaryLlmDecision,
-  AuxiliaryLlmSlot,
-  AuxiliaryLlmSlotConfig,
-  AuxiliaryLlmSlotConfigMap,
+import {
+  DEFAULT_SLOT_TIERS,
+  type AuxiliaryLlmCandidate,
+  type AuxiliaryLlmDecision,
+  type AuxiliaryLlmSlot,
+  type AuxiliaryLlmSlotConfig,
+  type AuxiliaryLlmSlotConfigMap,
 } from '../../../../shared/types/auxiliary-llm.types';
 
 const ROUTING_MODES = [
@@ -265,8 +266,8 @@ const PROVIDERS = ['ollama', 'openai-compatible'] as const;
               <th title="Override the tier model for this slot with a specific model. Auto = use the slot's tier model (or first available if no tier model is set).">
                 Model override
               </th>
-              <th title="When on, this slot may fall back to the main cloud model if no local/cheap model is available. Turn off to keep this slot's content local-only (privacy / hard cost control) — it uses a deterministic local summary instead.">
-                Cloud fallback
+              <th title="When on, this slot may escalate to the main frontier model if no auxiliary model produces output. Turn off to cap this slot at your configured auxiliary endpoints — if none is available it uses a deterministic local summary. Note: this only blocks the frontier model; content is still sent to whatever auxiliary endpoints you configure, which may be cloud.">
+                Frontier fallback
               </th>
               <th>Test</th>
             </tr>
@@ -324,8 +325,11 @@ const PROVIDERS = ['ollama', 'openai-compatible'] as const;
           </tbody>
         </table>
         <p class="field-hint">
-          Cloud fallback off = this slot never sends content to the main model;
-          if no local model is available it uses a local deterministic summary.
+          Frontier fallback off = this slot never escalates to the main frontier
+          model; if no auxiliary model is available it uses a deterministic local
+          summary. It does <strong>not</strong> stop content reaching the auxiliary
+          endpoints you configure — those may be cloud (e.g. cheap-first mode or a
+          manual OpenAI-compatible endpoint).
         </p>
       </div>
 
@@ -427,9 +431,13 @@ export class AuxiliaryModelsSettingsTabComponent implements OnInit {
     return this.slotConfigs()[slot]?.model ?? '';
   }
 
-  /** Current tier for a slot ('' = none). */
+  /**
+   * Effective tier for a slot: the explicit configured tier, or the name-based
+   * default the router applies when none is set — so the dropdown reflects what
+   * the backend actually does rather than showing a misleading "None".
+   */
   protected slotTier(slot: AuxiliaryLlmSlot): string {
-    return this.slotConfigs()[slot]?.tier ?? '';
+    return this.slotConfigs()[slot]?.tier ?? DEFAULT_SLOT_TIERS[slot] ?? '';
   }
 
   /**
@@ -440,11 +448,12 @@ export class AuxiliaryModelsSettingsTabComponent implements OnInit {
   protected effectiveSlotModelLabel(slot: AuxiliaryLlmSlot): string {
     const cfg = this.slotConfigs()[slot];
     if (cfg?.model) return cfg.model;
-    if (cfg?.tier === 'quick') {
+    const tier = cfg?.tier ?? DEFAULT_SLOT_TIERS[slot];
+    if (tier === 'quick') {
       const m = this.settingsStore.get('auxiliaryLlmQuickModel');
       return m ? `${m} (quick)` : 'Auto · quick (smallest)';
     }
-    if (cfg?.tier === 'quality') {
+    if (tier === 'quality') {
       const m = this.settingsStore.get('auxiliaryLlmQualityModel');
       return m ? `${m} (quality)` : 'Auto · quality (largest)';
     }

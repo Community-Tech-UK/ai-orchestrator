@@ -6,7 +6,7 @@
  * the worker RPC dispatcher.
  */
 
-import { extractChatCompletionText } from '../shared/utils/openai-response';
+import { extractChatCompletionText, suppressReasoning } from '../shared/utils/openai-response';
 
 export interface WorkerOpenAiGenerateParams {
   model: string;
@@ -36,11 +36,17 @@ export async function generateOpenAiCompatibleOnWorker(
   const controller = new AbortController();
   const tid = setTimeout(() => controller.abort(), params.timeoutMs);
   try {
+    // NOTE: numCtx is deliberately absent. Unlike Ollama (`num_ctx`), an
+    // OpenAI-compatible server like LM Studio has no per-request context override
+    // — it serves at the model's *loaded* context length. Sending an over-long
+    // prompt overflows that and the server returns a 400 (n_ctx), surfaced as an
+    // error here. The lever is loading the model with a larger context, not this
+    // request.
     const buildBody = (includeJsonFormat: boolean): Record<string, unknown> => {
       const body: Record<string, unknown> = {
         model: params.model,
         messages: [
-          { role: 'system', content: params.systemPrompt },
+          { role: 'system', content: suppressReasoning(params.systemPrompt) },
           { role: 'user', content: params.userPrompt },
         ],
         temperature: params.temperature,

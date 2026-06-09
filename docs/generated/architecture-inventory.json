@@ -5523,6 +5523,10 @@
       "lines": 935
     },
     {
+      "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
+      "lines": 932
+    },
+    {
       "path": "src/main/ipc/handlers/mcp-handlers.ts",
       "lines": 925
     },

@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { extractChatCompletionText } from '../openai-response';
+import { extractChatCompletionText, suppressReasoning, NO_THINK_DIRECTIVE } from '../openai-response';
+
+describe('suppressReasoning', () => {
+  it('prepends the /no_think directive to the system prompt', () => {
+    expect(suppressReasoning('You score things.')).toBe(`${NO_THINK_DIRECTIVE}\n\nYou score things.`);
+  });
+
+  it('is idempotent — does not double-add when already present', () => {
+    const once = suppressReasoning('Score.');
+    expect(suppressReasoning(once)).toBe(once);
+  });
+});
 
 describe('extractChatCompletionText', () => {
   it('returns the assistant content', () => {

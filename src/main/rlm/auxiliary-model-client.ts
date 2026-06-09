@@ -250,6 +250,10 @@ export async function generateWithOpenAiCompatible(
   const buildBody = (includeJsonFormat: boolean): Record<string, unknown> => {
     const body: Record<string, unknown> = {
       model: request.model,
+      // NOTE: no /no_think here. This client dials endpoints the coordinator
+      // configures directly, which may be cloud (OpenAI etc.); we don't inject a
+      // local-model reasoning directive into them. The worker path (LM Studio)
+      // applies it where reasoning models actually live.
       messages: [
         { role: 'system', content: request.systemPrompt },
         { role: 'user', content: request.userPrompt },

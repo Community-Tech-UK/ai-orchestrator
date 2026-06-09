@@ -34,7 +34,7 @@ import {
 } from './auxiliary-model-client';
 import { getTokenCounter } from './token-counter';
 import { getLogger } from '../logging/logger';
-import { computeNumCtx, hostKeyFromUrl, localhostOllamaEndpoint, resolveSlotModel, pickModelForTier, workerEndpointHealthy } from './auxiliary-llm-utils';
+import { computeNumCtx, hostKeyFromUrl, localhostOllamaEndpoint, resolveSlotModel, pickModelForTier, workerEndpointHealthy, endpointAdvertisesModel, DEFAULT_SLOT_TIERS } from './auxiliary-llm-utils';
 // remote-node imports are lazy — worker-node-connection and service-rpc-client
 // transitively import electron via remote-auth → settings-manager, which
 // crashes in worker_thread contexts. We must NOT top-level-import them.
@@ -268,9 +268,7 @@ export class AuxiliaryLlmService extends EventEmitter {
     systemPrompt: string,
     userPrompt: string
   ): Promise<{ text: string; decision: AuxiliaryLlmDecision }> {
-    // Check service-level disabled / routing-mode off. The user is not relying
-    // on local routing here, so the caller should behave normally → allow
-    // frontier fallback.
+    // Service disabled / routing off → behave normally (allow frontier fallback).
     if (!this.enabled || this.routingMode === 'off') {
       return this.buildFallback(slot, 'Service disabled or routing mode is off', true);
     }
@@ -281,14 +279,10 @@ export class AuxiliaryLlmService extends EventEmitter {
       return this.buildFallback(slot, 'Slot is disabled', true);
     }
 
-    // Truncate prompt if needed
     const truncated = this.maybeTruncatePrompt(slot, slotConfig, systemPrompt, userPrompt);
-
-    // Resolve endpoint + model according to routing mode
     const resolved = await this.resolveEndpointForSlot(slot, slotConfig);
     if (!resolved) {
-      // Slot was enabled and we tried local routing but found nothing healthy —
-      // honor the slot's frontier-fallback policy.
+      // Enabled but nothing healthy found — honor the slot's frontier-fallback policy.
       return this.buildFallback(slot, 'No healthy auxiliary endpoint/model available', slotConfig.allowFrontierFallback);
     }
 
@@ -328,12 +322,13 @@ export class AuxiliaryLlmService extends EventEmitter {
     slot: AuxiliaryLlmSlot,
     slotConfig: AuxiliaryLlmSlotConfig
   ): Promise<{ endpoint: AuxiliaryLlmEndpointConfig; model: string } | null> {
-    // If the slot has an explicit endpointId + model, try that first
+    // If the slot has an explicit endpointId + model, try that first — but still
+    // validate the model is actually offered by that endpoint.
     if (slotConfig.endpointId && slotConfig.model) {
       const ep = this.endpoints.find((e) => e.id === slotConfig.endpointId && e.enabled);
-      if (ep) {
-        const healthy = await this.isEndpointHealthy(ep);
-        if (healthy) {
+      if (ep && (await this.isEndpointHealthy(ep))) {
+        const ids = (await this.listModels(ep)).map((m) => m.id);
+        if (endpointAdvertisesModel(ep.source, slotConfig.model, ids)) {
           return { endpoint: ep, model: slotConfig.model };
         }
       }
@@ -356,28 +351,28 @@ export class AuxiliaryLlmService extends EventEmitter {
   }
 
   private async resolveLocalFirst(
-    _slot: AuxiliaryLlmSlot,
+    slot: AuxiliaryLlmSlot,
     slotConfig: AuxiliaryLlmSlotConfig
   ): Promise<{ endpoint: AuxiliaryLlmEndpointConfig; model: string } | null> {
     const localOllama = localhostOllamaEndpoint(this.useLocalhostOllama);
-
-    // local-first prefers local models: localhost (if enabled), then worker-local
-    // Ollama, then any configured endpoints (which may include cheap cloud).
+    const enabled = this.enabledEndpoints();
+    // local-first defaults to the remote node machine for remote work: worker-node models first, this host's localhost as fallback, then the rest.
     const ordered = [
-      ...(localOllama ? [localOllama] : []),
+      ...enabled.filter((ep) => ep.source === 'worker-node'),
       ...this.autoWorkerEndpoints(),
-      ...this.enabledEndpoints(),
+      ...(localOllama ? [localOllama] : []),
+      ...enabled.filter((ep) => ep.source !== 'worker-node'),
     ];
 
     for (const ep of ordered) {
-      const result = await this.tryEndpointForSlot(ep, slotConfig);
+      const result = await this.tryEndpointForSlot(ep, slot, slotConfig);
       if (result) return result;
     }
     return null;
   }
 
   private async resolveCheapFirst(
-    _slot: AuxiliaryLlmSlot,
+    slot: AuxiliaryLlmSlot,
     slotConfig: AuxiliaryLlmSlotConfig
   ): Promise<{ endpoint: AuxiliaryLlmEndpointConfig; model: string } | null> {
     const localOllama = localhostOllamaEndpoint(this.useLocalhostOllama);
@@ -399,7 +394,7 @@ export class AuxiliaryLlmService extends EventEmitter {
       ...(localOllama ? [localOllama] : []),
     ];
     for (const ep of ordered) {
-      const result = await this.tryEndpointForSlot(ep, slotConfig);
+      const result = await this.tryEndpointForSlot(ep, slot, slotConfig);
       if (result) return result;
     }
     return null;
@@ -407,21 +402,23 @@ export class AuxiliaryLlmService extends EventEmitter {
 
   private async tryEndpointForSlot(
     ep: AuxiliaryLlmEndpointConfig,
+    slot: AuxiliaryLlmSlot,
     slotConfig: AuxiliaryLlmSlotConfig
   ): Promise<{ endpoint: AuxiliaryLlmEndpointConfig; model: string } | null> {
     const healthy = await this.isEndpointHealthy(ep);
     if (!healthy) return null;
 
-    // Explicit per-slot model pin, or the slot's tier model, take precedence.
-    const preferred = resolveSlotModel(slotConfig, this.quickModel, this.qualityModel);
-    if (preferred) {
+    // Effective tier: explicit tier, or name-based default for legacy configs.
+    const tier = slotConfig.tier ?? DEFAULT_SLOT_TIERS[slot];
+    const ids = (await this.listModels(ep)).map((m) => m.id);
+    const preferred = resolveSlotModel(slotConfig, tier, this.quickModel, this.qualityModel);
+    // Use a pinned/tier model only if the endpoint advertises it (see helper for
+    // the empty-list rule); otherwise auto-pick by tier from what's listed.
+    if (preferred && endpointAdvertisesModel(ep.source, preferred, ids)) {
       return { endpoint: ep, model: preferred };
     }
-
-    // Otherwise auto-pick by tier (quick → smallest, quality → largest).
-    const models = await this.listModels(ep);
-    if (models.length === 0) return null;
-    const picked = pickModelForTier(models.map((m) => m.id), slotConfig.tier);
+    if (ids.length === 0) return null;
+    const picked = pickModelForTier(ids, tier);
     return picked ? { endpoint: ep, model: picked } : null;
   }
 

@@ -4,6 +4,9 @@ import {
   pickModelForTier,
   resolveSlotModel,
   workerEndpointHealthy,
+  endpointAdvertisesModel,
+  backfillSlotTiers,
+  DEFAULT_SLOT_TIERS,
 } from '../auxiliary-llm-utils';
 import type { AuxiliaryLlmSlotConfig } from '../../../shared/types/auxiliary-llm.types';
 import type { WorkerNodeInfo } from '../../../shared/types/worker-node.types';
@@ -99,22 +102,81 @@ describe('workerEndpointHealthy', () => {
 
 describe('resolveSlotModel', () => {
   it('prefers an explicit per-slot model pin over the tier model', () => {
-    expect(resolveSlotModel(slot({ model: 'pinned', tier: 'quality' }), 'q', 'big')).toBe('pinned');
+    expect(resolveSlotModel(slot({ model: 'pinned' }), 'quality', 'q', 'big')).toBe('pinned');
   });
 
-  it('uses the quick tier model for a quick slot', () => {
-    expect(resolveSlotModel(slot({ tier: 'quick' }), 'small', 'big')).toBe('small');
+  it('uses the quick tier model for the quick tier', () => {
+    expect(resolveSlotModel(slot(), 'quick', 'small', 'big')).toBe('small');
   });
 
-  it('uses the quality tier model for a quality slot', () => {
-    expect(resolveSlotModel(slot({ tier: 'quality' }), 'small', 'big')).toBe('big');
+  it('uses the quality tier model for the quality tier', () => {
+    expect(resolveSlotModel(slot(), 'quality', 'small', 'big')).toBe('big');
   });
 
   it('returns undefined (auto) when the tier model is empty', () => {
-    expect(resolveSlotModel(slot({ tier: 'quick' }), '', '')).toBeUndefined();
+    expect(resolveSlotModel(slot(), 'quick', '', '')).toBeUndefined();
   });
 
-  it('returns undefined (auto) when no tier is set', () => {
-    expect(resolveSlotModel(slot(), 'small', 'big')).toBeUndefined();
+  it('returns undefined (auto) when tier is undefined', () => {
+    expect(resolveSlotModel(slot(), undefined, 'small', 'big')).toBeUndefined();
+  });
+});
+
+describe('endpointAdvertisesModel', () => {
+  it('is true when the model is in the advertised list', () => {
+    expect(endpointAdvertisesModel('worker-node', 'gemma', ['gemma', 'qwen'])).toBe(true);
+  });
+
+  it('is false when a non-empty list does not include the model', () => {
+    expect(endpointAdvertisesModel('worker-node', 'missing', ['gemma'])).toBe(false);
+    expect(endpointAdvertisesModel('manual', 'missing', ['gemma'])).toBe(false);
+  });
+
+  it('does NOT trust an empty list for worker-node endpoints (authoritative heartbeat)', () => {
+    expect(endpointAdvertisesModel('worker-node', 'gemma', [])).toBe(false);
+  });
+
+  it('trusts the pin on an empty list for non-worker endpoints (transient probe failure)', () => {
+    expect(endpointAdvertisesModel('manual', 'gemma', [])).toBe(true);
+    expect(endpointAdvertisesModel('localhost', 'gemma', [])).toBe(true);
+  });
+});
+
+describe('backfillSlotTiers', () => {
+  it('adds the default tier to slots missing one and returns updated JSON', () => {
+    const raw = JSON.stringify({ compression: { enabled: true }, loopScoring: { enabled: true } });
+    const out = backfillSlotTiers(raw);
+    expect(out).not.toBeNull();
+    const parsed = JSON.parse(out!);
+    expect(parsed.compression.tier).toBe('quality');
+    expect(parsed.loopScoring.tier).toBe('quick');
+  });
+
+  it('does not overwrite an explicit tier', () => {
+    const raw = JSON.stringify({ compression: { enabled: true, tier: 'quick' } });
+    const out = backfillSlotTiers(raw);
+    // compression keeps its explicit 'quick'; nothing else to change → no-op.
+    expect(out).toBeNull();
+  });
+
+  it('returns null when every slot already has a tier (no change)', () => {
+    const raw = JSON.stringify({ loopScoring: { enabled: true, tier: 'quick' } });
+    expect(backfillSlotTiers(raw)).toBeNull();
+  });
+
+  it('returns null for unparseable JSON', () => {
+    expect(backfillSlotTiers('{not json')).toBeNull();
+  });
+});
+
+describe('DEFAULT_SLOT_TIERS', () => {
+  it('tags scoring/routing/title slots quick and content slots quality', () => {
+    expect(DEFAULT_SLOT_TIERS.loopScoring).toBe('quick');
+    expect(DEFAULT_SLOT_TIERS.routingClassification).toBe('quick');
+    expect(DEFAULT_SLOT_TIERS.approvalScoring).toBe('quick');
+    expect(DEFAULT_SLOT_TIERS.titleGeneration).toBe('quick');
+    expect(DEFAULT_SLOT_TIERS.compression).toBe('quality');
+    expect(DEFAULT_SLOT_TIERS.memoryDistillation).toBe('quality');
+    expect(DEFAULT_SLOT_TIERS.webExtract).toBe('quality');
   });
 });

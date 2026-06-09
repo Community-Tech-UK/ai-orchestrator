@@ -5,6 +5,25 @@
  * reasoning-truncated responses identically.
  */
 
+/**
+ * Directive that suppresses chain-of-thought on reasoning models. Uses the
+ * Qwen-family `/no_think` token convention, which LM Studio honours for Qwen,
+ * Gemma and others — verified to yield non-empty parseable content where the
+ * `chat_template_kwargs.enable_thinking=false` parameter was silently ignored
+ * (e.g. by nemotron). For non-reasoning models it's harmless prompt text.
+ */
+export const NO_THINK_DIRECTIVE = '/no_think';
+
+/**
+ * Prepend the no-think directive to a system prompt unless it's already there.
+ * Reasoning models otherwise spend their whole token budget on hidden reasoning
+ * and return empty content for the small-budget auxiliary slots.
+ */
+export function suppressReasoning(systemPrompt: string): string {
+  if (systemPrompt.includes(NO_THINK_DIRECTIVE)) return systemPrompt;
+  return `${NO_THINK_DIRECTIVE}\n\n${systemPrompt}`;
+}
+
 export interface OpenAiChatCompletionResponse {
   choices?: Array<{
     message?: {

@@ -42,6 +42,17 @@ describe('generateOpenAiCompatibleOnWorker', () => {
     expect(body.response_format).toEqual({ type: 'json_object' });
   });
 
+  it('injects the /no_think directive into the system message (suppress reasoning)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      res({ choices: [{ message: { content: '{}' }, finish_reason: 'stop' }] }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await generateOpenAiCompatibleOnWorker('http://127.0.0.1:1234', { ...BASE });
+    const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.messages[0].content).toContain('/no_think');
+    expect(body.messages[0].content).toContain('You score things.');
+  });
+
   it('retries WITHOUT response_format when LM Studio 400s on json_object', async () => {
     const fetchMock = vi
       .fn()

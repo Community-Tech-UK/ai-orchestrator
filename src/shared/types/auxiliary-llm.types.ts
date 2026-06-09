@@ -15,6 +15,25 @@ export type AuxiliaryLlmSlot =
   | 'approvalScoring'
   | 'loopScoring';
 
+export type AuxiliaryLlmTier = 'quick' | 'quality';
+
+/**
+ * Default quality tier per slot. Single source of truth shared by the settings
+ * migration (which backfills `tier` into persisted slot configs), the renderer
+ * (to display the effective tier), and the router (runtime fallback for any slot
+ * still missing a tier). Quick = small/fast (scoring, routing, titles);
+ * quality = larger (compression, distillation, extraction).
+ */
+export const DEFAULT_SLOT_TIERS: Record<AuxiliaryLlmSlot, AuxiliaryLlmTier> = {
+  compression: 'quality',
+  memoryDistillation: 'quality',
+  webExtract: 'quality',
+  titleGeneration: 'quick',
+  routingClassification: 'quick',
+  approvalScoring: 'quick',
+  loopScoring: 'quick',
+};
+
 export type AuxiliaryLlmProvider =
   | 'ollama'
   | 'openai-compatible'
