@@ -5310,6 +5310,10 @@
       "lines": 1231
     },
     {
+      "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
+      "lines": 1219
+    },
+    {
       "path": "src/renderer/app/features/plugins/plugins-page.component.ts",
       "lines": 1208
     },
@@ -5320,10 +5324,6 @@
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
       "lines": 1194
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
-      "lines": 1189
     },
     {
       "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase5-integration.COMPLETED.md",

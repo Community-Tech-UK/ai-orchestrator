@@ -17,7 +17,8 @@ import {
   ChangeDetectionStrategy,
   afterNextRender,
   DestroyRef,
-  ElementRef
+  ElementRef,
+  HostListener,
 } from '@angular/core';
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { OutputMessage } from '../../core/state/instance.store';
@@ -57,6 +58,8 @@ import {
   buildLinkedFileTarget as createLinkedFileTarget,
   getSystemFileManagerLabel,
 } from './output-stream.utils';
+import { TranscriptFindBarComponent } from './transcript-find-bar.component';
+import { TranscriptFindController } from './transcript-find-controller';
 
 interface OlderMessagesLoadResult {
   prependedCount: number;
@@ -82,6 +85,7 @@ interface OlderMessagesProbeResult {
     ToolGroupComponent,
     PlanUpdateCardComponent,
     ContextMenuComponent,
+    TranscriptFindBarComponent,
   ],
   templateUrl: './output-stream.component.html',
   styleUrl: './output-stream.component.scss',
@@ -95,6 +99,7 @@ export class OutputStreamComponent {
   thinkingDefaultExpanded = input<boolean>(false);
   showToolMessages = input<boolean>(true);
   isChild = input<boolean>(false);
+  findShortcutEnabled = input<boolean>(true);
   olderMessagesLoader = input<(() => Promise<OlderMessagesLoadResult | null>) | null>(null);
   olderMessagesProbe = input<(() => Promise<OlderMessagesProbeResult | null>) | null>(null);
 
@@ -164,6 +169,12 @@ export class OutputStreamComponent {
   protected contextMenuX = signal(0);
   protected contextMenuY = signal(0);
   protected contextMenuItems = signal<ContextMenuItem[]>([]);
+
+  protected readonly transcriptFind = new TranscriptFindController({
+    getViewportElement: () => this.getViewportElement(),
+    hasOlderMessages: () => this.hasOlderMessages(),
+    loadOlderMessages: () => this.loadOlderMessages(),
+  });
 
   // Load-more state
   protected isLoadingOlder = signal(false);
@@ -448,6 +459,12 @@ export class OutputStreamComponent {
       });
     });
 
+    // Re-apply find highlights after Angular replaces rendered transcript nodes.
+    effect(() => {
+      this.visibleItems();
+      this.transcriptFind.reapplyAfterRender();
+    });
+
     // Setup scroll listener and delegated click handler after render
     afterNextRender(() => {
       const clickBinding = this.setupDelegatedClickHandler();
@@ -465,8 +482,21 @@ export class OutputStreamComponent {
           clearTimeout(this.copyResetTimer);
           this.copyResetTimer = null;
         }
+        this.transcriptFind.destroy();
       });
     });
+  }
+
+  @HostListener('window:keydown', ['$event'])
+  protected onWindowKeydown(event: KeyboardEvent): void {
+    if (!this.findShortcutEnabled() || event.defaultPrevented) {
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'f') {
+      event.preventDefault();
+      event.stopPropagation();
+      this.transcriptFind.openFind();
+    }
   }
 
   /**

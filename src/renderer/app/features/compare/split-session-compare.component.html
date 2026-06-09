@@ -23,6 +23,7 @@
           [messages]="leftMessages()"
           [instanceId]="leftId()!"
           [provider]="leftInstance()!.provider"
+          [findShortcutEnabled]="false"
         />
       } @else {
         <div class="pane-empty">
@@ -58,6 +59,7 @@
           [messages]="rightMessages()"
           [instanceId]="rightId()!"
           [provider]="rightInstance()!.provider"
+          [findShortcutEnabled]="false"
         />
       } @else {
         <div class="pane-empty">

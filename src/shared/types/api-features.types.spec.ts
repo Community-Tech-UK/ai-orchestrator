@@ -24,6 +24,7 @@ describe('API Features Types', () => {
       expect(supportsPromptCaching('claude-sonnet-4-5-20250929')).toBe(true);
       expect(supportsPromptCaching('claude-opus-4-5-20251101')).toBe(true);
       expect(supportsPromptCaching('claude-haiku-4-5-20251001')).toBe(true);
+      expect(supportsPromptCaching('claude-fable-5')).toBe(true);
     });
 
     it('should return true for model variants', () => {
@@ -55,6 +56,10 @@ describe('API Features Types', () => {
 
     it('should return correct minimum tokens for Haiku 4.5', () => {
       expect(getMinCacheableTokens('claude-haiku-4-5-20251001')).toBe(4096);
+    });
+
+    it('should return correct minimum tokens for Fable 5', () => {
+      expect(getMinCacheableTokens('claude-fable-5')).toBe(1024);
     });
 
     it('should return default for unknown models', () => {
@@ -144,7 +149,9 @@ describe('API Features Types', () => {
       expect(PROMPT_CACHING_MODELS.length).toBeGreaterThan(0);
       expect(PROMPT_CACHING_MODELS).toContain('claude-sonnet-4-5-20250929');
       expect(PROMPT_CACHING_MODELS).toContain('claude-opus-4-8');
+      expect(PROMPT_CACHING_MODELS).toContain('claude-fable-5');
       expect(MIN_CACHEABLE_TOKENS['claude-opus-4-8']).toBe(1024);
+      expect(MIN_CACHEABLE_TOKENS['claude-fable-5']).toBe(1024);
     });
 
     it('should define CacheControl type correctly', () => {

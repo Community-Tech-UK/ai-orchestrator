@@ -1,3 +1,16 @@
+    @if (transcriptFind.isOpen()) {
+      <app-transcript-find-bar
+        [query]="transcriptFind.query()"
+        [matchCount]="transcriptFind.matchCount()"
+        [activeIndex]="transcriptFind.activeIndex()"
+        [loadingOlder]="transcriptFind.loadingOlder()"
+        (queryChange)="transcriptFind.setQuery($event)"
+        (previous)="transcriptFind.previousMatch()"
+        (next)="transcriptFind.nextMatch()"
+        (closeRequested)="transcriptFind.closeFind()"
+      />
+    }
+
     @if (displayItems().length === 0) {
       <div class="empty-stream">
         <p>No messages yet</p>

@@ -78,6 +78,15 @@ describe('ModelCapabilitiesRegistry', () => {
       expect(caps.pricing!.inputPerMillion).toBe(5.0);
       expect(caps.pricing!.outputPerMillion).toBe(25.0);
     });
+
+    it('returns Fable 5 limits and pricing for the pinned model id', () => {
+      const registry = ModelCapabilitiesRegistry.getInstance();
+      const caps = registry.getCapabilities('claude', 'claude-fable-5');
+      expect(caps.contextWindow).toBe(1_000_000);
+      expect(caps.maxOutputTokens).toBe(128_000);
+      expect(caps.supportsThinking).toBe(true);
+      expect(caps.pricing).toEqual({ inputPerMillion: 10.0, outputPerMillion: 50.0 });
+    });
   });
 
   describe('getCapabilities — known OpenAI models', () => {

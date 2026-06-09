@@ -445,6 +445,19 @@
         }
       }
 
+      :host ::ng-deep mark.transcript-find-match {
+        padding: 0 1px;
+        border-radius: 3px;
+        background: rgba(var(--warning-rgb), 0.28);
+        color: inherit;
+        box-shadow: inset 0 0 0 1px rgba(var(--warning-rgb), 0.22);
+      }
+
+      :host ::ng-deep mark.transcript-find-match.active {
+        background: rgba(var(--primary-rgb), 0.55);
+        box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.72);
+      }
+
       .scroll-to-top-btn,
       .scroll-to-bottom-btn {
         position: absolute;

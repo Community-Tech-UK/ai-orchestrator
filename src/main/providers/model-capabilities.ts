@@ -7,7 +7,13 @@
 
 import { getLogger } from '../logging/logger';
 import { CONTEXT_WINDOWS } from '../../shared/constants/limits';
-import { MODEL_PRICING, CLAUDE_MODELS, GOOGLE_MODELS, OPENAI_MODELS } from '../../shared/types/provider.types';
+import {
+  MODEL_PRICING,
+  CLAUDE_MODELS,
+  CLAUDE_PINNED_MODELS,
+  GOOGLE_MODELS,
+  OPENAI_MODELS,
+} from '../../shared/types/provider.types';
 
 // Re-export for consumers that need Codex context window from a single source.
 export { CONTEXT_WINDOWS };
@@ -42,6 +48,13 @@ function pricingFor(modelKey: string): ModelCapabilities['pricing'] | undefined 
 }
 
 const KNOWN_MODELS: Record<string, ModelCapabilities> = {
+  'claude:claude-fable-5': {
+    contextWindow: CONTEXT_WINDOWS.CLAUDE_OPUS,
+    maxOutputTokens: 128_000,
+    supportsThinking: true,
+    supportsBatching: false,
+    pricing: pricingFor(CLAUDE_PINNED_MODELS.FABLE_5),
+  },
   'claude:opus': {
     contextWindow: CONTEXT_WINDOWS.CLAUDE_OPUS,
     maxOutputTokens: CONTEXT_WINDOWS.MAX_OUTPUT_TOKENS,

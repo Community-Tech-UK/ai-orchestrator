@@ -62,6 +62,17 @@ describe('computeTokenCost', () => {
     expect(hasModelRate(undefined)).toBe(false);
     expect(hasModelRate(CLAUDE_MODELS.OPUS)).toBe(true);
   });
+
+  it('prices Claude Fable 5 at the documented Anthropic API rate', () => {
+    expect(hasModelRate('claude-fable-5')).toBe(true);
+    expect(getModelRate('claude-fable-5')).toEqual({ input: 10.0, output: 50.0 });
+    expect(
+      computeTokenCost('claude-fable-5', {
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+      }),
+    ).toBeCloseTo(60, 6);
+  });
 });
 
 describe('model-pricing live overlay (models.dev)', () => {
