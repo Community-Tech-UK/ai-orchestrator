@@ -274,7 +274,12 @@ export const CURSOR_MODELS = {
  * Default models for each provider
  */
 export const DEFAULT_MODELS: Record<ProviderType, string> = {
-  'claude-cli': CLAUDE_MODELS.OPUS_1M,
+  // Plain Opus, NOT the [1m] variant: this default feeds one-shot orchestration
+  // invocations (verify/review/debate/workflow) via getDefaultModelForCli, where
+  // prompts sit far below 200k — the 1M window buys nothing there while exposing
+  // runs to long-context premium billing. Interactive new sessions still default
+  // to Opus-1M via PROVIDER_MODEL_LIST[0] / getPrimaryModelForProvider.
+  'claude-cli': CLAUDE_MODELS.OPUS,
   'anthropic-api': CLAUDE_MODELS.OPUS,
   'openai': OPENAI_MODELS.GPT55,
   'openai-compatible': OPENAI_MODELS.GPT55,

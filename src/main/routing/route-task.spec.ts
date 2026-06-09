@@ -52,6 +52,15 @@ describe('resolveRoutedModel (intent-routing Phase 1)', () => {
     expect(decision.model).toBe(DEFAULT_ROUTING_CONFIG.fastModel);
     expect(decision.reason).not.toContain('resolved to');
   });
+
+  it('does not match keywords as substrings (word-boundary regression)', () => {
+    // Previously 'find' fired on "findings", 'list' on "checklist", and 'get'
+    // on "together", scoring this as clearly-simple → fast tier. None of those
+    // are whole-word matches, so the task should stay moderate → balanced.
+    const decision = resolveRoutedModel('Summarize the findings in the checklist together', {});
+    expect(decision.tier).toBe('balanced');
+    expect(decision.model).toBe(DEFAULT_ROUTING_CONFIG.balancedModel);
+  });
 });
 
 describe('applyProviderResolution (intent-routing Phase 1)', () => {

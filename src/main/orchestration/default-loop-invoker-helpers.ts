@@ -12,12 +12,18 @@ export function enableAdapterResume(adapter: unknown): void {
 export async function createPersistentLoopAdapter(opts: {
   provider: LoopProvider;
   workingDirectory: string;
+  /** Routed model for the loop. Falls back to the provider's house default
+   *  when unset — but callers should resolve through the loop's cost-tier
+   *  routing so same-session loops aren't silently pinned to the strong model. */
+  model?: string;
   timeoutMs?: number;
   streamIdleTimeoutMs?: number;
+  /** Agentic-turn backstop (`--max-turns`) for the persistent session. */
+  maxTurns?: number;
   env?: Record<string, string>;
 }): Promise<unknown> {
   const cliType = await resolveCliType(opts.provider as Parameters<typeof resolveCliType>[0], 'claude');
-  const model = getDefaultModelForCli(cliType);
+  const model = opts.model ?? getDefaultModelForCli(cliType);
   const adapter = getProviderRuntimeService().createAdapter({
     cliType,
     options: {
@@ -25,6 +31,7 @@ export async function createPersistentLoopAdapter(opts: {
       model,
       yoloMode: true,
       timeout: opts.timeoutMs ?? 30 * 60 * 1000,
+      maxTurns: opts.maxTurns,
       env: opts.env,
     },
   });

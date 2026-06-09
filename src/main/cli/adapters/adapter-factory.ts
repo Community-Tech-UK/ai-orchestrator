@@ -153,6 +153,7 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     systemPrompt: options.systemPrompt,
     model: options.model,
     timeout: options.timeout,
+    maxTurns: options.maxTurns,
     yoloMode: options.yoloMode,
     allowedTools: options.allowedTools,
     disallowedTools: options.disallowedTools,

@@ -52,11 +52,14 @@ describe('provider type helpers', () => {
 });
 
 describe('provider model lists', () => {
-  it('defaults Claude CLI to Opus latest with 1M context', () => {
-    expect(DEFAULT_MODELS['claude-cli']).toBe(CLAUDE_MODELS.OPUS_1M);
+  it('defaults orchestration invocations to plain Opus; interactive sessions to Opus-1M', () => {
+    // DEFAULT_MODELS feeds one-shot orchestration invocations (verify/review/
+    // debate/workflow) via getDefaultModelForCli — plain Opus, no 1M premium.
+    expect(DEFAULT_MODELS['claude-cli']).toBe(CLAUDE_MODELS.OPUS);
     expect(DEFAULT_MODELS['anthropic-api']).toBe(CLAUDE_MODELS.OPUS);
+    expect(getDefaultModelForCli('claude')).toBe(CLAUDE_MODELS.OPUS);
+    // Interactive new-session default keeps the 1M window (PROVIDER_MODEL_LIST[0]).
     expect(getPrimaryModelForProvider('claude')).toBe(CLAUDE_MODELS.OPUS_1M);
-    expect(getDefaultModelForCli('claude')).toBe(CLAUDE_MODELS.OPUS_1M);
   });
 
   it('exposes Claude 1M variants in the static Claude model list', () => {

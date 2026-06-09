@@ -193,11 +193,29 @@ function makeMockAdapter() {
     sendInput: (msg: string, attachments?: unknown[]) => Promise<void>;
     terminate: (graceful: boolean) => Promise<void>;
     getName: () => string;
+    getRuntimeCapabilities: () => {
+      supportsResume: boolean;
+      supportsForkSession: boolean;
+      supportsNativeCompaction: boolean;
+      supportsPermissionPrompts: boolean;
+      supportsDeferPermission: boolean;
+      selfManagedAutoCompaction: boolean;
+    };
+    formatter: { isWritable: () => boolean };
   };
   adapter.spawn = mockAdapterSpawn;
   adapter.sendInput = mockAdapterSendInput;
   adapter.terminate = mockAdapterTerminate;
   adapter.getName = () => mockAdapterName;
+  adapter.getRuntimeCapabilities = () => ({
+    supportsResume: true,
+    supportsForkSession: false,
+    supportsNativeCompaction: false,
+    supportsPermissionPrompts: false,
+    supportsDeferPermission: false,
+    selfManagedAutoCompaction: false,
+  });
+  adapter.formatter = { isWritable: () => true };
   return adapter;
 }
 
@@ -1680,6 +1698,45 @@ describe('InstanceManager', () => {
           reasoningEffort: 'high',
         }),
         expect.anything(),
+      );
+    });
+
+    it('starts a fresh Claude session when changing models so native resume cannot retain the old model', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        modelOverride: 'opus[1m]',
+      });
+      await instance.readyPromise;
+      instance.outputBuffer.push(
+        {
+          id: 'user-before-model-change',
+          timestamp: Date.now() - 1000,
+          type: 'user',
+          content: 'Please double check where we are.',
+        },
+        {
+          id: 'assistant-before-model-change',
+          timestamp: Date.now(),
+          type: 'assistant',
+          content: 'We are midway through the task.',
+        },
+      );
+      mockCreateCliAdapter.mockClear();
+
+      await manager.changeModel(instance.id, 'claude-fable-5');
+
+      expect(mockCreateCliAdapter).toHaveBeenCalledWith(
+        'claude',
+        expect.objectContaining({
+          model: 'claude-fable-5',
+          resume: false,
+          forkSession: false,
+        }),
+        expect.anything(),
+      );
+      expect(instance.currentModel).toBe('claude-fable-5');
+      expect(mockAdapterSendInput).toHaveBeenCalledWith(
+        expect.stringContaining('replay fallback (model-change)'),
       );
     });
 

@@ -84,6 +84,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private toolUseContexts = new Map<string, { name: string; input: Record<string, unknown> }>();
   /** Cached context window from last result message for accurate streaming percentage */
   private lastKnownContextWindow: number;
+  /** Last accurate per-API-call context occupancy (input + cache + output of
+   *  the most recent call). Only set from per-call usage — never from the
+   *  cumulative result fallback, which overcounts across agentic turns. */
+  private lastObservedContextUsage: { used: number; total: number } | null = null;
   /** Floor value from model config — CLI-reported values cannot go below this */
   private readonly contextWindowFloor: number;
   /** Whether we received per-call usage this turn (assistant/system messages). When true,
@@ -141,6 +145,17 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   /** Clears deferred tool use state (e.g., after successful resume). */
   clearDeferredToolUse(): void {
     this.deferredToolUse = null;
+  }
+
+  /**
+   * Last accurate per-API-call context occupancy, or null before the first
+   * per-call usage arrives. Unlike the cumulative result-line usage (which
+   * sums input across every agentic turn), this reflects what actually sits
+   * in the context window right now — callers like Loop Mode's context
+   * discipline use it to decide when to recycle a persistent session.
+   */
+  getLastContextUsage(): { used: number; total: number } | null {
+    return this.lastObservedContextUsage ? { ...this.lastObservedContextUsage } : null;
   }
 
   // ============ BaseCliAdapter Abstract Implementations ============
@@ -904,6 +919,12 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       args.push('--max-tokens', this.spawnOptions.maxTokens.toString());
     }
 
+    // Agentic-turn backstop. Bounds runaway sessions (outer caps bound
+    // iterations/wall-clock, not turns within a single print-mode run).
+    if (this.spawnOptions.maxTurns && this.spawnOptions.maxTurns > 0) {
+      args.push('--max-turns', this.spawnOptions.maxTurns.toString());
+    }
+
     // Only add user-specified allowedTools if in YOLO mode (already handled above for non-YOLO)
     if (
       this.spawnOptions.yoloMode &&
@@ -1329,6 +1350,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
           const percentage = (totalUsedTokens / contextWindow) * 100;
 
           this.hasPerCallUsageThisTurn = true;
+          this.lastObservedContextUsage = { used: totalUsedTokens, total: contextWindow };
           this.emit('context', {
             used: totalUsedTokens,
             total: contextWindow,
@@ -1535,6 +1557,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             : 0;
 
           this.hasPerCallUsageThisTurn = true;
+          this.lastObservedContextUsage = { used: totalUsedTokens, total: contextWindow };
           this.emit('context', {
             used: totalUsedTokens,
             total: contextWindow,

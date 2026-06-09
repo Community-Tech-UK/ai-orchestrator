@@ -101,6 +101,10 @@ export interface ClaudeCliSpawnOptions {
   workingDirectory?: string;
   model?: string;
   maxTokens?: number;
+  /** Agentic-turn backstop passed as `--max-turns`. When the bound is hit the
+   *  CLI ends the run with a max-turns result instead of looping further;
+   *  callers (e.g. Loop Mode degraded-iteration retry) handle the truncation. */
+  maxTurns?: number;
   timeout?: number;
   env?: Record<string, string>;
   yoloMode?: boolean;

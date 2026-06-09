@@ -31,6 +31,9 @@ export interface UnifiedSpawnOptions {
   yoloMode?: boolean;
   launchMode?: InstanceLaunchMode;
   timeout?: number;
+  /** Agentic-turn backstop for a print-mode run (Claude CLI `--max-turns`).
+   *  Bounds runaway sessions; omit for unbounded (the CLI default). */
+  maxTurns?: number;
   env?: Record<string, string>;
   allowedTools?: string[];
   disallowedTools?: string[];

@@ -6,7 +6,7 @@
  * expensive models (Opus/Sonnet) for complex tasks.
  */
 
-import { getModelDiscoveryService, type DiscoveredModel, type ModelPricing } from '../providers/model-discovery';
+import { getModelDiscoveryService, type DiscoveredModel } from '../providers/model-discovery';
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 
 /**
@@ -159,11 +159,30 @@ export interface TaskAnalysis {
 }
 
 /**
+ * Word-boundary keyword matcher (compiled-regex cache). Substring matching
+ * produced false positives that skewed complexity scoring: 'find' fired on
+ * "findings", 'list' on "checklist", 'get' on "together". Multi-word keywords
+ * ('implement feature') match as a bounded phrase.
+ */
+const keywordRegexCache = new Map<string, RegExp>();
+
+function keywordMatches(lowerTask: string, keyword: string): boolean {
+  const key = keyword.toLowerCase();
+  let regex = keywordRegexCache.get(key);
+  if (!regex) {
+    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    regex = new RegExp(`\\b${escaped}\\b`);
+    keywordRegexCache.set(key, regex);
+  }
+  return regex.test(lowerTask);
+}
+
+/**
  * Model Router - Selects optimal model based on task complexity
  */
 export class ModelRouter {
   private config: ModelRoutingConfig;
-  private modelCache: Map<string, DiscoveredModel> = new Map();
+  private modelCache = new Map<string, DiscoveredModel>();
 
   constructor(config: Partial<ModelRoutingConfig> = {}) {
     this.config = { ...DEFAULT_ROUTING_CONFIG, ...config };
@@ -244,18 +263,18 @@ export class ModelRouter {
     let complexScore = 0;
     let simpleScore = 0;
 
-    // Check complex keywords
+    // Check complex keywords (word-boundary match, not substring)
     for (const keyword of this.config.complexKeywords) {
-      if (lowerTask.includes(keyword.toLowerCase())) {
+      if (keywordMatches(lowerTask, keyword)) {
         complexScore += 2;
         matchedKeywords.push(keyword);
         factors.push(`Complex keyword: "${keyword}"`);
       }
     }
 
-    // Check simple keywords
+    // Check simple keywords (word-boundary match, not substring)
     for (const keyword of this.config.simpleKeywords) {
-      if (lowerTask.includes(keyword.toLowerCase())) {
+      if (keywordMatches(lowerTask, keyword)) {
         simpleScore += 2;
         matchedKeywords.push(keyword);
         factors.push(`Simple keyword: "${keyword}"`);

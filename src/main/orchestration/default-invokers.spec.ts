@@ -250,16 +250,28 @@ describe('resolveModelForInvocation (intent-routing Phase 2)', () => {
     ).toBe('sonnet');
   });
 
-  it('routes a simple Loop-Mode call to the fast tier when no explicit model is set', () => {
-    const model = resolveModelForInvocation({
+  it('routes a Loop-Mode call to the balanced tier regardless of prompt keywords', () => {
+    // Loop iteration prompts are dominated by the stage-machine template, so
+    // keyword-complexity scoring is meaningless for them — 'loop' intent pins
+    // the balanced tier (the aux cheap-model classifier can still downshift).
+    const simple = resolveModelForInvocation({
       cliType: 'claude',
       requestedProvider: 'claude',
       payloadModel: undefined,
       prompt: 'list',
       routingIntent: 'loop',
     });
-    expect(model).toBe(DEFAULT_ROUTING_CONFIG.fastModel);
-    expect(model).not.toBe('default-model');
+    expect(simple).toBe(DEFAULT_ROUTING_CONFIG.balancedModel);
+    expect(simple).not.toBe('default-model');
+
+    const reviewHeavy = resolveModelForInvocation({
+      cliType: 'claude',
+      requestedProvider: 'claude',
+      payloadModel: undefined,
+      prompt: 'Re-review your own work with fresh eyes. Audit, analyze, and fix everything you find in this architecture.',
+      routingIntent: 'loop',
+    });
+    expect(reviewHeavy).toBe(DEFAULT_ROUTING_CONFIG.balancedModel);
   });
 
   it('does NOT route a Loop-Mode call when the user supplied an explicit model', () => {

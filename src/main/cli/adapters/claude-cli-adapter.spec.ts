@@ -280,6 +280,39 @@ describe('ClaudeCliAdapter reasoning effort', () => {
   });
 });
 
+describe('ClaudeCliAdapter --max-turns backstop', () => {
+  function getBuildArgs(adapter: ClaudeCliAdapter): string[] {
+    return (
+      adapter as unknown as {
+        buildArgs: (message: { role: 'user'; content: string }) => string[];
+      }
+    ).buildArgs({ role: 'user', content: 'test' });
+  }
+
+  it('passes --max-turns when maxTurns is set', () => {
+    const adapter = new ClaudeCliAdapter({ workingDirectory: '/tmp/x', maxTurns: 100 });
+    const args = getBuildArgs(adapter);
+    const i = args.indexOf('--max-turns');
+
+    expect(i).toBeGreaterThan(-1);
+    expect(args[i + 1]).toBe('100');
+  });
+
+  it('omits --max-turns when maxTurns is unset or non-positive', () => {
+    expect(getBuildArgs(new ClaudeCliAdapter({ workingDirectory: '/tmp/x' }))).not.toContain('--max-turns');
+    expect(getBuildArgs(new ClaudeCliAdapter({ workingDirectory: '/tmp/x', maxTurns: 0 }))).not.toContain('--max-turns');
+  });
+
+  it('flows maxTurns through the adapter factory', () => {
+    const adapter = createClaudeAdapter({ workingDirectory: '/tmp/x', maxTurns: 42 });
+    const args = getBuildArgs(adapter);
+    const i = args.indexOf('--max-turns');
+
+    expect(i).toBeGreaterThan(-1);
+    expect(args[i + 1]).toBe('42');
+  });
+});
+
 describe('ClaudeCliAdapter host cloud-scheduler denylist', () => {
   function getBuildArgs(adapter: ClaudeCliAdapter): string[] {
     return (

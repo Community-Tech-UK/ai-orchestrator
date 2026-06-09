@@ -36,15 +36,33 @@ export function loopContextUtilization(
 /**
  * Decide whether to recycle the loop's persistent adapter. Pure: no I/O, no
  * adapter handles. `enabled === false` (context discipline off) never recycles.
+ *
+ * Prefers REAL context occupancy (`occupancyTokens` / `occupancyWindowTokens`,
+ * from the adapter's last per-API-call usage including cache tokens) when the
+ * caller has it. Falls back to the legacy cumulative-token heuristic —
+ * cumulative same-session generation tokens against a synthetic 200k window —
+ * which only loosely correlates with actual context fill (it excludes cache
+ * reads and double-counts nothing that is still resident).
  */
 export function shouldRecycleLoopContext(input: {
   enabled: boolean;
   cumulativeTokens: number;
   resetAtUtilization: number;
   windowTokens?: number;
+  /** Real context occupancy from the adapter's last per-call usage, when known. */
+  occupancyTokens?: number;
+  /** Context window matching `occupancyTokens`. Defaults to `windowTokens`. */
+  occupancyWindowTokens?: number;
 }): ContextRecycleDecision {
   const windowTokens = input.windowTokens ?? LOOP_CONTEXT_WINDOW_TOKENS;
-  const utilization = loopContextUtilization(input.cumulativeTokens, windowTokens);
+  const hasOccupancy =
+    typeof input.occupancyTokens === 'number' &&
+    Number.isFinite(input.occupancyTokens) &&
+    input.occupancyTokens > 0;
+  const utilization = hasOccupancy
+    ? loopContextUtilization(input.occupancyTokens!, input.occupancyWindowTokens ?? windowTokens)
+    : loopContextUtilization(input.cumulativeTokens, windowTokens);
+  const metric = hasOccupancy ? 'context occupancy' : 'cumulative tokens (approximate)';
   const pct = (v: number): string => `${Math.round(v * 100)}%`;
   if (!input.enabled) {
     return { recycle: false, utilization, reason: 'context discipline disabled' };
@@ -54,7 +72,7 @@ export function shouldRecycleLoopContext(input: {
     recycle,
     utilization,
     reason: recycle
-      ? `context utilization ${pct(utilization)} ≥ reset ${pct(input.resetAtUtilization)} — recycling to a fresh session`
-      : `context utilization ${pct(utilization)} < reset ${pct(input.resetAtUtilization)}`,
+      ? `${metric} ${pct(utilization)} ≥ reset ${pct(input.resetAtUtilization)} — recycling to a fresh session`
+      : `${metric} ${pct(utilization)} < reset ${pct(input.resetAtUtilization)}`,
   };
 }

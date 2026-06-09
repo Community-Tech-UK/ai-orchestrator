@@ -286,6 +286,16 @@ export function defaultLoopContextConfig(): LoopContextConfig {
 export const LOOP_CONTEXT_WINDOW_TOKENS = 200_000;
 
 /**
+ * Default per-iteration agentic-turn backstop passed to the child CLI as
+ * `--max-turns`. Bounds the pathological runaway case (a single iteration
+ * observed at 7.24M tokens / ~50+ turns) without touching healthy iterations,
+ * which run a handful of turns. Deliberately generous: a too-low bound
+ * truncates legitimate work, and a truncated iteration re-runs on a fresh
+ * session via degraded-iteration retry — costing MORE than it saves.
+ */
+export const LOOP_DEFAULT_MAX_TURNS_PER_ITERATION = 100;
+
+/**
  * LF-5 — branch-and-select (best-of-N) on stuck. When a CRITICAL no-progress
  * would otherwise just pause for a human, fan out `fanout` candidate iterations
  * in isolated worktrees, verify each, pick the best via list-wise comparison,
@@ -400,6 +410,14 @@ export interface LoopConfig {
    *  warnings when stdout is silent this long, but Loop Mode relies on the
    *  per-iteration wall-clock timeout as the hard abort path. */
   streamIdleTimeoutMs?: number;
+  /**
+   * Agentic-turn backstop per iteration, passed to the child CLI as
+   * `--max-turns`. Bounds runaway single iterations (the wall-clock timeout
+   * and `caps.maxIterations` bound iterations, not turns within one).
+   * Defaults to {@link LOOP_DEFAULT_MAX_TURNS_PER_ITERATION}; `null` disables
+   * the bound entirely.
+   */
+  maxTurnsPerIteration?: number | null;
 }
 
 /** Default config factory. */
@@ -414,6 +432,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
     provider: 'claude',
     reviewStyle: 'debate',
     contextStrategy: 'fresh-child',
+    maxTurnsPerIteration: LOOP_DEFAULT_MAX_TURNS_PER_ITERATION,
     caps: {
       maxIterations: null,
       maxWallTimeMs: DEFAULT_LOOP_MAX_WALL_TIME_MS,

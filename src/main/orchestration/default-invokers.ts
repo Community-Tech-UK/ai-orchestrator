@@ -75,7 +75,17 @@ export type RoutingIntent = 'loop' | 'workflow';
  *
  * Otherwise it falls back to `resolveDefaultModel` byte-for-byte — so the
  * verify/review/debate/workflow/consensus paths (which never pass a
- * `routingIntent`) keep resolving to the strong house model (Opus).
+ * `routingIntent`) keep resolving to the strong house model (Opus). Those
+ * paths are the quality gates for loop completion and stay on the strong
+ * model deliberately: the strong model reviews the cheap model's work.
+ *
+ * `'loop'` intent resolves the BALANCED tier directly instead of running the
+ * keyword-complexity analysis. Loop iteration prompts are dominated by the
+ * stage-machine template (the review-driven template alone scores 'review' →
+ * complex every iteration), so keyword scoring routed nearly every iteration
+ * to the powerful tier and defeated cost routing. The aux
+ * `classifyCheapModelEligible` pass can still downshift a cheap iteration to
+ * the fast tier afterwards, and an explicit `payloadModel` always wins.
  */
 export function resolveModelForInvocation(args: {
   cliType: CliType;
@@ -111,7 +121,13 @@ export function resolveModelForInvocation(args: {
       return fallback;
     }
 
-    const decision = resolveRoutedModel(args.prompt, { provider });
+    const decision = resolveRoutedModel(args.prompt, {
+      provider,
+      // Loop iterations: balanced tier by default (see doc comment above).
+      // Workflow intent keeps keyword-complexity routing — its prompts are
+      // caller-authored tasks, not a fixed template.
+      ...(args.routingIntent === 'loop' ? { explicitModel: 'balanced' } : {}),
+    });
     logger.info('Routed invocation model', {
       intent: args.routingIntent,
       provider,
@@ -146,220 +162,7 @@ function isBaseCliAdapterLike(adapter: CliAdapter): adapter is CliAdapter & { se
   return typeof (adapter as { sendMessage?: unknown }).sendMessage === 'function';
 }
 
-type LoopInvocationActivityKind =
-  | 'spawned'
-  | 'status'
-  | 'tool_use'
-  | 'assistant'
-  | 'system'
-  | 'input_required'
-  | 'error'
-  | 'stream-idle'
-  | 'complete'
-  | 'heartbeat';
-
-interface LoopInvocationActivity {
-  kind: LoopInvocationActivityKind;
-  message: string;
-  detail?: Record<string, unknown>;
-}
-
-const LOOP_AUTONOMOUS_INPUT_RESPONSE =
-  'Loop Mode is unattended. Do not wait for human input. Make the best reasonable assumption a senior engineer would defend, document it in your loop NOTES file, and continue. If the work is genuinely blocked, write the BLOCKED.md file at the loop-state path given in your iteration prompt with the exact blocker, then exit the iteration.';
 const LOOP_DEFAULT_ACTIVE_TIMEOUT_MS = 5 * 60 * 1000;
-
-function attachInvocationActivity(
-  adapter: CliAdapter,
-  sink: (activity: LoopInvocationActivity) => void,
-  options: { autoAnswerInputRequired?: boolean } = {},
-): () => void {
-  const emitter = adapter as unknown as {
-    on?: (event: string, handler: (...args: unknown[]) => void) => void;
-    off?: (event: string, handler: (...args: unknown[]) => void) => void;
-    removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
-  };
-  if (typeof emitter.on !== 'function') return () => { /* noop */ };
-
-  const removers: (() => void)[] = [];
-  const listen = (event: string, handler: (...args: unknown[]) => void) => {
-    emitter.on!(event, handler);
-    removers.push(() => {
-      if (typeof emitter.off === 'function') emitter.off(event, handler);
-      else if (typeof emitter.removeListener === 'function') emitter.removeListener(event, handler);
-    });
-  };
-
-  listen('spawned', (pid) => {
-    sink({
-      kind: 'spawned',
-      message: `CLI child spawned${typeof pid === 'number' ? ` (pid ${pid})` : ''}`,
-      detail: typeof pid === 'number' ? { pid } : undefined,
-    });
-  });
-  listen('status', (status) => {
-    sink({
-      kind: 'status',
-      message: `CLI status: ${String(status)}`,
-      detail: { status: String(status) },
-    });
-  });
-  listen('heartbeat', () => {
-    sink({ kind: 'heartbeat', message: 'CLI heartbeat received' });
-  });
-  listen('stream:idle', (info) => {
-    const meta = isRecord(info) ? info : {};
-    const timeoutMs = typeof meta['timeoutMs'] === 'number' ? meta['timeoutMs'] : undefined;
-    const seconds = timeoutMs ? Math.round(timeoutMs / 1000) : null;
-    sink({
-      kind: 'stream-idle',
-      message: seconds
-        ? `No CLI output for ${seconds}s; still waiting for the iteration to finish`
-        : 'No CLI output recently; still waiting for the iteration to finish',
-      detail: { ...meta },
-    });
-  });
-  listen('output', (output) => {
-    sink(describeAdapterOutput(output));
-  });
-  listen('input_required', (payload) => {
-    const data = isRecord(payload) ? payload : {};
-    const metadata = isRecord(data['metadata']) ? data['metadata'] : {};
-    const prompt = typeof data['prompt'] === 'string' ? data['prompt'] : 'CLI requested input';
-    const promptType = typeof metadata['type'] === 'string' ? metadata['type'] : 'input_required';
-    sink({
-      kind: 'input_required',
-      message: summarizeActivityText(`CLI requested input (${promptType}): ${prompt}`),
-      detail: {
-        ...metadata,
-        id: typeof data['id'] === 'string' ? data['id'] : undefined,
-        prompt,
-      },
-    });
-
-    if (!options.autoAnswerInputRequired) {
-      return;
-    }
-
-    const terminateHiddenInputWait = (reason: string): void => {
-      const terminate = (adapter as unknown as { terminate?: (graceful?: boolean) => Promise<void> }).terminate;
-      if (typeof terminate !== 'function') {
-        return;
-      }
-      sink({
-        kind: 'status',
-        message: `Terminating hidden loop child after input request: ${reason}`,
-        detail: { promptType },
-      });
-      terminate.call(adapter, false).catch((error: unknown) => {
-        sink({
-          kind: 'error',
-          message: `Failed to terminate hidden loop child after input request: ${error instanceof Error ? error.message : String(error)}`,
-          detail: { promptType },
-        });
-      });
-    };
-
-    const canAutoAnswer =
-      promptType !== 'permission_denial' &&
-      promptType !== 'deferred_permission' &&
-      promptType !== 'mcp_elicitation' &&
-      promptType !== 'acp_elicitation';
-    const sendRaw = (adapter as unknown as { sendRaw?: (text: string) => Promise<void> }).sendRaw;
-    if (!canAutoAnswer || typeof sendRaw !== 'function') {
-      sink({
-        kind: 'error',
-        message: canAutoAnswer
-          ? 'Loop child requested input, but this adapter cannot receive an automatic response'
-          : `Loop child requested ${promptType}; cannot auto-answer that safely in hidden Loop Mode`,
-        detail: { promptType, prompt },
-      });
-      terminateHiddenInputWait(canAutoAnswer ? 'adapter cannot receive automatic response' : `${promptType} cannot be answered safely`);
-      return;
-    }
-
-    sink({
-      kind: 'status',
-      message: 'Auto-answering hidden loop question with autonomous-mode guidance',
-      detail: { promptType },
-    });
-    sendRaw.call(adapter, LOOP_AUTONOMOUS_INPUT_RESPONSE).catch((error: unknown) => {
-      sink({
-        kind: 'error',
-        message: `Failed to auto-answer hidden loop question: ${error instanceof Error ? error.message : String(error)}`,
-        detail: { promptType },
-      });
-      terminateHiddenInputWait('automatic response failed');
-    });
-  });
-  listen('complete', (response) => {
-    const meta = isRecord(response) ? response : {};
-    const usage = isRecord(meta['usage']) ? meta['usage'] : {};
-    const metadata = isRecord(meta['metadata']) ? meta['metadata'] : {};
-    sink({
-      kind: 'complete',
-      message: metadata['timedOut'] === true
-        ? 'CLI iteration timeout reached after partial output; continuing from partial result'
-        : 'CLI response complete',
-      detail: {
-        tokens: typeof usage['totalTokens'] === 'number' ? usage['totalTokens'] : undefined,
-        timedOut: metadata['timedOut'] === true ? true : undefined,
-        timeoutMs: typeof metadata['timeoutMs'] === 'number' ? metadata['timeoutMs'] : undefined,
-      },
-    });
-  });
-  listen('error', (error) => {
-    sink({
-      kind: 'error',
-      message: error instanceof Error ? error.message : String(error),
-    });
-  });
-
-  return () => {
-    for (const remove of removers.splice(0)) remove();
-  };
-}
-
-function describeAdapterOutput(output: unknown): LoopInvocationActivity {
-  if (typeof output === 'string') {
-    return { kind: 'assistant', message: summarizeActivityText(output) };
-  }
-  if (!isRecord(output)) {
-    return { kind: 'system', message: summarizeActivityText(String(output)) };
-  }
-
-  const type = typeof output['type'] === 'string' ? output['type'] : 'output';
-  const content = typeof output['content'] === 'string' ? output['content'] : '';
-  const metadata = isRecord(output['metadata']) ? output['metadata'] : {};
-  if (type === 'tool_use') {
-    const name = typeof metadata['name'] === 'string' ? metadata['name'] : undefined;
-    return {
-      kind: 'tool_use',
-      message: summarizeActivityText(name ? `Using tool: ${name}` : content || 'Using tool'),
-      detail: metadata,
-    };
-  }
-  if (type === 'error') {
-    return { kind: 'error', message: summarizeActivityText(content || 'CLI emitted an error'), detail: metadata };
-  }
-  if (type === 'assistant') {
-    return { kind: 'assistant', message: summarizeActivityText(content || 'Assistant output received'), detail: metadata };
-  }
-  return {
-    kind: 'system',
-    message: summarizeActivityText(content || `CLI output: ${type}`),
-    detail: metadata,
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function summarizeActivityText(value: string, max = 280): string {
-  const normalized = value.replace(/\s+/g, ' ').trim();
-  if (normalized.length <= max) return normalized;
-  return `${normalized.slice(0, max - 1)}…`;
-}
 
 async function terminateCliAdapter(adapter: unknown, graceful: boolean): Promise<void> {
   const terminator = (adapter as { terminate?: (graceful?: boolean) => Promise<void> } | null | undefined)?.terminate;
@@ -417,6 +220,10 @@ async function invokeCliTextResponse(params: {
   /** Optional override for the spawn wall-clock timeout in milliseconds.
    *  Acts as the outer safety net for the invocation. */
   timeoutMs?: number;
+  /** Agentic-turn backstop for the spawned CLI run (`--max-turns`). Bounds
+   *  runaway sessions within a single invocation; the wall-clock timeout and
+   *  outer iteration caps do not bound turns. */
+  maxTurns?: number;
   /** Optional override for the adapter's stream-idle warning threshold. */
   streamIdleTimeoutMs?: number;
   /** Run the child non-interactively, auto-approving CLI tool permissions. */
@@ -497,6 +304,7 @@ async function invokeCliTextResponse(params: {
     env: params.env,
     rtk: params.rtk,
     timeout: params.timeoutMs ?? 300000,
+    maxTurns: params.maxTurns,
   };
 
   const breaker = getCircuitBreakerRegistry().getBreaker(params.breakerKey, {
@@ -902,8 +710,9 @@ import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { registerLoopSafetyAdvisor } from './loop-safety-advisor';
 import type { LoopChildResult } from './loop-coordinator';
 import type { LoopErrorRecord, LoopProvider, LoopToolCallRecord } from '../../shared/types/loop.types';
-import { defaultLoopContextConfig } from '../../shared/types/loop.types';
+import { defaultLoopContextConfig, LOOP_DEFAULT_MAX_TURNS_PER_ITERATION } from '../../shared/types/loop.types';
 import { shouldRecycleLoopContext } from './loop-context-discipline';
+import { attachInvocationActivity, type LoopInvocationActivity, type LoopInvocationActivityKind } from './loop-invocation-activity';
 import {
   runBranchSelect,
   pickCandidateProvider,
@@ -1339,6 +1148,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         contextStrategy?: string;
         // LF-1 context-discipline block (optional; defaults applied below).
         context?: { compaction?: { enabled: boolean; resetAtUtilization: number; clearToolResults: boolean } };
+        // Agentic-turn backstop per iteration; null disables, undefined → default.
+        maxTurnsPerIteration?: number | null;
       };
       callback: (result: LoopChildResult | { error: string }) => void;
       // Forwarded from LoopConfig — overrides the invoker's defaults.
@@ -1432,6 +1243,12 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     });
     const loopIterationTimeoutMs = p.iterationTimeoutMs ?? 30 * 60 * 1000;
     const loopActiveTimeoutMs = p.streamIdleTimeoutMs ?? LOOP_DEFAULT_ACTIVE_TIMEOUT_MS;
+    // Agentic-turn backstop: `null` disables, `undefined` falls back to the
+    // default. Bounds runaway single iterations (observed: one iteration at
+    // 7.24M tokens) that the wall-clock/iteration caps cannot catch.
+    const loopMaxTurns = p.config?.maxTurnsPerIteration === null
+      ? undefined
+      : p.config?.maxTurnsPerIteration ?? LOOP_DEFAULT_MAX_TURNS_PER_ITERATION;
 
     // Adapter selection priority for this iteration:
     //   1. The parent instance's existing adapter, only for providers whose
@@ -1479,11 +1296,28 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         // do that the normal way, then capture the resulting adapter ref via
         // the breaker by routing through a small helper. Simpler approach:
         // create here directly, then pass it in for subsequent iters too.
+        // Resolve the model through the SAME loop routing as fresh-child
+        // iterations — previously this path hard-coded the house default
+        // (Opus-1M), silently bypassing cost-tier routing for every
+        // same-session loop.
+        const persistentCliType = await resolveCliType(
+          p.provider as Parameters<typeof resolveCliType>[0],
+          getSettingsManager().getAll().defaultCli,
+        );
+        const persistentModel = resolveModelForInvocation({
+          cliType: persistentCliType,
+          requestedProvider: p.provider,
+          payloadModel: p.model,
+          prompt: p.prompt,
+          routingIntent: 'loop',
+        });
         reusedAdapter = await createPersistentLoopAdapter({
           provider: p.provider,
+          model: persistentModel,
           workingDirectory: p.workspaceCwd,
           timeoutMs: loopIterationTimeoutMs,
           streamIdleTimeoutMs: loopActiveTimeoutMs,
+          maxTurns: loopMaxTurns,
           env: p.loopControlEnv,
         }).catch((err: unknown) => {
           logger.warn('Failed to create same-session loop adapter, falling back to fresh-child', {
@@ -1530,6 +1364,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         // stream-idle threshold.
         timeoutMs: loopIterationTimeoutMs,
         streamIdleTimeoutMs: loopActiveTimeoutMs,
+        maxTurns: loopMaxTurns,
         yoloMode: true,
         allowPartialOnTimeout: true,
         continueWhileActiveOnTimeout: true,
@@ -1608,10 +1443,23 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         const ctxCfg = p.config?.context?.compaction ?? defaultLoopContextConfig().compaction;
         const cumulative = (loopContextTokens.get(p.loopRunId) ?? 0) + (result.tokens || 0);
         loopContextTokens.set(p.loopRunId, cumulative);
+        // Prefer the adapter's REAL context occupancy (last per-API-call usage,
+        // including cache tokens) over the cumulative-token heuristic. The
+        // cumulative metric sums generation tokens across every turn against a
+        // synthetic 200k window, so it recycles long before the actual context
+        // fills — and a single multi-turn iteration can report thousands of
+        // percent. Adapters without per-call usage fall back to the heuristic.
+        const occupancySource = persistentLoopAdapters.get(p.loopRunId) as
+          | { getLastContextUsage?: () => { used: number; total: number } | null }
+          | undefined;
+        const occupancy = occupancySource?.getLastContextUsage?.() ?? null;
         const decision = shouldRecycleLoopContext({
           enabled: ctxCfg.enabled,
           cumulativeTokens: cumulative,
           resetAtUtilization: ctxCfg.resetAtUtilization,
+          ...(occupancy && occupancy.used > 0 && occupancy.total > 0
+            ? { occupancyTokens: occupancy.used, occupancyWindowTokens: occupancy.total }
+            : {}),
         });
         if (decision.recycle) {
           await recyclePersistentLoopAdapter(p.loopRunId);

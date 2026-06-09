@@ -2881,7 +2881,14 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       attachToolFilterMetadata(instance, toolPermissions.toolFilter);
 
       const cliType = await this.resolveCliTypeForInstance(instance);
-      const shouldResume = hasConversation && oldAdapterCapabilities.supportsResume;
+      // Claude native resume reconnects to the existing provider session, whose
+      // model binding can remain the previous model. Use replay continuity for
+      // Claude model changes so the fresh process is actually launched with the
+      // selected model.
+      const shouldResume =
+        hasConversation
+        && oldAdapterCapabilities.supportsResume
+        && cliType !== 'claude';
       const shouldForkSession = shouldResume && oldAdapterCapabilities.supportsForkSession;
 
       // Validate model against provider before passing it
@@ -3017,7 +3024,18 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         throw error;
       }
 
-      this.deps.queueUpdate(instanceId, instance.status, instance.contextUsage);
+      this.deps.queueUpdate(
+        instanceId,
+        instance.status,
+        instance.contextUsage,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        instance.currentModel,
+      );
       this.emit('model-changed', {
         instanceId,
         model: newModel,
