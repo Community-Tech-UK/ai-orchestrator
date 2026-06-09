@@ -14,6 +14,10 @@ import type {
 } from '../shared/types/worker-node.types';
 import { NODE_TO_COORDINATOR } from '../main/remote-node/worker-node-rpc';
 import type { EnrollmentResult } from '../main/remote-node/worker-node-rpc';
+import {
+  WORKER_NODE_WS_BACKPRESSURE_BYTES,
+  WORKER_NODE_WS_MAX_PAYLOAD_BYTES,
+} from '../main/remote-node/rpc-schemas';
 import { NodeFilesystemHandler } from '../main/remote-node/node-filesystem-handler';
 import { SyncHandler } from './sync-handler';
 import { WorkerTerminalHandler } from './worker-terminal-handler';
@@ -186,7 +190,10 @@ export class WorkerAgent extends EventEmitter {
   private tryConnect(url: string, token: string): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
       let opened = false;
-      const ws = new WebSocket(url, { headers: { Authorization: `Bearer ${token}` } });
+      const ws = new WebSocket(url, {
+        headers: { Authorization: `Bearer ${token}` },
+        maxPayload: WORKER_NODE_WS_MAX_PAYLOAD_BYTES,
+      });
 
       const timer = setTimeout(() => {
         if (opened) return;
@@ -227,6 +234,7 @@ export class WorkerAgent extends EventEmitter {
         }
         this.stopHeartbeat();
         this.ws = null;
+        this.cdpTunnel.closeAll();
         if (!this.isShuttingDown) {
           this.scheduleReconnect();
         }
@@ -590,7 +598,7 @@ export class WorkerAgent extends EventEmitter {
    */
   private wireCdpTunnelEvents(): void {
     this.cdpTunnel.on('message', ({ sessionId, frame }) => {
-      this.notifier.send({
+      const sent = this.notifier.send({
         jsonrpc: '2.0',
         method: NODE_TO_COORDINATOR.BROWSER_CDP_MESSAGE,
         params: {
@@ -598,7 +606,12 @@ export class WorkerAgent extends EventEmitter {
           frame,
           token: this.config.nodeToken ?? this.config.authToken,
         },
+      }, {
+        highWatermarkBytes: WORKER_NODE_WS_BACKPRESSURE_BYTES,
       });
+      if (!sent) {
+        this.cdpTunnel.close(sessionId);
+      }
     });
     this.cdpTunnel.on('closed', ({ sessionId }) => {
       this.notifier.send({

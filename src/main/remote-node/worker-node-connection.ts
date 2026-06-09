@@ -19,6 +19,7 @@ import { IPC_CHANNELS } from '../../shared/types/ipc.types';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import { getWorkerNodeRegistry } from './worker-node-registry';
 import { getRemoteAuthService } from '../auth/remote-auth';
+import { WORKER_NODE_WS_MAX_PAYLOAD_BYTES } from './rpc-schemas';
 
 const logger = getLogger('WorkerNodeConnection');
 
@@ -133,7 +134,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
           ...(config.tlsCaPath ? { ca: fs.readFileSync(config.tlsCaPath), requestCert: true, rejectUnauthorized: true } : {}),
         });
 
-        wss = new WebSocketServer({ server });
+        wss = new WebSocketServer({ server, maxPayload: WORKER_NODE_WS_MAX_PAYLOAD_BYTES });
 
         server.on('error', (err) => {
           if (!this.wss) reject(err);
@@ -146,7 +147,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
           resolve();
         });
       } else {
-        wss = new WebSocketServer({ host, port });
+        wss = new WebSocketServer({ host, port, maxPayload: WORKER_NODE_WS_MAX_PAYLOAD_BYTES });
 
         wss.on('error', (err) => {
           if (!this.wss) reject(err);

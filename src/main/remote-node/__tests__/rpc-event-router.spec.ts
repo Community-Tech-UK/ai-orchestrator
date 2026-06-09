@@ -39,12 +39,14 @@ vi.mock('../../auth/remote-auth', () => ({
 // ---------------------------------------------------------------------------
 
 vi.mock('../rpc-schemas', () => ({
+  BROWSER_CDP_MAX_FRAME_BYTES: 8,
   validateRpcParams: vi.fn(),
   RPC_PARAM_SCHEMAS: {
     'node.register': {},
     'node.heartbeat': {},
     'instance.stateChange': {},
     'instance.permissionRequest': {},
+    'browser.cdp.message': {},
   },
 }));
 
@@ -455,6 +457,20 @@ describe('RpcEventRouter', () => {
       exitCode: null,
       signal: null,
     });
+  });
+
+  it('drops oversized browser CDP message notifications', () => {
+    registry.registerNode(makeNode('node-cdp'));
+    const handler = vi.fn();
+    registry.on('remote:browser-cdp-message', handler);
+
+    mockConnection.emit('rpc:notification', 'node-cdp', {
+      jsonrpc: '2.0',
+      method: 'browser.cdp.message',
+      params: { sessionId: 's1', frame: '123456789' },
+    });
+
+    expect(handler).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------

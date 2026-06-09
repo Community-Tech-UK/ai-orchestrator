@@ -205,4 +205,17 @@ describe('WorkerNodeConnectionServer — sendRpc timeout & disconnect', () => {
     });
     expect(sent.id).toBeUndefined();
   });
+
+  it('starts the coordinator WebSocket server with an explicit large CDP payload ceiling', async () => {
+    const server = WorkerNodeConnectionServer.getInstance();
+
+    await server.start(0, '127.0.0.1');
+
+    const wss = (server as unknown as {
+      wss: { options?: { maxPayload?: number } };
+    }).wss;
+    expect(wss.options?.maxPayload).toBe(80 * 1024 * 1024);
+
+    server.stop();
+  });
 });

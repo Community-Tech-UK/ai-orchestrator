@@ -1,7 +1,7 @@
 import { getLogger } from '../logging/logger';
 import { NODE_TO_COORDINATOR, createRpcResponse, createRpcError, RPC_ERROR_CODES } from './worker-node-rpc';
 import { getWorkerNodeHealth } from './worker-node-health';
-import { validateRpcParams, RPC_PARAM_SCHEMAS } from './rpc-schemas';
+import { BROWSER_CDP_MAX_FRAME_BYTES, validateRpcParams, RPC_PARAM_SCHEMAS } from './rpc-schemas';
 import type { WorkerNodeConnectionServer } from './worker-node-connection';
 import type { WorkerNodeRegistry } from './worker-node-registry';
 import type { RpcRequest, RpcNotification } from './worker-node-rpc';
@@ -408,6 +408,16 @@ export class RpcEventRouter {
     const frame = params?.['frame'];
     if (typeof sessionId !== 'string' || typeof frame !== 'string') {
       logger.warn('Malformed browser.cdp.message notification', { nodeId });
+      return;
+    }
+    const frameBytes = Buffer.byteLength(frame, 'utf8');
+    if (frameBytes > BROWSER_CDP_MAX_FRAME_BYTES) {
+      logger.warn('Oversized browser.cdp.message notification dropped', {
+        nodeId,
+        sessionId,
+        frameBytes,
+        maxFrameBytes: BROWSER_CDP_MAX_FRAME_BYTES,
+      });
       return;
     }
     this.registry.emit('remote:browser-cdp-message', { nodeId, sessionId, frame });

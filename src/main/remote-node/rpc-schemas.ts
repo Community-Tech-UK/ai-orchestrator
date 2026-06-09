@@ -9,6 +9,10 @@ import {
 } from '../../shared/validation/remote-fs-schemas';
 import { FileAttachmentSchema } from '@contracts/schemas/common';
 
+export const BROWSER_CDP_MAX_FRAME_BYTES = 64 * 1024 * 1024;
+export const WORKER_NODE_WS_MAX_PAYLOAD_BYTES = BROWSER_CDP_MAX_FRAME_BYTES + 16 * 1024 * 1024;
+export const WORKER_NODE_WS_BACKPRESSURE_BYTES = 32 * 1024 * 1024;
+
 // -- Shared sub-schemas -------------------------------------------------------
 
 const WorkerNodeCapabilitiesSchema = z.object({
@@ -208,7 +212,10 @@ export const BrowserCdpSendParamsSchema = z.object({
   sessionId: z.string().min(1).max(128),
   // CDP frames are bounded but can be large (e.g. screenshot results); cap to a
   // generous ceiling to reject pathological payloads without truncating valid ones.
-  frame: z.string().max(64 * 1024 * 1024),
+  frame: z.string().refine(
+    (frame) => Buffer.byteLength(frame, 'utf8') <= BROWSER_CDP_MAX_FRAME_BYTES,
+    { message: `CDP frame exceeds ${BROWSER_CDP_MAX_FRAME_BYTES} bytes` },
+  ),
 });
 
 export const BrowserCdpCloseParamsSchema = z.object({

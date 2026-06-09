@@ -9,6 +9,10 @@ interface WorkerInstanceNotifierOptions {
   getToken: () => string | undefined;
 }
 
+interface WorkerInstanceNotifierSendOptions {
+  highWatermarkBytes?: number;
+}
+
 export class WorkerInstanceNotifier {
   private outputBuffer: { instanceId: string; message: unknown }[] = [];
   private outputFlushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -21,19 +25,33 @@ export class WorkerInstanceNotifier {
 
   constructor(private readonly options: WorkerInstanceNotifierOptions) {}
 
-  send(msg: RpcMessage): void {
+  send(msg: RpcMessage, options: WorkerInstanceNotifierSendOptions = {}): boolean {
     const ws = this.options.getSocket();
-    if (ws?.readyState === WebSocket.OPEN) {
-      this.flushCriticalQueue();
-      ws.send(JSON.stringify(msg), (err) => {
-        if (err) console.error('Send error:', err.message);
-      });
-    } else {
+    if (ws?.readyState !== WebSocket.OPEN) {
       console.warn('[WorkerAgent] Message dropped — WebSocket not open', {
         method: msg.method,
         readyState: ws?.readyState
       });
+      return false;
     }
+
+    if (
+      options.highWatermarkBytes !== undefined &&
+      ws.bufferedAmount > options.highWatermarkBytes
+    ) {
+      console.warn('[WorkerAgent] Message dropped — WebSocket backpressure exceeded', {
+        method: msg.method,
+        bufferedAmount: ws.bufferedAmount,
+        highWatermarkBytes: options.highWatermarkBytes,
+      });
+      return false;
+    }
+
+    this.flushCriticalQueue();
+    ws.send(JSON.stringify(msg), (err) => {
+      if (err) console.error('Send error:', err.message);
+    });
+    return true;
   }
 
   sendCritical(msg: RpcMessage): void {

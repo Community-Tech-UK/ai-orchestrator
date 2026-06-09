@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { EventEmitter } from 'node:events';
 
 vi.mock('../logging/logger', () => ({
   getLogger: () => ({ info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() }),
@@ -7,11 +8,11 @@ vi.mock('../logging/logger', () => ({
 import { RemoteBrowserConnector } from './remote-browser-connector';
 
 function makeFakeBrowser(pages: unknown[] = [{ goto: vi.fn(async () => undefined) }]) {
-  return {
+  return Object.assign(new EventEmitter(), {
     pages: vi.fn(async () => pages),
     newPage: vi.fn(async () => ({ goto: vi.fn(async () => undefined) })),
     disconnect: vi.fn(async () => undefined),
-  };
+  });
 }
 
 function makeConnector(browser = makeFakeBrowser()) {
@@ -70,6 +71,21 @@ describe('RemoteBrowserConnector', () => {
     expect(h.setRuntimeState).toHaveBeenLastCalledWith(
       'p1',
       expect.objectContaining({ status: 'stopped' }),
+    );
+  });
+
+  it('marks the profile stopped when the remote browser disconnects underneath it', async () => {
+    await h.connector.connect('p1', 'node-x');
+    h.browser.emit('disconnected');
+
+    expect(h.connector.getBrowser('p1')).toBeNull();
+    expect(h.setRuntimeState).toHaveBeenLastCalledWith(
+      'p1',
+      expect.objectContaining({
+        status: 'stopped',
+        debugEndpoint: undefined,
+        processId: undefined,
+      }),
     );
   });
 

@@ -9,6 +9,8 @@ const providerDiagnostics = vi.hoisted(() => ({
 const wsMockState = vi.hoisted(() => ({
   instances: [] as {
     url: string;
+    options?: unknown;
+    bufferedAmount: number;
     emit: (event: string, ...args: unknown[]) => boolean;
     send: ReturnType<typeof vi.fn>;
     close: ReturnType<typeof vi.fn>;
@@ -33,13 +35,16 @@ vi.mock('ws', () => {
   class MockWebSocket {
     static OPEN = 1;
     readyState = 1;
+    bufferedAmount = 0;
     private listeners = new Map<string, ((...args: unknown[]) => void)[]>();
     url: string;
+    options?: unknown;
     send = vi.fn((_data: string, cb?: (err?: Error) => void) => cb?.());
     close = vi.fn();
 
-    constructor(url: string) {
+    constructor(url: string, options?: unknown) {
       this.url = url;
+      this.options = options;
       wsMockState.instances.push(this);
     }
 
@@ -147,8 +152,11 @@ describe('WorkerAgent', () => {
     providerDiagnostics.diagnoseProviderRuntime.mockReset();
     agent = new WorkerAgent(mockConfig);
     wsSend = vi.fn((_data: string, cb?: (err?: Error) => void) => cb?.());
-    (agent as unknown as { ws: { readyState: number; send: typeof wsSend; close: ReturnType<typeof vi.fn> } }).ws = {
+    (agent as unknown as {
+      ws: { readyState: number; bufferedAmount: number; send: typeof wsSend; close: ReturnType<typeof vi.fn> };
+    }).ws = {
       readyState: 1,
+      bufferedAmount: 0,
       send: wsSend,
       close: vi.fn(),
     };
@@ -192,6 +200,17 @@ describe('WorkerAgent', () => {
     await Promise.resolve();
 
     expect(wsMockState.instances[1].url).toBe('ws://192.168.1.99:4878');
+  });
+
+  it('sets an explicit large CDP payload ceiling on coordinator WebSocket clients', async () => {
+    const connect = agent.connect();
+    await Promise.resolve();
+    wsMockState.instances[0].emit('open');
+    await connect;
+
+    expect(wsMockState.instances[0].options).toMatchObject({
+      maxPayload: 80 * 1024 * 1024,
+    });
   });
 
   it('fails over to a fallback URL when the primary coordinator is unreachable', async () => {
@@ -352,6 +371,38 @@ describe('WorkerAgent', () => {
       scope: 'service',
       params: { sessionId: 's1', frame: 'f' },
     });
+  });
+
+  it('closes CDP tunnel sessions when an established coordinator socket closes', async () => {
+    const closeAll = vi.spyOn((agent as unknown as {
+      cdpTunnel: { closeAll: () => void };
+    }).cdpTunnel, 'closeAll');
+    const connect = agent.connect();
+    await Promise.resolve();
+    wsMockState.instances[0].emit('open');
+    await connect;
+    closeAll.mockClear();
+
+    wsMockState.instances[0].emit('close');
+
+    expect(closeAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes a CDP session instead of sending when the coordinator socket is backpressured', () => {
+    const cdpTunnel = (agent as unknown as {
+      cdpTunnel: EventEmitter & { close: (sessionId: string) => void };
+    }).cdpTunnel;
+    const close = vi.spyOn(cdpTunnel, 'close');
+    const ws = (agent as unknown as { ws: { bufferedAmount: number } }).ws;
+    ws.bufferedAmount = 33 * 1024 * 1024;
+
+    cdpTunnel.emit('message', {
+      sessionId: 's1',
+      frame: '{"id":1,"result":{}}',
+    });
+
+    expect(wsSend).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledWith('s1');
   });
 
   it('builds an ordered, de-duplicated candidate URL list', () => {

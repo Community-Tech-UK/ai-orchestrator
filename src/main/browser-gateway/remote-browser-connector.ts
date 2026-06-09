@@ -42,6 +42,7 @@ export class RemoteBrowserConnector {
     }
     const browser = await this.tunnelClient.connectBrowser(nodeId);
     this.browsers.set(profileId, browser);
+    this.attachDisconnectHandler(profileId, browser);
 
     if (startUrl) {
       try {
@@ -88,12 +89,7 @@ export class RemoteBrowserConnector {
         /* already gone */
       }
     }
-    this.setRuntimeStateSafe(profileId, {
-      status: 'stopped',
-      debugPort: undefined,
-      debugEndpoint: undefined,
-      processId: undefined,
-    });
+    this.markStopped(profileId);
   }
 
   async closeAll(): Promise<void> {
@@ -115,5 +111,31 @@ export class RemoteBrowserConnector {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  private attachDisconnectHandler(profileId: string, browser: Browser): void {
+    const onDisconnected = (): void => {
+      if (this.browsers.get(profileId) !== browser) return;
+      this.browsers.delete(profileId);
+      this.markStopped(profileId);
+    };
+    const eventSource = browser as unknown as {
+      once?: (event: string, listener: () => void) => void;
+      on?: (event: string, listener: () => void) => void;
+    };
+    if (typeof eventSource.once === 'function') {
+      eventSource.once('disconnected', onDisconnected);
+    } else {
+      eventSource.on?.('disconnected', onDisconnected);
+    }
+  }
+
+  private markStopped(profileId: string): void {
+    this.setRuntimeStateSafe(profileId, {
+      status: 'stopped',
+      debugPort: undefined,
+      debugEndpoint: undefined,
+      processId: undefined,
+    });
   }
 }
