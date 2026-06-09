@@ -17,6 +17,7 @@ import {
   BrowserRequestUserLoginRequestSchema,
   BrowserScreenshotRequestSchema,
   BrowserTargetSchema,
+  BrowserUpdateProfilePayloadSchema,
   BrowserUpdateProfileRequestSchema,
 } from '../browser.schemas';
 
@@ -111,6 +112,36 @@ describe('browser.schemas', () => {
 
     expect(result.success).toBe(true);
     expect(BrowserUpdateProfileRequestSchema.safeParse({ extra: 'nope' }).success).toBe(false);
+  });
+
+  it('accepts remote execution node bindings on profile DTOs and update payloads', () => {
+    expect(
+      BrowserProfileSchema.safeParse({
+        id: 'profile-remote',
+        label: 'Remote Browser',
+        mode: 'session',
+        browser: 'chrome',
+        allowedOrigins: [],
+        executionNodeId: 'node-ready',
+        status: 'stopped',
+        createdAt: 1,
+        updatedAt: 2,
+      }).success,
+    ).toBe(true);
+
+    expect(
+      BrowserUpdateProfilePayloadSchema.safeParse({
+        profileId: 'profile-remote',
+        executionNodeId: 'node-ready',
+      }).success,
+    ).toBe(true);
+
+    expect(
+      BrowserUpdateProfilePayloadSchema.safeParse({
+        profileId: 'profile-remote',
+        executionNodeId: null,
+      }).success,
+    ).toBe(true);
   });
 
   it('validates profile and target DTOs', () => {

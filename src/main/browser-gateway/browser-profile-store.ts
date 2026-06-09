@@ -111,9 +111,14 @@ export class BrowserProfileStore {
     }
 
     const now = Date.now();
+    const has = (key: keyof BrowserUpdateProfileRequest): boolean =>
+      Object.prototype.hasOwnProperty.call(patch, key);
     const nextAllowedOrigins = patch.allowedOrigins ?? existing.allowedOrigins;
     const nextDefaultUrl =
       patch.defaultUrl === undefined ? existing.defaultUrl ?? null : patch.defaultUrl;
+    const nextExecutionNodeId = has('executionNodeId')
+      ? patch.executionNodeId ?? null
+      : existing.executionNodeId ?? null;
 
     this.db
       .prepare(
@@ -122,6 +127,7 @@ export class BrowserProfileStore {
         SET label = ?,
             allowed_origins_json = ?,
             default_url = ?,
+            execution_node_id = ?,
             updated_at = ?
         WHERE id = ?
       `,
@@ -130,6 +136,7 @@ export class BrowserProfileStore {
         patch.label ?? existing.label,
         JSON.stringify(nextAllowedOrigins),
         nextDefaultUrl,
+        nextExecutionNodeId,
         now,
         id,
       );

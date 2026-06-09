@@ -43,15 +43,17 @@ describe('RemoteCdpTransport', () => {
 describe('RemoteCdpTunnelClient', () => {
   let registry: EventEmitter;
   let sendRpc: ReturnType<typeof vi.fn>;
+  let sendNotification: ReturnType<typeof vi.fn>;
   let capturedTransport: CdpConnectionTransport | null;
   let client: RemoteCdpTunnelClient;
 
   beforeEach(() => {
     registry = new EventEmitter();
     sendRpc = vi.fn().mockResolvedValue({ ok: true });
+    sendNotification = vi.fn();
     capturedTransport = null;
     client = new RemoteCdpTunnelClient({
-      connection: { sendRpc } as never,
+      connection: { sendRpc, sendNotification } as never,
       registry: registry as never,
       connectPuppeteer: (transport) => {
         capturedTransport = transport;
@@ -94,9 +96,27 @@ describe('RemoteCdpTunnelClient', () => {
     await client.connectBrowser('node-1');
     const sessionId = openSessionId();
     capturedTransport!.send('cdp-frame');
-    const sendCall = sendRpc.mock.calls.find((c) => c[1] === COORDINATOR_TO_NODE.BROWSER_CDP_SEND);
-    expect(sendCall?.[2]).toEqual({ sessionId, frame: 'cdp-frame' });
-    expect(sendCall?.[4]).toBe('service');
+    expect(sendNotification).toHaveBeenCalledWith(
+      'node-1',
+      COORDINATOR_TO_NODE.BROWSER_CDP_SEND,
+      { sessionId, frame: 'cdp-frame' },
+      'service',
+    );
+    expect(sendRpc.mock.calls.some((c) => c[1] === COORDINATOR_TO_NODE.BROWSER_CDP_SEND)).toBe(false);
+  });
+
+  it('transport.close uses a service-scoped notification', async () => {
+    await client.connectBrowser('node-1');
+    const sessionId = openSessionId();
+
+    capturedTransport!.close();
+
+    expect(sendNotification).toHaveBeenCalledWith(
+      'node-1',
+      COORDINATOR_TO_NODE.BROWSER_CDP_CLOSE,
+      { sessionId },
+      'service',
+    );
   });
 
   it('closes the session and clears it on browser.cdp.closed', async () => {
@@ -109,9 +129,20 @@ describe('RemoteCdpTunnelClient', () => {
     expect(client.activeSessionCount()).toBe(0);
   });
 
+  it('closes all sessions for a node when that node disconnects', async () => {
+    await client.connectBrowser('node-1');
+    const onclose = vi.fn();
+    capturedTransport!.onclose = onclose;
+
+    registry.emit('node:disconnected', { id: 'node-1' });
+
+    expect(onclose).toHaveBeenCalledTimes(1);
+    expect(client.activeSessionCount()).toBe(0);
+  });
+
   it('tears down the session if puppeteer.connect rejects', async () => {
     client = new RemoteCdpTunnelClient({
-      connection: { sendRpc } as never,
+      connection: { sendRpc, sendNotification } as never,
       registry: registry as never,
       connectPuppeteer: () => Promise.reject(new Error('connect boom')),
     });

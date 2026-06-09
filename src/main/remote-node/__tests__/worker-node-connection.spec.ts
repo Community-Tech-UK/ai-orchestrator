@@ -188,4 +188,21 @@ describe('WorkerNodeConnectionServer — sendRpc timeout & disconnect', () => {
     expect(message).toContain('Node disconnected');
     expect(internals.pending.size).toBe(0);
   });
+
+  it('can send a service-scoped notification to a connected node', () => {
+    const { server, ws } = connectNode();
+
+    (server as unknown as {
+      sendNotification(nodeId: string, method: string, params?: unknown, scope?: string): void;
+    }).sendNotification(NODE_ID, 'browser.cdp.send', { sessionId: 's1', frame: 'f' }, 'service');
+
+    const sent = JSON.parse(ws.send.mock.calls.at(-1)?.[0] as string);
+    expect(sent).toMatchObject({
+      jsonrpc: '2.0',
+      method: 'browser.cdp.send',
+      scope: 'service',
+      params: { sessionId: 's1', frame: 'f' },
+    });
+    expect(sent.id).toBeUndefined();
+  });
 });

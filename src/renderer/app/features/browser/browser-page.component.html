@@ -56,12 +56,46 @@
         <button class="btn primary" type="button" [disabled]="working()" (click)="createProfile()">Create Profile</button>
       </div>
 
+      @if (selectedProfile(); as profile) {
+        <div class="profile-binding">
+          <div class="binding-summary">
+            <span>Run browser on</span>
+            <strong>{{ profileExecutionLocationLabel(profile) }}</strong>
+          </div>
+          <label>
+            <span>Execution node</span>
+            <select
+              data-testid="profile-node-select"
+              [value]="profileExecutionNodeDraft() ?? ''"
+              [disabled]="working()"
+              (change)="onProfileExecutionNodeChange($event)"
+            >
+              <option value="">Local coordinator</option>
+              @for (node of browserNodeOptions(); track node.id) {
+                <option [value]="node.id" [disabled]="!isProfileNodeSelectable(node)">
+                  {{ node.name }} · {{ nodeReadinessLabel(node) }}
+                </option>
+              }
+            </select>
+          </label>
+          <button
+            class="btn small"
+            type="button"
+            [disabled]="working() || !canSaveProfileExecutionNode()"
+            (click)="updateProfileExecutionNode()"
+          >
+            Save Node
+          </button>
+        </div>
+      }
+
       <div class="profile-list">
         @for (profile of profiles(); track profile.id) {
           <article class="profile-row" [class.selected]="selectedProfileId() === profile.id">
             <button class="profile-main" type="button" (click)="selectProfile(profile.id)">
               <span class="profile-label">{{ profile.label }}</span>
               <span class="profile-meta">{{ profile.browser }} · {{ profile.mode }} · {{ profile.status }}</span>
+              <span class="profile-meta">{{ profileExecutionLocationLabel(profile) }}</span>
               @if (profile.lastLoginCheckAt) {
                 <span class="profile-meta">Login checked {{ formatGrantExpiry(profile.lastLoginCheckAt) }}</span>
               }

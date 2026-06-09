@@ -333,14 +333,14 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     }
   }
 
-  sendNotification(nodeId: string, method: string, params?: unknown): void {
+  sendNotification(nodeId: string, method: string, params?: unknown, scope?: RpcScope): void {
     const ws = this.nodeToSocket.get(nodeId);
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       logger.warn('sendNotification: node not connected', { nodeId, method });
       return;
     }
 
-    const notification = createRpcNotification(method, params);
+    const notification = createRpcNotification(method, params, undefined, scope);
     ws.send(JSON.stringify(notification), (err) => {
       if (err) {
         logger.error('sendNotification failed', err, { nodeId, method });

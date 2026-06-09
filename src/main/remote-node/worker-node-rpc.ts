@@ -93,6 +93,7 @@ export interface RpcNotification {
   method: string;
   params?: unknown;
   token?: string;
+  scope?: RpcScope;
 }
 
 export interface RpcError {
@@ -154,9 +155,10 @@ export function createRpcError(
 export function createRpcNotification(
   method: string,
   params?: unknown,
-  token?: string
+  token?: string,
+  scope?: RpcScope
 ): RpcNotification {
-  return { jsonrpc: '2.0', method, params, token };
+  return { jsonrpc: '2.0', method, params, token, scope };
 }
 
 export function isRpcRequest(msg: unknown): msg is RpcRequest {

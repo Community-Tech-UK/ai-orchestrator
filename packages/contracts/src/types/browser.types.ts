@@ -242,6 +242,7 @@ export interface BrowserUpdateProfileRequest {
   label?: string;
   allowedOrigins?: BrowserAllowedOrigin[];
   defaultUrl?: string | null;
+  executionNodeId?: string | null;
 }
 
 export interface BrowserUpdateProfilePayload extends BrowserUpdateProfileRequest {

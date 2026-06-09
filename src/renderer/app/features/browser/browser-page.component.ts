@@ -20,6 +20,8 @@ import type {
   BrowserProfile,
   BrowserTarget,
 } from '@contracts/types/browser';
+import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
+import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gateway-ipc.service';
 import { AuxiliaryLlmIpcService } from '../../core/services/ipc/auxiliary-llm-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
@@ -39,6 +41,7 @@ const recentAuditWindowMs = 15 * 60 * 1000;
 export class BrowserPageComponent implements OnInit {
   private readonly ipc = inject(BrowserGatewayIpcService);
   private readonly auxIpc = inject(AuxiliaryLlmIpcService);
+  private readonly remoteNodes = inject(RemoteNodeStore);
   private readonly router = inject(Router);
 
   readonly profiles = signal<BrowserProfile[]>([]);
@@ -56,6 +59,7 @@ export class BrowserPageComponent implements OnInit {
   readonly createLabel = signal('');
   readonly createDefaultUrl = signal('');
   readonly createAllowedOrigins = signal('');
+  readonly profileExecutionNodeDraft = signal<string | null>(null);
   readonly navigateUrl = signal('');
   readonly loading = signal(false);
   readonly working = signal(false);
@@ -73,6 +77,12 @@ export class BrowserPageComponent implements OnInit {
     () => this.profiles().find((profile) => profile.id === this.selectedProfileId()) ?? null,
   );
 
+  readonly browserNodeOptions = computed(() => [...this.remoteNodes.nodes()].sort((a, b) => {
+    const rank = (node: WorkerNodeInfo): number =>
+      node.capabilities.hasBrowserMcp ? 0 : node.capabilities.hasBrowserRuntime ? 1 : 2;
+    return rank(a) - rank(b) || a.name.localeCompare(b.name);
+  }));
+
   readonly selectedTarget = computed(
     () => this.targets().find((target) => target.id === this.selectedTargetId()) ?? null,
   );
@@ -87,6 +97,14 @@ export class BrowserPageComponent implements OnInit {
   );
 
   readonly healthJson = computed(() => JSON.stringify(this.health() ?? {}, null, 2));
+
+  readonly canSaveProfileExecutionNode = computed(() => {
+    const profile = this.selectedProfile();
+    if (!profile) {
+      return false;
+    }
+    return (profile.executionNodeId ?? null) !== this.profileExecutionNodeDraft();
+  });
 
   readonly recentAuditEntries = computed(
     () => this.auditEntries().filter((entry) => this.isRecentAuditEntry(entry)),
@@ -115,6 +133,7 @@ export class BrowserPageComponent implements OnInit {
   });
 
   async ngOnInit(): Promise<void> {
+    void this.remoteNodes.initialize();
     await this.refresh();
   }
 
@@ -142,9 +161,11 @@ export class BrowserPageComponent implements OnInit {
   async refreshProfiles(): Promise<void> {
     const response = await this.ipc.listProfiles();
     this.applyGatewayArray(response, this.profiles);
-    if (!this.selectedProfileId() && this.profiles()[0]) {
-      this.selectedProfileId.set(this.profiles()[0].id);
+    const current = this.selectedProfileId();
+    if (!current || !this.profiles().some((profile) => profile.id === current)) {
+      this.selectedProfileId.set(this.profiles()[0]?.id ?? null);
     }
+    this.syncProfileExecutionNodeDraft();
   }
 
   async refreshTargets(): Promise<void> {
@@ -188,6 +209,11 @@ export class BrowserPageComponent implements OnInit {
     } else {
       this.createAllowedOrigins.set(value);
     }
+  }
+
+  onProfileExecutionNodeChange(event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    this.profileExecutionNodeDraft.set(value || null);
   }
 
   onNavigateUrlInput(event: Event): void {
@@ -238,10 +264,35 @@ export class BrowserPageComponent implements OnInit {
 
   selectProfile(profileId: string): void {
     this.selectedProfileId.set(profileId);
+    this.syncProfileExecutionNodeDraft();
     this.selectedTargetId.set(null);
     this.snapshot.set(null);
     this.screenshotDataUrl.set(null);
     void this.refreshTargets();
+  }
+
+  async updateProfileExecutionNode(): Promise<void> {
+    const profile = this.selectedProfile();
+    if (!profile) {
+      return;
+    }
+    const nodeId = this.profileExecutionNodeDraft();
+    const node = nodeId ? this.remoteNodes.nodeById(nodeId) : undefined;
+    if (nodeId && (!node || !this.isProfileNodeSelectable(node))) {
+      this.errorMessage.set('Selected node is not ready for remote browser automation.');
+      return;
+    }
+    const updated = await this.runGatewayAction(() =>
+      this.ipc.updateProfile({
+        profileId: profile.id,
+        executionNodeId: nodeId,
+      }),
+    );
+    if (!updated) {
+      return;
+    }
+    await this.refreshProfiles();
+    await this.refreshTargets();
   }
 
   async openProfile(profileId: string): Promise<void> {
@@ -430,6 +481,32 @@ export class BrowserPageComponent implements OnInit {
     return approval.proposedGrant.uploadRoots?.join(', ') ?? '';
   }
 
+  profileExecutionLocationLabel(profile: BrowserProfile): string {
+    const nodeId = profile.executionNodeId;
+    if (!nodeId) {
+      return 'Local coordinator';
+    }
+    const node = this.remoteNodes.nodeById(nodeId);
+    return node ? `${node.name} · ${this.nodeReadinessLabel(node)}` : `${nodeId} · Missing`;
+  }
+
+  nodeReadinessLabel(node: WorkerNodeInfo): string {
+    if (node.status === 'disconnected') {
+      return 'Disconnected';
+    }
+    if (node.capabilities.hasBrowserMcp) {
+      return 'Ready';
+    }
+    if (node.capabilities.hasBrowserRuntime) {
+      return 'Chrome only';
+    }
+    return 'Off';
+  }
+
+  isProfileNodeSelectable(node: WorkerNodeInfo): boolean {
+    return node.capabilities.hasBrowserMcp && node.status !== 'disconnected';
+  }
+
   toggleAuditHistory(): void {
     this.showAuditHistory.set(!this.showAuditHistory());
   }
@@ -469,6 +546,10 @@ export class BrowserPageComponent implements OnInit {
       return null;
     }
     return { profileId, targetId };
+  }
+
+  private syncProfileExecutionNodeDraft(): void {
+    this.profileExecutionNodeDraft.set(this.selectedProfile()?.executionNodeId ?? null);
   }
 
   private async runGatewayAction(

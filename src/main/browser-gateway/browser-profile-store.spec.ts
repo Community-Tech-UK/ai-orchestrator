@@ -198,4 +198,23 @@ describe('BrowserProfileStore', () => {
     const unbound = store.setExecutionNode(created.id, null);
     expect(unbound.executionNodeId).toBeUndefined();
   });
+
+  it('updates execution node through the profile update path', () => {
+    const created = store.createProfile({
+      label: 'Remote Update',
+      mode: 'session',
+      browser: 'chrome',
+      allowedOrigins: [],
+    });
+
+    const bound = store.updateProfile(created.id, {
+      executionNodeId: 'node-ready',
+    } as never);
+    expect(bound.executionNodeId).toBe('node-ready');
+
+    const unbound = store.updateProfile(created.id, {
+      executionNodeId: null,
+    } as never);
+    expect(unbound.executionNodeId).toBeUndefined();
+  });
 });

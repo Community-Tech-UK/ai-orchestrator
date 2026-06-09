@@ -1,13 +1,15 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
+import { ɵresolveComponentResources as resolveComponentResources, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import type { BrowserAuditEntry } from '@contracts/types/browser';
+import type { WorkerNodeInfo } from '../../../../shared/types/worker-node.types';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BrowserPageComponent } from './browser-page.component';
 import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gateway-ipc.service';
+import { RemoteNodeStore } from '../../core/state/remote-node.store';
 
 const now = 1_700_000_000_000;
 const specDirectory = dirname(fileURLToPath(import.meta.url));
@@ -39,6 +41,7 @@ describe('BrowserPageComponent', () => {
   let service: {
     listProfiles: ReturnType<typeof vi.fn>;
     createProfile: ReturnType<typeof vi.fn>;
+    updateProfile: ReturnType<typeof vi.fn>;
     openProfile: ReturnType<typeof vi.fn>;
     closeProfile: ReturnType<typeof vi.fn>;
     listTargets: ReturnType<typeof vi.fn>;
@@ -58,6 +61,12 @@ describe('BrowserPageComponent', () => {
     getHealth: ReturnType<typeof vi.fn>;
   };
   let router: { navigate: ReturnType<typeof vi.fn> };
+  let remoteNodeStore: {
+    nodes: ReturnType<typeof signal<WorkerNodeInfo[]>>;
+    initialize: ReturnType<typeof vi.fn>;
+    refresh: ReturnType<typeof vi.fn>;
+    nodeById: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(async () => {
     vi.useFakeTimers();
@@ -78,6 +87,17 @@ describe('BrowserPageComponent', () => {
         },
       ])),
       createProfile: vi.fn().mockResolvedValue(gatewayResult({ id: 'profile-2' })),
+      updateProfile: vi.fn().mockResolvedValue(gatewayResult({
+        id: 'profile-1',
+        label: 'Local App',
+        mode: 'session',
+        browser: 'chrome',
+        allowedOrigins: [],
+        executionNodeId: 'node-ready',
+        status: 'stopped',
+        createdAt: 1,
+        updatedAt: 2,
+      })),
       openProfile: vi.fn().mockResolvedValue(gatewayResult([])),
       closeProfile: vi.fn().mockResolvedValue(gatewayResult(null)),
       listTargets: vi.fn().mockResolvedValue(gatewayResult([
@@ -229,11 +249,35 @@ describe('BrowserPageComponent', () => {
     };
 
     router = { navigate: vi.fn().mockResolvedValue(true) };
+    const nodes = signal<WorkerNodeInfo[]>([
+      makeNode('node-ready', {
+        name: 'windows-pc',
+        capabilities: makeCapabilities({
+          platform: 'win32',
+          hasBrowserRuntime: true,
+          hasBrowserMcp: true,
+        }),
+      }),
+      makeNode('node-chrome-only', {
+        name: 'chrome-only',
+        capabilities: makeCapabilities({
+          hasBrowserRuntime: true,
+          hasBrowserMcp: false,
+        }),
+      }),
+    ]);
+    remoteNodeStore = {
+      nodes,
+      initialize: vi.fn(async () => undefined),
+      refresh: vi.fn(async () => undefined),
+      nodeById: vi.fn((id: string) => nodes().find((node) => node.id === id)),
+    };
 
     await TestBed.configureTestingModule({
       imports: [BrowserPageComponent],
       providers: [
         { provide: BrowserGatewayIpcService, useValue: service },
+        { provide: RemoteNodeStore, useValue: remoteNodeStore },
         { provide: Router, useValue: router },
       ],
     }).compileComponents();
@@ -251,6 +295,30 @@ describe('BrowserPageComponent', () => {
   it('renders Browser Gateway profiles', () => {
     expect(fixture.nativeElement.textContent).toContain('Local App');
     expect(fixture.nativeElement.textContent).toContain('Login checked');
+  });
+
+  it('renders remote browser node status and saves the selected execution node', async () => {
+    const text = fixture.nativeElement.textContent;
+    expect(text).toContain('Run browser on');
+    expect(text).toContain('windows-pc');
+    expect(text).toContain('Ready');
+    expect(text).toContain('Chrome only');
+
+    const select = fixture.nativeElement.querySelector(
+      '[data-testid="profile-node-select"]',
+    ) as HTMLSelectElement;
+    select.value = 'node-ready';
+    select.dispatchEvent(new Event('change'));
+
+    await (fixture.componentInstance as unknown as {
+      updateProfileExecutionNode(): Promise<void>;
+    }).updateProfileExecutionNode();
+
+    expect(service.updateProfile).toHaveBeenCalledWith({
+      profileId: 'profile-1',
+      executionNodeId: 'node-ready',
+    });
+    expect(service.listProfiles).toHaveBeenCalled();
   });
 
   it('creates profiles with normalized allowed origins', async () => {
@@ -513,6 +581,41 @@ describe('BrowserPageComponent', () => {
 
 function inputEvent(value: string): Event {
   return { target: { value } } as unknown as Event;
+}
+
+function makeCapabilities(
+  overrides: Partial<WorkerNodeInfo['capabilities']> = {},
+): WorkerNodeInfo['capabilities'] {
+  return {
+    platform: 'linux',
+    arch: 'x64',
+    cpuCores: 4,
+    totalMemoryMB: 8192,
+    availableMemoryMB: 4096,
+    supportedClis: ['claude'],
+    hasBrowserRuntime: false,
+    hasBrowserMcp: false,
+    hasDocker: false,
+    maxConcurrentInstances: 4,
+    workingDirectories: ['/workspace'],
+    browsableRoots: [],
+    discoveredProjects: [],
+    ...overrides,
+  };
+}
+
+function makeNode(id: string, overrides: Partial<WorkerNodeInfo> = {}): WorkerNodeInfo {
+  return {
+    id,
+    name: id,
+    address: '127.0.0.1',
+    capabilities: makeCapabilities(),
+    status: 'connected',
+    connectedAt: now,
+    lastHeartbeat: now,
+    activeInstances: 0,
+    ...overrides,
+  };
 }
 
 function auditEntry(overrides: Partial<BrowserAuditEntry>): BrowserAuditEntry {

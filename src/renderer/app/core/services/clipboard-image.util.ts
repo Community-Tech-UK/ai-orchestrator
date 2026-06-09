@@ -46,11 +46,17 @@ export function dataUrlToClipboardCompatibleDataUrl(dataUrl: string): Promise<st
   });
 }
 
-function blobToDataUrl(blob: Blob): Promise<string | null> {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
-    reader.onerror = () => resolve(null);
-    reader.readAsDataURL(blob);
-  });
+async function blobToDataUrl(blob: Blob): Promise<string | null> {
+  try {
+    const mime = blob.type || 'application/octet-stream';
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+    }
+    return `data:${mime};base64,${btoa(binary)}`;
+  } catch {
+    return null;
+  }
 }

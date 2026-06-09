@@ -333,6 +333,27 @@ describe('WorkerAgent', () => {
     );
   });
 
+  it('dispatches service-scoped coordinator notifications to the RPC dispatcher', () => {
+    const handleRpcNotification = vi.fn();
+    (agent as unknown as {
+      rpcDispatcher: { handleRpcNotification: typeof handleRpcNotification };
+    }).rpcDispatcher = { handleRpcNotification };
+
+    (agent as unknown as { handleMessage: (raw: string) => void }).handleMessage(JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'browser.cdp.send',
+      scope: 'service',
+      params: { sessionId: 's1', frame: 'f' },
+    }));
+
+    expect(handleRpcNotification).toHaveBeenCalledWith({
+      jsonrpc: '2.0',
+      method: 'browser.cdp.send',
+      scope: 'service',
+      params: { sessionId: 's1', frame: 'f' },
+    });
+  });
+
   it('builds an ordered, de-duplicated candidate URL list', () => {
     expect(
       buildCoordinatorCandidates(

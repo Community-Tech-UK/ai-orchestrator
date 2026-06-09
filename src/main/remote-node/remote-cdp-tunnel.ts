@@ -82,7 +82,7 @@ export class RemoteCdpTransport implements CdpConnectionTransport {
 }
 
 interface RemoteCdpTunnelClientDeps {
-  connection: Pick<WorkerNodeConnectionServer, 'sendRpc'>;
+  connection: Pick<WorkerNodeConnectionServer, 'sendRpc' | 'sendNotification'>;
   registry: Pick<WorkerNodeRegistry, 'on'>;
   connectPuppeteer?: (transport: CdpConnectionTransport) => Promise<Browser>;
 }
@@ -118,6 +118,9 @@ export class RemoteCdpTunnelClient {
       this.transports.delete(key);
       transport?.deliverClose();
     });
+    deps.registry.on('node:disconnected', (node: { id: string }) => {
+      this.closeNodeSessions(node.id);
+    });
   }
 
   /**
@@ -141,14 +144,20 @@ export class RemoteCdpTunnelClient {
       send: (frame) => {
         // Fire-and-forget: ws.send is enqueued in call order, preserving CDP
         // ordering; we don't need the per-frame ack.
-        void this.connection
-          .sendRpc(nodeId, COORDINATOR_TO_NODE.BROWSER_CDP_SEND, { sessionId, frame }, undefined, 'service')
-          .catch((err) => logger.debug('CDP send failed', { nodeId, error: errMessage(err) }));
+        this.connection.sendNotification(
+          nodeId,
+          COORDINATOR_TO_NODE.BROWSER_CDP_SEND,
+          { sessionId, frame },
+          'service',
+        );
       },
       close: () => {
-        void this.connection
-          .sendRpc(nodeId, COORDINATOR_TO_NODE.BROWSER_CDP_CLOSE, { sessionId }, undefined, 'service')
-          .catch((err) => logger.debug('CDP close failed', { nodeId, error: errMessage(err) }));
+        this.connection.sendNotification(
+          nodeId,
+          COORDINATOR_TO_NODE.BROWSER_CDP_CLOSE,
+          { sessionId },
+          'service',
+        );
         this.transports.delete(key);
       },
     });
@@ -173,10 +182,17 @@ export class RemoteCdpTunnelClient {
   activeSessionCount(): number {
     return this.transports.size;
   }
-}
 
-function errMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  private closeNodeSessions(nodeId: string): void {
+    const prefix = `${nodeId}::`;
+    for (const [key, transport] of this.transports) {
+      if (!key.startsWith(prefix)) {
+        continue;
+      }
+      this.transports.delete(key);
+      transport.deliverClose();
+    }
+  }
 }
 
 let singleton: RemoteCdpTunnelClient | null = null;

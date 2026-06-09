@@ -125,6 +125,34 @@ describe('WorkerRpcDispatcher browser.cdp.*', () => {
     expect(cdpTunnel.close).toHaveBeenCalledWith('s1');
   });
 
+  it('accepts service-scoped browser.cdp.send notifications without sending a response', () => {
+    const { dispatcher, cdpTunnel, sendResult, sendError } = makeDispatcher(vi.fn());
+
+    (dispatcher as unknown as {
+      handleRpcNotification(msg: RpcMessage): void;
+    }).handleRpcNotification(
+      cdpMsg(COORDINATOR_TO_NODE.BROWSER_CDP_SEND, { sessionId: 's1', frame: 'f' }, { scope: 'service', id: undefined }),
+    );
+
+    expect(cdpTunnel.send).toHaveBeenCalledWith('s1', 'f');
+    expect(sendResult).not.toHaveBeenCalled();
+    expect(sendError).not.toHaveBeenCalled();
+  });
+
+  it('ignores browser.cdp.send notifications without service scope', () => {
+    const { dispatcher, cdpTunnel, sendResult, sendError } = makeDispatcher(vi.fn());
+
+    (dispatcher as unknown as {
+      handleRpcNotification(msg: RpcMessage): void;
+    }).handleRpcNotification(
+      cdpMsg(COORDINATOR_TO_NODE.BROWSER_CDP_SEND, { sessionId: 's1', frame: 'f' }, { id: undefined }),
+    );
+
+    expect(cdpTunnel.send).not.toHaveBeenCalled();
+    expect(sendResult).not.toHaveBeenCalled();
+    expect(sendError).not.toHaveBeenCalled();
+  });
+
   it('stops the managed browser on browser.stopManaged (service-scoped)', async () => {
     const stop = vi.fn(async () => undefined);
     const { dispatcher, sendResult, sendError } = makeDispatcher(vi.fn(), undefined, stop);

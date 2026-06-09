@@ -479,6 +479,12 @@ export class WorkerAgent extends EventEmitter {
     // RPC request from coordinator
     if (msg.method && msg.id !== undefined) {
       this.handleRpcRequest(msg);
+      return;
+    }
+
+    // RPC notification from coordinator
+    if (msg.method) {
+      this.handleRpcNotification(msg);
     }
   }
 
@@ -519,6 +525,10 @@ export class WorkerAgent extends EventEmitter {
 
   private async handleRpcRequest(msg: RpcMessage): Promise<void> {
     return this.rpcDispatcher.handleRpcRequest(msg);
+  }
+
+  private handleRpcNotification(msg: RpcMessage): void {
+    this.rpcDispatcher.handleRpcNotification(msg);
   }
 
   private getSyncHandler(): SyncHandler {

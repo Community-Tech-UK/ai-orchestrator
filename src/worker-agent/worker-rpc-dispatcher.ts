@@ -72,6 +72,33 @@ interface WorkerRpcDispatcherDeps {
 export class WorkerRpcDispatcher {
   constructor(private readonly deps: WorkerRpcDispatcherDeps) {}
 
+  handleRpcNotification(msg: RpcMessage): void {
+    const err = validateScope(msg, 'service');
+    if (err) {
+      return;
+    }
+
+    const params = (msg.params ?? {}) as Record<string, unknown>;
+    try {
+      switch (msg.method) {
+        case COORDINATOR_TO_NODE.BROWSER_CDP_SEND: {
+          const validated = BrowserCdpSendParamsSchema.parse(params);
+          this.deps.getCdpTunnel().send(validated.sessionId, validated.frame);
+          break;
+        }
+        case COORDINATOR_TO_NODE.BROWSER_CDP_CLOSE: {
+          const validated = BrowserCdpCloseParamsSchema.parse(params);
+          this.deps.getCdpTunnel().close(validated.sessionId);
+          break;
+        }
+        default:
+          break;
+      }
+    } catch {
+      // Notifications have no response channel; invalid frames are dropped.
+    }
+  }
+
   async handleRpcRequest(msg: RpcMessage): Promise<void> {
     const params = (msg.params ?? {}) as Record<string, unknown>;
 

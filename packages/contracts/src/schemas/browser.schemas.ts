@@ -119,6 +119,7 @@ export const BrowserProfileSchema = z
     userDataDir: z.string().min(1).max(2000).optional(),
     allowedOrigins: z.array(BrowserAllowedOriginSchema),
     defaultUrl: optionalUrlSchema,
+    executionNodeId: idSchema.optional(),
     status: BrowserProfileStatusSchema,
     debugPort: z.number().int().min(1).max(65535).optional(),
     debugEndpoint: urlSchema.optional(),
@@ -361,6 +362,7 @@ export const BrowserUpdateProfileRequestSchema = z
     label: z.string().min(1).max(120).optional(),
     allowedOrigins: z.array(BrowserAllowedOriginSchema).optional(),
     defaultUrl: z.union([urlSchema, z.null()]).optional(),
+    executionNodeId: z.union([idSchema, z.null()]).optional(),
   })
   .strict();
 export type BrowserUpdateProfileRequest = z.infer<
