@@ -16,6 +16,9 @@ export function createAuxiliaryLlmDomain(
     auxiliaryLlmTestGenerate: (payload: unknown): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.AUXILIARY_LLM_TEST_GENERATE, payload),
 
+    auxiliaryLlmExtractWeb: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.AUXILIARY_LLM_EXTRACT_WEB, payload),
+
     auxiliaryLlmSaveSettings: (payload: unknown): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.AUXILIARY_LLM_SAVE_SETTINGS, payload),
   };

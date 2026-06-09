@@ -45,6 +45,21 @@ const SLOTS: AuxiliaryLlmSlot[] = [
 
 const PROVIDERS = ['ollama', 'openai-compatible'] as const;
 
+/**
+ * Slots actually consumed by a feature in normal operation. Slots NOT listed
+ * here are testable (the Test button still routes through them) but nothing
+ * calls them during real work, so the UI flags them "not yet active".
+ */
+const WIRED_SLOTS = new Set<AuxiliaryLlmSlot>([
+  'compression',
+  'memoryDistillation',
+  'webExtract',
+  'titleGeneration',
+  'loopScoring',
+  'approvalScoring',
+  'routingClassification',
+]);
+
 /** Inline test state for a single slot row. */
 interface SlotTestState {
   testing: boolean;
@@ -111,6 +126,26 @@ interface SlotTestState {
             type="checkbox"
             [checked]="settingsStore.get('auxiliaryLlmUseLocalhostOllama')"
             (change)="onUseLocalhostOllamaChange($event)"
+          />
+        </div>
+      </div>
+
+      <!-- routingClassification: let the aux model influence loop model choice -->
+      <div class="card">
+        <div class="field-row">
+          <div>
+            <div class="field-label">Let aux model influence loop routing</div>
+            <div class="field-hint">
+              When on, each routed Loop Mode spawn asks the auxiliary model whether
+              the task is simple enough for a cheap/fast model and, if so, prefers
+              the fast tier. Adds one quick aux call per spawn. Off keeps loop
+              model selection purely heuristic.
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            [checked]="settingsStore.get('auxiliaryLlmRoutingClassificationEnabled')"
+            (change)="onRoutingClassificationChange($event)"
           />
         </div>
       </div>
@@ -285,6 +320,13 @@ interface SlotTestState {
               <tr>
                 <td>
                   {{ slot }}
+                  @if (!isSlotWired(slot)) {
+                    <span
+                      class="slot-inactive-badge"
+                      title="No feature consumes this slot yet — the Test button still works, but nothing in normal operation routes through it."
+                      >not yet active</span
+                    >
+                  }
                   <div class="field-hint">&rarr; {{ effectiveSlotModelLabel(slot) }}</div>
                 </td>
                 <td>
@@ -372,6 +414,10 @@ export class AuxiliaryModelsSettingsTabComponent implements OnInit {
   protected readonly slots = SLOTS;
   protected readonly providers = PROVIDERS;
 
+  protected isSlotWired(slot: AuxiliaryLlmSlot): boolean {
+    return WIRED_SLOTS.has(slot);
+  }
+
   protected readonly candidates = signal<AuxiliaryLlmCandidate[]>([]);
   protected readonly loadingCandidates = signal(false);
   protected readonly candidateError = signal<string | null>(null);
@@ -437,6 +483,11 @@ export class AuxiliaryModelsSettingsTabComponent implements OnInit {
   onUseLocalhostOllamaChange(event: Event): void {
     const checked = (event.target as HTMLInputElement).checked;
     void this.settingsStore.set('auxiliaryLlmUseLocalhostOllama', checked);
+  }
+
+  onRoutingClassificationChange(event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    void this.settingsStore.set('auxiliaryLlmRoutingClassificationEnabled', checked);
   }
 
   /** Whether a slot is allowed to fall back to the main/cloud model. Defaults to true. */

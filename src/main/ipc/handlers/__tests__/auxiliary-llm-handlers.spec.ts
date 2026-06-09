@@ -50,6 +50,7 @@ vi.mock('@contracts/channels', () => ({
     AUXILIARY_LLM_PROBE_ENDPOINT: 'auxiliary-llm:probe-endpoint',
     AUXILIARY_LLM_TEST_GENERATE: 'auxiliary-llm:test-generate',
     AUXILIARY_LLM_SAVE_SETTINGS: 'auxiliary-llm:save-settings',
+    AUXILIARY_LLM_EXTRACT_WEB: 'auxiliary-llm:extract-web',
   },
 }));
 
@@ -165,6 +166,35 @@ describe('auxiliary-llm-handlers', () => {
       expect(slot).toBe('approvalScoring');
       // JSON slots must instruct the model to emit JSON, not a generic greeting.
       expect(systemPrompt).toContain('JSON');
+    });
+  });
+
+  describe('extract-web', () => {
+    it('routes captured page text through the webExtract slot', async () => {
+      serviceMocks.generate.mockResolvedValue({
+        text: 'The Pro plan is $20/month with unlimited projects.',
+        decision: { slot: 'webExtract', source: 'local', reason: 'ok' },
+      });
+      await loadHandlers();
+
+      const result = await invoke('auxiliary-llm:extract-web', {
+        text: '<nav>Home About</nav><h1>Pricing</h1><p>Pro is $20/mo.</p>',
+      });
+
+      expect(result.success).toBe(true);
+      expect((result.data as { text: string }).text).toContain('Pro plan');
+      const [slot] = serviceMocks.generate.mock.calls[0] as [string, string, string];
+      expect(slot).toBe('webExtract');
+    });
+
+    it('rejects empty page text without calling the model', async () => {
+      await loadHandlers();
+
+      const result = await invoke('auxiliary-llm:extract-web', { text: '   ' });
+
+      expect(result.success).toBe(false);
+      expect((result.error as { code: string }).code).toBe('EXTRACT_WEB_EMPTY');
+      expect(serviceMocks.generate).not.toHaveBeenCalled();
     });
   });
 

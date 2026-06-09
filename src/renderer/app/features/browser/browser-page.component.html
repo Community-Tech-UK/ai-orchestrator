@@ -140,6 +140,20 @@
           @if (snapshot(); as snap) {
             <div class="snapshot-title">{{ snap.title }}</div>
             <div class="snapshot-url">{{ snap.url }}</div>
+            <button
+              class="btn"
+              type="button"
+              [disabled]="extracting() || !snap.text"
+              (click)="extractMainContent()"
+            >
+              {{ extracting() ? 'Extracting…' : 'Extract main content' }}
+            </button>
+            @if (extractedText(); as extracted) {
+              <div class="snapshot-extracted">
+                <div class="snapshot-extracted-label">Main content (distilled)</div>
+                <pre>{{ extracted }}</pre>
+              </div>
+            }
             <pre>{{ snap.text }}</pre>
           } @else {
             <div class="empty">No snapshot loaded.</div>

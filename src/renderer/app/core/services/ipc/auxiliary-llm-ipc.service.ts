@@ -47,6 +47,16 @@ export class AuxiliaryLlmIpcService {
     >;
   }
 
+  /** Distill the main textual content from captured page text (webExtract slot). */
+  async extractWeb(payload: {
+    text: string;
+  }): Promise<IpcResponse<{ text: string; decision: AuxiliaryLlmDecision }>> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.auxiliaryLlmExtractWeb(payload) as Promise<
+      IpcResponse<{ text: string; decision: AuxiliaryLlmDecision }>
+    >;
+  }
+
   async saveSettings(payload: {
     auxiliaryLlmEnabled?: boolean;
     auxiliaryLlmRoutingMode?: string;
@@ -54,6 +64,7 @@ export class AuxiliaryLlmIpcService {
     auxiliaryLlmUseLocalhostOllama?: boolean;
     auxiliaryLlmEndpointsJson?: string;
     auxiliaryLlmSlotsJson?: string;
+    auxiliaryLlmRoutingClassificationEnabled?: boolean;
   }): Promise<IpcResponse<{ ok: boolean }>> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.auxiliaryLlmSaveSettings(payload) as Promise<IpcResponse<{ ok: boolean }>>;

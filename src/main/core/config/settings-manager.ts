@@ -9,7 +9,7 @@ import * as path from 'path';
 import { app } from 'electron';
 import type { AppSettings } from '../../../shared/types/settings.types';
 import { DEFAULT_SETTINGS } from '../../../shared/types/settings.types';
-import { backfillSlotTiers } from '../../rlm/auxiliary-llm-utils';
+import { backfillSlotTiers, raiseSlotOutputBudget } from '../../rlm/auxiliary-llm-utils';
 import { getLogger } from '../../logging/logger';
 import { PAUSE_SETTING_VALIDATORS, type Validator } from './settings-validators';
 
@@ -35,6 +35,8 @@ const AUX_FRONTIER_FALLBACK_MIGRATION_KEY =
   '__migration_auxiliary_frontier_fallback_20260606';
 const AUX_SLOT_TIERS_MIGRATION_KEY =
   '__migration_auxiliary_slot_tiers_20260609';
+const AUX_TITLE_BUDGET_MIGRATION_KEY =
+  '__migration_auxiliary_title_budget_20260609';
 
 // Type for the internal store with the methods we need
 interface Store<T> {
@@ -121,6 +123,10 @@ export class SettingsManager extends EventEmitter {
     // feature; backfill each slot's `tier` so the model-tier selection and UI
     // reflect sensible defaults instead of "none".
     this.migrateAuxiliarySlotTiers();
+    // titleGeneration shipped with a 128-token budget — too small for reasoning
+    // local models, which spend it all thinking and emit an empty title. Raise
+    // existing installs to 512 so titles actually generate.
+    this.migrateTitleGenerationBudget();
     // Seed per-provider model memory from existing defaultModel/defaultCli on
     // first launch after this feature lands. This avoids an empty map showing
     // 'opus' for Claude and nothing else.
@@ -304,6 +310,24 @@ export class SettingsManager extends EventEmitter {
     }
 
     migrationStore.set(AUX_SLOT_TIERS_MIGRATION_KEY, true);
+  }
+
+  private migrateTitleGenerationBudget(): void {
+    const migrationStore = this.store as unknown as MigrationStore;
+    if (migrationStore.get(AUX_TITLE_BUDGET_MIGRATION_KEY) === true) {
+      return;
+    }
+
+    const raw = this.store.get('auxiliaryLlmSlotsJson');
+    if (typeof raw === 'string') {
+      const updated = raiseSlotOutputBudget(raw, 'titleGeneration', 512);
+      if (updated !== null) {
+        logger.info('Raising titleGeneration output budget to 512 (was too small for reasoning models)');
+        this.store.set('auxiliaryLlmSlotsJson', updated);
+      }
+    }
+
+    migrationStore.set(AUX_TITLE_BUDGET_MIGRATION_KEY, true);
   }
 
   /**

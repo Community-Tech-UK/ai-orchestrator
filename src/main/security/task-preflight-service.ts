@@ -6,6 +6,7 @@ import { BranchFreshness } from '../git/branch-freshness';
 import { getStaleBranchPolicy } from '../git/stale-branch-policy';
 import { getLogger } from '../logging/logger';
 import { getMcpManager } from '../mcp/mcp-manager';
+import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import { getFilesystemPolicy } from './filesystem-policy';
 import { getNetworkPolicy } from './network-policy';
 import { getPermissionManager, type PermissionAction } from './permission-manager';
@@ -66,6 +67,17 @@ export class TaskPreflightService {
     );
     if (request.expectedUnattended && unattendedPrediction) {
       warnings.add(`This unattended automation is likely to pause for approval: ${unattendedPrediction.label}.`);
+    }
+
+    // Advisory, non-blocking LLM risk score (auxiliary `approvalScoring` slot).
+    // Surfaced as a warning when elevated; never affects okToSave/blockers.
+    const advisoryRisk = await this.scoreAutomationRisk(request.prompt);
+    if (advisoryRisk && advisoryRisk.score >= 0.6) {
+      warnings.add(
+        `Advisory risk score ${advisoryRisk.score.toFixed(2)} ` +
+          `(confidence ${advisoryRisk.confidence.toFixed(2)})` +
+          (advisoryRisk.reason ? `: ${advisoryRisk.reason}` : '.'),
+      );
     }
 
     return {
@@ -374,6 +386,42 @@ export class TaskPreflightService {
     }
 
     return rules;
+  }
+
+  /**
+   * Advisory, non-blocking risk score for an unattended automation prompt,
+   * routed through the auxiliary LLM `approvalScoring` slot. Returns null on any
+   * failure (aux disabled, timeout, non-JSON output) so a slow or absent model
+   * never alters the preflight outcome.
+   */
+  private async scoreAutomationRisk(
+    prompt: string,
+  ): Promise<{ score: number; confidence: number; reason: string } | null> {
+    try {
+      const { text } = await getAuxiliaryLlmService().generate(
+        'approvalScoring',
+        'You provide an advisory risk score for an automation task that will run unattended. ' +
+          'Respond ONLY with JSON: {"score":number,"confidence":number,"reason":string}. ' +
+          'score and confidence are between 0 and 1.',
+        `Score the risk of running this automation unattended:\n\n${prompt}`,
+      );
+      const parsed = JSON.parse(text) as { score?: unknown; confidence?: unknown; reason?: unknown };
+      const score = Number(parsed.score);
+      if (!Number.isFinite(score)) {
+        return null;
+      }
+      const confidence = Number(parsed.confidence);
+      return {
+        score: Math.max(0, Math.min(1, score)),
+        confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
+        reason: typeof parsed.reason === 'string' ? parsed.reason : '',
+      };
+    } catch (error) {
+      logger.debug('approvalScoring advisory score unavailable', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
   }
 
   private buildPromptEditSuggestions(prompt: string): Array<{ id: string; reason: string; replacementPrompt: string }> {

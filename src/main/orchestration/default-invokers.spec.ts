@@ -15,6 +15,7 @@ const hoisted = vi.hoisted(() => ({
   resolveCliType: vi.fn(),
   getBreaker: vi.fn(),
   readCodexAuthMode: vi.fn(() => 'unknown' as 'chatgpt' | 'api-key' | 'unknown'),
+  auxGenerate: vi.fn(),
   instanceManager: {
     getInstance: vi.fn(),
     getAllInstances: vi.fn(),
@@ -70,6 +71,10 @@ vi.mock('../providers/codex-auth-mode', () => ({
   readCodexAuthMode: hoisted.readCodexAuthMode,
 }));
 
+vi.mock('../rlm/auxiliary-llm-service', () => ({
+  getAuxiliaryLlmService: () => ({ generate: hoisted.auxGenerate }),
+}));
+
 vi.mock('../../shared/types/provider.types', async (importOriginal) => ({
   // Keep the real exports (CLAUDE_MODELS, isModelTier, resolveModelForTier, …)
   // so the routing modules pulled in transitively via default-invokers load
@@ -79,6 +84,7 @@ vi.mock('../../shared/types/provider.types', async (importOriginal) => ({
 }));
 
 import {
+  classifyCheapModelEligible,
   registerDefaultDebateInvoker,
   registerDefaultMultiVerifyInvoker,
   registerDefaultReviewInvoker,
@@ -293,5 +299,34 @@ describe('resolveModelForInvocation (intent-routing Phase 2)', () => {
     });
     expect(model).not.toBe('default-model');
     expect(typeof model).toBe('string');
+  });
+});
+
+describe('classifyCheapModelEligible (routingClassification slot)', () => {
+  beforeEach(() => {
+    hoisted.auxGenerate.mockReset();
+  });
+
+  it('returns true when the aux model reports eligible', async () => {
+    hoisted.auxGenerate.mockResolvedValue({
+      text: JSON.stringify({ eligible: true, reason: 'simple summarization' }),
+      decision: { slot: 'routingClassification' },
+    });
+    expect(await classifyCheapModelEligible('summarize this paragraph')).toBe(true);
+  });
+
+  it('returns false when the aux model reports ineligible', async () => {
+    hoisted.auxGenerate.mockResolvedValue({
+      text: JSON.stringify({ eligible: false, reason: 'multi-file refactor' }),
+      decision: { slot: 'routingClassification' },
+    });
+    expect(await classifyCheapModelEligible('refactor the auth subsystem')).toBe(false);
+  });
+
+  it('falls back to false on non-JSON output or aux failure', async () => {
+    hoisted.auxGenerate.mockResolvedValue({ text: 'not json', decision: {} });
+    expect(await classifyCheapModelEligible('x')).toBe(false);
+    hoisted.auxGenerate.mockRejectedValue(new Error('aux timed out'));
+    expect(await classifyCheapModelEligible('x')).toBe(false);
   });
 });

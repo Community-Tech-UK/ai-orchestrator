@@ -7,6 +7,7 @@ import {
   workerLoadedContexts,
   endpointAdvertisesModel,
   backfillSlotTiers,
+  raiseSlotOutputBudget,
   DEFAULT_SLOT_TIERS,
 } from '../auxiliary-llm-utils';
 import type { AuxiliaryLlmSlotConfig } from '../../../shared/types/auxiliary-llm.types';
@@ -224,6 +225,30 @@ describe('backfillSlotTiers', () => {
 
   it('returns null for unparseable JSON', () => {
     expect(backfillSlotTiers('{not json')).toBeNull();
+  });
+});
+
+describe('raiseSlotOutputBudget', () => {
+  it('raises a too-small budget up to the minimum', () => {
+    const raw = JSON.stringify({ titleGeneration: { enabled: true, maxOutputTokens: 128 } });
+    const out = raiseSlotOutputBudget(raw, 'titleGeneration', 512);
+    expect(out).not.toBeNull();
+    expect(JSON.parse(out!).titleGeneration.maxOutputTokens).toBe(512);
+  });
+
+  it('leaves a budget already at or above the minimum unchanged', () => {
+    const raw = JSON.stringify({ titleGeneration: { maxOutputTokens: 512 } });
+    expect(raiseSlotOutputBudget(raw, 'titleGeneration', 512)).toBeNull();
+    expect(raiseSlotOutputBudget(JSON.stringify({ titleGeneration: { maxOutputTokens: 1024 } }), 'titleGeneration', 512)).toBeNull();
+  });
+
+  it('returns null when the slot is missing or has no numeric budget', () => {
+    expect(raiseSlotOutputBudget(JSON.stringify({ other: { maxOutputTokens: 1 } }), 'titleGeneration', 512)).toBeNull();
+    expect(raiseSlotOutputBudget(JSON.stringify({ titleGeneration: {} }), 'titleGeneration', 512)).toBeNull();
+  });
+
+  it('returns null for unparseable JSON', () => {
+    expect(raiseSlotOutputBudget('{nope', 'titleGeneration', 512)).toBeNull();
   });
 });
 

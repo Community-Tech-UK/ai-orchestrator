@@ -43,6 +43,27 @@ export function backfillSlotTiers(raw: string): string | null {
   return changed ? JSON.stringify(slots) : null;
 }
 
+/**
+ * Raise a slot's `maxOutputTokens` up to `minTokens` if it's currently lower.
+ * Reasoning models spend their budget on hidden reasoning before emitting any
+ * content, so a too-small budget (e.g. titleGeneration's old 128) leaves the
+ * actual answer empty. Returns updated JSON, or null when unchanged/unparseable.
+ */
+export function raiseSlotOutputBudget(raw: string, slot: string, minTokens: number): string | null {
+  let slots: Record<string, { maxOutputTokens?: number } | undefined>;
+  try {
+    slots = JSON.parse(raw) as Record<string, { maxOutputTokens?: number } | undefined>;
+  } catch {
+    return null;
+  }
+  const cfg = slots[slot];
+  if (!cfg || typeof cfg.maxOutputTokens !== 'number' || cfg.maxOutputTokens >= minTokens) {
+    return null;
+  }
+  cfg.maxOutputTokens = minTokens;
+  return JSON.stringify(slots);
+}
+
 /** Default Ollama REST endpoint on the coordinator's own machine. */
 export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
 

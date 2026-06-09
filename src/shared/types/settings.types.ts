@@ -366,6 +366,14 @@ export interface AppSettings {
    */
   auxiliaryLlmQuickModel: string;
   auxiliaryLlmQualityModel: string;
+  /**
+   * Opt-in: let the auxiliary `routingClassification` slot influence Loop Mode
+   * model selection. When on, each routed loop spawn asks the aux model whether
+   * the task is cheap-model eligible and, if so, prefers the fast tier — at the
+   * cost of one extra aux call per spawn. Off by default so loop model routing
+   * stays purely heuristic unless explicitly enabled.
+   */
+  auxiliaryLlmRoutingClassificationEnabled: boolean;
 }
 
 /**
@@ -526,11 +534,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   auxiliaryLlmEndpointsJson: '[]',
   auxiliaryLlmQuickModel: '',
   auxiliaryLlmQualityModel: '',
+  auxiliaryLlmRoutingClassificationEnabled: false,
   auxiliaryLlmSlotsJson: JSON.stringify({
     compression: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: true },
     memoryDistillation: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: true },
     webExtract: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.1, timeoutMs: 30000, requireJson: false, allowFrontierFallback: false },
-    titleGeneration: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 12000, maxOutputTokens: 128, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: false },
+    titleGeneration: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 12000, maxOutputTokens: 512, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: false },
     routingClassification: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 45000, requireJson: true, allowFrontierFallback: false },
     approvalScoring: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 45000, requireJson: true, allowFrontierFallback: false },
     loopScoring: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 32000, maxOutputTokens: 1024, temperature: 0, timeoutMs: 30000, requireJson: true, allowFrontierFallback: false },

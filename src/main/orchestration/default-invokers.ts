@@ -23,6 +23,7 @@ import { coerceToFailoverError } from '../core/failover-error';
 import { getDefaultModelForCli } from '../../shared/types/provider.types';
 import type { ProviderId } from '../../shared/types/provider-quota.types';
 import { getModelRouter, resolveRoutedModel } from '../routing';
+import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import type { CliType } from '../cli/cli-detection';
 import {
   DebateCritiqueInvocationPayloadSchema,
@@ -122,6 +123,23 @@ export function resolveModelForInvocation(args: {
   }
 
   return resolveDefaultModel(args.cliType, args.payloadModel);
+}
+
+/** Auxiliary `routingClassification` slot: is the task cheap-model eligible?
+ *  Returns false on ANY failure so the heuristic decision stands. */
+export async function classifyCheapModelEligible(prompt: string): Promise<boolean> {
+  try {
+    const { text } = await getAuxiliaryLlmService().generate(
+      'routingClassification',
+      'You classify whether a coding/agent request is simple enough to be handled by a small, ' +
+        'cheap local model. Respond ONLY with JSON: {"eligible":boolean,"reason":string}.',
+      `Is this request eligible for a cheap local model?\n\n${prompt}`,
+    );
+    const parsed = JSON.parse(text) as { eligible?: unknown };
+    return parsed.eligible === true;
+  } catch {
+    return false;
+  }
 }
 
 function isBaseCliAdapterLike(adapter: CliAdapter): adapter is CliAdapter & { sendMessage: (m: CliMessage) => Promise<CliResponse> } {
@@ -431,13 +449,44 @@ async function invokeCliTextResponse(params: {
   const requestedProvider = params.requestedProvider ?? fallbackProvider ?? 'auto';
   const defaultCli = getSettingsManager().getAll().defaultCli;
   const cliType = await resolveCliType(requestedProvider as Parameters<typeof resolveCliType>[0], defaultCli);
-  const model = resolveModelForInvocation({
+  let model = resolveModelForInvocation({
     cliType,
     requestedProvider,
     payloadModel: params.payloadModel,
     prompt: params.prompt,
     routingIntent: params.routingIntent,
   });
+
+  // routingClassification slot: when cost-tier routing applies (same guards as
+  // resolveModelForInvocation), ask the aux LLM if the task is cheap-model
+  // eligible and prefer the fast tier. Graceful no-op on any failure.
+  const explicitlyRequested =
+    typeof params.payloadModel === 'string' && params.payloadModel !== 'default';
+  const isCodexChatgpt =
+    (cliType === 'codex' || requestedProvider === 'codex') && readCodexAuthMode() === 'chatgpt';
+  if (
+    params.routingIntent === 'loop' &&
+    !explicitlyRequested &&
+    !isCodexChatgpt &&
+    getModelRouter().getConfig().enabled &&
+    getSettingsManager().getAll().auxiliaryLlmRoutingClassificationEnabled &&
+    (await classifyCheapModelEligible(params.prompt))
+  ) {
+    const providerHint =
+      requestedProvider && requestedProvider !== 'auto' ? requestedProvider : cliType;
+    const fastModel = resolveRoutedModel(params.prompt, {
+      provider: providerHint,
+      explicitModel: 'fast',
+    }).model;
+    if (fastModel && fastModel !== model) {
+      logger.info('routingClassification: task is cheap-model eligible, preferring fast tier', {
+        from: model,
+        to: fastModel,
+        provider: providerHint,
+      });
+      model = fastModel;
+    }
+  }
 
   const spawnOptions: UnifiedSpawnOptions = {
     workingDirectory,

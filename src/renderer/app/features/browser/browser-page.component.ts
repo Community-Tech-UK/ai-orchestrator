@@ -21,6 +21,7 @@ import type {
   BrowserTarget,
 } from '@contracts/types/browser';
 import { BrowserGatewayIpcService } from '../../core/services/ipc/browser-gateway-ipc.service';
+import { AuxiliaryLlmIpcService } from '../../core/services/ipc/auxiliary-llm-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 
 interface BrowserSnapshotView { title: string; url: string; text: string }
@@ -37,6 +38,7 @@ const recentAuditWindowMs = 15 * 60 * 1000;
 })
 export class BrowserPageComponent implements OnInit {
   private readonly ipc = inject(BrowserGatewayIpcService);
+  private readonly auxIpc = inject(AuxiliaryLlmIpcService);
   private readonly router = inject(Router);
 
   readonly profiles = signal<BrowserProfile[]>([]);
@@ -46,6 +48,8 @@ export class BrowserPageComponent implements OnInit {
   readonly activeGrants = signal<BrowserPermissionGrant[]>([]);
   readonly health = signal<unknown>(null);
   readonly snapshot = signal<BrowserSnapshotView | null>(null);
+  readonly extractedText = signal<string | null>(null);
+  readonly extracting = signal(false);
   readonly screenshotDataUrl = signal<string | null>(null);
   readonly selectedProfileId = signal<string | null>(null);
   readonly selectedTargetId = signal<string | null>(null);
@@ -289,7 +293,32 @@ export class BrowserPageComponent implements OnInit {
       return;
     }
     this.snapshot.set((response.data?.data as BrowserSnapshotView | undefined) ?? null);
+    this.extractedText.set(null);
     await this.refreshAudit();
+  }
+
+  /**
+   * Distill the loaded snapshot's raw page text into clean main content via the
+   * auxiliary `webExtract` slot (local/cheap model). Advisory; leaves the raw
+   * snapshot intact and surfaces an error rather than throwing.
+   */
+  async extractMainContent(): Promise<void> {
+    const snap = this.snapshot();
+    if (!snap?.text) {
+      return;
+    }
+    this.extracting.set(true);
+    this.extractedText.set(null);
+    try {
+      const response = await this.auxIpc.extractWeb({ text: snap.text });
+      if (!response.success) {
+        this.errorMessage.set(response.error?.message ?? 'Failed to extract main content.');
+        return;
+      }
+      this.extractedText.set(response.data?.text ?? '');
+    } finally {
+      this.extracting.set(false);
+    }
   }
 
   async captureScreenshot(): Promise<void> {

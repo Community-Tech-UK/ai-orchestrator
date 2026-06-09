@@ -187,6 +187,32 @@ export function registerAuxiliaryLlmHandlers(): void {
     }
   });
 
+  // Extract the main textual content from captured web/page text via the
+  // `webExtract` slot. Used by the Browser page to distill a noisy snapshot.
+  ipcMain.handle(IPC_CHANNELS.AUXILIARY_LLM_EXTRACT_WEB, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const { text } = payload as { text?: string };
+      if (typeof text !== 'string' || text.trim().length === 0) {
+        return {
+          success: false,
+          error: { code: 'EXTRACT_WEB_EMPTY', message: 'No page text provided to extract.', timestamp: Date.now() },
+        };
+      }
+      const { text: extracted, decision } = await getAuxiliaryLlmService().generate(
+        'webExtract',
+        'You extract the main textual content from a web page, discarding navigation, ads, and boilerplate. Return clean prose only.',
+        `Extract the main content from this captured page text:\n\n${text}`,
+      );
+      return { success: true, data: { text: extracted, decision } };
+    } catch (error) {
+      logger.error('auxiliary-llm:extract-web failed', error instanceof Error ? error : undefined);
+      return {
+        success: false,
+        error: { code: 'EXTRACT_WEB_FAILED', message: (error as Error).message, timestamp: Date.now() },
+      };
+    }
+  });
+
   // Save auxiliary LLM settings
   ipcMain.handle(IPC_CHANNELS.AUXILIARY_LLM_SAVE_SETTINGS, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
@@ -199,6 +225,7 @@ export function registerAuxiliaryLlmHandlers(): void {
         auxiliaryLlmSlotsJson?: string;
         auxiliaryLlmQuickModel?: string;
         auxiliaryLlmQualityModel?: string;
+        auxiliaryLlmRoutingClassificationEnabled?: boolean;
       };
 
       const manager = getSettingsManager();
@@ -211,6 +238,7 @@ export function registerAuxiliaryLlmHandlers(): void {
         'auxiliaryLlmSlotsJson',
         'auxiliaryLlmQuickModel',
         'auxiliaryLlmQualityModel',
+        'auxiliaryLlmRoutingClassificationEnabled',
       ] as const;
 
       for (const key of allowedKeys) {

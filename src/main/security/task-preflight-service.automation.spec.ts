@@ -13,6 +13,7 @@ const getFilesystemConfigMock = vi.fn();
 const getFilesystemStatsMock = vi.fn();
 const getNetworkConfigMock = vi.fn();
 const getPermissionConfigMock = vi.fn();
+const auxGenerateMock = vi.fn();
 
 vi.mock('../core/config/instruction-resolver', () => ({
   resolveInstructionStack: resolveInstructionStackMock,
@@ -66,6 +67,12 @@ vi.mock('./permission-manager', () => ({
   }),
 }));
 
+vi.mock('../rlm/auxiliary-llm-service', () => ({
+  getAuxiliaryLlmService: () => ({
+    generate: auxGenerateMock,
+  }),
+}));
+
 describe('TaskPreflightService automation preflight', () => {
   const tempDirs: string[] = [];
 
@@ -81,6 +88,9 @@ describe('TaskPreflightService automation preflight', () => {
     getFilesystemStatsMock.mockReset();
     getNetworkConfigMock.mockReset();
     getPermissionConfigMock.mockReset();
+    auxGenerateMock.mockReset();
+    // Default: non-JSON / empty score → advisory scoring is a no-op.
+    auxGenerateMock.mockResolvedValue({ text: '{}', decision: { slot: 'approvalScoring' } });
 
     const { TaskPreflightService } = await import('./task-preflight-service');
     TaskPreflightService._resetForTesting();
@@ -179,5 +189,49 @@ describe('TaskPreflightService automation preflight', () => {
       ]),
     );
     expect(report.suggestedPromptEdits[0]?.replacementPrompt).toContain('Return a concise summary');
+  });
+
+  it('surfaces an advisory risk warning when approvalScoring returns an elevated score', async () => {
+    const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'automation-preflight-'));
+    tempDirs.push(repoPath);
+    auxGenerateMock.mockResolvedValue({
+      text: JSON.stringify({ score: 0.82, confidence: 0.7, reason: 'Edits files and installs packages unattended' }),
+      decision: { slot: 'approvalScoring' },
+    });
+
+    const { getTaskPreflightService } = await import('./task-preflight-service');
+    const report = await getTaskPreflightService().getAutomationPreflight({
+      workingDirectory: repoPath,
+      prompt: 'Install dependencies and refactor the auth module',
+      provider: 'claude',
+      model: 'claude-sonnet',
+      yoloMode: false,
+      expectedUnattended: false,
+    });
+
+    expect(report.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('Advisory risk score 0.82')]),
+    );
+    // Advisory only — it must never block saving.
+    expect(report.okToSave).toBe(true);
+  });
+
+  it('ignores advisory scoring failures (graceful fallback, no warning, no block)', async () => {
+    const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'automation-preflight-'));
+    tempDirs.push(repoPath);
+    auxGenerateMock.mockRejectedValue(new Error('aux endpoint timed out'));
+
+    const { getTaskPreflightService } = await import('./task-preflight-service');
+    const report = await getTaskPreflightService().getAutomationPreflight({
+      workingDirectory: repoPath,
+      prompt: 'Install dependencies and refactor the auth module',
+      provider: 'claude',
+      model: 'claude-sonnet',
+      yoloMode: false,
+      expectedUnattended: false,
+    });
+
+    expect(report.warnings.some((w) => w.includes('Advisory risk score'))).toBe(false);
+    expect(report.okToSave).toBe(true);
   });
 });

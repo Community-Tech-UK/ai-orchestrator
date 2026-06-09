@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "scripts/generate-architecture-inventory.js",
   "ipc": {
-    "channelCount": 974,
+    "channelCount": 975,
     "channels": [
       {
         "name": "INSTANCE_CREATE",
@@ -4873,6 +4873,11 @@
         "name": "AUXILIARY_LLM_SAVE_SETTINGS",
         "value": "auxiliary-llm:save-settings",
         "line": 1239
+      },
+      {
+        "name": "AUXILIARY_LLM_EXTRACT_WEB",
+        "value": "auxiliary-llm:extract-web",
+        "line": 1240
       }
     ]
   },
@@ -5103,6 +5108,10 @@
       "lines": 1803
     },
     {
+      "path": "src/main/orchestration/default-invokers.ts",
+      "lines": 1719
+    },
+    {
       "path": "src/main/instance/__tests__/instance-manager.spec.ts",
       "lines": 1710
     },
@@ -5113,10 +5122,6 @@
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
       "lines": 1683
-    },
-    {
-      "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1670
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
