@@ -10,12 +10,30 @@
 
 import { Injectable, inject } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
-import { marked, type Tokens } from 'marked';
+import { marked, Tokenizer, type Tokens } from 'marked';
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
 import { detectLinks } from '../../../../shared/utils/link-detection';
 import { formatAssistantTextForDisplay } from '../../../../shared/utils/assistant-text-format';
 import { CLIPBOARD_SERVICE } from './clipboard.service';
+
+const DOUBLE_TILDE_DEL_RE = /^(~~)(?=[^\s~])((?:\\[\s\S]|[^\\])*?(?:\\[\s\S]|[^\s~\\]))\1(?=[^~]|$)/;
+
+class ConversationMarkdownTokenizer extends Tokenizer {
+  override del(src: string): Tokens.Del | undefined {
+    const match = DOUBLE_TILDE_DEL_RE.exec(src);
+    if (!match) {
+      return undefined;
+    }
+
+    return {
+      type: 'del',
+      raw: match[0],
+      text: match[2],
+      tokens: this.lexer.inlineTokens(match[2]),
+    };
+  }
+}
 
 @Injectable({
   providedIn: 'root',
@@ -145,6 +163,7 @@ export class MarkdownService {
     // Configure marked
     marked.setOptions({
       renderer,
+      tokenizer: new ConversationMarkdownTokenizer(),
       gfm: true,
       breaks: true,
     });

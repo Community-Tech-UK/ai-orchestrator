@@ -32,6 +32,25 @@ describe('MarkdownService.renderSync command stripping', () => {
     expect(html).toContain('<strong>world</strong>');
   });
 
+  it('preserves literal tildes used for approximate values', () => {
+    const html = service.renderSync(
+      'Total alloc was 2.0 TB pre-fix -> ~0.5 TB post-fix at ~170 players, this is the first look at ~250-player peak), FancyHolograms~(1 GB expected).',
+    );
+
+    expect(html).not.toContain('<del>');
+    expect(html).not.toContain('<s>');
+    expect(html).toContain('~0.5 TB');
+    expect(html).toContain('~170 players');
+    expect(html).toContain('~250-player peak');
+    expect(html).toContain('FancyHolograms~');
+  });
+
+  it('keeps double-tilde strikethrough support', () => {
+    const html = service.renderSync('Use ~~removed~~ only when deletion is intentional.');
+
+    expect(html).toContain('<del>removed</del>');
+  });
+
   it('removes orchestrator command blocks from rendered output', () => {
     const markdown = [
       'before the command',

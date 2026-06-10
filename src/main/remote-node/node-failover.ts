@@ -156,18 +156,19 @@ export function handleLateNodeReconnect(nodeId: string, instanceManager: Instanc
   });
 
   for (const inst of failedOnNode) {
-    // Transition from failed → idle so the user can interact again.
-    // The CLI process on the remote node is gone (it rebooted), so the instance
-    // will need a fresh spawn when the user next sends a message — but at least
-    // the session state (displayName, output history, continuity data) is preserved.
-    instanceManager.updateInstanceStatus(inst.id, 'idle', {
-      reason: 'worker-node-late-reconnected',
-      nodeId,
-    });
-
-    instanceManager.emit('instance:remote-recovery-available', {
-      instanceId: inst.id,
-      nodeId,
-    });
+    // Failed is terminal in the lifecycle state machine. Late reconnect should
+    // announce recovery availability without rejecting the node registration.
+    try {
+      instanceManager.emit('instance:remote-recovery-available', {
+        instanceId: inst.id,
+        nodeId,
+      });
+    } catch (error) {
+      logger.warn('Late node reconnect: recovery event listener failed', {
+        nodeId,
+        instanceId: inst.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 }
