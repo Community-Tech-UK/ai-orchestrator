@@ -201,6 +201,28 @@
 
       <div class="field-group">
         <div class="card-row">
+          <label class="field-label" for="rn-offload-android">Auto-offload Android Tasks</label>
+          <label class="toggle-label">
+            <input
+              id="rn-offload-android"
+              type="checkbox"
+              class="toggle-input"
+              [checked]="draftAutoOffloadAndroid()"
+              (change)="draftAutoOffloadAndroid.set(!draftAutoOffloadAndroid())"
+            />
+            <span class="toggle-track">
+              <span class="toggle-thumb"></span>
+            </span>
+          </label>
+        </div>
+        <p class="field-hint">
+          When a job needs an Android emulator or device and a connected computer
+          has Android automation enabled, send it there automatically.
+        </p>
+      </div>
+
+      <div class="field-group">
+        <div class="card-row">
           <label class="field-label" for="rn-offload-gpu">Auto-offload GPU Tasks</label>
           <label class="toggle-label">
             <input
@@ -506,6 +528,14 @@
         </p>
       </app-inline-help>
 
+      <app-inline-help variant="tip" heading="Android automation per node">
+        <p>
+          <strong>Ready</strong> — agents spawned with Android placement get
+          <code>mobile-mcp</code> locked to one leased device. <strong>SDK detected</strong>
+          means ADB is present but automation is not enabled yet.
+        </p>
+      </app-inline-help>
+
       @if (nodeHealthEntries().length === 0) {
         <p class="field-hint">No computers have connected yet. Create a pairing code above and enter it on the other machine to connect one.</p>
       } @else {
@@ -561,6 +591,17 @@
               >
                 {{ browserAutomationLabel(entry) }}
               </span>
+              <span
+                class="capability-chip android-automation"
+                [attr.data-state]="androidAutomationState(entry)"
+                [title]="androidAutomationState(entry) === 'sdk-only'
+                  ? 'Android SDK/ADB is detected, but automation is not ready on this node.'
+                  : androidAutomationState(entry) === 'off'
+                    ? 'No Android SDK/ADB state reported by this node.'
+                    : 'Agents spawned on this node can receive mobile-mcp Android tools.'"
+              >
+                {{ androidAutomationLabel(entry) }}
+              </span>
               @if (entry.supportsGpu) {
                 <span class="capability-chip">GPU</span>
               }
@@ -574,6 +615,15 @@
                   (click)="configuringNodeId() === entry.id ? cancelBrowserConfig() : openBrowserConfig(entry)"
                 >
                   {{ configuringNodeId() === entry.id ? 'Close' : 'Configure browser automation' }}
+                </button>
+              }
+              @if (entry.status === 'connected') {
+                <button
+                  class="btn btn-secondary small"
+                  type="button"
+                  (click)="androidConfiguringNodeId() === entry.id ? cancelAndroidConfig() : openAndroidConfig(entry)"
+                >
+                  {{ androidConfiguringNodeId() === entry.id ? 'Close' : 'Configure Android automation' }}
                 </button>
               }
             </div>
@@ -684,6 +734,16 @@
                   }
                 </div>
               </div>
+            }
+
+            @if (androidConfiguringNodeId() === entry.id) {
+              <app-remote-node-android-config
+                [busy]="aaBusy()"
+                [enabledFallback]="entry.androidAutomationReady"
+                [summary]="entry.androidAutomation"
+                (applyRequested)="applyAndroidConfig($event)"
+                (cancelRequested)="cancelAndroidConfig()"
+              />
             }
           </div>
         }

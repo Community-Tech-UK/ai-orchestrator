@@ -34,6 +34,10 @@ import {
   buildChromeDevtoolsAcpMcpServers,
   buildChromeDevtoolsCodexConfigToml,
 } from '../../browser-gateway/chrome-devtools-mcp-config';
+import {
+  buildMobileMcpAcpMcpServers,
+  buildMobileMcpCodexConfigToml,
+} from '../../browser-gateway/mobile-mcp-config';
 import type { UnifiedSpawnOptions, CliAdapter } from './adapter-factory.types';
 import { buildStaticMcpServersCodexConfigToml } from './static-mcp-codex-config';
 import {
@@ -61,7 +65,7 @@ export type { UnifiedSpawnOptions, CliAdapter } from './adapter-factory.types';
 /**
  * Maps settings CliType to detection CliType
  */
-export function mapSettingsToDetectionType(settingsType: SettingsCliType): CliType | 'auto' {
+export function mapSettingsToDetectionType(settingsType: SettingsCliType | CliType): CliType | 'auto' {
   switch (settingsType) {
     case 'claude':
       return 'claude';
@@ -75,6 +79,8 @@ export function mapSettingsToDetectionType(settingsType: SettingsCliType): CliTy
       return 'copilot';
     case 'cursor':
       return 'cursor';
+    case 'ollama':
+      return 'ollama';
     case 'auto':
       return 'auto';
     default:
@@ -91,19 +97,21 @@ export async function resolveCliType(
 ): Promise<CliType> {
   const detection = CliDetectionService.getInstance();
   logger.debug('resolveCliType called', { requestedType, defaultType });
+  const result = await detection.detectAll();
+  const isAvailable = (cliType: CliType): boolean =>
+    result.available.some((cli) => cli.name === cliType);
 
   // If explicitly requested (not 'auto'), try to use it
   if (requestedType && requestedType !== 'auto') {
-    const cliType = mapSettingsToDetectionType(requestedType as SettingsCliType);
+    const cliType = mapSettingsToDetectionType(requestedType);
     logger.debug('Mapped requested type to CLI type', { requestedType, cliType });
     if (cliType !== 'auto') {
       // Verify it's available
-      const result = await detection.detectAll();
       const availableClis = result.available.map(c => c.name);
       logger.debug('Available CLIs', { clis: availableClis });
-      const isAvailable = result.available.some((cli) => cli.name === cliType);
-      logger.debug('Checking availability', { cliType, isAvailable });
-      if (isAvailable) {
+      const cliIsAvailable = isAvailable(cliType);
+      logger.debug('Checking availability', { cliType, isAvailable: cliIsAvailable });
+      if (cliIsAvailable) {
         return cliType;
       }
       logger.warn('Requested CLI not available, falling back to auto', { requestedType, cliType });
@@ -114,16 +122,13 @@ export async function resolveCliType(
   if (defaultType !== 'auto') {
     const cliType = mapSettingsToDetectionType(defaultType);
     if (cliType !== 'auto') {
-      const result = await detection.detectAll();
-      const isAvailable = result.available.some((cli) => cli.name === cliType);
-      if (isAvailable) {
+      if (isAvailable(cliType)) {
         return cliType;
       }
     }
   }
 
-  // Fall back to first available CLI (priority: claude > codex > gemini > ollama)
-  const result = await detection.detectAll();
+  // Fall back to first available CLI.
   const priority: CliType[] = ['claude', 'codex', 'gemini', 'copilot', 'cursor', 'ollama'];
   logger.debug('Falling back to auto-detect', { priority });
 
@@ -186,6 +191,9 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
       : null,
     options.chromeDevtoolsMcp
       ? buildChromeDevtoolsCodexConfigToml(options.chromeDevtoolsMcp)
+      : null,
+    options.mobileMcp
+      ? buildMobileMcpCodexConfigToml(options.mobileMcp)
       : null,
     // Static, user-managed servers from config/mcp-servers.json (lsp, imap, …).
     // Claude/Copilot get these via --mcp-config; Codex needs them as TOML.
@@ -285,10 +293,14 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
   const chromeDevtoolsMcpServers = options.chromeDevtoolsMcp
     ? buildChromeDevtoolsAcpMcpServers(options.chromeDevtoolsMcp)
     : [];
+  const mobileMcpServers = options.mobileMcp
+    ? buildMobileMcpAcpMcpServers(options.mobileMcp)
+    : [];
   const copilotMcpServers = [
     ...(options.mcpServers ?? []),
     ...browserGatewayMcpServers,
     ...chromeDevtoolsMcpServers,
+    ...mobileMcpServers,
   ];
   const additionalMcpConfig = buildCopilotAdditionalMcpConfig(copilotMcpServers);
   return new AcpCliAdapter({
@@ -357,6 +369,9 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
   const chromeDevtoolsMcpServers = options.chromeDevtoolsMcp
     ? buildChromeDevtoolsAcpMcpServers(options.chromeDevtoolsMcp)
     : [];
+  const mobileMcpServers = options.mobileMcp
+    ? buildMobileMcpAcpMcpServers(options.mobileMcp)
+    : [];
   const modelArgs: string[] = [];
   const requestedModel = options.model?.trim();
   if (requestedModel && requestedModel.toLowerCase() !== 'auto') {
@@ -376,6 +391,7 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
       ...(options.mcpServers ?? []),
       ...browserGatewayMcpServers,
       ...chromeDevtoolsMcpServers,
+      ...mobileMcpServers,
     ],
     model: options.model,
     systemPrompt: options.systemPrompt,

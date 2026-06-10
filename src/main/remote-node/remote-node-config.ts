@@ -7,6 +7,8 @@ export interface RemoteNodeConfig {
   serverHost: string;
   /** Auto-route browser tasks to nodes with browser capability */
   autoOffloadBrowser: boolean;
+  /** Auto-route Android tasks to nodes with Android capability */
+  autoOffloadAndroid: boolean;
   /** Auto-route GPU tasks to nodes with GPU */
   autoOffloadGpu: boolean;
   /** Global cap on total remote instances */
@@ -26,6 +28,7 @@ const DEFAULT_CONFIG: RemoteNodeConfig = {
   serverPort: 4878,
   serverHost: '127.0.0.1',
   autoOffloadBrowser: true,
+  autoOffloadAndroid: true,
   autoOffloadGpu: false,
   maxRemoteInstances: 20,
   namespace: 'default',
@@ -53,6 +56,7 @@ export function hydrateRemoteNodeConfig(settings: import('../../shared/types/set
     serverPort: settings.remoteNodesServerPort,
     serverHost: settings.remoteNodesServerHost,
     autoOffloadBrowser: settings.remoteNodesAutoOffloadBrowser,
+    autoOffloadAndroid: settings.remoteNodesAutoOffloadAndroid,
     autoOffloadGpu: settings.remoteNodesAutoOffloadGpu,
     namespace: settings.remoteNodesNamespace,
     tlsCertPath: settings.remoteNodesTlsCertPath || undefined,

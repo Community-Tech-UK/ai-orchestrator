@@ -7,6 +7,7 @@ import type {
   WorkerLoadedModel,
   NodePlatform,
   WorkerNodeBrowserAutomationSummary,
+  WorkerNodeAndroidAutomationSummary,
 } from '../shared/types/worker-node.types';
 import type { CanonicalCliType } from '../shared/types/settings.types';
 import { ProjectDiscovery } from '../main/remote-node/project-discovery';
@@ -24,6 +25,7 @@ export async function reportCapabilities(
   workingDirectories: string[],
   maxConcurrentInstances = 10,
   browserAutomation?: WorkerNodeBrowserAutomationSummary,
+  androidAutomation?: WorkerNodeAndroidAutomationSummary,
 ): Promise<WorkerNodeCapabilities> {
   const supportedClis = detectClis();
   const gpu = detectGpu();
@@ -50,6 +52,8 @@ export async function reportCapabilities(
     // actually inject the chrome-devtools MCP server into spawned agents.
     hasBrowserMcp: (browserAutomation?.enabled ?? false) && hasBrowserRuntime,
     ...(browserAutomation ? { browserAutomation } : {}),
+    hasAndroidMcp: (androidAutomation?.enabled ?? false) && Boolean(androidAutomation?.adbVersion),
+    ...(androidAutomation ? { androidAutomation } : {}),
     hasDocker: detectDocker(),
     maxConcurrentInstances,
     workingDirectories,

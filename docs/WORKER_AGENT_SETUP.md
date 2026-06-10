@@ -12,7 +12,7 @@ Workers auto-discover the coordinator on the LAN via mDNS — no IP address need
 
 On the worker machine you need:
 
-1. **Node.js 20+** — the worker agent targets Node 20.
+1. **Node.js 22+** — the worker agent targets Node 22 and matches the repo engine.
 2. **Git** — to clone the repo.
 3. **At least one AI CLI** installed and on the PATH. The capability reporter auto-detects:
    - `claude` (Claude Code)
@@ -23,7 +23,10 @@ On the worker machine you need:
 4. **npm** — for installing dependencies and building.
 5. **(Optional) Google Chrome or Edge** — if you want browser automation tasks routed here. The reporter checks standard install paths on Windows (`C:\Program Files\Google\Chrome\Application\chrome.exe`, `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`).
 6. **(Optional) NVIDIA GPU with `nvidia-smi`** — if you want GPU tasks routed here. The reporter runs `nvidia-smi --query-gpu=name,memory.total` to detect GPU name and VRAM.
-7. **(Optional) Docker** — detected via `docker` on PATH.
+7. **(Optional) Android SDK Platform Tools + Emulator** — if you want Android
+   testing routed here. Set `ANDROID_HOME` or `ANDROID_SDK_ROOT`, install at
+   least one AVD, and make sure `adb` can see emulators/physical devices.
+8. **(Optional) Docker** — detected via `docker` on PATH.
 
 ## Step 1 — Clone and Build (on the Worker Machine)
 
@@ -35,6 +38,8 @@ npm run build:worker-agent
 ```
 
 This runs esbuild and produces a single bundled file at `dist/worker-agent/index.js`.
+It also bundles the browser accessibility runner at
+`dist/worker-tools/axe-audit.mjs`.
 
 **Note:** `npm install` runs a postinstall script that rebuilds `better-sqlite3` for Electron. This is only needed if you plan to run the full Electron app on this machine — the worker agent itself doesn't use SQLite. If the postinstall fails (e.g. missing C++ build tools), the worker agent will still work fine.
 
@@ -100,6 +105,31 @@ Field reference:
 | `coordinatorUrl` | Recommended | WebSocket URL of the coordinator (e.g. `"ws://192.168.0.15:4878"`). Without this, the worker relies on mDNS auto-discovery, which is unreliable on Windows. Use `wss://` if TLS is enabled on the coordinator. |
 | `heartbeatIntervalMs` | No | Interval for heartbeat + capability refresh (default 10000ms). |
 
+Optional Android automation block:
+
+```jsonc
+{
+  "androidAutomation": {
+    "enabled": true,
+    "sdkPath": "C:\\Users\\YourName\\AppData\\Local\\Android\\Sdk",
+    "defaultAvd": "Pixel_8_API_35",
+    "headlessEmulator": true,
+    "maxEmulators": 1,
+    "allowPhysicalDevices": true,
+    "injectMaestroMcp": false
+  }
+}
+```
+
+Rules:
+- The block is ignored unless `enabled` is exactly `true`.
+- `sdkPath` is optional when `ANDROID_HOME`, `ANDROID_SDK_ROOT`, or the platform
+  default SDK path is valid.
+- `maxEmulators` is capped at 4; the default is 1.
+- Physical devices must be online and authorized in `adb devices -l`.
+- Android automation can also be toggled from Settings > Remote Nodes on the
+  coordinator after the worker has connected.
+
 The copied UI config may instead contain `token`, `host`, `port`, and
 `requireTls`. The worker accepts that shape too: it treats `token` as the
 first-run enrollment token and derives `coordinatorUrl` from `host`/`port`.
@@ -133,7 +163,7 @@ The worker:
 1. Discovers the coordinator on the LAN via mDNS (filtered by namespace)
 2. Connects and sends the enrollment token
 3. Receives a unique per-node token (saved to `worker-node.json` automatically)
-4. Reports capabilities (CPU, memory, GPU, CLIs, browser)
+4. Reports capabilities (CPU, memory, GPU, CLIs, browser, Android SDK/devices)
 5. Starts listening for RPC commands
 
 **Reconnection:** If the connection drops, the worker retries with exponential backoff (1s → 2s → 4s → ... up to 30s max). If the coordinator restarts or changes IP, continuous mDNS discovery detects it and reconnects automatically.

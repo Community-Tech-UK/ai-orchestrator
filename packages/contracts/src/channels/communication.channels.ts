@@ -65,6 +65,7 @@ export const COMMUNICATION_CHANNELS = {
   REMOTE_NODE_SERVICE_STOP: 'remote-node:service:stop',
   REMOTE_NODE_SERVICE_UNINSTALL: 'remote-node:service:uninstall',
   REMOTE_NODE_UPDATE_BROWSER_AUTOMATION: 'remote-node:update-browser-automation',
+  REMOTE_NODE_UPDATE_ANDROID_AUTOMATION: 'remote-node:update-android-automation',
   REMOTE_NODE_RUN_BROWSER_LOGIN: 'remote-node:run-browser-login',
 
   // Remote Filesystem operations

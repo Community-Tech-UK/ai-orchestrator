@@ -14,6 +14,7 @@ const getFilesystemStatsMock = vi.fn();
 const getNetworkConfigMock = vi.fn();
 const getPermissionConfigMock = vi.fn();
 const auxGenerateMock = vi.fn();
+const getWorkerNodesMock = vi.fn();
 
 vi.mock('../core/config/instruction-resolver', () => ({
   resolveInstructionStack: resolveInstructionStackMock,
@@ -43,6 +44,12 @@ vi.mock('../logging/logger', () => ({
 vi.mock('../mcp/mcp-manager', () => ({
   getMcpManager: () => ({
     getServers: getServersMock,
+  }),
+}));
+
+vi.mock('../remote-node', () => ({
+  getWorkerNodeRegistry: () => ({
+    getAllNodes: getWorkerNodesMock,
   }),
 }));
 
@@ -89,6 +96,7 @@ describe('TaskPreflightService automation preflight', () => {
     getNetworkConfigMock.mockReset();
     getPermissionConfigMock.mockReset();
     auxGenerateMock.mockReset();
+    getWorkerNodesMock.mockReset();
     // Default: non-JSON / empty score → advisory scoring is a no-op.
     auxGenerateMock.mockResolvedValue({ text: '{}', decision: { slot: 'approvalScoring' } });
 
@@ -137,6 +145,7 @@ describe('TaskPreflightService automation preflight', () => {
     getPermissionConfigMock.mockReturnValue({
       defaultAction: 'ask',
     });
+    getWorkerNodesMock.mockReturnValue([]);
   });
 
   afterEach(async () => {

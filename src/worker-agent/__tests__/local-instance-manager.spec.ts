@@ -9,6 +9,25 @@ class MockWorkerAdapter extends EventEmitter {
   interrupt = vi.fn(async () => undefined);
 }
 
+class ControlledWorkerAdapter extends EventEmitter {
+  private resolveSpawnPromise: (() => void) | null = null;
+  spawn = vi.fn(() =>
+    new Promise<number>((resolve) => {
+      this.resolveSpawnPromise = () => resolve(123);
+    })
+  );
+  sendInput = vi.fn(async () => undefined);
+  terminate = vi.fn(async () => undefined);
+  interrupt = vi.fn(async () => undefined);
+
+  resolveSpawn(): void {
+    if (!this.resolveSpawnPromise) {
+      throw new Error('spawn has not started');
+    }
+    this.resolveSpawnPromise();
+  }
+}
+
 let mockAdapter: MockWorkerAdapter;
 const mockCreateCliAdapter = vi.fn(() => mockAdapter);
 
@@ -21,7 +40,8 @@ describe('LocalInstanceManager', () => {
 
   beforeEach(() => {
     mockAdapter = new MockWorkerAdapter();
-    mockCreateCliAdapter.mockClear();
+    mockCreateCliAdapter.mockReset();
+    mockCreateCliAdapter.mockImplementation(() => mockAdapter);
     manager = new LocalInstanceManager(['/tmp/allowed']);
   });
 
@@ -41,6 +61,23 @@ describe('LocalInstanceManager', () => {
     ).rejects.toThrow('not in allowed working directories');
   });
 
+  it('treats allowed working directories case-insensitively on Windows', async () => {
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+    const windowsManager = new LocalInstanceManager(['/tmp/Allowed']);
+
+    try {
+      await expect(
+        windowsManager.spawn({
+          instanceId: 'case-insensitive',
+          cliType: 'claude',
+          workingDirectory: '/tmp/allowed/project',
+        }),
+      ).resolves.toBeUndefined();
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
   it('rejects spawn beyond capacity', async () => {
     const smallManager = new LocalInstanceManager(['/tmp'], 0);
     await expect(
@@ -51,6 +88,106 @@ describe('LocalInstanceManager', () => {
         systemPrompt: 'test',
       }),
     ).rejects.toThrow('at capacity');
+  });
+
+  it('reserves capacity while a spawn is still starting', async () => {
+    const pendingAdapter = new ControlledWorkerAdapter();
+    const secondAdapter = new MockWorkerAdapter();
+    mockCreateCliAdapter
+      .mockReturnValueOnce(pendingAdapter)
+      .mockReturnValueOnce(secondAdapter);
+    const smallManager = new LocalInstanceManager(['/tmp/allowed'], 1);
+
+    const firstSpawn = smallManager.spawn({
+      instanceId: 'pending-1',
+      cliType: 'claude',
+      workingDirectory: '/tmp/allowed',
+    });
+    await waitForSpawnToStart(pendingAdapter);
+
+    await expect(
+      smallManager.spawn({
+        instanceId: 'pending-2',
+        cliType: 'claude',
+        workingDirectory: '/tmp/allowed',
+      }),
+    ).rejects.toThrow('at capacity');
+
+    pendingAdapter.resolveSpawn();
+    await firstSpawn;
+    expect(secondAdapter.spawn).not.toHaveBeenCalled();
+    expect(smallManager.getAllInstanceIds()).toEqual(['pending-1']);
+  });
+
+  it('rejects duplicate instance IDs while the first spawn is still starting', async () => {
+    const pendingAdapter = new ControlledWorkerAdapter();
+    const secondAdapter = new MockWorkerAdapter();
+    mockCreateCliAdapter
+      .mockReturnValueOnce(pendingAdapter)
+      .mockReturnValueOnce(secondAdapter);
+    const smallManager = new LocalInstanceManager(['/tmp/allowed'], 2);
+
+    const firstSpawn = smallManager.spawn({
+      instanceId: 'same-id',
+      cliType: 'claude',
+      workingDirectory: '/tmp/allowed',
+    });
+    await waitForSpawnToStart(pendingAdapter);
+
+    await expect(
+      smallManager.spawn({
+        instanceId: 'same-id',
+        cliType: 'claude',
+        workingDirectory: '/tmp/allowed',
+      }),
+    ).rejects.toThrow('Instance already exists');
+
+    pendingAdapter.resolveSpawn();
+    await firstSpawn;
+    expect(secondAdapter.spawn).not.toHaveBeenCalled();
+    expect(smallManager.getAllInstanceIds()).toEqual(['same-id']);
+  });
+
+  it('does not leave a pending spawn running after terminateAll', async () => {
+    const pendingAdapter = new ControlledWorkerAdapter();
+    mockCreateCliAdapter.mockReturnValueOnce(pendingAdapter);
+
+    const spawnPromise = manager.spawn({
+      instanceId: 'pending-shutdown',
+      cliType: 'claude',
+      workingDirectory: '/tmp/allowed',
+    });
+    await waitForSpawnToStart(pendingAdapter);
+
+    const terminateAllPromise = manager.terminateAll();
+    pendingAdapter.resolveSpawn();
+
+    await expect(spawnPromise).rejects.toThrow('cancelled during shutdown');
+    await terminateAllPromise;
+    expect(pendingAdapter.terminate).toHaveBeenCalledOnce();
+    expect(manager.getInstanceCount()).toBe(0);
+    expect(manager.getAllInstanceIds()).toEqual([]);
+  });
+
+  it('cancels a single pending spawn when terminate is requested before startup finishes', async () => {
+    const pendingAdapter = new ControlledWorkerAdapter();
+    mockCreateCliAdapter.mockReturnValueOnce(pendingAdapter);
+
+    const spawnPromise = manager.spawn({
+      instanceId: 'pending-terminate',
+      cliType: 'claude',
+      workingDirectory: '/tmp/allowed',
+    });
+    await waitForSpawnToStart(pendingAdapter);
+
+    const terminatePromise = manager.terminate('pending-terminate');
+    pendingAdapter.resolveSpawn();
+
+    await expect(spawnPromise).rejects.toThrow('spawn cancelled');
+    await terminatePromise;
+    expect(pendingAdapter.terminate).toHaveBeenCalled();
+    expect(manager.getInstanceCount()).toBe(0);
+    expect(manager.getAllInstanceIds()).toEqual([]);
   });
 
   it('forwards adapter status events as instance state changes', async () => {
@@ -168,4 +305,35 @@ describe('LocalInstanceManager', () => {
     );
     expect(manager.getInstanceCount()).toBe(1);
   });
+
+  it('keeps hibernated metadata when wake fails so it can be retried', async () => {
+    await manager.spawn({
+      instanceId: 'retry-wake',
+      cliType: 'claude',
+      workingDirectory: '/tmp/allowed',
+      systemPrompt: 'test',
+    });
+
+    await manager.hibernate('retry-wake');
+
+    mockCreateCliAdapter.mockImplementationOnce(() => {
+      throw new Error('adapter factory failed');
+    });
+    await expect(manager.wake('retry-wake')).rejects.toThrow('adapter factory failed');
+
+    mockAdapter = new MockWorkerAdapter();
+    mockCreateCliAdapter.mockImplementation(() => mockAdapter);
+    await expect(manager.wake('retry-wake')).resolves.toBeUndefined();
+    expect(manager.getInstance('retry-wake')).toBeDefined();
+  });
 });
+
+async function waitForSpawnToStart(adapter: ControlledWorkerAdapter): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (adapter.spawn.mock.calls.length > 0) {
+      return;
+    }
+    await Promise.resolve();
+  }
+  throw new Error('adapter spawn did not start');
+}

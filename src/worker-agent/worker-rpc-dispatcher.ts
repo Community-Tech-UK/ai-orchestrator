@@ -27,7 +27,10 @@ import {
   AuxiliaryModelGenerateParamsSchema,
   ConfigUpdateParamsSchema,
 } from '../main/remote-node/rpc-schemas';
-import type { WorkerNodeBrowserAutomationSummary } from '../shared/types/worker-node.types';
+import type {
+  WorkerNodeAndroidAutomationSummary,
+  WorkerNodeBrowserAutomationSummary,
+} from '../shared/types/worker-node.types';
 import {
   FsRpcError,
   type NodeFilesystemHandler
@@ -42,7 +45,11 @@ import {
   isDiagnosableProvider
 } from './provider-runtime-diagnostics';
 import type { SyncHandler } from './sync-handler';
-import type { WorkerBrowserAutomationConfig, WorkerConfig } from './worker-config';
+import type {
+  WorkerAndroidAutomationConfig,
+  WorkerBrowserAutomationConfig,
+  WorkerConfig,
+} from './worker-config';
 import type { WorkerCdpTunnel } from './worker-cdp-tunnel';
 import {
   BrowserCdpOpenParamsSchema,
@@ -62,7 +69,11 @@ interface WorkerRpcDispatcherDeps {
   getTerminalHandler: () => WorkerTerminalHandler;
   applyConfigUpdate: (update: {
     browserAutomation?: WorkerBrowserAutomationConfig;
-  }) => Promise<WorkerNodeBrowserAutomationSummary | undefined>;
+    androidAutomation?: WorkerAndroidAutomationConfig;
+  }) => Promise<{
+    browserAutomation?: WorkerNodeBrowserAutomationSummary;
+    androidAutomation?: WorkerNodeAndroidAutomationSummary;
+  }>;
   getCdpTunnel: () => WorkerCdpTunnel;
   stopManagedBrowser: () => Promise<void>;
   sendResult: (id: string | number, result: unknown) => void;
@@ -113,12 +124,6 @@ export class WorkerRpcDispatcher {
           const attachments = params['attachments'] as
             | FileAttachment[]
             | undefined;
-          console.log('[WorkerAgent] INSTANCE_SEND_INPUT received', {
-            instanceId: params['instanceId'],
-            messageLength: (params['message'] as string)?.length,
-            attachmentsCount: attachments?.length ?? 0,
-            attachmentNames: attachments?.map((a) => a.name)
-          });
           await this.deps.instanceManager.sendInput(
             params['instanceId'] as string,
             params['message'] as string,
@@ -319,8 +324,8 @@ export class WorkerRpcDispatcher {
           return;
         }
         case COORDINATOR_TO_NODE.CONFIG_UPDATE: {
-          // Privileged: turning on browser automation enables an ungoverned
-          // automation surface, so require the same scope as service.* methods.
+          // Privileged: turning on browser or Android automation enables an
+          // ungoverned automation surface, so require service-level scope.
           const err = validateScope(msg, 'service');
           if (err) {
             this.deps.sendError(msg.id!, RPC_ERROR_CODES.UNAUTHORIZED, err);
@@ -329,8 +334,9 @@ export class WorkerRpcDispatcher {
           const validated = ConfigUpdateParamsSchema.parse(params);
           const summary = await this.deps.applyConfigUpdate({
             browserAutomation: validated.browserAutomation,
+            androidAutomation: validated.androidAutomation,
           });
-          result = { browserAutomation: summary };
+          result = summary;
           break;
         }
         case COORDINATOR_TO_NODE.BROWSER_CDP_OPEN: {

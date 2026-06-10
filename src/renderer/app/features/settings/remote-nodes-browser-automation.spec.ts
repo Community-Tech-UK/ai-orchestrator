@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   browserAutomationState,
   browserAutomationLabel,
+  androidAutomationState,
+  androidAutomationLabel,
   loginCommandPreview,
   type NodeHealthEntry,
 } from './remote-nodes-browser-automation';
@@ -13,6 +15,7 @@ function entry(over: Partial<NodeHealthEntry> = {}): NodeHealthEntry {
     status: 'connected',
     supportsBrowser: false,
     browserAutomationReady: false,
+    androidAutomationReady: false,
     supportsGpu: false,
     supportedClis: [],
     ...over,
@@ -92,5 +95,122 @@ describe('loginCommandPreview', () => {
       'javascript:alert(1)',
     );
     expect(cmd).toBe('');
+  });
+});
+
+describe('androidAutomationState', () => {
+  it('is off when no SDK is detected', () => {
+    expect(androidAutomationState(entry())).toBe('off');
+  });
+
+  it('shows sdk-only when adb is present but automation is disabled', () => {
+    expect(
+      androidAutomationState(
+        entry({
+          androidAutomation: {
+            enabled: false,
+            sdkPath: 'C:\\Android\\Sdk',
+            adbVersion: 'Android Debug Bridge version 1.0.41',
+            avds: [],
+            connectedDevices: [],
+            emulatorRunning: false,
+            hasMaestro: false,
+          },
+        }),
+      ),
+    ).toBe('sdk-only');
+  });
+
+  it('shows enabled when mobile MCP is enabled but no device is currently online', () => {
+    expect(
+      androidAutomationState(
+        entry({
+          androidAutomationReady: true,
+          androidAutomation: {
+            enabled: true,
+            sdkPath: 'C:\\Android\\Sdk',
+            adbVersion: 'Android Debug Bridge version 1.0.41',
+            avds: ['Pixel_8'],
+            connectedDevices: [],
+            emulatorRunning: false,
+            hasMaestro: true,
+          },
+        }),
+      ),
+    ).toBe('enabled');
+  });
+
+  it('shows sdk-only when automation is enabled but no device or AVD is usable', () => {
+    expect(
+      androidAutomationState(
+        entry({
+          androidAutomationReady: true,
+          androidAutomation: {
+            enabled: true,
+            sdkPath: 'C:\\Android\\Sdk',
+            adbVersion: 'Android Debug Bridge version 1.0.41',
+            avds: [],
+            connectedDevices: [],
+            emulatorRunning: false,
+            hasMaestro: false,
+          },
+        }),
+      ),
+    ).toBe('sdk-only');
+  });
+
+  it('shows ready when a device is online', () => {
+    expect(
+      androidAutomationState(
+        entry({
+          androidAutomationReady: true,
+          androidAutomation: {
+            enabled: true,
+            sdkPath: 'C:\\Android\\Sdk',
+            adbVersion: 'Android Debug Bridge version 1.0.41',
+            avds: ['Pixel_8'],
+            connectedDevices: [{ serial: 'emulator-5554', kind: 'emulator', state: 'device' }],
+            emulatorRunning: true,
+            hasMaestro: true,
+          },
+        }),
+      ),
+    ).toBe('ready');
+  });
+
+  it('labels reflect the state', () => {
+    expect(androidAutomationLabel(entry())).toMatch(/off/);
+    expect(
+      androidAutomationLabel(
+        entry({
+          androidAutomationReady: true,
+          androidAutomation: {
+            enabled: true,
+            sdkPath: '/sdk',
+            adbVersion: 'adb',
+            avds: ['Pixel_8'],
+            connectedDevices: [],
+            emulatorRunning: false,
+            hasMaestro: false,
+          },
+        }),
+      ),
+    ).toMatch(/starts emulator/);
+    expect(
+      androidAutomationLabel(
+        entry({
+          androidAutomationReady: true,
+          androidAutomation: {
+            enabled: true,
+            sdkPath: '/sdk',
+            adbVersion: 'adb',
+            avds: [],
+            connectedDevices: [],
+            emulatorRunning: false,
+            hasMaestro: false,
+          },
+        }),
+      ),
+    ).toMatch(/SDK detected/);
   });
 });

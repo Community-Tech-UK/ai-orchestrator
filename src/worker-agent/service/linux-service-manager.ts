@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { execFileCapture } from './exec-file';
 import { generateSystemdUnit } from './linux-systemd-unit';
 import { servicePaths } from './paths';
+import { copyWorkerSupportFiles } from './support-files';
 import type { ServiceManager, ServiceInstallOptions, ServiceStatus } from './types';
 
 const SERVICE_NAME = 'ai-orchestrator-worker.service';
@@ -33,6 +34,7 @@ export class LinuxServiceManager implements ServiceManager {
     const versionedBin = path.join(versionedDir, 'worker-agent');
     await fs.mkdir(versionedDir, { recursive: true });
     await fs.copyFile(opts.binaryPath, versionedBin);
+    await copyWorkerSupportFiles({ binaryPath: opts.binaryPath, destinationDir: versionedDir });
     await fs.chmod(versionedBin, 0o755);
     try { await fs.unlink(paths.currentBinLink); } catch { /* ignore */ }
     await fs.symlink(versionedDir, paths.currentBinLink, 'dir');

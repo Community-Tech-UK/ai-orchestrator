@@ -1064,6 +1064,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
     // usage when the notification wasn't received (e.g. older Codex versions).
     // turn/completed usage contains AGGREGATE input_tokens across all internal
     // agentic sub-calls, NOT actual context window occupancy.
+    let finalTurnCostUsd = 0;
     if (turnState.finalTurn?.usage) {
       const usage = turnState.finalTurn.usage;
       const inputTokens = usage.input_tokens || 0;
@@ -1073,10 +1074,11 @@ export class CodexCliAdapter extends BaseCliAdapter {
       // Codex's CLI reports no dollar cost (unlike Claude's total_cost_usd), so
       // price the real per-turn input/output split with the shared pricing
       // table and accumulate it. Surfaced via costEstimate on context events.
-      this.cumulativeCostUsd += computeTokenCost(this.cliConfig.model, {
+      finalTurnCostUsd = computeTokenCost(this.cliConfig.model, {
         inputTokens,
         outputTokens,
       });
+      this.cumulativeCostUsd += finalTurnCostUsd;
 
       if (!this.hasTokenUsageNotification) {
         // No accurate notification received — aggregate turn tokens are NOT
@@ -1131,6 +1133,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
         inputTokens: turnState.finalTurn.usage.input_tokens || 0,
         outputTokens: turnState.finalTurn.usage.output_tokens || 0,
         totalTokens: (turnState.finalTurn.usage.input_tokens || 0) + (turnState.finalTurn.usage.output_tokens || 0),
+        cost: finalTurnCostUsd,
       } : undefined,
     };
     this.completeResponse(response);
@@ -2253,10 +2256,14 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
       this.cumulativeTokensUsed += turnTokens;
       // Price the per-turn split with the shared table (Codex reports no $ cost).
-      this.cumulativeCostUsd += computeTokenCost(this.cliConfig.model, {
-        inputTokens: response.usage.inputTokens || 0,
-        outputTokens: response.usage.outputTokens || 0,
-      });
+      const turnCostUsd = typeof response.usage.cost === 'number' && Number.isFinite(response.usage.cost)
+        ? Math.max(0, response.usage.cost)
+        : computeTokenCost(this.cliConfig.model, {
+            inputTokens: response.usage.inputTokens || 0,
+            outputTokens: response.usage.outputTokens || 0,
+          });
+      response.usage.cost = turnCostUsd;
+      this.cumulativeCostUsd += turnCostUsd;
       const contextWindow = this.resolveContextWindow();
 
       const used = this.lastTurnTokens > 0 ? this.lastTurnTokens : 0;
@@ -2342,6 +2349,12 @@ export class CodexCliAdapter extends BaseCliAdapter {
       try {
         const execution = await this.executePreparedMessage(preparedMessage, { timeoutMs, phase });
         const response = execution.response;
+        if (response.usage && typeof response.usage.cost !== 'number') {
+          response.usage.cost = computeTokenCost(this.cliConfig.model, {
+            inputTokens: response.usage.inputTokens || 0,
+            outputTokens: response.usage.outputTokens || 0,
+          });
+        }
         const content = response.content.trim();
         const hasMeaningfulOutput = content.length > 0 || (response.toolCalls?.length || 0) > 0;
         const shouldRetry = attempt < maxAttempts

@@ -119,6 +119,29 @@ describe('CodexCliAdapter', () => {
     expect(response.metadata?.['threadId']).toBe('thread-123');
   });
 
+  it('attaches a per-turn cost estimate to exec-mode usage', async () => {
+    const adapter = new CodexCliAdapter({ workingDir: '/tmp/project' });
+    const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+
+    queueCodexRun(spawnSpy, {
+      stdoutLines: [
+        '{"type":"thread.started","thread_id":"thread-cost"}',
+        '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"priced"}}',
+        '{"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":4}}',
+      ],
+    });
+
+    const response = await adapter.sendMessage({ role: 'user', content: 'price this turn' });
+
+    expect(response.content).toBe('priced');
+    expect(response.usage).toMatchObject({
+      inputTokens: 12,
+      outputTokens: 4,
+      totalTokens: 16,
+    });
+    expect(response.usage?.cost).toBeCloseTo(0.000096, 10);
+  });
+
   it('extracts Codex planning text into thinking blocks', () => {
     const adapter = new CodexCliAdapter();
     const planningMessage = `# Crafting a friendly response

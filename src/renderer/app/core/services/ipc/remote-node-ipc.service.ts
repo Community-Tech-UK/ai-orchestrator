@@ -5,6 +5,7 @@ import type {
   RemotePairingCredentialInfo,
   WorkerNodeInfo,
   WorkerNodeBrowserAutomationSummary,
+  WorkerNodeAndroidAutomationSummary,
 } from '../../../../../shared/types/worker-node.types';
 import type { ServiceStatus } from '../../../../../shared/types/service.types';
 import type { CanonicalCliType } from '../../../../../shared/types/settings.types';
@@ -22,6 +23,19 @@ export interface BrowserAutomationConfigInput {
   headless?: boolean;
   chromePath?: string;
   remoteDebuggingPort?: number;
+}
+
+export interface AndroidAutomationConfigInput {
+  enabled: boolean;
+  sdkPath?: string;
+  defaultAvd?: string;
+  headlessEmulator?: boolean;
+  maxEmulators?: number;
+  bootTimeoutMs?: number;
+  allowPhysicalDevices?: boolean;
+  injectMaestroMcp?: boolean;
+  appiumMcp?: boolean;
+  mobileMcpVersion?: string;
 }
 
 export interface RemoteNodeEvent {
@@ -242,6 +256,26 @@ export class RemoteNodeIpcService {
     }
     const data = result.data as { browserAutomation?: WorkerNodeBrowserAutomationSummary } | undefined;
     return data?.browserAutomation ?? null;
+  }
+
+  /**
+   * Push an Android-automation config change to a node (privileged: service
+   * scope). Returns the resulting non-secret summary the node reports back.
+   */
+  async updateAndroidAutomation(
+    nodeId: string,
+    androidAutomation: AndroidAutomationConfigInput,
+  ): Promise<WorkerNodeAndroidAutomationSummary | null> {
+    if (!this.api) return null;
+    const result = await this.api.remoteNodeUpdateAndroidAutomation(
+      nodeId,
+      androidAutomation,
+    ) as IpcResult | null;
+    if (!result?.success) {
+      throw new Error(result?.error?.message ?? 'Failed to update Android automation');
+    }
+    const data = result.data as { androidAutomation?: WorkerNodeAndroidAutomationSummary } | undefined;
+    return data?.androidAutomation ?? null;
   }
 
   /**

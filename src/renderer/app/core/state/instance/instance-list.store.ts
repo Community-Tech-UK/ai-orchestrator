@@ -7,7 +7,6 @@
 
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService } from '../../services/ipc';
-import { HistoryStore } from '../history.store';
 import { InstanceStateService } from './instance-state.service';
 import type {
   Instance,
@@ -38,7 +37,6 @@ function supportsResumeRestart(provider: Instance['provider']): boolean {
 export class InstanceListStore {
   private stateService = inject(InstanceStateService);
   private ipc = inject(ElectronIpcService);
-  private historyStore = inject(HistoryStore);
 
   private static readonly CREATE_INSTANCE_EVENT_FALLBACK_TIMEOUT_MS = 10_000;
   private static readonly CREATE_INSTANCE_EVENT_POLL_MS = 50;
@@ -54,18 +52,16 @@ export class InstanceListStore {
 
   /**
    * Add an instance to the store (called from IPC listener)
+   *
+   * Passive backend events must NEVER change the selection — sessions can be
+   * created by background work (remote-node children, run_on_node workers,
+   * loop agents) and stealing focus from whatever the user is looking at is
+   * always wrong. Explicit create/restore flows select their returned
+   * instance themselves.
    */
   addInstance(data: unknown): void {
     const instance = this.deserializeInstance(data);
-
-    // Passive backend events must not steal focus from a user's current session.
-    // Explicit create/restore flows select their returned instance themselves.
-    const shouldAutoSelect =
-      !instance.parentId
-      && !this.stateService.state().selectedInstanceId
-      && !this.historyStore.previewEntryId();
-
-    this.stateService.addInstance(instance, shouldAutoSelect);
+    this.stateService.addInstance(instance);
   }
 
   /**
@@ -486,7 +482,7 @@ export class InstanceListStore {
     }
 
     const instance = this.deserializeInstance(data);
-    this.stateService.addInstance(instance, false);
+    this.stateService.addInstance(instance);
 
     if (selectRoot && !instance.parentId) {
       this.stateService.setSelectedInstance(instance.id);

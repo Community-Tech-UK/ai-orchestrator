@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildClaudeMcpConfig } from './adapter-spawn-helpers';
+import {
+  buildClaudeMcpConfig,
+  withBrowserGatewaySystemPrompt,
+} from './adapter-spawn-helpers';
 import type { UnifiedSpawnOptions } from './adapter-factory.types';
 
 /**
@@ -40,5 +43,44 @@ describe('buildClaudeMcpConfig — chrome-devtools --mcp-config spawn safety', (
     const server = chromeDevtoolsServer();
     expect(server.command).toBe('npx');
     expect(server.args[0]).toBe('-y');
+  });
+
+  it('dedupes inline MCP configs by mcpServers key, not incidental string content', () => {
+    const existingConfig = JSON.stringify({
+      mcpServers: {
+        other: {
+          command: 'node',
+          args: ['browser-gateway'],
+        },
+      },
+    });
+    const configs = buildClaudeMcpConfig({
+      mcpConfig: [existingConfig],
+      browserGatewayMcp: {
+        aioMcpCliPath: '/tmp/aio-mcp',
+        socketPath: '/tmp/browser.sock',
+        instanceId: 'inst-1',
+        exists: () => true,
+      },
+    } as UnifiedSpawnOptions);
+
+    expect(configs).toHaveLength(2);
+    expect(configs?.[0]).toBe(existingConfig);
+    expect(JSON.parse(configs![1]!).mcpServers).toHaveProperty('browser-gateway');
+  });
+});
+
+describe('withBrowserGatewaySystemPrompt', () => {
+  it('adds the mobile-mcp section even when the prompt already contains browser-gateway guidance', () => {
+    const result = withBrowserGatewaySystemPrompt({
+      systemPrompt: 'Existing guidance mentions browser.find_or_open already.',
+      mobileMcp: {
+        serial: 'emulator-5554',
+        sdkPath: '/android/sdk',
+      },
+    } as UnifiedSpawnOptions);
+
+    expect(result.systemPrompt).toContain('browser.find_or_open');
+    expect(result.systemPrompt).toContain('[mobile-mcp attached to a leased Android device]');
   });
 });

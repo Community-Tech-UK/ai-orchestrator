@@ -31,9 +31,12 @@ function makeCapabilities(overrides: Partial<WorkerNodeCapabilities> = {}): Work
     supportedClis: ['claude'],
     hasBrowserRuntime: false,
     hasBrowserMcp: false,
+    hasAndroidMcp: false,
     hasDocker: false,
     maxConcurrentInstances: 4,
     workingDirectories: ['/workspace'],
+    browsableRoots: ['/workspace'],
+    discoveredProjects: [],
     ...overrides,
   };
 }
@@ -171,6 +174,14 @@ describe('WorkerNodeRegistry', () => {
       registry.on('node:updated', handler);
       registry.updateNodeMetrics('m2', { activeInstances: 1 });
       expect(handler).toHaveBeenCalledOnce();
+    });
+
+    it('preserves the registered node id even if an update payload contains id', () => {
+      registry.registerNode(makeNode('m3'));
+      registry.updateNodeMetrics('m3', { id: 'wrong-node-id', activeInstances: 2 });
+      const updated = registry.getNode('m3');
+      expect(updated?.id).toBe('m3');
+      expect(updated?.activeInstances).toBe(2);
     });
 
     it('is a no-op for an unknown nodeId', () => {
@@ -314,6 +325,101 @@ describe('WorkerNodeRegistry', () => {
       expect(registry.selectNode({ requiresBrowser: true })?.id).toBe('automation-ready');
     });
 
+    it('filters out nodes lacking Android automation when requiresAndroid is true', () => {
+      registry.registerNode(makeNode('no-android', {
+        capabilities: makeCapabilities({ hasAndroidMcp: false }),
+      }));
+      registry.registerNode(makeNode('android-ready', {
+        capabilities: makeCapabilities({ hasAndroidMcp: true }),
+      }));
+      expect(registry.selectNode({ requiresAndroid: true })?.id).toBe('android-ready');
+    });
+
+    it('filters out ADB-only Android nodes with no usable device or AVD', () => {
+      registry.registerNode(makeNode('adb-only', {
+        capabilities: makeCapabilities({
+          hasAndroidMcp: true,
+          androidAutomation: {
+            enabled: true,
+            sdkPath: '/android/sdk',
+            adbVersion: 'adb',
+            avds: [],
+            connectedDevices: [],
+            emulatorRunning: false,
+            hasMaestro: false,
+          },
+        }),
+      }));
+
+      expect(registry.selectNode({ requiresAndroid: true })).toBeNull();
+    });
+
+    it('requires an online physical device when androidDeviceKind is physical', () => {
+      registry.registerNode(makeNode('emulator-only', {
+        capabilities: makeCapabilities({
+          hasAndroidMcp: true,
+          androidAutomation: {
+            enabled: true,
+            sdkPath: '/android/sdk',
+            adbVersion: 'adb',
+            avds: ['Pixel_8'],
+            connectedDevices: [{ serial: 'emulator-5554', kind: 'emulator', state: 'device' }],
+            emulatorRunning: true,
+            hasMaestro: false,
+          },
+        }),
+      }));
+      registry.registerNode(makeNode('usb-ready', {
+        capabilities: makeCapabilities({
+          hasAndroidMcp: true,
+          androidAutomation: {
+            enabled: true,
+            sdkPath: '/android/sdk',
+            adbVersion: 'adb',
+            avds: [],
+            connectedDevices: [{ serial: 'ABC123', kind: 'usb', state: 'device' }],
+            emulatorRunning: false,
+            hasMaestro: true,
+          },
+        }),
+      }));
+      expect(
+        registry.selectNode({ requiresAndroid: true, androidDeviceKind: 'physical' })?.id,
+      ).toBe('usb-ready');
+    });
+
+    it('gives a small warm-emulator bonus for Android-required work', () => {
+      registry.registerNode(makeNode('cold', {
+        capabilities: makeCapabilities({
+          hasAndroidMcp: true,
+          androidAutomation: {
+            enabled: true,
+            sdkPath: '/android/sdk',
+            adbVersion: 'adb',
+            avds: ['Pixel_8'],
+            connectedDevices: [],
+            emulatorRunning: false,
+            hasMaestro: false,
+          },
+        }),
+      }));
+      registry.registerNode(makeNode('warm', {
+        capabilities: makeCapabilities({
+          hasAndroidMcp: true,
+          androidAutomation: {
+            enabled: true,
+            sdkPath: '/android/sdk',
+            adbVersion: 'adb',
+            avds: ['Pixel_8'],
+            connectedDevices: [{ serial: 'emulator-5554', kind: 'emulator', state: 'device' }],
+            emulatorRunning: true,
+            hasMaestro: false,
+          },
+        }),
+      }));
+      expect(registry.selectNode({ requiresAndroid: true })?.id).toBe('warm');
+    });
+
     it('filters out nodes lacking GPU when requiresGpu is true', () => {
       registry.registerNode(makeNode('no-gpu', {
         capabilities: makeCapabilities({ gpuName: undefined }),
@@ -343,6 +449,24 @@ describe('WorkerNodeRegistry', () => {
       }));
       // Should return null because the penalty drops the score below zero
       const prefs: NodePlacementPrefs = { requiresWorkingDirectory: '/special' };
+      expect(registry.selectNode(prefs)).toBeNull();
+    });
+
+    it('hard-filters a missing required working directory even when the node scores highly otherwise', () => {
+      registry.registerNode(makeNode('high-score-missing-dir', {
+        capabilities: makeCapabilities({
+          availableMemoryMB: 8192,
+          totalMemoryMB: 8192,
+          platform: 'linux',
+          workingDirectories: ['/other'],
+        }),
+        latencyMs: 0,
+      }));
+      const prefs: NodePlacementPrefs = {
+        requiresWorkingDirectory: '/special',
+        preferNodeId: 'high-score-missing-dir',
+        preferPlatform: 'linux',
+      };
       expect(registry.selectNode(prefs)).toBeNull();
     });
 
@@ -518,6 +642,82 @@ describe('WorkerNodeRegistry', () => {
       expect(matchNodeByCapabilityTag('browser-mcp', chromeOnly)).toBeUndefined();
       const ready = [makeNode('automation', { capabilities: makeCapabilities({ hasBrowserMcp: true }) })];
       expect(matchNodeByCapabilityTag('browser-mcp', ready)?.id).toBe('automation');
+    });
+
+    it('android tag matches only Android automation-ready nodes', () => {
+      const nodes = [
+        makeNode('plain', { capabilities: makeCapabilities({ hasAndroidMcp: false }) }),
+        makeNode('android', { capabilities: makeCapabilities({ hasAndroidMcp: true }) }),
+      ];
+      expect(matchNodeByCapabilityTag('android', nodes)?.id).toBe('android');
+    });
+
+    it('android tag skips ADB-only nodes with no usable device or AVD', () => {
+      const nodes = [
+        makeNode('adb-only', {
+          capabilities: makeCapabilities({
+            hasAndroidMcp: true,
+            androidAutomation: {
+              enabled: true,
+              sdkPath: '/android/sdk',
+              adbVersion: 'adb',
+              avds: [],
+              connectedDevices: [],
+              emulatorRunning: false,
+              hasMaestro: false,
+            },
+          }),
+        }),
+        makeNode('avd-ready', {
+          capabilities: makeCapabilities({
+            hasAndroidMcp: true,
+            androidAutomation: {
+              enabled: true,
+              sdkPath: '/android/sdk',
+              adbVersion: 'adb',
+              avds: ['Pixel_8'],
+              connectedDevices: [],
+              emulatorRunning: false,
+              hasMaestro: false,
+            },
+          }),
+        }),
+      ];
+      expect(matchNodeByCapabilityTag('android', nodes)?.id).toBe('avd-ready');
+    });
+
+    it('android-physical tag requires an online USB or Wi-Fi device', () => {
+      const nodes = [
+        makeNode('emulator', {
+          capabilities: makeCapabilities({
+            hasAndroidMcp: true,
+            androidAutomation: {
+              enabled: true,
+              sdkPath: '/android/sdk',
+              adbVersion: 'adb',
+              avds: ['Pixel_8'],
+              connectedDevices: [{ serial: 'emulator-5554', kind: 'emulator', state: 'device' }],
+              emulatorRunning: true,
+              hasMaestro: false,
+            },
+          }),
+        }),
+        makeNode('phone', {
+          capabilities: makeCapabilities({
+            hasAndroidMcp: true,
+            androidAutomation: {
+              enabled: true,
+              sdkPath: '/android/sdk',
+              adbVersion: 'adb',
+              avds: [],
+              connectedDevices: [{ serial: '192.168.0.20:5555', kind: 'wifi', state: 'device' }],
+              emulatorRunning: false,
+              hasMaestro: false,
+            },
+          }),
+        }),
+      ];
+      expect(matchNodeByCapabilityTag('android-physical', nodes)?.id).toBe('phone');
     });
   });
 });

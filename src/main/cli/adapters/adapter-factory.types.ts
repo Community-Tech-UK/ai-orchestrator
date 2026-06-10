@@ -16,7 +16,9 @@ import type { CliAdapterWorkerProxy } from '../spawn-worker/cli-adapter-worker-p
 import type { InstanceLaunchMode } from '../../../shared/types/instance.types';
 import type { BrowserGatewayMcpConfigOptions } from '../../browser-gateway/browser-mcp-config';
 import type { ChromeDevtoolsMcpConfigOptions } from '../../browser-gateway/chrome-devtools-mcp-config';
+import type { MobileMcpConfigOptions } from '../../browser-gateway/mobile-mcp-config';
 import type { AcpMcpServerConfig } from '../../../shared/types/cli.types';
+import type { NodePlacementPrefs } from '../../../shared/types/worker-node.types';
 
 /**
  * Unified spawn options that work across all adapters
@@ -50,6 +52,11 @@ export interface UnifiedSpawnOptions {
    * managed profile's CDP endpoint (see chrome-devtools-mcp-config).
    */
   chromeDevtoolsMcp?: ChromeDevtoolsMcpConfigOptions;
+  /**
+   * mobile-mcp attach options. Worker spawns set this after acquiring an
+   * advisory Android device lease.
+   */
+  mobileMcp?: MobileMcpConfigOptions & { maestro?: boolean };
   /** Enable Chrome extension integration (Claude CLI only).
    *  Defaults to false; managed browser access is exposed through Browser Gateway MCP. */
   chrome?: boolean;
@@ -86,6 +93,8 @@ export interface UnifiedSpawnOptions {
   instanceId?: string;
   /** Child ID for nested / subagent instances (ACP permission context). */
   childId?: string;
+  /** Forwarded to remote workers so spawn-time tool injection can honor routing intent. */
+  nodePlacement?: NodePlacementPrefs;
 }
 
 /**

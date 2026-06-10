@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Fake adapter returned by the mocked factory. Records the options it was built
@@ -65,6 +68,24 @@ describe('LocalInstanceManager browser injection', () => {
     const mgr = new LocalInstanceManager(['/work'], 10, fakeBrowserManager({ enabled: true }));
     await mgr.spawn(baseParams());
     expect(lastSpawnOptions().chromeDevtoolsMcp).toEqual({ browserUrl: 'http://127.0.0.1:9333' });
+  });
+
+  it('does not advertise an axe runner path when no runner artifact exists', async () => {
+    const originalCwd = process.cwd();
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'aio-no-axe-runner-'));
+    const mgr = new LocalInstanceManager(['/work'], 10, fakeBrowserManager({ enabled: true }));
+
+    try {
+      process.chdir(tempDir);
+      await mgr.spawn(baseParams());
+    } finally {
+      process.chdir(originalCwd);
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+
+    const env = lastSpawnOptions().env as Record<string, string>;
+    expect(env['AIO_BROWSER_URL']).toBe('http://127.0.0.1:9333');
+    expect(env['AIO_AXE_RUNNER']).toBeUndefined();
   });
 
   it('does not inject when the browser manager is disabled', async () => {

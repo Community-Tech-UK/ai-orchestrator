@@ -100,6 +100,23 @@ export function createCommunicationDomain(
     ): Promise<unknown> =>
       ipcRenderer.invoke(ch.REMOTE_NODE_UPDATE_BROWSER_AUTOMATION, { nodeId, browserAutomation }),
 
+    remoteNodeUpdateAndroidAutomation: (
+      nodeId: string,
+      androidAutomation: {
+        enabled: boolean;
+        sdkPath?: string;
+        defaultAvd?: string;
+        headlessEmulator?: boolean;
+        maxEmulators?: number;
+        bootTimeoutMs?: number;
+        allowPhysicalDevices?: boolean;
+        injectMaestroMcp?: boolean;
+        appiumMcp?: boolean;
+        mobileMcpVersion?: string;
+      },
+    ): Promise<unknown> =>
+      ipcRenderer.invoke(ch.REMOTE_NODE_UPDATE_ANDROID_AUTOMATION, { nodeId, androidAutomation }),
+
     remoteNodeRunBrowserLogin: (nodeId: string, url?: string): Promise<unknown> =>
       ipcRenderer.invoke(ch.REMOTE_NODE_RUN_BROWSER_LOGIN, { nodeId, url }),
 

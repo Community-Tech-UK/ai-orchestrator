@@ -33,6 +33,30 @@ const WorkerNodeCapabilitiesSchema = z.object({
     // Older workers omit `running`; default keeps their heartbeats valid.
     running: z.boolean().optional().default(false),
   }).optional(),
+  hasAndroidMcp: z.boolean().optional().default(false),
+  androidAutomation: z.object({
+    enabled: z.boolean(),
+    sdkPath: z.string(),
+    adbVersion: z.string().optional(),
+    avds: z.array(z.string()),
+    connectedDevices: z.array(z.object({
+      serial: z.string(),
+      kind: z.enum(['emulator', 'usb', 'wifi']),
+      model: z.string().optional(),
+      apiLevel: z.number().int().positive().optional(),
+      state: z.enum(['device', 'offline', 'unauthorized']),
+    })),
+    emulatorRunning: z.boolean(),
+    hasMaestro: z.boolean(),
+    defaultAvd: z.string().optional(),
+    headlessEmulator: z.boolean().optional(),
+    maxEmulators: z.number().int().positive().max(4).optional(),
+    bootTimeoutMs: z.number().int().positive().optional(),
+    allowPhysicalDevices: z.boolean().optional(),
+    injectMaestroMcp: z.boolean().optional(),
+    appiumMcp: z.boolean().optional(),
+    mobileMcpVersion: z.string().optional(),
+  }).optional(),
   hasDocker: z.boolean(),
   maxConcurrentInstances: z.number().int().positive(),
   workingDirectories: z.array(z.string()),
@@ -110,6 +134,16 @@ export const InstanceSpawnParamsSchema = z.object({
   resume: z.boolean().optional(),
   forkSession: z.boolean().optional(),
   mcpConfig: z.array(z.string()).optional(),
+  nodePlacement: z.object({
+    requiresBrowser: z.boolean().optional(),
+    requiresAndroid: z.boolean().optional(),
+    androidDeviceKind: z.enum(['emulator', 'physical', 'any']).optional(),
+    requiresGpu: z.boolean().optional(),
+    preferPlatform: z.enum(['darwin', 'win32', 'linux']).optional(),
+    preferNodeId: z.string().optional(),
+    requiresCli: z.string().optional(),
+    requiresWorkingDirectory: z.string().optional(),
+  }).optional(),
 });
 
 export const InstanceSendInputParamsSchema = z.object({
@@ -194,8 +228,22 @@ export const BrowserAutomationConfigSchema = z.object({
   remoteDebuggingPort: z.number().int().min(1).max(65535).optional(),
 });
 
+export const AndroidAutomationConfigSchema = z.object({
+  enabled: z.boolean(),
+  sdkPath: z.string().min(1).max(1024).optional(),
+  defaultAvd: z.string().min(1).max(256).optional(),
+  headlessEmulator: z.boolean().optional(),
+  maxEmulators: z.number().int().min(1).max(4).optional(),
+  bootTimeoutMs: z.number().int().positive().optional(),
+  allowPhysicalDevices: z.boolean().optional(),
+  injectMaestroMcp: z.boolean().optional(),
+  appiumMcp: z.boolean().optional(),
+  mobileMcpVersion: z.string().min(1).max(128).optional(),
+});
+
 export const ConfigUpdateParamsSchema = z.object({
   browserAutomation: BrowserAutomationConfigSchema.optional(),
+  androidAutomation: AndroidAutomationConfigSchema.optional(),
 });
 
 // -- Remote browser CDP tunnel (Path 2; privileged: scope=service) ------------

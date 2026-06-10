@@ -38,6 +38,12 @@ async function main(): Promise<void> {
   const suffix = process.platform === 'win32' ? '.exe' : '';
   const binOut = path.join(outDir, `worker-agent${suffix}`);
   fs.copyFileSync(process.execPath, binOut);
+  const workerToolsSource = path.resolve('dist/worker-tools');
+  if (fs.existsSync(workerToolsSource)) {
+    const workerToolsOut = path.join(outDir, 'worker-tools');
+    fs.rmSync(workerToolsOut, { recursive: true, force: true });
+    fs.cpSync(workerToolsSource, workerToolsOut, { recursive: true });
+  }
 
   const seaResourceName = 'NODE_SEA_BLOB';
   const postjectArgs = [

@@ -1,7 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ElectronIpcService } from '../../services/ipc';
-import { HistoryStore } from '../history.store';
 import { InstanceListStore } from './instance-list.store';
 import { InstanceStateService } from './instance-state.service';
 
@@ -15,9 +14,6 @@ describe('InstanceListStore', () => {
     restartInstance: ReturnType<typeof vi.fn>;
     restartFreshInstance: ReturnType<typeof vi.fn>;
     changeModel: ReturnType<typeof vi.fn>;
-  };
-  let historyStore: {
-    previewEntryId: ReturnType<typeof vi.fn>;
   };
 
   beforeEach(() => {
@@ -57,9 +53,6 @@ describe('InstanceListStore', () => {
       restartFreshInstance: vi.fn().mockResolvedValue({ success: true }),
       changeModel: vi.fn().mockResolvedValue({ success: true }),
     };
-    historyStore = {
-      previewEntryId: vi.fn(() => null),
-    };
 
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
@@ -67,7 +60,6 @@ describe('InstanceListStore', () => {
         InstanceListStore,
         InstanceStateService,
         { provide: ElectronIpcService, useValue: ipc },
-        { provide: HistoryStore, useValue: historyStore },
       ],
     });
 
@@ -149,26 +141,64 @@ describe('InstanceListStore', () => {
     expect(instance.activityState).toBe('blocked');
   });
 
-  it('does not auto-select passive instance events while a history preview is open', () => {
-    historyStore.previewEntryId.mockReturnValue('history-entry-1');
-
+  it('never auto-selects instances arriving via passive instance:created events', () => {
+    // Even with nothing selected, a backend-created session (e.g. a child
+    // spawned on a remote node) must not steal focus.
     store.addInstance({
-      id: 'restored-instance',
-      displayName: 'Restored thread',
+      id: 'background-instance',
+      displayName: 'Background-created thread',
       createdAt: 1,
-      historyThreadId: 'thread-restored',
+      historyThreadId: 'thread-background',
       parentId: null,
       childrenIds: [],
       status: 'idle',
       lastActivity: 2,
-      sessionId: 'session-restored',
+      sessionId: 'session-background',
       workingDirectory: '/tmp/project',
       yoloMode: false,
       outputBuffer: [],
     });
 
-    expect(stateService.getInstance('restored-instance')).toBeDefined();
+    expect(stateService.getInstance('background-instance')).toBeDefined();
     expect(stateService.state().selectedInstanceId).toBeNull();
+  });
+
+  it('does not change an existing selection when a passive instance event arrives', () => {
+    stateService.addInstance(
+      store.deserializeInstance({
+        id: 'current-instance',
+        displayName: 'Current thread',
+        createdAt: 1,
+        historyThreadId: 'thread-current',
+        parentId: null,
+        childrenIds: [],
+        status: 'idle',
+        lastActivity: 2,
+        sessionId: 'session-current',
+        workingDirectory: '/tmp/project',
+        yoloMode: false,
+        outputBuffer: [],
+      }),
+    );
+    stateService.setSelectedInstance('current-instance');
+
+    store.addInstance({
+      id: 'remote-child-instance',
+      displayName: 'Remote child',
+      createdAt: 3,
+      historyThreadId: 'thread-remote-child',
+      parentId: null,
+      childrenIds: [],
+      status: 'idle',
+      lastActivity: 4,
+      sessionId: 'session-remote-child',
+      workingDirectory: '/tmp/project',
+      yoloMode: false,
+      outputBuffer: [],
+    });
+
+    expect(stateService.getInstance('remote-child-instance')).toBeDefined();
+    expect(stateService.state().selectedInstanceId).toBe('current-instance');
   });
 
   it('loads initial instances from the state:resync snapshot instead of the legacy instance list', async () => {
@@ -261,7 +291,6 @@ describe('InstanceListStore', () => {
         provider: 'claude',
         outputBuffer: [],
       }),
-      false,
     );
 
     const id = await pending;

@@ -235,6 +235,22 @@ describe('Loop Mode invoker plumbing', () => {
     expect(callArg.options.timeout).toBe(7 * 60 * 1000);
   });
 
+  it('propagates provider-reported usage cost to the loop child result', async () => {
+    registerDefaultLoopInvoker({} as never);
+    hoisted.sendMessage.mockResolvedValue({
+      content: 'ok',
+      usage: { totalTokens: 1_000_000, cost: 0.42 },
+    });
+
+    const callbackResult = await emitIteration({});
+
+    expect(callbackResult).toMatchObject({
+      output: 'ok',
+      tokens: 1_000_000,
+      costUsd: 0.42,
+    });
+  });
+
   it('marks loop sendMessage calls as activity-aware timeout eligible', async () => {
     registerDefaultLoopInvoker({} as never);
     hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 1 } });

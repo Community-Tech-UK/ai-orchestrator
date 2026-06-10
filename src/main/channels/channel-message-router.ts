@@ -35,6 +35,8 @@ import type {
   InboundChannelMessage,
 } from '../../shared/types/channels';
 import type { FileAttachment } from '../../shared/types/instance.types';
+import type { NodePlacementPrefs } from '../../shared/types/worker-node.types';
+import { detectAndroidIntent } from './android-intent';
 import { detectBrowserIntent } from './browser-intent';
 import {
   getRemoteNodeConfig,
@@ -1502,6 +1504,7 @@ export class ChannelMessageRouter {
       '`/nodes <name>` — show worker node details',
       '`/run-on <node> <message>` — force a task onto a worker node',
       '`/offload browser [on|off]` — toggle automatic browser-task offloading',
+      '`/offload android [on|off]` — toggle automatic Android-task offloading',
       '',
       '**Routing:**',
       '`@<project> <message>` — send to the latest session in a project, or start a new one there',
@@ -2083,34 +2086,46 @@ export class ChannelMessageRouter {
     adapter: BaseChannelAdapter,
   ): Promise<void> {
     const [target = '', mode = 'on'] = args.trim().toLowerCase().split(/\s+/);
-    if (target !== 'browser') {
+    if (target !== 'browser' && target !== 'android') {
       await adapter.sendMessage(
         msg.chatId,
-        'Usage: /offload browser [on|off]',
+        'Usage: /offload <browser|android> [on|off|status]',
         { replyTo: msg.messageId },
       );
       return;
     }
 
     if (mode === 'status') {
-      const enabled = getRemoteNodeConfig().autoOffloadBrowser;
+      const config = getRemoteNodeConfig();
+      const enabled = target === 'android'
+        ? config.autoOffloadAndroid
+        : config.autoOffloadBrowser;
       await adapter.sendMessage(
         msg.chatId,
-        `Browser auto-offloading is currently ${enabled ? 'enabled' : 'disabled'}.`,
+        `${this.formatOffloadTarget(target)} auto-offloading is currently ${enabled ? 'enabled' : 'disabled'}.`,
         { replyTo: msg.messageId },
       );
       return;
     }
 
     const enabled = !['off', 'false', 'disable', 'disabled'].includes(mode);
-    updateRemoteNodeConfig({ autoOffloadBrowser: enabled });
-    getSettingsManager().set('remoteNodesAutoOffloadBrowser', enabled);
+    if (target === 'android') {
+      updateRemoteNodeConfig({ autoOffloadAndroid: enabled });
+      getSettingsManager().set('remoteNodesAutoOffloadAndroid', enabled);
+    } else {
+      updateRemoteNodeConfig({ autoOffloadBrowser: enabled });
+      getSettingsManager().set('remoteNodesAutoOffloadBrowser', enabled);
+    }
 
     await adapter.sendMessage(
       msg.chatId,
-      `Browser auto-offloading ${enabled ? 'enabled' : 'disabled'}.`,
+      `${this.formatOffloadTarget(target)} auto-offloading ${enabled ? 'enabled' : 'disabled'}.`,
       { replyTo: msg.messageId },
     );
+  }
+
+  private formatOffloadTarget(target: 'browser' | 'android'): string {
+    return target === 'android' ? 'Android' : 'Browser';
   }
 
   private async routeDefault(
@@ -2126,9 +2141,16 @@ export class ChannelMessageRouter {
     } catch {
       // Ignore missing or inaccessible directories; instance creation will surface real failures.
     }
-    // Detect browser intent for auto-offloading
+    // Detect automation intent for auto-offloading
     const remoteConfig = getRemoteNodeConfig();
     const needsBrowser = remoteConfig.autoOffloadBrowser && detectBrowserIntent(content);
+    const needsAndroid = remoteConfig.autoOffloadAndroid && detectAndroidIntent(content);
+    const nodePlacement: NodePlacementPrefs | undefined = needsBrowser || needsAndroid
+      ? {
+          ...(needsBrowser ? { requiresBrowser: true } : {}),
+          ...(needsAndroid ? { requiresAndroid: true, androidDeviceKind: 'any' as const } : {}),
+        }
+      : undefined;
 
     const instance = await im.createInstance({
       displayName: `${msg.platform}:${msg.senderName}`,
@@ -2136,7 +2158,7 @@ export class ChannelMessageRouter {
       initialPrompt: content || undefined,
       attachments: attachments.length > 0 ? attachments : undefined,
       yoloMode: true,
-      ...(needsBrowser ? { nodePlacement: { requiresBrowser: true } } : {}),
+      ...(nodePlacement ? { nodePlacement } : {}),
     });
 
     // Stream results back

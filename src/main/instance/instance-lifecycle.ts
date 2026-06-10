@@ -1383,6 +1383,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             instance.id,
             resolvedCliType,
           ) ?? undefined,
+          nodePlacement: instance.nodePlacement,
           permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
           rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
         };
@@ -1853,6 +1854,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             instance.id,
             cliType,
           ) ?? undefined,
+          nodePlacement: instance.nodePlacement,
           permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
           rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
         };
@@ -2042,6 +2044,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           instance.id,
           cliType,
         ) ?? undefined,
+        nodePlacement: instance.nodePlacement,
         permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
           rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
       },
@@ -2116,6 +2119,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           instance.id,
           cliType,
         ) ?? undefined,
+        nodePlacement: instance.nodePlacement,
         permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
           rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
       },
@@ -2358,6 +2362,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             instance.id,
             cliType,
           ) ?? undefined,
+          nodePlacement: instance.nodePlacement,
           permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
           rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
         },
@@ -2516,6 +2521,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           instance.id,
           cliType,
         ) ?? undefined,
+        nodePlacement: instance.nodePlacement,
         permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
           rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
       };
@@ -2712,6 +2718,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
           instance.id,
           cliType,
         ) ?? undefined,
+        nodePlacement: instance.nodePlacement,
         permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(newYoloMode),
         rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
       };
@@ -2960,6 +2967,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
           instance.id,
           cliType,
         ) ?? undefined,
+        nodePlacement: instance.nodePlacement,
         permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
           rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
       };

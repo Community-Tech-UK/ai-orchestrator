@@ -247,7 +247,7 @@ async function invokeCliTextResponse(params: {
   activity?: (activity: LoopInvocationActivity) => void;
   onAdapterReady?: (adapter: CliAdapter) => (() => void) | void;
   cleanupAdapter?: (adapter: CliAdapter, graceful: boolean) => Promise<void>;
-}): Promise<ReturnType<typeof normalizeInvocationTextResult> & { degradedReason?: DegradedReason }> {
+}): Promise<ReturnType<typeof normalizeInvocationTextResult> & { costKnown: boolean; degradedReason?: DegradedReason }> {
   const instance = params.instanceId
     ? params.instanceManager.getInstance(params.instanceId)
     : undefined;
@@ -388,10 +388,13 @@ async function invokeCliTextResponse(params: {
     }
   });
 
+  const reportedCost = typeof response.usage?.cost === 'number' && Number.isFinite(response.usage.cost)
+    ? Math.max(0, response.usage.cost)
+    : null;
   const normalized = normalizeInvocationTextResult({
     response: response.content,
     tokens: response.usage?.totalTokens ?? 0,
-    cost: 0,
+    cost: reportedCost ?? 0,
   });
 
   logger.info('Orchestration invocation completed', {
@@ -400,11 +403,13 @@ async function invokeCliTextResponse(params: {
     breakerKey: params.breakerKey,
     model,
     tokens: normalized.tokens,
+    cost: normalized.cost,
     ...(response.degradedReason ? { degradedReason: response.degradedReason } : {}),
   });
 
   return {
     ...normalized,
+    costKnown: reportedCost !== null,
     ...(response.degradedReason ? { degradedReason: response.degradedReason } : {}),
   };
 }
@@ -1424,6 +1429,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         childInstanceId: null,
         output: retainedOutput,
         tokens: result.tokens,
+        ...(result.costKnown ? { costUsd: result.cost } : {}),
         filesChanged,
         toolCalls,
         errors,

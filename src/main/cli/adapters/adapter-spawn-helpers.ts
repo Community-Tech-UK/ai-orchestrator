@@ -22,6 +22,10 @@ import {
   buildChromeDevtoolsGeminiSettingsJson,
   buildChromeDevtoolsMcpConfigJson,
 } from '../../browser-gateway/chrome-devtools-mcp-config';
+import {
+  buildMobileMcpGeminiSettingsJson,
+  buildMobileMcpConfigJson,
+} from '../../browser-gateway/mobile-mcp-config';
 
 export const COPILOT_ORCHESTRATOR_HOME_ENV = 'AI_ORCHESTRATOR_COPILOT_HOME';
 export const COPILOT_ORCHESTRATOR_HOME_DIR = 'copilot-cli-home';
@@ -47,6 +51,13 @@ const CHROME_DEVTOOLS_ATTACH_PROMPT = [
   'The chrome-devtools.* tools are attached to an AIO-managed Chrome profile — the SAME browser the browser.* tools open and control. This is the one case where browser.* and chrome-devtools.* share a browser.',
   'Workflow: first open and sign into the managed profile with browser.find_or_open (complete any login), THEN use chrome-devtools.* — it connects to that same live browser on first tool use, so the profile must be open first.',
   'If a chrome-devtools.* tool reports it cannot connect to a browser, the managed profile is not running yet: open it via browser.* first, then retry.',
+  'For accessibility scans on worker-managed browser sessions, run `$AIO_AXE_RUNNER --browser-url "$AIO_BROWSER_URL" --page-url <url>`.',
+].join('\n');
+
+const MOBILE_MCP_ATTACH_PROMPT = [
+  '[mobile-mcp attached to a leased Android device]',
+  'Use mobile-mcp tools for Android testing only against the leased serial named in the Android device lease section.',
+  'Every mobile tool call must pass that serial as its `device` parameter.',
 ].join('\n');
 
 /**
@@ -126,19 +137,29 @@ export function withBrowserGatewayProvider(
 }
 
 export function withBrowserGatewaySystemPrompt(options: UnifiedSpawnOptions): UnifiedSpawnOptions {
-  if (!options.browserGatewayMcp && !options.chromeDevtoolsMcp) {
+  if (!options.browserGatewayMcp && !options.chromeDevtoolsMcp && !options.mobileMcp) {
     return options;
   }
   const existingPrompt = options.systemPrompt?.trim() ?? '';
-  if (existingPrompt.includes('browser.find_or_open')) {
-    return options;
-  }
   const sections = [existingPrompt];
-  if (options.browserGatewayMcp) {
+  if (
+    options.browserGatewayMcp &&
+    !existingPrompt.includes('[Browser Gateway]') &&
+    !existingPrompt.includes('browser.find_or_open')
+  ) {
     sections.push(BROWSER_GATEWAY_SYSTEM_PROMPT);
   }
-  if (options.chromeDevtoolsMcp) {
+  if (
+    options.chromeDevtoolsMcp &&
+    !existingPrompt.includes('[chrome-devtools attached to a managed browser profile]')
+  ) {
     sections.push(CHROME_DEVTOOLS_ATTACH_PROMPT);
+  }
+  if (
+    options.mobileMcp &&
+    !existingPrompt.includes('[mobile-mcp attached to a leased Android device]')
+  ) {
+    sections.push(MOBILE_MCP_ATTACH_PROMPT);
   }
   return {
     ...options,
@@ -213,6 +234,12 @@ export function writeGeminiBrowserGatewaySettings(
       mcpServers,
     );
   }
+  if (options.mobileMcp) {
+    mergeGeminiMcpServers(
+      buildMobileMcpGeminiSettingsJson(options.mobileMcp),
+      mcpServers,
+    );
+  }
   if (Object.keys(mcpServers).length === 0) {
     return undefined;
   }
@@ -247,6 +274,22 @@ export function buildCopilotAdditionalMcpConfig(
   });
 }
 
+function hasInlineMcpServerConfig(configs: string[], serverName: string): boolean {
+  return configs.some((config) => {
+    try {
+      const parsed = JSON.parse(config) as { mcpServers?: unknown };
+      const mcpServers = parsed.mcpServers;
+      return Boolean(
+        mcpServers &&
+        typeof mcpServers === 'object' &&
+        Object.prototype.hasOwnProperty.call(mcpServers, serverName)
+      );
+    } catch {
+      return false;
+    }
+  });
+}
+
 export function buildClaudeMcpConfig(options: UnifiedSpawnOptions): string[] | undefined {
   const configs = [...(options.mcpConfig ?? [])];
   const browserGatewayConfig = options.browserGatewayMcp
@@ -256,7 +299,7 @@ export function buildClaudeMcpConfig(options: UnifiedSpawnOptions): string[] | u
     : null;
   if (
     browserGatewayConfig
-    && !configs.some((config) => config.includes('"browser-gateway"'))
+    && !hasInlineMcpServerConfig(configs, 'browser-gateway')
   ) {
     configs.push(browserGatewayConfig);
   }
@@ -268,9 +311,18 @@ export function buildClaudeMcpConfig(options: UnifiedSpawnOptions): string[] | u
     : null;
   if (
     chromeDevtoolsConfig
-    && !configs.some((config) => config.includes('"chrome-devtools"'))
+    && !hasInlineMcpServerConfig(configs, 'chrome-devtools')
   ) {
     configs.push(chromeDevtoolsConfig);
+  }
+  const mobileMcpConfig = options.mobileMcp
+    ? buildMobileMcpConfigJson(options.mobileMcp)
+    : null;
+  if (
+    mobileMcpConfig
+    && !hasInlineMcpServerConfig(configs, 'mobile-mcp')
+  ) {
+    configs.push(mobileMcpConfig);
   }
   return configs.length > 0 ? configs : undefined;
 }

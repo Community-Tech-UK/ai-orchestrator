@@ -38,6 +38,37 @@ export interface WorkerBrowserAutomationConfig {
   remoteDebuggingPort?: number;
 }
 
+/**
+ * Opt-in Android automation for a worker node. When enabled, the worker can
+ * lease exactly one Android serial per spawned instance and inject mobile-mcp.
+ *
+ * SECURITY: leases are advisory because spawned agents still have shell access
+ * to adb. Enable only on trusted, owned nodes and keep personal devices
+ * unplugged unless they are intentionally part of the test pool.
+ */
+export interface WorkerAndroidAutomationConfig {
+  /** Master switch. Default false. */
+  enabled: boolean;
+  /** Android SDK root override. Defaults to ANDROID_HOME/ANDROID_SDK_ROOT/platform paths. */
+  sdkPath?: string;
+  /** Default AVD name for emulator-backed leases. */
+  defaultAvd?: string;
+  /** Launch emulators without a window. Default true. */
+  headlessEmulator?: boolean;
+  /** Maximum managed emulator processes. Default 1, capped at 4. */
+  maxEmulators?: number;
+  /** Emulator boot wait budget. Default 180 seconds. */
+  bootTimeoutMs?: number;
+  /** Whether USB/Wi-Fi devices can be leased. Default true. */
+  allowPhysicalDevices?: boolean;
+  /** Inject Maestro MCP in addition to mobile-mcp when Maestro is detected. */
+  injectMaestroMcp?: boolean;
+  /** Reserved opt-in for future Appium MCP wiring. */
+  appiumMcp?: boolean;
+  /** mobile-mcp package version. Defaults to the pinned builder version. */
+  mobileMcpVersion?: string;
+}
+
 export interface WorkerConfig {
   nodeId: string;
   name: string;
@@ -58,6 +89,8 @@ export interface WorkerConfig {
   heartbeatIntervalMs: number;
   /** Opt-in browser automation (default disabled). */
   browserAutomation?: WorkerBrowserAutomationConfig;
+  /** Opt-in Android automation (default disabled). */
+  androidAutomation?: WorkerAndroidAutomationConfig;
 }
 
 interface PairingConfigFile {
@@ -106,6 +139,7 @@ export function loadWorkerConfig(configPath = DEFAULT_CONFIG_PATH): WorkerConfig
   if (args['coordinator']) merged.coordinatorUrl = args['coordinator'];
   if (args['name']) merged.name = args['name'];
   if (args['namespace']) merged.namespace = args['namespace'];
+  const persistableConfig: WorkerConfig = { ...merged };
 
   // Prefer the environment variable for the auth token so it does not
   // appear in the OS process table (visible via `ps aux` to all local
@@ -117,10 +151,11 @@ export function loadWorkerConfig(configPath = DEFAULT_CONFIG_PATH): WorkerConfig
     merged.authToken = envToken;
   } else if (args['token']) {
     merged.authToken = args['token'];
+    persistableConfig.authToken = args['token'];
   }
 
   // Persist generated values back
-  persistConfig(configPath, merged);
+  persistConfig(configPath, persistableConfig);
 
   return merged;
 }
@@ -138,6 +173,7 @@ function normalizeFileConfig(fileConfig: Partial<WorkerConfig> & PairingConfigFi
   }
 
   normalized.browserAutomation = normalizeBrowserAutomation(fileConfig.browserAutomation);
+  normalized.androidAutomation = normalizeAndroidAutomation(fileConfig.androidAutomation);
 
   return normalized;
 }
@@ -173,6 +209,63 @@ function normalizeBrowserAutomation(
   return result;
 }
 
+/**
+ * Sanitize the untrusted `androidAutomation` block from disk. Returns undefined
+ * (feature off) for anything that is not an object explicitly enabling it.
+ * Defaults are applied only after `enabled === true`; malformed optional fields
+ * are ignored instead of being persisted into runtime decisions.
+ */
+function normalizeAndroidAutomation(
+  raw: unknown,
+): WorkerAndroidAutomationConfig | undefined {
+  if (!raw || typeof raw !== 'object') {
+    return undefined;
+  }
+  const obj = raw as Record<string, unknown>;
+  if (obj['enabled'] !== true) {
+    return undefined;
+  }
+
+  const result: WorkerAndroidAutomationConfig = {
+    enabled: true,
+    headlessEmulator: true,
+    maxEmulators: 1,
+    bootTimeoutMs: 180_000,
+    allowPhysicalDevices: true,
+    injectMaestroMcp: false,
+    appiumMcp: false,
+  };
+
+  if (typeof obj['sdkPath'] === 'string' && obj['sdkPath'].trim().length > 0) {
+    result.sdkPath = obj['sdkPath'];
+  }
+  if (typeof obj['defaultAvd'] === 'string' && obj['defaultAvd'].trim().length > 0) {
+    result.defaultAvd = obj['defaultAvd'];
+  }
+  if (typeof obj['headlessEmulator'] === 'boolean') {
+    result.headlessEmulator = obj['headlessEmulator'];
+  }
+  if (isValidMaxEmulators(obj['maxEmulators'])) {
+    result.maxEmulators = obj['maxEmulators'];
+  }
+  if (isValidPositiveInteger(obj['bootTimeoutMs'])) {
+    result.bootTimeoutMs = obj['bootTimeoutMs'];
+  }
+  if (typeof obj['allowPhysicalDevices'] === 'boolean') {
+    result.allowPhysicalDevices = obj['allowPhysicalDevices'];
+  }
+  if (typeof obj['injectMaestroMcp'] === 'boolean') {
+    result.injectMaestroMcp = obj['injectMaestroMcp'];
+  }
+  if (typeof obj['appiumMcp'] === 'boolean') {
+    result.appiumMcp = obj['appiumMcp'];
+  }
+  if (typeof obj['mobileMcpVersion'] === 'string' && obj['mobileMcpVersion'].trim().length > 0) {
+    result.mobileMcpVersion = obj['mobileMcpVersion'];
+  }
+  return result;
+}
+
 /** Default automation profile dir — sibling of the worker config file. */
 export function defaultBrowserAutomationProfileDir(): string {
   return path.join(os.homedir(), '.orchestrator', 'browser-automation-profile');
@@ -180,6 +273,14 @@ export function defaultBrowserAutomationProfileDir(): string {
 
 function isValidPort(port: unknown): port is number {
   return typeof port === 'number' && Number.isInteger(port) && port > 0 && port <= 65535;
+}
+
+function isValidPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+function isValidMaxEmulators(value: unknown): value is number {
+  return isValidPositiveInteger(value) && value <= 4;
 }
 
 function parseCliArgs(argv: string[]): Record<string, string> {

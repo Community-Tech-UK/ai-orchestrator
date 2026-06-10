@@ -6,6 +6,7 @@
 import type {
   WorkerNodeInfo,
   WorkerNodeBrowserAutomationSummary,
+  WorkerNodeAndroidAutomationSummary,
   NodePlatform,
 } from '../../../../shared/types/worker-node.types';
 import { buildBrowserLoginCommand } from '../../../../shared/utils/browser-login-command';
@@ -39,6 +40,10 @@ export interface NodeHealthEntry {
   browserAutomationReady: boolean;
   /** Non-secret summary of the node's browser-automation config, if reported. */
   browserAutomation?: WorkerNodeBrowserAutomationSummary;
+  /** Android automation wired & ready on the node (mobile-mcp injection). */
+  androidAutomationReady: boolean;
+  /** Android SDK/device state reported by newer worker nodes. */
+  androidAutomation?: WorkerNodeAndroidAutomationSummary;
   supportsGpu: boolean;
   supportedClis: string[];
 }
@@ -70,6 +75,80 @@ export function browserAutomationLabel(entry: NodeHealthEntry): string {
     default:
       return 'Browser automation: off';
   }
+}
+
+export type AndroidAutomationState = 'ready' | 'enabled' | 'sdk-only' | 'off';
+
+export function androidAutomationState(entry: NodeHealthEntry): AndroidAutomationState {
+  if (entry.androidAutomationReady) {
+    if (hasOnlineAndroidDevice(entry) || entry.androidAutomation?.emulatorRunning) {
+      return 'ready';
+    }
+    if (!entry.androidAutomation || hasConfiguredAndroidTarget(entry)) {
+      return 'enabled';
+    }
+  }
+  return entry.androidAutomation?.adbVersion ? 'sdk-only' : 'off';
+}
+
+export function androidAutomationLabel(entry: NodeHealthEntry): string {
+  switch (androidAutomationState(entry)) {
+    case 'ready':
+      return 'Android automation: ready';
+    case 'enabled':
+      return 'Android automation: enabled (starts emulator on first use)';
+    case 'sdk-only':
+      return 'Android automation: SDK detected';
+    default:
+      return 'Android automation: off';
+  }
+}
+
+export function withPatchedBrowserAutomation(
+  nodes: WorkerNodeInfo[],
+  nodeId: string,
+  summary: WorkerNodeBrowserAutomationSummary,
+): WorkerNodeInfo[] {
+  return nodes.map((node) =>
+    node.id === nodeId
+      ? {
+          ...node,
+          capabilities: {
+            ...node.capabilities,
+            browserAutomation: summary,
+            hasBrowserMcp: summary.enabled && node.capabilities.hasBrowserRuntime,
+          },
+        }
+      : node,
+  );
+}
+
+export function withPatchedAndroidAutomation(
+  nodes: WorkerNodeInfo[],
+  nodeId: string,
+  summary: WorkerNodeAndroidAutomationSummary,
+): WorkerNodeInfo[] {
+  return nodes.map((node) =>
+    node.id === nodeId
+      ? {
+          ...node,
+          capabilities: {
+            ...node.capabilities,
+            androidAutomation: summary,
+            hasAndroidMcp: summary.enabled && Boolean(summary.adbVersion),
+          },
+        }
+      : node,
+  );
+}
+
+function hasOnlineAndroidDevice(entry: NodeHealthEntry): boolean {
+  return entry.androidAutomation?.connectedDevices.some((device) => device.state === 'device') ?? false;
+}
+
+function hasConfiguredAndroidTarget(entry: NodeHealthEntry): boolean {
+  const summary = entry.androidAutomation;
+  return Boolean(summary && (summary.avds.length > 0 || summary.defaultAvd));
 }
 
 /**

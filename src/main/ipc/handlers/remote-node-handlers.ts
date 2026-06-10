@@ -16,6 +16,7 @@ import {
   RemoteNodeStartServerPayloadSchema,
   RemoteNodeProviderDiagnosePayloadSchema,
   RemoteNodeServiceActionPayloadSchema,
+  RemoteNodeUpdateAndroidAutomationPayloadSchema,
   RemoteNodeUpdateBrowserAutomationPayloadSchema,
   RemoteNodeRunBrowserLoginPayloadSchema,
 } from '@contracts/schemas/remote-node';
@@ -413,6 +414,31 @@ export function registerRemoteNodeHandlers(): void {
           success: false,
           error: {
             code: 'REMOTE_NODE_UPDATE_BROWSER_AUTOMATION_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.REMOTE_NODE_UPDATE_ANDROID_AUTOMATION,
+    async (_event, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = RemoteNodeUpdateAndroidAutomationPayloadSchema.parse(payload);
+        const data = await sendServiceRpc(
+          validated.nodeId,
+          COORDINATOR_TO_NODE.CONFIG_UPDATE,
+          { androidAutomation: validated.androidAutomation },
+          30_000,
+        );
+        return { success: true, data };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REMOTE_NODE_UPDATE_ANDROID_AUTOMATION_FAILED',
             message: (error as Error).message,
             timestamp: Date.now(),
           },

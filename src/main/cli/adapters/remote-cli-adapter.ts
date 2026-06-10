@@ -162,6 +162,7 @@ export class RemoteCliAdapter extends EventEmitter {
           resume: this.spawnOptions.resume,
           forkSession: this.spawnOptions.forkSession,
           mcpConfig: this.spawnOptions.mcpConfig,
+          nodePlacement: this.spawnOptions.nodePlacement,
         },
       );
 

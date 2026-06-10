@@ -1,5 +1,5 @@
 import { WorkerAgent } from './worker-agent';
-import { loadWorkerConfig, resolveConfigPath } from './worker-config';
+import { DEFAULT_CONFIG_PATH, loadWorkerConfig, resolveConfigPath } from './worker-config';
 import { parseServiceArgs, runServiceCommand } from './cli/service-cli';
 
 async function main(): Promise<void> {
@@ -18,12 +18,13 @@ async function main(): Promise<void> {
       ? argv[argv.indexOf('--config') + 1]
       : undefined;
 
-  const config = loadWorkerConfig(configPath);
+  const activeConfigPath = configPath ?? DEFAULT_CONFIG_PATH;
+  const config = loadWorkerConfig(activeConfigPath);
 
   console.log(`Worker node "${config.name}" (${config.nodeId})`);
   console.log(`Connecting to coordinator at ${config.coordinatorUrl}...`);
 
-  const agent = new WorkerAgent(config);
+  const agent = new WorkerAgent(config, activeConfigPath);
 
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`\n${signal} received — shutting down...`);

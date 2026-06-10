@@ -238,6 +238,7 @@ export interface AppSettings {
   remoteNodesServerHost: string;
   remoteNodesEnrollmentToken: string;
   remoteNodesAutoOffloadBrowser: boolean;
+  remoteNodesAutoOffloadAndroid: boolean;
   remoteNodesAutoOffloadGpu: boolean;
   remoteNodesNamespace: string;
   remoteNodesRequireTls: boolean;
@@ -464,6 +465,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   remoteNodesServerHost: '0.0.0.0',
   remoteNodesEnrollmentToken: '',
   remoteNodesAutoOffloadBrowser: true,
+  remoteNodesAutoOffloadAndroid: true,
   remoteNodesAutoOffloadGpu: false,
   remoteNodesNamespace: 'default',
   remoteNodesRequireTls: false,

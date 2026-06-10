@@ -6,10 +6,15 @@ import { reportCapabilities } from './capability-reporter';
 import { DiscoveryClient } from './discovery-client';
 import { LocalInstanceManager } from './local-instance-manager';
 import { nextReconnectDelayMs, RECONNECT_CONFIG } from './reconnect-backoff';
-import type { WorkerBrowserAutomationConfig, WorkerConfig } from './worker-config';
+import type {
+  WorkerAndroidAutomationConfig,
+  WorkerBrowserAutomationConfig,
+  WorkerConfig,
+} from './worker-config';
 import { persistConfig } from './worker-config';
 import type {
   WorkerNodeBrowserAutomationSummary,
+  WorkerNodeAndroidAutomationSummary,
   WorkerNodeCapabilities,
 } from '../shared/types/worker-node.types';
 import { NODE_TO_COORDINATOR } from '../main/remote-node/worker-node-rpc';
@@ -25,6 +30,7 @@ import { WorkerInstanceNotifier } from './worker-instance-notifier';
 import { WorkerRpcDispatcher } from './worker-rpc-dispatcher';
 import { WorkerBrowserManager } from './worker-browser-manager';
 import { WorkerCdpTunnel } from './worker-cdp-tunnel';
+import { WorkerAndroidManager } from './android/worker-android-manager';
 import type { RpcMessage } from './worker-rpc-types';
 import type { DiscoveredCoordinator } from './discovery-client';
 
@@ -76,11 +82,15 @@ export class WorkerAgent extends EventEmitter {
   private readonly notifier: WorkerInstanceNotifier;
   private readonly rpcDispatcher: WorkerRpcDispatcher;
   private readonly browserManager: WorkerBrowserManager;
+  private readonly androidManager: WorkerAndroidManager;
   private readonly cdpTunnel: WorkerCdpTunnel;
   private activeCoordinatorUrl: string | null = null;
   private retryRegistrationWithRecovery = false;
 
-  constructor(private readonly config: WorkerConfig) {
+  constructor(
+    private readonly config: WorkerConfig,
+    private readonly configPath = DEFAULT_CONFIG_PATH,
+  ) {
     super();
     // Always construct the manager (even when disabled) so browser automation
     // can be turned on at runtime via a coordinator `config.update` without
@@ -88,12 +98,16 @@ export class WorkerAgent extends EventEmitter {
     this.browserManager = new WorkerBrowserManager({
       config: config.browserAutomation ?? { enabled: false },
     });
+    this.androidManager = new WorkerAndroidManager({
+      config: config.androidAutomation ?? { enabled: false },
+    });
     this.cdpTunnel = new WorkerCdpTunnel({ browserManager: this.browserManager });
     this.wireCdpTunnelEvents();
     this.instanceManager = new LocalInstanceManager(
       config.workingDirectories,
       config.maxConcurrentInstances,
-      this.browserManager
+      this.browserManager,
+      this.androidManager
     );
     this.notifier = new WorkerInstanceNotifier({
       getSocket: () => this.ws,
@@ -123,7 +137,8 @@ export class WorkerAgent extends EventEmitter {
       this.capabilities = await reportCapabilities(
         this.config.workingDirectories,
         this.config.maxConcurrentInstances,
-        this.browserManager.getSummary()
+        this.browserManager.getSummary(),
+        await this.androidManager.getSummary()
       );
       this.fsHandler = new NodeFilesystemHandler(
         this.config.workingDirectories
@@ -268,6 +283,7 @@ export class WorkerAgent extends EventEmitter {
     this.terminalHandler?.killAll();
     this.cdpTunnel.closeAll();
     await this.browserManager.shutdown();
+    await this.androidManager.shutdown();
     if (this.ws) {
       this.ws.close(1000, 'Worker shutting down');
       this.ws = null;
@@ -312,7 +328,8 @@ export class WorkerAgent extends EventEmitter {
     this.capabilities = await reportCapabilities(
       this.config.workingDirectories,
       this.config.maxConcurrentInstances,
-      this.browserManager.getSummary()
+      this.browserManager.getSummary(),
+      await this.androidManager.getSummary()
     );
     this.notifier.send({
       jsonrpc: '2.0',
@@ -334,7 +351,11 @@ export class WorkerAgent extends EventEmitter {
    */
   async applyConfigUpdate(update: {
     browserAutomation?: WorkerBrowserAutomationConfig;
-  }): Promise<WorkerNodeBrowserAutomationSummary | undefined> {
+    androidAutomation?: WorkerAndroidAutomationConfig;
+  }): Promise<{
+    browserAutomation?: WorkerNodeBrowserAutomationSummary;
+    androidAutomation?: WorkerNodeAndroidAutomationSummary;
+  }> {
     if (update.browserAutomation) {
       // Merge onto the existing block so a partial update (e.g. just toggling
       // headless) doesn't wipe profileDir/chromePath. `enabled` is always present
@@ -344,15 +365,27 @@ export class WorkerAgent extends EventEmitter {
         ...update.browserAutomation,
       };
       this.config.browserAutomation = merged;
-      persistConfig(DEFAULT_CONFIG_PATH, this.config);
+      persistConfig(this.configPath, this.config);
       await this.browserManager.reconfigure(merged);
+    }
+    if (update.androidAutomation) {
+      const merged: WorkerAndroidAutomationConfig = {
+        ...this.config.androidAutomation,
+        ...update.androidAutomation,
+      };
+      this.config.androidAutomation = merged;
+      persistConfig(this.configPath, this.config);
+      await this.androidManager.reconfigure(merged);
     }
     // Only push a heartbeat when connected; otherwise the next reconnect reports
     // the updated capabilities.
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       await this.sendHeartbeat();
     }
-    return this.browserManager.getSummary();
+    return {
+      browserAutomation: this.browserManager.getSummary(),
+      androidAutomation: await this.androidManager.getSummary(),
+    };
   }
 
   private stopHeartbeat(): void {
@@ -476,7 +509,7 @@ export class WorkerAgent extends EventEmitter {
           changed = true;
         }
         if (changed) {
-          persistConfig(DEFAULT_CONFIG_PATH, this.config);
+          persistConfig(this.configPath, this.config);
         }
         this.retryRegistrationWithRecovery = false;
         this.pendingRegistrationId = null;
@@ -523,7 +556,7 @@ export class WorkerAgent extends EventEmitter {
         `Registration rejected (${message}); clearing persisted node token and retrying with pairing token`
       );
       this.config.nodeToken = undefined;
-      persistConfig(DEFAULT_CONFIG_PATH, this.config);
+      persistConfig(this.configPath, this.config);
       this.ws?.close(4001, 'Retry registration with pairing token');
       return;
     }

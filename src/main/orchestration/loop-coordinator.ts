@@ -1526,7 +1526,9 @@ export class LoopCoordinator extends EventEmitter {
       // -- assemble iteration record --
       const iterEnd = Date.now();
       const tokens = childResult.tokens;
-      const costCents = Math.ceil((tokens / 1_000_000) * COST_PER_M_TOKENS_CENTS);
+      const costCents = typeof childResult.costUsd === 'number' && Number.isFinite(childResult.costUsd)
+        ? Math.max(0, Math.ceil(childResult.costUsd * 100))
+        : Math.ceil((tokens / 1_000_000) * COST_PER_M_TOKENS_CENTS);
 
       const prevIter = history[history.length - 1];
       const outputExcerpt = excerpt(childResult.output);

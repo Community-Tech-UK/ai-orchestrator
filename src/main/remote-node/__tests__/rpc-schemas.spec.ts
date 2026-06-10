@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   NodeRegisterParamsSchema,
   NodeHeartbeatParamsSchema,
+  InstanceSpawnParamsSchema,
   TerminalCreateParamsSchema,
   TerminalInputParamsSchema,
   TerminalResizeParamsSchema,
@@ -11,6 +12,7 @@ import {
   ProviderDiagnoseParamsSchema,
   AuxiliaryModelListParamsSchema,
   AuxiliaryModelGenerateParamsSchema,
+  ConfigUpdateParamsSchema,
   COORDINATOR_TO_NODE_PARAM_SCHEMAS,
   validateRpcParams,
 } from '../rpc-schemas';
@@ -30,6 +32,7 @@ describe('rpc-schemas', () => {
           supportedClis: ['claude'],
           hasBrowserRuntime: true,
           hasBrowserMcp: false,
+          hasAndroidMcp: false,
           hasDocker: false,
           maxConcurrentInstances: 10,
           workingDirectories: ['/tmp'],
@@ -39,8 +42,71 @@ describe('rpc-schemas', () => {
       expect(result.success).toBe(true);
     });
 
+    it('accepts Android automation capability summaries', () => {
+      const result = NodeRegisterParamsSchema.safeParse({
+        nodeId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+        name: 'windows-android',
+        capabilities: {
+          platform: 'win32',
+          arch: 'x64',
+          cpuCores: 16,
+          totalMemoryMB: 96000,
+          availableMemoryMB: 64000,
+          supportedClis: ['claude'],
+          hasBrowserRuntime: true,
+          hasBrowserMcp: false,
+          hasAndroidMcp: true,
+          androidAutomation: {
+            enabled: true,
+            sdkPath: 'C:\\Android\\Sdk',
+            adbVersion: 'Android Debug Bridge version 1.0.41',
+            avds: ['Pixel_8'],
+            connectedDevices: [
+              { serial: 'emulator-5554', kind: 'emulator', state: 'device', apiLevel: 35 },
+              { serial: 'ABC123', kind: 'usb', state: 'unauthorized' },
+            ],
+            emulatorRunning: true,
+            hasMaestro: true,
+          },
+          hasDocker: false,
+          maxConcurrentInstances: 10,
+          workingDirectories: ['/tmp'],
+        },
+      });
+      expect(result.success).toBe(true);
+    });
+
     it('rejects missing nodeId', () => {
       const result = NodeRegisterParamsSchema.safeParse({ name: 'test' });
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('InstanceSpawnParamsSchema', () => {
+    it('accepts Android placement preferences', () => {
+      const result = InstanceSpawnParamsSchema.safeParse({
+        instanceId: 'inst-1',
+        cliType: 'claude',
+        workingDirectory: '/workspace',
+        nodePlacement: {
+          requiresAndroid: true,
+          androidDeviceKind: 'physical',
+          requiresBrowser: true,
+        },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects invalid Android device kind', () => {
+      const result = InstanceSpawnParamsSchema.safeParse({
+        instanceId: 'inst-1',
+        cliType: 'claude',
+        workingDirectory: '/workspace',
+        nodePlacement: {
+          requiresAndroid: true,
+          androidDeviceKind: 'tablet',
+        },
+      });
       expect(result.success).toBe(false);
     });
   });
@@ -197,6 +263,35 @@ describe('rpc-schemas', () => {
     });
   });
 
+  describe('ConfigUpdateParamsSchema', () => {
+    it('accepts Android automation updates', () => {
+      const result = ConfigUpdateParamsSchema.safeParse({
+        androidAutomation: {
+          enabled: true,
+          sdkPath: 'C:\\Android\\Sdk',
+          defaultAvd: 'Pixel_8',
+          headlessEmulator: true,
+          maxEmulators: 1,
+          bootTimeoutMs: 180000,
+          allowPhysicalDevices: true,
+          injectMaestroMcp: true,
+          appiumMcp: false,
+        },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects too many managed emulators', () => {
+      const result = ConfigUpdateParamsSchema.safeParse({
+        androidAutomation: {
+          enabled: true,
+          maxEmulators: 5,
+        },
+      });
+      expect(result.success).toBe(false);
+    });
+  });
+
   describe('validateRpcParams', () => {
     it('returns validated data on success', () => {
       const result = validateRpcParams(NodeHeartbeatParamsSchema, {
@@ -210,6 +305,7 @@ describe('rpc-schemas', () => {
           supportedClis: [],
           hasBrowserRuntime: false,
           hasBrowserMcp: false,
+          hasAndroidMcp: false,
           hasDocker: false,
           maxConcurrentInstances: 5,
           workingDirectories: [],

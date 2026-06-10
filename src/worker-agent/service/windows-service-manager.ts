@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { execFileCapture, ExecFileError } from './exec-file';
 import { generateWinswXml } from './windows-winsw-xml';
 import { servicePaths } from './paths';
+import { copyWorkerSupportFiles } from './support-files';
 import type { ServiceManager, ServiceInstallOptions, ServiceStatus } from './types';
 
 const SERVICE_ID = 'ai-orchestrator-worker';
@@ -24,6 +25,7 @@ export class WindowsServiceManager implements ServiceManager {
     await fs.mkdir(versionedDir, { recursive: true });
     const versionedBin = path.join(versionedDir, 'worker-agent.exe');
     await fs.copyFile(opts.binaryPath, versionedBin);
+    await copyWorkerSupportFiles({ binaryPath: opts.binaryPath, destinationDir: versionedDir });
     try { await fs.unlink(paths.currentBinLink); } catch { /* ignore */ }
     await fs.symlink(versionedDir, paths.currentBinLink, 'junction');
     const targetBin = path.join(paths.currentBinLink, 'worker-agent.exe');

@@ -16,6 +16,7 @@ export interface TaskPreflightRequest {
   requiresWrite?: boolean;
   requiresNetwork?: boolean;
   requiresBrowser?: boolean;
+  requiresAndroid?: boolean;
 }
 
 export interface TaskPreflightPrediction {
@@ -77,6 +78,9 @@ export interface TaskPreflightMcpSummary {
   browserStatus: 'ready' | 'partial' | 'missing';
   browserWarnings: string[];
   browserToolNames: string[];
+  androidStatus?: 'ready' | 'missing' | 'not-required';
+  androidNodeNames?: string[];
+  androidWarnings?: string[];
   connectedServerNames: string[];
 }
 

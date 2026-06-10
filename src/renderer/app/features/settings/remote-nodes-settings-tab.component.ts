@@ -14,11 +14,13 @@ import {
 } from '@angular/core';
 import * as QRCode from 'qrcode';
 import { SettingsStore } from '../../core/state/settings.store';
-import { RemoteNodeIpcService, RemoteNodeServerStatus } from '../../core/services/ipc/remote-node-ipc.service';
+import {
+  RemoteNodeIpcService,
+  RemoteNodeServerStatus,
+} from '../../core/services/ipc/remote-node-ipc.service';
 import type {
   RemotePairingCredentialInfo,
   WorkerNodeInfo,
-  WorkerNodeBrowserAutomationSummary,
 } from '../../../../shared/types/worker-node.types';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { InlineHelpComponent } from './ui/inline-help.component';
@@ -32,8 +34,16 @@ import {
   type NodeHealthEntry,
   browserAutomationState,
   browserAutomationLabel,
+  androidAutomationState,
+  androidAutomationLabel,
+  withPatchedBrowserAutomation,
+  withPatchedAndroidAutomation,
   loginCommandPreview,
 } from './remote-nodes-browser-automation';
+import {
+  RemoteNodeAndroidConfigComponent,
+  type AndroidAutomationConfigDraft,
+} from './remote-node-android-config.component';
 
 @Component({
   standalone: true,
@@ -45,6 +55,7 @@ import {
     CopyRowComponent,
     CodePreviewBlockComponent,
     DangerZoneComponent,
+    RemoteNodeAndroidConfigComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './remote-nodes-settings-tab.component.html',
@@ -63,6 +74,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   protected readonly draftRequireTls = signal(false);
   protected readonly draftTlsMode = signal<'auto' | 'custom'>('auto');
   protected readonly draftAutoOffloadBrowser = signal(true);
+  protected readonly draftAutoOffloadAndroid = signal(true);
   protected readonly draftAutoOffloadGpu = signal(false);
 
   protected readonly tokenRevealed = signal(false);
@@ -87,6 +99,9 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   protected readonly baDraftProfileDir = signal('');
   protected readonly baDraftHeadless = signal(false);
   protected readonly baBusy = signal(false);
+  // Per-node Android automation config form (one node configured at a time).
+  protected readonly androidConfiguringNodeId = signal<string | null>(null);
+  protected readonly aaBusy = signal(false);
   // Tier 3 — guided profile login.
   protected readonly loginUrlDraft = signal('https://www.facebook.com');
   protected readonly loginBusy = signal(false);
@@ -105,6 +120,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
       this.draftRequireTls() !== this.store.remoteNodesRequireTls() ||
       this.draftTlsMode() !== this.store.remoteNodesTlsMode() ||
       this.draftAutoOffloadBrowser() !== this.store.remoteNodesAutoOffloadBrowser() ||
+      this.draftAutoOffloadAndroid() !== this.store.remoteNodesAutoOffloadAndroid() ||
       this.draftAutoOffloadGpu() !== this.store.remoteNodesAutoOffloadGpu()
     );
   });
@@ -165,6 +181,8 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
           supportsBrowser: live?.capabilities.hasBrowserRuntime ?? false,
           browserAutomationReady: live?.capabilities.hasBrowserMcp ?? false,
           browserAutomation: live?.capabilities.browserAutomation,
+          androidAutomationReady: live?.capabilities.hasAndroidMcp ?? false,
+          androidAutomation: live?.capabilities.androidAutomation,
           supportsGpu: Boolean(live?.capabilities.gpuName),
           supportedClis: live?.capabilities.supportedClis ?? [],
         };
@@ -209,6 +227,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     this.draftRequireTls.set(this.store.remoteNodesRequireTls());
     this.draftTlsMode.set(this.store.remoteNodesTlsMode());
     this.draftAutoOffloadBrowser.set(this.store.remoteNodesAutoOffloadBrowser());
+    this.draftAutoOffloadAndroid.set(this.store.remoteNodesAutoOffloadAndroid());
     this.draftAutoOffloadGpu.set(this.store.remoteNodesAutoOffloadGpu());
   }
 
@@ -271,6 +290,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
       await this.store.set('remoteNodesRequireTls', this.draftRequireTls());
       await this.store.set('remoteNodesTlsMode', this.draftTlsMode());
       await this.store.set('remoteNodesAutoOffloadBrowser', this.draftAutoOffloadBrowser());
+      await this.store.set('remoteNodesAutoOffloadAndroid', this.draftAutoOffloadAndroid());
       await this.store.set('remoteNodesAutoOffloadGpu', this.draftAutoOffloadGpu());
 
       await this.ipc.stopServer();
@@ -415,16 +435,11 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
       : `${token.slice(0, 8)}...${token.slice(-6)}`;
   }
 
-  /**
-   * Three-state browser-automation readiness for a node:
-   *  - `ready`       — automation wired (chrome-devtools MCP injected on spawn)
-   *  - `chrome-only` — Chrome installed but automation not enabled
-   *  - `off`         — no Chrome runtime detected
-   */
   protected browserAutomationState = browserAutomationState;
   protected browserAutomationLabel = browserAutomationLabel;
+  protected androidAutomationState = androidAutomationState;
+  protected androidAutomationLabel = androidAutomationLabel;
 
-  /** Open the per-node browser-automation config form, prefilled from the node. */
   protected openBrowserConfig(entry: NodeHealthEntry): void {
     this.configuringNodeId.set(entry.id);
     this.baDraftEnabled.set(entry.browserAutomation?.enabled ?? entry.browserAutomationReady);
@@ -432,9 +447,13 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     this.baDraftHeadless.set(entry.browserAutomation?.headless ?? false);
   }
 
-  protected cancelBrowserConfig(): void {
-    this.configuringNodeId.set(null);
+  protected cancelBrowserConfig(): void { this.configuringNodeId.set(null); }
+
+  protected openAndroidConfig(entry: NodeHealthEntry): void {
+    this.androidConfiguringNodeId.set(entry.id);
   }
+
+  protected cancelAndroidConfig(): void { this.androidConfiguringNodeId.set(null); }
 
   /**
    * The exact login command that "Run on node" would execute, for the node's
@@ -516,7 +535,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
       // than waiting for the next heartbeat — keeps the badge + login section in
       // sync without a second Configure click.
       if (summary) {
-        this.patchNodeBrowserAutomation(nodeId, summary);
+        this.liveNodes.update((nodes) => withPatchedBrowserAutomation(nodes, nodeId, summary));
         this.baDraftProfileDir.set(summary.profileDir);
         this.baDraftHeadless.set(summary.headless);
       }
@@ -529,25 +548,38 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     }
   }
 
-  /** Optimistically reflect a node's new browser-automation summary in the UI. */
-  private patchNodeBrowserAutomation(
-    nodeId: string,
-    summary: WorkerNodeBrowserAutomationSummary,
-  ): void {
-    this.liveNodes.update((nodes) =>
-      nodes.map((node) =>
-        node.id === nodeId
-          ? {
-              ...node,
-              capabilities: {
-                ...node.capabilities,
-                browserAutomation: summary,
-                hasBrowserMcp: summary.enabled && node.capabilities.hasBrowserRuntime,
-              },
-            }
-          : node,
-      ),
-    );
+  async applyAndroidConfig(payload: AndroidAutomationConfigDraft): Promise<void> {
+    const nodeId = this.androidConfiguringNodeId();
+    if (!nodeId) {
+      return;
+    }
+    const entry = this.nodeHealthEntries().find((e) => e.id === nodeId);
+    const wasEnabled = entry?.androidAutomation?.enabled ?? entry?.androidAutomationReady ?? false;
+
+    if (payload.enabled && !wasEnabled) {
+      const ok = confirm(
+        `Enable Android automation on "${entry?.name ?? nodeId}"?\n\n` +
+        'Agents spawned on this node will be able to control the leased Android ' +
+        'device or emulator through mobile-mcp. Only enable this on a trusted node.',
+      );
+      if (!ok) {
+        return;
+      }
+    }
+
+    this.aaBusy.set(true);
+    this.error.set(null);
+    try {
+      const summary = await this.ipc.updateAndroidAutomation(nodeId, payload);
+      if (summary) {
+        this.liveNodes.update((nodes) => withPatchedAndroidAutomation(nodes, nodeId, summary));
+      }
+      void this.refreshNodes();
+    } catch (err) {
+      this.error.set((err as Error).message);
+    } finally {
+      this.aaBusy.set(false);
+    }
   }
 
   protected pairingExpiresSoon(pairing: RemotePairingCredentialInfo): boolean {

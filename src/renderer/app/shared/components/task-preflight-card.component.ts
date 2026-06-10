@@ -55,6 +55,12 @@ import type { TaskPreflightReport } from '../../../../shared/types/task-prefligh
             <span class="summary-label">Browser</span>
             <strong>{{ report()!.mcp.browserStatus }}</strong>
           </div>
+          @if (report()!.mcp.androidStatus && report()!.mcp.androidStatus !== 'not-required') {
+            <div class="summary-item">
+              <span class="summary-label">Android</span>
+              <strong>{{ report()!.mcp.androidStatus }}</strong>
+            </div>
+          }
           <div class="summary-item">
             <span class="summary-label">Preset</span>
             <strong>{{ report()!.permissions.preset }}</strong>

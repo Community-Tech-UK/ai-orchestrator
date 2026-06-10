@@ -21,6 +21,7 @@ describe('RemoteNodesSettingsTabComponent', () => {
     remoteNodesRequireTls: vi.fn(() => false),
     remoteNodesTlsMode: vi.fn(() => 'auto'),
     remoteNodesAutoOffloadBrowser: vi.fn(() => true),
+    remoteNodesAutoOffloadAndroid: vi.fn(() => true),
     remoteNodesAutoOffloadGpu: vi.fn(() => false),
     remoteNodesRegisteredNodes: vi.fn(() => ({})),
     remoteNodesEnrollmentToken: vi.fn(() => 'manual-token'),
@@ -32,6 +33,7 @@ describe('RemoteNodesSettingsTabComponent', () => {
     getServerStatus: vi.fn(),
     listNodes: vi.fn(),
     listPairingCredentials: vi.fn(),
+    updateAndroidAutomation: vi.fn(),
     onNodeEvent: vi.fn(),
     onNodesChanged: vi.fn(),
   };

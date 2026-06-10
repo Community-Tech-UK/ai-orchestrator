@@ -91,9 +91,13 @@ export class InstanceStateService {
   }
 
   /**
-   * Add an instance to the store
+   * Add an instance to the store.
+   *
+   * Never changes the selection — callers that want the new instance focused
+   * (explicit create/restore/fork flows) must call setSelectedInstance
+   * themselves. Background-created sessions must not steal focus.
    */
-  addInstance(instance: Instance, autoSelect?: boolean): void {
+  addInstance(instance: Instance): void {
     this.state.update((current) => {
       const newMap = new Map(current.instances);
       newMap.set(instance.id, instance);
@@ -101,7 +105,6 @@ export class InstanceStateService {
         ...current,
         instances: newMap,
         loading: false,
-        selectedInstanceId: autoSelect ? instance.id : current.selectedInstanceId,
       };
     });
   }

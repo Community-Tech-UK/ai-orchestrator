@@ -1,6 +1,7 @@
 export {
   WorkerNodeRegistry,
-  getWorkerNodeRegistry
+  getWorkerNodeRegistry,
+  isAndroidAutomationReady
 } from './worker-node-registry';
 export {
   generateAuthToken

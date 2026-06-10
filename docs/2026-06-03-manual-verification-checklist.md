@@ -33,6 +33,14 @@ npx vitest run          # full suite               -> 827 files / 7849+ tests pa
 
 ## Implemented this session — manual verification per feature
 
+### Browser audits + Android worker automation (built this turn)
+Automated ✅ pending final gate run in this turn (capability detection, config push, routing, settings UI, MCP injection, worker axe runner, and focused Vitest coverage).
+- 🔌 **Windows worker provisioning:** on the worker, verify Node 22+, `adb --version`, `emulator -accel-check`, `emulator -list-avds`, and `maestro --version` if Maestro injection will be enabled.
+- 🔌 **Managed emulator path:** enable Android automation in Settings, pick a known AVD, start an Android-routed task, and confirm the worker boots/reuses one `emulator-55xx` serial, injects `ANDROID_SERIAL`, and releases the lease when the instance exits.
+- 🔌 **Physical device path:** plug in a test device, accept the USB-debugging prompt, request `/offload android on` with `androidDeviceKind=physical` where applicable, and confirm the node is selected only when the device reports `state=device`.
+- 👁️ **Settings UI:** confirm the Android badge moves through Off / SDK only / Enabled / Ready states, the device list shows unauthorized devices as warnings, and saving Android automation updates the node without restarting the coordinator.
+- 👁️ **Browser audit smoke:** run a browser-routed audit task and confirm the agent sees chrome-devtools MCP plus `AIO_BROWSER_URL` / `AIO_AXE_RUNNER`; run the axe runner once against a local page and confirm JSON output includes violations/passes counts.
+
 ### B10b — Automation retry/backoff (committed)
 Automated ✅ (durable retry, deterministic jitter, policy-aware, one-time-fix; 65 tests).
 - 👁️ **Live-ish:** create a oneTime automation whose action fails (e.g. a command that exits non-zero). Confirm in the Automations UI it shows a retry scheduled, retries with growing delay, and only marks the automation failed/auto-disabled after `max_attempts` exhausted (not on each intermediate retry).

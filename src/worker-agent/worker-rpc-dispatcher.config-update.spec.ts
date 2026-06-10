@@ -56,7 +56,9 @@ describe('WorkerRpcDispatcher config.update', () => {
   });
 
   it('applies with service scope and returns the node summary', async () => {
-    const summary = { enabled: true, headless: false, profileDir: '/p' };
+    const summary = {
+      browserAutomation: { enabled: true, headless: false, profileDir: '/p', running: false },
+    };
     const applyConfigUpdate = vi.fn(async () => summary);
     const { dispatcher, sendResult, sendError } = makeDispatcher(applyConfigUpdate);
 
@@ -65,7 +67,47 @@ describe('WorkerRpcDispatcher config.update', () => {
     expect(applyConfigUpdate).toHaveBeenCalledWith({
       browserAutomation: { enabled: true, profileDir: '/p' },
     });
-    expect(sendResult).toHaveBeenCalledWith(2, { browserAutomation: summary });
+    expect(sendResult).toHaveBeenCalledWith(2, summary);
+    expect(sendError).not.toHaveBeenCalled();
+  });
+
+  it('accepts androidAutomation updates with service scope', async () => {
+    const summary = {
+      androidAutomation: {
+        enabled: true,
+        sdkPath: 'C:/Android/Sdk',
+        avds: [],
+        connectedDevices: [],
+        emulatorRunning: false,
+        hasMaestro: false,
+      },
+    };
+    const applyConfigUpdate = vi.fn(async () => summary);
+    const { dispatcher, sendResult, sendError } = makeDispatcher(applyConfigUpdate);
+
+    await dispatcher.handleRpcRequest(configUpdateMsg({
+      id: 4,
+      scope: 'service',
+      params: {
+        androidAutomation: {
+          enabled: true,
+          sdkPath: 'C:/Android/Sdk',
+          defaultAvd: 'aio-pixel7-api35',
+          maxEmulators: 2,
+        },
+      },
+    }));
+
+    expect(applyConfigUpdate).toHaveBeenCalledWith({
+      browserAutomation: undefined,
+      androidAutomation: {
+        enabled: true,
+        sdkPath: 'C:/Android/Sdk',
+        defaultAvd: 'aio-pixel7-api35',
+        maxEmulators: 2,
+      },
+    });
+    expect(sendResult).toHaveBeenCalledWith(4, summary);
     expect(sendError).not.toHaveBeenCalled();
   });
 
@@ -170,5 +212,50 @@ describe('WorkerRpcDispatcher browser.cdp.*', () => {
     await dispatcher.handleRpcRequest(cdpMsg(COORDINATOR_TO_NODE.BROWSER_STOP_MANAGED, {}));
     expect(stop).not.toHaveBeenCalled();
     expect(sendError).toHaveBeenCalledWith(9, expect.any(Number), expect.stringContaining('scope=service'));
+  });
+});
+
+describe('WorkerRpcDispatcher instance input', () => {
+  it('forwards input without logging message or attachment metadata', async () => {
+    const sendInput = vi.fn(async () => undefined);
+    const sendResult = vi.fn();
+    const sendError = vi.fn();
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const dispatcher = new WorkerRpcDispatcher({
+      config: {} as never,
+      instanceManager: { sendInput } as never,
+      getFilesystemHandler: () => ({}) as never,
+      getSyncHandler: () => ({}) as never,
+      getTerminalHandler: () => ({}) as never,
+      applyConfigUpdate: vi.fn() as never,
+      getCdpTunnel: () => ({ open: vi.fn(), send: vi.fn(), close: vi.fn() }) as never,
+      stopManagedBrowser: vi.fn(async () => undefined),
+      sendResult,
+      sendError,
+    });
+
+    try {
+      await dispatcher.handleRpcRequest({
+        jsonrpc: '2.0',
+        id: 10,
+        method: COORDINATOR_TO_NODE.INSTANCE_SEND_INPUT,
+        params: {
+          instanceId: 'inst-1',
+          message: 'contains user text',
+          attachments: [{ name: 'private-file.txt', path: '/tmp/private-file.txt' }],
+        },
+      } as RpcMessage);
+
+      expect(sendInput).toHaveBeenCalledWith(
+        'inst-1',
+        'contains user text',
+        [{ name: 'private-file.txt', path: '/tmp/private-file.txt' }],
+      );
+      expect(consoleLog).not.toHaveBeenCalled();
+      expect(sendResult).toHaveBeenCalledWith(10, { ok: true });
+      expect(sendError).not.toHaveBeenCalled();
+    } finally {
+      consoleLog.mockRestore();
+    }
   });
 });

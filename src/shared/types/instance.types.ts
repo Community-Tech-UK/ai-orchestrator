@@ -373,6 +373,9 @@ export interface Instance {
   /** Where this instance is executing (local or remote node) */
   executionLocation: ExecutionLocation;
 
+  /** Placement preferences used for this instance's remote worker selection. */
+  nodePlacement?: NodePlacementPrefs;
+
   /** Accumulated diff stats for the session (file content snapshots) */
   diffStats?: SessionDiffStats;
 
@@ -525,6 +528,7 @@ export function createInstance(config: InstanceCreateConfig): Instance {
     provider, // Default to auto (resolved by instance manager)
     reasoningEffort: config.reasoningEffort,
     executionLocation: { type: 'local' },
+    nodePlacement: config.nodePlacement,
     diffStats: undefined,
 
     outputBuffer: config.initialOutputBuffer ? [...config.initialOutputBuffer] : [],

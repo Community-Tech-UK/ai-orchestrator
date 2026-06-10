@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { execFileCapture, ExecFileError } from './exec-file';
 import { generateLaunchdPlist } from './macos-launchd-plist';
 import { servicePaths } from './paths';
+import { copyWorkerSupportFiles } from './support-files';
 import type { ServiceManager, ServiceInstallOptions, ServiceStatus } from './types';
 
 const LABEL = 'com.aiorchestrator.worker';
@@ -24,6 +25,7 @@ export class MacosServiceManager implements ServiceManager {
     const versionedBin = path.join(versionedDir, 'worker-agent');
     await fs.mkdir(versionedDir, { recursive: true });
     await fs.copyFile(opts.binaryPath, versionedBin);
+    await copyWorkerSupportFiles({ binaryPath: opts.binaryPath, destinationDir: versionedDir });
     await fs.chmod(versionedBin, 0o755);
     try { await fs.unlink(paths.currentBinLink); } catch { /* ignore */ }
     await fs.symlink(versionedDir, paths.currentBinLink, 'dir');

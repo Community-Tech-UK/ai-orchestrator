@@ -9,6 +9,16 @@ import {
 
 const ReasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'workflow']);
 export const InstanceLaunchModeSchema = z.enum(['orchestrated', 'interactive']);
+const NodePlacementPrefsSchema = z.object({
+  requiresBrowser: z.boolean().optional(),
+  requiresAndroid: z.boolean().optional(),
+  androidDeviceKind: z.enum(['emulator', 'physical', 'any']).optional(),
+  requiresGpu: z.boolean().optional(),
+  preferPlatform: z.enum(['darwin', 'win32', 'linux']).optional(),
+  preferNodeId: z.string().optional(),
+  requiresCli: z.enum(['claude', 'codex', 'gemini', 'copilot', 'cursor']).optional(),
+  requiresWorkingDirectory: z.string().min(1).max(4096).optional(),
+});
 
 // ============ Instance Creation ============
 
@@ -25,6 +35,7 @@ export const InstanceCreatePayloadSchema = z.object({
   provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor']).optional(),
   model: z.string().max(100).optional(),
   forceNodeId: z.string().uuid().optional(),
+  nodePlacement: NodePlacementPrefsSchema.optional(),
 });
 
 export type ValidatedInstanceCreatePayload = z.infer<typeof InstanceCreatePayloadSchema>;
@@ -38,6 +49,7 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
   provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor']).optional(),
   model: z.string().max(100).optional(),
   forceNodeId: z.string().uuid().optional(),
+  nodePlacement: NodePlacementPrefsSchema.optional(),
 });
 
 // ============ Instance Input ============

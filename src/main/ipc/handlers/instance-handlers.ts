@@ -90,6 +90,7 @@ export function registerInstanceHandlers(deps: {
           provider: validatedPayload.provider as import('../../../shared/types/instance.types').InstanceProvider | undefined,
           modelOverride: validatedPayload.model,
           forceNodeId: validatedPayload.forceNodeId,
+          nodePlacement: validatedPayload.nodePlacement,
         });
 
         return {
@@ -145,7 +146,8 @@ export function registerInstanceHandlers(deps: {
           agentId: validated.agentId,
           provider: validated.provider as import('../../../shared/types/instance.types').InstanceProvider | undefined,
           modelOverride: validated.model,
-          forceNodeId: validated.forceNodeId
+          forceNodeId: validated.forceNodeId,
+          nodePlacement: validated.nodePlacement,
         });
 
         return {

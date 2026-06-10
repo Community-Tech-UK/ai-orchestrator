@@ -116,6 +116,7 @@ export class SettingsStore {
   readonly remoteNodesServerHost = computed(() => this._settings().remoteNodesServerHost);
   readonly remoteNodesEnrollmentToken = computed(() => this._settings().remoteNodesEnrollmentToken);
   readonly remoteNodesAutoOffloadBrowser = computed(() => this._settings().remoteNodesAutoOffloadBrowser);
+  readonly remoteNodesAutoOffloadAndroid = computed(() => this._settings().remoteNodesAutoOffloadAndroid);
   readonly remoteNodesAutoOffloadGpu = computed(() => this._settings().remoteNodesAutoOffloadGpu);
   readonly remoteNodesNamespace = computed(() => this._settings().remoteNodesNamespace);
   readonly remoteNodesRequireTls = computed(() => this._settings().remoteNodesRequireTls);

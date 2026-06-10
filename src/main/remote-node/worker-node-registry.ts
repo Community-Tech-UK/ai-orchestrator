@@ -66,7 +66,8 @@ export class WorkerNodeRegistry extends EventEmitter {
   updateNodeMetrics(nodeId: string, partial: Partial<WorkerNodeInfo>): void {
     const node = this.nodes.get(nodeId);
     if (!node) return;
-    const updated = { ...node, ...partial };
+    const { id: _ignoredId, ...safePartial } = partial;
+    const updated = { ...node, ...safePartial, id: nodeId };
     this.nodes.set(nodeId, updated);
     this.emit('node:updated', updated);
   }
@@ -119,8 +120,22 @@ export class WorkerNodeRegistry extends EventEmitter {
     // report readiness/setup state, but spawned agents will not receive browser
     // tools unless the node advertises hasBrowserMcp.
     if (prefs.requiresBrowser && !caps.hasBrowserMcp) return -Infinity;
+    if (prefs.requiresAndroid && !isAndroidAutomationReady(caps)) return -Infinity;
+    if (
+      prefs.requiresAndroid &&
+      prefs.androidDeviceKind === 'physical' &&
+      !hasPhysicalAndroidDevice(caps)
+    ) {
+      return -Infinity;
+    }
     if (prefs.requiresGpu && !caps.gpuName) return -Infinity;
     if (prefs.requiresCli && !caps.supportedClis.includes(prefs.requiresCli)) return -Infinity;
+    if (
+      prefs.requiresWorkingDirectory &&
+      !caps.workingDirectories.includes(prefs.requiresWorkingDirectory)
+    ) {
+      return -Infinity;
+    }
 
     // --- Base capability match ---
     let score = 100;
@@ -152,12 +167,8 @@ export class WorkerNodeRegistry extends EventEmitter {
       score += 50;
     }
 
-    // Required working directory — hard penalty if missing (-200)
-    if (prefs.requiresWorkingDirectory) {
-      const hasDir = caps.workingDirectories.includes(prefs.requiresWorkingDirectory);
-      if (!hasDir) {
-        score -= 200;
-      }
+    if (prefs.requiresAndroid && caps.androidAutomation?.emulatorRunning) {
+      score += 8;
     }
 
     return score;
@@ -205,10 +216,36 @@ export function matchNodeByCapabilityTag(
       ?? ranked.find((n) => n.capabilities.hasBrowserRuntime);
   }
   if (t === 'browser-mcp') return ranked.find((n) => n.capabilities.hasBrowserMcp);
+  if (t === 'android') return ranked.find((n) => isAndroidAutomationReady(n.capabilities));
+  if (t === 'android-physical') {
+    return ranked.find((n) => n.capabilities.hasAndroidMcp && hasPhysicalAndroidDevice(n.capabilities));
+  }
   if (t === 'docker') return ranked.find((n) => n.capabilities.hasDocker);
   const platform = NODE_PLATFORM_ALIASES[t];
   if (platform) return ranked.find((n) => n.capabilities.platform === platform);
   return ranked.find((n) => n.capabilities.supportedClis.some((c) => c.toLowerCase() === t));
+}
+
+function hasPhysicalAndroidDevice(caps: WorkerNodeCapabilities): boolean {
+  return caps.androidAutomation?.connectedDevices.some((device) =>
+    (device.kind === 'usb' || device.kind === 'wifi') && device.state === 'device'
+  ) ?? false;
+}
+
+export function isAndroidAutomationReady(caps: WorkerNodeCapabilities): boolean {
+  if (!caps.hasAndroidMcp) {
+    return false;
+  }
+  const summary = caps.androidAutomation;
+  if (!summary) {
+    return true;
+  }
+  return (
+    summary.connectedDevices.some((device) => device.state === 'device') ||
+    summary.emulatorRunning ||
+    summary.avds.length > 0 ||
+    Boolean(summary.defaultAvd)
+  );
 }
 
 /**
@@ -237,7 +274,7 @@ export function resolveWorkerNodeTarget(
   const available = connected.map((n) => n.name || n.id);
   return {
     error: available.length > 0
-      ? `No connected worker node matching "${requested}". Available workers: ${available.join(', ')}. You can also target a capability: gpu, browser, docker, or a platform (windows/mac/linux).`
+      ? `No connected worker node matching "${requested}". Available workers: ${available.join(', ')}. You can also target a capability: gpu, browser, android, android-physical, docker, or a platform (windows/mac/linux).`
       : `Cannot run child on "${requested}": no worker nodes are currently connected.`,
   };
 }

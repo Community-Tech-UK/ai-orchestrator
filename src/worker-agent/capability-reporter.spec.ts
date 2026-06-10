@@ -414,6 +414,32 @@ describe('capability-reporter', () => {
       expect(caps.hasBrowserRuntime).toBe(false);
       expect(caps.hasBrowserMcp).toBe(false);
     });
+
+    it('reports hasAndroidMcp=true only when Android automation is enabled and adb is available', async () => {
+      chromeInstalled(false);
+      const caps = await reportCapabilities(['/workspace'], 10, undefined, {
+        enabled: true,
+        sdkPath: '/android/sdk',
+        adbVersion: 'Android Debug Bridge version 1.0.41',
+        avds: ['aio-pixel7-api35'],
+        connectedDevices: [],
+        emulatorRunning: false,
+        hasMaestro: false,
+      });
+      expect(caps.hasAndroidMcp).toBe(true);
+      expect(caps.androidAutomation?.sdkPath).toBe('/android/sdk');
+
+      const disabled = await reportCapabilities(['/workspace'], 10, undefined, {
+        enabled: false,
+        sdkPath: '/android/sdk',
+        adbVersion: 'Android Debug Bridge version 1.0.41',
+        avds: [],
+        connectedDevices: [],
+        emulatorRunning: false,
+        hasMaestro: false,
+      });
+      expect(disabled.hasAndroidMcp).toBe(false);
+    });
   });
 
   describe('GPU detection still works with RTX-style nvidia-smi output', () => {

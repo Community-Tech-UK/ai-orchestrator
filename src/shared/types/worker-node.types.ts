@@ -44,6 +44,37 @@ export interface WorkerNodeBrowserAutomationSummary {
   running: boolean;
 }
 
+export interface AndroidDeviceInfo {
+  serial: string;
+  kind: 'emulator' | 'usb' | 'wifi';
+  model?: string;
+  apiLevel?: number;
+  state: 'device' | 'offline' | 'unauthorized';
+}
+
+/**
+ * Non-secret Android automation state for a worker node. SDK paths and AVD
+ * names are operator-owned machine details but not credentials; never include
+ * adb auth material, emulator console tokens, or app data here.
+ */
+export interface WorkerNodeAndroidAutomationSummary {
+  enabled: boolean;
+  sdkPath: string;
+  adbVersion?: string;
+  avds: string[];
+  connectedDevices: AndroidDeviceInfo[];
+  emulatorRunning: boolean;
+  hasMaestro: boolean;
+  defaultAvd?: string;
+  headlessEmulator?: boolean;
+  maxEmulators?: number;
+  bootTimeoutMs?: number;
+  allowPhysicalDevices?: boolean;
+  injectMaestroMcp?: boolean;
+  appiumMcp?: boolean;
+  mobileMcpVersion?: string;
+}
+
 export interface WorkerNodeCapabilities {
   platform: NodePlatform;
   arch: string;
@@ -57,6 +88,9 @@ export interface WorkerNodeCapabilities {
   hasBrowserMcp: boolean;
   /** Present when the node reports browser-automation config (newer workers). */
   browserAutomation?: WorkerNodeBrowserAutomationSummary;
+  hasAndroidMcp: boolean;
+  /** Present when the node can inspect Android SDK/device state (newer workers). */
+  androidAutomation?: WorkerNodeAndroidAutomationSummary;
   hasDocker: boolean;
   maxConcurrentInstances: number;
   workingDirectories: string[];
@@ -83,6 +117,8 @@ export type ExecutionLocation =
 
 export interface NodePlacementPrefs {
   requiresBrowser?: boolean;
+  requiresAndroid?: boolean;
+  androidDeviceKind?: 'emulator' | 'physical' | 'any';
   requiresGpu?: boolean;
   preferPlatform?: NodePlatform;
   preferNodeId?: string;

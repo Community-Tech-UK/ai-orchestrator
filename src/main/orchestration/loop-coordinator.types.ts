@@ -21,6 +21,7 @@ export interface LoopChildResult {
   childInstanceId: string | null;
   output: string;
   tokens: number;
+  costUsd?: number;
   filesChanged: LoopFileChange[];
   toolCalls: LoopToolCallRecord[];
   errors: LoopErrorRecord[];

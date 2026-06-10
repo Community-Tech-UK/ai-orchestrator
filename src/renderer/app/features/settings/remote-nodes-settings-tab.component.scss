@@ -472,6 +472,34 @@
   }
 }
 
+.capability-chip.android-automation {
+  text-transform: none;
+  font-weight: 600;
+
+  &[data-state='ready'] {
+    border-color: var(--success-color, #2e7d32);
+    color: var(--success-color, #2e7d32);
+    background: color-mix(in srgb, var(--success-color, #2e7d32) 12%, transparent);
+  }
+
+  &[data-state='enabled'] {
+    border-color: var(--info-color, #1565c0);
+    color: var(--info-color, #1565c0);
+    background: color-mix(in srgb, var(--info-color, #1565c0) 12%, transparent);
+  }
+
+  &[data-state='sdk-only'] {
+    border-color: var(--warning-color, #b26a00);
+    color: var(--warning-color, #b26a00);
+    background: color-mix(in srgb, var(--warning-color, #b26a00) 12%, transparent);
+  }
+
+  &[data-state='off'] {
+    color: var(--text-secondary, #888);
+    opacity: 0.8;
+  }
+}
+
 @media (max-width: 720px) {
   .pairing-presentation {
     grid-template-columns: 1fr;

@@ -50,6 +50,24 @@ export const RemoteNodeUpdateBrowserAutomationPayloadSchema = z.object({
   browserAutomation: RemoteNodeBrowserAutomationConfigSchema,
 });
 
+export const RemoteNodeAndroidAutomationConfigSchema = z.object({
+  enabled: z.boolean(),
+  sdkPath: z.string().trim().min(1).max(1024).optional(),
+  defaultAvd: z.string().trim().min(1).max(256).optional(),
+  headlessEmulator: z.boolean().optional(),
+  maxEmulators: z.number().int().min(1).max(4).optional(),
+  bootTimeoutMs: z.number().int().min(10_000).max(600_000).optional(),
+  allowPhysicalDevices: z.boolean().optional(),
+  injectMaestroMcp: z.boolean().optional(),
+  appiumMcp: z.boolean().optional(),
+  mobileMcpVersion: z.string().trim().min(1).max(64).optional(),
+});
+
+export const RemoteNodeUpdateAndroidAutomationPayloadSchema = z.object({
+  nodeId: z.string().uuid(),
+  androidAutomation: RemoteNodeAndroidAutomationConfigSchema,
+});
+
 export const RemoteNodeRunBrowserLoginPayloadSchema = z.object({
   nodeId: z.string().uuid(),
   url: z.string().trim().max(2048).optional(),

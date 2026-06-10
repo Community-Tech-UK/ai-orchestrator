@@ -226,13 +226,33 @@ describe('LoopCoordinator usage-aware throttling', () => {
       await coordinator.cancelLoop(state.id);
     }
   });
+
+  it('records provider-reported iteration cost instead of a flat token estimate', async () => {
+    coordinator.setQuotaSnapshotProvider(() => snapshot([win({ used: 20 })]));
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as { callback: (r: LoopChildResult) => void };
+      p.callback({
+        ...iterationResult('billable work happened', { tokens: 1_000_000 }),
+        costUsd: 0.42,
+      } as LoopChildResult);
+    });
+
+    const state = await startLoop('chat-provider-cost', { maxIterations: 1 });
+    try {
+      await waitForCondition(() => (coordinator.getLoop(state.id)?.totalIterations ?? 0) >= 1, 5000);
+      expect(coordinator.getLoop(state.id)?.totalTokens).toBe(1_000_000);
+      expect(coordinator.getLoop(state.id)?.totalCostCents).toBe(42);
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  });
 });
 
-async function startLoop(chatId: string) {
+async function startLoop(chatId: string, capOverrides: Partial<ReturnType<typeof defaultLoopConfig>['caps']> = {}) {
   return coordinator.startLoop(chatId, {
     initialPrompt: 'keep going',
     workspaceCwd: workspace,
-    caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 3 },
+    caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 3, ...capOverrides },
     blockSanityProbe: { enabled: false },
     completion: {
       ...defaultLoopConfig(workspace, 'x').completion,

@@ -6,6 +6,7 @@ import { BranchFreshness } from '../git/branch-freshness';
 import { getStaleBranchPolicy } from '../git/stale-branch-policy';
 import { getLogger } from '../logging/logger';
 import { getMcpManager } from '../mcp/mcp-manager';
+import { getWorkerNodeRegistry, isAndroidAutomationReady } from '../remote-node';
 import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import { getFilesystemPolicy } from './filesystem-policy';
 import { getNetworkPolicy } from './network-policy';
@@ -103,10 +104,18 @@ export class TaskPreflightService {
     const requiresWrite = Boolean(request.requiresWrite);
     const requiresNetwork = Boolean(request.requiresNetwork || request.requiresBrowser);
     const requiresBrowser = Boolean(request.requiresBrowser);
+    const requiresAndroid = Boolean(request.requiresAndroid);
 
+    const browserHealthPromise = requiresBrowser
+      ? getBrowserAutomationHealthService().diagnose()
+      : Promise.resolve({
+          status: 'ready' as const,
+          warnings: [],
+          browserToolNames: [],
+        });
     const [instructionSummary, browserHealth] = await Promise.all([
       resolveInstructionStack({ workingDirectory }),
-      getBrowserAutomationHealthService().diagnose(),
+      browserHealthPromise,
     ]);
     const branchFreshness = await new BranchFreshness().inspect(workingDirectory);
     const branchPolicy = getStaleBranchPolicy().evaluate(branchFreshness, {
@@ -127,22 +136,37 @@ export class TaskPreflightService {
     const permissionConfig = permissions.getConfig();
     const projectPermissionsPath = path.join(workingDirectory, '.orchestrator', 'permissions.json');
     let hasProjectPermissionFile = false;
+    let projectPermissionAccessWarning: string | null = null;
     try {
       await fsp.access(projectPermissionsPath);
       hasProjectPermissionFile = true;
-    } catch {
-      // File does not exist or is not accessible
+    } catch (error) {
+      if (!isMissingPathError(error)) {
+        projectPermissionAccessWarning =
+          'Project permission file could not be checked. Runtime permission matching may include project-scoped rules preflight cannot inspect.';
+      }
     }
 
     const mcp = getMcpManager();
     const servers = mcp.getServers();
     const connectedServers = servers.filter((server) => server.status === 'connected');
+    const androidNodes = requiresAndroid
+      ? getWorkerNodeRegistry().getAllNodes().filter((node) =>
+          node.status === 'connected' && isAndroidAutomationReady(node.capabilities)
+        )
+      : [];
+    const androidWarnings = requiresAndroid && androidNodes.length === 0
+      ? ['No connected worker node currently reports Android automation readiness.']
+      : [];
 
     const blockers: string[] = [];
     const warnings = new Set<string>([
       ...instructionSummary.warnings,
       ...browserHealth.warnings,
     ]);
+    if (projectPermissionAccessWarning) {
+      warnings.add(projectPermissionAccessWarning);
+    }
     const predictions: TaskPreflightPrediction[] = [];
     const links: TaskPreflightLink[] = [];
 
@@ -170,6 +194,11 @@ export class TaskPreflightService {
     } else if (requiresBrowser && browserHealth.status === 'partial') {
       warnings.add('Browser evidence is enabled, but browser automation is only partially ready.');
       links.push({ label: 'Open MCP', route: '/mcp' });
+    }
+
+    if (requiresAndroid && androidNodes.length === 0) {
+      blockers.push('Android testing is required, but no connected Android-capable worker node is ready.');
+      links.push({ label: 'Open remote nodes', route: '/settings' });
     }
 
     if (permissionConfig.defaultAction === 'ask') {
@@ -214,6 +243,17 @@ export class TaskPreflightService {
           browserHealth.status === 'ready'
             ? 'Browser automation tooling is ready and the task explicitly requested browser evidence.'
             : 'The task requested browser evidence, but setup warnings may prevent a full capture.',
+      });
+    }
+
+    if (requiresAndroid) {
+      predictions.push({
+        label: 'Android device automation',
+        certainty: androidNodes.length > 0 ? 'expected' : 'possible',
+        reason:
+          androidNodes.length > 0
+            ? 'A connected worker node reports Android automation readiness for this task.'
+            : 'The task requested Android automation, but no ready Android worker is connected.',
       });
     }
 
@@ -268,7 +308,9 @@ export class TaskPreflightService {
             : 'Temp directory access is disabled.',
           hasProjectPermissionFile
             ? 'Project-scoped permission overrides were detected.'
-            : 'No project-scoped permission override file was detected.',
+            : projectPermissionAccessWarning
+              ? 'Project permission overrides could not be inspected.'
+              : 'No project-scoped permission override file was detected.',
         ],
       },
       network: {
@@ -291,6 +333,9 @@ export class TaskPreflightService {
         browserStatus: browserHealth.status,
         browserWarnings: browserHealth.warnings,
         browserToolNames: browserHealth.browserToolNames,
+        androidStatus: requiresAndroid ? (androidNodes.length > 0 ? 'ready' : 'missing') : 'not-required',
+        androidNodeNames: androidNodes.map((node) => node.name),
+        androidWarnings,
         connectedServerNames: connectedServers.map((server) => server.name),
       },
       permissions: {
@@ -451,4 +496,8 @@ function dedupeLinks(links: TaskPreflightLink[]): TaskPreflightLink[] {
 
 export function getTaskPreflightService(): TaskPreflightService {
   return TaskPreflightService.getInstance();
+}
+
+function isMissingPathError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT';
 }

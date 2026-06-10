@@ -31,6 +31,53 @@ describe('InstanceCreatePayloadSchema forceNodeId', () => {
   });
 });
 
+describe('Instance create nodePlacement schemas', () => {
+  it('accepts Android and browser placement preferences for create payloads', () => {
+    const createResult = InstanceCreatePayloadSchema.safeParse({
+      workingDirectory: '/tmp/project',
+      nodePlacement: {
+        requiresAndroid: true,
+        androidDeviceKind: 'physical',
+        requiresBrowser: true,
+      },
+    });
+    const createWithMessageResult = InstanceCreateWithMessagePayloadSchema.safeParse({
+      workingDirectory: '/tmp/project',
+      message: 'test the APK',
+      nodePlacement: {
+        requiresAndroid: true,
+        androidDeviceKind: 'emulator',
+      },
+    });
+
+    expect(createResult.success).toBe(true);
+    expect(createResult.success && createResult.data.nodePlacement?.androidDeviceKind).toBe('physical');
+    expect(createWithMessageResult.success).toBe(true);
+    expect(createWithMessageResult.success && createWithMessageResult.data.nodePlacement?.requiresAndroid).toBe(true);
+  });
+
+  it('rejects invalid Android placement device kinds', () => {
+    const createResult = InstanceCreatePayloadSchema.safeParse({
+      workingDirectory: '/tmp/project',
+      nodePlacement: {
+        requiresAndroid: true,
+        androidDeviceKind: 'tablet',
+      },
+    });
+    const createWithMessageResult = InstanceCreateWithMessagePayloadSchema.safeParse({
+      workingDirectory: '/tmp/project',
+      message: 'test the APK',
+      nodePlacement: {
+        requiresAndroid: true,
+        androidDeviceKind: 'tablet',
+      },
+    });
+
+    expect(createResult.success).toBe(false);
+    expect(createWithMessageResult.success).toBe(false);
+  });
+});
+
 describe('InstanceCreateWithMessagePayloadSchema agentId', () => {
   it('accepts an optional agentId string', () => {
     const result = InstanceCreateWithMessagePayloadSchema.safeParse({

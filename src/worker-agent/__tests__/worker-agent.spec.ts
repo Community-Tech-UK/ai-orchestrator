@@ -120,6 +120,14 @@ vi.mock('../local-instance-manager', () => ({
   }),
 }));
 
+vi.mock('../android/worker-android-manager', () => ({
+  WorkerAndroidManager: vi.fn().mockImplementation(() => ({
+    getSummary: vi.fn(async () => undefined),
+    reconfigure: vi.fn(async () => undefined),
+    shutdown: vi.fn(async () => undefined),
+  })),
+}));
+
 vi.mock('../provider-runtime-diagnostics', () => ({
   diagnoseProviderRuntime: providerDiagnostics.diagnoseProviderRuntime,
   isDiagnosableProvider: (value: unknown) =>
@@ -139,6 +147,17 @@ const mockConfig: WorkerConfig = {
   reconnectIntervalMs: 1000,
   heartbeatIntervalMs: 5000,
 };
+
+async function waitForSocket(index = 0): Promise<(typeof wsMockState.instances)[number]> {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const instance = wsMockState.instances[index];
+    if (instance) {
+      return instance;
+    }
+    await Promise.resolve();
+  }
+  throw new Error(`Timed out waiting for WebSocket instance ${index}`);
+}
 
 describe('WorkerAgent', () => {
   let agent: WorkerAgent;
@@ -180,13 +199,13 @@ describe('WorkerAgent', () => {
     agent = new WorkerAgent(config);
 
     const connect = agent.connect();
-    await Promise.resolve();
+    const firstSocket = await waitForSocket();
 
-    expect(wsMockState.instances[0].url).toBe('ws://192.168.1.50:4878');
+    expect(firstSocket.url).toBe('ws://192.168.1.50:4878');
     expect(discoveryMockState.onUp).not.toBeNull();
 
-    wsMockState.instances[0].emit('error', new Error('ECONNREFUSED'));
-    wsMockState.instances[0].emit('close');
+    firstSocket.emit('error', new Error('ECONNREFUSED'));
+    firstSocket.emit('close');
     await connect;
 
     discoveryMockState.onUp?.({
@@ -197,18 +216,18 @@ describe('WorkerAgent', () => {
     });
 
     await vi.advanceTimersByTimeAsync(1000);
-    await Promise.resolve();
+    const secondSocket = await waitForSocket(1);
 
-    expect(wsMockState.instances[1].url).toBe('ws://192.168.1.99:4878');
+    expect(secondSocket.url).toBe('ws://192.168.1.99:4878');
   });
 
   it('sets an explicit large CDP payload ceiling on coordinator WebSocket clients', async () => {
     const connect = agent.connect();
-    await Promise.resolve();
-    wsMockState.instances[0].emit('open');
+    const socket = await waitForSocket();
+    socket.emit('open');
     await connect;
 
-    expect(wsMockState.instances[0].options).toMatchObject({
+    expect(socket.options).toMatchObject({
       maxPayload: 80 * 1024 * 1024,
     });
   });
@@ -223,24 +242,23 @@ describe('WorkerAgent', () => {
     agent = new WorkerAgent(config);
 
     const connect = agent.connect();
-    await Promise.resolve();
+    const firstSocket = await waitForSocket();
 
     // Primary LAN address is tried first.
-    expect(wsMockState.instances[0].url).toBe('ws://192.168.0.156:4878');
+    expect(firstSocket.url).toBe('ws://192.168.0.156:4878');
 
     // Primary fails — worker should fail over to the stable fallback.
-    wsMockState.instances[0].emit('error', new Error('ETIMEDOUT'));
-    wsMockState.instances[0].emit('close');
-    await Promise.resolve();
-    await Promise.resolve();
+    firstSocket.emit('error', new Error('ETIMEDOUT'));
+    firstSocket.emit('close');
 
-    expect(wsMockState.instances[1].url).toBe('ws://macbook-pro.tail4fc107.ts.net:4878');
+    const secondSocket = await waitForSocket(1);
+    expect(secondSocket.url).toBe('ws://macbook-pro.tail4fc107.ts.net:4878');
 
-    wsMockState.instances[1].emit('open');
+    secondSocket.emit('open');
     await connect;
 
     // Registration is sent over the surviving connection.
-    expect(wsMockState.instances[1].send).toHaveBeenCalled();
+    expect(secondSocket.send).toHaveBeenCalled();
   });
 
   it('falls back to the pairing token when a persisted node token is rejected', async () => {
@@ -253,27 +271,28 @@ describe('WorkerAgent', () => {
     agent = new WorkerAgent(config);
 
     const connect = agent.connect();
-    await Promise.resolve();
-    wsMockState.instances[0].emit('open');
+    const firstSocket = await waitForSocket();
+    firstSocket.emit('open');
     await connect;
 
-    const firstRegistration = JSON.parse(wsMockState.instances[0].send.mock.calls[0][0] as string) as {
+    const firstRegistration = JSON.parse(firstSocket.send.mock.calls[0][0] as string) as {
       id: string;
       params: { token: string };
     };
     expect(firstRegistration.params.token).toBe('stale-node-token');
 
-    wsMockState.instances[0].emit('message', JSON.stringify({
+    firstSocket.emit('message', JSON.stringify({
       jsonrpc: '2.0',
       id: firstRegistration.id,
       error: { code: -32001, message: 'Invalid or expired pairing token' },
     }));
-    wsMockState.instances[0].emit('close');
+    firstSocket.emit('close');
 
     await vi.advanceTimersByTimeAsync(1000);
-    wsMockState.instances[1].emit('open');
+    const secondSocket = await waitForSocket(1);
+    secondSocket.emit('open');
 
-    const secondRegistration = JSON.parse(wsMockState.instances[1].send.mock.calls[0][0] as string) as {
+    const secondRegistration = JSON.parse(secondSocket.send.mock.calls[0][0] as string) as {
       params: { token: string };
     };
     expect(secondRegistration.params.token).toBe('fresh-pairing-token');
@@ -292,11 +311,11 @@ describe('WorkerAgent', () => {
     agent = new WorkerAgent(config);
 
     const connect = agent.connect();
-    await Promise.resolve();
-    wsMockState.instances[0].emit('open');
+    const firstSocket = await waitForSocket();
+    firstSocket.emit('open');
     await connect;
 
-    const firstRegistration = JSON.parse(wsMockState.instances[0].send.mock.calls[0][0] as string) as {
+    const firstRegistration = JSON.parse(firstSocket.send.mock.calls[0][0] as string) as {
       id: string;
       params: { token: string; recoveryToken?: string };
     };
@@ -305,17 +324,18 @@ describe('WorkerAgent', () => {
     });
     expect(firstRegistration.params.recoveryToken).toBeUndefined();
 
-    wsMockState.instances[0].emit('message', JSON.stringify({
+    firstSocket.emit('message', JSON.stringify({
       jsonrpc: '2.0',
       id: firstRegistration.id,
       error: { code: -32000, message: 'Invalid or expired pairing token' },
     }));
-    wsMockState.instances[0].emit('close');
+    firstSocket.emit('close');
 
     await vi.advanceTimersByTimeAsync(1000);
-    wsMockState.instances[1].emit('open');
+    const secondSocket = await waitForSocket(1);
+    secondSocket.emit('open');
 
-    const secondRegistration = JSON.parse(wsMockState.instances[1].send.mock.calls[0][0] as string) as {
+    const secondRegistration = JSON.parse(secondSocket.send.mock.calls[0][0] as string) as {
       params: { token: string; recoveryToken?: string };
     };
     expect(secondRegistration.params).toMatchObject({
@@ -352,6 +372,27 @@ describe('WorkerAgent', () => {
     );
   });
 
+  it('persists runtime config updates to the active config path', async () => {
+    agent = new WorkerAgent(mockConfig, '/service/worker-node.json');
+
+    await agent.applyConfigUpdate({
+      androidAutomation: {
+        enabled: true,
+        sdkPath: '/android/sdk',
+      },
+    });
+
+    expect(workerConfigMockState.persistConfig).toHaveBeenCalledWith(
+      '/service/worker-node.json',
+      expect.objectContaining({
+        androidAutomation: {
+          enabled: true,
+          sdkPath: '/android/sdk',
+        },
+      }),
+    );
+  });
+
   it('dispatches service-scoped coordinator notifications to the RPC dispatcher', () => {
     const handleRpcNotification = vi.fn();
     (agent as unknown as {
@@ -378,12 +419,12 @@ describe('WorkerAgent', () => {
       cdpTunnel: { closeAll: () => void };
     }).cdpTunnel, 'closeAll');
     const connect = agent.connect();
-    await Promise.resolve();
-    wsMockState.instances[0].emit('open');
+    const socket = await waitForSocket();
+    socket.emit('open');
     await connect;
     closeAll.mockClear();
 
-    wsMockState.instances[0].emit('close');
+    socket.emit('close');
 
     expect(closeAll).toHaveBeenCalledTimes(1);
   });

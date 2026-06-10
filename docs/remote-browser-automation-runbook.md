@@ -134,6 +134,24 @@ managed Chrome (subsequent spawns reuse it).
 Smoke test prompt: *"Use chrome-devtools to navigate to https://example.com and
 report the page title."*
 
+## 4.1 Browser audit tooling
+
+Browser-enabled worker spawns also receive:
+
+- `AIO_BROWSER_URL` — the managed Chrome CDP endpoint.
+- `AIO_AXE_RUNNER` — the bundled axe runner path
+  (`dist/worker-tools/axe-audit.mjs`).
+
+Run accessibility checks from the agent shell:
+
+```bash
+"$AIO_AXE_RUNNER" --browser-url "$AIO_BROWSER_URL" --page-url "https://example.com" --viewport 1440x900 --tags wcag2a,wcag2aa
+```
+
+The runner opens a fresh page through the same managed Chrome, runs axe-core, and
+prints JSON containing violations plus pass/incomplete counts. Pair it with
+chrome-devtools screenshots and viewport emulation for UI/UX audits.
+
 ## 5. Routing notes
 
 - `requiresBrowser` placement now **prefers** nodes with `hasBrowserMcp` (a +40
@@ -167,6 +185,10 @@ Known limitations — none are bugs, but plan around them:
   once per pinned version with no mid-automation upgrades. Bump that constant
   deliberately to adopt a newer release. Pre-warm an offline node with
   `npx -y chrome-devtools-mcp@1.2.0 --help`.
+- **Axe runner is bundled.** `@axe-core/puppeteer` is bundled into
+  `dist/worker-tools/axe-audit.mjs` during `npm run build:worker-agent`; agents
+  invoke it via `AIO_AXE_RUNNER`, so they do not need to install another MCP
+  server.
 - **Windows npx is handled automatically.** On Windows there is no `npx.exe` (only
   `npx.cmd`) and modern Node refuses to spawn a `.cmd` shell-less, so the config is
   emitted as `cmd /c npx …` on win32 — no operator action needed. (Without this the
