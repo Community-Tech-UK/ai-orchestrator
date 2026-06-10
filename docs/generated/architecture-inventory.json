@@ -5667,6 +5667,10 @@
       "lines": 850
     },
     {
+      "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
+      "lines": 846
+    },
+    {
       "path": "src/main/orchestration/embedding-service.ts",
       "lines": 845
     },
@@ -5740,10 +5744,6 @@
     },
     {
       "path": "src/main/core/config/claude-md-loader.ts",
-      "lines": 804
-    },
-    {
-      "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
       "lines": 804
     },
     {

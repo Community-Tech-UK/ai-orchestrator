@@ -346,6 +346,48 @@ describe('WorkerAgent', () => {
     expect(workerConfigMockState.persistConfig).not.toHaveBeenCalled();
   });
 
+  it('does not reset reconnect backoff until registration is accepted', async () => {
+    const config: WorkerConfig = {
+      ...mockConfig,
+      authToken: 'expired-pairing-token',
+      reconnectIntervalMs: 1000,
+    };
+    agent = new WorkerAgent(config);
+
+    const connect = agent.connect();
+    const firstSocket = await waitForSocket();
+    firstSocket.emit('open');
+    await connect;
+
+    const firstRegistration = JSON.parse(firstSocket.send.mock.calls[0][0] as string) as {
+      id: string;
+    };
+    firstSocket.emit('message', JSON.stringify({
+      jsonrpc: '2.0',
+      id: firstRegistration.id,
+      error: { code: -32001, message: 'Invalid or expired pairing token' },
+    }));
+    firstSocket.emit('close');
+
+    expect((agent as unknown as { reconnectAttempt: number }).reconnectAttempt).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    const secondSocket = await waitForSocket(1);
+    secondSocket.emit('open');
+
+    const secondRegistration = JSON.parse(secondSocket.send.mock.calls[0][0] as string) as {
+      id: string;
+    };
+    secondSocket.emit('message', JSON.stringify({
+      jsonrpc: '2.0',
+      id: secondRegistration.id,
+      error: { code: -32001, message: 'Invalid or expired pairing token' },
+    }));
+    secondSocket.emit('close');
+
+    expect((agent as unknown as { reconnectAttempt: number }).reconnectAttempt).toBe(2);
+  });
+
   it('persists a recovery token returned by the coordinator during registration', () => {
     const config: WorkerConfig = { ...mockConfig };
     agent = new WorkerAgent(config);

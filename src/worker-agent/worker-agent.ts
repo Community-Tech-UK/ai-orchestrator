@@ -226,13 +226,9 @@ export class WorkerAgent extends EventEmitter {
         opened = true;
         clearTimeout(timer);
         this.ws = ws;
-        this.connectedAt = Date.now();
-        this.reconnectAttempt = 0;
         this.activeCoordinatorUrl = url;
         console.log(`Connected to coordinator at ${url}`);
         this.sendRegistration();
-        this.notifier.flushCriticalQueue(); // Deliver any queued state changes from while disconnected
-        this.startHeartbeat();
         this.startContinuousDiscovery();
         resolve(true);
       });
@@ -407,6 +403,7 @@ export class WorkerAgent extends EventEmitter {
     ) {
       this.reconnectAttempt = 0;
     }
+    this.connectedAt = 0;
 
     const delay = nextReconnectDelayMs(this.reconnectAttempt);
     this.reconnectAttempt++;
@@ -513,6 +510,10 @@ export class WorkerAgent extends EventEmitter {
         }
         this.retryRegistrationWithRecovery = false;
         this.pendingRegistrationId = null;
+        this.connectedAt = Date.now();
+        this.reconnectAttempt = 0;
+        this.notifier.flushCriticalQueue(); // Deliver queued state changes only after registration is accepted.
+        this.startHeartbeat();
       }
       return;
     }
