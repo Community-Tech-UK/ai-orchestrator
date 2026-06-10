@@ -55,21 +55,21 @@ export async function runWorkspaceLivenessProbe(
   let fsOk = false;
 
   try {
-    const { stdout } = await execFileAsync(
-      process.execPath,
-      ['-e', "process.stdout.write('AIO_PROBE_OK')"],
-      {
-        cwd: workspaceCwd,
-        timeout: timeoutMs,
-        // In the packaged app `process.execPath` is the Electron binary, which
-        // only behaves as a plain Node interpreter when ELECTRON_RUN_AS_NODE is
-        // set. Without it the probe would spuriously fail in production, report
-        // the toolchain "dead", and honor exactly the hallucinated blocks this
-        // gate exists to override. (Under vitest execPath is already node, so
-        // this is a harmless no-op there.)
-        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-      },
-    );
+    // The probe answers "can this workspace exec a child process at all", so
+    // it must NOT spawn `process.execPath`: in the packaged app that is the
+    // Electron binary, and with the RunAsNode fuse disabled (see
+    // scripts/set-electron-fuses.js) ELECTRON_RUN_AS_NODE is silently ignored
+    // - the spawn boots a full second Electron app instead of a Node
+    // interpreter (2026-06 helper crash storm). A platform echo binary tests
+    // exec capability without depending on fuse state.
+    const probe =
+      process.platform === 'win32'
+        ? { file: process.env['comspec'] ?? 'cmd.exe', args: ['/d', '/s', '/c', 'echo AIO_PROBE_OK'] }
+        : { file: '/bin/echo', args: ['AIO_PROBE_OK'] };
+    const { stdout } = await execFileAsync(probe.file, probe.args, {
+      cwd: workspaceCwd,
+      timeout: timeoutMs,
+    });
     execOk = stdout.includes('AIO_PROBE_OK');
     details.push(execOk ? 'exec=ok' : 'exec=unexpected-output');
   } catch (err) {

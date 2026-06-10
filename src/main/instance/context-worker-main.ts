@@ -54,6 +54,7 @@ requireRegisterAliases();
 import { parentPort, isMainThread, workerData } from 'node:worker_threads';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { getElectronParentPort } from '../runtime/electron-parent-port';
 import { InstanceContextManager } from './instance-context';
 import { getWakeContextBuilder } from '../memory/wake-context-builder';
 import { buildMcpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-context';
@@ -106,6 +107,17 @@ function createTransport(): ContextWorkerTransport {
       onMessage: (listener) => port.on('message', listener),
     };
   }
+  // Electron utilityProcess (packaged builds): IPC runs over process.parentPort.
+  const electronPort = getElectronParentPort();
+  if (electronPort) {
+    electronPort.start?.();
+    return {
+      postMessage: (message) => electronPort.postMessage(message),
+      onMessage: (listener) => {
+        electronPort.on('message', (event) => listener(event.data as ContextWorkerInboundMsg));
+      },
+    };
+  }
   if (isMainThread && typeof process.send === 'function') {
     process.once('disconnect', () => process.exit(0));
     return {
@@ -115,7 +127,9 @@ function createTransport(): ContextWorkerTransport {
       },
     };
   }
-  throw new Error('context-worker-main must run in a worker thread or child process');
+  throw new Error(
+    'context-worker-main must run in a worker thread, utility process, or child process',
+  );
 }
 
 const transport = createTransport();

@@ -30,7 +30,7 @@ import * as path from 'path';
 import { pathToFileURL } from 'url';
 import { app } from 'electron';
 import z from 'zod';
-import { fork } from 'child_process';
+import { createIsolatedWorkerProcess } from '../runtime/isolated-worker-process';
 import type { ToolSafetyMetadata } from '../../shared/types/tool.types';
 import { isToolDefinition } from './define-tool';
 import type { ToolDefinition } from './define-tool';
@@ -407,19 +407,23 @@ export class ToolRegistry extends EventEmitter {
     const childScript = path.join(__dirname, 'tool-runner-child.js');
 
     return await new Promise((resolve) => {
-      const child = fork(childScript, [], {
-        stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+      // createIsolatedWorkerProcess uses Electron's utilityProcess in packaged
+      // builds; a bare fork() would boot a second full Electron app there
+      // because the RunAsNode fuse is disabled (see isolated-worker-process.ts).
+      const child = createIsolatedWorkerProcess({
+        name: 'tool runner',
+        entrypoint: childScript,
         execArgv: [`--max-old-space-size=${params.maxOldSpaceMb}`],
       });
 
       const timer = setTimeout(() => {
-        try { child.kill('SIGKILL'); } catch { /* ignore */ }
+        void child.terminate().catch(() => { /* ignore */ });
         resolve({ ok: false, error: 'Tool execution timed out' });
       }, params.timeoutMs);
 
       const progressHandler = (message: unknown) => {
         if (isToolRunnerProgressMessage(message)) {
-          // Forward to caller — stored for streaming executor
+          // Forward to caller; stored for streaming executor
           this.emit('tool:progress', {
             toolFilePath: params.toolFilePath,
             message: message.message,
@@ -430,7 +434,7 @@ export class ToolRegistry extends EventEmitter {
         // Final result
         clearTimeout(timer);
         child.off('message', progressHandler);
-        try { child.kill(); } catch { /* ignore */ }
+        void child.terminate().catch(() => { /* ignore */ });
         if (isToolRunnerSuccessMessage(message)) {
           resolve({ ok: true, output: message.output });
           return;
@@ -444,21 +448,21 @@ export class ToolRegistry extends EventEmitter {
 
       child.on('message', progressHandler);
 
-      child.once('error', (err) => {
+      child.on('error', (err) => {
         clearTimeout(timer);
-        try { child.kill(); } catch { /* ignore */ }
+        void child.terminate().catch(() => { /* ignore */ });
         resolve({ ok: false, error: err instanceof Error ? err.message : String(err) });
       });
 
       try {
-        child.send({
+        child.postMessage({
           toolFilePath: params.toolFilePath,
           args: params.args,
           ctx: params.ctx,
         });
       } catch (e) {
         clearTimeout(timer);
-        try { child.kill(); } catch { /* ignore */ }
+        void child.terminate().catch(() => { /* ignore */ });
         resolve({ ok: false, error: e instanceof Error ? e.message : String(e) });
       }
     });

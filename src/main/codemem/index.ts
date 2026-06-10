@@ -17,35 +17,65 @@ import { IndexWorkerGateway, type IndexWorkerCodeIndexChangedEvent } from './ind
 import { createCodememMcpTools } from './mcp-tools';
 
 export class CodememService extends EventEmitter {
-  private readonly db: SqliteDriver = defaultDriverFactory(
-    path.join(app.getPath('userData'), 'codemem.sqlite'),
-  );
-  readonly store: CasStore;
-  readonly indexManager: CodeIndexManager;
-  readonly periodicScan: PeriodicScan;
-  readonly gateway: LspWorkerGateway;
-  readonly indexWorkerGateway: IndexWorkerGateway;
-  readonly facade: AgentLspFacade;
+  private db: SqliteDriver | null = null;
+  private storeInstance: CasStore | null = null;
+  private indexManagerInstance: CodeIndexManager | null = null;
+  private periodicScanInstance: PeriodicScan | null = null;
+  private facadeInstance: AgentLspFacade | null = null;
+  private readonly gatewayInstance = new LspWorkerGateway();
+  private readonly indexWorkerGatewayInstance = new IndexWorkerGateway();
   private readonly workspaceLspState = new Map<string, WorkspaceLspState>();
   private readonly workspaceLspReadyFiles = new Map<string, string | null>();
   private mcpToolsRegistered = false;
 
   constructor() {
     super();
-    migrate(this.db);
-    this.store = new CasStore(this.db);
-    this.indexManager = new CodeIndexManager({ store: this.store });
-    this.periodicScan = new PeriodicScan({ store: this.store, mgr: this.indexManager });
-    this.gateway = new LspWorkerGateway();
-    this.indexWorkerGateway = new IndexWorkerGateway();
-    this.facade = new AgentLspFacade({
-      store: this.store,
-      gateway: this.gateway,
-      getWorkspaceLspState: (workspaceHash) => this.workspaceLspState.get(workspaceHash) ?? 'idle',
-    });
     this.indexWorkerGateway.on('code-index:changed', (event: IndexWorkerCodeIndexChangedEvent) => {
       this.emit('code-index:changed', event);
     });
+  }
+
+  get store(): CasStore {
+    if (!this.storeInstance) {
+      this.storeInstance = new CasStore(this.getDb());
+    }
+    return this.storeInstance;
+  }
+
+  get indexManager(): CodeIndexManager {
+    if (!this.indexManagerInstance) {
+      this.indexManagerInstance = new CodeIndexManager({ store: this.store });
+    }
+    return this.indexManagerInstance;
+  }
+
+  get periodicScan(): PeriodicScan {
+    if (!this.periodicScanInstance) {
+      this.periodicScanInstance = new PeriodicScan({
+        store: this.store,
+        mgr: this.indexManager,
+      });
+    }
+    return this.periodicScanInstance;
+  }
+
+  get gateway(): LspWorkerGateway {
+    return this.gatewayInstance;
+  }
+
+  get indexWorkerGateway(): IndexWorkerGateway {
+    return this.indexWorkerGatewayInstance;
+  }
+
+  get facade(): AgentLspFacade {
+    if (!this.facadeInstance) {
+      this.facadeInstance = new AgentLspFacade({
+        store: this.store,
+        gateway: this.gateway,
+        getWorkspaceLspState: (workspaceHash) => this.workspaceLspState.get(workspaceHash) ?? 'idle',
+      });
+    }
+    return this.facadeInstance;
   }
 
   async initialize(): Promise<void> {
@@ -71,7 +101,14 @@ export class CodememService extends EventEmitter {
     if (McpServer.getInstance().isStarted()) {
       McpServer.getInstance().stop();
     }
-    this.db.close();
+    if (this.db) {
+      this.db.close();
+      this.db = null;
+    }
+    this.storeInstance = null;
+    this.indexManagerInstance = null;
+    this.periodicScanInstance = null;
+    this.facadeInstance = null;
   }
 
   isEnabled(): boolean {
@@ -198,6 +235,16 @@ export class CodememService extends EventEmitter {
     }
 
     this.mcpToolsRegistered = true;
+  }
+
+  private getDb(): SqliteDriver {
+    if (!this.db) {
+      this.db = defaultDriverFactory(
+        path.join(app.getPath('userData'), 'codemem.sqlite'),
+      );
+      migrate(this.db);
+    }
+    return this.db;
   }
 }
 

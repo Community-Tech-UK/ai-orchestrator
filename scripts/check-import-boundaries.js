@@ -91,6 +91,36 @@ const RULES = [
       'hot-path → better-sqlite3: this module runs on a user-facing hot path and must not ' +
       'import a synchronous SQLite engine; route DB work through a worker gateway instead',
   },
+  {
+    // Spawn safety: the packaged app disables the RunAsNode fuse
+    // (scripts/set-electron-fuses.js), so ELECTRON_RUN_AS_NODE is silently
+    // ignored; spawning process.execPath with it boots a SECOND full
+    // Electron app. From a helper process this dies instantly with
+    // `FATAL: Unable to find helper app` (the 2026-06 crash storm).
+    fromGlob: 'src/main',
+    toPattern: /ELECTRON_RUN_AS_NODE\s*[:=]\s*['"]1['"]/,
+    skipTests: true,
+    exemptFiles: ['src/main/runtime/isolated-worker-process.ts'],
+    message:
+      'main -> ELECTRON_RUN_AS_NODE spawn: the RunAsNode fuse is disabled in packaged builds, so ' +
+      'this env var does nothing there and the child boots as a full Electron app (helper SIGTRAP ' +
+      'crash). Use createIsolatedWorkerProcess (utilityProcess-backed) or a bundled SEA binary.',
+  },
+  {
+    // Spawn safety: child_process.fork() always spawns process.execPath, which
+    // is the Electron binary in packaged builds; same failure mode as above.
+    fromGlob: 'src/main',
+    toPattern: /\bfork\b.*(?:from|require)\s*\(?\s*['"](?:node:)?child_process['"]/,
+    skipTests: true,
+    exemptFiles: [
+      'src/main/runtime/isolated-worker-process.ts',
+      'src/main/background-jobs/process-lane-gateway.ts',
+    ],
+    message:
+      'main -> child_process.fork: fork() spawns process.execPath, which is the fused Electron ' +
+      'binary in packaged builds and boots a second app instead of a Node worker. Use ' +
+      'createIsolatedWorkerProcess (utilityProcess-backed) instead.',
+  },
 ];
 
 const SKIPPED_DIRS = new Set(['node_modules', 'dist', '.git', 'coverage', 'out', 'release']);
@@ -117,8 +147,11 @@ function checkBoundaries() {
       ? rule.fromFiles.map((rel) => path.join(ROOT, rel)).filter((f) => fs.existsSync(f))
       : walk(path.join(ROOT, rule.fromGlob));
     const label = rule.fromGlob ?? 'hot-path-files';
+    const exempt = new Set((rule.exemptFiles ?? []).map((rel) => path.join(ROOT, rel)));
 
     for (const file of files) {
+      if (exempt.has(file)) continue;
+      if (rule.skipTests && /\.spec\.[jt]sx?$|__tests__/.test(file)) continue;
       const content = fs.readFileSync(file, 'utf-8');
       const lines = content.split('\n');
 

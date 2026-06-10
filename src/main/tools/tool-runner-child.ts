@@ -8,11 +8,36 @@
  * but it hardens the host by isolating crashes, timeouts, and memory usage.
  */
 
+import { getElectronParentPort } from '../runtime/electron-parent-port';
+
 type RunnerRequest = {
   toolFilePath: string;
   args: unknown;
   ctx: { instanceId: string; workingDirectory: string };
 };
+
+// In packaged builds this child runs as an Electron utilityProcess (the
+// RunAsNode fuse is disabled, so child_process.fork cannot produce a Node
+// child; see src/main/runtime/isolated-worker-process.ts). IPC then runs
+// over process.parentPort instead of process.send.
+const electronPort = getElectronParentPort();
+
+function sendToParent(message: unknown): void {
+  if (electronPort) {
+    electronPort.postMessage(message);
+    return;
+  }
+  if (process.send) process.send(message);
+}
+
+function onParentMessage(listener: (message: RunnerRequest) => void): void {
+  if (electronPort) {
+    electronPort.start?.();
+    electronPort.on('message', (event) => listener(event.data as RunnerRequest));
+    return;
+  }
+  process.on('message', (message) => listener(message as RunnerRequest));
+}
 
 type ProgressMessage = { type: 'progress'; message: string; timestamp: number };
 
@@ -38,7 +63,7 @@ async function main(req: RunnerRequest): Promise<RunnerResponse> {
     // Provide a progress callback to the tool
     const progress = (message: string) => {
       const msg: ProgressMessage = { type: 'progress', message, timestamp: Date.now() };
-      if (process.send) process.send(msg);
+      sendToParent(msg);
     };
 
     const out = await def.execute(req.args ?? {}, { ...req.ctx, progress });
@@ -49,10 +74,9 @@ async function main(req: RunnerRequest): Promise<RunnerResponse> {
   }
 }
 
-process.on('message', (msg: RunnerRequest) => {
+onParentMessage((msg: RunnerRequest) => {
   void (async () => {
     const res = await main(msg);
-    if (process.send) process.send(res);
+    sendToParent(res);
   })();
 });
-

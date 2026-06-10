@@ -14,6 +14,7 @@
 import { parentPort, isMainThread, workerData } from 'node:worker_threads';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { getElectronParentPort } from '../runtime/electron-parent-port';
 import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import { migrate } from './cas-schema';
 import { CasStore } from './cas-store';
@@ -44,6 +45,18 @@ function createTransport(): WorkerTransport {
     };
   }
 
+  // Electron utilityProcess (packaged builds): IPC runs over process.parentPort.
+  const electronPort = getElectronParentPort();
+  if (electronPort) {
+    electronPort.start?.();
+    return {
+      postMessage: (message) => electronPort.postMessage(message),
+      onMessage: (listener) => {
+        electronPort.on('message', (event) => listener(event.data as IndexWorkerInboundMsg));
+      },
+    };
+  }
+
   if (isMainThread && typeof process.send === 'function') {
     process.once('disconnect', () => process.exit(0));
     return {
@@ -54,7 +67,9 @@ function createTransport(): WorkerTransport {
     };
   }
 
-  throw new Error('index-worker-main must run in a worker thread or child process');
+  throw new Error(
+    'index-worker-main must run in a worker thread, utility process, or child process',
+  );
 }
 
 const transport = createTransport();

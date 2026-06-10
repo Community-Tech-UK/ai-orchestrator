@@ -16,6 +16,10 @@ export interface CodeRetrievalSearchOptions {
 
 /** The index-worker gateway surface this service depends on. */
 type IndexSearchGateway = Pick<IndexWorkerGateway, 'warmWorkspace' | 'searchWorkspaceChunks'>;
+type LazyCodememDependency = {
+  store: CasStore;
+  indexWorkerGateway: IndexSearchGateway;
+};
 
 export interface CodeRetrievalServiceOptions {
   store?: CasStore;
@@ -30,6 +34,7 @@ export interface CodeRetrievalServiceOptions {
 export class CodeRetrievalService {
   private readonly store?: CasStore;
   private readonly indexWorkerGateway?: IndexSearchGateway;
+  private readonly codemem?: LazyCodememDependency;
   private readonly runFallbackSearchFn: (
     workspacePath: string,
     query: string,
@@ -37,9 +42,10 @@ export class CodeRetrievalService {
   ) => Promise<CodeRetrievalResult[]>;
 
   constructor(options: CodeRetrievalServiceOptions = {}) {
-    const codemem = options.store ? null : getCodememLazy();
-    this.store = options.store ?? codemem?.store;
+    const codemem = !options.store && !options.indexWorkerGateway ? getCodememLazy() : null;
+    this.store = options.store;
     this.indexWorkerGateway = options.indexWorkerGateway ?? codemem?.indexWorkerGateway;
+    this.codemem = codemem ?? undefined;
     this.runFallbackSearchFn = options.runFallbackSearch ?? runRipgrepFallbackSearch;
   }
 
@@ -71,11 +77,12 @@ export class CodeRetrievalService {
 
     // No worker search available (tests / degraded construction): use the
     // synchronous in-process store if present, mirroring the legacy behaviour.
-    if (this.store) {
-      let local = searchHydratedChunks(this.store, workspacePath, query, limit);
+    const store = this.store ?? this.codemem?.store;
+    if (store) {
+      let local = searchHydratedChunks(store, workspacePath, query, limit);
       if (!local.indexed) {
         await this.indexWorkerGateway?.warmWorkspace?.(workspacePath, 2500).catch(() => undefined);
-        local = searchHydratedChunks(this.store, workspacePath, query, limit);
+        local = searchHydratedChunks(store, workspacePath, query, limit);
       }
       if (local.results.length > 0) {
         return local.results.slice(0, limit).map((r) => this.trimResult(r, options.maxTokens));
