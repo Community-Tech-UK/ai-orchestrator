@@ -171,6 +171,149 @@ export function createOrchestratorToolsForwarderTools(
       },
     },
     {
+      name: 'list_settings',
+      description:
+        'List AI Orchestrator app settings available through the programmatic settings surface. Secret values are redacted, read-only settings are marked unwritable, and restart-required settings are flagged.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          category: {
+            type: 'string',
+            description:
+              'Optional category filter such as general, display, orchestration, memory, advanced, review, network, mcp, rtk, remote-nodes, mobile, or auxiliary-llm.',
+          },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) {
+          throw new Error('list_settings args must be an object');
+        }
+        return client.call('orchestrator_tools.settings.list', args as Record<string, unknown>);
+      },
+    },
+    {
+      name: 'get_setting',
+      description:
+        'Read one AI Orchestrator app setting by key. Secret-tier settings are refused; call list_settings first to inspect readability and writability.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          key: { type: 'string', description: 'Setting key from list_settings.' },
+        },
+        required: ['key'],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) {
+          throw new Error('get_setting args must be an object');
+        }
+        return client.call('orchestrator_tools.settings.get', args as Record<string, unknown>);
+      },
+    },
+    {
+      name: 'set_setting',
+      description:
+        'Set one writable AI Orchestrator app setting. Refuses read-only and secret keys; JSON-backed settings accept real objects and are stringified by the parent process.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          key: { type: 'string', description: 'Writable setting key from list_settings.' },
+          value: { description: 'New setting value. Type must match the setting.' },
+        },
+        required: ['key', 'value'],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) {
+          throw new Error('set_setting args must be an object');
+        }
+        return client.call('orchestrator_tools.settings.set', args as Record<string, unknown>);
+      },
+    },
+    {
+      name: 'reset_setting',
+      description:
+        'Reset one writable AI Orchestrator app setting to its built-in default. Refuses read-only and secret keys for the same policy reasons as set_setting.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          key: { type: 'string', description: 'Writable setting key from list_settings.' },
+        },
+        required: ['key'],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) {
+          throw new Error('reset_setting args must be an object');
+        }
+        return client.call('orchestrator_tools.settings.reset', args as Record<string, unknown>);
+      },
+    },
+    {
+      name: 'update_node_config',
+      description:
+        'Push a sensitive per-node worker config.update to a connected remote node using the same service-scoped path as the Settings UI. Supports browserAutomation, androidAutomation, and extensionRelay blocks; call list_remote_nodes first.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          nodeId: {
+            type: 'string',
+            description: 'Connected worker node id or exact node name, for example "windows-pc".',
+          },
+          browserAutomation: {
+            type: 'object',
+            properties: {
+              enabled: { type: 'boolean' },
+              profileDir: { type: 'string' },
+              headless: { type: 'boolean' },
+              chromePath: { type: 'string' },
+              remoteDebuggingPort: { type: 'integer', minimum: 1, maximum: 65535 },
+            },
+            required: ['enabled'],
+            additionalProperties: false,
+          },
+          androidAutomation: {
+            type: 'object',
+            properties: {
+              enabled: { type: 'boolean' },
+              sdkPath: { type: 'string' },
+              defaultAvd: { type: 'string' },
+              headlessEmulator: { type: 'boolean' },
+              maxEmulators: { type: 'integer', minimum: 1, maximum: 4 },
+              bootTimeoutMs: { type: 'integer', minimum: 10000, maximum: 600000 },
+              allowPhysicalDevices: { type: 'boolean' },
+              injectMaestroMcp: { type: 'boolean' },
+              appiumMcp: { type: 'boolean' },
+              mobileMcpVersion: { type: 'string' },
+            },
+            required: ['enabled'],
+            additionalProperties: false,
+          },
+          extensionRelay: {
+            type: 'object',
+            properties: {
+              enabled: { type: 'boolean' },
+            },
+            required: ['enabled'],
+            additionalProperties: false,
+          },
+        },
+        required: ['nodeId'],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) {
+          throw new Error('update_node_config args must be an object');
+        }
+        return client.call(
+          'orchestrator_tools.node_config.update',
+          args as Record<string, unknown>,
+        );
+      },
+    },
+    {
       name: 'create_automation',
       description:
         'Create a scheduled automation in AIO: a recurring (cron) or one-time prompt that runs an autonomous agent on a schedule. Use this when the user asks to "set up an automation", "run this every day/week", "schedule this", or "remind me to…". Provide a 5-field cron expression for recurring schedules, or an ISO-8601 runAt for a one-time run. The working directory defaults to the current chat\'s project. Returns the created automation\'s id, schedule summary, and next run time.',

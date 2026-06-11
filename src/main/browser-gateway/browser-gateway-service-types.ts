@@ -122,4 +122,11 @@ export interface BrowserGatewayServiceOptions {
    * settings; left undefined in tests (no pinning).
    */
   resolvePreferredDebugPort?: (profileId: string) => number | undefined;
+  /**
+   * Copy a coordinator-local file onto a remote worker node before an
+   * existing-tab upload there, returning the node-local path to hand to the
+   * extension. Defaults to the FileTransferService-backed implementation;
+   * injectable for tests.
+   */
+  stageUploadFileOnNode?: (nodeId: string, localPath: string) => Promise<string>;
 }

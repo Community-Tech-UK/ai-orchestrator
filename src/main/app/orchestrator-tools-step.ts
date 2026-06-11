@@ -1,8 +1,11 @@
 import { getSettingsManager } from '../core/config/settings-manager';
 import { initializeOrchestratorToolsRpcServer } from '../mcp/orchestrator-tools-rpc-server';
 import { defaultOperatorDbPath } from '../operator/operator-database';
-import { getWorkerNodeRegistry } from '../remote-node';
+import { getWorkerNodeConnectionServer, getWorkerNodeRegistry } from '../remote-node';
+import { COORDINATOR_TO_NODE } from '../remote-node/worker-node-rpc';
+import { ConfigUpdateParamsSchema } from '../remote-node/rpc-schemas';
 import { resolveWorkerNodeTarget } from '../remote-node/worker-node-registry';
+import { sendServiceRpc } from '../remote-node/service-rpc-client';
 import { evaluateSpawn } from '../orchestration/subagent-spawn-guard';
 import {
   getAutomationRunner,
@@ -17,7 +20,9 @@ import { getAutomationEvents } from '../automations/automation-events';
 import { createAutomationToolImplementations } from '../automations/automation-tool-impl';
 import type { Instance } from '../../shared/types/instance.types';
 import type { InstanceManager } from '../instance/instance-manager';
+import type { WindowManager } from '../window-manager';
 import { getLogger } from '../logging/logger';
+import { broadcastSettingsChanged } from '../ipc/handlers/settings-broadcast';
 import type { AppInitializationStep } from './initialization-steps';
 
 const logger = getLogger('AppInitialization');
@@ -46,7 +51,10 @@ export function effectiveSpawnDepth(instance: Instance | undefined): number {
  * started before any child instance does — the MCP config builders
  * bail out (and log a warning) if the socket path is missing.
  */
-export function createOrchestratorToolsStep(instanceManager: InstanceManager): AppInitializationStep {
+export function createOrchestratorToolsStep(
+  instanceManager: InstanceManager,
+  windowManager: WindowManager,
+): AppInitializationStep {
   return {
     name: 'Orchestrator-tools RPC server',
     fn: async () => {
@@ -243,6 +251,45 @@ export function createOrchestratorToolsStep(instanceManager: InstanceManager): A
             messageCount: buffer.length,
             truncated: contentCapped || sliced.length < buffer.length,
             messages,
+          };
+        },
+        settingsManager: getSettingsManager(),
+        broadcastSettingsChange: (payload) => broadcastSettingsChanged(windowManager, payload),
+        updateNodeConfig: async (args) => {
+          const registry = getWorkerNodeRegistry();
+          const server = getWorkerNodeConnectionServer();
+          const connectedIds = new Set(server.getConnectedNodeIds());
+          const connectedNodes = registry
+            .getAllNodes()
+            .filter((node) => connectedIds.has(node.id));
+          const resolved = resolveWorkerNodeTarget(args.nodeId, connectedNodes);
+          if ('error' in resolved) {
+            throw new Error(resolved.error);
+          }
+          const node = registry.getNode(resolved.nodeId);
+          if (!node || !server.isNodeConnected(node.id)) {
+            throw new Error(`Node not connected: ${args.nodeId}`);
+          }
+          const params = ConfigUpdateParamsSchema.parse({
+            ...(args.browserAutomation
+              ? { browserAutomation: args.browserAutomation }
+              : {}),
+            ...(args.androidAutomation
+              ? { androidAutomation: args.androidAutomation }
+              : {}),
+            ...(args.extensionRelay ? { extensionRelay: args.extensionRelay } : {}),
+          });
+          const result = await sendServiceRpc(
+            node.id,
+            COORDINATOR_TO_NODE.CONFIG_UPDATE,
+            params,
+            30_000,
+          );
+          return {
+            nodeId: node.id,
+            nodeName: node.name,
+            updatedBlocks: Object.keys(params),
+            result,
           };
         },
         // Automation MCP tools (create/list/delete/update/postpone) — logic

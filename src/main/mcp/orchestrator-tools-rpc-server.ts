@@ -48,6 +48,18 @@ import {
   type SpawnRemoteInstanceFn,
   type UpdateAutomationFn,
 } from './orchestrator-tools';
+import {
+  SettingsToolGetPayloadSchema,
+  SettingsToolListPayloadSchema,
+  SettingsToolResetPayloadSchema,
+  SettingsToolSetPayloadSchema,
+  SettingsToolUpdateNodeConfigPayloadSchema,
+} from '@contracts/schemas/settings';
+import type {
+  SettingsChangeBroadcaster,
+  SettingsManagerForTools,
+  UpdateNodeConfigFn,
+} from './orchestrator-settings-tools';
 import type { McpServerToolDefinition } from './mcp-server-tools';
 import { createToolsetRegistry } from '../tools/toolsets';
 
@@ -60,7 +72,7 @@ const logger = getLogger('OrchestratorToolsRpcServer');
  * alongside the depth guard enforced in the `run_on_node` handler.
  */
 const ORCHESTRATOR_TOOLSETS = createToolsetRegistry([
-  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'read_node_output', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation'] },
+  { name: 'orchestrator-tools-full', tools: ['git_batch_pull', 'list_remote_nodes', 'run_on_node', 'read_node_output', 'list_settings', 'get_setting', 'set_setting', 'reset_setting', 'update_node_config', 'create_automation', 'list_automations', 'delete_automation', 'update_automation', 'postpone_automation'] },
   { name: 'orchestrator-tools-leaf', includes: ['orchestrator-tools-full'], tools: ['!run_on_node'] },
 ]);
 
@@ -109,6 +121,12 @@ export interface OrchestratorToolsRpcServerOptions {
    * `read_node_output` rejects with an "unavailable" error.
    */
   readInstanceOutput?: ReadInstanceOutputFn | null;
+  /** SettingsManager used by settings_* MCP tools. */
+  settingsManager?: SettingsManagerForTools | null;
+  /** Renderer broadcast hook used after tool-initiated settings writes. */
+  broadcastSettingsChange?: SettingsChangeBroadcaster | null;
+  /** Sends service-scoped config.update RPCs for update_node_config. */
+  updateNodeConfig?: UpdateNodeConfigFn | null;
   /**
    * Creates a scheduled automation (backs the `create_automation` tool).
    * Injected from main-process startup so this server never imports the
@@ -155,6 +173,9 @@ export interface OrchestratorToolsRpcServerOptions {
     listRemoteNodes: ListRemoteNodesFn | null;
     spawnRemoteInstance: SpawnRemoteInstanceFn | null;
     readInstanceOutput: ReadInstanceOutputFn | null;
+    settingsManager: SettingsManagerForTools | null;
+    broadcastSettingsChange: SettingsChangeBroadcaster | null;
+    updateNodeConfig: UpdateNodeConfigFn | null;
     createAutomation: CreateAutomationFn | null;
     listAutomations: ListAutomationsFn | null;
     deleteAutomation: DeleteAutomationFn | null;
@@ -172,6 +193,9 @@ export class OrchestratorToolsRpcServer {
   private readonly listRemoteNodes: ListRemoteNodesFn | null;
   private readonly spawnRemoteInstance: SpawnRemoteInstanceFn | null;
   private readonly readInstanceOutput: ReadInstanceOutputFn | null;
+  private readonly settingsManager: SettingsManagerForTools | null;
+  private readonly broadcastSettingsChange: SettingsChangeBroadcaster | null;
+  private readonly updateNodeConfig: UpdateNodeConfigFn | null;
   private readonly createAutomation: CreateAutomationFn | null;
   private readonly listAutomations: ListAutomationsFn | null;
   private readonly deleteAutomation: DeleteAutomationFn | null;
@@ -198,6 +222,9 @@ export class OrchestratorToolsRpcServer {
     this.listRemoteNodes = options.listRemoteNodes ?? null;
     this.spawnRemoteInstance = options.spawnRemoteInstance ?? null;
     this.readInstanceOutput = options.readInstanceOutput ?? null;
+    this.settingsManager = options.settingsManager ?? null;
+    this.broadcastSettingsChange = options.broadcastSettingsChange ?? null;
+    this.updateNodeConfig = options.updateNodeConfig ?? null;
     this.createAutomation = options.createAutomation ?? null;
     this.listAutomations = options.listAutomations ?? null;
     this.deleteAutomation = options.deleteAutomation ?? null;
@@ -295,6 +322,51 @@ export class OrchestratorToolsRpcServer {
         const tool = tools.find((t) => t.name === 'read_node_output');
         if (!tool) {
           throw new Error('read_node_output tool unavailable');
+        }
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.settings.list': {
+        const validated = SettingsToolListPayloadSchema.parse(params.payload);
+        const tools = this.getToolsForInstance(params.instanceId);
+        const tool = tools.find((t) => t.name === 'list_settings');
+        if (!tool) {
+          throw new Error('list_settings tool unavailable');
+        }
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.settings.get': {
+        const validated = SettingsToolGetPayloadSchema.parse(params.payload);
+        const tools = this.getToolsForInstance(params.instanceId);
+        const tool = tools.find((t) => t.name === 'get_setting');
+        if (!tool) {
+          throw new Error('get_setting tool unavailable');
+        }
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.settings.set': {
+        const validated = SettingsToolSetPayloadSchema.parse(params.payload);
+        const tools = this.getToolsForInstance(params.instanceId);
+        const tool = tools.find((t) => t.name === 'set_setting');
+        if (!tool) {
+          throw new Error('set_setting tool unavailable');
+        }
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.settings.reset': {
+        const validated = SettingsToolResetPayloadSchema.parse(params.payload);
+        const tools = this.getToolsForInstance(params.instanceId);
+        const tool = tools.find((t) => t.name === 'reset_setting');
+        if (!tool) {
+          throw new Error('reset_setting tool unavailable');
+        }
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.node_config.update': {
+        const validated = SettingsToolUpdateNodeConfigPayloadSchema.parse(params.payload);
+        const tools = this.getToolsForInstance(params.instanceId);
+        const tool = tools.find((t) => t.name === 'update_node_config');
+        if (!tool) {
+          throw new Error('update_node_config tool unavailable');
         }
         return tool.handler(validated);
       }
@@ -455,6 +527,9 @@ export class OrchestratorToolsRpcServer {
         listRemoteNodes: this.listRemoteNodes,
         spawnRemoteInstance: this.spawnRemoteInstance,
         readInstanceOutput: this.readInstanceOutput,
+        settingsManager: this.settingsManager,
+        broadcastSettingsChange: this.broadcastSettingsChange,
+        updateNodeConfig: this.updateNodeConfig,
         createAutomation: this.createAutomation,
         listAutomations: this.listAutomations,
         deleteAutomation: this.deleteAutomation,
@@ -473,6 +548,9 @@ export class OrchestratorToolsRpcServer {
       listRemoteNodes: this.listRemoteNodes,
       spawnRemoteInstance: this.spawnRemoteInstance,
       readInstanceOutput: this.readInstanceOutput,
+      settingsManager: this.settingsManager,
+      broadcastSettingsChange: this.broadcastSettingsChange,
+      updateNodeConfig: this.updateNodeConfig,
       createAutomation: this.createAutomation,
       listAutomations: this.listAutomations,
       deleteAutomation: this.deleteAutomation,

@@ -90,6 +90,7 @@ export function makeService(overrides: {
   };
   extensionCommandStore?: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
   resolvePreferredDebugPort?: (profileId: string) => number | undefined;
+  stageUploadFileOnNode?: (nodeId: string, localPath: string) => Promise<string>;
 } = {}) {
   const audits: BrowserAuditEntry[] = [];
   const approvalRequests: BrowserApprovalRequest[] = [];
@@ -271,6 +272,7 @@ export function makeService(overrides: {
     approvalStore,
     autoApproveRequests: overrides.autoApproveRequests,
     resolvePreferredDebugPort: overrides.resolvePreferredDebugPort,
+    stageUploadFileOnNode: overrides.stageUploadFileOnNode,
     healthService: {
       diagnose: async (): Promise<BrowserGatewayHealthReport> => ({
         status: 'ready',

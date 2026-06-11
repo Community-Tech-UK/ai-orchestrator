@@ -101,6 +101,24 @@ describe('browser extension assets', () => {
     expect(background).toContain('custom_select_option_not_found');
   });
 
+  it('serializes commands and per-tab debugger sessions to prevent double CDP attach', () => {
+    const background = readFileSync('resources/browser-extension/background.js', 'utf-8');
+
+    // Two debuggers on one tab throw "Another debugger is already attached"
+    // and have crashed the tab's renderer (RESULT_CODE_KILLED_BAD_MESSAGE):
+    // commands must run one-at-a-time, debugger sessions must queue per tab,
+    // and a tab held by an external client must fail with a clear error.
+    expect(background).toContain('commandChain');
+    expect(background).toContain('function runBrowserCommand');
+    expect(background).toContain('tabDebuggerChains');
+    expect(background).toContain('function attachAndRunDebugger');
+    expect(background).toContain('function attachDebugger');
+    expect(background).toContain('browser_tab_debugger_busy');
+    // The poll flag must not be cleared before command execution finishes —
+    // an early clear lets the alarm-driven poll pull a concurrent command.
+    expect(background).not.toMatch(/pollInFlight = false;\s*\n\s*if \(!message \|\| message\.type !== 'browser_command'/);
+  });
+
   it('buffers native-host messages and backs off reconnects', () => {
     const background = readFileSync('resources/browser-extension/background.js', 'utf-8');
 

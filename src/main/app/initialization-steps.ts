@@ -576,7 +576,7 @@ export function createInitializationSteps(
             Boolean(instanceManager.getInstance(instanceId)?.yoloMode),
         }),
     },
-    createOrchestratorToolsStep(instanceManager),
+    createOrchestratorToolsStep(instanceManager, windowManager),
     {
       name: 'Codemem RPC server',
       fn: async () => {

@@ -154,18 +154,27 @@ function postNativeMessage(message) {
   }
 }
 
-async function handleNativeMessage(message) {
-  pollInFlight = false;
-  if (!message || message.type !== 'browser_command') {
-    scheduleNextPoll(POLL_IDLE_DELAY_MS);
-    return;
-  }
-  if (!message.command) {
-    scheduleNextPoll(POLL_IDLE_DELAY_MS);
-    return;
-  }
+// Commands must execute strictly one-at-a-time. The inventory alarm and the
+// reconnect path both call pollForCommand() unconditionally, and the gateway
+// hands the next queued command to any open poll — so a poll opened while a
+// command is still executing delivers a second command concurrently. Two
+// overlapping CDP commands double-attach chrome.debugger on the same tab,
+// which Chrome rejects ("Another debugger is already attached to the tab")
+// and which has crashed the tab's renderer (RESULT_CODE_KILLED_BAD_MESSAGE).
+let commandChain = Promise.resolve();
 
+async function handleNativeMessage(message) {
+  if (!message || message.type !== 'browser_command' || !message.command) {
+    pollInFlight = false;
+    scheduleNextPoll(POLL_IDLE_DELAY_MS);
+    return;
+  }
   const command = message.command;
+  commandChain = commandChain.then(() => runBrowserCommand(command));
+  await commandChain;
+}
+
+async function runBrowserCommand(command) {
   try {
     const result = await executeBrowserCommand(command);
     if (isTabPayload(result)) {
@@ -185,6 +194,12 @@ async function handleNativeMessage(message) {
       error: error instanceof Error ? error.message : String(error),
     });
   } finally {
+    // Only now is the extension ready for the next command. Clearing the poll
+    // flag any earlier lets the alarm-driven poll pull a second command while
+    // this one is still running (the disconnect handler still resets the flag
+    // if the channel drops mid-command; the commandChain stays the correctness
+    // backstop for any command that arrives through that path).
+    pollInFlight = false;
     scheduleNextPoll(0);
   }
 }
@@ -501,16 +516,66 @@ async function downloadFileFromTargetTab(command) {
   }
 }
 
-async function withDebugger(tabId, callback) {
+// chrome.debugger allows a single attached client per tab. Sessions on the
+// same tab are serialized through a per-tab promise chain so an overlapping
+// capture (e.g. the popup's share-tab screenshot racing a command, which does
+// NOT go through the command queue) waits its turn instead of double-attaching.
+const tabDebuggerChains = new Map();
+
+function withDebugger(tabId, callback) {
+  const previous = tabDebuggerChains.get(tabId) ?? Promise.resolve();
+  const run = previous.then(() => attachAndRunDebugger(tabId, callback));
+  // Chain on settlement (not success) so one failed session does not poison
+  // the queue; drop the map entry once the tab goes idle.
+  const settled = run.then(() => undefined, () => undefined);
+  tabDebuggerChains.set(tabId, settled);
+  void settled.then(() => {
+    if (tabDebuggerChains.get(tabId) === settled) {
+      tabDebuggerChains.delete(tabId);
+    }
+  });
+  return run;
+}
+
+const DEBUGGER_BUSY_PATTERN = /already attached/i;
+const DEBUGGER_ATTACH_RETRIES = 2;
+const DEBUGGER_ATTACH_RETRY_DELAY_MS = 300;
+
+async function attachAndRunDebugger(tabId, callback) {
   if (!chrome.debugger?.attach || !chrome.debugger?.sendCommand) {
-    throw new Error('Chrome debugger API is unavailable for file uploads.');
+    throw new Error('Chrome debugger API is unavailable.');
   }
   const debuggee = { tabId };
-  await chrome.debugger.attach(debuggee, '1.3');
+  await attachDebugger(debuggee);
   try {
     return await callback(debuggee);
   } finally {
     await chrome.debugger.detach(debuggee).catch(() => undefined);
+  }
+}
+
+// Attach with a short retry: the detach of a just-finished session can still
+// be settling in the browser process. If the tab stays held by an external
+// client (a DevTools window open on the tab, or another CDP-based tool), fail
+// with a clear, actionable error instead of the raw Chrome message.
+async function attachDebugger(debuggee) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await chrome.debugger.attach(debuggee, '1.3');
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!DEBUGGER_BUSY_PATTERN.test(message)) {
+        throw error;
+      }
+      if (attempt >= DEBUGGER_ATTACH_RETRIES) {
+        throw new Error(
+          'browser_tab_debugger_busy: another debugger is attached to this tab '
+          + '(a DevTools window or another automation client). Close it and retry.',
+        );
+      }
+      await delay(DEBUGGER_ATTACH_RETRY_DELAY_MS);
+    }
   }
 }
 

@@ -33,7 +33,13 @@ import {
   findProjectConfigPath
 } from '../../core/config/config-resolver';
 import { getRemoteConfigManager } from '../../core/config/remote-config';
+import {
+  coerceRendererSettingValue,
+  coerceRendererSettingsUpdate,
+  requireKnownSettingsToolKey,
+} from '../../core/config/settings-control-policy';
 import { WindowManager } from '../../window-manager';
+import { broadcastSettingsChanged } from './settings-broadcast';
 
 interface SettingsHandlerDeps {
   windowManager: WindowManager;
@@ -81,7 +87,7 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
         );
         return {
           success: true,
-          data: settings.get(validated.key as keyof AppSettings)
+          data: settings.get(requireKnownSettingsToolKey(validated.key))
         };
       } catch (error) {
         return {
@@ -111,11 +117,15 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
           'SETTINGS_SET'
         );
 
-        settings.set(validatedPayload.key as keyof AppSettings, validatedPayload.value as any);
-        // Notify renderer of change
-        deps.windowManager.sendToRenderer(IPC_CHANNELS.SETTINGS_CHANGED, {
-            key: validatedPayload.key,
-            value: validatedPayload.value
+        const { key, value } = coerceRendererSettingValue(
+          validatedPayload.key,
+          validatedPayload.value,
+        );
+        settings.set(key, value);
+        const persistedValue = settings.get(key);
+        broadcastSettingsChanged(deps.windowManager, {
+            key,
+            value: persistedValue
         });
         return { success: true };
       } catch (error) {
@@ -147,10 +157,12 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
 
         // If payload has a 'settings' key, use that; otherwise treat payload as settings
         const settingsData = validated.settings || validated;
+        const coercedSettings = coerceRendererSettingsUpdate(
+          settingsData as Record<string, unknown>,
+        );
 
-        settings.update(settingsData as Partial<AppSettings>);
-        // Notify renderer of changes
-        deps.windowManager.sendToRenderer(IPC_CHANNELS.SETTINGS_CHANGED, {
+        settings.update(coercedSettings);
+        broadcastSettingsChanged(deps.windowManager, {
             settings: settings.getAll()
         });
         return { success: true };
@@ -173,8 +185,7 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
     async (): Promise<IpcResponse> => {
       try {
         settings.reset();
-        // Notify renderer
-        deps.windowManager.sendToRenderer(IPC_CHANNELS.SETTINGS_CHANGED, {
+        broadcastSettingsChanged(deps.windowManager, {
             settings: settings.getAll()
         });
         return {
@@ -207,11 +218,11 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
           payload,
           'SETTINGS_RESET_ONE'
         );
-        settings.resetOne(validated.key as keyof AppSettings);
-        const value = settings.get(validated.key as keyof AppSettings);
-        // Notify renderer
-        deps.windowManager.sendToRenderer(IPC_CHANNELS.SETTINGS_CHANGED, {
-            key: validated.key,
+        const resetKey = requireKnownSettingsToolKey(validated.key);
+        settings.resetOne(resetKey);
+        const value = settings.get(resetKey);
+        broadcastSettingsChanged(deps.windowManager, {
+            key: resetKey,
             value
         });
         return {
@@ -647,8 +658,7 @@ export function registerSettingsHandlers(deps: SettingsHandlerDeps): void {
         if (!result) {
           return { success: true, data: { cancelled: true } };
         }
-        // Notify renderer that settings changed so stores reload
-        deps.windowManager.sendToRenderer(IPC_CHANNELS.SETTINGS_CHANGED, {
+        broadcastSettingsChanged(deps.windowManager, {
             key: '__imported__',
             value: null,
         });

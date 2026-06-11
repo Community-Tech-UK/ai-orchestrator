@@ -14,12 +14,57 @@ describe('createOrchestratorToolsForwarderTools', () => {
       'list_remote_nodes',
       'run_on_node',
       'read_node_output',
+      'list_settings',
+      'get_setting',
+      'set_setting',
+      'reset_setting',
+      'update_node_config',
       'create_automation',
       'list_automations',
       'delete_automation',
       'update_automation',
       'postpone_automation',
     ]);
+  });
+
+  it('forwards set_setting invocations with the canonical method name', async () => {
+    const call = vi.fn(async () => ({ ok: true, key: 'theme' }));
+    const tool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'set_setting',
+    );
+
+    const result = await tool!.handler({ key: 'theme', value: 'light' });
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.settings.set', {
+      key: 'theme',
+      value: 'light',
+    });
+    expect(result).toEqual({ ok: true, key: 'theme' });
+  });
+
+  it('describes set_setting JSON values without suggesting secret endpoint arrays are writable', () => {
+    const tool = createOrchestratorToolsForwarderTools(stubClient(async () => null)).find(
+      (t) => t.name === 'set_setting',
+    );
+
+    expect(tool?.description).toContain('JSON-backed settings accept real objects');
+    expect(tool?.description).not.toContain('arrays/objects');
+  });
+
+  it('forwards update_node_config invocations with the canonical method name', async () => {
+    const call = vi.fn(async () => ({ ok: true }));
+    const tool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'update_node_config',
+    );
+
+    await tool!.handler({ nodeId: 'windows-pc', extensionRelay: { enabled: true } });
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.node_config.update', {
+      nodeId: 'windows-pc',
+      extensionRelay: { enabled: true },
+    });
   });
 
   it('forwards delete_automation invocations with the canonical method name', async () => {

@@ -1,7 +1,7 @@
 # Bigchange: Remote Browser-Extension Relay (Route 2)
 
 **Date:** 2026-06-10
-**Status:** IMPLEMENTED — automated verification passed 2026-06-11; manual two-machine Chrome E2E still requires a remote host
+**Status:** IMPLEMENTED & VERIFIED — automated verification passed 2026-06-11; manual two-machine Chrome E2E passed 2026-06-11 against node `windows-pc` (real logged-in Play Console tab: list_targets → snapshot → accessibility_snapshot → click; Browser Gateway audit IDs `d4196309-c8ed-43f6-a0ad-25cd461e2827` (a11y read) and `e902ba3f-42bb-491d-a512-14023e081d8b` (click under grant `d56047cf`), queryable via `browser_get_audit_log`)
 **Goal:** Let the Browser Gateway's `browser.*` tools drive the user's **real, logged-in Chrome session on a remote machine** by relaying the Browser Gateway extension transport through `worker-agent`, over the existing coordinator↔worker WebSocket.
 
 ---

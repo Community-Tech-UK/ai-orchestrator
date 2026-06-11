@@ -10,6 +10,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
 import { getOutputStorageManager } from '../memory';
 import { getCostTracker } from '../core/system/cost-tracker';
+import { recordInstanceTurnAttribution } from '../core/system/cost-attribution';
 import { normalizeUsage, type UsageLike } from '../../shared/util/usage-normalization';
 import { getHookManager } from '../hooks/hook-manager';
 import { emitPluginHook } from '../plugins/hook-emitter';
@@ -217,6 +218,16 @@ export class InstanceCommunicationManager extends EventEmitter {
         typeof providerCost === 'number' ? providerCost : undefined,
         reasoning,
       );
+      // Phase 1 fan-out audit: flag-gated task-type attribution (AIO_COST_ATTRIBUTION=1).
+      recordInstanceTurnAttribution({
+        instanceId,
+        parentId: instance.parentId,
+        agentId: instance.agentId,
+        provider: instance.provider,
+        model,
+        usage: { inputTokens: input, outputTokens: output, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite, reasoningTokens: reasoning, cost: typeof providerCost === 'number' ? providerCost : undefined },
+        costKnown: typeof providerCost === 'number',
+      });
     } catch (err) {
       logger.debug('recordCompletionCost failed', { instanceId, error: String(err) });
     }

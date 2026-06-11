@@ -421,6 +421,119 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
     expect(listHandler).not.toHaveBeenCalled();
   });
 
+  it('dispatches settings.set to the matching tool with validated payload', async () => {
+    const setHandler = vi.fn(async (args: unknown) => ({ ok: true, echoed: args }));
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'set_setting',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: setHandler,
+        },
+      ],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 40,
+      method: 'orchestrator_tools.settings.set',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: { key: 'theme', value: 'light' },
+      },
+    });
+
+    expect(setHandler).toHaveBeenCalledOnce();
+    expect(setHandler.mock.calls[0]?.[0]).toEqual({ key: 'theme', value: 'light' });
+    expect(result).toEqual({ ok: true, echoed: { key: 'theme', value: 'light' } });
+  });
+
+  it('rejects settings.set payloads with an empty key', async () => {
+    const setHandler = vi.fn();
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'set_setting',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: setHandler,
+        },
+      ],
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 41,
+        method: 'orchestrator_tools.settings.set',
+        params: {
+          instanceId: KNOWN_INSTANCE,
+          payload: { key: '', value: 'light' },
+        },
+      }),
+    ).rejects.toThrow();
+    expect(setHandler).not.toHaveBeenCalled();
+  });
+
+  it('rejects settings.set payloads with an omitted value before invoking the tool', async () => {
+    const setHandler = vi.fn();
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'set_setting',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: setHandler,
+        },
+      ],
+    });
+
+    await expect(
+      server.handleRequest({
+        jsonrpc: '2.0',
+        id: 43,
+        method: 'orchestrator_tools.settings.set',
+        params: {
+          instanceId: KNOWN_INSTANCE,
+          payload: { key: 'theme' },
+        },
+      }),
+    ).rejects.toThrow();
+    expect(setHandler).not.toHaveBeenCalled();
+  });
+
+  it('dispatches node_config.update to the matching tool with validated payload', async () => {
+    const updateHandler = vi.fn(async (args: unknown) => ({ ok: true, echoed: args }));
+    const { server } = makeServer({
+      toolFactory: () => [
+        {
+          name: 'update_node_config',
+          description: 'test tool',
+          inputSchema: { type: 'object' },
+          handler: updateHandler,
+        },
+      ],
+    });
+
+    const result = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 42,
+      method: 'orchestrator_tools.node_config.update',
+      params: {
+        instanceId: KNOWN_INSTANCE,
+        payload: { nodeId: 'windows-pc', extensionRelay: { enabled: true } },
+      },
+    });
+
+    expect(updateHandler).toHaveBeenCalledOnce();
+    expect(updateHandler.mock.calls[0]?.[0]).toEqual({
+      nodeId: 'windows-pc',
+      extensionRelay: { enabled: true },
+    });
+    expect(result).toMatchObject({ ok: true });
+  });
+
   it('rejects read_node_output payloads that fail the schema (missing instanceId)', async () => {
     const readHandler = vi.fn();
     const { server } = makeServer({

@@ -7,9 +7,13 @@ export const SettingsGetPayloadSchema = z.object({
   key: z.string().min(1).max(100),
 });
 
+const RequiredSettingsValueSchema = z.unknown().refine((value) => value !== undefined, {
+  message: 'Value is required',
+});
+
 export const SettingsUpdatePayloadSchema = z.object({
   key: z.string().min(1).max(100),
-  value: z.unknown(), // Settings can be various types
+  value: RequiredSettingsValueSchema, // Settings can be various types
 });
 
 export const SettingsBulkUpdatePayloadSchema = z.object({
@@ -24,8 +28,70 @@ export const SettingsResetOnePayloadSchema = z.object({
 
 export const SettingsSetPayloadSchema = z.object({
   key: z.string().min(1).max(100),
-  value: z.unknown(),
+  value: RequiredSettingsValueSchema,
 });
+
+// ============ Settings MCP Tools ============
+
+const SettingsToolKeySchema = z.string().min(1).max(100);
+
+export const SettingsToolListPayloadSchema = z.object({
+  category: z.string().trim().min(1).max(64).optional(),
+}).strict();
+
+export const SettingsToolGetPayloadSchema = z.object({
+  key: SettingsToolKeySchema,
+}).strict();
+
+export const SettingsToolSetPayloadSchema = z.object({
+  key: SettingsToolKeySchema,
+  value: RequiredSettingsValueSchema,
+}).strict();
+
+export const SettingsToolResetPayloadSchema = z.object({
+  key: SettingsToolKeySchema,
+}).strict();
+
+const SettingsToolBrowserAutomationConfigSchema = z.object({
+  enabled: z.boolean(),
+  profileDir: z.string().trim().min(1).max(1024).optional(),
+  headless: z.boolean().optional(),
+  chromePath: z.string().trim().min(1).max(1024).optional(),
+  remoteDebuggingPort: z.number().int().min(1).max(65535).optional(),
+}).strict();
+
+const SettingsToolAndroidAutomationConfigSchema = z.object({
+  enabled: z.boolean(),
+  sdkPath: z.string().trim().min(1).max(1024).optional(),
+  defaultAvd: z.string().trim().min(1).max(256).optional(),
+  headlessEmulator: z.boolean().optional(),
+  maxEmulators: z.number().int().min(1).max(4).optional(),
+  bootTimeoutMs: z.number().int().min(10_000).max(600_000).optional(),
+  allowPhysicalDevices: z.boolean().optional(),
+  injectMaestroMcp: z.boolean().optional(),
+  appiumMcp: z.boolean().optional(),
+  mobileMcpVersion: z.string().trim().min(1).max(128).optional(),
+}).strict();
+
+const SettingsToolExtensionRelayConfigSchema = z.object({
+  enabled: z.boolean(),
+}).strict();
+
+export const SettingsToolUpdateNodeConfigPayloadSchema = z.object({
+  nodeId: z.string().trim().min(1).max(200),
+  browserAutomation: SettingsToolBrowserAutomationConfigSchema.optional(),
+  androidAutomation: SettingsToolAndroidAutomationConfigSchema.optional(),
+  extensionRelay: SettingsToolExtensionRelayConfigSchema.optional(),
+}).strict().refine(
+  (payload) =>
+    payload.browserAutomation !== undefined ||
+    payload.androidAutomation !== undefined ||
+    payload.extensionRelay !== undefined,
+  {
+    message:
+      'Provide at least one config block: browserAutomation, androidAutomation, or extensionRelay.',
+  },
+);
 
 // ============ Config ============
 

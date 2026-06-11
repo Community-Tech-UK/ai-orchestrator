@@ -138,6 +138,7 @@ import type {
   BrowserGatewayUpdateProfileRequest,
 } from './browser-gateway-service-types';
 import { getWorkerNodeRegistry } from '../remote-node/worker-node-registry';
+import { stageBrowserUploadOnNode } from './browser-remote-upload-staging';
 
 export type {
   BrowserGatewayAttachExistingTabRequest,
@@ -196,6 +197,7 @@ export class BrowserGatewayService {
   private readonly healthService: Pick<BrowserHealthService, 'diagnose'>;
   private readonly autoApproveRequests?: BrowserGatewayServiceOptions['autoApproveRequests'];
   private readonly resolvePreferredDebugPort?: BrowserGatewayServiceOptions['resolvePreferredDebugPort'];
+  private readonly stageUploadFileOnNode: NonNullable<BrowserGatewayServiceOptions['stageUploadFileOnNode']>;
   private readonly actionGuard: BrowserGatewayActionGuard;
   private readonly resultRecorder: BrowserGatewayResultRecorder;
   private readonly existingTabOperations: BrowserExistingTabOperations;
@@ -215,6 +217,7 @@ export class BrowserGatewayService {
     this.healthService = options.healthService ?? getBrowserHealthService();
     this.autoApproveRequests = options.autoApproveRequests;
     this.resolvePreferredDebugPort = options.resolvePreferredDebugPort;
+    this.stageUploadFileOnNode = options.stageUploadFileOnNode ?? stageBrowserUploadOnNode;
     this.resultRecorder = new BrowserGatewayResultRecorder(this.auditStore);
     this.existingTabOperations = new BrowserExistingTabOperations({
       extensionCommandStore: this.extensionCommandStore,
@@ -1519,9 +1522,18 @@ export class BrowserGatewayService {
         });
       }
       try {
+        let uploadFilePath = uploadDecision.resolvedPath ?? request.filePath;
+        if (existingTab.nodeId) {
+          // The tab lives in Chrome on a remote worker node, but the file (and
+          // the validation above) is coordinator-local. Ship the bytes to the
+          // node first and hand the extension a path that exists THERE —
+          // otherwise DOM.setFileInputFiles backs the input with a nonexistent
+          // path and the site receives an empty/unreadable file.
+          uploadFilePath = await this.stageUploadFileOnNode(existingTab.nodeId, uploadFilePath);
+        }
         await this.existingTabOperations.sendCommand(existingTab, 'upload_file', {
           selector: request.selector,
-          filePath: uploadDecision.resolvedPath ?? request.filePath,
+          filePath: uploadFilePath,
         });
         return this.actionGuard.mutationSucceeded(request, 'upload_file', 'browser.upload_file', prepared);
       } catch (error) {

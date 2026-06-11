@@ -5066,11 +5066,11 @@
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2207
+      "lines": 2219
     },
     {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2185
+      "lines": 2196
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
@@ -5105,6 +5105,10 @@
       "lines": 2070
     },
     {
+      "path": "resources/browser-extension/background.js",
+      "lines": 2019
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-17-wave1-contracts-subpath-exports.md",
       "lines": 2006
     },
@@ -5115,10 +5119,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-13-session-restart-preserve-history_completed.md",
       "lines": 1965
-    },
-    {
-      "path": "resources/browser-extension/background.js",
-      "lines": 1954
     },
     {
       "path": "docs/superpowers/specs/2026-04-26-automations-design_completed.md",
@@ -5161,16 +5161,16 @@
       "lines": 1613
     },
     {
+      "path": "src/main/orchestration/default-invokers.ts",
+      "lines": 1587
+    },
+    {
       "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
       "lines": 1582
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
       "lines": 1576
-    },
-    {
-      "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1573
     },
     {
       "path": "docs/superpowers/specs/2026-04-16-ai-orchestrator-cross-repo-improvements-design.md",
@@ -5611,6 +5611,10 @@
     {
       "path": "src/main/chats/chat-service.spec.ts",
       "lines": 885
+    },
+    {
+      "path": "src/main/browser-gateway/browser-gateway-service-existing-tabs.spec.ts",
+      "lines": 883
     },
     {
       "path": "src/main/context/context-compactor.ts",

@@ -150,6 +150,140 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     }));
   });
 
+  it('stages the file onto the remote node before uploading into a remote-node existing tab', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-browser-upload-remote-'));
+    const filePath = path.join(tempDir, 'app.aab');
+    fs.writeFileSync(filePath, 'fake bundle');
+    const resolvedFilePath = fs.realpathSync(filePath);
+    const sendCommand = vi.fn(async () => ({ uploaded: true, selector: 'input[type=file]' }));
+    // The Play Console tab lives in Chrome on the windows worker node: the
+    // coordinator-local path is meaningless there, so the gateway must ship
+    // the bytes first and hand the extension the NODE-local staged path.
+    const stagedRemotePath = 'C:\\work\\_scratch\\aio-browser-uploads\\staged-app.aab';
+    const stageUploadFileOnNode = vi.fn(async () => stagedRemotePath);
+    const existingTab = {
+      profileId: 'existing-tab:n.node-1:7:42',
+      targetId: 'existing-tab:n.node-1:7:42:target',
+      tabId: 42,
+      windowId: 7,
+      nodeId: 'node-1',
+      nodeName: 'windows-pc',
+      title: 'Play Console',
+      url: 'https://play.google.com/console',
+      origin: 'https://play.google.com',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'play.google.com',
+          includeSubdomains: false,
+        },
+      ],
+    };
+    const { driver, service } = makeService({
+      profile: null,
+      profiles: [],
+      existingTab,
+      extensionCommandStore: { sendCommand },
+      stageUploadFileOnNode,
+      grants: [
+        makeGrant({
+          profileId: existingTab.profileId,
+          targetId: existingTab.targetId,
+          provider: 'claude',
+          allowedOrigins: existingTab.allowedOrigins,
+          allowedActionClasses: ['file-upload'],
+          uploadRoots: [tempDir],
+        }),
+      ],
+    });
+
+    const result = await service.uploadFile({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      selector: 'input[type=file]',
+      filePath,
+      actionHint: 'Upload app bundle',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+    });
+    expect(stageUploadFileOnNode).toHaveBeenCalledWith('node-1', resolvedFilePath);
+    expect(driver.uploadFile).not.toHaveBeenCalled();
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'upload_file',
+      payload: {
+        selector: 'input[type=file]',
+        filePath: stagedRemotePath,
+      },
+    }));
+  });
+
+  it('reports a failed upload when staging the file onto the remote node fails', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-browser-upload-remote-fail-'));
+    const filePath = path.join(tempDir, 'app.aab');
+    fs.writeFileSync(filePath, 'fake bundle');
+    const sendCommand = vi.fn(async () => ({ uploaded: true }));
+    const stageUploadFileOnNode = vi.fn(async () => {
+      throw new Error('upload_file_remote_staging_unavailable: node offline');
+    });
+    const existingTab = {
+      profileId: 'existing-tab:n.node-1:7:42',
+      targetId: 'existing-tab:n.node-1:7:42:target',
+      tabId: 42,
+      windowId: 7,
+      nodeId: 'node-1',
+      title: 'Play Console',
+      url: 'https://play.google.com/console',
+      origin: 'https://play.google.com',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'play.google.com',
+          includeSubdomains: false,
+        },
+      ],
+    };
+    const { service } = makeService({
+      profile: null,
+      profiles: [],
+      existingTab,
+      extensionCommandStore: { sendCommand },
+      stageUploadFileOnNode,
+      grants: [
+        makeGrant({
+          profileId: existingTab.profileId,
+          targetId: existingTab.targetId,
+          provider: 'claude',
+          allowedOrigins: existingTab.allowedOrigins,
+          allowedActionClasses: ['file-upload'],
+          uploadRoots: [tempDir],
+        }),
+      ],
+    });
+
+    const result = await service.uploadFile({
+      instanceId: 'instance-1',
+      provider: 'claude',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      selector: 'input[type=file]',
+      filePath,
+      actionHint: 'Upload app bundle',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'failed',
+    });
+    expect(result.reason).toContain('upload_file_remote_staging_unavailable');
+    // The extension must never receive a coordinator-local path it cannot read.
+    expect(sendCommand).not.toHaveBeenCalled();
+  });
+
   it('downloads files in existing Chrome tabs through the extension and returns the completed file record', async () => {
     const sendCommand = vi.fn(async () => ({
       id: 14,

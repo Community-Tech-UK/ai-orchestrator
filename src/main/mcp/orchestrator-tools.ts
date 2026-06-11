@@ -8,6 +8,12 @@ import { GitBatchCancelledError, GitBatchService, getGitBatchService } from '../
 import { OperatorRunStore } from '../operator/operator-run-store';
 import type { McpServerToolDefinition } from './mcp-server-tools';
 import { createAutomationToolDefinitions } from './orchestrator-automation-tools';
+import {
+  createSettingsToolDefinitions,
+  type SettingsChangeBroadcaster,
+  type SettingsManagerForTools,
+  type UpdateNodeConfigFn,
+} from './orchestrator-settings-tools';
 import type {
   CreateAutomationFn,
   DeleteAutomationFn,
@@ -198,6 +204,9 @@ export interface OrchestratorToolRuntimeContext {
   listRemoteNodes?: ListRemoteNodesFn | null;
   spawnRemoteInstance?: SpawnRemoteInstanceFn | null;
   readInstanceOutput?: ReadInstanceOutputFn | null;
+  settingsManager?: SettingsManagerForTools | null;
+  broadcastSettingsChange?: SettingsChangeBroadcaster | null;
+  updateNodeConfig?: UpdateNodeConfigFn | null;
   createAutomation?: CreateAutomationFn | null;
   listAutomations?: ListAutomationsFn | null;
   deleteAutomation?: DeleteAutomationFn | null;
@@ -499,6 +508,7 @@ export function createOrchestratorToolDefinitions(
         return result;
       },
     },
+    ...createSettingsToolDefinitions(context),
     ...createAutomationToolDefinitions(context),
   ];
 }

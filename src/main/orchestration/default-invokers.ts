@@ -18,6 +18,7 @@ import { getProviderRuntimeService } from '../providers/provider-runtime-service
 import { readCodexAuthMode } from '../providers/codex-auth-mode';
 import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import { getSettingsManager } from '../core/config/settings-manager';
+import { recordCostAttribution } from '../core/system/cost-attribution';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
 import { coerceToFailoverError } from '../core/failover-error';
 import { getDefaultModelForCli } from '../../shared/types/provider.types';
@@ -405,6 +406,19 @@ async function invokeCliTextResponse(params: {
     tokens: normalized.tokens,
     cost: normalized.cost,
     ...(response.degradedReason ? { degradedReason: response.degradedReason } : {}),
+  });
+
+  // Phase 1 fan-out audit: flag-gated per-call-site attribution (no-op unless
+  // AIO_COST_ATTRIBUTION=1). The breaker key doubles as the task-type tag.
+  recordCostAttribution({
+    source: 'one-shot',
+    taskType: params.breakerKey,
+    correlationId: params.correlationId,
+    instanceId: params.instanceId,
+    provider: cliType,
+    model,
+    usage: { ...response.usage, totalTokens: response.usage?.totalTokens ?? normalized.tokens },
+    costKnown: reportedCost !== null,
   });
 
   return {
