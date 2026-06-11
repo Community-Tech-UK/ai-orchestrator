@@ -27,6 +27,7 @@ vi.mock('../worker-node-health', () => ({
 
 const mockRemoteAuth = {
   validateSessionToken: vi.fn(() => true),
+  recordTrustedPlatform: vi.fn(),
 };
 
 vi.mock('../../auth/remote-auth', () => ({
@@ -47,6 +48,7 @@ vi.mock('../rpc-schemas', () => ({
     'instance.stateChange': {},
     'instance.permissionRequest': {},
     'browser.cdp.message': {},
+    'browser.ext.pollCommand': {},
   },
 }));
 
@@ -102,6 +104,12 @@ describe('RpcEventRouter', () => {
   let registry: WorkerNodeRegistry;
   // Use a plain EventEmitter to simulate WorkerNodeConnectionServer
   let mockConnection: EventEmitter & { sendResponse: ReturnType<typeof vi.fn> };
+  let mockBrowserBridge: {
+    attachTab: ReturnType<typeof vi.fn>;
+    pollCommand: ReturnType<typeof vi.fn>;
+    commandResult: ReturnType<typeof vi.fn>;
+    expireNode: ReturnType<typeof vi.fn>;
+  };
   let router: RpcEventRouter;
 
   beforeEach(() => {
@@ -113,9 +121,15 @@ describe('RpcEventRouter', () => {
     mockConnection = Object.assign(new EventEmitter(), {
       sendResponse: vi.fn(),
     });
+    mockBrowserBridge = {
+      attachTab: vi.fn(),
+      pollCommand: vi.fn(),
+      commandResult: vi.fn(),
+      expireNode: vi.fn(),
+    };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    router = new RpcEventRouter(mockConnection as any, registry);
+    router = new RpcEventRouter(mockConnection as any, registry, mockBrowserBridge as any);
     router.start();
   });
 
@@ -139,6 +153,7 @@ describe('RpcEventRouter', () => {
     mockConnection.emit('node:ws-disconnected', 'node-2');
 
     expect(mockHealth.stopMonitoring).toHaveBeenCalledWith('node-2');
+    expect(mockBrowserBridge.expireNode).toHaveBeenCalledWith('node-2');
     expect(registry.getNode('node-2')).toBeUndefined();
   });
 
@@ -147,6 +162,7 @@ describe('RpcEventRouter', () => {
     mockConnection.emit('node:ws-disconnected', 'unknown-node');
 
     expect(mockHealth.stopMonitoring).toHaveBeenCalledWith('unknown-node');
+    expect(mockBrowserBridge.expireNode).toHaveBeenCalledWith('unknown-node');
     // deregisterNode should not have been called (node not in registry)
     expect(registry.getNode('unknown-node')).toBeUndefined();
   });
@@ -207,6 +223,7 @@ describe('RpcEventRouter', () => {
     expect(node?.lastHeartbeat).toBeGreaterThan(0);
     // Heartbeat should restore a degraded node to connected
     expect(node?.status).toBe('connected');
+    expect(mockRemoteAuth.recordTrustedPlatform).toHaveBeenCalledWith('node-4', 'linux');
 
     expect(mockConnection.sendResponse).toHaveBeenCalledWith(
       'node-4',
@@ -228,6 +245,33 @@ describe('RpcEventRouter', () => {
         error: expect.objectContaining({ code: -32001 }),
       }),
     );
+  });
+
+  it('routes remote browser extension poll requests through the bridge', async () => {
+    registry.registerNode(makeNode('node-ext'));
+    const queued = {
+      id: 'cmd-1',
+      command: 'snapshot',
+      createdAt: 1,
+    };
+    mockBrowserBridge.pollCommand.mockResolvedValue(queued);
+    const request = makeRpcRequest('browser.ext.pollCommand', {
+      token: 'session-token',
+      timeoutMs: 250,
+    }, 'req-ext-1');
+
+    mockConnection.emit('rpc:request', 'node-ext', request);
+
+    await vi.waitFor(() => {
+      expect(mockBrowserBridge.pollCommand).toHaveBeenCalledWith('node-ext', request.params);
+      expect(mockConnection.sendResponse).toHaveBeenCalledWith(
+        'node-ext',
+        expect.objectContaining({
+          id: 'req-ext-1',
+          result: queued,
+        }),
+      );
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -545,6 +589,7 @@ describe('RpcEventRouter', () => {
 
     expect(registry.getNode('node-8')?.capabilities.availableMemoryMB).toBe(5000);
     expect(registry.getNode('node-8')?.activeInstances).toBe(2);
+    expect(mockRemoteAuth.recordTrustedPlatform).toHaveBeenCalledWith('node-8', 'linux');
     expect(mockConnection.sendResponse).not.toHaveBeenCalled();
   });
 

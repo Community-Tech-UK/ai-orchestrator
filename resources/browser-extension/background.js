@@ -155,10 +155,11 @@ function postNativeMessage(message) {
 }
 
 async function handleNativeMessage(message) {
+  pollInFlight = false;
   if (!message || message.type !== 'browser_command') {
+    scheduleNextPoll(POLL_IDLE_DELAY_MS);
     return;
   }
-  pollInFlight = false;
   if (!message.command) {
     scheduleNextPoll(POLL_IDLE_DELAY_MS);
     return;

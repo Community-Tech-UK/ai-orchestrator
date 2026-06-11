@@ -39,6 +39,7 @@ export interface BrowserGatewayScreenshotRequest
 
 export interface BrowserGatewayListTargetsRequest extends BrowserGatewayContext {
   profileId?: string;
+  nodeId?: string;
 }
 
 export interface BrowserGatewayAuditLogRequest
@@ -52,11 +53,15 @@ export interface BrowserGatewayCreateProfileRequest
 export interface BrowserGatewayFindOrOpenRequest extends BrowserGatewayContext {
   url?: string;
   titleHint?: string;
+  nodeId?: string;
 }
 
 export interface BrowserGatewayAttachExistingTabRequest
   extends BrowserGatewayContext,
-    BrowserAttachExistingTabRequest {}
+    BrowserAttachExistingTabRequest {
+  nodeId?: string;
+  nodeName?: string;
+}
 
 export interface BrowserGatewayUpdateProfileRequest
   extends BrowserGatewayContext,

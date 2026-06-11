@@ -4,12 +4,21 @@ import { resolveToken } from '../service/token-resolver';
 import { servicePaths } from '../service/paths';
 import { migrateConfigIfNeeded } from '../service/config-migration';
 import { activateVersion, listVersions } from '../service/rollback';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   DEFAULT_CONFIG_PATH,
+  defaultExtensionRelaySocketPath,
+  ensureExtensionRelayDefaults,
   loadWorkerConfig,
   persistConfig,
   type WorkerConfig,
 } from '../worker-config';
+import {
+  browserExtensionNativeHostManifestPath,
+  prepareBrowserExtensionNativeHostRuntime,
+  removeBrowserExtensionNativeHostRuntime,
+} from '../../main/browser-gateway/browser-extension-native-runtime';
 
 export type ServiceCommand =
   | {
@@ -22,6 +31,8 @@ export type ServiceCommand =
   | { kind: 'uninstall' }
   | { kind: 'status' }
   | { kind: 'run' }
+  | { kind: 'install-extension-relay'; configPath?: string; force?: boolean }
+  | { kind: 'uninstall-extension-relay'; configPath?: string }
   | { kind: 'list-versions' }
   | { kind: 'activate-version'; version: string };
 
@@ -49,6 +60,16 @@ export function parseServiceArgs(argv: string[]): ServiceCommand | null {
     return values;
   };
 
+  if (argv[0] === 'install-browser-extension' || argv[0] === 'install-extension-relay') {
+    return {
+      kind: 'install-extension-relay',
+      configPath: valueOf('--config'),
+      ...(has('--force') ? { force: true } : {}),
+    };
+  }
+  if (argv[0] === 'uninstall-browser-extension' || argv[0] === 'uninstall-extension-relay') {
+    return { kind: 'uninstall-extension-relay', configPath: valueOf('--config') };
+  }
   if (has('--install-service')) {
     const coordinatorUrl = valueOf('--coordinator-url');
     if (!coordinatorUrl) throw new Error('--install-service requires --coordinator-url');
@@ -68,6 +89,16 @@ export function parseServiceArgs(argv: string[]): ServiceCommand | null {
   if (has('--uninstall-service')) return { kind: 'uninstall' };
   if (has('--service-status')) return { kind: 'status' };
   if (has('--service-run')) return { kind: 'run' };
+  if (has('--install-extension-relay')) {
+    return {
+      kind: 'install-extension-relay',
+      configPath: valueOf('--config'),
+      ...(has('--force') ? { force: true } : {}),
+    };
+  }
+  if (has('--uninstall-extension-relay')) {
+    return { kind: 'uninstall-extension-relay', configPath: valueOf('--config') };
+  }
   if (has('--list-versions')) return { kind: 'list-versions' };
   if (has('--activate-version')) {
     const version = valueOf('--activate-version');
@@ -78,11 +109,11 @@ export function parseServiceArgs(argv: string[]): ServiceCommand | null {
 }
 
 export async function runServiceCommand(cmd: ServiceCommand): Promise<number> {
-  const mgr = await createServiceManager();
   const paths = servicePaths();
 
   switch (cmd.kind) {
     case 'install': {
+      const mgr = await createServiceManager();
       if (!(await isElevated())) {
         throw new NotElevatedError('Installing the worker service');
       }
@@ -111,23 +142,79 @@ export async function runServiceCommand(cmd: ServiceCommand): Promise<number> {
       return 0;
     }
     case 'uninstall':
+    {
+      const mgr = await createServiceManager();
       if (!(await isElevated())) throw new NotElevatedError('Uninstalling the worker service');
       await mgr.uninstall();
       process.stdout.write('Service uninstalled.\n');
       return 0;
+    }
     case 'status': {
+      const mgr = await createServiceManager();
       const s = await mgr.status();
       process.stdout.write(JSON.stringify(s, null, 2) + '\n');
       return 0;
     }
     case 'run':
       return 0;
+    case 'install-extension-relay': {
+      const configPath = cmd.configPath ?? DEFAULT_CONFIG_PATH;
+      const config = loadWorkerConfig(configPath);
+      const extensionRelay = ensureExtensionRelayDefaults(
+        {
+          ...config.extensionRelay,
+          enabled: true,
+        },
+        defaultExtensionRelaySocketPath,
+      );
+      if (!extensionRelay?.extensionToken || !extensionRelay.socketPath) {
+        throw new Error('Failed to prepare extension relay config');
+      }
+      const userDataPath = path.dirname(configPath);
+      assertExtensionRelayManifestWritable({
+        manifestPath: browserExtensionNativeHostManifestPath(),
+        userDataPath,
+        force: cmd.force === true,
+      });
+      config.extensionRelay = extensionRelay;
+      persistConfig(configPath, config);
+      const result = prepareBrowserExtensionNativeHostRuntime({
+        userDataPath,
+        socketPath: extensionRelay.socketPath,
+        extensionToken: extensionRelay.extensionToken,
+        hostCommand: currentWorkerNativeHostCommand(),
+      });
+      process.stdout.write(
+        [
+          `Browser extension relay native host installed: ${result.manifestPath}`,
+          'Load the unpacked Chrome extension from resources/browser-extension on the remote machine.',
+          'If this worker is on another host, copy that directory there before loading it in Chrome.',
+          '',
+        ].join('\n'),
+      );
+      return 0;
+    }
+    case 'uninstall-extension-relay': {
+      const configPath = cmd.configPath ?? DEFAULT_CONFIG_PATH;
+      const config = loadWorkerConfig(configPath);
+      config.extensionRelay = {
+        ...config.extensionRelay,
+        enabled: false,
+      };
+      persistConfig(configPath, config);
+      const result = removeBrowserExtensionNativeHostRuntime({
+        userDataPath: path.dirname(configPath),
+      });
+      process.stdout.write(`Browser extension relay native host removed: ${result.manifestPath}\n`);
+      return 0;
+    }
     case 'list-versions': {
       const versions = await listVersions();
       process.stdout.write(JSON.stringify(versions, null, 2) + '\n');
       return 0;
     }
     case 'activate-version': {
+      const mgr = await createServiceManager();
       if (!(await isElevated())) {
         throw new NotElevatedError('Activating a worker service version');
       }
@@ -137,6 +224,45 @@ export async function runServiceCommand(cmd: ServiceCommand): Promise<number> {
       return 0;
     }
   }
+}
+
+function assertExtensionRelayManifestWritable(input: {
+  manifestPath: string;
+  userDataPath: string;
+  force: boolean;
+}): void {
+  if (input.force || !fs.existsSync(input.manifestPath)) {
+    return;
+  }
+  const raw = fs.readFileSync(input.manifestPath, 'utf-8');
+  const manifest = JSON.parse(raw) as { path?: unknown };
+  const existingPath = typeof manifest.path === 'string' ? manifest.path : '';
+  const nativeDir = path.join(input.userDataPath, 'browser-gateway', 'native-host');
+  if (existingPath && isPathInside(nativeDir, existingPath)) {
+    return;
+  }
+  throw new Error(
+    `Refusing to overwrite existing Chrome native host manifest at ${input.manifestPath}; use --force if this machine should use the worker extension relay.`
+  );
+}
+
+function isPathInside(parent: string, child: string): boolean {
+  const relative = path.relative(path.resolve(parent), path.resolve(child));
+  return relative === '' || (relative.length > 0 && !relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function currentWorkerNativeHostCommand(): { exe: string; args: string[] } {
+  const entrypoint = process.argv[1];
+  if (entrypoint && path.resolve(entrypoint) !== path.resolve(process.execPath)) {
+    return {
+      exe: process.execPath,
+      args: [entrypoint, 'native-host'],
+    };
+  }
+  return {
+    exe: process.execPath,
+    args: ['native-host'],
+  };
 }
 
 function parseServiceEnv(entries: string[]): Record<string, string> | undefined {

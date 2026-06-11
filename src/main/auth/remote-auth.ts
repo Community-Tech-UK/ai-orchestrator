@@ -3,7 +3,11 @@ import { randomUUID } from 'crypto';
 import { getLogger } from '../logging/logger';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getNodeIdentityStore } from '../remote-node/node-identity-store';
-import type { NodeIdentity, RemotePairingCredentialInfo } from '../../shared/types/worker-node.types';
+import type {
+  NodeIdentity,
+  NodePlatform,
+  RemotePairingCredentialInfo,
+} from '../../shared/types/worker-node.types';
 
 const logger = getLogger('RemoteAuth');
 
@@ -32,6 +36,13 @@ function generateToken(bytes = 32): string {
   return crypto.randomBytes(bytes).toString('hex');
 }
 
+type PairingPurpose = 'pairing' | 'repair';
+
+interface RemotePairingCredentialRecord extends RemotePairingCredentialInfo {
+  purpose: PairingPurpose;
+  allowedNodeId?: string;
+}
+
 export type RemotePairingCredential = RemotePairingCredentialInfo;
 
 export interface RemoteSession {
@@ -58,22 +69,26 @@ export type RemoteRegistrationResult =
   | { status: 'rejected'; reason: string };
 
 export class RemoteAuthService {
-  private readonly pendingPairings = new Map<string, RemotePairingCredential>();
+  private readonly pendingPairings = new Map<string, RemotePairingCredentialRecord>();
   private loadedFromSettings = false;
 
   issuePairingCredential(options: {
     label?: string;
     ttlMs?: number;
+    purpose?: PairingPurpose;
+    allowedNodeId?: string;
   } = {}): RemotePairingCredential {
     const createdAt = Date.now();
-    const credential: RemotePairingCredential = {
+    const record: RemotePairingCredentialRecord = {
       token: generateToken(24),
       createdAt,
       expiresAt: createdAt + Math.max(1_000, options.ttlMs ?? DEFAULT_PAIRING_TTL_MS),
+      purpose: options.purpose ?? 'pairing',
       ...(options.label ? { label: options.label } : {}),
+      ...(options.allowedNodeId ? { allowedNodeId: options.allowedNodeId } : {}),
     };
-    this.pendingPairings.set(credential.token, credential);
-    return credential;
+    this.pendingPairings.set(record.token, record);
+    return this.toPairingInfo(record);
   }
 
   authenticateRegistration(params: {
@@ -81,6 +96,7 @@ export class RemoteAuthService {
     nodeName: string;
     token?: string | null;
     recoveryToken?: string | null;
+    platform?: NodePlatform | null;
   }): RemoteRegistrationResult {
     this.ensureLoadedFromSettings();
     this.pruneExpiredPairings();
@@ -98,9 +114,11 @@ export class RemoteAuthService {
           reason: `Session token belongs to node "${existingSession.nodeId}"`,
         };
       }
+      const now = Date.now();
       const touched = getNodeIdentityStore().touch(existingSession.nodeId, {
         nodeName: params.nodeName,
-        lastSeenAt: Date.now(),
+        lastSeenAt: now,
+        ...(params.platform ? { platform: params.platform, platformSeenAt: now } : {}),
       });
       if (touched) {
         this.persistSessions();
@@ -114,11 +132,17 @@ export class RemoteAuthService {
 
     const pairing = this.pendingPairings.get(token);
     if (pairing) {
+      if (pairing.allowedNodeId && pairing.allowedNodeId !== params.nodeId) {
+        return {
+          status: 'rejected',
+          reason: 'Repair credential is scoped to another node',
+        };
+      }
       this.pendingPairings.delete(token);
       this.clearManualPairingTokenIfMatches(token);
       return {
         status: 'paired',
-        session: this.issueSession(params.nodeId, params.nodeName, pairing),
+        session: this.issueSession(params.nodeId, params.nodeName, pairing, params.platform ?? undefined),
       };
     }
 
@@ -134,7 +158,7 @@ export class RemoteAuthService {
         }
         return {
           status: 'recovered',
-          session: this.rotateSessionToken(recoverySession, params.nodeName),
+          session: this.rotateSessionToken(recoverySession, params.nodeName, params.platform ?? undefined),
         };
       }
     }
@@ -180,8 +204,9 @@ export class RemoteAuthService {
       // Settings section; exclude it so it is not listed/counted as a
       // one-time "Quick Pairing" credential.
       .filter((pairing) => pairing.expiresAt !== NON_EXPIRING_AT)
+      .filter((pairing) => pairing.purpose === 'pairing')
       .sort((left, right) => left.expiresAt - right.expiresAt)
-      .map((pairing) => ({ ...pairing }));
+      .map((pairing) => this.toPairingInfo(pairing));
   }
 
   revokePairingCredential(token: string): boolean {
@@ -203,6 +228,17 @@ export class RemoteAuthService {
     return removed;
   }
 
+  recordTrustedPlatform(nodeId: string, platform: NodePlatform): void {
+    this.ensureLoadedFromSettings();
+    const touched = getNodeIdentityStore().touch(nodeId, {
+      platform,
+      platformSeenAt: Date.now(),
+    });
+    if (touched) {
+      this.persistSessions();
+    }
+  }
+
   clearPairingsForTesting(): void {
     this.pendingPairings.clear();
   }
@@ -210,20 +246,22 @@ export class RemoteAuthService {
   setManualPairingCredential(token: string): RemotePairingCredential {
     this.ensureLoadedFromSettings();
     const now = Date.now();
-    const credential: RemotePairingCredential = {
+    const credential: RemotePairingCredentialRecord = {
       token,
       createdAt: now,
       expiresAt: NON_EXPIRING_AT,
       label: 'Manual pairing token',
+      purpose: 'pairing',
     };
     this.pendingPairings.set(token, credential);
-    return credential;
+    return this.toPairingInfo(credential);
   }
 
   private issueSession(
     nodeId: string,
     nodeName: string,
-    pairing?: RemotePairingCredential,
+    pairing?: RemotePairingCredentialRecord,
+    platform?: NodePlatform,
   ): RemoteSession {
     const issuedAt = Date.now();
     const transportToken = generateToken();
@@ -239,6 +277,7 @@ export class RemoteAuthService {
       lastSeenAt: issuedAt,
       authMethod: pairing?.label === 'Manual pairing token' ? 'manual_pairing' : 'pairing_credential',
       pairingLabel: pairing?.label,
+      ...(platform ? { platform, platformSeenAt: issuedAt } : {}),
     };
     getNodeIdentityStore().set(identity);
     this.persistSessions();
@@ -261,7 +300,7 @@ export class RemoteAuthService {
     return next;
   }
 
-  private rotateSessionToken(identity: NodeIdentity, nodeName: string): RemoteSession {
+  private rotateSessionToken(identity: NodeIdentity, nodeName: string, platform?: NodePlatform): RemoteSession {
     const issuedAt = Date.now();
     const transportToken = generateToken();
     const next: NodeIdentity = {
@@ -273,6 +312,7 @@ export class RemoteAuthService {
       issuedAt,
       createdAt: issuedAt,
       lastSeenAt: issuedAt,
+      ...(platform ? { platform, platformSeenAt: issuedAt } : {}),
     };
     getNodeIdentityStore().set(next);
     this.persistSessions();
@@ -331,6 +371,15 @@ export class RemoteAuthService {
       createdAt: identity.issuedAt,
       lastSeenAt: identity.lastSeenAt,
       pairingLabel: identity.pairingLabel,
+    };
+  }
+
+  private toPairingInfo(record: RemotePairingCredentialRecord): RemotePairingCredentialInfo {
+    return {
+      token: record.token,
+      createdAt: record.createdAt,
+      expiresAt: record.expiresAt,
+      ...(record.label ? { label: record.label } : {}),
     };
   }
 }

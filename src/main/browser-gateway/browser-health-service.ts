@@ -10,6 +10,10 @@ import {
   BrowserProfileStore,
   getBrowserProfileStore,
 } from './browser-profile-store';
+import {
+  getWorkerNodeRegistry,
+  type WorkerNodeRegistry,
+} from '../remote-node/worker-node-registry';
 
 export type BrowserGatewayHealthStatus = 'ready' | 'partial' | 'missing';
 
@@ -61,6 +65,16 @@ export interface BrowserGatewayHealthReport {
   mcpBridge: {
     available: boolean;
   };
+  remoteExtensions: {
+    total: number;
+    ready: number;
+    nodes: Array<{
+      nodeId: string;
+      nodeName: string;
+      enabled: boolean;
+      running: boolean;
+    }>;
+  };
   providerCapabilities: BrowserGatewayProviderCapabilities;
   providerCapabilityDetails: BrowserGatewayProviderCapabilityDetails;
   rawLegacyAutomation: BrowserAutomationHealthReport;
@@ -70,6 +84,7 @@ export interface BrowserGatewayHealthReport {
 export interface BrowserHealthServiceOptions {
   profileStore?: Pick<BrowserProfileStore, 'listProfiles'>;
   rawAutomationHealthService?: Pick<BrowserAutomationHealthService, 'diagnose'>;
+  workerNodeRegistry?: Pick<WorkerNodeRegistry, 'getAllNodes'>;
   mcpBridgeAvailable?: () => boolean;
   chromeRuntimeDetector?: () => Promise<BrowserChromeRuntimeHealth>;
   now?: () => number;
@@ -136,6 +151,7 @@ export class BrowserHealthService {
   private static instance: BrowserHealthService | null = null;
   private readonly profileStore: Pick<BrowserProfileStore, 'listProfiles'>;
   private readonly rawAutomationHealthService: Pick<BrowserAutomationHealthService, 'diagnose'>;
+  private readonly workerNodeRegistry: Pick<WorkerNodeRegistry, 'getAllNodes'>;
   private readonly mcpBridgeAvailable: () => boolean;
   private readonly chromeRuntimeDetector: () => Promise<BrowserChromeRuntimeHealth>;
   private readonly now: () => number;
@@ -144,6 +160,7 @@ export class BrowserHealthService {
     this.profileStore = options.profileStore ?? getBrowserProfileStore();
     this.rawAutomationHealthService =
       options.rawAutomationHealthService ?? getBrowserAutomationHealthService();
+    this.workerNodeRegistry = options.workerNodeRegistry ?? getWorkerNodeRegistry();
     this.mcpBridgeAvailable =
       options.mcpBridgeAvailable ?? (() => defaultMcpBridgeAvailableProvider());
     this.chromeRuntimeDetector = options.chromeRuntimeDetector ?? detectChromeRuntime;
@@ -171,6 +188,7 @@ export class BrowserHealthService {
     const locked = profiles.filter((profile) => profile.status === 'locked').length;
     const errors = profiles.filter((profile) => profile.status === 'error').length;
     const bridgeAvailable = this.mcpBridgeAvailable();
+    const remoteExtensions = this.getRemoteExtensionHealth();
     const warnings: string[] = [];
 
     if (!chromeRuntime.available) {
@@ -203,6 +221,7 @@ export class BrowserHealthService {
       mcpBridge: {
         available: bridgeAvailable,
       },
+      remoteExtensions,
       providerCapabilities: {
         claude: bridgeAvailable ? 'available_via_mcp' : 'legacy_chrome_disabled',
         copilot: bridgeAvailable ? 'available_via_acp_mcp' : 'unconfigured',
@@ -242,6 +261,25 @@ export class BrowserHealthService {
 
   private isRunning(profile: BrowserProfile): boolean {
     return profile.status === 'running' || profile.status === 'starting';
+  }
+
+  private getRemoteExtensionHealth(): BrowserGatewayHealthReport['remoteExtensions'] {
+    const nodes = this.workerNodeRegistry.getAllNodes()
+      .filter((node) =>
+        node.capabilities.extensionRelay?.enabled === true ||
+        node.capabilities.hasExtensionRelay === true,
+      )
+      .map((node) => ({
+        nodeId: node.id,
+        nodeName: node.name,
+        enabled: node.capabilities.extensionRelay?.enabled ?? Boolean(node.capabilities.hasExtensionRelay),
+        running: node.capabilities.extensionRelay?.running ?? Boolean(node.capabilities.hasExtensionRelay),
+      }));
+    return {
+      total: nodes.length,
+      ready: nodes.filter((node) => node.enabled && node.running).length,
+      nodes,
+    };
   }
 }
 

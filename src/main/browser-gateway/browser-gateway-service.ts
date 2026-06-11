@@ -90,6 +90,7 @@ import {
 } from './browser-extension-tab-store';
 import {
   BrowserExtensionCommandStore,
+  browserExtensionQueueKeyForNode,
   getBrowserExtensionCommandStore,
 } from './browser-extension-command-store';
 import {
@@ -136,6 +137,7 @@ import type {
   BrowserGatewayTargetRequest,
   BrowserGatewayUpdateProfileRequest,
 } from './browser-gateway-service-types';
+import { getWorkerNodeRegistry } from '../remote-node/worker-node-registry';
 
 export type {
   BrowserGatewayAttachExistingTabRequest,
@@ -310,9 +312,9 @@ export class BrowserGatewayService {
   async attachExistingTab(
     request: BrowserGatewayAttachExistingTabRequest,
   ): Promise<BrowserGatewayResult<ReturnType<typeof toAgentSafeTarget> | null>> {
-    const { instanceId, provider, ...input } = request;
+    const { instanceId, provider, nodeId, nodeName, ...input } = request;
     try {
-      const attachment = this.extensionTabStore.attachTab(input);
+      const attachment = this.extensionTabStore.attachTab(input, { nodeId, nodeName });
       return this.result({
         context: { instanceId, provider: provider ?? 'orchestrator' },
         profileId: attachment.profileId,
@@ -496,6 +498,7 @@ export class BrowserGatewayService {
       ? await this.driver.listTargets(request.profileId).catch(() => null)
       : null;
     const targets = (liveTargets ?? this.targetRegistry.listTargets(request.profileId))
+      .filter((target) => !request.nodeId || target.nodeId === request.nodeId)
       .map((target) => toAgentSafeTarget(target));
     return this.result({
       context: request,
@@ -515,7 +518,9 @@ export class BrowserGatewayService {
   ): Promise<BrowserGatewayResult<ReturnType<typeof toAgentSafeTarget> | null>> {
     const url = request.url?.trim();
     const titleHint = request.titleHint?.trim().toLowerCase();
-    const existing = findExistingTabCandidate(this.extensionTabStore.listTabs(), url, titleHint);
+    const tabs = this.extensionTabStore.listTabs()
+      .filter((tab) => !request.nodeId || tab.nodeId === request.nodeId);
+    const existing = findExistingTabCandidate(tabs, url, titleHint);
     if (existing) {
       return this.result({
         context: request,
@@ -549,12 +554,17 @@ export class BrowserGatewayService {
 
     try {
       const result = await this.extensionCommandStore.sendCommand({
+        ...(request.nodeId ? { queueKey: browserExtensionQueueKeyForNode(request.nodeId) } : {}),
         command: 'open_tab',
         payload: { url },
         timeoutMs: 30_000,
       });
       const tab = extractTabPayload(result);
-      const attachment = this.extensionTabStore.attachTab(tab);
+      const node = request.nodeId ? getWorkerNodeRegistry().getNode(request.nodeId) : undefined;
+      const attachment = this.extensionTabStore.attachTab(tab, {
+        ...(request.nodeId ? { nodeId: request.nodeId } : {}),
+        ...(node?.name ? { nodeName: node.name } : {}),
+      });
       return this.result({
         context: request,
         profileId: attachment.profileId,

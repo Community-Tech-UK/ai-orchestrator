@@ -15,6 +15,8 @@ export interface RemoteNodeConfig {
   maxRemoteInstances: number;
   /** Logical namespace for grouping nodes */
   namespace: string;
+  /** Certificate source; auto mode is self-signed and not worker-repairable without a trust path. */
+  tlsMode?: 'auto' | 'custom';
   /** Path to TLS certificate file (PEM). If set with tlsKeyPath, enables WSS. */
   tlsCertPath?: string;
   /** Path to TLS private key file (PEM). */
@@ -32,6 +34,7 @@ const DEFAULT_CONFIG: RemoteNodeConfig = {
   autoOffloadGpu: false,
   maxRemoteInstances: 20,
   namespace: 'default',
+  tlsMode: 'auto',
 };
 
 let currentConfig: RemoteNodeConfig = { ...DEFAULT_CONFIG };
@@ -59,6 +62,7 @@ export function hydrateRemoteNodeConfig(settings: import('../../shared/types/set
     autoOffloadAndroid: settings.remoteNodesAutoOffloadAndroid,
     autoOffloadGpu: settings.remoteNodesAutoOffloadGpu,
     namespace: settings.remoteNodesNamespace,
+    tlsMode: settings.remoteNodesTlsMode,
     tlsCertPath: settings.remoteNodesTlsCertPath || undefined,
     tlsKeyPath: settings.remoteNodesTlsKeyPath || undefined,
   });

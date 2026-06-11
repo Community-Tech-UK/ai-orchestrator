@@ -73,6 +73,18 @@ export function createCommunicationDomain(
     remoteNodeGetServerStatus: (): Promise<unknown> =>
       ipcRenderer.invoke(ch.REMOTE_NODE_GET_SERVER_STATUS),
 
+    remoteNodeRepairDiagnose: (nodeId: string): Promise<unknown> =>
+      ipcRenderer.invoke(ch.REMOTE_NODE_REPAIR_DIAGNOSE, { nodeId }),
+
+    remoteNodeRepairCommand: (
+      nodeId: string,
+      options?: {
+        platform?: 'win32';
+        operatorConfirmedPlatform?: boolean;
+      },
+    ): Promise<unknown> =>
+      ipcRenderer.invoke(ch.REMOTE_NODE_REPAIR_COMMAND, { nodeId, ...(options ?? {}) }),
+
     remoteNodeProviderDiagnose: (nodeId: string, provider: string): Promise<unknown> =>
       ipcRenderer.invoke(ch.REMOTE_NODE_PROVIDER_DIAGNOSE, { nodeId, provider }),
 
@@ -97,8 +109,15 @@ export function createCommunicationDomain(
         chromePath?: string;
         remoteDebuggingPort?: number;
       },
+      extensionRelay?: {
+        enabled: boolean;
+      },
     ): Promise<unknown> =>
-      ipcRenderer.invoke(ch.REMOTE_NODE_UPDATE_BROWSER_AUTOMATION, { nodeId, browserAutomation }),
+      ipcRenderer.invoke(ch.REMOTE_NODE_UPDATE_BROWSER_AUTOMATION, {
+        nodeId,
+        browserAutomation,
+        ...(extensionRelay ? { extensionRelay } : {}),
+      }),
 
     remoteNodeUpdateAndroidAutomation: (
       nodeId: string,

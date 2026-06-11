@@ -31,7 +31,14 @@ export interface BrowserExtensionQueuedCommand {
   createdAt: number;
 }
 
+export type BrowserExtensionCommandQueueKey = string;
+
+export function browserExtensionQueueKeyForNode(nodeId: string): BrowserExtensionCommandQueueKey {
+  return `node:${nodeId}`;
+}
+
 export interface BrowserExtensionSendCommandRequest {
+  queueKey?: BrowserExtensionCommandQueueKey;
   command: BrowserExtensionCommandName;
   target?: BrowserExtensionCommandTarget;
   payload?: Record<string, unknown>;
@@ -43,6 +50,7 @@ export interface BrowserExtensionPollRequest {
 }
 
 export interface BrowserExtensionCommandResult {
+  queueKey?: BrowserExtensionCommandQueueKey;
   commandId: string;
   ok: boolean;
   result?: unknown;
@@ -50,6 +58,7 @@ export interface BrowserExtensionCommandResult {
 }
 
 interface PendingCommand {
+  queueKey: BrowserExtensionCommandQueueKey;
   command: BrowserExtensionQueuedCommand;
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -58,9 +67,12 @@ interface PendingCommand {
 
 export class BrowserExtensionCommandStore {
   private static instance: BrowserExtensionCommandStore | null = null;
-  private readonly queue: BrowserExtensionQueuedCommand[] = [];
+  private readonly queues = new Map<BrowserExtensionCommandQueueKey, BrowserExtensionQueuedCommand[]>();
   private readonly pending = new Map<string, PendingCommand>();
-  private readonly pollers: Array<(command: BrowserExtensionQueuedCommand | null) => void> = [];
+  private readonly pollers = new Map<
+    BrowserExtensionCommandQueueKey,
+    Array<(command: BrowserExtensionQueuedCommand | null) => void>
+  >();
 
   static getInstance(): BrowserExtensionCommandStore {
     if (!this.instance) {
@@ -74,6 +86,7 @@ export class BrowserExtensionCommandStore {
   }
 
   sendCommand(request: BrowserExtensionSendCommandRequest): Promise<unknown> {
+    const queueKey = request.queueKey ?? 'local';
     const command: BrowserExtensionQueuedCommand = {
       id: randomUUID(),
       command: request.command,
@@ -88,17 +101,28 @@ export class BrowserExtensionCommandStore {
         reject(new Error('browser_extension_command_timeout'));
       }, timeoutMs);
       this.pending.set(command.id, {
+        queueKey,
         command,
         resolve,
         reject,
         timeout,
       });
-      this.enqueue(command);
+      this.enqueue(queueKey, command);
     });
   }
 
-  pollCommand(request: BrowserExtensionPollRequest = {}): Promise<BrowserExtensionQueuedCommand | null> {
-    const queued = this.queue.shift();
+  pollCommand(request?: BrowserExtensionPollRequest): Promise<BrowserExtensionQueuedCommand | null>;
+  pollCommand(
+    queueKey: BrowserExtensionCommandQueueKey,
+    request?: BrowserExtensionPollRequest,
+  ): Promise<BrowserExtensionQueuedCommand | null>;
+  pollCommand(
+    queueKeyOrRequest: BrowserExtensionCommandQueueKey | BrowserExtensionPollRequest = 'local',
+    maybeRequest: BrowserExtensionPollRequest = {},
+  ): Promise<BrowserExtensionQueuedCommand | null> {
+    const queueKey = typeof queueKeyOrRequest === 'string' ? queueKeyOrRequest : 'local';
+    const request = typeof queueKeyOrRequest === 'string' ? maybeRequest : queueKeyOrRequest;
+    const queued = this.queueFor(queueKey).shift();
     if (queued) {
       return Promise.resolve(queued);
     }
@@ -110,13 +134,14 @@ export class BrowserExtensionCommandStore {
         resolve(command);
       };
       const timeout = setTimeout(() => {
-        const index = this.pollers.indexOf(poller);
+        const pollers = this.pollersFor(queueKey);
+        const index = pollers.indexOf(poller);
         if (index >= 0) {
-          this.pollers.splice(index, 1);
+          pollers.splice(index, 1);
         }
         resolve(null);
       }, timeoutMs);
-      this.pollers.push(poller);
+      this.pollersFor(queueKey).push(poller);
     });
   }
 
@@ -124,6 +149,10 @@ export class BrowserExtensionCommandStore {
     const pending = this.pending.get(result.commandId);
     if (!pending) {
       return;
+    }
+    const resultQueueKey = result.queueKey ?? 'local';
+    if (resultQueueKey !== pending.queueKey) {
+      throw new Error('browser_extension_command_queue_mismatch');
     }
     this.pending.delete(result.commandId);
     clearTimeout(pending.timeout);
@@ -134,13 +163,55 @@ export class BrowserExtensionCommandStore {
     pending.reject(new Error(result.error || 'browser_extension_command_failed'));
   }
 
-  private enqueue(command: BrowserExtensionQueuedCommand): void {
-    const poller = this.pollers.shift();
+  rejectQueue(queueKey: BrowserExtensionCommandQueueKey, reason: string): void {
+    this.queues.delete(queueKey);
+    const pollers = this.pollers.get(queueKey);
+    if (pollers) {
+      this.pollers.delete(queueKey);
+      for (const poller of pollers) {
+        poller(null);
+      }
+    }
+    for (const [commandId, pending] of this.pending.entries()) {
+      if (pending.queueKey !== queueKey) {
+        continue;
+      }
+      this.pending.delete(commandId);
+      clearTimeout(pending.timeout);
+      pending.reject(new Error(reason));
+    }
+  }
+
+  private enqueue(
+    queueKey: BrowserExtensionCommandQueueKey,
+    command: BrowserExtensionQueuedCommand,
+  ): void {
+    const poller = this.pollersFor(queueKey).shift();
     if (poller) {
       poller(command);
       return;
     }
-    this.queue.push(command);
+    this.queueFor(queueKey).push(command);
+  }
+
+  private queueFor(queueKey: BrowserExtensionCommandQueueKey): BrowserExtensionQueuedCommand[] {
+    let queue = this.queues.get(queueKey);
+    if (!queue) {
+      queue = [];
+      this.queues.set(queueKey, queue);
+    }
+    return queue;
+  }
+
+  private pollersFor(
+    queueKey: BrowserExtensionCommandQueueKey,
+  ): Array<(command: BrowserExtensionQueuedCommand | null) => void> {
+    let pollers = this.pollers.get(queueKey);
+    if (!pollers) {
+      pollers = [];
+      this.pollers.set(queueKey, pollers);
+    }
+    return pollers;
   }
 }
 

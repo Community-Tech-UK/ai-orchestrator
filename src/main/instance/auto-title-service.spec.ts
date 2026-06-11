@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockCreateAdapter, mockResolveCliType, mockSendMessage, mockIsCliAvailable } = vi.hoisted(() => {
+const { mockAuxGenerate, mockCreateAdapter, mockResolveCliType, mockSendMessage, mockIsCliAvailable } = vi.hoisted(() => {
   const sendMessage = vi.fn();
 
   return {
+    mockAuxGenerate: vi.fn(),
     mockSendMessage: sendMessage,
     mockCreateAdapter: vi.fn(() => ({
       sendMessage,
@@ -27,6 +28,12 @@ vi.mock('../cli/cli-detection', () => ({
   isCliAvailable: mockIsCliAvailable,
 }));
 
+vi.mock('../rlm/auxiliary-llm-service', () => ({
+  getAuxiliaryLlmService: vi.fn(() => ({
+    generate: mockAuxGenerate,
+  })),
+}));
+
 vi.mock('../logging/logger', () => ({
   getLogger: vi.fn(() => ({
     info: vi.fn(),
@@ -41,6 +48,16 @@ import { AutoTitleService } from './auto-title-service';
 describe('AutoTitleService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAuxGenerate.mockResolvedValue({
+      text: '',
+      decision: {
+        slot: 'titleGeneration',
+        provider: 'local-fallback',
+        source: 'fallback',
+        reason: 'test fallback',
+        allowFrontierFallback: true,
+      },
+    });
     mockSendMessage.mockResolvedValue({ content: 'AI generated title' });
     AutoTitleService._resetForTesting();
   });
@@ -78,11 +95,11 @@ describe('AutoTitleService', () => {
     expect(applyTitle).toHaveBeenCalledWith('instance-1', 'AI generated title', 'ai');
   });
 
-  it('falls back to copilot when gemini is not available', async () => {
+  it('skips copilot and falls back to claude when gemini is not available', async () => {
     mockIsCliAvailable.mockImplementation(async (type: string) => ({
       installed: type === 'copilot' || type === 'claude' || type === 'codex',
     }));
-    mockResolveCliType.mockResolvedValue('copilot');
+    mockResolveCliType.mockImplementation(async (type: string) => type);
 
     const applyTitle = vi.fn();
 
@@ -94,10 +111,11 @@ describe('AutoTitleService', () => {
     );
 
     expect(mockIsCliAvailable).toHaveBeenNthCalledWith(1, 'gemini');
-    expect(mockIsCliAvailable).toHaveBeenNthCalledWith(2, 'copilot');
-    expect(mockResolveCliType).toHaveBeenCalledWith('copilot');
+    expect(mockIsCliAvailable).toHaveBeenNthCalledWith(2, 'claude');
+    expect(mockIsCliAvailable).not.toHaveBeenCalledWith('copilot');
+    expect(mockResolveCliType).toHaveBeenCalledWith('claude');
     expect(mockCreateAdapter).toHaveBeenCalledWith({
-      cliType: 'copilot',
+      cliType: 'claude',
       options: expect.objectContaining({
         model: expect.any(String),
       }),

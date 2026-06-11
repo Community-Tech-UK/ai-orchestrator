@@ -246,6 +246,106 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     expect(sendCommand).not.toHaveBeenCalled();
   });
 
+  it('filters existing-tab matches by requested remote node before opening', async () => {
+    const sendCommand = vi.fn(async () => ({
+      tab: {
+        tabId: 44,
+        windowId: 8,
+        title: 'Remote Example',
+        url: 'https://example.com/new',
+      },
+    }));
+    const existingTab = {
+      profileId: 'existing-tab:n.node-2:7:42',
+      targetId: 'existing-tab:n.node-2:7:42:target',
+      nodeId: 'node-2',
+      nodeName: 'Other PC',
+      tabId: 42,
+      windowId: 7,
+      title: 'Example',
+      url: 'https://example.com/page',
+      origin: 'https://example.com',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'example.com',
+          includeSubdomains: false,
+        },
+      ],
+    };
+    const { service } = makeService({
+      existingTab,
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.findOrOpen({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      url: 'https://example.com',
+      nodeId: 'node-1',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+    });
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      queueKey: 'node:node-1',
+      command: 'open_tab',
+      payload: { url: 'https://example.com' },
+    }));
+  });
+
+  it('routes commands for an attached remote existing tab to its node queue', async () => {
+    const sendCommand = vi.fn(async () => ({
+      tab: {
+        tabId: 42,
+        windowId: 7,
+        title: 'Remote Example',
+        url: 'https://example.com/page',
+        text: 'hello',
+      },
+    }));
+    const existingTab = {
+      profileId: 'existing-tab:n.node-1:7:42',
+      targetId: 'existing-tab:n.node-1:7:42:target',
+      nodeId: 'node-1',
+      nodeName: 'Windows PC',
+      tabId: 42,
+      windowId: 7,
+      title: 'Remote Example',
+      url: 'https://example.com/page',
+      origin: 'https://example.com',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'example.com',
+          includeSubdomains: false,
+        },
+      ],
+    };
+    const { service } = makeService({
+      existingTab,
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.snapshot({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+    });
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      queueKey: 'node:node-1',
+      command: 'snapshot',
+    }));
+  });
+
   it('surfaces a browser approval request instead of denying cross-origin existing-tab navigation', async () => {
     const sendCommand = vi.fn();
     const { approvalRequests, service } = makeService({

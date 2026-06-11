@@ -21,7 +21,12 @@ export const NODE_TO_COORDINATOR = {
   // Remote browser CDP tunnel (Path 2): frames from the node's Chrome back to
   // the coordinator's puppeteer transport.
   BROWSER_CDP_MESSAGE: 'browser.cdp.message',
-  BROWSER_CDP_CLOSED: 'browser.cdp.closed'
+  BROWSER_CDP_CLOSED: 'browser.cdp.closed',
+  // Remote browser extension relay (Path 3): a worker's Chrome extension
+  // forwards native-host events to the coordinator over the node socket.
+  BROWSER_EXT_ATTACH_TAB: 'browser.ext.attachTab',
+  BROWSER_EXT_POLL_COMMAND: 'browser.ext.pollCommand',
+  BROWSER_EXT_COMMAND_RESULT: 'browser.ext.commandResult',
 } as const;
 
 /** Methods sent FROM coordinator TO worker node */

@@ -14,6 +14,8 @@ import {
   RemoteNodeSetTokenPayloadSchema,
   RemoteNodeGetPayloadSchema,
   RemoteNodeStartServerPayloadSchema,
+  RemoteNodeRepairCommandPayloadSchema,
+  RemoteNodeRepairDiagnosePayloadSchema,
   RemoteNodeProviderDiagnosePayloadSchema,
   RemoteNodeServiceActionPayloadSchema,
   RemoteNodeUpdateAndroidAutomationPayloadSchema,
@@ -29,6 +31,7 @@ import {
   getTailscaleMagicDnsName,
 } from '../../util/network-addresses';
 import { getRemoteAuthService } from '../../auth/remote-auth';
+import { getRemoteWorkerRepairService } from '../../remote-node/remote-worker-repair-service';
 
 const logger = getLogger('RemoteNodeHandlers');
 
@@ -293,6 +296,50 @@ export function registerRemoteNodeHandlers(): void {
   );
 
   ipcMain.handle(
+    IPC_CHANNELS.REMOTE_NODE_REPAIR_DIAGNOSE,
+    async (_event, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = RemoteNodeRepairDiagnosePayloadSchema.parse(payload);
+        return {
+          success: true,
+          data: getRemoteWorkerRepairService().diagnose(validated.nodeId),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REMOTE_NODE_REPAIR_DIAGNOSE_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.REMOTE_NODE_REPAIR_COMMAND,
+    async (_event, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = RemoteNodeRepairCommandPayloadSchema.parse(payload);
+        return {
+          success: true,
+          data: getRemoteWorkerRepairService().generateRepairCommand(validated),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'REMOTE_NODE_REPAIR_COMMAND_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now(),
+          },
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
     IPC_CHANNELS.REMOTE_NODE_PROVIDER_DIAGNOSE,
     async (_event, payload: unknown): Promise<IpcResponse> => {
       try {
@@ -405,7 +452,10 @@ export function registerRemoteNodeHandlers(): void {
         const data = await sendServiceRpc(
           validated.nodeId,
           COORDINATOR_TO_NODE.CONFIG_UPDATE,
-          { browserAutomation: validated.browserAutomation },
+          {
+            browserAutomation: validated.browserAutomation,
+            ...(validated.extensionRelay ? { extensionRelay: validated.extensionRelay } : {}),
+          },
           30_000,
         );
         return { success: true, data };

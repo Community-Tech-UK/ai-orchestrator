@@ -69,6 +69,15 @@ export interface WorkerAndroidAutomationConfig {
   mobileMcpVersion?: string;
 }
 
+export interface WorkerExtensionRelayConfig {
+  /** Master switch. Default false. */
+  enabled: boolean;
+  /** Worker-local socket/pipe path for the browser native host to connect to. */
+  socketPath?: string;
+  /** Worker-local native-host token. Generated locally; never sent by coordinator config. */
+  extensionToken?: string;
+}
+
 export interface WorkerConfig {
   nodeId: string;
   name: string;
@@ -91,6 +100,8 @@ export interface WorkerConfig {
   browserAutomation?: WorkerBrowserAutomationConfig;
   /** Opt-in Android automation (default disabled). */
   androidAutomation?: WorkerAndroidAutomationConfig;
+  /** Opt-in remote existing-tab relay through the Chrome extension (default disabled). */
+  extensionRelay?: WorkerExtensionRelayConfig;
 }
 
 interface PairingConfigFile {
@@ -133,6 +144,10 @@ export function loadWorkerConfig(configPath = DEFAULT_CONFIG_PATH): WorkerConfig
   if (!merged.nodeId) {
     merged.nodeId = crypto.randomUUID();
   }
+  merged.extensionRelay = ensureExtensionRelayDefaults(
+    merged.extensionRelay,
+    defaultExtensionRelaySocketPath,
+  );
 
   // Apply CLI overrides
   const args = parseCliArgs(process.argv.slice(2));
@@ -174,6 +189,7 @@ function normalizeFileConfig(fileConfig: Partial<WorkerConfig> & PairingConfigFi
 
   normalized.browserAutomation = normalizeBrowserAutomation(fileConfig.browserAutomation);
   normalized.androidAutomation = normalizeAndroidAutomation(fileConfig.androidAutomation);
+  normalized.extensionRelay = normalizeExtensionRelay(fileConfig.extensionRelay);
 
   return normalized;
 }
@@ -266,9 +282,53 @@ function normalizeAndroidAutomation(
   return result;
 }
 
+function normalizeExtensionRelay(
+  raw: unknown,
+): WorkerExtensionRelayConfig | undefined {
+  if (!raw || typeof raw !== 'object') {
+    return undefined;
+  }
+  const obj = raw as Record<string, unknown>;
+  const result: WorkerExtensionRelayConfig = {
+    enabled: obj['enabled'] === true,
+  };
+  if (typeof obj['socketPath'] === 'string' && obj['socketPath'].trim().length > 0) {
+    result.socketPath = obj['socketPath'];
+  }
+  if (typeof obj['extensionToken'] === 'string' && obj['extensionToken'].trim().length >= 16) {
+    result.extensionToken = obj['extensionToken'];
+  }
+  return result;
+}
+
+export function ensureExtensionRelayDefaults(
+  config: WorkerExtensionRelayConfig | undefined,
+  defaultSocketPath: () => string,
+): WorkerExtensionRelayConfig | undefined {
+  if (!config) {
+    return undefined;
+  }
+  if (!config.enabled) {
+    return { ...config, enabled: false };
+  }
+  return {
+    ...config,
+    enabled: true,
+    socketPath: config.socketPath ?? defaultSocketPath(),
+    extensionToken: config.extensionToken ?? crypto.randomBytes(32).toString('hex'),
+  };
+}
+
 /** Default automation profile dir — sibling of the worker config file. */
 export function defaultBrowserAutomationProfileDir(): string {
   return path.join(os.homedir(), '.orchestrator', 'browser-automation-profile');
+}
+
+export function defaultExtensionRelaySocketPath(): string {
+  if (process.platform === 'win32') {
+    return '\\\\.\\pipe\\ai-orchestrator-browser-gateway';
+  }
+  return path.join(os.homedir(), '.orchestrator', 'browser-gateway', 'extension-relay.sock');
 }
 
 function isValidPort(port: unknown): port is number {

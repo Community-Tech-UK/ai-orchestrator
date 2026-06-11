@@ -2,12 +2,13 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { execFileCapture, ExecFileError } from './exec-file';
 import { generateWinswXml } from './windows-winsw-xml';
-import { servicePaths } from './paths';
+import {
+  servicePaths,
+  WORKER_SERVICE_DISPLAY_NAME,
+  WORKER_SERVICE_ID,
+} from './paths';
 import { copyWorkerSupportFiles } from './support-files';
 import type { ServiceManager, ServiceInstallOptions, ServiceStatus } from './types';
-
-const SERVICE_ID = 'ai-orchestrator-worker';
-const DISPLAY_NAME = 'AI Orchestrator Worker';
 
 export class WindowsServiceManager implements ServiceManager {
   async install(opts: ServiceInstallOptions): Promise<void> {
@@ -16,8 +17,8 @@ export class WindowsServiceManager implements ServiceManager {
     await fs.mkdir(paths.logDir, { recursive: true });
     await fs.mkdir(paths.configDir, { recursive: true });
 
-    const winswExe = path.join(paths.binDir, `${SERVICE_ID}.exe`);
-    const winswXml = path.join(paths.binDir, `${SERVICE_ID}.xml`);
+    const winswExe = path.join(paths.binDir, `${WORKER_SERVICE_ID}.exe`);
+    const winswXml = path.join(paths.binDir, `${WORKER_SERVICE_ID}.xml`);
 
     // Copy SEA binary into versioned layout and point <binDir>\current at it.
     const version = opts.version ?? 'unversioned';
@@ -35,13 +36,13 @@ export class WindowsServiceManager implements ServiceManager {
     await fs.copyFile(bundledWinsw, winswExe);
 
     const xml = generateWinswXml({
-      serviceId: SERVICE_ID,
-      displayName: DISPLAY_NAME,
+      serviceId: WORKER_SERVICE_ID,
+      displayName: WORKER_SERVICE_DISPLAY_NAME,
       description: 'AI Orchestrator worker node',
       executable: targetBin,
       arguments: ['--service-run', '--config', opts.configPath],
       logDir: opts.logDir ?? paths.logDir,
-      serviceAccount: opts.serviceAccount ?? 'NT SERVICE\\' + SERVICE_ID,
+      serviceAccount: opts.serviceAccount ?? 'NT SERVICE\\' + WORKER_SERVICE_ID,
       env: opts.environment,
     });
     await fs.writeFile(winswXml, xml, 'utf8');
@@ -53,7 +54,7 @@ export class WindowsServiceManager implements ServiceManager {
 
   async uninstall(): Promise<void> {
     const paths = servicePaths('win32');
-    const winswExe = path.join(paths.binDir, `${SERVICE_ID}.exe`);
+    const winswExe = path.join(paths.binDir, `${WORKER_SERVICE_ID}.exe`);
     try {
       await execFileCapture(winswExe, ['stop']);
     } catch {
@@ -63,11 +64,11 @@ export class WindowsServiceManager implements ServiceManager {
   }
 
   async start(): Promise<void> {
-    await execFileCapture('sc.exe', ['start', SERVICE_ID]);
+    await execFileCapture('sc.exe', ['start', WORKER_SERVICE_ID]);
   }
 
   async stop(): Promise<void> {
-    await execFileCapture('sc.exe', ['stop', SERVICE_ID]);
+    await execFileCapture('sc.exe', ['stop', WORKER_SERVICE_ID]);
   }
 
   async restart(): Promise<void> {
@@ -81,7 +82,7 @@ export class WindowsServiceManager implements ServiceManager {
 
   async status(): Promise<ServiceStatus> {
     try {
-      const { stdout } = await execFileCapture('sc.exe', ['queryex', SERVICE_ID]);
+      const { stdout } = await execFileCapture('sc.exe', ['queryex', WORKER_SERVICE_ID]);
       const stateMatch = stdout.match(/STATE\s*:\s*\d+\s+(\w+)/);
       const pidMatch = stdout.match(/PID\s*:\s*(\d+)/);
       const rawState = stateMatch?.[1] ?? '';
@@ -105,7 +106,7 @@ export class WindowsServiceManager implements ServiceManager {
 
   private async grantStartStopAcl(): Promise<void> {
     // Query current SDDL
-    const { stdout } = await execFileCapture('sc.exe', ['sdshow', SERVICE_ID]);
+    const { stdout } = await execFileCapture('sc.exe', ['sdshow', WORKER_SERVICE_ID]);
     const current = stdout.trim();
     // Grant Authenticated Users RP (start) + WP (stop)
     const aceFragment = '(A;;RPWPCR;;;AU)';
@@ -116,6 +117,6 @@ export class WindowsServiceManager implements ServiceManager {
     const before = current.slice(0, sControlEnd >= 0 ? sControlEnd : current.length);
     const after = sControlEnd >= 0 ? current.slice(sControlEnd) : '';
     const updated = before + aceFragment + after;
-    await execFileCapture('sc.exe', ['sdset', SERVICE_ID, updated]);
+    await execFileCapture('sc.exe', ['sdset', WORKER_SERVICE_ID, updated]);
   }
 }

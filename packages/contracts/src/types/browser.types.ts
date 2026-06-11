@@ -89,6 +89,8 @@ export interface BrowserTarget {
   pageId?: string;
   driverTargetId?: string;
   mode: BrowserTargetMode;
+  nodeId?: string;
+  nodeName?: string;
   title?: string;
   url?: string;
   origin?: string;
@@ -255,11 +257,13 @@ export interface BrowserProfileRequest {
 
 export interface BrowserListTargetsRequest {
   profileId?: string;
+  nodeId?: string;
 }
 
 export interface BrowserFindOrOpenRequest {
   url?: string;
   titleHint?: string;
+  nodeId?: string;
 }
 
 export interface BrowserTargetRequest {

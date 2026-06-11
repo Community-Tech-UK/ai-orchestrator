@@ -1,4 +1,4 @@
-import type { NodeIdentity } from '../../shared/types/worker-node.types';
+import type { NodeIdentity, NodePlatform } from '../../shared/types/worker-node.types';
 import { getLogger } from '../logging/logger';
 
 const logger = getLogger('NodeIdentityStore');
@@ -58,15 +58,23 @@ export class NodeIdentityStore {
     return this.findByTransportToken(token);
   }
 
-  touch(nodeId: string, updates: Partial<Pick<NodeIdentity, 'nodeName' | 'lastSeenAt'>> = {}): NodeIdentity | undefined {
+  touch(
+    nodeId: string,
+    updates: Partial<Pick<NodeIdentity, 'nodeName' | 'lastSeenAt' | 'platform' | 'platformSeenAt'>> = {},
+  ): NodeIdentity | undefined {
     const current = this.nodes.get(nodeId);
     if (!current) {
       return undefined;
     }
 
+    const platform = normalizePlatform(updates.platform);
     const next: NodeIdentity = {
       ...current,
       ...(updates.nodeName ? { nodeName: updates.nodeName } : {}),
+      ...(platform ? {
+        platform,
+        platformSeenAt: updates.platformSeenAt ?? updates.lastSeenAt ?? Date.now(),
+      } : {}),
       lastSeenAt: updates.lastSeenAt ?? Date.now(),
     };
     this.nodes.set(nodeId, next);
@@ -106,6 +114,7 @@ function normalizeIdentity(nodeId: string, identity: Partial<NodeIdentity>): Nod
   const authMethod = identity.authMethod === 'manual_pairing'
     ? 'manual_pairing'
     : 'pairing_credential';
+  const platform = normalizePlatform(identity.platform);
 
   return {
     sessionId: typeof identity.sessionId === 'string' && identity.sessionId.trim().length > 0
@@ -125,7 +134,17 @@ function normalizeIdentity(nodeId: string, identity: Partial<NodeIdentity>): Nod
     lastSeenAt: typeof identity.lastSeenAt === 'number' ? identity.lastSeenAt : issuedAt,
     authMethod,
     pairingLabel: typeof identity.pairingLabel === 'string' ? identity.pairingLabel : undefined,
+    ...(platform ? {
+      platform,
+      platformSeenAt: typeof identity.platformSeenAt === 'number' ? identity.platformSeenAt : issuedAt,
+    } : {}),
   };
+}
+
+function normalizePlatform(platform: unknown): NodePlatform | undefined {
+  return platform === 'darwin' || platform === 'win32' || platform === 'linux'
+    ? platform
+    : undefined;
 }
 
 export function getNodeIdentityStore(): NodeIdentityStore {

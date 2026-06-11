@@ -8,6 +8,7 @@ import {
   FsEventParamsSchema,
 } from '../../shared/validation/remote-fs-schemas';
 import { FileAttachmentSchema } from '@contracts/schemas/common';
+import { BrowserAttachExistingTabRequestSchema } from '@contracts/schemas/browser';
 
 export const BROWSER_CDP_MAX_FRAME_BYTES = 64 * 1024 * 1024;
 export const WORKER_NODE_WS_MAX_PAYLOAD_BYTES = BROWSER_CDP_MAX_FRAME_BYTES + 16 * 1024 * 1024;
@@ -32,6 +33,12 @@ const WorkerNodeCapabilitiesSchema = z.object({
     profileDir: z.string(),
     // Older workers omit `running`; default keeps their heartbeats valid.
     running: z.boolean().optional().default(false),
+  }).optional(),
+  hasExtensionRelay: z.boolean().optional().default(false),
+  extensionRelay: z.object({
+    enabled: z.boolean(),
+    running: z.boolean(),
+    socketPath: z.string().optional(),
   }).optional(),
   hasAndroidMcp: z.boolean().optional().default(false),
   androidAutomation: z.object({
@@ -241,9 +248,14 @@ export const AndroidAutomationConfigSchema = z.object({
   mobileMcpVersion: z.string().min(1).max(128).optional(),
 });
 
+export const ExtensionRelayConfigSchema = z.object({
+  enabled: z.boolean(),
+});
+
 export const ConfigUpdateParamsSchema = z.object({
   browserAutomation: BrowserAutomationConfigSchema.optional(),
   androidAutomation: AndroidAutomationConfigSchema.optional(),
+  extensionRelay: ExtensionRelayConfigSchema.optional(),
 });
 
 // -- Remote browser CDP tunnel (Path 2; privileged: scope=service) ------------
@@ -268,6 +280,33 @@ export const BrowserCdpSendParamsSchema = z.object({
 
 export const BrowserCdpCloseParamsSchema = z.object({
   sessionId: z.string().min(1).max(128),
+});
+
+// -- Remote browser extension relay (Path 3) ----------------------------------
+//
+// Worker native hosts forward extension traffic over the authenticated worker
+// socket. The coordinator assigns node identity from the connection; nodeId is
+// intentionally not accepted from these payloads.
+
+export const BrowserExtAttachTabParamsSchema = z.object({
+  token: z.string().optional(),
+  extensionOrigin: z.string().min(1).max(200).optional(),
+  payload: BrowserAttachExistingTabRequestSchema,
+});
+
+export const BrowserExtPollCommandParamsSchema = z.object({
+  token: z.string().optional(),
+  extensionOrigin: z.string().min(1).max(200).optional(),
+  timeoutMs: z.number().int().min(0).max(10_000).optional(),
+});
+
+export const BrowserExtCommandResultParamsSchema = z.object({
+  token: z.string().optional(),
+  extensionOrigin: z.string().min(1).max(200).optional(),
+  commandId: z.string().min(1).max(200),
+  ok: z.boolean(),
+  result: z.unknown().optional(),
+  error: z.string().min(1).max(2000).optional(),
 });
 
 /** No params — stop the managed Chrome on the node. */
@@ -300,6 +339,9 @@ export const RPC_PARAM_SCHEMAS: Record<string, z.ZodType> = {
   'instance.complete': InstanceCompleteParamsSchema,
   'instance.stateChange': InstanceStateChangeParamsSchema,
   'instance.permissionRequest': InstancePermissionRequestParamsSchema,
+  'browser.ext.attachTab': BrowserExtAttachTabParamsSchema,
+  'browser.ext.pollCommand': BrowserExtPollCommandParamsSchema,
+  'browser.ext.commandResult': BrowserExtCommandResultParamsSchema,
   'instance.spawn': InstanceSpawnParamsSchema,
   'instance.sendInput': InstanceSendInputParamsSchema,
   'instance.terminate': InstanceIdParamsSchema,

@@ -579,6 +579,8 @@
               }
             </div>
 
+            <app-remote-node-repair-panel [entry]="entry" />
+
             <div class="badge-row">
               <span
                 class="capability-chip browser-automation"
@@ -590,6 +592,17 @@
                     : 'Agents spawned on this node get chrome-devtools browser tools.'"
               >
                 {{ browserAutomationLabel(entry) }}
+              </span>
+              <span
+                class="capability-chip browser-automation"
+                [attr.data-state]="extensionRelayState(entry)"
+                [title]="extensionRelayState(entry) === 'ready'
+                  ? 'Chrome extension native-host relay is listening on this node.'
+                  : extensionRelayState(entry) === 'enabled'
+                    ? 'Chrome extension relay is enabled but not currently running.'
+                    : 'Chrome extension relay is off on this node.'"
+              >
+                {{ extensionRelayLabel(entry) }}
               </span>
               <span
                 class="capability-chip android-automation"
@@ -657,6 +670,15 @@
                     (change)="baDraftHeadless.set(!baDraftHeadless())"
                   />
                   <span>Run Chrome headless</span>
+                </label>
+
+                <label class="ba-row">
+                  <input
+                    type="checkbox"
+                    [checked]="baDraftExtensionRelayEnabled()"
+                    (change)="baDraftExtensionRelayEnabled.set(!baDraftExtensionRelayEnabled())"
+                  />
+                  <span>Enable shared-tab extension relay on this node</span>
                 </label>
 
                 <p class="field-hint ba-warning">

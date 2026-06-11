@@ -143,6 +143,29 @@ describe('loadWorkerConfig', () => {
     expect(config.browserAutomation).toEqual({ enabled: true });
   });
 
+  it('generates local extension relay defaults when enabled without secrets', () => {
+    const configPath = path.join(tempDir, 'worker-node.json');
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        token: 't',
+        extensionRelay: {
+          enabled: true,
+        },
+      }),
+    );
+
+    const config = loadWorkerConfig(configPath);
+    const persisted = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as {
+      extensionRelay?: { enabled?: boolean; socketPath?: string; extensionToken?: string };
+    };
+
+    expect(config.extensionRelay?.enabled).toBe(true);
+    expect(config.extensionRelay?.socketPath).toBeTruthy();
+    expect(config.extensionRelay?.extensionToken).toHaveLength(64);
+    expect(persisted.extensionRelay?.extensionToken).toBe(config.extensionRelay?.extensionToken);
+  });
+
   it('parses an enabled androidAutomation block with safe defaults', () => {
     const configPath = path.join(tempDir, 'worker-node.json');
     fs.writeFileSync(

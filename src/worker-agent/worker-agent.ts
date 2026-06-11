@@ -10,12 +10,18 @@ import type {
   WorkerAndroidAutomationConfig,
   WorkerBrowserAutomationConfig,
   WorkerConfig,
+  WorkerExtensionRelayConfig,
 } from './worker-config';
-import { persistConfig } from './worker-config';
+import {
+  defaultExtensionRelaySocketPath,
+  ensureExtensionRelayDefaults,
+  persistConfig,
+} from './worker-config';
 import type {
   WorkerNodeBrowserAutomationSummary,
   WorkerNodeAndroidAutomationSummary,
   WorkerNodeCapabilities,
+  WorkerNodeExtensionRelaySummary,
 } from '../shared/types/worker-node.types';
 import { NODE_TO_COORDINATOR } from '../main/remote-node/worker-node-rpc';
 import type { EnrollmentResult } from '../main/remote-node/worker-node-rpc';
@@ -31,20 +37,17 @@ import { WorkerRpcDispatcher } from './worker-rpc-dispatcher';
 import { WorkerBrowserManager } from './worker-browser-manager';
 import { WorkerCdpTunnel } from './worker-cdp-tunnel';
 import { WorkerAndroidManager } from './android/worker-android-manager';
+import { WorkerExtensionRelay } from './worker-extension-relay';
+import { prepareBrowserExtensionNativeHostRuntime } from '../main/browser-gateway/browser-extension-native-runtime';
 import type { RpcMessage } from './worker-rpc-types';
 import type { DiscoveredCoordinator } from './discovery-client';
 
-const DEFAULT_CONFIG_PATH = path.join(
-  os.homedir(),
-  '.orchestrator',
-  'worker-node.json'
-);
+const DEFAULT_CONFIG_PATH = path.join(os.homedir(), '.orchestrator', 'worker-node.json');
 
-/** Per-candidate connection timeout so a dead address fails over quickly. */
 const CONNECT_TIMEOUT_MS = 8_000;
-
-/** Bounded mDNS re-probe after every known address fails. */
 const REDISCOVERY_TIMEOUT_MS = 4_000;
+
+type PendingCoordinatorRequest = { resolve: (value: unknown) => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout>; method: string };
 
 /**
  * Ordered, de-duplicated list of coordinator URLs to try: the most recently
@@ -75,6 +78,9 @@ export class WorkerAgent extends EventEmitter {
   private reconnectAttempt = 0;
   private connectedAt = 0;
   private pendingRegistrationId: string | number | null = null;
+  private registrationAccepted = false;
+  private requestCounter = 0;
+  private readonly pendingRequests = new Map<string | number, PendingCoordinatorRequest>();
   private discoveryClient: DiscoveryClient | null = null;
   private fsHandler: NodeFilesystemHandler | null = null;
   private syncHandler: SyncHandler | null = null;
@@ -84,6 +90,7 @@ export class WorkerAgent extends EventEmitter {
   private readonly browserManager: WorkerBrowserManager;
   private readonly androidManager: WorkerAndroidManager;
   private readonly cdpTunnel: WorkerCdpTunnel;
+  private readonly extensionRelay: WorkerExtensionRelay;
   private activeCoordinatorUrl: string | null = null;
   private retryRegistrationWithRecovery = false;
 
@@ -102,6 +109,10 @@ export class WorkerAgent extends EventEmitter {
       config: config.androidAutomation ?? { enabled: false },
     });
     this.cdpTunnel = new WorkerCdpTunnel({ browserManager: this.browserManager });
+    this.extensionRelay = new WorkerExtensionRelay({
+      config: config.extensionRelay ?? { enabled: false },
+      sendRequest: (method, params, timeoutMs) => this.sendRequest(method, params, timeoutMs),
+    });
     this.wireCdpTunnelEvents();
     this.instanceManager = new LocalInstanceManager(
       config.workingDirectories,
@@ -134,11 +145,13 @@ export class WorkerAgent extends EventEmitter {
     this.isShuttingDown = false;
 
     try {
+      await this.runExtensionRelayStep('startup', () => this.extensionRelay.start());
       this.capabilities = await reportCapabilities(
         this.config.workingDirectories,
         this.config.maxConcurrentInstances,
         this.browserManager.getSummary(),
-        await this.androidManager.getSummary()
+        await this.androidManager.getSummary(),
+        this.extensionRelay.getSummary(),
       );
       this.fsHandler = new NodeFilesystemHandler(
         this.config.workingDirectories
@@ -226,6 +239,7 @@ export class WorkerAgent extends EventEmitter {
         opened = true;
         clearTimeout(timer);
         this.ws = ws;
+        this.registrationAccepted = false;
         this.activeCoordinatorUrl = url;
         console.log(`Connected to coordinator at ${url}`);
         this.sendRegistration();
@@ -245,6 +259,8 @@ export class WorkerAgent extends EventEmitter {
         }
         this.stopHeartbeat();
         this.ws = null;
+        this.registrationAccepted = false;
+        this.rejectPendingRequests('coordinator_disconnected');
         this.cdpTunnel.closeAll();
         if (!this.isShuttingDown) {
           this.scheduleReconnect();
@@ -274,10 +290,12 @@ export class WorkerAgent extends EventEmitter {
       this.reconnectTimer = undefined;
     }
     this.notifier.flushOutputBuffer();
+    this.rejectPendingRequests('worker_shutting_down');
     await this.instanceManager.terminateAll();
     this.fsHandler?.cleanupAllWatchers();
     this.terminalHandler?.killAll();
     this.cdpTunnel.closeAll();
+    await this.extensionRelay.stop();
     await this.browserManager.shutdown();
     await this.androidManager.shutdown();
     if (this.ws) {
@@ -313,6 +331,57 @@ export class WorkerAgent extends EventEmitter {
     this.notifier.send(this.buildRegistrationMessage());
   }
 
+  sendRequest<T = unknown>(
+    method: string,
+    params: Record<string, unknown> = {},
+    timeoutMs = 30_000,
+  ): Promise<T> {
+    if (!this.registrationAccepted) {
+      return Promise.reject(new Error('worker_not_registered'));
+    }
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error('coordinator_not_connected'));
+    }
+
+    const id = `worker-${++this.requestCounter}`;
+    const token = this.config.nodeToken ?? this.config.authToken;
+    const request: RpcMessage = {
+      jsonrpc: '2.0',
+      id,
+      method,
+      params: {
+        ...params,
+        ...(token ? { token } : {}),
+      },
+    };
+
+    return new Promise<T>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(new Error(`worker_request_timeout:${method}`));
+      }, timeoutMs);
+      this.pendingRequests.set(id, {
+        resolve: resolve as (value: unknown) => void,
+        reject,
+        timeout,
+        method,
+      });
+      ws.send(JSON.stringify(request), (err) => {
+        if (!err) {
+          return;
+        }
+        const pending = this.pendingRequests.get(id);
+        if (!pending) {
+          return;
+        }
+        clearTimeout(pending.timeout);
+        this.pendingRequests.delete(id);
+        reject(err);
+      });
+    });
+  }
+
   private startHeartbeat(): void {
     this.heartbeatTimer = setInterval(() => {
       void this.sendHeartbeat();
@@ -325,7 +394,8 @@ export class WorkerAgent extends EventEmitter {
       this.config.workingDirectories,
       this.config.maxConcurrentInstances,
       this.browserManager.getSummary(),
-      await this.androidManager.getSummary()
+      await this.androidManager.getSummary(),
+      this.extensionRelay.getSummary(),
     );
     this.notifier.send({
       jsonrpc: '2.0',
@@ -348,9 +418,11 @@ export class WorkerAgent extends EventEmitter {
   async applyConfigUpdate(update: {
     browserAutomation?: WorkerBrowserAutomationConfig;
     androidAutomation?: WorkerAndroidAutomationConfig;
+    extensionRelay?: WorkerExtensionRelayConfig;
   }): Promise<{
     browserAutomation?: WorkerNodeBrowserAutomationSummary;
     androidAutomation?: WorkerNodeAndroidAutomationSummary;
+    extensionRelay?: WorkerNodeExtensionRelaySummary;
   }> {
     if (update.browserAutomation) {
       // Merge onto the existing block so a partial update (e.g. just toggling
@@ -373,6 +445,18 @@ export class WorkerAgent extends EventEmitter {
       persistConfig(this.configPath, this.config);
       await this.androidManager.reconfigure(merged);
     }
+    if (update.extensionRelay) {
+      const merged = ensureExtensionRelayDefaults(
+        {
+          ...this.config.extensionRelay,
+          ...update.extensionRelay,
+        },
+        defaultExtensionRelaySocketPath,
+      ) ?? { enabled: false };
+      this.config.extensionRelay = merged;
+      persistConfig(this.configPath, this.config);
+      await this.runExtensionRelayStep('reconfigure', () => this.extensionRelay.reconfigure(merged));
+    }
     // Only push a heartbeat when connected; otherwise the next reconnect reports
     // the updated capabilities.
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -381,6 +465,7 @@ export class WorkerAgent extends EventEmitter {
     return {
       browserAutomation: this.browserManager.getSummary(),
       androidAutomation: await this.androidManager.getSummary(),
+      extensionRelay: this.extensionRelay.getSummary(),
     };
   }
 
@@ -510,10 +595,14 @@ export class WorkerAgent extends EventEmitter {
         }
         this.retryRegistrationWithRecovery = false;
         this.pendingRegistrationId = null;
+        this.registrationAccepted = true;
         this.connectedAt = Date.now();
         this.reconnectAttempt = 0;
         this.notifier.flushCriticalQueue(); // Deliver queued state changes only after registration is accepted.
         this.startHeartbeat();
+      }
+      if (msg.id !== undefined && this.resolvePendingRequest(msg)) {
+        return;
       }
       return;
     }
@@ -535,6 +624,7 @@ export class WorkerAgent extends EventEmitter {
       ? String((error as { message: unknown }).message)
       : 'registration rejected';
     this.pendingRegistrationId = null;
+    this.registrationAccepted = false;
     const justTriedRecovery = this.retryRegistrationWithRecovery;
     if (justTriedRecovery) {
       this.retryRegistrationWithRecovery = false;
@@ -569,8 +659,77 @@ export class WorkerAgent extends EventEmitter {
     return this.rpcDispatcher.handleRpcRequest(msg);
   }
 
+  private resolvePendingRequest(msg: RpcMessage): boolean {
+    if (msg.id === undefined) {
+      return false;
+    }
+    const pending = this.pendingRequests.get(msg.id);
+    if (!pending) {
+      return false;
+    }
+    clearTimeout(pending.timeout);
+    this.pendingRequests.delete(msg.id);
+    if (msg.error) {
+      pending.reject(new Error(`RPC error ${msg.error.code}: ${msg.error.message}`));
+      return true;
+    }
+    pending.resolve(msg.result);
+    return true;
+  }
+
+  private rejectPendingRequests(reason: string): void {
+    for (const [id, pending] of this.pendingRequests.entries()) {
+      clearTimeout(pending.timeout);
+      this.pendingRequests.delete(id);
+      pending.reject(new Error(`${reason}:${pending.method}`));
+    }
+  }
+
   private handleRpcNotification(msg: RpcMessage): void {
     this.rpcDispatcher.handleRpcNotification(msg);
+  }
+
+  private async runExtensionRelayStep(label: string, action: () => Promise<void>): Promise<void> {
+    try {
+      await action();
+      this.prepareExtensionNativeHostRuntime();
+    } catch (error) {
+      console.warn(`[WorkerAgent] Browser extension relay ${label} failed`, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private prepareExtensionNativeHostRuntime(): void {
+    const token = this.extensionRelay.getExtensionToken();
+    if (!this.extensionRelay.isEnabled() || !token) {
+      return;
+    }
+    try {
+      prepareBrowserExtensionNativeHostRuntime({
+        userDataPath: path.dirname(this.configPath),
+        socketPath: this.extensionRelay.getSocketPath(),
+        extensionToken: token,
+        hostCommand: this.currentWorkerNativeHostCommand(),
+      });
+    } catch (error) {
+      console.warn(
+        '[WorkerAgent] Failed to install browser extension native host runtime',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  private currentWorkerNativeHostCommand(): { exe: string; args: string[] } {
+    const entrypoint = process.argv[1];
+    if (entrypoint && path.resolve(entrypoint) !== path.resolve(process.execPath)) {
+      return {
+        exe: process.execPath,
+        args: [entrypoint, 'native-host'],
+      };
+    }
+    return {
+      exe: process.execPath,
+      args: ['native-host'],
+    };
   }
 
   private getSyncHandler(): SyncHandler {

@@ -87,16 +87,22 @@ describe('BrowserGatewayService', () => {
       extensionOrigin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/',
     });
 
-    expect(extensionTabStore.attachTab).toHaveBeenCalledWith({
-      tabId: 42,
-      windowId: 7,
-      url: 'https://play.google.com/console',
-      title: 'Google Play Console',
-      text: 'Release dashboard',
-      screenshotBase64: 'cG5n',
-      capturedAt: 1000,
-      extensionOrigin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/',
-    });
+    expect(extensionTabStore.attachTab).toHaveBeenCalledWith(
+      {
+        tabId: 42,
+        windowId: 7,
+        url: 'https://play.google.com/console',
+        title: 'Google Play Console',
+        text: 'Release dashboard',
+        screenshotBase64: 'cG5n',
+        capturedAt: 1000,
+        extensionOrigin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/',
+      },
+      {
+        nodeId: undefined,
+        nodeName: undefined,
+      },
+    );
     expect(result).toMatchObject({
       decision: 'allowed',
       outcome: 'succeeded',
@@ -1275,5 +1281,34 @@ describe('BrowserGatewayService', () => {
     expect(payload).not.toContain('debugEndpoint');
     expect(payload).not.toContain('driverTargetId');
     expect(payload).not.toContain('ws://');
+  });
+
+  it('filters listed targets by remote node id', async () => {
+    const { service } = makeService({
+      target: makeTarget({
+        nodeId: 'node-1',
+        nodeName: 'Windows PC',
+      }),
+    });
+
+    const matching = await service.listTargets({
+      profileId: 'profile-1',
+      nodeId: 'node-1',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    });
+    const other = await service.listTargets({
+      profileId: 'profile-1',
+      nodeId: 'node-2',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    });
+
+    expect(matching.data).toHaveLength(1);
+    expect(matching.data?.[0]).toMatchObject({
+      nodeId: 'node-1',
+      nodeName: 'Windows PC',
+    });
+    expect(other.data).toEqual([]);
   });
 });

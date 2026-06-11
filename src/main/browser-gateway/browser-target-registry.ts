@@ -65,6 +65,14 @@ export class BrowserTargetRegistry {
     }
   }
 
+  removeByNodeId(nodeId: string): void {
+    for (const target of this.targets.values()) {
+      if (target.nodeId === nodeId) {
+        this.targets.delete(target.id);
+      }
+    }
+  }
+
   private clearSelectedInProfile(profileId: string | undefined, exceptId: string): void {
     for (const target of this.targets.values()) {
       if (

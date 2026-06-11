@@ -52,6 +52,10 @@ const targetIdProp = {
   ...stringProp,
   description: 'Browser Gateway target id.',
 };
+const nodeIdProp = {
+  ...stringProp,
+  description: 'Optional remote worker node id. Use to list, match, or open shared Chrome tabs on one specific node.',
+};
 const selectorProp = {
   ...stringProp,
   description:
@@ -133,7 +137,7 @@ const grantProposalSchema = objectSchema({
 ]);
 
 const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
-  'browser.list_targets': objectSchema({ profileId: profileIdProp }),
+  'browser.list_targets': objectSchema({ profileId: profileIdProp, nodeId: nodeIdProp }),
   'browser.find_or_open': objectSchema({
     url: {
       ...stringProp,
@@ -143,6 +147,7 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
       ...stringProp,
       description: 'Optional tab title hint to use when matching an existing Chrome tab.',
     },
+    nodeId: nodeIdProp,
   }),
   'browser.select_target': targetSchema,
   'browser.navigate': objectSchema({

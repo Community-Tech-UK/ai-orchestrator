@@ -44,6 +44,17 @@ export interface WorkerNodeBrowserAutomationSummary {
   running: boolean;
 }
 
+/**
+ * Non-secret state for the worker-local Chrome extension relay. The relay lets
+ * a Chrome extension on the worker machine share existing tabs with the
+ * coordinator-governed Browser Gateway.
+ */
+export interface WorkerNodeExtensionRelaySummary {
+  enabled: boolean;
+  running: boolean;
+  socketPath?: string;
+}
+
 export interface AndroidDeviceInfo {
   serial: string;
   kind: 'emulator' | 'usb' | 'wifi';
@@ -88,6 +99,8 @@ export interface WorkerNodeCapabilities {
   hasBrowserMcp: boolean;
   /** Present when the node reports browser-automation config (newer workers). */
   browserAutomation?: WorkerNodeBrowserAutomationSummary;
+  hasExtensionRelay?: boolean;
+  extensionRelay?: WorkerNodeExtensionRelaySummary;
   hasAndroidMcp: boolean;
   /** Present when the node can inspect Android SDK/device state (newer workers). */
   androidAutomation?: WorkerNodeAndroidAutomationSummary;
@@ -109,6 +122,58 @@ export interface WorkerNodeInfo {
   lastHeartbeat?: number;
   activeInstances: number;
   latencyMs?: number;
+}
+
+export type RemoteWorkerRepairStatus =
+  | 'healthy'
+  | 'depaired'
+  | 'unreachable'
+  | 'unknown';
+
+export interface RemoteWorkerRejectedRegistration {
+  nodeId: string;
+  nodeName?: string;
+  platformHint?: NodePlatform;
+  reason: string;
+  firstSeenAt: number;
+  lastSeenAt: number;
+  count: number;
+}
+
+export interface RemoteWorkerRepairDiagnostic {
+  nodeId: string;
+  nodeName: string;
+  status: RemoteWorkerRepairStatus;
+  liveStatus?: WorkerNodeInfo['status'];
+  trustedPlatform?: NodePlatform;
+  platformHint?: NodePlatform;
+  lastSeenAt?: number;
+  lastHeartbeat?: number;
+  lastRejectedRegistration?: RemoteWorkerRejectedRegistration;
+  coordinatorUrls: string[];
+  hasCoordinatorRecoveryToken: boolean;
+  recommendedAction:
+    | 'none'
+    | 'copy_windows_command'
+    | 'choose_platform'
+    | 'check_connectivity'
+    | 'configure_tls'
+    | 're_pair';
+  availableActions: Array<'check_service_status'>;
+  summary: string;
+}
+
+export interface RemoteWorkerRepairCommand {
+  nodeId: string;
+  nodeName: string;
+  platform: 'win32';
+  expiresAt: number;
+  serviceId: string;
+  configPath: string;
+  primaryCoordinatorUrl: string;
+  coordinatorUrls: string[];
+  command: string;
+  redactedPreview: string;
 }
 
 export type ExecutionLocation =
@@ -136,6 +201,9 @@ export interface NodeIdentity {
   token: string;
   /** Same-node recovery token used to rotate a stale transport token. */
   recoveryToken?: string;
+  /** Trusted platform last reported by an authenticated registration/heartbeat. */
+  platform?: NodePlatform;
+  platformSeenAt?: number;
   issuedAt: number;
   /** Backward-compatible alias for issuedAt. */
   createdAt: number;

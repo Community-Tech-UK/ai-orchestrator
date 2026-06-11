@@ -33,6 +33,15 @@ vi.mock('../../auth/remote-auth', () => ({
   getRemoteAuthService: () => mockRemoteAuth,
 }));
 
+const mockRepairTracker = {
+  recordRejectedRegistration: vi.fn(),
+  clear: vi.fn(),
+};
+
+vi.mock('../remote-worker-repair-tracker', () => ({
+  getRemoteWorkerRepairTracker: () => mockRepairTracker,
+}));
+
 import { WorkerNodeConnectionServer } from '../worker-node-connection';
 
 // ---------------------------------------------------------------------------
@@ -77,6 +86,8 @@ describe('WorkerNodeConnectionServer — socket replacement race', () => {
   beforeEach(() => {
     WorkerNodeConnectionServer._resetForTesting();
     mockRemoteAuth.authenticateRegistration.mockClear();
+    mockRepairTracker.recordRejectedRegistration.mockClear();
+    mockRepairTracker.clear.mockClear();
   });
 
   it('does not deregister a node when a replaced (stale) socket later closes', () => {
@@ -110,6 +121,48 @@ describe('WorkerNodeConnectionServer — socket replacement race', () => {
     wsB.emit('close');
     expect(disconnected).toEqual([NODE_ID]);
     expect(internals.nodeToSocket.has(NODE_ID)).toBe(false);
+  });
+
+  it('records rejected registration context for repair diagnostics', () => {
+    mockRemoteAuth.authenticateRegistration.mockReturnValueOnce({
+      status: 'rejected',
+      reason: 'Invalid or expired pairing token',
+    });
+    const server = WorkerNodeConnectionServer.getInstance();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const internals = server as any;
+    const ws = makeFakeWs();
+
+    internals.handleConnection(ws);
+    ws.emit('message', registerMessage());
+
+    expect(mockRemoteAuth.authenticateRegistration).toHaveBeenCalledWith(expect.objectContaining({
+      nodeId: NODE_ID,
+      nodeName: 'windows-pc',
+      token: 'pairing-token',
+      platform: 'win32',
+    }));
+    expect(mockRepairTracker.recordRejectedRegistration).toHaveBeenCalledWith({
+      nodeId: NODE_ID,
+      nodeName: 'windows-pc',
+      platformHint: 'win32',
+      reason: 'Invalid or expired pairing token',
+    });
+    expect(mockRepairTracker.clear).not.toHaveBeenCalled();
+    expect(ws.close).toHaveBeenCalledWith(4001, 'Unauthorized');
+  });
+
+  it('clears rejected registration context after successful registration', () => {
+    const server = WorkerNodeConnectionServer.getInstance();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const internals = server as any;
+    const ws = makeFakeWs();
+
+    internals.handleConnection(ws);
+    ws.emit('message', registerMessage());
+
+    expect(mockRepairTracker.clear).toHaveBeenCalledWith(NODE_ID);
+    expect(mockRepairTracker.recordRejectedRegistration).not.toHaveBeenCalled();
   });
 });
 

@@ -66,6 +66,8 @@ describe('WorkerRpcDispatcher config.update', () => {
 
     expect(applyConfigUpdate).toHaveBeenCalledWith({
       browserAutomation: { enabled: true, profileDir: '/p' },
+      androidAutomation: undefined,
+      extensionRelay: undefined,
     });
     expect(sendResult).toHaveBeenCalledWith(2, summary);
     expect(sendError).not.toHaveBeenCalled();
@@ -106,8 +108,37 @@ describe('WorkerRpcDispatcher config.update', () => {
         defaultAvd: 'aio-pixel7-api35',
         maxEmulators: 2,
       },
+      extensionRelay: undefined,
     });
     expect(sendResult).toHaveBeenCalledWith(4, summary);
+    expect(sendError).not.toHaveBeenCalled();
+  });
+
+  it('accepts extensionRelay updates with service scope', async () => {
+    const summary = {
+      extensionRelay: {
+        enabled: true,
+        running: true,
+        socketPath: '/tmp/relay.sock',
+      },
+    };
+    const applyConfigUpdate = vi.fn(async () => summary);
+    const { dispatcher, sendResult, sendError } = makeDispatcher(applyConfigUpdate);
+
+    await dispatcher.handleRpcRequest(configUpdateMsg({
+      id: 5,
+      scope: 'service',
+      params: {
+        extensionRelay: { enabled: true },
+      },
+    }));
+
+    expect(applyConfigUpdate).toHaveBeenCalledWith({
+      browserAutomation: undefined,
+      androidAutomation: undefined,
+      extensionRelay: { enabled: true },
+    });
+    expect(sendResult).toHaveBeenCalledWith(5, summary);
     expect(sendError).not.toHaveBeenCalled();
   });
 

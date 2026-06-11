@@ -83,6 +83,31 @@ describe('NodeIdentityStore', () => {
     }));
   });
 
+  it('persists trusted platform snapshots and ignores invalid platform values', () => {
+    const identity = makeIdentity('platform-node');
+    store.set({
+      ...identity,
+      platform: 'win32',
+      platformSeenAt: 456,
+    });
+
+    expect(store.get('platform-node')).toEqual(expect.objectContaining({
+      platform: 'win32',
+      platformSeenAt: 456,
+    }));
+
+    store.loadFromJson(JSON.stringify({
+      invalid: {
+        ...makeIdentity('invalid'),
+        platform: 'freebsd',
+        platformSeenAt: 789,
+      },
+    }));
+
+    expect(store.get('invalid')).not.toHaveProperty('platform');
+    expect(store.get('invalid')).not.toHaveProperty('platformSeenAt');
+  });
+
   it('returns undefined when token not found', () => {
     expect(store.findByToken('nonexistent')).toBeUndefined();
   });

@@ -7,7 +7,7 @@ export const RemoteNodeSetTokenPayloadSchema = z.object({
 export const RemoteNodeIssuePairingPayloadSchema = z.object({
   label: z.string().trim().min(1).max(120).optional(),
   ttlMs: z.number().int().min(1_000).max(7 * 24 * 60 * 60 * 1_000).optional(),
-});
+}).strict();
 
 export const RemoteNodeRevokePayloadSchema = z.object({
   nodeId: z.string().uuid(),
@@ -37,6 +37,19 @@ export const RemoteNodeProviderDiagnosePayloadSchema = z.object({
   provider: z.enum(['claude', 'codex', 'gemini', 'copilot', 'cursor']),
 });
 
+export const RemoteNodeRepairDiagnosePayloadSchema = z.object({
+  nodeId: z.string().uuid(),
+});
+
+export const RemoteNodeRepairCommandPayloadSchema = z.object({
+  nodeId: z.string().uuid(),
+  platform: z.literal('win32').optional(),
+  operatorConfirmedPlatform: z.boolean().optional(),
+}).refine((payload) => payload.operatorConfirmedPlatform !== true || payload.platform === 'win32', {
+  message: 'operatorConfirmedPlatform requires platform="win32"',
+  path: ['operatorConfirmedPlatform'],
+});
+
 export const RemoteNodeBrowserAutomationConfigSchema = z.object({
   enabled: z.boolean(),
   profileDir: z.string().trim().min(1).max(1024).optional(),
@@ -45,9 +58,14 @@ export const RemoteNodeBrowserAutomationConfigSchema = z.object({
   remoteDebuggingPort: z.number().int().min(1).max(65535).optional(),
 });
 
+export const RemoteNodeExtensionRelayConfigSchema = z.object({
+  enabled: z.boolean(),
+});
+
 export const RemoteNodeUpdateBrowserAutomationPayloadSchema = z.object({
   nodeId: z.string().uuid(),
   browserAutomation: RemoteNodeBrowserAutomationConfigSchema,
+  extensionRelay: RemoteNodeExtensionRelayConfigSchema.optional(),
 });
 
 export const RemoteNodeAndroidAutomationConfigSchema = z.object({
@@ -81,3 +99,5 @@ export type ValidatedGetPayload = z.infer<typeof RemoteNodeGetPayloadSchema>;
 export type ValidatedStartServerPayload = z.infer<typeof RemoteNodeStartServerPayloadSchema>;
 export type ValidatedServiceActionPayload = z.infer<typeof RemoteNodeServiceActionPayloadSchema>;
 export type ValidatedProviderDiagnosePayload = z.infer<typeof RemoteNodeProviderDiagnosePayloadSchema>;
+export type ValidatedRepairDiagnosePayload = z.infer<typeof RemoteNodeRepairDiagnosePayloadSchema>;
+export type ValidatedRepairCommandPayload = z.infer<typeof RemoteNodeRepairCommandPayloadSchema>;

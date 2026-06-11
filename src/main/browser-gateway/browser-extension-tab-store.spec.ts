@@ -59,4 +59,53 @@ describe('BrowserExtensionTabStore', () => {
     expect(targetRegistry.listTargets()).toEqual([]);
   });
 
+  it('namespaces remote node tab ids and stores node metadata on targets', () => {
+    const targetRegistry = new BrowserTargetRegistry();
+    const store = new BrowserExtensionTabStore({ targetRegistry, now: () => 1234 });
+
+    const attachment = store.attachTab({
+      tabId: 42,
+      windowId: 7,
+      url: 'https://play.google.com/console',
+      title: 'Google Play Console',
+    }, { nodeId: 'node-1', nodeName: 'Windows PC' });
+
+    expect(attachment).toMatchObject({
+      profileId: 'existing-tab:n.node-1:7:42',
+      targetId: 'existing-tab:n.node-1:7:42:target',
+      nodeId: 'node-1',
+      nodeName: 'Windows PC',
+    });
+    expect(targetRegistry.listTargets('existing-tab:n.node-1:7:42')).toEqual([
+      expect.objectContaining({
+        id: 'existing-tab:n.node-1:7:42:target',
+        nodeId: 'node-1',
+        nodeName: 'Windows PC',
+      }),
+    ]);
+  });
+
+  it('expires all attachments for a disconnected remote node', () => {
+    const targetRegistry = new BrowserTargetRegistry();
+    const store = new BrowserExtensionTabStore({ targetRegistry });
+    store.attachTab({
+      tabId: 42,
+      windowId: 7,
+      url: 'https://play.google.com/console',
+      title: 'Remote',
+    }, { nodeId: 'node-1' });
+    store.attachTab({
+      tabId: 43,
+      windowId: 7,
+      url: 'https://example.com',
+      title: 'Local',
+    });
+
+    store.expireNode('node-1');
+
+    expect(store.listTabs().map((tab) => tab.profileId)).toEqual(['existing-tab:7:43']);
+    expect(targetRegistry.listTargets()).toEqual([
+      expect.objectContaining({ id: 'existing-tab:7:43:target' }),
+    ]);
+  });
 });

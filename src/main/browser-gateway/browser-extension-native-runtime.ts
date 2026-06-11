@@ -14,18 +14,16 @@ export interface BrowserExtensionNativeRuntimeConfig {
   updatedAt: number;
 }
 
+export interface BrowserExtensionNativeHostCommand {
+  exe: string;
+  args?: string[];
+}
+
 export interface BrowserExtensionNativeRuntimeOptions {
   userDataPath: string;
   socketPath: string;
   extensionToken: string;
-  /**
-   * Absolute path to the `aio-mcp` Node SEA binary. The wrapper script
-   * Chrome registers points at `aio-mcp native-host`, which runs the
-   * forwarder inside a vanilla Node SEA (no Electron, no
-   * `ELECTRON_RUN_AS_NODE` dependency, no LSUIElement-less dock-icon
-   * flash on launch).
-   */
-  aioMcpCliPath: string;
+  hostCommand: BrowserExtensionNativeHostCommand;
   chromeNativeMessagingDir?: string;
   now?: () => number;
 }
@@ -33,6 +31,11 @@ export interface BrowserExtensionNativeRuntimeOptions {
 export interface BrowserExtensionNativeRuntimeInstallResult {
   runtimeConfigPath: string;
   wrapperPath: string;
+  manifestPath: string;
+}
+
+export interface BrowserExtensionNativeRuntimeRemoveResult {
+  nativeDir: string;
   manifestPath: string;
 }
 
@@ -61,16 +64,13 @@ export function prepareBrowserExtensionNativeHostRuntime(
   writeNativeHostWrapper({
     wrapperPath,
     runtimeConfigPath,
-    aioMcpCliPath: options.aioMcpCliPath,
+    hostCommand: options.hostCommand,
   });
 
   const chromeNativeMessagingDir =
     options.chromeNativeMessagingDir ?? defaultChromeNativeMessagingDir();
   fs.mkdirSync(chromeNativeMessagingDir, { recursive: true });
-  const manifestPath = path.join(
-    chromeNativeMessagingDir,
-    `${BROWSER_EXTENSION_NATIVE_HOST_NAME}.json`,
-  );
+  const manifestPath = browserExtensionNativeHostManifestPath(chromeNativeMessagingDir);
   fs.writeFileSync(
     manifestPath,
     `${JSON.stringify({
@@ -88,6 +88,32 @@ export function prepareBrowserExtensionNativeHostRuntime(
     wrapperPath,
     manifestPath,
   };
+}
+
+export function removeBrowserExtensionNativeHostRuntime(options: {
+  userDataPath: string;
+  chromeNativeMessagingDir?: string;
+}): BrowserExtensionNativeRuntimeRemoveResult {
+  const nativeDir = path.join(options.userDataPath, 'browser-gateway', 'native-host');
+  const chromeNativeMessagingDir =
+    options.chromeNativeMessagingDir ?? defaultChromeNativeMessagingDir();
+  const manifestPath = browserExtensionNativeHostManifestPath(chromeNativeMessagingDir);
+  try {
+    fs.rmSync(nativeDir, { recursive: true, force: true });
+  } catch {
+    // Best-effort cleanup; a stale wrapper is harmless once the manifest is gone.
+  }
+  try {
+    fs.unlinkSync(manifestPath);
+  } catch {
+    // Already removed.
+  }
+  unregisterWindowsNativeMessagingHost();
+  return { nativeDir, manifestPath };
+}
+
+export function browserExtensionNativeHostManifestPath(chromeNativeMessagingDir = defaultChromeNativeMessagingDir()): string {
+  return path.join(chromeNativeMessagingDir, `${BROWSER_EXTENSION_NATIVE_HOST_NAME}.json`);
 }
 
 function registerWindowsNativeMessagingHost(manifestPath: string): void {
@@ -110,18 +136,38 @@ function registerWindowsNativeMessagingHost(manifestPath: string): void {
   }
 }
 
+function unregisterWindowsNativeMessagingHost(): void {
+  if (process.platform !== 'win32') {
+    return;
+  }
+  try {
+    execFileSync('reg', [
+      'DELETE',
+      `HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${BROWSER_EXTENSION_NATIVE_HOST_NAME}`,
+      '/f',
+    ], { stdio: 'ignore' });
+  } catch {
+    // Best-effort cleanup.
+  }
+}
+
 function writeNativeHostWrapper(options: {
   wrapperPath: string;
   runtimeConfigPath: string;
-  aioMcpCliPath: string;
+  hostCommand: BrowserExtensionNativeHostCommand;
 }): void {
+  const commandArgs = options.hostCommand.args ?? [];
   if (process.platform === 'win32') {
     fs.writeFileSync(
       options.wrapperPath,
       [
         '@echo off',
         `set AI_ORCHESTRATOR_BROWSER_NATIVE_CONFIG=${options.runtimeConfigPath}`,
-        `"${options.aioMcpCliPath}" native-host %*`,
+        [
+          quoteCmd(options.hostCommand.exe),
+          ...commandArgs.map(quoteCmd),
+          '%*',
+        ].join(' '),
         '',
       ].join('\r\n'),
     );
@@ -133,7 +179,12 @@ function writeNativeHostWrapper(options: {
     [
       '#!/bin/sh',
       `AI_ORCHESTRATOR_BROWSER_NATIVE_CONFIG=${quoteSh(options.runtimeConfigPath)} \\`,
-      `exec ${quoteSh(options.aioMcpCliPath)} native-host "$@"`,
+      [
+        'exec',
+        quoteSh(options.hostCommand.exe),
+        ...commandArgs.map(quoteSh),
+        '"$@"',
+      ].join(' '),
       '',
     ].join('\n'),
     { mode: 0o700 },
@@ -174,4 +225,8 @@ function chmodIfSupported(targetPath: string, mode: number): void {
 
 function quoteSh(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function quoteCmd(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
 }

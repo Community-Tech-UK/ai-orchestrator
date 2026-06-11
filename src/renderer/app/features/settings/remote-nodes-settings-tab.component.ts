@@ -32,11 +32,15 @@ import { DangerZoneComponent } from './ui/danger-zone.component';
 import {
   type RegisteredNodeRecord,
   type NodeHealthEntry,
+  buildNodeHealthEntries,
   browserAutomationState,
   browserAutomationLabel,
+  extensionRelayState,
+  extensionRelayLabel,
   androidAutomationState,
   androidAutomationLabel,
   withPatchedBrowserAutomation,
+  withPatchedExtensionRelay,
   withPatchedAndroidAutomation,
   loginCommandPreview,
 } from './remote-nodes-browser-automation';
@@ -44,6 +48,7 @@ import {
   RemoteNodeAndroidConfigComponent,
   type AndroidAutomationConfigDraft,
 } from './remote-node-android-config.component';
+import { RemoteNodeRepairPanelComponent } from './remote-node-repair-panel.component';
 
 @Component({
   standalone: true,
@@ -56,6 +61,7 @@ import {
     CodePreviewBlockComponent,
     DangerZoneComponent,
     RemoteNodeAndroidConfigComponent,
+    RemoteNodeRepairPanelComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './remote-nodes-settings-tab.component.html',
@@ -98,6 +104,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
   protected readonly baDraftEnabled = signal(false);
   protected readonly baDraftProfileDir = signal('');
   protected readonly baDraftHeadless = signal(false);
+  protected readonly baDraftExtensionRelayEnabled = signal(false);
   protected readonly baBusy = signal(false);
   // Per-node Android automation config form (one node configured at a time).
   protected readonly androidConfiguringNodeId = signal<string | null>(null);
@@ -151,49 +158,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
 
   readonly nodeHealthEntries = (): NodeHealthEntry[] => {
     const registeredNodes = this.store.remoteNodesRegisteredNodes() as Record<string, RegisteredNodeRecord>;
-    const liveById = new Map(this.liveNodes().map((node) => [node.id, node]));
-    const ids = new Set<string>([
-      ...Object.keys(registeredNodes),
-      ...liveById.keys(),
-    ]);
-    const rank: Record<WorkerNodeInfo['status'], number> = {
-      connected: 0,
-      degraded: 1,
-      connecting: 2,
-      disconnected: 3,
-    };
-
-    return [...ids]
-      .map((id) => {
-        const registered = registeredNodes[id];
-        const live = liveById.get(id);
-        return {
-          id,
-          name: live?.name ?? registered?.nodeName ?? id,
-          status: live?.status ?? 'disconnected',
-          address: live?.address,
-          createdAt: registered?.issuedAt ?? registered?.createdAt,
-          connectedAt: live?.connectedAt,
-          lastHeartbeat: live?.lastHeartbeat,
-          lastSeenAt: registered?.lastSeenAt,
-          pairingLabel: registered?.pairingLabel,
-          platform: live?.capabilities.platform,
-          supportsBrowser: live?.capabilities.hasBrowserRuntime ?? false,
-          browserAutomationReady: live?.capabilities.hasBrowserMcp ?? false,
-          browserAutomation: live?.capabilities.browserAutomation,
-          androidAutomationReady: live?.capabilities.hasAndroidMcp ?? false,
-          androidAutomation: live?.capabilities.androidAutomation,
-          supportsGpu: Boolean(live?.capabilities.gpuName),
-          supportedClis: live?.capabilities.supportedClis ?? [],
-        };
-      })
-      .sort((left, right) => {
-        const statusDiff = rank[left.status] - rank[right.status];
-        if (statusDiff !== 0) {
-          return statusDiff;
-        }
-        return left.name.localeCompare(right.name);
-      });
+    return buildNodeHealthEntries(registeredNodes, this.liveNodes());
   };
 
   async ngOnInit(): Promise<void> {
@@ -437,6 +402,8 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
 
   protected browserAutomationState = browserAutomationState;
   protected browserAutomationLabel = browserAutomationLabel;
+  protected extensionRelayState = extensionRelayState;
+  protected extensionRelayLabel = extensionRelayLabel;
   protected androidAutomationState = androidAutomationState;
   protected androidAutomationLabel = androidAutomationLabel;
 
@@ -445,6 +412,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     this.baDraftEnabled.set(entry.browserAutomation?.enabled ?? entry.browserAutomationReady);
     this.baDraftProfileDir.set(entry.browserAutomation?.profileDir ?? '');
     this.baDraftHeadless.set(entry.browserAutomation?.headless ?? false);
+    this.baDraftExtensionRelayEnabled.set(entry.extensionRelay?.enabled ?? entry.extensionRelayReady);
   }
 
   protected cancelBrowserConfig(): void { this.configuringNodeId.set(null); }
@@ -530,14 +498,26 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
         enabled: this.baDraftEnabled(),
         headless: this.baDraftHeadless(),
         ...(profileDir ? { profileDir } : {}),
+      }, {
+        enabled: this.baDraftExtensionRelayEnabled(),
       });
       // Apply the authoritative summary the node returned immediately, rather
       // than waiting for the next heartbeat — keeps the badge + login section in
       // sync without a second Configure click.
-      if (summary) {
-        this.liveNodes.update((nodes) => withPatchedBrowserAutomation(nodes, nodeId, summary));
-        this.baDraftProfileDir.set(summary.profileDir);
-        this.baDraftHeadless.set(summary.headless);
+      const browserSummary = summary?.browserAutomation;
+      if (browserSummary) {
+        this.liveNodes.update((nodes) =>
+          withPatchedBrowserAutomation(nodes, nodeId, browserSummary),
+        );
+        this.baDraftProfileDir.set(browserSummary.profileDir);
+        this.baDraftHeadless.set(browserSummary.headless);
+      }
+      const relaySummary = summary?.extensionRelay;
+      if (relaySummary) {
+        this.liveNodes.update((nodes) =>
+          withPatchedExtensionRelay(nodes, nodeId, relaySummary),
+        );
+        this.baDraftExtensionRelayEnabled.set(relaySummary.enabled);
       }
       // Reconcile with the registry in the background (best-effort).
       void this.refreshNodes();

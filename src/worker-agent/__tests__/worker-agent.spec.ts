@@ -80,6 +80,17 @@ vi.mock('../worker-config', () => ({
   DEFAULT_CONFIG_PATH: '/tmp/aio-worker-node-test.json',
   persistConfig: workerConfigMockState.persistConfig,
   defaultBrowserAutomationProfileDir: () => '/tmp/aio-auto-profile',
+  defaultExtensionRelaySocketPath: () => '/tmp/aio-extension-relay.sock',
+  ensureExtensionRelayDefaults: (
+    config: { enabled: boolean; socketPath?: string; extensionToken?: string } | undefined,
+    defaultSocketPath: () => string,
+  ) => config && config.enabled
+    ? {
+        ...config,
+        socketPath: config.socketPath ?? defaultSocketPath(),
+        extensionToken: config.extensionToken ?? 'generated-extension-token',
+      }
+    : config,
 }));
 
 // Mock capability-reporter
@@ -94,6 +105,7 @@ vi.mock('../capability-reporter', () => ({
     supportedClis: ['claude', 'codex'],
     hasBrowserRuntime: true,
     hasBrowserMcp: false,
+    hasExtensionRelay: false,
     hasDocker: true,
     maxConcurrentInstances: 10,
     workingDirectories: [],
@@ -230,6 +242,21 @@ describe('WorkerAgent', () => {
     expect(socket.options).toMatchObject({
       maxPayload: 80 * 1024 * 1024,
     });
+  });
+
+  it('continues connecting when the extension relay cannot start', async () => {
+    const config: WorkerConfig = {
+      ...mockConfig,
+      extensionRelay: { enabled: true },
+    };
+    agent = new WorkerAgent(config);
+
+    const connect = agent.connect();
+    const socket = await waitForSocket();
+    socket.emit('open');
+    await connect;
+
+    expect(socket.send).toHaveBeenCalled();
   });
 
   it('fails over to a fallback URL when the primary coordinator is unreachable', async () => {
@@ -412,6 +439,57 @@ describe('WorkerAgent', () => {
         recoveryToken: 'fresh-recovery-token',
       }),
     );
+  });
+
+  it('rejects outbound coordinator requests before registration is accepted', async () => {
+    await expect(
+      agent.sendRequest('browser.ext.pollCommand', { timeoutMs: 100 }),
+    ).rejects.toThrow('worker_not_registered');
+  });
+
+  it('sends outbound coordinator requests with the accepted session token', async () => {
+    const config: WorkerConfig = { ...mockConfig };
+    agent = new WorkerAgent(config);
+    (agent as unknown as {
+      ws: { readyState: number; bufferedAmount: number; send: typeof wsSend; close: ReturnType<typeof vi.fn> };
+    }).ws = {
+      readyState: 1,
+      bufferedAmount: 0,
+      send: wsSend,
+      close: vi.fn(),
+    };
+    const registration = (agent as unknown as {
+      buildRegistrationMessage: () => { id: string };
+    }).buildRegistrationMessage();
+    (agent as unknown as { handleMessage: (raw: string) => void }).handleMessage(JSON.stringify({
+      jsonrpc: '2.0',
+      id: registration.id,
+      result: {
+        nodeId: 'test-node-1',
+        token: 'accepted-node-token',
+      },
+    }));
+    wsSend.mockClear();
+
+    const pending = agent.sendRequest('browser.ext.pollCommand', { timeoutMs: 250 });
+    const outbound = JSON.parse(wsSend.mock.calls[0][0] as string) as {
+      id: string;
+      method: string;
+      params: { token: string; timeoutMs: number };
+    };
+    expect(outbound.method).toBe('browser.ext.pollCommand');
+    expect(outbound.params).toEqual({
+      timeoutMs: 250,
+      token: 'accepted-node-token',
+    });
+
+    (agent as unknown as { handleMessage: (raw: string) => void }).handleMessage(JSON.stringify({
+      jsonrpc: '2.0',
+      id: outbound.id,
+      result: { ok: true },
+    }));
+
+    await expect(pending).resolves.toEqual({ ok: true });
   });
 
   it('persists runtime config updates to the active config path', async () => {

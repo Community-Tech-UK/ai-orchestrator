@@ -26,6 +26,8 @@ describe('COMMUNICATION_CHANNELS', () => {
     expect(COMMUNICATION_CHANNELS.REMOTE_NODE_NODES_CHANGED).toBe('remote-node:nodes-changed');
     expect(COMMUNICATION_CHANNELS.REMOTE_NODE_ISSUE_PAIRING).toBe('remote-node:issue-pairing');
     expect(COMMUNICATION_CHANNELS.REMOTE_NODE_LIST_PAIRINGS).toBe('remote-node:list-pairings');
+    expect(COMMUNICATION_CHANNELS.REMOTE_NODE_REPAIR_DIAGNOSE).toBe('remote-node:repair:diagnose');
+    expect(COMMUNICATION_CHANNELS.REMOTE_NODE_REPAIR_COMMAND).toBe('remote-node:repair:command');
     expect(COMMUNICATION_CHANNELS.REMOTE_NODE_PROVIDER_DIAGNOSE).toBe('remote-node:provider:diagnose');
     expect(COMMUNICATION_CHANNELS.REMOTE_NODE_UPDATE_ANDROID_AUTOMATION).toBe('remote-node:update-android-automation');
   });

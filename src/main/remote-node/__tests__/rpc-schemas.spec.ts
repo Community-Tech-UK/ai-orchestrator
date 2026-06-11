@@ -13,6 +13,10 @@ import {
   AuxiliaryModelListParamsSchema,
   AuxiliaryModelGenerateParamsSchema,
   ConfigUpdateParamsSchema,
+  BrowserExtAttachTabParamsSchema,
+  BrowserExtPollCommandParamsSchema,
+  BrowserExtCommandResultParamsSchema,
+  RPC_PARAM_SCHEMAS,
   COORDINATOR_TO_NODE_PARAM_SCHEMAS,
   validateRpcParams,
 } from '../rpc-schemas';
@@ -176,6 +180,33 @@ describe('rpc-schemas', () => {
 
     it('registers provider.diagnose in the coordinator->node schema map', () => {
       expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['provider.diagnose']).toBe(ProviderDiagnoseParamsSchema);
+    });
+  });
+
+  describe('remote browser extension relay schemas', () => {
+    it('registers node-to-coordinator browser extension relay methods', () => {
+      expect(RPC_PARAM_SCHEMAS['browser.ext.attachTab']).toBe(BrowserExtAttachTabParamsSchema);
+      expect(RPC_PARAM_SCHEMAS['browser.ext.pollCommand']).toBe(BrowserExtPollCommandParamsSchema);
+      expect(RPC_PARAM_SCHEMAS['browser.ext.commandResult']).toBe(BrowserExtCommandResultParamsSchema);
+    });
+
+    it('accepts bounded attach-tab payloads and rejects oversized poll waits', () => {
+      expect(BrowserExtAttachTabParamsSchema.safeParse({
+        token: 'session-token',
+        extensionOrigin: 'chrome-extension://id/',
+        payload: {
+          tabId: 42,
+          windowId: 7,
+          url: 'https://play.google.com/console',
+          title: 'Play Console',
+          text: 'dashboard',
+        },
+      }).success).toBe(true);
+
+      expect(BrowserExtPollCommandParamsSchema.safeParse({
+        token: 'session-token',
+        timeoutMs: 10_001,
+      }).success).toBe(false);
     });
   });
 

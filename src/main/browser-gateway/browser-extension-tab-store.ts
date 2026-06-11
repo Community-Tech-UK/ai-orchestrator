@@ -14,6 +14,8 @@ export interface BrowserExistingTabAttachment {
   targetId: string;
   tabId: number;
   windowId: number;
+  nodeId?: string;
+  nodeName?: string;
   title?: string;
   url: string;
   origin: string;
@@ -29,6 +31,11 @@ export interface BrowserExistingTabAttachment {
 export interface BrowserExtensionTabStoreOptions {
   targetRegistry?: BrowserTargetRegistry;
   now?: () => number;
+}
+
+export interface BrowserExtensionTabAttachOptions {
+  nodeId?: string;
+  nodeName?: string;
 }
 
 export class BrowserExtensionTabStore {
@@ -53,7 +60,10 @@ export class BrowserExtensionTabStore {
     this.instance = null;
   }
 
-  attachTab(input: BrowserAttachExistingTabRequest): BrowserExistingTabAttachment {
+  attachTab(
+    input: BrowserAttachExistingTabRequest,
+    options: BrowserExtensionTabAttachOptions = {},
+  ): BrowserExistingTabAttachment {
     const parsed = this.parseWebUrl(input.url);
     const allowedOrigins = input.allowedOrigins ?? [this.exactAllowedOrigin(parsed)];
     const originDecision = isOriginAllowed(input.url, allowedOrigins);
@@ -61,7 +71,7 @@ export class BrowserExtensionTabStore {
       throw new Error(`existing_tab_origin_not_allowed:${originDecision.reason}`);
     }
 
-    const profileId = this.profileIdFor(input.windowId, input.tabId);
+    const profileId = makeExistingTabProfileId(options.nodeId, input.windowId, input.tabId);
     const targetId = this.targetIdFor(profileId);
     const current = this.attachments.get(targetId);
     const now = this.now();
@@ -70,6 +80,8 @@ export class BrowserExtensionTabStore {
       targetId,
       tabId: input.tabId,
       windowId: input.windowId,
+      ...(options.nodeId ? { nodeId: options.nodeId } : {}),
+      ...(options.nodeName ? { nodeName: options.nodeName } : {}),
       title: input.title,
       url: input.url,
       origin: parsed.origin,
@@ -105,6 +117,15 @@ export class BrowserExtensionTabStore {
     return Array.from(this.attachments.values());
   }
 
+  expireNode(nodeId: string): void {
+    for (const [targetId, attachment] of this.attachments.entries()) {
+      if (attachment.nodeId === nodeId) {
+        this.attachments.delete(targetId);
+      }
+    }
+    this.targetRegistry.removeByNodeId(nodeId);
+  }
+
   private toTarget(attachment: BrowserExistingTabAttachment): BrowserTarget {
     return {
       id: attachment.targetId,
@@ -112,6 +133,8 @@ export class BrowserExtensionTabStore {
       pageId: String(attachment.tabId),
       driverTargetId: `chrome-tab:${attachment.windowId}:${attachment.tabId}`,
       mode: 'existing-tab',
+      ...(attachment.nodeId ? { nodeId: attachment.nodeId } : {}),
+      ...(attachment.nodeName ? { nodeName: attachment.nodeName } : {}),
       title: attachment.title,
       url: attachment.url,
       origin: attachment.origin,
@@ -143,10 +166,6 @@ export class BrowserExtensionTabStore {
     };
   }
 
-  private profileIdFor(windowId: number, tabId: number): string {
-    return `existing-tab:${windowId}:${tabId}`;
-  }
-
   private targetIdFor(profileId: string): string {
     return `${profileId}:target`;
   }
@@ -161,4 +180,15 @@ export class BrowserExtensionTabStore {
 
 export function getBrowserExtensionTabStore(): BrowserExtensionTabStore {
   return BrowserExtensionTabStore.getInstance();
+}
+
+export function makeExistingTabProfileId(
+  nodeId: string | null | undefined,
+  windowId: number,
+  tabId: number,
+): string {
+  if (!nodeId) {
+    return `existing-tab:${windowId}:${tabId}`;
+  }
+  return `existing-tab:n.${nodeId}:${windowId}:${tabId}`;
 }

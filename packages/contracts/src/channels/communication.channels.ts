@@ -59,6 +59,8 @@ export const COMMUNICATION_CHANNELS = {
   REMOTE_NODE_REVOKE_PAIRING: 'remote-node:revoke-pairing',
   REMOTE_NODE_REVOKE: 'remote-node:revoke',
   REMOTE_NODE_GET_SERVER_STATUS: 'remote-node:get-server-status',
+  REMOTE_NODE_REPAIR_DIAGNOSE: 'remote-node:repair:diagnose',
+  REMOTE_NODE_REPAIR_COMMAND: 'remote-node:repair:command',
   REMOTE_NODE_PROVIDER_DIAGNOSE: 'remote-node:provider:diagnose',
   REMOTE_NODE_SERVICE_STATUS: 'remote-node:service:status',
   REMOTE_NODE_SERVICE_RESTART: 'remote-node:service:restart',

@@ -1,9 +1,15 @@
 import { WorkerAgent } from './worker-agent';
 import { DEFAULT_CONFIG_PATH, loadWorkerConfig, resolveConfigPath } from './worker-config';
 import { parseServiceArgs, runServiceCommand } from './cli/service-cli';
+import { runBrowserExtensionNativeHost } from '../main/browser-gateway/browser-extension-native-host';
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
+  if (argv[0] === 'native-host') {
+    await runBrowserExtensionNativeHost();
+    return;
+  }
+
   const cmd = parseServiceArgs(argv);
 
   if (cmd && cmd.kind !== 'run') {

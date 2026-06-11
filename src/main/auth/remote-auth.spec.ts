@@ -183,4 +183,110 @@ describe('RemoteAuthService', () => {
       reason: 'Session token belongs to node "node-1"',
     });
   });
+
+  it('keeps repair credentials out of ordinary pending-pairing lists', () => {
+    const service = new RemoteAuthService();
+    const quickPairing = service.issuePairingCredential({ label: 'Laptop' });
+    const repair = service.issuePairingCredential({
+      label: 'Repair windows-pc',
+      purpose: 'repair',
+      allowedNodeId: 'node-1',
+    });
+
+    expect(service.listPendingPairings()).toEqual([
+      expect.objectContaining({ token: quickPairing.token, label: 'Laptop' }),
+    ]);
+    expect(service.listPendingPairings()).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ token: repair.token }),
+      ]),
+    );
+    expect(repair).not.toHaveProperty('purpose');
+    expect(repair).not.toHaveProperty('allowedNodeId');
+  });
+
+  it('rejects a scoped repair credential for the wrong node without consuming it', () => {
+    const service = new RemoteAuthService();
+    const repair = service.issuePairingCredential({
+      label: 'Repair windows-pc',
+      purpose: 'repair',
+      allowedNodeId: 'node-1',
+    });
+
+    expect(service.authenticateRegistration({
+      nodeId: 'node-2',
+      nodeName: 'Wrong worker',
+      token: repair.token,
+    })).toEqual({
+      status: 'rejected',
+      reason: 'Repair credential is scoped to another node',
+    });
+
+    const accepted = service.authenticateRegistration({
+      nodeId: 'node-1',
+      nodeName: 'Windows PC',
+      token: repair.token,
+      platform: 'win32',
+    });
+
+    expect(accepted.status).toBe('paired');
+    const persisted = JSON.parse(settings.get('remoteNodesRegisteredNodes') as string) as Record<
+      string,
+      { platform?: string; platformSeenAt?: number }
+    >;
+    expect(persisted['node-1']).toEqual(expect.objectContaining({
+      platform: 'win32',
+      platformSeenAt: expect.any(Number),
+    }));
+  });
+
+  it('persists trusted platform snapshots from successful registrations only', () => {
+    const service = new RemoteAuthService();
+    const pairing = service.issuePairingCredential({ label: 'trusted-platform' });
+
+    const result = service.authenticateRegistration({
+      nodeId: 'node-1',
+      nodeName: 'Worker',
+      token: pairing.token,
+      platform: 'linux',
+    });
+
+    expect(result.status).toBe('paired');
+    let persisted = JSON.parse(settings.get('remoteNodesRegisteredNodes') as string) as Record<
+      string,
+      { lastSeenAt: number; platform?: string; platformSeenAt?: number }
+    >;
+    expect(persisted['node-1'].platform).toBe('linux');
+    expect(persisted['node-1'].platformSeenAt).toBe(persisted['node-1'].lastSeenAt);
+    const firstPlatformSeenAt = persisted['node-1'].platformSeenAt;
+
+    service.authenticateRegistration({
+      nodeId: 'node-1',
+      nodeName: 'Worker',
+      token: 'bad-token',
+      platform: 'win32',
+    });
+
+    persisted = JSON.parse(settings.get('remoteNodesRegisteredNodes') as string) as Record<
+      string,
+      { lastSeenAt: number; platform?: string; platformSeenAt?: number }
+    >;
+    expect(persisted['node-1'].platform).toBe('linux');
+    expect(persisted['node-1'].platformSeenAt).toBe(firstPlatformSeenAt);
+
+    const reRegistered = service.authenticateRegistration({
+      nodeId: 'node-1',
+      nodeName: 'Worker',
+      token: result.status === 'rejected' ? '' : result.session.token,
+      platform: 'darwin',
+    });
+
+    expect(reRegistered.status).toBe('registered');
+    persisted = JSON.parse(settings.get('remoteNodesRegisteredNodes') as string) as Record<
+      string,
+      { lastSeenAt: number; platform?: string; platformSeenAt?: number }
+    >;
+    expect(persisted['node-1'].platform).toBe('darwin');
+    expect(persisted['node-1'].platformSeenAt).toBe(persisted['node-1'].lastSeenAt);
+  });
 });

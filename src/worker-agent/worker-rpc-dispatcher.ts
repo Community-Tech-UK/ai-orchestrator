@@ -30,6 +30,7 @@ import {
 import type {
   WorkerNodeAndroidAutomationSummary,
   WorkerNodeBrowserAutomationSummary,
+  WorkerNodeExtensionRelaySummary,
 } from '../shared/types/worker-node.types';
 import {
   FsRpcError,
@@ -49,6 +50,7 @@ import type {
   WorkerAndroidAutomationConfig,
   WorkerBrowserAutomationConfig,
   WorkerConfig,
+  WorkerExtensionRelayConfig,
 } from './worker-config';
 import type { WorkerCdpTunnel } from './worker-cdp-tunnel';
 import {
@@ -70,9 +72,11 @@ interface WorkerRpcDispatcherDeps {
   applyConfigUpdate: (update: {
     browserAutomation?: WorkerBrowserAutomationConfig;
     androidAutomation?: WorkerAndroidAutomationConfig;
+    extensionRelay?: WorkerExtensionRelayConfig;
   }) => Promise<{
     browserAutomation?: WorkerNodeBrowserAutomationSummary;
     androidAutomation?: WorkerNodeAndroidAutomationSummary;
+    extensionRelay?: WorkerNodeExtensionRelaySummary;
   }>;
   getCdpTunnel: () => WorkerCdpTunnel;
   stopManagedBrowser: () => Promise<void>;
@@ -335,6 +339,7 @@ export class WorkerRpcDispatcher {
           const summary = await this.deps.applyConfigUpdate({
             browserAutomation: validated.browserAutomation,
             androidAutomation: validated.androidAutomation,
+            extensionRelay: validated.extensionRelay,
           });
           result = summary;
           break;

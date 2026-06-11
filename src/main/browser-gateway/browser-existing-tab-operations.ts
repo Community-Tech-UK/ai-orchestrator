@@ -9,6 +9,7 @@ import type {
   BrowserExtensionCommandName,
   BrowserExtensionCommandStore,
 } from './browser-extension-command-store';
+import { browserExtensionQueueKeyForNode } from './browser-extension-command-store';
 import type { BrowserExtensionTabStore } from './browser-extension-tab-store';
 import type { BrowserGrantStore } from './browser-grant-store';
 import type { BrowserApprovalStore } from './browser-approval-store';
@@ -203,6 +204,7 @@ export class BrowserExistingTabOperations {
     timeoutMs = 30_000,
   ): Promise<unknown> {
     return this.deps.extensionCommandStore.sendCommand({
+      ...(attachment.nodeId ? { queueKey: browserExtensionQueueKeyForNode(attachment.nodeId) } : {}),
       command,
       target: {
         profileId: attachment.profileId,

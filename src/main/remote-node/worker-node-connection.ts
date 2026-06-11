@@ -16,10 +16,11 @@ import {
 import type { RpcRequest, RpcResponse, RpcNotification, RpcScope } from './worker-node-rpc';
 import { getRemoteNodeConfig } from './remote-node-config';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
-import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
+import type { NodePlatform, WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import { getWorkerNodeRegistry } from './worker-node-registry';
 import { getRemoteAuthService } from '../auth/remote-auth';
 import { WORKER_NODE_WS_MAX_PAYLOAD_BYTES } from './rpc-schemas';
+import { getRemoteWorkerRepairTracker } from './remote-worker-repair-tracker';
 
 const logger = getLogger('WorkerNodeConnection');
 
@@ -45,6 +46,17 @@ const WORK_DISPATCH_METHODS = new Set<string>([
   COORDINATOR_TO_NODE.AUXILIARY_MODEL_LIST,
   COORDINATOR_TO_NODE.TERMINAL_CREATE,
 ]);
+
+function trustedPlatformFromParams(params: Record<string, unknown> | undefined): NodePlatform | undefined {
+  const capabilities = params?.['capabilities'];
+  if (!capabilities || typeof capabilities !== 'object') {
+    return undefined;
+  }
+  const platform = (capabilities as Record<string, unknown>)['platform'];
+  return platform === 'darwin' || platform === 'win32' || platform === 'linux'
+    ? platform
+    : undefined;
+}
 
 /**
  * Extract only safe, non-sensitive scalar fields from RPC params for logging.
@@ -493,13 +505,21 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     const token = typeof params?.['token'] === 'string' ? params['token'] : undefined;
     const recoveryToken = typeof params?.['recoveryToken'] === 'string' ? params['recoveryToken'] : undefined;
     const name = typeof params?.['name'] === 'string' ? params['name'] : newNodeId;
+    const platform = trustedPlatformFromParams(params);
     const auth = getRemoteAuthService().authenticateRegistration({
       nodeId: newNodeId,
       nodeName: name,
       token,
       recoveryToken,
+      platform,
     });
     if (auth.status === 'rejected') {
+      getRemoteWorkerRepairTracker().recordRejectedRegistration({
+        nodeId: newNodeId,
+        nodeName: name,
+        platformHint: platform,
+        reason: auth.reason,
+      });
       const errorResponse = createRpcError(
         msg.id,
         RPC_ERROR_CODES.UNAUTHORIZED,
@@ -510,6 +530,8 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       logger.warn('Node registration rejected', { nodeId: newNodeId, reason: auth.reason });
       return;
     }
+
+    getRemoteWorkerRepairTracker().clear(newNodeId);
 
     // Replace any existing socket for this nodeId
     const existing = this.nodeToSocket.get(newNodeId);

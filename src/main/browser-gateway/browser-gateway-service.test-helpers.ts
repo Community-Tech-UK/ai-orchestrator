@@ -79,6 +79,8 @@ export function makeService(overrides: {
     targetId: string;
     tabId?: number;
     windowId?: number;
+    nodeId?: string;
+    nodeName?: string;
     title: string;
     url: string;
     origin: string;
@@ -205,11 +207,13 @@ export function makeService(overrides: {
     setRuntimeState: vi.fn((_profileId: string, patch) => ({ ...(profile ?? makeProfile()), ...patch })),
   };
   const extensionTabStore = {
-    attachTab: vi.fn((input) => ({
+    attachTab: vi.fn((input, options?: { nodeId?: string; nodeName?: string }) => ({
       profileId: `existing-tab:${input.windowId}:${input.tabId}`,
       targetId: `existing-tab:${input.windowId}:${input.tabId}:target`,
       tabId: input.tabId,
       windowId: input.windowId,
+      ...(options?.nodeId ? { nodeId: options.nodeId } : {}),
+      ...(options?.nodeName ? { nodeName: options.nodeName } : {}),
       title: input.title,
       url: input.url,
       origin: new URL(input.url).origin,
@@ -282,6 +286,11 @@ export function makeService(overrides: {
         },
         mcpBridge: {
           available: true,
+        },
+        remoteExtensions: {
+          total: 0,
+          ready: 0,
+          nodes: [],
         },
         providerCapabilities: {
           claude: 'available_via_mcp',

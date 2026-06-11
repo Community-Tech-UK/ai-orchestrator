@@ -95,7 +95,10 @@ export async function initializeBrowserGatewayRuntime(
         userDataPath: options.userDataPath ?? app.getPath('userData'),
         socketPath,
         extensionToken: server.getExtensionToken(),
-        aioMcpCliPath,
+        hostCommand: {
+          exe: aioMcpCliPath,
+          args: ['native-host'],
+        },
       });
     }
   }

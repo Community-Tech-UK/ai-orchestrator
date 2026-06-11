@@ -140,6 +140,8 @@ export const BrowserTargetSchema = z
     pageId: idSchema.optional(),
     driverTargetId: idSchema.optional(),
     mode: BrowserTargetModeSchema,
+    nodeId: idSchema.optional(),
+    nodeName: z.string().min(1).max(120).optional(),
     title: z.string().min(1).max(500).optional(),
     url: optionalUrlSchema,
     origin: z.string().min(1).max(2000).optional(),
@@ -386,6 +388,7 @@ export type BrowserProfileRequest = z.infer<typeof BrowserProfileRequestSchema>;
 export const BrowserListTargetsRequestSchema = z
   .object({
     profileId: idSchema.optional(),
+    nodeId: idSchema.optional(),
   })
   .strict();
 export type BrowserListTargetsRequest = z.infer<
@@ -396,6 +399,7 @@ export const BrowserFindOrOpenRequestSchema = z
   .object({
     url: webUrlSchema.optional(),
     titleHint: z.string().min(1).max(500).optional(),
+    nodeId: idSchema.optional(),
   })
   .strict();
 export type BrowserFindOrOpenRequest = z.infer<

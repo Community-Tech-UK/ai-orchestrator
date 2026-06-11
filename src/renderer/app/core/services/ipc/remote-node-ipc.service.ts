@@ -3,9 +3,12 @@ import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService } from './electron-ipc.service';
 import type {
   RemotePairingCredentialInfo,
+  RemoteWorkerRepairCommand,
+  RemoteWorkerRepairDiagnostic,
   WorkerNodeInfo,
   WorkerNodeBrowserAutomationSummary,
   WorkerNodeAndroidAutomationSummary,
+  WorkerNodeExtensionRelaySummary,
 } from '../../../../../shared/types/worker-node.types';
 import type { ServiceStatus } from '../../../../../shared/types/service.types';
 import type { CanonicalCliType } from '../../../../../shared/types/settings.types';
@@ -23,6 +26,15 @@ export interface BrowserAutomationConfigInput {
   headless?: boolean;
   chromePath?: string;
   remoteDebuggingPort?: number;
+}
+
+export interface ExtensionRelayConfigInput {
+  enabled: boolean;
+}
+
+export interface BrowserAutomationUpdateResult {
+  browserAutomation?: WorkerNodeBrowserAutomationSummary;
+  extensionRelay?: WorkerNodeExtensionRelaySummary;
 }
 
 export interface AndroidAutomationConfigInput {
@@ -204,6 +216,25 @@ export class RemoteNodeIpcService {
     return (result.data ?? null) as ServiceStatus | null;
   }
 
+  async diagnoseRepair(nodeId: string): Promise<RemoteWorkerRepairDiagnostic | null> {
+    if (!this.api) return null;
+    const result = await this.api.remoteNodeRepairDiagnose(nodeId) as IpcResult | null;
+    if (!result?.success) return null;
+    return (result.data ?? null) as RemoteWorkerRepairDiagnostic | null;
+  }
+
+  async generateRepairCommand(
+    nodeId: string,
+    options?: { platform?: 'win32'; operatorConfirmedPlatform?: boolean },
+  ): Promise<RemoteWorkerRepairCommand | null> {
+    if (!this.api) return null;
+    const result = await this.api.remoteNodeRepairCommand(nodeId, options) as IpcResult | null;
+    if (!result?.success) {
+      throw new Error(result?.error?.message ?? 'Failed to generate repair command');
+    }
+    return (result.data ?? null) as RemoteWorkerRepairCommand | null;
+  }
+
   async diagnoseProvider(
     nodeId: string,
     provider: RemoteNodeDiagnosableProvider,
@@ -245,17 +276,18 @@ export class RemoteNodeIpcService {
   async updateBrowserAutomation(
     nodeId: string,
     browserAutomation: BrowserAutomationConfigInput,
-  ): Promise<WorkerNodeBrowserAutomationSummary | null> {
+    extensionRelay?: ExtensionRelayConfigInput,
+  ): Promise<BrowserAutomationUpdateResult | null> {
     if (!this.api) return null;
     const result = await this.api.remoteNodeUpdateBrowserAutomation(
       nodeId,
       browserAutomation,
+      extensionRelay,
     ) as IpcResult | null;
     if (!result?.success) {
       throw new Error(result?.error?.message ?? 'Failed to update browser automation');
     }
-    const data = result.data as { browserAutomation?: WorkerNodeBrowserAutomationSummary } | undefined;
-    return data?.browserAutomation ?? null;
+    return (result.data ?? null) as BrowserAutomationUpdateResult | null;
   }
 
   /**

@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   browserAutomationState,
   browserAutomationLabel,
+  extensionRelayState,
+  extensionRelayLabel,
+  withPatchedExtensionRelay,
   androidAutomationState,
   androidAutomationLabel,
   loginCommandPreview,
@@ -15,6 +18,7 @@ function entry(over: Partial<NodeHealthEntry> = {}): NodeHealthEntry {
     status: 'connected',
     supportsBrowser: false,
     browserAutomationReady: false,
+    extensionRelayReady: false,
     androidAutomationReady: false,
     supportsGpu: false,
     supportedClis: [],
@@ -66,6 +70,66 @@ describe('browserAutomationState', () => {
         }),
       ),
     ).toMatch(/starts on first use/);
+  });
+});
+
+describe('extensionRelayState', () => {
+  it('is off when the relay has not been enabled', () => {
+    expect(extensionRelayState(entry())).toBe('off');
+    expect(extensionRelayLabel(entry())).toMatch(/off/);
+  });
+
+  it('is enabled when configured but not currently running', () => {
+    const node = entry({
+      extensionRelay: { enabled: true, running: false, socketPath: '/tmp/relay.sock' },
+    });
+
+    expect(extensionRelayState(node)).toBe('enabled');
+    expect(extensionRelayLabel(node)).toMatch(/enabled/);
+  });
+
+  it('is ready when the worker reports the relay capability', () => {
+    const node = entry({
+      extensionRelayReady: true,
+      extensionRelay: { enabled: true, running: true, socketPath: '/tmp/relay.sock' },
+    });
+
+    expect(extensionRelayState(node)).toBe('ready');
+  });
+
+  it('patches live node capabilities from an authoritative summary', () => {
+    const nodes = [{
+      id: 'n1',
+      name: 'windows-pc',
+      address: '',
+      capabilities: {
+        platform: 'win32' as const,
+        arch: 'x64',
+        cpuCores: 8,
+        totalMemoryMB: 16_384,
+        availableMemoryMB: 8_192,
+        supportedClis: [],
+        hasBrowserRuntime: true,
+        hasBrowserMcp: false,
+        hasAndroidMcp: false,
+        hasDocker: false,
+        maxConcurrentInstances: 4,
+        workingDirectories: [],
+        browsableRoots: [],
+        discoveredProjects: [],
+      },
+      status: 'connected' as const,
+      activeInstances: 0,
+    }];
+
+    const patched = withPatchedExtensionRelay(nodes, 'n1', {
+      enabled: true,
+      running: true,
+      socketPath: '/tmp/relay.sock',
+    });
+
+    expect(patched[0].capabilities.hasExtensionRelay).toBe(true);
+    expect(patched[0].capabilities.extensionRelay?.socketPath).toBe('/tmp/relay.sock');
   });
 });
 

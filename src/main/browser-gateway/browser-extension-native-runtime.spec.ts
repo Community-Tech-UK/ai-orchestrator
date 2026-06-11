@@ -11,14 +11,14 @@ import {
 const AIO_MCP = '/Applications/AI Orchestrator.app/Contents/Resources/aio-mcp-cli/aio-mcp';
 
 describe('browser extension native runtime', () => {
-  it('writes runtime config + Chrome native-messaging manifest pointing at the aio-mcp SEA wrapper', () => {
+  it('writes runtime config + Chrome native-messaging manifest pointing at the configured native-host command', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'browser-native-runtime-'));
     try {
       const result = prepareBrowserExtensionNativeHostRuntime({
         userDataPath: tempDir,
         socketPath: path.join(tempDir, 'browser.sock'),
         extensionToken: 'native-token',
-        aioMcpCliPath: AIO_MCP,
+        hostCommand: { exe: AIO_MCP, args: ['native-host'] },
         chromeNativeMessagingDir: path.join(tempDir, 'Chrome', 'NativeMessagingHosts'),
         now: () => 1234,
       });
@@ -31,8 +31,8 @@ describe('browser extension native runtime', () => {
       expect(fs.statSync(result.wrapperPath).mode & 0o111).not.toBe(0);
 
       const wrapper = fs.readFileSync(result.wrapperPath, 'utf-8');
-      // The wrapper should invoke the aio-mcp SEA with the native-host
-      // subcommand — no ELECTRON_RUN_AS_NODE indirection any more.
+      // The wrapper should invoke the configured host command — no
+      // ELECTRON_RUN_AS_NODE indirection any more.
       expect(wrapper).toContain(AIO_MCP);
       expect(wrapper).toContain('native-host');
       expect(wrapper).not.toContain('ELECTRON_RUN_AS_NODE');

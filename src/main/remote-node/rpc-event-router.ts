@@ -7,12 +7,17 @@ import type { WorkerNodeRegistry } from './worker-node-registry';
 import type { RpcRequest, RpcNotification } from './worker-node-rpc';
 import type { WorkerNodeCapabilities } from '../../shared/types/worker-node.types';
 import { getRemoteAuthService } from '../auth/remote-auth';
+import {
+  getRemoteBrowserExtensionBridge,
+  type RemoteBrowserExtensionBridge,
+} from '../browser-gateway/remote-extension-bridge';
 
 const logger = getLogger('RpcEventRouter');
 
 export class RpcEventRouter {
   private readonly connection: WorkerNodeConnectionServer;
   private readonly registry: WorkerNodeRegistry;
+  private readonly browserExtensionBridge?: RemoteBrowserExtensionBridge;
 
   // Bound handler references so stop() can cleanly remove them
   private readonly onWsConnected: (nodeId: string) => void;
@@ -43,13 +48,20 @@ export class RpcEventRouter {
    */
   private readonly lastSeenSeq = new Map<string, number>();
 
-  constructor(connection: WorkerNodeConnectionServer, registry: WorkerNodeRegistry) {
+  constructor(
+    connection: WorkerNodeConnectionServer,
+    registry: WorkerNodeRegistry,
+    browserExtensionBridge?: RemoteBrowserExtensionBridge,
+  ) {
     this.connection = connection;
     this.registry = registry;
+    this.browserExtensionBridge = browserExtensionBridge;
 
     this.onWsConnected = this.handleWsConnected.bind(this);
     this.onWsDisconnected = this.handleWsDisconnected.bind(this);
-    this.onRpcRequest = this.handleRpcRequest.bind(this);
+    this.onRpcRequest = (nodeId, request) => {
+      void this.handleRpcRequest(nodeId, request);
+    };
     this.onRpcNotification = this.handleRpcNotification.bind(this);
   }
 
@@ -78,6 +90,7 @@ export class RpcEventRouter {
   private handleWsDisconnected(nodeId: string): void {
     getWorkerNodeHealth().stopMonitoring(nodeId);
     this.lastSeenSeq.delete(nodeId);
+    this.getBrowserExtensionBridge().expireNode(nodeId);
     if (this.registry.getNode(nodeId)) {
       this.registry.deregisterNode(nodeId);
     }
@@ -106,7 +119,7 @@ export class RpcEventRouter {
   // RPC request dispatcher
   // ---------------------------------------------------------------------------
 
-  private handleRpcRequest(nodeId: string, request: RpcRequest): void {
+  private async handleRpcRequest(nodeId: string, request: RpcRequest): Promise<void> {
     // node.register is authenticated during the initial WebSocket handshake.
     const params = request.params as Record<string, unknown> | undefined;
     const token = typeof params?.['token'] === 'string' ? params['token'] : undefined;
@@ -149,6 +162,15 @@ export class RpcEventRouter {
           break;
         case NODE_TO_COORDINATOR.INSTANCE_PERMISSION_REQUEST:
           this.handleInstancePermissionRequest(nodeId, request);
+          break;
+        case NODE_TO_COORDINATOR.BROWSER_EXT_ATTACH_TAB:
+          await this.handleBrowserExtAttachTab(nodeId, request);
+          break;
+        case NODE_TO_COORDINATOR.BROWSER_EXT_POLL_COMMAND:
+          await this.handleBrowserExtPollCommand(nodeId, request);
+          break;
+        case NODE_TO_COORDINATOR.BROWSER_EXT_COMMAND_RESULT:
+          this.handleBrowserExtCommandResult(nodeId, request);
           break;
         default:
           logger.warn('Unknown RPC method received', { nodeId, method: request.method });
@@ -199,6 +221,7 @@ export class RpcEventRouter {
           return;
         }
         this.registry.updateHeartbeat(nodeId, hbParams?.['capabilities'] as WorkerNodeCapabilities);
+        this.recordTrustedPlatformFromCapabilities(nodeId, hbParams?.['capabilities'] as WorkerNodeCapabilities | undefined);
         this.registry.updateNodeMetrics(nodeId, {
           activeInstances: typeof hbParams?.['activeInstances'] === 'number'
             ? hbParams['activeInstances']
@@ -287,6 +310,7 @@ export class RpcEventRouter {
     const params = request.params as Record<string, unknown> | undefined;
     const capabilities = params?.['capabilities'] as WorkerNodeCapabilities;
     this.registry.updateHeartbeat(nodeId, capabilities);
+    this.recordTrustedPlatformFromCapabilities(nodeId, capabilities);
     this.registry.updateNodeMetrics(nodeId, {
       activeInstances: typeof params?.['activeInstances'] === 'number'
         ? params['activeInstances']
@@ -488,4 +512,54 @@ export class RpcEventRouter {
     this.connection.sendResponse(nodeId, createRpcResponse(request.id, { ok: true }));
   }
 
+  private async handleBrowserExtAttachTab(nodeId: string, request: RpcRequest): Promise<void> {
+    const result = await this.getBrowserExtensionBridge().attachTab(
+      nodeId,
+      request.params as never,
+    );
+    this.connection.sendResponse(nodeId, createRpcResponse(request.id, result));
+  }
+
+  private async handleBrowserExtPollCommand(nodeId: string, request: RpcRequest): Promise<void> {
+    const result = await this.getBrowserExtensionBridge().pollCommand(
+      nodeId,
+      request.params as never,
+    );
+    this.connection.sendResponse(nodeId, createRpcResponse(request.id, result));
+  }
+
+  private handleBrowserExtCommandResult(nodeId: string, request: RpcRequest): void {
+    const result = this.getBrowserExtensionBridge().commandResult(
+      nodeId,
+      request.params as never,
+    );
+    this.connection.sendResponse(nodeId, createRpcResponse(request.id, result));
+  }
+
+  private getBrowserExtensionBridge(): RemoteBrowserExtensionBridge {
+    return this.browserExtensionBridge ?? getRemoteBrowserExtensionBridge();
+  }
+
+  private recordTrustedPlatformFromCapabilities(
+    nodeId: string,
+    capabilities: WorkerNodeCapabilities | undefined,
+  ): void {
+    if (!isKnownPlatform(capabilities?.platform)) {
+      return;
+    }
+    try {
+      getRemoteAuthService().recordTrustedPlatform(nodeId, capabilities.platform);
+    } catch (err) {
+      logger.warn('Failed to persist trusted worker platform snapshot', {
+        nodeId,
+        platform: capabilities.platform,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+}
+
+function isKnownPlatform(platform: unknown): platform is WorkerNodeCapabilities['platform'] {
+  return platform === 'darwin' || platform === 'win32' || platform === 'linux';
 }

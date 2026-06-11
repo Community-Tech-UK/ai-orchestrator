@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BrowserProfile } from '@contracts/types/browser';
+import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import {
   BrowserHealthService,
   setBrowserGatewayMcpBridgeAvailabilityProvider,
@@ -238,5 +239,74 @@ describe('BrowserHealthService', () => {
     expect(report.warnings).toContain(
       '1 Browser Gateway profile is in an error state.',
     );
+  });
+
+  it('reports connected remote extension relay nodes', async () => {
+    const nodes: WorkerNodeInfo[] = [{
+      id: 'node-1',
+      name: 'Windows PC',
+      address: '',
+      status: 'connected',
+      activeInstances: 0,
+      capabilities: {
+        platform: 'win32',
+        arch: 'x64',
+        cpuCores: 8,
+        totalMemoryMB: 16_384,
+        availableMemoryMB: 8_192,
+        supportedClis: ['claude'],
+        hasBrowserRuntime: true,
+        hasBrowserMcp: false,
+        hasExtensionRelay: true,
+        extensionRelay: {
+          enabled: true,
+          running: true,
+          socketPath: 'C:/Users/James/.orchestrator/browser-gateway/extension-relay.sock',
+        },
+        hasAndroidMcp: false,
+        hasDocker: false,
+        maxConcurrentInstances: 4,
+        workingDirectories: [],
+        browsableRoots: [],
+        discoveredProjects: [],
+      },
+    }];
+    const service = new BrowserHealthService({
+      profileStore: { listProfiles: () => [] },
+      rawAutomationHealthService: {
+        diagnose: async () => ({
+          status: 'missing',
+          checkedAt: 1,
+          runtimeAvailable: false,
+          nodeAvailable: true,
+          inAppConfigured: false,
+          inAppConnected: false,
+          inAppToolCount: 0,
+          configDetected: false,
+          configSources: [],
+          browserToolNames: [],
+          warnings: [],
+          suggestions: [],
+          surface: 'legacy_raw_browser_automation',
+        }),
+      },
+      workerNodeRegistry: { getAllNodes: () => nodes },
+      mcpBridgeAvailable: () => true,
+      chromeRuntimeDetector: async () => ({ available: true, command: 'chrome' }),
+      now: () => 6,
+    });
+
+    const report = await service.diagnose();
+
+    expect(report.remoteExtensions).toEqual({
+      total: 1,
+      ready: 1,
+      nodes: [{
+        nodeId: 'node-1',
+        nodeName: 'Windows PC',
+        enabled: true,
+        running: true,
+      }],
+    });
   });
 });

@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import * as path from 'node:path';
 import {
   createNativeMessageFrame,
   parseNativeMessageFrame,
@@ -6,6 +8,18 @@ import {
 } from './browser-extension-native-host';
 
 describe('browser extension native host', () => {
+  it('keeps native host runtime files electron-free for worker builds', () => {
+    const files = [
+      'browser-extension-native-host.ts',
+      'browser-extension-native-runtime.ts',
+    ];
+
+    for (const file of files) {
+      const source = readFileSync(path.join(__dirname, file), 'utf-8');
+      expect(source).not.toMatch(/from ['"]electron['"]|require\(['"]electron['"]\)/);
+    }
+  });
+
   it('encodes and decodes Chrome native messaging frames', () => {
     const frame = createNativeMessageFrame({ type: 'ok', value: 'hello' });
 
