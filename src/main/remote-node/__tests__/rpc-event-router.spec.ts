@@ -103,7 +103,10 @@ function makeRpcRequest(method: string, params?: unknown, id: string | number = 
 describe('RpcEventRouter', () => {
   let registry: WorkerNodeRegistry;
   // Use a plain EventEmitter to simulate WorkerNodeConnectionServer
-  let mockConnection: EventEmitter & { sendResponse: ReturnType<typeof vi.fn> };
+  let mockConnection: EventEmitter & {
+    sendResponse: ReturnType<typeof vi.fn>;
+    disconnectNode: ReturnType<typeof vi.fn>;
+  };
   let mockBrowserBridge: {
     attachTab: ReturnType<typeof vi.fn>;
     pollCommand: ReturnType<typeof vi.fn>;
@@ -120,6 +123,7 @@ describe('RpcEventRouter', () => {
 
     mockConnection = Object.assign(new EventEmitter(), {
       sendResponse: vi.fn(),
+      disconnectNode: vi.fn(),
     });
     mockBrowserBridge = {
       attachTab: vi.fn(),
@@ -245,6 +249,40 @@ describe('RpcEventRouter', () => {
         error: expect.objectContaining({ code: -32001 }),
       }),
     );
+    // The stale socket must be closed so the worker re-registers on reconnect.
+    expect(mockConnection.disconnectNode).toHaveBeenCalledWith(
+      'missing-node',
+      expect.any(String),
+    );
+  });
+
+  it('closes the stale socket when a heartbeat notification arrives for an unknown node', () => {
+    const notification = {
+      jsonrpc: '2.0',
+      method: 'node.heartbeat',
+      params: { capabilities: makeCapabilities(), activeInstances: 0, token: 't' },
+    };
+
+    mockConnection.emit('rpc:notification', 'zombie-node', notification);
+
+    expect(mockConnection.disconnectNode).toHaveBeenCalledWith(
+      'zombie-node',
+      expect.any(String),
+    );
+  });
+
+  it('does not disconnect a registered node on heartbeat notification', () => {
+    registry.registerNode(makeNode('live-node'));
+    const notification = {
+      jsonrpc: '2.0',
+      method: 'node.heartbeat',
+      params: { capabilities: makeCapabilities(), activeInstances: 0, token: 't' },
+    };
+
+    mockConnection.emit('rpc:notification', 'live-node', notification);
+
+    expect(mockConnection.disconnectNode).not.toHaveBeenCalled();
+    expect(registry.getNode('live-node')?.lastHeartbeat).toBeGreaterThan(0);
   });
 
   it('routes remote browser extension poll requests through the bridge', async () => {

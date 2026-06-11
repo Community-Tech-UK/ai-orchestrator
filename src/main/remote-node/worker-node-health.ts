@@ -104,6 +104,12 @@ export class WorkerNodeHealth {
       });
       this.stopMonitoring(nodeId);
       registry.deregisterNode(nodeId);
+      // Close the socket too. A worker whose process was suspended (machine
+      // sleep, console QuickEdit freeze) keeps its socket open and resumes
+      // heartbeating into a registry that no longer knows it — and its
+      // reconnect logic only fires on socket close. Without this it zombies
+      // until manually restarted.
+      getWorkerNodeConnectionServer().disconnectNode(nodeId, 'Heartbeat timeout — re-register required');
     } else if (timeSinceHeartbeat >= DEGRADED_THRESHOLD_MS && node.status === 'connected') {
       logger.warn('Node exceeded degraded threshold', { nodeId, timeSinceHeartbeat });
       registry.updateNodeMetrics(nodeId, { status: 'degraded' });

@@ -217,7 +217,12 @@ export class RpcEventRouter {
         const hbParams = notification.params as Record<string, unknown> | undefined;
         const node = this.registry.getNode(nodeId);
         if (!node) {
-          logger.warn('Heartbeat notification received for unknown node', { nodeId });
+          // The socket outlived its registry entry (e.g. health-deregistered
+          // while the worker process was suspended). Close it so the worker's
+          // on-close reconnect re-registers instead of heartbeating forever
+          // into the void.
+          logger.warn('Heartbeat notification received for unknown node — closing stale socket', { nodeId });
+          this.connection.disconnectNode(nodeId, 'Stale connection — re-register required');
           return;
         }
         this.registry.updateHeartbeat(nodeId, hbParams?.['capabilities'] as WorkerNodeCapabilities);
@@ -304,6 +309,9 @@ export class RpcEventRouter {
         nodeId,
         createRpcError(request.id, RPC_ERROR_CODES.NODE_NOT_FOUND, `Unknown node: ${nodeId}`),
       );
+      // Same stale-socket zombie as the notification path: close so the
+      // worker re-registers via its on-close reconnect.
+      this.connection.disconnectNode(nodeId, 'Stale connection — re-register required');
       return;
     }
 

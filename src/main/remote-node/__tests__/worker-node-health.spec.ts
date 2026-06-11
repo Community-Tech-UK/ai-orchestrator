@@ -12,6 +12,7 @@ vi.mock('../../logging/logger', () => ({
 
 const mockConnection = {
   sendRpc: vi.fn(),
+  disconnectNode: vi.fn(),
 };
 
 vi.mock('../worker-node-connection', () => ({
@@ -139,6 +140,9 @@ describe('WorkerNodeHealth', () => {
     vi.advanceTimersByTime(95_000);
 
     expect(registry.getNode('n4')).toBeUndefined();
+    // The socket must be closed alongside deregistration — otherwise a
+    // suspended-then-resumed worker heartbeats into the void forever.
+    expect(mockConnection.disconnectNode).toHaveBeenCalledWith('n4', expect.any(String));
   });
 
   // -------------------------------------------------------------------------

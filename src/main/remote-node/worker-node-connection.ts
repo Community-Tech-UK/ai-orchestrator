@@ -402,11 +402,11 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     return [...this.nodeToSocket.keys()].filter((nodeId) => this.isNodeConnected(nodeId));
   }
 
-  disconnectNode(nodeId: string): void {
+  disconnectNode(nodeId: string, reason = 'Node revoked'): void {
     const ws = this.nodeToSocket.get(nodeId);
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.close(1008, 'Node revoked');
-      logger.info('Disconnected revoked node', { nodeId });
+      ws.close(1008, reason);
+      logger.info('Disconnected node', { nodeId, reason });
     }
   }
 
