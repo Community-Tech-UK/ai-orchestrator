@@ -7,7 +7,9 @@ import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import type { NodeHealthEntry } from './remote-nodes-browser-automation';
 
 await resolveComponentResources((url) => {
-  if (url.endsWith('.scss')) {
+  // resolveComponentResources is global within the shared Vitest worker.
+  // Tolerate unrelated pending component resources from other specs.
+  if (url.endsWith('.html') || url.endsWith('.scss')) {
     return Promise.resolve('');
   }
   return Promise.reject(new Error(`Unexpected resource: ${url}`));
