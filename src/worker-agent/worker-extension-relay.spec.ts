@@ -218,6 +218,49 @@ describe('WorkerExtensionRelay', () => {
     await close(owner);
   });
 
+  it('survives a client that disconnects before the response is written', async () => {
+    if (process.platform === 'win32') {
+      return;
+    }
+    const socketPath = tempSocketPath();
+    let releaseResponse!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+    const sendRequest = vi.fn(async () => {
+      await gate;
+      return { ok: true };
+    });
+    const relay = new WorkerExtensionRelay({
+      config: { enabled: true, socketPath, extensionToken: 'extension-token' },
+      sendRequest,
+    });
+    await relay.start();
+
+    const client = net.createConnection(socketPath);
+    client.on('error', () => undefined);
+    await new Promise<void>((resolve) => client.once('connect', () => resolve()));
+    client.write(`${JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'browser.extension_attach_tab',
+      params: { extensionToken: 'extension-token', payload: { tabId: 1 } },
+    })}\n`);
+    await vi.waitFor(() => expect(sendRequest).toHaveBeenCalled());
+
+    // Client dies before the relay can write its response. Destroy and
+    // release in the same tick so the relay dispatches its write before it
+    // observes the FIN — that write fails with EPIPE at the OS level, which
+    // crashed the whole worker process before the socket error listener
+    // existed (same stack as the 2026-06-11 Windows worker crash).
+    client.destroy();
+    releaseResponse();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(relay.isRunning()).toBe(true);
+    await relay.stop();
+  });
+
   it('cleans up a stale Unix socket file before listening', async () => {
     if (process.platform === 'win32') {
       return;

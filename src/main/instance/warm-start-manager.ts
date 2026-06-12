@@ -11,6 +11,7 @@
 
 import { getLogger } from '../logging/logger';
 import { crossPlatformPathsEqual } from '../../shared/utils/cross-platform-path';
+import { directoryExists } from '../cli/adapters/base-cli-adapter-utils';
 
 const logger = getLogger('WarmStartManager');
 
@@ -46,6 +47,19 @@ export class WarmStartManager {
   async preWarm(provider: string, workingDirectory: string): Promise<void> {
     if (!this.enabled) {
       logger.debug('preWarm skipped — manager is disabled', { provider });
+      return;
+    }
+
+    // Never spawn into a directory that doesn't exist locally. This protects
+    // every caller — remote-node working directories (e.g. `C:\...` paths on
+    // macOS) and worktrees deleted after instance creation would otherwise
+    // fail the spawn with a misleading `spawn <cli> ENOENT`. Any existing
+    // warm process is left intact (it targets its own, still-valid directory).
+    if (!directoryExists(workingDirectory)) {
+      logger.warn('preWarm skipped — working directory does not exist locally', {
+        provider,
+        workingDirectory,
+      });
       return;
     }
 

@@ -14,16 +14,9 @@ import { Router } from '@angular/router';
 import { GatewayClient } from '../../core/gateway-client.service';
 import { ImageAttachmentService } from '../../core/image-attachment.service';
 import { statusColor, statusLabel } from '../../core/status';
-import type { MobileAttachmentDto, MobileMessageDto } from '../../core/models';
-
-/**
- * A rendered transcript row: either a single conversational message, or a
- * collapsed run of consecutive tool calls (the "🔧 Using tool: …" noise),
- * shown as one tappable "N tool calls" group that expands on demand.
- */
-type DisplayItem =
-  | { kind: 'msg'; message: MobileMessageDto }
-  | { kind: 'tools'; id: string; items: MobileMessageDto[] };
+import type { MobileAttachmentDto, MobileMessageDto, MobileModelCatalog } from '../../core/models';
+import { ModelSheetComponent } from '../../shared/model-sheet.component';
+import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-items';
 
 /**
  * One agent's live conversation: transcript (replayed history + live stream),
@@ -34,7 +27,7 @@ type DisplayItem =
   standalone: true,
   selector: 'app-conversation',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule],
+  imports: [FormsModule, ModelSheetComponent],
   template: `
     <section class="screen">
       <header class="top">
@@ -47,9 +40,12 @@ type DisplayItem =
       </header>
 
       <div class="subheader">
-        <span>{{ label(status()) }}</span>
+        <span class="status-text">{{ label(status()) }}</span>
         @if (instance()?.contextPercentage !== undefined) {
           <span class="ctx">· context {{ instance()?.contextPercentage }}%</span>
+        }
+        @if (instance()?.model) {
+          <span class="model">· {{ instance()?.model }}</span>
         }
         @if (!online()) {
           <span class="offline">· offline</span>
@@ -59,6 +55,7 @@ type DisplayItem =
       @if (menuOpen()) {
         <div class="popover">
           <button (click)="rename()">Rename</button>
+          <button (click)="openModelSheet()" [disabled]="!online() || !instance()">Change model…</button>
           <button (click)="interrupt()" [disabled]="!online()">Stop (interrupt)</button>
           <button class="danger" (click)="terminate()" [disabled]="!online()">Terminate</button>
         </div>
@@ -67,7 +64,9 @@ type DisplayItem =
       <div class="scroll-wrap">
         <div #scrollEl class="transcript" (scroll)="onScroll()">
           @for (item of displayItems(); track trackItem(item)) {
-            @if (item.kind === 'tools') {
+            @if (item.kind === 'stamp') {
+              <div class="stamp">{{ item.label }}</div>
+            } @else if (item.kind === 'tools') {
               <div class="tool-group">
                 <button class="tool-toggle" (click)="toggleTools(item.id)">
                   <span class="tool-caret">{{ expandedTools().has(item.id) ? '▾' : '▸' }}</span>
@@ -144,6 +143,19 @@ type DisplayItem =
           {{ sending() ? '…' : '↑' }}
         </button>
       </form>
+
+      @if (modelSheetOpen()) {
+        <app-model-sheet
+          [provider]="instance()?.provider ?? ''"
+          [models]="modelsForProvider()"
+          [selected]="instance()?.model"
+          [includeDefault]="false"
+          [loading]="modelsLoading() || changingModel()"
+          [error]="modelsError()"
+          (choose)="chooseModel($event)"
+          (dismiss)="modelSheetOpen.set(false)"
+        />
+      }
     </section>
   `,
   styles: [
@@ -164,7 +176,8 @@ type DisplayItem =
       .title .name { font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
       .menu { background: none; border: none; color: var(--text); font-size: 22px; }
-      .subheader { padding: 0 16px 8px; color: var(--text-secondary); font-size: 13px; text-transform: capitalize; }
+      .subheader { padding: 0 16px 8px; color: var(--text-secondary); font-size: 13px; }
+      .subheader .status-text { text-transform: capitalize; }
       .subheader .offline { color: var(--accent-attention); }
       .popover {
         position: absolute; right: 12px; top: 52px; z-index: 5;
@@ -186,6 +199,7 @@ type DisplayItem =
         display: flex; align-items: center; justify-content: center;
         box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
       }
+      .stamp { align-self: center; color: var(--text-secondary); font-size: 13px; text-align: center; }
       /* Collapsed tool-activity group — hides the "Using tool: …" junk. */
       .tool-group { display: flex; flex-direction: column; gap: 4px; }
       .tool-toggle {
@@ -256,6 +270,11 @@ export class ConversationComponent {
   protected readonly canAttach = this.images.available;
   protected readonly sending = signal(false);
   protected readonly menuOpen = signal(false);
+  protected readonly modelSheetOpen = signal(false);
+  protected readonly modelsLoading = signal(false);
+  protected readonly changingModel = signal(false);
+  protected readonly modelsError = signal<string | null>(null);
+  protected readonly modelCatalog = signal<MobileModelCatalog | null>(null);
   protected readonly online = this.gateway.online;
   protected readonly color = statusColor;
   protected readonly label = statusLabel;
@@ -273,34 +292,18 @@ export class ConversationComponent {
   );
   protected readonly status = computed(() => this.instance()?.status ?? 'idle');
   protected readonly messages = computed(() => this.gateway.messagesFor(this.instanceId()));
+  protected readonly modelsForProvider = computed(() => {
+    const provider = this.instance()?.provider;
+    return provider ? this.modelCatalog()?.[provider] ?? [] : [];
+  });
 
   /** Which collapsed tool groups the user has expanded (keyed by group id). */
   protected readonly expandedTools = signal<Set<string>>(new Set());
 
-  /**
-   * Transcript rows with consecutive tool_use/tool_result messages folded into
-   * a single collapsible group, so the conversation isn't drowned in tool noise.
-   */
-  protected readonly displayItems = computed<DisplayItem[]>(() => {
-    const out: DisplayItem[] = [];
-    let bucket: MobileMessageDto[] | null = null;
-    for (const m of this.messages()) {
-      if (m.type === 'tool_use' || m.type === 'tool_result') {
-        if (!bucket) {
-          bucket = [];
-          out.push({ kind: 'tools', id: `tools-${m.id}`, items: bucket });
-        }
-        bucket.push(m);
-      } else {
-        bucket = null;
-        out.push({ kind: 'msg', message: m });
-      }
-    }
-    return out;
-  });
+  protected readonly displayItems = computed<DisplayItem[]>(() => buildDisplayItems(this.messages()));
 
   protected trackItem(item: DisplayItem): string {
-    return item.kind === 'tools' ? item.id : item.message.id;
+    return item.kind === 'msg' ? item.message.id : item.id;
   }
 
   protected toggleTools(id: string): void {
@@ -454,6 +457,35 @@ export class ConversationComponent {
       } catch {
         /* ignore */
       }
+    }
+  }
+
+  protected async openModelSheet(): Promise<void> {
+    this.menuOpen.set(false);
+    if (!this.instance()) return;
+    this.modelSheetOpen.set(true);
+    if (this.modelCatalog() || this.modelsLoading()) return;
+    this.modelsLoading.set(true);
+    this.modelsError.set(null);
+    try {
+      this.modelCatalog.set(await this.gateway.models());
+    } catch (err) {
+      this.modelsError.set(err instanceof Error ? err.message : String(err));
+    } finally {
+      this.modelsLoading.set(false);
+    }
+  }
+
+  protected async chooseModel(model: string | undefined): Promise<void> {
+    this.modelSheetOpen.set(false);
+    if (!model || this.changingModel()) return;
+    this.changingModel.set(true);
+    try {
+      await this.gateway.changeModel(this.instanceId(), model);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+    } finally {
+      this.changingModel.set(false);
     }
   }
 

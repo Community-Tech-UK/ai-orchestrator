@@ -27,7 +27,10 @@ import type {
   SpawnModeChange,
 } from './base-cli-adapter.types';
 import {
+  CliSpawnCwdError,
   computeBoundedTrigramSimilarity,
+  directoryExists,
+  enrichSpawnError,
   ndjsonSafeStringify,
 } from './base-cli-adapter-utils';
 import {
@@ -44,7 +47,7 @@ import {
 } from './windows-cli-spawn';
 
 const logger = getLogger('BaseCliAdapter');
-export { computeBoundedTrigramSimilarity, ndjsonSafeStringify };
+export { CliSpawnCwdError, computeBoundedTrigramSimilarity, directoryExists, enrichSpawnError, ndjsonSafeStringify };
 
 /** Resolved spawn launcher. `detached` defaults to `!shell` when omitted. */
 export interface SpawnTarget {
@@ -470,6 +473,15 @@ export abstract class BaseCliAdapter extends EventEmitter {
    * Spawn a CLI process with given arguments
    */
   protected spawnProcess(args: string[]): ChildProcess {
+    // Validate the working directory up front. Node reports a nonexistent cwd
+    // as `spawn <cmd> ENOENT` — indistinguishable from a missing binary — so
+    // every future occurrence of this bug class (remote-node paths, deleted
+    // worktrees) gets an actionable error instead of a misleading one.
+    // An undefined cwd is untouched: spawn falls back to the process cwd.
+    if (this.config.cwd && !directoryExists(this.config.cwd)) {
+      throw new CliSpawnCwdError(this.config.command, this.config.cwd);
+    }
+
     const fullArgs = [...(this.config.args || []), ...args];
 
     // Extend PATH to include common CLI installation directories

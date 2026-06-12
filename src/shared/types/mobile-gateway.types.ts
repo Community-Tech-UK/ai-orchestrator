@@ -73,6 +73,16 @@ export interface MobileInstanceDto {
   contextPercentage?: number;
 }
 
+export interface MobileModelDto {
+  id: string;
+  name: string;
+  tier: 'fast' | 'balanced' | 'powerful';
+  pinned?: boolean;
+  family?: string;
+}
+
+export type MobileModelCatalog = Record<string, MobileModelDto[]>;
+
 /** A project = a distinct workingDirectory with its sessions rolled up. */
 export interface MobileProjectDto {
   /** Stable key (the workingDirectory, or '__no_workspace__'). */

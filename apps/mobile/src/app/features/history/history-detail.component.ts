@@ -13,11 +13,7 @@ import {
 import { Router } from '@angular/router';
 import { GatewayClient } from '../../core/gateway-client.service';
 import type { MobileMessageDto } from '../../core/models';
-
-/** A transcript row: a single message, or a collapsed run of tool calls. */
-type DisplayItem =
-  | { kind: 'msg'; message: MobileMessageDto }
-  | { kind: 'tools'; id: string; items: MobileMessageDto[] };
+import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-items';
 
 /**
  * Read-only transcript of a persisted (closed/archived) session, fetched from
@@ -46,7 +42,9 @@ type DisplayItem =
             <p class="error">{{ error() }}</p>
           } @else {
             @for (item of displayItems(); track trackItem(item)) {
-              @if (item.kind === 'tools') {
+              @if (item.kind === 'stamp') {
+                <div class="stamp">{{ item.label }}</div>
+              } @else if (item.kind === 'tools') {
                 <div class="tool-group">
                   <button class="tool-toggle" (click)="toggleTools(item.id)">
                     <span class="tool-caret">{{ expandedTools().has(item.id) ? '▾' : '▸' }}</span>
@@ -123,6 +121,7 @@ type DisplayItem =
         display: flex; align-items: center; justify-content: center;
         box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
       }
+      .stamp { align-self: center; color: var(--text-secondary); font-size: 13px; text-align: center; }
       .tool-group { display: flex; flex-direction: column; gap: 4px; }
       .tool-toggle {
         align-self: flex-start; display: flex; align-items: center; gap: 6px;
@@ -163,27 +162,10 @@ export class HistoryDetailComponent implements OnInit {
   /** Which collapsed tool groups the user has expanded (keyed by group id). */
   protected readonly expandedTools = signal<Set<string>>(new Set());
 
-  /** Rows with consecutive tool calls folded into collapsible groups. */
-  protected readonly displayItems = computed<DisplayItem[]>(() => {
-    const out: DisplayItem[] = [];
-    let bucket: MobileMessageDto[] | null = null;
-    for (const m of this.messages()) {
-      if (m.type === 'tool_use' || m.type === 'tool_result') {
-        if (!bucket) {
-          bucket = [];
-          out.push({ kind: 'tools', id: `tools-${m.id}`, items: bucket });
-        }
-        bucket.push(m);
-      } else {
-        bucket = null;
-        out.push({ kind: 'msg', message: m });
-      }
-    }
-    return out;
-  });
+  protected readonly displayItems = computed<DisplayItem[]>(() => buildDisplayItems(this.messages()));
 
   protected trackItem(item: DisplayItem): string {
-    return item.kind === 'tools' ? item.id : item.message.id;
+    return item.kind === 'msg' ? item.message.id : item.id;
   }
 
   protected toggleTools(id: string): void {

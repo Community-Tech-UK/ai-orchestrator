@@ -16,6 +16,13 @@ type TestReviewService = CrossModelReviewService & {
   detectDisagreement: (reviews: ReviewResult[]) => boolean;
 };
 
+/** Long enough (>50 chars) and code-fenced so the classifier triggers a review. */
+const REVIEWABLE_CONTENT = 'Here is the implementation:\n```ts\nconst x = 1;\nconst y = 2;\n```\nAll done.';
+
+function makeInstanceManager(instance: Record<string, unknown> | undefined): { getInstance: () => unknown } {
+  return { getInstance: () => instance };
+}
+
 function makeRequest(overrides: Partial<ReviewDispatchRequest> = {}): ReviewDispatchRequest {
   return {
     id: 'review-1',
@@ -333,6 +340,87 @@ describe('CrossModelReviewService', () => {
     await service.executeOneReview(makeRequest(), 'copilot', 30, new AbortController().signal);
 
     expect(modelKeyPresent).toBe(false);
+  });
+
+  describe('onInstanceIdle working-directory safety', () => {
+    function makeWorkingAdapter(): { sendMessage: () => Promise<{ content: string }>; terminate: () => Promise<void> } {
+      return {
+        sendMessage: async () => ({
+          content: JSON.stringify({
+            correctness: { reasoning: 'ok', score: 4, issues: [] },
+            completeness: { reasoning: 'ok', score: 4, issues: [] },
+            security: { reasoning: 'ok', score: 4, issues: [] },
+            consistency: { reasoning: 'ok', score: 4, issues: [] },
+            overall_verdict: 'APPROVE',
+            summary: 'approved',
+          }),
+        }),
+        terminate: vi.fn().mockResolvedValue(undefined),
+      };
+    }
+
+    it('skips in-session reviews for remote instances and creates no adapter', async () => {
+      const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+      service.setInstanceManager(makeInstanceManager({
+        displayName: 'Remote instance',
+        workingDirectory: 'C:\\Users\\shutu\\Documents\\Work',
+        outputBuffer: [],
+        executionLocation: { type: 'remote', nodeId: 'node-1' },
+      }) as never);
+
+      const started = vi.fn();
+      const allUnavailable = vi.fn();
+      service.on('review:started', started);
+      service.on('review:all-unavailable', allUnavailable);
+      service.bufferMessage('inst-remote', 'assistant', REVIEWABLE_CONTENT);
+
+      await service.onInstanceIdle('inst-remote');
+
+      expect(started).not.toHaveBeenCalled();
+      expect(allUnavailable).not.toHaveBeenCalled();
+      expect(getProviderRuntimeService().createAdapter).not.toHaveBeenCalled();
+    });
+
+    it('falls back to process.cwd() when the working directory does not exist locally', async () => {
+      const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => makeWorkingAdapter());
+      service.setInstanceManager(makeInstanceManager({
+        displayName: 'Local instance',
+        workingDirectory: '/definitely/not/a/real/dir',
+        outputBuffer: [],
+        executionLocation: { type: 'local' },
+      }) as never);
+
+      const started = vi.fn();
+      service.on('review:started', started);
+      service.bufferMessage('inst-local-bad-dir', 'assistant', REVIEWABLE_CONTENT);
+
+      await service.onInstanceIdle('inst-local-bad-dir');
+
+      expect(started).toHaveBeenCalledTimes(1);
+      const { reviewId } = started.mock.calls[0][0] as { reviewId: string };
+      expect(service.getReviewContext(reviewId)?.workingDirectory).toBe(process.cwd());
+    });
+
+    it('treats a legacy instance without executionLocation as local and proceeds', async () => {
+      const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+      vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(() => makeWorkingAdapter());
+      service.setInstanceManager(makeInstanceManager({
+        displayName: 'Legacy instance',
+        workingDirectory: process.cwd(),
+        outputBuffer: [],
+      }) as never);
+
+      const started = vi.fn();
+      service.on('review:started', started);
+      service.bufferMessage('inst-legacy', 'assistant', REVIEWABLE_CONTENT);
+
+      await service.onInstanceIdle('inst-legacy');
+
+      expect(started).toHaveBeenCalledTimes(1);
+      const { reviewId } = started.mock.calls[0][0] as { reviewId: string };
+      expect(service.getReviewContext(reviewId)?.workingDirectory).toBe(process.cwd());
+    });
   });
 
   it('emits all-unavailable when every reviewer response is unusable', async () => {

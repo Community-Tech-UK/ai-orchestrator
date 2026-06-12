@@ -19,6 +19,9 @@ import { CLIPBOARD_SERVICE } from './clipboard.service';
 
 const DOUBLE_TILDE_DEL_RE = /^(~~)(?=[^\s~])((?:\\[\s\S]|[^\\])*?(?:\\[\s\S]|[^\s~\\]))\1(?=[^~]|$)/;
 
+/** Matches the literal number an author wrote for an ordered-list item, e.g. "4)" or "4.". */
+const ORDERED_ITEM_NUMBER_RE = /^\s*(\d{1,9})[.)]/;
+
 class ConversationMarkdownTokenizer extends Tokenizer {
   override del(src: string): Tokens.Del | undefined {
     const match = DOUBLE_TILDE_DEL_RE.exec(src);
@@ -158,6 +161,44 @@ export class MarkdownService {
           </table>
         </div>
       `;
+    };
+
+    // Ordered lists: CommonMark renumbers items sequentially from the first
+    // marker, so "2) ok / 4) why" renders as "2., 3." — discarding the numbers
+    // the author actually wrote. Users reply to numbered questions with
+    // deliberately non-sequential numbers, so when the written numbers are not
+    // sequential, preserve each one via <li value="N"> (honored by browsers
+    // inside <ol>; DOMPurify whitelists `value` below). Sequential lists and
+    // the deliberate all-same "1. / 1. / 1." lazy-numbering style keep default
+    // markdown behavior.
+    renderer.list = (token: Tokens.List): string => {
+      const fallback = () => marked.Renderer.prototype.list.call(renderer, token);
+      if (!token.ordered || token.items.length < 2) {
+        return fallback();
+      }
+
+      const start = typeof token.start === 'number' ? token.start : 1;
+      const writtenNumbers = token.items.map((item) => {
+        const match = ORDERED_ITEM_NUMBER_RE.exec(item.raw);
+        return match ? Number.parseInt(match[1], 10) : undefined;
+      });
+      const sequential = writtenNumbers.every((n, i) => n === undefined || n === start + i);
+      const allSame = writtenNumbers.every((n) => n === writtenNumbers[0]);
+      if (sequential || allSame) {
+        return fallback();
+      }
+
+      const body = token.items
+        .map((item, i) => {
+          const itemHtml = renderer.listitem(item);
+          const value = writtenNumbers[i];
+          return value === undefined
+            ? itemHtml
+            : itemHtml.replace(/^<li/, `<li value="${value}"`);
+        })
+        .join('');
+      const startAttr = start !== 1 ? ` start="${start}"` : '';
+      return `<ol${startAttr}>\n${body}</ol>\n`;
     };
 
     // Configure marked

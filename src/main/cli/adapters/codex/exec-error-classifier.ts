@@ -4,6 +4,33 @@
  * orchestration.
  */
 
+import { CliSpawnCwdError } from '../base-cli-adapter-utils';
+
+/**
+ * Spawn-layer errno codes that can never succeed on retry: the binary is
+ * missing (ENOENT from PATH lookup), not executable (EACCES/EPERM), or the
+ * working directory is invalid (ENOENT/ENOTDIR from chdir).
+ */
+const FATAL_SPAWN_CODES = new Set(['ENOENT', 'EACCES', 'EPERM', 'ENOTDIR']);
+
+/**
+ * True when the error is a process-spawn failure (missing binary, missing
+ * cwd, non-executable binary). These are environmental and deterministic —
+ * retrying the exact same spawn just doubles the user's wait — so the retry
+ * loop must treat them as fatal and surface them immediately.
+ */
+export function isFatalSpawnError(error: unknown): boolean {
+  if (error instanceof CliSpawnCwdError) {
+    return true;
+  }
+  const err = error as NodeJS.ErrnoException | undefined;
+  if (err?.code && FATAL_SPAWN_CODES.has(err.code) && err.syscall?.startsWith('spawn')) {
+    return true;
+  }
+  // Fallback for errors that lost their errno shape through wrapping:
+  return /spawn .+ (ENOENT|EACCES|EPERM|ENOTDIR)/.test(String(err?.message ?? error));
+}
+
 /**
  * Codex prints "Reading prompt from stdin..." to stderr on every exec turn
  * (it reads the prompt from stdin rather than a positional arg). It is purely

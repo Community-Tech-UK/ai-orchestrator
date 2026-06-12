@@ -74,7 +74,9 @@ import { extractCodexAppServerError, formatCodexAppServerError } from './codex/a
 import { CodexHomeManager } from './codex/codex-home-manager';
 import { classifyCodexDiagnostic, type CodexDiagnostic } from './codex/exec-diagnostics';
 import { parseCodexExecTranscript } from './codex/exec-transcript-parser';
-import { isBenignCodexStdinNotice, isCodexModelUnavailableError } from './codex/exec-error-classifier';
+import { isBenignCodexStdinNotice, isCodexModelUnavailableError, isFatalSpawnError } from './codex/exec-error-classifier';
+import { CodexTimeoutError, type CodexExecPhase, type CodexTimeoutKind } from './codex/exec-timeout';
+import { enrichSpawnError } from './base-cli-adapter-utils';
 import { extractReasoningSections, mergeReasoningSections, shorten } from './codex/reasoning';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 
@@ -173,47 +175,10 @@ const VERIFICATION_CMD_PATTERN = /\b(test|tests|lint|build|typecheck|type-check|
 
 // ─── Error types ────────────────────────────────────────────────────────────
 
-/**
- * Which phase of the exec-mode lifecycle the timeout fired in.
- * - `startup`: first turn after spawn — short budget to surface auth/config hangs fast
- * - `turn`: subsequent turns — long budget for legitimate long-running work
- */
-export type CodexExecPhase = 'startup' | 'turn';
-
-/**
- * Error thrown when an exec-mode `codex` child process fails to complete within
- * its per-turn budget. Callers (notably the `sendMessage` retry loop) use
- * `instanceof` to distinguish timeouts from transient errors so they don't
- * compound the wait by retrying a hung process.
- *
- * When the timeout was preceded by network errors from codex's own API layer,
- * `cause` points at the last such diagnostic so the UI can explain *why* we
- * killed the process (connectivity vs. generic hang).
- */
-export class CodexTimeoutError extends Error {
-  readonly phase: CodexExecPhase;
-  readonly timeoutMs: number;
-  readonly networkErrorCount: number;
-  readonly lastNetworkError: string | null;
-
-  constructor(
-    phase: CodexExecPhase,
-    timeoutMs: number,
-    details?: { networkErrorCount?: number; lastNetworkError?: string | null }
-  ) {
-    const networkErrorCount = details?.networkErrorCount ?? 0;
-    const lastNetworkError = details?.lastNetworkError ?? null;
-    const networkSuffix = networkErrorCount > 0
-      ? ` — codex reported ${networkErrorCount} network error${networkErrorCount === 1 ? '' : 's'} before going silent`
-      : '';
-    super(`Codex exec timed out after ${timeoutMs}ms during ${phase}${networkSuffix}`);
-    this.name = 'CodexTimeoutError';
-    this.phase = phase;
-    this.timeoutMs = timeoutMs;
-    this.networkErrorCount = networkErrorCount;
-    this.lastNetworkError = lastNetworkError;
-  }
-}
+// Defined in ./codex/exec-timeout (kept out of this file for size); re-exported
+// here because callers historically import them from the adapter module.
+export { CodexTimeoutError };
+export type { CodexExecPhase, CodexTimeoutKind };
 
 // ─── Adapter ────────────────────────────────────────────────────────────────
 
@@ -350,7 +315,13 @@ export class CodexCliAdapter extends BaseCliAdapter {
     return caps.contextWindow;
   }
 
-  private resolveTurnIdleTimeoutMs(): number {
+  /**
+   * Total per-attempt budget for a turn, measured from spawn. Every producer
+   * of `CodexCliConfig.timeout` (cross-model review, loop iterations,
+   * magic-prompt, compare, auto-title) intends a *total* deadline — not an
+   * idle budget. `0`/negative/`NaN` are treated as unset.
+   */
+  private resolveDeadlineMs(): number {
     const configuredTimeout = this.cliConfig.timeout;
     if (typeof configuredTimeout === 'number' && Number.isFinite(configuredTimeout) && configuredTimeout > 0) {
       return configuredTimeout;
@@ -358,14 +329,26 @@ export class CodexCliAdapter extends BaseCliAdapter {
     return CODEX_TIMEOUTS.EXEC_TURN_MS;
   }
 
+  /**
+   * Idle (silence) budget for exec turns. Uses the built-in turn constant —
+   * codex exec emits output only at item boundaries, so the configured total
+   * timeout must NOT shrink this (a 120s review deadline used to kill codex
+   * mid-reasoning at 120s of silence). It is only *capped* by the deadline:
+   * a 30s deadline shouldn't wait 60s of silence to report.
+   */
+  private resolveTurnIdleTimeoutMs(): number {
+    return Math.min(CODEX_TIMEOUTS.EXEC_TURN_MS, this.resolveDeadlineMs());
+  }
+
+  /**
+   * App-server analogue: notification-idle budgets come from the built-in
+   * constants, capped by the total deadline — same principle as exec mode.
+   */
   private resolveNotificationIdleTimeoutMs(activeItems: number): number {
-    if (activeItems > 0) {
-      return this.resolveTurnIdleTimeoutMs();
-    }
-    return Math.max(
-      CODEX_TIMEOUTS.NOTIFICATION_IDLE_MS,
-      Math.min(this.resolveTurnIdleTimeoutMs(), CODEX_TIMEOUTS.NOTIFICATION_IDLE_ACTIVE_MS)
-    );
+    const base = activeItems > 0
+      ? CODEX_TIMEOUTS.NOTIFICATION_IDLE_ACTIVE_MS
+      : CODEX_TIMEOUTS.NOTIFICATION_IDLE_MS;
+    return Math.min(base, this.resolveDeadlineMs());
   }
 
   /**
@@ -2329,12 +2312,14 @@ export class CodexCliAdapter extends BaseCliAdapter {
     const normalizedMessage = await this.normalizeMessage(message);
     const preparedMessage = this.prepareMessageForExecution(normalizedMessage);
 
-    // Phase-specific timeout budget. First turn after spawn gets the short
+    // Phase-specific IDLE budget. First turn after spawn gets the short
     // startup budget so we surface cold-start hangs (broken auth, bad CODEX_HOME
     // symlink, API unreachable) in ~60s instead of burning the full 5 minutes.
+    // Both phases are capped by the total deadline (executePreparedMessage
+    // additionally enforces the deadline as an absolute timer from spawn).
     const phase: CodexExecPhase = this.hasCompletedExecTurn ? 'turn' : 'startup';
     const timeoutMs = phase === 'startup'
-      ? CODEX_TIMEOUTS.EXEC_STARTUP_MS
+      ? Math.min(CODEX_TIMEOUTS.EXEC_STARTUP_MS, this.resolveDeadlineMs())
       : this.resolveTurnIdleTimeoutMs();
 
     // Retry only on truly transient failures. A timeout means the process
@@ -2383,12 +2368,25 @@ export class CodexCliAdapter extends BaseCliAdapter {
         if (lastError instanceof CodexTimeoutError) {
           logger.warn('Codex exec timed out — not retrying', {
             phase: lastError.phase,
+            kind: lastError.kind,
             timeoutMs: lastError.timeoutMs,
             networkErrorCount: lastError.networkErrorCount,
             lastNetworkError: lastError.lastNetworkError,
             attempt,
           });
           throw lastError;
+        }
+
+        // Spawn-layer failures (missing binary, missing/invalid cwd,
+        // non-executable binary) are environmental and deterministic — a
+        // retry can never succeed. Surface an enriched error that says WHAT
+        // is missing instead of Node's ambiguous `spawn codex ENOENT`.
+        if (isFatalSpawnError(lastError)) {
+          logger.error('Codex spawn failed — not retrying', lastError, {
+            attempt,
+            cwd: this.config.cwd,
+          });
+          throw enrichSpawnError(lastError, this.config.command, this.config.cwd);
         }
 
         if (this.isRecoverableThreadResumeError(lastError)) {
@@ -2527,11 +2525,19 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
       this.process = childProcess;
 
-      // Idle-based watchdog. The previous absolute budget would kill codex
-      // mid-work when the state-db iteration or long API calls took longer
-      // than the phase budget, even though the process was actively streaming
-      // progress. Reset the timer on every stdout OR stderr chunk so we only
-      // terminate when the process is genuinely silent for `options.timeoutMs`.
+      // Two independent watchdogs:
+      //
+      // 1. IDLE watchdog — fires when the process is genuinely silent (no
+      //    stdout/stderr chunk) for the idle budget. The budget comes from the
+      //    built-in EXEC constants (startup → turn escalation), never from the
+      //    configured timeout: codex exec emits output only at item
+      //    boundaries, so a configured 120s total budget used as an idle
+      //    budget guaranteed a kill on any long silent reasoning stretch.
+      //
+      // 2. DEADLINE timer — absolute, measured from spawn. Enforces the
+      //    configured total budget (`CodexCliConfig.timeout`), which is what
+      //    every producer (reviews, loop iterations, one-shot helpers)
+      //    actually means by "timeout". Cold-start time counts.
       //
       // `lastActivityAt` and `receivedAnyData` are captured on every chunk and
       // logged on timeout so post-mortem diagnostics reveal whether the
@@ -2540,6 +2546,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
       let lastActivityAt = startedAt;
       let receivedAnyData = false;
       let idleTimer: NodeJS.Timeout | null = null;
+      let deadlineTimer: NodeJS.Timeout | null = null;
+      const deadlineMs = this.resolveDeadlineMs();
 
       // The startup budget (EXEC_STARTUP_MS, 60s) only guards the cold start — it
       // must not kill a healthy multi-minute first turn that goes silent >60s
@@ -2550,8 +2558,21 @@ export class CodexCliAdapter extends BaseCliAdapter {
       const turnBudgetMs = this.resolveTurnIdleTimeoutMs();
       let currentBudgetMs = options.timeoutMs;
       let effectivePhase: CodexExecPhase = options.phase;
-      const fireIdleTimeout = () => {
+      const clearIdleTimer = () => {
+        if (idleTimer) {
+          clearTimeout(idleTimer);
+          idleTimer = null;
+        }
+      };
+      const clearDeadlineTimer = () => {
+        if (deadlineTimer) {
+          clearTimeout(deadlineTimer);
+          deadlineTimer = null;
+        }
+      };
+      const fireWatchdogTimeout = (kind: CodexTimeoutKind) => {
         if (!this.process) return;
+        const budgetMs = kind === 'deadline' ? deadlineMs : currentBudgetMs;
         const elapsedMs = Date.now() - startedAt;
         const silentMs = Date.now() - lastActivityAt;
         // Count network-layer errors so the UI can distinguish "codex can't
@@ -2562,10 +2583,11 @@ export class CodexCliAdapter extends BaseCliAdapter {
         const lastNetworkError = networkErrors.length > 0
           ? networkErrors[networkErrors.length - 1]?.line ?? null
           : null;
-        logger.warn('Codex exec idle timeout', {
+        logger.warn(kind === 'deadline' ? 'Codex exec total deadline exceeded' : 'Codex exec idle timeout', {
           pid: this.process.pid,
           phase: effectivePhase,
-          idleBudgetMs: currentBudgetMs,
+          kind,
+          budgetMs,
           silentMs,
           elapsedMs,
           receivedAnyData,
@@ -2579,6 +2601,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
         });
         terminateProcessTree(this.process.pid);
         this.process = null;
+        clearIdleTimer();
+        clearDeadlineTimer();
         clearLivenessTimer();
 
         // Loop Mode opts into partial results (allowPartialOnTimeout): when codex
@@ -2599,9 +2623,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
               this.shouldResumeNextTurn = true;
             }
             const raw = [state.rawStdout.trim(), state.rawStderr.trim()].filter(Boolean).join('\n');
-            logger.warn('Codex exec idle timeout after partial output — returning partial transcript', {
+            logger.warn('Codex exec timed out after partial output — returning partial transcript', {
               phase: effectivePhase,
-              idleBudgetMs: currentBudgetMs,
+              kind,
+              budgetMs,
               elapsedMs,
               stdoutBytes: state.rawStdout.length,
             });
@@ -2615,6 +2640,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
                   ...partial.response.metadata,
                   diagnostics: state.diagnostics,
                   timedOut: true,
+                  timeoutKind: kind,
                   partial: true,
                   idleBudgetMs: currentBudgetMs,
                 },
@@ -2625,15 +2651,17 @@ export class CodexCliAdapter extends BaseCliAdapter {
           }
         }
 
-        reject(new CodexTimeoutError(effectivePhase, currentBudgetMs, {
+        reject(new CodexTimeoutError(effectivePhase, budgetMs, {
+          kind,
           networkErrorCount: networkErrors.length,
           lastNetworkError,
+          stdoutBytes: state.rawStdout.length,
         }));
       };
       const resetIdleTimer = () => {
         lastActivityAt = Date.now();
         if (idleTimer) clearTimeout(idleTimer);
-        idleTimer = setTimeout(fireIdleTimeout, currentBudgetMs);
+        idleTimer = setTimeout(() => fireWatchdogTimeout('idle'), currentBudgetMs);
       };
       // Promote startup → turn budget on first real stdout (proves codex is
       // producing). Stderr alone (the immediate stdin notice) must NOT promote,
@@ -2644,13 +2672,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
         currentBudgetMs = turnBudgetMs;
         logger.info('Codex exec escalated idle budget startup → turn on first stdout', { startupBudgetMs: options.timeoutMs, turnBudgetMs });
       };
-      const clearIdleTimer = () => {
-        if (idleTimer) {
-          clearTimeout(idleTimer);
-          idleTimer = null;
-        }
-      };
       resetIdleTimer();
+      // Absolute deadline, armed at spawn — cold-start time counts toward the
+      // total budget (that's what callers mean by "timeout").
+      deadlineTimer = setTimeout(() => fireWatchdogTimeout('deadline'), deadlineMs);
 
       // Synthetic liveness heartbeat. Codex exec emits no progress events
       // during long reasoning blocks, MCP tool calls, or web searches — the
@@ -2748,6 +2773,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
       childProcess.on('error', (error) => {
         clearIdleTimer();
+        clearDeadlineTimer();
         clearLivenessTimer();
         this.process = null;
         reject(error);
@@ -2755,13 +2781,22 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
       childProcess.on('close', (code, signal) => {
         clearIdleTimer();
+        clearDeadlineTimer();
         clearLivenessTimer();
 
         if (state.partialStdout.trim()) {
           this.processStdoutLine(state.partialStdout, state);
         }
         if (state.partialStderr.trim()) {
-          state.diagnostics.push(classifyCodexDiagnostic(state.partialStderr));
+          // Classify the unterminated remainder line by line. Classifying a
+          // multi-line blob as ONE diagnostic either filters a real error out
+          // with the benign "Reading prompt from stdin..." banner (anchored
+          // match) or leaks the banner into the surfaced failure reason.
+          for (const line of state.partialStderr.split('\n')) {
+            if (line.trim()) {
+              state.diagnostics.push(classifyCodexDiagnostic(line));
+            }
+          }
         }
 
         const parsed = parseCodexExecTranscript(

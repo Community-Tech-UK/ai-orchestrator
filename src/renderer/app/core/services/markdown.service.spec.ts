@@ -155,6 +155,31 @@ describe('MarkdownService.renderSync command stripping', () => {
     expect(html).toMatch(/<ol[^>]*\sstart="5"/);
   });
 
+  it('preserves non-sequential written numbers on ordered list items', () => {
+    // Regression: replying to numbered questions with "2) ok\n4) why..." was
+    // rendered as "2. ok / 3. why..." because CommonMark renumbers items
+    // sequentially from the first marker, discarding the written numbers.
+    const html = service.renderSync('2) ok\n4) Why not just paste in the rewrite?');
+
+    expect(html).toMatch(/<ol[^>]*\sstart="2"/);
+    expect(html).toMatch(/<li value="2">/);
+    expect(html).toMatch(/<li value="4">/);
+  });
+
+  it('does not add value attributes to sequentially numbered lists', () => {
+    const html = service.renderSync('2. first\n3. second\n4. third');
+
+    expect(html).toMatch(/<ol[^>]*\sstart="2"/);
+    expect(html).not.toContain('value=');
+  });
+
+  it('keeps lazy all-same numbering ("1. / 1. / 1.") sequential', () => {
+    const html = service.renderSync('1. first\n1. second\n1. third');
+
+    expect(html).not.toContain('value=');
+    expect(html).toContain('<ol>');
+  });
+
   it('does not add a start attribute for lists that begin at 1', () => {
     const html = service.renderSync('1. first\n2. second');
     // marked omits start="1" for lists beginning at 1; just confirm the items

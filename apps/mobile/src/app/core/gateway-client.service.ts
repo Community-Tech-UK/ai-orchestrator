@@ -5,6 +5,7 @@ import type {
   MobileCreateInstanceRequest,
   MobileHistorySessionDto,
   MobileInstanceDto,
+  MobileModelCatalog,
   MobileMessageDto,
   MobilePauseDto,
   MobilePromptDto,
@@ -39,6 +40,7 @@ export class GatewayClient {
   private readonly _prompts = signal<MobilePromptDto[]>([]);
   private readonly _pause = signal<MobilePauseDto>(EMPTY_PAUSE);
   private readonly _history = signal<MobileHistorySessionDto[]>([]);
+  private readonly _models = signal<MobileModelCatalog | null>(null);
 
   readonly snapshot = this._snapshot.asReadonly();
   readonly state = this._state.asReadonly();
@@ -48,6 +50,7 @@ export class GatewayClient {
   readonly pause = this._pause.asReadonly();
   /** Persisted sessions (chats + archived instance sessions), newest first. */
   readonly historySessions = this._history.asReadonly();
+  readonly modelCatalog = this._models.asReadonly();
 
   private ws: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -81,6 +84,7 @@ export class GatewayClient {
     this._prompts.set([]);
     this._pause.set(EMPTY_PAUSE);
     this._transcripts.set({});
+    this._models.set(null);
     this.lastSeq.clear();
     this._history.set([]);
     if (!host) {
@@ -313,6 +317,35 @@ export class GatewayClient {
     await this.request('POST', `/api/instances/${encodeURIComponent(instanceId)}/rename`, {
       displayName,
     });
+  }
+
+  async models(): Promise<MobileModelCatalog> {
+    const cached = this._models();
+    if (cached) {
+      return cached;
+    }
+    const catalog = await this.request<MobileModelCatalog>('GET', '/api/models');
+    this._models.set(catalog);
+    return catalog;
+  }
+
+  async changeModel(instanceId: string, model: string): Promise<MobileInstanceDto> {
+    const updated = await this.request<MobileInstanceDto>(
+      'POST',
+      `/api/instances/${encodeURIComponent(instanceId)}/model`,
+      { model },
+    );
+    this._snapshot.update((snapshot) =>
+      snapshot
+        ? {
+            ...snapshot,
+            instances: snapshot.instances.map((instance) =>
+              instance.id === updated.id ? updated : instance,
+            ),
+          }
+        : snapshot,
+    );
+    return updated;
   }
 
   async createInstance(body: MobileCreateInstanceRequest): Promise<MobileInstanceDto> {

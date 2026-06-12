@@ -13,7 +13,7 @@ vi.mock('./codex/app-server-client', async (importOriginal) => {
   return { ...actual, terminateProcessTree: vi.fn() };
 });
 
-import { CodexCliAdapter } from './codex-cli-adapter';
+import { CodexCliAdapter, CodexTimeoutError } from './codex-cli-adapter';
 
 type MockChildProcess = Omit<ChildProcess, 'killed'> & EventEmitter & {
   emitClose: (code?: number | null, signal?: string | null) => void;
@@ -483,19 +483,44 @@ Hey! I'm here. What do you want to tackle?`;
       );
     });
 
-    it('extends app-server active-item idle watchdog to the configured turn timeout', () => {
-      const adapter = new CodexCliAdapter({ timeout: 900_000 });
-
-      expect((adapter as unknown as {
-        resolveNotificationIdleTimeoutMs(activeItems: number): number;
+    it('treats the configured timeout as a total deadline and caps idle budgets by it', () => {
+      const internals = (a: CodexCliAdapter) => a as unknown as {
+        resolveDeadlineMs(): number;
         resolveTurnIdleTimeoutMs(): number;
-      }).resolveTurnIdleTimeoutMs()).toBe(900_000);
-      expect((adapter as unknown as {
         resolveNotificationIdleTimeoutMs(activeItems: number): number;
-      }).resolveNotificationIdleTimeoutMs(0)).toBe(900_000);
-      expect((adapter as unknown as {
-        resolveNotificationIdleTimeoutMs(activeItems: number): number;
-      }).resolveNotificationIdleTimeoutMs(1)).toBe(900_000);
+      };
+
+      // Review-style config (120s): the deadline is the configured total; the
+      // exec idle budget is the built-in turn constant capped by the deadline
+      // (codex's bursty output must NOT be killed for 120s of mid-work silence
+      // unless that also exhausts the total budget).
+      const review = internals(new CodexCliAdapter({ timeout: 120_000 }));
+      expect(review.resolveDeadlineMs()).toBe(120_000);
+      expect(review.resolveTurnIdleTimeoutMs()).toBe(120_000);
+      expect(review.resolveNotificationIdleTimeoutMs(0)).toBe(90_000);
+      expect(review.resolveNotificationIdleTimeoutMs(1)).toBe(120_000);
+
+      // Loop-style config (30 min): idle budgets stay at the built-in
+      // constants — the configured timeout no longer inflates them.
+      const loop = internals(new CodexCliAdapter({ timeout: 1_800_000 }));
+      expect(loop.resolveDeadlineMs()).toBe(1_800_000);
+      expect(loop.resolveTurnIdleTimeoutMs()).toBe(900_000);
+      expect(loop.resolveNotificationIdleTimeoutMs(0)).toBe(90_000);
+      expect(loop.resolveNotificationIdleTimeoutMs(1)).toBe(900_000);
+
+      // Tiny deadline: no idle budget may exceed the total deadline — a 30s
+      // budget must not wait 60s/90s of silence to report.
+      const tiny = internals(new CodexCliAdapter({ timeout: 30_000 }));
+      expect(tiny.resolveTurnIdleTimeoutMs()).toBe(30_000);
+      expect(tiny.resolveNotificationIdleTimeoutMs(0)).toBe(30_000);
+      expect(tiny.resolveNotificationIdleTimeoutMs(1)).toBe(30_000);
+
+      // Unset / invalid configs fall back to the built-in turn budget.
+      const unset = internals(new CodexCliAdapter());
+      expect(unset.resolveDeadlineMs()).toBe(900_000);
+      expect(unset.resolveTurnIdleTimeoutMs()).toBe(900_000);
+      expect(internals(new CodexCliAdapter({ timeout: 0 })).resolveDeadlineMs()).toBe(900_000);
+      expect(internals(new CodexCliAdapter({ timeout: Number.NaN })).resolveDeadlineMs()).toBe(900_000);
     });
   });
 
@@ -1436,7 +1461,7 @@ Hey! I'm here. What do you want to tackle?`;
         // budget never escalates and the startup watchdog fires.
         proc.stderr.write('Reading prompt from stdin...\n');
 
-        await expect(exec).rejects.toThrow(/timed out after 60ms during startup/);
+        await expect(exec).rejects.toThrow(/produced no output for 60ms during startup \(possible auth or network hang\)/);
       });
 
       it('returns a partial transcript on idle timeout when allowPartialOnTimeout is set', async () => {
@@ -1485,7 +1510,7 @@ Hey! I'm here. What do you want to tackle?`;
 
         proc.stdout.write('{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"work"}}\n');
 
-        await expect(exec).rejects.toThrow(/timed out/);
+        await expect(exec).rejects.toThrow(CodexTimeoutError);
       });
 
       it('clears session id and retries with fresh exec when resume fails with thread-not-found', async () => {
@@ -1540,6 +1565,179 @@ Hey! I'm here. What do you want to tackle?`;
         expect((adapter as unknown as { shouldResumeNextTurn: boolean }).shouldResumeNextTurn).toBe(false);
         expect((adapter as unknown as { sessionId: string }).sessionId).not.toBe('thread-old');
         expect((adapter as unknown as { resumeCursor: unknown }).resumeCursor).toBeNull();
+      });
+
+      it('does not retry fatal spawn errors and surfaces an enriched message', async () => {
+        const adapter = await spawnExecAdapter();
+        const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+        const proc = createMockProcess();
+        spawnSpy.mockReturnValueOnce(proc as unknown as ChildProcess);
+
+        setTimeout(() => {
+          // Errno-shaped spawn failure as Node emits it for a missing binary.
+          const err = Object.assign(new Error('spawn codex ENOENT'), {
+            code: 'ENOENT',
+            syscall: 'spawn codex',
+          });
+          proc.emit('error', err);
+        }, 0);
+
+        await expect(adapter.sendMessage({ role: 'user', content: 'go' }))
+          .rejects.toThrow(/CLI binary "codex" not found on PATH/);
+        // A spawn failure can never succeed on retry — exactly one attempt.
+        expect(spawnSpy).toHaveBeenCalledTimes(1);
+      });
+
+      it('propagates a fatal spawn error thrown from the model-unavailable fallback attempt', async () => {
+        const adapter = new CodexCliAdapter({ model: 'gpt-5.3-codex' });
+        vi.spyOn(adapter, 'checkStatus').mockResolvedValue({
+          available: true,
+          authenticated: true,
+          path: 'codex',
+          version: '0.137.0',
+          metadata: { appServerAvailable: false },
+        });
+        await adapter.spawn();
+        const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+
+        // First attempt: codex rejects the routed model → sendMessage retries
+        // once with --model omitted.
+        const innerError = JSON.stringify({
+          type: 'error',
+          status: 400,
+          error: { message: "The 'gpt-5.3-codex' model is not supported when using Codex with a ChatGPT account." },
+        });
+        queueCodexRun(spawnSpy, {
+          code: 1,
+          stdoutLines: [JSON.stringify({ type: 'turn.failed', error: { message: innerError } })],
+          stderrLines: ['Reading prompt from stdin...'],
+        });
+        // Fallback attempt: the spawn itself fails fatally — must propagate
+        // enriched, not be swallowed or retried again.
+        const proc = createMockProcess();
+        spawnSpy.mockReturnValueOnce(proc as unknown as ChildProcess);
+        setTimeout(() => {
+          proc.emit('error', Object.assign(new Error('spawn codex ENOENT'), {
+            code: 'ENOENT',
+            syscall: 'spawn codex',
+          }));
+        }, 0);
+
+        await expect(adapter.sendMessage({ role: 'user', content: 'go' }))
+          .rejects.toThrow(/CLI binary "codex" not found on PATH/);
+        expect(spawnSpy).toHaveBeenCalledTimes(2);
+      });
+
+      it('kills the turn at the absolute deadline even while codex keeps producing output', async () => {
+        const adapter = await spawnExecAdapter();
+        (adapter as unknown as { cliConfig: { timeout?: number } }).cliConfig.timeout = 250;
+        const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+        const proc = createMockProcess();
+        spawnSpy.mockReturnValueOnce(proc as unknown as ChildProcess);
+
+        const exec = (adapter as unknown as {
+          executePreparedMessage(
+            message: { role: 'user'; content: string },
+            options: { timeoutMs: number; phase: 'startup' | 'turn' },
+          ): Promise<unknown>;
+        }).executePreparedMessage({ role: 'user', content: 'go' }, { timeoutMs: 100, phase: 'startup' });
+
+        // Keep the process chatty so the idle watchdog never fires — only the
+        // absolute deadline can kill this turn.
+        const writer = setInterval(() => proc.stdout.write('{"type":"item.started"}\n'), 25);
+        const err = await exec.then(() => null, (e: unknown) => e);
+        clearInterval(writer);
+
+        expect(err).toBeInstanceOf(CodexTimeoutError);
+        expect((err as CodexTimeoutError).kind).toBe('deadline');
+        expect((err as CodexTimeoutError).message).toMatch(/exceeded its total deadline of 250ms/);
+        expect((err as CodexTimeoutError).message).toMatch(/consider raising the configured timeout/);
+      });
+
+      it('returns a partial transcript when the deadline fires and allowPartialOnTimeout is set', async () => {
+        const adapter = await spawnExecAdapter();
+        (adapter as unknown as { cliConfig: { timeout?: number } }).cliConfig.timeout = 250;
+        const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+        const proc = createMockProcess();
+        spawnSpy.mockReturnValueOnce(proc as unknown as ChildProcess);
+
+        const exec = (adapter as unknown as {
+          executePreparedMessage(
+            message: { role: 'user'; content: string; metadata?: Record<string, unknown> },
+            options: { timeoutMs: number; phase: 'startup' | 'turn' },
+          ): Promise<{ response: { content: string; metadata?: Record<string, unknown> } }>;
+        }).executePreparedMessage(
+          { role: 'user', content: 'go', metadata: { allowPartialOnTimeout: true } },
+          { timeoutMs: 100, phase: 'startup' },
+        );
+
+        proc.stdout.write('{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"deadline progress"}}\n');
+        const writer = setInterval(() => proc.stdout.write('{"type":"item.started"}\n', () => { /* keep alive */ }), 25);
+        const result = await exec;
+        clearInterval(writer);
+
+        expect(result.response.content).toContain('deadline progress');
+        expect(result.response.metadata?.['timedOut']).toBe(true);
+        expect(result.response.metadata?.['partial']).toBe(true);
+        expect(result.response.metadata?.['timeoutKind']).toBe('deadline');
+      });
+
+      it('clears the idle, deadline, and liveness timers when the process closes cleanly', async () => {
+        const adapter = await spawnExecAdapter();
+        (adapter as unknown as { cliConfig: { timeout?: number } }).cliConfig.timeout = 120_000;
+        const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+        const proc = createMockProcess();
+        spawnSpy.mockReturnValueOnce(proc as unknown as ChildProcess);
+
+        vi.useFakeTimers();
+        try {
+          const exec = (adapter as unknown as {
+            executePreparedMessage(
+              message: { role: 'user'; content: string },
+              options: { timeoutMs: number; phase: 'startup' | 'turn' },
+            ): Promise<{ response: { content: string } }>;
+          }).executePreparedMessage({ role: 'user', content: 'go' }, { timeoutMs: 60_000, phase: 'turn' });
+
+          proc.stdout.write('{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"done"}}\n');
+          proc.stdout.end();
+          proc.stderr.end();
+          proc.emitClose(0, null);
+          await vi.advanceTimersByTimeAsync(1);
+
+          const result = await exec;
+          expect(result.response.content).toBe('done');
+          // Idle, deadline, and liveness timers must all be gone — a stale
+          // watchdog would terminate an unrelated successor process.
+          expect(vi.getTimerCount()).toBe(0);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('surfaces the real error from an unterminated final stderr chunk, not the stdin banner', async () => {
+        const adapter = await spawnExecAdapter();
+        const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+        const proc = createMockProcess();
+        spawnSpy.mockReturnValueOnce(proc as unknown as ChildProcess);
+
+        const exec = (adapter as unknown as {
+          executePreparedMessage(
+            message: { role: 'user'; content: string },
+            options: { timeoutMs: number; phase: 'startup' | 'turn' },
+          ): Promise<unknown>;
+        }).executePreparedMessage({ role: 'user', content: 'go' }, { timeoutMs: 5_000, phase: 'startup' });
+
+        // Banner + real error in one chunk, with NO trailing newline — the
+        // error line lands in the unterminated remainder processed at close.
+        proc.stderr.write('Reading prompt from stdin...\nError: thread/resume failed: no rollout found for thread id abc');
+        proc.stdout.end();
+        proc.stderr.end();
+        proc.emitClose(1, null);
+
+        const err = await exec.then(() => null, (e: unknown) => e as Error);
+        expect(err).toBeInstanceOf(Error);
+        expect((err as Error).message).toContain('no rollout found for thread id abc');
+        expect((err as Error).message).not.toContain('Reading prompt from stdin');
       });
 
       it('does not retry on non-thread-loss errors in exec mode', async () => {

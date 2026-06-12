@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnInit,
+  computed,
   effect,
   inject,
   input,
@@ -10,7 +11,8 @@ import {
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { GatewayClient } from '../../core/gateway-client.service';
-import type { MobileRecentDirDto } from '../../core/models';
+import type { MobileModelCatalog, MobileRecentDirDto } from '../../core/models';
+import { ModelSheetComponent } from '../../shared/model-sheet.component';
 
 const PROVIDERS = ['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor'] as const;
 
@@ -23,7 +25,7 @@ const PROVIDERS = ['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor'] as 
   standalone: true,
   selector: 'app-new-session',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule],
+  imports: [FormsModule, ModelSheetComponent],
   template: `
     <section class="screen">
       <header class="top">
@@ -53,12 +55,20 @@ const PROVIDERS = ['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor'] as 
       <span class="lbl">Provider</span>
       <div class="providers">
         @for (p of providers; track p) {
-          <button class="prov" [class.sel]="provider() === p" (click)="provider.set(p)">{{ p }}</button>
+          <button class="prov" [class.sel]="provider() === p" (click)="selectProvider(p)">{{ p }}</button>
         }
       </div>
 
-      <span class="lbl">Model (optional)</span>
-      <input [ngModel]="model()" (ngModelChange)="model.set($event)" placeholder="e.g. opus / gpt-5.3-codex" />
+      @if (provider() !== 'auto') {
+        <span class="lbl">Model</span>
+        <button class="model-row" type="button" (click)="openModelSheet()">
+          <span>
+            <strong>{{ selectedModelLabel() }}</strong>
+            <small>{{ model() || 'No override' }}</small>
+          </span>
+          <span class="chev">›</span>
+        </button>
+      }
 
       <span class="lbl">First message</span>
       <textarea
@@ -75,6 +85,18 @@ const PROVIDERS = ['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor'] as 
       <button class="cta" (click)="create()" [disabled]="busy() || !canCreate()">
         {{ busy() ? 'Starting…' : 'Start session' }}
       </button>
+
+      @if (modelSheetOpen()) {
+        <app-model-sheet
+          [provider]="provider()"
+          [models]="modelsForProvider()"
+          [selected]="model()"
+          [loading]="modelsLoading()"
+          [error]="modelsError()"
+          (choose)="chooseModel($event)"
+          (dismiss)="modelSheetOpen.set(false)"
+        />
+      }
     </section>
   `,
   styles: [
@@ -98,6 +120,15 @@ const PROVIDERS = ['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor'] as 
         border-radius: var(--radius-pill); padding: 8px 14px; font-size: 14px; text-transform: capitalize;
       }
       .prov.sel { background: var(--accent-action); color: #fff; }
+      .model-row {
+        width: 100%; text-align: left; background: var(--surface); border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px; padding: 10px 12px; color: var(--text); display: flex;
+        align-items: center; justify-content: space-between; gap: 12px;
+      }
+      .model-row span:first-child { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+      .model-row strong { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .model-row small { color: var(--text-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .chev { color: var(--text-secondary); font-size: 22px; flex: none; }
       .error { color: var(--accent-error); font-size: 14px; }
       .cta {
         margin-top: 12px; background: #fff; color: #000; border: none;
@@ -119,10 +150,20 @@ export class NewSessionComponent implements OnInit {
   protected readonly loadingDirs = signal(true);
   protected readonly selectedDir = signal('');
   protected readonly provider = signal<(typeof PROVIDERS)[number]>('auto');
-  protected readonly model = signal('');
+  protected readonly model = signal<string | undefined>(undefined);
+  protected readonly modelSheetOpen = signal(false);
+  protected readonly modelsLoading = signal(false);
+  protected readonly modelsError = signal<string | null>(null);
+  protected readonly modelCatalog = signal<MobileModelCatalog | null>(null);
   protected readonly firstPrompt = signal('');
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
+  protected readonly modelsForProvider = computed(() => this.modelCatalog()?.[this.provider()] ?? []);
+  protected readonly selectedModelLabel = computed(() => {
+    const id = this.model();
+    if (!id) return 'Default';
+    return this.modelsForProvider().find((model) => model.id === id)?.name ?? id;
+  });
 
   constructor() {
     // Preselect the directory passed in the query param, when valid.
@@ -152,6 +193,33 @@ export class NewSessionComponent implements OnInit {
     return this.selectedDir().trim().length > 0;
   }
 
+  protected selectProvider(provider: (typeof PROVIDERS)[number]): void {
+    if (this.provider() !== provider) {
+      this.provider.set(provider);
+      this.model.set(undefined);
+    }
+  }
+
+  protected async openModelSheet(): Promise<void> {
+    if (this.provider() === 'auto') return;
+    this.modelSheetOpen.set(true);
+    if (this.modelCatalog() || this.modelsLoading()) return;
+    this.modelsLoading.set(true);
+    this.modelsError.set(null);
+    try {
+      this.modelCatalog.set(await this.gateway.models());
+    } catch (err) {
+      this.modelsError.set(err instanceof Error ? err.message : String(err));
+    } finally {
+      this.modelsLoading.set(false);
+    }
+  }
+
+  protected chooseModel(model: string | undefined): void {
+    this.model.set(model);
+    this.modelSheetOpen.set(false);
+  }
+
   protected async create(): Promise<void> {
     this.busy.set(true);
     this.error.set(null);
@@ -159,7 +227,7 @@ export class NewSessionComponent implements OnInit {
       const instance = await this.gateway.createInstance({
         workingDirectory: this.selectedDir(),
         provider: this.provider(),
-        model: this.model().trim() || undefined,
+        model: this.model(),
         initialPrompt: this.firstPrompt().trim() || undefined,
       });
       const key = instance.workingDirectory || '__no_workspace__';

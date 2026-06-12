@@ -20,6 +20,16 @@ export interface MobileInstanceDto {
   contextPercentage?: number;
 }
 
+export interface MobileModelDto {
+  id: string;
+  name: string;
+  tier: 'fast' | 'balanced' | 'powerful';
+  pinned?: boolean;
+  family?: string;
+}
+
+export type MobileModelCatalog = Record<string, MobileModelDto[]>;
+
 export interface MobileProjectDto {
   key: string;
   path: string;

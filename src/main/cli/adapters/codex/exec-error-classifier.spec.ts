@@ -1,0 +1,129 @@
+import { describe, expect, it } from 'vitest';
+import { isBenignCodexStdinNotice, isCodexModelUnavailableError, isFatalSpawnError } from './exec-error-classifier';
+import { CliSpawnCwdError, directoryExists, enrichSpawnError } from '../base-cli-adapter-utils';
+import { CodexCliAdapter } from '../codex-cli-adapter';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
+function errnoError(message: string, code: string, syscall?: string): NodeJS.ErrnoException {
+  const err = new Error(message) as NodeJS.ErrnoException;
+  err.code = code;
+  if (syscall) err.syscall = syscall;
+  return err;
+}
+
+describe('isFatalSpawnError', () => {
+  it('matches errno-shaped spawn errors for every fatal code', () => {
+    for (const code of ['ENOENT', 'EACCES', 'EPERM', 'ENOTDIR']) {
+      expect(isFatalSpawnError(errnoError(`spawn codex ${code}`, code, 'spawn codex'))).toBe(true);
+    }
+  });
+
+  it('matches the bare "spawn" syscall variant', () => {
+    expect(isFatalSpawnError(errnoError('spawn ENOENT', 'ENOENT', 'spawn'))).toBe(true);
+  });
+
+  it('matches message-only errors that lost their errno shape through wrapping', () => {
+    expect(isFatalSpawnError(new Error('Codex failed: spawn codex ENOENT'))).toBe(true);
+    expect(isFatalSpawnError(new Error('spawn claude EACCES'))).toBe(true);
+  });
+
+  it('matches CliSpawnCwdError from the spawnProcess guard', () => {
+    expect(isFatalSpawnError(new CliSpawnCwdError('codex', '/missing/dir'))).toBe(true);
+  });
+
+  it('does NOT match errno codes from non-spawn syscalls', () => {
+    // e.g. a tool reading a missing file — retryable circumstances differ.
+    expect(isFatalSpawnError(errnoError('ENOENT: no such file or directory, open /tmp/x', 'ENOENT', 'open'))).toBe(false);
+  });
+
+  it('does NOT match plain "file not found" tool errors', () => {
+    expect(isFatalSpawnError(new Error('file not found'))).toBe(false);
+    expect(isFatalSpawnError(new Error('config not found'))).toBe(false);
+  });
+
+  it('does NOT match thread/session resume errors', () => {
+    expect(isFatalSpawnError(new Error('thread not found: thread-abc'))).toBe(false);
+    expect(isFatalSpawnError(new Error('thread/resume failed: no rollout found for thread id abc'))).toBe(false);
+    expect(isFatalSpawnError(new Error('session expired'))).toBe(false);
+  });
+
+  it('does NOT match transient network/backend errors', () => {
+    expect(isFatalSpawnError(new Error('http 500 Internal Server Error'))).toBe(false);
+    expect(isFatalSpawnError(new Error('connection reset by peer'))).toBe(false);
+  });
+
+  it('handles non-Error inputs without throwing', () => {
+    expect(isFatalSpawnError(undefined)).toBe(false);
+    expect(isFatalSpawnError(null)).toBe(false);
+    expect(isFatalSpawnError('spawn codex ENOENT')).toBe(true);
+  });
+});
+
+describe('spawn errors vs other codex classifiers (cross-checks)', () => {
+  const adapter = new CodexCliAdapter();
+  const isRecoverableResume = (msg: string): boolean =>
+    (adapter as unknown as { isRecoverableThreadResumeError(e: unknown): boolean })
+      .isRecoverableThreadResumeError(new Error(msg));
+
+  it('spawn codex ENOENT does NOT satisfy isRecoverableThreadResumeError', () => {
+    expect(isRecoverableResume('spawn codex ENOENT')).toBe(false);
+  });
+
+  it('spawn errors are not model-unavailable errors', () => {
+    expect(isCodexModelUnavailableError(new Error('spawn codex ENOENT'))).toBe(false);
+  });
+
+  it('spawn errors are not benign stdin notices', () => {
+    expect(isBenignCodexStdinNotice('spawn codex ENOENT')).toBe(false);
+  });
+});
+
+describe('enrichSpawnError', () => {
+  const original = errnoError('spawn codex ENOENT', 'ENOENT', 'spawn codex');
+
+  it('reports a missing working directory when the cwd does not exist', () => {
+    const enriched = enrichSpawnError(original, 'codex', '/definitely/not/a/real/dir');
+    expect(enriched.message).toContain('Working directory does not exist: /definitely/not/a/real/dir');
+    expect(enriched.message).toContain('codex');
+    expect(enriched.message).toContain('Original: spawn codex ENOENT');
+  });
+
+  it('reports a missing binary when the cwd exists', () => {
+    const enriched = enrichSpawnError(original, 'codex', tmpdir());
+    expect(enriched.message).toContain('CLI binary "codex" not found on PATH');
+  });
+
+  it('reports a missing binary when no cwd is configured', () => {
+    const enriched = enrichSpawnError(original, 'codex', undefined);
+    expect(enriched.message).toContain('CLI binary "codex" not found on PATH');
+  });
+
+  it('reports a non-executable binary for EACCES/EPERM', () => {
+    const eacces = enrichSpawnError(errnoError('spawn codex EACCES', 'EACCES', 'spawn codex'), 'codex', tmpdir());
+    expect(eacces.message).toContain('not executable (EACCES)');
+  });
+
+  it('passes an already-specific CliSpawnCwdError through unchanged', () => {
+    const cwdError = new CliSpawnCwdError('codex', '/missing/dir');
+    expect(enrichSpawnError(cwdError, 'codex', '/missing/dir')).toBe(cwdError);
+  });
+});
+
+describe('directoryExists', () => {
+  it('returns true for an existing directory', () => {
+    expect(directoryExists(tmpdir())).toBe(true);
+  });
+
+  it('returns false for a missing path', () => {
+    expect(directoryExists('/definitely/not/a/real/dir')).toBe(false);
+  });
+
+  it('returns false for a foreign-platform path', () => {
+    expect(directoryExists('C:\\definitely\\not\\a\\real\\aio-dir')).toBe(false);
+  });
+
+  it('returns false for a plain file', () => {
+    expect(directoryExists(join(process.cwd(), 'package.json'))).toBe(false);
+  });
+});

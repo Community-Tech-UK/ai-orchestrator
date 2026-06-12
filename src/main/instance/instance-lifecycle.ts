@@ -79,6 +79,7 @@ import {
 import { IdleMonitor } from './lifecycle/idle-monitor';
 import { InterruptRespawnHandler } from './lifecycle/interrupt-respawn-handler';
 import { RuntimeReadinessCoordinator } from './lifecycle/runtime-readiness';
+import { shouldPreWarmReplacement } from './lifecycle/warm-start-policy';
 import { InstanceTerminationCoordinator } from './lifecycle/instance-termination';
 import { SpawnConfigBuilder } from './lifecycle/spawn-config-builder';
 import { createInitialUserMessage, getSeededInitialUserMessage } from './lifecycle/initial-user-message';
@@ -1586,20 +1587,22 @@ export class InstanceLifecycleManager extends EventEmitter {
 
         // After a successful spawn/warm-start, pre-warm a replacement process in
         // the background for the next createInstance call of the same provider.
-        // Skip this after native resume restores: the spare process only serves
-        // future fresh sessions, but it still expires on a 5 minute timer while
-        // the restored session is idle.
-        if (this.deps.warmStartManager && !config.resume) {
+        // Skipped for resume restores (the spare expires unused on its 5 minute
+        // TTL) and for remote instances (their working directory lives on
+        // another machine — a local pre-warm would spawn with a nonexistent
+        // cwd and fail with a misleading `spawn <cli> ENOENT`).
+        if (this.deps.warmStartManager && shouldPreWarmReplacement(config.resume, instance.executionLocation)) {
           const wsm = this.deps.warmStartManager;
           const warmProvider = resolvedCliType;
           const warmWorkingDir = instance.workingDirectory;
           // Fire and forget — errors are handled inside preWarm.
           void wsm.preWarm(warmProvider, warmWorkingDir);
-        } else if (this.deps.warmStartManager && config.resume) {
-          logger.info('Skipping warm-start replacement after resumed session spawn', {
+        } else if (this.deps.warmStartManager) {
+          logger.info('Skipping warm-start replacement spawn', {
             provider: resolvedCliType,
             instanceId: instance.id,
             sessionId: instance.sessionId,
+            reason: config.resume ? 'resumed session' : 'remote instance',
           });
         }
 

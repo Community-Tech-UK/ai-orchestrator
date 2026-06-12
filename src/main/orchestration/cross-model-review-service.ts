@@ -41,7 +41,7 @@ import {
   AVAILABILITY_REFRESH_INTERVAL_MS,
   SUPPORTED_REVIEWER_CLIS,
 } from './cross-model-review-service.constants';
-import { extractJson } from './cross-model-review-service.helpers';
+import { extractJson, resolveReviewWorkingDirectory } from './cross-model-review-service.helpers';
 
 const logger = getLogger('CrossModelReviewService');
 
@@ -176,6 +176,20 @@ export class CrossModelReviewService extends EventEmitter {
     if (!classification.shouldReview) return;
 
     const instance = this.instanceManager?.getInstance(instanceId);
+
+    // Remote instances run on another machine — their files do not exist
+    // locally. A local reviewer CLI would spawn with the remote machine's
+    // working directory (crash: `spawn <cli> ENOENT`) and, even with a
+    // fallback cwd, review without file context. Skip; routing reviews to
+    // the owning node is a separate feature.
+    if (instance?.executionLocation?.type === 'remote') {
+      logger.info('Skipping cross-model review for remote instance', {
+        instanceId,
+        nodeId: instance.executionLocation.nodeId,
+      });
+      return;
+    }
+
     const firstUserPrompt = instance?.outputBuffer
       .find(message => message.type === 'user' && message.content.trim().length > 0)
       ?.content.trim();
@@ -209,7 +223,7 @@ export class CrossModelReviewService extends EventEmitter {
       id: reviewId,
       instanceId,
       primaryProvider: buffer.primaryProvider,
-      workingDirectory: instance?.workingDirectory || process.cwd(),
+      workingDirectory: resolveReviewWorkingDirectory(instance?.workingDirectory),
       content: truncateForReview(aggregatedContent),
       taskDescription: firstUserPrompt || buffer.firstUserPrompt || instance?.displayName || 'No task description available',
       classification,
@@ -377,12 +391,17 @@ export class CrossModelReviewService extends EventEmitter {
 
   async runHeadlessReview(request: HeadlessReviewRequest): Promise<HeadlessReviewResult> {
     const startedAt = new Date();
+    // The cwd comes from the caller (CLI entrypoint / loop gate) — validate it
+    // like the in-session path does so a stale/foreign path degrades to a
+    // bounded review instead of a `spawn <cli> ENOENT` crash. No remote check
+    // here: headless reviews have no instance concept.
+    const cwd = resolveReviewWorkingDirectory(request.cwd);
     const host = this.reviewExecutionHost;
     if (!host) {
       const completedAt = new Date();
       return {
         target: request.target,
-        cwd: request.cwd,
+        cwd,
         startedAt: startedAt.toISOString(),
         completedAt: completedAt.toISOString(),
         reviewers: [],
@@ -397,7 +416,7 @@ export class CrossModelReviewService extends EventEmitter {
       const completedAt = new Date();
       return {
         target: request.target,
-        cwd: request.cwd,
+        cwd,
         startedAt: startedAt.toISOString(),
         completedAt: completedAt.toISOString(),
         reviewers: [],
@@ -435,7 +454,7 @@ export class CrossModelReviewService extends EventEmitter {
           ? buildTieredReviewPrompt(request.taskDescription, reviewContent, angle)
           : buildStructuredReviewPrompt(request.taskDescription, reviewContent, angle);
         try {
-          const rawResponse = await host.dispatchReviewerPrompt(reviewer, prompt, request.cwd, abort.signal);
+          const rawResponse = await host.dispatchReviewerPrompt(reviewer, prompt, cwd, abort.signal);
           const parsed = this.parseReviewResponse(reviewer, rawResponse, reviewDepth, 0);
           if (!parsed) {
             const len = rawResponse?.length ?? 0;
@@ -484,7 +503,7 @@ export class CrossModelReviewService extends EventEmitter {
 
     return {
       target: request.target,
-      cwd: request.cwd,
+      cwd,
       startedAt: startedAt.toISOString(),
       completedAt: completedAt.toISOString(),
       reviewers: reviewerStatuses,

@@ -50,6 +50,7 @@ import {
   sendJsonResponse,
 } from './mobile-gateway-http-utils';
 import { handleMobileHistory, handleMobileHistoryMessages } from './mobile-gateway-history-handlers';
+import { handleMobileModelRoutes, type MobileModelLister } from './mobile-gateway-model-handlers';
 import { sendMobileCompletionPush, sendMobilePromptPush } from './mobile-gateway-push';
 
 export {
@@ -121,6 +122,7 @@ export interface GatewayInstanceSource extends EmitterLike {
   }): void;
   clearPendingInputRequiredPermission(instanceId: string, requestId: string): void;
   renameInstance(instanceId: string, displayName: string): void;
+  changeModel(instanceId: string, newModel: string): Promise<Instance>;
   createInstance(config: InstanceCreateConfig): Promise<Instance>;
   getOrchestrationHandler(): GatewayOrchestrationSource;
 }
@@ -136,6 +138,7 @@ export interface MobileGatewayDeps {
   /** Persistent archive of closed instance sessions. Defaults to the HistoryManager. */
   instanceHistory?: GatewayInstanceHistorySource;
   apnsSender?: MobileApnsSender;
+  listDynamicModels?: MobileModelLister;
   /**
    * Resolves a worker-node name or id to a node id for remote-targeted
    * instance creation. Defaults to the worker-node registry; injectable so
@@ -863,6 +866,7 @@ export class MobileGatewayServer {
     try {
       // /api/...
       if (segments[0] === 'api') {
+        if (await handleMobileModelRoutes(this.modelDeps(), req, res, segments, method)) return;
         // /api/instances ...
         if (segments[1] === 'instances') {
           if (segments.length === 2) {
@@ -940,6 +944,10 @@ export class MobileGatewayServer {
   private source(): GatewayInstanceSource {
     if (!this.deps) throw new Error('Gateway not initialized');
     return this.deps.instanceManager;
+  }
+
+  private modelDeps() {
+    return { instanceManager: this.source(), listDynamicModels: this.deps?.listDynamicModels, logger };
   }
 
   private handleMessages(res: ServerResponse, instanceId: string, url: URL): void {
@@ -1291,31 +1299,23 @@ export class MobileGatewayServer {
 
   /** GET /api/history — persisted sessions, newest first. */
   private handleHistory(res: ServerResponse): void {
-    handleMobileHistory(
-      {
-        chatHistory: this.chatHistory,
-        instanceHistory: this.instanceHistory,
-        messageReplayLimit: MESSAGE_REPLAY_LIMIT,
-        sendJson: (response, statusCode, payload) => this.sendJson(response, statusCode, payload),
-        logger,
-      },
-      res,
-    );
+    handleMobileHistory(this.historyDeps(), res);
   }
 
   /** GET /api/history/:id/messages — transcript of one persisted session (chat or instance). */
   private async handleHistoryMessages(res: ServerResponse, id: string): Promise<void> {
-    await handleMobileHistoryMessages(
-      {
-        chatHistory: this.chatHistory,
-        instanceHistory: this.instanceHistory,
-        messageReplayLimit: MESSAGE_REPLAY_LIMIT,
-        sendJson: (response, statusCode, payload) => this.sendJson(response, statusCode, payload),
-        logger,
-      },
-      res,
-      id,
-    );
+    await handleMobileHistoryMessages(this.historyDeps(), res, id);
+  }
+
+  private historyDeps() {
+    return {
+      chatHistory: this.chatHistory,
+      instanceHistory: this.instanceHistory,
+      messageReplayLimit: MESSAGE_REPLAY_LIMIT,
+      sendJson: (response: ServerResponse, statusCode: number, payload: unknown) =>
+        this.sendJson(response, statusCode, payload),
+      logger,
+    };
   }
   private async handleApnsToken(
     req: IncomingMessage,

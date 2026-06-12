@@ -194,6 +194,15 @@ export class WorkerExtensionRelay {
 
   private handleSocket(socket: net.Socket): void {
     let buffer = '';
+    // The extension client can vanish at any moment (browser shutdown, pipe
+    // teardown). Without an error listener, a write EPIPE/ECONNRESET on this
+    // socket becomes an unhandled 'error' event and crashes the whole worker.
+    socket.on('error', (error: NodeJS.ErrnoException) => {
+      console.warn('[WorkerExtensionRelay] Relay client socket error', {
+        code: error.code,
+        message: error.message,
+      });
+    });
     socket.on('data', (chunk) => {
       buffer += chunk.toString('utf8');
       if (Buffer.byteLength(buffer, 'utf8') > MAX_RELAY_PAYLOAD_BYTES) {
@@ -215,7 +224,7 @@ export class WorkerExtensionRelay {
     try {
       request = JSON.parse(line) as ExtensionRpcRequest;
       const result = await this.handleExtensionRpcRequest(request);
-      socket.end(`${JSON.stringify({ jsonrpc: '2.0', id: request.id ?? null, result })}\n`);
+      this.endSocket(socket, `${JSON.stringify({ jsonrpc: '2.0', id: request.id ?? null, result })}\n`);
     } catch (error) {
       this.writeError(
         socket,
@@ -226,11 +235,18 @@ export class WorkerExtensionRelay {
   }
 
   private writeError(socket: net.Socket, id: string | number | null, message: string): void {
-    socket.end(`${JSON.stringify({
+    this.endSocket(socket, `${JSON.stringify({
       jsonrpc: '2.0',
       id,
       error: { code: -32603, message },
     })}\n`);
+  }
+
+  private endSocket(socket: net.Socket, data: string): void {
+    if (socket.destroyed || socket.writableEnded) {
+      return;
+    }
+    socket.end(data);
   }
 
   private parseAuthorizedParams(params: unknown): AuthorizedExtensionParams {

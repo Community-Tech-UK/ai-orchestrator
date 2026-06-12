@@ -1,4 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// The specs use fake paths like '/project' — stub the directory existence
+// check (true by default) so they keep exercising the manager logic, and
+// flip it to false to test the missing-directory guard.
+const utilsMocks = vi.hoisted(() => ({
+  directoryExists: vi.fn(() => true),
+}));
+vi.mock('../cli/adapters/base-cli-adapter-utils', () => ({
+  directoryExists: utilsMocks.directoryExists,
+}));
+
 import { WarmStartManager, type WarmStartDeps } from './warm-start-manager';
 
 // ---------------------------------------------------------------------------
@@ -20,6 +31,8 @@ function makeDeps(overrides: Partial<WarmStartDeps> = {}): WarmStartDeps {
 describe('WarmStartManager', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    utilsMocks.directoryExists.mockClear();
+    utilsMocks.directoryExists.mockImplementation(() => true);
   });
 
   afterEach(() => {
@@ -87,6 +100,30 @@ describe('WarmStartManager', () => {
 
       await expect(manager.preWarm('claude', '/project')).resolves.toBeUndefined();
       expect(manager.hasWarm('claude')).toBe(false);
+    });
+
+    it('skips the spawn entirely when the working directory does not exist', async () => {
+      utilsMocks.directoryExists.mockImplementation(() => false);
+      const deps = makeDeps();
+      const manager = new WarmStartManager(deps);
+
+      await expect(manager.preWarm('codex', 'C:\\Users\\shutu\\Documents\\Work')).resolves.toBeUndefined();
+
+      expect(deps.spawnAdapter).not.toHaveBeenCalled();
+      expect(manager.hasWarm('codex')).toBe(false);
+    });
+
+    it('keeps an existing warm process when a later preWarm has a missing directory', async () => {
+      const deps = makeDeps();
+      const manager = new WarmStartManager(deps);
+      await manager.preWarm('claude', '/project');
+
+      utilsMocks.directoryExists.mockImplementation(() => false);
+      await manager.preWarm('claude', '/deleted-worktree');
+
+      expect(deps.killAdapter).not.toHaveBeenCalled();
+      expect(deps.spawnAdapter).toHaveBeenCalledTimes(1);
+      expect(manager.hasWarm('claude', '/project')).toBe(true);
     });
   });
 

@@ -49,6 +49,12 @@ class FakeInstanceSource extends EventEmitter implements GatewayInstanceSource {
   sendInput = vi.fn(async () => undefined);
   interruptInstance = vi.fn(() => true);
   terminateInstance = vi.fn(async () => undefined);
+  changeModel = vi.fn(async (id: string, model: string) => {
+    const found = this.instances.find((i) => i.id === id);
+    if (!found) throw new Error(`Instance ${id} not found`);
+    found.currentModel = model;
+    return found;
+  });
   resumeAfterDeferredPermission = vi.fn(async () => undefined);
   recordInputRequiredPermissionDecision = vi.fn();
   clearPendingInputRequiredPermission = vi.fn();
@@ -1090,6 +1096,97 @@ describe('MobileGatewayServer', () => {
     const res = await authed(token, '/api/recent-dirs');
     const dirs = (await res.json()) as { path: string }[];
     expect(dirs.map((d) => d.path)).toEqual(['/repo/alpha', '/repo/beta']);
+  });
+
+  // ---- Model catalog + mid-session model change ----
+
+  it('serves a model catalog with static providers, dynamic metadata overlay, and static fallback', async () => {
+    const listDynamicModels = vi.fn(async (provider: string) => {
+      if (provider === 'copilot') {
+        return [{ id: 'gpt-5.5', name: 'Live GPT 5.5', tier: 'fast' as const }];
+      }
+      throw new Error('cursor unavailable');
+    });
+    server.initialize({
+      instanceManager: source,
+      registry,
+      pauseCoordinator: pause,
+      recentDirs: fakeRecentDirs,
+      listDynamicModels,
+    } as unknown as Parameters<MobileGatewayServer['initialize']>[0]);
+
+    const token = await pairToken();
+    const res = await authed(token, '/api/models');
+    expect(res.status).toBe(200);
+    const catalog = (await res.json()) as Record<string, { id: string; name: string; tier: string; pinned?: boolean; family?: string }[]>;
+
+    expect(catalog['auto']).toBeUndefined();
+    expect(catalog['claude']?.[0]?.id).toBeTruthy();
+    expect(catalog['copilot']).toEqual([
+      { id: 'gpt-5.5', name: 'Live GPT 5.5', tier: 'balanced', pinned: true, family: 'GPT' },
+    ]);
+    expect(catalog['cursor']?.some((model) => model.id === 'auto')).toBe(true);
+    expect(listDynamicModels).toHaveBeenCalledWith('copilot');
+    expect(listDynamicModels).toHaveBeenCalledWith('cursor');
+  });
+
+  it('changes the current model and returns the updated instance', async () => {
+    source.instances = [inst({ id: 'a', currentModel: 'opus' })];
+    const token = await pairToken();
+    const res = await authed(token, '/api/instances/a/model', {
+      method: 'POST',
+      body: JSON.stringify({ model: 'sonnet[1m]' }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string; model?: string };
+    expect(body).toMatchObject({ id: 'a', model: 'sonnet[1m]' });
+    expect(source.changeModel).toHaveBeenCalledWith('a', 'sonnet[1m]');
+  });
+
+  it('404s a model change for an unknown instance', async () => {
+    const token = await pairToken();
+    const res = await authed(token, '/api/instances/missing/model', {
+      method: 'POST',
+      body: JSON.stringify({ model: 'opus' }),
+    });
+
+    expect(res.status).toBe(404);
+    expect(source.changeModel).not.toHaveBeenCalled();
+  });
+
+  it('maps model-switch unavailability to 409 with the backend message', async () => {
+    source.changeModel.mockRejectedValueOnce(
+      new Error('Model changes are only available while the instance is waiting for user input. Current status: busy.'),
+    );
+    const token = await pairToken();
+    const res = await authed(token, '/api/instances/a/model', {
+      method: 'POST',
+      body: JSON.stringify({ model: 'opus' }),
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: 'Model changes are only available while the instance is waiting for user input. Current status: busy.',
+    });
+  });
+
+  it('dedupes a retried model change with the same idempotencyKey', async () => {
+    const token = await pairToken();
+    const first = await authed(token, '/api/instances/a/model', {
+      method: 'POST',
+      body: JSON.stringify({ model: 'opus', idempotencyKey: 'k-model-1' }),
+    });
+    expect(first.status).toBe(200);
+
+    const retry = await authed(token, '/api/instances/a/model', {
+      method: 'POST',
+      body: JSON.stringify({ model: 'opus', idempotencyKey: 'k-model-1' }),
+    });
+
+    expect(retry.status).toBe(200);
+    expect((await retry.json()).duplicate).toBe(true);
+    expect(source.changeModel).toHaveBeenCalledTimes(1);
   });
 
   // ---- WS snapshot + auth (Phase 0 regression) ----

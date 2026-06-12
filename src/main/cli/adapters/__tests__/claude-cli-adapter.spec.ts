@@ -14,6 +14,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { readFileSync } from 'fs';
+import { tmpdir } from 'os';
 
 vi.mock('../../../logging/logger', () => ({
   getLogger: () => ({
@@ -506,13 +507,16 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
     });
 
     it('uses the workingDirectory option as cwd', async () => {
-      const adapter = new ClaudeCliAdapter({ workingDirectory: '/tmp/proj-xyz' });
+      // Must be a real directory — spawnProcess now throws CliSpawnCwdError
+      // for nonexistent cwds before ever reaching spawn().
+      const workingDirectory = tmpdir();
+      const adapter = new ClaudeCliAdapter({ workingDirectory });
       const statusPromise = adapter.checkStatus();
       const proc = spawnedProcesses[spawnedProcesses.length - 1]!;
       proc.emit('close', 0);
       await statusPromise;
 
-      expect(lastSpawnState.lastSpawnArgs?.opts.cwd).toBe('/tmp/proj-xyz');
+      expect(lastSpawnState.lastSpawnArgs?.opts.cwd).toBe(workingDirectory);
     });
 
     it('reports unavailable when the spawned process emits error', async () => {

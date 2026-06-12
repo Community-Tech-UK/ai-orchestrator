@@ -55,6 +55,10 @@ function reviewerJson(issue: string): string {
   });
 }
 
+// An existing directory — the headless path validates cwd before dispatch,
+// so fake paths like '/repo' would silently fall back to process.cwd().
+const REPO_CWD = process.cwd();
+
 describe('CrossModelReviewService headless review', () => {
   beforeEach(() => {
     CrossModelReviewService._resetForTesting();
@@ -68,7 +72,7 @@ describe('CrossModelReviewService headless review', () => {
       return reviewerJson('Add a null check before reading payload.value.');
     });
     const host: ReviewExecutionHost = {
-      getWorkingDirectory: () => '/repo',
+      getWorkingDirectory: () => REPO_CWD,
       getTaskDescription: () => 'Review the local diff.',
       dispatchReviewerPrompt,
     };
@@ -77,7 +81,7 @@ describe('CrossModelReviewService headless review', () => {
 
     const result = await service.runHeadlessReview({
       target: 'HEAD',
-      cwd: '/repo',
+      cwd: REPO_CWD,
       content: 'diff --git a/src/handler.ts b/src/handler.ts',
       taskDescription: 'Review the local diff.',
       reviewers: ['gemini', 'codex'],
@@ -87,7 +91,7 @@ describe('CrossModelReviewService headless review', () => {
     expect(dispatchReviewerPrompt).toHaveBeenCalledWith(
       'gemini',
       expect.stringContaining('Review the local diff.'),
-      '/repo',
+      REPO_CWD,
       expect.any(AbortSignal),
     );
     expect(result.reviewers).toEqual([
@@ -153,6 +157,35 @@ describe('CrossModelReviewService headless review', () => {
     ]);
     expect(result.reviewers[0].reason).toMatch(/\d+ chars/);
     expect(result.infrastructureErrors).toHaveLength(1);
+  });
+
+  it('validates the cwd before dispatch and falls back to process.cwd() for a missing path', async () => {
+    const dispatchReviewerPrompt = vi.fn(async () => reviewerJson('finding'));
+    const service = CrossModelReviewService.getInstance();
+    service.setReviewExecutionHost({
+      getWorkingDirectory: () => undefined,
+      getTaskDescription: () => 'Review',
+      dispatchReviewerPrompt,
+    });
+
+    const result = await service.runHeadlessReview({
+      target: 'HEAD',
+      // A remote-node Windows path — does not exist on this machine. Spawning
+      // a reviewer CLI with it would fail with `spawn <cli> ENOENT`.
+      cwd: 'C:\\Users\\shutu\\Documents\\Work',
+      content: 'diff',
+      taskDescription: 'Review',
+      reviewers: ['gemini'],
+    });
+
+    expect(dispatchReviewerPrompt).toHaveBeenCalledWith(
+      'gemini',
+      expect.any(String),
+      process.cwd(),
+      expect.any(AbortSignal),
+    );
+    expect(result.cwd).toBe(process.cwd());
+    expect(result.reviewers).toEqual([{ provider: 'gemini', status: 'used' }]);
   });
 
   it('returns stable JSON-shaped results when no reviewers are available', async () => {

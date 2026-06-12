@@ -1,7 +1,31 @@
 /**
- * Pure helpers for parsing reviewer JSON responses.
- * Extracted from CrossModelReviewService to keep the class file focused.
+ * Helpers for CrossModelReviewService: reviewer-JSON parsing and working
+ * directory validation. Extracted to keep the class file focused.
  */
+
+import { getLogger } from '../logging/logger';
+import { directoryExists } from '../cli/adapters/base-cli-adapter-utils';
+
+const logger = getLogger('CrossModelReviewService');
+
+/**
+ * Validate a review working directory before handing it to a locally-spawned
+ * reviewer CLI. A missing/invalid directory (remote-node path like `C:\...`
+ * on macOS, deleted worktree, plain file) makes Node fail the spawn with a
+ * misleading `spawn <cli> ENOENT`. Reviews carry their content in the prompt,
+ * so falling back to the process cwd degrades gracefully instead of crashing.
+ */
+export function resolveReviewWorkingDirectory(candidate: string | undefined): string {
+  if (candidate) {
+    if (directoryExists(candidate)) {
+      return candidate;
+    }
+    logger.warn('Review working directory missing or not a directory — falling back to process cwd', {
+      candidate,
+    });
+  }
+  return process.cwd();
+}
 
 /**
  * Extract JSON from a reviewer response, handling common model output quirks:
