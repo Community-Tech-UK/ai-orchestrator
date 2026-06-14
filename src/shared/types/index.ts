@@ -39,3 +39,4 @@ export * from './mcp-dtos.types';
 export * from './provider-doctor.types';
 export * from './workflow-lifecycle.types';
 export * from './thin-client-event.types';
+export * from './campaign.types';

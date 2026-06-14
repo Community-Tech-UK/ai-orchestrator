@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import type { CampaignRunDto, CampaignSpec } from '../../../../../main/orchestration/campaign.types';
+import type { CampaignRunDto, CampaignSpec } from '../../../../../shared/types/campaign.types';
 import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
 
 function notInElectron(): IpcResponse {

@@ -1,5 +1,5 @@
 import { computed, Injectable, inject, signal } from '@angular/core';
-import type { CampaignRunDto } from '../../../../main/orchestration/campaign.types';
+import type { CampaignRunDto } from '../../../../shared/types/campaign.types';
 import { CampaignIpcService } from '../services/ipc/campaign-ipc.service';
 
 @Injectable({ providedIn: 'root' })

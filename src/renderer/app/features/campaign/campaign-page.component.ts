@@ -5,7 +5,7 @@ import {
   inject,
   OnInit,
 } from '@angular/core';
-import type { CampaignNodeRunDto, CampaignRunDto } from '../../../../main/orchestration/campaign.types';
+import type { CampaignNodeRunDto, CampaignRunDto } from '../../../../shared/types/campaign.types';
 import { CampaignStore } from '../../core/state/campaign.store';
 
 function statusLabel(status: string): string {
