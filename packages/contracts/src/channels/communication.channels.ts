@@ -36,6 +36,8 @@ export const COMMUNICATION_CHANNELS = {
   REACTION_UNTRACK_INSTANCE: 'reaction:untrack-instance',
   REACTION_GET_TRACKED: 'reaction:get-tracked',
   REACTION_GET_STATE: 'reaction:get-state',
+  REACTION_SET_ARMED: 'reaction:set-armed',
+  REACTION_SET_AUTO_MERGE: 'reaction:set-auto-merge',
   REACTION_EVENT: 'reaction:event',
   REACTION_ESCALATED: 'reaction:escalated',
 

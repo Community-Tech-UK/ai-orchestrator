@@ -8,6 +8,64 @@ export function createCommunicationDomain(
 ) {
   return {
     // ============================================
+    // Reaction Engine
+    // ============================================
+
+    reactionGetConfig: (): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.REACTION_GET_CONFIG),
+
+    reactionUpdateConfig: (payload: {
+      enabled?: boolean;
+      pollIntervalMs?: number;
+    }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.REACTION_UPDATE_CONFIG, payload),
+
+    reactionTrackInstance: (payload: {
+      instanceId: string;
+      prUrl: string;
+    }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.REACTION_TRACK_INSTANCE, payload),
+
+    reactionUntrackInstance: (payload: {
+      instanceId: string;
+    }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.REACTION_UNTRACK_INSTANCE, payload),
+
+    reactionGetTracked: (): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.REACTION_GET_TRACKED),
+
+    reactionGetState: (payload: {
+      instanceId: string;
+    }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.REACTION_GET_STATE, payload),
+
+    reactionSetArmed: (payload: {
+      instanceId: string;
+      armed: boolean;
+    }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.REACTION_SET_ARMED, payload),
+
+    reactionSetAutoMerge: (payload: {
+      instanceId: string;
+      allowed: boolean;
+    }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.REACTION_SET_AUTO_MERGE, payload),
+
+    onReactionEvent: (callback: (event: unknown) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: unknown) =>
+        callback(data);
+      ipcRenderer.on(ch.REACTION_EVENT, handler);
+      return () => ipcRenderer.removeListener(ch.REACTION_EVENT, handler);
+    },
+
+    onReactionEscalated: (callback: (event: unknown) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, data: unknown) =>
+        callback(data);
+      ipcRenderer.on(ch.REACTION_ESCALATED, handler);
+      return () => ipcRenderer.removeListener(ch.REACTION_ESCALATED, handler);
+    },
+
+    // ============================================
     // Remote observer / read-only access
     // ============================================
 

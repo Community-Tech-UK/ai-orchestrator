@@ -143,6 +143,28 @@ describe('handleNodeFailover', () => {
     );
   });
 
+  it('does not degrade instances already in a terminal failed state', () => {
+    registry.registerNode(makeNode('node-2b'));
+    mockInstances.push(
+      { id: 'inst-active', status: 'idle', nodeId: 'node-2b' },
+      { id: 'inst-failed', status: 'failed', nodeId: 'node-2b' },
+    );
+
+    handleNodeFailover('node-2b', mockInstanceManager as never);
+
+    expect(mockInstanceManager.updateInstanceStatus).toHaveBeenCalledTimes(1);
+    expect(mockInstanceManager.updateInstanceStatus).toHaveBeenCalledWith(
+      'inst-active',
+      'degraded',
+      { reason: 'worker-node-disconnected', nodeId: 'node-2b' },
+    );
+    expect(mockInstanceManager.updateInstanceStatus).not.toHaveBeenCalledWith(
+      'inst-failed',
+      'degraded',
+      expect.any(Object),
+    );
+  });
+
   // -------------------------------------------------------------------------
   // Test 3: After grace period, marks instances as failed and emits events
   // -------------------------------------------------------------------------

@@ -45,6 +45,7 @@ import { getAgentTreePersistence } from '../session/agent-tree-persistence';
 import { getPermissionRegistry } from '../orchestration/permission-registry';
 import { getOrchestrationSnapshotManager } from '../orchestration/orchestration-snapshot';
 import { getReactionEngine } from '../reactions';
+import { getCampaignCoordinator } from '../orchestration/campaign-coordinator';
 import { getWorkflowManager } from '../workflows/workflow-manager';
 import { getPermissionManager } from '../security/permission-manager';
 import { PermissionDecisionStore } from '../security/permission-decision-store';
@@ -334,6 +335,20 @@ export function createInitializationSteps(
         }
       },
     },
+    {
+      name: 'Campaign coordinator',
+      fn: async () => {
+        try {
+          const coordinator = getCampaignCoordinator();
+          coordinator.initialize();
+          await coordinator.recoverInterruptedCampaigns();
+        } catch (error) {
+          logger.warn('Campaign coordinator initialization failed; campaign IPC will report degraded errors', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+    },
     { name: 'Loop invokers', fn: () => registerDefaultLoopInvoker(instanceManager) },
     {
       name: 'Child auto-announce',
@@ -358,7 +373,27 @@ export function createInitializationSteps(
       },
     },
     { name: 'Plugin manager', fn: () => getOrchestratorPluginManager().initialize(instanceManager) },
-    { name: 'Reaction engine', fn: () => getReactionEngine().initialize(instanceManager) },
+    {
+      name: 'Reaction engine',
+      fn: () => {
+        const settings = getSettingsManager();
+        const engine = getReactionEngine();
+        engine.initialize(instanceManager, {
+          // Default-on: an unset setting resolves to the DEFAULT_SETTINGS value (true).
+          enabled: settings.get('reactionsEnabled') !== false,
+          pollIntervalMs: (settings.get('reactionsPollIntervalMs') as number | undefined) ?? 60_000,
+        });
+        // Live-apply settings changes (the generic settings UI writes through the
+        // settings-manager, not the REACTION_UPDATE_CONFIG IPC, so subscribe here
+        // to start/stop the engine without requiring a restart).
+        settings.on('setting:reactionsEnabled', (value: unknown) => {
+          engine.updateConfig({ enabled: value !== false });
+        });
+        settings.on('setting:reactionsPollIntervalMs', (value: unknown) => {
+          if (typeof value === 'number') engine.updateConfig({ pollIntervalMs: value });
+        });
+      },
+    },
     { name: 'Observation ingestor', fn: () => getObservationIngestor().initialize(instanceManager) },
     { name: 'Observer agent', fn: () => { getObserverAgent(); } },
     { name: 'Reflector agent', fn: () => { getReflectorAgent(); } },

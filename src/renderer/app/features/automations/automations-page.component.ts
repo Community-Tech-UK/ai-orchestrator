@@ -11,9 +11,12 @@ import type {
 } from '../../../../shared/types/automation.types';
 import type { FileAttachment } from '../../../../shared/types/instance.types';
 import type { AutomationPreflightReport, AutomationTemplate } from '../../../../shared/types/task-preflight.types';
+import type { ReasoningEffort } from '../../../../shared/types/provider.types';
 import { NO_WORKSPACE_KEY } from '../../../../shared/utils/workspace-key';
 import { AutomationStore, type AutomationDraft } from '../../core/state/automation.store';
 import { InstanceStore } from '../../core/state/instance/instance.store';
+import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
+import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
 import { describeSchedule } from './schedule-format';
 
 type OverlayMode = 'detail' | 'form' | 'chat' | null;
@@ -85,7 +88,7 @@ function fromLocalDateInput(value: string): number {
 @Component({
   selector: 'app-automations-page',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, CompactModelPickerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '(document:keydown.escape)': 'onEscape()' },
   templateUrl: './automations-page.component.html',
@@ -323,6 +326,62 @@ export class AutomationsPageComponent {
     this.form.update((current) => ({ ...current, ...patch }));
     this.preflightAcknowledged.set(false);
     this.store.clearPreflight();
+  }
+
+  // --- Model picker ----------------------------------------------------------
+
+  /**
+   * Providers offered by the inline model picker, locked to the form's chosen
+   * provider so the picker lists that provider's models only. Empty when the
+   * provider is "auto" (the picker is hidden and the orchestrator chooses).
+   */
+  readonly modelPickerProviders = computed<PickerProvider[]>(() => {
+    const provider = this.form().provider;
+    return provider && provider !== 'auto' ? [provider as PickerProvider] : [];
+  });
+
+  /**
+   * Current picker selection derived from the form. Null when the provider is
+   * "auto"; the template only renders the picker for a concrete provider, so
+   * the non-null assertion at the binding site is safe.
+   */
+  readonly modelPickerSelection = computed<PendingSelection | null>(() => {
+    const model = this.form();
+    if (!model.provider || model.provider === 'auto') {
+      return null;
+    }
+    return {
+      provider: model.provider as PickerProvider,
+      model: model.model || null,
+      reasoning: (model.reasoningEffort || null) as ReasoningEffort | null,
+    };
+  });
+
+  /**
+   * Provider `<select>` change. A model id is provider-specific, so switching
+   * provider invalidates any pinned model and its reasoning tier — clear both
+   * so the picker re-seeds to the new provider's default instead of carrying a
+   * stale, unrunnable model id.
+   */
+  onProviderChange(provider: AutomationFormModel['provider']): void {
+    if (provider === this.form().provider) {
+      return;
+    }
+    this.patchForm({ provider, model: '', reasoningEffort: '' });
+  }
+
+  /**
+   * The inline model picker committed a selection. Always adopt the model; only
+   * adopt reasoning when the user explicitly chose a tier (non-null) so a plain
+   * model pick — which the picker reports with `reasoning: null` — preserves any
+   * existing effort rather than silently clearing it.
+   */
+  onModelPicked(selection: PendingSelection): void {
+    const patch: Partial<AutomationFormModel> = { model: selection.model ?? '' };
+    if (selection.reasoning !== null) {
+      patch.reasoningEffort = selection.reasoning as AutomationFormModel['reasoningEffort'];
+    }
+    this.patchForm(patch);
   }
 
   async save(): Promise<void> {

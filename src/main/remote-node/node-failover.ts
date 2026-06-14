@@ -17,6 +17,10 @@ const logger = getLogger('NodeFailover');
 // in worker-node-health.ts) — see that file for the full timeline.
 export const FAILOVER_GRACE_MS = 30_000;
 
+function isTerminalFailoverStatus(status: string): boolean {
+  return status === 'failed' || status === 'terminated';
+}
+
 /**
  * Handles failover for all instances running on a disconnected worker node.
  *
@@ -30,8 +34,9 @@ export const FAILOVER_GRACE_MS = 30_000;
 export function handleNodeFailover(nodeId: string, instanceManager: InstanceManager): void {
   const registry = getWorkerNodeRegistry();
 
-  const affected: { id: string; originalStatus: string }[] = instanceManager
+  const affected: { id: string; originalStatus: InstanceStatus }[] = instanceManager
     .getInstancesByNode(nodeId)
+    .filter((inst) => !isTerminalFailoverStatus(inst.status))
     .map((inst) => ({
       id: inst.id,
       originalStatus: inst.status,
@@ -79,7 +84,7 @@ export function handleNodeFailover(nodeId: string, instanceManager: InstanceMana
     for (const { id, originalStatus } of affected) {
       // Verify instance still exists before restoring
       const inst = instanceManager.getInstance(id);
-      if (inst) {
+      if (inst && !isTerminalFailoverStatus(inst.status)) {
         instanceManager.updateInstanceStatus(id, originalStatus as InstanceStatus, {
           reason: 'worker-node-reconnected',
           nodeId,
@@ -114,7 +119,7 @@ export function handleNodeFailover(nodeId: string, instanceManager: InstanceMana
     for (const { id } of affected) {
       // Verify instance still exists before updating
       const inst = instanceManager.getInstance(id);
-      if (inst) {
+      if (inst && !isTerminalFailoverStatus(inst.status)) {
         instanceManager.updateInstanceStatus(id, 'failed', {
           reason: 'worker-node-disconnected',
           nodeId,

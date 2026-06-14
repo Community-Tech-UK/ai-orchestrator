@@ -231,6 +231,10 @@ export const SETTINGS_TOOL_POLICY = {
   auxiliaryLlmQuickModel: open(modelIdSchema),
   auxiliaryLlmQualityModel: open(modelIdSchema),
   auxiliaryLlmRoutingClassificationEnabled: open(z.boolean()),
+
+  // Reactions (event-driven re-prompting)
+  reactionsEnabled: open(z.boolean()),
+  reactionsPollIntervalMs: open(z.number().int().min(5000).max(600_000)),
 } satisfies Record<keyof AppSettings, SettingsToolPolicy>;
 
 export function getSettingsToolPolicy(key: string): SettingsToolPolicy {

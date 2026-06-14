@@ -65,3 +65,4 @@ export { registerRtkHandlers } from './rtk-handlers';
 export { registerLoopHandlers } from './loop-handlers';
 export { registerTerminalHandlers } from './terminal-handlers';
 export { registerAuxiliaryLlmHandlers } from './auxiliary-llm-handlers';
+export { registerCampaignHandlers } from './campaign-handlers';

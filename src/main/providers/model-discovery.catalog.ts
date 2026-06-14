@@ -13,30 +13,6 @@ export function buildAnthropicKnownModels(): DiscoveredModel[] {
   const now = Date.now();
   return [
     {
-      id: CLAUDE_PINNED_MODELS.FABLE_5,
-      name: 'Claude Fable 5',
-      displayName: 'Claude Fable 5',
-      provider: 'anthropic',
-      description: 'Most capable widely released model for demanding reasoning and long-horizon agentic work',
-      contextLength: 1000000,
-      maxOutputTokens: 128000,
-      capabilities: {
-        vision: true,
-        functionCalling: true,
-        streaming: true,
-        json: true,
-        systemMessage: true,
-      },
-      pricing: {
-        inputPer1kTokens: 0.01,
-        outputPer1kTokens: 0.05,
-        cachePer1kTokens: 0.0125,
-        currency: 'USD',
-      },
-      isAvailable: true,
-      lastChecked: now,
-    },
-    {
       id: CLAUDE_MODELS.OPUS,
       name: 'Claude Opus (latest)',
       displayName: 'Claude Opus (latest)',

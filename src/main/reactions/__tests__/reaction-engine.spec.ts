@@ -162,6 +162,7 @@ describe('ReactionEngine', () => {
       vi.mocked(fetchPREnrichmentBatch).mockResolvedValueOnce(enrichmentMap);
 
       engine.trackInstance('inst-1', 'https://github.com/test-org/test-repo/pull/42');
+      engine.setArmed('inst-1', true); // arm so send-to-agent reactions fire
       await vi.advanceTimersByTimeAsync(100); // First poll
 
       // Second poll: CI failing
@@ -215,6 +216,7 @@ describe('ReactionEngine', () => {
       vi.mocked(fetchPREnrichmentBatch).mockResolvedValueOnce(enrichmentMap);
 
       engine.trackInstance('inst-1', 'https://github.com/test-org/test-repo/pull/42');
+      engine.setArmed('inst-1', true); // arm so send-to-agent reactions fire
       await vi.advanceTimersByTimeAsync(100);
 
       // Changes requested
@@ -237,6 +239,7 @@ describe('ReactionEngine', () => {
       vi.mocked(fetchPREnrichmentBatch).mockResolvedValueOnce(enrichmentMap);
 
       engine.trackInstance('inst-1', 'https://github.com/test-org/test-repo/pull/42');
+      engine.setArmed('inst-1', true); // arm so send-to-agent reactions (and their escalation) fire
       await vi.advanceTimersByTimeAsync(100); // First poll (baseline)
 
       const escalatedEvents: unknown[] = [];
@@ -261,6 +264,37 @@ describe('ReactionEngine', () => {
 
       // After 4 fail/recover cycles, the ci-failed tracker has 4 attempts (> retries: 2)
       expect(escalatedEvents.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('auto-merge opt-in', () => {
+    it('refuses to allow auto-merge on an un-armed instance', () => {
+      engine.setAutoMergeAllowed('inst-1', true);
+      expect(engine.isAutoMergeAllowed('inst-1')).toBe(false);
+    });
+
+    it('allows auto-merge once the instance is armed', () => {
+      engine.setArmed('inst-1', true);
+      engine.setAutoMergeAllowed('inst-1', true);
+      expect(engine.isAutoMergeAllowed('inst-1')).toBe(true);
+    });
+
+    it('revokes auto-merge when the instance is disarmed', () => {
+      engine.setArmed('inst-1', true);
+      engine.setAutoMergeAllowed('inst-1', true);
+      expect(engine.isAutoMergeAllowed('inst-1')).toBe(true);
+
+      engine.setArmed('inst-1', false);
+      expect(engine.isAutoMergeAllowed('inst-1')).toBe(false);
+    });
+
+    it('clears auto-merge opt-in when the instance is removed', () => {
+      engine.trackInstance('inst-1', 'https://github.com/test-org/test-repo/pull/42');
+      engine.setArmed('inst-1', true);
+      engine.setAutoMergeAllowed('inst-1', true);
+
+      mockInstanceManager._emit('instance:removed', 'inst-1');
+      expect(engine.isAutoMergeAllowed('inst-1')).toBe(false);
     });
   });
 

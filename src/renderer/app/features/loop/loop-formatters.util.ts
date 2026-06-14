@@ -13,13 +13,14 @@
  * if they want to override (mostly for tests).
  */
 
-/** Renders a wall-clock duration in milliseconds as `Ns`, `NmSs`, or
- *  `NhMm`. Used for "loop ran for 9m3s"-style summaries. */
+/** Renders a wall-clock duration in milliseconds as `Ns`, `NmSs`, `NhMm`,
+ *  or `NdNhNm`. Used for "loop ran for 9m3s"-style summaries. */
 export function humanDuration(ms: number): string {
   if (ms < 60_000) return `${Math.floor(ms / 1000)}s`;
   const mins = Math.floor(ms / 60_000);
   if (mins < 60) return `${mins}m${Math.floor((ms % 60_000) / 1000)}s`;
   const hours = Math.floor(mins / 60);
+  if (ms > 24 * 60 * 60_000) return `${Math.floor(hours / 24)}d${hours % 24}h${mins % 60}m`;
   return `${hours}h${mins % 60}m`;
 }
 

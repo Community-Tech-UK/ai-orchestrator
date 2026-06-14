@@ -349,6 +349,28 @@ export interface LoopDegradedIterationRetryConfig {
 /** LF-4 — max disposable-plan regenerations per stall streak before pausing. */
 export const LOOP_MAX_PLAN_REGENERATIONS = 2;
 
+/**
+ * G3 — Optional next-objective planner (Phase 3, flag-gated, off by default).
+ *
+ * When set on LoopConfig, after each iteration where the evidence ladder says
+ * `continue` (never on stop/pause branches), the planner may propose the next
+ * iteration's focus objective. Its output is injected into pendingInterventions
+ * so the next prompt template picks it up — exactly as an operator intervention.
+ *
+ * Hard invariant: the planner runs ONLY on the `continue` branch. It can never
+ * produce a `stop`. Stop authority remains exclusively with evidence-resolver.
+ *
+ * @param context.lastOutput    Full output of the just-completed iteration.
+ * @param context.originalGoal  The loop's original `initialPrompt` (pinned).
+ * @param context.seq           Iteration number (1-based) just completed.
+ * @returns  Next-objective text to inject, or null/undefined to skip injection.
+ */
+export type NextObjectivePlanner = (context: {
+  lastOutput: string;
+  originalGoal: string;
+  seq: number;
+}) => Promise<string | null | undefined>;
+
 export interface LoopConfig {
   /** The goal/ask. Sent on iteration 0 — anchors what the loop drives toward. */
   initialPrompt: string;
@@ -418,6 +440,13 @@ export interface LoopConfig {
    * the bound entirely.
    */
   maxTurnsPerIteration?: number | null;
+  /**
+   * G3 — Optional next-objective planner (Phase 3, off by default).
+   * When set, after each `continue` iteration, the planner proposes the next
+   * focus objective. Injected as an intervention — never affects stop authority.
+   * See `NextObjectivePlanner` for the invariant guarantees.
+   */
+  nextObjectivePlanner?: NextObjectivePlanner;
 }
 
 /** Default config factory. */

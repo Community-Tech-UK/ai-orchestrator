@@ -192,7 +192,6 @@ export interface ContextManagedMessageParams extends CachedMessageParams {
  * Models that support prompt caching
  */
 export const PROMPT_CACHING_MODELS = [
-  'claude-fable-5',
   'claude-opus-4-5-20251101',
   'claude-opus-4-1-20250805',
   'claude-opus-4-20250514',
@@ -217,7 +216,6 @@ export const CONTEXT_EDITING_MODELS = PROMPT_CACHING_MODELS;
  * Minimum cacheable tokens by model
  */
 export const MIN_CACHEABLE_TOKENS: Record<string, number> = {
-  'claude-fable-5': 1024,
   'claude-opus-4-5-20251101': 4096,
   'claude-opus-4-1-20250805': 1024,
   'claude-opus-4-20250514': 1024,

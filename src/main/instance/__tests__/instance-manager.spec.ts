@@ -1723,18 +1723,18 @@ describe('InstanceManager', () => {
       );
       mockCreateCliAdapter.mockClear();
 
-      await manager.changeModel(instance.id, 'claude-fable-5');
+      await manager.changeModel(instance.id, 'claude-opus-4-8');
 
       expect(mockCreateCliAdapter).toHaveBeenCalledWith(
         'claude',
         expect.objectContaining({
-          model: 'claude-fable-5',
+          model: 'claude-opus-4-8',
           resume: false,
           forkSession: false,
         }),
         expect.anything(),
       );
-      expect(instance.currentModel).toBe('claude-fable-5');
+      expect(instance.currentModel).toBe('claude-opus-4-8');
       expect(mockAdapterSendInput).toHaveBeenCalledWith(
         expect.stringContaining('replay fallback (model-change)'),
       );

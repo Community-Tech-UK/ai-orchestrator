@@ -13,12 +13,13 @@
  */
 
 import { EventEmitter } from 'events';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { getLogger } from '../logging/logger';
 import { generateId } from '../../shared/utils/id-generator';
-
-const execFileAsync = promisify(execFile);
+import {
+  performAutoMerge,
+  buildAutoMergeAudit,
+  type AutoMergeOutcome,
+} from './reaction-auto-merge';
 import { fetchPREnrichmentBatch, formatCIFailureMessage, formatReviewMessage } from '../vcs/remotes/github-pr-poller';
 import { parseGitHostWorkItemUrl } from '../vcs/remotes/git-host-connector';
 import type { InstanceManager } from '../instance/instance-manager';
@@ -53,6 +54,23 @@ export class ReactionEngine extends EventEmitter {
   /** Reaction state tracked per instance */
   private trackedInstances = new Map<string, InstanceReactionState>();
 
+  /** Per-instance armed status (opt-in: must be explicitly set to true). */
+  private armedInstances = new Set<string>();
+
+  /**
+   * Per-instance auto-merge opt-in. Distinct from `armedInstances`: arming alone
+   * never authorizes a destructive merge. An instance must be BOTH armed and
+   * auto-merge-allowed (and pass fire-time precondition re-checks) before the
+   * engine will merge a PR on its behalf.
+   */
+  private autoMergeInstances = new Set<string>();
+
+  /** Per-instance daily reaction budget (reactions sent today per instance). */
+  private dailyReactionCounts = new Map<string, { count: number; date: string }>();
+
+  /** Maximum send-to-agent reactions per instance per calendar day. */
+  private readonly DAILY_REACTION_BUDGET = 50;
+
   static getInstance(): ReactionEngine {
     if (!ReactionEngine.instance) {
       ReactionEngine.instance = new ReactionEngine();
@@ -81,9 +99,12 @@ export class ReactionEngine extends EventEmitter {
       };
     }
 
-    // Listen for instance removal to clean up tracking
+    // Listen for instance removal to clean up tracking and armed state
     instanceManager.on('instance:removed', (instanceId: string) => {
       this.untrackInstance(instanceId);
+      this.armedInstances.delete(instanceId);
+      this.autoMergeInstances.delete(instanceId);
+      this.dailyReactionCounts.delete(instanceId);
     });
 
     logger.info('Reaction engine initialized', {
@@ -154,6 +175,9 @@ export class ReactionEngine extends EventEmitter {
   /** Stop tracking an instance */
   untrackInstance(instanceId: string): void {
     if (this.trackedInstances.delete(instanceId)) {
+      this.armedInstances.delete(instanceId);
+      this.autoMergeInstances.delete(instanceId);
+      this.dailyReactionCounts.delete(instanceId);
       logger.info('Untracked instance from reactions', { instanceId });
       this.emit('reaction:tracking-stopped', { instanceId });
     }
@@ -175,11 +199,69 @@ export class ReactionEngine extends EventEmitter {
   }
 
   // -------------------------------------------------------------------------
+  // Per-instance arming
+  // -------------------------------------------------------------------------
+
+  /**
+   * Arm or disarm reactions for a specific instance.
+   * Both global `enabled` AND per-instance armed must be true for
+   * `send-to-agent` reactions to fire.
+   */
+  setArmed(instanceId: string, armed: boolean): void {
+    if (armed) {
+      this.armedInstances.add(instanceId);
+      logger.info('Instance armed for reactions', { instanceId });
+    } else {
+      this.armedInstances.delete(instanceId);
+      this.dailyReactionCounts.delete(instanceId);
+      // Disarming an instance also revokes its auto-merge opt-in: auto-merge can
+      // never outlive arming.
+      if (this.autoMergeInstances.delete(instanceId)) {
+        this.emit('reaction:auto-merge-changed', { instanceId, allowed: false });
+      }
+      logger.info('Instance disarmed from reactions', { instanceId });
+    }
+    this.emit('reaction:armed-changed', { instanceId, armed });
+  }
+
+  /** Whether a specific instance has reactions armed. */
+  isArmed(instanceId: string): boolean {
+    return this.armedInstances.has(instanceId);
+  }
+
+  /**
+   * Allow or disallow auto-merge for a specific instance. Requires the instance
+   * to be armed first; allowing auto-merge on an un-armed instance is a no-op
+   * (the caller should arm it first). This is the distinct, destructive opt-in
+   * required by the auto-merge guardrails.
+   */
+  setAutoMergeAllowed(instanceId: string, allowed: boolean): void {
+    if (allowed) {
+      if (!this.isArmed(instanceId)) {
+        logger.warn('Refusing to allow auto-merge on un-armed instance', { instanceId });
+        return;
+      }
+      this.autoMergeInstances.add(instanceId);
+      logger.info('Instance opted into auto-merge', { instanceId });
+    } else {
+      this.autoMergeInstances.delete(instanceId);
+      logger.info('Instance opted out of auto-merge', { instanceId });
+    }
+    this.emit('reaction:auto-merge-changed', { instanceId, allowed: this.autoMergeInstances.has(instanceId) });
+  }
+
+  /** Whether a specific instance is permitted to auto-merge. */
+  isAutoMergeAllowed(instanceId: string): boolean {
+    return this.autoMergeInstances.has(instanceId);
+  }
+
+  // -------------------------------------------------------------------------
   // Configuration
   // -------------------------------------------------------------------------
 
   updateConfig(config: Partial<ReactionEngineConfig>): void {
     const wasEnabled = this.config.enabled;
+    const prevPollIntervalMs = this.config.pollIntervalMs;
     this.config = {
       ...this.config,
       ...config,
@@ -191,6 +273,14 @@ export class ReactionEngine extends EventEmitter {
       this.start();
     } else if (!this.config.enabled && wasEnabled) {
       this.stop();
+    } else if (
+      this.config.enabled &&
+      this.pollTimer &&
+      this.config.pollIntervalMs !== prevPollIntervalMs
+    ) {
+      // Poll interval changed while running — restart the timer to apply it.
+      clearInterval(this.pollTimer);
+      this.pollTimer = setInterval(() => void this.pollAll(), this.config.pollIntervalMs);
     }
   }
 
@@ -358,8 +448,45 @@ export class ReactionEngine extends EventEmitter {
     const reactionKey = eventToReactionKey(eventType);
     if (!reactionKey) return null;
 
-    const reactionConfig = this.config.reactions[reactionKey];
+    let reactionConfig = this.config.reactions[reactionKey];
+
+    // Per-instance auto-merge opt-in turns a merge-ready event into an auto-merge
+    // for THAT instance, regardless of the global reaction map (the per-instance
+    // toggle is the switch). The merge itself is still gated by the permission
+    // check below and the fire-time precondition re-checks in performAutoMerge.
+    const armed = this.isArmed(state.instanceId);
+    if (
+      eventType === 'merge.ready' && this.config.enabled && armed &&
+      this.isAutoMergeAllowed(state.instanceId)
+    ) {
+      reactionConfig = { ...(reactionConfig ?? {}), auto: true, action: 'auto-merge' };
+    }
+
     if (!reactionConfig || !reactionConfig.auto) return null;
+
+    // send-to-agent: require global enabled + per-instance armed + within budget.
+    if (reactionConfig.action === 'send-to-agent') {
+      if (!this.config.enabled || !armed) return null;
+      if (!this.checkAndIncrementDailyBudget(state.instanceId)) {
+        logger.warn('Daily reaction budget exhausted for instance', {
+          instanceId: state.instanceId, budget: this.DAILY_REACTION_BUDGET,
+        });
+        this.emit('reaction:budget-exhausted', { instanceId: state.instanceId });
+        return null;
+      }
+    }
+
+    // auto-merge (destructive): require global enabled + armed + the distinct
+    // auto-merge opt-in. If any is missing, downgrade to a human notification.
+    if (reactionConfig.action === 'auto-merge' &&
+        !(this.config.enabled && armed && this.isAutoMergeAllowed(state.instanceId))) {
+      this.emitAutoMergeAudit(state, data, 'skipped',
+        ['auto-merge not permitted: requires global enable + arming + auto-merge opt-in']);
+      const event = this.emitEvent(state, eventType, data,
+        `${message} (Auto-merge configured but not permitted — arming and the auto-merge opt-in are both required.)`);
+      await this.notifyHuman(event, 'action');
+      return { reactionType: reactionKey, success: false, action: 'auto-merge-skipped', escalated: false };
+    }
 
     // Check escalation
     const tracker = this.getOrCreateTracker(state, reactionKey);
@@ -403,17 +530,15 @@ export class ReactionEngine extends EventEmitter {
         return { reactionType: reactionKey, success: true, action: 'notify', message, escalated: false };
       }
 
-      case 'auto-merge': {
-        const mergeSuccess = await this.attemptAutoMerge(data);
-        if (mergeSuccess) {
-          this.emit('reaction:auto-merged', { instanceId: state.instanceId, prNumber: data.number, repo: `${data.owner}/${data.repo}` });
-          return { reactionType: reactionKey, success: true, action: 'auto-merge', message, escalated: false };
-        }
-        // Merge failed — fall back to human notification
-        const event = this.emitEvent(state, eventType, data, `Auto-merge failed for PR #${data.number}. ${message}`);
-        await this.notifyHuman(event, priority);
-        return { reactionType: reactionKey, success: false, action: 'auto-merge', message, escalated: false };
-      }
+      case 'auto-merge':
+        return performAutoMerge(
+          {
+            emitEvent: (s, e, d, m) => this.emitEvent(s, e, d, m),
+            notifyHuman: (event, priority) => this.notifyHuman(event, priority),
+            emit: (name, payload) => this.emit(name, payload),
+          },
+          state, eventType, data, message,
+        );
 
       case 'ignore':
       default:
@@ -421,35 +546,16 @@ export class ReactionEngine extends EventEmitter {
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Auto-merge
-  // -------------------------------------------------------------------------
-
-  /**
-   * Attempt to merge a PR using the `gh` CLI.
-   * Requires the `gh` CLI to be authenticated and available on PATH.
-   * Uses squash merge to keep history clean.
-   */
-  private async attemptAutoMerge(data: PREnrichmentData): Promise<boolean> {
-    const repo = `${data.owner}/${data.repo}`;
-    try {
-      await execFileAsync('gh', [
-        'pr', 'merge',
-        String(data.number),
-        '--squash',
-        '--auto',
-        '--repo', repo,
-      ], { timeout: 30_000 });
-      logger.info('Auto-merged PR via gh CLI', { repo, prNumber: data.number });
-      return true;
-    } catch (err) {
-      logger.warn('Auto-merge via gh CLI failed', {
-        repo,
-        prNumber: data.number,
-        error: (err as Error).message,
-      });
-      return false;
-    }
+  /** Audit an auto-merge decision made before the merge attempt (e.g. permission skip). */
+  private emitAutoMergeAudit(
+    state: InstanceReactionState,
+    data: PREnrichmentData,
+    outcome: AutoMergeOutcome,
+    reasons: string[],
+  ): void {
+    const snapshot = buildAutoMergeAudit(state, data, outcome, reasons, Date.now());
+    logger.info('Auto-merge audit', { ...snapshot });
+    this.emit('reaction:auto-merge-audit', snapshot);
   }
 
   // -------------------------------------------------------------------------
@@ -494,6 +600,20 @@ export class ReactionEngine extends EventEmitter {
   // -------------------------------------------------------------------------
   // Escalation Logic
   // -------------------------------------------------------------------------
+
+  private checkAndIncrementDailyBudget(instanceId: string): boolean {
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const existing = this.dailyReactionCounts.get(instanceId);
+    if (!existing || existing.date !== today) {
+      this.dailyReactionCounts.set(instanceId, { count: 1, date: today });
+      return true;
+    }
+    if (existing.count >= this.DAILY_REACTION_BUDGET) {
+      return false;
+    }
+    existing.count++;
+    return true;
+  }
 
   private getOrCreateTracker(state: InstanceReactionState, reactionKey: string): ReactionTracker {
     let tracker = state.reactionTrackers.get(reactionKey);

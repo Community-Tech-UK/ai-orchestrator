@@ -101,6 +101,7 @@ import {
   registerLoopHandlers,
   registerTerminalHandlers,
   registerAuxiliaryLlmHandlers,
+  registerCampaignHandlers,
 } from './handlers';
 import { registerLspFeedback } from '../codemem/lsp-feedback-registration';
 import { registerCircuitBreaker } from '../security/circuit-breaker-registration';
@@ -423,7 +424,10 @@ export class IpcMainHandler {
     registerChannelHandlers();
 
     // Reaction engine handlers (CI/PR monitoring)
-    registerReactionHandlers();
+    registerReactionHandlers({ windowManager: this.windowManager });
+
+    // Campaign mode handlers (DAG of loop specs)
+    registerCampaignHandlers({ windowManager: this.windowManager });
 
     // Knowledge graph handlers (fact/entity CRUD and queries)
     registerKnowledgeGraphHandlers();

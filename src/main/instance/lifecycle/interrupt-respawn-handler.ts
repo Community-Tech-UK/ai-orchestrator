@@ -408,10 +408,9 @@ export class InterruptRespawnHandler {
     this.deps.clearInterrupted(instanceId);
     instance.interruptPhase = 'completed';
     instance.lastTurnOutcome =
-      result.status === 'interrupted' ? 'interrupted'
+      result.status === 'interrupted' || result.status === 'rejected' ? 'interrupted'
       : result.status === 'cancelled' ? 'cancelled'
       : result.status === 'completed' ? 'completed'
-      : result.status === 'rejected' ? 'failed'
       : 'interrupted';
 
     if (instance.status === 'interrupting') {
@@ -432,15 +431,11 @@ export class InterruptRespawnHandler {
     }
 
     if (result.status === 'rejected') {
-      this.deps.transitionState(instance, 'error');
-      instance.processId = null;
-      this.resolveRespawnPromise(instance);
-      this.deps.queueUpdate(instanceId, 'error', undefined, undefined, undefined, {
-        message: result.reason ?? 'Interrupt was rejected by the provider',
-        code: 'INTERRUPT_REJECTED',
-        timestamp: Date.now(),
+      logger.warn('Accepted interrupt completed with a rejected turn result; treating as interrupted', {
+        instanceId,
+        turnId: result.turnId,
+        reason: result.reason,
       });
-      return;
     }
 
     this.deps.transitionState(instance, 'idle');
@@ -455,6 +450,7 @@ export class InterruptRespawnHandler {
       metadata: {
         interruptStatus: result.status,
         ...(result.turnId ? { turnId: result.turnId } : {}),
+        ...(result.reason ? { interruptReason: result.reason } : {}),
       },
     };
     this.deps.addToOutputBuffer(instance, message);

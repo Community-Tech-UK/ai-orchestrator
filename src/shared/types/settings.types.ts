@@ -375,6 +375,21 @@ export interface AppSettings {
    * stays purely heuristic unless explicitly enabled.
    */
   auxiliaryLlmRoutingClassificationEnabled: boolean;
+
+  // Reactions (event-driven re-prompting)
+  /**
+   * Global master switch for the Reaction Engine (event-driven re-prompting).
+   * When true (default), the engine is willing to react, but `send-to-agent`
+   * reactions still require per-instance arming (default off per instance), so
+   * default-on never surprise-prompts an un-armed instance. When false, no
+   * reactions fire anywhere regardless of per-instance arming (kill switch).
+   */
+  reactionsEnabled: boolean;
+  /**
+   * How often (ms) the reaction engine polls tracked PR/CI state.
+   * Only relevant when reactionsEnabled is true. Default: 60 000 (1 min).
+   */
+  reactionsPollIntervalMs: number;
 }
 
 /**
@@ -527,6 +542,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   // D4 — CLI spawn worker offload pilot (off by default)
   enableSpawnWorkerOffload: false,
+
+  // Reactions
+  reactionsEnabled: true,
+  reactionsPollIntervalMs: 60_000,
 
   // Auxiliary LLM
   auxiliaryLlmEnabled: true,

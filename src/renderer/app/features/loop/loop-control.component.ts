@@ -12,6 +12,8 @@ import {
 } from '@angular/core';
 import type { LoopIterationPayload } from '@contracts/schemas/loop';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
+import { ReactionIpcService } from '../../core/services/ipc/reaction-ipc.service';
+import { ToastService } from '../../core/services/toast.service';
 import { LoopStore } from '../../core/state/loop.store';
 import {
   activityKindLabel,
@@ -134,6 +136,35 @@ import { PromptModalComponent } from '../../shared/components/prompt-modal/promp
           @for (step of gateSteps(); track step.key) {
             @if (step.state !== 'skipped') {
               <span class="lg-step" [attr.data-state]="step.state">{{ step.label }}</span>
+            }
+          }
+        </div>
+      }
+
+      @if (reactionsArmed() !== null) {
+        <div class="loop-reactions">
+          <label class="lr-toggle">
+            <input
+              type="checkbox"
+              [checked]="reactionsArmed() === true"
+              (change)="onToggleReactionsArmed()"
+            />
+            Auto-react to CI &amp; review events
+          </label>
+          @if (reactionsArmed()) {
+            <span class="lr-hint">Armed — CI failures and review requests will trigger a fix prompt.</span>
+            <label class="lr-toggle lr-toggle-nested">
+              <input
+                type="checkbox"
+                [checked]="autoMergeAllowed()"
+                (change)="onToggleAutoMerge()"
+              />
+              Allow auto-merge when approved &amp; green
+            </label>
+            @if (autoMergeAllowed()) {
+              <span class="lr-hint lr-hint-warn">
+                Auto-merge armed — an approved PR with passing CI and no conflicts will be squash-merged automatically (re-checked live before merging).
+              </span>
             }
           }
         </div>
@@ -398,6 +429,17 @@ export class LoopControlComponent implements OnDestroy {
 
   protected store = inject(LoopStore);
   private clipboard = inject(CLIPBOARD_SERVICE);
+  private reactionIpc = inject(ReactionIpcService);
+  private toast = inject(ToastService);
+
+  /** Per-instance reactions armed state. Tri-state: null = not yet loaded. */
+  protected reactionsArmed = signal<boolean | null>(null);
+
+  /** Per-instance auto-merge opt-in. Only meaningful while armed. */
+  protected autoMergeAllowed = signal<boolean>(false);
+
+  /** Cleanup handle for the global reaction-event subscription. */
+  private reactionEventUnsub: (() => void) | null = null;
 
   /** 1Hz tick that drives elapsed-time recomputation in the active strip. */
   private tick = signal(0);
@@ -597,6 +639,37 @@ export class LoopControlComponent implements OnDestroy {
     this.store.ensureWired();
     this.tickHandle = setInterval(() => this.tick.update((t) => t + 1), 1000);
 
+    // Subscribe globally to reaction events and show a toast when the event
+    // is for the currently-viewed instance, so firings are visible in the UI.
+    this.reactionEventUnsub = this.reactionIpc.onReactionEvent((raw) => {
+      const ev = raw as { instanceId?: string; message?: string; priority?: string };
+      if (!ev.instanceId || ev.instanceId !== this.chatId()) return;
+      const isUrgent = ev.priority === 'urgent' || ev.priority === 'action';
+      const msg = ev.message ?? 'Reaction triggered';
+      this.toast.show(msg, isUrgent ? 'error' : 'success');
+    });
+
+    // Load per-instance reactions armed state whenever the chat changes.
+    effect(() => {
+      const id = this.chatId();
+      if (!id) {
+        untracked(() => { this.reactionsArmed.set(null); this.autoMergeAllowed.set(false); });
+        return;
+      }
+      untracked(() => {
+        void this.reactionIpc.getState(id).then((res) => {
+          if (res.success && res.data != null) {
+            const data = res.data as { armed?: boolean; autoMergeAllowed?: boolean };
+            this.reactionsArmed.set(data.armed ?? false);
+            this.autoMergeAllowed.set(data.autoMergeAllowed ?? false);
+          } else {
+            this.reactionsArmed.set(false);
+            this.autoMergeAllowed.set(false);
+          }
+        });
+      });
+    });
+
     // Reset the summary card's prompt-expansion + Copied flag when a
     // new summary appears, so a fresh loop run doesn't inherit the
     // previous run's UI state.
@@ -642,6 +715,7 @@ export class LoopControlComponent implements OnDestroy {
   ngOnDestroy(): void {
     if (this.tickHandle) clearInterval(this.tickHandle);
     if (this.copyClearHandle) clearTimeout(this.copyClearHandle);
+    this.reactionEventUnsub?.();
   }
 
   // ────── summary card actions ──────
@@ -683,6 +757,33 @@ export class LoopControlComponent implements OnDestroy {
       && s.iterationPrompt.length > 0
       && s.iterationPrompt !== s.initialPrompt
     );
+  }
+
+  async onToggleReactionsArmed(): Promise<void> {
+    const id = this.chatId();
+    if (!id) return;
+    const next = !(this.reactionsArmed() ?? false);
+    this.reactionsArmed.set(next);
+    await this.reactionIpc.setArmed(id, next);
+    // Disarming revokes auto-merge in the engine; mirror that in the UI.
+    if (!next && this.autoMergeAllowed()) {
+      this.autoMergeAllowed.set(false);
+    }
+  }
+
+  async onToggleAutoMerge(): Promise<void> {
+    const id = this.chatId();
+    if (!id) return;
+    // Auto-merge requires arming; guard in the UI as well as the engine.
+    if (!this.reactionsArmed()) return;
+    const next = !this.autoMergeAllowed();
+    this.autoMergeAllowed.set(next);
+    const res = await this.reactionIpc.setAutoMergeAllowed(id, next);
+    // Reconcile with the effective state the engine reports (it can refuse).
+    if (res.success && res.data != null) {
+      const data = res.data as { allowed?: boolean };
+      this.autoMergeAllowed.set(data.allowed ?? false);
+    }
   }
 
   // ────── loop control actions ──────

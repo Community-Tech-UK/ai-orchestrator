@@ -65,6 +65,136 @@ code {
   font-family: 'SF Mono', ui-monospace, Menlo, monospace;
 }
 
+.markdown-body {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.markdown-body p,
+.markdown-body ul,
+.markdown-body ol,
+.markdown-body blockquote,
+.markdown-body pre,
+.markdown-body .md-table-wrap {
+  margin: 0 0 0.75em;
+}
+
+.markdown-body p:last-child,
+.markdown-body ul:last-child,
+.markdown-body ol:last-child,
+.markdown-body blockquote:last-child,
+.markdown-body pre:last-child,
+.markdown-body .md-table-wrap:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin: 1em 0 0.45em;
+  font-size: 1em;
+  line-height: 1.25;
+}
+
+.markdown-body h1:first-child,
+.markdown-body h2:first-child,
+.markdown-body h3:first-child,
+.markdown-body h4:first-child,
+.markdown-body h5:first-child,
+.markdown-body h6:first-child {
+  margin-top: 0;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 1.35em;
+}
+
+.markdown-body li {
+  margin: 0.25em 0;
+}
+
+.markdown-body a {
+  color: var(--accent-action);
+  text-decoration: underline;
+}
+
+.markdown-body code {
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  font-size: 0.9em;
+  padding: 0.08em 0.3em;
+}
+
+.markdown-body pre {
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: 10px;
+  background: var(--surface-2);
+  padding: 10px 12px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.markdown-body pre code {
+  display: block;
+  min-width: max-content;
+  background: transparent;
+  padding: 0;
+  white-space: pre;
+}
+
+.markdown-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 10px;
+}
+
+.markdown-body blockquote {
+  border-left: 3px solid var(--accent-action);
+  color: var(--text-secondary);
+  padding: 0.15em 0 0.15em 0.85em;
+}
+
+.markdown-body .md-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.markdown-body table {
+  min-width: max-content;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.markdown-body th {
+  background: rgba(255, 255, 255, 0.08);
+  font-weight: 600;
+}
+
+.t-user .markdown-body a,
+.msg.user .markdown-body a {
+  color: #fff;
+}
+
+.t-user .markdown-body code,
+.msg.user .markdown-body code {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
 input,
 textarea {
   font-family: inherit;

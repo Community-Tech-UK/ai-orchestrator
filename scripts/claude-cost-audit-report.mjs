@@ -20,6 +20,7 @@
  * Read-only: opens databases in readonly mode and only reads the JSONL files.
  */
 
+import { execFileSync } from 'child_process';
 import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
@@ -97,42 +98,74 @@ function reportAttribution(records) {
 }
 
 // ── 2/3. SQLite cross-checks ────────────────────────────────────────────────
-function openDb(path) {
+function sqlLiteral(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '0';
+  if (value === null || value === undefined) return 'NULL';
+  return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+function bindSqlParams(sql, params) {
+  let i = 0;
+  return sql.replaceAll('?', () => sqlLiteral(params[i++]));
+}
+
+function queryWithSqliteCli(path, sql, params, reason) {
+  const suffix = reason ? `: ${reason}` : '';
+  console.log(`(using sqlite3 CLI fallback for ${path}${suffix})\n`);
+  const output = execFileSync('sqlite3', ['-json', path, bindSqlParams(sql, params)], {
+    encoding: 'utf8',
+    maxBuffer: 10 * 1024 * 1024,
+  }).trim();
+  return output ? JSON.parse(output) : [];
+}
+
+function queryRows(path, sql, params = []) {
   if (!existsSync(path)) return null;
+  if (process.env.AIO_COST_AUDIT_SQLITE_DRIVER === 'cli') {
+    try {
+      return queryWithSqliteCli(path, sql, params, 'forced by AIO_COST_AUDIT_SQLITE_DRIVER=cli');
+    } catch (err) {
+      console.log(`(could not open ${path} with sqlite3 CLI: ${err.message})\n`);
+      return null;
+    }
+  }
+
   try {
     const Database = require('better-sqlite3');
-    return new Database(path, { readonly: true, fileMustExist: true });
+    const db = new Database(path, { readonly: true, fileMustExist: true });
+    try {
+      return db.prepare(sql).all(...params);
+    } finally {
+      db.close();
+    }
   } catch (err) {
-    console.log(`(could not open ${path}: ${err.message})\n`);
+    try {
+      return queryWithSqliteCli(path, sql, params, err.message);
+    } catch (fallbackErr) {
+      console.log(`(could not open ${path}: ${err.message}; sqlite3 fallback failed: ${fallbackErr.message})\n`);
+    }
     return null;
   }
 }
 
 function reportCostEntries() {
-  const db = openDb(join(userData, 'rlm', 'rlm.db'));
-  if (!db) return;
+  const rows = queryRows(
+    join(userData, 'rlm', 'rlm.db'),
+    `SELECT model, COUNT(*) AS calls, SUM(input_tokens) AS input, SUM(output_tokens) AS output,
+            SUM(cache_read_tokens) AS cache_r, SUM(cache_write_tokens) AS cache_w, SUM(cost) AS cost
+     FROM cost_entries WHERE timestamp >= ? GROUP BY model ORDER BY cost DESC`,
+    [sinceMs],
+  );
+  if (!rows) return;
   console.log('## Cross-check: cost_entries (instance turns, CostTracker)\n');
-  try {
-    const rows = db
-      .prepare(
-        `SELECT model, COUNT(*) AS calls, SUM(input_tokens) AS input, SUM(output_tokens) AS output,
-                SUM(cache_read_tokens) AS cache_r, SUM(cache_write_tokens) AS cache_w, SUM(cost) AS cost
-         FROM cost_entries WHERE timestamp >= ? GROUP BY model ORDER BY cost DESC`,
-      )
-      .all(sinceMs);
-    console.log('| model | calls | input | output | cache r/w | cost |');
-    console.log('|---|---:|---:|---:|---:|---:|');
-    for (const r of rows) {
-      console.log(
-        `| ${r.model} | ${r.calls} | ${fmtTok(r.input ?? 0)} | ${fmtTok(r.output ?? 0)} | ${fmtTok(r.cache_r ?? 0)}/${fmtTok(r.cache_w ?? 0)} | ${fmtUsd(r.cost ?? 0)} |`,
-      );
-    }
-    console.log('');
-  } catch (err) {
-    console.log(`(query failed: ${err.message})\n`);
-  } finally {
-    db.close();
+  console.log('| model | calls | input | output | cache r/w | cost |');
+  console.log('|---|---:|---:|---:|---:|---:|');
+  for (const r of rows) {
+    console.log(
+      `| ${r.model} | ${r.calls} | ${fmtTok(r.input ?? 0)} | ${fmtTok(r.output ?? 0)} | ${fmtTok(r.cache_r ?? 0)}/${fmtTok(r.cache_w ?? 0)} | ${fmtUsd(r.cost ?? 0)} |`,
+    );
   }
+  console.log('');
 }
 
 function reportLoopIterations() {
@@ -142,29 +175,22 @@ function reportLoopIterations() {
     console.log(`(no loop DB found under ${userData} — check defaultLoopDbPath() in loop-store.ts)\n`);
     return;
   }
-  const db = openDb(candidates[0]);
-  if (!db) return;
+  const rows = queryRows(
+    candidates[0],
+    `SELECT loop_run_id, COUNT(*) AS iters, SUM(tokens) AS tokens, SUM(cost_cents) AS cost_cents
+     FROM loop_iterations WHERE started_at >= ? GROUP BY loop_run_id ORDER BY cost_cents DESC LIMIT 20`,
+    [sinceMs],
+  );
+  if (!rows) return;
   console.log(`## Cross-check: loop_iterations (${candidates[0]})\n`);
-  try {
-    const rows = db
-      .prepare(
-        `SELECT loop_run_id, COUNT(*) AS iters, SUM(tokens) AS tokens, SUM(cost_cents) AS cost_cents
-         FROM loop_iterations WHERE started_at >= ? GROUP BY loop_run_id ORDER BY cost_cents DESC LIMIT 20`,
-      )
-      .all(sinceMs);
-    console.log('| loop run | iterations | tokens | cost |');
-    console.log('|---|---:|---:|---:|');
-    for (const r of rows) {
-      console.log(
-        `| ${r.loop_run_id} | ${r.iters} | ${fmtTok(r.tokens ?? 0)} | ${fmtUsd((r.cost_cents ?? 0) / 100)} |`,
-      );
-    }
-    console.log('');
-  } catch (err) {
-    console.log(`(query failed: ${err.message})\n`);
-  } finally {
-    db.close();
+  console.log('| loop run | iterations | tokens | cost |');
+  console.log('|---|---:|---:|---:|');
+  for (const r of rows) {
+    console.log(
+      `| ${r.loop_run_id} | ${r.iters} | ${fmtTok(r.tokens ?? 0)} | ${fmtUsd((r.cost_cents ?? 0) / 100)} |`,
+    );
   }
+  console.log('');
 }
 
 console.log(`# Claude cost audit report\n`);

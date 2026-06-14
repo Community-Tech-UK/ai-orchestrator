@@ -2251,6 +2251,35 @@ export class LoopCoordinator extends EventEmitter {
         });
       }
 
+      // -- G3: next-objective planner (flag-gated, off by default) --
+      // Only runs when the loop is still `running` (not paused/terminal) and
+      // a planner is configured. The planner's output is injected as an
+      // intervention for the next iteration. It can never produce a stop —
+      // stop authority remains exclusively with evidence-resolver.
+      if (state.status === 'running' && state.config.nextObjectivePlanner) {
+        try {
+          const nextObj = await state.config.nextObjectivePlanner({
+            lastOutput: childResult.output,
+            originalGoal: state.config.initialPrompt,
+            seq,
+          });
+          if (nextObj && typeof nextObj === 'string' && nextObj.trim()) {
+            state.pendingInterventions.push(nextObj.trim());
+            logger.info('Next-objective planner injected focus', {
+              loopRunId: state.id,
+              seq,
+              objectivePreview: nextObj.slice(0, 120),
+            });
+          }
+        } catch (err) {
+          logger.warn('Next-objective planner threw; skipping injection', {
+            loopRunId: state.id,
+            seq,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
       // -- minimum sleep guard so the fs watcher can settle --
       await sleep(1500);
     }

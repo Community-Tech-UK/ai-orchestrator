@@ -26,6 +26,8 @@
     "@capacitor/ios": "^7.0.0",
     "@capacitor/preferences": "^7.0.0",
     "@capacitor/push-notifications": "^7.0.0",
+    "dompurify": "^3.4.10",
+    "marked": "^18.0.5",
     "rxjs": "^7.8.0",
     "tslib": "^2.6.0"
   },

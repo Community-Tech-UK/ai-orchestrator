@@ -1061,6 +1061,35 @@ Hey! I'm here. What do you want to tackle?`;
         expect((adapter as unknown as { appServerThreadId: string }).appServerThreadId).toBe('thread-new');
       });
 
+      it('silently reopens the thread and retries when app-server turn notifications stall', async () => {
+        const adapter = await prepareAppServerAdapter();
+
+        const innerSpy = vi.spyOn(
+          adapter as unknown as { appServerSendMessageInner(m: string, a?: unknown): Promise<void> },
+          'appServerSendMessageInner'
+        );
+        innerSpy.mockRejectedValueOnce(new Error('Codex turn stalled: no notifications received for 90000ms'));
+        innerSpy.mockResolvedValueOnce(undefined);
+
+        const reopenSpy = vi.spyOn(
+          adapter as unknown as { reopenAppServerThread(): Promise<void> },
+          'reopenAppServerThread'
+        );
+        reopenSpy.mockImplementation(async () => {
+          (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-new-after-stall';
+        });
+
+        const statuses: string[] = [];
+        adapter.on('status', (s: string) => statuses.push(s));
+
+        await adapter.sendInput('retry me');
+
+        expect(innerSpy).toHaveBeenCalledTimes(2);
+        expect(reopenSpy).toHaveBeenCalledTimes(1);
+        expect(statuses).toEqual(['busy', 'idle']);
+        expect((adapter as unknown as { appServerThreadId: string }).appServerThreadId).toBe('thread-new-after-stall');
+      });
+
       it('does not retry on non-thread-loss errors (e.g. HTTP 500)', async () => {
         const adapter = await prepareAppServerAdapter();
 

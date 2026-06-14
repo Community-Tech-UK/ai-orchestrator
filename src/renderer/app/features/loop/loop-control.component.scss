@@ -499,3 +499,10 @@ button {
 }
 .lsum-prompt-pre:last-child { margin-bottom: 0; }
 code { font-size: 11px; padding: 1px 4px; background: rgba(255,255,255,0.08); border-radius: 3px; }
+
+/* Reaction arming + auto-merge opt-in (loop inspector) */
+.loop-reactions { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
+.lr-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
+.lr-toggle-nested { margin-left: 18px; }
+.lr-hint { font-size: 11px; opacity: 0.7; }
+.lr-hint-warn { margin-left: 18px; opacity: 0.9; color: var(--color-warning, #d98e00); }

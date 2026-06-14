@@ -911,10 +911,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
     try {
       await this.appServerSendMessageInner(message, attachments);
     } catch (err) {
-      if (!this.isRecoverableThreadResumeError(err)) {
-        throw err;
-      }
-      logger.warn('Codex app-server thread lost mid-turn, reopening and retrying', {
+      if (!this.isRecoverableThreadResumeError(err)) throw err;
+      logger.warn('Codex app-server turn failed recoverably, reopening thread and retrying', {
         previousThreadId: this.appServerThreadId,
         cause: err instanceof Error ? err.message : String(err),
       });
@@ -3193,14 +3191,14 @@ export class CodexCliAdapter extends BaseCliAdapter {
   }
 
   /**
-   * Classifies an error as "the Codex thread/session is gone" (recoverable by
-   * reopening a fresh thread) vs. anything else. Requires BOTH the error text
-   * to mention thread/session context AND a loss indicator — without the
-   * context gate a bare "not found" from an unrelated source (e.g. a missing
-   * file) would incorrectly trigger a full thread reopen.
+   * Classifies an error as recoverable by reopening a fresh Codex thread. Most
+   * cases require BOTH thread/session context AND a loss indicator — without
+   * that gate a bare "not found" from an unrelated source (e.g. a missing file)
+   * would incorrectly trigger a full thread reopen.
    */
   private isRecoverableThreadResumeError(error: unknown): boolean {
     const msg = String(error instanceof Error ? error.message : error).toLowerCase();
+    if (msg.includes('codex turn stalled') && msg.includes('no notifications received')) return true;
     if (!/thread|session/.test(msg)) return false;
     return /not found|no rollout found|rollout not found|missing|no such|unknown|expired|invalid|does not exist/.test(msg);
   }

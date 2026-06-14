@@ -16,6 +16,7 @@ import { ImageAttachmentService } from '../../core/image-attachment.service';
 import { statusColor, statusLabel } from '../../core/status';
 import type { MobileAttachmentDto, MobileMessageDto, MobileModelCatalog } from '../../core/models';
 import { ModelSheetComponent } from '../../shared/model-sheet.component';
+import { renderMobileMarkdown } from '../../shared/mobile-markdown';
 import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-items';
 
 /**
@@ -80,7 +81,7 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
               </div>
             } @else {
               <div class="msg" [class]="'t-' + item.message.type">
-                <span class="bubble">{{ item.message.content }}</span>
+                <div class="bubble markdown-body" [innerHTML]="renderMarkdown(item.message.content)"></div>
               </div>
             }
           } @empty {
@@ -214,7 +215,7 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       }
       .msg { display: flex; }
-      .bubble { white-space: pre-wrap; word-break: break-word; font-size: 15px; line-height: 1.4; }
+      .bubble { word-break: break-word; font-size: 15px; line-height: 1.4; }
       .t-user { justify-content: flex-end; }
       .t-user .bubble { background: var(--accent-action); color: #fff; padding: 8px 12px; border-radius: 16px; max-width: 80%; }
       .t-assistant .bubble { color: var(--text); }
@@ -278,6 +279,7 @@ export class ConversationComponent {
   protected readonly online = this.gateway.online;
   protected readonly color = statusColor;
   protected readonly label = statusLabel;
+  protected readonly renderMarkdown = renderMobileMarkdown;
 
   /** Scroll-position flags driving the floating up/down buttons + auto-follow. */
   protected readonly atTop = signal(true);

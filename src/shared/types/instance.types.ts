@@ -403,6 +403,13 @@ export interface Instance {
 
   /** Extensible metadata bag (e.g. toolFilter for proactive tool filtering) */
   metadata?: Record<string, unknown>;
+
+  /**
+   * When true, the reaction engine will send `send-to-agent` reactions to this
+   * instance on CI/PR events. Requires the global reaction engine `enabled` flag
+   * to also be on. Default false (opt-in per instance).
+   */
+  reactionsArmed?: boolean;
 }
 
 export interface InstanceCreateConfig {

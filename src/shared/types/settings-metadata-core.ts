@@ -135,6 +135,22 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
     ],
   },
   {
+    key: 'reactionsEnabled',
+    label: 'Event-driven reactions (global master switch)',
+    description: 'On by default. The engine is willing to react, but only instances you individually arm will auto-react to CI failures, review requests, and merge conflicts (by sending a fix prompt). Turning this off is a global kill switch. Arming is still per-instance and off by default, so default-on never auto-prompts an instance you did not arm.',
+    type: 'boolean',
+    category: 'orchestration',
+  },
+  {
+    key: 'reactionsPollIntervalMs',
+    label: 'Reaction poll interval (ms)',
+    description: 'How often the reaction engine checks PR/CI state for armed instances. Only relevant when reactions are enabled. Default: 60 000 (1 min).',
+    type: 'number',
+    category: 'orchestration',
+    min: 10_000,
+    max: 300_000,
+  },
+  {
     key: 'persistSessionContent',
     label: 'Save conversation history to disk',
     description: "Keep each session's messages and tool output on disk so you can reopen and continue it later.",

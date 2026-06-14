@@ -31,6 +31,7 @@ import { LOOP_CHANNELS } from './loop.channels';
 import { MOBILE_GATEWAY_CHANNELS } from './mobile-gateway.channels';
 import { TERMINAL_CHANNELS } from './terminal.channels';
 import { AUXILIARY_LLM_CHANNELS } from './auxiliary-llm.channels';
+import { CAMPAIGN_CHANNELS } from './campaign.channels';
 
 export {
   INSTANCE_CHANNELS,
@@ -58,6 +59,7 @@ export {
   MOBILE_GATEWAY_CHANNELS,
   TERMINAL_CHANNELS,
   AUXILIARY_LLM_CHANNELS,
+  CAMPAIGN_CHANNELS,
 };
 
 /**
@@ -90,6 +92,7 @@ export const IPC_CHANNELS = {
   ...MOBILE_GATEWAY_CHANNELS,
   ...TERMINAL_CHANNELS,
   ...AUXILIARY_LLM_CHANNELS,
+  ...CAMPAIGN_CHANNELS,
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

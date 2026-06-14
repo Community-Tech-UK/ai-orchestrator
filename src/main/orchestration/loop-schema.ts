@@ -8,7 +8,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const LOOP_SCHEMA_VERSION = 6;
+export const LOOP_SCHEMA_VERSION = 7;
 
 interface LoopMigration {
   version: number;
@@ -180,6 +180,45 @@ const MIGRATIONS: LoopMigration[] = [
 
       CREATE INDEX IF NOT EXISTS idx_loop_checkpoints_status_updated
         ON loop_checkpoints(status, updated_at DESC);
+    `,
+  },
+  {
+    // Campaign mode: a campaign is a DAG of loop specs. Each node is a
+    // standard loop run; edges define sequencing and gating. Persisted
+    // so campaigns survive app restart and resume from the last known state.
+    version: 7,
+    name: '007_campaigns',
+    up: `
+      CREATE TABLE IF NOT EXISTS campaigns (
+        id TEXT PRIMARY KEY,
+        spec_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER,
+        paused_reason TEXT,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_campaigns_status
+        ON campaigns(status, started_at DESC);
+
+      CREATE TABLE IF NOT EXISTS campaign_nodes (
+        node_id TEXT NOT NULL,
+        campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        status TEXT NOT NULL,
+        loop_run_id TEXT,
+        started_at INTEGER,
+        ended_at INTEGER,
+        skipped_reason TEXT,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (campaign_id, node_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_campaign_nodes_campaign
+        ON campaign_nodes(campaign_id, updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_campaign_nodes_loop_run
+        ON campaign_nodes(loop_run_id);
     `,
   },
 ];

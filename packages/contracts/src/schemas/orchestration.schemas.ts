@@ -528,6 +528,16 @@ export const ReactionUpdateConfigPayloadSchema = z.object({
   pollIntervalMs: z.number().int().min(5000).max(600_000).optional(),
 });
 
+export const ReactionSetArmedPayloadSchema = z.object({
+  instanceId: z.string().min(1).max(200),
+  armed: z.boolean(),
+});
+
+export const ReactionSetAutoMergePayloadSchema = z.object({
+  instanceId: z.string().min(1).max(200),
+  allowed: z.boolean(),
+});
+
 // ============ Consensus Payloads ============
 
 export const ConsensusProviderSpecSchema = z.object({

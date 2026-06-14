@@ -34,7 +34,12 @@ describe('humanDuration', () => {
   it('renders multi-hour durations as `NhMm`', () => {
     expect(humanDuration(60 * 60_000)).toBe('1h0m');
     expect(humanDuration(2 * 60 * 60_000 + 30 * 60_000)).toBe('2h30m');
-    expect(humanDuration(25 * 60 * 60_000)).toBe('25h0m');
+    expect(humanDuration(24 * 60 * 60_000)).toBe('24h0m');
+  });
+
+  it('renders durations over 24 hours as `NdNhNm`', () => {
+    expect(humanDuration(24 * 60 * 60_000 + 60_000)).toBe('1d0h1m');
+    expect(humanDuration(25 * 60 * 60_000 + 30 * 60_000)).toBe('1d1h30m');
   });
 });
 

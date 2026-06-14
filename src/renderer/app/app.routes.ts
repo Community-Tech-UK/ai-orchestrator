@@ -47,6 +47,15 @@ export const routes: Routes = [
       ),
   },
 
+  // Campaign mode — multi-loop DAG orchestration
+  {
+    path: 'campaigns',
+    loadChildren: () =>
+      import('./features/campaign/campaign.routes').then(
+        (m) => m.CAMPAIGN_ROUTES
+      ),
+  },
+
   // Phase 6: Workflows
   {
     path: 'workflows',

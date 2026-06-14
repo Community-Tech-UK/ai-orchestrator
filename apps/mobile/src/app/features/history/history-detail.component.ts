@@ -13,6 +13,7 @@ import {
 import { Router } from '@angular/router';
 import { GatewayClient } from '../../core/gateway-client.service';
 import type { MobileMessageDto } from '../../core/models';
+import { renderMobileMarkdown } from '../../shared/mobile-markdown';
 import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-items';
 
 /**
@@ -61,7 +62,7 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
                   @if (item.message.type !== 'user') {
                     <span class="role">{{ roleLabel(item.message.type) }}</span>
                   }
-                  <span class="content">{{ item.message.content }}</span>
+                  <div class="content markdown-body" [innerHTML]="renderMarkdown(item.message.content)"></div>
                 </div>
               }
             }
@@ -138,7 +139,7 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
       .msg.user { align-self: flex-end; align-items: flex-end; }
       .msg .role { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
       .msg .content {
-        white-space: pre-wrap; word-break: break-word; font-size: 15px; line-height: 1.45;
+        word-break: break-word; font-size: 15px; line-height: 1.45;
         background: var(--surface); padding: 10px 12px; border-radius: 12px;
       }
       .msg.user .content { background: var(--accent-action); color: #fff; }
@@ -158,6 +159,7 @@ export class HistoryDetailComponent implements OnInit {
   protected readonly messages = signal<MobileMessageDto[]>([]);
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
+  protected readonly renderMarkdown = renderMobileMarkdown;
 
   /** Which collapsed tool groups the user has expanded (keyed by group id). */
   protected readonly expandedTools = signal<Set<string>>(new Set());

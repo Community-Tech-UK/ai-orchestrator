@@ -617,6 +617,11 @@ export class LoopStoreService {
     return this._store;
   }
 
+  /** Exposes the raw db driver for use by co-located stores (e.g. CampaignStore). */
+  getDb(): SqliteDriver | null {
+    return this.db;
+  }
+
   close(): void {
     if (this.db) {
       try { this.db.close(); } catch { /* noop */ }

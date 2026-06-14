@@ -186,6 +186,42 @@ describe('InterruptRespawnHandler', () => {
     expect(queueUpdate.mock.calls.map((call) => call[1])).toEqual(['interrupting', 'cancelling', 'idle']);
   });
 
+  it('keeps an accepted interrupt recoverable when completion later reports rejected', async () => {
+    adapter.interrupt.mockReturnValueOnce({
+      status: 'accepted' as const,
+      turnId: 'turn-1',
+      completion: Promise.resolve({
+        status: 'rejected' as const,
+        turnId: 'turn-1',
+        reason: 'Codex turn failed',
+      }),
+    });
+
+    expect(handler.interrupt(instance.id)).toBe(true);
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(instance.status).toBe('idle');
+    expect(instance.interruptPhase).toBe('completed');
+    expect(instance.lastTurnOutcome).toBe('interrupted');
+    expect(instance.respawnPromise).toBeUndefined();
+    expect(clearInterrupted).toHaveBeenCalledWith(instance.id);
+    expect(addToOutputBuffer).toHaveBeenCalledWith(
+      instance,
+      expect.objectContaining({
+        type: 'system',
+        content: 'Interrupted — waiting for input',
+        metadata: expect.objectContaining({
+          interruptStatus: 'rejected',
+          interruptReason: 'Codex turn failed',
+          turnId: 'turn-1',
+        }),
+      }),
+    );
+    expect(queueUpdate.mock.calls.map((call) => call[1])).toEqual(['interrupting', 'cancelling', 'idle']);
+  });
+
   it('escalates a second interrupt into a recoverable cancelled state', async () => {
     instance.status = 'interrupting';
     instance.interruptRequestId = 'interrupt-1';

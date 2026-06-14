@@ -110,5 +110,29 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
     onLoopProviderLimit: sub(ch.LOOP_PROVIDER_LIMIT),
     onLoopCancelled: sub(ch.LOOP_CANCELLED),
     onLoopError: sub(ch.LOOP_ERROR),
+
+    // ============================================
+    // Campaign Mode
+    // ============================================
+
+    campaignValidate: (spec: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CAMPAIGN_VALIDATE, spec),
+
+    campaignStart: (spec: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CAMPAIGN_START, spec),
+
+    campaignGet: (campaignId: string): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CAMPAIGN_GET, { campaignId }),
+
+    campaignList: (limit?: number): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CAMPAIGN_LIST, { limit }),
+
+    campaignHalt: (campaignId: string): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CAMPAIGN_HALT, { campaignId }),
+
+    campaignResume: (campaignId: string): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.CAMPAIGN_RESUME, { campaignId }),
+
+    onCampaignStateChanged: sub(ch.CAMPAIGN_STATE_CHANGED),
   };
 }

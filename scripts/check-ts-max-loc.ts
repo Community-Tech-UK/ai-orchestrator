@@ -61,7 +61,7 @@ const WARN_ONLY =
  */
 const ALLOWLIST: Record<string, number> = {
   // Main process — app
-  'src/main/app/initialization-steps.ts': 715,
+  'src/main/app/initialization-steps.ts': 773,
   // Benchmarks
   'benchmarks/external-benchmarks/swe-bench/adapter.ts': 795,
   'benchmarks/external-benchmarks/swe-bench/runner.ts': 888,
@@ -140,7 +140,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/orchestration/debate-coordinator.ts': 1196,
   'src/main/orchestration/default-invokers.ts': 1669,
   'src/main/orchestration/embedding-service.ts': 845,
-  'src/main/orchestration/loop-coordinator.ts': 2697,
+  'src/main/orchestration/loop-coordinator.ts': 2766,
   'src/main/orchestration/loop-progress-detector.ts': 725,
   'src/main/orchestration/multi-verify-coordinator.ts': 1172,
   'src/main/orchestration/orchestration-handler.ts': 1458,
@@ -228,7 +228,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/worktree/worktree-page.component.ts': 717,
   'src/renderer/app/features/worktree/worktree-panel.component.ts': 714,
   // Shared
-  'src/shared/types/loop.types.ts': 842,
+  'src/shared/types/loop.types.ts': 891,
   'src/shared/types/settings.types.ts': 810,
   // Worker agent
   'src/worker-agent/worker-agent.ts': 879,

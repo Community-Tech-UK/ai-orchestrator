@@ -227,7 +227,7 @@
                 <div class="form-grid">
                   <label>
                     <span>Provider</span>
-                    <select name="provider" [ngModel]="form().provider" (ngModelChange)="patchForm({ provider: $event })">
+                    <select name="provider" [ngModel]="form().provider" (ngModelChange)="onProviderChange($event)">
                       <option value="auto">Auto</option>
                       <option value="claude">Claude</option>
                       <option value="codex">Codex</option>
@@ -236,28 +236,40 @@
                       <option value="cursor">Cursor</option>
                     </select>
                   </label>
+                  <!-- eslint-disable-next-line @angular-eslint/template/label-has-associated-control -->
                   <label>
                     <span>Model</span>
-                    <input name="model" [ngModel]="form().model" (ngModelChange)="patchForm({ model: $event })" />
+                    @if (form().provider === 'auto') {
+                      <span class="hint">Auto — the orchestrator picks the provider and model. Choose a provider to pin a specific model.</span>
+                    } @else {
+                      <app-compact-model-picker
+                        mode="pending-create"
+                        [providers]="modelPickerProviders()"
+                        [selection]="modelPickerSelection()!"
+                        (selectionChange)="onModelPicked($event)"
+                      />
+                    }
                   </label>
                   <label>
                     <span>Agent</span>
                     <input name="agentId" [ngModel]="form().agentId" (ngModelChange)="patchForm({ agentId: $event })" />
                   </label>
-                  <label>
-                    <span>Reasoning</span>
-                    <select name="reasoningEffort" [ngModel]="form().reasoningEffort" (ngModelChange)="patchForm({ reasoningEffort: $event })">
-                      <option value="">Default</option>
-                      <option value="none">None</option>
-                      <option value="minimal">Minimal</option>
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                      <option value="xhigh">XHigh</option>
-                      <option value="max">Max</option>
-                      <option value="workflow">Workflow</option>
-                    </select>
-                  </label>
+                  @if (form().provider === 'auto') {
+                    <label>
+                      <span>Reasoning</span>
+                      <select name="reasoningEffort" [ngModel]="form().reasoningEffort" (ngModelChange)="patchForm({ reasoningEffort: $event })">
+                        <option value="">Default</option>
+                        <option value="none">None</option>
+                        <option value="minimal">Minimal</option>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="xhigh">XHigh</option>
+                        <option value="max">Max</option>
+                        <option value="workflow">Workflow</option>
+                      </select>
+                    </label>
+                  }
                 </div>
 
                 <div class="form-grid form-grid--compact">
