@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "com.ai.orchestrator",
-  "productName": "AI Orchestrator",
+  "productName": "Harness",
   "npmRebuild": false,
   "publish": [
     {
@@ -68,8 +68,8 @@
     "entitlementsInherit": "build/entitlements.mac.plist",
     "notarize": false,
     "extendInfo": {
-      "NSLocalNetworkUsageDescription": "AI Orchestrator uses your local network to discover and connect to worker nodes on other machines.",
-      "NSMicrophoneUsageDescription": "AI Orchestrator uses the microphone only when you enable voice conversation for a session."
+      "NSLocalNetworkUsageDescription": "Harness uses your local network to discover and connect to worker nodes on other machines.",
+      "NSMicrophoneUsageDescription": "Harness uses the microphone only when you enable voice conversation for a session."
     },
     "extraResources": [
       {

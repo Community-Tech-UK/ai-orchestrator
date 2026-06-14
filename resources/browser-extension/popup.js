@@ -15,7 +15,7 @@ shareButton.addEventListener('click', async () => {
     if (!response?.ok) {
       throw new Error(response?.error || response?.response?.error || 'Tab was not shared.');
     }
-    status.textContent = 'Tab shared with AI Orchestrator.';
+    status.textContent = 'Tab shared with Harness.';
   } catch (error) {
     status.textContent = error instanceof Error ? error.message : String(error);
   } finally {

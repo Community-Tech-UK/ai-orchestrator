@@ -7,7 +7,7 @@
  * *blocking* objections as a structured warning in the logs.
  *
  * Deliberately **non-blocking** and error-isolated — it never affects loop
- * control flow (AIO can't intercept an external CLI mid-turn anyway; this is a
+ * control flow (Harness can't intercept an external CLI mid-turn anyway; this is a
  * post-iteration audit, not a pre-execution gate). The pure
  * {@link critiqueLoopIteration} is exported separately so it can be unit-tested
  * and reused by other surfaces (debate/verify) without the registration.

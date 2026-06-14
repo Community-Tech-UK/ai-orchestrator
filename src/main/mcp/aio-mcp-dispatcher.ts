@@ -2,7 +2,7 @@
  * `aio-mcp` SEA Dispatcher — entrypoint baked into the Node SEA binary.
  *
  * The single binary `aio-mcp` shipped via `extraResources` replaces all four
- * spawn sites that used to launch the AI Orchestrator Electron binary with
+ * spawn sites that used to launch the Harness Electron binary with
  * `ELECTRON_RUN_AS_NODE=1`:
  *
  *   `aio-mcp orchestrator-tools`   thin stdio forwarder → OrchestratorToolsRpcServer

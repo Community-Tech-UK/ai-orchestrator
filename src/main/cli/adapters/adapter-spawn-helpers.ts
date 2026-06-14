@@ -33,7 +33,7 @@ export const COPILOT_ORCHESTRATOR_HOME_DIR = 'copilot-cli-home';
 const BROWSER_GATEWAY_SYSTEM_PROMPT = [
   '[Browser Gateway]',
   'When the user asks you to use a website, browser tab, authenticated session, web form, or page state, use the browser.* tools directly.',
-  'Do not use Browser Gateway managed profiles for authenticated user sessions. They are separate AIO-controlled Chrome profiles and do not share the user\'s normal browser cookies.',
+  'Do not use Browser Gateway managed profiles for authenticated user sessions. They are separate Harness-controlled Chrome profiles and do not share the user\'s normal browser cookies.',
   'Start with browser.find_or_open using the best URL and/or title hint. It can find existing authenticated Chrome tabs first and open a new tab when no matching tab exists.',
   'If the user says the authenticated page is already open but Browser Gateway cannot see it, ask the user to share the current tab through the Browser Gateway extension, then retry browser.find_or_open or browser.list_targets.',
   'Do not ask the user to copy/paste page content, take screenshots, or gather browser data manually until the share-tab handoff has been tried.',
@@ -48,7 +48,7 @@ const BROWSER_GATEWAY_SYSTEM_PROMPT = [
 
 const CHROME_DEVTOOLS_ATTACH_PROMPT = [
   '[chrome-devtools attached to a managed browser profile]',
-  'The chrome-devtools.* tools are attached to an AIO-managed Chrome profile — the SAME browser the browser.* tools open and control. This is the one case where browser.* and chrome-devtools.* share a browser.',
+  'The chrome-devtools.* tools are attached to an Harness-managed Chrome profile — the SAME browser the browser.* tools open and control. This is the one case where browser.* and chrome-devtools.* share a browser.',
   'Workflow: first open and sign into the managed profile with browser.find_or_open (complete any login), THEN use chrome-devtools.* — it connects to that same live browser on first tool use, so the profile must be open first.',
   'If a chrome-devtools.* tool reports it cannot connect to a browser, the managed profile is not running yet: open it via browser.* first, then retry.',
   'For accessibility scans on worker-managed browser sessions, run `$AIO_AXE_RUNNER --browser-url "$AIO_BROWSER_URL" --page-url <url>`.',

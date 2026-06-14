@@ -132,7 +132,7 @@ const DEFAULT_STALL_WARNING_MS = 3 * 60_000;
 
 const DEFAULT_CLIENT_INFO: AcpImplementationInfo = {
   name: 'ai-orchestrator',
-  title: 'AI Orchestrator',
+  title: 'Harness',
   version: 'dev',
 };
 

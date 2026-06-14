@@ -2,7 +2,7 @@
  * Reaction Engine — Monitors CI/PR state and routes feedback to agent instances.
  *
  * Inspired by Agent Orchestrator's lifecycle-manager.ts, adapted for
- * AI Orchestrator's Electron + instance-manager architecture.
+ * Harness's Electron + instance-manager architecture.
  *
  * Polling loop:
  *   1. Collect all instances with tracked PRs

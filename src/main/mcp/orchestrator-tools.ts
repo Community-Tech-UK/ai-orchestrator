@@ -94,7 +94,7 @@ export interface ListRemoteNodesResult {
 export type ListRemoteNodesFn = () => Promise<ListRemoteNodesResult>;
 
 export const REMOTE_NODE_DISCOVERY_HINT =
-  'AIO can use connected remote worker nodes, including Windows PCs, other machines, remote machines, and another computer, through list_remote_nodes, run_on_node, and read_node_output. Call list_remote_nodes first when reachability matters.';
+  'Harness can use connected remote worker nodes, including Windows PCs, other machines, remote machines, and another computer, through list_remote_nodes, run_on_node, and read_node_output. Call list_remote_nodes first when reachability matters.';
 
 export const RunOnNodeArgsSchema = z.object({
   /**

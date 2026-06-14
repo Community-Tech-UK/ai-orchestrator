@@ -6,7 +6,7 @@ const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 const MAX_OUTBOX = 50;
 const MAX_INVENTORY_TABS = 40;
-const CONTROL_GROUP_TITLE = 'AI Orchestrator';
+const CONTROL_GROUP_TITLE = 'Harness';
 
 let nativePort = null;
 let pollInFlight = false;
@@ -1351,7 +1351,7 @@ async function markControlledTabGroup(tabId) {
   const noGroupId = chrome.tabGroups.TAB_GROUP_ID_NONE ?? -1;
   const currentGroupId = typeof tab.groupId === 'number' ? tab.groupId : noGroupId;
 
-  // Reuse the single canonical "AI Orchestrator" control group in this tab's
+  // Reuse the single canonical "Harness" control group in this tab's
   // window so every controlled tab collapses into one group instead of spawning
   // a new group per tab. Tab groups are window-scoped, so this is constrained to
   // the tab's own window. The canonical group is the oldest matching group

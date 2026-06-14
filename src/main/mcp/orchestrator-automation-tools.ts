@@ -275,7 +275,7 @@ export function createAutomationToolDefinitions(
     {
       name: 'create_automation',
       description:
-        'Create a scheduled automation in AIO: a recurring (cron) or one-time prompt that runs an autonomous agent on a schedule. This is the ONLY correct way to schedule or automate anything inside AI Orchestrator — use it whenever the user asks to "set up an automation", "run this every day/week", "schedule this", "check X every hour", or "remind me to…". Do NOT use a host CLI scheduling skill (e.g. Claude Code\'s /schedule or CronCreate): those create cloud remote agents that run in an isolated sandbox with NO browser and no access to the user\'s logged-in sessions, and the user cannot see or manage them in AIO. AIO automations are different: they run LOCALLY on this machine, and each scheduled run spawns a fresh local agent that inherits the SAME tools as this chat — including the browser gateway to the user\'s real, authenticated Chrome (real cookies). That means an automation CAN read pages/sites the user is logged into, as long as the app and the user\'s browser are running when it fires. Provide a 5-field cron expression for recurring schedules, or an ISO-8601 runAt for a one-time run. The working directory defaults to the current chat\'s project. Returns the created automation\'s id, schedule summary, and next run time.',
+        'Create a scheduled automation in Harness: a recurring (cron) or one-time prompt that runs an autonomous agent on a schedule. This is the ONLY correct way to schedule or automate anything inside Harness — use it whenever the user asks to "set up an automation", "run this every day/week", "schedule this", "check X every hour", or "remind me to…". Do NOT use a host CLI scheduling skill (e.g. Claude Code\'s /schedule or CronCreate): those create cloud remote agents that run in an isolated sandbox with NO browser and no access to the user\'s logged-in sessions, and the user cannot see or manage them in Harness. Harness automations are different: they run LOCALLY on this machine, and each scheduled run spawns a fresh local agent that inherits the SAME tools as this chat — including the browser gateway to the user\'s real, authenticated Chrome (real cookies). That means an automation CAN read pages/sites the user is logged into, as long as the app and the user\'s browser are running when it fires. Provide a 5-field cron expression for recurring schedules, or an ISO-8601 runAt for a one-time run. The working directory defaults to the current chat\'s project. Returns the created automation\'s id, schedule summary, and next run time.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -331,7 +331,7 @@ export function createAutomationToolDefinitions(
     {
       name: 'list_automations',
       description:
-        'List the scheduled automations configured in AIO, with their schedule, enabled state, next/last run times, and working directory. Read-only. Use this to check what automations already exist before creating or describing them.',
+        'List the scheduled automations configured in Harness, with their schedule, enabled state, next/last run times, and working directory. Read-only. Use this to check what automations already exist before creating or describing them.',
       inputSchema: {
         type: 'object',
         properties: {},
@@ -351,7 +351,7 @@ export function createAutomationToolDefinitions(
     {
       name: 'delete_automation',
       description:
-        'Permanently delete a scheduled automation in AIO by its id. Use this when the user asks to "delete", "remove", or "get rid of" an automation. This cannot be undone — the automation and its schedule are removed. Any run currently in flight keeps running but is detached. To temporarily stop an automation without deleting it, use update_automation with enabled:false instead. Call list_automations first to find the id. Returns the deleted automation\'s id and name.',
+        'Permanently delete a scheduled automation in Harness by its id. Use this when the user asks to "delete", "remove", or "get rid of" an automation. This cannot be undone — the automation and its schedule are removed. Any run currently in flight keeps running but is detached. To temporarily stop an automation without deleting it, use update_automation with enabled:false instead. Call list_automations first to find the id. Returns the deleted automation\'s id and name.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -376,7 +376,7 @@ export function createAutomationToolDefinitions(
     {
       name: 'update_automation',
       description:
-        'Update an existing AIO automation by its id. Use this to change an automation\'s prompt, name, description, schedule (cron or one-time runAt), timezone, working directory, provider, or to pause/resume it (enabled:false disables without deleting, enabled:true resumes). Only the fields you provide change; omit the rest. Provide cron OR runAt (not both) to change the schedule. Call list_automations first to find the id. Returns the updated automation\'s schedule summary and next run time.',
+        'Update an existing Harness automation by its id. Use this to change an automation\'s prompt, name, description, schedule (cron or one-time runAt), timezone, working directory, provider, or to pause/resume it (enabled:false disables without deleting, enabled:true resumes). Only the fields you provide change; omit the rest. Provide cron OR runAt (not both) to change the schedule. Call list_automations first to find the id. Returns the updated automation\'s schedule summary and next run time.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -457,7 +457,7 @@ export function createAutomationToolDefinitions(
     {
       name: 'postpone_automation',
       description:
-        'Postpone (delay/snooze) an AIO automation\'s next run to a later time. Use this when the user asks to "postpone", "delay", "snooze", or "push back" an automation. For a one-time automation this reschedules its single run; for a recurring automation it skips ahead to the new time once and then resumes its normal cadence. Provide exactly one of untilIso (an absolute ISO-8601 time) or delayMinutes (relative push). Call list_automations first to find the id. Returns the new next run time.',
+        'Postpone (delay/snooze) an Harness automation\'s next run to a later time. Use this when the user asks to "postpone", "delay", "snooze", or "push back" an automation. For a one-time automation this reschedules its single run; for a recurring automation it skips ahead to the new time once and then resumes its normal cadence. Provide exactly one of untilIso (an absolute ISO-8601 time) or delayMinutes (relative push). Call list_automations first to find the id. Returns the new next run time.',
       inputSchema: {
         type: 'object',
         properties: {

@@ -1,7 +1,7 @@
 /**
  * CursorUsageSummaryProbe
  *
- * Independent AIO probe for Cursor quota. It mirrors the standalone
+ * Independent Harness probe for Cursor quota. It mirrors the standalone
  * token-usage-monitor's Cursor path: read the Cursor dashboard session JWT
  * from Keychain, send it as the WorkOS dashboard cookie, and parse
  * `POST https://cursor.com/api/usage-summary`.

@@ -1,6 +1,6 @@
 /**
  * Shared types for the Mobile Gateway — the small HTTP + WebSocket surface that
- * lets the companion phone app observe and control AI Orchestrator instances
+ * lets the companion phone app observe and control Harness instances
  * over a Tailscale tunnel. Lives in shared/ (like remote-observer.types.ts) so
  * both the Electron main process and any TypeScript client can reference it.
  *

@@ -165,7 +165,7 @@ export interface AttachmentPreamble {
  * begin with the canonical header followed by at least one `- <path>` bullet —
  * so ordinary prompts pass straight through unchanged.
  *
- * The header + bullet list are AIO-generated boilerplate that carries no
+ * The header + bullet list are Harness-generated boilerplate that carries no
  * per-task signal; the file names do. Callers use the parsed `paths` to title
  * the session from its attachments instead of from the boilerplate.
  */

@@ -38,7 +38,7 @@ export class WindowsServiceManager implements ServiceManager {
     const xml = generateWinswXml({
       serviceId: WORKER_SERVICE_ID,
       displayName: WORKER_SERVICE_DISPLAY_NAME,
-      description: 'AI Orchestrator worker node',
+      description: 'Harness worker node',
       executable: targetBin,
       arguments: ['--service-run', '--config', opts.configPath],
       logDir: opts.logDir ?? paths.logDir,

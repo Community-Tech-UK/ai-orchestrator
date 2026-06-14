@@ -3,7 +3,7 @@
  *
  * Displays the built-in preset server definitions returned by `mcp:get-presets`.
  * These are NOT from an external registry — they are hardcoded presets shipped
- * with AI Orchestrator (filesystem, GitHub, Puppeteer, etc.).
+ * with Harness (filesystem, GitHub, Puppeteer, etc.).
  *
  * For each preset the component shows:
  *  - Name & description

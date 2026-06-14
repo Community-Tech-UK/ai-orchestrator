@@ -97,7 +97,7 @@ export function createSettingsToolDefinitions(
     {
       name: 'list_settings',
       description:
-        'List AI Orchestrator app settings that agents can inspect. Values are redacted for secret-tier keys, and each row reports whether it can be changed with set_setting/reset_setting plus whether a restart is required.',
+        'List Harness app settings that agents can inspect. Values are redacted for secret-tier keys, and each row reports whether it can be changed with set_setting/reset_setting plus whether a restart is required.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -124,7 +124,7 @@ export function createSettingsToolDefinitions(
     {
       name: 'get_setting',
       description:
-        'Read one AI Orchestrator app setting by key. Secret-tier settings are never returned; use list_settings to discover whether a key is readable and writable.',
+        'Read one Harness app setting by key. Secret-tier settings are never returned; use list_settings to discover whether a key is readable and writable.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -150,7 +150,7 @@ export function createSettingsToolDefinitions(
     {
       name: 'set_setting',
       description:
-        'Set one writable AI Orchestrator app setting. Refuses read-only and secret keys. JSON-backed settings such as auxiliaryLlmSlotsJson accept real objects and are stringified internally.',
+        'Set one writable Harness app setting. Refuses read-only and secret keys. JSON-backed settings such as auxiliaryLlmSlotsJson accept real objects and are stringified internally.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -178,7 +178,7 @@ export function createSettingsToolDefinitions(
     {
       name: 'reset_setting',
       description:
-        'Reset one writable AI Orchestrator app setting to its built-in default. Refuses read-only and secret keys for the same policy reasons as set_setting.',
+        'Reset one writable Harness app setting to its built-in default. Refuses read-only and secret keys for the same policy reasons as set_setting.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -361,5 +361,5 @@ function inferCategory(key: keyof AppSettings): string {
 }
 
 function fallbackDescription(key: keyof AppSettings): string {
-  return `Persisted AI Orchestrator setting: ${key}.`;
+  return `Persisted Harness setting: ${key}.`;
 }

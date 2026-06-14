@@ -121,7 +121,7 @@ export class MacosServiceManager implements ServiceManager {
     const uid = await this.nextAvailableUid();
     await execFileCapture('dscl', ['.', '-create', `/Users/${USER_NAME}`]);
     await execFileCapture('dscl', ['.', '-create', `/Users/${USER_NAME}`, 'UserShell', '/usr/bin/false']);
-    await execFileCapture('dscl', ['.', '-create', `/Users/${USER_NAME}`, 'RealName', 'AI Orchestrator Worker']);
+    await execFileCapture('dscl', ['.', '-create', `/Users/${USER_NAME}`, 'RealName', 'Harness Worker']);
     await execFileCapture('dscl', ['.', '-create', `/Users/${USER_NAME}`, 'UniqueID', String(uid)]);
     await execFileCapture('dscl', ['.', '-create', `/Users/${USER_NAME}`, 'PrimaryGroupID', String(uid)]);
     await execFileCapture('dscl', ['.', '-create', `/Users/${USER_NAME}`, 'NFSHomeDirectory', '/var/empty']);
@@ -141,7 +141,7 @@ export class MacosServiceManager implements ServiceManager {
   }
 
   private async installSudoersDropIn(): Promise<void> {
-    const content = `# Allow admin group to manage AI Orchestrator worker daemon
+    const content = `# Allow admin group to manage Harness worker daemon
 %admin ALL=(root) NOPASSWD: /bin/launchctl kickstart system/${LABEL}
 %admin ALL=(root) NOPASSWD: /bin/launchctl kickstart -k system/${LABEL}
 %admin ALL=(root) NOPASSWD: /bin/launchctl kill SIGTERM system/${LABEL}

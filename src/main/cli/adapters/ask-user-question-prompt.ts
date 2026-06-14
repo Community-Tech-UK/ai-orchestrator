@@ -1,6 +1,6 @@
 /**
  * Pure helpers for turning a Claude Code `AskUserQuestion` tool input into a
- * human-readable prompt that AIO surfaces as an `input_required` request.
+ * human-readable prompt that Harness surfaces as an `input_required` request.
  *
  * The real Claude Code tool nests one or more questions under `questions[]`,
  * each with its own `header`/`question` text and `options[]` (objects of

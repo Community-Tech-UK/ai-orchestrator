@@ -18,7 +18,7 @@ export type ConfigSource = 'project' | 'user' | 'default';
 export type DefaultMissedRunPolicy = 'skip' | 'notify' | 'runOnce';
 export type PauseReachabilityProbeMode = 'disabled' | 'reachable-means-vpn' | 'unreachable-means-vpn';
 /**
- * How AI Orchestrator handles newer versions of the CLI providers it wraps:
+ * How Harness handles newer versions of the CLI providers it wraps:
  * - `'off'`    — don't check; hide the update pill.
  * - `'notify'` — check + surface the pill/one-click update (t3code parity). Default.
  * - `'auto'`   — additionally apply *safe* updates automatically (npm/self-update
@@ -132,7 +132,7 @@ export interface AppSettings {
   broadRootFileThreshold: number;
 
   /**
-   * Attach the `chrome-devtools` MCP server to an AIO-managed browser profile.
+   * Attach the `chrome-devtools` MCP server to an Harness-managed browser profile.
    * When enabled, spawned agents get a chrome-devtools server configured with
    * `--browserUrl` pointing at the managed profile's CDP endpoint, so they can
    * drive the same authenticated browser they opened via `browser.*`.

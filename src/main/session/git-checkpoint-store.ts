@@ -167,7 +167,7 @@ export class GitCheckpointStore {
     if (!await pathExists(path.join(shadowRoot, '.git'))) {
       await runCommand(shadowRoot, ['init']);
     }
-    await runCommand(shadowRoot, ['config', 'user.name', 'AI Orchestrator']);
+    await runCommand(shadowRoot, ['config', 'user.name', 'Harness']);
     await runCommand(shadowRoot, ['config', 'user.email', 'orchestrator@local.invalid']);
 
     await removeDirectoryContents(shadowRoot, new Set<string>(['.git']));

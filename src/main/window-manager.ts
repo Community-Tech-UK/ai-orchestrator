@@ -40,7 +40,7 @@ export class WindowManager {
       height: Math.min(900, height * 0.9),
       minWidth: 800,
       minHeight: 600,
-      title: 'AI Orchestrator',
+      title: 'Harness',
 
       // Native appearance - hiddenInset shows traffic lights, hides title
       titleBarStyle: isMac ? 'hiddenInset' : 'hidden',

@@ -1,4 +1,4 @@
-# AI Orchestrator
+# Harness
 
 A high-performance desktop application for managing, monitoring, and coordinating multiple AI CLI instances. Built with Electron and Angular, it scales from individual agent interactions to orchestrated swarms of thousands of concurrent instances.
 

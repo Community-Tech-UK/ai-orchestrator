@@ -1,5 +1,5 @@
 /**
- * CLI Module - Multi-CLI support for AI Orchestrator
+ * CLI Module - Multi-CLI support for Harness
  *
  * This module provides adapters and utilities for managing multiple
  * AI CLI tools including Claude Code, OpenAI Codex, Google Gemini, and more.

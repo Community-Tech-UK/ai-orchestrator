@@ -229,7 +229,7 @@ export class OrchestrationHandler extends EventEmitter {
 
   /**
    * When a user message expresses scheduling/automation intent, returns a concise
-   * reminder steering the model to AIO's native `create_automation` (and away from
+   * reminder steering the model to Harness's native `create_automation` (and away from
    * the host CLI's cloud `schedule`/`CronCreate` tools). Returns null otherwise.
    *
    * The full steering only lands on the first message of a fresh conversation, so

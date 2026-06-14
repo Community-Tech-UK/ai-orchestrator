@@ -5,8 +5,8 @@ describe('generateWinswXml', () => {
   it('includes escaped service name, binary path, and config arg', () => {
     const xml = generateWinswXml({
       serviceId: 'ai-orchestrator-worker',
-      displayName: 'AI Orchestrator Worker',
-      description: 'Worker node for AI Orchestrator',
+      displayName: 'Harness Worker',
+      description: 'Worker node for Harness',
       executable: 'C:\\Program Files\\Orchestrator\\bin\\worker-agent.exe',
       arguments: ['--service-run', '--config', 'C:\\ProgramData\\Orchestrator\\worker-node.json'],
       logDir: 'C:\\ProgramData\\Orchestrator\\logs',

@@ -52,7 +52,7 @@ export function generateOrchestrationPrompt(
   const currentTimeIso = new Date().toISOString();
   return `## You Are an Orchestrator
 
-${modelIdentity}You are a **parent instance** in AI Orchestrator. You spawn and manage child AI instances for parallel work.
+${modelIdentity}You are a **parent instance** in Harness. You spawn and manage child AI instances for parallel work.
 
 **Current time:** ${currentTimeIso}
 **Local timezone:** ${localTimezone}
@@ -113,9 +113,9 @@ To run a child on a connected **worker node** (e.g. a powerful desktop) instead 
 
 ### Saved Automations
 
-When the user asks for recurring or deferred work — for example "every morning", "daily", "weekly", "every 15 minutes", "on repeat", "on a loop", "tomorrow", or "next Friday" — create an AI Orchestrator native automation with \`create_automation\` instead of trying to run an infinite loop inside the current session.
+When the user asks for recurring or deferred work — for example "every morning", "daily", "weekly", "every 15 minutes", "on repeat", "on a loop", "tomorrow", or "next Friday" — create an Harness native automation with \`create_automation\` instead of trying to run an infinite loop inside the current session.
 
-**Always use AIO's native \`create_automation\` for scheduling — never a host CLI scheduling skill.** Do NOT reach for the underlying CLI's own scheduler (e.g. Claude Code's \`/schedule\` skill or \`CronCreate\`). Those create cloud remote agents in an isolated sandbox with NO browser and no access to the user's logged-in sessions, and the user cannot see or manage them inside AIO. AIO automations run **locally on this machine**, and each fire spawns a fresh local agent that inherits the **same tools as this chat — including the browser gateway to the user's real, authenticated Chrome (real cookies)**. So an AIO automation CAN read sites/pages the user is logged into (as long as the app and browser are running when it fires) — never decline a scheduling request on the grounds that "a scheduled agent has no browser or login"; that constraint is from the host CLI's cloud scheduler, not from AIO.
+**Always use Harness's native \`create_automation\` for scheduling — never a host CLI scheduling skill.** Do NOT reach for the underlying CLI's own scheduler (e.g. Claude Code's \`/schedule\` skill or \`CronCreate\`). Those create cloud remote agents in an isolated sandbox with NO browser and no access to the user's logged-in sessions, and the user cannot see or manage them inside Harness. Harness automations run **locally on this machine**, and each fire spawns a fresh local agent that inherits the **same tools as this chat — including the browser gateway to the user's real, authenticated Chrome (real cookies)**. So an Harness automation CAN read sites/pages the user is logged into (as long as the app and browser are running when it fires) — never decline a scheduling request on the grounds that "a scheduled agent has no browser or login"; that constraint is from the host CLI's cloud scheduler, not from Harness.
 
 - Use \`schedule.type = "cron"\` for repeated work, with a concrete cron expression and IANA timezone.
 - Use \`schedule.type = "oneTime"\` for one future run, with \`runAt\` as a Unix timestamp in milliseconds.
@@ -174,7 +174,7 @@ Options: \`providers\` (default: all), \`strategy\` ("majority"|"weighted"|"all"
 
 ### Code Navigation
 
-AI Orchestrator maintains codemem indexes for known workspaces. User turns may include an \`[Indexed Codebase Context]\` block selected from codemem-backed search. Use that block as a starting point, then verify important details against repository files before editing.
+Harness maintains codemem indexes for known workspaces. User turns may include an \`[Indexed Codebase Context]\` block selected from codemem-backed search. Use that block as a starting point, then verify important details against repository files before editing.
 
 Use codemem tools when navigating code because they query the persistent symbol/LSP index and are usually faster and more accurate than broad grep for code structure:
 
@@ -220,14 +220,14 @@ The orchestrator has native CLI adapters with streaming, session management, and
  * surfaced exactly when scheduling intent appears. This keeps the steering in front
  * of the model at the moment of need.
  */
-export const SCHEDULING_INTENT_REMINDER = `> **Reminder — scheduling guidance.** *If* the user is asking to schedule recurring or deferred work, create it as an **AI Orchestrator native automation** with the \`create_automation\` orchestrator command (see the "Saved Automations" format from the start of this session). Do **NOT** use the host CLI's \`/schedule\` skill, \`CronCreate\`, or any cloud-routine tool — those are blocked here, run in a sandbox with no browser and no access to the user's logged-in sessions, and the user cannot see or manage them inside AIO. AIO automations run locally and each fire inherits this chat's tools, including the authenticated browser. (If this message is not actually about scheduling, ignore this note and do not create anything.)`;
+export const SCHEDULING_INTENT_REMINDER = `> **Reminder — scheduling guidance.** *If* the user is asking to schedule recurring or deferred work, create it as an **Harness native automation** with the \`create_automation\` orchestrator command (see the "Saved Automations" format from the start of this session). Do **NOT** use the host CLI's \`/schedule\` skill, \`CronCreate\`, or any cloud-routine tool — those are blocked here, run in a sandbox with no browser and no access to the user's logged-in sessions, and the user cannot see or manage them inside Harness. Harness automations run locally and each fire inherits this chat's tools, including the authenticated browser. (If this message is not actually about scheduling, ignore this note and do not create anything.)`;
 
 const SCHEDULING_INTENT_PATTERN =
   /\b(automat(?:e|es|ed|ing|ion|ions)|schedul(?:e|es|ed|ing)|recurring|recurrent|cron|routine|daily|weekly|hourly|monthly|nightly|every\s+(?:\d+\s+)?(?:other\s+)?(?:minute|hour|day|week|month|morning|evening|afternoon|night|monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekday|weekend)|each\s+(?:minute|hour|day|week|month|morning|evening|afternoon|night|weekday)|on\s+a\s+loop|on\s+repeat|in\s+a\s+loop|remind\s+me|tomorrow|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|month))\b/i;
 
 /**
  * Detects whether a user message is asking for recurring or deferred work that
- * should become an AI Orchestrator native automation. Intentionally errs toward
+ * should become an Harness native automation. Intentionally errs toward
  * triggering — a false positive only appends a short, harmless steering reminder.
  */
 export function detectsSchedulingIntent(text: string | undefined | null): boolean {

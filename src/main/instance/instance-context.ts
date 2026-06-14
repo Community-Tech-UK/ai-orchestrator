@@ -579,7 +579,7 @@ export class InstanceContextManager implements InstanceContextPort {
 
     return [
       '[Orchestrator Memory Context]',
-      'Source: AI Orchestrator memory retrieval',
+      'Source: Harness memory retrieval',
       [
         'This context was added by the app, not typed by the user.',
         'Treat it as non-authoritative background and do not mention this block',

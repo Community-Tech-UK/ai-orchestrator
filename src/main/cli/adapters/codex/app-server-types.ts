@@ -526,4 +526,4 @@ export const DEFAULT_OPT_OUT_NOTIFICATIONS = [
 export const SERVICE_NAME = 'ai-orchestrator';
 
 /** Prefix for persistent task thread names. */
-export const TASK_THREAD_PREFIX = 'AI Orchestrator Task';
+export const TASK_THREAD_PREFIX = 'Harness Task';

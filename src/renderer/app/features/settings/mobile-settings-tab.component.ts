@@ -146,7 +146,7 @@ import type {
         <div class="card">
           <h3>Pair a phone</h3>
           <p class="hint">
-            Generate a one-time code, then scan it in the AI Orchestrator phone app.
+            Generate a one-time code, then scan it in the Harness phone app.
           </p>
           <button (click)="generatePairing()" [disabled]="pairingBusy()">
             {{ pairingBusy() ? 'Generating…' : 'Generate pairing code' }}

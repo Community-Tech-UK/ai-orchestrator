@@ -2,7 +2,7 @@
  * Static model capability catalog.
  *
  * A committed snapshot of model capabilities, context windows, pricing, and
- * modalities for all providers AI Orchestrator can route to. Sourced from
+ * modalities for all providers Harness can route to. Sourced from
  * provider documentation and the models.dev dataset.
  *
  * This catalog is the *primary* source for the model picker and routing logic.

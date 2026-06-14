@@ -75,7 +75,7 @@ export function prepareBrowserExtensionNativeHostRuntime(
     manifestPath,
     `${JSON.stringify({
       name: BROWSER_EXTENSION_NATIVE_HOST_NAME,
-      description: 'AI Orchestrator Browser Gateway native host',
+      description: 'Harness Browser Gateway native host',
       path: wrapperPath,
       type: 'stdio',
       allowed_origins: [`chrome-extension://${BROWSER_EXTENSION_ID}/`],

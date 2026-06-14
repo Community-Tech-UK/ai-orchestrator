@@ -45,9 +45,21 @@ registerBuiltInProviders(providerAdapterRegistry);
 // lock, and a separate userData directory (so the two don't fight over the
 // same SQLite session/history files). Must run before requestSingleInstanceLock
 // and before any path lookups.
+//
+// NOTE ON THE REBRAND: the product's visible name is now "Harness", but the
+// on-disk userData directory names are intentionally pinned to the LEGACY
+// "AI Orchestrator" identity. Electron derives the default userData dir from
+// the productName, so without these explicit pins the rename would silently
+// move the data dir and orphan the existing SQLite session/history DB. We keep
+// the legacy dir names (and the legacy appId in electron-builder.json) so the
+// rebrand is purely cosmetic on disk and no user data is lost.
 if (!app.isPackaged) {
-  app.setName('AI Orchestrator (Dev)');
+  app.setName('Harness (Dev)');
   app.setPath('userData', path.join(app.getPath('appData'), 'AI Orchestrator (Dev)'));
+} else {
+  // Pin packaged userData to the legacy default so renaming productName to
+  // "Harness" does not orphan an existing installed app's data directory.
+  app.setPath('userData', path.join(app.getPath('appData'), 'AI Orchestrator'));
 }
 
 const logger = getLogger('App');
@@ -95,7 +107,7 @@ function recordShutdownTrigger(source: string, details: Record<string, unknown> 
   writeShutdownAudit('shutdown-trigger', shutdownTrigger);
 }
 
-class AIOrchestratorApp {
+class HarnessApp {
   private windowManager: WindowManager;
   private instanceManager: InstanceManager;
   private handlersRegistered = false;
@@ -112,7 +124,7 @@ class AIOrchestratorApp {
   }
 
   async initialize(): Promise<void> {
-    logger.info('Initializing AI Orchestrator');
+    logger.info('Initializing Harness');
 
     // Only register once — handlers persist across window recreation
     if (!this.handlersRegistered) {
@@ -143,7 +155,7 @@ class AIOrchestratorApp {
     // Create main window (this loads the renderer which may call IPC)
     await this.windowManager.createMainWindow();
 
-    logger.info('AI Orchestrator initialized');
+    logger.info('Harness initialized');
   }
 
   /**
@@ -229,8 +241,8 @@ class AIOrchestratorApp {
 }
 
 // Prevent macOS Keychain popup for Chromium's encrypted storage.
-// Without this, Electron triggers "AI Orchestrator wants to use your
-// confidential information stored in 'ai-orchestrator Safe Storage'" on launch.
+// Without this, Electron triggers "Harness wants to use your
+// confidential information stored in 'Harness Safe Storage'" on launch.
 // `use-mock-keychain` is the macOS-specific switch; `password-store=basic` is Linux-only.
 if (process.platform === 'darwin') {
   app.commandLine.appendSwitch('use-mock-keychain');
@@ -239,7 +251,7 @@ if (process.platform === 'darwin') {
 }
 
 // Application instance
-let orchestratorApp: AIOrchestratorApp | null = null;
+let orchestratorApp: HarnessApp | null = null;
 
 // Enforce a single running instance.  Without this, macOS Launch Services
 // will cheerfully spawn a second full app (each ~4 GB of RAM) when the user
@@ -283,7 +295,7 @@ app.whenReady().then(async () => {
     }
   }
 
-  orchestratorApp = new AIOrchestratorApp();
+  orchestratorApp = new HarnessApp();
   await orchestratorApp.initialize();
 
   // macOS: Re-create window when dock icon is clicked

@@ -1,5 +1,5 @@
 /**
- * CLI Adapters - Multi-CLI support for AI Orchestrator
+ * CLI Adapters - Multi-CLI support for Harness
  */
 
 // Base adapter

@@ -1,7 +1,7 @@
 /**
  * CursorCredentialsReader
  *
- * Reads Cursor's dashboard session JWT from the macOS Keychain so AIO can call
+ * Reads Cursor's dashboard session JWT from the macOS Keychain so Harness can call
  * Cursor's read-only usage-summary endpoint without depending on the external
  * token-usage-monitor. This is deliberately read-only: we never read or rotate
  * Cursor's refresh-token item, and an expired access token simply skips the

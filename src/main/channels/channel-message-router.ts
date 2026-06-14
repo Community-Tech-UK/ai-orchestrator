@@ -1481,7 +1481,7 @@ export class ChannelMessageRouter {
     adapter: BaseChannelAdapter,
   ): Promise<void> {
     const lines = [
-      '**AI Orchestrator Bot**',
+      '**Harness Bot**',
       '',
       '**Commands:**',
       '`/help` — show this message',

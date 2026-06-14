@@ -449,7 +449,7 @@ export class TrainingExportService {
       doc.setFontSize(8);
       doc.setTextColor(128, 128, 128);
       doc.text(
-        `Page ${i} of ${pageCount} | AI Orchestrator GRPO Training`,
+        `Page ${i} of ${pageCount} | Harness GRPO Training`,
         pageWidth / 2,
         doc.internal.pageSize.getHeight() - 10,
         { align: 'center' }

@@ -145,7 +145,7 @@ export async function ensureLoopAttachmentsIgnored(workspaceCwd: string): Promis
 
   const needsLeadingNewline = existing.length > 0 && !existing.endsWith('\n');
   const entries = missing.map((root) => `${root}/`).join('\n');
-  const block = `${needsLeadingNewline ? '\n' : ''}# AI Orchestrator loop runtime state\n${entries}\n`;
+  const block = `${needsLeadingNewline ? '\n' : ''}# Harness loop runtime state\n${entries}\n`;
   try {
     await appendFile(gitignorePath, block);
   } catch (err) {

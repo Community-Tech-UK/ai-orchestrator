@@ -168,7 +168,7 @@ interface SavedBundle {
           </div>
 
           <p class="saved-hint">
-            Share this file with others. They can open it in AIO via
+            Share this file with others. They can open it in Harness via
             <em>Replay &amp; Share → Load Bundle</em>.
           </p>
         </div>

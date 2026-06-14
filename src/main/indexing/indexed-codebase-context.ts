@@ -160,7 +160,7 @@ export class IndexedCodebaseContextService {
 
     return [
       '[Indexed Codebase Context]',
-      'Source: AI Orchestrator indexed codebase search',
+      'Source: Harness indexed codebase search',
       [
         'This context was selected from the persisted codebase index.',
         'Use it as a starting point and verify important details against files before editing.',

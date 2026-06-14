@@ -4,7 +4,7 @@
  *
  * A pure, dependency-free module that decides, *without burning a model call*:
  *   1. **Which role** a delegated task best fits — routed deterministically over
- *      AIO's real agent roles (`build` / `plan` / `review` / `retriever`).
+ *      Harness's real agent roles (`build` / `plan` / `review` / `retriever`).
  *   2. **Whether delegating is even worth it** — the "skip delegation if the
  *      overhead ≥ doing it yourself" heuristic (trivial narrow tasks shouldn't
  *      spawn a child).
@@ -13,11 +13,11 @@
  *
  * Kept pure so it is trivially unit-testable and free of orchestration deps.
  * The 37-role *prompt library* from the source projects is intentionally out of
- * scope: AIO ships 4 agent roles, so a deterministic router over those is the
+ * scope: Harness ships 4 agent roles, so a deterministic router over those is the
  * transferable, net-new value — not a library of prompts with no target.
  */
 
-/** AIO's built-in agent roles (see `src/shared/types/agent.types.ts`). */
+/** Harness's built-in agent roles (see `src/shared/types/agent.types.ts`). */
 export type DelegationRole = 'build' | 'plan' | 'review' | 'retriever';
 
 export type DelegationScope = 'narrow' | 'broad';
@@ -129,7 +129,7 @@ function countSignals(text: string, table: [RegExp, number][]): number {
 }
 
 /**
- * Deterministically route a task to the best-fit AIO role. Pure keyword scoring
+ * Deterministically route a task to the best-fit Harness role. Pure keyword scoring
  * with word-boundary, case-insensitive matching; `build` is the default sink.
  */
 export function routeRole(task: string): RoleRoute {

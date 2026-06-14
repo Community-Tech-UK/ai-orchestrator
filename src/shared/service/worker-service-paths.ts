@@ -12,7 +12,7 @@ export interface WorkerServicePaths {
 export type WorkerServicePlatform = 'win32' | 'linux' | 'darwin';
 
 export const WORKER_SERVICE_ID = 'ai-orchestrator-worker';
-export const WORKER_SERVICE_DISPLAY_NAME = 'AI Orchestrator Worker';
+export const WORKER_SERVICE_DISPLAY_NAME = 'Harness Worker';
 
 export function servicePaths(platform: WorkerServicePlatform = process.platform as WorkerServicePlatform): WorkerServicePaths {
   switch (platform) {

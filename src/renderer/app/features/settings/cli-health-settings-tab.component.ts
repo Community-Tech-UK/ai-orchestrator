@@ -123,7 +123,7 @@ interface CliUpdateResult {
         <div class="update-policy-text">
           <span class="field-label">Automatic updates</span>
           <span class="field-hint">
-            How AI Orchestrator handles newer published versions of these CLIs.
+            How Harness handles newer published versions of these CLIs.
             <strong>Off</strong> stops checking entirely.
             <strong>Notify</strong> (default) shows an “Update available” badge so you
             can update with one click. <strong>Auto</strong> installs safe updates in the

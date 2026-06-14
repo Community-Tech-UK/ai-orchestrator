@@ -1,7 +1,7 @@
 /**
  * OpenTelemetry Metrics
  *
- * Provides counters and histograms for key operations in AI Orchestrator.
+ * Provides counters and histograms for key operations in Harness.
  * Uses the OTel metrics API so the backend (console, OTLP, in-memory for tests)
  * can be swapped without touching instrumented code.
  *
@@ -74,7 +74,7 @@ export function initMetrics(options?: MetricsOptions): Meter {
   return metrics.getMeter('ai-orchestrator');
 }
 
-/** Get the global AI Orchestrator meter (must call initMetrics first). */
+/** Get the global Harness meter (must call initMetrics first). */
 export function getOrchestratorMeter(): Meter {
   return metrics.getMeter('ai-orchestrator');
 }

@@ -337,17 +337,17 @@ if ($service) {
   try {
     if ($service.Status -eq 'Running') {
       Restart-Service -Name ([string]$repair.serviceId) -Force -ErrorAction Stop
-      Write-Host "AI Orchestrator worker service restarted."
+      Write-Host "Harness worker service restarted."
     } else {
       Start-Service -Name ([string]$repair.serviceId) -ErrorAction Stop
-      Write-Host "AI Orchestrator worker service started."
+      Write-Host "Harness worker service started."
     }
   } catch {
-    Write-Host ("Config was written, but the AI Orchestrator worker service could not be restarted or started: " + $_.Exception.Message)
+    Write-Host ("Config was written, but the Harness worker service could not be restarted or started: " + $_.Exception.Message)
     Write-Host "This command may require an elevated PowerShell session to restart the Windows service."
   }
 } else {
-  Write-Host "AI Orchestrator worker service is not installed. Config was written; start or install the worker service manually."
+  Write-Host "Harness worker service is not installed. Config was written; start or install the worker service manually."
 }
 `.trim();
   const encodedScript = Buffer.from(script, 'utf16le').toString('base64');

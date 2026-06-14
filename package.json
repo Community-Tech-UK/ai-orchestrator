@@ -1,7 +1,7 @@
 {
-  "name": "ai-orchestrator",
+  "name": "harness",
   "version": "0.1.0",
-  "description": "Desktop application for managing multiple AI CLI instances",
+  "description": "Harness — desktop application for managing multiple AI CLI instances",
   "main": "dist/main/index.js",
   "workspaces": [
     "packages/*"
@@ -76,7 +76,7 @@
   },
   "keywords": [
     "ai",
-    "ai-orchestrator",
+    "harness",
     "claude",
     "gemini",
     "openai",

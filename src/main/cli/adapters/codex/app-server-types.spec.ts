@@ -37,7 +37,7 @@ describe('app-server-types constants', () => {
   });
 
   it('exports TASK_THREAD_PREFIX', () => {
-    expect(TASK_THREAD_PREFIX).toBe('AI Orchestrator Task');
+    expect(TASK_THREAD_PREFIX).toBe('Harness Task');
   });
 
   it('types current durable thread read and list methods', () => {

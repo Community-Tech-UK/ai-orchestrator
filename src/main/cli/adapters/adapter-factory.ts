@@ -56,7 +56,7 @@ import {
 
 const logger = getLogger('AdapterFactory');
 const INTERACTIVE_RUNTIME_UNAVAILABLE =
-  'Interactive Claude launch mode requires the terminal runtime, which is not available in this build. Switch to Orchestrated to start a managed AI Orchestrator session.';
+  'Interactive Claude launch mode requires the terminal runtime, which is not available in this build. Switch to Orchestrated to start a managed Harness session.';
 
 // Re-export the spawn-option types so existing `import { UnifiedSpawnOptions,
 // CliAdapter } from './adapter-factory'` sites keep resolving.
@@ -205,7 +205,7 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
   const codexEnv = mergeSpawnEnv(options);
   extendEnvWithRtk(codexEnv, options.rtk);
   const codexConfig: CodexCliConfig = {
-    // AI Orchestrator owns its own session/history surface. Codex threads
+    // Harness owns its own session/history surface. Codex threads
     // created here should not leak into the standalone Codex desktop app
     // unless a caller explicitly opts out.
     ephemeral: options.ephemeral ?? true,
@@ -279,7 +279,7 @@ export function createCopilotAdapter(options: UnifiedSpawnOptions): AcpCliAdapte
     : [];
   const env = mergeSpawnEnv(options, buildCopilotSpawnEnv());
   if (copilotHomeDir) {
-    // AI Orchestrator owns its own session/history surface. Copilot ACP
+    // Harness owns its own session/history surface. Copilot ACP
     // sessions created here should not write into ~/.copilot, because VS
     // Code's Copilot Chat session list indexes that state directory.
     env['COPILOT_HOME'] = copilotHomeDir;

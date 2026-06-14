@@ -30,7 +30,7 @@ describe('browser extension assets', () => {
   it('marks actively controlled tabs with a blue group and page glow', () => {
     const background = readFileSync('resources/browser-extension/background.js', 'utf-8');
 
-    expect(background).toContain('AI Orchestrator');
+    expect(background).toContain('Harness');
     expect(background).toContain('chrome.tabs.group');
     expect(background).toContain('chrome.tabGroups.update');
     expect(background).toContain("color: 'blue'");

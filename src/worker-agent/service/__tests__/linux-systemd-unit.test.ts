@@ -4,7 +4,7 @@ import { generateSystemdUnit } from '../linux-systemd-unit';
 describe('generateSystemdUnit', () => {
   it('emits a full unit with hardening directives', () => {
     const unit = generateSystemdUnit({
-      description: 'AI Orchestrator Worker',
+      description: 'Harness Worker',
       execStart: '/opt/orchestrator/bin/worker-agent --service-run --config /etc/orchestrator/worker-node.json',
       user: 'orchestrator',
       group: 'orchestrator',
@@ -16,7 +16,7 @@ describe('generateSystemdUnit', () => {
       },
     });
     expect(unit).toContain('[Unit]');
-    expect(unit).toContain('Description=AI Orchestrator Worker');
+    expect(unit).toContain('Description=Harness Worker');
     expect(unit).toContain('[Service]');
     expect(unit).toContain('User=orchestrator');
     expect(unit).toContain('Group=orchestrator');

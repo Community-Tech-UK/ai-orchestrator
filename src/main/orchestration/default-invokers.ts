@@ -1545,7 +1545,7 @@ function scheduleProviderLimitResume(params: {
         prompt: [
           `Provider quota window reset for loop ${request.loopRunId}.`,
           `Reason: ${request.reason}`,
-          'AIO will try to resume the paused loop directly. If direct resume is unavailable, report the loop status and next action.',
+          'Harness will try to resume the paused loop directly. If direct resume is unavailable, report the loop status and next action.',
         ].join('\n'),
       },
     });

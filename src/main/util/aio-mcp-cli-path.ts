@@ -1,6 +1,6 @@
 /**
  * Resolves the path to the `aio-mcp` Node SEA dispatcher binary that ships
- * with every AI Orchestrator install. The same binary is used for all four
+ * with every Harness install. The same binary is used for all four
  * stdio-MCP / native-host integrations (orchestrator-tools, codemem,
  * browser-gateway, Chrome native-messaging) — the dispatcher routes on its
  * first CLI argument.

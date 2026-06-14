@@ -71,7 +71,7 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'chromeDevtoolsAttachEnabled',
     label: 'Attach chrome-devtools to a managed browser profile',
-    description: 'Give agents a chrome-devtools MCP server wired to a managed browser profile, so they can drive the same authenticated browser they open with the browser tools. When this is on, AI Orchestrator owns the single "chrome-devtools" server — do not also add a separate chrome-devtools MCP server, or their tools will collide.',
+    description: 'Give agents a chrome-devtools MCP server wired to a managed browser profile, so they can drive the same authenticated browser they open with the browser tools. When this is on, Harness owns the single "chrome-devtools" server — do not also add a separate chrome-devtools MCP server, or their tools will collide.',
     type: 'boolean',
     category: 'advanced',
   },

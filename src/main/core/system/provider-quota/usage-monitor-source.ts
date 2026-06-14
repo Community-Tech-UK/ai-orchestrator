@@ -2,14 +2,14 @@
  * UsageMonitorSource — optional interop with the standalone token-usage-monitor.
  *
  * Power users who run the full standalone monitor (the one with the mitmproxy)
- * get extras AIO's native pollers don't cover yet — notably Codex's real-time
+ * get extras Harness's native pollers don't cover yet — notably Codex's real-time
  * WS deltas and Cursor. That monitor persists its merged view to
  * `~/.usage/state.json`. When that file is present *and fresh*, this source
- * reads it and exposes per-provider quota windows so AIO can layer those extras
+ * reads it and exposes per-provider quota windows so Harness can layer those extras
  * on top of its own polling.
  *
  * Design rules (from the plan):
- *   • Pure enhancement — AIO must degrade cleanly when the file is absent,
+ *   • Pure enhancement — Harness must degrade cleanly when the file is absent,
  *     stale, or malformed. Every failure path returns `null`, never throws.
  *   • Precedence — the native poll is the source of truth; `state.json` only
  *     fills providers the native pollers don't cover. The {@link StateJsonProbe}

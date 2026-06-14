@@ -42,7 +42,7 @@ export class LinuxServiceManager implements ServiceManager {
     await execFileCapture('chown', ['root:root', versionedBin]);
 
     const unit = generateSystemdUnit({
-      description: 'AI Orchestrator Worker',
+      description: 'Harness Worker',
       execStart: `${paths.binFile} --service-run --config ${opts.configPath}`,
       user: SERVICE_USER,
       group: SERVICE_GROUP,

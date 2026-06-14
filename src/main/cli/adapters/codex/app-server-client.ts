@@ -71,7 +71,7 @@ interface PendingRequest {
 // ─── Default Constants ──────────────────────────────────────────────────────
 
 const DEFAULT_CLIENT_INFO: ClientInfo = {
-  title: 'AI Orchestrator',
+  title: 'Harness',
   name: 'ai-orchestrator',
   version: '1.0.0',
 };

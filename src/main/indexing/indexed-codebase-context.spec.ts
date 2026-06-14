@@ -70,7 +70,7 @@ describe('IndexedCodebaseContextService', () => {
 
     const block = service.formatContextBlock(context);
     expect(block).toContain('[Indexed Codebase Context]');
-    expect(block).toContain('Source: AI Orchestrator indexed codebase search');
+    expect(block).toContain('Source: Harness indexed codebase search');
     expect(block).toContain('src/auth.ts:10-12');
     expect(block).toContain('requireAuth');
     expect(block).toContain('[End Indexed Codebase Context]');

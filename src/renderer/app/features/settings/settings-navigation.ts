@@ -198,7 +198,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
   {
     id: 'mobile',
     label: 'Mobile',
-    summary: 'Control AI Orchestrator from your phone over Tailscale.',
+    summary: 'Control Harness from your phone over Tailscale.',
     group: 'Network & Remote',
     keywords: 'phone mobile ios iphone app pair qr tailscale remote control gateway',
   },
