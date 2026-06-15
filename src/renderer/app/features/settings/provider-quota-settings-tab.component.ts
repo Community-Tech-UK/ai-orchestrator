@@ -211,8 +211,10 @@ export class ProviderQuotaSettingsTabComponent implements OnInit {
     if (ms <= 0) return 'now';
 
     const totalMinutes = Math.ceil(ms / 60_000);
-    const hours = Math.floor(totalMinutes / 60);
+    const days = Math.floor(totalMinutes / (24 * 60));
+    const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
     const minutes = totalMinutes % 60;
+    if (days > 0) return `in ${days}d ${hours}h ${minutes}m`;
     if (hours > 0) return `in ${hours}h ${minutes}m`;
     return `in ${minutes}m`;
   }

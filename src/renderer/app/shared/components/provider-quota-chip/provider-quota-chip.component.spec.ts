@@ -6,7 +6,7 @@
  * - Plan-tier rendering (snapshots exist but no numerical windows)
  * - Worst-window rendering (numerical windows present)
  * - Colour banding by ratio (green / yellow / orange / red)
- * - Reset-time formatting (resets in Xh Ym)
+ * - Reset-time formatting (resets in Xd Yh Zm)
  * - Calls store.initialize() on construction
  */
 
@@ -164,6 +164,25 @@ describe('ProviderQuotaChipComponent', () => {
       fixture.detectChanges();
       const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
       expect(text.toLowerCase()).toMatch(/resets|reset/);
+    });
+
+    it('formats reset durations over 24 hours as days and remaining hours', () => {
+      const now = 1_700_000_000_000;
+      (component as unknown as { nowMs: { set(value: number): void } }).nowMs.set(now);
+      const resetsAt = now + ((4 * 24 + 9) * 60 + 33) * 60_000;
+      const weeklyWindow = makeWindow(18, 100, resetsAt);
+      store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [weeklyWindow]));
+      store.setWorst({ provider: 'claude', window: weeklyWindow });
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      const button = host.querySelector('button[data-testid="quota-toggle"]') as HTMLButtonElement;
+      button.click();
+      fixture.detectChanges();
+
+      const popoverText = host.querySelector('[data-testid="quota-popover"]')?.textContent ?? '';
+      expect(popoverText).toContain('resets in 4d 9h 33m');
+      expect(popoverText).not.toContain('105h 33m');
     });
 
     it('does not render reset hint when resetsAt is null', () => {

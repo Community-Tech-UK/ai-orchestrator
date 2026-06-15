@@ -5,7 +5,7 @@
  *
  * Display modes (chosen automatically):
  *   • 'window' — at least one provider has numerical windows. Shows the worst
- *     window's used/limit and a "resets in Xh Ym" hint, colour-banded by ratio.
+ *     window's used/limit and a "resets in Xd Yh Zm" hint, colour-banded by ratio.
  *   • 'plan'   — at least one provider returned an ok snapshot but no windows
  *     (Claude/Copilot v1). Shows e.g. "Claude · max".
  *   • 'empty'  — no useful snapshots yet (loading, all probes failed, etc.).
@@ -375,11 +375,13 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   }
 }
 
-/** Format a positive ms duration as "1h 23m" / "47m" / "0m". */
+/** Format a positive ms duration as "1d 2h 3m" / "1h 23m" / "47m" / "0m". */
 function formatDuration(ms: number): string {
   const totalMin = Math.max(0, Math.floor(ms / 60_000));
-  const h = Math.floor(totalMin / 60);
+  const d = Math.floor(totalMin / (24 * 60));
+  const h = Math.floor((totalMin % (24 * 60)) / 60);
   const m = totalMin % 60;
+  if (d > 0) return `${d}d ${h}h ${m}m`;
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
 }

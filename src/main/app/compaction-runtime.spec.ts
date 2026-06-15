@@ -120,6 +120,7 @@ describe('setupCompactionCoordinator', () => {
     const adapterSendInput = vi.fn(async () => undefined);
     const managerSendInput = vi.fn(async () => undefined);
     const restartInstance = vi.fn(async () => undefined);
+    const restartFreshInstance = vi.fn(async () => undefined);
     const emitOutputMessage = vi.fn();
     const instance = {
       id: 'inst-1',
@@ -135,6 +136,7 @@ describe('setupCompactionCoordinator', () => {
       getInstance: vi.fn(() => instance),
       sendInput: managerSendInput,
       restartInstance,
+      restartFreshInstance,
       emitOutputMessage,
     } as unknown as InstanceManager;
 
@@ -151,7 +153,11 @@ describe('setupCompactionCoordinator', () => {
     // to restart-with-summary which actually compacts.
     expect(result.success).toBe(true);
     expect(result.method).toBe('restart-with-summary');
-    expect(restartInstance).toHaveBeenCalledWith('inst-1');
+    // Compaction must use the FRESH restart (clean session) — not the
+    // context-preserving `restartInstance`, which would resume/replay the old
+    // conversation and defeat compaction (context snaps back to ~100%).
+    expect(restartFreshInstance).toHaveBeenCalledWith('inst-1');
+    expect(restartInstance).not.toHaveBeenCalled();
     // The continuity prompt is sent through the manager-level sendInput as
     // part of restart-with-summary.
     expect(managerSendInput).toHaveBeenCalledWith(

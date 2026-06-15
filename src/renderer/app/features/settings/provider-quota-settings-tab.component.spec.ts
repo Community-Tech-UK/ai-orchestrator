@@ -152,6 +152,32 @@ describe('ProviderQuotaSettingsTabComponent', () => {
       expect(text).toContain('resets in');
     });
 
+    it('formats reset durations over 24 hours as days and remaining hours', () => {
+      const now = 1_700_000_000_000;
+      const dateNow = vi.spyOn(Date, 'now').mockReturnValue(now);
+      try {
+        store.setSnapshot('claude', {
+          provider: 'claude',
+          takenAt: now,
+          source: 'cli-result',
+          ok: true,
+          plan: 'max',
+          windows: [
+            makeWindow({
+              resetsAt: now + ((4 * 24 + 9) * 60 + 33) * 60_000,
+            }),
+          ],
+        });
+        fixture.detectChanges();
+      } finally {
+        dateNow.mockRestore();
+      }
+
+      const text = fixture.nativeElement.textContent ?? '';
+      expect(text).toContain('resets in 4d 9h 33m');
+      expect(text).not.toContain('105h 33m');
+    });
+
     it('shows error message when snapshot is not ok', () => {
       store.setSnapshot('codex', {
         provider: 'codex',

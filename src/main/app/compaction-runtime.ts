@@ -155,7 +155,14 @@ export function setupCompactionCoordinator(
           '[End Continuity Package]',
         ].join('\n');
 
-        await instanceManager.restartInstance(instanceId);
+        // Use a FRESH restart, not the context-preserving one. `restartInstance`
+        // recovers via native `--resume` / history replay, which restores the
+        // entire prior conversation into the new CLI process — defeating
+        // compaction and snapping context usage straight back to ~100%.
+        // `restartFreshInstance` spawns a clean session (resume: false, new
+        // session id, resetTotalTokensUsed) and archives the old messages, so
+        // the continuity package below becomes the seed of an empty context.
+        await instanceManager.restartFreshInstance(instanceId);
         await instanceManager.sendInput(instanceId, continuityPrompt);
 
         logger.info('restart-with-summary compaction completed', {
