@@ -6,14 +6,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // they would fail under the old `process.execPath` + script-path scheme
 // (which silently broke packaged builds with the RunAsNode fuse off).
 const FAKE_AIO_MCP_PATH =
-  '/Applications/AI Orchestrator.app/Contents/Resources/aio-mcp-cli/aio-mcp';
-const FAKE_ORCHESTRATOR_TOOLS_SOCKET = '/tmp/ai-orchestrator/ot-test.sock';
-const FAKE_CODEMEM_SOCKET = '/tmp/ai-orchestrator/cm-test.sock';
+  '/Applications/Harness.app/Contents/Resources/aio-mcp-cli/aio-mcp';
+const FAKE_ORCHESTRATOR_TOOLS_SOCKET = '/tmp/harness/ot-test.sock';
+const FAKE_CODEMEM_SOCKET = '/tmp/harness/cm-test.sock';
 const FAKE_BROWSER_GATEWAY_SOCKET = '/tmp/browser-gateway.sock';
 
 vi.mock('electron', () => ({
   app: {
-    getPath: () => '/tmp/ai-orchestrator',
+    getPath: () => '/tmp/harness',
     isPackaged: false,
   },
 }));
@@ -34,12 +34,12 @@ const mcpInjectionMocks = vi.hoisted(() => ({
 
 const orchestratorToolsMocks = vi.hoisted(() => ({
   buildOrchestratorToolsMcpConfig: vi.fn(() => '{"mcpServers":{"orchestrator":{}}}'),
-  getOrchestratorToolsRpcSocketPath: vi.fn(() => '/tmp/ai-orchestrator/ot-test.sock'),
+  getOrchestratorToolsRpcSocketPath: vi.fn(() => '/tmp/harness/ot-test.sock'),
 }));
 
 const codememMocks = vi.hoisted(() => ({
   buildCodememMcpConfig: vi.fn(() => '{"mcpServers":{"codemem":{}}}'),
-  getCodememRpcSocketPath: vi.fn(() => '/tmp/ai-orchestrator/cm-test.sock'),
+  getCodememRpcSocketPath: vi.fn(() => '/tmp/harness/cm-test.sock'),
 }));
 
 const aioMcpPathMocks = vi.hoisted(() => ({

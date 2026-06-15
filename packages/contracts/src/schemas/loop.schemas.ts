@@ -484,6 +484,8 @@ export const LoopInferVerifyPayloadSchema = z.object({
 });
 
 export const LoopListOutstandingPayloadSchema = z.object({
+  /** Scope to one chat/session. Omit only for cross-session administrative views. */
+  chatId: z.string().min(1).optional(),
   /** Scope to one workspace. Omit to list across all workspaces. */
   workspaceCwd: z.string().min(1).optional(),
   /** Resolution filter. Defaults server-side to `'open'`. */
@@ -497,6 +499,8 @@ export const LoopSetOutstandingStatusPayloadSchema = z.object({
 });
 
 export const LoopExportOutstandingPayloadSchema = z.object({
+  /** Optional session scope for the exported backlog. */
+  chatId: z.string().min(1).optional(),
   workspaceCwd: z.string().min(1),
   /** Optional absolute destination path. Defaults to `<workspaceCwd>/OUTSTANDING.md`. */
   destPath: z.string().min(1).optional(),

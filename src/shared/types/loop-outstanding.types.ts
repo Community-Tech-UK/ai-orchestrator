@@ -3,7 +3,8 @@
 // Split out of loop.types.ts to keep that file under its LOC ceiling. These
 // types describe the structured capture of a loop's OUTSTANDING.md (the work
 // the agent could not resolve autonomously) so it can be persisted, exported,
-// and surfaced in the UI instead of being lost in the hidden per-run state dir.
+// and surfaced in the originating session instead of being lost in the hidden
+// per-run state dir.
 
 import type { LoopStatus } from './loop.types';
 
@@ -31,16 +32,16 @@ export type LoopOutstandingItemKind = 'needs-human' | 'open-question';
 
 /**
  * One aggregated, persisted outstanding item across loop runs. Stored in
- * `loop_outstanding_items` and surfaced in the renderer's Outstanding panel so
- * human-gated work survives the chat scroll-back and can be marked resolved /
- * dismissed.
+ * `loop_outstanding_items` and surfaced in the originating session's
+ * Outstanding panel so human-gated work survives the chat scroll-back and can
+ * be marked resolved / dismissed.
  */
 export interface LoopOutstandingItem {
   /** Stable id = sha256(loopRunId|kind|text). Lets re-captures dedupe + keep status. */
   id: string;
   loopRunId: string;
   chatId: string;
-  /** Workspace the loop ran in — the aggregation key for the panel. */
+  /** Workspace the loop ran in — retained for export and optional filtering. */
   workspaceCwd: string;
   kind: LoopOutstandingItemKind;
   text: string;

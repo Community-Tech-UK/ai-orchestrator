@@ -291,7 +291,7 @@
                 <app-checkpoint-timeline [instanceId]="inst.id" />
               }
               @if (showOutstandingInspector()) {
-                <app-loop-outstanding-panel [workspaceCwd]="inst.workingDirectory" />
+                <app-loop-outstanding-panel [chatId]="inst.id" [workspaceCwd]="inst.workingDirectory" />
               }
             </div>
           }

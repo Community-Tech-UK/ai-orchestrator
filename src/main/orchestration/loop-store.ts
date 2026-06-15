@@ -509,15 +509,20 @@ export class LoopStore {
   /**
    * List aggregated outstanding items. Defaults to status `'open'` so the panel
    * shows only un-resolved work; pass `status: 'all'` to include resolved/
-   * dismissed. Optionally scoped to a workspace (the panel's aggregation key).
+   * dismissed. Optionally scoped to a chat/session and/or workspace.
    */
   listOutstandingItems(opts: {
+    chatId?: string;
     workspaceCwd?: string;
     status?: LoopOutstandingItemStatus | 'all';
     limit?: number;
   } = {}): LoopOutstandingItem[] {
     const where: string[] = [];
     const args: unknown[] = [];
+    if (opts.chatId) {
+      where.push('chat_id = ?');
+      args.push(opts.chatId);
+    }
     if (opts.workspaceCwd) {
       where.push('workspace_cwd = ?');
       args.push(opts.workspaceCwd);
@@ -551,10 +556,14 @@ export class LoopStore {
     return Number(res.changes ?? 0) > 0;
   }
 
-  /** Count still-open items, optionally scoped to a workspace or single run. */
-  countOpenOutstanding(opts: { workspaceCwd?: string; loopRunId?: string } = {}): number {
+  /** Count still-open items, optionally scoped to a chat, workspace, or single run. */
+  countOpenOutstanding(opts: { chatId?: string; workspaceCwd?: string; loopRunId?: string } = {}): number {
     const where = ["status = 'open'"];
     const args: unknown[] = [];
+    if (opts.chatId) {
+      where.push('chat_id = ?');
+      args.push(opts.chatId);
+    }
     if (opts.workspaceCwd) {
       where.push('workspace_cwd = ?');
       args.push(opts.workspaceCwd);

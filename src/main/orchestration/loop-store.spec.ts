@@ -460,6 +460,26 @@ describe('LoopStore outstanding items', () => {
     expect(store.countOpenOutstanding({})).toBe(6);
   });
 
+  it('scopes listing + counting to one chat session within a workspace', () => {
+    seedRunWithOutstanding();
+    seedRunWithOutstanding({
+      id: 'loop-2',
+      chatId: 'chat-2',
+    });
+
+    const chatScope = {
+      workspaceCwd: '/tmp/project',
+      chatId: 'chat-1',
+    };
+    const countScope = {
+      workspaceCwd: '/tmp/project',
+      chatId: 'chat-1',
+    };
+
+    expect(store.listOutstandingItems(chatScope)).toHaveLength(3);
+    expect(store.countOpenOutstanding(countScope)).toBe(3);
+  });
+
   it('setOutstandingItemStatus returns false for an unknown id', () => {
     expect(store.setOutstandingItemStatus('does-not-exist', 'resolved')).toBe(false);
   });

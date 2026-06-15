@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildCodememMcpConfig, resolveCodememBridgeSpec } from '../mcp-config';
 
-const AIO_MCP = '/Applications/AI Orchestrator.app/Contents/Resources/aio-mcp-cli/aio-mcp';
-const SOCKET = '/Users/u/Library/Application Support/ai-orchestrator/cm-abc123.sock';
+const AIO_MCP = '/Applications/Harness.app/Contents/Resources/aio-mcp-cli/aio-mcp';
+const SOCKET = '/Users/u/Library/Application Support/harness/cm-abc123.sock';
 
 describe('codemem MCP config helpers', () => {
   it('returns a bridge spec pointing at `aio-mcp codemem` when the SEA exists', () => {

@@ -4,8 +4,8 @@ import {
   resolveOrchestratorToolsBridgeSpec,
 } from '../orchestrator-tools-mcp-config';
 
-const AIO_MCP = '/Applications/AI Orchestrator.app/Contents/Resources/aio-mcp-cli/aio-mcp';
-const SOCKET = '/Users/u/Library/Application Support/ai-orchestrator/ot-abc123.sock';
+const AIO_MCP = '/Applications/Harness.app/Contents/Resources/aio-mcp-cli/aio-mcp';
+const SOCKET = '/Users/u/Library/Application Support/harness/ot-abc123.sock';
 
 describe('orchestrator tools MCP config helpers', () => {
   it('returns a bridge spec pointing at `aio-mcp orchestrator-tools` when the SEA exists', () => {

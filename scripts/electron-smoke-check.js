@@ -23,7 +23,7 @@ function verifyMacPackageSignature() {
     return;
   }
 
-  const appPath = path.join(ROOT, 'release', 'mac-arm64', 'AI Orchestrator.app');
+  const appPath = path.join(ROOT, 'release', 'mac-arm64', 'Harness.app');
   if (!fs.existsSync(appPath)) {
     return;
   }

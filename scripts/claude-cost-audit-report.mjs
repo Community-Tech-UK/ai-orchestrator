@@ -13,7 +13,7 @@
  * Usage:
  *   node scripts/claude-cost-audit-report.mjs [--userdata <Electron userData dir>] [--since <ISO date>]
  *
- * Default userData on macOS: ~/Library/Application Support/ai-orchestrator
+ * Default userData on macOS: ~/Library/Application Support/harness
  * (pass --userdata if your app name/path differs — check the About panel or
  * `app.getPath('userData')`).
  *
@@ -35,7 +35,7 @@ function arg(name, fallback) {
 
 const userData = arg(
   'userdata',
-  join(homedir(), 'Library', 'Application Support', 'ai-orchestrator'),
+  join(homedir(), 'Library', 'Application Support', 'harness'),
 );
 const sinceMs = (() => {
   const raw = arg('since', null);

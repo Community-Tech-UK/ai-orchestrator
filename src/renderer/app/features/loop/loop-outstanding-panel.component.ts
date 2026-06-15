@@ -17,9 +17,10 @@ import { loopStatusLabel, relativeTime, formatTimestamp } from './loop-formatter
  * completed loop runs (OUTSTANDING.md's "Needs human" + "Open questions") so it
  * doesn't get lost in the chat scroll-back or the hidden per-run state dir.
  *
- * Scoped to a workspace (the aggregation key). Items can be marked resolved /
- * dismissed (which persists to the DB), and the open set can be exported to a
- * consolidated `OUTSTANDING.md` on demand.
+ * Scoped to the session that produced the loop items, with workspace retained
+ * for export. Items can be marked resolved / dismissed (which persists to the
+ * DB), and the open set can be exported to a consolidated `OUTSTANDING.md` on
+ * demand.
  */
 @Component({
   selector: 'app-loop-outstanding-panel',
@@ -38,6 +39,13 @@ import { loopStatusLabel, relativeTime, formatTimestamp } from './loop-formatter
           [attr.aria-pressed]="showAll()"
           [title]="showAll() ? 'Show only open items' : 'Show resolved/dismissed too'"
         >{{ showAll() ? 'All' : 'Open only' }}</button>
+        <button
+          type="button"
+          class="o-resolve-all"
+          (click)="onResolveAll()"
+          [disabled]="openCount() === 0 || resolvingAll()"
+          title="Mark every open item resolved"
+        >{{ resolvingAll() ? 'Resolving…' : 'Resolve all' }}</button>
         <button
           type="button"
           class="o-export"
@@ -135,7 +143,9 @@ import { loopStatusLabel, relativeTime, formatTimestamp } from './loop-formatter
     }
     .o-export { border-color: rgba(212,180,90,0.5); color: var(--primary-color, #d4b45a); }
     .o-export:hover:not(:disabled) { background: rgba(212,180,90,0.12); }
-    .o-filter:disabled, .o-export:disabled { opacity: 0.4; cursor: not-allowed; }
+    .o-resolve-all { border-color: rgba(142,220,142,0.4); color: #8edc8e; }
+    .o-resolve-all:hover:not(:disabled) { background: rgba(142,220,142,0.12); }
+    .o-filter:disabled, .o-export:disabled, .o-resolve-all:disabled { opacity: 0.4; cursor: not-allowed; }
     .o-empty { padding: 10px 4px; opacity: 0.6; font-style: italic; }
     .o-section-label {
       margin: 8px 0 4px; font-size: 10px; text-transform: uppercase;
@@ -175,7 +185,9 @@ import { loopStatusLabel, relativeTime, formatTimestamp } from './loop-formatter
   `],
 })
 export class LoopOutstandingPanelComponent {
-  /** Workspace to aggregate outstanding items for. Null → no items. */
+  /** Session/chat to show outstanding items for. Null falls back to workspace scope. */
+  chatId = input<string | null>(null);
+  /** Workspace to export outstanding items for. Null disables export. */
   workspaceCwd = input<string | null>(null);
   /** Test seam for relative-time rendering; production leaves at 0. */
   nowOverride = input<number>(0);
@@ -183,15 +195,19 @@ export class LoopOutstandingPanelComponent {
   protected store = inject(LoopStore);
 
   protected showAll = signal(false);
+  protected resolvingAll = signal(false);
   protected exporting = signal(false);
   protected exportedPath = signal<string | null>(null);
   private exportClearHandle: ReturnType<typeof setTimeout> | null = null;
 
-  /** Items scoped to this workspace (the store holds the latest query result). */
+  /** Items scoped to this session/workspace (the store holds the latest query result). */
   protected items = computed<LoopOutstandingItemPayload[]>(() => {
+    const chatId = this.chatId();
     const cwd = this.workspaceCwd();
-    if (!cwd) return [];
-    return this.store.outstanding().filter((i) => i.workspaceCwd === cwd);
+    if (!chatId && !cwd) return [];
+    return this.store.outstanding().filter((i) => (
+      chatId ? i.chatId === chatId : i.workspaceCwd === cwd
+    ));
   });
 
   protected needsHuman = computed(() => this.items().filter((i) => i.kind === 'needs-human'));
@@ -200,13 +216,18 @@ export class LoopOutstandingPanelComponent {
 
   constructor() {
     this.store.ensureWired();
-    // (Re)load whenever the workspace or filter changes.
+    // (Re)load whenever the session/workspace or filter changes.
     effect(() => {
+      const chatId = this.chatId();
       const cwd = this.workspaceCwd();
       const status = this.showAll() ? ('all' as const) : ('open' as const);
-      if (!cwd) return;
+      if (!chatId && !cwd) return;
       untracked(() => {
-        void this.store.loadOutstanding({ workspaceCwd: cwd, status });
+        if (chatId) {
+          void this.store.loadOutstanding({ chatId, status });
+        } else if (cwd) {
+          void this.store.loadOutstanding({ workspaceCwd: cwd, status });
+        }
       });
     });
   }
@@ -222,6 +243,19 @@ export class LoopOutstandingPanelComponent {
     await this.store.setOutstandingStatus(item.id, status);
   }
 
+  /** Resolve every currently-open item for this workspace in one batch. */
+  protected async onResolveAll(): Promise<void> {
+    if (this.resolvingAll()) return;
+    const openIds = this.items().filter((i) => i.status === 'open').map((i) => i.id);
+    if (openIds.length === 0) return;
+    this.resolvingAll.set(true);
+    try {
+      await this.store.setOutstandingStatusBulk(openIds, 'resolved');
+    } finally {
+      this.resolvingAll.set(false);
+    }
+  }
+
   protected exportTitle(): string {
     if (!this.workspaceCwd()) return 'No workspace selected';
     if (this.openCount() === 0) return 'No open items to export';
@@ -233,7 +267,7 @@ export class LoopOutstandingPanelComponent {
     if (!cwd) return;
     this.exporting.set(true);
     try {
-      const result = await this.store.exportOutstanding(cwd);
+      const result = await this.store.exportOutstanding(cwd, undefined, this.chatId() ?? undefined);
       if (result) {
         this.exportedPath.set(result.path);
         if (this.exportClearHandle) clearTimeout(this.exportClearHandle);

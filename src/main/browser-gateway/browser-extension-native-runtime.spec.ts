@@ -8,7 +8,7 @@ import {
   prepareBrowserExtensionNativeHostRuntime,
 } from './browser-extension-native-runtime';
 
-const AIO_MCP = '/Applications/AI Orchestrator.app/Contents/Resources/aio-mcp-cli/aio-mcp';
+const AIO_MCP = '/Applications/Harness.app/Contents/Resources/aio-mcp-cli/aio-mcp';
 
 describe('browser extension native runtime', () => {
   it('writes runtime config + Chrome native-messaging manifest pointing at the configured native-host command', () => {

@@ -76,7 +76,12 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
     loopInferVerify: (workspaceCwd: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_INFER_VERIFY, { workspaceCwd }),
     loopListOutstanding: (
-      params: { workspaceCwd?: string; status?: 'open' | 'resolved' | 'dismissed' | 'all'; limit?: number },
+      params: {
+        chatId?: string;
+        workspaceCwd?: string;
+        status?: 'open' | 'resolved' | 'dismissed' | 'all';
+        limit?: number;
+      },
     ): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_LIST_OUTSTANDING, params),
     loopSetOutstandingStatus: (
@@ -84,8 +89,8 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
       status: 'open' | 'resolved' | 'dismissed',
     ): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_SET_OUTSTANDING_STATUS, { id, status }),
-    loopExportOutstanding: (workspaceCwd: string, destPath?: string): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.LOOP_EXPORT_OUTSTANDING, { workspaceCwd, destPath }),
+    loopExportOutstanding: (workspaceCwd: string, destPath?: string, chatId?: string): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.LOOP_EXPORT_OUTSTANDING, { workspaceCwd, destPath, chatId }),
 
     onLoopStateChanged: sub(ch.LOOP_STATE_CHANGED),
     onLoopOutstandingChanged: sub(ch.LOOP_OUTSTANDING_CHANGED),

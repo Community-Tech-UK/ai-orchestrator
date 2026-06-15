@@ -6,9 +6,15 @@ import type {
   LoopOutstandingItemPayload,
   LoopTerminalIntentPayload,
 } from '@contracts/schemas/loop';
+import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
 
 export type LoopOutstandingStatus = 'open' | 'resolved' | 'dismissed';
-import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
+export interface LoopOutstandingQuery {
+  chatId?: string;
+  workspaceCwd?: string;
+  status?: LoopOutstandingStatus | 'all';
+  limit?: number;
+}
 
 export interface LoopActivityPayload {
   loopRunId: string;
@@ -207,15 +213,11 @@ export class LoopIpcService {
     return fn(workspaceCwd);
   }
 
-  /** List aggregated outstanding items, optionally scoped to a workspace. */
-  async listOutstanding(params: {
-    workspaceCwd?: string;
-    status?: LoopOutstandingStatus | 'all';
-    limit?: number;
-  } = {}): Promise<IpcResponse<{ items: LoopOutstandingItemPayload[] }>> {
+  /** List outstanding items, optionally scoped to a session and/or workspace. */
+  async listOutstanding(params: LoopOutstandingQuery = {}): Promise<IpcResponse<{ items: LoopOutstandingItemPayload[] }>> {
     if (!this.api) return notInElectron();
     const fn = (this.api as unknown as {
-      loopListOutstanding?: (p: typeof params) => Promise<IpcResponse<{ items: LoopOutstandingItemPayload[] }>>;
+      loopListOutstanding?: (p: LoopOutstandingQuery) => Promise<IpcResponse<{ items: LoopOutstandingItemPayload[] }>>;
     }).loopListOutstanding;
     if (typeof fn !== 'function') {
       return { success: false, error: { message: 'list-outstanding bridge unavailable' } };
@@ -238,19 +240,24 @@ export class LoopIpcService {
     return fn(id, status);
   }
 
-  /** Export the workspace's open outstanding items to a consolidated OUTSTANDING.md. */
+  /** Export open outstanding items to a consolidated OUTSTANDING.md. */
   async exportOutstanding(
     workspaceCwd: string,
     destPath?: string,
+    chatId?: string,
   ): Promise<IpcResponse<{ path: string; itemCount: number }>> {
     if (!this.api) return notInElectron();
     const fn = (this.api as unknown as {
-      loopExportOutstanding?: (cwd: string, dest?: string) => Promise<IpcResponse<{ path: string; itemCount: number }>>;
+      loopExportOutstanding?: (
+        cwd: string,
+        dest?: string,
+        chatId?: string,
+      ) => Promise<IpcResponse<{ path: string; itemCount: number }>>;
     }).loopExportOutstanding;
     if (typeof fn !== 'function') {
       return { success: false, error: { message: 'export-outstanding bridge unavailable' } };
     }
-    return fn(workspaceCwd, destPath);
+    return fn(workspaceCwd, destPath, chatId);
   }
 
   onStateChanged(cb: (data: { loopRunId: string; state: LoopStatePayload }) => void): () => void {
@@ -260,13 +267,13 @@ export class LoopIpcService {
     });
   }
   /** Fires when outstanding items are persisted or change status. */
-  onOutstandingChanged(cb: (data: { loopRunId?: string; workspaceCwd?: string; itemId?: string }) => void): () => void {
+  onOutstandingChanged(cb: (data: { loopRunId?: string; chatId?: string; workspaceCwd?: string; itemId?: string }) => void): () => void {
     if (!this.api) return () => { /* noop */ };
     const subscribe = (this.api as unknown as {
       onLoopOutstandingChanged?: (cb: (p: unknown) => void) => () => void;
     }).onLoopOutstandingChanged;
     if (typeof subscribe !== 'function') return () => { /* noop */ };
-    return subscribe((p) => this.ngZone.run(() => cb(p as { loopRunId?: string; workspaceCwd?: string; itemId?: string })));
+    return subscribe((p) => this.ngZone.run(() => cb(p as { loopRunId?: string; chatId?: string; workspaceCwd?: string; itemId?: string })));
   }
   onIterationStarted(cb: (data: { loopRunId: string; seq: number; stage: string }) => void): () => void {
     if (!this.api) return () => { /* noop */ };

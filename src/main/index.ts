@@ -46,20 +46,14 @@ registerBuiltInProviders(providerAdapterRegistry);
 // same SQLite session/history files). Must run before requestSingleInstanceLock
 // and before any path lookups.
 //
-// NOTE ON THE REBRAND: the product's visible name is now "Harness", but the
-// on-disk userData directory names are intentionally pinned to the LEGACY
-// "AI Orchestrator" identity. Electron derives the default userData dir from
-// the productName, so without these explicit pins the rename would silently
-// move the data dir and orphan the existing SQLite session/history DB. We keep
-// the legacy dir names (and the legacy appId in electron-builder.json) so the
-// rebrand is purely cosmetic on disk and no user data is lost.
+// The rebranded product's durable on-disk identity is lowercase "harness".
+// Existing AI Orchestrator data is migrated into that directory out-of-band;
+// startup should then read the new canonical location directly.
 if (!app.isPackaged) {
   app.setName('Harness (Dev)');
-  app.setPath('userData', path.join(app.getPath('appData'), 'AI Orchestrator (Dev)'));
+  app.setPath('userData', path.join(app.getPath('appData'), 'harness-dev'));
 } else {
-  // Pin packaged userData to the legacy default so renaming productName to
-  // "Harness" does not orphan an existing installed app's data directory.
-  app.setPath('userData', path.join(app.getPath('appData'), 'AI Orchestrator'));
+  app.setPath('userData', path.join(app.getPath('appData'), 'harness'));
 }
 
 const logger = getLogger('App');

@@ -7,7 +7,7 @@ import {
   resolveBrowserGatewayBridgeSpec,
 } from './browser-mcp-config';
 
-const AIO_MCP = '/Applications/AI Orchestrator.app/Contents/Resources/aio-mcp-cli/aio-mcp';
+const AIO_MCP = '/Applications/Harness.app/Contents/Resources/aio-mcp-cli/aio-mcp';
 const SOCKET = '/tmp/browser-gateway.sock';
 const options = {
   aioMcpCliPath: AIO_MCP,

@@ -8,6 +8,7 @@ import type {
 import {
   LoopIpcService,
   type LoopActivityPayload,
+  type LoopOutstandingQuery,
   type LoopOutstandingStatus,
   type LoopStartConfigInput,
 } from '../services/ipc/loop-ipc.service';
@@ -60,7 +61,7 @@ export class LoopStore {
   /** True while an outstanding query is in flight. */
   private outstandingLoading = signal(false);
   /** The scope of the last outstanding query, replayed when a change event arrives. */
-  private lastOutstandingScope: { workspaceCwd?: string; status?: LoopOutstandingStatus | 'all' } = {};
+  private lastOutstandingScope: LoopOutstandingQuery = {};
 
   private wired = false;
 
@@ -302,7 +303,7 @@ export class LoopStore {
   /** Load aggregated outstanding items into the store (remembers the scope so
    *  change events can replay it). */
   async loadOutstanding(
-    scope: { workspaceCwd?: string; status?: LoopOutstandingStatus | 'all' } = {},
+    scope: LoopOutstandingQuery = {},
   ): Promise<void> {
     this.lastOutstandingScope = scope;
     this.outstandingLoading.set(true);
@@ -333,12 +334,39 @@ export class LoopStore {
     return false;
   }
 
-  /** Export the workspace's open outstanding items to a consolidated OUTSTANDING.md. */
+  /** Mark many outstanding items at once (e.g. "Resolve all"). Issues the IPC
+   *  calls in parallel and applies a single optimistic update for the whole
+   *  batch; a change event re-syncs from the source of truth. Returns the
+   *  number of items the main process confirmed. */
+  async setOutstandingStatusBulk(ids: string[], status: LoopOutstandingStatus): Promise<number> {
+    if (ids.length === 0) return 0;
+    const results = await Promise.all(
+      ids.map(async (id) => {
+        const res = await this.ipc.setOutstandingStatus(id, status);
+        return res.success && res.data?.ok === true ? id : null;
+      }),
+    );
+    const confirmed = new Set(results.filter((id): id is string => id !== null));
+    if (confirmed.size > 0) {
+      const now = Date.now();
+      this.outstandingItems.update((items) =>
+        items.map((item) =>
+          confirmed.has(item.id)
+            ? { ...item, status, resolvedAt: status === 'open' ? null : now, updatedAt: now }
+            : item,
+        ),
+      );
+    }
+    return confirmed.size;
+  }
+
+  /** Export open outstanding items to a consolidated OUTSTANDING.md. */
   async exportOutstanding(
     workspaceCwd: string,
     destPath?: string,
+    chatId?: string,
   ): Promise<{ path: string; itemCount: number } | null> {
-    const res = await this.ipc.exportOutstanding(workspaceCwd, destPath);
+    const res = await this.ipc.exportOutstanding(workspaceCwd, destPath, chatId);
     return res.success && res.data ? res.data : null;
   }
 

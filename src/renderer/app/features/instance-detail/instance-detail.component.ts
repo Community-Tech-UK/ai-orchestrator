@@ -196,14 +196,14 @@ export class InstanceDetailComponent {
   showOutstandingInspector = signal(false);
   enteringInspectorToggle = signal<'todo' | 'review' | 'children' | 'checkpoint' | 'outstanding' | null>(null);
 
-  /** Open outstanding-item count for this instance's workspace — gates the
+  /** Open outstanding-item count for this instance's session — gates the
    *  toggle + drives its badge. Reads the loop store's latest query result
-   *  filtered to this instance's working directory (the detail view shows one
-   *  instance at a time, so the store's scope tracks it). */
+   *  filtered to this instance id so loop backlog does not bleed across
+   *  sessions that share a working directory. */
   outstandingOpenCount = computed(() => {
-    const wd = this.instance()?.workingDirectory;
-    if (!wd) return 0;
-    return this.loopStore.outstanding().filter((i) => i.workspaceCwd === wd && i.status === 'open').length;
+    const inst = this.instance();
+    if (!inst) return 0;
+    return this.loopStore.outstanding().filter((i) => i.chatId === inst.id && i.status === 'open').length;
   });
   hasOutstanding = computed(() => this.outstandingOpenCount() > 0);
 
@@ -296,12 +296,12 @@ export class InstanceDetailComponent {
     }
 
     // Outstanding items: reset the panel and (best-effort) load the open set
-    // for this instance's workspace so the toggle + badge reflect captured
-    // human-gated work without the user opening the panel first.
+    // for this session so the toggle + badge reflect captured human-gated work
+    // without leaking backlog from other sessions in the same workspace.
     this.showOutstandingInspector.set(false);
-    const workspaceCwd = inst?.workingDirectory;
-    if (workspaceCwd) {
-      void this.loopStore.loadOutstanding({ workspaceCwd, status: 'open' });
+    const outstandingChatId = inst?.id;
+    if (outstandingChatId) {
+      void this.loopStore.loadOutstanding({ chatId: outstandingChatId, status: 'open' });
     }
 
     // Reset welcome-screen state so it doesn't bleed across sessions.

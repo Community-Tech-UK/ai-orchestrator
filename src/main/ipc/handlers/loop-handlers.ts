@@ -103,6 +103,7 @@ export function registerLoopHandlers(deps: {
         if (data.state.outstanding) {
           send(IPC_CHANNELS.LOOP_OUTSTANDING_CHANGED, {
             loopRunId: data.loopRunId,
+            chatId: data.state.chatId,
             workspaceCwd: data.state.config.workspaceCwd,
           });
         }
@@ -336,6 +337,7 @@ export function registerLoopHandlers(deps: {
     try {
       const validated = validateIpcPayload(LoopListOutstandingPayloadSchema, payload, 'LOOP_LIST_OUTSTANDING');
       const items = store.listOutstandingItems({
+        chatId: validated.chatId,
         workspaceCwd: validated.workspaceCwd,
         status: validated.status,
         limit: validated.limit,
@@ -360,7 +362,11 @@ export function registerLoopHandlers(deps: {
   ipcMain.handle(IPC_CHANNELS.LOOP_EXPORT_OUTSTANDING, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(LoopExportOutstandingPayloadSchema, payload, 'LOOP_EXPORT_OUTSTANDING');
-      const items = store.listOutstandingItems({ workspaceCwd: validated.workspaceCwd, status: 'open' });
+      const items = store.listOutstandingItems({
+        chatId: validated.chatId,
+        workspaceCwd: validated.workspaceCwd,
+        status: 'open',
+      });
       const result = await exportOutstandingMarkdown({
         workspaceCwd: validated.workspaceCwd,
         items,

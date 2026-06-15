@@ -534,6 +534,41 @@ describe('LoopStore', () => {
     expect(summary?.iterationPrompt).toBeUndefined();
   });
 
+  it('bulk-resolves every open outstanding item and applies an optimistic update', async () => {
+    ipc.listOutstanding.mockResolvedValueOnce({
+      success: true,
+      data: {
+        items: [
+          { id: 'o1', status: 'open' },
+          { id: 'o2', status: 'open' },
+          { id: 'o3', status: 'resolved' },
+        ],
+      },
+    });
+    await store.loadOutstanding({ workspaceCwd: '/tmp/project' });
+
+    const resolved = await store.setOutstandingStatusBulk(['o1', 'o2'], 'resolved');
+
+    expect(resolved).toBe(2);
+    expect(ipc.setOutstandingStatus).toHaveBeenCalledTimes(2);
+    expect(ipc.setOutstandingStatus).toHaveBeenCalledWith('o1', 'resolved');
+    expect(ipc.setOutstandingStatus).toHaveBeenCalledWith('o2', 'resolved');
+    expect(store.outstanding().every((i) => i.status === 'resolved')).toBe(true);
+    expect(store.openOutstandingCount()).toBe(0);
+  });
+
+  it('loads outstanding items using a session scope', async () => {
+    await store.loadOutstanding({ chatId: 'chat-1', status: 'open' });
+
+    expect(ipc.listOutstanding).toHaveBeenCalledWith({ chatId: 'chat-1', status: 'open' });
+  });
+
+  it('exports outstanding items using a session scope when provided', async () => {
+    await store.exportOutstanding('/tmp/project', undefined, 'chat-1');
+
+    expect(ipc.exportOutstanding).toHaveBeenCalledWith('/tmp/project', undefined, 'chat-1');
+  });
+
   it('refreshes persisted loop iterations for inspection', async () => {
     const iteration = loopIteration({ seq: 2, outputExcerpt: 'full enough evidence' });
     ipc.getIterations.mockResolvedValueOnce({
