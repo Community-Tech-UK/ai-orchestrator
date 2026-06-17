@@ -30,9 +30,9 @@ export interface DebateConfig {
 }
 
 const DEFAULT_CONFIG: DebateConfig = {
-  agentCount: 3,
+  agentCount: 2,
   convergenceThreshold: 0.8,
-  maxRounds: 4,
+  maxRounds: 2,
   temperatureMin: 0.3,
   temperatureMax: 0.9,
   enableHumanIntervention: false,
@@ -117,8 +117,9 @@ const DEFAULT_CONFIG: DebateConfig = {
                   [ngModel]="localConfig().maxRounds"
                   (ngModelChange)="updateConfig('maxRounds', $event)"
                 >
-                  <option [value]="3">3 (Quick)</option>
-                  <option [value]="4">4 (Standard)</option>
+                  <option [value]="2">2 (Default)</option>
+                  <option [value]="3">3 (Critique)</option>
+                  <option [value]="4">4 (Defense)</option>
                   <option [value]="5">5 (Thorough)</option>
                 </select>
               </div>

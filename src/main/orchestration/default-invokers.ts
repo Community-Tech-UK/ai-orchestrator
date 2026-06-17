@@ -64,23 +64,33 @@ function resolveDefaultModel(cliType: CliType, payloadModel?: string): string | 
 }
 
 /** Per-call-site opt-in for cost-tiered routing on the shared invoker path. */
-export type RoutingIntent = 'loop' | 'workflow';
+export type RoutingIntent = 'loop' | 'workflow' | 'scaffolding';
+
+const SCAFFOLDING_PROVIDER_PREFERENCE: readonly CliType[] = [
+  'gemini',
+  'codex',
+  'copilot',
+  'cursor',
+];
+type DefaultCliSetting = NonNullable<Parameters<typeof resolveCliType>[1]>;
+
+function isExplicitModel(payloadModel?: string): boolean {
+  return typeof payloadModel === 'string' && payloadModel !== 'default';
+}
 
 /**
  * Resolve the model for a CLI invocation (intent-routing Phase 2).
  *
  * Routing is OPT-IN per call-site and only fires when ALL hold:
- *   1. the caller passed an explicit `routingIntent` (only Loop Mode does today),
+ *   1. the caller passed an explicit `routingIntent`,
  *   2. the user did NOT request a concrete model (`payloadModel` unset/`'default'`),
  *   3. the model router is enabled (`ModelRoutingConfig.enabled`).
  *
  * Otherwise it falls back to `resolveDefaultModel` byte-for-byte — so the
- * verify/review/debate/workflow/consensus paths (which never pass a
- * `routingIntent`) keep resolving to the strong house model (Opus). Those
- * paths are the quality gates for loop completion and stay on the strong
- * model deliberately: the strong model reviews the cheap model's work.
+ * synthesis/consensus paths that never pass a `routingIntent` keep resolving
+ * to the strong house model.
  *
- * `'loop'` intent resolves the BALANCED tier directly instead of running the
+ * `'loop'` and `'scaffolding'` intents resolve the BALANCED tier directly instead of running the
  * keyword-complexity analysis. Loop iteration prompts are dominated by the
  * stage-machine template (the review-driven template alone scores 'review' →
  * complex every iteration), so keyword scoring routed nearly every iteration
@@ -95,8 +105,7 @@ export function resolveModelForInvocation(args: {
   prompt: string;
   routingIntent?: RoutingIntent;
 }): string | undefined {
-  const explicitlyRequested =
-    typeof args.payloadModel === 'string' && args.payloadModel !== 'default';
+  const explicitlyRequested = isExplicitModel(args.payloadModel);
 
   if (args.routingIntent && !explicitlyRequested && getModelRouter().getConfig().enabled) {
     // Prefer the concrete requested provider; fall back to the resolved CLI type
@@ -124,10 +133,12 @@ export function resolveModelForInvocation(args: {
 
     const decision = resolveRoutedModel(args.prompt, {
       provider,
-      // Loop iterations: balanced tier by default (see doc comment above).
+      // Loop iterations and scaffolding gates: balanced tier by default (see doc comment above).
       // Workflow intent keeps keyword-complexity routing — its prompts are
       // caller-authored tasks, not a fixed template.
-      ...(args.routingIntent === 'loop' ? { explicitModel: 'balanced' } : {}),
+      ...(args.routingIntent === 'loop' || args.routingIntent === 'scaffolding'
+        ? { explicitModel: 'balanced' }
+        : {}),
     });
     logger.info('Routed invocation model', {
       intent: args.routingIntent,
@@ -140,6 +151,25 @@ export function resolveModelForInvocation(args: {
   }
 
   return resolveDefaultModel(args.cliType, args.payloadModel);
+}
+
+async function resolveScaffoldingProvider(defaultCli: DefaultCliSetting): Promise<CliType | undefined> {
+  for (const provider of SCAFFOLDING_PROVIDER_PREFERENCE) {
+    const resolved = await resolveCliType(provider, defaultCli);
+    if (resolved === provider) return provider;
+  }
+  return undefined;
+}
+
+function shouldPreferScaffoldingProvider(params: {
+  routingIntent?: RoutingIntent;
+  explicitRequestedProvider?: string;
+  payloadModel?: string;
+}): boolean {
+  if (isExplicitModel(params.payloadModel)) return false;
+  if (params.routingIntent !== 'scaffolding' && params.routingIntent !== 'workflow') return false;
+  if (!params.explicitRequestedProvider) return true;
+  return params.explicitRequestedProvider === 'auto';
 }
 
 /** Auxiliary `routingClassification` slot: is the task cheap-model eligible?
@@ -208,9 +238,9 @@ async function invokeCliTextResponse(params: {
   payloadModel?: string;
   /**
    * Opt-in cost-tiered routing for this call (intent-routing Phase 2).
-   * Only Loop Mode sets this; verify/review/debate/workflow/consensus leave it
-   * unset so they keep the strong default model. Routing also requires the
-   * router to be enabled and `payloadModel` to be unset.
+   * Loop, workflow, and non-synthesis scaffolding gates set this. Consensus
+   * and final synthesis leave it unset so they keep the strong default model.
+   * Routing also requires the router to be enabled and `payloadModel` unset.
    */
   routingIntent?: RoutingIntent;
   systemPrompt?: string;
@@ -254,8 +284,15 @@ async function invokeCliTextResponse(params: {
     : undefined;
   const workingDirectory = params.workingDirectory || instance?.workingDirectory || process.cwd();
   const fallbackProvider = instance?.provider as string | undefined;
-  const requestedProvider = params.requestedProvider ?? fallbackProvider ?? 'auto';
+  let requestedProvider = params.requestedProvider ?? fallbackProvider ?? 'auto';
   const defaultCli = getSettingsManager().getAll().defaultCli;
+  if (shouldPreferScaffoldingProvider({
+    routingIntent: params.routingIntent,
+    explicitRequestedProvider: params.requestedProvider,
+    payloadModel: params.payloadModel,
+  })) {
+    requestedProvider = await resolveScaffoldingProvider(defaultCli) ?? requestedProvider;
+  }
   const cliType = await resolveCliType(requestedProvider as Parameters<typeof resolveCliType>[0], defaultCli);
   let model = resolveModelForInvocation({
     cliType,
@@ -268,8 +305,7 @@ async function invokeCliTextResponse(params: {
   // routingClassification slot: when cost-tier routing applies (same guards as
   // resolveModelForInvocation), ask the aux LLM if the task is cheap-model
   // eligible and prefer the fast tier. Graceful no-op on any failure.
-  const explicitlyRequested =
-    typeof params.payloadModel === 'string' && params.payloadModel !== 'default';
+  const explicitlyRequested = isExplicitModel(params.payloadModel);
   const isCodexChatgpt =
     (cliType === 'codex' || requestedProvider === 'codex') && readCodexAuthMode() === 'chatgpt';
   if (
@@ -497,6 +533,7 @@ export function registerDefaultMultiVerifyInvoker(instanceManager: InstanceManag
         context: parsed.context,
         breakerKey: 'verify-orchestration',
         correlationId: parsed.correlationId,
+        routingIntent: 'scaffolding',
       });
       parsed.callback(null, result.response, result.tokens, result.cost);
     } catch (err) {
@@ -546,6 +583,7 @@ export function registerDefaultReviewInvoker(instanceManager: InstanceManager): 
         context: parsed.context,
         breakerKey: 'review-orchestration',
         correlationId: parsed.correlationId,
+        routingIntent: 'scaffolding',
       });
       parsed.callback(null, result.response, result.tokens, result.cost);
     } catch (err) {
@@ -619,6 +657,7 @@ export function registerDefaultDebateInvoker(instanceManager: InstanceManager): 
           context: parsed.context,
           breakerKey: `debate-orchestration:${eventName}`,
           correlationId: parsed.correlationId,
+          routingIntent: eventName === 'debate:generate-synthesis' ? undefined : 'scaffolding',
         });
         if (eventName === 'debate:generate-response') {
           (
@@ -699,6 +738,7 @@ export function registerDefaultWorkflowInvoker(instanceManager: InstanceManager)
         prompt: parsed.prompt,
         breakerKey: 'workflow-orchestration',
         correlationId: parsed.correlationId,
+        routingIntent: 'workflow',
       });
       parsed.callback(result.response, result.tokens);
     } catch (err) {
@@ -1258,7 +1298,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     emitActivity({
       kind: 'status',
       message: `Iteration ${p.seq} starting in ${p.workspaceCwd}`,
-      detail: { provider: p.provider, contextStrategy: p.config?.contextStrategy ?? 'fresh-child' },
+      detail: { provider: p.provider, contextStrategy: p.config?.contextStrategy ?? 'same-session' },
     });
     const loopIterationTimeoutMs = p.iterationTimeoutMs ?? 30 * 60 * 1000;
     const loopActiveTimeoutMs = p.streamIdleTimeoutMs ?? LOOP_DEFAULT_ACTIVE_TIMEOUT_MS;
@@ -1277,7 +1317,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     //   2. A `same-session` persistent loop adapter — pre-fix legacy path for
     //      loops with no parent instance (chat-detail loops where the chat has
     //      no live runtime; pure-workspace loops). Owned by this listener.
-    //   3. Fresh per-iteration adapter (the default fresh-child path inside
+    //   3. Fresh per-iteration adapter (the explicit fresh-child path inside
     //      invokeCliTextResponse).
     let reusedAdapter: unknown | undefined;
     let borrowedFromInstance = false;
@@ -1298,7 +1338,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       borrowedFromInstance = true;
     }
 
-    const sameSession = p.config?.contextStrategy === 'same-session';
+    const contextStrategy = p.config?.contextStrategy ?? 'same-session';
+    const sameSession = contextStrategy === 'same-session';
     // LF-4 RPI: a PLAN→IMPLEMENT context reset recycles the persistent adapter
     // first, so the IMPLEMENT iteration starts from a fresh session anchored on
     // the finalized plan (durable disk state) rather than the planning chatter.

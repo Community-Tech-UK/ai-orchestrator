@@ -34,6 +34,7 @@ import {
   type ProgressSignalEvidence,
   type LoopTerminalIntent,
   type LoopTerminalIntentEvidence,
+  type NextObjectivePlanner,
 } from '../../shared/types/loop.types';
 import {
   LoopCompletionDetector,
@@ -154,6 +155,7 @@ import { importTerminalIntentsForBoundary as importTerminalIntentsForBoundaryHel
 import type { LoopCheckpoint } from './loop-checkpoint';
 import type { LongRunResourceDecision } from '../runtime/long-run-resource-governor';
 import { LOOP_TEXT_FILE_MAX_BYTES, readUtf8FileHeadSync } from './bounded-file-read';
+import { createAuxiliaryNextObjectivePlanner } from './loop-next-objective-planner';
 
 export { computeWorkHash } from './loop-work-hash';
 export type {
@@ -211,6 +213,7 @@ export class LoopCoordinator extends EventEmitter {
   private restoredLoops = new Set<string>();
   private runtimeContexts = new Map<string, LoopRuntimeContext>();
   private loopControls = new Map<string, LoopControlRuntime>();
+  private nextObjectivePlanners = new Map<string, NextObjectivePlanner>();
   private iterationHooks: LoopIterationHook[] = [];
   private intentPersistHook: LoopIntentPersistHook | null = null;
   private adapterCleanupHook: LoopAdapterCleanupHook | null = null;
@@ -459,6 +462,7 @@ export class LoopCoordinator extends EventEmitter {
       this.instance.restoredLoops.clear();
       this.instance.runtimeContexts.clear();
       this.instance.loopControls.clear();
+      this.instance.nextObjectivePlanners.clear();
       this.instance.iterationHooks = [];
       this.instance.intentPersistHook = null;
       this.instance.adapterCleanupHook = null;
@@ -595,7 +599,8 @@ export class LoopCoordinator extends EventEmitter {
     // "caller explicitly chose on/off" (their choice always wins).
     const userExplicitlySetCrossModelReview =
       partialConfig.completion?.crossModelReview !== undefined;
-    const config = materializeLoopConfig(partialConfig);
+    const { nextObjectivePlanner, ...serializablePartialConfig } = partialConfig;
+    const config = materializeLoopConfig(serializablePartialConfig);
     if (!config.initialPrompt.trim()) throw new Error('initialPrompt is required');
     if (!config.workspaceCwd.trim()) throw new Error('workspaceCwd is required');
 
@@ -678,6 +683,8 @@ export class LoopCoordinator extends EventEmitter {
     }
 
     const id = `loop-${Date.now()}-${randomUUID().slice(0, 8)}`;
+    const runtimeNextObjectivePlanner = nextObjectivePlanner
+      ?? (config.nextObjectivePlanning?.enabled ? createAuxiliaryNextObjectivePlanner() : undefined);
     const loopControl = await prepareLoopControl(
       config.workspaceCwd,
       id,
@@ -813,6 +820,9 @@ export class LoopCoordinator extends EventEmitter {
       repeatedEvidenceCount: 0,
       consecutiveCleanReviewPasses: 0,
     };
+    if (runtimeNextObjectivePlanner) {
+      this.nextObjectivePlanners.set(id, runtimeNextObjectivePlanner);
+    }
     this.active.set(id, state);
     this.histories.set(id, []);
     this.watchers.set(id, watcher);
@@ -884,6 +894,9 @@ export class LoopCoordinator extends EventEmitter {
     wireLoopCompletionWatcher(watcher, state, (eventName, payload) => this.emit(eventName, payload));
     state.loopControl = publicLoopControlMetadata(loopControl);
     this.loopControls.set(state.id, loopControl);
+    if (state.config.nextObjectivePlanning?.enabled) {
+      this.nextObjectivePlanners.set(state.id, createAuxiliaryNextObjectivePlanner());
+    }
     this.watchers.set(state.id, watcher);
     this.active.set(state.id, state);
     this.histories.set(state.id, checkpoint.historyTail);
@@ -2256,9 +2269,15 @@ export class LoopCoordinator extends EventEmitter {
       // a planner is configured. The planner's output is injected as an
       // intervention for the next iteration. It can never produce a stop —
       // stop authority remains exclusively with evidence-resolver.
-      if (state.status === 'running' && state.config.nextObjectivePlanner) {
+      const nextObjectivePlanner = this.nextObjectivePlanners.get(state.id);
+      const planningCadence = state.config.nextObjectivePlanning?.enabled
+        ? Math.max(1, state.config.nextObjectivePlanning.cadence)
+        : 1;
+      const shouldRunPlanner = nextObjectivePlanner
+        && (state.config.nextObjectivePlanning?.enabled ? (seq + 1) % planningCadence === 0 : true);
+      if (state.status === 'running' && !checkLoopHardCaps(state) && shouldRunPlanner) {
         try {
-          const nextObj = await state.config.nextObjectivePlanner({
+          const nextObj = await nextObjectivePlanner({
             lastOutput: childResult.output,
             originalGoal: state.config.initialPrompt,
             seq,
@@ -2686,6 +2705,7 @@ export class LoopCoordinator extends EventEmitter {
       this.watchers.delete(state.id);
     }
     this.runtimeContexts.delete(state.id);
+    this.nextObjectivePlanners.delete(state.id);
     this.convergenceNotes.delete(state.id);
     this.planRegenerations.delete(state.id);
     this.pendingContextReset.delete(state.id);

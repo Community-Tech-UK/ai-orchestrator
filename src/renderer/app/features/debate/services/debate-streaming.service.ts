@@ -70,6 +70,18 @@ export interface DebateStreamEvent {
   timestamp: number;
 }
 
+interface DebateStartConfig {
+  agentCount?: number;
+  maxRounds?: number;
+  convergenceThreshold?: number;
+}
+
+interface DebateStartResponse {
+  success: boolean;
+  data?: unknown;
+  error?: string | { message?: string };
+}
+
 const INITIAL_STATE: StreamingDebateState = {
   sessionId: null,
   status: 'idle',
@@ -81,6 +93,8 @@ const INITIAL_STATE: StreamingDebateState = {
   networkNodes: [],
   networkLinks: [],
 };
+
+const DEFAULT_DEBATE_TOTAL_ROUNDS = 2;
 
 @Injectable({
   providedIn: 'root',
@@ -137,11 +151,7 @@ export class DebateStreamingService implements OnDestroy {
   /**
    * Start streaming a new debate
    */
-  async startDebate(query: string, config?: {
-    agentCount?: number;
-    maxRounds?: number;
-    convergenceThreshold?: number;
-  }): Promise<string> {
+  async startDebate(query: string, config?: DebateStartConfig): Promise<string> {
     this.updateState({
       ...INITIAL_STATE,
       status: 'connecting',
@@ -151,21 +161,20 @@ export class DebateStreamingService implements OnDestroy {
     try {
       const result = await this.ipc.getApi()?.debateStart({
         query,
-        config: { streaming: true, ...config },
+        config: this.toBackendConfig(config),
       });
 
-      if (result?.success && result.data) {
-        const data = result.data as { sessionId: string };
+      const sessionId = this.extractStartSessionId(result);
+      if (sessionId) {
         this.updateState({
-          sessionId: data.sessionId,
+          sessionId,
           status: 'streaming',
-          totalRounds: config?.maxRounds || 4,
+          totalRounds: config?.maxRounds || DEFAULT_DEBATE_TOTAL_ROUNDS,
         });
-        return data.sessionId;
-      } else {
-        const errorMsg = typeof result?.error === 'string' ? result.error : result?.error?.message || 'Failed to start debate';
-        throw new Error(errorMsg);
+        return sessionId;
       }
+
+      throw new Error(this.extractStartError(result));
     } catch (error) {
       this.updateState({
         status: 'error',
@@ -173,6 +182,41 @@ export class DebateStreamingService implements OnDestroy {
       });
       throw error;
     }
+  }
+
+  private toBackendConfig(config?: DebateStartConfig): Record<string, number> | undefined {
+    if (!config) return undefined;
+    return {
+      ...(typeof config.agentCount === 'number' ? { agents: config.agentCount } : {}),
+      ...(typeof config.maxRounds === 'number' ? { maxRounds: config.maxRounds } : {}),
+      ...(typeof config.convergenceThreshold === 'number'
+        ? { convergenceThreshold: config.convergenceThreshold }
+        : {}),
+    };
+  }
+
+  private extractStartSessionId(result: unknown): string | null {
+    if (typeof result === 'string' && result.length > 0) return result;
+    if (!this.isStartResponse(result) || !result.success) return null;
+    if (typeof result.data === 'string' && result.data.length > 0) return result.data;
+    if (result.data && typeof result.data === 'object') {
+      const data = result.data as Record<string, unknown>;
+      if (typeof data['sessionId'] === 'string') return data['sessionId'];
+      if (typeof data['debateId'] === 'string') return data['debateId'];
+    }
+    return null;
+  }
+
+  private extractStartError(result: unknown): string {
+    if (!this.isStartResponse(result)) return 'Failed to start debate';
+    if (typeof result.error === 'string') return result.error;
+    return result.error?.message || 'Failed to start debate';
+  }
+
+  private isStartResponse(value: unknown): value is DebateStartResponse {
+    return value !== null
+      && typeof value === 'object'
+      && typeof (value as { success?: unknown }).success === 'boolean';
   }
 
   /**

@@ -18,7 +18,7 @@ When triggered, spawn child instances to research the given topic from different
 
 ## Behavior
 1. Parse the topic from the user's message
-2. Spawn N child instances (one per perspective)
+2. Spawn N child instances (one per perspective). Use non-Claude providers (`gemini`, `codex`, `copilot`, or `cursor`) unless the user explicitly requested Claude.
 3. Each child researches from their assigned perspective
 4. Collect results and synthesize into comprehensive report
 

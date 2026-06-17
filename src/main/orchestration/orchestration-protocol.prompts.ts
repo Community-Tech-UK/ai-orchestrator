@@ -82,6 +82,7 @@ Children are auto-routed by complexity. Specify \`model\` to override.
 - **Simple** (lookups, status checks) → fast model tier
 - **Moderate** (standard dev) → balanced model tier
 - **Complex** (architecture, security) → powerful model tier
+- For verification, review, debate positions, summarization, and other scaffolding children, prefer a non-Claude \`provider\` such as \`gemini\`, \`codex\`, \`copilot\`, or \`cursor\` unless the user explicitly asks for Claude.
 - When the user names both a provider and a model (for example, "Copilot running Gemini 3.1 Pro"), set both \`provider\` and \`model\` on \`spawn_child\`.
 - Use canonical model IDs when known. For Copilot Gemini 3.1 Pro, use \`"gemini-3.1-pro-preview"\`.
 

@@ -18,7 +18,7 @@ When triggered, spawn child instances to review code from different quality pers
 
 ## Behavior
 1. Identify files matching the pattern
-2. Spawn N child instances (one per review aspect)
+2. Spawn N child instances (one per review aspect). Use non-Claude providers (`gemini`, `codex`, `copilot`, or `cursor`) unless the user explicitly requested Claude.
 3. Each child performs focused review on their assigned aspect
 4. Collect findings and synthesize into actionable report
 

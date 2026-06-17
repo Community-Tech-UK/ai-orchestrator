@@ -7,10 +7,18 @@ import { z } from 'zod';
 // Enum schemas
 // -------------------------------------------------------------------------
 
+const LoopTerminalStatusSchema = z.enum([
+  'completed',
+  'completed-needs-review',
+  'failed',
+  'provider-limit',
+  'operator-halted',
+]);
+
 const TerminalStatusPredicateSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('is'), status: z.string() }),
-  z.object({ type: z.literal('in'), statuses: z.array(z.string()) }),
-  z.object({ type: z.literal('not'), status: z.string() }),
+  z.object({ type: z.literal('is'), status: LoopTerminalStatusSchema }),
+  z.object({ type: z.literal('in'), statuses: z.array(LoopTerminalStatusSchema).min(1) }),
+  z.object({ type: z.literal('not'), status: LoopTerminalStatusSchema }),
 ]);
 
 const CampaignEdgeSchema = z.object({

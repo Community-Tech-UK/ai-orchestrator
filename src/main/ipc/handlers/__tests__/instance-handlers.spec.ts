@@ -227,6 +227,23 @@ describe('instance-handlers', () => {
       expect(result.data?.['communicationTokens']).toEqual({ 'token-key': 'token-value' });
     });
 
+    it('forwards bare mode from INSTANCE_CREATE payloads', async () => {
+      const fakeInstance = { id: 'inst-bare', communicationTokens: undefined };
+      vi.mocked(mockInstanceManager.createInstance).mockResolvedValue(
+        fakeInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.createInstance>>
+      );
+
+      await invoke(IPC_CHANNELS.INSTANCE_CREATE, {
+        workingDirectory: '/projects/my-app',
+        provider: 'claude',
+        bareMode: true,
+      });
+
+      expect(mockInstanceManager.createInstance).toHaveBeenCalledWith(
+        expect.objectContaining({ bareMode: true }),
+      );
+    });
+
     it('falls back to process.cwd() when workingDirectory is "."', async () => {
       const fakeInstance = { id: 'inst-cwd', communicationTokens: undefined };
       vi.mocked(mockInstanceManager.createInstance).mockResolvedValue(
@@ -293,6 +310,24 @@ describe('instance-handlers', () => {
       expect(result.data).not.toHaveProperty('readyPromise');
       expect(result.data).not.toHaveProperty('respawnPromise');
       expect(result.data).not.toHaveProperty('abortController');
+    });
+
+    it('forwards bare mode from create-with-message payloads', async () => {
+      const fakeInstance = { id: 'inst-with-message-bare', communicationTokens: undefined };
+      vi.mocked(mockInstanceManager.createInstance).mockResolvedValue(
+        fakeInstance as unknown as Awaited<ReturnType<typeof mockInstanceManager.createInstance>>
+      );
+
+      await invoke(IPC_CHANNELS.INSTANCE_CREATE_WITH_MESSAGE, {
+        workingDirectory: '/projects/my-app',
+        message: 'Hello Claude',
+        provider: 'claude',
+        bareMode: true,
+      });
+
+      expect(mockInstanceManager.createInstance).toHaveBeenCalledWith(
+        expect.objectContaining({ bareMode: true }),
+      );
     });
   });
 

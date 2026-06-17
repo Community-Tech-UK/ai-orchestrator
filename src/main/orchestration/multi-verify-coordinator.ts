@@ -20,6 +20,7 @@ import {
   AgentHealthConfig,
   VerificationProgress,
   createDefaultVerificationConfig,
+  DEFAULT_VERIFICATION_MAX_DEBATE_ROUNDS,
 } from '../../shared/types/verification.types';
 import type { DebateSessionRound } from '../../shared/types/debate.types';
 import { PERSONALITY_PROMPTS, selectPersonalities } from './personalities';
@@ -110,7 +111,7 @@ export class MultiVerifyCoordinator extends EventEmitter {
         maxRetries: 2,
         retryDelayMs: 1000,
         timeoutMs: config.timeout,
-        minSuccessfulAgents: 2,
+        minSuccessfulAgents: Math.max(1, Math.min(2, config.agentCount)),
       }
     );
   }
@@ -208,16 +209,18 @@ export class MultiVerifyCoordinator extends EventEmitter {
     context?: string,
     taskType?: string
   ): Promise<string> {
-    // Apply Byzantine fault tolerance: N >= 3f+1
-    // For f=1 (tolerate 1 faulty), need N>=4
-    const agentCount = Math.max(config?.agentCount || 3, 3);
     const defaultConfig = createDefaultVerificationConfig();
+    const mergedConfig = {
+      ...defaultConfig,
+      ...this.defaultConfig,
+      ...config,
+    };
+    const agentCount = Math.max(mergedConfig.agentCount, 1);
 
     const fullConfig: VerificationConfig = {
-      ...defaultConfig,
-      ...config,
+      ...mergedConfig,
       agentCount,
-      personalities: config?.personalities || selectPersonalities(agentCount, taskType),
+      personalities: mergedConfig.personalities || selectPersonalities(agentCount, taskType),
     };
 
     const request: VerificationRequest = {
@@ -1038,7 +1041,7 @@ Provide your synthesized response:`;
     initialResponses: AgentResponse[],
     analysis: VerificationAnalysis
   ): Promise<{ synthesizedResponse: string; confidence: number; rounds: DebateSessionRound[] }> {
-    const maxRounds = request.config.maxDebateRounds || 3;
+    const maxRounds = request.config.maxDebateRounds ?? DEFAULT_VERIFICATION_MAX_DEBATE_ROUNDS;
     const rounds: DebateSessionRound[] = [];
 
     let currentAnalysis = analysis;
@@ -1099,9 +1102,11 @@ Provide your synthesized response:`;
     // Calculate convergence
     const consensusScore = analysis.consensusStrength;
 
+    const maxRounds = request.config.maxDebateRounds ?? DEFAULT_VERIFICATION_MAX_DEBATE_ROUNDS;
+
     return {
       roundNumber,
-      type: roundNumber === 1 ? 'initial' : roundNumber === (request.config.maxDebateRounds || 3) ? 'synthesis' : 'critique',
+      type: roundNumber === 1 ? 'initial' : roundNumber === maxRounds ? 'synthesis' : 'critique',
       contributions,
       consensusScore,
       timestamp: Date.now(),

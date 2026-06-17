@@ -25,6 +25,7 @@ export interface CreateInstanceWithMessageOptions {
   agentId?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
   model?: string;
+  bareMode?: boolean;
   launchMode?: Instance['launchMode'];
   forceNodeId?: string;
 }
@@ -124,6 +125,7 @@ export class InstanceListStore {
         agentId: config.agentId,
         provider: config.provider,
         model: config.model,
+        bareMode: config.bareMode,
         forceNodeId: config.forceNodeId,
       };
       const result = await Promise.race([
@@ -181,16 +183,17 @@ export class InstanceListStore {
   async createInstanceWithMessageAndReturnId(
     options: CreateInstanceWithMessageOptions,
   ): Promise<string | null> {
-    const { message, files, workingDirectory, agentId, provider, model, forceNodeId } = options;
+    const { message, files, workingDirectory, agentId, provider, model, bareMode, forceNodeId } = options;
 
     console.log('InstanceListStore: createInstanceWithMessage called with:', {
       message,
       filesCount: files?.length,
       workingDirectory,
       agentId,
-      provider,
-      model,
-    });
+        provider,
+        model,
+        bareMode,
+      });
 
     if (files && files.length > 0) {
       const validationErrors = this.validateFiles(files);
@@ -218,6 +221,7 @@ export class InstanceListStore {
         agentId,
         provider: provider === 'auto' ? undefined : provider,
         model,
+        bareMode,
         forceNodeId,
       });
       console.log('InstanceListStore: createInstanceWithMessage result:', result);

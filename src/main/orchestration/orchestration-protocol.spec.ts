@@ -147,6 +147,12 @@ describe('generateOrchestrationPrompt', () => {
     it('lists model tiers', () => {
       expect(prompt).toMatch(/Model tiers:[\s\S]*fast[\s\S]*balanced[\s\S]*powerful/);
     });
+
+    it('steers scaffolding children to non-Claude providers by default', () => {
+      expect(prompt).toMatch(/verification[\s\S]*review[\s\S]*debate positions[\s\S]*summarization/);
+      expect(prompt).toMatch(/prefer a non-Claude `provider`/);
+      expect(prompt).toMatch(/`gemini`[\s\S]*`codex`[\s\S]*`copilot`[\s\S]*`cursor`/);
+    });
   });
 
   describe('native cross-LLM coordination', () => {

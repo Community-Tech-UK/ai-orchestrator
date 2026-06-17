@@ -166,6 +166,38 @@ describe('default orchestration invokers', () => {
     expect(hoisted.terminate).toHaveBeenCalledWith(false);
   });
 
+  it('routes verification scaffolding to the first available non-Claude CLI', async () => {
+    hoisted.resolveCliType.mockImplementation(async (requested?: string) => (
+      requested === 'gemini' ? 'gemini' : 'claude'
+    ));
+    hoisted.sendMessage.mockResolvedValue({
+      content: 'verified',
+      usage: { totalTokens: 42 },
+    });
+    registerDefaultMultiVerifyInvoker(hoisted.instanceManager as never);
+
+    multiVerifyCoordinator.emit('verification:invoke-agent', {
+      correlationId: 'verify-1:agent-1',
+      requestId: 'verify-1',
+      instanceId: 'instance-1',
+      agentId: 'agent-1',
+      model: 'default',
+      userPrompt: 'check this implementation',
+      callback: vi.fn(),
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(hoisted.createCliAdapter).toHaveBeenCalledWith(
+      'gemini',
+      expect.objectContaining({
+        model: 'gemini-3-flash-preview',
+      }),
+      undefined,
+    );
+  });
+
   it('rejects invalid review payloads at the listener boundary', async () => {
     registerDefaultReviewInvoker(hoisted.instanceManager as never);
     const callback = vi.fn();
@@ -182,6 +214,38 @@ describe('default orchestration invokers', () => {
 
     expect(callback).toHaveBeenCalledWith(
       expect.stringContaining('review:invoke-agent payload validation failed'),
+    );
+  });
+
+  it('routes review scaffolding to the first available non-Claude CLI', async () => {
+    hoisted.resolveCliType.mockImplementation(async (requested?: string) => (
+      requested === 'gemini' ? 'gemini' : 'claude'
+    ));
+    hoisted.sendMessage.mockResolvedValue({
+      content: 'reviewed',
+      usage: { totalTokens: 20 },
+    });
+    registerDefaultReviewInvoker(hoisted.instanceManager as never);
+
+    reviewCoordinator.emit('review:invoke-agent', {
+      correlationId: 'review-1:security',
+      reviewId: 'review-1',
+      instanceId: 'instance-1',
+      agentId: 'security',
+      model: 'default',
+      userPrompt: 'review this implementation for correctness',
+      callback: vi.fn(),
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(hoisted.createCliAdapter).toHaveBeenCalledWith(
+      'gemini',
+      expect.objectContaining({
+        model: 'gemini-3-flash-preview',
+      }),
+      undefined,
     );
   });
 
@@ -220,6 +284,112 @@ describe('default orchestration invokers', () => {
       0,
     );
   });
+
+  it('routes workflow invocations through the workflow intent on a non-Claude CLI when no model is explicit', async () => {
+    hoisted.resolveCliType.mockImplementation(async (requested?: string) => (
+      requested === 'gemini' ? 'gemini' : 'claude'
+    ));
+    hoisted.sendMessage.mockResolvedValue({
+      content: 'done',
+      usage: { totalTokens: 10 },
+    });
+    registerDefaultWorkflowInvoker(hoisted.instanceManager as never);
+    const callback = vi.fn();
+
+    workflowManager.emit('workflow:invoke-agent', {
+      correlationId: 'execution-1:agent-1',
+      executionId: 'execution-1',
+      agentId: 'agent-1',
+      prompt: 'list the changed files',
+      model: 'default',
+      callback,
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(hoisted.createCliAdapter).toHaveBeenLastCalledWith(
+      'gemini',
+      expect.objectContaining({
+        model: 'gemini-3-flash-preview',
+      }),
+      undefined,
+    );
+  });
+
+  it('routes debate scaffolding away from Claude but leaves synthesis on the default model', async () => {
+    hoisted.resolveCliType.mockImplementation(async (requested?: string) => (
+      requested === 'gemini' ? 'gemini' : 'claude'
+    ));
+    hoisted.sendMessage.mockResolvedValue({
+      content: 'critique',
+      usage: { totalTokens: 12 },
+    });
+    registerDefaultDebateInvoker(hoisted.instanceManager as never);
+
+    debateCoordinator.emit('debate:generate-response', {
+      correlationId: 'debate-1:response:agent-1',
+      debateId: 'debate-1',
+      agentId: 'agent-1',
+      agentIndex: 0,
+      prompt: 'argue one side of the technical decision',
+      model: 'default',
+      callback: vi.fn(),
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(hoisted.createCliAdapter).toHaveBeenLastCalledWith(
+      'gemini',
+      expect.objectContaining({
+        model: 'gemini-3-flash-preview',
+      }),
+      undefined,
+    );
+
+    debateCoordinator.emit('debate:generate-critiques', {
+      correlationId: 'debate-1:critique:agent-1',
+      debateId: 'debate-1',
+      agentId: 'agent-1',
+      agentIndex: 0,
+      prompt: 'critique the other response',
+      model: 'default',
+      callback: vi.fn(),
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(hoisted.createCliAdapter).toHaveBeenLastCalledWith(
+      'gemini',
+      expect.objectContaining({
+        model: 'gemini-3-flash-preview',
+      }),
+      undefined,
+    );
+
+    hoisted.sendMessage.mockResolvedValue({
+      content: 'synthesis',
+      usage: { totalTokens: 14 },
+    });
+    debateCoordinator.emit('debate:generate-synthesis', {
+      correlationId: 'debate-1:synthesis:moderator',
+      debateId: 'debate-1',
+      agentId: 'moderator',
+      prompt: 'synthesize the debate',
+      model: 'default',
+      callback: vi.fn(),
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(hoisted.createCliAdapter).toHaveBeenLastCalledWith(
+      'claude',
+      expect.objectContaining({
+        model: 'default-model',
+      }),
+      undefined,
+    );
+  });
 });
 
 describe('resolveModelForInvocation (intent-routing Phase 2)', () => {
@@ -227,7 +397,7 @@ describe('resolveModelForInvocation (intent-routing Phase 2)', () => {
     hoisted.readCodexAuthMode.mockReturnValue('unknown');
   });
 
-  it('without a routingIntent, resolves the strong default (verify/review/debate/workflow path)', () => {
+  it('without a routingIntent, resolves the strong default', () => {
     // getDefaultModelForCli is mocked to 'default-model'.
     expect(
       resolveModelForInvocation({

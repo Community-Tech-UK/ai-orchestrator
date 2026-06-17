@@ -5085,12 +5085,12 @@
       "lines": 3408
     },
     {
-      "path": "src/main/cli/adapters/codex-cli-adapter.ts",
-      "lines": 3218
+      "path": "src/main/instance/instance-lifecycle.ts",
+      "lines": 3219
     },
     {
-      "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3214
+      "path": "src/main/cli/adapters/codex-cli-adapter.ts",
+      "lines": 3218
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -5110,7 +5110,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 2766
+      "lines": 2786
     },
     {
       "path": "docs/superpowers/plans/2026-03-20-cross-model-review_completed.md",
@@ -5237,16 +5237,16 @@
       "lines": 1635
     },
     {
+      "path": "src/main/orchestration/default-invokers.ts",
+      "lines": 1628
+    },
+    {
       "path": "src/main/security/permission-manager.ts",
       "lines": 1624
     },
     {
       "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",
       "lines": 1613
-    },
-    {
-      "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1587
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
@@ -5434,7 +5434,7 @@
     },
     {
       "path": "src/main/orchestration/multi-verify-coordinator.ts",
-      "lines": 1172
+      "lines": 1177
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase3-monorepo-consolidation_completed.md",
@@ -5473,7 +5473,15 @@
       "lines": 1109
     },
     {
+      "path": "src/main/orchestration/__tests__/campaign-coordinator.spec.ts",
+      "lines": 1106
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-28-wave5-orchestration-hud-verification-verdicts-design_completed.md",
+      "lines": 1105
+    },
+    {
+      "path": "src/main/ipc/handlers/instance-handlers.ts",
       "lines": 1105
     },
     {
@@ -5481,12 +5489,12 @@
       "lines": 1104
     },
     {
-      "path": "src/main/ipc/handlers/instance-handlers.ts",
-      "lines": 1103
+      "path": "src/main/orchestration/__tests__/debate-coordinator.spec.ts",
+      "lines": 1091
     },
     {
       "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
-      "lines": 1085
+      "lines": 1087
     },
     {
       "path": "src/renderer/app/features/file-explorer/file-explorer.component.ts",
@@ -5503,10 +5511,6 @@
     {
       "path": "src/renderer/app/features/archive/archive-page.component.ts",
       "lines": 1059
-    },
-    {
-      "path": "src/main/orchestration/__tests__/debate-coordinator.spec.ts",
-      "lines": 1055
     },
     {
       "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
@@ -5553,16 +5557,24 @@
       "lines": 990
     },
     {
+      "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
+      "lines": 989
+    },
+    {
       "path": "src/main/repo-jobs/repo-job-service.ts",
       "lines": 989
     },
     {
+      "path": "src/main/orchestration/cli-verification-extension.ts",
+      "lines": 988
+    },
+    {
       "path": "src/main/orchestration/default-invokers.loop.spec.ts",
-      "lines": 982
+      "lines": 985
     },
     {
       "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
-      "lines": 979
+      "lines": 983
     },
     {
       "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
@@ -5579,10 +5591,6 @@
     {
       "path": "src/renderer/app/core/state/source-control.store.ts",
       "lines": 976
-    },
-    {
-      "path": "src/main/orchestration/cli-verification-extension.ts",
-      "lines": 973
     },
     {
       "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
@@ -5613,10 +5621,6 @@
       "lines": 957
     },
     {
-      "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
-      "lines": 954
-    },
-    {
       "path": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
       "lines": 953
     },
@@ -5645,8 +5649,16 @@
       "lines": 925
     },
     {
+      "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
+      "lines": 924
+    },
+    {
       "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
       "lines": 924
+    },
+    {
+      "path": "src/shared/types/loop.types.ts",
+      "lines": 919
     },
     {
       "path": "src/renderer/app/features/loop/loop-control.component.ts",
@@ -5655,10 +5667,6 @@
     {
       "path": "src/main/history/history-manager.spec.ts",
       "lines": 909
-    },
-    {
-      "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
-      "lines": 908
     },
     {
       "path": "src/main/workspace/lsp-manager.ts",
@@ -5671,10 +5679,6 @@
     {
       "path": "src/renderer/app/features/replay/session-replay-page.component.ts",
       "lines": 893
-    },
-    {
-      "path": "src/shared/types/loop.types.ts",
-      "lines": 891
     },
     {
       "path": "src/renderer/app/features/verification/config/api-key-manager.component.ts",
@@ -5757,6 +5761,10 @@
       "lines": 858
     },
     {
+      "path": "src/renderer/app/features/verification/config/verification-preferences.component.ts",
+      "lines": 857
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-17-wave2-provider-normalization-design.md",
       "lines": 854
     },
@@ -5767,10 +5775,6 @@
     {
       "path": "src/renderer/app/features/rlm/context-browser/context-query-panel.component.ts",
       "lines": 852
-    },
-    {
-      "path": "src/renderer/app/features/verification/config/verification-preferences.component.ts",
-      "lines": 850
     },
     {
       "path": "src/main/orchestration/embedding-service.ts",

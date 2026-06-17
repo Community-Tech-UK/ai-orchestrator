@@ -368,11 +368,11 @@ export interface AppSettings {
   auxiliaryLlmQuickModel: string;
   auxiliaryLlmQualityModel: string;
   /**
-   * Opt-in: let the auxiliary `routingClassification` slot influence Loop Mode
+   * Let the auxiliary `routingClassification` slot influence Loop Mode
    * model selection. When on, each routed loop spawn asks the aux model whether
    * the task is cheap-model eligible and, if so, prefers the fast tier — at the
-   * cost of one extra aux call per spawn. Off by default so loop model routing
-   * stays purely heuristic unless explicitly enabled.
+   * cost of one extra aux call per spawn. Default on so simple loop work can
+   * downshift away from the balanced tier without a Claude call.
    */
   auxiliaryLlmRoutingClassificationEnabled: boolean;
 
@@ -555,7 +555,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   auxiliaryLlmEndpointsJson: '[]',
   auxiliaryLlmQuickModel: '',
   auxiliaryLlmQualityModel: '',
-  auxiliaryLlmRoutingClassificationEnabled: false,
+  auxiliaryLlmRoutingClassificationEnabled: true,
   auxiliaryLlmSlotsJson: JSON.stringify({
     compression: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: true },
     memoryDistillation: { enabled: true, provider: 'auto', tier: 'quality', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: true },

@@ -200,6 +200,12 @@ export const LoopPlanConfigSchema = z.object({
   regenerateOnStall: z.boolean(),
 });
 
+/** G3 — serializable next-objective planner config. Optional; default off. */
+export const LoopNextObjectivePlanningConfigSchema = z.object({
+  enabled: z.boolean(),
+  cadence: z.number().int().min(1).max(50).default(1),
+});
+
 export const LoopConfigSchema = z.object({
   /** The goal/ask. Sent on iteration 0 and is what the loop drives toward. */
   initialPrompt: z.string().min(1, 'initialPrompt cannot be empty'),
@@ -220,6 +226,7 @@ export const LoopConfigSchema = z.object({
   context: LoopContextConfigSchema.optional(),
   exploration: LoopExplorationConfigSchema.optional(),
   plan: LoopPlanConfigSchema.optional(),
+  nextObjectivePlanning: LoopNextObjectivePlanningConfigSchema.optional(),
   completion: LoopCompletionConfigSchema,
   allowDestructiveOps: z.boolean(),
   initialStage: LoopStageSchema,

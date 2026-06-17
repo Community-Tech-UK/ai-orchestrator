@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { InstanceChangeModelPayloadSchema } from '../instance.schemas';
+import {
+  InstanceChangeModelPayloadSchema,
+  InstanceCreatePayloadSchema,
+  InstanceCreateWithMessagePayloadSchema,
+} from '../instance.schemas';
 
 describe('instance.schemas', () => {
   it('accepts reasoning effort when changing a model', () => {
@@ -20,5 +24,22 @@ describe('instance.schemas', () => {
       model: 'sonnet',
       reasoningEffort: null,
     }).reasoningEffort).toBeNull();
+  });
+
+  it('accepts bare mode on instance creation payloads', () => {
+    expect(InstanceCreatePayloadSchema.parse({
+      workingDirectory: '/repo',
+      provider: 'claude',
+      bareMode: true,
+    }).bareMode).toBe(true);
+  });
+
+  it('accepts bare mode on create-with-message payloads', () => {
+    expect(InstanceCreateWithMessagePayloadSchema.parse({
+      workingDirectory: '/repo',
+      message: 'hello',
+      provider: 'claude',
+      bareMode: true,
+    }).bareMode).toBe(true);
   });
 });

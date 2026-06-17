@@ -62,4 +62,8 @@ describe('DEFAULT_SETTINGS — auxiliary LLM fields', () => {
   it('auxiliaryLlmAllowRemoteWorkerModels defaults to true', () => {
     expect(DEFAULT_SETTINGS.auxiliaryLlmAllowRemoteWorkerModels).toBe(true);
   });
+
+  it('auxiliaryLlmRoutingClassificationEnabled defaults to true', () => {
+    expect(DEFAULT_SETTINGS.auxiliaryLlmRoutingClassificationEnabled).toBe(true);
+  });
 });

@@ -89,6 +89,7 @@ export function registerInstanceHandlers(deps: {
           agentId: validatedPayload.agentId,
           provider: validatedPayload.provider as import('../../../shared/types/instance.types').InstanceProvider | undefined,
           modelOverride: validatedPayload.model,
+          bareMode: validatedPayload.bareMode,
           forceNodeId: validatedPayload.forceNodeId,
           nodePlacement: validatedPayload.nodePlacement,
         });
@@ -146,6 +147,7 @@ export function registerInstanceHandlers(deps: {
           agentId: validated.agentId,
           provider: validated.provider as import('../../../shared/types/instance.types').InstanceProvider | undefined,
           modelOverride: validated.model,
+          bareMode: validated.bareMode,
           forceNodeId: validated.forceNodeId,
           nodePlacement: validated.nodePlacement,
         });

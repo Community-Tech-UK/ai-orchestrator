@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import type { SqliteDriver } from '../../db/sqlite-driver';
-import { validateCampaignSpec, evaluatePredicate } from '../campaign-coordinator';
+import { CampaignCoordinator, validateCampaignSpec, evaluatePredicate } from '../campaign-coordinator';
 import { CampaignStore } from '../campaign-store';
 import { createLoopMigrationsTable, runLoopMigrations } from '../loop-schema';
 import type { CampaignSpec, CampaignRun, TerminalStatusPredicate, CampaignNodeStatus } from '../campaign.types';
@@ -33,8 +33,13 @@ function buildSpec(overrides: Partial<CampaignSpec> = {}): CampaignSpec {
 
 function buildDb(): SqliteDriver {
   const db = new Database(':memory:') as unknown as SqliteDriver;
+  db.pragma('foreign_keys = ON');
   runLoopMigrations(db);
   return db;
+}
+
+function flushAsyncWork(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +84,54 @@ describe('validateCampaignSpec — basic validation', () => {
     }));
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.includes('Self-loop'))).toBe(true);
+  });
+
+  it('rejects invalid maxParallel values before the coordinator runs', () => {
+    const result = validateCampaignSpec(buildSpec({
+      policy: { onNodeNeedsReview: 'pause-campaign', maxParallel: 0 },
+    }));
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('maxParallel'))).toBe(true);
+  });
+
+  it('rejects edge predicates with invalid terminal statuses', () => {
+    const result = validateCampaignSpec(buildSpec({
+      nodes: [
+        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp' }, dependsOn: [] },
+      ],
+      edges: [{ from: 'a', to: 'b', when: { type: 'is', status: 'unknown-status' as never } }],
+    }));
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('predicate status'))).toBe(true);
+  });
+
+  it('rejects interrupted edge predicates because loop runs never emit that terminal status', () => {
+    const result = validateCampaignSpec(buildSpec({
+      nodes: [
+        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp' }, dependsOn: [] },
+      ],
+      edges: [{ from: 'a', to: 'b', when: { type: 'is', status: 'interrupted' as never } }],
+    }));
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('predicate status'))).toBe(true);
+  });
+
+  it('rejects edge predicates with an empty status list', () => {
+    const result = validateCampaignSpec(buildSpec({
+      nodes: [
+        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp' }, dependsOn: [] },
+      ],
+      edges: [{ from: 'a', to: 'b', when: { type: 'in', statuses: [] } }],
+    }));
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('at least one'))).toBe(true);
   });
 });
 
@@ -305,6 +358,370 @@ describe('CampaignStore', () => {
 });
 
 // ---------------------------------------------------------------------------
+// CampaignCoordinator — start/persistence semantics
+// ---------------------------------------------------------------------------
+
+describe('CampaignCoordinator — start/persistence semantics', () => {
+  it('persists the campaign row before node rows so restart recovery sees pending nodes', async () => {
+    const db = buildDb();
+    const store = new CampaignStore(db);
+    const coordinator = new CampaignCoordinator();
+    const spec = buildSpec({ id: 'camp-start-persist' });
+    const internals = coordinator as unknown as {
+      store: CampaignStore | null;
+      startNode: (campaign: CampaignRun, nodeId: string) => Promise<void>;
+    };
+    internals.store = store;
+    vi.spyOn(internals, 'startNode').mockResolvedValue(undefined);
+
+    await coordinator.startCampaign(spec);
+
+    const persisted = store.getCampaign('camp-start-persist');
+    expect(persisted).not.toBeNull();
+    expect(persisted!.nodeRuns.size).toBe(1);
+    expect(persisted!.nodeRuns.get('a')?.status).toBe('pending');
+  });
+
+  it('runs isolated campaign nodes in prepared worktree paths', async () => {
+    const coordinator = new CampaignCoordinator();
+    const loopStarter = vi.fn().mockResolvedValue({ id: 'loop-isolated-a' });
+    const worktreePreparer = vi.fn().mockResolvedValue('/repo/.worktrees/campaign-node-a');
+    const internals = coordinator as unknown as {
+      setLoopStarterForTesting: (starter: typeof loopStarter) => void;
+      setWorktreePreparerForTesting: (preparer: typeof worktreePreparer) => void;
+    };
+    internals.setLoopStarterForTesting(loopStarter);
+    internals.setWorktreePreparerForTesting(worktreePreparer);
+
+    const run = await coordinator.startCampaign(buildSpec({
+      id: 'camp-worktree',
+      nodes: [
+        { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/repo' }, dependsOn: [] },
+      ],
+      policy: { onNodeNeedsReview: 'pause-campaign', maxParallel: 1, isolation: 'worktree' },
+    }));
+    await flushAsyncWork();
+    await flushAsyncWork();
+
+    expect(worktreePreparer).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'camp-worktree' }),
+      expect.objectContaining({ id: 'a' }),
+    );
+    expect(loopStarter).toHaveBeenCalledWith(
+      'campaign:camp-worktree:a',
+      expect.objectContaining({ workspaceCwd: '/repo/.worktrees/campaign-node-a' }),
+    );
+    expect(run.nodeRuns.get('a')?.loopRunId).toBe('loop-isolated-a');
+  });
+
+  it('pauses the campaign for operator review when a node fails to start', async () => {
+    const coordinator = new CampaignCoordinator();
+    const loopStarter = vi.fn().mockRejectedValue(new Error('startup failed'));
+    const internals = coordinator as unknown as {
+      activeCampaigns: Map<string, CampaignRun>;
+      setLoopStarterForTesting: (starter: typeof loopStarter) => void;
+    };
+    internals.setLoopStarterForTesting(loopStarter);
+
+    const run = await coordinator.startCampaign(buildSpec({
+      id: 'camp-start-node-fails',
+      nodes: [
+        { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp' }, dependsOn: ['a'] },
+      ],
+      edges: [{ from: 'a', to: 'b' }],
+      policy: { onNodeNeedsReview: 'pause-campaign', maxParallel: 1 },
+    }));
+    await flushAsyncWork();
+    await flushAsyncWork();
+
+    expect(run.status).toBe('paused');
+    expect(run.pausedReason).toContain('failed to start');
+    expect(run.nodeRuns.get('a')?.status).toBe('failed');
+    expect(run.nodeRuns.get('b')?.status).toBe('pending');
+    expect(internals.activeCampaigns.get(run.id)).toBe(run);
+  });
+
+  it('cancels a loop that finishes starting after the campaign was halted', async () => {
+    const coordinator = new CampaignCoordinator();
+    let resolveStarter: ((value: { id: string }) => void) | undefined;
+    const started = new Promise<{ id: string }>((resolve) => {
+      resolveStarter = resolve;
+    });
+    const loopStarter = vi.fn().mockReturnValue(started);
+    const loopCanceller = vi.fn().mockResolvedValue(true);
+    const internals = coordinator as unknown as {
+      setLoopStarterForTesting: (starter: typeof loopStarter) => void;
+      loopCanceller: typeof loopCanceller;
+    };
+    internals.setLoopStarterForTesting(loopStarter);
+    internals.loopCanceller = loopCanceller;
+
+    const run = await coordinator.startCampaign(buildSpec({
+      id: 'camp-halted-while-starting',
+      nodes: [
+        { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp' }, dependsOn: [] },
+      ],
+      policy: { onNodeNeedsReview: 'pause-campaign', maxParallel: 1 },
+    }));
+    await flushAsyncWork();
+
+    coordinator.haltCampaignByOperator(run.id);
+    resolveStarter?.({ id: 'late-loop' });
+    await flushAsyncWork();
+    await flushAsyncWork();
+
+    expect(run.status).toBe('halted');
+    expect(run.nodeRuns.get('a')?.status).toBe('pending');
+    expect(run.nodeRuns.get('a')?.loopRunId).toBeUndefined();
+    expect(loopCanceller).toHaveBeenCalledWith('late-loop');
+  });
+
+  it('pauses a recovered campaign when its running node loop was paused on boot', async () => {
+    const db = buildDb();
+    const store = new CampaignStore(db);
+    const run: CampaignRun = {
+      id: 'camp-recover-paused-loop',
+      spec: buildSpec({ id: 'camp-recover-paused-loop' }),
+      status: 'running',
+      nodeRuns: new Map([
+        ['a', {
+          nodeId: 'a',
+          campaignId: 'camp-recover-paused-loop',
+          status: 'running',
+          loopRunId: 'loop-paused-on-boot',
+          startedAt: 1_000_001,
+        }],
+      ]),
+      startedAt: 1_000_000,
+    };
+    store.upsertCampaign(run);
+    store.upsertNode(run.nodeRuns.get('a')!);
+
+    const coordinator = new CampaignCoordinator();
+    const internals = coordinator as unknown as {
+      store: CampaignStore | null;
+      loopRunToNode: Map<string, { campaignId: string; nodeId: string }>;
+      setLoopStatusReaderForTesting: (reader: (loopRunId: string) => string | null) => void;
+    };
+    internals.store = store;
+    internals.setLoopStatusReaderForTesting((loopRunId) =>
+      loopRunId === 'loop-paused-on-boot' ? 'paused' : null,
+    );
+
+    await coordinator.recoverInterruptedCampaigns();
+
+    const recovered = coordinator.getCampaign('camp-recover-paused-loop');
+    expect(recovered?.status).toBe('paused');
+    expect(recovered?.pausedReason).toContain('app restart');
+    expect(recovered?.nodeRuns.get('a')?.status).toBe('running');
+    expect(internals.loopRunToNode.get('loop-paused-on-boot')).toEqual({
+      campaignId: 'camp-recover-paused-loop',
+      nodeId: 'a',
+    });
+  });
+
+  it('pauses a recovered campaign when a provider-limit node loop was paused on boot', async () => {
+    const db = buildDb();
+    const store = new CampaignStore(db);
+    const run: CampaignRun = {
+      id: 'camp-recover-paused-provider-limit',
+      spec: buildSpec({ id: 'camp-recover-paused-provider-limit' }),
+      status: 'running',
+      nodeRuns: new Map([
+        ['a', {
+          nodeId: 'a',
+          campaignId: 'camp-recover-paused-provider-limit',
+          status: 'provider-limit',
+          loopRunId: 'loop-paused-provider-limit',
+          startedAt: 1_000_001,
+        }],
+      ]),
+      startedAt: 1_000_000,
+    };
+    store.upsertCampaign(run);
+    store.upsertNode(run.nodeRuns.get('a')!);
+
+    const coordinator = new CampaignCoordinator();
+    const internals = coordinator as unknown as {
+      store: CampaignStore | null;
+      setLoopStatusReaderForTesting: (reader: (loopRunId: string) => string | null) => void;
+    };
+    internals.store = store;
+    internals.setLoopStatusReaderForTesting((loopRunId) =>
+      loopRunId === 'loop-paused-provider-limit' ? 'paused' : null,
+    );
+
+    await coordinator.recoverInterruptedCampaigns();
+
+    const recovered = coordinator.getCampaign('camp-recover-paused-provider-limit');
+    expect(recovered?.status).toBe('paused');
+    expect(recovered?.pausedReason).toContain('app restart');
+    expect(recovered?.nodeRuns.get('a')?.status).toBe('provider-limit');
+  });
+
+  it('advances a recovered provider-limit campaign when the limited loop completed while the app was down', async () => {
+    const db = buildDb();
+    const store = new CampaignStore(db);
+    const spec = buildSpec({
+      id: 'camp-recover-provider-limit-completed',
+      nodes: [
+        { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp' }, dependsOn: ['a'] },
+      ],
+      edges: [{ from: 'a', to: 'b' }],
+    });
+    const run: CampaignRun = {
+      id: spec.id,
+      spec,
+      status: 'paused',
+      pausedReason: 'Node a hit provider limit; waiting for loop auto-resume',
+      nodeRuns: new Map([
+        ['a', {
+          nodeId: 'a',
+          campaignId: spec.id,
+          status: 'provider-limit',
+          loopRunId: 'loop-provider-limit-completed-offline',
+          startedAt: 1_000_001,
+        }],
+        ['b', {
+          nodeId: 'b',
+          campaignId: spec.id,
+          status: 'pending',
+        }],
+      ]),
+      startedAt: 1_000_000,
+    };
+    store.upsertCampaign(run);
+    for (const nodeRun of run.nodeRuns.values()) store.upsertNode(nodeRun);
+
+    const coordinator = new CampaignCoordinator();
+    const loopStarter = vi.fn().mockResolvedValue({ id: 'loop-b-started-after-recovery' });
+    const internals = coordinator as unknown as {
+      store: CampaignStore | null;
+      setLoopStarterForTesting: (starter: typeof loopStarter) => void;
+      setLoopStatusReaderForTesting: (reader: (loopRunId: string) => string | null) => void;
+    };
+    internals.store = store;
+    internals.setLoopStarterForTesting(loopStarter);
+    internals.setLoopStatusReaderForTesting((loopRunId) =>
+      loopRunId === 'loop-provider-limit-completed-offline' ? 'completed' : null,
+    );
+
+    await coordinator.recoverInterruptedCampaigns();
+    await flushAsyncWork();
+    await flushAsyncWork();
+
+    const recovered = coordinator.getCampaign(spec.id);
+    expect(recovered?.status).toBe('running');
+    expect(recovered?.pausedReason).toBeUndefined();
+    expect(recovered?.nodeRuns.get('a')?.status).toBe('completed');
+    expect(recovered?.nodeRuns.get('b')?.status).toBe('running');
+    expect(recovered?.nodeRuns.get('b')?.loopRunId).toBe('loop-b-started-after-recovery');
+    expect(loopStarter).toHaveBeenCalledWith(
+      `campaign:${spec.id}:b`,
+      expect.objectContaining({ initialPrompt: 'do B' }),
+    );
+  });
+
+  it('pauses a recovered campaign when an active node loop row is missing after restart', async () => {
+    const db = buildDb();
+    const store = new CampaignStore(db);
+    const run: CampaignRun = {
+      id: 'camp-recover-missing-loop',
+      spec: buildSpec({ id: 'camp-recover-missing-loop' }),
+      status: 'running',
+      nodeRuns: new Map([
+        ['a', {
+          nodeId: 'a',
+          campaignId: 'camp-recover-missing-loop',
+          status: 'running',
+          loopRunId: 'loop-missing-after-restart',
+          startedAt: 1_000_001,
+        }],
+      ]),
+      startedAt: 1_000_000,
+    };
+    store.upsertCampaign(run);
+    store.upsertNode(run.nodeRuns.get('a')!);
+
+    const coordinator = new CampaignCoordinator();
+    const internals = coordinator as unknown as {
+      store: CampaignStore | null;
+      setLoopStatusReaderForTesting: (reader: (loopRunId: string) => string | null) => void;
+    };
+    internals.store = store;
+    internals.setLoopStatusReaderForTesting(() => null);
+
+    await coordinator.recoverInterruptedCampaigns();
+
+    const recovered = coordinator.getCampaign('camp-recover-missing-loop');
+    expect(recovered?.status).toBe('paused');
+    expect(recovered?.pausedReason).toContain('missing after app restart');
+  });
+
+  it('reconciles a node that completed while the app was down and advances the campaign', async () => {
+    const db = buildDb();
+    const store = new CampaignStore(db);
+    const spec = buildSpec({
+      id: 'camp-recover-completed-node',
+      nodes: [
+        { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp' }, dependsOn: [] },
+      ],
+      edges: [{ from: 'a', to: 'b' }],
+    });
+    const run: CampaignRun = {
+      id: 'camp-recover-completed-node',
+      spec,
+      status: 'running',
+      nodeRuns: new Map([
+        ['a', {
+          nodeId: 'a',
+          campaignId: 'camp-recover-completed-node',
+          status: 'running',
+          loopRunId: 'loop-completed-while-down',
+          startedAt: 1_000_001,
+        }],
+        ['b', {
+          nodeId: 'b',
+          campaignId: 'camp-recover-completed-node',
+          status: 'pending',
+        }],
+      ]),
+      startedAt: 1_000_000,
+    };
+    store.upsertCampaign(run);
+    store.upsertNode(run.nodeRuns.get('a')!);
+    store.upsertNode(run.nodeRuns.get('b')!);
+
+    const coordinator = new CampaignCoordinator();
+    const loopStarter = vi.fn().mockResolvedValue({ id: 'loop-started-b' });
+    const internals = coordinator as unknown as {
+      store: CampaignStore | null;
+      setLoopStatusReaderForTesting: (reader: (loopRunId: string) => string | null) => void;
+      setLoopStarterForTesting: (starter: typeof loopStarter) => void;
+    };
+    internals.store = store;
+    internals.setLoopStatusReaderForTesting((loopRunId) =>
+      loopRunId === 'loop-completed-while-down' ? 'completed' : null,
+    );
+    internals.setLoopStarterForTesting(loopStarter);
+
+    await coordinator.recoverInterruptedCampaigns();
+    await flushAsyncWork();
+
+    const recovered = coordinator.getCampaign('camp-recover-completed-node');
+    expect(recovered?.nodeRuns.get('a')?.status).toBe('completed');
+    expect(recovered?.nodeRuns.get('b')?.status).toBe('running');
+    expect(loopStarter).toHaveBeenCalledWith(
+      'campaign:camp-recover-completed-node:b',
+      expect.objectContaining({ initialPrompt: 'do B' }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // evaluatePredicate — edge predicate logic (gated-skip)
 // ---------------------------------------------------------------------------
 
@@ -341,6 +758,310 @@ describe('evaluatePredicate — edge gate predicates', () => {
       edges: [{ from: 'a', to: 'b', when: { type: 'is', status: 'completed' } }],
     }));
     expect(result.valid).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CampaignCoordinator — skipped dependency propagation
+// ---------------------------------------------------------------------------
+
+describe('CampaignCoordinator — skipped dependency propagation', () => {
+  it('skips downstream nodes when their dependency was skipped', async () => {
+    const coordinator = new CampaignCoordinator();
+    const loopStarter = vi.fn().mockResolvedValue({ id: 'loop-should-not-start' });
+    const spec = buildSpec({
+      id: 'camp-skip-propagates',
+      nodes: [
+        { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp' }, dependsOn: ['a'] },
+      ],
+      edges: [{ from: 'a', to: 'b' }],
+    });
+    const run: CampaignRun = {
+      id: 'camp-skip-propagates',
+      spec,
+      status: 'running',
+      nodeRuns: new Map([
+        ['a', {
+          nodeId: 'a',
+          campaignId: 'camp-skip-propagates',
+          status: 'skipped',
+          skippedReason: 'upstream gate failed',
+          endedAt: 1_000_001,
+        }],
+        ['b', {
+          nodeId: 'b',
+          campaignId: 'camp-skip-propagates',
+          status: 'pending',
+        }],
+      ]),
+      startedAt: 1_000_000,
+    };
+
+    const internals = coordinator as unknown as {
+      activeCampaigns: Map<string, CampaignRun>;
+      advanceCampaign: (campaignId: string) => Promise<void>;
+      setLoopStarterForTesting: (starter: typeof loopStarter) => void;
+    };
+    internals.activeCampaigns.set(run.id, run);
+    internals.setLoopStarterForTesting(loopStarter);
+
+    await internals.advanceCampaign(run.id);
+    await flushAsyncWork();
+
+    expect(run.nodeRuns.get('b')?.status).toBe('skipped');
+    expect(run.nodeRuns.get('b')?.skippedReason).toContain('dependency a was skipped');
+    expect(loopStarter).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CampaignCoordinator — provider-limit choreography
+// ---------------------------------------------------------------------------
+
+describe('CampaignCoordinator — provider-limit choreography', () => {
+  it('pauses the campaign without completing it when a node parks on provider-limit', async () => {
+    const coordinator = new CampaignCoordinator();
+    const run: CampaignRun = {
+      id: 'camp-provider-limit',
+      spec: buildSpec({ id: 'camp-provider-limit' }),
+      status: 'running',
+      nodeRuns: new Map([
+        ['a', {
+          nodeId: 'a',
+          campaignId: 'camp-provider-limit',
+          status: 'running',
+          loopRunId: 'loop-provider-limit',
+          startedAt: 1_000_001,
+        }],
+      ]),
+      startedAt: 1_000_000,
+    };
+
+    const internals = coordinator as unknown as {
+      activeCampaigns: Map<string, CampaignRun>;
+      loopRunToNode: Map<string, { campaignId: string; nodeId: string }>;
+      onLoopTerminal: (loopRunId: string, loopStatus: string) => Promise<void>;
+    };
+    internals.activeCampaigns.set(run.id, run);
+    internals.loopRunToNode.set('loop-provider-limit', { campaignId: run.id, nodeId: 'a' });
+
+    await internals.onLoopTerminal('loop-provider-limit', 'provider-limit');
+
+    expect(run.status).toBe('paused');
+    expect(run.pausedReason).toContain('provider limit');
+    expect(run.nodeRuns.get('a')?.status).toBe('provider-limit');
+    expect(run.endedAt).toBeUndefined();
+    expect(internals.activeCampaigns.get(run.id)).toBe(run);
+    expect(internals.loopRunToNode.get('loop-provider-limit')).toEqual({ campaignId: run.id, nodeId: 'a' });
+  });
+
+  it('pauses the campaign for operator review when a child loop fails', async () => {
+    const coordinator = new CampaignCoordinator();
+    const run: CampaignRun = {
+      id: 'camp-child-failed',
+      spec: buildSpec({
+        id: 'camp-child-failed',
+        nodes: [
+          { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp' }, dependsOn: [] },
+          { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp' }, dependsOn: ['a'] },
+        ],
+        edges: [{ from: 'a', to: 'b' }],
+      }),
+      status: 'running',
+      nodeRuns: new Map([
+        ['a', {
+          nodeId: 'a',
+          campaignId: 'camp-child-failed',
+          status: 'running',
+          loopRunId: 'loop-child-failed',
+          startedAt: 1_000_001,
+        }],
+        ['b', {
+          nodeId: 'b',
+          campaignId: 'camp-child-failed',
+          status: 'pending',
+        }],
+      ]),
+      startedAt: 1_000_000,
+    };
+
+    const internals = coordinator as unknown as {
+      activeCampaigns: Map<string, CampaignRun>;
+      loopRunToNode: Map<string, { campaignId: string; nodeId: string }>;
+      onLoopTerminal: (loopRunId: string, loopStatus: string) => Promise<void>;
+    };
+    internals.activeCampaigns.set(run.id, run);
+    internals.loopRunToNode.set('loop-child-failed', { campaignId: run.id, nodeId: 'a' });
+
+    await internals.onLoopTerminal('loop-child-failed', 'failed');
+
+    expect(run.status).toBe('paused');
+    expect(run.pausedReason).toContain('failed');
+    expect(run.nodeRuns.get('a')?.status).toBe('failed');
+    expect(run.nodeRuns.get('a')?.endedAt).toBeTypeOf('number');
+    expect(run.nodeRuns.get('b')?.status).toBe('pending');
+    expect(internals.activeCampaigns.get(run.id)).toBe(run);
+  });
+
+  it('halts instead of failing when needs-review policy is halt', async () => {
+    const coordinator = new CampaignCoordinator();
+    const halted = vi.fn();
+    const failed = vi.fn();
+    coordinator.on('campaign:halted', halted);
+    coordinator.on('campaign:failed', failed);
+    const run: CampaignRun = {
+      id: 'camp-needs-review-halt-policy',
+      spec: buildSpec({
+        id: 'camp-needs-review-halt-policy',
+        policy: { onNodeNeedsReview: 'halt', maxParallel: 1 },
+      }),
+      status: 'running',
+      nodeRuns: new Map([
+        ['a', {
+          nodeId: 'a',
+          campaignId: 'camp-needs-review-halt-policy',
+          status: 'running',
+          loopRunId: 'loop-needs-review-halt-policy',
+          startedAt: 1_000_001,
+        }],
+      ]),
+      startedAt: 1_000_000,
+    };
+
+    const internals = coordinator as unknown as {
+      activeCampaigns: Map<string, CampaignRun>;
+      loopRunToNode: Map<string, { campaignId: string; nodeId: string }>;
+      onLoopTerminal: (loopRunId: string, loopStatus: string) => Promise<void>;
+    };
+    internals.activeCampaigns.set(run.id, run);
+    internals.loopRunToNode.set('loop-needs-review-halt-policy', { campaignId: run.id, nodeId: 'a' });
+
+    await internals.onLoopTerminal('loop-needs-review-halt-policy', 'completed-needs-review');
+
+    expect(run.status).toBe('halted');
+    expect(run.nodeRuns.get('a')?.status).toBe('completed-needs-review');
+    expect(internals.activeCampaigns.has(run.id)).toBe(false);
+    expect(halted).toHaveBeenCalledWith({
+      campaignId: run.id,
+      reason: 'Node a reached completed-needs-review (policy: halt)',
+    });
+    expect(failed).not.toHaveBeenCalled();
+  });
+
+  it('resumes a campaign when an app-restart-paused running node loop starts running again', async () => {
+    const coordinator = new CampaignCoordinator();
+    const run: CampaignRun = {
+      id: 'camp-resume-after-restart',
+      spec: buildSpec({ id: 'camp-resume-after-restart' }),
+      status: 'paused',
+      pausedReason: 'Node a loop paused after app restart; resume that loop to continue the campaign',
+      nodeRuns: new Map([
+        ['a', {
+          nodeId: 'a',
+          campaignId: 'camp-resume-after-restart',
+          status: 'running',
+          loopRunId: 'loop-resumed-after-restart',
+          startedAt: 1_000_001,
+        }],
+      ]),
+      startedAt: 1_000_000,
+    };
+
+    const internals = coordinator as unknown as {
+      activeCampaigns: Map<string, CampaignRun>;
+      loopRunToNode: Map<string, { campaignId: string; nodeId: string }>;
+      onLoopRunning: (loopRunId: string) => Promise<void>;
+    };
+    internals.activeCampaigns.set(run.id, run);
+    internals.loopRunToNode.set('loop-resumed-after-restart', { campaignId: run.id, nodeId: 'a' });
+
+    await internals.onLoopRunning('loop-resumed-after-restart');
+
+    expect(run.status).toBe('running');
+    expect(run.pausedReason).toBeUndefined();
+    expect(run.nodeRuns.get('a')?.status).toBe('running');
+  });
+
+  it('does not resume a needs-review-paused campaign when an unrelated sibling loop reports running', async () => {
+    const coordinator = new CampaignCoordinator();
+    const run: CampaignRun = {
+      id: 'camp-running-sibling-while-needs-review-paused',
+      spec: buildSpec({
+        id: 'camp-running-sibling-while-needs-review-paused',
+        nodes: [
+          { id: 'a', loopConfig: { initialPrompt: 'do A', workspaceCwd: '/tmp' }, dependsOn: [] },
+          { id: 'b', loopConfig: { initialPrompt: 'do B', workspaceCwd: '/tmp' }, dependsOn: [] },
+        ],
+      }),
+      status: 'paused',
+      pausedReason: 'Node a reached completed-needs-review',
+      nodeRuns: new Map([
+        ['a', {
+          nodeId: 'a',
+          campaignId: 'camp-running-sibling-while-needs-review-paused',
+          status: 'completed-needs-review',
+          loopRunId: 'loop-needs-review',
+          startedAt: 1_000_001,
+          endedAt: 1_000_010,
+        }],
+        ['b', {
+          nodeId: 'b',
+          campaignId: 'camp-running-sibling-while-needs-review-paused',
+          status: 'running',
+          loopRunId: 'loop-running-sibling',
+          startedAt: 1_000_002,
+        }],
+      ]),
+      startedAt: 1_000_000,
+    };
+
+    const internals = coordinator as unknown as {
+      activeCampaigns: Map<string, CampaignRun>;
+      loopRunToNode: Map<string, { campaignId: string; nodeId: string }>;
+      onLoopRunning: (loopRunId: string) => Promise<void>;
+    };
+    internals.activeCampaigns.set(run.id, run);
+    internals.loopRunToNode.set('loop-running-sibling', { campaignId: run.id, nodeId: 'b' });
+
+    await internals.onLoopRunning('loop-running-sibling');
+
+    expect(run.status).toBe('paused');
+    expect(run.pausedReason).toBe('Node a reached completed-needs-review');
+    expect(run.nodeRuns.get('b')?.status).toBe('running');
+  });
+
+  it('halts the campaign when a child loop is cancelled by the operator', async () => {
+    const coordinator = new CampaignCoordinator();
+    const run: CampaignRun = {
+      id: 'camp-child-cancelled',
+      spec: buildSpec({ id: 'camp-child-cancelled' }),
+      status: 'running',
+      nodeRuns: new Map([
+        ['a', {
+          nodeId: 'a',
+          campaignId: 'camp-child-cancelled',
+          status: 'running',
+          loopRunId: 'loop-child-cancelled',
+          startedAt: 1_000_001,
+        }],
+      ]),
+      startedAt: 1_000_000,
+    };
+
+    const internals = coordinator as unknown as {
+      activeCampaigns: Map<string, CampaignRun>;
+      loopRunToNode: Map<string, { campaignId: string; nodeId: string }>;
+      onLoopTerminal: (loopRunId: string, loopStatus: string) => Promise<void>;
+    };
+    internals.activeCampaigns.set(run.id, run);
+    internals.loopRunToNode.set('loop-child-cancelled', { campaignId: run.id, nodeId: 'a' });
+
+    await internals.onLoopTerminal('loop-child-cancelled', 'cancelled');
+
+    expect(run.status).toBe('halted');
+    expect(run.nodeRuns.get('a')?.status).toBe('operator-halted');
+    expect(internals.activeCampaigns.has(run.id)).toBe(false);
   });
 });
 

@@ -9,6 +9,7 @@ describe('InstanceListStore', () => {
   let stateService: InstanceStateService;
   let ipc: {
     createInstance: ReturnType<typeof vi.fn>;
+    createInstanceWithMessage: ReturnType<typeof vi.fn>;
     listInstances: ReturnType<typeof vi.fn>;
     stateResync: ReturnType<typeof vi.fn>;
     restartInstance: ReturnType<typeof vi.fn>;
@@ -30,6 +31,25 @@ describe('InstanceListStore', () => {
           status: 'idle',
           lastActivity: 2,
           sessionId: 'session-created',
+          workingDirectory: '/tmp/project',
+          yoloMode: false,
+          launchMode: 'orchestrated',
+          provider: 'claude',
+          outputBuffer: [],
+        },
+      }),
+      createInstanceWithMessage: vi.fn().mockResolvedValue({
+        success: true,
+        data: {
+          id: 'created-message-instance',
+          displayName: 'Created message instance',
+          createdAt: 1,
+          historyThreadId: 'thread-created-message',
+          parentId: null,
+          childrenIds: [],
+          status: 'idle',
+          lastActivity: 2,
+          sessionId: 'session-created-message',
           workingDirectory: '/tmp/project',
           yoloMode: false,
           launchMode: 'orchestrated',
@@ -247,6 +267,7 @@ describe('InstanceListStore', () => {
       agentId: 'build',
       provider: 'claude',
       model: 'opus',
+      bareMode: true,
       launchMode: 'interactive',
     });
 
@@ -259,11 +280,29 @@ describe('InstanceListStore', () => {
       agentId: 'build',
       provider: 'claude',
       model: 'opus',
+      bareMode: true,
       launchMode: 'interactive',
       forceNodeId: undefined,
     });
     expect(stateService.getInstance('created-instance')).toBeDefined();
     expect(stateService.state().selectedInstanceId).toBe('created-instance');
+  });
+
+  it('forwards bare mode when creating an instance with an initial message', async () => {
+    const id = await store.createInstanceWithMessageAndReturnId({
+      workingDirectory: '/tmp/project',
+      message: 'hello',
+      provider: 'claude',
+      bareMode: true,
+    });
+
+    expect(id).toBe('created-message-instance');
+    expect(ipc.createInstanceWithMessage).toHaveBeenCalledWith(expect.objectContaining({
+      workingDirectory: '/tmp/project',
+      message: 'hello',
+      provider: 'claude',
+      bareMode: true,
+    }));
   });
 
   it('returns the created instance id from state when the create invoke does not resolve', async () => {

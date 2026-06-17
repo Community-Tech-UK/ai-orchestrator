@@ -19,6 +19,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { VerificationStore } from '../../../core/state/verification.store';
+import type { CliType } from '../../../core/state/verification.store';
 import type { PersonalityType } from '../../../../../shared/types/verification.types';
 
 interface PersonalityPreset {
@@ -80,7 +81,7 @@ interface PersonalityPreset {
           <div class="setting-control">
             <input
               type="range"
-              min="2"
+              min="1"
               max="6"
               [value]="defaultAgentCount()"
               (input)="defaultAgentCount.set(+$any($event.target).value)"
@@ -290,7 +291,7 @@ interface PersonalityPreset {
               <button
                 class="btn-icon-small"
                 (click)="removePersonality(i)"
-                [disabled]="defaultPersonalities().length <= 2"
+                [disabled]="defaultPersonalities().length <= 1"
               >
                 ✕
               </button>
@@ -704,10 +705,12 @@ export class VerificationPreferencesComponent implements OnInit {
   ];
 
   // Available agents
-  availableAgents = [
+  availableAgents: { id: CliType; name: string }[] = [
     { id: 'claude', name: 'Claude' },
     { id: 'gemini', name: 'Gemini' },
     { id: 'codex', name: 'Codex' },
+    { id: 'copilot', name: 'Copilot' },
+    { id: 'cursor', name: 'Cursor' },
     { id: 'ollama', name: 'Ollama' },
   ];
 
@@ -750,18 +753,18 @@ export class VerificationPreferencesComponent implements OnInit {
   ];
 
   // State
-  defaultStrategy = signal('debate');
-  defaultAgentCount = signal(3);
-  preferredAgents = signal<string[]>(['claude', 'gemini', 'ollama']);
+  defaultStrategy = signal('merge');
+  defaultAgentCount = signal(1);
+  preferredAgents = signal<CliType[]>(['gemini', 'codex', 'copilot']);
   minAgreement = signal(0.6);
   confidenceThreshold = signal(0.7);
   convergenceThreshold = signal(0.8);
-  maxDebateRounds = signal(4);
+  maxDebateRounds = signal(2);
   autoContinueDebate = signal(true);
   responseTimeout = signal(300);
   sessionTimeout = signal(1200);
-  defaultPersonalities = signal<PersonalityType[]>(['methodical-analyst', 'creative-solver', 'devils-advocate']);
-  activePreset = signal<string | null>('balanced');
+  defaultPersonalities = signal<PersonalityType[]>(['methodical-analyst']);
+  activePreset = signal<string | null>(null);
 
   ngOnInit(): void {
     this.loadPreferences();
@@ -770,22 +773,24 @@ export class VerificationPreferencesComponent implements OnInit {
   private loadPreferences(): void {
     const config = this.store.config();
     if (config) {
-      this.defaultStrategy.set(config.synthesisStrategy || 'debate');
-      this.defaultAgentCount.set(config.agentCount || 3);
+      this.defaultStrategy.set(config.synthesisStrategy || 'merge');
+      this.defaultAgentCount.set(config.agentCount || 1);
       this.minAgreement.set(config.minAgreement || 0.6);
       this.confidenceThreshold.set(config.confidenceThreshold || 0.7);
+      this.maxDebateRounds.set(config.maxDebateRounds || 2);
+      this.preferredAgents.set([...config.cliAgents]);
       if (config.personalities) {
         this.defaultPersonalities.set([...config.personalities]);
       }
     }
   }
 
-  togglePreferredAgent(agentId: string, checked: boolean): void {
+  togglePreferredAgent(cli: CliType, checked: boolean): void {
     this.preferredAgents.update(agents => {
       if (checked) {
-        return [...agents, agentId];
+        return [...agents, cli];
       } else {
-        return agents.filter(a => a !== agentId);
+        return agents.filter(a => a !== cli);
       }
     });
   }
@@ -814,34 +819,36 @@ export class VerificationPreferencesComponent implements OnInit {
   }
 
   removePersonality(index: number): void {
-    if (this.defaultPersonalities().length > 2) {
+    if (this.defaultPersonalities().length > 1) {
       this.defaultPersonalities.update(p => p.filter((_, i) => i !== index));
-      this.defaultAgentCount.update(c => Math.max(2, c - 1));
+      this.defaultAgentCount.update(c => Math.max(1, c - 1));
       this.activePreset.set(null);
     }
   }
 
   resetDefaults(): void {
-    this.defaultStrategy.set('debate');
-    this.defaultAgentCount.set(3);
-    this.preferredAgents.set(['claude', 'gemini', 'ollama']);
+    this.defaultStrategy.set('merge');
+    this.defaultAgentCount.set(1);
+    this.preferredAgents.set(['gemini', 'codex', 'copilot']);
     this.minAgreement.set(0.6);
     this.confidenceThreshold.set(0.7);
     this.convergenceThreshold.set(0.8);
-    this.maxDebateRounds.set(4);
+    this.maxDebateRounds.set(2);
     this.autoContinueDebate.set(true);
     this.responseTimeout.set(300);
     this.sessionTimeout.set(1200);
-    this.defaultPersonalities.set(['methodical-analyst', 'creative-solver', 'devils-advocate']);
-    this.activePreset.set('balanced');
+    this.defaultPersonalities.set(['methodical-analyst']);
+    this.activePreset.set(null);
   }
 
   savePreferences(): void {
     this.store.updateConfig({
       synthesisStrategy: this.defaultStrategy() as 'consensus' | 'debate' | 'best-of' | 'merge',
       agentCount: this.defaultAgentCount(),
+      cliAgents: this.preferredAgents(),
       minAgreement: this.minAgreement(),
       confidenceThreshold: this.confidenceThreshold(),
+      maxDebateRounds: this.maxDebateRounds(),
       personalities: this.defaultPersonalities(),
       timeout: this.sessionTimeout() * 1000,
     });

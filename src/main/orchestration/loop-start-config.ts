@@ -19,17 +19,35 @@ import {
   type LoopConfig,
 } from '../../shared/types/loop.types';
 import type { LoopConfigInput } from '@contracts/schemas/loop';
+import { createAuxiliaryNextObjectivePlanner } from './loop-next-objective-planner';
 
 const logger = getLogger('LoopStartConfig');
 
+type LoopStartConfigLike =
+  Omit<LoopConfigInput, 'completion'> & {
+    completion?: Partial<LoopConfig['completion']>;
+  };
+
+function attachNextObjectivePlanner<T extends Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string }>(
+  config: T,
+): T {
+  if (!config.nextObjectivePlanning?.enabled || config.nextObjectivePlanner) {
+    return config;
+  }
+  return {
+    ...config,
+    nextObjectivePlanner: createAuxiliaryNextObjectivePlanner(),
+  };
+}
+
 export async function prepareLoopStartConfig(
-  config: LoopConfigInput,
+  config: LoopStartConfigLike,
 ): Promise<Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string }> {
   const verifyCommand = config.completion?.verifyCommand?.trim() ?? '';
   // LF-3a: operator-reviewed loops sit paused waiting for a human Accept and get
   // resumed/re-attempted repeatedly, so they're the most likely to burn spend.
-  // Require a non-null cost cap because ordinary loops now default to
-  // unbounded cost for subscription-plan usage.
+  // Require a non-null cost cap. Ordinary UI-started loops now get a default
+  // cap, but programmatic callers can still explicitly clear it.
   if (
     config.completion?.allowOperatorReviewedCompletion &&
     config.caps?.maxCostCents === null
@@ -59,19 +77,26 @@ export async function prepareLoopStartConfig(
       workspaceCwd: config.workspaceCwd,
       verifyCommand: verifyCommand || '(none)',
     });
-    return {
+    return attachNextObjectivePlanner({
       ...config,
       completion: {
         ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
         ...(config.completion ?? {}),
         mode: 'review-driven',
       },
-    };
+    });
   }
 
   // --- gated mode (explicit, or the operator-reviewed escape hatch) ---
   if (verifyCommand || config.completion?.allowOperatorReviewedCompletion) {
-    return { ...config, completion: { ...(config.completion ?? {}), mode: 'gated' } as LoopConfig['completion'] };
+    return attachNextObjectivePlanner({
+      ...config,
+      completion: {
+        ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
+        ...(config.completion ?? {}),
+        mode: 'gated',
+      },
+    });
   }
 
   // Gated, no verify command, not operator-reviewed. We deliberately do NOT
@@ -80,13 +105,20 @@ export async function prepareLoopStartConfig(
   // an explicit `crossModelReview: { enabled: false }` from the caller is
   // honoured.
   if (config.completion?.crossModelReview !== undefined) {
-    return { ...config, completion: { ...config.completion, mode: 'gated' } };
+    return attachNextObjectivePlanner({
+      ...config,
+      completion: {
+        ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
+        ...config.completion,
+        mode: 'gated',
+      },
+    });
   }
 
   logger.info('No verify command configured (gated mode) — defaulting completion gate to fresh-eyes cross-model review', {
     workspaceCwd: config.workspaceCwd,
   });
-  return {
+  return attachNextObjectivePlanner({
     ...config,
     completion: {
       ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
@@ -94,5 +126,5 @@ export async function prepareLoopStartConfig(
       mode: 'gated',
       crossModelReview: defaultCrossModelReviewConfig(),
     },
-  };
+  });
 }

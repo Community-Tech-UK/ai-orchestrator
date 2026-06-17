@@ -85,6 +85,7 @@ export function buildInstanceRecord(
     yoloMode: parentContext.yoloMode,
     launchMode: config.launchMode ?? 'orchestrated',
     provider: config.provider || 'auto',
+    bareMode: config.bareMode ?? false,
     // Seed from the caller's explicit pick so the renderer chip matches the
     // draft composer before Phase-2 async init resolves settings fallbacks.
     ...(config.modelOverride?.trim()

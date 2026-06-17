@@ -105,22 +105,22 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.completion?.requiredCleanReviewPasses).toBe(4);
   });
 
-  it('does not set a hidden spend cap by default', () => {
+  it('sets a default spend cap', () => {
     const config = component.buildConfig();
 
-    expect(config?.caps?.maxCostCents).toBeNull();
+    expect(config?.caps?.maxCostCents).toBe(20_000);
   });
 
-  it('does not set a hidden token cap by default', () => {
+  it('sets a default token cap', () => {
     const config = component.buildConfig();
 
-    expect(config?.caps?.maxTokens).toBeNull();
+    expect(config?.caps?.maxTokens).toBe(1_000_000);
   });
 
-  it('does not set a hidden iteration cap by default', () => {
+  it('sets a default iteration cap', () => {
     const config = component.buildConfig();
 
-    expect(config?.caps?.maxIterations).toBeNull();
+    expect(config?.caps?.maxIterations).toBe(50);
   });
 
   it('defaults to a 50-hour wall-time cap', () => {
@@ -129,10 +129,10 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.caps?.maxWallTimeMs).toBe(50 * 60 * 60 * 1000);
   });
 
-  it('defaults each loop iteration to a fresh child context', () => {
+  it('defaults each loop iteration to same-session context reuse', () => {
     const config = component.buildConfig();
 
-    expect(config?.contextStrategy).toBe('fresh-child');
+    expect(config?.contextStrategy).toBe('same-session');
   });
 
   it('defaults the context recycle threshold to 60%', () => {
@@ -225,6 +225,30 @@ describe('LoopConfigPanelComponent', () => {
       crossModel: false,
       selector: 'verify+listwise',
     });
+  });
+
+  it('does not emit next-objective planning by default', () => {
+    expect(component.buildConfig()?.nextObjectivePlanning).toBeUndefined();
+  });
+
+  it('emits next-objective planning config only when explicitly enabled', () => {
+    component.nextObjectivePlanning.set(true);
+    component.onNextObjectiveCadenceChange(3);
+    fixture.detectChanges();
+
+    expect(component.buildConfig()?.nextObjectivePlanning).toEqual({
+      enabled: true,
+      cadence: 3,
+    });
+  });
+
+  it('validates next-objective planner cadence', () => {
+    component.nextObjectivePlanning.set(true);
+    component.onNextObjectiveCadenceChange(0);
+    fixture.detectChanges();
+
+    expect(component.validationError()).toBe('Next-objective cadence must be between 1 and 50.');
+    expect(component.buildConfig()).toBeNull();
   });
 
   it('requires a spend cap before enabling branch-select on stuck', () => {

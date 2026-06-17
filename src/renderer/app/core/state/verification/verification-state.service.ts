@@ -30,7 +30,10 @@ export class VerificationStateService {
     currentSession: null,
     sessions: [],
     defaultConfig: DEFAULT_VERIFICATION_CONFIG,
-    selectedAgents: ['claude', 'codex', 'gemini'],
+    selectedAgents: DEFAULT_VERIFICATION_CONFIG.cliAgents.slice(
+      0,
+      Math.max(1, DEFAULT_VERIFICATION_CONFIG.agentCount),
+    ),
     configPanelOpen: false,
     selectedTab: 'dashboard',
   });

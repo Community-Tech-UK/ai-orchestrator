@@ -95,14 +95,14 @@ export interface VerificationStoreState {
 // ============================================
 
 export const DEFAULT_VERIFICATION_CONFIG: VerificationUIConfig = {
-  agentCount: 3,
-  cliAgents: ['claude', 'codex', 'gemini'],
-  synthesisStrategy: 'debate',
-  personalities: ['methodical-analyst', 'creative-solver', 'devils-advocate'],
+  agentCount: 1,
+  cliAgents: ['gemini'],
+  synthesisStrategy: 'merge',
+  personalities: ['methodical-analyst'],
   confidenceThreshold: 0.7,
   minAgreement: 0.6,
   timeout: 300000,
-  maxDebateRounds: 4,
+  maxDebateRounds: 2,
   fallbackToApi: true,
   mixedMode: false,
 };

@@ -80,9 +80,10 @@ export function describeLoopCapReason(
 }
 
 export function cloneLoopStateForBroadcast(s: LoopState): LoopState {
+  const { nextObjectivePlanner: _runtimePlanner, ...config } = s.config;
   return {
     ...s,
-    config: { ...s.config },
+    config,
     pendingInterventions: [...s.pendingInterventions],
     recentWarnIterationSeqs: [...s.recentWarnIterationSeqs],
     completionAttempts: s.completionAttempts,

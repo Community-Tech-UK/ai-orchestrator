@@ -442,13 +442,13 @@ export function registerCliVerificationHandlers(
         logger.info('Starting verification', { id: validated.id, promptLength: validated.prompt?.length, config: validated.config });
 
         const config: CliVerificationConfig = {
-          agentCount: validated.config.agentCount || 3,
+          agentCount: validated.config.agentCount || 1,
           cliAgents: validated.config.cliAgents as CliType[] | undefined,
-          synthesisStrategy: (validated.config.synthesisStrategy as SynthesisStrategy) || 'debate',
+          synthesisStrategy: (validated.config.synthesisStrategy as SynthesisStrategy) || 'merge',
           personalities: validated.config.personalities as PersonalityType[],
           confidenceThreshold: validated.config.confidenceThreshold || 0.7,
           timeout: validated.config.timeout || 300000,
-          maxDebateRounds: validated.config.maxDebateRounds || 4,
+          maxDebateRounds: validated.config.maxDebateRounds || 2,
           preferCli: true,
           fallbackToApi: validated.config.fallbackToApi ?? true,
           mixedMode: validated.config.mixedMode ?? false,

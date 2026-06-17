@@ -317,4 +317,64 @@ describe('InterruptRespawnHandler', () => {
     );
     expect(queueUpdate.mock.calls.map((call) => call[1])).not.toContain('idle');
   });
+
+  it('passes bare mode to the replacement adapter during auto-respawn', async () => {
+    instance = createInstance('respawning');
+    instance.provider = 'claude';
+    instance.bareMode = true;
+    instance.parentId = null;
+    instance.outputBuffer = [];
+
+    const previousAdapter = adapter as unknown as CliAdapter;
+    const replacement = new RespawnReplacementAdapter();
+    replacement.spawn.mockResolvedValue(777);
+    providerRuntime.createAdapter.mockReturnValue(replacement);
+
+    let currentAdapter: CliAdapter | undefined = previousAdapter;
+    const setAdapter = vi.fn((_id: string, next: CliAdapter) => {
+      currentAdapter = next;
+    });
+    const deleteAdapter = vi.fn(() => {
+      currentAdapter = undefined;
+    });
+
+    handler = new InterruptRespawnHandler({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: () => currentAdapter,
+      setAdapter,
+      deleteAdapter,
+      queueUpdate,
+      markInterrupted: vi.fn(),
+      clearInterrupted,
+      addToOutputBuffer,
+      setupAdapterEvents: vi.fn(),
+      transitionState: (target, status) => {
+        target.status = status;
+      },
+      getAdapterRuntimeCapabilities: () => ({
+        supportsResume: false,
+        supportsForkSession: false,
+        supportsNativeCompaction: false,
+        supportsPermissionPrompts: false,
+        supportsDeferPermission: false,
+      }),
+      resolveCliTypeForInstance: vi.fn().mockResolvedValue('claude'),
+      getMcpConfig: () => [],
+      getPermissionHookPath: () => undefined,
+      waitForResumeHealth: vi.fn().mockResolvedValue(true),
+      waitForAdapterWritable: vi.fn().mockResolvedValue(undefined),
+      buildReplayContinuityMessage: () => 'replay continuity',
+      buildFallbackHistory: vi.fn(),
+      emitOutput,
+    });
+
+    await handler.respawnAfterUnexpectedExit(instance.id);
+
+    expect(providerRuntime.createAdapter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cliType: 'claude',
+        options: expect.objectContaining({ bare: true }),
+      }),
+    );
+  });
 });

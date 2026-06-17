@@ -367,6 +367,8 @@ export interface Instance {
   yoloMode: boolean; // Auto-approve all permissions
   launchMode: InstanceLaunchMode; // Orchestrated agent loop or human-driven interactive terminal
   provider: InstanceProvider; // Which CLI provider is being used
+  /** Run Claude in lightweight --bare mode when supported. Defaults false. */
+  bareMode?: boolean;
   currentModel?: string; // Current model override (e.g., 'gpt-5.3-codex')
   reasoningEffort?: ReasoningEffort; // Optional model thinking/reasoning effort override
 
@@ -533,6 +535,7 @@ export function createInstance(config: InstanceCreateConfig): Instance {
     yoloMode: config.yoloMode ?? false, // Default to YOLO mode disabled
     launchMode: config.launchMode ?? 'orchestrated',
     provider, // Default to auto (resolved by instance manager)
+    bareMode: config.bareMode ?? false,
     reasoningEffort: config.reasoningEffort,
     executionLocation: { type: 'local' },
     nodePlacement: config.nodePlacement,

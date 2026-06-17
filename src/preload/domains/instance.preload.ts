@@ -23,6 +23,7 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       agentId?: string;
       provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
       model?: string;
+      bareMode?: boolean;
       forceNodeId?: string;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.INSTANCE_CREATE, payload);
@@ -39,6 +40,7 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       agentId?: string;
       provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
       model?: string;
+      bareMode?: boolean;
       forceNodeId?: string;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(

@@ -262,6 +262,42 @@ describe('DebateCoordinator', () => {
       const initialRound = result!.rounds.find((r) => r.type === 'initial');
       expect(initialRound?.contributions).toHaveLength(2);
     });
+
+    it('defaults to two initial agents followed by synthesis', async () => {
+      const phases: string[] = [];
+
+      coordinator.on('debate:generate-response', (payload: { agentIndex: number; callback: (r: string, t: number) => void }) => {
+        phases.push('initial');
+        payload.callback(
+          `Distinct default debate response from agent ${payload.agentIndex}. Confidence: ${70 + payload.agentIndex}%`,
+          30,
+        );
+      });
+      coordinator.on('debate:generate-critiques', (payload: { callback: (r: string) => void }) => {
+        phases.push('critique');
+        payload.callback(CRITIQUE_RESPONSE);
+      });
+      coordinator.on('debate:generate-defense', (payload: { callback: (r: string) => void }) => {
+        phases.push('defense');
+        payload.callback(DEFENSE_RESPONSE);
+      });
+      coordinator.on('debate:generate-synthesis', (payload: { callback: (r: string) => void }) => {
+        phases.push('synthesis');
+        payload.callback(SYNTHESIS_RESPONSE);
+      });
+
+      const id = await coordinator.startDebate('Default debate shape');
+      await new Promise<void>((resolve) => coordinator.once('debate:completed', resolve));
+
+      const result = coordinator.getResult(id);
+      expect(result).toBeDefined();
+      expect(result!.rounds.map((round) => round.type)).toEqual(['initial', 'synthesis']);
+      expect(result!.rounds[0].contributions).toHaveLength(2);
+      expect(phases.filter((phase) => phase === 'initial')).toHaveLength(2);
+      expect(phases.filter((phase) => phase === 'critique')).toHaveLength(0);
+      expect(phases.filter((phase) => phase === 'defense')).toHaveLength(0);
+      expect(phases.filter((phase) => phase === 'synthesis')).toHaveLength(1);
+    });
   });
 
   // =========================================================================

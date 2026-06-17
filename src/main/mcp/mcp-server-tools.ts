@@ -55,7 +55,7 @@ export function createOrchestratorTools(deps: {
         properties: {
           query: { type: 'string', description: 'The question or code to verify' },
           instanceId: { type: 'string', description: 'Instance to verify against (optional)' },
-          agentCount: { type: 'number', description: 'Number of verification agents (default: 3)' },
+          agentCount: { type: 'number', description: 'Number of verification agents (default: 1)' },
         },
         required: ['query'],
       },
@@ -68,8 +68,8 @@ export function createOrchestratorTools(deps: {
         type: 'object',
         properties: {
           topic: { type: 'string', description: 'The topic to debate' },
-          rounds: { type: 'number', description: 'Number of debate rounds (default: 4)' },
-          agents: { type: 'number', description: 'Number of agents (default: 3)' },
+          rounds: { type: 'number', description: 'Number of debate rounds (default: 2)' },
+          agents: { type: 'number', description: 'Number of agents (default: 2)' },
         },
         required: ['topic'],
       },

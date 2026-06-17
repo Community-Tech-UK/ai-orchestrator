@@ -1373,6 +1373,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           model: modelOverride,
           yoloMode: instance.yoloMode,
           launchMode: instance.launchMode,
+          bare: instance.bareMode === true,
           reasoningEffort: config.reasoningEffort,
           allowedTools: toolPermissions.allowedTools,
           disallowedTools: toolPermissions.disallowedToolsForSpawn,
@@ -1402,7 +1403,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         // chip would show e.g. Composer 2.5 while the agent runs the default
         // (Codex 5.3). `auto` is fine: it intentionally means "let the CLI pick".
         const wantsExplicitAcpModel = requiresFreshAcpModelSpawn(resolvedCliType, spawnOptions.model);
-        const warmAdapter = (config.resume || config.forceNodeId || config.nodePlacement || spawnOptions.browserGatewayMcp || wantsExplicitAcpModel)
+        const warmAdapter = (config.resume || config.forceNodeId || config.nodePlacement || spawnOptions.browserGatewayMcp || wantsExplicitAcpModel || instance.bareMode === true)
           ? null
           : (this.deps.warmStartManager?.consume(resolvedCliType, instance.workingDirectory) as CliAdapter | null ?? null);
 
@@ -1848,6 +1849,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           workingDirectory: instance.workingDirectory,
           yoloMode: instance.yoloMode,
           launchMode: instance.launchMode,
+          bare: instance.bareMode === true,
           model: instance.currentModel,
           resume: canAttemptNativeResume,
           mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
@@ -2515,6 +2517,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         model: instance.currentModel,
         allowedTools: toolPermissions.allowedTools,
         disallowedTools: toolPermissions.disallowedToolsForSpawn,
+        bare: instance.bareMode === true,
         resume: shouldResume,
         forkSession: shouldForkSession,
         mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
@@ -2526,7 +2529,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         ) ?? undefined,
         nodePlacement: instance.nodePlacement,
         permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
-          rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
+        rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
       };
 
       let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);
@@ -2710,6 +2713,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         systemPrompt: agent.systemPrompt,
         yoloMode: newYoloMode,
         launchMode: instance.launchMode,
+        bare: instance.bareMode === true,
         allowedTools: toolPermissions.allowedTools,
         disallowedTools: toolPermissions.disallowedToolsForSpawn,
         resume: shouldResume,
@@ -2958,6 +2962,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         model: validatedModel,
         yoloMode: instance.yoloMode,
         launchMode: instance.launchMode,
+        bare: instance.bareMode === true,
         reasoningEffort: nextReasoningEffort,
         allowedTools: toolPermissions.allowedTools,
         disallowedTools: toolPermissions.disallowedToolsForSpawn,
@@ -2972,7 +2977,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         ) ?? undefined,
         nodePlacement: instance.nodePlacement,
         permissionHookPath: this.spawnConfigBuilder.getPermissionHookPath(instance.yoloMode),
-          rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
+        rtk: this.spawnConfigBuilder.getRtkSpawnConfig(),
       };
 
       let adapter = this.createRuntimeAdapter(cliType, spawnOptions, instance.executionLocation);

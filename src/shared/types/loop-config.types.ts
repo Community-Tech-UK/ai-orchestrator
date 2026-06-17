@@ -1,16 +1,14 @@
 export interface LoopHardCaps {
-  /** Max iterations before forced stop. Null means unbounded. Default null. */
+  /** Max iterations before forced stop. Null means unbounded. Default 50. */
   maxIterations: number | null;
   /** Wall-time budget in milliseconds. Default 50h. */
   maxWallTimeMs: number;
-  /** Token budget across the whole loop. Null means unbounded. Default null. */
+  /** Token budget across the whole loop. Null means unbounded. Default 1,000,000. */
   maxTokens: number | null;
   /**
-   * Cost cap in cents. Null means unbounded. Default null for ordinary plan
-   * loops, where subscription-plan usage makes the dollar estimate a poor
-   * stopping signal. A non-null cost cap is still a precondition for
-   * operator-reviewed completion and branch-and-select exploration (LF-3a /
-   * LF-5) - both can sit paused/fan-out and burn spend.
+   * Cost cap in cents. Null means unbounded. Default 20,000 ($200), matching
+   * the Agent SDK credit boundary so Loop Mode is bounded unless the caller
+   * explicitly clears the cap.
    */
   maxCostCents: number | null;
   /** Per-iteration tool-call cap. Default 200. */

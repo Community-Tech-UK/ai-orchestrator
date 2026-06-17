@@ -17,11 +17,13 @@ When triggered, analyze results from child instances and synthesize into coheren
 /summarize-children [format]
 
 ## Behavior
-1. Retrieve results from all child instances
+1. Retrieve structured results from all child instances; prefer child summaries/artifacts over raw transcript output
 2. Identify common themes and conflicts
 3. Extract key findings and decisions
 4. Synthesize into requested format
 5. Highlight critical items requiring attention
+
+If a separate synthesis child is needed, spawn it with a non-Claude provider (`gemini`, `codex`, `copilot`, or `cursor`) unless the user explicitly requested Claude. Do not paste large raw child transcripts into your own context.
 
 ## Parameters
 - **children**: List of child instance IDs or "all" for all children

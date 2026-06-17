@@ -5,6 +5,8 @@
 
 import type { DebateSessionRound } from './debate.types';
 
+export const DEFAULT_VERIFICATION_MAX_DEBATE_ROUNDS = 2;
+
 export type SynthesisStrategy =
   | 'consensus' // Use points N-1 agents agree on
   | 'best-of' // Rank and select highest quality
@@ -31,7 +33,7 @@ export interface AgentHealthConfig {
 }
 
 export interface VerificationConfig {
-  agentCount: number; // Minimum 3 for meaningful verification
+  agentCount: number; // Default 1; callers can raise for stronger consensus
   models?: string[]; // Different models for diversity
   personalities?: PersonalityType[]; // Personality prompts for perspective diversity
   timeout: number; // Max time per agent (ms)
@@ -294,11 +296,11 @@ export interface VerificationEvent {
 // Helper functions
 export function createDefaultVerificationConfig(): VerificationConfig {
   return {
-    agentCount: 3,
+    agentCount: 1,
     timeout: 60000,
     synthesisStrategy: 'merge',
     confidenceThreshold: 0.6,
-    maxDebateRounds: 3,
+    maxDebateRounds: DEFAULT_VERIFICATION_MAX_DEBATE_ROUNDS,
   };
 }
 

@@ -20,6 +20,7 @@ export interface CreateInstanceConfig {
   agentId?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
   model?: string;
+  bareMode?: boolean;
   forceNodeId?: string;
 }
 
@@ -31,6 +32,7 @@ export interface CreateInstanceWithMessageConfig {
   agentId?: string;
   provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
   model?: string;
+  bareMode?: boolean;
   forceNodeId?: string;
 }
 

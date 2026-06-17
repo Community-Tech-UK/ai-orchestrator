@@ -110,6 +110,10 @@ export interface LoopStartConfigInput {
     crossModel: boolean;
     selector: 'verify' | 'verify+listwise';
   };
+  nextObjectivePlanning?: {
+    enabled: boolean;
+    cadence: number;
+  };
   initialStage?: 'PLAN' | 'REVIEW' | 'IMPLEMENT';
   allowDestructiveOps?: boolean;
   /** Wall-clock cap per iteration (ms). */

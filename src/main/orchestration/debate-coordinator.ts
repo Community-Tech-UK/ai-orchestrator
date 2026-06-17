@@ -59,8 +59,8 @@ export class DebateCoordinator extends EventEmitter {
   private stats: DebateStats;
 
   private defaultConfig: DebateConfig = {
-    agents: 3,
-    maxRounds: 4,
+    agents: 2,
+    maxRounds: 2,
     convergenceThreshold: 0.8,
     synthesisModel: 'default',
     temperatureRange: [0.3, 0.9],

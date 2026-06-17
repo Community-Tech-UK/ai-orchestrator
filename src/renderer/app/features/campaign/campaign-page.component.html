@@ -1,0 +1,248 @@
+<div class="campaign-page">
+  <header class="cp-header">
+    <div>
+      <h1>Campaigns</h1>
+      <span class="cp-subtitle">Multi-loop DAG orchestration</span>
+    </div>
+    <div class="cp-header-actions">
+      <button type="button" [class.active]="mode() === 'select'" (click)="mode.set('select')" title="Select and move nodes">Select</button>
+      <button type="button" [class.active]="mode() === 'add-node'" (click)="mode.set('add-node')" title="Click the canvas to add a loop node">Add node</button>
+      <button type="button" [class.active]="mode() === 'connect'" (click)="mode.set('connect')" title="Click two nodes to draw an edge">Connect</button>
+      <button type="button" (click)="resetEditor()" title="Reset editor">Reset</button>
+      <button type="button" (click)="onValidateSpec()" title="Validate graph">Validate</button>
+      <button type="button" class="primary" [disabled]="!canRun()" (click)="onRunCampaign()" title="Run campaign">Run</button>
+    </div>
+  </header>
+
+  <section class="cp-editor">
+    <div class="cp-editor-main">
+      <div class="cp-policy-row">
+        <label>
+          Title
+          <input type="text" [ngModel]="title()" (ngModelChange)="title.set($event)" />
+        </label>
+        <label>
+          Max parallel
+          <input type="number" min="1" max="16" [ngModel]="maxParallel()" (ngModelChange)="onMaxParallelChange($event)" />
+        </label>
+        <label>
+          Needs review
+          <select [ngModel]="onNodeNeedsReview()" (ngModelChange)="onNodeNeedsReview.set($event)">
+            <option value="pause-campaign">Pause</option>
+            <option value="continue">Continue</option>
+            <option value="halt">Halt</option>
+          </select>
+        </label>
+        <label class="cp-check">
+          <input type="checkbox" [ngModel]="isolationEnabled()" (ngModelChange)="isolationEnabled.set($event)" />
+          Worktrees
+        </label>
+      </div>
+
+      <div
+        class="cp-canvas"
+        role="button"
+        tabindex="0"
+        (click)="onCanvasClick($event)"
+        (keydown.enter)="onCanvasKeyAdd($event)"
+        (keydown.space)="onCanvasKeyAdd($event)"
+        (pointermove)="onCanvasPointerMove($event)"
+        (pointerup)="onCanvasPointerUp()"
+        (pointerleave)="onCanvasPointerUp()"
+      >
+        <svg class="cp-edges" viewBox="0 0 720 360" preserveAspectRatio="none" aria-hidden="true">
+          @for (edge of edges(); track edge.from + '->' + edge.to) {
+            @if (nodeFor(edge.from); as from) {
+              @if (nodeFor(edge.to); as to) {
+                <line [attr.x1]="from.x + NODE_W" [attr.y1]="from.y + NODE_H / 2" [attr.x2]="to.x" [attr.y2]="to.y + NODE_H / 2" />
+              }
+            }
+          }
+        </svg>
+
+        @for (node of nodes(); track node.id) {
+          <button
+            type="button"
+            class="cp-graph-node"
+            [class.selected]="selectedNodeId() === node.id"
+            [class.edge-source]="connectSourceId() === node.id"
+            [style.left.px]="node.x"
+            [style.top.px]="node.y"
+            (click)="onNodeClick(node.id, $event)"
+            (pointerdown)="onNodePointerDown(node.id, $event)"
+            [title]="node.initialPrompt"
+          >
+            <span class="node-title">{{ node.label || node.id }}</span>
+            <span class="node-meta">{{ node.provider }} / {{ node.initialStage }}</span>
+            <span class="node-meta">{{ outgoingCount(node.id) }} out / {{ incomingCount(node.id) }} in</span>
+          </button>
+        }
+      </div>
+
+      <div class="cp-edge-row">
+        <label>
+          From
+          <select [ngModel]="edgeFrom()" (ngModelChange)="edgeFrom.set($event)">
+            @for (node of nodes(); track node.id) {
+              <option [value]="node.id">{{ node.label || node.id }}</option>
+            }
+          </select>
+        </label>
+        <label>
+          To
+          <select [ngModel]="edgeTo()" (ngModelChange)="edgeTo.set($event)">
+            @for (node of nodes(); track node.id) {
+              <option [value]="node.id">{{ node.label || node.id }}</option>
+            }
+          </select>
+        </label>
+        <label>
+          Gate
+          <select [ngModel]="edgeMode()" (ngModelChange)="edgeMode.set($event)">
+            <option value="any">Any terminal</option>
+            <option value="is">Is status</option>
+            <option value="in">In statuses</option>
+            <option value="not">Not status</option>
+          </select>
+        </label>
+        @if (edgeMode() === 'in') {
+          <div class="cp-status-checks" role="group" aria-label="Gate statuses">
+            @for (status of terminalStatuses; track status) {
+              <label class="cp-check">
+                <input type="checkbox" [ngModel]="edgeStatusSelected(status)" (ngModelChange)="toggleEdgeStatus(status, $event)" />
+                {{ status }}
+              </label>
+            }
+          </div>
+        } @else if (edgeMode() !== 'any') {
+          <label>
+            Status
+            <select [ngModel]="edgeStatus()" (ngModelChange)="edgeStatus.set($event)">
+              @for (status of terminalStatuses; track status) {
+                <option [value]="status">{{ status }}</option>
+              }
+            </select>
+          </label>
+        }
+        <button type="button" (click)="addEdge()" title="Add edge">Add edge</button>
+      </div>
+
+      @if (edges().length > 0) {
+        <div class="cp-edge-list">
+          @for (edge of edges(); track edge.from + edge.to) {
+            <span class="cp-edge-chip">
+              {{ labelFor(edge.from) }} -> {{ labelFor(edge.to) }}{{ edgeGateLabel(edge) }}
+              <button type="button" (click)="removeEdge(edge)" title="Remove edge">x</button>
+            </span>
+          }
+        </div>
+      }
+    </div>
+
+    <aside class="cp-inspector">
+      @if (selectedNode(); as node) {
+        <div class="inspector-head">
+          <span>{{ node.label || node.id }}</span>
+          <button type="button" [disabled]="nodes().length <= 1" (click)="removeNode(node.id)" title="Remove node">x</button>
+        </div>
+        <label>
+          Label
+          <input type="text" [ngModel]="node.label" (ngModelChange)="updateNode(node.id, { label: $event })" />
+        </label>
+        <label>
+          Goal
+          <textarea rows="5" [ngModel]="node.initialPrompt" (ngModelChange)="updateNode(node.id, { initialPrompt: $event })"></textarea>
+        </label>
+        <label>
+          Workspace
+          <input type="text" [ngModel]="node.workspaceCwd" (ngModelChange)="updateNode(node.id, { workspaceCwd: $event })" />
+        </label>
+        <label>
+          Verify
+          <input type="text" placeholder="Auto / review-driven" [ngModel]="node.verifyCommand" (ngModelChange)="updateNode(node.id, { verifyCommand: $event })" />
+        </label>
+        <div class="inspector-grid">
+          <label>
+            Provider
+            <select [ngModel]="node.provider" (ngModelChange)="updateNode(node.id, { provider: $event })">
+              @for (provider of providers; track provider) {
+                <option [value]="provider">{{ provider }}</option>
+              }
+            </select>
+          </label>
+          <label>
+            Stage
+            <select [ngModel]="node.initialStage" (ngModelChange)="updateNode(node.id, { initialStage: $event })">
+              @for (stage of stages; track stage) {
+                <option [value]="stage">{{ stage }}</option>
+              }
+            </select>
+          </label>
+        </div>
+      }
+    </aside>
+  </section>
+
+  @if (editorError(); as err) {
+    <div class="cp-error">{{ err }}</div>
+  } @else if (editorNotice(); as notice) {
+    <div class="cp-notice">{{ notice }}</div>
+  }
+
+  <section class="cp-runs">
+    <h2>Runs</h2>
+    @if (store.isLoading()) {
+      <div class="cp-loading">Loading campaigns...</div>
+    } @else if (store.lastError()) {
+      <div class="cp-error">{{ store.lastError() }}</div>
+    } @else if (store.allCampaigns().length === 0) {
+      <div class="cp-empty">No campaign runs yet.</div>
+    } @else {
+      <div class="cp-list">
+        @for (campaign of store.allCampaigns(); track campaign.id) {
+          <div class="cp-card" [attr.data-status]="campaign.status">
+            <div class="cp-card-head">
+              <span class="cp-title">{{ campaign.spec.title }}</span>
+              <span class="cp-status-pill" [attr.data-status]="campaign.status">{{ statusLabel(campaign.status) }}</span>
+              <span class="cp-duration">{{ formatDuration(campaign.startedAt, campaign.endedAt) }}</span>
+              <span class="cp-actions">
+                <button type="button" (click)="loadSpec(campaign)" title="Edit spec">Edit</button>
+                <button type="button" (click)="rerunCampaign(campaign)" title="Run a copy">Rerun</button>
+                @if (campaign.status === 'running') {
+                  <button type="button" (click)="onHalt(campaign.id)" title="Halt campaign">Halt</button>
+                }
+                @if (campaign.status === 'paused') {
+                  <button type="button" class="cp-resume" (click)="onResume(campaign.id)" title="Resume campaign">Resume</button>
+                  <button type="button" (click)="onHalt(campaign.id)" title="Halt campaign">Halt</button>
+                }
+              </span>
+            </div>
+
+            @if (campaign.pausedReason) {
+              <div class="cp-paused-reason">Paused: {{ campaign.pausedReason }}</div>
+            }
+
+            <div class="cp-nodes">
+              @for (node of campaign.spec.nodes; track node.id) {
+                <div class="cp-node" [attr.data-status]="nodeStatus(campaign, node.id)">
+                  <span class="cpn-label">{{ node.label ?? node.id }}</span>
+                  <span class="cpn-status">{{ nodeStatusLabel(nodeStatus(campaign, node.id)) }}</span>
+                  @if (nodeRunDuration(campaign, node.id); as dur) {
+                    <span class="cpn-duration">{{ dur }}</span>
+                  }
+                  @if (nodeSkipReason(campaign, node.id); as reason) {
+                    <span class="cpn-skip" title="{{ reason }}">Skipped: {{ reason | slice:0:60 }}</span>
+                  }
+                </div>
+              }
+            </div>
+
+            <div class="cp-policy">
+              Policy: max {{ campaign.spec.policy.maxParallel }} parallel / needs-review: {{ campaign.spec.policy.onNodeNeedsReview }}
+            </div>
+          </div>
+        }
+      </div>
+    }
+  </section>
+</div>

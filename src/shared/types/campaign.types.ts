@@ -10,6 +10,13 @@
 
 import type { LoopConfig } from './loop.types';
 
+export type CampaignLoopConfig =
+  Partial<Omit<LoopConfig, 'completion'>> & {
+    initialPrompt: string;
+    workspaceCwd: string;
+    completion?: Partial<LoopConfig['completion']>;
+  };
+
 // -------------------------------------------------------------------------
 // Terminal status predicate
 // -------------------------------------------------------------------------
@@ -20,8 +27,7 @@ export type LoopTerminalStatus =
   | 'completed-needs-review'
   | 'failed'
   | 'provider-limit'
-  | 'operator-halted'
-  | 'interrupted';
+  | 'operator-halted';
 
 /**
  * Predicate on a loop's terminal status.
@@ -42,7 +48,7 @@ export interface CampaignNode {
   /** Human-readable label for this node in the DAG view. */
   label?: string;
   /** Full loop config for this node's run. */
-  loopConfig: Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string };
+  loopConfig: CampaignLoopConfig;
   /** IDs of nodes this one must wait for (resolved from edges). */
   dependsOn: string[];
 }

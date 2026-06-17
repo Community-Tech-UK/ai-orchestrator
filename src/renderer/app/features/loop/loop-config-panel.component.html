@@ -146,8 +146,8 @@
       <section class="row">
         <label for="loop-cfg-context">Context strategy <span class="hint">(how iterations carry state)</span></label>
         <select id="loop-cfg-context" [ngModel]="contextStrategy()" (ngModelChange)="contextStrategy.set($event)">
-          <option value="fresh-child">Fresh child — default; each iter starts clean and reloads state from disk</option>
-          <option value="same-session">Same session — advanced continuity mode; conversation persists across iters</option>
+          <option value="same-session">Same session — default; conversation persists across iters</option>
+          <option value="fresh-child">Fresh child — each iter starts clean and reloads state from disk</option>
           <option value="hybrid">Hybrid — not yet implemented; falls back to fresh-child</option>
         </select>
       </section>
@@ -272,6 +272,26 @@
                 max="8"
                 [ngModel]="branchFanout()"
                 (ngModelChange)="onBranchFanoutChange($event)"
+              />
+            </label>
+          </div>
+        }
+        <label>
+          <input type="checkbox" [checked]="nextObjectivePlanning()" (change)="nextObjectivePlanning.set(toggleEvent($event))" />
+          Model-generated next objective
+          <span class="hint">(cheap planner call after continuing iterations)</span>
+        </label>
+        @if (nextObjectivePlanning()) {
+          <div class="cfg-inline-grid">
+            <label for="loop-cfg-next-objective-cadence">
+              Planner cadence
+              <input
+                id="loop-cfg-next-objective-cadence"
+                type="number"
+                min="1"
+                max="50"
+                [ngModel]="nextObjectiveCadence()"
+                (ngModelChange)="onNextObjectiveCadenceChange($event)"
               />
             </label>
           </div>

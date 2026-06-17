@@ -11,6 +11,9 @@ export type {
 } from './loop-outstanding.types';
 
 export const DEFAULT_LOOP_MAX_WALL_TIME_MS = 50 * 60 * 60 * 1000;
+export const DEFAULT_LOOP_MAX_ITERATIONS = 50;
+export const DEFAULT_LOOP_MAX_TOKENS = 1_000_000;
+export const DEFAULT_LOOP_MAX_COST_CENTS = 20_000;
 
 /** What "fresh eyes" looks like at REVIEW stage. */
 export type LoopReviewStyle =
@@ -332,6 +335,25 @@ export function defaultLoopPlanConfig(): LoopPlanConfig {
   return { regenerateOnStall: false };
 }
 
+/**
+ * G3 — serializable config for model-generated next objectives.
+ *
+ * The actual planner is a runtime function (`nextObjectivePlanner`) and cannot
+ * cross IPC or persist to SQLite. This plain-data switch is what renderer/IPC
+ * callers set; main-process start-config preparation attaches the runtime
+ * planner when `enabled` is true.
+ */
+export interface LoopNextObjectivePlanningConfig {
+  /** Master switch. Default false. */
+  enabled: boolean;
+  /** Run the planner every N completed iterations. Default 1. */
+  cadence: number;
+}
+
+export function defaultNextObjectivePlanningConfig(): LoopNextObjectivePlanningConfig {
+  return { enabled: false, cadence: 1 };
+}
+
 export interface LoopBlockSanityProbeConfig {
   /** Master switch. Default true. */
   enabled: boolean;
@@ -362,7 +384,7 @@ export const LOOP_MAX_PLAN_REGENERATIONS = 2;
  *
  * @param context.lastOutput    Full output of the just-completed iteration.
  * @param context.originalGoal  The loop's original `initialPrompt` (pinned).
- * @param context.seq           Iteration number (1-based) just completed.
+ * @param context.seq           Zero-based iteration sequence just completed.
  * @returns  Next-objective text to inject, or null/undefined to skip injection.
  */
 export type NextObjectivePlanner = (context: {
@@ -442,8 +464,16 @@ export interface LoopConfig {
   maxTurnsPerIteration?: number | null;
   /**
    * G3 — Optional next-objective planner (Phase 3, off by default).
+   * Plain-data config that can be submitted over IPC and persisted.
+   * `prepareLoopStartConfig()` turns this into `nextObjectivePlanner`.
+   */
+  nextObjectivePlanning?: LoopNextObjectivePlanningConfig;
+  /**
+   * G3 — Optional next-objective planner (Phase 3, off by default).
    * When set, after each `continue` iteration, the planner proposes the next
    * focus objective. Injected as an intervention — never affects stop authority.
+   * Runtime-only: stripped before broadcast/persistence and recreated from
+   * `nextObjectivePlanning` when needed.
    * See `NextObjectivePlanner` for the invariant guarantees.
    */
   nextObjectivePlanner?: NextObjectivePlanner;
@@ -460,16 +490,13 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
     workspaceCwd,
     provider: 'claude',
     reviewStyle: 'debate',
-    contextStrategy: 'fresh-child',
+    contextStrategy: 'same-session',
     maxTurnsPerIteration: LOOP_DEFAULT_MAX_TURNS_PER_ITERATION,
     caps: {
-      maxIterations: null,
+      maxIterations: DEFAULT_LOOP_MAX_ITERATIONS,
       maxWallTimeMs: DEFAULT_LOOP_MAX_WALL_TIME_MS,
-      maxTokens: null,
-      // Default unbounded for subscription-plan loops where the dollar estimate
-      // is not the user's operative budget. Riskier loop modes that pause or
-      // fan out still require the user to set an explicit spend cap.
-      maxCostCents: null,
+      maxTokens: DEFAULT_LOOP_MAX_TOKENS,
+      maxCostCents: DEFAULT_LOOP_MAX_COST_CENTS,
       maxToolCallsPerIteration: 200,
       maxCompletionAttempts: 3,
     },
@@ -502,6 +529,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
     context: defaultLoopContextConfig(),
     exploration: defaultLoopExplorationConfig(),
     plan: defaultLoopPlanConfig(),
+    nextObjectivePlanning: defaultNextObjectivePlanningConfig(),
     blockSanityProbe: { enabled: true, timeoutMs: 5000 },
     degradedIterationRetry: { enabled: true, maxRetries: 2 },
     completion: {

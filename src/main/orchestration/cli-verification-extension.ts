@@ -79,6 +79,19 @@ interface ActiveSession {
 }
 
 const logger = getLogger('CliVerification');
+const CLI_VERIFICATION_PROVIDER_PREFERENCE: readonly CliType[] = [
+  'gemini',
+  'codex',
+  'copilot',
+  'cursor',
+  'ollama',
+  'claude',
+];
+
+function rankCliForVerification(cli: CliInfo): number {
+  const index = CLI_VERIFICATION_PROVIDER_PREFERENCE.indexOf(cli.name as CliType);
+  return index === -1 ? CLI_VERIFICATION_PROVIDER_PREFERENCE.length : index;
+}
 
 export class CliVerificationCoordinator extends EventEmitter {
   private static instance: CliVerificationCoordinator | null = null;
@@ -118,7 +131,7 @@ export class CliVerificationCoordinator extends EventEmitter {
     // Select agents based on config
     const agents = await this.selectAgents(config, detection.available);
 
-    if (agents.length < 3) {
+    if (config.agentCount >= 3 && agents.length < 3) {
       this.emit('warning', {
         message: `Only ${agents.length} agents available. Byzantine tolerance requires 3+.`,
         available: agents.map(a => a.name),
@@ -190,12 +203,14 @@ export class CliVerificationCoordinator extends EventEmitter {
     availableClis: CliInfo[]
   ): Promise<AgentConfig[]> {
     const agents: AgentConfig[] = [];
-    const personalities = selectPersonalities(config.agentCount || 3);
+    const targetAgentCount = Math.max(config.agentCount ?? 1, 1);
+    const personalities = selectPersonalities(targetAgentCount);
     let personalityIndex = 0;
 
     // If specific CLIs requested
     if (config.cliAgents && config.cliAgents.length > 0) {
       for (const cliName of config.cliAgents) {
+        if (agents.length >= targetAgentCount) break;
         const cli = availableClis.find(c => c.name === cliName);
 
         if (cli?.installed) {
@@ -231,8 +246,8 @@ export class CliVerificationCoordinator extends EventEmitter {
       }
     } else {
       // Auto-select available CLIs
-      for (const cli of availableClis) {
-        if (agents.length >= (config.agentCount || 5)) break;
+      for (const cli of [...availableClis].sort((a, b) => rankCliForVerification(a) - rankCliForVerification(b))) {
+        if (agents.length >= targetAgentCount) break;
 
         try {
           const provider = this.registry.createCliProvider(cli.name);
@@ -249,10 +264,10 @@ export class CliVerificationCoordinator extends EventEmitter {
       }
 
       // Add API agents if in mixed mode and need more agents
-      if (config.mixedMode && agents.length < (config.agentCount || 3)) {
+      if (config.mixedMode && agents.length < targetAgentCount) {
         const apiProviders = this.registry.getEnabledProviders();
         for (const apiConfig of apiProviders) {
-          if (agents.length >= (config.agentCount || 5)) break;
+          if (agents.length >= targetAgentCount) break;
           if (apiConfig.type.includes('cli')) continue; // Skip CLI-based providers
 
           try {
@@ -273,9 +288,9 @@ export class CliVerificationCoordinator extends EventEmitter {
     // Ensure minimum agent count by duplicating with different personalities
     // Note: When not enough unique CLIs are available, we duplicate agents with different
     // personalities to get diverse perspectives. This is intentional for Byzantine fault tolerance.
-    while (agents.length < (config.agentCount || 3) && agents.length > 0) {
+    while (agents.length < targetAgentCount && agents.length > 0) {
       // Cycle through available agents to distribute load
-      const baseAgentIndex = agents.length % Math.min(agents.length, config.agentCount || 3);
+      const baseAgentIndex = agents.length % Math.min(agents.length, targetAgentCount);
       const baseAgent = agents[baseAgentIndex];
       const newPersonality = personalities[agents.length % personalities.length];
       const personalityLabel = this.getPersonalityShortLabel(newPersonality);
@@ -288,7 +303,7 @@ export class CliVerificationCoordinator extends EventEmitter {
       });
     }
 
-    return agents.slice(0, config.agentCount || 5);
+    return agents.slice(0, targetAgentCount);
   }
 
   /**

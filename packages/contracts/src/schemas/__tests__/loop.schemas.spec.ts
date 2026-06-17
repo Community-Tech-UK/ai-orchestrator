@@ -303,6 +303,60 @@ describe('Loop schemas — type/schema drift guards', () => {
 
       expect(LoopConfigSchema.safeParse(config).success).toBe(true);
     });
+
+    it('accepts serializable next-objective planning config', () => {
+      const parsed = LoopConfigSchema.parse({
+        initialPrompt: 'run for a long time',
+        workspaceCwd: '/repo',
+        provider: 'claude',
+        reviewStyle: 'single',
+        contextStrategy: 'fresh-child',
+        caps: {
+          maxIterations: null,
+          maxWallTimeMs: 50 * 60 * 60 * 1000,
+          maxTokens: null,
+          maxCostCents: null,
+          maxToolCallsPerIteration: 200,
+        },
+        progressThresholds: {
+          identicalHashWarnConsecutive: 2,
+          identicalHashCriticalConsecutive: 3,
+          identicalHashCriticalWindow: 3,
+          similarityWarnMean: 0.85,
+          similarityCriticalMean: 0.92,
+          stageWarnIterations: { PLAN: 3, REVIEW: 3, IMPLEMENT: 8 },
+          stageCriticalIterations: { PLAN: 5, REVIEW: 5, IMPLEMENT: 12 },
+          errorRepeatWarnInWindow: 3,
+          errorRepeatCriticalInWindow: 4,
+          tokensWithoutProgressWarn: 25_000,
+          tokensWithoutProgressCritical: 60_000,
+          pauseOnTokenBurn: false,
+          toolRepeatWarnPerIteration: 5,
+          toolRepeatCriticalPerIteration: 8,
+          testStagnationWarnIterations: 3,
+          testStagnationCriticalIterations: 5,
+          churnRatioWarn: 0.3,
+          churnRatioCritical: 0.5,
+          warnEscalationWindow: 5,
+          warnEscalationCount: 3,
+        },
+        completion: {
+          completedFilenamePattern: '*_[Cc]ompleted.md',
+          donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
+          doneSentinelFile: 'DONE.txt',
+          verifyCommand: 'true',
+          allowOperatorReviewedCompletion: false,
+          verifyTimeoutMs: 600_000,
+          runVerifyTwice: true,
+          requireCompletedFileRename: false,
+        },
+        nextObjectivePlanning: { enabled: true, cadence: 2 },
+        initialStage: 'IMPLEMENT',
+        allowDestructiveOps: false,
+      });
+
+      expect(parsed.nextObjectivePlanning).toEqual({ enabled: true, cadence: 2 });
+    });
   });
 
   describe('LoopTerminalIntentSchema', () => {

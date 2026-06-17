@@ -1,5 +1,6 @@
 import { computed, Injectable, inject, signal } from '@angular/core';
-import type { CampaignRunDto } from '../../../../shared/types/campaign.types';
+import type { CampaignRunDto, CampaignSpec } from '../../../../shared/types/campaign.types';
+import type { IpcResponse } from '../services/ipc/electron-ipc.service';
 import { CampaignIpcService } from '../services/ipc/campaign-ipc.service';
 
 @Injectable({ providedIn: 'root' })
@@ -49,6 +50,19 @@ export class CampaignStore {
     } finally {
       this.loading.set(false);
     }
+  }
+
+  async validate(spec: CampaignSpec): Promise<IpcResponse<{ valid: boolean; errors: string[] }>> {
+    return this.ipc.validate(spec);
+  }
+
+  async start(spec: CampaignSpec): Promise<IpcResponse<{ campaign: CampaignRunDto }>> {
+    const res = await this.ipc.start(spec);
+    if (res.success && res.data?.campaign) {
+      const campaign = res.data.campaign;
+      this.campaigns.update((list) => [campaign, ...list.filter((c) => c.id !== campaign.id)]);
+    }
+    return res;
   }
 
   async halt(campaignId: string): Promise<void> {

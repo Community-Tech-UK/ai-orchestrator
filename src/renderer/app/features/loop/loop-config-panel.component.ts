@@ -13,7 +13,9 @@ import type { PickerProvider } from '../models/compact-model-picker.types';
 // are sent — Zod's `LoopConfigInputSchema` only makes the top-level keys
 // optional, so an empty `progressThresholds: {}` would fail validation.
 const DEFAULT_CAPS = {
-  maxTokens: null as number | null,
+  maxIterations: 50,
+  maxTokens: 1_000_000,
+  maxCostCents: 20_000,
   maxToolCallsPerIteration: 200,
 };
 const DEFAULT_MAX_WALL_TIME_HOURS = 50;
@@ -59,6 +61,9 @@ const DEFAULT_EXPLORATION = {
   fanout: 3,
   crossModel: false as const,
   selector: 'verify+listwise' as const,
+};
+const DEFAULT_NEXT_OBJECTIVE_PLANNING = {
+  cadence: 1,
 };
 
 /**
@@ -126,16 +131,14 @@ export class LoopConfigPanelComponent {
 
   prompt = signal('');
   planFile = signal('');
-  maxIterations = signal<number | null>(null);
+  maxIterations = signal<number | null>(DEFAULT_CAPS.maxIterations);
   maxHours = signal(DEFAULT_MAX_WALL_TIME_HOURS);
-  // Default unbounded for ordinary plan loops. Operator-reviewed completion and
-  // branch-select fan-out require a non-null cap; validationError enforces that.
-  maxDollars = signal<number | null>(null);
+  maxDollars = signal<number | null>(DEFAULT_CAPS.maxCostCents / 100);
   verifyCommand = signal('');
   quickVerifyCommand = signal('');
   provider = signal<PickerProvider>('claude');
   reviewStyle = signal<'single' | 'debate' | 'star-chamber'>('debate');
-  contextStrategy = signal<'fresh-child' | 'hybrid' | 'same-session'>('fresh-child');
+  contextStrategy = signal<'fresh-child' | 'hybrid' | 'same-session'>('same-session');
   initialStage = signal<'PLAN' | 'REVIEW' | 'IMPLEMENT'>('IMPLEMENT');
   /** Per-iteration wall-clock cap, exposed in minutes for UI sanity. */
   iterationTimeoutMin = signal(30);
@@ -150,6 +153,8 @@ export class LoopConfigPanelComponent {
   semanticProgress = signal(false);
   branchSelect = signal(false);
   branchFanout = signal(DEFAULT_EXPLORATION.fanout);
+  nextObjectivePlanning = signal(false);
+  nextObjectiveCadence = signal(DEFAULT_NEXT_OBJECTIVE_PLANNING.cadence);
   /** Reset threshold as a fraction (mirrors defaultLoopContextConfig 0.6). */
   compactionResetUtilization = signal(0.6);
   compactionThresholdPct = computed(() => Math.round(this.compactionResetUtilization() * 100));
@@ -280,6 +285,12 @@ export class LoopConfigPanelComponent {
         return 'Branch fanout must be between 2 and 8.';
       }
     }
+    if (this.nextObjectivePlanning()) {
+      const cadence = this.nextObjectiveCadence();
+      if (!Number.isFinite(cadence) || cadence < 1 || cadence > 50) {
+        return 'Next-objective cadence must be between 1 and 50.';
+      }
+    }
     // LF-3a: operator-reviewed loops pause for manual sign-off and get resumed
     // repeatedly — require a spend cap so an unbounded run can't sit and burn.
     if (this.operatorReviewedCompletion() && maxDollars === null) {
@@ -316,6 +327,11 @@ export class LoopConfigPanelComponent {
   onBranchFanoutChange(value: number | string | null): void {
     const numeric = typeof value === 'number' ? value : Number(value);
     this.branchFanout.set(numeric);
+  }
+
+  onNextObjectiveCadenceChange(value: number | string | null): void {
+    const numeric = typeof value === 'number' ? value : Number(value);
+    this.nextObjectiveCadence.set(numeric);
   }
 
   onProviderChange(value: string): void {
@@ -424,6 +440,14 @@ export class LoopConfigPanelComponent {
               fanout: this.branchFanout(),
               crossModel: DEFAULT_EXPLORATION.crossModel,
               selector: DEFAULT_EXPLORATION.selector,
+            },
+          }
+        : {}),
+      ...(this.nextObjectivePlanning()
+        ? {
+            nextObjectivePlanning: {
+              enabled: true,
+              cadence: this.nextObjectiveCadence(),
             },
           }
         : {}),

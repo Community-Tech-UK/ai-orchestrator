@@ -64,9 +64,15 @@ export class VerificationConfigStore {
       if (stored) {
         const parsed = JSON.parse(stored);
         const state = this.stateService.state();
+        const storedDefaultConfig = parsed.defaultConfig || {};
+        const defaultConfig = { ...state.defaultConfig, ...storedDefaultConfig };
+        const cliAgentPool = Array.isArray(storedDefaultConfig.cliAgents)
+          ? storedDefaultConfig.cliAgents
+          : (Array.isArray(parsed.selectedAgents) ? parsed.selectedAgents : defaultConfig.cliAgents);
+        const agentCount = Math.max(1, defaultConfig.agentCount ?? 1);
         this.stateService.mergeState({
-          defaultConfig: { ...state.defaultConfig, ...parsed.defaultConfig },
-          selectedAgents: parsed.selectedAgents || state.selectedAgents,
+          defaultConfig: { ...defaultConfig, cliAgents: cliAgentPool },
+          selectedAgents: cliAgentPool.slice(0, agentCount),
           sessions: (parsed.sessions || []).map((session: Record<string, unknown>) => ({
             ...session,
             agentProgress: new Map(),

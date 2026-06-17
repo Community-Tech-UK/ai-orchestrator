@@ -23,6 +23,9 @@ import { DebateVisualizationComponent } from './debate-visualization.component';
 import { OrchestrationIpcService } from '../../core/services/ipc/orchestration-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 
+const DEFAULT_DEBATE_AGENTS = 2;
+const DEFAULT_DEBATE_MAX_ROUNDS = 2;
+
 @Component({
   selector: 'app-debate-page',
   standalone: true,
@@ -318,8 +321,8 @@ export class DebatePageComponent implements OnInit, OnDestroy {
 
   readonly query = signal('');
   readonly context = signal('');
-  readonly agents = signal(3);
-  readonly maxRounds = signal(4);
+  readonly agents = signal(DEFAULT_DEBATE_AGENTS);
+  readonly maxRounds = signal(DEFAULT_DEBATE_MAX_ROUNDS);
   readonly convergenceThreshold = signal(0.8);
 
   readonly activeDebates = signal<ActiveDebate[]>([]);
@@ -437,13 +440,13 @@ export class DebatePageComponent implements OnInit, OnDestroy {
   onAgentsChange(event: Event): void {
     const target = event.target as HTMLInputElement;
     const next = Number(target.value);
-    this.agents.set(Number.isFinite(next) ? Math.min(6, Math.max(2, next)) : 3);
+    this.agents.set(Number.isFinite(next) ? Math.min(6, Math.max(2, next)) : DEFAULT_DEBATE_AGENTS);
   }
 
   onRoundsChange(event: Event): void {
     const target = event.target as HTMLInputElement;
     const next = Number(target.value);
-    this.maxRounds.set(Number.isFinite(next) ? Math.min(8, Math.max(2, next)) : 4);
+    this.maxRounds.set(Number.isFinite(next) ? Math.min(8, Math.max(2, next)) : DEFAULT_DEBATE_MAX_ROUNDS);
   }
 
   onThresholdChange(event: Event): void {

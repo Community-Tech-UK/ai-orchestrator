@@ -77,8 +77,8 @@ describe('curateNotesContent (LF-3)', () => {
 });
 
 describe('defaultLoopConfig cost cap (LF-3)', () => {
-  it('defaults maxCostCents to null for ordinary unbounded loops', () => {
+  it('defaults maxCostCents to a concrete loop spend cap', () => {
     const cfg = defaultLoopConfig('/tmp/ws', 'goal');
-    expect(cfg.caps.maxCostCents).toBeNull();
+    expect(cfg.caps.maxCostCents).toBe(20_000);
   });
 });

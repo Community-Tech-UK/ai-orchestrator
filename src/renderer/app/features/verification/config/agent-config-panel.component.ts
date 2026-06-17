@@ -54,7 +54,7 @@ interface AgentConfig {
                   <button
                     class="remove-btn"
                     (click)="removeAgent(agent.name)"
-                    [disabled]="store.selectedAgents().length <= 2"
+                    [disabled]="store.selectedAgents().length <= 1"
                   >
                     Remove
                   </button>
@@ -481,8 +481,8 @@ export class AgentConfigPanelComponent implements OnInit {
   showAgentPicker = false;
 
   // Config state
-  synthesisStrategy: SynthesisStrategy = 'debate';
-  debateRounds = 4;
+  synthesisStrategy: SynthesisStrategy = 'merge';
+  debateRounds = 2;
   convergenceThreshold = 0.8;
   minAgreement = 0.6;
 

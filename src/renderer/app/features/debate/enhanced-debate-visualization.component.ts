@@ -663,9 +663,9 @@ export class EnhancedDebateVisualizationComponent implements OnInit, OnDestroy {
   queryInput = '';
 
   config = signal<DebateConfig>({
-    agentCount: 3,
+    agentCount: 2,
     convergenceThreshold: 0.8,
-    maxRounds: 4,
+    maxRounds: 2,
     temperatureMin: 0.3,
     temperatureMax: 0.9,
     enableHumanIntervention: false,

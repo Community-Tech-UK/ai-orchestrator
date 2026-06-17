@@ -118,4 +118,16 @@ describe('prepareLoopStartConfig (LF-3a)', () => {
     // Operator-reviewed: no inference is forced; verify command stays empty.
     expect(prepared.completion?.verifyCommand).toBe('');
   });
+
+  it('attaches a runtime planner when serializable next-objective planning is enabled', async () => {
+    const prepared = await prepareLoopStartConfig(mkConfig({
+      nextObjectivePlanning: { enabled: true, cadence: 2 },
+    } as unknown as Partial<LoopConfigInput>));
+
+    expect((prepared as { nextObjectivePlanning?: { enabled: boolean; cadence: number } }).nextObjectivePlanning).toEqual({
+      enabled: true,
+      cadence: 2,
+    });
+    expect(prepared.nextObjectivePlanner).toBeTypeOf('function');
+  });
 });

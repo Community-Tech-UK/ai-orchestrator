@@ -177,6 +177,7 @@ export class DeferredPermissionHandler {
         workingDirectory: instance.workingDirectory,
         yoloMode: instance.yoloMode,
         model: instance.currentModel,
+        bare: instance.bareMode === true,
         resume: true,
         mcpConfig: this.ops.getMcpConfig(instance.executionLocation, instance.id, cliType),
         chromeDevtoolsMcp: this.ops.getChromeDevtoolsMcpOptions?.(instance.executionLocation) ?? undefined,

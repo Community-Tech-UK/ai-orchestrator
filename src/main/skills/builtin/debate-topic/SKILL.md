@@ -8,7 +8,7 @@ parameters:
   - name: positions
     default: ["for", "against", "moderate"]
   - name: rounds
-    default: 3
+    default: 2
 ---
 
 # Debate Topic Skill
@@ -20,14 +20,14 @@ When triggered, spawn child instances to debate a technical decision from differ
 
 ## Behavior
 1. Parse the decision/topic to debate
-2. Spawn N child instances with opposing positions
+2. Spawn N child instances with opposing positions. Use non-Claude providers (`gemini`, `codex`, `copilot`, or `cursor`) unless the user explicitly requested Claude.
 3. Conduct multi-round debate with rebuttals
 4. Synthesize findings into balanced recommendation
 
 ## Parameters
 - **topic**: The technical decision or architectural choice to debate
 - **positions**: Viewpoints to argue from (default: for, against, moderate)
-- **rounds**: Number of debate rounds (default: 3)
+- **rounds**: Number of debate rounds (default: 2)
 
 ## Example
 ```
@@ -42,7 +42,7 @@ This would spawn three children:
 ## Debate Flow
 - **Round 1**: Each child presents opening arguments
 - **Round 2**: Children respond to opposing arguments
-- **Round 3**: Final rebuttals and synthesis
+- **Round 3+**: Optional rebuttals when the user requests more rounds
 
 ## Output
 A balanced analysis including:

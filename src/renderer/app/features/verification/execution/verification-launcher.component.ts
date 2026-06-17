@@ -418,9 +418,9 @@ export class VerificationLauncherComponent {
     context: undefined,
     selectedAgents: [],
     personalities: [],
-    synthesisStrategy: 'debate',
+    synthesisStrategy: 'merge',
     confidenceThreshold: 0.7,
-    maxDebateRounds: 4,
+    maxDebateRounds: 2,
   };
 
   // Validation state
@@ -435,7 +435,8 @@ export class VerificationLauncherComponent {
   constructor() {
     // Initialize from store defaults
     const config = this.store.defaultConfig();
-    this.form.selectedAgents = [...config.cliAgents];
+    const defaultCount = Math.max(1, config.agentCount || 1);
+    this.form.selectedAgents = [...config.cliAgents].slice(0, defaultCount);
     this.form.personalities = [...config.personalities];
     this.form.synthesisStrategy = config.synthesisStrategy;
     this.form.confidenceThreshold = config.confidenceThreshold;

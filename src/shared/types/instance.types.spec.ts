@@ -2,6 +2,23 @@ import { describe, expect, it } from 'vitest';
 import { createInstance, type OutputMessage } from './instance.types';
 
 describe('createInstance', () => {
+  it('defaults bare mode off', () => {
+    const instance = createInstance({
+      workingDirectory: '/tmp/project',
+    });
+
+    expect(instance.bareMode).toBe(false);
+  });
+
+  it('preserves explicit bare mode', () => {
+    const instance = createInstance({
+      workingDirectory: '/tmp/project',
+      bareMode: true,
+    });
+
+    expect(instance.bareMode).toBe(true);
+  });
+
   it('copies the initial output buffer instead of retaining the caller array', () => {
     const initialOutputBuffer: OutputMessage[] = [
       {

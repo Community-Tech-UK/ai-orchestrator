@@ -212,7 +212,10 @@ describe('Loop Mode invoker plumbing', () => {
     hoisted.resolveCliType.mockResolvedValueOnce('gemini');
     hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 10 } });
 
-    const result = emitIteration({ provider: 'gemini' });
+    const result = emitIteration({
+      provider: 'gemini',
+      config: { contextStrategy: 'fresh-child' },
+    });
     await new Promise<void>((r) => setImmediate(r));
     await new Promise<void>((r) => setImmediate(r));
     await result;
@@ -383,7 +386,7 @@ describe('Loop Mode invoker plumbing', () => {
       resolveSend = resolve;
     }));
 
-    const finished = emitIteration({});
+    const finished = emitIteration({ config: { contextStrategy: 'fresh-child' } });
 
     // Wait long enough for the listener to wire up the once('stream:idle', ...).
     await new Promise<void>((r) => setImmediate(r));
@@ -962,13 +965,13 @@ describe('Loop Mode invoker plumbing', () => {
       registerDefaultLoopInvoker({} as never);
       hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 1 } });
 
-      // Two iterations in a row, no contextStrategy → defaults to fresh-child.
-      const iter0 = emitIteration({ config: {} });
+      // Two iterations in a row with explicit fresh-child context.
+      const iter0 = emitIteration({ config: { contextStrategy: 'fresh-child' } });
       await new Promise<void>((r) => setImmediate(r));
       await new Promise<void>((r) => setImmediate(r));
       await iter0;
 
-      const iter1 = emitIteration({ config: {} });
+      const iter1 = emitIteration({ config: { contextStrategy: 'fresh-child' } });
       await new Promise<void>((r) => setImmediate(r));
       await new Promise<void>((r) => setImmediate(r));
       await iter1;

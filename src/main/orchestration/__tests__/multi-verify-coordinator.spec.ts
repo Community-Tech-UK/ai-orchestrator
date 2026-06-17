@@ -319,17 +319,33 @@ describe('MultiVerifyCoordinator', () => {
       expect(req.instanceId).toBe('instance-1');
     });
 
-    it('enforces minimum agent count of 3', async () => {
+    it('uses the low-cost two-round debate default when config omits maxDebateRounds', async () => {
+      registerAgentHandler(coordinator);
+
+      const startedPayloads: unknown[] = [];
+      coordinator.on('verification:started', (p) => startedPayloads.push(p));
+
+      await coordinator.startVerification('instance-1', 'Debate defaults?', {
+        agentCount: 1,
+        timeout: 5000,
+        synthesisStrategy: 'debate',
+      });
+
+      const req = startedPayloads[0] as { config: { maxDebateRounds?: number } };
+      expect(req.config.maxDebateRounds).toBe(2);
+    });
+
+    it('honors one-agent verification requests', async () => {
       registerAgentHandler(coordinator);
 
       const launchPayloads: Array<{ agentCount: number }> = [];
       coordinator.on('verification:agents-launching', (p) => launchPayloads.push(p));
 
-      // Ask for 1 agent — should be bumped to 3
+      const completed = waitForEvent(coordinator, 'verification:completed');
       await coordinator.startVerification('instance-1', 'Prompt', { agentCount: 1, timeout: 5000, synthesisStrategy: 'best-of' });
-      await waitForEvent(coordinator, 'verification:completed');
+      await completed;
 
-      expect(launchPayloads[0].agentCount).toBeGreaterThanOrEqual(3);
+      expect(launchPayloads[0].agentCount).toBe(1);
     });
 
     it('marks verification as active immediately after start', async () => {

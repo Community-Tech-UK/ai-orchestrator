@@ -21,7 +21,7 @@ When triggered, spawn child instances to verify an implementation against requir
 ## Behavior
 1. Parse requirements/specification
 2. Identify implementation scope (files, features)
-3. Spawn N child instances (one per verification aspect)
+3. Spawn N child instances (one per verification aspect). Use non-Claude providers (`gemini`, `codex`, `copilot`, or `cursor`) unless the user explicitly requested Claude.
 4. Each child verifies from their assigned perspective
 5. Aggregate results into pass/fail report with findings
 

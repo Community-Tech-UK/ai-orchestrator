@@ -101,6 +101,16 @@ describe('buildInstanceRecord', () => {
     expect(instance.currentModel).toBe('composer-2.5');
   });
 
+  it('preserves explicit bare mode before async init', () => {
+    const instance = buildInstanceRecord(
+      buildConfig({ provider: 'claude', bareMode: true }),
+      buildAgent(),
+      { defaultYoloMode: false, getParent: () => undefined },
+    );
+
+    expect(instance.bareMode).toBe(true);
+  });
+
   it('applies configured parent inheritance before registration', () => {
     const parent = {
       agentId: 'parent-agent',
