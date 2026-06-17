@@ -275,7 +275,7 @@ export class CampaignPageComponent implements OnInit {
     this.addNodeAt(event.clientX - rect.left - NODE_W / 2, event.clientY - rect.top - NODE_H / 2);
   }
 
-  onCanvasKeyAdd(event: KeyboardEvent): void {
+  onCanvasKeyAdd(event: Event): void {
     if (this.mode() !== 'add-node') return;
     event.preventDefault();
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
