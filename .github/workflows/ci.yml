@@ -82,8 +82,7 @@ jobs:
         run: npm run sync:model-catalog -- --check
         continue-on-error: true
 
-      # Allowlisted: protobufjs transitive CVE is unfixable upstream (package.json overrides).
-      # New high-severity vulnerabilities will now fail the build.
+      # Block high-severity vulnerabilities in production dependencies.
       - name: Security audit
         run: npm audit --omit=dev --audit-level=high
         continue-on-error: false
