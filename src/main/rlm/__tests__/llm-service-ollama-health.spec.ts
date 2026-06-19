@@ -112,6 +112,99 @@ describe('LLMService.summarize() — auxiliary routing', () => {
   });
 });
 
+describe('LLMService.subQueryViaAux() — auxiliary routing', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    const { LLMService } = await import('../llm-service');
+    LLMService._resetForTesting();
+    auxMockControls.generate.mockResolvedValue({
+      text: '',
+      decision: { source: 'fallback' as const, provider: 'local-fallback' as const, slot: 'subQueryExecution', reason: 'default test fallback', allowFrontierFallback: true },
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const req = { requestId: 'sq', prompt: 'where is backoff?', context: 'retry.ts has backoff', depth: 0 };
+
+  it('returns the aux result and never calls the frontier path on a real aux result', async () => {
+    auxMockControls.generate.mockResolvedValue({
+      text: 'backoff lives in retry.ts',
+      decision: { source: 'local' as const, provider: 'ollama' as const, slot: 'subQueryExecution', reason: 'local-first', allowFrontierFallback: false },
+    });
+    const { getLLMService } = await import('../llm-service');
+    const service = getLLMService();
+    const subSpy = vi.spyOn(service, 'subQuery');
+
+    const out = await service.subQueryViaAux('subQueryExecution', req);
+
+    expect(out).toBe('backoff lives in retry.ts');
+    expect(subSpy).not.toHaveBeenCalled();
+    expect(auxMockControls.generate).toHaveBeenCalledWith('subQueryExecution', expect.any(String), expect.any(String));
+  });
+
+  it('falls through to the preserved subQuery() path when aux falls back and frontier is allowed', async () => {
+    auxMockControls.generate.mockResolvedValue({
+      text: '',
+      decision: { source: 'fallback' as const, provider: 'local-fallback' as const, slot: 'subQueryExecution', reason: 'no local model', allowFrontierFallback: true },
+    });
+    const { getLLMService } = await import('../llm-service');
+    const service = getLLMService();
+    const subSpy = vi.spyOn(service, 'subQuery').mockResolvedValue('frontier answer');
+
+    const out = await service.subQueryViaAux('subQueryExecution', req);
+
+    expect(subSpy).toHaveBeenCalledTimes(1);
+    expect(out).toBe('frontier answer');
+  });
+
+  it('returns the deterministic local-unavailable sentinel when frontier fallback is disallowed', async () => {
+    auxMockControls.generate.mockResolvedValue({
+      text: '',
+      decision: { source: 'fallback' as const, provider: 'local-fallback' as const, slot: 'loopScoring', reason: 'no local model', allowFrontierFallback: false },
+    });
+    const { getLLMService } = await import('../llm-service');
+    const { LLM_UNAVAILABLE_TEXT } = await import('../llm-service.constants');
+    const service = getLLMService();
+    const subSpy = vi.spyOn(service, 'subQuery');
+
+    const out = await service.subQueryViaAux('loopScoring', req);
+
+    expect(out).toBe(LLM_UNAVAILABLE_TEXT);
+    expect(subSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not consume an empty non-fallback aux result — falls through to subQuery()', async () => {
+    auxMockControls.generate.mockResolvedValue({
+      text: '   ',
+      decision: { source: 'local' as const, provider: 'ollama' as const, slot: 'branchScoring', reason: 'local-first', allowFrontierFallback: true },
+    });
+    const { getLLMService } = await import('../llm-service');
+    const service = getLLMService();
+    const subSpy = vi.spyOn(service, 'subQuery').mockResolvedValue('frontier answer');
+
+    const out = await service.subQueryViaAux('branchScoring', req);
+
+    expect(subSpy).toHaveBeenCalledTimes(1);
+    expect(out).toBe('frontier answer');
+  });
+
+  it('preserves old behavior (calls subQuery) when the aux service throws', async () => {
+    auxMockControls.generate.mockRejectedValue(new Error('aux boom'));
+    const { getLLMService } = await import('../llm-service');
+    const service = getLLMService();
+    const subSpy = vi.spyOn(service, 'subQuery').mockResolvedValue('frontier answer');
+
+    const out = await service.subQueryViaAux('subQueryExecution', req);
+
+    expect(subSpy).toHaveBeenCalledTimes(1);
+    expect(out).toBe('frontier answer');
+  });
+});
+
 describe('LLMService Ollama health checks', () => {
   beforeEach(async () => {
     vi.clearAllMocks();

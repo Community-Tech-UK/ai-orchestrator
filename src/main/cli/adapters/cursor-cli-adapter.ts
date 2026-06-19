@@ -1,4 +1,5 @@
 import { BaseCliAdapter, CliAdapterConfig, CliCapabilities, CliMessage, CliResponse, CliStatus, AdapterRuntimeCapabilities } from './base-cli-adapter';
+import type { ResumeAttemptResult } from './base-cli-adapter';
 import { getLogger } from '../../logging/logger';
 import type { ContextUsage, FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 import type { ModelDisplayInfo } from '../../../shared/types/provider.types';
@@ -24,6 +25,9 @@ export class CursorCliAdapter extends BaseCliAdapter {
 
   /** Cursor's own session_id, captured from terminal `result` events for --resume. */
   private cursorSessionId: string | null = null;
+
+  /** Resume proof for the most recent sendInput() call (B1/B2). */
+  private lastResumeAttemptResult: ResumeAttemptResult | null = null;
 
   /** Feature flag: becomes false after unknown-flag fallback (see Task 16). */
   private partialOutputSupported = true;
@@ -858,7 +862,18 @@ export class CursorCliAdapter extends BaseCliAdapter {
     resultState.completed = true;
 
     // 1. Capture session_id for subsequent --resume (even on error — harmless).
-    if (event.session_id) this.cursorSessionId = event.session_id;
+    if (event.session_id) {
+      this.cursorSessionId = event.session_id;
+      // Confirm or deny native resume proof based on whether the provider returned
+      // the same session id we requested (B2).
+      if (this.lastResumeAttemptResult?.source === 'native') {
+        this.lastResumeAttemptResult = {
+          ...this.lastResumeAttemptResult,
+          confirmed: event.session_id === this.lastResumeAttemptResult.requestedSessionId,
+          actualSessionId: event.session_id,
+        };
+      }
+    }
 
     // 2. Emit context telemetry.
     const durationMs = event.duration_ms ?? (Date.now() - startTime);
@@ -898,6 +913,14 @@ export class CursorCliAdapter extends BaseCliAdapter {
         logger.info('Cursor session expired; clearing and retrying once without --resume', {
           prevSessionId: this.cursorSessionId,
         });
+        // Mark native resume as definitively failed (B2).
+        if (this.lastResumeAttemptResult?.source === 'native') {
+          this.lastResumeAttemptResult = {
+            ...this.lastResumeAttemptResult,
+            confirmed: false,
+            reason: 'session-not-found',
+          };
+        }
         this.cursorSessionId = null;
         resultState.retriedWithoutResume = true;
         this.emit('output', {
@@ -988,6 +1011,7 @@ export class CursorCliAdapter extends BaseCliAdapter {
     await super.terminate(graceful);
     this.isSpawned = false;
     this.cursorSessionId = null;
+    this.lastResumeAttemptResult = null;
     this.partialOutputSupported = true; // reset feature flag for next spawn
     this.activeResultState = null;
     if (this.activeTimeout) {
@@ -998,6 +1022,10 @@ export class CursorCliAdapter extends BaseCliAdapter {
       this.emit('exit', 0, null);
       this.emit('status', 'terminated');
     }
+  }
+
+  getResumeAttemptResult(): ResumeAttemptResult | null {
+    return this.lastResumeAttemptResult;
   }
 
   protected override async sendInputImpl(message: string, attachments?: FileAttachment[]): Promise<void> {
@@ -1013,6 +1041,19 @@ export class CursorCliAdapter extends BaseCliAdapter {
     // context bar reflects input as well as output. Cursor does not report
     // real occupancy; this keeps the estimate directional rather than 0.
     this.cumulativeTokensUsed += this.estimateTokens(message);
+
+    // Record resume attempt proof (B2) — set before the send so callers polling
+    // getResumeAttemptResult() see the in-progress state; updated when the result
+    // event arrives in handleResultEvent().
+    if (this.cursorSessionId) {
+      this.lastResumeAttemptResult = {
+        source: 'native',
+        confirmed: false,
+        requestedSessionId: this.cursorSessionId,
+      };
+    } else {
+      this.lastResumeAttemptResult = { source: 'fresh-fallback', confirmed: false };
+    }
 
     // The lifecycle state machine disallows idle -> busy directly.
     // Cursor instances are usually idle between turns, so move through ready.

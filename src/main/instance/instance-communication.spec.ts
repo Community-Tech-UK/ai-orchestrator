@@ -36,6 +36,13 @@ vi.mock('../core/error-recovery', () => ({
   }),
 }));
 
+const mockWriteThroughIdentity = vi.fn().mockResolvedValue(undefined);
+vi.mock('../session/session-continuity', () => ({
+  getSessionContinuityManagerIfInitialized: () => ({
+    writeThroughIdentity: mockWriteThroughIdentity,
+  }),
+}));
+
 import { InstanceCommunicationManager } from './instance-communication';
 import { TokenBudgetTracker } from '../context/token-budget-tracker';
 import { AcpCliAdapter } from '../cli/adapters/acp-cli-adapter';
@@ -1003,6 +1010,43 @@ describe('InstanceCommunicationManager', () => {
         (message) => message.type === 'error' && message.content === 'Copilot CLI timeout after 300000ms',
       ),
     ).toHaveLength(2);
+  });
+
+  describe('writeThroughIdentity on session ID change (B4/C1)', () => {
+    it('calls writeThroughIdentity immediately when adapter reports a new session ID', async () => {
+      mockWriteThroughIdentity.mockClear();
+
+      // Adapter that returns a new session ID different from the instance's current one.
+      const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+      (adapter as unknown as FakeAdapter & { getSessionId(): string }).getSessionId = () => 'provider-assigned-id';
+      adapters.set(instance.id, adapter);
+      instance.providerSessionId = undefined;
+
+      manager.setupAdapterEvents(instance.id, adapter);
+      // Emit any output — the session ID sync runs on every output message.
+      (adapter as unknown as EventEmitter).emit('output', createMessage('assistant', 'hello'));
+      await flushOutputHandlers();
+
+      expect(mockWriteThroughIdentity).toHaveBeenCalledWith(
+        instance.id,
+        { sessionId: 'provider-assigned-id' },
+      );
+    });
+
+    it('does not call writeThroughIdentity when the session ID is unchanged', async () => {
+      mockWriteThroughIdentity.mockClear();
+
+      const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+      (adapter as unknown as FakeAdapter & { getSessionId(): string }).getSessionId = () => 'session-1';
+      adapters.set(instance.id, adapter);
+      instance.providerSessionId = 'session-1'; // Same as what adapter returns
+
+      manager.setupAdapterEvents(instance.id, adapter);
+      (adapter as unknown as EventEmitter).emit('output', createMessage('assistant', 'hello'));
+      await flushOutputHandlers();
+
+      expect(mockWriteThroughIdentity).not.toHaveBeenCalled();
+    });
   });
 });
 

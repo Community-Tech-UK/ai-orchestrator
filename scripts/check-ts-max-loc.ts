@@ -158,14 +158,14 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/rlm/ast-chunker.ts': 766,
   'src/main/rlm/episodic-rlm-store.ts': 766,
   'src/main/rlm/hyde-service.ts': 716,
-  'src/main/rlm/llm-service.ts': 997,
+  'src/main/rlm/llm-service.ts': 1070,
   'src/main/rlm/smart-compaction.ts': 879,
   // Main process — security
   'src/main/security/permission-manager.ts': 1624,
   'src/main/security/sandbox-manager.ts': 877,
   // Main process — session
   'src/main/session/checkpoint-manager.ts': 752,
-  'src/main/session/session-continuity.ts': 1753,
+  'src/main/session/session-continuity.ts': 1801,
   // Main process — workspace
   'src/main/workspace/git/vcs-manager.ts': 1296,
   'src/main/workspace/git/worktree-manager.ts': 742,

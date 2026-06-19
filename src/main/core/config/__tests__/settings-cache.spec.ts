@@ -1,16 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { DEFAULT_SETTINGS } from '../../../../shared/types/settings.types';
 
 // ElectronStore mock — in-memory key/value
 const store: Record<string, unknown> = {};
+const mockStoreSet = vi.fn((k: string | Record<string, unknown>, v?: unknown) => {
+  if (typeof k === 'object') Object.assign(store, k);
+  else store[k] = v;
+});
 vi.mock('electron-store', () => {
   return {
     default: vi.fn().mockImplementation(() => ({
       get store() { return { ...store }; },
       get: vi.fn((k: string) => store[k]),
-      set: vi.fn((k: string | Record<string, unknown>, v?: unknown) => {
-        if (typeof k === 'object') Object.assign(store, k);
-        else store[k] = v;
-      }),
+      set: mockStoreSet,
       clear: vi.fn(() => { for (const k of Object.keys(store)) delete store[k]; }),
       path: '/tmp/test-settings.json',
     })),
@@ -41,6 +43,7 @@ import { SettingsManager } from '../settings-manager';
 beforeEach(() => {
   // Clear store between tests
   for (const k of Object.keys(store)) delete store[k];
+  mockStoreSet.mockClear();
 });
 
 describe('SettingsManager settings cache', () => {
@@ -115,5 +118,29 @@ describe('SettingsManager settings cache', () => {
     const mgr = new SettingsManager();
 
     expect(mgr.get('codebaseAutoIndexEnabled')).toBe(true);
+  });
+
+  it('merges missing auxiliary slots once during construction', () => {
+    store['__migration_auxiliary_slot_timeouts_20260606'] = true;
+    store['__migration_auxiliary_frontier_fallback_20260606'] = true;
+    store['__migration_auxiliary_slot_tiers_20260609'] = true;
+    store['__migration_auxiliary_title_budget_20260609'] = true;
+    const defaults = JSON.parse(DEFAULT_SETTINGS.auxiliaryLlmSlotsJson) as Record<string, unknown>;
+    const persisted = { ...defaults };
+    delete persisted['retrievalHypothesis'];
+    store['auxiliaryLlmSlotsJson'] = JSON.stringify(persisted);
+
+    new SettingsManager();
+
+    const persistedAfterFirst = JSON.parse(store['auxiliaryLlmSlotsJson'] as string) as Record<string, unknown>;
+    expect(persistedAfterFirst['retrievalHypothesis']).toEqual(defaults['retrievalHypothesis']);
+    expect(mockStoreSet).toHaveBeenCalledWith('auxiliaryLlmSlotsJson', expect.any(String));
+
+    mockStoreSet.mockClear();
+    new SettingsManager();
+
+    expect(
+      mockStoreSet.mock.calls.some(([key]) => key === 'auxiliaryLlmSlotsJson'),
+    ).toBe(false);
   });
 });

@@ -27,3 +27,13 @@ export const SUBQUERY_SYSTEM_PROMPT = `You are an intelligent assistant helping 
 You have access to the following context. Use it to answer the user's question accurately.
 If the context doesn't contain enough information, say so clearly.
 Be concise but thorough.`;
+
+/**
+ * Deterministic "no LLM available" sentinel returned by `generateLocal()` for a
+ * non-summary prompt, and reused by the auxiliary sub-query path
+ * (`subQueryViaAux`) when a slot's frontier fallback is disallowed. Shared so the
+ * two stay byte-identical — callers that pattern-match on it (or whose JSON
+ * parse simply fails on it) behave the same whichever path produced it.
+ */
+export const LLM_UNAVAILABLE_TEXT =
+  '[LLM unavailable - unable to process query. Please configure an LLM provider (Anthropic, OpenAI, or Ollama) for intelligent responses.]';

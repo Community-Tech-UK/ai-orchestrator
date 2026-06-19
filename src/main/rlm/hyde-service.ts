@@ -25,6 +25,7 @@
 import { EventEmitter } from 'events';
 import { LLMService, getLLMService } from './llm-service';
 import { EmbeddingService, getEmbeddingService } from './embedding-service';
+import { getAuxiliaryLlmService } from './auxiliary-llm-service';
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import { getLogger } from '../logging/logger';
 import type { HyDEConfig, HyDEResult, CacheEntry } from './hyde-service.types';
@@ -34,6 +35,8 @@ import { DEFAULT_CONFIG, HYDE_PROMPTS } from './hyde-service.constants';
 export type { HyDEConfig, HyDEResult } from './hyde-service.types';
 
 const logger = getLogger('HyDEService');
+
+class HydeExpectedFallbackError extends Error {}
 
 export class HyDEService extends EventEmitter {
   private static instance: HyDEService | null = null;
@@ -171,9 +174,13 @@ export class HyDEService extends EventEmitter {
         query
       };
     } catch (error) {
-      logger.error('Failed to generate hypothetical document', error instanceof Error ? error : undefined, { query });
-      if (this.listenerCount('error') > 0) {
-        this.emit('error', { query, error });
+      if (error instanceof HydeExpectedFallbackError) {
+        logger.debug('HyDE fell back to direct embedding');
+      } else {
+        logger.error('Failed to generate hypothetical document', error instanceof Error ? error : undefined, { query });
+        if (this.listenerCount('error') > 0) {
+          this.emit('error', { query, error });
+        }
       }
 
       // Fall back to direct embedding on error
@@ -306,6 +313,17 @@ Generate a hypothetical document that would perfectly match this query:`;
    * Uses the LLMService's internal mechanisms
    */
   private async callLLM(
+    systemPrompt: string,
+    userPrompt: string
+  ): Promise<string> {
+    const { text, decision } = await getAuxiliaryLlmService()
+      .generate('retrievalHypothesis', systemPrompt, userPrompt);
+    if (decision.source !== 'fallback' && text.trim()) return text;
+    if (decision.allowFrontierFallback) return this.callDirectProviders(systemPrompt, userPrompt);
+    throw new HydeExpectedFallbackError();
+  }
+
+  private async callDirectProviders(
     systemPrompt: string,
     userPrompt: string
   ): Promise<string> {

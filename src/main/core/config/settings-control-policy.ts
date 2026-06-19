@@ -88,6 +88,9 @@ const auxiliarySlotMapSchema = z.object({
   routingClassification: auxiliarySlotSchema.optional(),
   approvalScoring: auxiliarySlotSchema.optional(),
   loopScoring: auxiliarySlotSchema.optional(),
+  retrievalHypothesis: auxiliarySlotSchema.optional(),
+  branchScoring: auxiliarySlotSchema.optional(),
+  subQueryExecution: auxiliarySlotSchema.optional(),
 } satisfies Record<AuxiliaryLlmSlot, z.ZodOptional<typeof auxiliarySlotSchema>>).strict();
 const auxiliarySlotPayloadSchema = jsonBackedObjectSchema(auxiliarySlotMapSchema);
 

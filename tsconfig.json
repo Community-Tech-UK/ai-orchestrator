@@ -3,6 +3,7 @@
   "exclude": [
     "dist",
     "apps",
+    "_scratch",
     "vitest.config.ts",
     "src/**/*.spec.ts",
     "src/**/*.test.ts",

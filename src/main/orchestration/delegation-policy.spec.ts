@@ -3,7 +3,9 @@ import {
   routeRole,
   classifyScope,
   decideDelegation,
+  isMultiFileEditBatch,
   DEFAULT_BROAD_PARALLEL,
+  DEFAULT_MULTIFILE_EDIT_DELEGATION_THRESHOLD,
   ROUTE_CONFIDENCE_THRESHOLD,
 } from './delegation-policy';
 
@@ -111,5 +113,71 @@ describe('delegation-policy / decideDelegation', () => {
     const d = decideDelegation('Review this code for security vulnerabilities and audit the inputs');
     expect(d.suggestedRole).toBe('review');
     expect(d.routeConfidence).toBeGreaterThanOrEqual(ROUTE_CONFIDENCE_THRESHOLD);
+  });
+});
+
+describe('delegation-policy / isMultiFileEditBatch (Part C)', () => {
+  it('detects an edit verb + multi-file phrase as a batch', () => {
+    expect(isMultiFileEditBatch('Rename the logger import across all the files')).toBe(true);
+    expect(isMultiFileEditBatch('Update the copyright header in every file')).toBe(true);
+    expect(isMultiFileEditBatch('Migrate multiple files to the new API')).toBe(true);
+  });
+
+  it('detects an edit verb + explicit file count at/above the threshold', () => {
+    expect(isMultiFileEditBatch('Replace the deprecated call in 12 files')).toBe(true);
+    expect(isMultiFileEditBatch(`Update ${DEFAULT_MULTIFILE_EDIT_DELEGATION_THRESHOLD} files`)).toBe(true);
+  });
+
+  it('is false for a small explicit count below the threshold', () => {
+    expect(isMultiFileEditBatch('Update 2 files')).toBe(false);
+  });
+
+  it('is false without an edit verb, even with a wide-surface phrase', () => {
+    expect(isMultiFileEditBatch('Find all the files that import the logger')).toBe(false);
+  });
+
+  it('is false for a single-file edit', () => {
+    expect(isMultiFileEditBatch('Fix the typo in this one file')).toBe(false);
+  });
+
+  it('honors a caller-supplied editFileCount over text', () => {
+    expect(isMultiFileEditBatch('apply the change', 8)).toBe(true);
+    expect(isMultiFileEditBatch('apply the change', 1)).toBe(false);
+  });
+
+  it('respects a custom threshold', () => {
+    expect(isMultiFileEditBatch('update 3 files', undefined, 3)).toBe(true);
+    expect(isMultiFileEditBatch('update 3 files', undefined, 10)).toBe(false);
+  });
+
+  it('handles empty / nullish input safely', () => {
+    expect(isMultiFileEditBatch('')).toBe(false);
+    // @ts-expect-error exercising runtime robustness
+    expect(isMultiFileEditBatch(undefined)).toBe(false);
+  });
+});
+
+describe('delegation-policy / decideDelegation — multi-file edit batch (Part C)', () => {
+  it('forces broad scope and recommends delegation for a multi-file edit batch', () => {
+    const d = decideDelegation('Rename the deprecated helper across all the call sites');
+    expect(d.multiFileEditBatch).toBe(true);
+    expect(d.scope).toBe('broad');
+    expect(d.recommendDelegation).toBe(true);
+    expect(d.maxParallel).toBe(DEFAULT_BROAD_PARALLEL);
+    expect(d.reason).toMatch(/multi-file edit batch/);
+  });
+
+  it('recommends delegation for a batch even when the phrasing would otherwise read trivial', () => {
+    // Short text that would normally be "trivial narrow", but an explicit large
+    // count promotes it to a delegated batch.
+    const d = decideDelegation('fix 9 files', { editFileCount: 9 });
+    expect(d.multiFileEditBatch).toBe(true);
+    expect(d.recommendDelegation).toBe(true);
+    expect(d.scope).toBe('broad');
+  });
+
+  it('leaves a normal task untouched (multiFileEditBatch=false)', () => {
+    const d = decideDelegation('Add a login button to the settings page');
+    expect(d.multiFileEditBatch).toBe(false);
   });
 });

@@ -1,5 +1,6 @@
 import type { AuxiliaryLlmEndpointConfig, AuxiliaryLlmSlotConfig } from '../../shared/types/auxiliary-llm.types';
 import { DEFAULT_SLOT_TIERS } from '../../shared/types/auxiliary-llm.types';
+import { DEFAULT_SETTINGS } from '../../shared/types/settings.types';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 
 // DEFAULT_SLOT_TIERS lives in shared so the settings migration, renderer, and
@@ -62,6 +63,38 @@ export function raiseSlotOutputBudget(raw: string, slot: string, minTokens: numb
   }
   cfg.maxOutputTokens = minTokens;
   return JSON.stringify(slots);
+}
+
+/**
+ * Merge newly-added default auxiliary slots into a persisted slot map. Existing
+ * keys win so user edits are preserved; missing keys get the current defaults.
+ * Returns updated JSON only when at least one default slot was absent.
+ */
+export function mergeMissingDefaultSlots(raw: string): string | null {
+  let parsed: Record<string, unknown>;
+  let defaults: Record<string, unknown>;
+  try {
+    const candidate = JSON.parse(raw) as unknown;
+    const defaultCandidate = JSON.parse(DEFAULT_SETTINGS.auxiliaryLlmSlotsJson) as unknown;
+    if (
+      candidate === null ||
+      typeof candidate !== 'object' ||
+      Array.isArray(candidate) ||
+      defaultCandidate === null ||
+      typeof defaultCandidate !== 'object' ||
+      Array.isArray(defaultCandidate)
+    ) {
+      return null;
+    }
+    parsed = candidate as Record<string, unknown>;
+    defaults = defaultCandidate as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  const missingDefault = Object.keys(defaults).some((key) => !(key in parsed));
+  if (!missingDefault) return null;
+  return JSON.stringify({ ...defaults, ...parsed });
 }
 
 /** Default Ollama REST endpoint on the coordinator's own machine. */

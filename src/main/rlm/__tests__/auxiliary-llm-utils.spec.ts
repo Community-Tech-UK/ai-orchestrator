@@ -7,9 +7,11 @@ import {
   workerLoadedContexts,
   endpointAdvertisesModel,
   backfillSlotTiers,
+  mergeMissingDefaultSlots,
   raiseSlotOutputBudget,
   DEFAULT_SLOT_TIERS,
 } from '../auxiliary-llm-utils';
+import { DEFAULT_SETTINGS } from '../../../shared/types/settings.types';
 import type { AuxiliaryLlmSlotConfig } from '../../../shared/types/auxiliary-llm.types';
 import type { WorkerNodeInfo } from '../../../shared/types/worker-node.types';
 
@@ -252,6 +254,40 @@ describe('raiseSlotOutputBudget', () => {
   });
 });
 
+describe('mergeMissingDefaultSlots', () => {
+  it('adds missing default slots without overwriting existing slot config', () => {
+    const defaults = JSON.parse(DEFAULT_SETTINGS.auxiliaryLlmSlotsJson) as Record<string, unknown>;
+    const persisted = { ...defaults };
+    delete persisted['retrievalHypothesis'];
+
+    const out = mergeMissingDefaultSlots(JSON.stringify(persisted));
+
+    expect(out).not.toBeNull();
+    const parsed = JSON.parse(out!) as Record<string, unknown>;
+    expect(parsed['retrievalHypothesis']).toEqual(defaults['retrievalHypothesis']);
+    expect(mergeMissingDefaultSlots(out!)).toBeNull();
+  });
+
+  it('backfills the Part B branchScoring/subQueryExecution slots into legacy persisted JSON', () => {
+    const defaults = JSON.parse(DEFAULT_SETTINGS.auxiliaryLlmSlotsJson) as Record<string, unknown>;
+    const persisted = { ...defaults };
+    delete persisted['branchScoring'];
+    delete persisted['subQueryExecution'];
+
+    const out = mergeMissingDefaultSlots(JSON.stringify(persisted));
+
+    expect(out).not.toBeNull();
+    const parsed = JSON.parse(out!) as Record<string, unknown>;
+    expect(parsed['branchScoring']).toEqual(defaults['branchScoring']);
+    expect(parsed['subQueryExecution']).toEqual(defaults['subQueryExecution']);
+    expect(mergeMissingDefaultSlots(out!)).toBeNull();
+  });
+
+  it('returns null for unparseable JSON', () => {
+    expect(mergeMissingDefaultSlots('{nope')).toBeNull();
+  });
+});
+
 describe('DEFAULT_SLOT_TIERS', () => {
   it('tags scoring/routing/title slots quick and content slots quality', () => {
     expect(DEFAULT_SLOT_TIERS.loopScoring).toBe('quick');
@@ -261,5 +297,6 @@ describe('DEFAULT_SLOT_TIERS', () => {
     expect(DEFAULT_SLOT_TIERS.compression).toBe('quality');
     expect(DEFAULT_SLOT_TIERS.memoryDistillation).toBe('quality');
     expect(DEFAULT_SLOT_TIERS.webExtract).toBe('quality');
+    expect(DEFAULT_SLOT_TIERS.retrievalHypothesis).toBe('quick');
   });
 });

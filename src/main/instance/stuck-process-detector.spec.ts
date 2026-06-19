@@ -152,23 +152,22 @@ describe('StuckProcessDetector', () => {
       expect(hardHandler).toHaveBeenCalled();
     });
 
-    it('stops deferring soft warning after max deferrals exhausted', () => {
+    it('stops deferring soft warning after max deferrals exhausted (post-grace)', () => {
       const softHandler = vi.fn();
       aliveDetector.on('process:suspect-stuck', softHandler);
       aliveDetector.startTracking('inst-1');
       aliveDetector.updateState('inst-1', 'tool_executing');
       aliveSet.add('inst-1');
 
-      // Base soft is 240s. Each check cycle (10s) past 240s consumes a deferral.
-      // tool_executing has MAX_ALIVE_DEFERRALS = 3, so:
-      //   t=240s → deferral 1
-      //   t=250s → deferral 2
-      //   t=260s → deferral 3
-      //   t=270s → deferrals exhausted → soft warning emitted
-      vi.advanceTimersByTime(260_000);
+      // An alive tool_executing turn is fully suppressed during the 20min
+      // grace window — no soft warning, even well past the 240s base soft.
+      vi.advanceTimersByTime(1_200_000);
       expect(softHandler).not.toHaveBeenCalled();
 
-      vi.advanceTimersByTime(20_000);
+      // Past the grace ceiling the normal soft→hard escalation resumes, with
+      // the alive-deferral logic still applying: 3 deferrals (10s each) then
+      // the soft warning is emitted.
+      vi.advanceTimersByTime(40_000);
       expect(softHandler).toHaveBeenCalledWith(
         expect.objectContaining({ instanceId: 'inst-1', state: 'tool_executing' })
       );
@@ -219,6 +218,89 @@ describe('StuckProcessDetector', () => {
       aliveSet.delete('inst-1');
       vi.advanceTimersByTime(210_000);
       expect(hardHandler).toHaveBeenCalled();
+    });
+  });
+
+  describe('tool_executing alive grace', () => {
+    let graceDetector: StuckProcessDetector;
+    const aliveSet = new Set<string>();
+
+    beforeEach(() => {
+      graceDetector = new StuckProcessDetector({
+        isProcessAlive: (id) => aliveSet.has(id),
+      });
+    });
+
+    afterEach(() => {
+      graceDetector.shutdown();
+      aliveSet.clear();
+    });
+
+    it('suppresses the false stuck warning for a live, long MCP tool call', () => {
+      // Reproduces the logged incident: state=tool_executing, processAlive=true,
+      // ~630s of silence (a codex/gemini MCP sub-agent review). No warning, no kill.
+      const softHandler = vi.fn();
+      const hardHandler = vi.fn();
+      graceDetector.on('process:suspect-stuck', softHandler);
+      graceDetector.on('process:stuck', hardHandler);
+      graceDetector.startTracking('inst-1');
+      graceDetector.updateState('inst-1', 'tool_executing');
+      aliveSet.add('inst-1');
+
+      vi.advanceTimersByTime(700_000); // 700s > the 630s false alarm
+      expect(softHandler).not.toHaveBeenCalled();
+      expect(hardHandler).not.toHaveBeenCalled();
+    });
+
+    it('resumes escalation past the grace ceiling (genuine hang still caught)', () => {
+      const softHandler = vi.fn();
+      const hardHandler = vi.fn();
+      graceDetector.on('process:suspect-stuck', softHandler);
+      graceDetector.on('process:stuck', hardHandler);
+      graceDetector.startTracking('inst-1');
+      graceDetector.updateState('inst-1', 'tool_executing');
+      aliveSet.add('inst-1');
+
+      // Within grace (20min) → silent.
+      vi.advanceTimersByTime(1_200_000);
+      expect(softHandler).not.toHaveBeenCalled();
+      expect(hardHandler).not.toHaveBeenCalled();
+
+      // Past grace → soft warning fires (after deferrals).
+      vi.advanceTimersByTime(40_000);
+      expect(softHandler).toHaveBeenCalled();
+
+      // Hard kill still lands at the alive ceiling (1200s × 2 = 2400s).
+      vi.advanceTimersByTime(1_200_000);
+      expect(hardHandler).toHaveBeenCalledWith(
+        expect.objectContaining({ instanceId: 'inst-1', state: 'tool_executing' })
+      );
+    });
+
+    it('does not apply the grace to a dead process in a tool call', () => {
+      // tool_executing but process NOT alive — kill at the base hard timeout.
+      const hardHandler = vi.fn();
+      graceDetector.on('process:stuck', hardHandler);
+      graceDetector.startTracking('inst-1');
+      graceDetector.updateState('inst-1', 'tool_executing');
+      // not added to aliveSet
+
+      vi.advanceTimersByTime(1_210_000); // base hard = 1200s, no alive multiplier
+      expect(hardHandler).toHaveBeenCalled();
+    });
+
+    it('does not apply the grace to the generating state', () => {
+      // A live process that should be streaming tokens but is silent stays suspect.
+      const softHandler = vi.fn();
+      graceDetector.on('process:suspect-stuck', softHandler);
+      graceDetector.startTracking('inst-1');
+      graceDetector.updateState('inst-1', 'generating');
+      aliveSet.add('inst-1');
+
+      vi.advanceTimersByTime(130_000); // well under the 20min grace, but generating isn't graced
+      expect(softHandler).toHaveBeenCalledWith(
+        expect.objectContaining({ instanceId: 'inst-1', state: 'generating' })
+      );
     });
   });
 

@@ -298,6 +298,15 @@ export class InstanceOrchestrationManager {
             scope: delegation.scope,
             reason: delegation.reason,
           });
+        } else if (delegation.multiFileEditBatch) {
+          // Part C: a large multi-file edit batch is a good delegation target —
+          // isolated child context + cheaper model instead of inline frontier edits.
+          logger.debug('Delegation advisory: large multi-file edit batch — good child candidate', {
+            parentId,
+            scope: delegation.scope,
+            maxParallel: delegation.maxParallel,
+            reason: delegation.reason,
+          });
         }
 
         try {

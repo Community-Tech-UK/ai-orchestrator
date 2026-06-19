@@ -26,6 +26,14 @@ export type DelegationScope = 'narrow' | 'broad';
 export const DEFAULT_BROAD_PARALLEL = 3;
 
 /**
+ * Part C lever — a multi-file edit batch touching at least this many files is
+ * worth delegating to an isolated child (cheaper model, isolated context)
+ * instead of editing inline. The orchestration prompt keeps small/few-file
+ * edits inline; this is the lowered bar above which batches delegate.
+ */
+export const DEFAULT_MULTIFILE_EDIT_DELEGATION_THRESHOLD = 4;
+
+/**
  * Minimum route confidence before a caller should *act* on a routed role (e.g.
  * override an otherwise-default agent). Below this the route is too ambiguous
  * to be worth changing behavior over.
@@ -52,12 +60,61 @@ export interface DelegationDecision {
   recommendDelegation: boolean;
   /** Max children to fan out in parallel (narrow → 1, broad → capped). */
   maxParallel: number;
+  /**
+   * Part C — true when the task is a large multi-file edit batch (many files
+   * getting the same kind of change). Such batches are forced broad and
+   * recommended for delegation to an isolated child.
+   */
+  multiFileEditBatch: boolean;
   reason: string;
 }
 
 export interface DelegationPolicyOptions {
   /** Hard ceiling on parallel fan-out (e.g. `maxChildrenPerParent`). 0 = use the default. */
   maxParallelCap?: number;
+  /**
+   * Known number of files the task will edit, when the caller can supply it
+   * (e.g. from a planned edit set). Takes precedence over text-extracted counts
+   * for the multi-file-edit-batch heuristic.
+   */
+  editFileCount?: number;
+  /** Override the multi-file-edit-batch file threshold. 0 = use the default. */
+  multiFileEditThreshold?: number;
+}
+
+/** Verbs that signal a task mutates code (as opposed to reading/finding it). */
+const EDIT_VERB_RE =
+  /\b(edit|edits|update|updates|change|changes|modify|modifies|replace|replaces|rename|renames|refactor|refactors|apply|applies|convert|converts|migrate|migrates|rewrite|rewrites|port|ports|bump|bumps|standardi[sz]e|normali[sz]e|add|remove|delete|fix|fixes)\b/i;
+
+/** Phrases that signal the edit spans many files / a wide surface. */
+const MULTIFILE_PHRASE_RE =
+  /\b(?:across (?:the )?(?:codebase|repo|repository|project|files|modules|components|callers)|every (?:file|module|component|caller|usage)|all (?:the )?(?:files|modules|components|tests|callers|usages|call sites)|throughout (?:the )?(?:codebase|repo|repository|project)|multiple files|many files|each (?:file|module|component))\b/i;
+
+/** Extract an explicit "N files/modules/callers/…" count from a task, if present. */
+function extractFileCount(task: string): number | undefined {
+  const match = task.match(
+    /\b(\d+)\s+(?:files|modules|components|tests|callers|call sites|places|usages|occurrences)\b/i,
+  );
+  if (!match) return undefined;
+  const n = Number.parseInt(match[1]!, 10);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/**
+ * Part C heuristic — true when a task is a *large* multi-file edit batch: it
+ * mutates code (edit verb) AND either an explicit/known file count meets the
+ * threshold or a multi-file phrase indicates a wide surface. Pure & deterministic.
+ */
+export function isMultiFileEditBatch(
+  task: string,
+  editFileCount?: number,
+  threshold: number = DEFAULT_MULTIFILE_EDIT_DELEGATION_THRESHOLD,
+): boolean {
+  const text = (task ?? '').trim();
+  if (!text || !EDIT_VERB_RE.test(text)) return false;
+  const count = editFileCount ?? extractFileCount(text);
+  const countQualifies = typeof count === 'number' && count >= threshold;
+  return countQualifies || MULTIFILE_PHRASE_RE.test(text);
 }
 
 /**
@@ -191,7 +248,15 @@ export function decideDelegation(
   options: DelegationPolicyOptions = {},
 ): DelegationDecision {
   const route = routeRole(task);
-  const scope = classifyScope(task);
+  const threshold =
+    options.multiFileEditThreshold && options.multiFileEditThreshold > 0
+      ? options.multiFileEditThreshold
+      : DEFAULT_MULTIFILE_EDIT_DELEGATION_THRESHOLD;
+  const multiFileEditBatch = isMultiFileEditBatch(task, options.editFileCount, threshold);
+
+  // Part C: a large multi-file edit batch is broad by definition — lower the bar
+  // so it delegates to an isolated child instead of being done inline.
+  const scope: DelegationScope = multiFileEditBatch ? 'broad' : classifyScope(task);
   const cap = options.maxParallelCap && options.maxParallelCap > 0
     ? Math.min(options.maxParallelCap, DEFAULT_BROAD_PARALLEL)
     : DEFAULT_BROAD_PARALLEL;
@@ -199,10 +264,17 @@ export function decideDelegation(
 
   const trimmed = (task ?? '').trim();
   const isTrivial =
+    !multiFileEditBatch &&
     scope === 'narrow' &&
     trimmed.length > 0 &&
     trimmed.length < 40 &&
     route.confidence < ROUTE_CONFIDENCE_THRESHOLD;
+
+  const reason = isTrivial
+    ? `trivial narrow task — likely cheaper to do inline than delegate (${route.reason})`
+    : multiFileEditBatch
+      ? `multi-file edit batch — delegate to an isolated child (${route.reason}); fan-out cap ${maxParallel}`
+      : `${scope} task — ${route.reason}; fan-out cap ${maxParallel}`;
 
   return {
     scope,
@@ -210,8 +282,7 @@ export function decideDelegation(
     routeConfidence: route.confidence,
     recommendDelegation: !isTrivial,
     maxParallel,
-    reason: isTrivial
-      ? `trivial narrow task — likely cheaper to do inline than delegate (${route.reason})`
-      : `${scope} task — ${route.reason}; fan-out cap ${maxParallel}`,
+    multiFileEditBatch,
+    reason,
   };
 }

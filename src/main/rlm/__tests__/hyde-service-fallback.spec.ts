@@ -4,10 +4,19 @@ const {
   mockEmbed,
   mockGetConfig,
   mockGetProviderStatus,
+  mockAuxGenerate,
+  mockLogger,
 } = vi.hoisted(() => ({
   mockEmbed: vi.fn(),
   mockGetConfig: vi.fn(),
   mockGetProviderStatus: vi.fn(),
+  mockAuxGenerate: vi.fn(),
+  mockLogger: {
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+  },
 }));
 
 vi.mock('../embedding-service', () => ({
@@ -25,13 +34,14 @@ vi.mock('../llm-service', () => ({
   })),
 }));
 
-vi.mock('../../logging/logger', () => ({
-  getLogger: vi.fn(() => ({
-    debug: vi.fn(),
-    error: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
+vi.mock('../auxiliary-llm-service', () => ({
+  getAuxiliaryLlmService: vi.fn(() => ({
+    generate: mockAuxGenerate,
   })),
+}));
+
+vi.mock('../../logging/logger', () => ({
+  getLogger: vi.fn(() => mockLogger),
 }));
 
 describe('HyDEService fallback behavior', () => {
@@ -53,6 +63,16 @@ describe('HyDEService fallback behavior', () => {
       ollama: null,
       openai: null,
       local: true,
+    });
+    mockAuxGenerate.mockResolvedValue({
+      text: '',
+      decision: {
+        slot: 'retrievalHypothesis',
+        provider: 'local-fallback',
+        source: 'fallback',
+        reason: 'test',
+        allowFrontierFallback: true,
+      },
     });
   });
 
@@ -87,6 +107,117 @@ describe('HyDEService fallback behavior', () => {
     expect(result.embedding).toEqual([0.1, 0.2, 0.3]);
     expect(mockEmbed).toHaveBeenCalledTimes(1);
     expect(mockEmbed).toHaveBeenCalledWith('explain context lookup');
+  });
+
+  it('callLLM returns a non-empty auxiliary retrievalHypothesis result without calling direct providers', async () => {
+    const { getHyDEService } = await import('../hyde-service');
+    const service = getHyDEService({
+      cacheEnabled: false,
+      enabled: true,
+      minQueryLength: 0,
+    });
+    mockAuxGenerate.mockResolvedValue({
+      text: '<doc>',
+      decision: {
+        slot: 'retrievalHypothesis',
+        provider: 'ollama',
+        source: 'local',
+        reason: 'test',
+        allowFrontierFallback: false,
+      },
+    });
+    const patched = service as unknown as {
+      callLLM: (systemPrompt: string, userPrompt: string) => Promise<string>;
+      callDirectProviders: (systemPrompt: string, userPrompt: string) => Promise<string>;
+    };
+    patched.callDirectProviders = vi.fn(async () => 'frontier doc');
+
+    await expect(patched.callLLM('sys', 'user')).resolves.toBe('<doc>');
+
+    expect(mockAuxGenerate).toHaveBeenCalledWith('retrievalHypothesis', 'sys', 'user');
+    expect(patched.callDirectProviders).not.toHaveBeenCalled();
+  });
+
+  it('callLLM uses direct providers when the auxiliary fallback allows frontier fallback', async () => {
+    const { getHyDEService } = await import('../hyde-service');
+    const service = getHyDEService({
+      cacheEnabled: false,
+      enabled: true,
+      minQueryLength: 0,
+    });
+    mockAuxGenerate.mockResolvedValue({
+      text: '',
+      decision: {
+        slot: 'retrievalHypothesis',
+        provider: 'local-fallback',
+        source: 'fallback',
+        reason: 'test',
+        allowFrontierFallback: true,
+      },
+    });
+    const patched = service as unknown as {
+      callLLM: (systemPrompt: string, userPrompt: string) => Promise<string>;
+      callDirectProviders: (systemPrompt: string, userPrompt: string) => Promise<string>;
+    };
+    patched.callDirectProviders = vi.fn(async () => 'frontier doc');
+
+    await expect(patched.callLLM('sys', 'user')).resolves.toBe('frontier doc');
+
+    expect(patched.callDirectProviders).toHaveBeenCalledWith('sys', 'user');
+  });
+
+  it('embed() direct-embeds expected auxiliary fallback without error log or error event', async () => {
+    mockAuxGenerate.mockResolvedValue({
+      text: '',
+      decision: {
+        slot: 'retrievalHypothesis',
+        provider: 'local-fallback',
+        source: 'fallback',
+        reason: 'test',
+        allowFrontierFallback: false,
+      },
+    });
+    const { getHyDEService } = await import('../hyde-service');
+    const service = getHyDEService({
+      cacheEnabled: false,
+      enabled: true,
+      minQueryLength: 0,
+    });
+    const errorListener = vi.fn();
+    service.on('error', errorListener);
+
+    const result = await service.embed('explain context lookup', { forceHyDE: true });
+
+    expect(result.hydeUsed).toBe(false);
+    expect(result.hypotheticalDocuments).toEqual([]);
+    expect(mockLogger.error).not.toHaveBeenCalled();
+    expect(errorListener).not.toHaveBeenCalled();
+  });
+
+  it('embed() logs and emits genuine auxiliary generation errors', async () => {
+    mockAuxGenerate.mockRejectedValue(new Error('aux provider exploded'));
+    const { getHyDEService } = await import('../hyde-service');
+    const service = getHyDEService({
+      cacheEnabled: false,
+      enabled: true,
+      minQueryLength: 0,
+    });
+    const errorListener = vi.fn();
+    service.on('error', errorListener);
+
+    const result = await service.embed('explain context lookup', { forceHyDE: true });
+
+    expect(result.hydeUsed).toBe(false);
+    expect(mockAuxGenerate).toHaveBeenCalled();
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      'Failed to generate hypothetical document',
+      expect.any(Error),
+      { query: 'explain context lookup' },
+    );
+    expect(errorListener).toHaveBeenCalledWith({
+      query: 'explain context lookup',
+      error: expect.any(Error),
+    });
   });
 
   it('embed() falls back to direct embedding within the configured timeout', async () => {

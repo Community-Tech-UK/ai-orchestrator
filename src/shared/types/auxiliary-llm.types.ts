@@ -13,7 +13,10 @@ export type AuxiliaryLlmSlot =
   | 'titleGeneration'
   | 'routingClassification'
   | 'approvalScoring'
-  | 'loopScoring';
+  | 'loopScoring'
+  | 'retrievalHypothesis'
+  | 'branchScoring'
+  | 'subQueryExecution';
 
 export type AuxiliaryLlmTier = 'quick' | 'quality';
 
@@ -32,6 +35,9 @@ export const DEFAULT_SLOT_TIERS: Record<AuxiliaryLlmSlot, AuxiliaryLlmTier> = {
   routingClassification: 'quick',
   approvalScoring: 'quick',
   loopScoring: 'quick',
+  retrievalHypothesis: 'quick',
+  branchScoring: 'quick',
+  subQueryExecution: 'quality',
 };
 
 export type AuxiliaryLlmProvider =

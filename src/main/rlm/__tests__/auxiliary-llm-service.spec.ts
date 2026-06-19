@@ -353,6 +353,16 @@ describe('AuxiliaryLlmService — JSON slot fallback text', () => {
 
     expect(text).toBe('');
   });
+
+  it('retrievalHypothesis fallback returns empty string', async () => {
+    const service = await getService();
+    service.configure(baseSettings({ auxiliaryLlmEnabled: false }));
+
+    const { text, decision } = await service.generate('retrievalHypothesis', 'sys', 'user');
+
+    expect(text).toBe('');
+    expect(decision.source).toBe('fallback');
+  });
 });
 
 describe('AuxiliaryLlmService — prompt truncation', () => {

@@ -26,8 +26,10 @@ import {
   DEFAULT_CONFIG,
   SUMMARIZE_SYSTEM_PROMPT,
   SUBQUERY_SYSTEM_PROMPT,
+  LLM_UNAVAILABLE_TEXT,
 } from './llm-service.constants';
 import { getAuxiliaryLlmService } from './auxiliary-llm-service';
+import type { AuxiliaryLlmSlot } from '../../shared/types/auxiliary-llm.types';
 
 // Re-export public API so existing importers are unaffected.
 export type {
@@ -269,6 +271,77 @@ Answer:`;
       });
 
       return `Unable to process sub-query: ${(error as Error).message}`;
+    }
+  }
+
+  /**
+   * Execute a sub-query, routing grunt-work through the auxiliary LLM service
+   * first (local/remote-GPU model) before the frontier cloud ladder.
+   *
+   * Control flow mirrors the A3 auxiliary pattern (see `summarize()`):
+   *  1. Aux produced a real result (`source !== 'fallback'` and non-empty) → use it.
+   *  2. Aux fell back but the slot allows frontier escalation → run the preserved
+   *     `subQuery()` path (today's cloud/localhost ladder + its own fallback).
+   *  3. Aux fell back and frontier escalation is disallowed → return the
+   *     deterministic local-unavailable sentinel. Callers that JSON-parse the
+   *     result (branch/loop scoring) degrade to their neutral value naturally.
+   *
+   * `subQuery()` itself is left untouched so excluded callers (answer-agent,
+   * hook-executor, the renderer IPC pass-through) keep their current behavior.
+   */
+  async subQueryViaAux(slot: AuxiliaryLlmSlot, request: SubQueryRequest): Promise<string> {
+    const userPrompt = `Context:
+${request.context}
+
+Question: ${request.prompt}
+
+Answer:`;
+
+    try {
+      const { text, decision } = await getAuxiliaryLlmService().generate(
+        slot,
+        SUBQUERY_SYSTEM_PROMPT,
+        userPrompt
+      );
+
+      if (decision.source !== 'fallback' && text.trim()) {
+        this.emit('sub_query:complete', {
+          requestId: request.requestId,
+          response: text,
+          depth: request.depth,
+          tokens: {
+            input: this.countTokens(request.context + request.prompt),
+            output: this.countTokens(text),
+          },
+        } as SubQueryResponse);
+        return text;
+      }
+
+      if (decision.allowFrontierFallback) {
+        // Preserve today's behavior: cloud/localhost ladder + subQuery's fallback.
+        return this.subQuery(request);
+      }
+
+      // Frontier escalation disallowed for this slot — deterministic local result.
+      // Emit a completion for parity with subQuery() and the real-aux path above,
+      // so event consumers (telemetry/UI) still see a terminal sub_query:complete.
+      this.emit('sub_query:complete', {
+        requestId: request.requestId,
+        response: LLM_UNAVAILABLE_TEXT,
+        depth: request.depth,
+        tokens: {
+          input: this.countTokens(request.context + request.prompt),
+          output: this.countTokens(LLM_UNAVAILABLE_TEXT),
+        },
+      } as SubQueryResponse);
+      return LLM_UNAVAILABLE_TEXT;
+    } catch (error) {
+      // Auxiliary service unavailable in this context — preserve old behavior.
+      logger.debug('Auxiliary subQuery failed; falling back to frontier subQuery', {
+        slot,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return this.subQuery(request);
     }
   }
 
@@ -871,7 +944,7 @@ Answer:`;
       return this.fallbackSummarize(content, targetTokens);
     }
 
-    return '[LLM unavailable - unable to process query. Please configure an LLM provider (Anthropic, OpenAI, or Ollama) for intelligent responses.]';
+    return LLM_UNAVAILABLE_TEXT;
   }
 
   /**

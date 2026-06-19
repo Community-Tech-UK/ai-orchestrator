@@ -154,4 +154,73 @@ describe('HistoryRestoreCoordinator', () => {
       code: 'HISTORY_NOT_FOUND',
     } satisfies Partial<HistoryRestoreError>);
   });
+
+  describe('adapter resume proof (B1/B2)', () => {
+    it('accepts native resume immediately when adapter confirms same session ID', async () => {
+      // Create an instance whose adapter returns a confirmed native resume proof.
+      const nativeInstance = makeInstance({ id: 'native-instance', status: 'idle' });
+      getInstance.mockImplementation((id: string) =>
+        id === 'native-instance' ? nativeInstance : undefined,
+      );
+
+      // Provide an adapter with confirmed getResumeAttemptResult via getAdapter.
+      const confirmedAdapter = {
+        getResumeAttemptResult: () => ({
+          source: 'native' as const,
+          confirmed: true,
+          requestedSessionId: 'native-session',
+          actualSessionId: 'native-session',
+        }),
+      };
+      (manager as unknown as Record<string, unknown>).getAdapter = (id: string) =>
+        id === 'native-instance' ? confirmedAdapter : undefined;
+
+      createInstance.mockImplementation(
+        async (config: { sessionId?: string; historyThreadId?: string }) =>
+          makeInstance({
+            id: 'native-instance',
+            historyThreadId: config.historyThreadId ?? 'history-thread',
+          }),
+      );
+
+      const result = await coordinator.restore(manager, 'entry-1');
+
+      expect(result.restoreMode).toBe('native-resume');
+    });
+
+    it('returns resume-unconfirmed when adapter reports fresh-fallback but instance is alive', async () => {
+      // fresh-fallback means the adapter did NOT attempt native resume, so proof=false.
+      // The instance is still alive → coordinator returns resume-unconfirmed (not replay-fallback),
+      // because the instance is up and usable even without native resume confirmation.
+      const aliveInstance = makeInstance({ id: 'fallback-proof-instance', status: 'idle' });
+      getInstance.mockImplementation((id: string) =>
+        id === 'fallback-proof-instance' ? aliveInstance : undefined,
+      );
+
+      const fallbackAdapter = {
+        getResumeAttemptResult: () => ({
+          source: 'fresh-fallback' as const,
+          confirmed: false,
+        }),
+      };
+      (manager as unknown as Record<string, unknown>).getAdapter = (id: string) =>
+        id === 'fallback-proof-instance' ? fallbackAdapter : undefined;
+
+      createInstance.mockImplementation(
+        async (config: { sessionId?: string; historyThreadId?: string; initialOutputBuffer?: OutputMessage[] }) =>
+          makeInstance({
+            id: 'fallback-proof-instance',
+            historyThreadId: config.historyThreadId ?? 'history-thread',
+            outputBuffer: config.initialOutputBuffer ?? [],
+          }),
+      );
+
+      const result = await coordinator.restore(manager, 'entry-1');
+
+      // Alive + unconfirmed → resume-unconfirmed (proof=false short-circuits the heuristic poll)
+      expect(result.restoreMode).toBe('resume-unconfirmed');
+      // markNativeResumeFailed is NOT called — the instance is alive, just unconfirmed
+      expect(markNativeResumeFailed).not.toHaveBeenCalled();
+    });
+  });
 });

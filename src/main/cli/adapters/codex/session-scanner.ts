@@ -19,6 +19,12 @@ export interface CodexSessionScanResult {
 
 const HEADER_SCAN_BYTES = 4096;
 
+/** D12: Cap the number of rollout files scanned per lookup to prevent startup hangs on large ~/.codex/sessions. */
+const MAX_FILES_TO_SCAN = 100;
+
+/** D12: Abort a scan early if wall-clock exceeds this budget. */
+const SCAN_TIMEOUT_MS = 10_000;
+
 export class CodexSessionScanner {
   private cache = new Map<string, CodexSessionScanResult | null>();
   private sessionsDir: string;
@@ -32,8 +38,17 @@ export class CodexSessionScanner {
       return this.cache.get(workspacePath)!;
     }
 
-    const files = this.collectJsonlFiles();
+    const files = this.collectJsonlFiles().slice(0, MAX_FILES_TO_SCAN);
+    const deadline = Date.now() + SCAN_TIMEOUT_MS;
+    let scanned = 0;
+    let timedOut = false;
     for (const filePath of files) {
+      if (Date.now() > deadline) {
+        logger.warn('Codex session scan deadline exceeded', { scanned, total: files.length, workspacePath });
+        timedOut = true;
+        break;
+      }
+      scanned++;
       if (!this.headerMatchesCwd(filePath, workspacePath)) {
         continue;
       }
@@ -44,13 +59,24 @@ export class CodexSessionScanner {
       }
     }
 
-    this.cache.set(workspacePath, null);
+    // Only cache null when the scan completed fully; a timed-out scan may have
+    // missed a valid session file — leave the cache empty so the next call retries.
+    if (!timedOut) {
+      this.cache.set(workspacePath, null);
+    }
     return null;
   }
 
   async findSessionByThreadId(threadId: string): Promise<CodexSessionScanResult | null> {
-    const files = this.collectJsonlFiles();
+    const files = this.collectJsonlFiles().slice(0, MAX_FILES_TO_SCAN);
+    const deadline = Date.now() + SCAN_TIMEOUT_MS;
+    let scanned = 0;
     for (const filePath of files) {
+      if (Date.now() > deadline) {
+        logger.warn('Codex session scan deadline exceeded', { scanned, total: files.length, threadId });
+        break;
+      }
+      scanned++;
       const result = await this.streamParseJsonl(filePath, null, threadId);
       if (result) {
         return result;

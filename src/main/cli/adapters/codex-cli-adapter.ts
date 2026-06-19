@@ -723,7 +723,54 @@ export class CodexCliAdapter extends BaseCliAdapter {
         }
       }
 
-      // Step 2: Scan filesystem for threadId
+      // Step 2: Prefer thread/list over filesystem scan — query the server's own thread
+      // index for this workspace before falling back to JSONL file walking (D12).
+      if (!threadId && this.shouldResumeNextTurn) {
+        try {
+          const listResult = await client.request('thread/list', {
+            cwd,
+            limit: 5,
+            sortKey: 'updated_at',
+            sortDirection: 'desc',
+          });
+          const candidate = listResult.data?.[0];
+          if (candidate?.id) {
+            const requestedSessionId = candidate.id;
+            try {
+              const resumeResult = await client.request('thread/resume', {
+                threadId: requestedSessionId,
+                cwd,
+                model: this.cliConfig.model || null,
+                approvalPolicy,
+                sandbox,
+              });
+              threadId = resumeResult.threadId || resumeResult.thread?.id || null;
+              resumeSource = 'thread-list';
+              this.lastResumeAttemptResult = {
+                source: 'native',
+                confirmed: Boolean(threadId),
+                requestedSessionId,
+                actualSessionId: threadId ?? undefined,
+              };
+              logger.info('App-server thread resumed from thread/list', { threadId, candidateId: requestedSessionId });
+            } catch (resumeErr) {
+              if (this.isRecoverableThreadResumeError(resumeErr)) {
+                logger.warn('thread/list candidate resume failed (recoverable), falling through to JSONL scan', {
+                  candidateId: requestedSessionId,
+                  error: String(resumeErr),
+                });
+              } else {
+                throw resumeErr;
+              }
+            }
+          }
+        } catch (listErr) {
+          // thread/list unsupported or failed — not fatal, fall through to JSONL scan
+          logger.debug('thread/list unavailable or failed, falling through to JSONL scan', { error: String(listErr) });
+        }
+      }
+
+      // Step 3: Scan filesystem for threadId (last resort before fresh start)
       if (!threadId && this.shouldResumeNextTurn) {
         const scanResult = await this.sessionScanner.findSessionForWorkspace(cwd);
         if (scanResult) {
@@ -769,7 +816,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
         }
       }
 
-      // Step 3 & 4: Fresh start (replay continuity preamble is handled at a higher level by SessionContinuityManager)
+      // Step 4: Fresh start (replay continuity preamble is handled at a higher level by SessionContinuityManager)
       if (!threadId) {
         const startResult = await client.request('thread/start', {
           cwd,

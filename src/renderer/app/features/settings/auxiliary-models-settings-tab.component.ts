@@ -41,6 +41,9 @@ const SLOTS: AuxiliaryLlmSlot[] = [
   'routingClassification',
   'approvalScoring',
   'loopScoring',
+  'retrievalHypothesis',
+  'branchScoring',
+  'subQueryExecution',
 ];
 
 const PROVIDERS = ['ollama', 'openai-compatible'] as const;
@@ -58,6 +61,9 @@ const WIRED_SLOTS = new Set<AuxiliaryLlmSlot>([
   'loopScoring',
   'approvalScoring',
   'routingClassification',
+  'retrievalHypothesis',
+  'branchScoring',
+  'subQueryExecution',
 ]);
 
 /** Inline test state for a single slot row. */

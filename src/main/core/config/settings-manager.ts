@@ -9,7 +9,7 @@ import * as path from 'path';
 import { app } from 'electron';
 import type { AppSettings } from '../../../shared/types/settings.types';
 import { DEFAULT_SETTINGS } from '../../../shared/types/settings.types';
-import { backfillSlotTiers, raiseSlotOutputBudget } from '../../rlm/auxiliary-llm-utils';
+import { backfillSlotTiers, mergeMissingDefaultSlots, raiseSlotOutputBudget } from '../../rlm/auxiliary-llm-utils';
 import { getLogger } from '../../logging/logger';
 import { PAUSE_SETTING_VALIDATORS, type Validator } from './settings-validators';
 
@@ -127,6 +127,9 @@ export class SettingsManager extends EventEmitter {
     // local models, which spend it all thinking and emit an empty title. Raise
     // existing installs to 512 so titles actually generate.
     this.migrateTitleGenerationBudget();
+    // Slot additions should appear in existing installs without a one-shot key;
+    // this key-based merge self-heals future slot additions without churn.
+    this.migrateAuxiliaryMissingSlots();
     // Seed per-provider model memory from existing defaultModel/defaultCli on
     // first launch after this feature lands. This avoids an empty map showing
     // 'opus' for Claude and nothing else.
@@ -328,6 +331,17 @@ export class SettingsManager extends EventEmitter {
     }
 
     migrationStore.set(AUX_TITLE_BUDGET_MIGRATION_KEY, true);
+  }
+
+  private migrateAuxiliaryMissingSlots(): void {
+    const raw = this.store.get('auxiliaryLlmSlotsJson');
+    if (typeof raw !== 'string') return;
+
+    const updated = mergeMissingDefaultSlots(raw);
+    if (updated !== null) {
+      logger.info('Merging missing default auxiliary slots into existing config');
+      this.store.set('auxiliaryLlmSlotsJson', updated);
+    }
   }
 
   /**

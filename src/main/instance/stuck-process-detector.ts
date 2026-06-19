@@ -33,6 +33,24 @@ const TIMEOUTS: Record<string, TimeoutConfig> = {
 const ALIVE_PROCESS_TIMEOUT_MULTIPLIER = 2;
 
 /**
+ * Grace window for a live process sitting in `tool_executing`.
+ *
+ * A process blocked in a tool call is legitimately waiting on a long-running
+ * tool — most often a `codex`/`gemini` MCP sub-agent review — which emits no
+ * output for many minutes. Logs confirmed the false alarm this caused:
+ * `state=tool_executing, processAlive=true`, ~630s of silence surfaced
+ * "Instance may be stuck — will auto-restart", and the eventual hard kill
+ * (40min for an alive tool turn) would abort a legitimate review.
+ *
+ * While the process is demonstrably alive and under this ceiling, stuck
+ * escalation is suppressed entirely (the silence is expected). Past the
+ * ceiling, normal soft→hard escalation resumes so a genuinely hung tool is
+ * still caught. Scoped to `tool_executing` only — prolonged silence while
+ * `generating` is genuinely suspect and keeps its existing thresholds.
+ */
+const TOOL_EXECUTING_ALIVE_GRACE_MS = 1_200_000; // 20 minutes
+
+/**
  * Maximum number of times we defer a timeout for a still-alive process,
  * by state. `tool_executing` gets more headroom (tools can legitimately
  * run for several minutes); all other states (e.g. `generating`) get just
@@ -68,6 +86,13 @@ export interface StuckDetectorOptions {
    * provider process is expected and should not produce stuck warnings.
    */
   hasExternalActivity?: (instanceId: string) => boolean;
+  /**
+   * Grace window (ms) for a live process sitting in `tool_executing` before
+   * stuck escalation resumes. Long MCP sub-agent reviews (codex/gemini) can be
+   * silent for many minutes; raise this for workloads with long tool turns.
+   * Defaults to `TOOL_EXECUTING_ALIVE_GRACE_MS`.
+   */
+  toolExecutingAliveGraceMs?: number;
 }
 
 interface ProcessTracker {
@@ -87,12 +112,15 @@ export class StuckProcessDetector extends EventEmitter {
   private checkInterval: NodeJS.Timeout | null = null;
   private isProcessAlive: ((instanceId: string) => boolean) | undefined;
   private hasExternalActivity: ((instanceId: string) => boolean) | undefined;
+  private readonly toolExecutingAliveGraceMs: number;
   private lastCheckTime = Date.now();
 
   constructor(options?: StuckDetectorOptions) {
     super();
     this.isProcessAlive = options?.isProcessAlive;
     this.hasExternalActivity = options?.hasExternalActivity;
+    this.toolExecutingAliveGraceMs =
+      options?.toolExecutingAliveGraceMs ?? TOOL_EXECUTING_ALIVE_GRACE_MS;
     this.checkInterval = setInterval(() => this.checkAll(), CHECK_INTERVAL_MS);
     if (this.checkInterval.unref) this.checkInterval.unref();
     registerCleanup(() => this.shutdown());
@@ -196,10 +224,22 @@ export class StuckProcessDetector extends EventEmitter {
       // terminating active work. Soft warnings use the base threshold
       // but are deferred while the process is alive (up to a cap).
       const processAlive = this.isProcessAlive?.(instanceId) ?? false;
+
+      // Long-tool grace: a live process blocked in `tool_executing` is
+      // legitimately waiting on a long-running tool (e.g. a codex/gemini MCP
+      // sub-agent review) that emits no output for minutes. While alive and
+      // under the grace ceiling, suppress the soft/hard stuck escalation only
+      // (interactive-prompt detection below still runs); past the ceiling the
+      // normal escalation resumes so a genuinely hung tool is still caught.
+      const inToolExecutingGrace =
+        tracker.instanceState === 'tool_executing' &&
+        processAlive &&
+        elapsed < this.toolExecutingAliveGraceMs;
+
       const hardMultiplier = processAlive ? ALIVE_PROCESS_TIMEOUT_MULTIPLIER : 1;
       const effectiveHardMs = config.hardMs * hardMultiplier;
 
-      if (elapsed >= effectiveHardMs) {
+      if (!inToolExecutingGrace && elapsed >= effectiveHardMs) {
         logger.warn('Process stuck — hard timeout exceeded', {
           instanceId,
           state: tracker.instanceState,
@@ -213,7 +253,7 @@ export class StuckProcessDetector extends EventEmitter {
           elapsedMs: elapsed,
         });
         this.trackers.delete(instanceId);
-      } else if (elapsed >= config.softMs && !tracker.softWarningEmitted) {
+      } else if (!inToolExecutingGrace && elapsed >= config.softMs && !tracker.softWarningEmitted) {
         // If process is alive and we haven't exhausted deferrals, defer
         // instead of warning — the instance is actively working.
         const maxDeferrals = MAX_ALIVE_DEFERRALS_BY_STATE[tracker.instanceState] ?? DEFAULT_MAX_ALIVE_DEFERRALS;

@@ -222,6 +222,38 @@ describe('InterruptRespawnHandler', () => {
     expect(queueUpdate.mock.calls.map((call) => call[1])).toEqual(['interrupting', 'cancelling', 'idle']);
   });
 
+  it('interrupt completion deadline fires and treats never-settling completion as rejected (A3)', async () => {
+    vi.useFakeTimers();
+    try {
+      // completion promise that never resolves — simulates a wedged provider
+      adapter.interrupt.mockReturnValueOnce({
+        status: 'accepted' as const,
+        turnId: 'turn-1',
+        completion: new Promise<never>(() => undefined),
+      });
+
+      handler.interrupt(instance.id);
+      expect(instance.status).toBe('interrupting');
+      expect(instance.respawnPromise).toBeDefined();
+
+      // Advance past INTERRUPT_COMPLETION_DEADLINE_MS (15 000ms).
+      // withOperationDeadline rejects → handleInterruptCompletion treats the
+      // result as 'rejected' → instance: interrupting → cancelling → idle.
+      await vi.advanceTimersByTimeAsync(16_000);
+
+      expect(instance.status).toBe('idle');
+      expect(instance.interruptPhase).toBe('completed');
+      expect(instance.lastTurnOutcome).toBe('interrupted');
+      // respawnPromise resolved — instance no longer holds a reference
+      expect(instance.respawnPromise).toBeUndefined();
+      // Force-abort net was cleared when respawnPromise resolved at the 15s mark;
+      // adapter.terminate(true) must NOT have been called.
+      expect(adapter.terminate).not.toHaveBeenCalledWith(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('escalates a second interrupt into a recoverable cancelled state', async () => {
     instance.status = 'interrupting';
     instance.interruptRequestId = 'interrupt-1';

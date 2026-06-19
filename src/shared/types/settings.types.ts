@@ -564,6 +564,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     routingClassification: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 45000, requireJson: true, allowFrontierFallback: false },
     approvalScoring: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 45000, requireJson: true, allowFrontierFallback: false },
     loopScoring: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 32000, maxOutputTokens: 1024, temperature: 0, timeoutMs: 30000, requireJson: true, allowFrontierFallback: false },
+    retrievalHypothesis: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 4096, maxOutputTokens: 300, temperature: 0.3, timeoutMs: 2500, requireJson: false, allowFrontierFallback: false },
+    branchScoring: { enabled: true, provider: 'auto', tier: 'quick', maxInputTokens: 16000, maxOutputTokens: 512, temperature: 0, timeoutMs: 30000, requireJson: true, allowFrontierFallback: true },
+    subQueryExecution: { enabled: false, provider: 'auto', tier: 'quality', maxInputTokens: 64000, maxOutputTokens: 2048, temperature: 0.2, timeoutMs: 45000, requireJson: false, allowFrontierFallback: true },
   }),
 };
 

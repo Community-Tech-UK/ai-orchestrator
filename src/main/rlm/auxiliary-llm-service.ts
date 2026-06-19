@@ -120,7 +120,7 @@ const JSON_FALLBACK_TEXT =
   '{"score":0,"confidence":0,"reason":"No auxiliary model available"}';
 
 /** Slots that return empty string (not JSON) on fallback. */
-const EMPTY_FALLBACK_SLOTS = new Set<AuxiliaryLlmSlot>(['compression', 'memoryDistillation']);
+const EMPTY_FALLBACK_SLOTS = new Set<AuxiliaryLlmSlot>(['compression', 'memoryDistillation', 'retrievalHypothesis']);
 
 // ─── Internal types ───────────────────────────────────────────────────────────
 

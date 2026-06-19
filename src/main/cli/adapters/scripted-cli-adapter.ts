@@ -31,6 +31,7 @@ import type {
   CliResponse,
   CliStatus,
   CliToolCall,
+  TurnInterruptCompletion,
   CliUsage,
   InterruptResult,
 } from './base-cli-adapter.types';
@@ -51,6 +52,23 @@ export type ScriptStep =
  */
 export type ScriptedTurn = ScriptStep[] | ((message: CliMessage) => ScriptStep[]);
 
+/**
+ * Phase 0 fault-injection modes for interrupt/terminate behaviour.
+ *
+ * - `normal`            — `interrupt()` returns `accepted` with a never-settling
+ *                         completion (the default; tests must drive termination).
+ * - `completion-settles`— `interrupt()` returns `accepted` with a completion
+ *                         promise that resolves to `interrupted`.
+ * - `completion-never-settles` — `interrupt()` returns accepted with a promise
+ *                         that never resolves (deadline path test).
+ * - `ignores-sigterm`   — `terminate()` is a no-op; the adapter never exits.
+ */
+export type InterruptFaultMode =
+  | 'normal'
+  | 'completion-settles'
+  | 'completion-never-settles'
+  | 'ignores-sigterm';
+
 export interface ScriptedAdapterOptions {
   /** Reuse an external bus (e.g. shared across adapters); one is created if omitted. */
   receiptBus?: ReceiptBus;
@@ -64,6 +82,11 @@ export interface ScriptedAdapterOptions {
   turns?: ScriptedTurn[];
   /** Played when the turn queue is empty (defaults to a single empty completion). */
   defaultTurn?: ScriptedTurn;
+  /**
+   * Controls how interrupt() and terminate() behave (Phase 0 fault injection).
+   * Default: 'normal'.
+   */
+  interruptFaultMode?: InterruptFaultMode;
 }
 
 const DEFAULT_CAPABILITIES: CliCapabilities = {
@@ -98,6 +121,7 @@ export class ScriptedCliAdapter extends BaseCliAdapter {
   private idCounter = 0;
   private spawnedEmitted = false;
   private terminated = false;
+  private readonly interruptFaultMode: InterruptFaultMode;
   /** Promise tracking the currently-playing turn, awaited by `drain()`. */
   private inflight: Promise<void> = Promise.resolve();
   /** Records inputs delivered via `sendInput`, for assertions. */
@@ -117,6 +141,7 @@ export class ScriptedCliAdapter extends BaseCliAdapter {
       ...options.runtimeCapabilities,
     };
     this.syntheticPid = options.pid ?? 424242;
+    this.interruptFaultMode = options.interruptFaultMode ?? 'normal';
     this.defaultTurn = options.defaultTurn ?? [{ kind: 'complete' }];
     if (options.turns) this.turnQueue.push(...options.turns);
   }
@@ -189,10 +214,29 @@ export class ScriptedCliAdapter extends BaseCliAdapter {
     if (!this.isRunning()) {
       return { status: 'already-idle', reason: 'No running scripted turn to interrupt' };
     }
-    return { status: 'accepted' };
+    switch (this.interruptFaultMode) {
+      case 'completion-settles': {
+        const completion = Promise.resolve<TurnInterruptCompletion>({
+          status: 'interrupted',
+          turnId: undefined,
+        });
+        return { status: 'accepted', completion };
+      }
+      case 'completion-never-settles': {
+        // Never-settling completion: used to test the interrupt-completion deadline (A3).
+        const completion = new Promise<TurnInterruptCompletion>(() => undefined);
+        return { status: 'accepted', completion };
+      }
+      default:
+        return { status: 'accepted' };
+    }
   }
 
   override async terminate(graceful = true): Promise<void> {
+    if (this.interruptFaultMode === 'ignores-sigterm') {
+      // Fault injection: adapter ignores SIGTERM — never emits exit.
+      return;
+    }
     await super.terminate(graceful);
     if (this.spawnedEmitted && !this.terminated) {
       this.terminated = true;

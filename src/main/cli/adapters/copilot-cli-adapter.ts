@@ -27,6 +27,8 @@ import {
   CliStatus,
   CliUsage,
 } from './base-cli-adapter';
+import type { ResumeAttemptResult } from './base-cli-adapter';
+import { isSessionNotFoundText } from './resume-error-classifier';
 import { getLogger } from '../../logging/logger';
 import type {
   OutputMessage,
@@ -77,6 +79,8 @@ export class CopilotCliAdapter extends BaseCliAdapter {
    *  Used on subsequent turns via `--resume=<id>` to stitch multi-turn conversations
    *  together without maintaining a persistent process. */
   private copilotSessionId: string | null = null;
+  /** Resume proof for the most recent sendInput() call (B1/B2). */
+  private lastResumeAttemptResult: ResumeAttemptResult | null = null;
   /** Reasoning blocks accumulated during the current turn (reset per message). */
   private currentMessageReasoning: ThinkingContent[] = [];
 
@@ -421,6 +425,14 @@ export class CopilotCliAdapter extends BaseCliAdapter {
 
           case 'session.error': {
             const sessionErrMsg = event.data?.message ?? 'Copilot session error';
+            // Mark native resume as definitively failed if this is a session-not-found signal (B2).
+            if (this.lastResumeAttemptResult?.source === 'native' && isSessionNotFoundText(sessionErrMsg)) {
+              this.lastResumeAttemptResult = {
+                ...this.lastResumeAttemptResult,
+                confirmed: false,
+                reason: 'session-not-found',
+              };
+            }
             // Also emit as an `error` OutputMessage so it lands in the
             // instance's output buffer and becomes visible in the UI plus
             // in the child-exit summary fallback.
@@ -440,6 +452,14 @@ export class CopilotCliAdapter extends BaseCliAdapter {
             // and per-session usage.
             if (event.sessionId) {
               this.copilotSessionId = event.sessionId;
+              // Confirm or deny native resume proof (B2).
+              if (this.lastResumeAttemptResult?.source === 'native') {
+                this.lastResumeAttemptResult = {
+                  ...this.lastResumeAttemptResult,
+                  confirmed: event.sessionId === this.lastResumeAttemptResult.requestedSessionId,
+                  actualSessionId: event.sessionId,
+                };
+              }
             }
             if (event.usage) {
               const usage = event.usage;
@@ -778,6 +798,17 @@ export class CopilotCliAdapter extends BaseCliAdapter {
     // credit input bytes against context occupancy.
     this.cumulativeTokensUsed += this.estimateTokens(message);
 
+    // Record resume attempt proof (B2).
+    if (this.copilotSessionId) {
+      this.lastResumeAttemptResult = {
+        source: 'native',
+        confirmed: false,
+        requestedSessionId: this.copilotSessionId,
+      };
+    } else {
+      this.lastResumeAttemptResult = { source: 'fresh-fallback', confirmed: false };
+    }
+
     this.emit('status', 'busy' as InstanceStatus);
 
     try {
@@ -811,10 +842,15 @@ export class CopilotCliAdapter extends BaseCliAdapter {
     await super.terminate(graceful);
     this.isSpawned = false;
     this.copilotSessionId = null;
+    this.lastResumeAttemptResult = null;
     this.currentMessageReasoning = [];
     if (wasSpawned) {
       this.emit('exit', 0, null);
     }
+  }
+
+  getResumeAttemptResult(): ResumeAttemptResult | null {
+    return this.lastResumeAttemptResult;
   }
 
   // ============ Additional API surface preserved from the SDK adapter ============

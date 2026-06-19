@@ -217,7 +217,7 @@ export class RLMContextManager extends EventEmitter {
         ) => void;
       }) => {
         try {
-          const response = await this.llmService!.subQuery({
+          const response = await this.llmService!.subQueryViaAux('subQueryExecution', {
             requestId: request.callId,
             prompt: request.prompt,
             context: request.context,

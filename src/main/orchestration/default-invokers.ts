@@ -876,7 +876,12 @@ async function scoreCandidatesListwise(
       '0..1 by how well its diff advances the goal (correct, complete, maintainable; prefer ' +
       'candidates whose verify passed). Respond with ONLY a JSON object mapping candidate id ' +
       'to score, e.g. {"abc":0.8,"def":0.3}. No other text.';
-    const raw = await llm.subQuery({
+    // Route branch scoring through the auxiliary service (local/remote-GPU
+    // first). `branchScoring` defaults to `allowFrontierFallback:true`, so an
+    // unhealthy/disabled aux model preserves today's cloud-first escalation; a
+    // terminal failure yields the local-unavailable text whose JSON parse fails
+    // → `{}` (heuristic ranking), exactly like today.
+    const raw = await llm.subQueryViaAux('branchScoring', {
       requestId: `loop-branch-listwise-${Date.now()}`,
       prompt: `GOAL:\n${goal}\n\n${prompt}`,
       context,

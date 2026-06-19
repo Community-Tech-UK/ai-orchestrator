@@ -113,7 +113,7 @@ export interface ResumeCursor {
   /** Epoch ms when cursor was captured — used for staleness check */
   capturedAt: number;
   /** How this cursor was obtained */
-  scanSource: 'native' | 'jsonl-scan' | 'replay';
+  scanSource: 'native' | 'jsonl-scan' | 'thread-list' | 'replay';
 }
 
 /**
@@ -229,6 +229,9 @@ export interface ResumeOptions {
   validateParallelToolResults?: boolean;
 }
 
+/** D12: Maximum time to wait for async init before operating in degraded mode. */
+const INIT_TIMEOUT_MS = 30_000;
+
 const DEFAULT_CONFIG: ContinuityConfig = {
   autoSaveEnabled: true,
   autoSaveIntervalMs: 60000, // 1 minute
@@ -265,6 +268,8 @@ export class SessionContinuityManager extends EventEmitter {
   private dehydratedStateIds = new Set<string>();
   private stateActivityTimestamps = new Map<string, number>();
   private readyPromise: Promise<void>;
+  /** D12: true when initAsync did not complete within INIT_TIMEOUT_MS. */
+  private initDegraded = false;
   private readonly autoSave: SessionAutoSaveCoordinator;
   private snapshotIndex: SnapshotIndex;
   /** Extracted termination gate orchestration. */
@@ -315,8 +320,50 @@ export class SessionContinuityManager extends EventEmitter {
         logger.error('Auto-save failed', error instanceof Error ? error : undefined, { instanceId });
       },
     });
-    this.readyPromise = this.initAsync();
+    // D12: race initAsync against a hard deadline so a hung filesystem never
+    // prevents the app from starting.  Clear the timeout if init wins the race
+    // so the timer doesn't fire spuriously and set initDegraded after completion.
+    let initTimeoutId: ReturnType<typeof setTimeout> | undefined;
+    const clearInitTimeout = (): void => {
+      if (initTimeoutId !== undefined) {
+        clearTimeout(initTimeoutId);
+        initTimeoutId = undefined;
+      }
+    };
+    this.readyPromise = Promise.race([
+      // Handle the rejection explicitly rather than via .finally(): when the
+      // timeout wins the race this branch may still settle later, and a .finally
+      // would re-throw an init failure as an unhandled rejection — precisely in
+      // the hung/broken-filesystem scenario this deadline exists to survive.
+      this.initAsync().then(
+        () => clearInitTimeout(),
+        (error) => {
+          clearInitTimeout();
+          this.initDegraded = true;
+          logger.error(
+            'Session continuity init failed — operating in degraded mode',
+            error instanceof Error ? error : undefined,
+          );
+        },
+      ),
+      new Promise<void>((resolve) => {
+        initTimeoutId = setTimeout(() => {
+          initTimeoutId = undefined;
+          logger.warn('Session continuity init timed out — operating in degraded mode', {
+            timeoutMs: INIT_TIMEOUT_MS,
+          });
+          this.initDegraded = true;
+          resolve();
+        }, INIT_TIMEOUT_MS);
+        if (typeof initTimeoutId.unref === 'function') initTimeoutId.unref();
+      }),
+    ]);
     registerCleanup(() => this.shutdown());
+  }
+
+  /** D12: Returns true if the init deadline fired before the filesystem finished loading. */
+  isInitDegraded(): boolean {
+    return this.initDegraded;
   }
 
   /**
@@ -339,6 +386,7 @@ export class SessionContinuityManager extends EventEmitter {
     await this.buildSnapshotIndex();
     await this.pruneOnStartup();
     this.startGlobalAutoSave();
+    this.initDegraded = false;
   }
 
   /**

@@ -10,6 +10,9 @@ const ALL_SLOTS: AuxiliaryLlmSlot[] = [
   'routingClassification',
   'approvalScoring',
   'loopScoring',
+  'retrievalHypothesis',
+  'branchScoring',
+  'subQueryExecution',
 ];
 
 describe('DEFAULT_SETTINGS — auxiliary LLM fields', () => {
@@ -25,11 +28,49 @@ describe('DEFAULT_SETTINGS — auxiliary LLM fields', () => {
     expect(() => JSON.parse(DEFAULT_SETTINGS.auxiliaryLlmSlotsJson)).not.toThrow();
   });
 
-  it('auxiliaryLlmSlotsJson contains all seven slots', () => {
+  it('auxiliaryLlmSlotsJson contains all ten slots', () => {
     const slots = JSON.parse(DEFAULT_SETTINGS.auxiliaryLlmSlotsJson) as AuxiliaryLlmSlotConfigMap;
     for (const slot of ALL_SLOTS) {
       expect(slots).toHaveProperty(slot);
     }
+  });
+
+  it('retrievalHypothesis defaults to a quick local-only HyDE helper slot', () => {
+    const slots = JSON.parse(DEFAULT_SETTINGS.auxiliaryLlmSlotsJson) as AuxiliaryLlmSlotConfigMap;
+
+    expect(slots.retrievalHypothesis).toMatchObject({
+      enabled: true,
+      provider: 'auto',
+      tier: 'quick',
+      maxOutputTokens: 300,
+      timeoutMs: 2500,
+      requireJson: false,
+      allowFrontierFallback: false,
+    });
+  });
+
+  it('branchScoring defaults to a quick JSON scoring slot with frontier fallback', () => {
+    const slots = JSON.parse(DEFAULT_SETTINGS.auxiliaryLlmSlotsJson) as AuxiliaryLlmSlotConfigMap;
+
+    expect(slots.branchScoring).toMatchObject({
+      enabled: true,
+      provider: 'auto',
+      tier: 'quick',
+      requireJson: true,
+      allowFrontierFallback: true,
+    });
+  });
+
+  it('subQueryExecution defaults to an opt-in (disabled) quality slot with frontier fallback', () => {
+    const slots = JSON.parse(DEFAULT_SETTINGS.auxiliaryLlmSlotsJson) as AuxiliaryLlmSlotConfigMap;
+
+    expect(slots.subQueryExecution).toMatchObject({
+      enabled: false,
+      provider: 'auto',
+      tier: 'quality',
+      requireJson: false,
+      allowFrontierFallback: true,
+    });
   });
 
   it('every slot has positive timeoutMs', () => {

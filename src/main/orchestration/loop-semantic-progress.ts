@@ -122,7 +122,13 @@ async function runDefaultSemanticReview(
       'Set "advanced" to true ONLY if the latest iteration meaningfully moved ' +
       'toward the goal. Set "confidence" to how sure you are (0 = a guess).';
 
-    const raw = await llm.subQuery({
+    // Route loop scoring through the auxiliary service (local/remote-GPU first).
+    // The `loopScoring` slot defaults to `allowFrontierFallback:false`, so when
+    // aux is enabled but no healthy aux model exists this yields the deterministic
+    // local-unavailable text → parseSemanticResult → NEUTRAL_SEMANTIC_RESULT
+    // (advisory heuristic, never frontier tokens). When aux is off/disabled the
+    // slot allows frontier fallback, preserving today's cloud ladder.
+    const raw = await llm.subQueryViaAux('loopScoring', {
       requestId: `loop-semantic-${Date.now()}`,
       prompt,
       context,

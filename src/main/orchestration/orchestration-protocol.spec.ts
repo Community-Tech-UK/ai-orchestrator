@@ -93,8 +93,12 @@ describe('generateOrchestrationPrompt', () => {
 
     it('tells the parent not to spawn children for sequential, single-file, or simple-read tasks', () => {
       expect(prompt).toMatch(/Do NOT spawn children for:[\s\S]*Sequential analysis/);
-      expect(prompt).toMatch(/Single-file or few-file tasks/);
+      expect(prompt).toMatch(/Single-file or few-file edits/);
       expect(prompt).toMatch(/Simple file reading/);
+    });
+
+    it('tells the parent that large multi-file edit batches are a good child target (Part C)', () => {
+      expect(prompt).toMatch(/Spawn children ONLY when:[\s\S]*multi-file edit batch/i);
     });
 
     it('tells the parent to retry once and then do the work directly on failure', () => {

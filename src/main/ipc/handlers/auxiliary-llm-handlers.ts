@@ -8,6 +8,7 @@
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { getAuxiliaryLlmService } from '../../rlm/auxiliary-llm-service';
+import { HYDE_PROMPTS } from '../../rlm/hyde-service.constants';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getLogger } from '../../logging/logger';
 import type { IpcResponse } from '../validated-handler';
@@ -51,6 +52,18 @@ const SLOT_TEST_PROMPTS: Record<AuxiliaryLlmSlot, { system: string; user: string
   loopScoring: {
     system: 'You provide an advisory quality score for an agent loop step. Respond ONLY with JSON: {"score":number,"confidence":number,"reason":string}.',
     user: 'Score this loop step on a scale of 0-1: "Ran the test suite, all green, task complete." Respond as JSON.',
+  },
+  retrievalHypothesis: {
+    system: HYDE_PROMPTS['mixed'],
+    user: 'Search query: "how is retry/backoff implemented?"',
+  },
+  branchScoring: {
+    system: 'You score candidate code diffs by how well each advances the goal. Respond ONLY with a JSON object mapping candidate id to a 0-1 score.',
+    user: 'GOAL: add retry to the API client.\nCANDIDATE id=a (verify=PASS): wraps fetch in a 3-try backoff loop.\nCANDIDATE id=b (verify=FAIL): adds a comment only. Respond as JSON, e.g. {"a":0.8,"b":0.1}.',
+  },
+  subQueryExecution: {
+    system: 'You answer a focused sub-question using only the provided context.',
+    user: 'Context: The retry helper lives in src/net/retry.ts and uses exponential backoff.\n\nQuestion: Where is backoff implemented?\n\nAnswer:',
   },
 };
 
