@@ -84,6 +84,7 @@ describe('BrowserProcessLauncher', () => {
           '--no-first-run',
           '--no-default-browser-check',
           '--disable-background-networking',
+          '--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling',
         ]),
       }),
     );

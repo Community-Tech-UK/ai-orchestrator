@@ -119,6 +119,28 @@ describe('browser extension assets', () => {
     expect(background).not.toMatch(/pollInFlight = false;\s*\n\s*if \(!message \|\| message\.type !== 'browser_command'/);
   });
 
+  it('keeps controlled tabs unfrozen and undiscarded against background throttling', () => {
+    const background = readFileSync('resources/browser-extension/background.js', 'utf-8');
+    const manifest = JSON.parse(
+      readFileSync('resources/browser-extension/manifest.json', 'utf-8'),
+    ) as { permissions?: string[] };
+
+    // Persistent anti-discard survives between commands (CDP overrides do not).
+    expect(background).toContain('function preventTabDiscard');
+    expect(background).toContain('autoDiscardable: false');
+    // Focus/lifecycle overrides applied for the duration of every CDP session so
+    // a backgrounded tab is not throttled/frozen mid-command.
+    expect(background).toContain('function applyDebuggerKeepAlive');
+    expect(background).toContain("'Emulation.setFocusEmulationEnabled'");
+    expect(background).toContain("'Page.setWebLifecycleState'");
+    expect(background).toContain("state: 'active'");
+    // Both run as part of taking control of a tab / opening a CDP session.
+    expect(background).toContain('preventTabDiscard(tabId)');
+    expect(background).toContain('await applyDebuggerKeepAlive(debuggee)');
+    // autoDiscardable requires the tabs permission (already present).
+    expect(manifest.permissions).toContain('tabs');
+  });
+
   it('buffers native-host messages and backs off reconnects', () => {
     const background = readFileSync('resources/browser-extension/background.js', 'utf-8');
 

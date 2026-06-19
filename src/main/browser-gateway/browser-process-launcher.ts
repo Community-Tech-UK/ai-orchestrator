@@ -166,6 +166,16 @@ export class BrowserProcessLauncher {
           '--no-first-run',
           '--no-default-browser-check',
           '--disable-background-networking',
+          // Keep CDP-driven tabs responsive when they are not the foreground
+          // tab. Background/occluded renderers otherwise get their timers and
+          // rAF throttled (and can be frozen/discarded), which silently times
+          // out canvas/element CDP calls mid-automation. Puppeteer already adds
+          // --disable-background-timer-throttling,
+          // --disable-backgrounding-occluded-windows and
+          // --disable-renderer-backgrounding by default; the two features below
+          // are NOT covered by those defaults. Puppeteer merges this value into
+          // its own --disable-features list rather than overriding it.
+          '--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling',
         ],
       });
 

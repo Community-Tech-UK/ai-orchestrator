@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "scripts/generate-architecture-inventory.js",
   "ipc": {
-    "channelCount": 996,
+    "channelCount": 997,
     "channels": [
       {
         "name": "INSTANCE_CREATE",
@@ -4695,294 +4695,299 @@
         "line": 1184
       },
       {
+        "name": "LOOP_RESUME_WITH_ANSWERS",
+        "value": "loop:resume-with-answers",
+        "line": 1187
+      },
+      {
         "name": "LOOP_STARTED",
         "value": "loop:started",
-        "line": 1187
+        "line": 1190
       },
       {
         "name": "LOOP_ITERATION_STARTED",
         "value": "loop:iteration-started",
-        "line": 1188
+        "line": 1191
       },
       {
         "name": "LOOP_ACTIVITY",
         "value": "loop:activity",
-        "line": 1189
+        "line": 1192
       },
       {
         "name": "LOOP_ITERATION_COMPLETE",
         "value": "loop:iteration-complete",
-        "line": 1190
+        "line": 1193
       },
       {
         "name": "LOOP_PAUSED_NO_PROGRESS",
         "value": "loop:paused-no-progress",
-        "line": 1191
+        "line": 1194
       },
       {
         "name": "LOOP_CLAIMED_DONE_BUT_FAILED",
         "value": "loop:claimed-done-but-failed",
-        "line": 1192
+        "line": 1195
       },
       {
         "name": "LOOP_TERMINAL_INTENT_RECORDED",
         "value": "loop:terminal-intent-recorded",
-        "line": 1193
+        "line": 1196
       },
       {
         "name": "LOOP_TERMINAL_INTENT_REJECTED",
         "value": "loop:terminal-intent-rejected",
-        "line": 1194
+        "line": 1197
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_STARTED",
         "value": "loop:fresh-eyes-review-started",
-        "line": 1195
+        "line": 1198
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_PASSED",
         "value": "loop:fresh-eyes-review-passed",
-        "line": 1196
+        "line": 1199
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_FAILED",
         "value": "loop:fresh-eyes-review-failed",
-        "line": 1197
+        "line": 1200
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_BLOCKED",
         "value": "loop:fresh-eyes-review-blocked",
-        "line": 1198
+        "line": 1201
       },
       {
         "name": "LOOP_INTERVENTION_APPLIED",
         "value": "loop:intervention-applied",
-        "line": 1199
+        "line": 1202
       },
       {
         "name": "LOOP_COMPLETED",
         "value": "loop:completed",
-        "line": 1200
+        "line": 1203
       },
       {
         "name": "LOOP_COMPLETED_NEEDS_REVIEW",
         "value": "loop:completed-needs-review",
-        "line": 1202
+        "line": 1205
       },
       {
         "name": "LOOP_NOTES_CURATED",
         "value": "loop:notes-curated",
-        "line": 1204
+        "line": 1207
       },
       {
         "name": "LOOP_CONTEXT_COMPACTED",
         "value": "loop:context-compacted",
-        "line": 1206
+        "line": 1209
       },
       {
         "name": "LOOP_BRANCH_SELECT",
         "value": "loop:branch-select",
-        "line": 1208
+        "line": 1211
       },
       {
         "name": "LOOP_PLAN_REGENERATED",
         "value": "loop:plan-regenerated",
-        "line": 1210
+        "line": 1213
       },
       {
         "name": "LOOP_FAILED",
         "value": "loop:failed",
-        "line": 1211
+        "line": 1214
       },
       {
         "name": "LOOP_CAP_REACHED",
         "value": "loop:cap-reached",
-        "line": 1212
+        "line": 1215
       },
       {
         "name": "LOOP_PROVIDER_LIMIT",
         "value": "loop:provider-limit",
-        "line": 1217
+        "line": 1220
       },
       {
         "name": "LOOP_CANCELLED",
         "value": "loop:cancelled",
-        "line": 1218
+        "line": 1221
       },
       {
         "name": "LOOP_ERROR",
         "value": "loop:error",
-        "line": 1219
+        "line": 1222
       },
       {
         "name": "LOOP_STATE_CHANGED",
         "value": "loop:state-changed",
-        "line": 1220
+        "line": 1223
       },
       {
         "name": "LOOP_OUTSTANDING_CHANGED",
         "value": "loop:outstanding-changed",
-        "line": 1223
+        "line": 1226
       },
       {
         "name": "MOBILE_GATEWAY_GET_STATUS",
         "value": "mobile-gateway:get-status",
-        "line": 1225
+        "line": 1228
       },
       {
         "name": "MOBILE_GATEWAY_START",
         "value": "mobile-gateway:start",
-        "line": 1226
+        "line": 1229
       },
       {
         "name": "MOBILE_GATEWAY_STOP",
         "value": "mobile-gateway:stop",
-        "line": 1227
+        "line": 1230
       },
       {
         "name": "MOBILE_GATEWAY_ISSUE_PAIRING",
         "value": "mobile-gateway:issue-pairing",
-        "line": 1228
+        "line": 1231
       },
       {
         "name": "MOBILE_GATEWAY_LIST_DEVICES",
         "value": "mobile-gateway:list-devices",
-        "line": 1229
+        "line": 1232
       },
       {
         "name": "MOBILE_GATEWAY_REVOKE_DEVICE",
         "value": "mobile-gateway:revoke-device",
-        "line": 1230
+        "line": 1233
       },
       {
         "name": "TERMINAL_SPAWN",
         "value": "terminal:spawn",
-        "line": 1233
+        "line": 1236
       },
       {
         "name": "TERMINAL_WRITE",
         "value": "terminal:write",
-        "line": 1234
+        "line": 1237
       },
       {
         "name": "TERMINAL_RESIZE",
         "value": "terminal:resize",
-        "line": 1235
+        "line": 1238
       },
       {
         "name": "TERMINAL_KILL",
         "value": "terminal:kill",
-        "line": 1236
+        "line": 1239
       },
       {
         "name": "TERMINAL_OUTPUT",
         "value": "terminal:output",
-        "line": 1239
+        "line": 1242
       },
       {
         "name": "TERMINAL_EXIT",
         "value": "terminal:exit",
-        "line": 1240
+        "line": 1243
       },
       {
         "name": "TERMINAL_SPAWNED",
         "value": "terminal:spawned",
-        "line": 1241
+        "line": 1244
       },
       {
         "name": "AUXILIARY_LLM_LIST_CANDIDATES",
         "value": "auxiliary-llm:list-candidates",
-        "line": 1243
+        "line": 1246
       },
       {
         "name": "AUXILIARY_LLM_PROBE_ENDPOINT",
         "value": "auxiliary-llm:probe-endpoint",
-        "line": 1244
+        "line": 1247
       },
       {
         "name": "AUXILIARY_LLM_TEST_GENERATE",
         "value": "auxiliary-llm:test-generate",
-        "line": 1245
+        "line": 1248
       },
       {
         "name": "AUXILIARY_LLM_SAVE_SETTINGS",
         "value": "auxiliary-llm:save-settings",
-        "line": 1246
+        "line": 1249
       },
       {
         "name": "AUXILIARY_LLM_EXTRACT_WEB",
         "value": "auxiliary-llm:extract-web",
-        "line": 1247
+        "line": 1250
       },
       {
         "name": "CAMPAIGN_START",
         "value": "campaign:start",
-        "line": 1250
+        "line": 1253
       },
       {
         "name": "CAMPAIGN_GET",
         "value": "campaign:get",
-        "line": 1251
+        "line": 1254
       },
       {
         "name": "CAMPAIGN_LIST",
         "value": "campaign:list",
-        "line": 1252
+        "line": 1255
       },
       {
         "name": "CAMPAIGN_HALT",
         "value": "campaign:halt",
-        "line": 1253
+        "line": 1256
       },
       {
         "name": "CAMPAIGN_RESUME",
         "value": "campaign:resume",
-        "line": 1254
+        "line": 1257
       },
       {
         "name": "CAMPAIGN_VALIDATE",
         "value": "campaign:validate",
-        "line": 1255
+        "line": 1258
       },
       {
         "name": "CAMPAIGN_STATE_CHANGED",
         "value": "campaign:state-changed",
-        "line": 1258
+        "line": 1261
       },
       {
         "name": "CAMPAIGN_NODE_STARTED",
         "value": "campaign:node-started",
-        "line": 1259
+        "line": 1262
       },
       {
         "name": "CAMPAIGN_NODE_TERMINAL",
         "value": "campaign:node-terminal",
-        "line": 1260
+        "line": 1263
       },
       {
         "name": "CAMPAIGN_NODE_SKIPPED",
         "value": "campaign:node-skipped",
-        "line": 1261
+        "line": 1264
       },
       {
         "name": "CAMPAIGN_PAUSED",
         "value": "campaign:paused",
-        "line": 1262
+        "line": 1265
       },
       {
         "name": "CAMPAIGN_COMPLETED",
         "value": "campaign:completed",
-        "line": 1263
+        "line": 1266
       },
       {
         "name": "CAMPAIGN_FAILED",
         "value": "campaign:failed",
-        "line": 1264
+        "line": 1267
       },
       {
         "name": "CAMPAIGN_HALTED",
         "value": "campaign:halted",
-        "line": 1265
+        "line": 1268
       }
     ]
   },
@@ -5086,11 +5091,11 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3219
+      "lines": 3251
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
-      "lines": 3218
+      "lines": 3246
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -5145,28 +5150,28 @@
       "lines": 2339
     },
     {
+      "path": "src/main/instance/instance-communication.ts",
+      "lines": 2252
+    },
+    {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
       "lines": 2219
     },
     {
-      "path": "src/main/instance/instance-communication.ts",
-      "lines": 2196
-    },
-    {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2156
+      "lines": 2178
     },
     {
       "path": "docs/superpowers/plans/2026-04-09-resilient-codex-resume-and-agent-observability_completed.md",
       "lines": 2117
     },
     {
-      "path": "docs/superpowers/plans/2026-04-02-phase-c-reliability-lifecycle.md",
-      "lines": 2112
+      "path": "src/main/cli/adapters/acp-cli-adapter.ts",
+      "lines": 2113
     },
     {
-      "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2109
+      "path": "docs/superpowers/plans/2026-04-02-phase-c-reliability-lifecycle.md",
+      "lines": 2112
     },
     {
       "path": "docs/superpowers/plans/2026-04-13-codemem-phase1-index-and-lsp-facade_completed.md",
@@ -5186,7 +5191,7 @@
     },
     {
       "path": "resources/browser-extension/background.js",
-      "lines": 2019
+      "lines": 2053
     },
     {
       "path": "docs/superpowers/plans/2026-04-17-wave1-contracts-subpath-exports.md",
@@ -5205,6 +5210,10 @@
       "lines": 1867
     },
     {
+      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
+      "lines": 1865
+    },
+    {
       "path": "packages/contracts/src/types/transport.types.ts",
       "lines": 1832
     },
@@ -5217,16 +5226,12 @@
       "lines": 1803
     },
     {
-      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
-      "lines": 1803
-    },
-    {
       "path": "src/main/instance/__tests__/instance-manager.spec.ts",
       "lines": 1767
     },
     {
       "path": "src/main/session/session-continuity.ts",
-      "lines": 1710
+      "lines": 1753
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
@@ -5353,6 +5358,10 @@
       "lines": 1296
     },
     {
+      "path": "src/main/instance/instance-communication.spec.ts",
+      "lines": 1294
+    },
+    {
       "path": "src/main/cli/adapters/__tests__/cursor-cli-adapter.spec.ts",
       "lines": 1278
     },
@@ -5381,10 +5390,6 @@
       "lines": 1253
     },
     {
-      "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 1249
-    },
-    {
       "path": "docs/plans/2026-05-12-loop-terminal-control-spec_completed.md",
       "lines": 1246
     },
@@ -5403,6 +5408,10 @@
     {
       "path": "docs/superpowers/plans/2026-03-14-session-recovery-features.md",
       "lines": 1231
+    },
+    {
+      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
+      "lines": 1222
     },
     {
       "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
@@ -5493,10 +5502,6 @@
       "lines": 1091
     },
     {
-      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
-      "lines": 1087
-    },
-    {
       "path": "src/renderer/app/features/file-explorer/file-explorer.component.ts",
       "lines": 1069
     },
@@ -5514,7 +5519,7 @@
     },
     {
       "path": "src/main/cli/adapters/cursor-cli-adapter.ts",
-      "lines": 1047
+      "lines": 1042
     },
     {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
@@ -5669,6 +5674,10 @@
       "lines": 909
     },
     {
+      "path": "src/main/cli/adapters/base-cli-adapter.ts",
+      "lines": 899
+    },
+    {
       "path": "src/main/workspace/lsp-manager.ts",
       "lines": 899
     },
@@ -5679,6 +5688,10 @@
     {
       "path": "src/renderer/app/features/replay/session-replay-page.component.ts",
       "lines": 893
+    },
+    {
+      "path": "src/main/cli/adapters/gemini-cli-adapter.ts",
+      "lines": 892
     },
     {
       "path": "src/renderer/app/features/verification/config/api-key-manager.component.ts",
@@ -5695,10 +5708,6 @@
     {
       "path": "src/main/orchestration/consensus-coordinator.ts",
       "lines": 888
-    },
-    {
-      "path": "src/main/cli/adapters/gemini-cli-adapter.ts",
-      "lines": 887
     },
     {
       "path": "src/main/chats/chat-service.spec.ts",
@@ -5787,10 +5796,6 @@
     {
       "path": "src/renderer/app/features/mcp/mcp-page.component.scss",
       "lines": 840
-    },
-    {
-      "path": "src/main/cli/adapters/base-cli-adapter.ts",
-      "lines": 839
     },
     {
       "path": "src/main/orchestration/event-store/__tests__/event-store.spec.ts",

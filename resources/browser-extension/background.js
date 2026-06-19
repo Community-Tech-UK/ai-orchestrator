@@ -548,10 +548,28 @@ async function attachAndRunDebugger(tabId, callback) {
   const debuggee = { tabId };
   await attachDebugger(debuggee);
   try {
+    await applyDebuggerKeepAlive(debuggee);
     return await callback(debuggee);
   } finally {
     await chrome.debugger.detach(debuggee).catch(() => undefined);
   }
+}
+
+// For the duration of this CDP session, make the tab report as focused/visible
+// and force it out of the frozen/discarded lifecycle states. When a tab is not
+// the foreground tab Chrome throttles its timers/rAF and can freeze the
+// renderer, which silently stalls a command mid-flight (the gateway then sees a
+// timeout, and a blind retry of a non-idempotent action duplicates work). These
+// overrides are tied to the debugger session and reset on detach, so they are
+// re-applied on every session; preventTabDiscard() covers the idle gaps between
+// commands when no debugger is attached.
+async function applyDebuggerKeepAlive(debuggee) {
+  await chrome.debugger
+    .sendCommand(debuggee, 'Emulation.setFocusEmulationEnabled', { enabled: true })
+    .catch(() => undefined);
+  await chrome.debugger
+    .sendCommand(debuggee, 'Page.setWebLifecycleState', { state: 'active' })
+    .catch(() => undefined);
 }
 
 // Attach with a short retry: the detach of a just-finished session can still
@@ -1327,9 +1345,25 @@ async function startControlledTab(tabId) {
     return;
   }
   await Promise.all([
+    preventTabDiscard(tabId),
     markControlledTabGroup(tabId),
     installControlGlow(tabId),
   ]);
+}
+
+// Keep Chrome's Memory Saver from freezing/discarding a tab we are actively
+// driving. A discarded/frozen tab loses its renderer (and debugger target),
+// which silently times out subsequent commands. autoDiscardable is a persistent
+// per-tab flag that survives between commands — unlike the CDP focus/lifecycle
+// overrides in applyDebuggerKeepAlive(), which reset when the debugger detaches.
+// Intentionally not restored on stopControlledTab: a tab the user shared with
+// Harness should stay alive across the whole session, and the discard risk is
+// highest precisely when the tab sits idle between commands.
+async function preventTabDiscard(tabId) {
+  if (typeof tabId !== 'number' || !chrome.tabs?.update) {
+    return;
+  }
+  await chrome.tabs.update(tabId, { autoDiscardable: false }).catch(() => undefined);
 }
 
 async function stopControlledTab(tabId) {

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserProfile } from '@contracts/types/browser';
 import { BrowserTargetRegistry } from './browser-target-registry';
 import { PuppeteerBrowserDriver } from './puppeteer-browser-driver';
@@ -26,6 +26,10 @@ function makeIsolatedProfile(): BrowserProfile {
 }
 
 describe('PuppeteerBrowserDriver', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('opens a profile and indexes browser pages as targets', async () => {
     const page = {
       url: () => 'http://localhost:4567',
@@ -380,6 +384,117 @@ describe('PuppeteerBrowserDriver', () => {
       url: 'http://localhost:4567/mutated',
       title: 'Mutated',
     });
+  });
+
+  it('keeps CDP-driven pages focused and alive against background throttling', async () => {
+    vi.useFakeTimers();
+    const sendCalls: { method: string; params?: Record<string, unknown> }[] = [];
+    const detach = vi.fn(async () => undefined);
+    const cdpSession = {
+      send: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+        sendCalls.push({ method, ...(params ? { params } : {}) });
+      }),
+      detach,
+    };
+    const page = {
+      url: () => 'http://localhost:4567',
+      title: async () => 'Local',
+      createCDPSession: vi.fn(async () => cdpSession),
+    };
+    const browser = {
+      pages: async () => [page],
+    };
+    const closeProfile = vi.fn();
+    const driver = new PuppeteerBrowserDriver({
+      launcher: {
+        launchProfile: vi.fn().mockResolvedValue({}),
+        getBrowser: () => browser,
+        closeProfile,
+      },
+      targetRegistry: new BrowserTargetRegistry(),
+      lifecycleHeartbeatMs: 1_000,
+    });
+
+    const [target] = await driver.openProfile(makeProfile());
+
+    const methods = () => sendCalls.map((call) => call.method);
+    expect(sendCalls).toContainEqual({
+      method: 'Emulation.setFocusEmulationEnabled',
+      params: { enabled: true },
+    });
+    expect(sendCalls).toContainEqual({
+      method: 'Page.setWebLifecycleState',
+      params: { state: 'active' },
+    });
+    expect(methods()).toContain('Page.enable');
+
+    const lifecycleCallsBefore = methods().filter((m) => m === 'Page.setWebLifecycleState').length;
+    await vi.advanceTimersByTimeAsync(1_000);
+    const lifecycleCallsAfter = methods().filter((m) => m === 'Page.setWebLifecycleState').length;
+    expect(lifecycleCallsAfter).toBe(lifecycleCallsBefore + 1);
+
+    await driver.closeProfile(target.id.split(':')[0]!);
+    expect(detach).toHaveBeenCalled();
+
+    const lifecycleCallsAtClose = methods().filter((m) => m === 'Page.setWebLifecycleState').length;
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(methods().filter((m) => m === 'Page.setWebLifecycleState').length).toBe(
+      lifecycleCallsAtClose,
+    );
+  });
+
+  it('keeps mid-session tabs alive by re-indexing on targetcreated', async () => {
+    const pageA = { url: () => 'http://localhost:4567/a', title: async () => 'A' };
+    const pageB = { url: () => 'http://localhost:4567/b', title: async () => 'B' };
+    let pages: Array<typeof pageA> = [pageA];
+    const handlers: Record<string, () => void> = {};
+    const browser = {
+      pages: async () => pages,
+      on: (event: string, handler: () => void) => {
+        handlers[event] = handler;
+      },
+    };
+    const targetRegistry = new BrowserTargetRegistry();
+    const driver = new PuppeteerBrowserDriver({
+      launcher: {
+        launchProfile: vi.fn().mockResolvedValue({}),
+        getBrowser: () => browser,
+        closeProfile: vi.fn(),
+      },
+      targetRegistry,
+      antiThrottle: false,
+    });
+
+    await driver.openProfile(makeProfile());
+    expect(typeof handlers['targetcreated']).toBe('function');
+    expect(targetRegistry.listTargets('profile-1')).toHaveLength(1);
+
+    // A tab opened mid-session must be picked up without an explicit listTargets.
+    pages = [pageA, pageB];
+    handlers['targetcreated']!();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(targetRegistry.listTargets('profile-1')).toHaveLength(2);
+  });
+
+  it('skips anti-throttle setup for pages without a CDP session', async () => {
+    const page = {
+      url: () => 'http://localhost:4567',
+      title: async () => 'Local',
+    };
+    const browser = {
+      pages: async () => [page],
+    };
+    const driver = new PuppeteerBrowserDriver({
+      launcher: {
+        launchProfile: vi.fn().mockResolvedValue({}),
+        getBrowser: () => browser,
+        closeProfile: vi.fn(),
+      },
+      targetRegistry: new BrowserTargetRegistry(),
+    });
+
+    await expect(driver.openProfile(makeProfile())).resolves.toHaveLength(1);
   });
 
   it('uses browser download events and returns completed download metadata', async () => {

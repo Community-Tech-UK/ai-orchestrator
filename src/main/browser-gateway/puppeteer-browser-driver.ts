@@ -37,6 +37,13 @@ import {
   evaluatePageBridge,
   isPageBridgeSnapshot,
 } from './browser-page-bridge';
+import {
+  BrowserAntiThrottle,
+  type AntiThrottlePage,
+} from './browser-anti-throttle';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('PuppeteerBrowserDriver');
 
 export interface BrowserSnapshot {
   title: string;
@@ -80,6 +87,10 @@ export interface PuppeteerBrowserDriverOptions {
     'launchProfile' | 'getBrowser' | 'closeProfile'
   >;
   targetRegistry?: BrowserTargetRegistry;
+  /** Keep backgrounded CDP tabs unthrottled/undiscarded (see BrowserAntiThrottle). Default true. */
+  antiThrottle?: boolean;
+  /** Interval (ms) between lifecycle keep-alive heartbeats. */
+  lifecycleHeartbeatMs?: number;
 }
 
 export class PuppeteerBrowserDriver {
@@ -94,10 +105,32 @@ export class PuppeteerBrowserDriver {
   private readonly instrumentedTargetIds = new Set<string>();
   private readonly profileModesById = new Map<string, BrowserProfileMode>();
   private readonly profileDownloadDirsById = new Map<string, string>();
+  private readonly antiThrottle: BrowserAntiThrottle;
+  private readonly targetWatchedProfiles = new Set<string>();
 
   constructor(options: PuppeteerBrowserDriverOptions = {}) {
     this.launcher = options.launcher ?? new BrowserProcessLauncher();
     this.targetRegistry = options.targetRegistry ?? getBrowserTargetRegistry();
+    this.antiThrottle = new BrowserAntiThrottle({
+      enabled: options.antiThrottle ?? true,
+      ...(typeof options.lifecycleHeartbeatMs === 'number'
+        ? { heartbeatMs: options.lifecycleHeartbeatMs }
+        : {}),
+      createSession: (page) => this.createPageSession(page as unknown as Page),
+      onWedged: (targetId) =>
+        logger.warn(
+          `Browser target ${targetId} appears wedged: lifecycle pings still succeed but `
+          + 'renderer probes are timing out. Element/canvas operations will likely time out; '
+          + 'reload the target to recover instead of retrying.',
+        ),
+      onRecovered: (targetId) =>
+        logger.info(`Browser target ${targetId} recovered and is responsive again.`),
+    });
+  }
+
+  /** Targets whose renderer is wedged (browser-process pings ok, renderer probes time out). */
+  listWedgedTargets(): string[] {
+    return this.antiThrottle.wedgedTargets();
   }
 
   async openProfile(
@@ -120,6 +153,7 @@ export class PuppeteerBrowserDriver {
         startUrl,
         ...(typeof preferredDebugPort === 'number' ? { preferredDebugPort } : {}),
       });
+      this.watchProfileTargets(profile.id);
       return this.indexPages(profile.id);
     } catch (error) {
       this.profileModesById.delete(profile.id);
@@ -128,9 +162,11 @@ export class PuppeteerBrowserDriver {
   }
 
   async closeProfile(profileId: string): Promise<void> {
+    await this.antiThrottle.stopForProfile(profileId);
     await this.launcher.closeProfile(profileId);
     this.profileModesById.delete(profileId);
     this.profileDownloadDirsById.delete(profileId);
+    this.targetWatchedProfiles.delete(profileId);
     this.targetRegistry.clearProfile(profileId);
     for (const targetId of Array.from(this.pagesByTargetId.keys())) {
       if (targetId.startsWith(`${profileId}:`)) {
@@ -140,6 +176,25 @@ export class PuppeteerBrowserDriver {
         this.instrumentedTargetIds.delete(targetId);
       }
     }
+  }
+
+  // Subscribe to `targetcreated` so tabs opened mid-session (window.open,
+  // target=_blank) get keep-alive immediately rather than staying unprotected
+  // until the next listTargets() re-index. Best-effort: a launcher whose browser
+  // exposes no event emitter (e.g. test doubles) simply forgoes this.
+  private watchProfileTargets(profileId: string): void {
+    if (this.targetWatchedProfiles.has(profileId)) {
+      return;
+    }
+    const browser = this.launcher.getBrowser(profileId) as
+      | (Browser & { on?: (event: string, handler: () => void) => unknown }) | null | undefined;
+    if (!browser || typeof browser.on !== 'function') {
+      return;
+    }
+    this.targetWatchedProfiles.add(profileId);
+    browser.on('targetcreated', () => {
+      void this.indexPages(profileId).catch(() => undefined);
+    });
   }
 
   async listTargets(profileId: string): Promise<BrowserTarget[]> {
@@ -500,6 +555,7 @@ export class PuppeteerBrowserDriver {
       const targetId = `${profileId}:${index}`;
       this.pagesByTargetId.set(targetId, page);
       this.instrumentPage(targetId, page);
+      await this.antiThrottle.register(targetId, page as unknown as AntiThrottlePage);
       const target = await this.refreshPageTarget(profileId, targetId, page);
       targets.push(target);
     }

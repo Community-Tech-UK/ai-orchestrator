@@ -17,6 +17,7 @@ import { resolveAioMcpCliPath } from '../util/aio-mcp-cli-path';
 
 const logger = getLogger('BrowserGatewayRuntime');
 
+export * from './browser-anti-throttle';
 export * from './browser-audit-store';
 export * from './browser-action-classifier';
 export * from './browser-auto-approve';
