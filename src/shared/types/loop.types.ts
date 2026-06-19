@@ -46,7 +46,7 @@ export type LoopReviewStyle =
 export type LoopContextStrategy = 'fresh-child' | 'hybrid' | 'same-session';
 
 /** Concrete provider for child iterations. `auto` is resolved before persistence. */
-export type LoopProvider = 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor';
+export type LoopProvider = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor';
 
 export interface LoopProgressThresholds {
   /** Identical-work-hash WARN threshold. */

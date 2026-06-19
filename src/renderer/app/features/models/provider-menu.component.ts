@@ -17,15 +17,16 @@ import type { PickerProvider } from './compact-model-picker.types';
  * The new-session/instance-draft surface passes a wider list including
  * cursor via the `providers` input.
  */
-export const DEFAULT_CHAT_PROVIDERS: PickerProvider[] = ['claude', 'codex', 'gemini', 'copilot'];
+export const DEFAULT_CHAT_PROVIDERS: PickerProvider[] = ['claude', 'codex', 'antigravity', 'copilot'];
 
 /** Full provider order — used by the new-session/instance-draft surface. */
-export const DEFAULT_INSTANCE_PROVIDERS: PickerProvider[] = ['claude', 'codex', 'gemini', 'copilot', 'cursor'];
+export const DEFAULT_INSTANCE_PROVIDERS: PickerProvider[] = ['claude', 'codex', 'antigravity', 'copilot', 'cursor'];
 
 const PROVIDER_LABELS: Record<PickerProvider, string> = {
   claude: 'Claude',
   codex: 'Codex',
   gemini: 'Gemini',
+  antigravity: 'Antigravity',
   copilot: 'Copilot',
   cursor: 'Cursor',
 };
@@ -34,6 +35,7 @@ const PROVIDER_COLORS: Record<PickerProvider, string> = {
   claude: '#d97706',
   codex: '#10a37f',
   gemini: '#4285f4',
+  antigravity: '#00b8d4',
   copilot: '#a855f7',
   // Cursor's mark is monochrome — a fixed hex would vanish into one theme's
   // background (#0f172a was near-invisible on the dark panel). The theme

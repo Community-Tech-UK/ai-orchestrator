@@ -21,6 +21,7 @@ import type {
 } from './browser-gateway-service-types';
 import type { BrowserSnapshot } from './puppeteer-browser-driver';
 import { isOriginAllowed } from './browser-origin-policy';
+import { isMutatingBrowserCommand } from './browser-mutation-safety';
 import {
   allowedOriginFromUrl,
   extractTabPayload,
@@ -214,6 +215,19 @@ export class BrowserExistingTabOperations {
       },
       ...(payload ? { payload } : {}),
       timeoutMs,
+    }).catch((error: unknown) => {
+      // A command that times out in the user's real Chrome may have ALREADY
+      // applied — the extension performed it, the ack just never came back.
+      // Blind-retrying a non-idempotent mutation then duplicates it (the Webflow
+      // incident's 2-3x sections). Re-tag the bare timeout as maybe-applied so the
+      // surfaced reason tells the caller to verify before retrying. Reads stay a
+      // plain timeout (safe to retry). This is the single choke point every
+      // existing-tab command flows through.
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === 'browser_extension_command_timeout' && isMutatingBrowserCommand(command)) {
+        throw new Error('browser_extension_command_timeout_maybe_applied');
+      }
+      throw error instanceof Error ? error : new Error(message);
     });
   }
 

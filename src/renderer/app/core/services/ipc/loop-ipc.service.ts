@@ -38,7 +38,7 @@ export interface LoopStartConfigInput {
   iterationPrompt?: string;
   workspaceCwd: string;
   planFile?: string;
-  provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor';
+  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor';
   reviewStyle?: 'single' | 'debate' | 'star-chamber';
   contextStrategy?: 'fresh-child' | 'hybrid' | 'same-session';
   caps?: Partial<{

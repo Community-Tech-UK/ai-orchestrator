@@ -21,8 +21,8 @@ describe('ProviderMenuComponent', () => {
 
     const labels = Array.from(fixture.nativeElement.querySelectorAll('.menu-item-row__label'))
       .map((el) => (el as HTMLElement).textContent?.trim());
-    expect(labels).toEqual(['Claude', 'Codex', 'Gemini', 'Copilot']);
-    expect(PROVIDER_MENU_ORDER).toEqual(['claude', 'codex', 'gemini', 'copilot']);
+    expect(labels).toEqual(['Claude', 'Codex', 'Antigravity', 'Copilot']);
+    expect(PROVIDER_MENU_ORDER).toEqual(['claude', 'codex', 'antigravity', 'copilot']);
   });
 
   it('marks the selected provider with aria-checked="true"', () => {
@@ -56,9 +56,9 @@ describe('ProviderMenuComponent', () => {
     fixture.componentInstance.providerSelect.subscribe((p) => (emitted = p));
 
     const rows = Array.from(fixture.nativeElement.querySelectorAll('.menu-item-row__body')) as HTMLElement[];
-    rows.find((r) => r.textContent?.includes('Gemini'))!.click();
+    rows.find((r) => r.textContent?.includes('Antigravity'))!.click();
 
-    expect(emitted).toBe('gemini');
+    expect(emitted).toBe('antigravity');
   });
 
   it('does not emit for a disabled provider', () => {
@@ -83,7 +83,7 @@ describe('ProviderMenuComponent', () => {
 
     const labels = Array.from(fixture.nativeElement.querySelectorAll('.menu-item-row__label'))
       .map((el) => (el as HTMLElement).textContent?.trim());
-    expect(labels).toEqual(['Claude', 'Codex', 'Gemini', 'Copilot', 'Cursor']);
+    expect(labels).toEqual(['Claude', 'Codex', 'Antigravity', 'Copilot', 'Cursor']);
   });
 
   it('emits cursor when chosen on the wider list', () => {
@@ -106,6 +106,6 @@ describe('ProviderMenuComponent', () => {
 
     const labels = Array.from(fixture.nativeElement.querySelectorAll('.menu-item-row__label'))
       .map((el) => (el as HTMLElement).textContent?.trim());
-    expect(labels).toEqual(['Claude', 'Codex', 'Gemini', 'Copilot']);
+    expect(labels).toEqual(['Claude', 'Codex', 'Antigravity', 'Copilot']);
   });
 });

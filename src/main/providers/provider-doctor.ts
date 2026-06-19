@@ -117,7 +117,7 @@ export class ProviderDoctor {
         name: 'cli_installed',
         description: 'Check if the CLI binary is installed and accessible',
         critical: true,
-        appliesTo: ['claude-cli', 'codex-cli', 'gemini-cli', 'copilot', 'cursor'],
+        appliesTo: ['claude-cli', 'codex-cli', 'gemini-cli', 'antigravity', 'copilot', 'cursor'],
         run: async (provider) => {
           if (provider === 'copilot') {
             const start = Date.now();
@@ -138,6 +138,7 @@ export class ProviderDoctor {
             'claude-cli': 'claude',
             'codex-cli': 'codex',
             'gemini-cli': 'gemini',
+            'antigravity': 'agy',
             'cursor': 'cursor-agent',
           };
           const cmd = cliMap[provider];
@@ -175,12 +176,13 @@ export class ProviderDoctor {
         name: 'cli_shadow_check',
         description: 'Check for stale or shadow CLI installs at multiple PATH locations',
         critical: false,
-        appliesTo: ['claude-cli', 'codex-cli', 'gemini-cli', 'copilot', 'cursor'],
+        appliesTo: ['claude-cli', 'codex-cli', 'gemini-cli', 'antigravity', 'copilot', 'cursor'],
         run: async (provider) => {
           const cliTypeMap: Record<string, CliType | undefined> = {
             'claude-cli': 'claude',
             'codex-cli': 'codex',
             'gemini-cli': 'gemini',
+            'antigravity': 'antigravity',
             'copilot': 'copilot',
             'cursor': 'cursor',
           };
@@ -407,6 +409,7 @@ export class ProviderDoctor {
             'claude-cli': 'npm install -g @anthropic-ai/claude-code',
             'codex-cli': 'npm install -g @openai/codex',
             'gemini-cli': 'npm install -g @google/gemini-cli',
+            'antigravity': 'Install Antigravity from antigravity.google, then run `agy` once to sign in',
             'copilot': 'Install GitHub CLI and run `gh copilot`, or install `npm install -g @github/copilot`',
             'cursor': 'Install Cursor and ensure `cursor-agent` is on PATH',
           };

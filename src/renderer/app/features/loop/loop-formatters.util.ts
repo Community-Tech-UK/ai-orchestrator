@@ -354,3 +354,123 @@ export function formatTimestamp(ts: number): string {
 export function formatCostCents(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
+
+// ============ Inspector progress header ============
+
+export interface InspectorProgressMetric {
+  key: 'iterations' | 'time' | 'tokens' | 'cost';
+  label: string;
+  /** "5 / 20" style current-vs-cap text. */
+  valueText: string;
+  /** 0–100 bar fill, or null when the budget is uncapped (no bar). */
+  pct: number | null;
+  tooltip: string;
+}
+
+export interface InspectorProgressView {
+  status: string;
+  statusLabel: string;
+  headline: string;
+  stageText: string;
+  metrics: InspectorProgressMetric[];
+  completionText: string | null;
+}
+
+/**
+ * Build the inspector's at-a-glance progress header — the single answer to
+ * "is this loop nearly finished, or hasn't it started?". A loop terminates
+ * when the completion gate clears OR any *capped* budget is exhausted, so we
+ * emit a progress bar per cap (iterations / wall-time / tokens / cost); the
+ * fullest bar is the binding constraint. Uncapped budgets (`null` cap) show the
+ * running total with `pct: null` and no bar. Pure: callers pass live `elapsedMs`
+ * (driven by their own tick) and the pre-resolved status pill.
+ */
+export function buildInspectorProgress(input: {
+  status: string;
+  statusPillKind: string | null;
+  statusPillLabel: string | null;
+  totalIterations: number;
+  totalTokens: number;
+  totalCostCents: number;
+  currentStage: string;
+  iterationsOnCurrentStage: number;
+  completionAttempts: number;
+  lastCompletionOutcome?: string;
+  /** Seq of the in-flight iteration (0-based), or null when none is running. */
+  runningSeq: number | null;
+  elapsedMs: number;
+  caps: {
+    maxIterations: number | null;
+    maxWallTimeMs: number;
+    maxTokens: number | null;
+    maxCostCents: number | null;
+  };
+}): InspectorProgressView {
+  const { caps } = input;
+  // Completed iterations + the one in flight (seq is 0-based; totalIterations
+  // is only incremented when an iteration ends).
+  const iterCount = input.runningSeq !== null ? input.runningSeq + 1 : input.totalIterations;
+
+  const pct = (value: number, cap: number | null): number | null =>
+    cap && cap > 0 ? Math.min(100, Math.round((value / cap) * 100)) : null;
+  const capText = (cap: number | null, fmt: (n: number) => string): string =>
+    cap === null ? '∞' : fmt(cap);
+
+  const metrics: InspectorProgressMetric[] = [
+    {
+      key: 'iterations',
+      label: 'Iterations',
+      valueText: `${iterCount} / ${capText(caps.maxIterations, String)}`,
+      pct: pct(iterCount, caps.maxIterations),
+      tooltip: caps.maxIterations === null ? 'No iteration cap' : `${iterCount} of ${caps.maxIterations} iterations`,
+    },
+    {
+      key: 'time',
+      label: 'Time',
+      valueText: `${humanDuration(input.elapsedMs)} / ${humanDuration(caps.maxWallTimeMs)}`,
+      pct: pct(input.elapsedMs, caps.maxWallTimeMs),
+      tooltip: `Elapsed wall time vs ${humanDuration(caps.maxWallTimeMs)} cap`,
+    },
+    {
+      key: 'tokens',
+      label: 'Tokens',
+      valueText: `${humanTokens(input.totalTokens)} / ${capText(caps.maxTokens, humanTokens)}`,
+      pct: pct(input.totalTokens, caps.maxTokens),
+      tooltip: caps.maxTokens === null ? 'No token cap' : `${humanTokens(input.totalTokens)} of ${humanTokens(caps.maxTokens)}`,
+    },
+    {
+      key: 'cost',
+      label: 'Cost',
+      valueText: `${formatCostCents(input.totalCostCents)} / ${capText(caps.maxCostCents, formatCostCents)}`,
+      pct: pct(input.totalCostCents, caps.maxCostCents),
+      tooltip: caps.maxCostCents === null ? 'No cost cap' : `${formatCostCents(input.totalCostCents)} of ${formatCostCents(caps.maxCostCents)}`,
+    },
+  ];
+
+  let headline: string;
+  if (input.runningSeq !== null) {
+    headline = input.totalIterations === 0
+      ? `Iteration ${input.runningSeq} running · just getting started`
+      : `Iteration ${input.runningSeq} running`;
+  } else if (input.status === 'paused') {
+    headline = `Paused after ${input.totalIterations} iteration${input.totalIterations === 1 ? '' : 's'}`;
+  } else {
+    headline = `${input.totalIterations} iteration${input.totalIterations === 1 ? '' : 's'} run`;
+  }
+
+  const onStage = input.iterationsOnCurrentStage;
+  const stageText = `${input.currentStage} · ${onStage} iter${onStage === 1 ? '' : 's'} on stage`;
+
+  const completionText = input.completionAttempts > 0
+    ? `Completion attempt ${input.completionAttempts}${input.lastCompletionOutcome ? ' · ' + input.lastCompletionOutcome : ''}`
+    : null;
+
+  return {
+    status: input.statusPillKind ?? input.status,
+    statusLabel: input.statusPillLabel ?? input.status.toUpperCase(),
+    headline,
+    stageText,
+    metrics,
+    completionText,
+  };
+}

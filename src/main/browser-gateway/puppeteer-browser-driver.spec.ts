@@ -443,10 +443,101 @@ describe('PuppeteerBrowserDriver', () => {
     );
   });
 
+  it('auto-recovers a wedged target by reloading it', async () => {
+    vi.useFakeTimers();
+    const reload = vi.fn(async () => undefined);
+    // Lifecycle/focus commands succeed (browser-process), but the renderer
+    // liveness probe (Runtime.evaluate) fails — the "page pings fine but element
+    // ops are wedged" signature.
+    const cdpSession = {
+      send: vi.fn(async (method: string) => {
+        if (method === 'Runtime.evaluate') {
+          throw new Error('renderer unresponsive');
+        }
+      }),
+      detach: vi.fn(async () => undefined),
+    };
+    const page = {
+      url: () => 'http://localhost:4567',
+      title: async () => 'Local',
+      createCDPSession: vi.fn(async () => cdpSession),
+      reload,
+    };
+    const browser = { pages: async () => [page] };
+    const driver = new PuppeteerBrowserDriver({
+      launcher: {
+        launchProfile: vi.fn().mockResolvedValue({}),
+        getBrowser: () => browser,
+        closeProfile: vi.fn(),
+      },
+      targetRegistry: new BrowserTargetRegistry(),
+      lifecycleHeartbeatMs: 1_000,
+    });
+
+    const [target] = await driver.openProfile(makeProfile());
+    expect(driver.listWedgedTargets()).toEqual([]);
+
+    // Two consecutive failed probes cross the wedged threshold.
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(driver.listWedgedTargets()).toEqual([target.id]);
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(reload).toHaveBeenCalledWith({
+      waitUntil: 'domcontentloaded',
+      timeout: expect.any(Number),
+    });
+
+    // A further tick must not trigger a second reload while still wedged.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(reload).toHaveBeenCalledTimes(1);
+
+    await driver.closeProfile('profile-1');
+  });
+
+  it('does not auto-reload a wedged target when recovery is disabled', async () => {
+    vi.useFakeTimers();
+    const reload = vi.fn(async () => undefined);
+    const cdpSession = {
+      send: vi.fn(async (method: string) => {
+        if (method === 'Runtime.evaluate') {
+          throw new Error('renderer unresponsive');
+        }
+      }),
+      detach: vi.fn(async () => undefined),
+    };
+    const page = {
+      url: () => 'http://localhost:4567',
+      title: async () => 'Local',
+      createCDPSession: vi.fn(async () => cdpSession),
+      reload,
+    };
+    const browser = { pages: async () => [page] };
+    const driver = new PuppeteerBrowserDriver({
+      launcher: {
+        launchProfile: vi.fn().mockResolvedValue({}),
+        getBrowser: () => browser,
+        closeProfile: vi.fn(),
+      },
+      targetRegistry: new BrowserTargetRegistry(),
+      lifecycleHeartbeatMs: 1_000,
+      autoRecoverWedged: false,
+    });
+
+    const [target] = await driver.openProfile(makeProfile());
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(driver.listWedgedTargets()).toEqual([target.id]);
+    expect(reload).not.toHaveBeenCalled();
+
+    await driver.closeProfile('profile-1');
+  });
+
   it('keeps mid-session tabs alive by re-indexing on targetcreated', async () => {
     const pageA = { url: () => 'http://localhost:4567/a', title: async () => 'A' };
     const pageB = { url: () => 'http://localhost:4567/b', title: async () => 'B' };
-    let pages: Array<typeof pageA> = [pageA];
+    let pages: (typeof pageA)[] = [pageA];
     const handlers: Record<string, () => void> = {};
     const browser = {
       pages: async () => pages,

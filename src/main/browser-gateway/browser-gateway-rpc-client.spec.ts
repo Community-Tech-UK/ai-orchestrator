@@ -98,14 +98,101 @@ describe('BrowserGatewayRpcClient', () => {
       timeoutMs: 50,
     });
 
-    // Non-waiting call uses the (tiny) base timeout and gives up.
+    // Non-waiting mutating call uses the (tiny) base timeout and gives up — but
+    // because it was sent before timing out it is reported as maybe-applied, not
+    // not-run, so the caller verifies before retrying instead of duplicating it.
     await expect(client.call('browser.navigate', {})).resolves.toMatchObject({
-      reason: 'browser_gateway_unavailable',
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'browser_gateway_timeout_maybe_applied',
+      data: { timedOut: true, maybeApplied: true },
     });
     // wait_for extends to payload.timeoutMs + buffer, so 150ms is well within budget.
     await expect(
       client.call('browser.wait_for', { timeoutMs: 1_000 }),
     ).resolves.toMatchObject({ method: 'browser.wait_for' });
+  });
+
+  it('reports a timed-out read as retry-safe rather than maybe-applied', async () => {
+    const socketPath = path.join(os.tmpdir(), `browser-gateway-read-${process.pid}.sock`);
+    const server = net.createServer((socket) => {
+      socket.on('data', (chunk) => {
+        const request = JSON.parse(chunk.toString('utf-8'));
+        setTimeout(() => {
+          socket.end(
+            `${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: {} })}\n`,
+          );
+        }, 200);
+      });
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+
+    const client = new BrowserGatewayRpcClient({
+      env: {
+        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: socketPath,
+        AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+      },
+      timeoutMs: 50,
+    });
+
+    await expect(client.call('browser.console_messages', {})).resolves.toMatchObject({
+      decision: 'denied',
+      outcome: 'not_run',
+      reason: 'browser_gateway_timeout',
+      data: { timedOut: true, maybeApplied: false },
+    });
+  });
+
+  it('reports a true connection failure as unavailable (genuinely not run)', async () => {
+    const client = new BrowserGatewayRpcClient({
+      env: {
+        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: path.join(
+          os.tmpdir(),
+          `browser-gateway-missing-${process.pid}.sock`,
+        ),
+        AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+      },
+    });
+
+    await expect(client.call('browser.navigate', {})).resolves.toMatchObject({
+      reason: 'browser_gateway_unavailable',
+    });
+  });
+
+  it('extends the socket timeout for DOM-scaling reads on a large page', async () => {
+    // Heavy reads (query_elements/snapshot/...) grow with DOM size. With a tiny
+    // base timeout a flat budget would falsely time out, but the heavy-DOM budget
+    // keeps a 150ms reply well within range.
+    const socketPath = path.join(os.tmpdir(), `browser-gateway-heavy-${process.pid}.sock`);
+    const server = net.createServer((socket) => {
+      socket.on('data', (chunk) => {
+        const request = JSON.parse(chunk.toString('utf-8'));
+        setTimeout(() => {
+          socket.end(
+            `${JSON.stringify({
+              jsonrpc: '2.0',
+              id: request.id,
+              result: { method: request.method },
+            })}\n`,
+          );
+        }, 150);
+      });
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+
+    const client = new BrowserGatewayRpcClient({
+      env: {
+        AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: socketPath,
+        AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+      },
+      timeoutMs: 50,
+    });
+
+    await expect(
+      client.call('browser.query_elements', { profileId: 'p', targetId: 't' }),
+    ).resolves.toMatchObject({ method: 'browser.query_elements' });
   });
 
   it('returns parent-side RPC errors without masking them as unavailable', async () => {

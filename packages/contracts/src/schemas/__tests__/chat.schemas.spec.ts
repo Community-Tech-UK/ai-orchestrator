@@ -15,7 +15,7 @@ import {
 
 describe('chat schemas', () => {
   it('allows only provider-backed chat providers for v1', () => {
-    expect(ChatProviderSchema.options).toEqual(['claude', 'codex', 'gemini', 'copilot']);
+    expect(ChatProviderSchema.options).toEqual(['claude', 'codex', 'gemini', 'antigravity', 'copilot']);
     expect(ChatProviderSchema.safeParse('auto').success).toBe(false);
     expect(ChatProviderSchema.safeParse('cursor').success).toBe(false);
   });

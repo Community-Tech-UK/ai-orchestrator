@@ -23,8 +23,11 @@ export { ClaudeCliAdapter, ClaudeCliSpawnOptions, ClaudeCliAdapterEvents } from 
 // Codex CLI adapter
 export { CodexCliAdapter, CodexCliConfig } from './codex-cli-adapter';
 
-// Gemini CLI adapter
+// Gemini CLI adapter (retired — kept for back-compat with persisted data)
 export { GeminiCliAdapter, GeminiCliConfig } from './gemini-cli-adapter';
+
+// Antigravity CLI adapter (`agy`) — successor to the Gemini CLI adapter
+export { AntigravityCliAdapter, AntigravityCliConfig } from './antigravity-cli-adapter';
 
 // Copilot CLI adapter
 export { CopilotCliAdapter, CopilotCliConfig, CopilotCliAdapterEvents, CopilotModelInfo, COPILOT_DEFAULT_MODELS } from './copilot-cli-adapter';

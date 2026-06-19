@@ -56,6 +56,7 @@ const LIMIT_UNAVAILABLE_TEXT: Record<ProviderId, string> = {
   claude: 'Claude Code does not expose numeric limits when run outside its interactive terminal. Sign-in status is available but exact request counts are not.',
   codex: 'OpenAI Codex does not report account-level limits from the command line. Only your sign-in method is available here.',
   gemini: 'Google Gemini does not expose quota numbers in a background check — those figures are only available inside an interactive session.',
+  antigravity: 'Antigravity (agy) does not expose quota numbers from a background check — usage figures are only available inside an interactive session.',
   copilot: 'GitHub Copilot does not report account limits outside an active coding session. Sign-in status is available but usage totals are not.',
   cursor: 'Cursor usage is available when Harness can read Cursor’s macOS Keychain session token, or when the standalone token-usage-monitor has written a fresh snapshot.',
 };
@@ -150,7 +151,7 @@ export class ProviderQuotaSettingsTabComponent implements OnInit {
   readonly intervalOptions = INTERVAL_OPTIONS;
 
   readonly intervals = signal<Record<ProviderId, number>>({
-    claude: 0, codex: 0, gemini: 0, copilot: 0, cursor: 0,
+    claude: 0, codex: 0, gemini: 0, antigravity: 0, copilot: 0, cursor: 0,
   });
 
   readonly lastWarning = this.store.lastWarning;

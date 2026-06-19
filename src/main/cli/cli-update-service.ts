@@ -43,6 +43,11 @@ export const CLI_UPDATE_SPECS: Partial<Record<CliType, CliUpdateSpec>> = {
   gemini: {
     npmPackage: '@google/gemini-cli',
   },
+  // Antigravity ships as a self-contained binary (not an npm package); it
+  // self-updates via `agy update`. Replaces the Gemini CLI's npm updater.
+  antigravity: {
+    selfUpdateArgs: ['update'],
+  },
   copilot: {
     npmPackage: '@github/copilot',
     selfUpdateArgs: ['update'],

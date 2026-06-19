@@ -23,7 +23,7 @@ export interface CreateInstanceWithMessageOptions {
   files?: File[];
   workingDirectory?: string;
   agentId?: string;
-  provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
+  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
   model?: string;
   bareMode?: boolean;
   launchMode?: Instance['launchMode'];

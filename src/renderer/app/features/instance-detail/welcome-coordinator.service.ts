@@ -28,7 +28,7 @@ interface WelcomeLaunchConfig {
   files: File[];
   workingDirectory: string;
   agentId: string;
-  provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
+  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
   model?: string;
   launchMode?: InstanceLaunchMode;
   forceNodeId?: string;

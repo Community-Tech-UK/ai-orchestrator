@@ -17,7 +17,10 @@
  * Subset of `InstanceProvider` — excludes `'auto'` which is a selection-time
  * placeholder, not a concrete runtime.
  */
-export type ProviderName = 'claude' | 'codex' | 'gemini' | 'copilot' | 'anthropic-api' | 'cursor';
+// `gemini` is retained ONLY as a deprecated back-compat alias for persisted
+// data and older remote nodes; `antigravity` (the `agy` CLI) is the live
+// successor. New code paths should use `antigravity`.
+export type ProviderName = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'anthropic-api' | 'cursor';
 
 // ============================================
 // Event Kind Discriminator

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { LoopStatusSchema } from '@contracts/schemas/loop';
 import {
   activityKindLabel,
+  buildInspectorProgress,
   completionGateSteps,
   formatCostCents,
   formatTimestamp,
@@ -285,5 +286,109 @@ describe('summarizeToolDetail', () => {
 
   it('falls back to compact JSON of the args minus identity noise', () => {
     expect(summarizeToolDetail({ name: 'X', id: '1', input: { foo: 1, bar: true } })).toBe('{"foo":1,"bar":true}');
+  });
+});
+
+describe('buildInspectorProgress', () => {
+  const baseCaps = { maxIterations: 20, maxWallTimeMs: 600_000, maxTokens: 100_000, maxCostCents: 500 };
+  const base = {
+    status: 'running',
+    statusPillKind: 'running',
+    statusPillLabel: 'RUNNING',
+    totalIterations: 0,
+    totalTokens: 0,
+    totalCostCents: 0,
+    currentStage: 'IMPLEMENT',
+    iterationsOnCurrentStage: 0,
+    completionAttempts: 0,
+    runningSeq: null as number | null,
+    elapsedMs: 0,
+    caps: baseCaps,
+  };
+
+  it('flags a just-started run (iteration 0 running, nothing completed)', () => {
+    const p = buildInspectorProgress({ ...base, runningSeq: 0 });
+    expect(p.headline).toBe('Iteration 0 running · just getting started');
+    const iter = p.metrics.find((m) => m.key === 'iterations')!;
+    // The in-flight iteration counts: 1 of 20 → 5%.
+    expect(iter.valueText).toBe('1 / 20');
+    expect(iter.pct).toBe(5);
+  });
+
+  it('computes per-cap fill percentages and marks the binding constraint full', () => {
+    const p = buildInspectorProgress({
+      ...base,
+      runningSeq: 18,            // 19 of 20 iterations
+      totalTokens: 50_000,       // 50% of tokens
+      totalCostCents: 500,       // 100% of cost — binding constraint
+      elapsedMs: 300_000,        // 50% of time
+    });
+    const byKey = Object.fromEntries(p.metrics.map((m) => [m.key, m]));
+    expect(byKey['iterations'].pct).toBe(95);
+    expect(byKey['time'].pct).toBe(50);
+    expect(byKey['tokens'].pct).toBe(50);
+    expect(byKey['cost'].pct).toBe(100);
+  });
+
+  it('renders uncapped budgets with no bar (pct null) and an ∞ label', () => {
+    const p = buildInspectorProgress({
+      ...base,
+      caps: { ...baseCaps, maxIterations: null, maxTokens: null, maxCostCents: null },
+      runningSeq: 4,
+      totalTokens: 1234,
+    });
+    const byKey = Object.fromEntries(p.metrics.map((m) => [m.key, m]));
+    expect(byKey['iterations'].pct).toBeNull();
+    expect(byKey['iterations'].valueText).toBe('5 / ∞');
+    expect(byKey['tokens'].pct).toBeNull();
+    expect(byKey['tokens'].valueText).toBe('1.2k tok / ∞');
+    // Time is always capped, so it still has a bar.
+    expect(byKey['time'].pct).not.toBeNull();
+  });
+
+  it('clamps over-budget percentages to 100', () => {
+    const p = buildInspectorProgress({ ...base, runningSeq: 0, elapsedMs: 10_000_000 });
+    expect(p.metrics.find((m) => m.key === 'time')!.pct).toBe(100);
+  });
+
+  it('summarises a paused run between iterations', () => {
+    const p = buildInspectorProgress({
+      ...base,
+      status: 'paused',
+      statusPillKind: 'no-progress',
+      statusPillLabel: 'PAUSED · NO PROGRESS',
+      totalIterations: 3,
+      iterationsOnCurrentStage: 2,
+      runningSeq: null,
+    });
+    expect(p.headline).toBe('Paused after 3 iterations');
+    expect(p.statusLabel).toBe('PAUSED · NO PROGRESS');
+    expect(p.stageText).toBe('IMPLEMENT · 2 iters on stage');
+  });
+
+  it('surfaces completion attempts with the last outcome', () => {
+    const p = buildInspectorProgress({
+      ...base,
+      runningSeq: 5,
+      completionAttempts: 2,
+      lastCompletionOutcome: 'verify-failed',
+    });
+    expect(p.completionText).toBe('Completion attempt 2 · verify-failed');
+  });
+
+  it('has no completion text before any completion attempt', () => {
+    expect(buildInspectorProgress({ ...base, runningSeq: 1 }).completionText).toBeNull();
+  });
+
+  it('falls back to raw status when no pill is supplied', () => {
+    const p = buildInspectorProgress({ ...base, statusPillKind: null, statusPillLabel: null });
+    expect(p.status).toBe('running');
+    expect(p.statusLabel).toBe('RUNNING');
+  });
+
+  it('singularises a one-iteration stage label', () => {
+    const p = buildInspectorProgress({ ...base, totalIterations: 1, iterationsOnCurrentStage: 1, runningSeq: null });
+    expect(p.headline).toBe('1 iteration run');
+    expect(p.stageText).toBe('IMPLEMENT · 1 iter on stage');
   });
 });

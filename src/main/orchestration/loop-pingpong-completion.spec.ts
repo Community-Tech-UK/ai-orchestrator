@@ -191,4 +191,62 @@ describe('evaluatePingPongCompletion', () => {
     expect(result?.status).toBe('needs-human-arbitration');
     expect(reviewer).not.toHaveBeenCalled();
   });
+
+  it('terminates builder-unreliable: builder ignores persisted blocking findings (no edits) for 3 rounds', async () => {
+    const state = makeState(workspace);
+    const reviewer = vi.fn<PingPongReviewer>().mockResolvedValue(
+      reviewResult({
+        verdict: 'CHANGES_REQUESTED',
+        findings: [
+          { title: 'unfixed null deref', severity: 'high', evidence: 'x.ts:1', body: 'still broken', novelty: 'persisted' },
+        ],
+      }),
+    );
+    let result: Awaited<ReturnType<typeof evaluatePingPongCompletion>> = null;
+    for (let i = 0; i < 3; i++) {
+      // baseDeps() builds a fresh iteration with NO files changed each round.
+      result = await evaluatePingPongCompletion(baseDeps(state, reviewer));
+    }
+    expect(result?.status).toBe('builder-unreliable');
+    expect(state.pingPong?.builderUnaddressedRounds).toBe(3);
+  });
+
+  it('terminates needs-human-arbitration: same issue re-raised despite edits for 3 rounds', async () => {
+    const state = makeState(workspace);
+    const reviewer = vi.fn<PingPongReviewer>().mockResolvedValue(
+      reviewResult({
+        verdict: 'CHANGES_REQUESTED',
+        findings: [
+          { title: 'contested design', severity: 'high', evidence: 'y.ts:9', body: 'disputed', novelty: 'persisted' },
+        ],
+      }),
+    );
+    let result: Awaited<ReturnType<typeof evaluatePingPongCompletion>> = null;
+    for (let i = 0; i < 3; i++) {
+      // Builder DID edit (production change) but the same blocking issue persists → deadlock.
+      result = await evaluatePingPongCompletion({
+        ...baseDeps(state, reviewer),
+        iteration: makeIteration([{ path: 'src/y.ts' }]),
+      });
+    }
+    expect(result?.status).toBe('needs-human-arbitration');
+  });
+
+  it('converges-or-arbitrates (completed-needs-review) after 2 low-only-churn rounds', async () => {
+    const state = makeState(workspace);
+    const reviewer = vi.fn<PingPongReviewer>().mockResolvedValue(
+      reviewResult({
+        verdict: 'CHANGES_REQUESTED',
+        findings: [
+          { title: 'style nit', severity: 'low', evidence: 'z.ts:3', body: 'rename pls', novelty: 'new' },
+        ],
+      }),
+    );
+    let result: Awaited<ReturnType<typeof evaluatePingPongCompletion>> = null;
+    for (let i = 0; i < 2; i++) {
+      result = await evaluatePingPongCompletion(baseDeps(state, reviewer));
+    }
+    expect(result?.status).toBe('completed-needs-review');
+    expect(state.pingPong?.lowOnlyChurnRounds).toBe(2);
+  });
 });

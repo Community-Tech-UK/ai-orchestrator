@@ -95,6 +95,7 @@ export const BrowserProviderSchema = z.enum([
   'claude',
   'codex',
   'gemini',
+  'antigravity',
   'copilot',
   'cursor',
   'orchestrator',

@@ -83,6 +83,7 @@ export class ProviderQuotaService extends EventEmitter {
       claude: null,
       codex: null,
       gemini: null,
+      antigravity: null,
       copilot: null,
       cursor: null,
     };

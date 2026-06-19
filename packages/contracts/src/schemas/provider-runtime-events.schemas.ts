@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const ProviderNameSchema = z.enum(['claude', 'codex', 'gemini', 'copilot', 'anthropic-api', 'cursor']);
+export const ProviderNameSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'anthropic-api', 'cursor']);
 
 /** Adapter-layer degraded-output reasons (A3). Keep in sync with the `DegradedReason` type. */
 export const DegradedReasonSchema = z.enum([

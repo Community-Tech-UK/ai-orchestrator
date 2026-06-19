@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const supportedProviderEnum = z.enum(['claude', 'codex', 'gemini', 'copilot']);
+export const supportedProviderEnum = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot']);
 export const transportEnum = z.enum(['stdio', 'sse', 'http']);
 export const orchestratorScopeEnum = z.enum([
   'orchestrator',

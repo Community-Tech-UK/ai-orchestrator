@@ -275,6 +275,8 @@ export class InstanceRowComponent {
         return { icon: 'openai', color: '#10A37F', label: 'Codex' } as const;
       case 'gemini':
         return { icon: 'google', color: '#4285F4', label: 'Gemini' } as const;
+      case 'antigravity':
+        return { icon: 'google', color: '#00B8D4', label: 'Antigravity' } as const;
       case 'copilot':
         return { icon: 'github', color: '#6e40c9', label: 'Copilot' } as const;
       case 'ollama':

@@ -166,6 +166,7 @@ export function registerCliVerificationHandlers(
           claude: 'claude-cli',
           codex: 'codex-cli',
           gemini: 'gemini-cli',
+          antigravity: 'antigravity',
           copilot: 'copilot',
           cursor: 'cursor',
           ollama: 'ollama',

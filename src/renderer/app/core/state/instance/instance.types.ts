@@ -88,7 +88,7 @@ export interface OutputMessage {
   thinkingExtracted?: boolean;
 }
 
-export type InstanceProvider = 'claude' | 'codex' | 'gemini' | 'ollama' | 'copilot' | 'cursor';
+export type InstanceProvider = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'ollama' | 'copilot' | 'cursor';
 export type InstanceLaunchMode = SharedInstanceLaunchMode;
 
 export interface Instance {
@@ -181,7 +181,7 @@ export interface CreateInstanceConfig {
   yoloMode?: boolean;
   launchMode?: InstanceLaunchMode;
   agentId?: string;
-  provider?: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' | 'auto';
+  provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
   model?: string;
   bareMode?: boolean;
   forceNodeId?: string;

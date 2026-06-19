@@ -9,7 +9,7 @@
  */
 
 /** Providers we currently model for quota display. */
-export type ProviderId = 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor';
+export type ProviderId = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor';
 
 /**
  * Window kinds:

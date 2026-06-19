@@ -17,6 +17,7 @@ import { ToastService } from '../../core/services/toast.service';
 import { LoopStore } from '../../core/state/loop.store';
 import {
   activityKindLabel,
+  buildInspectorProgress,
   completionGateSteps,
   formatCostCents,
   humanDuration,
@@ -27,6 +28,7 @@ import {
   summarizeToolDetail,
   terminalStatusLabel,
 } from './loop-formatters.util';
+import { LoopInspectorProgressComponent } from './loop-inspector-progress.component';
 import { LoopPastRunsPanelComponent } from './loop-past-runs-panel.component';
 import { PromptModalComponent } from '../../shared/components/prompt-modal/prompt-modal.component';
 
@@ -48,7 +50,7 @@ import { PromptModalComponent } from '../../shared/components/prompt-modal/promp
 @Component({
   selector: 'app-loop-control',
   standalone: true,
-  imports: [SlicePipe, LoopPastRunsPanelComponent, PromptModalComponent],
+  imports: [SlicePipe, LoopInspectorProgressComponent, LoopPastRunsPanelComponent, PromptModalComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (banner(); as b) {
@@ -239,6 +241,8 @@ import { PromptModalComponent } from '../../shared/components/prompt-modal/promp
               <button type="button" (click)="onRefreshInspector()" [disabled]="inspectorLoading()">Refresh</button>
             </span>
           </div>
+
+          <app-loop-inspector-progress [view]="inspectorProgress()" />
 
           <div class="li-section-title">Iterations</div>
           @if (currentIterationStats(); as cur) {
@@ -663,6 +667,38 @@ export class LoopControlComponent implements OnDestroy {
     const running = this.runningIteration();
     if (!running) return 0;
     return Date.now() - running.startedAt;
+  });
+
+  /**
+   * At-a-glance answer to "is this loop nearly finished, or hasn't it
+   * started?" — surfaced at the top of the inspector. A loop terminates when
+   * the completion gate clears OR any *capped* budget is exhausted, so we show
+   * a progress bar per cap (iterations / wall-time / tokens / cost); the
+   * fullest bar is the binding constraint. Uncapped budgets show the running
+   * total with no bar. Recomputes on the 1Hz `tick` via `elapsed()` so the
+   * time bar advances live. Null when no loop is active (the summary card above
+   * already shows the final tally for a just-ended run).
+   */
+  inspectorProgress = computed(() => {
+    const a = this.active();
+    if (!a) return null;
+    const pill = this.statusPill();
+    const running = this.runningIteration();
+    return buildInspectorProgress({
+      status: a.status,
+      statusPillKind: pill?.kind ?? null,
+      statusPillLabel: pill?.label ?? null,
+      totalIterations: a.totalIterations,
+      totalTokens: a.totalTokens,
+      totalCostCents: a.totalCostCents,
+      currentStage: a.currentStage,
+      iterationsOnCurrentStage: a.iterationsOnCurrentStage,
+      completionAttempts: a.completionAttempts,
+      lastCompletionOutcome: a.lastCompletionOutcome,
+      runningSeq: running ? running.seq : null,
+      elapsedMs: this.elapsed(),
+      caps: a.config.caps,
+    });
   });
 
   constructor() {
