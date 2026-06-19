@@ -453,6 +453,13 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: COPILOT_MODELS.AUTO, name: 'Auto', tier: 'balanced', pinned: true, family: 'Auto' },
   ],
   ollama: [],
+  // Antigravity (`agy`) routes across multiple model families (Gemini 3.x,
+  // Claude 4.6, GPT-OSS). Its `--model` ID format is undocumented (the `agy
+  // models` subcommand prints display names only), and sending an unrecognized
+  // ID errors, so the list is intentionally empty: the adapter omits --model
+  // and lets agy pick its configured default. Populate once the accepted
+  // --model identifiers are confirmed.
+  antigravity: [],
   cursor: [
     // The live picker (instance-detail dropdown, CLI settings) queries
     // `cursor-agent --list-models` dynamically and surfaces the full

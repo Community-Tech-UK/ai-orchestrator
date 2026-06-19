@@ -16,7 +16,7 @@ const NodePlacementPrefsSchema = z.object({
   requiresGpu: z.boolean().optional(),
   preferPlatform: z.enum(['darwin', 'win32', 'linux']).optional(),
   preferNodeId: z.string().optional(),
-  requiresCli: z.enum(['claude', 'codex', 'gemini', 'copilot', 'cursor']).optional(),
+  requiresCli: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
   requiresWorkingDirectory: z.string().min(1).max(4096).optional(),
 });
 
@@ -32,7 +32,7 @@ export const InstanceCreatePayloadSchema = z.object({
   yoloMode: z.boolean().optional(),
   launchMode: InstanceLaunchModeSchema.optional(),
   agentId: z.string().max(100).optional(),
-  provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor']).optional(),
+  provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
   model: z.string().max(100).optional(),
   bareMode: z.boolean().optional(),
   forceNodeId: z.string().uuid().optional(),
@@ -47,7 +47,7 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
   attachments: z.array(FileAttachmentSchema).max(10).optional(),
   launchMode: InstanceLaunchModeSchema.optional(),
   agentId: z.string().max(100).optional(),
-  provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor']).optional(),
+  provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
   model: z.string().max(100).optional(),
   bareMode: z.boolean().optional(),
   forceNodeId: z.string().uuid().optional(),

@@ -9,6 +9,7 @@
 import type { ClaudeCliAdapter } from './claude-cli-adapter';
 import type { CodexCliAdapter } from './codex-cli-adapter';
 import type { GeminiCliAdapter } from './gemini-cli-adapter';
+import type { AntigravityCliAdapter } from './antigravity-cli-adapter';
 import type { OllamaCliAdapter } from './ollama-cli-adapter';
 import type { AcpCliAdapter } from './acp-cli-adapter';
 import type { RemoteCliAdapter } from './remote-cli-adapter';
@@ -104,6 +105,7 @@ export type CliAdapter =
   | ClaudeCliAdapter
   | CodexCliAdapter
   | GeminiCliAdapter
+  | AntigravityCliAdapter
   | OllamaCliAdapter
   | AcpCliAdapter
   | RemoteCliAdapter

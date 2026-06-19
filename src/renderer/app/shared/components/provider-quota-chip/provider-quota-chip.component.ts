@@ -50,6 +50,7 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
   claude: 'Claude',
   codex: 'Codex',
   gemini: 'Gemini',
+  antigravity: 'Antigravity',
   copilot: 'Copilot',
   cursor: 'Cursor',
 };
@@ -402,11 +403,12 @@ function stripEntryColor(percent: number): string {
   return STRIP_NEUTRAL_FG;
 }
 
-const PROVIDER_ORDER: ProviderId[] = ['claude', 'codex', 'gemini', 'copilot', 'cursor'];
+const PROVIDER_ORDER: ProviderId[] = ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'];
 const PROVIDER_CODES: Record<ProviderId, string> = {
   claude: 'CC',
   codex: 'CX',
   gemini: 'GM',
+  antigravity: 'AG',
   copilot: 'CP',
   cursor: 'CU',
 };

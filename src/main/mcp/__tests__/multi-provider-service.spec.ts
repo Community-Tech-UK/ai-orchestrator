@@ -8,6 +8,7 @@ import { createMigrationsTable, createTables, runMigrations } from '../../persis
 import { ClaudeMcpAdapter } from '../adapters/claude-mcp-adapter';
 import { CodexMcpAdapter } from '../adapters/codex-mcp-adapter';
 import { GeminiMcpAdapter } from '../adapters/gemini-mcp-adapter';
+import { AntigravityMcpAdapter } from '../adapters/antigravity-mcp-adapter';
 import { CopilotMcpAdapter } from '../adapters/copilot-mcp-adapter';
 import { CliMcpConfigService } from '../cli-mcp-config-service';
 import { OrchestratorMcpRepository } from '../orchestrator-mcp-repository';
@@ -37,6 +38,7 @@ describe('MCP multi-provider service', () => {
       claude: new ClaudeMcpAdapter({ home: tmp, writeSafety }),
       codex: new CodexMcpAdapter({ codexHome: path.join(tmp, '.codex'), writeSafety }),
       gemini: new GeminiMcpAdapter({ home: tmp, writeSafety }),
+      antigravity: new AntigravityMcpAdapter({ home: tmp, writeSafety }),
       copilot: new CopilotMcpAdapter({ home: tmp, writeSafety }),
     };
     shared = new SharedMcpRepository(db, secrets);

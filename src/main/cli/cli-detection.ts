@@ -61,14 +61,14 @@ export interface CliShadowReport {
 }
 
 /**
- * CLI type identifiers - only CLIs with provider implementations
+ * CLI type identifiers. `gemini` is a deprecated back-compat alias (persisted
+ * data / older remote nodes); its live successor is `antigravity` (the `agy`
+ * CLI). Legacy `gemini` is normalized to `antigravity` in mapSettingsToDetectionType.
  */
-export type CliType = 'claude' | 'codex' | 'gemini' | 'copilot' | 'ollama' | 'cursor';
+export type CliType = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'ollama' | 'cursor';
 
-/**
- * CLIs that have provider implementations and can be used for verification
- */
-export const SUPPORTED_CLIS: CliType[] = ['claude', 'codex', 'gemini', 'copilot', 'ollama', 'cursor'];
+/** CLIs surfaced in CLI Health. `gemini` is excluded — superseded by `antigravity`. */
+export const SUPPORTED_CLIS: CliType[] = ['claude', 'codex', 'antigravity', 'copilot', 'ollama', 'cursor'];
 
 /**
  * Registry entry for a CLI tool
@@ -136,19 +136,24 @@ export const CLI_REGISTRY: Record<CliType, CliRegistryEntry> = {
     displayName: 'Google Gemini CLI',
     versionFlag: '--version',
     versionPattern: /(\d+\.\d+\.\d+)/,
-    capabilities: [
-      'streaming',
-      'tool-use',
-      'file-access',
-      'shell',
-      'multi-turn',
-      'vision',
-      'large-context'
-    ],
+    capabilities: ['streaming', 'tool-use', 'file-access', 'shell', 'multi-turn', 'vision', 'large-context'],
     alternativePaths: [
       '/opt/homebrew/bin/gemini',
       '/usr/local/bin/gemini',
       `${process.env['HOME']}/.local/bin/gemini`
+    ]
+  },
+  antigravity: {
+    name: 'antigravity',
+    command: 'agy',
+    displayName: 'Antigravity',
+    versionFlag: '--version',
+    versionPattern: /(\d+\.\d+\.\d+)/,
+    capabilities: ['tool-use', 'file-access', 'shell', 'multi-turn', 'large-context'],
+    alternativePaths: [
+      `${process.env['HOME']}/.local/bin/agy`,
+      '/opt/homebrew/bin/agy',
+      '/usr/local/bin/agy'
     ]
   },
   copilot: {
@@ -352,8 +357,8 @@ export class CliDetectionService {
    */
   async getDefaultCli(): Promise<CliInfo | null> {
     const result = await this.detectAll();
-    // Prefer claude, then gemini, then codex, then copilot, then others
-    const priority: CliType[] = ['claude', 'gemini', 'codex', 'copilot', 'cursor', 'ollama'];
+    // Prefer claude, then antigravity, then codex, then copilot, then others
+    const priority: CliType[] = ['claude', 'antigravity', 'codex', 'copilot', 'cursor', 'ollama'];
     for (const type of priority) {
       const cli = result.available.find((c) => c.name === type);
       if (cli) return cli;

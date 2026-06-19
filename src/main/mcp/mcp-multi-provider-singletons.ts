@@ -18,6 +18,7 @@ import { ClaudeMcpAdapter } from './adapters/claude-mcp-adapter';
 import { CodexMcpAdapter } from './adapters/codex-mcp-adapter';
 import { CopilotMcpAdapter } from './adapters/copilot-mcp-adapter';
 import { GeminiMcpAdapter } from './adapters/gemini-mcp-adapter';
+import { AntigravityMcpAdapter } from './adapters/antigravity-mcp-adapter';
 
 let orchestratorRepo: OrchestratorMcpRepository | null = null;
 let sharedRepo: SharedMcpRepository | null = null;
@@ -77,6 +78,7 @@ function buildAdapters(): Record<SupportedProvider, ProviderMcpAdapter> {
     claude: new ClaudeMcpAdapter({ home, writeSafety: safety }),
     codex: new CodexMcpAdapter({ codexHome: path.join(home, '.codex'), writeSafety: safety }),
     gemini: new GeminiMcpAdapter({ home, writeSafety: safety }),
+    antigravity: new AntigravityMcpAdapter({ home, writeSafety: safety }),
     copilot: new CopilotMcpAdapter({ home, writeSafety: safety }),
   };
 }

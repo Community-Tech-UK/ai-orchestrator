@@ -41,9 +41,7 @@ import {
   BrowserAntiThrottle,
   type AntiThrottlePage,
 } from './browser-anti-throttle';
-import { getLogger } from '../logging/logger';
-
-const logger = getLogger('PuppeteerBrowserDriver');
+import { BrowserWedgeRecovery } from './browser-wedge-recovery';
 
 export interface BrowserSnapshot {
   title: string;
@@ -91,6 +89,8 @@ export interface PuppeteerBrowserDriverOptions {
   antiThrottle?: boolean;
   /** Interval (ms) between lifecycle keep-alive heartbeats. */
   lifecycleHeartbeatMs?: number;
+  /** Auto-reload a target whose renderer wedges (default true). See BrowserWedgeRecovery. */
+  autoRecoverWedged?: boolean;
 }
 
 export class PuppeteerBrowserDriver {
@@ -107,24 +107,25 @@ export class PuppeteerBrowserDriver {
   private readonly profileDownloadDirsById = new Map<string, string>();
   private readonly antiThrottle: BrowserAntiThrottle;
   private readonly targetWatchedProfiles = new Set<string>();
+  private readonly wedgeRecovery: BrowserWedgeRecovery;
 
   constructor(options: PuppeteerBrowserDriverOptions = {}) {
     this.launcher = options.launcher ?? new BrowserProcessLauncher();
     this.targetRegistry = options.targetRegistry ?? getBrowserTargetRegistry();
+    this.wedgeRecovery = new BrowserWedgeRecovery({
+      autoRecover: options.autoRecoverWedged ?? true,
+      getPage: (targetId) => this.pagesByTargetId.get(targetId),
+    });
     this.antiThrottle = new BrowserAntiThrottle({
       enabled: options.antiThrottle ?? true,
       ...(typeof options.lifecycleHeartbeatMs === 'number'
         ? { heartbeatMs: options.lifecycleHeartbeatMs }
         : {}),
       createSession: (page) => this.createPageSession(page as unknown as Page),
-      onWedged: (targetId) =>
-        logger.warn(
-          `Browser target ${targetId} appears wedged: lifecycle pings still succeed but `
-          + 'renderer probes are timing out. Element/canvas operations will likely time out; '
-          + 'reload the target to recover instead of retrying.',
-        ),
-      onRecovered: (targetId) =>
-        logger.info(`Browser target ${targetId} recovered and is responsive again.`),
+      onWedged: (targetId) => {
+        void this.wedgeRecovery.recover(targetId);
+      },
+      onRecovered: (targetId) => this.wedgeRecovery.recovered(targetId),
     });
   }
 

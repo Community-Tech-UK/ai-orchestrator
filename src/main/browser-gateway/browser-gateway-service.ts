@@ -98,6 +98,7 @@ import {
   providerFromContext,
 } from './browser-gateway-action-guard';
 import { autoApproveBrowserApproval } from './browser-auto-approve';
+import { HEAVY_DOM_COMMAND_TIMEOUT_MS } from './browser-mutation-safety';
 import {
   defaultManualStepPrompt,
   extractTabPayload,
@@ -1075,7 +1076,7 @@ export class BrowserGatewayService {
           await this.existingTabOperations.sendCommand(existingTab, 'query_elements', {
             ...(request.query ? { query: request.query } : {}),
             limit,
-          }),
+          }, HEAVY_DOM_COMMAND_TIMEOUT_MS),
         );
         return this.result({
           context: request,
@@ -1154,7 +1155,7 @@ export class BrowserGatewayService {
           await this.existingTabOperations.sendCommand(existingTab, 'accessibility_snapshot', {
             interestingOnly,
             limit,
-          }),
+          }, HEAVY_DOM_COMMAND_TIMEOUT_MS),
           limit,
         );
         return this.result({
@@ -1243,7 +1244,7 @@ export class BrowserGatewayService {
         ? await this.existingTabOperations.sendCommand(existingTab, 'evaluate', {
           expression: request.expression,
           awaitPromise: request.awaitPromise !== false,
-        })
+        }, HEAVY_DOM_COMMAND_TIMEOUT_MS)
         : await this.driver.evaluate(
           request.profileId,
           request.targetId,

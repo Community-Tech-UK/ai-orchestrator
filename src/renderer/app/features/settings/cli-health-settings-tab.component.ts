@@ -308,7 +308,8 @@ export class CliHealthSettingsTabComponent implements OnInit {
   private readonly displayNames: Record<string, string> = {
     claude: 'Claude Code',
     codex: 'OpenAI Codex',
-    gemini: 'Google Gemini',
+    gemini: 'Google Gemini (legacy)',
+    antigravity: 'Antigravity',
     copilot: 'GitHub Copilot',
     cursor: 'Cursor Agent',
     ollama: 'Ollama',

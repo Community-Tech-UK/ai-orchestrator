@@ -47,6 +47,7 @@ export type BrowserProvider =
   | 'claude'
   | 'codex'
   | 'gemini'
+  | 'antigravity'
   | 'copilot'
   | 'cursor'
   | 'orchestrator';

@@ -93,6 +93,96 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     }));
   });
 
+  it('flags a timed-out existing-tab mutation as maybe-applied so it is not blind-retried', async () => {
+    // The extension command timed out: the click may already have applied in the
+    // user's Chrome. The surfaced reason must say maybe-applied (verify-before-retry),
+    // never a bare timeout that invites a duplicate.
+    const sendCommand = vi.fn(async () => {
+      throw new Error('browser_extension_command_timeout');
+    });
+    const existingTab = {
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      tabId: 42,
+      windowId: 7,
+      title: 'Play Console',
+      url: 'https://play.google.com/console',
+      origin: 'https://play.google.com',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'play.google.com',
+          includeSubdomains: false,
+        },
+      ],
+    };
+    const { service } = makeService({
+      existingTab,
+      extensionCommandStore: { sendCommand },
+      grants: [
+        makeGrant({
+          profileId: existingTab.profileId,
+          targetId: existingTab.targetId,
+          allowedOrigins: existingTab.allowedOrigins,
+          allowedActionClasses: ['input'],
+        }),
+      ],
+    });
+
+    const result = await service.click({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+      selector: '#continue',
+      actionHint: 'Click continue',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'failed',
+      reason: 'browser_extension_command_timeout_maybe_applied',
+    });
+  });
+
+  it('leaves a timed-out existing-tab read as a plain (retry-safe) timeout', async () => {
+    const sendCommand = vi.fn(async () => {
+      throw new Error('browser_extension_command_timeout');
+    });
+    const existingTab = {
+      profileId: 'existing-tab:7:42',
+      targetId: 'existing-tab:7:42:target',
+      tabId: 42,
+      windowId: 7,
+      title: 'Play Console',
+      url: 'https://play.google.com/console',
+      origin: 'https://play.google.com',
+      allowedOrigins: [
+        {
+          scheme: 'https' as const,
+          hostPattern: 'play.google.com',
+          includeSubdomains: false,
+        },
+      ],
+    };
+    const { service } = makeService({
+      existingTab,
+      extensionCommandStore: { sendCommand },
+    });
+
+    const result = await service.queryElements({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      profileId: existingTab.profileId,
+      targetId: existingTab.targetId,
+    });
+
+    expect(result).toMatchObject({
+      outcome: 'failed',
+      reason: 'browser_extension_command_timeout',
+    });
+  });
+
   it('uploads files in existing Chrome tabs through the extension command bridge after upload approval', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-browser-upload-'));
     const filePath = path.join(tempDir, 'app.ipa');
@@ -876,7 +966,7 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
       ],
     });
     // Password inputs must never leak a value back to the agent.
-    const passwordCandidate = (result.data as Array<Record<string, unknown>>)[2];
+    const passwordCandidate = (result.data as Record<string, unknown>[])[2];
     expect(passwordCandidate['value']).toBeUndefined();
   });
 });

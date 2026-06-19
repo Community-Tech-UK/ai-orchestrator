@@ -3,6 +3,7 @@ export type ConversationProvider =
   | 'codex'
   | 'claude'
   | 'gemini'
+  | 'antigravity'
   | 'copilot'
   | 'unknown';
 

@@ -5,6 +5,7 @@ export const ConversationProviderSchema = z.enum([
   'codex',
   'claude',
   'gemini',
+  'antigravity',
   'copilot',
   'unknown',
 ]);

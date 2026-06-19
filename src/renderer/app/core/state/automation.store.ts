@@ -31,7 +31,7 @@ export interface AutomationDraft {
   runAtIso?: string;
   timezone?: string;
   prompt: string;
-  provider?: 'auto' | 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor';
+  provider?: 'auto' | 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor';
 }
 
 export type AutomationDraftOutcome =

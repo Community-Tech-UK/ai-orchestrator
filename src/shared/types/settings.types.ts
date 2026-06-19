@@ -12,7 +12,7 @@ import type { AuxiliaryLlmRoutingMode } from './auxiliary-llm.types';
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type DisplayDensity = 'comfortable' | 'compact';
 export type SidebarStyle = 'standard' | 'compact';
-export type CanonicalCliType = 'claude' | 'gemini' | 'codex' | 'copilot' | 'auto' | 'cursor';
+export type CanonicalCliType = 'claude' | 'gemini' | 'antigravity' | 'codex' | 'copilot' | 'auto' | 'cursor';
 export type CliType = CanonicalCliType | 'openai'; // legacy alias kept for persisted settings compatibility
 export type ConfigSource = 'project' | 'user' | 'default';
 export type DefaultMissedRunPolicy = 'skip' | 'notify' | 'runOnce';

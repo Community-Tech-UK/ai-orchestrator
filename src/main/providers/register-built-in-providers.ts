@@ -8,6 +8,7 @@ import type { ProviderAdapterRegistry } from '@sdk/provider-adapter-registry';
 import { ClaudeCliProvider, CLAUDE_DESCRIPTOR } from './claude-cli-provider';
 import { CodexCliProvider, CODEX_DESCRIPTOR } from './codex-cli-provider';
 import { GeminiCliProvider, GEMINI_DESCRIPTOR } from './gemini-cli-provider';
+import { AntigravityCliProvider, ANTIGRAVITY_DESCRIPTOR } from './antigravity-cli-provider';
 import { CopilotCliProvider, COPILOT_DESCRIPTOR } from './copilot-cli-provider';
 import { CursorCliProvider, CURSOR_DESCRIPTOR } from './cursor-cli-provider';
 
@@ -16,6 +17,7 @@ export function registerBuiltInProviders(registry: ProviderAdapterRegistry): voi
     [CLAUDE_DESCRIPTOR, (config: typeof CLAUDE_DESCRIPTOR.defaultConfig) => new ClaudeCliProvider(config)],
     [CODEX_DESCRIPTOR, (config: typeof CODEX_DESCRIPTOR.defaultConfig) => new CodexCliProvider(config)],
     [GEMINI_DESCRIPTOR, (config: typeof GEMINI_DESCRIPTOR.defaultConfig) => new GeminiCliProvider(config)],
+    [ANTIGRAVITY_DESCRIPTOR, (config: typeof ANTIGRAVITY_DESCRIPTOR.defaultConfig) => new AntigravityCliProvider(config)],
     [COPILOT_DESCRIPTOR, (config: typeof COPILOT_DESCRIPTOR.defaultConfig) => new CopilotCliProvider(config)],
     [CURSOR_DESCRIPTOR, (config: typeof CURSOR_DESCRIPTOR.defaultConfig) => new CursorCliProvider(config)],
   ] as const;

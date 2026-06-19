@@ -40,7 +40,7 @@ export const LoopCompletionOutcomeSchema = z.enum([
   'review-blocked',
 ]);
 export const LoopVerdictSchema = z.enum(['OK', 'WARN', 'CRITICAL']);
-export const LoopProviderSchema = z.enum(['claude', 'codex', 'gemini', 'copilot', 'cursor']);
+export const LoopProviderSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']);
 export const LoopReviewStyleSchema = z.enum(['single', 'debate', 'star-chamber']);
 export const LoopContextStrategySchema = z.enum(['fresh-child', 'hybrid', 'same-session']);
 
@@ -126,7 +126,7 @@ export const LoopReviewSeveritySchema = z.enum(['critical', 'high', 'medium', 'l
 export const LoopPingPongConfigSchema = z.object({
   enabled: z.boolean(),
   reviewerProvider: z
-    .enum(['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor'])
+    .enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'])
     .optional(),
   subject: z.enum(['auto', 'plan', 'impl']).optional(),
   maxRounds: z.number().int().min(1).max(20).optional(),

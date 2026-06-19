@@ -15,6 +15,7 @@
 import { ClaudeCliAdapter, ClaudeCliSpawnOptions } from './claude-cli-adapter';
 import { CodexCliAdapter, CodexCliConfig } from './codex-cli-adapter';
 import { GeminiCliAdapter, GeminiCliConfig } from './gemini-cli-adapter';
+import { AntigravityCliAdapter, AntigravityCliConfig } from './antigravity-cli-adapter';
 import { OllamaCliAdapter } from './ollama-cli-adapter';
 import { AcpCliAdapter } from './acp-cli-adapter';
 import { RemoteCliAdapter } from './remote-cli-adapter';
@@ -74,7 +75,11 @@ export function mapSettingsToDetectionType(settingsType: SettingsCliType | CliTy
     case 'openai':
       return 'codex';
     case 'gemini':
-      return 'gemini';
+      // Legacy alias: the Gemini CLI has been replaced by Antigravity (`agy`).
+      // Persisted `gemini` selections resolve to the antigravity runtime.
+      return 'antigravity';
+    case 'antigravity':
+      return 'antigravity';
     case 'copilot':
       return 'copilot';
     case 'cursor':
@@ -129,7 +134,7 @@ export async function resolveCliType(
   }
 
   // Fall back to first available CLI.
-  const priority: CliType[] = ['claude', 'codex', 'gemini', 'copilot', 'cursor', 'ollama'];
+  const priority: CliType[] = ['claude', 'codex', 'antigravity', 'copilot', 'cursor', 'ollama'];
   logger.debug('Falling back to auto-detect', { priority });
 
   for (const cli of priority) {
@@ -249,6 +254,30 @@ export function createGeminiAdapter(options: UnifiedSpawnOptions): GeminiCliAdap
     ...(browserGatewaySettingsPath ? { browserGatewaySettingsPath } : {}),
   };
   return new GeminiCliAdapter(geminiConfig);
+}
+
+/**
+ * Creates an Antigravity CLI adapter (spawns the `agy` binary).
+ *
+ * Successor to createGeminiAdapter. agy has no `--output-format` flag and no
+ * Gemini-style browser-gateway settings path, so this is a simpler env merge.
+ */
+export function createAntigravityAdapter(options: UnifiedSpawnOptions): AntigravityCliAdapter {
+  const env = mergeSpawnEnv(options);
+  extendEnvWithRtk(env, options.rtk);
+  const antigravityConfig: AntigravityCliConfig = {
+    workingDir: options.workingDirectory,
+    model: options.model,
+    // Default auto-approve on: agy runs one-shot non-interactively here, so
+    // without --dangerously-skip-permissions it would block on tool-permission
+    // prompts. The orchestrator is the approval layer for managed instances.
+    yoloMode: options.yoloMode ?? true,
+    systemPrompt: options.systemPrompt,
+    timeout: options.timeout,
+    rtkEnabled: Boolean(options.rtk?.enabled && options.rtk.binaryPath),
+    ...(Object.keys(env).length > 0 ? { env } : {}),
+  };
+  return new AntigravityCliAdapter(antigravityConfig);
 }
 
 /**
@@ -455,7 +484,12 @@ export function createCliAdapter(
       return createCodexAdapter(effectiveOptions);
 
     case 'gemini':
+      // Legacy alias — should not normally be reached (resolveCliType maps
+      // gemini→antigravity), but kept so any direct `gemini` caller still works.
       return createGeminiAdapter(effectiveOptions);
+
+    case 'antigravity':
+      return createAntigravityAdapter(effectiveOptions);
 
     case 'copilot':
       return createCopilotAdapter(effectiveOptions);
@@ -494,7 +528,9 @@ export function getCliDisplayName(cliType: CliType): string {
     case 'codex':
       return 'OpenAI Codex';
     case 'gemini':
-      return 'Google Gemini';
+      return 'Google Gemini (legacy)';
+    case 'antigravity':
+      return 'Antigravity';
     case 'copilot':
       return 'GitHub Copilot';
     case 'cursor':

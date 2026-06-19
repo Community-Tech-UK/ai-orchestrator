@@ -17,7 +17,7 @@ export type McpScope = ProviderMcpScope | OrchestratorMcpScope | 'shared';
 
 export type SupportedProvider = Extract<
   CanonicalCliType,
-  'claude' | 'codex' | 'gemini' | 'copilot'
+  'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot'
 >;
 
 export const ALL_MCP_SCOPES: readonly McpScope[] = [
@@ -37,6 +37,7 @@ export const SUPPORTED_PROVIDERS: readonly SupportedProvider[] = [
   'claude',
   'codex',
   'gemini',
+  'antigravity',
   'copilot',
 ];
 
@@ -48,6 +49,7 @@ export const PROVIDER_SCOPES: Record<SupportedProvider, readonly ProviderMcpScop
   claude: ['user', 'project', 'local'],
   codex: ['user'],
   gemini: ['user'],
+  antigravity: ['user'],
   copilot: ['user', 'workspace', 'managed', 'system'],
 };
 
@@ -58,6 +60,7 @@ export const WRITABLE_SCOPES_BY_PROVIDER: Record<
   claude: ['user'],
   codex: ['user'],
   gemini: ['user'],
+  antigravity: ['user'],
   copilot: ['user'],
 };
 
