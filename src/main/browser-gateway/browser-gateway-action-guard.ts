@@ -547,6 +547,7 @@ export function providerFromContext(provider: string | undefined): BrowserProvid
   return provider === 'claude' ||
     provider === 'codex' ||
     provider === 'gemini' ||
+    provider === 'antigravity' ||
     provider === 'copilot' ||
     provider === 'cursor' ||
     provider === 'orchestrator'

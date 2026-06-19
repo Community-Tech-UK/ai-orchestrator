@@ -11,7 +11,7 @@ import type {
 } from '../../../../shared/types/campaign.types';
 import { CampaignStore } from '../../core/state/campaign.store';
 
-type Provider = 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor';
+type Provider = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor';
 type Stage = 'PLAN' | 'REVIEW' | 'IMPLEMENT';
 type EditorMode = 'select' | 'add-node' | 'connect';
 type EdgeMode = 'any' | 'is' | 'in' | 'not';
@@ -49,7 +49,7 @@ const TERMINAL_STATUSES: LoopTerminalStatus[] = [
   'provider-limit',
   'operator-halted',
 ];
-const PROVIDERS: Provider[] = ['claude', 'codex', 'gemini', 'copilot', 'cursor'];
+const PROVIDERS: Provider[] = ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'];
 const STAGES: Stage[] = ['IMPLEMENT', 'PLAN', 'REVIEW'];
 const NODE_W = 156;
 const NODE_H = 76;

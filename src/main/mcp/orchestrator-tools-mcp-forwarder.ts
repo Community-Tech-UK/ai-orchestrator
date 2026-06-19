@@ -117,7 +117,7 @@ export function createOrchestratorToolsForwarderTools(
           },
           provider: {
             type: 'string',
-            enum: ['claude', 'codex', 'gemini', 'copilot', 'cursor'],
+            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'],
             description: 'CLI provider to use on the node (defaults to the node/app default).',
           },
           model: {
@@ -346,7 +346,7 @@ export function createOrchestratorToolsForwarderTools(
           description: { type: 'string', description: 'Optional human-readable description.' },
           provider: {
             type: 'string',
-            enum: ['claude', 'codex', 'gemini', 'copilot', 'cursor'],
+            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'],
             description: 'CLI provider to run with (defaults to the app default).',
           },
           enabled: {
@@ -436,7 +436,7 @@ export function createOrchestratorToolsForwarderTools(
           },
           provider: {
             type: 'string',
-            enum: ['claude', 'codex', 'gemini', 'copilot', 'cursor'],
+            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'],
             description: 'New CLI provider. Omit to leave unchanged.',
           },
           model: {

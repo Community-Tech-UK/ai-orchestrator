@@ -200,7 +200,7 @@ function detectClis(): CanonicalCliType[] {
   const clis: { name: DetectableCliType; command: string }[] = [
     { name: 'claude', command: 'claude' },
     { name: 'codex', command: 'codex' },
-    { name: 'gemini', command: 'gemini' },
+    { name: 'antigravity', command: 'agy' },
     { name: 'copilot', command: 'gh' },
     { name: 'cursor', command: 'cursor-agent' },
     { name: 'ollama', command: 'ollama' },

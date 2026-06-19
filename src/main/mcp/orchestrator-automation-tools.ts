@@ -40,7 +40,7 @@ export const CreateAutomationArgsSchema = z
     /** Optional human-readable description. */
     description: z.string().max(2000).optional(),
     /** CLI provider to run with (defaults to the app default). */
-    provider: z.enum(['claude', 'codex', 'gemini', 'copilot', 'cursor']).optional(),
+    provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
     /** Whether the automation is active immediately. Defaults to true. */
     enabled: z.boolean().optional(),
   })
@@ -172,7 +172,7 @@ export const UpdateAutomationArgsSchema = z
     /** New absolute working directory. Omit to leave unchanged. */
     workingDirectory: z.string().min(1).max(10_000).optional(),
     /** New CLI provider. Omit to leave unchanged. */
-    provider: z.enum(['claude', 'codex', 'gemini', 'copilot', 'cursor']).optional(),
+    provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
     /** New model override for the spawned agent. Omit to leave unchanged. */
     model: z.string().min(1).max(100).optional(),
     /** New reasoning-effort level for the spawned agent. Omit to leave unchanged. */
@@ -305,7 +305,7 @@ export function createAutomationToolDefinitions(
           description: { type: 'string', description: 'Optional human-readable description.' },
           provider: {
             type: 'string',
-            enum: ['claude', 'codex', 'gemini', 'copilot', 'cursor'],
+            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'],
             description: 'CLI provider to run with (defaults to the app default).',
           },
           enabled: {
@@ -406,7 +406,7 @@ export function createAutomationToolDefinitions(
           },
           provider: {
             type: 'string',
-            enum: ['claude', 'codex', 'gemini', 'copilot', 'cursor'],
+            enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'],
             description: 'New CLI provider. Omit to leave unchanged.',
           },
           model: {

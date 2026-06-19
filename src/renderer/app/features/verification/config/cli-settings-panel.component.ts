@@ -333,10 +333,11 @@ export class CliSettingsPanelComponent implements OnInit {
     )];
   }
 
-  private supportsDynamicModelLookup(command: string): command is 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor' {
+  private supportsDynamicModelLookup(command: string): command is 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' {
     return command === 'claude'
       || command === 'codex'
       || command === 'gemini'
+      || command === 'antigravity'
       || command === 'copilot'
       || command === 'cursor';
   }

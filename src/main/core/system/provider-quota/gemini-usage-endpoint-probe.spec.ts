@@ -53,7 +53,7 @@ describe('GeminiUsageEndpointProbe', () => {
     const snap = await probe.probe({ signal: new AbortController().signal });
 
     expect(calls).toEqual([{ token: 'gemini-access-token', project: 'cloudaicompanion-prod' }]);
-    expect(snap).toMatchObject({ provider: 'gemini', ok: true, source: 'admin-api' });
+    expect(snap).toMatchObject({ provider: 'antigravity', ok: true, source: 'admin-api' });
     expect(snap!.windows).toEqual([
       expect.objectContaining({
         id: 'gemini.pro-daily',

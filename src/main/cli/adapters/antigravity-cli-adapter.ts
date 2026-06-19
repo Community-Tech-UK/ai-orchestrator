@@ -293,10 +293,14 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
   protected buildArgs(message: CliMessage): string[] {
     const args: string[] = [];
 
-    // Model selection (opaque pass-through; agy uses its default if omitted).
-    if (this.cliConfig.model) {
-      args.push('--model', this.cliConfig.model);
-    }
+    // Model selection is intentionally NOT forwarded yet. agy's accepted
+    // `--model` ID format is undocumented (its `agy models` output is
+    // display-only) and a wrong value errors, so the antigravity model catalog
+    // ships empty and agy is left to pick its own default. The only `model`
+    // values that can reach here are stale `gemini-*` ids carried by a legacy
+    // Gemini instance normalized to antigravity — passing those to agy would
+    // crash the spawn. Re-enable once agy's accepted IDs are confirmed.
+    // if (this.cliConfig.model) { args.push('--model', this.cliConfig.model); }
 
     if (this.cliConfig.sandbox) {
       args.push('--sandbox');

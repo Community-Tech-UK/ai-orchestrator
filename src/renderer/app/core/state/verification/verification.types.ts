@@ -96,7 +96,7 @@ export interface VerificationStoreState {
 
 export const DEFAULT_VERIFICATION_CONFIG: VerificationUIConfig = {
   agentCount: 1,
-  cliAgents: ['gemini'],
+  cliAgents: ['antigravity'],
   synthesisStrategy: 'merge',
   personalities: ['methodical-analyst'],
   confidenceThreshold: 0.7,

@@ -10,6 +10,7 @@ export type CliType =
   | 'claude'
   | 'codex'
   | 'gemini'
+  | 'antigravity'
   | 'ollama'
   | 'aider'
   | 'continue'

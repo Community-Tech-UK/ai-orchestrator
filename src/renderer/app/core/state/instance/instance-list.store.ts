@@ -723,6 +723,7 @@ export class InstanceListStore {
     return value === 'claude'
       || value === 'codex'
       || value === 'gemini'
+      || value === 'antigravity'
       || value === 'copilot'
       || value === 'ollama'
       || value === 'cursor';

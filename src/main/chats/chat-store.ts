@@ -164,7 +164,7 @@ function rowToChatRecord(row: ChatRow): ChatRecord {
 }
 
 function isChatProvider(value: string | null): value is ChatProvider {
-  return value === 'claude' || value === 'codex' || value === 'gemini' || value === 'copilot';
+  return value === 'claude' || value === 'codex' || value === 'gemini' || value === 'antigravity' || value === 'copilot';
 }
 
 function isReasoningEffort(value: string | null): value is ReasoningEffort {

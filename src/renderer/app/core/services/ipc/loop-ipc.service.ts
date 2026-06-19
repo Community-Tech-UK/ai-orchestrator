@@ -70,7 +70,7 @@ export interface LoopStartConfigInput {
       reviewDepth: 'structured' | 'tiered';
       pingPong?: {
         enabled: boolean;
-        reviewerProvider?: 'auto' | 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor';
+        reviewerProvider?: 'auto' | 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor';
         subject?: 'auto' | 'plan' | 'impl';
         maxRounds?: number;
         freshReviewerEachRound?: boolean;

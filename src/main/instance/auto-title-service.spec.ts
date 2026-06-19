@@ -62,11 +62,11 @@ describe('AutoTitleService', () => {
     AutoTitleService._resetForTesting();
   });
 
-  it('prefers gemini for title generation even when copilot, claude, and codex are available', async () => {
+  it('prefers antigravity for title generation even when copilot, claude, and codex are available', async () => {
     mockIsCliAvailable.mockImplementation(async (type: string) => ({
-      installed: ['gemini', 'copilot', 'claude', 'codex'].includes(type),
+      installed: ['antigravity', 'copilot', 'claude', 'codex'].includes(type),
     }));
-    mockResolveCliType.mockResolvedValue('gemini');
+    mockResolveCliType.mockResolvedValue('antigravity');
 
     const applyTitle = vi.fn();
 
@@ -77,25 +77,24 @@ describe('AutoTitleService', () => {
       false,
     );
 
-    // Should resolve to gemini (first in preference order), not a later provider.
-    expect(mockIsCliAvailable).toHaveBeenCalledWith('gemini');
+    // Should resolve to antigravity (first in preference order), not a later provider.
+    expect(mockIsCliAvailable).toHaveBeenCalledWith('antigravity');
     expect(mockIsCliAvailable).not.toHaveBeenCalledWith('copilot');
     expect(mockIsCliAvailable).not.toHaveBeenCalledWith('claude');
     expect(mockIsCliAvailable).not.toHaveBeenCalledWith('codex');
-    expect(mockResolveCliType).toHaveBeenCalledWith('gemini');
-    expect(mockCreateAdapter).toHaveBeenCalledWith({
-      cliType: 'gemini',
-      options: expect.objectContaining({
-        model: expect.any(String),
-      }),
-    });
+    expect(mockResolveCliType).toHaveBeenCalledWith('antigravity');
+    // Antigravity ships an empty model catalog (agy picks its own default), so
+    // no model is forwarded — assert the cliType only, not a string model.
+    expect(mockCreateAdapter).toHaveBeenCalledWith(expect.objectContaining({
+      cliType: 'antigravity',
+    }));
     // Phase 1 instant title
     expect(applyTitle).toHaveBeenCalledWith('instance-1', 'Investigate the broken deployment and summarize the fix.', 'instant');
     // Phase 2 AI title
     expect(applyTitle).toHaveBeenCalledWith('instance-1', 'AI generated title', 'ai');
   });
 
-  it('skips copilot and falls back to claude when gemini is not available', async () => {
+  it('skips copilot and falls back to claude when antigravity is not available', async () => {
     mockIsCliAvailable.mockImplementation(async (type: string) => ({
       installed: type === 'copilot' || type === 'claude' || type === 'codex',
     }));
@@ -110,7 +109,7 @@ describe('AutoTitleService', () => {
       false,
     );
 
-    expect(mockIsCliAvailable).toHaveBeenNthCalledWith(1, 'gemini');
+    expect(mockIsCliAvailable).toHaveBeenNthCalledWith(1, 'antigravity');
     expect(mockIsCliAvailable).toHaveBeenNthCalledWith(2, 'claude');
     expect(mockIsCliAvailable).not.toHaveBeenCalledWith('copilot');
     expect(mockResolveCliType).toHaveBeenCalledWith('claude');

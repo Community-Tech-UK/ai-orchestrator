@@ -35,7 +35,7 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
     type: 'multi-select',
     category: 'review',
     options: [
-      { value: 'gemini', label: 'Gemini CLI' },
+      { value: 'antigravity', label: 'Antigravity' },
       { value: 'codex', label: 'OpenAI Codex CLI' },
       { value: 'copilot', label: 'GitHub Copilot' },
       { value: 'claude', label: 'Claude Code' },
@@ -72,7 +72,7 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
     options: [
       { value: 'auto', label: 'Auto (a different model)' },
       { value: 'codex', label: 'OpenAI Codex CLI' },
-      { value: 'gemini', label: 'Gemini CLI' },
+      { value: 'antigravity', label: 'Antigravity' },
       { value: 'copilot', label: 'GitHub Copilot' },
       { value: 'claude', label: 'Claude Code' },
       { value: 'cursor', label: 'Cursor CLI' },

@@ -61,7 +61,7 @@ describe('CapabilityProbe', () => {
       available: [
         { name: 'claude' },
         { name: 'codex' },
-        { name: 'gemini' },
+        { name: 'antigravity' },
         { name: 'copilot' },
         { name: 'cursor' },
       ],
@@ -213,7 +213,7 @@ describe('CapabilityProbe', () => {
       available: [
         { name: 'claude' },
         { name: 'codex' },
-        { name: 'gemini' },
+        { name: 'antigravity' },
         { name: 'copilot' },
         // cursor intentionally absent — detection thinks it's not installed
       ],
@@ -251,7 +251,7 @@ describe('CapabilityProbe', () => {
       available: [
         { name: 'claude' },
         { name: 'codex' },
-        { name: 'gemini' },
+        { name: 'antigravity' },
         { name: 'copilot' },
       ],
       detected: [],

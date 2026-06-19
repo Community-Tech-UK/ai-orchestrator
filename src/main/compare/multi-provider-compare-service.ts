@@ -25,7 +25,7 @@ const logger = getLogger('MultiCompare');
 const COMPARE_TIMEOUT = 60_000;
 
 /** Providers we know how to spawn as one-shots. */
-const KNOWN_PROVIDERS: readonly CliType[] = ['claude', 'gemini', 'copilot', 'codex', 'cursor'];
+const KNOWN_PROVIDERS: readonly CliType[] = ['claude', 'gemini', 'antigravity', 'copilot', 'codex', 'cursor'];
 
 /** Hard cap on fan-out width to avoid spawning an unbounded number of CLIs. */
 const MAX_PROVIDERS = 8;

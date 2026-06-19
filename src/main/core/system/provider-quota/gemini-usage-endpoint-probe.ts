@@ -83,7 +83,10 @@ interface GeminiQuotaPayload {
 }
 
 export class GeminiUsageEndpointProbe implements ProviderQuotaProbe {
-  readonly provider = 'gemini' as const;
+  // Reports under the `antigravity` provider: the Gemini CLI is deprecated and
+  // `agy` (Antigravity) now consumes this same Google quota via the shared
+  // ~/.gemini OAuth creds, so the quota belongs to the antigravity surface.
+  readonly provider = 'antigravity' as const;
 
   private readonly configDir: string;
   private readonly usageDir: string;
@@ -149,7 +152,7 @@ export class GeminiUsageEndpointProbe implements ProviderQuotaProbe {
     }
 
     return {
-      provider: 'gemini',
+      provider: 'antigravity',
       takenAt,
       source: 'admin-api',
       ok: true,
@@ -304,7 +307,7 @@ function firstTrimmed(...values: Array<string | undefined>): string | undefined 
 
 function failedSnapshot(takenAt: number, error: string): ProviderQuotaSnapshot {
   return {
-    provider: 'gemini',
+    provider: 'antigravity',
     takenAt,
     source: 'admin-api',
     ok: false,

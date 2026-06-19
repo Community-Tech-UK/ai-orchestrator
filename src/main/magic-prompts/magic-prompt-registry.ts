@@ -138,7 +138,7 @@ const AutomationDraftSchema = z
     runAtIso: z.string().optional(),
     timezone: z.string().optional(),
     prompt: z.string().min(1),
-    provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor']).optional(),
+    provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
   })
   .superRefine((value, ctx) => {
     if (value.scheduleType === 'cron' && !value.cronExpression?.trim()) {

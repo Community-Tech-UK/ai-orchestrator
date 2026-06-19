@@ -39,7 +39,7 @@ const logger = getLogger('UsageMonitorSource');
 const DEFAULT_MAX_AGE_MS = 5 * 60_000;
 
 /** Provider keys we'll accept from state.json. Mirrors token-usage-monitor. */
-const KNOWN_PROVIDERS: readonly ProviderId[] = ['claude', 'codex', 'gemini', 'copilot', 'cursor'];
+const KNOWN_PROVIDERS: readonly ProviderId[] = ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'];
 
 type FileReader = (filePath: string) => Promise<string>;
 type FileStat = (filePath: string) => Promise<{ mtimeMs: number }>;

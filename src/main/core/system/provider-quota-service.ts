@@ -29,7 +29,7 @@ import type {
 
 const logger = getLogger('ProviderQuotaService');
 
-const PROVIDERS: readonly ProviderId[] = ['claude', 'codex', 'gemini', 'copilot', 'cursor'];
+const PROVIDERS: readonly ProviderId[] = ['claude', 'codex', 'antigravity', 'copilot', 'cursor'];
 const WARNING_THRESHOLDS: readonly number[] = [50, 75, 90];
 const EXHAUSTED_THRESHOLD = 100;
 

@@ -687,6 +687,7 @@ export class NewSessionDraftService {
     return value === 'claude' ||
       value === 'codex' ||
       value === 'gemini' ||
+      value === 'antigravity' ||
       value === 'copilot' ||
       value === 'cursor' ||
       value === 'auto';

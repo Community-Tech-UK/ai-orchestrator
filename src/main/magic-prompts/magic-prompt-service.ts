@@ -32,7 +32,7 @@ const logger = getLogger('MagicPrompt');
 const MAGIC_PROMPT_TIMEOUT = 30_000;
 
 /** Provider preference (fastest first) when no explicit provider is requested. */
-const FAST_PROVIDER_PREFERENCE = ['claude', 'gemini', 'copilot', 'codex'] as const;
+const FAST_PROVIDER_PREFERENCE = ['claude', 'antigravity', 'gemini', 'copilot', 'codex'] as const;
 
 export interface MagicPromptRunInput extends MagicPromptInput {
   id: string;

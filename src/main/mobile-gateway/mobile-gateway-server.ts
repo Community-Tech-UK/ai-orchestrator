@@ -76,7 +76,7 @@ const MESSAGE_REPLAY_LIMIT = 300;
 /** Ping idle WS clients on this interval; reap any that miss a pong (dead cellular link). */
 const WS_HEARTBEAT_MS = 30_000;
 
-const VALID_PROVIDERS = new Set(['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor']);
+const VALID_PROVIDERS = new Set(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']);
 
 /** Minimal EventEmitter surface the gateway subscribes to / detaches from. */
 interface EmitterLike {

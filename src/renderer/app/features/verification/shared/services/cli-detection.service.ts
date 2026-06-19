@@ -57,6 +57,15 @@ const CLI_METADATA: Record<CliType, CliMetadata> = {
     capabilities: ['streaming', 'vision', 'web-search'],
     description: 'Google Gemini AI CLI',
   },
+  antigravity: {
+    type: 'antigravity',
+    displayName: 'Antigravity',
+    command: 'agy',
+    installUrl: 'https://antigravity.google',
+    authCommand: 'agy',
+    capabilities: ['tools', 'web-search'],
+    description: 'Google Antigravity CLI (agy) — successor to the Gemini CLI',
+  },
   ollama: {
     type: 'ollama',
     displayName: 'Ollama',

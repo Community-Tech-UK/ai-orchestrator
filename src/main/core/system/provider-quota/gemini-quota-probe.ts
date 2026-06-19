@@ -62,7 +62,9 @@ interface GeminiSettingsFile {
 }
 
 export class GeminiQuotaProbe implements ProviderQuotaProbe {
-  readonly provider = 'gemini' as const;
+  // Reports under `antigravity` — see GeminiUsageEndpointProbe note. `agy`
+  // shares the ~/.gemini creds, so this quota belongs to the antigravity surface.
+  readonly provider = 'antigravity' as const;
 
   private readonly accountsPath: string;
   private readonly settingsPath: string;
@@ -110,7 +112,7 @@ export class GeminiQuotaProbe implements ProviderQuotaProbe {
     }
 
     return {
-      provider: 'gemini',
+      provider: 'antigravity',
       takenAt,
       source: 'cli-result',
       ok: true,
@@ -124,7 +126,7 @@ export class GeminiQuotaProbe implements ProviderQuotaProbe {
 
 function failedSnapshot(takenAt: number, error: string): ProviderQuotaSnapshot {
   return {
-    provider: 'gemini',
+    provider: 'antigravity',
     takenAt,
     source: 'cli-result',
     ok: false,
