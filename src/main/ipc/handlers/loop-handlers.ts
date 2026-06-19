@@ -217,6 +217,30 @@ export function registerLoopHandlers(deps: {
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.LOOP_PINGPONG_SKIP_ROUND, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(LoopByIdPayloadSchema, payload, 'LOOP_PINGPONG_SKIP_ROUND');
+      const ok = coordinator.requestPingPongSkipRound(validated.loopRunId);
+      const state = coordinator.getLoop(validated.loopRunId);
+      if (state) try { store.upsertRun(state); } catch { /* noop */ }
+      return { success: true, data: { ok, state } };
+    } catch (error) {
+      return errorResponse('LOOP_PINGPONG_SKIP_ROUND_FAILED', error);
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.LOOP_PINGPONG_FORCE_ARBITRATION, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(LoopByIdPayloadSchema, payload, 'LOOP_PINGPONG_FORCE_ARBITRATION');
+      const ok = coordinator.requestPingPongArbitration(validated.loopRunId);
+      const state = coordinator.getLoop(validated.loopRunId);
+      if (state) try { store.upsertRun(state); } catch { /* noop */ }
+      return { success: true, data: { ok, state } };
+    } catch (error) {
+      return errorResponse('LOOP_PINGPONG_FORCE_ARBITRATION_FAILED', error);
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.LOOP_RESUME, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(LoopByIdPayloadSchema, payload, 'LOOP_RESUME');
@@ -512,6 +536,11 @@ function isTerminalLoopStatus(status: LoopState['status']): boolean {
     || status === 'cap-reached'
     || status === 'error'
     || status === 'no-progress'
+    // Ping-pong terminal states (bigchange_pingpong_review §4.11).
+    || status === 'cost-exceeded'
+    || status === 'needs-human-arbitration'
+    || status === 'reviewer-unreliable'
+    || status === 'builder-unreliable'
   );
 }
 

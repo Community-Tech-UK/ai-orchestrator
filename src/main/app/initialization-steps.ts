@@ -504,6 +504,19 @@ export function createInitializationSteps(
         }
         await crossModelReview.initialize();
         registerCrossModelReviewIpcHandlers();
+        // Ping-pong reviewer spawner shares the InstanceManager so it can spawn
+        // fresh root-level reviewer instances for the agentic ping-pong gate.
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { getReviewerSessionSpawner } = require(
+            '../orchestration/reviewer-session-spawner',
+          ) as typeof import('../orchestration/reviewer-session-spawner');
+          getReviewerSessionSpawner().setInstanceManager(instanceManager);
+        } catch (err) {
+          logger.warn('Failed to wire ReviewerSessionSpawner', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
       },
     },
     {

@@ -1,0 +1,508 @@
+import { getLogger } from '../logging/logger';
+import type {
+  PingPongIssue,
+  PingPongIssueStatus,
+  PingPongReviewerVerdict,
+  PingPongSeverity,
+  PingPongSubject,
+} from '../../shared/types/loop-pingpong.types';
+import type { InstanceProvider } from '../../shared/types/instance.types';
+import {
+  getReviewerSessionSpawner,
+  type ReviewSessionOutcome,
+} from './reviewer-session-spawner';
+
+const logger = getLogger('AgenticPingPongReviewer');
+
+/**
+ * Provider preference order for `'auto'` reviewer resolution. Deep-dive-capable
+ * agentic CLIs first; `ollama` is intentionally excluded from auto (local/weak)
+ * but may still be chosen if explicitly configured.
+ */
+const AUTO_REVIEWER_PREFERENCE: readonly string[] = [
+  'codex',
+  'gemini',
+  'antigravity',
+  'copilot',
+  'claude',
+  'cursor',
+];
+
+/** A single structured finding emitted by the reviewer (evidence required). */
+export interface PingPongReviewFinding {
+  title: string;
+  severity: PingPongSeverity;
+  /** `file:line` (or file) the finding is anchored to. */
+  file?: string;
+  /** Evidence citation — what was inspected. Findings without this are dropped. */
+  evidence: string;
+  body: string;
+  /** Novelty vs the handed-in ledger. */
+  novelty: 'new' | 'persisted' | 'regression';
+  /** Ledger issue id this maps to, when not new. */
+  ledgerId?: string;
+}
+
+/** The reviewer's classification of a prior ledger issue this round. */
+export interface PingPongLedgerClassification {
+  id: string;
+  status: PingPongIssueStatus;
+  note?: string;
+}
+
+/**
+ * Completeness signals proving the reviewer actually looked. Below the minimum
+ * work threshold ⇒ the round is UNRELIABLE, NOT a clean pass — this is how we
+ * distinguish "clean because good" from "clean because it didn't look."
+ */
+export interface PingPongCompleteness {
+  filesInspected: number;
+  commandsRun: number;
+  scopeCovered: string;
+  /** Derived: did the reviewer do enough work to be trusted? */
+  sufficient: boolean;
+}
+
+export interface PingPongReviewerInput {
+  loopRunId: string;
+  workspaceCwd: string;
+  goal: string;
+  subject: PingPongSubject;
+  planFile?: string;
+  /** Builder's provider — the reviewer MUST be a different one. */
+  builderProvider: string;
+  /** Setting/config: `'auto'` or a concrete provider. */
+  reviewerProviderSetting: string;
+  /** Providers already tried + failed this run (outage fallback rotation). */
+  triedReviewerProviders: readonly string[];
+  /** Durable issue ledger, handed to the fresh reviewer to classify. */
+  ledger: readonly PingPongIssue[];
+  roundNumber: number;
+  maxRounds: number;
+  /** Unified diff of the change (impl mode). */
+  diff?: string;
+  diffSource?: 'git' | 'none';
+  /** Severities that block convergence. */
+  blockingSeverities: readonly PingPongSeverity[];
+  /** Hard wall-clock timeout for the reviewer session. */
+  timeoutMs: number;
+  signal?: AbortSignal;
+  isCancelled?: () => boolean;
+  onSpawned?: (instanceId: string) => void;
+  onProgress?: (elapsedMs: number) => void;
+}
+
+export interface PingPongReviewResult {
+  verdict: PingPongReviewerVerdict;
+  /** Provider actually used. '' when none could be resolved. */
+  reviewerProvider: string;
+  /** Only populated for CHANGES_REQUESTED. */
+  findings: PingPongReviewFinding[];
+  ledgerClassifications: PingPongLedgerClassification[];
+  completeness?: PingPongCompleteness;
+  summary: string;
+  tokensUsed: number;
+  costCents: number;
+  reviewerInstanceId?: string;
+  /** Raw spawn outcome — lets the branch tell `cancelled` from `failed`. */
+  spawnOutcome?: ReviewSessionOutcome;
+  /** Why the verdict is UNRELIABLE (or other diagnostic context). */
+  reason?: string;
+}
+
+export type PingPongReviewer = (
+  input: PingPongReviewerInput,
+) => Promise<PingPongReviewResult>;
+
+/** Minimum work the reviewer must show to be trusted (else UNRELIABLE). */
+const MIN_FILES_INSPECTED = 1;
+/** Cap on NEW low/medium findings per round to throttle nitpick churn. */
+const MAX_NEW_LOW_FINDINGS = 5;
+
+function unreliable(
+  reason: string,
+  partial: Partial<PingPongReviewResult> = {},
+): PingPongReviewResult {
+  return {
+    verdict: 'UNRELIABLE',
+    reviewerProvider: partial.reviewerProvider ?? '',
+    findings: [],
+    ledgerClassifications: [],
+    summary: partial.summary ?? '',
+    tokensUsed: partial.tokensUsed ?? 0,
+    costCents: partial.costCents ?? 0,
+    reviewerInstanceId: partial.reviewerInstanceId,
+    spawnOutcome: partial.spawnOutcome,
+    reason,
+    completeness: partial.completeness,
+  };
+}
+
+/**
+ * Resolve the reviewer provider: a different, installed provider than the
+ * builder. Respects an explicit setting but hard-guards `reviewer != builder`
+ * (falling back to auto-selection rather than reviewing with the same model).
+ */
+async function resolveReviewerProvider(
+  setting: string,
+  builderProvider: string,
+  tried: readonly string[],
+): Promise<string | null> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { detectAvailableClis } = require('../cli/cli-detection') as typeof import('../cli/cli-detection');
+  let installed: string[] = [];
+  try {
+    const clis = await detectAvailableClis();
+    installed = clis.filter((c) => c.installed).map((c) => c.name);
+  } catch (err) {
+    logger.warn('Provider detection failed during ping-pong reviewer resolution', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  const builder = builderProvider.toLowerCase();
+  const triedSet = new Set(tried.map((p) => p.toLowerCase()));
+  const isEligible = (p: string): boolean =>
+    p.toLowerCase() !== builder &&
+    !triedSet.has(p.toLowerCase()) &&
+    (installed.length === 0 || installed.includes(p));
+
+  const normalized = (setting || 'auto').toLowerCase();
+  if (normalized !== 'auto') {
+    if (normalized === builder) {
+      logger.warn('Ping-pong reviewer provider equals builder — falling back to auto', {
+        builderProvider,
+      });
+    } else if (isEligible(normalized)) {
+      return normalized;
+    }
+    // Explicit provider unavailable / already tried → fall through to auto.
+  }
+
+  for (const candidate of AUTO_REVIEWER_PREFERENCE) {
+    if (isEligible(candidate)) return candidate;
+  }
+  // Last resort: any installed provider that isn't the builder / already tried.
+  const fallback = installed.find(isEligible);
+  return fallback ?? null;
+}
+
+function resolveModelOverride(provider: string): string | undefined {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { resolveReviewerModelOverride } = require('../review/review-execution-host') as typeof import('../review/review-execution-host');
+    return resolveReviewerModelOverride(provider);
+  } catch {
+    return undefined;
+  }
+}
+
+function ledgerBlock(ledger: readonly PingPongIssue[]): string {
+  if (ledger.length === 0) {
+    return 'PRIOR ISSUE LEDGER: (empty — this is the first round or no issues were ever raised.)';
+  }
+  const lines = ledger.map(
+    (i) =>
+      `- id=${i.id} [${i.severity}] status=${i.status} "${i.title}"${i.file ? ` (${i.file})` : ''}` +
+      (i.builderResponse ? `\n    builder said: ${i.builderResponse.slice(0, 400)}` : ''),
+  );
+  return `PRIOR ISSUE LEDGER (classify EACH by id — do not blindly re-raise resolved items, and DO flag regressions):\n${lines.join('\n')}`;
+}
+
+function buildPrompt(input: PingPongReviewerInput): string {
+  const isPlan = input.subject === 'plan';
+  const subjectLine = isPlan
+    ? `You are reviewing a PLAN${input.planFile ? ` at \`${input.planFile}\`` : ''}.`
+    : 'You are reviewing an IMPLEMENTATION (code changes).';
+
+  const deepDive = isPlan
+    ? `Read the plan and the relevant code. Independently verify each load-bearing ` +
+      `claim against the real source. Find gaps, wrong assumptions, missing edge cases, ` +
+      `and ordering problems. Cite file:line for every claim you check.`
+    : `Deep-dive the implementation. The git diff below is your STARTING POINT, but read ` +
+      `whatever files you need. Find correctness, security, edge-case, and test-coverage ` +
+      `issues. Cite file:line and what you inspected for every finding.`;
+
+  const diffBlock =
+    !isPlan && (input.diff ?? '').trim().length > 0
+      ? `\n\n## Change under review (git diff vs HEAD)\n${(input.diff ?? '').slice(0, 60_000)}`
+      : '';
+
+  const blocking = input.blockingSeverities.join(', ');
+
+  return (
+    `# Ping-pong review — round ${input.roundNumber}/${input.maxRounds}\n\n` +
+    `${subjectLine}\n\n` +
+    `## Goal\n${input.goal}\n\n` +
+    `## Your job\n${deepDive}\n\n` +
+    `Report ONLY **material** issues that would block a competent engineer from approving. ` +
+    `Cite evidence (file:line + what you inspected) for EVERY finding — findings without ` +
+    `evidence will be discarded. You MAY and SHOULD reply APPROVED when the work is sound. ` +
+    `Do NOT manufacture nitpicks to look thorough. Severities that block: ${blocking}.\n\n` +
+    `${ledgerBlock(input.ledger)}\n` +
+    `${diffBlock}\n\n` +
+    `## Required output\n` +
+    `After your analysis, emit EXACTLY ONE fenced \`\`\`json block (and nothing after it) ` +
+    `matching this schema:\n` +
+    '```json\n' +
+    `{\n` +
+    `  "verdict": "APPROVED" | "CHANGES_REQUESTED",\n` +
+    `  "summary": "one paragraph",\n` +
+    `  "completeness": { "filesInspected": <int>, "commandsRun": <int>, "scopeCovered": "what you covered" },\n` +
+    `  "findings": [\n` +
+    `    { "title": "...", "severity": "critical|high|medium|low", "file": "path:line",\n` +
+    `      "evidence": "what you inspected proving this", "body": "the issue", "novelty": "new|persisted|regression", "ledgerId": "id-or-omit" }\n` +
+    `  ],\n` +
+    `  "ledger": [ { "id": "existing-ledger-id", "status": "open|resolved|rebutted|regression", "note": "why" } ]\n` +
+    `}\n` +
+    '```\n' +
+    `Use "APPROVED" only when there are NO blocking findings. Classify every prior ledger id.`
+  );
+}
+
+/** Tolerant extraction of the trailing JSON block from free-form reviewer output. */
+export function parseReviewerJson(output: string): Record<string, unknown> | null {
+  if (!output || output.trim().length === 0) return null;
+  // 1) Prefer the LAST fenced ```json block.
+  const fenceRe = /```json\s*([\s\S]*?)```/gi;
+  let match: RegExpExecArray | null;
+  let lastFence: string | null = null;
+  while ((match = fenceRe.exec(output)) !== null) {
+    lastFence = match[1];
+  }
+  const candidates: string[] = [];
+  if (lastFence) candidates.push(lastFence);
+  // 2) Any fenced ``` block (no json tag).
+  const anyFenceRe = /```\s*([\s\S]*?)```/gi;
+  while ((match = anyFenceRe.exec(output)) !== null) {
+    candidates.push(match[1]);
+  }
+  // 3) Last balanced {...} object in the raw text.
+  const lastBrace = output.lastIndexOf('{');
+  const firstAfter = output.indexOf('{');
+  if (firstAfter >= 0) candidates.push(output.slice(firstAfter));
+  if (lastBrace >= 0 && lastBrace !== firstAfter) candidates.push(output.slice(lastBrace));
+
+  for (const raw of candidates) {
+    const trimmed = raw.trim();
+    if (!trimmed.startsWith('{')) continue;
+    try {
+      const parsed = JSON.parse(extractBalancedObject(trimmed));
+      if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
+    } catch {
+      // try next candidate
+    }
+  }
+  return null;
+}
+
+/** Slice the first balanced `{...}` so trailing prose after the JSON is ignored. */
+function extractBalancedObject(text: string): string {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return text.slice(0, i + 1);
+    }
+  }
+  return text;
+}
+
+function coerceSeverity(value: unknown): PingPongSeverity {
+  const s = String(value ?? '').toLowerCase();
+  if (s === 'critical' || s === 'high' || s === 'medium' || s === 'low') return s;
+  return 'medium';
+}
+
+function coerceNovelty(value: unknown): PingPongReviewFinding['novelty'] {
+  const s = String(value ?? '').toLowerCase();
+  if (s === 'persisted' || s === 'regression') return s;
+  return 'new';
+}
+
+function normalizeFindings(raw: unknown): PingPongReviewFinding[] {
+  if (!Array.isArray(raw)) return [];
+  const out: PingPongReviewFinding[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const f = item as Record<string, unknown>;
+    const evidence = String(f['evidence'] ?? '').trim();
+    const title = String(f['title'] ?? '').trim();
+    // Evidence-required: drop findings that cite nothing.
+    if (!title || !evidence) continue;
+    out.push({
+      title,
+      severity: coerceSeverity(f['severity']),
+      file: f['file'] ? String(f['file']) : undefined,
+      evidence,
+      body: String(f['body'] ?? '').trim(),
+      novelty: coerceNovelty(f['novelty']),
+      ledgerId: f['ledgerId'] ? String(f['ledgerId']) : undefined,
+    });
+  }
+  return out;
+}
+
+function normalizeLedgerClassifications(raw: unknown): PingPongLedgerClassification[] {
+  if (!Array.isArray(raw)) return [];
+  const out: PingPongLedgerClassification[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const c = item as Record<string, unknown>;
+    const id = String(c['id'] ?? '').trim();
+    if (!id) continue;
+    const status = String(c['status'] ?? '').toLowerCase();
+    const valid: PingPongIssueStatus =
+      status === 'resolved' || status === 'rebutted' || status === 'regression' ? status : 'open';
+    out.push({ id, status: valid, note: c['note'] ? String(c['note']) : undefined });
+  }
+  return out;
+}
+
+/** Throttle nitpick churn: keep all blocking findings, cap NEW low/medium ones. */
+function capLowSeverityChurn(
+  findings: PingPongReviewFinding[],
+  blocking: readonly PingPongSeverity[],
+): PingPongReviewFinding[] {
+  const blockingSet = new Set(blocking);
+  const kept: PingPongReviewFinding[] = [];
+  let lowCount = 0;
+  for (const f of findings) {
+    if (blockingSet.has(f.severity)) {
+      kept.push(f);
+      continue;
+    }
+    if (f.novelty === 'new') {
+      if (lowCount >= MAX_NEW_LOW_FINDINGS) continue;
+      lowCount++;
+    }
+    kept.push(f);
+  }
+  return kept;
+}
+
+/**
+ * The real ping-pong reviewer. Resolves a different-provider reviewer, spawns a
+ * fresh agentic session with full repo/tool access, parses its structured
+ * output, and applies the fail-closed validity gate. Never returns a silent
+ * clean pass on infra failure / empty / unparseable output — those are
+ * UNRELIABLE.
+ */
+export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
+  if (input.signal?.aborted || input.isCancelled?.()) {
+    return unreliable('cancelled before reviewer spawn', { spawnOutcome: 'cancelled' });
+  }
+
+  const provider = await resolveReviewerProvider(
+    input.reviewerProviderSetting,
+    input.builderProvider,
+    input.triedReviewerProviders,
+  );
+  if (!provider) {
+    return unreliable(
+      `no eligible reviewer provider (builder=${input.builderProvider}, tried=${input.triedReviewerProviders.join(',') || 'none'})`,
+    );
+  }
+
+  const prompt = buildPrompt(input);
+  const spawner = getReviewerSessionSpawner();
+  const session = await spawner.runReviewSession({
+    provider: provider as InstanceProvider,
+    modelOverride: resolveModelOverride(provider),
+    workingDirectory: input.workspaceCwd,
+    prompt,
+    displayName: `Ping-pong reviewer ${input.roundNumber}/${input.maxRounds} (${provider})`,
+    timeoutMs: input.timeoutMs,
+    signal: input.signal,
+    isCancelled: input.isCancelled,
+    onSpawned: input.onSpawned,
+    onProgress: input.onProgress,
+  });
+
+  const base = {
+    reviewerProvider: provider,
+    tokensUsed: session.tokensUsed,
+    costCents: session.costCents,
+    reviewerInstanceId: session.instanceId,
+    spawnOutcome: session.outcome,
+  };
+
+  if (session.outcome !== 'settled') {
+    return unreliable(`reviewer session ${session.outcome}: ${session.error ?? ''}`.trim(), base);
+  }
+
+  const parsed = parseReviewerJson(session.finalOutput);
+  if (!parsed) {
+    return unreliable('reviewer output was empty or unparseable (no JSON block)', base);
+  }
+
+  const completenessRaw = (parsed['completeness'] ?? {}) as Record<string, unknown>;
+  const filesInspected = Number(completenessRaw['filesInspected'] ?? 0) || 0;
+  const commandsRun = Number(completenessRaw['commandsRun'] ?? 0) || 0;
+  const scopeCovered = String(completenessRaw['scopeCovered'] ?? '').trim();
+  const sufficient = filesInspected >= MIN_FILES_INSPECTED && scopeCovered.length > 0;
+  const completeness: PingPongCompleteness = {
+    filesInspected,
+    commandsRun,
+    scopeCovered,
+    sufficient,
+  };
+
+  if (!sufficient) {
+    return unreliable(
+      `reviewer did not demonstrate enough work (filesInspected=${filesInspected}, scopeCovered=${scopeCovered ? 'yes' : 'no'})`,
+      { ...base, completeness },
+    );
+  }
+
+  const ledgerClassifications = normalizeLedgerClassifications(parsed['ledger']);
+  const allFindings = capLowSeverityChurn(
+    normalizeFindings(parsed['findings']),
+    input.blockingSeverities,
+  );
+  const blockingSet = new Set(input.blockingSeverities);
+  const hasBlocking = allFindings.some((f) => blockingSet.has(f.severity));
+  const claimedVerdict = String(parsed['verdict'] ?? '').toUpperCase();
+  const summary = String(parsed['summary'] ?? '').trim();
+
+  // Cross-check: a reviewer cannot claim APPROVED while listing blocking
+  // findings. Blocking findings ⇒ CHANGES_REQUESTED regardless of self-report.
+  const verdict: PingPongReviewerVerdict = hasBlocking
+    ? 'CHANGES_REQUESTED'
+    : claimedVerdict === 'CHANGES_REQUESTED'
+      ? 'CHANGES_REQUESTED'
+      : 'APPROVED';
+
+  logger.info('Ping-pong reviewer produced a verdict', {
+    loopRunId: input.loopRunId,
+    round: input.roundNumber,
+    provider,
+    verdict,
+    findings: allFindings.length,
+    blocking: hasBlocking,
+    filesInspected,
+  });
+
+  return {
+    verdict,
+    reviewerProvider: provider,
+    findings: verdict === 'CHANGES_REQUESTED' ? allFindings : [],
+    ledgerClassifications,
+    completeness,
+    summary,
+    tokensUsed: session.tokensUsed,
+    costCents: session.costCents,
+    reviewerInstanceId: session.instanceId,
+    spawnOutcome: session.outcome,
+  };
+};

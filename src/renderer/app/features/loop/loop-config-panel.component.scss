@@ -181,3 +181,16 @@ textarea { resize: vertical; min-height: 64px; }
   font-size: 10px;
 }
 code { background: rgba(255, 255, 255, 0.08); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+/* Ping-pong review arming */
+.pingpong-row .pingpong-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+.pingpong-config {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(160, 120, 255, 0.06);
+  border: 1px solid rgba(160, 120, 255, 0.2);
+}

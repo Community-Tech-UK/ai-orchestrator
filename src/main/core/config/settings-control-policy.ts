@@ -178,6 +178,10 @@ export const SETTINGS_TOOL_POLICY = {
   crossModelReviewTimeout: open(numberSettingSchema('crossModelReviewTimeout')),
   crossModelReviewTypes: open(z.array(reviewTypeSchema).max(3)),
   crossModelReviewModelByProvider: open(modelByProviderSchema),
+  pingPongReviewerProvider: open(
+    z.enum(['auto', 'gemini', 'codex', 'copilot', 'claude', 'cursor']),
+  ),
+  pingPongMaxRounds: open(z.number().int().min(1).max(20)),
   remoteNodesEnabled: readOnly(true),
   remoteNodesServerPort: readOnly(true),
   remoteNodesServerHost: readOnly(true),

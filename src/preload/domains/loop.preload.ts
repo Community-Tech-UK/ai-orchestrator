@@ -28,6 +28,24 @@ export interface LoopConfigInput {
     verifyTimeoutMs: number;
     runVerifyTwice: boolean;
     requireCompletedFileRename: boolean;
+    /**
+     * Cross-model review block (server-validated). Carries the conversational
+     * ping-pong sub-config so the renderer can arm ping-pong mode.
+     */
+    crossModelReview: {
+      enabled: boolean;
+      reviewers?: string[];
+      blockingSeverities: ('critical' | 'high' | 'medium' | 'low')[];
+      timeoutSeconds: number;
+      reviewDepth: 'structured' | 'tiered';
+      pingPong?: {
+        enabled: boolean;
+        reviewerProvider?: 'auto' | 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor';
+        subject?: 'auto' | 'plan' | 'impl';
+        maxRounds?: number;
+        freshReviewerEachRound?: boolean;
+      };
+    };
   }>;
   initialStage?: 'PLAN' | 'REVIEW' | 'IMPLEMENT';
   allowDestructiveOps?: boolean;
@@ -67,6 +85,10 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
       ipcRenderer.invoke(ch.LOOP_CANCEL, { loopRunId }),
     loopAcceptCompletion: (loopRunId: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_ACCEPT_COMPLETION, { loopRunId }),
+    loopPingPongSkipRound: (loopRunId: string): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.LOOP_PINGPONG_SKIP_ROUND, { loopRunId }),
+    loopPingPongForceArbitration: (loopRunId: string): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.LOOP_PINGPONG_FORCE_ARBITRATION, { loopRunId }),
     loopGetState: (loopRunId: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_GET_STATE, { loopRunId }),
     loopListRunsForChat: (chatId: string, limit?: number): Promise<IpcResponse> =>

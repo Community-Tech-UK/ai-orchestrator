@@ -21,6 +21,12 @@ export const LoopStatusSchema = z.enum([
   // returned a usage/rate-limit notice (or its quota window is exhausted),
   // rather than grinding iterations into paid overage as `cap-reached`.
   'provider-limit',
+  // Ping-pong terminal states (bigchange_pingpong_review §4.11). Each surfaces a
+  // distinct deadlock/unreliability instead of silently passing or spinning.
+  'cost-exceeded',
+  'needs-human-arbitration',
+  'reviewer-unreliable',
+  'builder-unreliable',
   // LF-8: `idle` / `verify-failed` removed — dead states the coordinator never emitted.
 ]);
 
@@ -113,12 +119,60 @@ export const LoopReviewSeveritySchema = z.enum(['critical', 'high', 'medium', 'l
  * Mirrors `LoopCrossModelReviewConfig` in `src/shared/types/loop.types.ts`.
  * Both surfaces must stay in lockstep — see AGENTS.md "Type vs schema drift".
  */
+/**
+ * Conversational ping-pong review config. Mirrors `LoopPingPongConfig` in
+ * `src/shared/types/loop-pingpong.types.ts` — keep both in lockstep.
+ */
+export const LoopPingPongConfigSchema = z.object({
+  enabled: z.boolean(),
+  reviewerProvider: z
+    .enum(['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor'])
+    .optional(),
+  subject: z.enum(['auto', 'plan', 'impl']).optional(),
+  maxRounds: z.number().int().min(1).max(20).optional(),
+  freshReviewerEachRound: z.boolean().optional(),
+});
+
+/** One durable ping-pong ledger issue. Mirrors `PingPongIssue`. */
+export const PingPongIssueSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  severity: LoopReviewSeveritySchema,
+  status: z.enum(['open', 'resolved', 'rebutted', 'regression']),
+  evidence: z.string(),
+  file: z.string().optional(),
+  raisedRound: z.number().int().nonnegative(),
+  lastSeenRound: z.number().int().nonnegative(),
+  builderResponse: z.string().optional(),
+});
+
+/** Mutable ping-pong runtime state. Mirrors `LoopPingPongState`. */
+export const LoopPingPongStateSchema = z.object({
+  roundCount: z.number().int().nonnegative(),
+  subject: z.enum(['plan', 'impl']).optional(),
+  ledger: z.array(PingPongIssueSchema),
+  inFlightReviewerInstanceId: z.string().optional(),
+  inFlightRound: z.number().int().nonnegative().optional(),
+  consecutiveUnreliableRounds: z.number().int().nonnegative(),
+  consecutiveContradictoryRounds: z.number().int().nonnegative(),
+  builderUnaddressedRounds: z.number().int().nonnegative(),
+  lowOnlyChurnRounds: z.number().int().nonnegative(),
+  lastReviewerProvider: z.string().optional(),
+  triedReviewerProviders: z.array(z.string()).optional(),
+  skipNextRound: z.boolean().optional(),
+  forceArbitration: z.boolean().optional(),
+  reviewerTokensUsed: z.number().int().nonnegative(),
+  reviewerCostCents: z.number().int().nonnegative(),
+});
+
 export const LoopCrossModelReviewConfigSchema = z.object({
   enabled: z.boolean(),
   reviewers: z.array(z.string().min(1)).optional(),
   blockingSeverities: z.array(LoopReviewSeveritySchema).min(1),
   timeoutSeconds: z.number().int().positive().max(60 * 60),
   reviewDepth: z.enum(['structured', 'tiered']),
+  /** Ping-pong mode (bigchange_pingpong_review). Drives a dedicated branch. */
+  pingPong: LoopPingPongConfigSchema.optional(),
 });
 
 export const LoopCompletionModeSchema = z.enum(['review-driven', 'gated']);
@@ -403,6 +457,9 @@ export const LoopStateSchema = z.object({
   /** LF-4: LOOP_TASKS.md fully resolved at startLoop (staleness guard).
    *  Defaults false for back-compat with rows written before the field. */
   loopTasksLedgerResolvedAtStart: z.boolean().default(false),
+  /** Ping-pong runtime state (round count, issue ledger, reviewer spend).
+   *  Optional — only present on loops running in ping-pong mode. */
+  pingPong: LoopPingPongStateSchema.optional(),
 });
 
 export const LoopRunSummarySchema = z.object({

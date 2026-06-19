@@ -9,6 +9,27 @@ export type {
   LoopOutstandingItemKind,
   LoopOutstandingItemStatus,
 } from './loop-outstanding.types';
+import type {
+  LoopPingPongConfig,
+  LoopPingPongState,
+} from './loop-pingpong.types';
+export type {
+  LoopPingPongConfig,
+  LoopPingPongState,
+  PingPongIssue,
+  PingPongIssueStatus,
+  PingPongReviewerVerdict,
+  PingPongSeverity,
+  PingPongSubject,
+} from './loop-pingpong.types';
+export {
+  clampPingPongMaxRounds,
+  defaultPingPongConfig,
+  defaultPingPongState,
+  PINGPONG_DEFAULT_MAX_ROUNDS,
+  PINGPONG_MAX_MAX_ROUNDS,
+  PINGPONG_MIN_MAX_ROUNDS,
+} from './loop-pingpong.types';
 
 export const DEFAULT_LOOP_MAX_WALL_TIME_MS = 50 * 60 * 60 * 1000;
 export const DEFAULT_LOOP_MAX_ITERATIONS = 50;
@@ -202,6 +223,16 @@ export interface LoopCrossModelReviewConfig {
   timeoutSeconds: number;
   /** Review depth — see CrossModelReviewService. Default 'structured'. */
   reviewDepth: 'structured' | 'tiered';
+  /**
+   * Conversational ping-pong review mode. When `{ enabled: true }`, the loop's
+   * completion gate runs a full *agentic* reviewer (a fresh, different-provider
+   * CLI instance with real repo + tool access) on EVERY builder
+   * done-declaration, and only converges on a mutual APPROVED + done. Drives a
+   * dedicated completion branch (`evaluatePingPongCompletion`); the thin
+   * one-shot diff reviewer is NOT used in this mode. Undefined / disabled means
+   * the legacy fresh-eyes gate behaviour.
+   */
+  pingPong?: LoopPingPongConfig;
 }
 
 export function defaultCrossModelReviewConfig(): LoopCrossModelReviewConfig {
@@ -599,7 +630,30 @@ export type LoopStatus =
    * can say "hit provider limit — resumes when the window resets" and the
    * operator isn't left thinking the work itself stalled.
    */
-  | 'provider-limit';
+  | 'provider-limit'
+  /**
+   * Ping-pong: the loop's cost cap was hit mid-ping-pong (fresh full reviewer
+   * instances every round are expensive). Distinct from `cap-reached` so the UI
+   * can surface the live spend that tripped it.
+   */
+  | 'cost-exceeded'
+  /**
+   * Ping-pong: builder and reviewer deadlocked — the reviewer keeps blocking
+   * the same point and the builder keeps rebutting it for K consecutive rounds.
+   * Surfaces the contested issue(s) for James to arbitrate instead of spinning.
+   */
+  | 'needs-human-arbitration'
+  /**
+   * Ping-pong: the reviewer was repeatedly UNRELIABLE (timeouts, infra
+   * failures, unparseable/low-effort output, provider outage that survived
+   * fallback). Fail-closed — never silently treated as a clean pass.
+   */
+  | 'reviewer-unreliable'
+  /**
+   * Ping-pong: the builder keeps declaring done without ever addressing or
+   * rebutting the open findings. Surfaced rather than looping forever.
+   */
+  | 'builder-unreliable';
 // LF-8: `idle` and `verify-failed` were dead enum values — the coordinator
 // never emitted them (terminate() is only called with the states above), so
 // they implied lifecycle states the system never reached. Removed.
@@ -913,6 +967,13 @@ export interface LoopState {
    * then clears it. In-memory only; not persisted.
    */
   freshEyesForcedByContradiction?: boolean;
+  /**
+   * Ping-pong mode runtime state: round counter, durable issue ledger, current
+   * subject, in-flight reviewer metadata, and reviewer-side spend. Persisted so
+   * a mid-ping-pong app restart resumes the thread. Undefined unless the loop
+   * is running with `completion.crossModelReview.pingPong.enabled`.
+   */
+  pingPong?: LoopPingPongState;
 }
 
 export type { LoopActivityEvent, LoopActivityKind, LoopRunSummary, LoopStreamEvent } from './loop-stream.types';

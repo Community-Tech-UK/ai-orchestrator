@@ -127,7 +127,11 @@ export type TerminalLoopStatus =
   | 'cap-reached'
   | 'error'
   | 'no-progress'
-  | 'provider-limit';
+  | 'provider-limit'
+  | 'cost-exceeded'
+  | 'needs-human-arbitration'
+  | 'reviewer-unreliable'
+  | 'builder-unreliable';
 
 export function terminalStatusLabel(status: TerminalLoopStatus): string {
   switch (status) {
@@ -139,6 +143,10 @@ export function terminalStatusLabel(status: TerminalLoopStatus): string {
     case 'error':                  return 'error';
     case 'no-progress':            return 'no progress';
     case 'provider-limit':         return 'provider limit';
+    case 'cost-exceeded':          return 'cost exceeded';
+    case 'needs-human-arbitration': return 'needs arbitration';
+    case 'reviewer-unreliable':    return 'reviewer unreliable';
+    case 'builder-unreliable':     return 'builder unreliable';
   }
 }
 
@@ -159,6 +167,10 @@ export function loopStatusLabel(status: string): string {
     case 'error':                  return 'error';
     case 'no-progress':            return 'no-progress';
     case 'provider-limit':         return 'provider limit';
+    case 'cost-exceeded':          return 'cost exceeded';
+    case 'needs-human-arbitration': return 'needs arbitration';
+    case 'reviewer-unreliable':    return 'reviewer unreliable';
+    case 'builder-unreliable':     return 'builder unreliable';
     case 'paused':                 return 'paused';
     case 'running':                return 'running';
     default:                       return status;
@@ -221,6 +233,10 @@ export function loopStatusPill(input: {
     case 'cap-reached': return { kind: 'stopped', label: 'CAP REACHED' };
     case 'no-progress': return { kind: 'no-progress', label: 'NO PROGRESS' };
     case 'provider-limit': return { kind: 'stopped', label: 'PROVIDER LIMIT' };
+    case 'cost-exceeded': return { kind: 'stopped', label: 'COST EXCEEDED' };
+    case 'needs-human-arbitration': return { kind: 'needs-review', label: 'NEEDS ARBITRATION' };
+    case 'reviewer-unreliable': return { kind: 'stopped', label: 'REVIEWER UNRELIABLE' };
+    case 'builder-unreliable': return { kind: 'stopped', label: 'BUILDER UNRELIABLE' };
     default:            return { kind: 'paused', label: String(input.status).toUpperCase() };
   }
 }

@@ -40,6 +40,11 @@ const LOOP_TERMINAL_STATUSES = new Set<LoopStatus>([
   'no-progress',
   'cap-reached',
   'provider-limit',
+  // Ping-pong terminal states (bigchange_pingpong_review §4.11).
+  'cost-exceeded',
+  'needs-human-arbitration',
+  'reviewer-unreliable',
+  'builder-unreliable',
 ]);
 
 function isLoopTerminal(status: LoopStatus): boolean {
@@ -59,7 +64,14 @@ function loopStatusToNodeStatus(ls: LoopStatus): CampaignNodeStatus {
     case 'failed':
     case 'error':
     case 'no-progress':
-    case 'cap-reached': return 'failed';
+    case 'cap-reached':
+    // Ping-pong non-converged terminals map to a failed campaign node so the
+    // campaign treats "didn't converge" uniformly; arbitration/unreliable are
+    // surfaced in the loop UI, not the campaign graph.
+    case 'cost-exceeded':
+    case 'needs-human-arbitration':
+    case 'reviewer-unreliable':
+    case 'builder-unreliable': return 'failed';
     case 'provider-limit': return 'provider-limit';
     case 'cancelled': return 'operator-halted';
     default: return 'failed';

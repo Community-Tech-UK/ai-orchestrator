@@ -435,6 +435,24 @@ export class LoopStore {
     }
   }
 
+  /** Ping-pong: skip the next reviewer round. */
+  async pingPongSkipRound(loopRunId: string): Promise<void> {
+    const response = await this.ipc.pingPongSkipRound(loopRunId);
+    const ok = this.applyControlResponse(loopRunId, response, 'hint');
+    if (ok) {
+      this.addControlActivity(loopRunId, 'status', 'Next ping-pong reviewer round will be skipped');
+    }
+  }
+
+  /** Ping-pong: force the loop into human arbitration. */
+  async pingPongForceArbitration(loopRunId: string): Promise<void> {
+    const response = await this.ipc.pingPongForceArbitration(loopRunId);
+    const ok = this.applyControlResponse(loopRunId, response, 'hint');
+    if (ok) {
+      this.addControlActivity(loopRunId, 'status', 'Forcing ping-pong into human arbitration');
+    }
+  }
+
   async cancel(loopRunId: string): Promise<void> {
     const response = await this.ipc.cancel(loopRunId);
     const ok = this.applyControlResponse(loopRunId, response, 'stop');

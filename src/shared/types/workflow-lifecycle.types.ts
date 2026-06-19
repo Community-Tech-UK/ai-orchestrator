@@ -96,6 +96,13 @@ export function loopStatusToPhase(status: LoopStatus): WorkflowLifecyclePhase {
     case 'error':
     case 'no-progress': // stalled without converging
     case 'cap-reached': // stopped without converging
+    // Ping-pong terminal states — all stopped WITHOUT mutual convergence, so
+    // they project as `failed` (not a clean completion). The UI distinguishes
+    // them by their own labels; the lifecycle phase only cares "did it converge".
+    case 'cost-exceeded':
+    case 'needs-human-arbitration':
+    case 'reviewer-unreliable':
+    case 'builder-unreliable':
       return 'failed';
     default:
       return assertNever(status);

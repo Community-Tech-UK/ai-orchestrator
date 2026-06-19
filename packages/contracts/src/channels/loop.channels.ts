@@ -25,6 +25,10 @@ export const LOOP_CHANNELS = {
   /** Start a fresh loop run that applies the human answers recorded on the open
    *  outstanding items (reusing the source run's config). */
   LOOP_RESUME_WITH_ANSWERS: 'loop:resume-with-answers',
+  /** Ping-pong operator control: skip the next reviewer round. */
+  LOOP_PINGPONG_SKIP_ROUND: 'loop:pingpong-skip-round',
+  /** Ping-pong operator control: force the loop into human arbitration. */
+  LOOP_PINGPONG_FORCE_ARBITRATION: 'loop:pingpong-force-arbitration',
 
   // Events (main → renderer)
   LOOP_STARTED: 'loop:started',

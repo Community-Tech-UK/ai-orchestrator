@@ -76,6 +76,41 @@
     </section>
   }
 
+  <section class="row pingpong-row">
+    <label class="pingpong-toggle">
+      <input type="checkbox" [checked]="pingPongEnabled()" (change)="pingPongEnabled.set(toggleEvent($event))" />
+      Ping-pong review
+      <span class="hint">(a different model deep-dives every round until both agree)</span>
+    </label>
+  </section>
+  @if (pingPongEnabled()) {
+    <section class="row split pingpong-config">
+      <div>
+        <label for="loop-cfg-pp-reviewer">Reviewer</label>
+        <select id="loop-cfg-pp-reviewer" [ngModel]="pingPongReviewerProvider()" (ngModelChange)="pingPongReviewerProvider.set($event)">
+          <option value="auto">Auto (a different model)</option>
+          <option value="codex">Codex</option>
+          <option value="gemini">Gemini</option>
+          <option value="copilot">Copilot</option>
+          <option value="claude">Claude</option>
+          <option value="cursor">Cursor</option>
+        </select>
+      </div>
+      <div>
+        <label for="loop-cfg-pp-subject">Reviewing</label>
+        <select id="loop-cfg-pp-subject" [ngModel]="pingPongSubject()" (ngModelChange)="pingPongSubject.set($event)">
+          <option value="auto">Auto-detect</option>
+          <option value="plan">A plan</option>
+          <option value="impl">An implementation</option>
+        </select>
+      </div>
+      <div>
+        <label for="loop-cfg-pp-rounds">Max rounds <span class="hint">(10–20)</span></label>
+        <input id="loop-cfg-pp-rounds" type="number" min="1" max="20" [ngModel]="pingPongMaxRounds()" (ngModelChange)="pingPongMaxRounds.set($event)" />
+      </div>
+    </section>
+  }
+
   <section class="row">
     <label for="loop-cfg-verify">Verify command <span class="hint">{{ verifyHint() }}</span></label>
     <input id="loop-cfg-verify" type="text" placeholder="Auto-detect" [ngModel]="verifyCommand()" (ngModelChange)="verifyCommand.set($event)" />
@@ -247,15 +282,17 @@
           Pause if many tokens spent without test progress
           <span class="hint">(opt-in; tests-driven runs only)</span>
         </label>
-        <label>
-          <input type="checkbox" [checked]="freshEyesReview()" (change)="freshEyesReview.set(toggleEvent($event))" />
-          Ask another model to review (second opinion)
-          <span class="hint">
-            {{ completionMode() === 'review-driven'
-              ? '(off = your own model self-reviews; on = a different model double-checks at the finish line, critical/high findings re-open the loop)'
-              : '(blocks critical/high findings before completion)' }}
-          </span>
-        </label>
+        @if (!pingPongEnabled()) {
+          <label>
+            <input type="checkbox" [checked]="freshEyesReview()" (change)="freshEyesReview.set(toggleEvent($event))" />
+            Ask another model to review (second opinion)
+            <span class="hint">
+              {{ completionMode() === 'review-driven'
+                ? '(off = your own model self-reviews; on = a different model double-checks at the finish line, critical/high findings re-open the loop)'
+                : '(blocks critical/high findings before completion)' }}
+            </span>
+          </label>
+        }
         <label>
           <input type="checkbox" [checked]="branchSelect()" (change)="branchSelect.set(toggleEvent($event))" />
           Branch-select on stuck
