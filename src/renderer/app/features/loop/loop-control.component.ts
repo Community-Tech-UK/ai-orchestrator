@@ -131,6 +131,25 @@ import { PromptModalComponent } from '../../shared/components/prompt-modal/promp
         </span>
       </div>
 
+      @if (pingPong(); as pp) {
+        <div class="loop-pingpong" title="Conversational ping-pong review">
+          <span class="lp-badge">PING-PONG</span>
+          <span class="lp-text">
+            round {{ pp.roundCount }}/{{ pingPongMaxRounds() }}
+            @if (pp.lastReviewerProvider) { · reviewer {{ pp.lastReviewerProvider }} }
+            @if (pp.subject) { · {{ pp.subject }} }
+            · {{ pingPongOpenIssues() }} open {{ pingPongOpenIssues() === 1 ? 'issue' : 'issues' }}
+            · reviewer {{ cost(pp.reviewerCostCents) }}
+          </span>
+          @if (a.status === 'running') {
+            <span class="lp-actions">
+              <button type="button" (click)="onPingPongSkipRound()" title="Skip the next reviewer round">Skip round</button>
+              <button type="button" (click)="onPingPongForceArbitration()" title="Stop and hand the open issues to a human">Arbitrate</button>
+            </span>
+          }
+        </div>
+      }
+
       @if (showGate()) {
         <div class="loop-gate" title="Completion gate — what the loop must clear to stop">
           @for (step of gateSteps(); track step.key) {
@@ -478,6 +497,17 @@ export class LoopControlComponent implements OnDestroy {
   inspectableLoopId = computed(() => this.active()?.id ?? this.banner()?.loopRunId ?? this.summary()?.loopRunId ?? null);
   controlLoopId = computed(() => this.active()?.id ?? this.banner()?.loopRunId ?? null);
 
+  /** Live ping-pong runtime state for the active loop (null unless armed). */
+  pingPong = computed(() => this.active()?.pingPong ?? null);
+  /** Configured ping-pong round cap (default 15). */
+  pingPongMaxRounds = computed(
+    () => this.active()?.config.completion.crossModelReview?.pingPong?.maxRounds ?? 15,
+  );
+  /** Count of unresolved (open / regression) ledger issues. */
+  pingPongOpenIssues = computed(
+    () => (this.pingPong()?.ledger ?? []).filter((i) => i.status === 'open' || i.status === 'regression').length,
+  );
+
   // ── LF-8: legible status model ─────────────────────────────────────────────
   /** Always-on status pill (RUNNING / NEEDS REVIEW / PAUSED · NO PROGRESS / …). */
   statusPill = computed(() => {
@@ -801,6 +831,16 @@ export class LoopControlComponent implements OnDestroy {
   async onStop(): Promise<void> {
     const loopId = this.controlLoopId(); if (!loopId) return;
     await this.store.cancel(loopId);
+  }
+
+  async onPingPongSkipRound(): Promise<void> {
+    const a = this.active(); if (!a) return;
+    await this.store.pingPongSkipRound(a.id);
+  }
+
+  async onPingPongForceArbitration(): Promise<void> {
+    const a = this.active(); if (!a) return;
+    await this.store.pingPongForceArbitration(a.id);
   }
 
   /** LF-8 → LF-7: accept a paused, done-but-ungated run in one click. */

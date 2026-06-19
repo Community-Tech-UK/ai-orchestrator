@@ -506,3 +506,34 @@ code { font-size: 11px; padding: 1px 4px; background: rgba(255,255,255,0.08); bo
 .lr-toggle-nested { margin-left: 18px; }
 .lr-hint { font-size: 11px; opacity: 0.7; }
 .lr-hint-warn { margin-left: 18px; opacity: 0.9; color: var(--color-warning, #d98e00); }
+
+/* Conversational ping-pong review readout */
+.loop-pingpong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.lp-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: #c9a6ff;
+  background: rgba(160, 120, 255, 0.18);
+}
+.lp-text { opacity: 0.85; }
+.lp-actions { display: flex; gap: 4px; margin-left: auto; }
+.lp-actions button {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(160, 120, 255, 0.4);
+  background: rgba(160, 120, 255, 0.08);
+  color: inherit;
+  cursor: pointer;
+}
+.lp-actions button:hover { background: rgba(160, 120, 255, 0.18); }

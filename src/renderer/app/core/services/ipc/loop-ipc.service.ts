@@ -68,6 +68,13 @@ export interface LoopStartConfigInput {
       blockingSeverities: ('critical' | 'high' | 'medium' | 'low')[];
       timeoutSeconds: number;
       reviewDepth: 'structured' | 'tiered';
+      pingPong?: {
+        enabled: boolean;
+        reviewerProvider?: 'auto' | 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor';
+        subject?: 'auto' | 'plan' | 'impl';
+        maxRounds?: number;
+        freshReviewerEachRound?: boolean;
+      };
     };
   }>;
   /**
@@ -176,6 +183,18 @@ export class LoopIpcService {
   async cancel(loopRunId: string): Promise<IpcResponse<LoopControlResult>> {
     if (!this.api) return notInElectron();
     return this.api.loopCancel(loopRunId) as Promise<IpcResponse<LoopControlResult>>;
+  }
+
+  /** Ping-pong operator control: skip the next reviewer round. */
+  async pingPongSkipRound(loopRunId: string): Promise<IpcResponse<LoopControlResult>> {
+    if (!this.api) return notInElectron();
+    return this.api.loopPingPongSkipRound(loopRunId) as Promise<IpcResponse<LoopControlResult>>;
+  }
+
+  /** Ping-pong operator control: force human arbitration. */
+  async pingPongForceArbitration(loopRunId: string): Promise<IpcResponse<LoopControlResult>> {
+    if (!this.api) return notInElectron();
+    return this.api.loopPingPongForceArbitration(loopRunId) as Promise<IpcResponse<LoopControlResult>>;
   }
 
   /** LF-7: operator accepts a paused, done-but-ungated run. */

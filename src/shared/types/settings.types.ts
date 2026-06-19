@@ -232,6 +232,16 @@ export interface AppSettings {
    */
   crossModelReviewModelByProvider: Record<string, string>;
 
+  // Conversational ping-pong review (bigchange_pingpong_review)
+  /**
+   * Default reviewer provider for ping-pong mode. `'auto'` resolves to any
+   * installed provider that is NOT the builder's. A per-run override exists in
+   * the loop control.
+   */
+  pingPongReviewerProvider: CanonicalCliType;
+  /** Default hard cap on ping-pong rounds (clamped 1..20). */
+  pingPongMaxRounds: number;
+
   // Remote Nodes
   remoteNodesEnabled: boolean;
   remoteNodesServerPort: number;
@@ -473,6 +483,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   crossModelReviewTimeout: 30,
   crossModelReviewTypes: ['code', 'plan', 'architecture'],
   crossModelReviewModelByProvider: { cursor: 'composer-2.5' },
+
+  // Conversational ping-pong review
+  pingPongReviewerProvider: 'auto',
+  pingPongMaxRounds: 15,
 
   // Remote Nodes
   remoteNodesEnabled: false,

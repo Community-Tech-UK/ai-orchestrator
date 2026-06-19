@@ -138,6 +138,12 @@ import {
   type FreshEyesGateResult,
 } from './loop-coordinator-completion-gates';
 import {
+  evaluatePingPongCompletion as evaluatePingPongCompletionGate,
+  type PingPongTerminal,
+} from './loop-pingpong-completion';
+import type { PingPongReviewer } from './agentic-pingpong-reviewer';
+import type { PingPongSubject } from '../../shared/types/loop-pingpong.types';
+import {
   applyLoopPlanRegenerationOnStall,
   archiveBlockedFileForIntent as archiveBlockedFileForIntentHelper,
   canRegenerateLoopPlanOnStall,
@@ -239,6 +245,31 @@ export class LoopCoordinator extends EventEmitter {
   /** Override the fresh-eyes reviewer (tests / DI). */
   setFreshEyesReviewer(reviewer: FreshEyesReviewer): void {
     this.freshEyesReviewer = reviewer;
+  }
+
+  /**
+   * Ping-pong agentic reviewer. Undefined ⇒ the dedicated branch uses the real
+   * `agenticPingPongReviewer`. Resolved per-run inside the branch (NOT a shared
+   * mutable global), so concurrent ping-pong + normal loops can't corrupt each
+   * other. Injectable for tests.
+   */
+  private pingPongReviewer: PingPongReviewer | undefined;
+
+  /** Optional plan/impl subject resolver (P6 intent classifier). */
+  private pingPongSubjectResolver:
+    | ((state: LoopState, fullOutput: string) => Promise<PingPongSubject>)
+    | undefined;
+
+  /** Override the ping-pong reviewer (tests / DI). */
+  setPingPongReviewerForTesting(reviewer: PingPongReviewer): void {
+    this.pingPongReviewer = reviewer;
+  }
+
+  /** Inject the ping-pong subject (plan/impl) resolver. */
+  setPingPongSubjectResolver(
+    resolver: (state: LoopState, fullOutput: string) => Promise<PingPongSubject>,
+  ): void {
+    this.pingPongSubjectResolver = resolver;
   }
 
   /**
@@ -869,6 +900,21 @@ export class LoopCoordinator extends EventEmitter {
     if (existing) {
       return existing;
     }
+    // Ping-pong crash-restore reconciliation (bigchange_pingpong_review §4.12):
+    // a reviewer instance that was mid-run at crash is dead. NEVER resume
+    // pointing at its instance id — drop the in-flight pointer so the next
+    // builder done-declaration re-runs that round fresh. The interrupted round
+    // was never counted (roundCount only increments on a reliable verdict), so
+    // no double-counting occurs.
+    if (state.pingPong?.inFlightReviewerInstanceId) {
+      logger.info('Loop restore: dropping in-flight ping-pong reviewer (crash reconciliation)', {
+        id: state.id,
+        staleReviewerInstanceId: state.pingPong.inFlightReviewerInstanceId,
+        round: state.pingPong.inFlightRound,
+      });
+      state.pingPong.inFlightReviewerInstanceId = undefined;
+      state.pingPong.inFlightRound = undefined;
+    }
     if (state.status !== 'paused' && state.status !== 'provider-limit') {
       throw new Error(`Cannot restore non-paused loop checkpoint: ${state.status}`);
     }
@@ -917,6 +963,35 @@ export class LoopCoordinator extends EventEmitter {
     state.status = 'paused';
     this.emit('loop:state-changed', { loopRunId, state: this.cloneStateForBroadcast(state) });
     logger.info('Loop paused (manual)', { loopRunId });
+    return true;
+  }
+
+  /**
+   * Operator control (bigchange_pingpong_review §4.12): skip the NEXT ping-pong
+   * reviewer round. The next builder done-declaration won't spawn a reviewer —
+   * useful when the operator already trusts the latest change. Returns false if
+   * the loop isn't in ping-pong mode.
+   */
+  requestPingPongSkipRound(loopRunId: string): boolean {
+    const state = this.active.get(loopRunId);
+    if (!state?.pingPong) return false;
+    state.pingPong.skipNextRound = true;
+    this.emit('loop:state-changed', { loopRunId, state: this.cloneStateForBroadcast(state) });
+    logger.info('Ping-pong: operator requested skip of next reviewer round', { loopRunId });
+    return true;
+  }
+
+  /**
+   * Operator control (bigchange_pingpong_review §4.12): force the ping-pong
+   * loop straight to `needs-human-arbitration` at the next completion check,
+   * surfacing the open issue ledger. Returns false if not in ping-pong mode.
+   */
+  requestPingPongArbitration(loopRunId: string): boolean {
+    const state = this.active.get(loopRunId);
+    if (!state?.pingPong) return false;
+    state.pingPong.forceArbitration = true;
+    this.emit('loop:state-changed', { loopRunId, state: this.cloneStateForBroadcast(state) });
+    logger.info('Ping-pong: operator forced human arbitration', { loopRunId });
     return true;
   }
 
@@ -1161,6 +1236,10 @@ export class LoopCoordinator extends EventEmitter {
     // stage machinery, verify/rename gates, and no-progress pause are bypassed
     // because "no changes" is the SUCCESS condition here, not a stall.
     const reviewDriven = state.config.completion.mode === 'review-driven';
+    // Ping-pong mode rides on top of review-driven: a dedicated completion
+    // branch runs a full agentic reviewer on every builder done-declaration.
+    const pingPongEnabled =
+      reviewDriven && state.config.completion.crossModelReview?.pingPong?.enabled === true;
     while (true) {
       // -- pause / cancel / cap pre-flight --
       // If the state was already terminated externally (e.g. cancelLoop
@@ -1704,7 +1783,18 @@ export class LoopCoordinator extends EventEmitter {
       // review-driven terminal decision (computed below, acted on after the
       // iteration is logged so the converging iteration still lands in history).
       let reviewDrivenTerminal: { status: 'completed' | 'completed-needs-review'; reason: string } | null = null;
-      if (reviewDriven) {
+      // Ping-pong terminal decision (broad LoopStatus — can carry the new
+      // arbitration / unreliable / cost-exceeded terminals).
+      let pingPongTerminal: PingPongTerminal | null = null;
+      if (pingPongEnabled) {
+        pingPongTerminal = await this.evaluatePingPongCompletion(
+          state,
+          iteration,
+          childResult.output,
+          seq,
+          stage,
+        );
+      } else if (reviewDriven) {
         reviewDrivenTerminal = await this.evaluateReviewDrivenCompletion(
           state,
           iteration,
@@ -2053,6 +2143,27 @@ export class LoopCoordinator extends EventEmitter {
         return;
       }
 
+      // -- terminal: ping-pong convergence / deadlock / unreliability --
+      // The dedicated ping-pong branch resolves mutual convergence (completed),
+      // human-glance (completed-needs-review), or one of the surfaced deadlock /
+      // unreliable / cost terminals.
+      if (pingPongTerminal) {
+        if (pingPongTerminal.status === 'completed') {
+          this.emit('loop:completed', { loopRunId: state.id, signal: 'ping-pong', verifyOutput: '' });
+        } else if (pingPongTerminal.status === 'completed-needs-review') {
+          this.emit('loop:completed-needs-review', {
+            loopRunId: state.id,
+            reason: pingPongTerminal.reason,
+            acceptedByOperator: false,
+          });
+        }
+        // Other ping-pong terminals (needs-human-arbitration, reviewer-unreliable,
+        // builder-unreliable, cost-exceeded, cap-reached) surface via terminate()'s
+        // state-changed broadcast with their distinct status + reason.
+        this.terminate(state, pingPongTerminal.status, pingPongTerminal.reason);
+        return;
+      }
+
       // -- terminal: review-driven convergence --
       // N consecutive clean fresh-eyes passes. `completed` when nothing was
       // flagged for a human; `completed-needs-review` (a SUCCESS state) when the
@@ -2324,6 +2435,45 @@ export class LoopCoordinator extends EventEmitter {
         this.runFreshEyesReviewGate(state, signalId, reviewIteration, verifyOutput),
       classifyCleanReview: this.cleanReviewClassifier,
       emit: (eventName, payload) => this.emit(eventName, payload),
+    });
+  }
+
+  private async evaluatePingPongCompletion(
+    state: LoopState,
+    iteration: LoopIteration,
+    fullOutput: string,
+    seq: number,
+    stage: LoopStage,
+  ): Promise<PingPongTerminal | null> {
+    const ac = new AbortController();
+    return evaluatePingPongCompletionGate({
+      state,
+      iteration,
+      fullOutput,
+      seq,
+      stage,
+      classifyCleanReview: this.cleanReviewClassifier,
+      emit: (eventName, payload) => this.emit(eventName, payload),
+      // Pause/cancel both abort the in-flight reviewer. The settled-tracker
+      // polls this predicate, so a pause is detected within ~1s and the
+      // reviewer instance is torn down.
+      isCancelled: () => this.cancelFlags.get(state.id) === true || state.status === 'paused',
+      signal: ac.signal,
+      // Fold reviewer spend into the loop budget so the cost cap bounds
+      // ping-pong (builder spend alone would not).
+      foldReviewerSpend: (tokens, costCents) => {
+        state.totalTokens += tokens;
+        state.totalCostCents += costCents;
+      },
+      reviewer: this.pingPongReviewer,
+      resolveSubject: this.pingPongSubjectResolver,
+      // impl-mode verify gate: APPROVED converges only if verify is green too.
+      // A 'skipped' verify (no command) is treated as ok — ping-pong's authority
+      // is the mutual review, not the verify command (R4).
+      runVerify: async () => {
+        const v = await this.completionDetector.runVerify(state.config);
+        return { ok: v.status !== 'failed', output: v.output };
+      },
     });
   }
 

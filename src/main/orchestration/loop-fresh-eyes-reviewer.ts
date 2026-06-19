@@ -54,6 +54,15 @@ export interface FreshEyesReviewerInput {
   terminalIntent?: LoopTerminalIntent;
   /** Review configuration (reviewers, severities, depth, timeout). */
   config: LoopCrossModelReviewConfig;
+  /**
+   * Ping-pong: the builder's provider. The reviewer must be a *different*
+   * provider — this lets the reviewer resolver enforce reviewer != builder.
+   */
+  builderProvider?: string;
+  /** Ping-pong: plan file path for plan-mode deep-dive. */
+  planFile?: string;
+  /** Ping-pong: whether this round is reviewing a plan or an implementation. */
+  subject?: 'plan' | 'impl';
 }
 
 export interface FreshEyesReviewerResult {
@@ -64,6 +73,12 @@ export interface FreshEyesReviewerResult {
   summary: string;
   /** Whether the underlying review infrastructure failed entirely. */
   infrastructureError?: string;
+  /**
+   * Ping-pong: reviewer-side spend, folded into the loop's cost/token budget so
+   * the cost cap actually bounds ping-pong (builder spend alone would not).
+   */
+  tokensUsed?: number;
+  costCents?: number;
 }
 
 export type FreshEyesReviewer = (

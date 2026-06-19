@@ -160,6 +160,12 @@ export class LoopConfigPanelComponent {
   compactionThresholdPct = computed(() => Math.round(this.compactionResetUtilization() * 100));
   operatorReviewedCompletion = signal(false);
   freshEyesReview = signal(false);
+  /** Ping-pong mode: a different-provider agentic reviewer reviews every
+   *  builder done-declaration until both models agree (or a backstop fires). */
+  pingPongEnabled = signal(false);
+  pingPongReviewerProvider = signal<'auto' | 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor'>('auto');
+  pingPongSubject = signal<'auto' | 'plan' | 'impl'>('auto');
+  pingPongMaxRounds = signal(15);
   providerOptions = computed<PickerProvider[]>(() => {
     const providers = this.availableProvidersSignal();
     return providers.length > 0 ? providers : DEFAULT_INSTANCE_PROVIDERS;
@@ -377,7 +383,9 @@ export class LoopConfigPanelComponent {
         maxToolCallsPerIteration: DEFAULT_CAPS.maxToolCallsPerIteration,
       },
       completion: {
-        mode: this.completionMode(),
+        // Ping-pong runs ON TOP of review-driven mode (dedicated completion
+        // branch), so arming it forces review-driven regardless of the picker.
+        mode: this.pingPongEnabled() ? 'review-driven' : this.completionMode(),
         requiredCleanReviewPasses: this.requiredCleanPasses(),
         completedFilenamePattern: DEFAULT_COMPLETION.completedFilenamePattern,
         donePromiseRegex: DEFAULT_COMPLETION.donePromiseRegex,
@@ -393,13 +401,28 @@ export class LoopConfigPanelComponent {
           : {}),
         runVerifyTwice: this.runVerifyTwice(),
         requireCompletedFileRename: this.effectiveRequireRename(),
-        ...(this.freshEyesReview()
+        ...(this.pingPongEnabled()
           ? {
               crossModelReview: {
                 enabled: true,
-                blockingSeverities: ['critical', 'high'],
+                blockingSeverities: ['critical', 'high'] as ('critical' | 'high' | 'medium' | 'low')[],
                 timeoutSeconds: 90,
-                reviewDepth: 'structured',
+                reviewDepth: 'structured' as const,
+                pingPong: {
+                  enabled: true,
+                  reviewerProvider: this.pingPongReviewerProvider(),
+                  subject: this.pingPongSubject(),
+                  maxRounds: this.pingPongMaxRounds(),
+                },
+              },
+            }
+          : this.freshEyesReview()
+          ? {
+              crossModelReview: {
+                enabled: true,
+                blockingSeverities: ['critical', 'high'] as ('critical' | 'high' | 'medium' | 'low')[],
+                timeoutSeconds: 90,
+                reviewDepth: 'structured' as const,
               },
             }
           : {}),
