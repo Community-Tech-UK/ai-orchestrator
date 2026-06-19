@@ -407,6 +407,7 @@ export function createCursorAdapter(options: UnifiedSpawnOptions): AcpCliAdapter
     },
     concurrencyLimiter: getProviderConcurrencyLimiter(),
     concurrencyKey: 'cursor',
+    concurrencyAcquireTimeoutMs: 60_000,
   });
 }
 

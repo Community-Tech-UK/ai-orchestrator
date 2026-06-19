@@ -12,6 +12,8 @@ import type { ConversationEndStatus } from '../../../shared/types/history.types'
 import type { Instance, InstanceStatus } from '../../../shared/types/instance.types';
 import { emitPluginHook } from '../../plugins/hook-emitter';
 import { normalizeProjectMemoryKey } from '../../memory/project-memory-key';
+import { deleteTurnSupervisor } from '../../session/session-turn-supervisor';
+import { deleteCircuitBreaker } from './respawn-circuit-breaker';
 
 const logger = getLogger('InstanceTermination');
 
@@ -81,6 +83,8 @@ export class InstanceTerminationCoordinator {
     this.deleteOutputStorage(instanceId);
     this.deps.emitRemoved(instanceId);
     this.deps.deleteInstance(instanceId);
+    deleteTurnSupervisor(instanceId);
+    deleteCircuitBreaker(instanceId);
   }
 
   mineTranscript(instanceId: string, instance: Instance, source: 'terminate' | 'hibernate'): void {

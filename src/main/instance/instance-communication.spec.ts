@@ -1246,3 +1246,48 @@ describe('budget gate', () => {
     expect(adapter.sendInput).toHaveBeenCalledTimes(1);
   });
 });
+
+// ── A5/A6 generation fence ────────────────────────────────────────────────────
+
+describe('sendInput generation fence (A5/A6)', () => {
+  it('sends to adapter B (not A) when adapter is swapped during respawn wait', async () => {
+    const instance = createInstance('interrupting');
+    const adapters = new Map<string, CliAdapter>();
+    const adapterA = new FakeAdapter('claude-cli');
+    const adapterB = new FakeAdapter('claude-cli');
+    adapters.set(instance.id, adapterA as unknown as CliAdapter);
+    instance.adapterGeneration = 1;
+
+    // Deferred respawnPromise: resolves when we call `resolve()`
+    let resolveRespawn!: () => void;
+    instance.respawnPromise = new Promise<void>((r) => { resolveRespawn = r; });
+
+    const comm = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, a) => adapters.set(id, a),
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate: vi.fn(),
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+    });
+
+    // Start sendInput — it will wait on respawnPromise (instance is 'interrupting')
+    const sendPromise = comm.sendInput(instance.id, 'hello after respawn');
+
+    // Simulate respawn: swap in adapter B, bump generation, flip to idle, resolve promise
+    await Promise.resolve(); // yield so sendInput enters the respawn wait
+    adapters.set(instance.id, adapterB as unknown as CliAdapter);
+    instance.adapterGeneration = 2;
+    instance.status = 'idle';
+    instance.respawnPromise = undefined;
+    resolveRespawn();
+
+    await sendPromise;
+
+    expect(adapterA.sendInput).not.toHaveBeenCalled();
+    expect(adapterB.sendInput).toHaveBeenCalledWith('hello after respawn', undefined);
+  });
+});

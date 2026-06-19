@@ -123,6 +123,19 @@ describe('LoopStore.getRunSummary', () => {
     expect(store.getRunSummary('nope')).toBeNull();
   });
 
+  it('getRunConfig recovers the full config blob for reuse', () => {
+    store.upsertRun(makeState());
+    const config = store.getRunConfig('loop-1');
+    expect(config).not.toBeNull();
+    expect(config?.initialPrompt).toBe('goal-of-the-loop');
+    expect(config?.workspaceCwd).toBe('/tmp/project');
+    expect(config?.provider).toBe('claude');
+  });
+
+  it('getRunConfig returns null for an unknown run', () => {
+    expect(store.getRunConfig('nope')).toBeNull();
+  });
+
   it('falls back to empty prompts when config_json is corrupt rather than throwing', () => {
     // Insert a row with deliberately broken config_json so we can verify
     // the JSON.parse failure path. The schema's NOT NULL constraint
@@ -482,5 +495,45 @@ describe('LoopStore outstanding items', () => {
 
   it('setOutstandingItemStatus returns false for an unknown id', () => {
     expect(store.setOutstandingItemStatus('does-not-exist', 'resolved')).toBe(false);
+  });
+
+  it('persists a human answer and defaults userResponse to null', () => {
+    seedRunWithOutstanding();
+    const target = store.listOutstandingItems({ workspaceCwd: '/tmp/project' })[0];
+    expect(target.userResponse).toBeNull();
+
+    expect(store.setOutstandingItemStatus(target.id, 'open', 'Adopt control_request')).toBe(true);
+    const saved = store
+      .listOutstandingItems({ workspaceCwd: '/tmp/project' })
+      .find((i) => i.id === target.id);
+    expect(saved?.userResponse).toBe('Adopt control_request');
+    expect(saved?.status).toBe('open'); // saving an answer keeps it open
+  });
+
+  it('preserves a saved answer across a later status change with no response arg', () => {
+    seedRunWithOutstanding();
+    const target = store.listOutstandingItems({ workspaceCwd: '/tmp/project' })[0];
+    store.setOutstandingItemStatus(target.id, 'open', 'My decision');
+
+    // Resolve later without passing a response — the answer must survive.
+    store.setOutstandingItemStatus(target.id, 'resolved');
+    const after = store
+      .listOutstandingItems({ workspaceCwd: '/tmp/project', status: 'all' })
+      .find((i) => i.id === target.id);
+    expect(after?.status).toBe('resolved');
+    expect(after?.userResponse).toBe('My decision');
+  });
+
+  it('re-capture preserves a saved answer (idempotent upsert)', () => {
+    const state = seedRunWithOutstanding();
+    const target = store.listOutstandingItems({ workspaceCwd: '/tmp/project' })[0];
+    store.setOutstandingItemStatus(target.id, 'open', 'Keep me');
+
+    store.saveOutstandingItems(state); // second terminal capture of the same run
+
+    const after = store
+      .listOutstandingItems({ workspaceCwd: '/tmp/project' })
+      .find((i) => i.id === target.id);
+    expect(after?.userResponse).toBe('Keep me');
   });
 });

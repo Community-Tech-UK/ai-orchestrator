@@ -88,6 +88,12 @@ export type {
  */
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 90_000;
 
+/** D9: Maximum time to wait for a kernel-buffer drain before treating the write as failed. */
+const DRAIN_TIMEOUT_MS = 5_000;
+
+/** D10: Maximum time after process spawn before the first byte must arrive. */
+const POST_SPAWN_WATCHDOG_MS = 30_000;
+
 export abstract class BaseCliAdapter extends EventEmitter {
   protected config: CliAdapterConfig;
   protected process: ChildProcess | null = null;
@@ -107,6 +113,8 @@ export abstract class BaseCliAdapter extends EventEmitter {
   /** Stream idle watchdog timer — resets on each stdout chunk */
   private streamIdleTimer: NodeJS.Timeout | null = null;
   private streamIdleTimeoutMs: number;
+  /** D10: First-byte watchdog — armed on spawn, cleared on first stdout data */
+  private postSpawnTimer: NodeJS.Timeout | null = null;
 
   // A3: degraded-output classifier state (only used when flag is on)
   /** Timestamp (ms) when the current process was spawned, for elapsed-time signals. */
@@ -537,24 +545,31 @@ export abstract class BaseCliAdapter extends EventEmitter {
     // reasoning summaries, mcp tool calls, exec-mode liveness pings, etc.
     // External callers can also nudge the watchdog via `noteActivity()`.
     proc.stdout?.on('data', () => {
+      this.clearPostSpawnWatchdog();
       this.markTurnActivity();
       this.resetStreamIdleWatchdog(generation);
     });
     proc.stderr?.on('data', () => {
+      this.clearPostSpawnWatchdog();
       this.emit('stderr');
       this.markTurnActivity();
       this.resetStreamIdleWatchdog(generation);
     });
     const heartbeatListener = () => {
+      this.clearPostSpawnWatchdog();
       this.markTurnActivity();
       this.resetStreamIdleWatchdog(generation);
     };
     this.on('heartbeat', heartbeatListener);
     proc.on('close', () => {
       this.processAlive = false;
+      this.clearPostSpawnWatchdog();
       this.clearStreamIdleWatchdog();
       this.off('heartbeat', heartbeatListener);
     });
+
+    // D10: arm first-byte watchdog after process is running.
+    this.armPostSpawnWatchdog(generation);
 
     // Guard against EPIPE errors on stdin/stdout — these occur when the CLI
     // process closes its pipe end before we finish writing (common on early exit).
@@ -662,6 +677,32 @@ export abstract class BaseCliAdapter extends EventEmitter {
   }
 
   /**
+   * D10: Start the post-spawn first-byte watchdog.
+   * Emits 'spawn:stall' if no stdout data arrives within POST_SPAWN_WATCHDOG_MS.
+   */
+  protected armPostSpawnWatchdog(generation: number): void {
+    if (this.postSpawnTimer) clearTimeout(this.postSpawnTimer);
+    this.postSpawnTimer = setTimeout(() => {
+      if (!this.processAlive || generation !== this.processGeneration) return;
+      logger.warn('Post-spawn first-byte watchdog fired — no output after spawn', {
+        adapter: this.getName(),
+        timeoutMs: POST_SPAWN_WATCHDOG_MS,
+        pid: this.getPid(),
+      });
+      this.emit('spawn:stall', { adapter: this.getName(), timeoutMs: POST_SPAWN_WATCHDOG_MS, pid: this.getPid() });
+    }, POST_SPAWN_WATCHDOG_MS);
+    if (this.postSpawnTimer.unref) this.postSpawnTimer.unref();
+  }
+
+  /** Clear the post-spawn first-byte watchdog (call on first stdout data or process close). */
+  protected clearPostSpawnWatchdog(): void {
+    if (this.postSpawnTimer) {
+      clearTimeout(this.postSpawnTimer);
+      this.postSpawnTimer = null;
+    }
+  }
+
+  /**
    * Clear the stream idle watchdog timer.
    * Call this when streaming completes or the process exits.
    */
@@ -675,14 +716,33 @@ export abstract class BaseCliAdapter extends EventEmitter {
   /**
    * Write to child stdin with backpressure handling.
    * Waits for drain if the kernel buffer is full.
+   * D9: bounded by DRAIN_TIMEOUT_MS; EPIPE during drain resolves immediately
+   * so the upstream process-exit path handles the dead process.
    */
   protected async safeStdinWrite(data: string): Promise<void> {
     if (!this.process?.stdin?.writable) return;
 
     const canContinue = this.process.stdin.write(data);
     if (!canContinue) {
-      await new Promise<void>((resolve) => {
-        this.process!.stdin!.once('drain', resolve);
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error(`stdin drain timeout after ${DRAIN_TIMEOUT_MS}ms — process may be stuck`));
+        }, DRAIN_TIMEOUT_MS);
+        const onDrain = () => { cleanup(); resolve(); };
+        const onError = (err: NodeJS.ErrnoException) => {
+          cleanup();
+          // EPIPE means the pipe is dead; let the process-exit handler take over.
+          if (err.code === 'EPIPE') resolve();
+          else reject(err);
+        };
+        const cleanup = () => {
+          clearTimeout(timer);
+          this.process?.stdin?.off('drain', onDrain);
+          this.process?.stdin?.off('error', onError);
+        };
+        this.process!.stdin!.once('drain', onDrain);
+        this.process!.stdin!.once('error', onError);
       });
     }
   }

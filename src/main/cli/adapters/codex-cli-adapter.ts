@@ -79,6 +79,7 @@ import { CodexTimeoutError, type CodexExecPhase, type CodexTimeoutKind } from '.
 import { enrichSpawnError } from './base-cli-adapter-utils';
 import { extractReasoningSections, mergeReasoningSections, shorten } from './codex/reasoning';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
+import { isSessionNotFoundText } from './resume-error-classifier';
 
 const logger = getLogger('CodexCliAdapter');
 
@@ -229,6 +230,12 @@ export class CodexCliAdapter extends BaseCliAdapter {
   private currentTurnCompletion: Promise<TurnInterruptCompletion> | null = null;
   /** Whether a turn is currently in progress. */
   private turnInProgress = false;
+  /**
+   * Deferred abort: interrupt() was called while turnInProgress=true but currentTurnId
+   * was not yet known (the turn/start response was in flight). The promise resolves the
+   * moment the turn ID is assigned and the RPC interrupt fires. Closes §6.1.
+   */
+  private pendingAbortResolve: ((result: TurnInterruptCompletion) => void) | null = null;
   /** Whether the system prompt has been sent (app-server mode, first turn only). */
   private systemPromptSent = false;
   /** Whether the RTK awareness prompt has been sent. Sent once per session,
@@ -541,7 +548,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
     // turn can be sent. Auth/model/session errors stay fatal — the instance
     // genuinely needs a restart.
     if (/unauthorized|authentication|forbidden|login required/i.test(message)) return false;
-    if (/session not found|thread not found|no matching session/i.test(message)) return false;
+    if (isSessionNotFoundText(message)) return false;
     if (/unknown model|model not found|invalid model/i.test(message)) return false;
     return /http 5\d\d|network error|connection (refused|reset|timed out|closed)|dns|tls|handshake|rate limit|timeout|socket hang up|econnreset/i.test(message);
   }
@@ -559,11 +566,18 @@ export class CodexCliAdapter extends BaseCliAdapter {
         const turnId = this.currentTurnId;
         const turnCompletion = this.currentTurnCompletion;
         const completion = this.interruptActiveAppServerTurn(threadId, turnId, turnCompletion);
+        this.pendingAbortResolve = null; // clear any stale pending abort
         return { status: 'accepted', turnId, completion };
       }
-      return { status: 'no-active-turn', reason: 'Codex app-server turn has not reported a turn id yet' };
+      // turn/start is still in flight — arm a pending abort that fires the moment
+      // currentTurnId is assigned (closes §6.1 abort-before-turnId race).
+      const completion = new Promise<TurnInterruptCompletion>((resolve) => {
+        this.pendingAbortResolve = resolve;
+      });
+      return { status: 'accepted', completion };
     }
     // Fall back to base class SIGINT behavior
+    this.pendingAbortResolve = null;
     return super.interrupt();
   }
 
@@ -1282,6 +1296,14 @@ export class CodexCliAdapter extends BaseCliAdapter {
       if (this.currentTurnId) {
         state.threadTurnIds.set(threadId, this.currentTurnId);
         state.turnId = this.currentTurnId;
+
+        // Deliver any interrupt that arrived before turn/start returned (§6.1).
+        if (this.pendingAbortResolve) {
+          const resolve = this.pendingAbortResolve;
+          this.pendingAbortResolve = null;
+          void this.interruptActiveAppServerTurn(threadId, this.currentTurnId, this.currentTurnCompletion)
+            .then(resolve);
+        }
       }
 
       // Replay buffered notifications — route foreign ones to previousHandler
@@ -1330,6 +1352,12 @@ export class CodexCliAdapter extends BaseCliAdapter {
       this.currentTurnId = null;
       if (this.currentTurnCompletion === turnCompletion) {
         this.currentTurnCompletion = null;
+      }
+      // Resolve any still-pending abort as "unknown" — turn ended before we could interrupt.
+      if (this.pendingAbortResolve) {
+        const resolve = this.pendingAbortResolve;
+        this.pendingAbortResolve = null;
+        resolve({ status: 'unknown', reason: 'turn ended before pending interrupt could fire' });
       }
       // Clear all timers to prevent leaks
       if (idleTimer) clearTimeout(idleTimer);

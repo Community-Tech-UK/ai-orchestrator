@@ -15,7 +15,8 @@ import {
   CliMessage,
   CliResponse,
   CliToolCall,
-  CliUsage
+  CliUsage,
+  type ResumeAttemptResult,
 } from './base-cli-adapter';
 import { rmSync } from 'fs';
 import { dirname } from 'path';
@@ -138,6 +139,10 @@ export class GeminiCliAdapter extends BaseCliAdapter {
       supportsPermissionPrompts: false,
       supportsDeferPermission: false,
     };
+  }
+
+  getResumeAttemptResult(): ResumeAttemptResult | null {
+    return null; // Gemini is stateless and does not support native resume
   }
 
   async checkStatus(): Promise<CliStatus> {

@@ -303,9 +303,6 @@ export class AcpCliAdapter extends BaseCliAdapter {
    *  `session/update` for longer than `stallWarningMs`. Rearmed on
    *  every inbound update; cleared when the turn settles. */
   private stallTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Whether a stall has already been reported for the current turn
-   *  (prevents re-emitting on every missed update after the threshold). */
-  private stallWarningEmitted = false;
   private protocolErrorOutputCount = 0;
 
   constructor(config: AcpCliAdapterConfig) {
@@ -636,61 +633,68 @@ export class AcpCliAdapter extends BaseCliAdapter {
    * when `stallWarningMs` is 0 (explicit opt-out) or when no prompt is
    * currently in flight.
    */
+  /**
+   * D11: Repeating stall watchdog — fires every `stallWarningMs` until the turn
+   * settles or `clearStallWatchdog()` is called. Replaces the one-shot pattern.
+   */
   private armStallWatchdog(): void {
     this.clearStallWatchdog();
-    this.stallWarningEmitted = false;
     const timeoutMs = this.acpConfig.stallWarningMs ?? DEFAULT_STALL_WARNING_MS;
     if (timeoutMs <= 0) return;
 
-    this.stallTimer = setTimeout(() => {
-      // Guard: if the turn already settled between timer fire and this tick,
-      // don't emit a spurious warning.
-      if (!this.currentPromptRequestId || this.stallWarningEmitted) return;
-      this.stallWarningEmitted = true;
+    const scheduleNext = (): void => {
+      this.stallTimer = setTimeout(() => {
+        // Guard: turn has already settled.
+        if (!this.currentPromptRequestId) return;
 
-      const durationMs = this.currentPrompt
-        ? Date.now() - this.currentPrompt.startedAt
-        : timeoutMs;
+        const durationMs = this.currentPrompt
+          ? Date.now() - this.currentPrompt.startedAt
+          : timeoutMs;
 
-      logger.warn('ACP prompt turn appears stalled', {
-        adapter: this.getName(),
-        sessionId: this.sessionId,
-        promptRequestId: this.currentPromptRequestId,
-        timeoutMs,
-        durationMs,
-      });
-
-      // Emit a structured warning the UI can render as "This turn looks
-      // stuck — cancel?" without forcibly failing the prompt.
-      this.emit('stall_warning', {
-        adapter: this.getName(),
-        sessionId: this.sessionId,
-        promptRequestId: this.currentPromptRequestId,
-        timeoutMs,
-        durationMs,
-      });
-
-      // Also land it on the output buffer so chat history records the
-      // stall event and the child-exit summary picks it up.
-      this.emit('output', {
-        id: generateId(),
-        timestamp: Date.now(),
-        type: 'error',
-        content: `This turn hasn't produced any output for ${Math.round(timeoutMs / 1000)}s — it may be stuck. Cancel the turn to try again.`,
-        metadata: {
-          source: 'acp-stall-warning',
-          transport: 'acp',
+        logger.warn('ACP prompt turn appears stalled', {
           adapter: this.getName(),
-          severity: 'warning',
+          sessionId: this.sessionId,
+          promptRequestId: this.currentPromptRequestId,
           timeoutMs,
           durationMs,
-        },
-      } satisfies OutputMessage);
-    }, timeoutMs);
+        });
+        // Emit a structured warning the UI can render as "This turn looks
+        // stuck — cancel?" without forcibly failing the prompt.
+        this.emit('stall_warning', {
+          adapter: this.getName(),
+          sessionId: this.sessionId,
+          promptRequestId: this.currentPromptRequestId,
+          timeoutMs,
+          durationMs,
+        });
 
-    if (typeof this.stallTimer.unref === 'function') {
-      this.stallTimer.unref();
-    }
+        // Also land it on the output buffer so chat history records the
+        // stall event and the child-exit summary picks it up.
+        this.emit('output', {
+          id: generateId(),
+          timestamp: Date.now(),
+          type: 'error',
+          content: `This turn hasn't produced any output for ${Math.round(durationMs / 1000)}s — it may be stuck. Cancel the turn to try again.`,
+          metadata: {
+            source: 'acp-stall-warning',
+            transport: 'acp',
+            adapter: this.getName(),
+            severity: 'warning',
+            timeoutMs,
+            durationMs,
+          },
+        } satisfies OutputMessage);
+
+        // Re-arm for the next interval so warnings repeat until the turn settles.
+        scheduleNext();
+      }, timeoutMs);
+
+      if (typeof this.stallTimer?.unref === 'function') {
+        this.stallTimer.unref();
+      }
+    };
+
+    scheduleNext();
   }
 
   /**

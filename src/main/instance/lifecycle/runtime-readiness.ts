@@ -8,9 +8,11 @@
 
 import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 import type { AdapterRuntimeCapabilities } from '../../cli/adapters/base-cli-adapter';
+import type { ResumeAttemptResult } from '../../cli/adapters/base-cli-adapter.types';
 import { getLogger } from '../../logging/logger';
 import { observeAdapterRuntimeEvents } from '../../providers/adapter-runtime-event-bridge';
 import type { Instance } from '../../../shared/types/instance.types';
+import { isSessionNotFoundText } from '../../cli/adapters/resume-error-classifier';
 
 const logger = getLogger('RuntimeReadiness');
 
@@ -102,7 +104,10 @@ export class RuntimeReadinessCoordinator {
               finish(false);
               break;
             }
-            finish(true);
+            // When an adapter supplies proof (e.g. Claude init event precedes the
+            // first output), prefer the proof signal over the raw "got output" heuristic.
+            // This closes B1: a wrong-session resume is now detected and rejected.
+            finish(this.getResumeProof(adapter) ?? true);
             break;
           case 'error':
             if (this.isSessionNotFoundMessage(event.message)) {
@@ -213,6 +218,25 @@ export class RuntimeReadinessCoordinator {
   }
 
   private isSessionNotFoundMessage(message: string): boolean {
-    return /no conversation found/i.test(message) || /session.*not.*found/i.test(message);
+    return isSessionNotFoundText(message);
+  }
+
+  /**
+   * Returns the adapter's definitive resume proof if available, or null when
+   * still pending / not supported. A false result means the adapter confirmed
+   * a wrong-session resume — caller should treat as a health failure.
+   */
+  private getResumeProof(adapter: CliAdapter): boolean | null {
+    const a = adapter as unknown as {
+      getResumeAttemptResult?: () => ResumeAttemptResult | null | undefined;
+    };
+    if (typeof a.getResumeAttemptResult !== 'function') return null;
+    const result = a.getResumeAttemptResult();
+    if (!result || result.source === 'none') return null;
+    if (result.source === 'fresh-fallback') return false;
+    if (result.confirmed) return true;
+    if (result.actualSessionId && result.requestedSessionId
+        && result.actualSessionId !== result.requestedSessionId) return false;
+    return null;
   }
 }

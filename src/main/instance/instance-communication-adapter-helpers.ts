@@ -3,6 +3,7 @@ import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import { getErrorRecoveryManager } from '../core/error-recovery';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import { isContextOverflowError } from '../context/ptl-retry';
+import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
 
 export function getAdapterRuntimeCapabilities(adapter: CliAdapter): AdapterRuntimeCapabilities {
   if (adapter instanceof BaseCliAdapter) {
@@ -49,7 +50,7 @@ export function isRecoverableStatelessExecTurnError(adapter: CliAdapter, error: 
     return false;
   }
 
-  if (/no conversation found/i.test(errorText) || /session.*not.*found/i.test(errorText)) {
+  if (isSessionNotFoundText(errorText)) {
     return false;
   }
 
@@ -77,7 +78,3 @@ export function isCorruptedSessionMessage(content: string): boolean {
   );
 }
 
-export function isSessionNotFoundMessage(content: string): boolean {
-  if (!content) return false;
-  return /no conversation found/i.test(content) || /session.*not.*found/i.test(content);
-}

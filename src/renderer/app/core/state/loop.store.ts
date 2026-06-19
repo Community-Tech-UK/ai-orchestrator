@@ -317,21 +317,23 @@ export class LoopStore {
     }
   }
 
-  /** Mark one outstanding item resolved / dismissed / re-opened. Optimistically
-   *  updates local state; a change event re-syncs from the source of truth. */
-  async setOutstandingStatus(id: string, status: LoopOutstandingStatus): Promise<boolean> {
-    const res = await this.ipc.setOutstandingStatus(id, status);
-    if (res.success && res.data?.ok) {
-      this.outstandingItems.update((items) =>
-        items.map((item) =>
-          item.id === id
-            ? { ...item, status, resolvedAt: status === 'open' ? null : Date.now(), updatedAt: Date.now() }
-            : item,
-        ),
-      );
-      return true;
-    }
-    return false;
+  /** Mark one outstanding item resolved / dismissed / re-opened, optionally saving
+   *  the human's answer (`response` undefined keeps the existing answer; '' clears it). */
+  async setOutstandingStatus(id: string, status: LoopOutstandingStatus, response?: string): Promise<boolean> {
+    const res = await this.ipc.setOutstandingStatus(id, status, response);
+    if (!(res.success && res.data?.ok)) return false;
+    const now = Date.now();
+    this.outstandingItems.update((items) =>
+      items.map((item) =>
+        item.id === id
+          ? {
+            ...item, status, resolvedAt: status === 'open' ? null : now, updatedAt: now,
+            ...(response === undefined ? {} : { userResponse: response }),
+          }
+          : item,
+      ),
+    );
+    return true;
   }
 
   /** Mark many outstanding items at once (e.g. "Resolve all"). Issues the IPC
@@ -368,6 +370,17 @@ export class LoopStore {
   ): Promise<{ path: string; itemCount: number } | null> {
     const res = await this.ipc.exportOutstanding(workspaceCwd, destPath, chatId);
     return res.success && res.data ? res.data : null;
+  }
+
+  /** Start a fresh loop run applying the saved answers on the scope's open items.
+   *  Returns the new run + how many answers were applied, or an error message. */
+  async resumeOutstandingWithAnswers(
+    chatId: string,
+    workspaceCwd: string,
+  ): Promise<{ ok: true; appliedCount: number } | { ok: false; error: string }> {
+    const res = await this.ipc.resumeWithAnswers(chatId, workspaceCwd);
+    if (res.success && res.data) return { ok: true, appliedCount: res.data.appliedCount };
+    return { ok: false, error: res.error?.message ?? 'Resume failed' };
   }
 
   // ────── commands ──────

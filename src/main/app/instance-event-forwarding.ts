@@ -86,13 +86,19 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
     process: async (task) => {
       try {
         const continuity = getSessionContinuityManager();
+        // C2: await the async continuity writes so the queue serializes them
+        // correctly and errors surface instead of being silently dropped.
         if (task.kind === 'state') {
-          continuity.updateState(task.instanceId, task.update as Parameters<typeof continuity.updateState>[1]);
+          await continuity.updateState(task.instanceId, task.update as Parameters<typeof continuity.updateState>[1]);
         } else {
-          continuity.addConversationEntry(task.instanceId, task.entry);
+          await continuity.addConversationEntry(task.instanceId, task.entry);
         }
-      } catch {
-        // Continuity failures are non-critical; log once per interval via the queue's own metrics.
+      } catch (err) {
+        logger.warn('Continuity queue task failed', {
+          kind: task.kind,
+          instanceId: task.instanceId,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     },
     onDrop: (_, reason) => {
@@ -236,14 +242,19 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
       }
     }
     if (data.updates) {
-      const continuity = getSessionContinuityManager();
       const loadBalancer = getLoadBalancer();
       for (const update of data.updates) {
         if (update.contextUsage) {
-          continuity.updateState(update.instanceId, {
-            contextUsage: {
-              used: update.contextUsage.used,
-              total: update.contextUsage.total,
+          // C2: Route through the continuity queue instead of calling directly,
+          // so writes are serialized and awaited correctly.
+          continuityQueue.enqueue({
+            kind: 'state',
+            instanceId: update.instanceId,
+            update: {
+              contextUsage: {
+                used: update.contextUsage.used,
+                total: update.contextUsage.total,
+              },
             },
           });
         }

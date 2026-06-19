@@ -52,9 +52,11 @@ import {
   isCorruptedSessionMessage,
   isRecoverableAcpPromptTurnError,
   isRecoverableStatelessExecTurnError,
-  isSessionNotFoundMessage,
   isStatelessExecAdapter,
 } from './instance-communication-adapter-helpers';
+import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
+import { getSessionContinuityManagerIfInitialized } from '../session/session-continuity';
+import { getOrCreateTurnSupervisor } from '../session/session-turn-supervisor';
 import { stabilizeThinkingBlocks } from '../../shared/utils/thinking-extractor';
 import {
   CIRCUIT_BREAKER_CONFIG,
@@ -397,6 +399,7 @@ export class InstanceCommunicationManager extends EventEmitter {
 
     if (isReadyForInput && turnWasActive) {
       instance.lastTurnOutcome = 'completed';
+      getOrCreateTurnSupervisor(instance.id).recordTurnEnd('completed');
     }
 
     if (isReadyForInput && instance.interruptPhase === 'completed') {
@@ -547,6 +550,10 @@ export class InstanceCommunicationManager extends EventEmitter {
         instanceId,
         status: instance.status,
       });
+      // A5/A6: Capture the adapter generation BEFORE the await.  After the
+      // wait we always re-fetch the adapter to guarantee we send to the
+      // replacement (not the pre-respawn one).
+      const adapterGenerationBefore = instance.adapterGeneration;
       const respawnTimeout = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Instance interrupt recovery timed out after 30s')), 30_000)
       );
@@ -559,6 +566,19 @@ export class InstanceCommunicationManager extends EventEmitter {
       }
       if (postRespawnStatus === 'terminated') {
         throw new Error(`Instance ${instanceId} was terminated during interrupt recovery`);
+      }
+      // A6: Always re-fetch the adapter after respawn — the old reference in
+      // `adapter` may point to the now-dead pre-respawn process.
+      const adapterAfterRespawn = this.deps.getAdapter(instanceId);
+      if (adapterAfterRespawn !== null && adapterAfterRespawn !== undefined) {
+        adapter = adapterAfterRespawn;
+      }
+      if (instance.adapterGeneration !== adapterGenerationBefore) {
+        logger.info('sendInput: adapter replaced during respawn (generation fence)', {
+          instanceId,
+          oldGeneration: adapterGenerationBefore,
+          newGeneration: instance.adapterGeneration,
+        });
       }
       logger.info('sendInput: interrupt recovery complete, proceeding with send', { instanceId, status: postRespawnStatus });
     } else if (isInterruptRecoveryState) {
@@ -922,6 +942,8 @@ export class InstanceCommunicationManager extends EventEmitter {
     if (instanceAtSubscribe) {
       instanceAtSubscribe.adapterGeneration = adapterGenerationAtSubscribe;
     }
+    // Notify the turn supervisor so it mirrors the generation for the interruptSeq fence.
+    getOrCreateTurnSupervisor(instanceId).recordAdapterSetup(adapterGenerationAtSubscribe);
     const isStaleAdapterEvent = (eventName: string): boolean => {
       const currentAdapter = this.deps.getAdapter(instanceId);
       if (currentAdapter !== adapter) {
@@ -979,12 +1001,16 @@ export class InstanceCommunicationManager extends EventEmitter {
       const instance = this.deps.getInstance(instanceId);
       if (instance) {
         const turnId = this.getMessageTurnId(message) ?? this.getAdapterCurrentTurnId(adapter);
+        const wasActiveBefore = Boolean(instance.activeTurnId);
         if (turnId) {
           instance.activeTurnId = turnId;
+          if (!wasActiveBefore) {
+            getOrCreateTurnSupervisor(instanceId).recordTurnStart(turnId);
+          }
         }
         message = this.withRuntimeMetadata(message, adapterGenerationAtSubscribe, turnId);
 
-        if (message.type === 'error' && isSessionNotFoundMessage(message.content)) {
+        if (message.type === 'error' && isSessionNotFoundText(message.content)) {
           instance.sessionResumeBlacklisted = true;
           logger.warn('Session id blacklisted due to resume failure output', {
             instanceId,
@@ -1021,6 +1047,16 @@ export class InstanceCommunicationManager extends EventEmitter {
               historyThreadId: instance.historyThreadId,
             }
           );
+          // Write-through: persist new session ID immediately so a crash cannot
+          // replay the old (stale) session ID back to the provider (closes B4/C1).
+          void getSessionContinuityManagerIfInitialized()?.writeThroughIdentity(instanceId, {
+            sessionId: cliSessionId,
+          }).catch((err: unknown) => {
+            logger.warn('writeThroughIdentity failed after session ID update', {
+              instanceId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
         }
 
         // Reset circuit breaker counter on tool activity — tool-use sequences
@@ -1542,7 +1578,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       // the next respawn (including auto-respawn from this adapter's exit)
       // cannot loop on it.
       const errText = errorMessage;
-      if (isSessionNotFoundMessage(errText)) {
+      if (isSessionNotFoundText(errText)) {
         instance.sessionResumeBlacklisted = true;
         logger.warn('Session id blacklisted due to resume failure', {
           instanceId,
@@ -1719,6 +1755,26 @@ export class InstanceCommunicationManager extends EventEmitter {
         return;
       }
       this.deps.onOutput?.(instanceId);
+    });
+
+    adapter.on('spawn:stall', ({ timeoutMs }: { timeoutMs: number }) => {
+      if (isStaleAdapterEvent('spawn:stall')) return;
+      const instance = this.deps.getInstance(instanceId);
+      if (!instance) return;
+      const secs = Math.round(timeoutMs / 1000);
+      logger.warn('Adapter spawn stall — no output within watchdog window', {
+        instanceId,
+        timeoutMs,
+      });
+      const stallMessage: OutputMessage = {
+        id: `spawn-stall-${Date.now()}`,
+        type: 'system',
+        content: `Instance started but produced no output for ${secs}s. It may be stuck. Will auto-restart if unresponsive.`,
+        timestamp: Date.now(),
+        metadata: { spawnStall: true, timeoutMs },
+      };
+      this.addToOutputBuffer(instance, stallMessage);
+      this.emit('output', { instanceId, message: stallMessage });
     });
 
     adapter.on('exit', (code: number | null, signal: string | null) => {

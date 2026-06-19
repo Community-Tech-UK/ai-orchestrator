@@ -60,11 +60,11 @@ describe('StuckProcessDetector', () => {
     detector.on('process:suspect-stuck', softHandler);
     detector.startTracking('inst-1');
     detector.updateState('inst-1', 'tool_executing');
-    // soft timeout is now 600s — no warning at 400s
-    vi.advanceTimersByTime(400_000);
+    // soft timeout is 240s — no warning at 200s
+    vi.advanceTimersByTime(200_000);
     expect(softHandler).not.toHaveBeenCalled();
-    // should fire after 600s
-    vi.advanceTimersByTime(210_000);
+    // should fire after 240s
+    vi.advanceTimersByTime(50_000);
     expect(softHandler).toHaveBeenCalled();
   });
 
@@ -85,9 +85,11 @@ describe('StuckProcessDetector', () => {
     detector.on('process:suspect-stuck', softHandler);
     detector.startTracking('inst-1');
     detector.updateState('inst-1', 'generating');
-    vi.advanceTimersByTime(100_000);
+    // Advance to just before the 60s soft threshold, then reset via recordOutput.
+    vi.advanceTimersByTime(50_000);
     detector.recordOutput('inst-1');
-    vi.advanceTimersByTime(100_000);
+    // After reset, another 50s should still not trigger (50s < 60s softMs).
+    vi.advanceTimersByTime(50_000);
     expect(softHandler).not.toHaveBeenCalled();
   });
 
@@ -123,12 +125,12 @@ describe('StuckProcessDetector', () => {
       aliveDetector.updateState('inst-1', 'tool_executing');
       aliveSet.add('inst-1');
 
-      // Base soft is 600s — at 610s the soft threshold is hit,
+      // Base soft is 240s — at 250s the soft threshold is hit,
       // but process is alive so the warning is deferred
-      vi.advanceTimersByTime(610_000);
+      vi.advanceTimersByTime(250_000);
       expect(softHandler).not.toHaveBeenCalled();
 
-      // Still deferred at 620s (deferral 2)
+      // Still deferred at 260s (deferral 2)
       vi.advanceTimersByTime(10_000);
       expect(softHandler).not.toHaveBeenCalled();
     });
@@ -157,13 +159,13 @@ describe('StuckProcessDetector', () => {
       aliveDetector.updateState('inst-1', 'tool_executing');
       aliveSet.add('inst-1');
 
-      // Base soft is 600s. Each check cycle (10s) past 600s consumes a deferral.
-      // MAX_ALIVE_DEFERRALS = 3, so:
-      //   t=600s → deferral 1
-      //   t=610s → deferral 2
-      //   t=620s → deferral 3
-      //   t=630s → deferrals exhausted → soft warning emitted
-      vi.advanceTimersByTime(620_000);
+      // Base soft is 240s. Each check cycle (10s) past 240s consumes a deferral.
+      // tool_executing has MAX_ALIVE_DEFERRALS = 3, so:
+      //   t=240s → deferral 1
+      //   t=250s → deferral 2
+      //   t=260s → deferral 3
+      //   t=270s → deferrals exhausted → soft warning emitted
+      vi.advanceTimersByTime(260_000);
       expect(softHandler).not.toHaveBeenCalled();
 
       vi.advanceTimersByTime(20_000);
@@ -179,8 +181,8 @@ describe('StuckProcessDetector', () => {
       aliveDetector.updateState('inst-1', 'tool_executing');
       // Process NOT in aliveSet — no deferral
 
-      // Base soft is 600s
-      vi.advanceTimersByTime(610_000);
+      // Base soft is 240s
+      vi.advanceTimersByTime(250_000);
       expect(softHandler).toHaveBeenCalled();
     });
 
@@ -192,13 +194,13 @@ describe('StuckProcessDetector', () => {
       aliveSet.add('inst-1');
 
       // Use up some deferrals
-      vi.advanceTimersByTime(620_000);
+      vi.advanceTimersByTime(260_000);
 
       // State change resets timer and deferrals
       aliveDetector.updateState('inst-1', 'tool_executing');
 
-      // Timer reset — should not fire for another 600s
-      vi.advanceTimersByTime(590_000);
+      // Timer reset — should not fire for another 240s
+      vi.advanceTimersByTime(230_000);
       expect(softHandler).not.toHaveBeenCalled();
     });
 

@@ -655,6 +655,68 @@ Hey! I'm here. What do you want to tackle?`;
       expect(result.status).toBe('already-idle');
     });
 
+    it('arms a pending abort when interrupt fires before turn/start returns (§6.1)', async () => {
+      const adapter = new CodexCliAdapter();
+      const request = vi.fn().mockResolvedValue({ success: true });
+      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+      (adapter as unknown as { appServerClient: { request: typeof request } }).appServerClient = { request };
+      (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+      (adapter as unknown as { turnInProgress: boolean }).turnInProgress = true;
+      // currentTurnId is null — turn/start hasn't returned yet
+      (adapter as unknown as { currentTurnId: null }).currentTurnId = null;
+      (adapter as unknown as { currentTurnCompletion: Promise<unknown> }).currentTurnCompletion =
+        Promise.resolve({ status: 'interrupted', turnId: 'turn-1' });
+
+      // Interrupt fires BEFORE turnId is known
+      const result = adapter.interrupt();
+      expect(result.status).toBe('accepted');
+      expect(result.turnId).toBeUndefined();
+
+      // No RPC yet — turnId not known
+      expect(request).not.toHaveBeenCalled();
+
+      // Now turn/start resolves: assign currentTurnId
+      (adapter as unknown as { currentTurnId: string }).currentTurnId = 'turn-1';
+      const interruptFn = (adapter as unknown as {
+        interruptActiveAppServerTurn(
+          threadId: string,
+          turnId: string,
+          completion: Promise<unknown> | null,
+        ): Promise<unknown>;
+      }).interruptActiveAppServerTurn.bind(adapter);
+      // Simulate the pending-abort delivery that fires in the code
+      const pendingResolve = (adapter as unknown as { pendingAbortResolve: ((r: unknown) => void) | null }).pendingAbortResolve;
+      if (pendingResolve) {
+        await interruptFn('thread-1', 'turn-1', Promise.resolve({ status: 'interrupted', turnId: 'turn-1' }))
+          .then(pendingResolve);
+      }
+
+      await expect(result.completion).resolves.toMatchObject({ status: 'interrupted' });
+      expect(request).toHaveBeenCalledWith('turn/interrupt', { threadId: 'thread-1', turnId: 'turn-1' });
+    });
+
+    it('resolves pending abort as unknown when turn ends before turnId is assigned', async () => {
+      const adapter = new CodexCliAdapter();
+      const request = vi.fn().mockResolvedValue({ success: true });
+      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+      (adapter as unknown as { appServerClient: { request: typeof request } }).appServerClient = { request };
+      (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+      (adapter as unknown as { turnInProgress: boolean }).turnInProgress = true;
+      (adapter as unknown as { currentTurnId: null }).currentTurnId = null;
+
+      const result = adapter.interrupt();
+      expect(result.status).toBe('accepted');
+
+      // Simulate the finally block: turn ended without a turnId ever being set
+      const resolve = (adapter as unknown as { pendingAbortResolve: ((r: unknown) => void) | null }).pendingAbortResolve;
+      expect(resolve).not.toBeNull();
+      resolve?.({ status: 'unknown', reason: 'turn ended before pending interrupt could fire' });
+      (adapter as unknown as { pendingAbortResolve: null }).pendingAbortResolve = null;
+
+      await expect(result.completion).resolves.toMatchObject({ status: 'unknown' });
+      expect(request).not.toHaveBeenCalled();
+    });
+
     it('waits for app-server interrupt acceptance and turn completion proof', async () => {
       const adapter = new CodexCliAdapter();
       const request = vi.fn().mockResolvedValue({ success: true });

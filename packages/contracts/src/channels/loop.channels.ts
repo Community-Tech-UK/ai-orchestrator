@@ -22,6 +22,9 @@ export const LOOP_CHANNELS = {
   LOOP_SET_OUTSTANDING_STATUS: 'loop:set-outstanding-status',
   /** Export open outstanding items to a consolidated OUTSTANDING.md. */
   LOOP_EXPORT_OUTSTANDING: 'loop:export-outstanding',
+  /** Start a fresh loop run that applies the human answers recorded on the open
+   *  outstanding items (reusing the source run's config). */
+  LOOP_RESUME_WITH_ANSWERS: 'loop:resume-with-answers',
 
   // Events (main → renderer)
   LOOP_STARTED: 'loop:started',

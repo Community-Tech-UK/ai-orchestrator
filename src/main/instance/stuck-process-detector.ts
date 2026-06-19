@@ -19,8 +19,9 @@ interface TimeoutConfig {
 }
 
 const TIMEOUTS: Record<string, TimeoutConfig> = {
-  generating: { softMs: 120_000, hardMs: 240_000 },
-  tool_executing: { softMs: 600_000, hardMs: 1_200_000 },
+  // D5: soft threshold reduced 120s → 60s for generating; 600s → 240s for tool_executing.
+  generating: { softMs: 60_000, hardMs: 240_000 },
+  tool_executing: { softMs: 240_000, hardMs: 1_200_000 },
 };
 
 /**
@@ -32,10 +33,15 @@ const TIMEOUTS: Record<string, TimeoutConfig> = {
 const ALIVE_PROCESS_TIMEOUT_MULTIPLIER = 2;
 
 /**
- * Maximum number of times we defer a timeout for a still-alive process.
- * Prevents infinite deferral for a truly stuck-but-alive process.
+ * Maximum number of times we defer a timeout for a still-alive process,
+ * by state. `tool_executing` gets more headroom (tools can legitimately
+ * run for several minutes); all other states (e.g. `generating`) get just
+ * one deferral so warnings surface promptly. D5.
  */
-const MAX_ALIVE_DEFERRALS = 3;
+const MAX_ALIVE_DEFERRALS_BY_STATE: Record<string, number> = {
+  tool_executing: 3,
+};
+const DEFAULT_MAX_ALIVE_DEFERRALS = 1;
 
 /**
  * Timeout for detecting when a subprocess is waiting for interactive input
@@ -210,14 +216,15 @@ export class StuckProcessDetector extends EventEmitter {
       } else if (elapsed >= config.softMs && !tracker.softWarningEmitted) {
         // If process is alive and we haven't exhausted deferrals, defer
         // instead of warning — the instance is actively working.
-        if (processAlive && tracker.aliveDeferrals < MAX_ALIVE_DEFERRALS) {
+        const maxDeferrals = MAX_ALIVE_DEFERRALS_BY_STATE[tracker.instanceState] ?? DEFAULT_MAX_ALIVE_DEFERRALS;
+        if (processAlive && tracker.aliveDeferrals < maxDeferrals) {
           tracker.aliveDeferrals++;
           logger.info('Process alive — deferring stuck warning', {
             instanceId,
             state: tracker.instanceState,
             elapsedMs: elapsed,
             deferral: tracker.aliveDeferrals,
-            maxDeferrals: MAX_ALIVE_DEFERRALS,
+            maxDeferrals,
           });
           continue;
         }

@@ -18,9 +18,29 @@ import {
   getProviderDisplayName,
   selectMessagesForRestore,
 } from './history-restore-helpers';
+import type { ResumeAttemptResult } from '../cli/adapters/base-cli-adapter.types';
 
 const logger = getLogger('HistoryRestoreCoordinator');
 const DEFAULT_POLL_INTERVAL_MS = 200;
+
+/**
+ * Duck-typed accessor for adapter resume proof.
+ * Returns true/false if the adapter has a definitive answer, null if still pending.
+ */
+function getAdapterResumeProof(instanceManager: InstanceManager, instanceId: string): boolean | null {
+  // getAdapter is on InstanceManager but not on slimmer dep types — use optional call.
+  const adapter = (instanceManager as unknown as { getAdapter?(id: string): unknown }).getAdapter?.(instanceId);
+  if (!adapter) return null;
+  const a = adapter as { getResumeAttemptResult?: () => ResumeAttemptResult | null | undefined };
+  if (typeof a.getResumeAttemptResult !== 'function') return null;
+  const result = a.getResumeAttemptResult();
+  if (!result || result.source === 'none') return null;
+  // fresh-fallback means no native resume was attempted — definitively not confirmed.
+  if (result.source === 'fresh-fallback') return false;
+  if (result.confirmed) return true;
+  if (result.reason) return false;
+  return null;
+}
 
 export interface HistoryRestoreForkIds {
   sessionId: string;
@@ -297,7 +317,14 @@ export class HistoryRestoreCoordinator {
           && inst.status !== 'error'
           && inst.status !== 'terminated'
           && inst.status !== 'respawning';
-        const confirmed = Boolean(inst?.contextUsage && inst.contextUsage.used > 0);
+        if (!alive) return { alive: false, confirmed: false };
+
+        // Prefer adapter proof (set from init events) over context-usage heuristic.
+        const proof = getAdapterResumeProof(instanceManager, instanceId);
+        if (proof !== null) return { alive: true, confirmed: proof };
+
+        // Fall back to context-usage heuristic (used > 0 means the provider resumed)
+        const confirmed = Boolean(inst.contextUsage && inst.contextUsage.used > 0);
         return { alive, confirmed };
       };
 

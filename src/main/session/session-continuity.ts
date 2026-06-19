@@ -1091,6 +1091,49 @@ export class SessionContinuityManager extends EventEmitter {
   }
 
   /**
+   * Immediately persist provider identity fields to disk, bypassing the 60s autosave window.
+   *
+   * Call when a new sessionId or resumeCursor is confirmed so that a crash within the autosave
+   * grace period cannot replay a stale session ID back to the provider (closes B4/C1).
+   */
+  async writeThroughIdentity(
+    instanceId: string,
+    identity: {
+      sessionId?: string;
+      resumeCursor?: ResumeCursor | null;
+      nativeResumeFailedAt?: number | null;
+    },
+  ): Promise<void> {
+    await this.readyPromise;
+    const trackedState = this.sessionStates.get(instanceId);
+    if (!trackedState) return;
+    const state = await this.hydrateTrackedState(instanceId, trackedState);
+
+    if (identity.sessionId !== undefined) {
+      const normalized = this.normalizeLookupIdentifier(identity.sessionId);
+      state.sessionId = normalized ?? undefined;
+    }
+    if ('resumeCursor' in identity) {
+      state.resumeCursor = identity.resumeCursor;
+    }
+    if (identity.nativeResumeFailedAt !== undefined) {
+      state.nativeResumeFailedAt = identity.nativeResumeFailedAt;
+    }
+
+    this.dirty.add(instanceId);
+    this.appendSessionEvent(instanceId, 'identity_write_through', identity as Record<string, unknown>);
+    await this.saveStateAsync(instanceId);
+  }
+
+  /**
+   * Append a turn lifecycle event to the session event log (turn journal, §4.C).
+   * Fire-and-forget: called by SessionTurnSupervisor; must not block the main path.
+   */
+  logTurnEvent(instanceId: string, type: string, payload: Record<string, unknown>): void {
+    this.appendSessionEvent(instanceId, `turn_${type}`, payload);
+  }
+
+  /**
    * Get transcript for a session
    */
   async getTranscript(

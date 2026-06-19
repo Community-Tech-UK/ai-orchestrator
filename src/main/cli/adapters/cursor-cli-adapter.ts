@@ -3,6 +3,7 @@ import { getLogger } from '../../logging/logger';
 import type { ContextUsage, FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 import type { ModelDisplayInfo } from '../../../shared/types/provider.types';
 import { generateId } from '../../../shared/utils/id-generator';
+import { isSessionNotFoundText } from './resume-error-classifier';
 import { extractThinkingContent } from '../../../shared/utils/thinking-extractor';
 import { CURSOR_DEFAULT_MODELS, discoverCursorModels } from './cursor-cli-adapter.models';
 import type {
@@ -47,12 +48,6 @@ export class CursorCliAdapter extends BaseCliAdapter {
    */
   private cumulativeTokensUsed = 0;
 
-  /**
-   * Errors whose `result` string triggers a one-shot retry without --resume
-   * (Task 21). Matches cursor-agent's "invalid session id", "session not found",
-   * and "session expired" phrasings case-insensitively.
-   */
-  private readonly RESUME_FAILURE_PATTERN = /invalid session id|session not found|session expired/i;
 
   constructor(config: CursorCliConfig = {}) {
     const adapterConfig: CliAdapterConfig = {
@@ -898,7 +893,7 @@ export class CursorCliAdapter extends BaseCliAdapter {
       if (
         this.cursorSessionId &&
         !resultState.retriedWithoutResume &&
-        this.RESUME_FAILURE_PATTERN.test(errMsg)
+        isSessionNotFoundText(errMsg)
       ) {
         logger.info('Cursor session expired; clearing and retrying once without --resume', {
           prevSessionId: this.cursorSessionId,

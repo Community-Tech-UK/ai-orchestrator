@@ -3,6 +3,8 @@ import { getLogger } from '../logging/logger';
 const logger = getLogger('SessionMutex');
 
 const LONG_HOLD_WARNING_MS = 30_000;
+/** Default maximum wait time for a new acquisition before giving up. */
+const DEFAULT_ACQUIRE_TIMEOUT_MS = 120_000;
 
 interface LockInfo {
   source: string;
@@ -23,15 +25,46 @@ export interface SessionLockOwnerMetadata {
   adapterGeneration?: number;
 }
 
+/** Thrown when a SessionMutex.acquire() call exceeds its timeout. */
+export class SessionMutexTimeoutError extends Error {
+  constructor(
+    public readonly instanceId: string,
+    public readonly waitingSource: string,
+    public readonly timeoutMs: number,
+    public readonly holderInfo?: { source: string; acquiredAt: number; durationMs: number; owner?: SessionLockOwnerMetadata },
+  ) {
+    super(
+      `SessionMutex acquire timeout after ${timeoutMs}ms waiting for "${instanceId}" ` +
+        `(caller: "${waitingSource}", holder: "${holderInfo?.source ?? 'unknown'}", ` +
+        `held for ${holderInfo?.durationMs ?? '?'}ms)`,
+    );
+    this.name = 'SessionMutexTimeoutError';
+  }
+}
+
+export function isSessionMutexTimeout(err: unknown): err is SessionMutexTimeoutError {
+  return err instanceof SessionMutexTimeoutError;
+}
+
 export class SessionMutex {
   private chains = new Map<string, Promise<void>>();
   private holders = new Map<string, LockInfo>();
   private forceResolvers = new Map<string, () => void>();
 
+  /**
+   * Acquire a lock for `instanceId`.
+   *
+   * @param timeoutMs Maximum wait time before rejecting (default 120 s).
+   *   Pass `0` to wait indefinitely (not recommended — prefer a large value).
+   *   On timeout a `SessionMutexTimeoutError` is thrown; the stale holder's
+   *   info is included for diagnostics.  Callers that know the previous holder
+   *   is dead can call `forceRelease()` and retry.
+   */
   async acquire(
     instanceId: string,
     source: string,
     owner?: SessionLockOwnerMetadata,
+    timeoutMs = DEFAULT_ACQUIRE_TIMEOUT_MS,
   ): Promise<() => void> {
     const prev = this.chains.get(instanceId) ?? Promise.resolve();
 
@@ -40,7 +73,8 @@ export class SessionMutex {
       releaseFn = resolve;
     });
 
-    // Chain: wait for previous holder, then register ourselves
+    // Chain: wait for previous holder, then register ourselves.
+    // The chain settles when the previous holder calls its release function.
     const acquisition = prev.then(() => {
       const info: LockInfo = {
         source,
@@ -66,7 +100,37 @@ export class SessionMutex {
 
     this.chains.set(instanceId, next);
 
-    await acquisition;
+    if (timeoutMs > 0) {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          const holderInfo = this.getLockInfo(instanceId);
+          const err = new SessionMutexTimeoutError(
+            instanceId,
+            source,
+            timeoutMs,
+            holderInfo ?? undefined,
+          );
+          logger.warn('SessionMutex acquire timed out', {
+            instanceId,
+            source,
+            owner,
+            timeoutMs,
+            holderSource: holderInfo?.source,
+            holderDurationMs: holderInfo?.durationMs,
+            holderOwner: holderInfo?.owner,
+          });
+          reject(err);
+        }, timeoutMs);
+        if (typeof timer.unref === 'function') timer.unref();
+
+        acquisition.then(() => {
+          clearTimeout(timer);
+          resolve();
+        }, reject);
+      });
+    } else {
+      await acquisition;
+    }
 
     let released = false;
     return () => {

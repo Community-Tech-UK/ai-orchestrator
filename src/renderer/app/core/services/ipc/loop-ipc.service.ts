@@ -229,19 +229,26 @@ export class LoopIpcService {
     return fn(params);
   }
 
-  /** Set one outstanding item's resolution status. */
+  /** Set one outstanding item's resolution status, optionally persisting the
+   *  human's answer/decision in the same call. `response` undefined leaves any
+   *  existing answer untouched; '' clears it. */
   async setOutstandingStatus(
     id: string,
     status: LoopOutstandingStatus,
+    response?: string,
   ): Promise<IpcResponse<{ ok: boolean }>> {
     if (!this.api) return notInElectron();
     const fn = (this.api as unknown as {
-      loopSetOutstandingStatus?: (id: string, status: LoopOutstandingStatus) => Promise<IpcResponse<{ ok: boolean }>>;
+      loopSetOutstandingStatus?: (
+        id: string,
+        status: LoopOutstandingStatus,
+        response?: string,
+      ) => Promise<IpcResponse<{ ok: boolean }>>;
     }).loopSetOutstandingStatus;
     if (typeof fn !== 'function') {
       return { success: false, error: { message: 'set-outstanding-status bridge unavailable' } };
     }
-    return fn(id, status);
+    return fn(id, status, response);
   }
 
   /** Export open outstanding items to a consolidated OUTSTANDING.md. */
@@ -262,6 +269,27 @@ export class LoopIpcService {
       return { success: false, error: { message: 'export-outstanding bridge unavailable' } };
     }
     return fn(workspaceCwd, destPath, chatId);
+  }
+
+  /** Start a fresh loop run that applies the saved answers on the open
+   *  outstanding items for a scope (reusing the source run's config). */
+  async resumeWithAnswers(
+    chatId: string,
+    workspaceCwd: string,
+    loopRunId?: string,
+  ): Promise<IpcResponse<{ state: LoopStatePayload; resumedFromRunId: string; appliedCount: number }>> {
+    if (!this.api) return notInElectron();
+    const fn = (this.api as unknown as {
+      loopResumeWithAnswers?: (
+        chatId: string,
+        workspaceCwd: string,
+        loopRunId?: string,
+      ) => Promise<IpcResponse<{ state: LoopStatePayload; resumedFromRunId: string; appliedCount: number }>>;
+    }).loopResumeWithAnswers;
+    if (typeof fn !== 'function') {
+      return { success: false, error: { message: 'resume-with-answers bridge unavailable' } };
+    }
+    return fn(chatId, workspaceCwd, loopRunId);
   }
 
   onStateChanged(cb: (data: { loopRunId: string; state: LoopStatePayload }) => void): () => void {

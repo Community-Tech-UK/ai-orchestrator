@@ -8,7 +8,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const LOOP_SCHEMA_VERSION = 7;
+export const LOOP_SCHEMA_VERSION = 8;
 
 interface LoopMigration {
   version: number;
@@ -219,6 +219,18 @@ const MIGRATIONS: LoopMigration[] = [
 
       CREATE INDEX IF NOT EXISTS idx_campaign_nodes_loop_run
         ON campaign_nodes(loop_run_id);
+    `,
+  },
+  {
+    // Human answer capture: let the operator record a decision/answer against an
+    // outstanding item (the "Needs human" / "Open questions" the loop flagged)
+    // instead of only marking it resolved/dismissed. The answer survives status
+    // changes (resolve preserves it) and is surfaced in the panel + the exported
+    // OUTSTANDING.md, and is the input Slice 2 feeds back into a continuation.
+    version: 8,
+    name: '008_loop_outstanding_user_response',
+    up: `
+      ALTER TABLE loop_outstanding_items ADD COLUMN user_response TEXT;
     `,
   },
 ];

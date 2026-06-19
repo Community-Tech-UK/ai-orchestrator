@@ -56,6 +56,10 @@ import type { ErrorInfo } from '../../../shared/types/ipc.types';
 import type { BrowserGatewayMcpConfigOptions } from '../../browser-gateway/browser-mcp-config';
 import type { ChromeDevtoolsMcpConfigOptions } from '../../browser-gateway/chrome-devtools-mcp-config';
 import { getProviderRuntimeService } from '../../providers/provider-runtime-service';
+import { withOperationDeadline, isDeadlineExceeded } from '../../runtime/operation-deadline';
+import { getOrCreateTurnSupervisor } from '../../session/session-turn-supervisor';
+import { getOrCreateCircuitBreaker } from './respawn-circuit-breaker';
+import { getSessionContinuityManagerIfInitialized } from '../../session/session-continuity';
 
 const logger = getLogger('InterruptRespawn');
 
@@ -92,6 +96,18 @@ type QueueUpdate = (
  * Module-scoped — the handler is the only writer/reader.
  */
 const respawnResolvers = new WeakMap<Instance, () => void>();
+
+/**
+ * Force-abort net: timers that unconditionally terminate + settle the
+ * respawnPromise if the graceful interrupt path does not complete in time.
+ * Armed on every accepted interrupt; cancelled by resolveRespawnPromise().
+ */
+const forceAbortTimers = new WeakMap<Instance, ReturnType<typeof setTimeout>>();
+
+/** How long to wait for a graceful interrupt to settle before force-aborting. */
+const INTERRUPT_FORCE_ABORT_MS = 30_000;
+/** Deadline for `handleInterruptCompletion()` to receive a provider completion. */
+const INTERRUPT_COMPLETION_DEADLINE_MS = 15_000;
 
 export interface InterruptRespawnDeps {
   // readers
@@ -264,8 +280,21 @@ export class InterruptRespawnHandler {
         adapterGeneration: instance.adapterGeneration,
       });
 
+      // A1: Pre-capture processId before clearing so terminate() keeps its
+      // reference even after we null it on the instance.
+      // Note: adapter.terminate() already holds its own `this.process`
+      // reference internally, so it can SIGKILL even after we clear ours.
+
+      // A4: Delete the adapter from the registry BEFORE clearing processId so
+      // no new operations can grab the stale adapter.
+      this.deps.deleteAdapter(instanceId);
+
+      // Resolve the respawnPromise BEFORE the (async) terminate so that any
+      // waiting sendInput() unblocks immediately (they will see 'cancelled').
       this.resolveRespawnPromise(instance);
 
+      // Initiate bounded terminate (fire-and-forget — adapter.terminate already
+      // SIGTERM→SIGKILL after 5s; we don't block the state machine on this).
       adapter.terminate(true).catch((err) => {
         logger.warn('Escalated interrupt terminate failed', {
           error: err instanceof Error ? err.message : String(err),
@@ -324,6 +353,8 @@ export class InterruptRespawnHandler {
       // freshly-spawned process, not the dying one still in its grace period.
       instance.messageGenerationId = (instance.messageGenerationId ?? 0) + 1;
       instance.activeTurnId = interruptResult.turnId ?? instance.activeTurnId;
+      // Record interrupt in the per-instance supervisor (interruptSeq fence, §4.A).
+      getOrCreateTurnSupervisor(instanceId).recordInterrupt();
       this.emitInterruptBoundary(instance, {
         phase: 'requested',
         requestId: instance.interruptRequestId,
@@ -350,6 +381,62 @@ export class InterruptRespawnHandler {
       });
       respawnResolvers.set(instance, resolveRespawn);
 
+      // A2: Force-abort net — arm an unconditional timer BEFORE and INDEPENDENT
+      // of the graceful path.  If neither handleInterruptCompletion nor
+      // respawnAfterInterrupt settles the respawnPromise within the deadline,
+      // we forcibly terminate the adapter and settle to 'cancelled'.
+      // The timer is cancelled by resolveRespawnPromise() on the happy path.
+      const capturedInstance = instance;
+      const capturedInstanceId = instanceId;
+      const capturedAdapter = adapter;
+      const forceAbortTimer = setTimeout(() => {
+        const current = this.deps.getInstance(capturedInstanceId);
+        if (!current || current !== capturedInstance) return;
+        if (!respawnResolvers.has(capturedInstance)) return; // already resolved
+
+        logger.warn('Force-abort net fired: interrupt did not settle within deadline', {
+          instanceId: capturedInstanceId,
+          status: current.status,
+          interruptRequestId: current.interruptRequestId,
+          deadlineMs: INTERRUPT_FORCE_ABORT_MS,
+        });
+
+        // Delete stale adapter and force-terminate it.
+        if (this.deps.getAdapter(capturedInstanceId) === capturedAdapter) {
+          this.deps.deleteAdapter(capturedInstanceId);
+        }
+        capturedAdapter.removeAllListeners();
+        capturedAdapter.terminate(true).catch(() => {/* ignore — best effort */});
+
+        // Settle the instance into cancelled state.
+        this.deps.clearInterrupted(capturedInstanceId);
+        this.deps.transitionState(capturedInstance, 'cancelled');
+        capturedInstance.processId = null;
+        capturedInstance.interruptPhase = 'escalated';
+        capturedInstance.lastTurnOutcome = 'cancelled';
+
+        const forceMessage: OutputMessage = {
+          id: generateId(),
+          timestamp: Date.now(),
+          type: 'system',
+          content: 'Interrupt timed out — session force-cancelled. Restart to continue.',
+          metadata: { interruptRequestId: capturedInstance.interruptRequestId, interruptPhase: 'escalated', forceAborted: true },
+        };
+        this.deps.addToOutputBuffer(capturedInstance, forceMessage);
+        this.deps.emitOutput(capturedInstanceId, forceMessage);
+        this.deps.queueUpdate(capturedInstanceId, 'cancelled', capturedInstance.contextUsage, undefined, undefined, undefined, undefined, {
+          activeTurnId: capturedInstance.activeTurnId,
+          interruptPhase: capturedInstance.interruptPhase,
+          lastTurnOutcome: capturedInstance.lastTurnOutcome,
+          adapterGeneration: capturedInstance.adapterGeneration,
+        });
+
+        // Resolve so sendInput() waiters unblock (they'll see 'cancelled' and throw).
+        this.resolveRespawnPromise(capturedInstance);
+      }, INTERRUPT_FORCE_ABORT_MS);
+      if (typeof forceAbortTimer.unref === 'function') forceAbortTimer.unref();
+      forceAbortTimers.set(instance, forceAbortTimer);
+
       if (interruptResult.completion) {
         void this.handleInterruptCompletion(instanceId, instance, interruptResult.completion);
       }
@@ -370,6 +457,13 @@ export class InterruptRespawnHandler {
   }
 
   private resolveRespawnPromise(instance: Instance): void {
+    // Cancel force-abort net if it was armed.
+    const forceAbortTimer = forceAbortTimers.get(instance);
+    if (forceAbortTimer !== undefined) {
+      clearTimeout(forceAbortTimer);
+      forceAbortTimers.delete(instance);
+    }
+
     const resolveRespawn = respawnResolvers.get(instance);
     if (!resolveRespawn) {
       instance.respawnPromise = undefined;
@@ -388,12 +482,30 @@ export class InterruptRespawnHandler {
   ): Promise<void> {
     let result: TurnInterruptCompletion;
     try {
-      result = await completion;
+      // A3: deadline prevents a wedged provider from blocking recovery indefinitely.
+      // On timeout, treat as rejected and let the respawn path (or force-abort net)
+      // take over.
+      result = await withOperationDeadline({
+        name: 'interrupt-completion',
+        owner: instanceId,
+        deadlineMs: INTERRUPT_COMPLETION_DEADLINE_MS,
+        operation: completion,
+        onTimeout: (name, owner) => {
+          logger.warn('Interrupt completion timed out; treating as rejected', { name, owner, instanceId });
+        },
+      });
     } catch (err) {
-      result = {
-        status: 'rejected',
-        reason: err instanceof Error ? err.message : String(err),
-      };
+      if (isDeadlineExceeded(err)) {
+        result = {
+          status: 'rejected',
+          reason: `interrupt completion timed out after ${INTERRUPT_COMPLETION_DEADLINE_MS}ms`,
+        };
+      } else {
+        result = {
+          status: 'rejected',
+          reason: err instanceof Error ? err.message : String(err),
+        };
+      }
     }
 
     const instance = this.deps.getInstance(instanceId);
@@ -475,6 +587,12 @@ export class InterruptRespawnHandler {
     if (!instance) {
       throw new Error(`Instance ${instanceId} not found`);
     }
+
+    // §6.3: Circuit breaker — exponential backoff on repeated respawns.
+    const breakerDelay = getOrCreateCircuitBreaker(instanceId).recordAttempt();
+    if (breakerDelay > 0) {
+      await new Promise<void>(resolve => setTimeout(resolve, breakerDelay));
+    }
     const hasActiveInterruptRequest =
       !!instance.interruptRequestId && instance.interruptPhase !== 'completed';
     const triggeredByInterrupt =
@@ -495,6 +613,12 @@ export class InterruptRespawnHandler {
         });
         return;
       }
+
+      // C5: Snapshot session state before discarding the current adapter, so
+      // a crash/error during respawn does not lose the last known good state.
+      void getSessionContinuityManagerIfInitialized()
+        ?.createSnapshot(instanceId, 'pre-respawn', 'State captured before interrupt-respawn', 'checkpoint')
+        .catch(() => undefined);
 
       if (triggeredByInterrupt && instance.status !== 'respawning') {
         this.deps.transitionState(instance, 'respawning');
@@ -819,6 +943,12 @@ export class InterruptRespawnHandler {
       throw new Error(`Instance ${instanceId} not found`);
     }
 
+    // §6.3: Circuit breaker — exponential backoff on repeated unexpected exits.
+    const breakerDelay = getOrCreateCircuitBreaker(instanceId).recordAttempt();
+    if (breakerDelay > 0) {
+      await new Promise<void>(resolve => setTimeout(resolve, breakerDelay));
+    }
+
     const release = await getSessionMutex().acquire(instanceId, 'respawn-unexpected', {
       operation: 'respawn',
       recoveryReason: 'unexpected-exit',
@@ -833,6 +963,11 @@ export class InterruptRespawnHandler {
         });
         return;
       }
+
+      // C5: Snapshot before discarding the crashed adapter.
+      void getSessionContinuityManagerIfInitialized()
+        ?.createSnapshot(instanceId, 'pre-respawn', 'State captured before unexpected-exit respawn', 'checkpoint')
+        .catch(() => undefined);
 
       // Read capabilities from the previous adapter BEFORE deleting it.
       // The exit handler in instance-communication.ts no longer calls deleteAdapter

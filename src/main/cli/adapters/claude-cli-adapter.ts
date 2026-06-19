@@ -17,7 +17,8 @@ import {
   CliResponse,
   CliToolCall,
   CliUsage,
-  ndjsonSafeStringify
+  ndjsonSafeStringify,
+  type ResumeAttemptResult,
 } from './base-cli-adapter';
 import { NdjsonParser } from '../ndjson-parser';
 import { InputFormatter } from '../input-formatter';
@@ -106,6 +107,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private excludeDynamicSectionsSupported: boolean | null = null;
   private excludeSupportPromise: Promise<boolean> | null = null;
   private cliStatusPromise: Promise<CliStatus> | null = null;
+  private lastResumeAttemptResult: ResumeAttemptResult | null = null;
 
   constructor(options: ClaudeCliSpawnOptions = {}) {
     // Build env passthrough for the spawned CLI process. The PreToolUse hook
@@ -156,6 +158,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
    */
   getLastContextUsage(): { used: number; total: number } | null {
     return this.lastObservedContextUsage ? { ...this.lastObservedContextUsage } : null;
+  }
+
+  getResumeAttemptResult(): ResumeAttemptResult | null {
+    return this.lastResumeAttemptResult;
   }
 
   // ============ BaseCliAdapter Abstract Implementations ============
@@ -1009,6 +1015,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     }
 
     await this.primeCliVersion();
+    this.lastResumeAttemptResult = (this.spawnOptions.resume && this.sessionId)
+      ? { source: 'native', confirmed: false, requestedSessionId: this.sessionId }
+      : { source: 'fresh-fallback', confirmed: false };
     const args = this.buildArgs({ role: 'user', content: '' });
 
     this.process = this.spawnProcess(args);
@@ -1567,6 +1576,19 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         }
         if (message.session_id) {
           this.sessionId = message.session_id;
+          // Confirm or annotate the resume proof with the authoritative session_id
+          if (this.lastResumeAttemptResult?.source === 'native') {
+            this.lastResumeAttemptResult = {
+              ...this.lastResumeAttemptResult,
+              confirmed: message.session_id === this.lastResumeAttemptResult.requestedSessionId,
+              actualSessionId: message.session_id,
+            };
+          } else if (this.lastResumeAttemptResult) {
+            this.lastResumeAttemptResult = {
+              ...this.lastResumeAttemptResult,
+              actualSessionId: message.session_id,
+            };
+          }
         }
         if (message.content) {
           this.emit('output', {

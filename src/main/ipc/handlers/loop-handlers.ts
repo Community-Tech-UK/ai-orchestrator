@@ -12,14 +12,16 @@ import {
   LoopListOutstandingPayloadSchema,
   LoopSetOutstandingStatusPayloadSchema,
   LoopExportOutstandingPayloadSchema,
+  LoopResumeWithAnswersPayloadSchema,
 } from '@contracts/schemas/loop';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getLoopCoordinator } from '../../orchestration/loop-coordinator';
 import { buildLoopCheckpoint } from '../../orchestration/loop-checkpoint';
 import { getLoopStore } from '../../orchestration/loop-store';
 import { inferLoopVerifyCommand } from '../../orchestration/loop-verify-command';
-import { prepareLoopStartConfig } from '../../orchestration/loop-start-config';
+import { prepareLoopStartConfig, attachNextObjectivePlanner } from '../../orchestration/loop-start-config';
 import { exportOutstandingMarkdown } from '../../orchestration/loop-outstanding-export';
+import { buildResumeWithAnswersPrompt } from '../../orchestration/loop-resume-with-answers';
 import {
   buildLoopInterveneChatEvent,
   buildLoopStartChatEvent,
@@ -27,7 +29,7 @@ import {
 } from '../../orchestration/loop-chat-summary';
 import { getLogger } from '../../logging/logger';
 import type { WindowManager } from '../../window-manager';
-import type { LoopState } from '../../../shared/types/loop.types';
+import { defaultLoopConfig, type LoopState } from '../../../shared/types/loop.types';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { buildReplayContinuityMessage } from '../../session/replay-continuity';
 import { getChatService } from '../../chats';
@@ -351,7 +353,7 @@ export function registerLoopHandlers(deps: {
   ipcMain.handle(IPC_CHANNELS.LOOP_SET_OUTSTANDING_STATUS, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(LoopSetOutstandingStatusPayloadSchema, payload, 'LOOP_SET_OUTSTANDING_STATUS');
-      const ok = store.setOutstandingItemStatus(validated.id, validated.status);
+      const ok = store.setOutstandingItemStatus(validated.id, validated.status, validated.response);
       if (ok) send(IPC_CHANNELS.LOOP_OUTSTANDING_CHANGED, { itemId: validated.id });
       return { success: true, data: { ok } };
     } catch (error) {
@@ -376,6 +378,85 @@ export function registerLoopHandlers(deps: {
       return { success: true, data: result };
     } catch (error) {
       return errorResponse('LOOP_EXPORT_OUTSTANDING_FAILED', error);
+    }
+  });
+
+  // Slice 2: start a fresh loop run that applies the human answers recorded on
+  // the open outstanding items. Reuses the source run's stored config (provider,
+  // caps, completion gates) and feeds the decisions in as the new kickoff prompt.
+  ipcMain.handle(IPC_CHANNELS.LOOP_RESUME_WITH_ANSWERS, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const validated = validateIpcPayload(LoopResumeWithAnswersPayloadSchema, payload, 'LOOP_RESUME_WITH_ANSWERS');
+      const open = store.listOutstandingItems({ chatId: validated.chatId, status: 'open' });
+      const answered = open.filter((i) => (i.userResponse ?? '').trim().length > 0);
+      const unanswered = open.filter((i) => (i.userResponse ?? '').trim().length === 0);
+      if (answered.length === 0) {
+        throw new Error('No answered outstanding items to resume with. Enter an answer and Save it first.');
+      }
+
+      // Source run: explicit, else the run behind the most-recent answered item
+      // (listOutstandingItems returns created_at DESC, so answered[0] is newest).
+      const sourceRunId = validated.loopRunId ?? answered[0].loopRunId;
+      const sourceConfig = store.getRunConfig(sourceRunId);
+      const prompt = buildResumeWithAnswersPrompt({
+        answered,
+        unanswered,
+        originalGoal: sourceConfig?.initialPrompt,
+      });
+
+      // Reuse the source config but pin the new prompt + workspace, and drop the
+      // plan-file rename gate: the original plan file is unrelated to this
+      // decision-application run and forcing its rename would stall completion.
+      const base = sourceConfig ?? defaultLoopConfig(validated.workspaceCwd, prompt);
+      // Re-attach the next-objective planner: the stored config opts in via
+      // `nextObjectivePlanning`, but the runtime `nextObjectivePlanner` function
+      // doesn't survive JSON serialization, so a rehydrated config would run
+      // without it. `prepareLoopStartConfig` does this on the normal start path;
+      // we bypass that here, so apply the same fix-up explicitly.
+      const partialConfig = attachNextObjectivePlanner({
+        ...base,
+        initialPrompt: prompt,
+        workspaceCwd: validated.workspaceCwd,
+        planFile: undefined,
+        nextObjectivePlanner: undefined,
+        completion: { ...base.completion, requireCompletedFileRename: false },
+      });
+
+      const existingSessionContext = buildExistingSessionContext(deps.instanceManager, validated.chatId);
+      const state = await coordinator.startLoop(
+        validated.chatId,
+        partialConfig,
+        undefined,
+        { existingSessionContext },
+      );
+      try { store.upsertRun(state); } catch (err) {
+        logger.warn('resume-with-answers: initial upsertRun failed', { error: String(err) });
+      }
+      try {
+        appendLoopStartPrompt(state, chatService, deps.instanceManager);
+      } catch (err) {
+        logger.warn('resume-with-answers: failed to append start prompt', { error: String(err) });
+      }
+
+      // Mark the consumed items resolved (their answer is preserved) so they
+      // leave the panel, then nudge the renderer to refresh.
+      let resolvedCount = 0;
+      for (const item of answered) {
+        if (store.setOutstandingItemStatus(item.id, 'resolved')) resolvedCount += 1;
+      }
+      if (resolvedCount > 0) {
+        send(IPC_CHANNELS.LOOP_OUTSTANDING_CHANGED, {
+          chatId: validated.chatId,
+          workspaceCwd: validated.workspaceCwd,
+        });
+      }
+
+      return {
+        success: true,
+        data: { state, resumedFromRunId: sourceRunId, appliedCount: answered.length },
+      };
+    } catch (error) {
+      return errorResponse('LOOP_RESUME_WITH_ANSWERS_FAILED', error);
     }
   });
 }

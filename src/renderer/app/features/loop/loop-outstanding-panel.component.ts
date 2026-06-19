@@ -53,7 +53,17 @@ import { loopStatusLabel, relativeTime, formatTimestamp } from './loop-formatter
           [disabled]="!workspaceCwd() || exporting() || openCount() === 0"
           [title]="exportTitle()"
         >{{ exportedPath() ? 'Exported ✓' : 'Export .md' }}</button>
+        <button
+          type="button"
+          class="o-resume"
+          (click)="onResume()"
+          [disabled]="!canResume() || resuming()"
+          [title]="resumeTitle()"
+        >{{ resuming() ? 'Starting…' : 'Resume with answers (' + answeredCount() + ')' }}</button>
       </div>
+      @if (resumeError()) {
+        <div class="o-resume-error">{{ resumeError() }}</div>
+      }
 
       @if (store.outstandingIsLoading() && items().length === 0) {
         <div class="o-empty">Loading…</div>
@@ -74,10 +84,22 @@ import { loopStatusLabel, relativeTime, formatTimestamp } from './loop-formatter
                       <span class="o-resolved">{{ item.status }}</span>
                     }
                   </div>
+                  @if (item.status === 'open') {
+                    <textarea
+                      class="o-answer-input"
+                      rows="2"
+                      placeholder="Your decision / answer — saved with the item and fed back when you resume the loop"
+                      [value]="draftFor(item)"
+                      (input)="onDraftInput(item, $event)"
+                    ></textarea>
+                  } @else if (item.userResponse) {
+                    <div class="o-answer"><span class="o-answer-label">Answer</span>{{ item.userResponse }}</div>
+                  }
                 </div>
                 <div class="o-actions">
                   @if (item.status === 'open') {
-                    <button type="button" class="o-act o-resolve" (click)="setStatus(item, 'resolved')" title="Mark resolved">Resolve</button>
+                    <button type="button" class="o-act o-save" (click)="saveAnswer(item)" [disabled]="savingId() === item.id || !hasDraftChanges(item)" title="Save your answer (item stays open)">{{ savingId() === item.id ? 'Saving…' : 'Save answer' }}</button>
+                    <button type="button" class="o-act o-resolve" (click)="setStatus(item, 'resolved')" title="Save answer (if any) and mark resolved">Resolve</button>
                     <button type="button" class="o-act o-dismiss" (click)="setStatus(item, 'dismissed')" title="Dismiss — not going to do this">Dismiss</button>
                   } @else {
                     <button type="button" class="o-act" (click)="setStatus(item, 'open')" title="Re-open">Reopen</button>
@@ -101,10 +123,22 @@ import { loopStatusLabel, relativeTime, formatTimestamp } from './loop-formatter
                       <span class="o-resolved">{{ item.status }}</span>
                     }
                   </div>
+                  @if (item.status === 'open') {
+                    <textarea
+                      class="o-answer-input"
+                      rows="2"
+                      placeholder="Your answer — saved with the item and fed back when you resume the loop"
+                      [value]="draftFor(item)"
+                      (input)="onDraftInput(item, $event)"
+                    ></textarea>
+                  } @else if (item.userResponse) {
+                    <div class="o-answer"><span class="o-answer-label">Answer</span>{{ item.userResponse }}</div>
+                  }
                 </div>
                 <div class="o-actions">
                   @if (item.status === 'open') {
-                    <button type="button" class="o-act o-resolve" (click)="setStatus(item, 'resolved')" title="Mark answered">Answered</button>
+                    <button type="button" class="o-act o-save" (click)="saveAnswer(item)" [disabled]="savingId() === item.id || !hasDraftChanges(item)" title="Save your answer (item stays open)">{{ savingId() === item.id ? 'Saving…' : 'Save answer' }}</button>
+                    <button type="button" class="o-act o-resolve" (click)="setStatus(item, 'resolved')" title="Save answer (if any) and mark answered">Answered</button>
                     <button type="button" class="o-act o-dismiss" (click)="setStatus(item, 'dismissed')" title="Dismiss">Dismiss</button>
                   } @else {
                     <button type="button" class="o-act" (click)="setStatus(item, 'open')" title="Re-open">Reopen</button>
@@ -145,7 +179,14 @@ import { loopStatusLabel, relativeTime, formatTimestamp } from './loop-formatter
     .o-export:hover:not(:disabled) { background: rgba(212,180,90,0.12); }
     .o-resolve-all { border-color: rgba(142,220,142,0.4); color: #8edc8e; }
     .o-resolve-all:hover:not(:disabled) { background: rgba(142,220,142,0.12); }
-    .o-filter:disabled, .o-export:disabled, .o-resolve-all:disabled { opacity: 0.4; cursor: not-allowed; }
+    .o-resume {
+      padding: 2px 8px; font: inherit; font-size: 11px;
+      background: rgba(123,176,255,0.1); color: #9ec1ff;
+      border: 1px solid rgba(123,176,255,0.5); border-radius: 3px; cursor: pointer;
+    }
+    .o-resume:hover:not(:disabled) { background: rgba(123,176,255,0.2); }
+    .o-resume-error { margin: 2px 0 6px; color: #f08a8a; font-size: 11px; }
+    .o-filter:disabled, .o-export:disabled, .o-resolve-all:disabled, .o-resume:disabled { opacity: 0.4; cursor: not-allowed; }
     .o-empty { padding: 10px 4px; opacity: 0.6; font-style: italic; }
     .o-section-label {
       margin: 8px 0 4px; font-size: 10px; text-transform: uppercase;
@@ -173,13 +214,36 @@ import { loopStatusLabel, relativeTime, formatTimestamp } from './loop-formatter
       font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em;
       padding: 1px 5px; border-radius: 3px; color: #8edc8e; background: rgba(142,220,142,0.1);
     }
-    .o-actions { display: flex; gap: 4px; flex-shrink: 0; }
+    .o-answer-input {
+      display: block; width: 100%; box-sizing: border-box; margin-top: 6px;
+      padding: 5px 7px; font: inherit; font-size: 11px; line-height: 1.4;
+      color: inherit; background: rgba(0,0,0,0.25);
+      border: 1px solid rgba(255,255,255,0.14); border-radius: 4px;
+      resize: vertical; min-height: 34px;
+    }
+    .o-answer-input:focus {
+      outline: none; border-color: rgba(212,180,90,0.6);
+      background: rgba(0,0,0,0.35);
+    }
+    .o-answer {
+      margin-top: 6px; padding: 5px 7px; line-height: 1.45;
+      white-space: pre-wrap; word-break: break-word;
+      background: rgba(142,220,142,0.06); border-left: 2px solid rgba(142,220,142,0.5);
+      border-radius: 0 4px 4px 0;
+    }
+    .o-answer-label {
+      display: inline-block; margin-right: 6px; font-size: 9px;
+      text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.55;
+    }
+    .o-actions { display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
     .o-act {
-      padding: 2px 8px; font: inherit; font-size: 11px;
+      padding: 2px 8px; font: inherit; font-size: 11px; white-space: nowrap;
       background: rgba(255,255,255,0.05); color: inherit;
       border: 1px solid rgba(255,255,255,0.12); border-radius: 3px; cursor: pointer;
     }
-    .o-act:hover { background: rgba(255,255,255,0.1); }
+    .o-act:hover:not(:disabled) { background: rgba(255,255,255,0.1); }
+    .o-act:disabled { opacity: 0.4; cursor: not-allowed; }
+    .o-save { border-color: rgba(212,180,90,0.5); color: var(--primary-color, #d4b45a); }
     .o-resolve { border-color: rgba(142,220,142,0.4); color: #8edc8e; }
     .o-dismiss { opacity: 0.75; }
   `],
@@ -200,6 +264,13 @@ export class LoopOutstandingPanelComponent {
   protected exportedPath = signal<string | null>(null);
   private exportClearHandle: ReturnType<typeof setTimeout> | null = null;
 
+  /** Per-item unsaved answer edits, keyed by item id. An entry exists only while
+   *  the textarea differs from what's been typed this session; cleared after a
+   *  successful save so the field falls back to the persisted `userResponse`. */
+  protected drafts = signal<Record<string, string>>({});
+  /** Id of the item whose answer is currently being persisted (button spinner). */
+  protected savingId = signal<string | null>(null);
+
   /** Items scoped to this session/workspace (the store holds the latest query result). */
   protected items = computed<LoopOutstandingItemPayload[]>(() => {
     const chatId = this.chatId();
@@ -213,6 +284,15 @@ export class LoopOutstandingPanelComponent {
   protected needsHuman = computed(() => this.items().filter((i) => i.kind === 'needs-human'));
   protected openQuestions = computed(() => this.items().filter((i) => i.kind === 'open-question'));
   protected openCount = computed(() => this.items().filter((i) => i.status === 'open').length);
+  /** Open items that carry a saved answer — what "Resume with answers" feeds back. */
+  protected answeredCount = computed(
+    () => this.items().filter((i) => i.status === 'open' && (i.userResponse ?? '').trim().length > 0).length,
+  );
+  protected resuming = signal(false);
+  protected resumeError = signal<string | null>(null);
+
+  /** Resume needs a session scope (chatId) and at least one answered item. */
+  protected canResume = computed(() => !!this.chatId() && !!this.workspaceCwd() && this.answeredCount() > 0);
 
   constructor() {
     this.store.ensureWired();
@@ -236,11 +316,59 @@ export class LoopOutstandingPanelComponent {
     this.showAll.update((v) => !v);
   }
 
+  /** The text to show in the answer textarea: the unsaved draft if the user has
+   *  edited it this session, else the persisted answer, else empty. */
+  protected draftFor(item: LoopOutstandingItemPayload): string {
+    const draft = this.drafts()[item.id];
+    return draft !== undefined ? draft : (item.userResponse ?? '');
+  }
+
+  /** True when the textarea has an unsaved edit different from the persisted value. */
+  protected hasDraftChanges(item: LoopOutstandingItemPayload): boolean {
+    const draft = this.drafts()[item.id];
+    return draft !== undefined && draft !== (item.userResponse ?? '');
+  }
+
+  protected onDraftInput(item: LoopOutstandingItemPayload, event: Event): void {
+    const value = (event.target as HTMLTextAreaElement).value;
+    this.drafts.update((m) => ({ ...m, [item.id]: value }));
+  }
+
+  /** Persist the typed answer without changing status (item stays open). */
+  protected async saveAnswer(item: LoopOutstandingItemPayload): Promise<void> {
+    await this.commit(item, item.status, this.draftFor(item));
+  }
+
   protected async setStatus(
     item: LoopOutstandingItemPayload,
     status: 'open' | 'resolved' | 'dismissed',
   ): Promise<void> {
-    await this.store.setOutstandingStatus(item.id, status);
+    // Carry any unsaved answer edit along with the status change so a click on
+    // Resolve/Dismiss right after typing doesn't silently discard the text.
+    await this.commit(item, status, this.drafts()[item.id]);
+  }
+
+  /** Single write path: set status (+ optional answer) then drop the local draft
+   *  so the textarea reflects the persisted value. */
+  private async commit(
+    item: LoopOutstandingItemPayload,
+    status: 'open' | 'resolved' | 'dismissed',
+    response: string | undefined,
+  ): Promise<void> {
+    if (this.savingId() === item.id) return;
+    this.savingId.set(item.id);
+    try {
+      const ok = await this.store.setOutstandingStatus(item.id, status, response);
+      if (ok) {
+        this.drafts.update((m) => {
+          const next = { ...m };
+          delete next[item.id];
+          return next;
+        });
+      }
+    } finally {
+      this.savingId.set(null);
+    }
   }
 
   /** Resolve every currently-open item for this workspace in one batch. */
@@ -275,6 +403,28 @@ export class LoopOutstandingPanelComponent {
       }
     } finally {
       this.exporting.set(false);
+    }
+  }
+
+  protected resumeTitle(): string {
+    if (!this.chatId()) return 'Resume needs a session — open this from an instance';
+    if (this.answeredCount() === 0) return 'Save an answer on an item first';
+    return 'Start a new loop run that applies your saved answers';
+  }
+
+  /** Start a fresh loop run that applies the saved answers; the consumed items
+   *  are resolved server-side and the panel refreshes via the change event. */
+  protected async onResume(): Promise<void> {
+    const chatId = this.chatId();
+    const cwd = this.workspaceCwd();
+    if (!chatId || !cwd || this.resuming()) return;
+    this.resumeError.set(null);
+    this.resuming.set(true);
+    try {
+      const result = await this.store.resumeOutstandingWithAnswers(chatId, cwd);
+      if (!result.ok) this.resumeError.set(result.error);
+    } finally {
+      this.resuming.set(false);
     }
   }
 

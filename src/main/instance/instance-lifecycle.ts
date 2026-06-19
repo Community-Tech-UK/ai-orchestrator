@@ -103,6 +103,7 @@ import { getPromptHistoryService } from '../prompt-history/prompt-history-servic
 import { summarizeCreateInstanceConfig } from './lifecycle/instance-create-logging';
 import { callWithDeadline } from '../util/deadline';
 import { LifecycleMemoryPressureMonitor } from './lifecycle/memory-pressure-monitor';
+import { getOrCreateTurnSupervisor } from '../session/session-turn-supervisor';
 import { getKnownModelsForCli, isRestoreOrReplayContinuity, requiresFreshAcpModelSpawn } from './lifecycle/create-validation-helpers';
 import type { McpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-context';
 
@@ -2558,6 +2559,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             this.deps.setAdapter(instanceId, adapter);
 
             pid = await adapter.spawn();
+            void getSessionContinuityManager().writeThroughIdentity(instanceId, { sessionId: fallbackOptions.sessionId, resumeCursor: null }).catch(() => undefined);
             await this.waitForInputReadinessBoundary(instanceId, adapter);
 
             if (hasConversation) {
@@ -2770,6 +2772,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
             this.deps.setAdapter(instanceId, adapter);
 
             pid = await adapter.spawn();
+            void getSessionContinuityManager().writeThroughIdentity(instanceId, { sessionId: fallbackOptions.sessionId, resumeCursor: null }).catch(() => undefined);
             await this.waitForInputReadinessBoundary(instanceId, adapter);
 
             if (hasConversation) {
@@ -3005,6 +3008,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
             this.deps.setAdapter(instanceId, adapter);
 
             pid = await adapter.spawn();
+            void getSessionContinuityManager().writeThroughIdentity(instanceId, { sessionId: fallbackOptions.sessionId, resumeCursor: null }).catch(() => undefined);
             await this.waitForInputReadinessBoundary(instanceId, adapter);
 
             if (hasConversation) {
@@ -3168,22 +3172,50 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       return; // restart replaces the process — no further actions apply
     }
 
-    // sendInterrupt + injectMessage — interrupt the stuck agent then inject a nudge
+    // sendInterrupt + injectMessage — interrupt the stuck agent then inject a nudge.
+    // A7: Route through the interrupt state machine (not directly to the adapter)
+    // so the respawnPromise is set, status transitions are correct, and the nudge
+    // message is sent only after the adapter is replaced and ready.
     if (ctx['sendInterrupt']) {
-      const adapter = this.deps.getAdapter(instanceId);
-      if (adapter) {
-        adapter.interrupt();
-        const message = ctx['injectMessage'] as string | undefined;
+      const interrupted = this.interruptRespawn.interrupt(instanceId);
+      const message = ctx['injectMessage'] as string | undefined;
+      if (interrupted) {
         if (message) {
-          // Small delay to let the CLI process the interrupt before we send input
-          await new Promise(resolve => setTimeout(resolve, 500));
-          await adapter.sendInput(message);
-          logger.info('Recovery action: interrupted and injected message', { instanceId, message });
+          // A7 generation fence: capture respawnPromise IMMEDIATELY after interrupt()
+          // returns (before any async resolution can set it to undefined on the
+          // instance object).  Even if the promise resolves later and the property is
+          // cleared, our local reference remains valid for the await below.
+          const instance = this.deps.getInstance(instanceId);
+          const respawnPromise = instance?.respawnPromise;
+          // Capture interruptSeq so we can abandon the nudge if a subsequent interrupt fires.
+          const seqAtInterrupt = getOrCreateTurnSupervisor(instanceId).snapshot().interruptSeq;
+          if (respawnPromise) {
+            await Promise.race([
+              respawnPromise,
+              new Promise<void>(resolve => setTimeout(resolve, 15_000)),
+            ]);
+          }
+          // interruptSeq fence: if another interrupt fired while we waited, skip the nudge.
+          if (!getOrCreateTurnSupervisor(instanceId).isInterruptSeqCurrent(seqAtInterrupt)) {
+            logger.info('Recovery action: nudge abandoned — a newer interrupt superseded this one', {
+              instanceId,
+              capturedSeq: seqAtInterrupt,
+            });
+          } else {
+            // Always re-fetch adapter after the wait (generation fence).
+            const freshAdapter = this.deps.getAdapter(instanceId);
+            if (freshAdapter) {
+              await freshAdapter.sendInput(message);
+              logger.info('Recovery action: interrupted and injected message after respawn', { instanceId, message });
+            } else {
+              logger.warn('Recovery action: no adapter after interrupt/respawn, skipping nudge', { instanceId });
+            }
+          }
         } else {
-          logger.info('Recovery action: interrupted instance', { instanceId });
+          logger.info('Recovery action: interrupted instance via interrupt handler', { instanceId });
         }
       } else {
-        logger.warn('Recovery action: cannot interrupt — no adapter', { instanceId });
+        logger.warn('Recovery action: interrupt request rejected by state machine', { instanceId });
       }
     }
 

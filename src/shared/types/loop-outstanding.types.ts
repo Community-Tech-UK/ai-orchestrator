@@ -45,6 +45,12 @@ export interface LoopOutstandingItem {
   workspaceCwd: string;
   kind: LoopOutstandingItemKind;
   text: string;
+  /**
+   * The human's recorded decision/answer for this item, or null when none has
+   * been entered yet. Preserved across resolve/dismiss/reopen status changes so
+   * the rationale survives, and surfaced in the panel + exported OUTSTANDING.md.
+   */
+  userResponse: string | null;
   status: LoopOutstandingItemStatus;
   /** The run's terminal status, for context in the panel (e.g. completed-needs-review). */
   loopStatus: LoopStatus;

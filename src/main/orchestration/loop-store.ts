@@ -154,6 +154,7 @@ interface LoopOutstandingItemRow {
   workspace_cwd: string;
   kind: string;
   text: string;
+  user_response: string | null;
   status: string;
   loop_status: string;
   created_at: number;
@@ -169,6 +170,7 @@ function rowToOutstandingItem(row: LoopOutstandingItemRow): LoopOutstandingItem 
     workspaceCwd: row.workspace_cwd,
     kind: row.kind as LoopOutstandingItemKind,
     text: row.text,
+    userResponse: row.user_response ?? null,
     status: row.status as LoopOutstandingItemStatus,
     loopStatus: row.loop_status as LoopStatus,
     createdAt: row.created_at,
@@ -276,6 +278,25 @@ export class LoopStore {
       iter.verifyStatus,
       iter.verifyOutputExcerpt,
     );
+  }
+
+  /**
+   * Recover the full persisted {@link LoopConfig} for a run by parsing its
+   * `config_json` blob. Used to start a follow-up run (resume-with-answers)
+   * that reuses the original provider / caps / completion settings. Returns
+   * null when the run is unknown or its config blob is unparseable.
+   */
+  getRunConfig(loopRunId: string): LoopConfig | null {
+    const row = this.db
+      .prepare('SELECT config_json FROM loop_runs WHERE id = ?')
+      .get<{ config_json: string }>(loopRunId);
+    if (!row) return null;
+    try {
+      return JSON.parse(row.config_json) as LoopConfig;
+    } catch (err) {
+      logger.warn('getRunConfig: failed to parse config_json', { loopRunId, error: String(err) });
+      return null;
+    }
   }
 
   getRunSummary(loopRunId: string): LoopRunSummary | null {
@@ -536,7 +557,7 @@ export class LoopStore {
     args.push(opts.limit ?? 200);
     const rows = this.db
       .prepare(`
-        SELECT id, loop_run_id, chat_id, workspace_cwd, kind, text, status,
+        SELECT id, loop_run_id, chat_id, workspace_cwd, kind, text, user_response, status,
                loop_status, created_at, updated_at, resolved_at
         FROM loop_outstanding_items
         ${whereSql}
@@ -547,12 +568,28 @@ export class LoopStore {
     return rows.map(rowToOutstandingItem);
   }
 
-  /** Set one item's resolution status. Returns false when the id is unknown. */
-  setOutstandingItemStatus(id: string, status: LoopOutstandingItemStatus): boolean {
+  /**
+   * Set one item's resolution status, optionally persisting the human's
+   * answer/decision in the same write. Returns false when the id is unknown.
+   *
+   * `response` semantics: `undefined` leaves any existing answer untouched (so a
+   * plain resolve/dismiss/reopen preserves the rationale); a string (including
+   * `''` to clear) overwrites it.
+   */
+  setOutstandingItemStatus(
+    id: string,
+    status: LoopOutstandingItemStatus,
+    response?: string,
+  ): boolean {
     const resolvedAt = status === 'open' ? null : Date.now();
-    const res = this.db
-      .prepare('UPDATE loop_outstanding_items SET status = ?, resolved_at = ?, updated_at = ? WHERE id = ?')
-      .run(status, resolvedAt, Date.now(), id);
+    const now = Date.now();
+    const res = response === undefined
+      ? this.db
+        .prepare('UPDATE loop_outstanding_items SET status = ?, resolved_at = ?, updated_at = ? WHERE id = ?')
+        .run(status, resolvedAt, now, id)
+      : this.db
+        .prepare('UPDATE loop_outstanding_items SET status = ?, resolved_at = ?, updated_at = ?, user_response = ? WHERE id = ?')
+        .run(status, resolvedAt, now, response, id);
     return Number(res.changes ?? 0) > 0;
   }
 

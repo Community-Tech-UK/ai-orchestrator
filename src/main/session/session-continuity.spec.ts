@@ -66,6 +66,8 @@ interface TestableSessionContinuityManager {
   listSnapshots(instanceId?: string): SessionSnapshot[];
   updateState(instanceId: string, updates: Partial<SessionState>): Promise<void>;
   markNativeResumeFailed(instanceId: string, errorCode?: number): Promise<void>;
+  writeThroughIdentity(instanceId: string, identity: { sessionId?: string; resumeCursor?: unknown; nativeResumeFailedAt?: number | null }): Promise<void>;
+  exportSession(instanceId: string): Promise<{ state: SessionState; snapshots: SessionSnapshot[] } | null>;
   shutdown(): void;
 }
 
@@ -573,5 +575,51 @@ describe('SessionContinuityManager logging', () => {
     // Good file still present, bad file quarantined.
     await fs.promises.access(goodFile);
     await expect(fs.promises.access(badFile)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  describe('writeThroughIdentity', () => {
+    it('updates sessionId and persists immediately', async () => {
+      const manager = createManager();
+      await manager.readyPromise;
+
+      await manager.importSession({ state: makeState('inst-write-through') });
+      await manager.writeThroughIdentity('inst-write-through', { sessionId: 'new-session-123' });
+
+      const exported = await manager.exportSession('inst-write-through');
+      expect(exported?.state.sessionId).toBe('new-session-123');
+    });
+
+    it('updates nativeResumeFailedAt and persists immediately', async () => {
+      const manager = createManager();
+      await manager.readyPromise;
+
+      await manager.importSession({ state: makeState('inst-wt-2') });
+      await manager.writeThroughIdentity('inst-wt-2', { nativeResumeFailedAt: 9999 });
+
+      const exported = await manager.exportSession('inst-wt-2');
+      expect(exported?.state.nativeResumeFailedAt).toBe(9999);
+    });
+
+    it('clears nativeResumeFailedAt when passed null', async () => {
+      const manager = createManager();
+      await manager.readyPromise;
+
+      const state = makeState('inst-wt-clear');
+      await manager.importSession({ state });
+      await manager.writeThroughIdentity('inst-wt-clear', { nativeResumeFailedAt: 1234 });
+      await manager.writeThroughIdentity('inst-wt-clear', { nativeResumeFailedAt: null });
+
+      const exported = await manager.exportSession('inst-wt-clear');
+      expect(exported?.state.nativeResumeFailedAt).toBeNull();
+    });
+
+    it('is a no-op for an untracked instanceId', async () => {
+      const manager = createManager();
+      await manager.readyPromise;
+      // Should not throw
+      await expect(
+        manager.writeThroughIdentity('not-tracked', { sessionId: 'x' }),
+      ).resolves.toBeUndefined();
+    });
   });
 });

@@ -1,3 +1,5 @@
+import { isSessionNotFoundText } from '../resume-error-classifier';
+
 export interface CodexDiagnostic {
   category: 'auth' | 'mcp' | 'models' | 'process' | 'sandbox' | 'session' | 'startup' | 'unknown';
   fatal: boolean;
@@ -52,11 +54,7 @@ export function classifyCodexDiagnostic(line: string): CodexDiagnostic {
     return { category: 'models', fatal: true, line: trimmed, level: 'error' };
   }
 
-  if (
-    lower.includes('session not found')
-    || lower.includes('thread not found')
-    || lower.includes('no matching session')
-  ) {
+  if (isSessionNotFoundText(trimmed)) {
     return { category: 'session', fatal: true, line: trimmed, level: 'error' };
   }
 

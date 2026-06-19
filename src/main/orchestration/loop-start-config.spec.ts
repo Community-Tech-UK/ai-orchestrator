@@ -11,8 +11,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { prepareLoopStartConfig } from './loop-start-config';
-import { defaultLoopConfig } from '../../shared/types/loop.types';
+import { prepareLoopStartConfig, attachNextObjectivePlanner } from './loop-start-config';
+import { defaultLoopConfig, type LoopConfig } from '../../shared/types/loop.types';
 import type { LoopConfigInput } from '@contracts/schemas/loop';
 
 let workspace: string;
@@ -129,5 +129,36 @@ describe('prepareLoopStartConfig (LF-3a)', () => {
       cadence: 2,
     });
     expect(prepared.nextObjectivePlanner).toBeTypeOf('function');
+  });
+});
+
+describe('attachNextObjectivePlanner', () => {
+  const base = (overrides: Partial<LoopConfig> = {}): Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string } => ({
+    initialPrompt: 'goal',
+    workspaceCwd: '/tmp/project',
+    ...overrides,
+  });
+
+  it('re-attaches the planner when enabled but missing (rehydrated config)', () => {
+    const result = attachNextObjectivePlanner(base({
+      nextObjectivePlanning: { enabled: true, cadence: 1 },
+    }));
+    expect(result.nextObjectivePlanner).toBeTypeOf('function');
+  });
+
+  it('leaves a config without next-objective planning untouched', () => {
+    const result = attachNextObjectivePlanner(base({
+      nextObjectivePlanning: { enabled: false, cadence: 1 },
+    }));
+    expect(result.nextObjectivePlanner).toBeUndefined();
+  });
+
+  it('does not overwrite an already-attached planner', () => {
+    const planner = (async () => null) as unknown as NonNullable<LoopConfig['nextObjectivePlanner']>;
+    const result = attachNextObjectivePlanner(base({
+      nextObjectivePlanning: { enabled: true, cadence: 1 },
+      nextObjectivePlanner: planner,
+    }));
+    expect(result.nextObjectivePlanner).toBe(planner);
   });
 });

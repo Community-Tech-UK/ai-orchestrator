@@ -20,6 +20,23 @@ function formatTimestamp(epochMs: number): string {
 }
 
 /**
+ * Render one item as a markdown bullet, appending the human's recorded answer as
+ * an indented sub-bullet when present. `bullet` is the list marker for the item
+ * itself (`- [ ] ` for needs-human, `- ` for open questions). Multi-line answers
+ * are indented so they stay nested under the item.
+ */
+function renderItem(item: LoopOutstandingItem, bullet: string): string[] {
+  const lines = [`${bullet}${item.text}`];
+  const answer = item.userResponse?.trim();
+  if (answer) {
+    const [firstLine, ...rest] = answer.split(/\r?\n/);
+    lines.push(`  - **Answer:** ${firstLine}`);
+    for (const line of rest) lines.push(`    ${line}`);
+  }
+  return lines;
+}
+
+/**
  * Render a consolidated markdown digest of outstanding items. Items are grouped
  * by loop run (most-recent first), and within a run split into "Needs human"
  * and "Open questions". `generatedAt` is injected (not read from the clock) so
@@ -65,10 +82,10 @@ export function buildOutstandingMarkdown(
     const needsHuman = runItems.filter((i) => i.kind === 'needs-human');
     const openQuestions = runItems.filter((i) => i.kind === 'open-question');
     if (needsHuman.length > 0) {
-      lines.push('### Needs human', '', ...needsHuman.map((i) => `- [ ] ${i.text}`), '');
+      lines.push('### Needs human', '', ...needsHuman.flatMap((i) => renderItem(i, '- [ ] ')), '');
     }
     if (openQuestions.length > 0) {
-      lines.push('### Open questions', '', ...openQuestions.map((i) => `- ${i.text}`), '');
+      lines.push('### Open questions', '', ...openQuestions.flatMap((i) => renderItem(i, '- ')), '');
     }
   }
 

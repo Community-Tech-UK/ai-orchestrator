@@ -28,9 +28,18 @@ type LoopStartConfigLike =
     completion?: Partial<LoopConfig['completion']>;
   };
 
-function attachNextObjectivePlanner<T extends Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string }>(
-  config: T,
-): T {
+/**
+ * Re-attach the runtime next-objective planner function when the config opts
+ * into `nextObjectivePlanning` but has no live `nextObjectivePlanner` (e.g. a
+ * config rehydrated from persisted JSON, where functions don't survive
+ * serialization). Idempotent: a config that already has a planner, or doesn't
+ * want one, is returned unchanged. Exported so the resume-with-answers handler
+ * — which reuses a stored config and bypasses `prepareLoopStartConfig` — can
+ * apply the same fix-up before starting the run.
+ */
+export function attachNextObjectivePlanner<
+  T extends Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string },
+>(config: T): T {
   if (!config.nextObjectivePlanning?.enabled || config.nextObjectivePlanner) {
     return config;
   }

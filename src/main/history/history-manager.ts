@@ -35,6 +35,7 @@ import {
   type ImportedTranscript,
 } from './native-claude-importer';
 import { projectMemoryKeysEqual } from '../memory/project-memory-key';
+import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
@@ -44,7 +45,6 @@ const logger = getLogger('HistoryManager');
 const HISTORY_INDEX_VERSION = 1;
 const MAX_PREVIEW_LENGTH = 150;
 const MAX_HISTORY_ENTRIES = 2000; // Keep last 2000 conversations (raised from 1000 to fit native Claude transcript imports)
-const RESUME_FAILURE_MESSAGE = /no conversation found|session.*not.*found/i;
 const RESTORE_FALLBACK_NOTICE_MESSAGE = /^Previous .+ CLI session could not be restored natively\./;
 const HISTORY_BACKED_SOURCES = new Set<HistorySearchSource>([
   'history-transcript',
@@ -1211,7 +1211,7 @@ export class HistoryManager {
       return true;
     }
 
-    if (message.type === 'error' && RESUME_FAILURE_MESSAGE.test(content)) {
+    if (message.type === 'error' && isSessionNotFoundText(content)) {
       return true;
     }
 

@@ -1,7 +1,6 @@
 import type { ConversationHistoryEntry } from '../../shared/types/history.types';
 import type { InstanceProvider, OutputMessage } from '../../shared/types/instance.types';
-
-const SESSION_NOT_FOUND_MESSAGE = /no conversation found|session.*not.*found/i;
+import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
 const SESSION_NOT_FOUND_ID_MESSAGE = /session\s+id:\s*([^\s]+)/i;
 const UUID_SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const RESTORE_FALLBACK_NOTICE_MESSAGE = /^Previous .+ CLI session could not be restored natively\./;
@@ -41,7 +40,7 @@ export function isRestoreInfrastructureMessage(message: OutputMessage): boolean 
     return true;
   }
 
-  return message.type === 'error' && SESSION_NOT_FOUND_MESSAGE.test(message.content);
+  return message.type === 'error' && isSessionNotFoundText(message.content);
 }
 
 export function getMessagesForRestoreTranscript(messages: OutputMessage[]): OutputMessage[] {
@@ -56,7 +55,7 @@ function normalizeSessionId(value: string | null | undefined): string | undefine
 function getFailedResumeSessionIds(messages: OutputMessage[]): Set<string> {
   const failedSessionIds = new Set<string>();
   for (const message of messages || []) {
-    if (message.type === 'error' && SESSION_NOT_FOUND_MESSAGE.test(message.content)) {
+    if (message.type === 'error' && isSessionNotFoundText(message.content)) {
       const failedId = message.content.match(SESSION_NOT_FOUND_ID_MESSAGE)?.[1];
       if (failedId?.trim()) {
         failedSessionIds.add(failedId.trim());

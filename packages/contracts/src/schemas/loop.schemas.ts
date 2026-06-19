@@ -439,6 +439,9 @@ export const LoopOutstandingItemSchema = z.object({
   workspaceCwd: z.string(),
   kind: LoopOutstandingItemKindSchema,
   text: z.string(),
+  /** The human's recorded decision/answer, or null when none entered yet.
+   *  `.nullish()` for back-compat with rows persisted before the column existed. */
+  userResponse: z.string().nullish(),
   status: LoopOutstandingItemStatusSchema,
   loopStatus: LoopStatusSchema,
   createdAt: z.number().int(),
@@ -503,6 +506,9 @@ export const LoopListOutstandingPayloadSchema = z.object({
 export const LoopSetOutstandingStatusPayloadSchema = z.object({
   id: z.string().min(1),
   status: LoopOutstandingItemStatusSchema,
+  /** Optional human answer/decision to persist alongside the status change.
+   *  Omit to leave any existing answer untouched; pass '' to clear it. */
+  response: z.string().optional(),
 });
 
 export const LoopExportOutstandingPayloadSchema = z.object({
@@ -511,6 +517,16 @@ export const LoopExportOutstandingPayloadSchema = z.object({
   workspaceCwd: z.string().min(1),
   /** Optional absolute destination path. Defaults to `<workspaceCwd>/OUTSTANDING.md`. */
   destPath: z.string().min(1).optional(),
+});
+
+export const LoopResumeWithAnswersPayloadSchema = z.object({
+  /** Session/instance the outstanding items belong to (also the new run's chatId). */
+  chatId: z.string().min(1),
+  /** Workspace the resumed run executes in. */
+  workspaceCwd: z.string().min(1),
+  /** Optional explicit source run to reuse config from. Defaults to the run that
+   *  produced the most-recent answered item in scope. */
+  loopRunId: z.string().min(1).optional(),
 });
 
 // ============ Inferred types ============

@@ -87,10 +87,17 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
     loopSetOutstandingStatus: (
       id: string,
       status: 'open' | 'resolved' | 'dismissed',
+      response?: string,
     ): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.LOOP_SET_OUTSTANDING_STATUS, { id, status }),
+      ipcRenderer.invoke(ch.LOOP_SET_OUTSTANDING_STATUS, { id, status, response }),
     loopExportOutstanding: (workspaceCwd: string, destPath?: string, chatId?: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_EXPORT_OUTSTANDING, { workspaceCwd, destPath, chatId }),
+    loopResumeWithAnswers: (
+      chatId: string,
+      workspaceCwd: string,
+      loopRunId?: string,
+    ): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.LOOP_RESUME_WITH_ANSWERS, { chatId, workspaceCwd, loopRunId }),
 
     onLoopStateChanged: sub(ch.LOOP_STATE_CHANGED),
     onLoopOutstandingChanged: sub(ch.LOOP_OUTSTANDING_CHANGED),
