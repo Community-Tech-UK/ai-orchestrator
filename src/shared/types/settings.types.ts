@@ -479,7 +479,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   crossModelReviewEnabled: true,
   crossModelReviewDepth: 'structured',
   crossModelReviewMaxReviewers: 2,
-  crossModelReviewProviders: ['cursor', 'gemini', 'codex'],
+  crossModelReviewProviders: ['cursor', 'antigravity', 'codex'],
   crossModelReviewTimeout: 30,
   crossModelReviewTypes: ['code', 'plan', 'architecture'],
   crossModelReviewModelByProvider: { cursor: 'composer-2.5' },

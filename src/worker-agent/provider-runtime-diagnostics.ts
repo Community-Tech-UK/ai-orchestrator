@@ -70,7 +70,7 @@ export async function diagnoseProviderRuntime(
 
 export function isDiagnosableProvider(value: unknown): value is DiagnosableProvider {
   return typeof value === 'string'
-    && ['claude', 'gemini', 'codex', 'copilot', 'cursor'].includes(value);
+    && ['claude', 'gemini', 'antigravity', 'codex', 'copilot', 'cursor'].includes(value);
 }
 
 async function diagnoseIdentity(
@@ -167,7 +167,11 @@ async function diagnoseGenericProvider(
   env: NodeJS.ProcessEnv,
   run: ProviderDiagnosticExec,
 ): Promise<ProviderRuntimeDiagnosticProvider> {
-  const command = provider === 'cursor' ? 'cursor-agent' : provider;
+  const command = provider === 'cursor'
+    ? 'cursor-agent'
+    : provider === 'antigravity'
+      ? 'agy'
+      : provider;
   try {
     const result = await run(command, ['--version'], { env, timeout: 5_000 });
     return {

@@ -38,7 +38,7 @@ const MAX_CONSENSUS_RESPONSE_CHARS = 2_500;
 const MAX_RAW_CONSENSUS_CHARS = 8_000;
 
 /** Default providers to query when none specified */
-const DEFAULT_PROVIDER_PRIORITY: CliType[] = ['claude', 'codex', 'gemini', 'copilot', 'cursor'];
+const DEFAULT_PROVIDER_PRIORITY: CliType[] = ['claude', 'codex', 'antigravity', 'copilot', 'cursor'];
 
 /**
  * Maps user-facing provider names to CliType

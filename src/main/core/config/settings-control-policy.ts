@@ -42,14 +42,14 @@ const SECRET_KEY_PATTERN = /token|secret|key|cert|password/i;
 const REDACTED = '[redacted]';
 const metadataByKey = new Map(SETTINGS_METADATA.map((metadata) => [metadata.key, metadata]));
 
-const cliSchema = z.enum(['auto', 'claude', 'gemini', 'codex', 'copilot', 'cursor', 'openai']);
+const cliSchema = z.enum(['auto', 'claude', 'gemini', 'antigravity', 'codex', 'copilot', 'cursor', 'openai']);
 const themeSchema = z.enum(['dark', 'light', 'system']);
 const displayDensitySchema = z.enum(['comfortable', 'compact']);
 const sidebarStyleSchema = z.enum(['standard', 'compact']);
 const missedRunPolicySchema = z.enum(['skip', 'notify', 'runOnce']);
 const outputStyleSchema = z.enum(['default', 'explanatory', 'learning', 'concise']);
 const reviewDepthSchema = z.enum(['structured', 'tiered']);
-const reviewProviderSchema = z.enum(['gemini', 'codex', 'copilot', 'claude', 'cursor']);
+const reviewProviderSchema = z.enum(['gemini', 'antigravity', 'codex', 'copilot', 'claude', 'cursor']);
 const reviewTypeSchema = z.enum(['code', 'plan', 'architecture']);
 const cliUpdatePolicySchema = z.enum(['off', 'notify', 'auto']);
 const auxiliaryRoutingModeSchema = z.enum(['off', 'local-first', 'cheap-first', 'manual-only']);
@@ -179,7 +179,7 @@ export const SETTINGS_TOOL_POLICY = {
   crossModelReviewTypes: open(z.array(reviewTypeSchema).max(3)),
   crossModelReviewModelByProvider: open(modelByProviderSchema),
   pingPongReviewerProvider: open(
-    z.enum(['auto', 'gemini', 'codex', 'copilot', 'claude', 'cursor']),
+    z.enum(['auto', 'gemini', 'antigravity', 'codex', 'copilot', 'claude', 'cursor']),
   ),
   pingPongMaxRounds: open(z.number().int().min(1).max(20)),
   remoteNodesEnabled: readOnly(true),

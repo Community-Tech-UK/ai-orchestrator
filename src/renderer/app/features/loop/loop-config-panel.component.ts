@@ -163,7 +163,7 @@ export class LoopConfigPanelComponent {
   /** Ping-pong mode: a different-provider agentic reviewer reviews every
    *  builder done-declaration until both models agree (or a backstop fires). */
   pingPongEnabled = signal(false);
-  pingPongReviewerProvider = signal<'auto' | 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor'>('auto');
+  pingPongReviewerProvider = signal<'auto' | 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor'>('auto');
   pingPongSubject = signal<'auto' | 'plan' | 'impl'>('auto');
   pingPongMaxRounds = signal(15);
   providerOptions = computed<PickerProvider[]>(() => {
@@ -351,7 +351,7 @@ export class LoopConfigPanelComponent {
   }
 
   private resolveProvider(value: string | null | undefined, providers: PickerProvider[]): PickerProvider {
-    const provider = value === 'claude' || value === 'codex' || value === 'gemini' || value === 'copilot' || value === 'cursor'
+    const provider = value === 'claude' || value === 'codex' || value === 'gemini' || value === 'antigravity' || value === 'copilot' || value === 'cursor'
       ? value
       : 'claude';
     return providers.includes(provider) ? provider : (providers[0] ?? 'claude');

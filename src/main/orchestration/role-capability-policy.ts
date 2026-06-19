@@ -6,7 +6,7 @@ import type {
 } from '../../shared/types/permission-registry.types';
 import type { OrchestratorCommand } from './orchestration-protocol';
 
-const ALL_PROVIDERS = ['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor'];
+const ALL_PROVIDERS = ['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'];
 const ALL_MODELS = ['*'];
 const ALL_TOOL_CATEGORIES: RoleToolCategory[] = [
   'read',

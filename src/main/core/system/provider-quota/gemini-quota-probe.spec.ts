@@ -49,7 +49,7 @@ describe('GeminiQuotaProbe', () => {
         }),
       });
       const snap = await probe.probe({ signal: new AbortController().signal });
-      expect(snap!.provider).toBe('gemini');
+      expect(snap!.provider).toBe('antigravity');
       expect(snap!.ok).toBe(true);
       expect(snap!.plan).toBe('personal');
       expect(snap!.windows).toEqual([]);
@@ -185,14 +185,14 @@ describe('GeminiQuotaProbe', () => {
       expect(calls.some((p) => p === '/tmp/custom-gemini/google_accounts.json')).toBe(true);
     });
 
-    it('returns provider id "gemini"', () => {
+    it('returns provider id "antigravity"', () => {
       const probe = new GeminiQuotaProbe({
         readFile: fakeReader({
           'google_accounts.json': ACCOUNTS_LOGGED_IN,
           'settings.json': SETTINGS_OAUTH,
         }),
       });
-      expect(probe.provider).toBe('gemini');
+      expect(probe.provider).toBe('antigravity');
     });
   });
 });

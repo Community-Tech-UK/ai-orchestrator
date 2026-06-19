@@ -36,7 +36,7 @@ const MAX_INPUT_LENGTH = 2000;
 const AI_TITLE_TIMEOUT = 15_000;
 
 /** Provider preference order for title generation (fastest first) */
-const FAST_PROVIDER_PREFERENCE = ['gemini', 'claude', 'codex'] as const;
+const FAST_PROVIDER_PREFERENCE = ['antigravity', 'claude', 'codex'] as const;
 
 /**
  * Derive a short title from the raw first user message.

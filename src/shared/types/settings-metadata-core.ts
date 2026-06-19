@@ -25,7 +25,7 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
     options: [
       { value: 'auto', label: 'Auto-detect' },
       { value: 'claude', label: 'Claude Code' },
-      { value: 'gemini', label: 'Gemini CLI' },
+      { value: 'antigravity', label: 'Antigravity' },
       { value: 'codex', label: 'OpenAI Codex CLI' },
       { value: 'copilot', label: 'GitHub Copilot' },
       { value: 'cursor', label: 'Cursor CLI' },

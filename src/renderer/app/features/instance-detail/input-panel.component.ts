@@ -521,6 +521,7 @@ export class InputPanelComponent implements OnDestroy {
     return provider === 'claude'
       || provider === 'codex'
       || provider === 'gemini'
+      || provider === 'antigravity'
       || provider === 'copilot'
       || provider === 'cursor'
       ? provider

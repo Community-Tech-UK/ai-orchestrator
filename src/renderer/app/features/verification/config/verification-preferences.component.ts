@@ -755,7 +755,7 @@ export class VerificationPreferencesComponent implements OnInit {
   // State
   defaultStrategy = signal('merge');
   defaultAgentCount = signal(1);
-  preferredAgents = signal<CliType[]>(['gemini', 'codex', 'copilot']);
+  preferredAgents = signal<CliType[]>(['antigravity', 'codex', 'copilot']);
   minAgreement = signal(0.6);
   confidenceThreshold = signal(0.7);
   convergenceThreshold = signal(0.8);
@@ -829,7 +829,7 @@ export class VerificationPreferencesComponent implements OnInit {
   resetDefaults(): void {
     this.defaultStrategy.set('merge');
     this.defaultAgentCount.set(1);
-    this.preferredAgents.set(['gemini', 'codex', 'copilot']);
+    this.preferredAgents.set(['antigravity', 'codex', 'copilot']);
     this.minAgreement.set(0.6);
     this.confidenceThreshold.set(0.7);
     this.convergenceThreshold.set(0.8);

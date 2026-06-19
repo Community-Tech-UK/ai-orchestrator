@@ -103,7 +103,7 @@ export class CapabilityProbe {
     const providerSpecs = [
       { id: 'claude', doctorKey: 'claude-cli', label: 'Claude Code CLI' },
       { id: 'codex', doctorKey: 'codex-cli', label: 'Codex CLI' },
-      { id: 'gemini', doctorKey: 'gemini-cli', label: 'Gemini CLI' },
+      { id: 'antigravity', doctorKey: 'antigravity', label: 'Antigravity' },
       { id: 'copilot', doctorKey: 'copilot', label: 'Copilot CLI' },
       { id: 'cursor', doctorKey: 'cursor', label: 'Cursor CLI' },
     ] as const;

@@ -29,7 +29,7 @@ describe('VerificationPreferencesComponent', () => {
 
   it('defaults verification preferences to one non-Claude agent', () => {
     expect(component.defaultAgentCount()).toBe(1);
-    expect(component.preferredAgents()).toEqual(['gemini', 'codex', 'copilot']);
+    expect(component.preferredAgents()).toEqual(['antigravity', 'codex', 'copilot']);
     expect(component.defaultStrategy()).toBe('merge');
     expect(component.maxDebateRounds()).toBe(2);
     expect(component.defaultPersonalities()).toEqual(['methodical-analyst']);
@@ -50,7 +50,7 @@ describe('VerificationPreferencesComponent', () => {
 
     expect(store.updateConfig).toHaveBeenCalledWith(expect.objectContaining({
       agentCount: 1,
-      cliAgents: ['gemini', 'codex', 'copilot'],
+      cliAgents: ['antigravity', 'codex', 'copilot'],
       maxDebateRounds: 2,
       synthesisStrategy: 'merge',
       personalities: ['methodical-analyst'],

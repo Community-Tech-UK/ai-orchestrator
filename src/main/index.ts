@@ -157,7 +157,7 @@ class HarnessApp {
    * Context threshold auto-guards are designed for stateful sessions.
    */
   private isStatelessExecProvider(provider: string | undefined): boolean {
-    return provider === 'codex' || provider === 'gemini';
+    return provider === 'codex' || provider === 'gemini' || provider === 'antigravity';
   }
 
   private getNodeLatencyForInstance(instanceId: string): number | undefined {
