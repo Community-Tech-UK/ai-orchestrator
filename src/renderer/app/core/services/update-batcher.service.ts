@@ -6,6 +6,7 @@ import { Injectable } from '@angular/core';
 import type { ExecutionLocation } from '../../../../shared/types/worker-node.types';
 import type { ActivityState } from '../../../../shared/types/activity.types';
 import type { ReasoningEffort } from '../../../../shared/types/provider.types';
+import type { InstanceWaitReason } from '../../../../shared/types/instance.types';
 
 export interface StateUpdate {
   instanceId: string;
@@ -45,6 +46,11 @@ export interface StateUpdate {
   recoveryMethod?: 'native' | 'replay' | 'fresh' | 'failed';
   archivedUpToMessageId?: string;
   historyThreadId?: string;
+  /**
+   * Machine-readable wait reason (Phase 6 / §G). null means "clear"; undefined
+   * means "preserve existing value" — same semantics as optional fields above.
+   */
+  waitReason?: InstanceWaitReason | null;
 }
 
 type FlushCallback = (updates: StateUpdate[]) => void;
@@ -89,6 +95,8 @@ export class UpdateBatcherService {
       archivedUpToMessageId:
         update.archivedUpToMessageId ?? existing?.archivedUpToMessageId,
       historyThreadId: update.historyThreadId ?? existing?.historyThreadId,
+      // null clears waitReason; undefined preserves existing.
+      waitReason: update.waitReason !== undefined ? update.waitReason : existing?.waitReason,
     });
   }
 

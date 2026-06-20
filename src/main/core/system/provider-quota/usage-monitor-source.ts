@@ -41,6 +41,20 @@ const DEFAULT_MAX_AGE_MS = 5 * 60_000;
 /** Provider keys we'll accept from state.json. Mirrors token-usage-monitor. */
 const KNOWN_PROVIDERS: readonly ProviderId[] = ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'];
 
+/**
+ * Legacy state.json keys a provider may also be sourced from. The standalone
+ * token-usage-monitor still labels Google's quota under the legacy `gemini`
+ * key. The Gemini CLI is deprecated and Antigravity now consumes that same
+ * Google quota through the shared `~/.gemini` OAuth creds — both
+ * `GeminiUsageEndpointProbe` and `GeminiQuotaProbe` already report under the
+ * `antigravity` provider. So when the monitor hasn't written a native
+ * `antigravity` entry, surface its `gemini` entry as Antigravity's quota.
+ * A native `antigravity` entry, if present, always wins.
+ */
+const STATE_KEY_ALIASES: Partial<Record<ProviderId, readonly string[]>> = {
+  antigravity: ['gemini'],
+};
+
 type FileReader = (filePath: string) => Promise<string>;
 type FileStat = (filePath: string) => Promise<{ mtimeMs: number }>;
 
@@ -137,7 +151,7 @@ export class UsageMonitorSource {
 
     const out = new Map<ProviderId, ProviderQuotaSnapshot>();
     for (const provider of KNOWN_PROVIDERS) {
-      const entry = providers[provider];
+      const entry = resolveEntry(providers, provider);
       if (!entry || !Array.isArray(entry.windows)) continue;
       const windows = entry.windows
         .map((w) => normalizeWindow(provider, w))
@@ -164,6 +178,25 @@ export class UsageMonitorSource {
 }
 
 // ─── parsing helpers ───────────────────────────────────────────────────────
+
+/**
+ * Resolve the raw state.json entry for a provider, preferring a native entry
+ * keyed by the provider id and falling back to any legacy alias key (e.g.
+ * `antigravity` ← `gemini`). Returns the direct entry (possibly undefined) when
+ * nothing usable is found so the caller's window guard handles it.
+ */
+function resolveEntry(
+  providers: Record<string, RawProviderEntry>,
+  provider: ProviderId,
+): RawProviderEntry | undefined {
+  const direct = providers[provider];
+  if (direct && Array.isArray(direct.windows) && direct.windows.length > 0) return direct;
+  for (const alias of STATE_KEY_ALIASES[provider] ?? []) {
+    const aliased = providers[alias];
+    if (aliased && Array.isArray(aliased.windows) && aliased.windows.length > 0) return aliased;
+  }
+  return direct;
+}
 
 function normalizeWindow(provider: ProviderId, w: RawWindow): ProviderQuotaWindow | null {
   const percent = typeof w.used_percent === 'number'

@@ -64,6 +64,8 @@ export class LocalInstanceManager extends EventEmitter {
   private readonly pendingSpawnAdapters = new Map<string, WorkerManagedAdapter>();
   private readonly pendingSpawnCompletions = new Map<string, Promise<void>>();
   private readonly hibernatedInstances = new Map<string, SpawnParams>();
+  /** Last resume proof relayed to the coordinator, per instance (P2.9 dedup). */
+  private readonly relayedResumeProof = new Map<string, string>();
   private readonly allowedDirs: string[];
   private readonly maxInstances: number;
   private readonly browserManager: WorkerBrowserManager | null;
@@ -289,12 +291,17 @@ export class LocalInstanceManager extends EventEmitter {
               params.instanceId,
               toOutputMessageFromProviderOutputEvent(event, { eventId, timestamp }),
             );
+            // P2.9: relay the worker adapter's resume proof to the coordinator so
+            // the remote adapter can confirm the resumed session id (closes the
+            // remote half of B1 — otherwise remote resume "succeeds" on any output).
+            this.relayResumeProof(params.instanceId, adapter);
             break;
           }
           case 'exit':
             runtimeObserverCleanup();
             this.clearWatchdog(params.instanceId);
             this.instances.delete(params.instanceId);
+            this.relayedResumeProof.delete(params.instanceId);
             this.releaseAndroidLease(params.instanceId);
             this.emit('instance:exit', params.instanceId, { code: event.code, signal: event.signal });
             break;
@@ -319,6 +326,7 @@ export class LocalInstanceManager extends EventEmitter {
             });
             break;
           case 'complete':
+            this.relayResumeProof(params.instanceId, adapter);
             this.emit('instance:complete', params.instanceId, rawPayload as CliResponse);
             break;
           default:
@@ -432,7 +440,25 @@ export class LocalInstanceManager extends EventEmitter {
     inst.runtimeObserverCleanup();
     await inst.adapter.terminate();
     this.instances.delete(instanceId);
+    this.relayedResumeProof.delete(instanceId);
     this.releaseAndroidLease(instanceId);
+  }
+
+  /**
+   * P2.9: Forward the worker adapter's resume proof to the coordinator as a
+   * `resume_proof` state-change (whose `info` carries the proof). Deduped so we
+   * only emit when the proof changes — the proof transitions pending → confirmed
+   * once. The coordinator's RemoteCliAdapter consumes it via getResumeAttemptResult().
+   */
+  private relayResumeProof(instanceId: string, adapter: WorkerManagedAdapter): void {
+    const proof = (adapter as { getResumeAttemptResult?: () => unknown }).getResumeAttemptResult?.();
+    if (!proof || typeof proof !== 'object') return;
+    const source = (proof as { source?: unknown }).source;
+    if (source === undefined || source === 'none') return;
+    const signature = JSON.stringify(proof);
+    if (this.relayedResumeProof.get(instanceId) === signature) return;
+    this.relayedResumeProof.set(instanceId, signature);
+    this.emit('instance:stateChange', instanceId, 'resume_proof', proof);
   }
 
   async interrupt(instanceId: string): Promise<void> {

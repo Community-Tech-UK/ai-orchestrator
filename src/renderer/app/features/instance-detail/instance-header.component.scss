@@ -548,6 +548,14 @@
         animation: pulse 1.5s ease-in-out infinite;
       }
 
+      .wait-reason-label {
+        font-size: 11px;
+        color: var(--accent-color, #7c8cf8);
+        opacity: 0.85;
+        animation: pulse 1.5s ease-in-out infinite;
+        cursor: help;
+      }
+
       @keyframes pulse {
         0%, 100% { opacity: 0.5; }
         50% { opacity: 1; }

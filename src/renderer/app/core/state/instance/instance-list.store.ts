@@ -7,6 +7,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { ElectronIpcService } from '../../services/ipc';
+import { ProviderStateService, type ProviderType } from '../../services/provider-state.service';
 import { InstanceStateService } from './instance-state.service';
 import type {
   Instance,
@@ -26,6 +27,7 @@ export interface CreateInstanceWithMessageOptions {
   provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
   model?: string;
   bareMode?: boolean;
+  fastMode?: boolean;
   launchMode?: Instance['launchMode'];
   forceNodeId?: string;
 }
@@ -38,6 +40,22 @@ function supportsResumeRestart(provider: Instance['provider']): boolean {
 export class InstanceListStore {
   private stateService = inject(InstanceStateService);
   private ipc = inject(ElectronIpcService);
+  private providerState = inject(ProviderStateService);
+
+  /**
+   * Resolve the fast-mode preference for a new instance: an explicit override
+   * wins, otherwise fall back to the provider's remembered preference (which
+   * itself falls back to the global default). Mirrors how the backend resolves
+   * fast mode, so the renderer chip matches from the first frame.
+   */
+  private resolveFastModeForCreate(
+    explicit: boolean | undefined,
+    provider: CreateInstanceConfig['provider'],
+  ): boolean {
+    if (typeof explicit === 'boolean') return explicit;
+    const target = (provider ?? this.providerState.selectedProvider()) as ProviderType;
+    return this.providerState.getFastModeForProvider(target);
+  }
 
   private static readonly CREATE_INSTANCE_EVENT_FALLBACK_TIMEOUT_MS = 10_000;
   private static readonly CREATE_INSTANCE_EVENT_POLL_MS = 50;
@@ -126,6 +144,7 @@ export class InstanceListStore {
         provider: config.provider,
         model: config.model,
         bareMode: config.bareMode,
+        fastMode: this.resolveFastModeForCreate(config.fastMode, config.provider),
         forceNodeId: config.forceNodeId,
       };
       const result = await Promise.race([
@@ -183,7 +202,7 @@ export class InstanceListStore {
   async createInstanceWithMessageAndReturnId(
     options: CreateInstanceWithMessageOptions,
   ): Promise<string | null> {
-    const { message, files, workingDirectory, agentId, provider, model, bareMode, forceNodeId } = options;
+    const { message, files, workingDirectory, agentId, provider, model, bareMode, fastMode, forceNodeId } = options;
 
     console.log('InstanceListStore: createInstanceWithMessage called with:', {
       message,
@@ -222,6 +241,7 @@ export class InstanceListStore {
         provider: provider === 'auto' ? undefined : provider,
         model,
         bareMode,
+        fastMode: this.resolveFastModeForCreate(fastMode, provider),
         forceNodeId,
       });
       console.log('InstanceListStore: createInstanceWithMessage result:', result);
@@ -336,6 +356,33 @@ export class InstanceListStore {
       });
     } else if ('error' in response) {
       console.error('Failed to toggle YOLO mode:', response.error);
+    }
+  }
+
+  /**
+   * Toggle or set fast mode for an instance. Omit `fastMode` to flip.
+   */
+  async toggleFastMode(instanceId: string, fastMode?: boolean): Promise<void> {
+    const instance = this.stateService.getInstance(instanceId);
+    if (!instance) return;
+
+    const response = await this.ipc.toggleFastMode(instanceId, fastMode);
+
+    if (response.success && 'data' in response) {
+      const data = response.data as { fastMode?: boolean; status?: string } | undefined;
+      const newFastMode = data?.fastMode ?? fastMode ?? !instance.fastMode;
+      this.stateService.updateInstance(instanceId, {
+        fastMode: newFastMode,
+        status: (data?.status as InstanceStatus) || instance.status,
+      });
+      // Remember the choice per-provider so new instances of this provider
+      // start with it (mirrors per-provider model memory).
+      this.providerState.rememberFastModeForProvider(
+        instance.provider as ProviderType,
+        newFastMode,
+      );
+    } else if ('error' in response) {
+      console.error('Failed to toggle fast mode:', response.error);
     }
   }
 
@@ -636,6 +683,9 @@ export class InstanceListStore {
         typeof d['archivedUpToMessageId'] === 'string'
           ? d['archivedUpToMessageId']
           : undefined,
+      waitReason: this.isRecord(d['waitReason'])
+        ? (d['waitReason'] as Instance['waitReason'])
+        : undefined,
       workingDirectory: d['workingDirectory'] as string,
       yoloMode: (d['yoloMode'] as boolean) ?? false,
       launchMode: this.isLaunchMode(d['launchMode']) ? d['launchMode'] : 'orchestrated',

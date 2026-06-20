@@ -122,6 +122,10 @@ export interface ClaudeCliSpawnOptions {
   betas?: string[];
   /** Cross-provider reasoning effort. Claude CLI supports low, medium, high, xhigh, max, and workflow via ultracode settings. */
   reasoningEffort?: UnifiedReasoningEffort;
+  /** Fast mode: emit `fastMode: true` into the --settings overlay. Opus-only;
+   *  requires a paid subscription/credits. The CLI surfaces a "fast mode
+   *  unavailable" notice when it can't honor it. Defaults to false. */
+  fastMode?: boolean;
   /** Minimal mode (--bare): skips hooks, LSP, plugins, auto-memory, CLAUDE.md
    *  auto-discovery, and keychain reads for faster startup (~14% faster).
    *  Requires explicit ANTHROPIC_API_KEY or apiKeyHelper — OAuth/keychain auth

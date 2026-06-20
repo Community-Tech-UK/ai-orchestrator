@@ -70,6 +70,7 @@ const THREAD_NOT_FOUND_PATTERN = new RegExp(
 const EXPIRED_PATTERN = new RegExp(
   [
     'session expired',
+    'expired session',
     'session has expired',
     'conversation expired',
   ].join('|'),

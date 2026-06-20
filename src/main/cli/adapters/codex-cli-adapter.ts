@@ -131,6 +131,10 @@ export interface CodexCliConfig {
   mcpServersConfigToml?: string;
   /** Reasoning effort level for the model */
   reasoningEffort?: CodexReasoningEffort;
+  /** Fast mode: request the `priority` service tier (~1.5x speed, "Fast" in the
+   *  Codex model catalog) on thread-start and each turn. Ignored by the
+   *  app-server when the account/plan isn't eligible. Defaults to false. */
+  fastMode?: boolean;
   /** Resume the provided session/thread on the next exec */
   resume?: boolean;
   /** Sandbox mode: read-only, workspace-write, or danger-full-access */
@@ -589,23 +593,24 @@ export class CodexCliAdapter extends BaseCliAdapter {
     if (!this.appServerClient) {
       return { status: 'rejected', turnId, reason: 'Codex app-server client is not connected' };
     }
-
+    // §3.1/P3.3: only interrupt the turn we recorded. If it already ended (a new
+    // turn started, or it finished), Codex rejects the RPC on a turn-id mismatch
+    // and keeps any newer turn running — treat that as a clean no-op ('unknown'),
+    // not a failure, so the interrupt ladder doesn't escalate a settled turn.
+    const isStaleTurn = (): boolean => !this.turnInProgress || this.currentTurnId !== turnId;
+    if (isStaleTurn()) {
+      return { status: 'unknown', turnId, reason: 'turn already ended before interrupt was sent' };
+    }
     try {
-      const result = await this.appServerClient.request('turn/interrupt', {
-        threadId,
-        turnId,
-      });
+      const result = await this.appServerClient.request('turn/interrupt', { threadId, turnId });
       if (!result.success) {
+        if (isStaleTurn()) return { status: 'unknown', turnId, reason: 'turn ended before interrupt was acknowledged' };
         return { status: 'rejected', turnId, reason: 'Codex did not accept turn/interrupt' };
       }
-
-      if (!turnCompletion) {
-        return { status: 'accepted', turnId };
-      }
-
-      return await turnCompletion;
+      return turnCompletion ? await turnCompletion : { status: 'accepted', turnId };
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
+      if (isStaleTurn()) return { status: 'unknown', turnId, reason: 'turn ended before interrupt resolved' };
       logger.warn('Failed to interrupt turn via RPC', { error: reason, turnId });
       return { status: 'rejected', turnId, reason };
     }
@@ -826,6 +831,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
           serviceName: SERVICE_NAME,
           ephemeral: this.cliConfig.ephemeral ?? false,
           reasoningEffort: this.cliConfig.reasoningEffort || null,
+          // Fast mode → the "Fast" (priority) service tier (~1.5x speed).
+          serviceTier: this.cliConfig.fastMode ? 'priority' : null,
         });
         threadId = startResult.threadId || startResult.thread?.id || null;
         resumeSource = null;
@@ -930,6 +937,8 @@ export class CodexCliAdapter extends BaseCliAdapter {
       serviceName: SERVICE_NAME,
       ephemeral: this.cliConfig.ephemeral ?? false,
       reasoningEffort: this.cliConfig.reasoningEffort || null,
+      // Fast mode → the "Fast" (priority) service tier (~1.5x speed).
+      serviceTier: this.cliConfig.fastMode ? 'priority' : null,
     });
     const newThreadId = startResult.threadId || startResult.thread?.id || null;
     if (!newThreadId) {
@@ -1310,6 +1319,12 @@ export class CodexCliAdapter extends BaseCliAdapter {
       // Add reasoning effort if configured
       if (this.cliConfig.reasoningEffort) {
         turnParams['reasoningEffort'] = this.cliConfig.reasoningEffort;
+      }
+
+      // Fast mode → request the "Fast" (priority) service tier per turn. Applied
+      // each turn so a live toggle takes effect without restarting the thread.
+      if (this.cliConfig.fastMode) {
+        turnParams['serviceTier'] = 'priority';
       }
 
       // Arm the idle watchdog BEFORE sending turn/start.  `turn/start` has

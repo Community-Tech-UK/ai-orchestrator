@@ -4,8 +4,8 @@
  */
 
 import { createHash } from 'crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
-import { tmpdir } from 'os';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { homedir, tmpdir } from 'os';
 import { join } from 'path';
 import {
   BaseCliAdapter,
@@ -164,6 +164,34 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     return this.lastResumeAttemptResult;
   }
 
+  /**
+   * B7: Claude's `--resume <id>` scans the transcript under the *current cwd's*
+   * lossily-encoded project dir (`~/.claude/projects/<encoded-cwd>/<id>.jsonl`,
+   * every non-alphanumeric char → `-`). Resuming from a different cwd — or for an
+   * id never flushed — fails "No conversation found". Verify up-front so we fall
+   * back to fresh+replay before a doomed spawn. Permissive on uncertainty (no
+   * cwd / FS error) so we never block a legitimate resume.
+   */
+  private nativeTranscriptExists(sessionId: string): boolean {
+    const cwd = this.spawnOptions.workingDirectory;
+    if (!cwd) return true;
+    try {
+      const encoded = cwd.replace(/[^a-zA-Z0-9]/g, '-');
+      return existsSync(join(homedir(), '.claude', 'projects', encoded, `${sessionId}.jsonl`));
+    } catch {
+      return true;
+    }
+  }
+
+  /** Whether the next spawn should use native `--resume` (B7-guarded). */
+  private shouldUseNativeResume(): boolean {
+    return Boolean(
+      this.spawnOptions.resume
+      && this.sessionId
+      && this.nativeTranscriptExists(this.sessionId),
+    );
+  }
+
   // ============ BaseCliAdapter Abstract Implementations ============
 
   getName(): string {
@@ -291,6 +319,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private buildSettingsOverlay(permissionHookEnabled: boolean): string | undefined {
     const settings: {
       ultracode?: true;
+      fastMode?: true;
       hooks?: {
         PreToolUse: {
           matcher: string;
@@ -304,6 +333,15 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
     if (this.spawnOptions.reasoningEffort === 'workflow') {
       settings.ultracode = true;
+    }
+
+    // Fast mode (Opus-only, paid-tier): the CLI reads the `fastMode` settings
+    // key. Slash-command toggling (`/fast`) is unavailable in print mode (it
+    // would reach the model as plain text), so the settings overlay is the only
+    // programmatic surface. If the account can't honor it the CLI emits a "fast
+    // mode unavailable" notice on the output stream (auto-reverted by lifecycle).
+    if (this.spawnOptions.fastMode) {
+      settings.fastMode = true;
     }
 
     if (permissionHookEnabled && this.spawnOptions.permissionHookPath) {
@@ -902,13 +940,22 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       args.push('--settings', this.materializeInlineJsonArg(settingsOverlay));
     }
 
-    if (this.spawnOptions.resume && this.sessionId) {
-      args.push('--resume', this.sessionId);
+    if (this.shouldUseNativeResume()) {
+      args.push('--resume', this.sessionId!);
       // Fork session creates a new session ID while preserving conversation history
       if (this.spawnOptions.forkSession) {
         args.push('--fork-session');
       }
     } else if (this.sessionId) {
+      // B7: resume was requested but the transcript is missing for this cwd/id —
+      // start a fresh session under the same id rather than failing on --resume.
+      // Upstream replay re-seeds conversation context.
+      if (this.spawnOptions.resume) {
+        logger.info('Skipping --resume: no transcript for session under current cwd', {
+          sessionId: this.sessionId,
+          cwd: this.spawnOptions.workingDirectory,
+        });
+      }
       args.push('--session-id', this.sessionId);
     }
 
@@ -1015,8 +1062,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     }
 
     await this.primeCliVersion();
-    this.lastResumeAttemptResult = (this.spawnOptions.resume && this.sessionId)
-      ? { source: 'native', confirmed: false, requestedSessionId: this.sessionId }
+    this.lastResumeAttemptResult = this.shouldUseNativeResume()
+      ? { source: 'native', confirmed: false, requestedSessionId: this.sessionId ?? undefined }
       : { source: 'fresh-fallback', confirmed: false };
     const args = this.buildArgs({ role: 'user', content: '' });
 

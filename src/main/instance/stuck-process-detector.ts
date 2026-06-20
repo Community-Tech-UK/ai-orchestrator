@@ -105,6 +105,25 @@ interface ProcessTracker {
   lastStderrAt: number;
   /** How many times we've deferred the timeout because process was alive */
   aliveDeferrals: number;
+  /**
+   * Signature of the last *content* output seen (P4.5/D5 evidence-hash fence).
+   * Identical repeated output (e.g. a looping error or keep-alive noise) is
+   * liveness, not progress — it must not perpetually reset the stuck clock.
+   * `null` until the first content output. Heartbeats don't touch this.
+   */
+  lastEvidenceSignature: string | null;
+}
+
+/**
+ * Compact, timestamp-free signature of an output payload (P4.5). Cheap to
+ * compute on the hot path: combines length with a small fixed sample so that
+ * identical content yields an identical signature while genuinely new content
+ * differs. Not cryptographic — only equality matters.
+ */
+function evidenceSignature(content: string): string {
+  const len = content.length;
+  if (len <= 96) return `${len}:${content}`;
+  return `${len}:${content.slice(0, 48)}:${content.slice(-48)}`;
 }
 
 export class StuckProcessDetector extends EventEmitter {
@@ -134,6 +153,7 @@ export class StuckProcessDetector extends EventEmitter {
       interactivePromptWarningEmitted: false,
       lastStderrAt: 0,
       aliveDeferrals: 0,
+      lastEvidenceSignature: null,
     });
   }
 
@@ -141,13 +161,33 @@ export class StuckProcessDetector extends EventEmitter {
     this.trackers.delete(instanceId);
   }
 
-  recordOutput(instanceId: string): void {
+  /**
+   * Record output activity for an instance.
+   *
+   * @param content Optional output payload. When provided, the evidence-hash
+   *   fence (P4.5/D5) applies: if the content is byte-identical to the previous
+   *   content output, it is treated as liveness — NOT progress — and the stuck
+   *   clock is left running so looping/repeated output can still be detected as
+   *   stuck. New content fully resets the clock. Content-free calls (heartbeats)
+   *   reset the clock as before, preserving tolerance for long internal turns.
+   */
+  recordOutput(instanceId: string, content?: string): void {
     const tracker = this.trackers.get(instanceId);
-    if (tracker) {
-      tracker.lastOutputAt = Date.now();
-      tracker.softWarningEmitted = false;
-      tracker.interactivePromptWarningEmitted = false;
+    if (!tracker) return;
+
+    if (content !== undefined) {
+      const signature = evidenceSignature(content);
+      if (tracker.lastEvidenceSignature !== null && signature === tracker.lastEvidenceSignature) {
+        // Evidence unchanged — repeated identical output is not progress. Keep
+        // the stuck clock running (the fence) but don't escalate here.
+        return;
+      }
+      tracker.lastEvidenceSignature = signature;
     }
+
+    tracker.lastOutputAt = Date.now();
+    tracker.softWarningEmitted = false;
+    tracker.interactivePromptWarningEmitted = false;
   }
 
   /**
@@ -169,6 +209,9 @@ export class StuckProcessDetector extends EventEmitter {
       tracker.softWarningEmitted = false;
       tracker.interactivePromptWarningEmitted = false;
       tracker.aliveDeferrals = 0;
+      // New phase — start a fresh evidence baseline so the fence compares within
+      // the current state, not across a state transition.
+      tracker.lastEvidenceSignature = null;
     }
   }
 

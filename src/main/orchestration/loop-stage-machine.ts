@@ -392,12 +392,11 @@ export class LoopStageMachine {
       manualReviewOnly = false,
       priorObservations = [],
     } = args;
-    // All loop-owned state files live in this per-run directory (relative to
-    // the agent's working directory = the workspace root). The agent MUST
-    // read/write them at these exact paths — the coordinator reads the same
-    // paths, and using the workspace root instead would collide with any other
-    // loop running in this workspace.
-    const sd = this.paths.relDir;
+    // All loop-owned state files live in this per-run directory. Use the
+    // absolute path (this.paths.dir) so the agent can locate state files
+    // regardless of its working directory — critical when executionCwd (the
+    // agent's spawn cwd) differs from workspaceCwd (where state lives).
+    const sd = this.paths.dir;
     const stageRel = `${sd}/STAGE.md`;
     const notesRel = `${sd}/NOTES.md`;
     const logRel = `${sd}/ITERATION_LOG.md`;
@@ -561,7 +560,7 @@ Begin.`;
       existingSessionContext,
       priorObservations = [],
     } = args;
-    const sd = this.paths.relDir;
+    const sd = this.paths.dir;
     const notesRel = `${sd}/NOTES.md`;
     const outstandingRel = `${sd}/OUTSTANDING.md`;
     const blockedRel = `${sd}/BLOCKED.md`;

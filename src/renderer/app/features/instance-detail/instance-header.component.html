@@ -29,6 +29,9 @@
             @if (isRemote() && instance().status === 'initializing') {
               <span class="remote-connecting">Connecting to {{ remoteNodeName() }}...</span>
             }
+            @if (waitReasonLabel()) {
+              <span class="wait-reason-label" [title]="waitReasonDetail()">{{ waitReasonLabel() }}</span>
+            }
           </div>
         </div>
 
@@ -227,6 +230,23 @@
           >
             ⚡ YOLO {{ instance().yoloMode ? 'ON' : 'OFF' }}
           </button>
+          @if (supportsFastMode()) {
+            <button
+              class="fast-badge"
+              [class.active]="instance().fastMode"
+              [disabled]="isTogglingFastMode() || isRuntimeLocked()"
+              [title]="
+                isRuntimeLocked()
+                  ? 'Cannot toggle fast mode while instance is running or recovering'
+                  : instance().fastMode
+                    ? 'Fast Mode: faster output (Opus / Codex priority tier). Click to disable'
+                    : 'Fast Mode: faster output at some capability cost. Click to enable'
+              "
+              (click)="toggleFastMode.emit()"
+            >
+              🚀 FAST {{ instance().fastMode ? 'ON' : 'OFF' }}
+            </button>
+          }
           @if (activeSkillCount() > 0) {
             <span class="skills-badge" [title]="activeSkillsTooltip()">
               🧩 {{ activeSkillCount() }} skill{{ activeSkillCount() > 1 ? 's' : '' }}

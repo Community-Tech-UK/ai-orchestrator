@@ -14,7 +14,7 @@ import type { WorkerNodeConnectionServer } from '../../remote-node/worker-node-c
 import { getWorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 import type { CliType } from '../cli-detection';
 import type { UnifiedSpawnOptions } from './adapter-factory';
-import type { AdapterRuntimeCapabilities, CliResponse, CliSpawnMode, InterruptResult } from './base-cli-adapter';
+import type { AdapterRuntimeCapabilities, CliResponse, CliSpawnMode, InterruptResult, ResumeAttemptResult } from './base-cli-adapter';
 import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../../pause/orchestrator-paused-error';
@@ -63,6 +63,8 @@ interface RemoteCompleteEvent {
 
 export class RemoteCliAdapter extends EventEmitter {
   private remoteInstanceId: string | null = null;
+  /** Latest resume proof relayed from the worker adapter (P2.9). */
+  private lastResumeAttemptResult: ResumeAttemptResult | null = null;
   private readonly registry = getWorkerNodeRegistry();
   private registryListenersAttached = false;
   private readonly onRemoteOutputEvent = (event: RemoteOutputEvent): void => {
@@ -73,6 +75,15 @@ export class RemoteCliAdapter extends EventEmitter {
   };
   private readonly onRemoteStateChangeEvent = (event: RemoteStateChangeEvent): void => {
     if (!this.matchesRemoteInstance(event.nodeId, event.instanceId)) {
+      return;
+    }
+    // P2.9: the worker relays its adapter's resume proof as a `resume_proof`
+    // pseudo-state whose `info` carries the ResumeAttemptResult. Capture it for
+    // getResumeAttemptResult() and don't forward it as a lifecycle state.
+    if (event.state === 'resume_proof') {
+      if (event.info && typeof event.info === 'object') {
+        this.lastResumeAttemptResult = event.info as ResumeAttemptResult;
+      }
       return;
     }
     if (event.state === 'exited') {
@@ -206,6 +217,15 @@ export class RemoteCliAdapter extends EventEmitter {
       },
       0,
     );
+  }
+
+  /**
+   * P2.9: Resume proof proxied from the worker adapter. Without this, remote
+   * resume health defaults to "succeeded on any output" with no session-id
+   * confirmation (the remote half of B1). `null` until the worker relays proof.
+   */
+  getResumeAttemptResult(): ResumeAttemptResult | null {
+    return this.lastResumeAttemptResult;
   }
 
   /**

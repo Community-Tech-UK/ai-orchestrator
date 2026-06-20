@@ -106,6 +106,24 @@ export type InstanceStatus =
   | 'failed'          // Unrecoverable init/wake failure
   | 'terminated';
 
+/**
+ * Why an instance is currently waiting, surfaced to the renderer so a long
+ * silent spinner always has a reason (and, where known, a deadline/ETA). The
+ * status alone can't express "waiting for a provider slot until T" or
+ * "backing off, retry at T" — this union fills that gap (plan §4.G / E1/E2/D7).
+ * `startedAt`/`deadlineAt`/`resumeAt`/`retryAt` are epoch-ms timestamps.
+ */
+export type InstanceWaitReason =
+  | { kind: 'provider-slot'; provider: string; startedAt: number; deadlineAt?: number }
+  | { kind: 'interrupt-ack'; startedAt: number; deadlineAt?: number; attempt: number }
+  | { kind: 'terminating'; force: boolean; startedAt: number; deadlineAt?: number }
+  | { kind: 'respawning'; strategy: 'native-resume' | 'fresh-replay'; startedAt: number }
+  | { kind: 'resume-proof'; provider: string; sessionId?: string; startedAt: number; deadlineAt?: number }
+  | { kind: 'remote-heartbeat'; nodeId: string; remoteTurnId?: string; staleForMs: number }
+  | { kind: 'mutex'; operation: string; owner?: string; startedAt: number }
+  | { kind: 'quota-park'; provider: string; resumeAt: number }
+  | { kind: 'backoff'; attempt: number; retryAt: number };
+
 export interface ContextUsage {
   /** Current context-window occupancy (tokens used in the latest API call). */
   used: number;
@@ -312,6 +330,12 @@ export interface Instance {
   interruptPhase?: 'requested' | 'accepted' | 'completed' | 'timed-out' | 'escalated';
   /** Last turn outcome observed by lifecycle/runtime. */
   lastTurnOutcome?: 'completed' | 'interrupted' | 'cancelled' | 'failed';
+  /**
+   * Why the instance is currently waiting, when a wait is in progress (plan
+   * §4.G). Drives the renderer's activity line / countdown so a long silent
+   * spinner always has a legible reason. Cleared when the wait resolves.
+   */
+  waitReason?: InstanceWaitReason;
   /** Replacement instance id when this instance has been superseded by edit/fork. */
   supersededBy?: string;
   /** True when this instance was cancelled specifically for prompt edit retry. */
@@ -369,6 +393,13 @@ export interface Instance {
   provider: InstanceProvider; // Which CLI provider is being used
   /** Run Claude in lightweight --bare mode when supported. Defaults false. */
   bareMode?: boolean;
+  /**
+   * Fast mode: trade some capability for faster output. Claude sets the CLI
+   * `fastMode` settings key (Opus-only); Codex requests the `priority` service
+   * tier. Resolved at spawn from config/agent/provider/global defaults and
+   * toggleable live via `toggleFastMode`. Providers without support ignore it.
+   */
+  fastMode?: boolean;
   currentModel?: string; // Current model override (e.g., 'gpt-5.3-codex')
   reasoningEffort?: ReasoningEffort; // Optional model thinking/reasoning effort override
 
@@ -437,9 +468,27 @@ export interface InstanceCreateConfig {
   yoloMode?: boolean;
   launchMode?: InstanceLaunchMode;
   initialOutputBuffer?: OutputMessage[]; // Pre-populate output buffer (for history restore)
+  /**
+   * True when this instance is a restored/resumed continuation of an existing
+   * thread (history restore, native resume, thread wakeup). A restored session
+   * already has an established name, so the first message after restore is a
+   * continuation — not a genuine first message. Setting this unconditionally
+   * suppresses auto-title re-firing (which would overwrite the original name
+   * with a title derived from the follow-up message) and orchestration-prompt
+   * re-prepending, independent of whether the prior transcript was loaded into
+   * `initialOutputBuffer`. Unlike `isRenamed`, this is transient (not persisted)
+   * and does not imply the user manually chose the title.
+   */
+  isRestoredSession?: boolean;
   agentId?: string; // Agent profile ID (defaults to 'build')
   modelOverride?: string; // Optional model override for the instance
   reasoningEffort?: ReasoningEffort;
+  /**
+   * Explicit fast-mode override for this instance. When undefined, spawn
+   * resolution falls back to the per-provider / global defaults (see
+   * `resolveFastMode`).
+   */
+  fastModeOverride?: boolean;
   provider?: InstanceProvider; // CLI provider to use (defaults to settings.defaultCli)
 
   // Phase 2: Hierarchical instance options

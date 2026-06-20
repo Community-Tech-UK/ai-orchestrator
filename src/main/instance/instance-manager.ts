@@ -326,7 +326,7 @@ export class InstanceManager extends EventEmitter {
       setAdapter: (id, adapter) => this.state.setAdapter(id, adapter),
       deleteAdapter: (id) => this.state.deleteAdapter(id),
       transitionState: (instance, status) => this.lifecycle.transitionStatePublic(instance, status),
-      queueUpdate: (id, status, ctx, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel) => (
+      queueUpdate: (id, status, ctx, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel, waitReason) => (
         this.state.queueUpdate(
           id,
           status,
@@ -338,6 +338,7 @@ export class InstanceManager extends EventEmitter {
           sessionState,
           activityState,
           currentModel,
+          waitReason,
         )
       ),
       getDiffTracker: (id) => this.state.getDiffTracker(id),
@@ -373,7 +374,7 @@ export class InstanceManager extends EventEmitter {
       },
       refreshAdapterRuntimeConfig: (id) => this.lifecycle.refreshAdapterRuntimeConfig(id),
       onChildExit: (childId, child, exitCode) => this.handleChildExit(childId, child, exitCode),
-      onOutput: (id) => this.stuckDetector.recordOutput(id),
+      onOutput: (id, content) => this.stuckDetector.recordOutput(id, content),
       onToolStateChange: (id, state) => this.stuckDetector.updateState(id, state),
       createSnapshot: (id, name, desc, trigger) => {
         try {
@@ -409,7 +410,7 @@ export class InstanceManager extends EventEmitter {
       deleteDiffTracker: (id) => this.state.deleteDiffTracker(id),
       getInstanceCount: () => this.state.getInstanceCount(),
       forEachInstance: (cb) => this.state.forEachInstance(cb),
-      queueUpdate: (id, status, ctx, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel) => (
+      queueUpdate: (id, status, ctx, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel, waitReason) => (
         this.state.queueUpdate(
           id,
           status,
@@ -421,6 +422,7 @@ export class InstanceManager extends EventEmitter {
           sessionState,
           activityState,
           currentModel,
+          waitReason,
         )
       ),
       serializeForIpc: (inst) => this.state.serializeForIpc(inst),
@@ -569,6 +571,7 @@ export class InstanceManager extends EventEmitter {
     this.lifecycle.on('output', (payload) => this.publishOutput(payload.instanceId, payload.message));
     this.lifecycle.on('agent-changed', (payload) => this.emit('instance:agent-changed', payload));
     this.lifecycle.on('yolo-toggled', (payload) => this.emit('instance:yolo-toggled', payload));
+    this.lifecycle.on('fast-toggled', (payload) => this.emit('instance:fast-toggled', payload));
     this.lifecycle.on('model-changed', (payload) => this.emit('instance:model-changed', payload));
     this.lifecycle.on('state-update', (payload) => {
       this.emit('instance:event', this.lifecycleEvents.recordStateUpdate(payload));
@@ -1293,6 +1296,18 @@ export class InstanceManager extends EventEmitter {
     return this.lifecycle.setYoloMode(instanceId, desiredYoloMode);
   }
 
+  async toggleFastMode(instanceId: string): Promise<Instance> {
+    return this.lifecycle.toggleFastMode(instanceId);
+  }
+
+  async setFastMode(
+    instanceId: string,
+    desiredFastMode: boolean,
+    options?: { restart?: boolean; reason?: 'user' | 'unavailable' },
+  ): Promise<Instance> {
+    return this.lifecycle.setFastMode(instanceId, desiredFastMode, options);
+  }
+
   /**
    * Resume a Claude CLI session after the user approves or denies a deferred tool use.
    * Writes the decision to a file, then resumes the CLI with --resume.
@@ -1326,6 +1341,17 @@ export class InstanceManager extends EventEmitter {
 
   async wakeInstance(instanceId: string): Promise<void> {
     return this.lifecycle.wakeInstance(instanceId);
+  }
+
+  /**
+   * Queue a partial state update for an instance without changing its status.
+   * Used by subsystems (loop coordinator, remote heartbeat) to push machine-readable
+   * wait reasons without owning the full lifecycle transition.
+   */
+  queueInstanceUpdate(instanceId: string, update: { waitReason?: import('../../shared/types/instance.types').InstanceWaitReason | null }): void {
+    const instance = this.state.getInstance(instanceId);
+    if (!instance) return;
+    this.state.queueUpdate(instanceId, instance.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, update.waitReason);
   }
 
   /**

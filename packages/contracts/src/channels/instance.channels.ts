@@ -12,6 +12,9 @@ export const INSTANCE_CHANNELS = {
   INSTANCE_RENAME: 'instance:rename',
   INSTANCE_CHANGE_AGENT_MODE: 'instance:change-agent-mode',
   INSTANCE_TOGGLE_YOLO_MODE: 'instance:toggle-yolo-mode',
+  INSTANCE_TOGGLE_FAST_MODE: 'instance:toggle-fast-mode',
+  /** Main → renderer: fast mode changed (user toggle or provider auto-revert). */
+  INSTANCE_FAST_TOGGLED: 'instance:fast-toggled',
   INSTANCE_CHANGE_MODEL: 'instance:change-model',
   INSTANCE_SEND_INPUT: 'instance:send-input',
   INSTANCE_INTERRUPT: 'instance:interrupt',

@@ -15,7 +15,7 @@ import type {
   InstanceStatus,
   OutputMessage,
 } from '../../../shared/types/instance.types';
-import type { CliAdapter, UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
+import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 import type { InterruptResult } from '../../cli/adapters/base-cli-adapter';
 
 // ── Module mocks (hoisted) ────────────────────────────────────────────────────
@@ -132,10 +132,10 @@ interface FakeDepsState {
 
 function makeDeps(state: FakeDepsState): InterruptRespawnDeps {
   return {
-    getInstance: (_id) => state.instance,
-    getAdapter: (_id) => state.adapter,
+    getInstance: () => state.instance,
+    getAdapter: () => state.adapter,
     setAdapter: (_id, a) => { state.adapter = a; },
-    deleteAdapter: (_id) => { state.adapter = undefined; },
+    deleteAdapter: () => { state.adapter = undefined; },
     queueUpdate: (...args) => { state.queueUpdateCalls.push(args); },
     markInterrupted: vi.fn(),
     clearInterrupted: vi.fn(),
@@ -314,5 +314,56 @@ describe('InterruptRespawnHandler.interrupt()', () => {
     handler.interrupt('inst-1');
 
     expect(mockSupervisor.recordInterrupt).toHaveBeenCalledOnce();
+  });
+
+  it('sets interrupt-ack waitReason when interrupt is accepted', () => {
+    const adapter = makeAdapter({
+      interrupt: vi.fn(() => ({ status: 'accepted' } as InterruptResult)),
+    });
+    const instance = makeInstance({ status: 'busy' });
+    const state: FakeDepsState = { instance, adapter, queueUpdateCalls: [], outputMessages: [], transitions: [] };
+    const handler = new InterruptRespawnHandler(makeDeps(state));
+
+    handler.interrupt('inst-1');
+
+    // The interrupting queueUpdate (arg index 10) should include interrupt-ack waitReason.
+    const interruptingCall = state.queueUpdateCalls.find(args => args[1] === 'interrupting');
+    expect(interruptingCall).toBeDefined();
+    expect((interruptingCall![10] as { kind?: string } | null | undefined)?.kind).toBe('interrupt-ack');
+  });
+
+  it('force-abort net clears waitReason in cancelled queueUpdate', async () => {
+    const adapter = makeAdapter({
+      interrupt: vi.fn(() => ({ status: 'accepted' } as InterruptResult)),
+    });
+    const instance = makeInstance({ status: 'busy' });
+    const state: FakeDepsState = { instance, adapter, queueUpdateCalls: [], outputMessages: [], transitions: [] };
+    const handler = new InterruptRespawnHandler(makeDeps(state));
+
+    handler.interrupt('inst-1');
+
+    vi.advanceTimersByTime(31_000);
+    await Promise.resolve();
+
+    // The force-abort 'cancelled' queueUpdate (arg index 10) should be null (clear).
+    const cancelledCall = state.queueUpdateCalls.find(args => args[1] === 'cancelled');
+    expect(cancelledCall).toBeDefined();
+    expect(cancelledCall![10]).toBeNull();
+  });
+
+  it('second-interrupt escalation clears waitReason in cancelled queueUpdate', () => {
+    const adapter = makeAdapter({
+      interrupt: vi.fn(() => ({ status: 'accepted' } as InterruptResult)),
+    });
+    const instance = makeInstance({ status: 'busy' });
+    const state: FakeDepsState = { instance, adapter, queueUpdateCalls: [], outputMessages: [], transitions: [] };
+    const handler = new InterruptRespawnHandler(makeDeps(state));
+
+    handler.interrupt('inst-1'); // first — goes to 'interrupting'
+    handler.interrupt('inst-1'); // second — escalates to cancelled
+
+    const cancelledCall = state.queueUpdateCalls.find(args => args[1] === 'cancelled');
+    expect(cancelledCall).toBeDefined();
+    expect(cancelledCall![10]).toBeNull();
   });
 });

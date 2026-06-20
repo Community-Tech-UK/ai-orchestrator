@@ -339,6 +339,7 @@ export class InstanceDetailComponent {
   isCreatingInstance = signal(false);
   isChangingMode = signal(false);
   isTogglingYolo = signal(false);
+  isTogglingFastMode = signal(false);
   showModelDropdown = signal(false);
   private fallbackModels = signal<ModelDisplayInfo[]>([]);
   availableModels = computed((): ModelDisplayInfo[] => {
@@ -1081,6 +1082,20 @@ export class InstanceDetailComponent {
       await this.store.toggleYoloMode(inst.id);
     } finally {
       this.isTogglingYolo.set(false);
+    }
+  }
+
+  async onToggleFastMode(): Promise<void> {
+    const inst = this.instance();
+    if (!inst) return;
+    if (inst.status === 'busy') return;
+    if (this.isTogglingFastMode()) return;
+
+    this.isTogglingFastMode.set(true);
+    try {
+      await this.store.toggleFastMode(inst.id);
+    } finally {
+      this.isTogglingFastMode.set(false);
     }
   }
 

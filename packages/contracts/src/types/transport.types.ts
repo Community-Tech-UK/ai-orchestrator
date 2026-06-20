@@ -9,6 +9,7 @@ import type {
   FileAttachment,
   InstanceRecoveryMethod,
   InstanceStatus,
+  InstanceWaitReason,
   OutputMessage,
   InstanceProvider,
   InstanceLaunchMode,
@@ -97,6 +98,13 @@ export interface InstanceStateUpdatePayload {
   recoveryMethod?: InstanceRecoveryMethod;
   archivedUpToMessageId?: string;
   historyThreadId?: string;
+  /**
+   * Machine-readable reason for the current wait state (Phase 6 / §G).
+   * Populated by the backend when the instance enters a long-wait status;
+   * cleared (set to null) when status returns to idle/busy/ready.
+   * Renderer uses this for activity-line copy, countdowns, and diagnostics.
+   */
+  waitReason?: InstanceWaitReason | null;
 }
 
 export interface InstanceOutputPayload {

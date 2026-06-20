@@ -25,6 +25,7 @@ import {
   InstanceRestartPayloadSchema,
   InstanceSendInputPayloadSchema,
   InstanceTerminatePayloadSchema,
+  InstanceToggleFastModePayloadSchema,
   UserActionRespondRawPayloadSchema,
   UserActionResponsePayloadSchema,
 } from '@contracts/schemas/instance';
@@ -90,6 +91,7 @@ export function registerInstanceHandlers(deps: {
           provider: validatedPayload.provider as import('../../../shared/types/instance.types').InstanceProvider | undefined,
           modelOverride: validatedPayload.model,
           bareMode: validatedPayload.bareMode,
+          fastModeOverride: validatedPayload.fastMode,
           forceNodeId: validatedPayload.forceNodeId,
           nodePlacement: validatedPayload.nodePlacement,
         });
@@ -148,6 +150,7 @@ export function registerInstanceHandlers(deps: {
           provider: validated.provider as import('../../../shared/types/instance.types').InstanceProvider | undefined,
           modelOverride: validated.model,
           bareMode: validated.bareMode,
+          fastModeOverride: validated.fastMode,
           forceNodeId: validated.forceNodeId,
           nodePlacement: validated.nodePlacement,
         });
@@ -437,6 +440,36 @@ export function registerInstanceHandlers(deps: {
           success: false,
           error: {
             code: 'TOGGLE_YOLO_MODE_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Toggle / set fast mode (preserves conversation context via respawn-resume)
+  ipcMain.handle(
+    IPC_CHANNELS.INSTANCE_TOGGLE_FAST_MODE,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(InstanceToggleFastModePayloadSchema, payload, 'INSTANCE_TOGGLE_FAST_MODE');
+        const instance = typeof validated.fastMode === 'boolean'
+          ? await instanceManager.setFastMode(validated.instanceId, validated.fastMode)
+          : await instanceManager.toggleFastMode(validated.instanceId);
+
+        return {
+          success: true,
+          data: instanceManager.serializeForIpc(instance)
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'TOGGLE_FAST_MODE_FAILED',
             message: (error as Error).message,
             timestamp: Date.now()
           }

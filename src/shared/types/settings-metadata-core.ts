@@ -9,6 +9,13 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'general',
   },
   {
+    key: 'defaultFastMode',
+    label: 'Fast mode by default',
+    description: 'New Claude/Codex instances start in fast mode (faster output via Opus fast mode / Codex priority tier). Requires a paid plan; instances auto-revert if it is unavailable.',
+    type: 'boolean',
+    category: 'general',
+  },
+  {
     key: 'defaultWorkingDirectory',
     label: 'Default working directory',
     description: 'Starting folder for new instances. Leave empty to use your home directory.',

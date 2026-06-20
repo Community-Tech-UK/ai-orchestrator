@@ -842,8 +842,8 @@ export class WorkerAgent extends EventEmitter {
 
     this.instanceManager.on(
       'instance:stateChange',
-      (instanceId: string, state: unknown) => {
-        this.notifier.sendStateChange(instanceId, state);
+      (instanceId: string, state: unknown, info?: unknown) => {
+        this.notifier.sendStateChange(instanceId, state, info);
       }
     );
 

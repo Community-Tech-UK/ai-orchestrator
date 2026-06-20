@@ -795,7 +795,9 @@ describe('InstanceCommunicationManager', () => {
     manager.addToOutputBuffer(instance, createMessage('assistant', 'Real adapter output'), {
       countAsProcessOutput: true,
     });
-    expect(onOutput).toHaveBeenCalledWith(instance.id);
+    // Content is forwarded as the evidence argument for the stuck-detector
+    // evidence-hash fence (P4.5).
+    expect(onOutput).toHaveBeenCalledWith(instance.id, 'Real adapter output');
   });
 
   it('drops stale output listeners from an older adapter generation', async () => {

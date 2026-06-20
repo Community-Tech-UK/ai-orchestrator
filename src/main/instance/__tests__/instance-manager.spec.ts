@@ -1476,6 +1476,31 @@ describe('InstanceManager', () => {
       expect(mockAdapterSendInput).toHaveBeenCalledWith('1) do this please', undefined);
     });
 
+    it('retains the original name on restore even when the prior transcript did not load (isRestoredSession)', async () => {
+      // Regression: an auto-titled session (isRenamed=false) restored with an
+      // empty/unloaded transcript would re-fire auto-title on the first
+      // follow-up message, overwriting the original name. The explicit
+      // isRestoredSession flag must suppress re-titling regardless of buffer
+      // contents.
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Original Restored Name',
+        isRenamed: false,
+        isRestoredSession: true,
+        // Prior transcript could not be loaded — buffer is empty, so the
+        // buffer-content heuristic alone would NOT suppress auto-title.
+        initialOutputBuffer: [],
+      });
+      await instance.readyPromise;
+
+      mockAutoTitleMaybeGenerate.mockClear();
+
+      await manager.sendInput(instance.id, 'Hmm thanks');
+
+      expect(mockAutoTitleMaybeGenerate).not.toHaveBeenCalled();
+      expect(instance.displayName).toBe('Original Restored Name');
+    });
+
     it('emits provider:normalized-event for the user message', async () => {
       const instance = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,

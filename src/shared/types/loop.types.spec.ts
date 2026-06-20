@@ -14,10 +14,10 @@ describe('defaultLoopConfig', () => {
     expect(config.caps.maxIterations).toBe(50);
   });
 
-  it('defaults the token cap to one million tokens', () => {
+  it('defaults the token cap to unbounded (cost/iteration caps govern)', () => {
     const config = defaultLoopConfig('/tmp/project', 'finish the backlog');
 
-    expect(config.caps.maxTokens).toBe(1_000_000);
+    expect(config.caps.maxTokens).toBeNull();
   });
 
   it('defaults the cost cap to 200 dollars', () => {

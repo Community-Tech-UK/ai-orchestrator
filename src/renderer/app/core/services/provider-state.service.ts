@@ -37,6 +37,14 @@ function isStringRecord(value: unknown): value is Record<string, string> {
   return true;
 }
 
+function isBooleanRecord(value: unknown): value is Record<string, boolean> {
+  if (!value || typeof value !== 'object') return false;
+  for (const v of Object.values(value as Record<string, unknown>)) {
+    if (typeof v !== 'boolean') return false;
+  }
+  return true;
+}
+
 function isLaunchMode(value: unknown): value is InstanceLaunchMode {
   return value === 'orchestrated' || value === 'interactive';
 }
@@ -63,6 +71,15 @@ export class ProviderStateService {
   private readonly _lastModelByProvider = signal<Record<string, string>>({});
   readonly lastModelByProvider = this._lastModelByProvider.asReadonly();
 
+  /**
+   * Last fast-mode preference the user set per provider. Lets a new instance of
+   * a provider start with that provider's remembered fast-mode choice instead of
+   * the single global default. Persisted to `AppSettings.defaultFastModeByProvider`;
+   * a missing entry falls back to `AppSettings.defaultFastMode`.
+   */
+  private readonly _fastModeByProvider = signal<Record<string, boolean>>({});
+  readonly fastModeByProvider = this._fastModeByProvider.asReadonly();
+
   private readonly _launchModeByProvider = signal<Record<string, InstanceLaunchMode>>(
     this.loadLaunchModeMemory(),
   );
@@ -82,6 +99,12 @@ export class ProviderStateService {
         ? { ...settings.defaultModelByProvider }
         : {};
       this._lastModelByProvider.set(providerByProvider);
+
+      this._fastModeByProvider.set(
+        isBooleanRecord(settings.defaultFastModeByProvider)
+          ? { ...settings.defaultFastModeByProvider }
+          : {},
+      );
 
       const provider = settings.defaultCli
         ? normalizeProvider(settings.defaultCli)
@@ -128,9 +151,14 @@ export class ProviderStateService {
         this.applySelection(this.selectedProvider(), change.value as string);
       } else if (change.key === 'defaultModelByProvider' && isStringRecord(change.value)) {
         this._lastModelByProvider.set({ ...change.value });
+      } else if (change.key === 'defaultFastModeByProvider' && isBooleanRecord(change.value)) {
+        this._fastModeByProvider.set({ ...change.value });
       } else if (change.settings) {
         if (isStringRecord(change.settings['defaultModelByProvider'])) {
           this._lastModelByProvider.set({ ...change.settings['defaultModelByProvider'] });
+        }
+        if (isBooleanRecord(change.settings['defaultFastModeByProvider'])) {
+          this._fastModeByProvider.set({ ...change.settings['defaultFastModeByProvider'] });
         }
         this.applySelection(
           change.settings['defaultCli']
@@ -208,6 +236,44 @@ export class ProviderStateService {
       }
       return next;
     });
+  }
+
+  /**
+   * Remembered fast-mode preference for a provider. Falls back to the global
+   * `defaultFastMode` when the provider has no per-provider entry. 'auto' has no
+   * concrete provider, so it returns the global default.
+   */
+  getFastModeForProvider(provider: ProviderType): boolean {
+    const globalDefault = this.settingsStore.settings().defaultFastMode ?? false;
+    if (provider === 'auto') {
+      return globalDefault;
+    }
+    const remembered = this._fastModeByProvider()[provider];
+    return typeof remembered === 'boolean' ? remembered : globalDefault;
+  }
+
+  /**
+   * Record a fast-mode choice against a specific provider (mirrors
+   * {@link rememberModelForProvider}). Called when the user toggles fast mode on
+   * an instance so future instances of that provider remember the choice.
+   */
+  rememberFastModeForProvider(provider: ProviderType, fastMode: boolean): void {
+    if (provider === 'auto') {
+      return;
+    }
+    this._fastModeByProvider.update((map) => {
+      if (map[provider] === fastMode) return map;
+      const next = { ...map, [provider]: fastMode };
+      if (this.initialized) {
+        this.settingsIpc.setSetting('defaultFastModeByProvider', next);
+      }
+      return next;
+    });
+  }
+
+  /** Fast-mode preference for a new instance of the currently-selected provider. */
+  getFastModeForCreation(): boolean {
+    return this.getFastModeForProvider(this.selectedProvider());
   }
 
   getLaunchModeForProvider(provider: ProviderType): InstanceLaunchMode {

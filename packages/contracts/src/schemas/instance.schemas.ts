@@ -35,6 +35,7 @@ export const InstanceCreatePayloadSchema = z.object({
   provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
   model: z.string().max(100).optional(),
   bareMode: z.boolean().optional(),
+  fastMode: z.boolean().optional(),
   forceNodeId: z.string().uuid().optional(),
   nodePlacement: NodePlacementPrefsSchema.optional(),
 });
@@ -50,6 +51,7 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
   provider: z.enum(['auto', 'claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']).optional(),
   model: z.string().max(100).optional(),
   bareMode: z.boolean().optional(),
+  fastMode: z.boolean().optional(),
   forceNodeId: z.string().uuid().optional(),
   nodePlacement: NodePlacementPrefsSchema.optional(),
 });
@@ -119,6 +121,14 @@ export const InstanceChangeModelPayloadSchema = z.object({
 });
 
 export type InstanceChangeModelPayload = z.infer<typeof InstanceChangeModelPayloadSchema>;
+
+export const InstanceToggleFastModePayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  /** Explicit target state. Omit to flip the current value. */
+  fastMode: z.boolean().optional(),
+});
+
+export type InstanceToggleFastModePayload = z.infer<typeof InstanceToggleFastModePayloadSchema>;
 
 // ============ Input Required Response ============
 

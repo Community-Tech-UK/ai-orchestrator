@@ -136,7 +136,7 @@ export class WorkerInstanceNotifier {
     });
   }
 
-  sendStateChange(instanceId: string, state: unknown): void {
+  sendStateChange(instanceId: string, state: unknown, info?: unknown): void {
     const seq = ++this.criticalSeq;
     this.sendCritical({
       jsonrpc: '2.0',
@@ -145,6 +145,7 @@ export class WorkerInstanceNotifier {
       params: {
         instanceId,
         state,
+        ...(info !== undefined ? { info } : {}),
         seq,
         token: this.options.getToken()
       }

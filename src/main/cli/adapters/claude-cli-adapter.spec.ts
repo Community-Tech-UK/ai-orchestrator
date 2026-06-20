@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { homedir, tmpdir } from 'os';
+import { join } from 'path';
 
 // Mock logger to avoid side-effects from logging stack during tests.
 vi.mock('../../logging/logger', () => ({
@@ -545,5 +547,58 @@ describe('ClaudeCliAdapter Windows inline-JSON --mcp-config materialization', ()
     setPlatform('win32');
     const adapter = new ClaudeCliAdapter({ mcpConfig: ['C:\\cfg\\mcp.json'] });
     expect(mcpConfigArg(adapter)).toBe('C:\\cfg\\mcp.json');
+  });
+});
+
+describe('ClaudeCliAdapter B7 transcript-verified resume', () => {
+  const buildArgsOf = (adapter: ClaudeCliAdapter): string[] =>
+    (adapter as unknown as {
+      buildArgs: (m: { role: 'user'; content: string }) => string[];
+    }).buildArgs({ role: 'user', content: '' });
+
+  const tmpRoots: string[] = [];
+  afterEach(() => {
+    for (const dir of tmpRoots.splice(0)) {
+      try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  });
+
+  it('falls back to --session-id when no transcript exists for the cwd (B7)', () => {
+    const adapter = new ClaudeCliAdapter({
+      workingDirectory: '/tmp/aio-b7-missing-xyz',
+      sessionId: 'sess-missing',
+      resume: true,
+    });
+    const args = buildArgsOf(adapter);
+    expect(args).toContain('--session-id');
+    expect(args).not.toContain('--resume');
+  });
+
+  it('uses --resume when the transcript exists under the cwd-encoded project dir (B7)', () => {
+    // Build the real transcript Claude would scan, under a throwaway cwd.
+    const cwd = join(tmpdir(), `aio-b7-${Date.now()}-${Math.floor(Math.random() * 1e6)}`);
+    const sessionId = `sess-${Math.floor(Math.random() * 1e9)}`;
+    const encoded = cwd.replace(/[^a-zA-Z0-9]/g, '-');
+    const projectDir = join(homedir(), '.claude', 'projects', encoded);
+    tmpRoots.push(projectDir);
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(join(projectDir, `${sessionId}.jsonl`), '{"type":"summary"}\n');
+
+    const adapter = new ClaudeCliAdapter({ workingDirectory: cwd, sessionId, resume: true });
+    const args = buildArgsOf(adapter);
+    expect(args).toContain('--resume');
+    expect(args).toContain(sessionId);
+    expect(args).not.toContain('--session-id');
+  });
+
+  it('reports a fresh-fallback resume proof when the transcript is missing (B7)', () => {
+    const adapter = new ClaudeCliAdapter({
+      workingDirectory: '/tmp/aio-b7-missing-proof',
+      sessionId: 'sess-x',
+      resume: true,
+    });
+    // Drive the same decision spawn() uses without launching a process.
+    const decided = (adapter as unknown as { shouldUseNativeResume: () => boolean }).shouldUseNativeResume();
+    expect(decided).toBe(false);
   });
 });

@@ -65,6 +65,7 @@ const modelIdSchema = z.string().max(512);
 const shortStringSchema = z.string().min(1).max(128);
 const settingStringSchema = z.string().max(4096);
 const modelByProviderSchema = z.record(shortStringSchema, modelIdSchema);
+const fastModeByProviderSchema = z.record(shortStringSchema, z.boolean());
 const auxiliarySlotSchema = z.object({
   enabled: z.boolean(),
   provider: auxiliaryProviderSchema.optional(),
@@ -117,6 +118,8 @@ export const SETTINGS_TOOL_POLICY = {
   defaultCli: open(cliSchema),
   defaultModel: open(modelIdSchema),
   defaultModelByProvider: open(modelByProviderSchema),
+  defaultFastMode: open(z.boolean()),
+  defaultFastModeByProvider: open(fastModeByProviderSchema),
   theme: open(themeSchema),
   maxChildrenPerParent: open(numberSettingSchema('maxChildrenPerParent')),
   maxTotalInstances: open(numberSettingSchema('maxTotalInstances')),

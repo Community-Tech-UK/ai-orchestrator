@@ -93,6 +93,55 @@ describe('StuckProcessDetector', () => {
     expect(softHandler).not.toHaveBeenCalled();
   });
 
+  describe('evidence-hash fence (P4.5/D5)', () => {
+    it('new content resets the stuck clock', () => {
+      const softHandler = vi.fn();
+      detector.on('process:suspect-stuck', softHandler);
+      detector.startTracking('inst-1');
+      detector.updateState('inst-1', 'generating');
+      vi.advanceTimersByTime(50_000);
+      detector.recordOutput('inst-1', 'first chunk');
+      vi.advanceTimersByTime(50_000);
+      detector.recordOutput('inst-1', 'second different chunk');
+      // Each distinct output reset the 60s clock, so 50s after the last one is fine.
+      vi.advanceTimersByTime(50_000);
+      expect(softHandler).not.toHaveBeenCalled();
+    });
+
+    it('identical repeated content does NOT reset the clock (looping output still flagged)', () => {
+      const softHandler = vi.fn();
+      detector.on('process:suspect-stuck', softHandler);
+      detector.startTracking('inst-1');
+      detector.updateState('inst-1', 'generating');
+      // Seed the evidence baseline.
+      detector.recordOutput('inst-1', 'LOOP');
+      // Repeated identical output every 20s — liveness, not progress. Must not
+      // perpetually defer the soft warning (60s generating soft threshold).
+      vi.advanceTimersByTime(20_000);
+      detector.recordOutput('inst-1', 'LOOP');
+      vi.advanceTimersByTime(20_000);
+      detector.recordOutput('inst-1', 'LOOP');
+      vi.advanceTimersByTime(30_000); // total ~70s since baseline, all identical
+      expect(softHandler).toHaveBeenCalledWith(
+        expect.objectContaining({ instanceId: 'inst-1', state: 'generating' })
+      );
+    });
+
+    it('state change resets the evidence baseline', () => {
+      const softHandler = vi.fn();
+      detector.on('process:suspect-stuck', softHandler);
+      detector.startTracking('inst-1');
+      detector.updateState('inst-1', 'generating');
+      detector.recordOutput('inst-1', 'SAME');
+      detector.updateState('inst-1', 'generating'); // baseline cleared
+      // 'SAME' again now counts as new evidence (baseline was reset) → resets clock.
+      vi.advanceTimersByTime(40_000);
+      detector.recordOutput('inst-1', 'SAME');
+      vi.advanceTimersByTime(40_000);
+      expect(softHandler).not.toHaveBeenCalled();
+    });
+  });
+
   it('stopTracking removes instance from detection', () => {
     const handler = vi.fn();
     detector.on('process:stuck', handler);

@@ -1016,6 +1016,16 @@ export class InstanceCommunicationManager extends EventEmitter {
             instanceId,
             sessionId: instance.sessionId,
           });
+          // B4/C1: Persist blacklist immediately so a crash cannot replay the
+          // doomed session ID. writeThroughIdentity enqueues + awaits a disk save.
+          void getSessionContinuityManagerIfInitialized()?.writeThroughIdentity(instanceId, {
+            nativeResumeFailedAt: Date.now(),
+          }).catch((err: unknown) => {
+            logger.warn('writeThroughIdentity failed after blacklist set (output)', {
+              instanceId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
         }
 
         // Sync CLI-assigned session ID back to instance for accurate history archiving.
@@ -1584,6 +1594,16 @@ export class InstanceCommunicationManager extends EventEmitter {
           instanceId,
           sessionId: instance.sessionId,
         });
+        // B4/C1: Persist blacklist immediately so a crash cannot replay the
+        // doomed session ID.
+        void getSessionContinuityManagerIfInitialized()?.writeThroughIdentity(instanceId, {
+          nativeResumeFailedAt: Date.now(),
+        }).catch((err: unknown) => {
+          logger.warn('writeThroughIdentity failed after blacklist set (error)', {
+            instanceId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
       }
 
       // Check if this is a context overflow error
@@ -1983,7 +2003,9 @@ export class InstanceCommunicationManager extends EventEmitter {
     options?: { countAsProcessOutput?: boolean }
   ): void {
     if (options?.countAsProcessOutput) {
-      this.deps.onOutput?.(instance.id);
+      // Pass content so the stuck detector's evidence-hash fence (P4.5) can tell
+      // genuine progress from repeated identical output.
+      this.deps.onOutput?.(instance.id, message.content);
     }
     // Suppress repeated identical error messages (e.g., "Prompt is too long" spam)
     if (message.type === 'error') {
