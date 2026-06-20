@@ -33,7 +33,14 @@ export {
 
 export const DEFAULT_LOOP_MAX_WALL_TIME_MS = 50 * 60 * 60 * 1000;
 export const DEFAULT_LOOP_MAX_ITERATIONS = 50;
-export const DEFAULT_LOOP_MAX_TOKENS = 1_000_000;
+/**
+ * Total token budget across the whole loop. `null` = unbounded so the cost,
+ * iteration, and wall-time caps govern instead. Previously 1,000,000, which
+ * silently tripped `cap=tokens` after a single iteration on 1M-context models
+ * (one deep read+implement turn can exceed 1M cumulative tokens while costing
+ * only a few dollars). The cap is still configurable per-run via `caps.maxTokens`.
+ */
+export const DEFAULT_LOOP_MAX_TOKENS: number | null = null;
 export const DEFAULT_LOOP_MAX_COST_CENTS = 20_000;
 
 /** What "fresh eyes" looks like at REVIEW stage. */
@@ -508,6 +515,21 @@ export interface LoopConfig {
    * See `NextObjectivePlanner` for the invariant guarantees.
    */
   nextObjectivePlanner?: NextObjectivePlanner;
+  /**
+   * When true, startLoop acquires a per-session git worktree and sets
+   * `executionCwd` automatically. Each loop session runs in its own isolated
+   * working directory; `workspaceCwd` stays pinned to the repo root so durable
+   * state (`.aio-loop-state`, `.aio-loop-control`, loop memory) is never reaped.
+   * Default: false (backward-compatible).
+   */
+  isolateLoopWorkspaces?: boolean;
+  /**
+   * The directory the CLI child is spawned in. When `isolateLoopWorkspaces` is
+   * true this is set to the per-session worktree path by the coordinator;
+   * callers may also set it directly. Defaults to `workspaceCwd` when absent.
+   * Serialized to the DB so recovery can rebuild the full config.
+   */
+  executionCwd?: string;
 }
 
 /** Default config factory. */

@@ -65,6 +65,10 @@ export interface UnifiedSpawnOptions {
   outputSchema?: Record<string, unknown>;
   /** Reasoning effort level for the model. Claude also accepts session-only max/workflow. */
   reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'workflow';
+  /** Fast mode: faster output at some capability cost. Claude → `fastMode`
+   *  settings key (Opus-only); Codex → `priority` service tier. Ignored by
+   *  providers that don't support it. */
+  fastMode?: boolean;
   /** Minimal mode (Claude CLI only): skip hooks, LSP, plugins for faster startup.
    *  Requires explicit API key — OAuth/keychain auth is skipped. Defaults to false. */
   bare?: boolean;

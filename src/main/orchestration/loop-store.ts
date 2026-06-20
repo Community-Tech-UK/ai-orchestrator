@@ -68,6 +68,10 @@ interface LoopRunRow {
   restart_failure_count: number;
   /** FU-2: true (1) when the loop was started with no verifyCommand. */
   manual_review_only: number;
+  /** P3: per-session git worktree path (null for pre-isolation runs). */
+  worktree_path: string | null;
+  /** P3: git branch name for this session's worktree (null for pre-isolation runs). */
+  branch_name: string | null;
 }
 
 /** FU-3: when restart_failure_count reaches this many consecutive
@@ -241,6 +245,21 @@ export class LoopStore {
     );
     for (const intent of state.terminalIntentHistory ?? []) {
       this.upsertTerminalIntent(intent);
+    }
+  }
+
+  /**
+   * P3: Persist the worktree path and branch name for a loop run. Called once
+   * after the worktree is acquired so boot-reconcile can adopt or reap orphaned
+   * worktrees after a crash. Best-effort: missing rows are silently ignored.
+   */
+  updateWorktreeInfo(loopRunId: string, worktreePath: string, branchName: string): void {
+    try {
+      this.db.prepare(
+        `UPDATE loop_runs SET worktree_path = ?, branch_name = ? WHERE id = ?`
+      ).run(worktreePath, branchName, loopRunId);
+    } catch (err) {
+      logger.warn('LoopStore.updateWorktreeInfo: failed', { loopRunId, error: String(err) });
     }
   }
 

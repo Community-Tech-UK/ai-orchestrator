@@ -94,6 +94,12 @@ export interface InputRequiredEvent {
   requestId: string;
 }
 
+export interface FastToggledEvent {
+  instanceId: string;
+  fastMode: boolean;
+  reason: 'user' | 'unavailable';
+}
+
 @Injectable({ providedIn: 'root' })
 export class IpcEventBusService {
   private instanceEvents = inject(InstanceEventsService);
@@ -109,6 +115,10 @@ export class IpcEventBusService {
 
   readonly instanceStateUpdate$ = this.createStream<StateUpdate>((next) =>
     this.instanceIpc.onInstanceStateUpdate((data) => next(data as StateUpdate)),
+  );
+
+  readonly fastToggled$ = this.createStream<FastToggledEvent>((next) =>
+    this.instanceIpc.onFastToggled((data) => next(data)),
   );
 
   readonly instanceOutput$ = this.instanceEvents.outputEvents$.pipe(

@@ -162,6 +162,8 @@ import type { LoopCheckpoint } from './loop-checkpoint';
 import type { LongRunResourceDecision } from '../runtime/long-run-resource-governor';
 import { LOOP_TEXT_FILE_MAX_BYTES, readUtf8FileHeadSync } from './bounded-file-read';
 import { createAuxiliaryNextObjectivePlanner } from './loop-next-objective-planner';
+import { getWorktreeManager } from '../workspace/git/worktree-manager';
+import { getLoopStore } from './loop-store';
 
 export { computeWorkHash } from './loop-work-hash';
 export type {
@@ -231,6 +233,11 @@ export class LoopCoordinator extends EventEmitter {
    */
   private terminalCleanupPromises = new Map<string, Promise<void>>();
   private resourceGovernor: LoopResourceGovernor | null = null;
+  /**
+   * P2: maps loopRunId → worktree session id. Populated when `isolateLoopWorkspaces`
+   * is true, cleared in terminate(). Used for harvest+cleanup on terminal.
+   */
+  private worktreeSessionIds = new Map<string, string>();
 
   private progressDetector = new LoopProgressDetector();
   private completionDetector = new LoopCompletionDetector();
@@ -716,6 +723,39 @@ export class LoopCoordinator extends EventEmitter {
     const id = `loop-${Date.now()}-${randomUUID().slice(0, 8)}`;
     const runtimeNextObjectivePlanner = nextObjectivePlanner
       ?? (config.nextObjectivePlanning?.enabled ? createAuxiliaryNextObjectivePlanner() : undefined);
+
+    // P2: Acquire a per-session worktree when isolation is requested.
+    // The worktree path becomes executionCwd (CLI spawn dir); workspaceCwd
+    // stays the repo root so durable state is never reaped with the worktree.
+    if (config.isolateLoopWorkspaces && !config.executionCwd) {
+      try {
+        const worktreeManager = getWorktreeManager();
+        const worktreeSession = await worktreeManager.createWorktree(
+          id,
+          config.initialPrompt.slice(0, 60),
+          { repoRoot: config.workspaceCwd, skipInstall: true, taskType: 'feature' },
+        );
+        config.executionCwd = worktreeSession.worktreePath;
+        this.worktreeSessionIds.set(id, worktreeSession.id);
+        // P3: persist worktree info for boot-reconcile (best-effort).
+        try {
+          getLoopStore().updateWorktreeInfo(id, worktreeSession.worktreePath, worktreeSession.branchName);
+        } catch {
+          /* intentionally ignored — persistence is best-effort here */
+        }
+        logger.info('Loop start: acquired worktree', {
+          loopRunId: id,
+          worktreePath: worktreeSession.worktreePath,
+          branch: worktreeSession.branchName,
+        });
+      } catch (err) {
+        logger.warn('Loop start: failed to acquire worktree — running in workspace root', {
+          loopRunId: id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     const loopControl = await prepareLoopControl(
       config.workspaceCwd,
       id,
@@ -917,6 +957,23 @@ export class LoopCoordinator extends EventEmitter {
     }
     if (state.status !== 'paused' && state.status !== 'provider-limit') {
       throw new Error(`Cannot restore non-paused loop checkpoint: ${state.status}`);
+    }
+
+    // P2 recovery guard: if the restored config has an executionCwd pointing at
+    // a worktree that no longer exists (crash + manual cleanup), fall back to
+    // workspaceCwd so the loop continues to run rather than failing on every
+    // spawn. A future boot-reconcile (P3) will re-acquire a worktree instead.
+    if (state.config.executionCwd && state.config.executionCwd !== state.config.workspaceCwd) {
+      try {
+        const { stat } = await import('fs/promises');
+        await stat(state.config.executionCwd);
+      } catch {
+        logger.warn('Loop restore: executionCwd worktree missing — falling back to workspaceCwd', {
+          id: state.id,
+          missingPath: state.config.executionCwd,
+        });
+        state.config.executionCwd = undefined;
+      }
     }
 
     const loopControl = await prepareLoopControl(
@@ -1509,9 +1566,13 @@ export class LoopCoordinator extends EventEmitter {
 
         // Never retry over a filed terminal intent (block/complete/fail) — hand
         // off to the normal terminal-intent flow. Also stop if the loop was
-        // cancelled/terminated mid-attempt.
+        // cancelled/terminated/paused mid-attempt.
         if (state.terminalIntentPending) break;
         if (this.isTerminalStatus(state.status) || this.cancelFlags.get(state.id)) break;
+        // D6: if the parent instance was interrupted (pauseLoop() was called inside
+        // the invoker), status flips to 'paused' — exit the retry inner loop so
+        // runLoop's top-of-iteration pause check can wait for a resume signal.
+        if (state.status === 'paused') break;
 
         // Circuit-breaker-OPEN is a transient, self-healing rejection — NOT a
         // degraded iteration and NOT a fatal error. The breaker reopens to
@@ -1569,6 +1630,10 @@ export class LoopCoordinator extends EventEmitter {
       if (!childResult) {
         if (state.terminalIntentPending) {
           childResult = this.syntheticChildResultFromTerminalIntent(state.terminalIntentPending, invocationError);
+        } else if (state.status === 'paused') {
+          // D6: inner retry loop exited because the parent instance was interrupted
+          // (pauseLoop() was called). Propagate to runLoop's top-of-iteration pause check.
+          continue;
         } else {
           this.terminate(state, 'error', invocationError ?? 'iteration invocation failed');
           return;
@@ -2576,6 +2641,7 @@ export class LoopCoordinator extends EventEmitter {
         provider: state.config.provider,
         model: this.downshiftModelByLoop.get(state.id),
         workspaceCwd: state.config.workspaceCwd,
+        executionCwd: state.config.executionCwd,
         stage,
         seq: state.totalIterations,
         config: state.config,
@@ -2869,6 +2935,32 @@ export class LoopCoordinator extends EventEmitter {
     // Best-effort cleanup of any attachment files we wrote into the workspace.
     void cleanupLoopAttachments(state.config.workspaceCwd, state.id);
     void cleanupLoopControl(loopControl);
+    // P2/P3: harvest uncommitted session output then reap the worktree.
+    // Fire-and-forget (best-effort): worktree cleanup never blocks termination.
+    const worktreeSessionId = this.worktreeSessionIds.get(state.id);
+    this.worktreeSessionIds.delete(state.id);
+    if (worktreeSessionId) {
+      void (async () => {
+        try {
+          const worktreeManager = getWorktreeManager();
+          const isSuccess = status === 'completed' || status === 'completed-needs-review';
+          if (isSuccess) {
+            await worktreeManager.harvestWorktree(worktreeSessionId);
+          } else {
+            // Non-success: mark abandoned so cleanupWorktree won't block on dirty tree.
+            await worktreeManager.abandonWorktree(worktreeSessionId, `loop-${status}`);
+          }
+          await worktreeManager.cleanupWorktree(worktreeSessionId, { force: true });
+          logger.info('Loop terminate: worktree cleaned up', { loopRunId: state.id, worktreeSessionId, status });
+        } catch (err) {
+          logger.warn('Loop terminate: worktree cleanup failed (best-effort)', {
+            loopRunId: state.id,
+            worktreeSessionId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      })();
+    }
     // A4: drop this run's evidence journal so the table stays compact. Evidence
     // is per-loop-run and only consumed within the run (contradiction
     // detection); a terminated run never resumes under the same id. Fail-soft.

@@ -2,6 +2,7 @@ import type {
   ContextUsage,
   Instance,
   InstanceStatus,
+  InstanceWaitReason,
   OutputMessage,
   SessionDiffStats,
 } from '../../shared/types/instance.types';
@@ -45,6 +46,7 @@ export interface CommunicationDependencies {
     },
     activityState?: import('../../shared/types/activity.types').ActivityState,
     currentModel?: string,
+    waitReason?: InstanceWaitReason | null,
   ) => void;
   getDiffTracker?: (id: string) => SessionDiffTracker | undefined;
   processOrchestrationOutput: (instanceId: string, content: string) => void;
@@ -56,7 +58,7 @@ export interface CommunicationDependencies {
   ingestToUnifiedMemory: (instance: Instance, message: OutputMessage) => void;
   compactContext?: (instanceId: string) => Promise<void>;
   refreshAdapterRuntimeConfig?: (instanceId: string) => Promise<void>;
-  onOutput?: (instanceId: string) => void;
+  onOutput?: (instanceId: string, content?: string) => void;
   onToolStateChange?: (instanceId: string, state: 'generating' | 'tool_executing' | 'idle') => void;
   createSnapshot?: (instanceId: string, name: string, description: string | undefined, trigger: 'checkpoint' | 'auto') => void;
   getBudgetTracker?: (instanceId: string) => TokenBudgetTracker | undefined;

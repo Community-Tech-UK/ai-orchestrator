@@ -91,6 +91,9 @@ export function buildInstanceRecord(
     ...(config.modelOverride?.trim()
       ? { currentModel: config.modelOverride.trim() }
       : {}),
+    ...(typeof config.fastModeOverride === 'boolean'
+      ? { fastMode: config.fastModeOverride }
+      : {}),
     executionLocation: { type: 'local' },
     diffStats: undefined,
 

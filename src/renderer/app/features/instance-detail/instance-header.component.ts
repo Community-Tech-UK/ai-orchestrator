@@ -56,6 +56,7 @@ export class InstanceHeaderComponent implements OnInit {
   isEditingName = input(false);
   isChangingMode = input(false);
   isTogglingYolo = input(false);
+  isTogglingFastMode = input(false);
   showModelDropdown = input(false);
   currentModel = input<string | undefined>(undefined);
   models = input<ModelDisplayInfo[]>([]);
@@ -74,6 +75,11 @@ export class InstanceHeaderComponent implements OnInit {
   );
 
   // Skills and hooks counts
+  /** Fast mode is only meaningful for Claude (Opus) and Codex (priority tier). */
+  readonly supportsFastMode = computed(() => {
+    const provider = this.instance().provider;
+    return provider === 'claude' || provider === 'codex';
+  });
   activeSkillCount = computed(() => this.skillStore.activeSkillCount());
   enabledHookCount = computed(() => this.hookStore.enabledHookCount());
   showOpenMenu = signal(false);
@@ -88,6 +94,65 @@ export class InstanceHeaderComponent implements OnInit {
       || status === 'interrupting'
       || status === 'cancelling'
       || status === 'interrupt-escalating';
+  });
+
+  readonly waitReasonLabel = computed(() => {
+    const wr = this.instance().waitReason;
+    if (!wr) return null;
+    switch (wr.kind) {
+      case 'respawning':
+        return wr.strategy === 'native-resume' ? 'Resuming session…' : 'Restarting session…';
+      case 'interrupt-ack':
+        return 'Waiting for interrupt…';
+      case 'backoff': {
+        const secsLeft = Math.max(0, Math.round((wr.retryAt - Date.now()) / 1000));
+        return secsLeft > 0 ? `Backing off — retry in ${secsLeft}s` : 'Retrying…';
+      }
+      case 'quota-park': {
+        const secsLeft = Math.max(0, Math.round((wr.resumeAt - Date.now()) / 1000));
+        const minsLeft = Math.ceil(secsLeft / 60);
+        return secsLeft > 60 ? `Provider limit — resumes in ${minsLeft}m` : secsLeft > 0 ? `Provider limit — resumes in ${secsLeft}s` : 'Resuming from provider limit…';
+      }
+      case 'provider-slot':
+        return `Waiting for ${wr.provider} slot…`;
+      case 'resume-proof':
+        return 'Verifying session resume…';
+      case 'remote-heartbeat':
+        return 'Remote worker stale…';
+      case 'mutex':
+        return `Waiting for lock (${wr.operation})…`;
+      case 'terminating':
+        return wr.force ? 'Force terminating…' : 'Terminating…';
+      default:
+        return null;
+    }
+  });
+
+  readonly waitReasonDetail = computed(() => {
+    const wr = this.instance().waitReason;
+    if (!wr) return '';
+    switch (wr.kind) {
+      case 'respawning':
+        return `Strategy: ${wr.strategy}`;
+      case 'interrupt-ack':
+        return `Attempt ${wr.attempt}`;
+      case 'backoff':
+        return `Attempt ${wr.attempt}, retry at ${new Date(wr.retryAt).toLocaleTimeString()}`;
+      case 'quota-park':
+        return `Provider: ${wr.provider}, resumes at ${new Date(wr.resumeAt).toLocaleTimeString()}`;
+      case 'provider-slot':
+        return `Provider: ${wr.provider}`;
+      case 'resume-proof':
+        return wr.sessionId ? `Session: ${wr.sessionId.slice(0, 8)}…` : `Provider: ${wr.provider}`;
+      case 'remote-heartbeat':
+        return `Node: ${wr.nodeId}, stale for ${Math.round(wr.staleForMs / 1000)}s`;
+      case 'mutex':
+        return wr.owner ? `Owner: ${wr.owner}` : wr.operation;
+      case 'terminating':
+        return wr.force ? 'Force kill' : 'Graceful shutdown';
+      default:
+        return '';
+    }
   });
 
   readonly isRuntimeLocked = computed(() => {
@@ -189,6 +254,7 @@ export class InstanceHeaderComponent implements OnInit {
   saveName = output<string>();
   cycleAgentMode = output<void>();
   toggleYolo = output<void>();
+  toggleFastMode = output<void>();
   selectFolder = output<string>();
   interrupt = output<void>();
   toggleModelDropdown = output<void>();

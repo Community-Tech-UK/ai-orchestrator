@@ -3,7 +3,8 @@ export interface LoopHardCaps {
   maxIterations: number | null;
   /** Wall-time budget in milliseconds. Default 50h. */
   maxWallTimeMs: number;
-  /** Token budget across the whole loop. Null means unbounded. Default 1,000,000. */
+  /** Token budget across the whole loop. Null means unbounded (the default) so
+   *  the cost/iteration/wall-time caps govern instead. */
   maxTokens: number | null;
   /**
    * Cost cap in cents. Null means unbounded. Default 20,000 ($200), matching

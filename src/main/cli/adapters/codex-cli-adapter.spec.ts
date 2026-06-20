@@ -741,6 +741,52 @@ Hey! I'm here. What do you want to tackle?`;
         turnId: 'turn-1',
       });
     });
+
+    it('treats interrupting an already-ended turn as a no-op without sending the RPC (P3.3)', async () => {
+      const adapter = new CodexCliAdapter();
+      const request = vi.fn().mockResolvedValue({ success: true });
+      (adapter as unknown as { appServerClient: { request: typeof request } }).appServerClient = { request };
+      // The turn we want to interrupt is no longer current: it ended and a new
+      // turn started.
+      (adapter as unknown as { turnInProgress: boolean }).turnInProgress = true;
+      (adapter as unknown as { currentTurnId: string }).currentTurnId = 'turn-2';
+
+      const interruptFn = (adapter as unknown as {
+        interruptActiveAppServerTurn(
+          threadId: string,
+          turnId: string,
+          completion: Promise<unknown> | null,
+        ): Promise<{ status: string }>;
+      }).interruptActiveAppServerTurn.bind(adapter);
+
+      const result = await interruptFn('thread-1', 'turn-1', null);
+      expect(result.status).toBe('unknown');
+      expect(request).not.toHaveBeenCalled();
+    });
+
+    it('classifies a turn/interrupt rejection as no-op when the turn moved on (P3.3)', async () => {
+      const adapter = new CodexCliAdapter();
+      // RPC rejects (turn-id mismatch) and by the time it resolves the turn has ended.
+      const request = vi.fn().mockImplementation(async () => {
+        (adapter as unknown as { turnInProgress: boolean }).turnInProgress = false;
+        return { success: false };
+      });
+      (adapter as unknown as { appServerClient: { request: typeof request } }).appServerClient = { request };
+      (adapter as unknown as { turnInProgress: boolean }).turnInProgress = true;
+      (adapter as unknown as { currentTurnId: string }).currentTurnId = 'turn-1';
+
+      const interruptFn = (adapter as unknown as {
+        interruptActiveAppServerTurn(
+          threadId: string,
+          turnId: string,
+          completion: Promise<unknown> | null,
+        ): Promise<{ status: string }>;
+      }).interruptActiveAppServerTurn.bind(adapter);
+
+      const result = await interruptFn('thread-1', 'turn-1', null);
+      expect(request).toHaveBeenCalled();
+      expect(result.status).toBe('unknown');
+    });
   });
 
   describe('exec-mode liveness heartbeat', () => {

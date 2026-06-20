@@ -8,7 +8,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const LOOP_SCHEMA_VERSION = 8;
+export const LOOP_SCHEMA_VERSION = 9;
 
 interface LoopMigration {
   version: number;
@@ -231,6 +231,17 @@ const MIGRATIONS: LoopMigration[] = [
     name: '008_loop_outstanding_user_response',
     up: `
       ALTER TABLE loop_outstanding_items ADD COLUMN user_response TEXT;
+    `,
+  },
+  {
+    // P3 worktree isolation registry: record the per-session worktree path and
+    // branch name so boot-reconcile can adopt or reap orphaned worktrees after a
+    // crash. Both columns are nullable — pre-isolation runs have no worktree.
+    version: 9,
+    name: '009_loop_runs_worktree_columns',
+    up: `
+      ALTER TABLE loop_runs ADD COLUMN worktree_path TEXT;
+      ALTER TABLE loop_runs ADD COLUMN branch_name TEXT;
     `,
   },
 ];

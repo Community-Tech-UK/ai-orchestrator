@@ -1,9 +1,16 @@
 /**
  * WorktreeManager - Manages git worktrees for parallel agent development
- * Based on validated patterns from CodeRabbit git-worktree-runner, Nx, incident.io
+ *
+ * Hardened in P4: all git calls use execFile (not exec/shell), cleanupWorktree
+ * refuses dirty trees, harvestWorktree captures uncommitted session output,
+ * the 48h stale age signal is removed (reap on truth, never on time), and
+ * abandoned branch deletion is suppressed so the user can review the work.
+ * P5: write ops are serialized through GitWriteQueue to prevent .git lock races.
+ * P6: gc.auto is set to 0 on worktree creation to prevent auto-gc from racing
+ * concurrent worktree git reads.
  */
 
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -22,10 +29,31 @@ import {
   sanitizeBranchName,
 } from '../../../shared/types/worktree.types';
 import { getLogger } from '../../logging/logger';
+import { getGitWriteQueue } from './git-write-queue';
 
 const logger = getLogger('WorktreeManager');
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+/** Run a git command safely — array args, no shell interpolation. */
+async function gitExec(args: string[], cwd: string, timeoutMs = 30_000): Promise<string> {
+  const { stdout } = await execFileAsync('git', args, {
+    cwd,
+    encoding: 'utf-8',
+    maxBuffer: 10 * 1024 * 1024,
+    timeout: timeoutMs,
+  });
+  return typeof stdout === 'string' ? stdout.trim() : String(stdout).trim();
+}
+
+/** Run git and return stdout, empty string on failure. */
+async function gitExecSafe(args: string[], cwd: string): Promise<string> {
+  try {
+    return await gitExec(args, cwd);
+  } catch {
+    return '';
+  }
+}
 
 export class WorktreeManager extends EventEmitter {
   private static instance: WorktreeManager | null = null;
@@ -83,11 +111,10 @@ export class WorktreeManager extends EventEmitter {
       );
     }
 
-    const repoRoot = options?.repoRoot || (await this.getRepoRoot());
-    const baseBranch = options?.baseBranch || (await this.getCurrentBranch(repoRoot));
-    const baseCommit = await this.getHeadCommit(repoRoot);
+    const repoRoot = options?.repoRoot || (await gitExec(['rev-parse', '--show-toplevel'], process.cwd()));
+    const baseBranch = options?.baseBranch || (await gitExec(['branch', '--show-current'], repoRoot));
+    const baseCommit = await gitExec(['rev-parse', 'HEAD'], repoRoot);
 
-    // Generate unique branch name (validated pattern from industry)
     const timestamp = Date.now();
     const sanitizedDesc = sanitizeBranchName(taskDescription);
     const branchName = options?.branchName || `${this.config.prefix}${sanitizedDesc}-${timestamp.toString(36)}`;
@@ -116,19 +143,21 @@ export class WorktreeManager extends EventEmitter {
     this.emit('worktree:creating', session);
 
     try {
-      // Create worktree directory
       await fs.mkdir(path.dirname(worktreePath), { recursive: true });
 
-      // Create new branch and worktree
-      await execAsync(`git worktree add -b "${branchName}" "${worktreePath}" "${baseBranch}"`, { cwd: repoRoot });
+      await getGitWriteQueue().enqueue('worktree-add', () =>
+        gitExec(['worktree', 'add', '-b', branchName, worktreePath, baseBranch], repoRoot)
+      );
 
-      // Copy config files using glob patterns (CodeRabbit pattern)
+      // P6: suppress auto-gc so agent git reads can't trigger an unserialized gc
+      // on the shared .git. Best-effort; failure doesn't block worktree creation.
+      void gitExecSafe(['config', 'gc.auto', '0'], worktreePath);
+
       await this.copyConfigFiles(repoRoot, worktreePath);
 
       session.status = 'installing';
       this.emit('worktree:installing', session);
 
-      // Install dependencies if configured
       if (this.config.installDeps && !options?.skipInstall) {
         await this.installDependencies(worktreePath);
       }
@@ -142,9 +171,8 @@ export class WorktreeManager extends EventEmitter {
       session.status = 'abandoned';
       this.emit('worktree:error', { session, error });
 
-      // Cleanup failed worktree
       try {
-        await this.cleanupWorktree(session.id);
+        await this.cleanupWorktree(session.id, { force: true });
       } catch {
         /* intentionally ignored: cleanup errors should not mask the original error */
       }
@@ -156,11 +184,9 @@ export class WorktreeManager extends EventEmitter {
   private async copyConfigFiles(repoRoot: string, worktreePath: string): Promise<void> {
     for (const pattern of this.config.copyInclude) {
       try {
-        // Use Node.js built-in fs.glob (Node 22+)
         const matches = await fs.glob(pattern, {
           cwd: repoRoot,
           exclude: (p: string) => this.config.copyExclude.some((excl) => {
-            // Simple glob-like matching for exclusions
             if (excl.endsWith('/**')) {
               return p.startsWith(excl.slice(0, -3));
             }
@@ -172,7 +198,6 @@ export class WorktreeManager extends EventEmitter {
           const srcPath = path.join(repoRoot, match);
           const destPath = path.join(worktreePath, match);
 
-          // Ensure directory exists
           await fs.mkdir(path.dirname(destPath), { recursive: true });
 
           try {
@@ -192,14 +217,18 @@ export class WorktreeManager extends EventEmitter {
 
     try {
       await fs.access(packageJsonPath);
+      // installCommand is a user-configured shell string; keep exec here but
+      // note this is not injectable because it is a static admin-set value
+      // (not derived from user/agent input). P6 will replace with APFS clonefile.
+      const { exec } = await import('child_process');
+      const execAsync = promisify(exec);
       await execAsync(this.config.installCommand!, {
         cwd: worktreePath,
-        timeout: 300000, // 5 minute timeout
+        timeout: 300_000,
       });
     } catch (error: unknown) {
       const err = error as { code?: string; message?: string };
       if (err.code !== 'ENOENT') {
-        // Log but don't fail - installation issues shouldn't block worktree
         logger.warn('Dependency installation warning', { worktreePath, message: err.message });
       }
     }
@@ -209,7 +238,6 @@ export class WorktreeManager extends EventEmitter {
     const session = this.sessions.get(worktreeId);
     if (!session) throw new Error(`Worktree not found: ${worktreeId}`);
 
-    // Get final stats
     const stats = await this.getWorktreeStats(session);
     session.commits = stats.commits;
     session.filesChanged = stats.filesChanged;
@@ -222,21 +250,62 @@ export class WorktreeManager extends EventEmitter {
     return session;
   }
 
-  // ============ Cross-Worktree Conflict Detection (Critical for Parallel Agents) ============
+  /**
+   * Harvest uncommitted changes from a worktree into a commit on its branch.
+   * This captures agent output before reap — agents follow AGENTS.md which says
+   * "NEVER commit" so the orchestrator commits on their behalf.
+   */
+  async harvestWorktree(worktreeId: string): Promise<{ committed: boolean; hash?: string }> {
+    const session = this.sessions.get(worktreeId);
+    if (!session) throw new Error(`Worktree not found: ${worktreeId}`);
+
+    try {
+      const status = await gitExecSafe(['status', '--porcelain'], session.worktreePath);
+      if (!status.trim()) {
+        return { committed: false };
+      }
+
+      const result = await getGitWriteQueue().enqueue('harvest', async () => {
+        await gitExec(['add', '-A'], session.worktreePath);
+        const msg = `Harvest: orchestrator captured session output\n\nWorktree: ${session.branchName}\nTask: ${session.taskDescription.slice(0, 120)}`;
+        await gitExec(['commit', '--no-gpg-sign', '-m', msg], session.worktreePath);
+        return gitExec(['rev-parse', 'HEAD'], session.worktreePath);
+      });
+
+      logger.info('WorktreeManager: harvested uncommitted changes', { worktreeId, hash: result });
+      return { committed: true, hash: result };
+    } catch (error) {
+      logger.error('WorktreeManager: harvest failed', error instanceof Error ? error : undefined, { worktreeId });
+      return { committed: false };
+    }
+  }
+
+  /**
+   * Check whether `candidate` is an ancestor of `target` in the git history
+   * at `cwd`. Used by reap logic to confirm a branch has been merged before
+   * removing the worktree.
+   */
+  async isBranchAncestor(candidate: string, target: string, cwd: string): Promise<boolean> {
+    try {
+      await gitExec(['merge-base', '--is-ancestor', candidate, target], cwd);
+      return true; // exits 0 when true
+    } catch {
+      return false; // exits non-zero when not an ancestor
+    }
+  }
+
+  // ============ Cross-Worktree Conflict Detection ============
 
   async detectCrossWorktreeConflicts(currentId: string, currentFiles: string[]): Promise<CrossWorktreeConflict[]> {
     const conflicts: CrossWorktreeConflict[] = [];
 
-    // Check all other active/completed worktrees
     for (const [id, session] of this.sessions) {
       if (id === currentId) continue;
       if (!['active', 'completed'].includes(session.status)) continue;
 
-      // Get files changed in other worktree
       const otherFiles =
         session.filesChanged.length > 0 ? session.filesChanged : (await this.getWorktreeStats(session)).filesChanged;
 
-      // Find overlapping files
       const overlap = currentFiles.filter((f) => otherFiles.includes(f));
 
       for (const file of overlap) {
@@ -244,7 +313,6 @@ export class WorktreeManager extends EventEmitter {
         if (existing) {
           existing.worktrees.push(id);
         } else {
-          // Assess severity based on file type
           const severity = this.assessConflictSeverity(file);
 
           conflicts.push({
@@ -262,7 +330,6 @@ export class WorktreeManager extends EventEmitter {
   }
 
   private assessConflictSeverity(file: string): 'high' | 'medium' | 'low' {
-    // High severity: core files that are likely to have logical conflicts
     const highSeverityPatterns = [
       /package\.json$/,
       /package-lock\.json$/,
@@ -276,7 +343,6 @@ export class WorktreeManager extends EventEmitter {
       return 'high';
     }
 
-    // Medium severity: source files
     if (/\.(ts|js|tsx|jsx|py|go|rs)$/.test(file)) {
       return 'medium';
     }
@@ -290,7 +356,6 @@ export class WorktreeManager extends EventEmitter {
 
     if (!session1 || !session2) return [id1, id2];
 
-    // Suggest merging smaller changes first
     if (session1.additions + session1.deletions < session2.additions + session2.deletions) {
       return [id1, id2];
     }
@@ -308,32 +373,24 @@ export class WorktreeManager extends EventEmitter {
 
     const targetBranch = options?.targetBranch || session.baseBranch;
     const strategy = options?.strategy || this.config.defaultStrategy;
-    const repoRoot = await this.getRepoRoot(session.worktreePath);
+    const repoRoot = await gitExec(['rev-parse', '--show-toplevel'], session.worktreePath);
 
-    // Get commits since base
     const commits = await this.getCommitsSince(session, session.baseCommit);
 
-    // Check for conflicts using merge-tree (non-destructive)
     let canAutoMerge = true;
     let conflictFiles: string[] = [];
     let previewDiff = '';
 
     try {
-      // Get merge base
-      const { stdout: mergeBase } = await execAsync(`git merge-base ${targetBranch} ${session.branchName}`, {
-        cwd: repoRoot,
-      });
+      const mergeBase = await gitExec(['merge-base', targetBranch, session.branchName], repoRoot);
 
-      // Dry-run merge using merge-tree
-      const { stdout: mergeTree } = await execAsync(
-        `git merge-tree ${mergeBase.trim()} ${targetBranch} ${session.branchName}`,
-        { cwd: repoRoot }
+      const mergeTree = await gitExec(
+        ['merge-tree', mergeBase, targetBranch, session.branchName],
+        repoRoot
       );
 
-      // Check for conflict markers
       if (mergeTree.includes('<<<<<<<') || mergeTree.includes('=======')) {
         canAutoMerge = false;
-        // Extract conflicting file names
         const conflictMatches = mergeTree.match(/^[+-]{3} [ab]\/(.+)$/gm);
         if (conflictMatches) {
           conflictFiles = [...new Set(conflictMatches.map((m) => m.replace(/^[+-]{3} [ab]\//, '')))];
@@ -342,24 +399,19 @@ export class WorktreeManager extends EventEmitter {
 
       previewDiff = mergeTree;
     } catch (error: unknown) {
-      // merge-tree exits with error on conflicts
       const err = error as { stdout?: string };
       if (err.stdout?.includes('<<<<<<<')) {
         canAutoMerge = false;
       }
     }
 
-    // Get diff stats
-    const { stdout: diffStat } = await execAsync(`git diff --stat ${session.baseCommit}..${session.branchName}`, {
-      cwd: repoRoot,
-    });
+    const diffStat = await gitExecSafe(['diff', '--stat', `${session.baseCommit}..${session.branchName}`], repoRoot);
 
     const filesChanged = diffStat
       .split('\n')
       .filter((l) => l.includes('|'))
       .map((l) => l.split('|')[0].trim());
 
-    // CRITICAL: Check for cross-worktree conflicts
     const crossConflicts = await this.detectCrossWorktreeConflicts(worktreeId, filesChanged);
 
     return {
@@ -368,7 +420,7 @@ export class WorktreeManager extends EventEmitter {
       strategy,
       canAutoMerge: canAutoMerge && crossConflicts.filter((c) => c.severity === 'high').length === 0,
       conflictFiles,
-      conflictDetails: [], // Populated on demand
+      conflictDetails: [],
       commits,
       totalAdditions: session.additions,
       totalDeletions: session.deletions,
@@ -389,10 +441,9 @@ export class WorktreeManager extends EventEmitter {
     const session = this.sessions.get(worktreeId);
     if (!session) throw new Error(`Worktree not found: ${worktreeId}`);
 
-    const repoRoot = await this.getRepoRoot(session.worktreePath);
+    const repoRoot = await gitExec(['rev-parse', '--show-toplevel'], session.worktreePath);
     const strategy = options?.strategy || this.config.defaultStrategy;
 
-    // Pre-merge checks
     const preview = await this.previewMerge(worktreeId, { strategy });
 
     if (!preview.canAutoMerge && !options?.allowConflicts) {
@@ -408,55 +459,52 @@ export class WorktreeManager extends EventEmitter {
     this.emit('worktree:merging', session);
 
     try {
-      // Checkout target branch in main repo
-      await execAsync(`git checkout ${session.baseBranch}`, { cwd: repoRoot });
+      // TODO(P4-integration-worktree): this merge path still runs in the root
+      // checkout, which races concurrent sessions. The fix (dedicated integration
+      // worktree + git-write-queue serialization) is tracked as a follow-up.
+      // For now, serialize through the queue to reduce .git lock contention.
+      const mergeCommit = await getGitWriteQueue().enqueue('merge', async () => {
+        await gitExec(['checkout', session.baseBranch], repoRoot);
 
-      // Pull latest changes
-      try {
-        await execAsync(`git pull --ff-only`, { cwd: repoRoot });
-      } catch {
-        /* intentionally ignored: pull may fail if no remote is configured */
-      }
+        try {
+          await gitExec(['pull', '--ff-only'], repoRoot);
+        } catch {
+          /* intentionally ignored: pull may fail if no remote is configured */
+        }
 
-      // Perform merge based on strategy
-      let mergeCommand: string;
-      switch (strategy) {
-        case 'squash':
-          mergeCommand = `git merge --squash ${session.branchName}`;
-          break;
-        case 'rebase':
-          // For rebase, we rebase the worktree branch onto target, then fast-forward
-          await execAsync(`git checkout ${session.branchName}`, { cwd: repoRoot });
-          await execAsync(`git rebase ${session.baseBranch}`, { cwd: repoRoot });
-          await execAsync(`git checkout ${session.baseBranch}`, { cwd: repoRoot });
-          mergeCommand = `git merge --ff-only ${session.branchName}`;
-          break;
-        case 'manual':
-          throw new Error('Manual merge strategy requires user intervention');
-        default:
-          mergeCommand = `git merge --no-ff ${session.branchName}`;
-      }
+        switch (strategy) {
+          case 'squash':
+            await gitExec(['merge', '--squash', session.branchName], repoRoot);
+            break;
+          case 'rebase':
+            await gitExec(['checkout', session.branchName], repoRoot);
+            await gitExec(['rebase', session.baseBranch], repoRoot);
+            await gitExec(['checkout', session.baseBranch], repoRoot);
+            await gitExec(['merge', '--ff-only', session.branchName], repoRoot);
+            break;
+          case 'manual':
+            throw new Error('Manual merge strategy requires user intervention');
+          default:
+            await gitExec(['merge', '--no-ff', session.branchName], repoRoot);
+        }
 
-      await execAsync(mergeCommand, { cwd: repoRoot });
+        if (strategy === 'squash') {
+          const commitMessage =
+            options?.commitMessage ||
+            `Merge worktree: ${session.taskDescription}\n\n` +
+              `Branch: ${session.branchName}\n` +
+              `Commits: ${session.commits.length}\n` +
+              `Files: ${session.filesChanged.length}`;
+          await gitExec(['commit', '-m', commitMessage], repoRoot);
+        }
 
-      // For squash, we need an explicit commit
-      if (strategy === 'squash') {
-        const commitMessage =
-          options?.commitMessage ||
-          `Merge worktree: ${session.taskDescription}\n\n` +
-            `Branch: ${session.branchName}\n` +
-            `Commits: ${session.commits.length}\n` +
-            `Files: ${session.filesChanged.length}`;
-        await execAsync(`git commit -m "${commitMessage.replace(/"/g, '\\"')}"`, { cwd: repoRoot });
-      }
-
-      const { stdout: mergeCommit } = await execAsync('git rev-parse HEAD', { cwd: repoRoot });
+        return gitExec(['rev-parse', 'HEAD'], repoRoot);
+      });
 
       session.status = 'merged';
       session.mergedAt = Date.now();
       this.emit('worktree:merged', session);
 
-      // Cleanup if configured
       if (this.config.autoCleanup) {
         await this.cleanupWorktree(worktreeId);
       }
@@ -464,17 +512,18 @@ export class WorktreeManager extends EventEmitter {
       return {
         success: true,
         worktreeId,
-        mergeCommit: mergeCommit.trim(),
+        mergeCommit,
       };
     } catch (error: unknown) {
       session.status = 'conflict';
       this.emit('worktree:conflict', { session, error });
 
-      // Abort failed merge
       try {
-        await execAsync('git merge --abort', { cwd: repoRoot });
+        await getGitWriteQueue().enqueue('merge-abort', () =>
+          gitExec(['merge', '--abort'], repoRoot)
+        );
       } catch {
-        /* intentionally ignored: merge abort may fail if no merge is in progress */
+        /* intentionally ignored */
       }
 
       const err = error as { message?: string };
@@ -486,28 +535,46 @@ export class WorktreeManager extends EventEmitter {
     }
   }
 
-  async cleanupWorktree(worktreeId: string): Promise<void> {
+  /**
+   * Remove a worktree from disk and deregister it.
+   *
+   * Safety: by default refuses to remove a worktree with uncommitted changes
+   * (call harvestWorktree first, or abandonWorktree to keep the branch).
+   * Pass `force: true` only when the caller has already preserved the work
+   * (e.g. after a harvest or when the session is in `abandoned` status).
+   */
+  async cleanupWorktree(worktreeId: string, options?: { force?: boolean }): Promise<void> {
     const session = this.sessions.get(worktreeId);
     if (!session) return;
 
-    const repoRoot = await this.getRepoRoot(session.worktreePath);
+    const repoRoot = await gitExecSafe(['rev-parse', '--show-toplevel'], session.worktreePath)
+      || await gitExec(['rev-parse', '--show-toplevel'], process.cwd());
+
+    // Guard: refuse to silently discard uncommitted work unless caller opts in.
+    if (!options?.force && session.status !== 'abandoned') {
+      const statusOut = await gitExecSafe(['status', '--porcelain'], session.worktreePath);
+      if (statusOut.trim()) {
+        throw new Error(
+          `Worktree ${worktreeId} (${session.branchName}) has uncommitted changes. ` +
+          `Call harvestWorktree() first, or abandonWorktree() to preserve the branch.`
+        );
+      }
+    }
 
     try {
-      // Remove worktree
-      await execAsync(`git worktree remove "${session.worktreePath}" --force`, { cwd: repoRoot });
+      await getGitWriteQueue().enqueue('worktree-remove', () =>
+        gitExec(['worktree', 'remove', '--force', session.worktreePath], repoRoot)
+      );
 
-      // Delete branch if merged
       if (session.status === 'merged') {
-        await execAsync(`git branch -d "${session.branchName}"`, { cwd: repoRoot });
-      } else if (session.status === 'abandoned') {
-        // Force delete abandoned branch
-        await execAsync(`git branch -D "${session.branchName}"`, { cwd: repoRoot });
+        // Only delete the branch after it has been fully merged.
+        await gitExecSafe(['branch', '-d', session.branchName], repoRoot);
       }
+      // Abandoned branches are intentionally kept — the user can review the work.
 
       this.sessions.delete(worktreeId);
       this.emit('worktree:cleaned', session);
     } catch (error) {
-      // Cleanup failed, but don't throw
       logger.error('Failed to cleanup worktree', error instanceof Error ? error : undefined, { worktreeId });
     }
   }
@@ -515,7 +582,6 @@ export class WorktreeManager extends EventEmitter {
   // ============ Health Monitoring ============
 
   private startHealthMonitor(): void {
-    // Check every 5 minutes
     this.healthCheckInterval = setInterval(async () => {
       await this.runHealthChecks();
     }, 5 * 60 * 1000);
@@ -523,15 +589,11 @@ export class WorktreeManager extends EventEmitter {
 
   private async runHealthChecks(): Promise<void> {
     const now = Date.now();
-    const maxAgeMs = this.config.maxAgeHours * 60 * 60 * 1000;
 
-    for (const [id, session] of this.sessions) {
-      // Check for stale worktrees
-      if (session.status === 'active' && now - session.lastActivity > maxAgeMs) {
-        this.emit('worktree:stale', session);
-      }
-
-      // Health check active worktrees
+    for (const [, session] of this.sessions) {
+      // P4: stale age signal removed — reap on truth (merged or abandoned),
+      // never on time. A listener on `worktree:stale` that removes the worktree
+      // would be the classic "auto-cleanup races the agent" bug.
       if (['active', 'installing'].includes(session.status)) {
         try {
           const stat = await fs.stat(session.worktreePath);
@@ -557,8 +619,11 @@ export class WorktreeManager extends EventEmitter {
 
   private async getDirSize(dirPath: string): Promise<number> {
     try {
-      const { stdout } = await execAsync(`du -sm "${dirPath}" | cut -f1`);
-      return parseInt(stdout.trim()) || 0;
+      const { stdout } = await execFileAsync('du', ['-sm', dirPath], {
+        encoding: 'utf-8',
+        timeout: 10_000,
+      });
+      return parseInt(String(stdout).trim().split('\t')[0]) || 0;
     } catch {
       return 0;
     }
@@ -567,25 +632,22 @@ export class WorktreeManager extends EventEmitter {
   // ============ Helper Methods ============
 
   private async getRepoRoot(cwd?: string): Promise<string> {
-    const { stdout } = await execAsync('git rev-parse --show-toplevel', { cwd });
-    return stdout.trim();
+    return gitExec(['rev-parse', '--show-toplevel'], cwd || process.cwd());
   }
 
   private async getCurrentBranch(cwd?: string): Promise<string> {
-    const { stdout } = await execAsync('git branch --show-current', { cwd });
-    return stdout.trim();
+    return gitExec(['branch', '--show-current'], cwd || process.cwd());
   }
 
   private async getHeadCommit(cwd?: string): Promise<string> {
-    const { stdout } = await execAsync('git rev-parse HEAD', { cwd });
-    return stdout.trim();
+    return gitExec(['rev-parse', 'HEAD'], cwd || process.cwd());
   }
 
   private async getCommitsSince(session: WorktreeSession, since: string): Promise<WorktreeCommit[]> {
     try {
-      const { stdout } = await execAsync(
-        `git log ${since}..${session.branchName} --pretty=format:"%H|%s|%an|%at" --name-only`,
-        { cwd: session.worktreePath }
+      const stdout = await gitExecSafe(
+        ['log', `${since}..${session.branchName}`, '--pretty=format:%H|%s|%an|%at', '--name-only'],
+        session.worktreePath
       );
 
       const commits: WorktreeCommit[] = [];
@@ -624,9 +686,10 @@ export class WorktreeManager extends EventEmitter {
     const commits = await this.getCommitsSince(session, session.baseCommit);
 
     try {
-      const { stdout: diffStat } = await execAsync(`git diff --shortstat ${session.baseCommit}..HEAD`, {
-        cwd: session.worktreePath,
-      });
+      const diffStat = await gitExecSafe(
+        ['diff', '--shortstat', `${session.baseCommit}..HEAD`],
+        session.worktreePath
+      );
 
       let additions = 0;
       let deletions = 0;
@@ -661,7 +724,6 @@ export class WorktreeManager extends EventEmitter {
     return Array.from(this.sessions.values());
   }
 
-  // Alias for IPC handler compatibility
   listSessions(): WorktreeSession[] {
     return this.getAllSessions();
   }
@@ -677,7 +739,9 @@ export class WorktreeManager extends EventEmitter {
     this.emit('worktree:abandoned', session);
 
     if (this.config.autoCleanup) {
-      await this.cleanupWorktree(worktreeId);
+      // Pass force=true: abandoned means the caller accepts losing uncommitted
+      // work, or has already harvested it.
+      await this.cleanupWorktree(worktreeId, { force: true });
     }
 
     return session;
@@ -689,14 +753,12 @@ export class WorktreeManager extends EventEmitter {
     const session = this.sessions.get(worktreeId);
     if (!session) throw new Error(`Worktree not found: ${worktreeId}`);
 
-    // Fetch latest from remote
-    await execAsync('git fetch origin', { cwd: session.worktreePath });
+    await gitExecSafe(['fetch', 'origin'], session.worktreePath);
 
-    // Check if base branch has new commits
     try {
-      const { stdout: aheadBehind } = await execAsync(
-        `git rev-list --left-right --count ${session.baseBranch}...origin/${session.baseBranch}`,
-        { cwd: session.worktreePath }
+      const aheadBehind = await gitExec(
+        ['rev-list', '--left-right', '--count', `${session.baseBranch}...origin/${session.baseBranch}`],
+        session.worktreePath
       );
 
       const [ahead, behind] = aheadBehind.trim().split('\t').map(Number);

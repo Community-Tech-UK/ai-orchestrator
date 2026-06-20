@@ -13,6 +13,8 @@ import { InstanceIpcService, IpcEventBusService } from '../../services/ipc';
 import { StatsIpcService } from '../../services/ipc/stats-ipc.service';
 import { UpdateBatcherService, StateUpdate } from '../../services/update-batcher.service';
 import { ActivityDebouncerService } from '../../services/activity-debouncer.service';
+import { ToastService } from '../../services/toast.service';
+import { ProviderStateService, type ProviderType } from '../../services/provider-state.service';
 import { generateActivityStatus } from '../../utils/tool-activity-map';
 
 // Sub-stores
@@ -49,6 +51,8 @@ export class InstanceStore implements OnDestroy {
   private batcher = inject(UpdateBatcherService);
   private activityDebouncer = inject(ActivityDebouncerService);
   private automationStore = inject(AutomationStore);
+  private toast = inject(ToastService);
+  private providerState = inject(ProviderStateService);
   private unsubscribes: (() => void)[] = [];
 
   // Compaction state (tracked per instance)
@@ -133,6 +137,20 @@ export class InstanceStore implements OnDestroy {
           this.applyUpdate(update);
         } else {
           this.batcher.queueUpdate(update);
+        }
+      })
+    );
+    this.addSubscription(
+      this.eventBus.fastToggled$.subscribe(({ instanceId, fastMode, reason }) => {
+        this.stateService.updateInstance(instanceId, { fastMode });
+        if (reason === 'unavailable') {
+          this.toast.show('Fast mode unavailable for this provider — turned off.', 'error');
+          // Stop new instances of this provider from re-trying fast mode (and
+          // flickering the toggle) now that we know it isn't honored.
+          const provider = this.stateService.getInstance(instanceId)?.provider;
+          if (provider) {
+            this.providerState.rememberFastModeForProvider(provider as ProviderType, false);
+          }
         }
       })
     );
@@ -299,6 +317,8 @@ export class InstanceStore implements OnDestroy {
           archivedUpToMessageId:
             update.archivedUpToMessageId ?? inst.archivedUpToMessageId,
           historyThreadId: update.historyThreadId ?? inst.historyThreadId,
+          // null clears waitReason; undefined preserves existing.
+          waitReason: update.waitReason !== undefined ? (update.waitReason ?? undefined) : inst.waitReason,
           ...(update.displayName ? { displayName: update.displayName } : {}),
           ...(update.executionLocation ? { executionLocation: update.executionLocation } : {}),
         });
@@ -392,6 +412,8 @@ export class InstanceStore implements OnDestroy {
             archivedUpToMessageId:
               update.archivedUpToMessageId ?? instance.archivedUpToMessageId,
             historyThreadId: update.historyThreadId ?? instance.historyThreadId,
+            // null clears waitReason; undefined preserves existing.
+            waitReason: update.waitReason !== undefined ? (update.waitReason ?? undefined) : instance.waitReason,
             ...(update.displayName ? { displayName: update.displayName } : {}),
             ...(update.executionLocation ? { executionLocation: update.executionLocation } : {}),
           });
@@ -673,6 +695,11 @@ export class InstanceStore implements OnDestroy {
   /** Toggle YOLO mode for an instance */
   async toggleYoloMode(instanceId: string): Promise<void> {
     return this.listStore.toggleYoloMode(instanceId);
+  }
+
+  /** Toggle or set fast mode for an instance (omit value to flip) */
+  async toggleFastMode(instanceId: string, fastMode?: boolean): Promise<void> {
+    return this.listStore.toggleFastMode(instanceId, fastMode);
   }
 
   /** Change agent mode for an instance */

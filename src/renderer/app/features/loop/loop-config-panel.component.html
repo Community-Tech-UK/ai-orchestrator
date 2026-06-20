@@ -129,6 +129,10 @@
       <label for="loop-cfg-cap-cost">Max spend ($) <span class="hint">(blank = no cap)</span></label>
       <input id="loop-cfg-cap-cost" type="number" min="1" max="1000" placeholder="No cap" [ngModel]="maxDollars()" (ngModelChange)="maxDollars.set($event)" />
     </div>
+    <div>
+      <label for="loop-cfg-cap-tokens">Max tokens <span class="hint">(blank = no cap)</span></label>
+      <input id="loop-cfg-cap-tokens" type="number" min="10000" max="100000000" step="100000" placeholder="No cap" [ngModel]="maxTokens()" (ngModelChange)="onMaxTokensChange($event)" />
+    </div>
   </section>
 
   <button

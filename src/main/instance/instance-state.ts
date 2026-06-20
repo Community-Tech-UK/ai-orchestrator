@@ -10,6 +10,7 @@ import { InstanceStateMachine } from './instance-state-machine';
 import type {
   Instance,
   InstanceStatus,
+  InstanceWaitReason,
   ContextUsage,
   SessionDiffStats
 } from '../../shared/types/instance.types';
@@ -227,6 +228,12 @@ export class InstanceStateManager extends EventEmitter {
      * can stop falling back to `availableModels[0]?.id`.
      */
     currentModel?: string,
+    /**
+     * Machine-readable wait reason (Phase 6 / §G). Pass the reason when entering
+     * a long-wait status; pass `null` to explicitly clear it on idle/busy/ready.
+     * Omit (undefined) to preserve the previous value.
+     */
+    waitReason?: InstanceWaitReason | null,
   ): void {
     const existing = this.pendingUpdates.get(instanceId);
     this.pendingUpdates.set(instanceId, {
@@ -253,6 +260,8 @@ export class InstanceStateManager extends EventEmitter {
       archivedUpToMessageId:
         sessionState?.archivedUpToMessageId ?? existing?.archivedUpToMessageId,
       historyThreadId: sessionState?.historyThreadId ?? existing?.historyThreadId,
+      // waitReason: null clears it; undefined preserves existing.
+      waitReason: waitReason !== undefined ? waitReason : existing?.waitReason,
     });
   }
 

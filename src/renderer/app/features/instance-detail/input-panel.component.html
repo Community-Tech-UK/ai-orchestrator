@@ -483,6 +483,9 @@
       <div class="queue-header">
         <span class="queue-badge">{{ queuedMessages().length }}</span>
         <span class="queue-text">message{{ queuedMessages().length > 1 ? 's' : '' }} queued</span>
+        @if (holdReasonLabel()) {
+          <span class="queue-hold-reason">{{ holdReasonLabel() }}</span>
+        }
       </div>
       <div class="queued-messages">
         @for (queuedMsg of queuedMessages(); track $index; let i = $index) {

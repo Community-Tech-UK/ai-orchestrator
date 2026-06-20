@@ -19,6 +19,7 @@ import type {
   ContextUsage,
   Instance,
   InstanceStatus,
+  InstanceWaitReason,
   OutputMessage,
   SessionDiffStats,
 } from '../../../shared/types/instance.types';
@@ -58,6 +59,7 @@ type QueueUpdate = (
   },
   activityState?: ActivityState,
   currentModel?: string,
+  waitReason?: InstanceWaitReason | null,
 ) => void;
 
 export interface IdleMonitorDeps {

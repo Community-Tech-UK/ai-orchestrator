@@ -111,10 +111,24 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.caps?.maxCostCents).toBe(20_000);
   });
 
-  it('sets a default token cap', () => {
+  it('defaults to no token cap (spend/iterations govern)', () => {
     const config = component.buildConfig();
 
-    expect(config?.caps?.maxTokens).toBe(1_000_000);
+    expect(config?.caps?.maxTokens).toBeNull();
+  });
+
+  it('emits an explicit token cap when one is set', () => {
+    component.maxTokens.set(5_000_000);
+    const config = component.buildConfig();
+
+    expect(config?.caps?.maxTokens).toBe(5_000_000);
+  });
+
+  it('rejects a token cap below the minimum', () => {
+    component.maxTokens.set(5_000);
+
+    expect(component.canSubmit()).toBe(false);
+    expect(component.buildConfig()).toBeNull();
   });
 
   it('sets a default iteration cap', () => {

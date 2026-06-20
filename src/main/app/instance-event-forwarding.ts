@@ -29,6 +29,7 @@ import { getProviderRuntimeTraceSink } from '../observability/provider-runtime-t
 import { BoundedAsyncQueue } from '../runtime/bounded-async-queue';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { ProviderRuntimeEventEnvelopeSchema } from '@contracts/schemas/provider-runtime-events';
+import { isFastModeUnavailableNotice } from '../instance/lifecycle/fast-mode-notice';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
 import type { Instance, InstanceStatus } from '../../shared/types/instance.types';
@@ -152,6 +153,12 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
     observer.publishInstanceState(update as Record<string, unknown>);
   });
 
+  // Fast-mode changes (user toggle confirmation + provider auto-revert) so the
+  // renderer can sync the per-instance toggle and toast on unavailability.
+  instanceManager.on('instance:fast-toggled', (payload) => {
+    windowManager.sendToRenderer(IPC_CHANNELS.INSTANCE_FAST_TOGGLED, payload);
+  });
+
   instanceManager.on('provider:normalized-event', (envelope: ProviderRuntimeEventEnvelope) => {
     const instance = instanceManager.getInstance(envelope.instanceId);
     const enrichedEnvelope: ProviderRuntimeEventEnvelope = envelope.model || !instance?.currentModel
@@ -171,6 +178,21 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
 
     const message = toOutputMessageFromProviderEnvelope(enrichedEnvelope);
     if (!message) return;
+
+    // Auto-revert: when the provider reports fast mode is unavailable (no paid
+    // tier / ineligible plan), flip the stored preference off without restarting
+    // (the session already ran without it). The notice itself stays in the
+    // transcript, surfacing the reason to the user.
+    if (instance?.fastMode && isFastModeUnavailableNotice(message.content)) {
+      void instanceManager
+        .setFastMode(enrichedEnvelope.instanceId, false, { restart: false, reason: 'unavailable' })
+        .catch((error) => {
+          logger.warn('Failed to auto-revert fast mode after unavailable notice', {
+            instanceId: enrichedEnvelope.instanceId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+    }
 
     observer.publishInstanceOutput(enrichedEnvelope.instanceId, message);
 

@@ -47,6 +47,7 @@ import type {
   ContextUsage,
   Instance,
   InstanceStatus,
+  InstanceWaitReason,
   OutputMessage,
   SessionDiffStats,
 } from '../../../shared/types/instance.types';
@@ -88,6 +89,7 @@ type QueueUpdate = (
   },
   activityState?: ActivityState,
   currentModel?: string,
+  waitReason?: InstanceWaitReason | null,
 ) => void;
 
 /**
@@ -325,7 +327,7 @@ export class InterruptRespawnHandler {
         interruptPhase: instance.interruptPhase,
         lastTurnOutcome: instance.lastTurnOutcome,
         adapterGeneration: instance.adapterGeneration,
-      });
+      }, undefined, undefined, null); // clear waitReason — escalated cancel is terminal
       return true;
     }
 
@@ -370,6 +372,11 @@ export class InterruptRespawnHandler {
         interruptRequestedAt: instance.interruptRequestedAt,
         interruptPhase: instance.interruptPhase,
         adapterGeneration: instance.adapterGeneration,
+      }, undefined, undefined, {
+        kind: 'interrupt-ack',
+        startedAt: Date.now(),
+        deadlineAt: Date.now() + INTERRUPT_FORCE_ABORT_MS,
+        attempt: 1,
       });
 
       // Expose a promise that resolves when respawn completes.
@@ -429,7 +436,7 @@ export class InterruptRespawnHandler {
           interruptPhase: capturedInstance.interruptPhase,
           lastTurnOutcome: capturedInstance.lastTurnOutcome,
           adapterGeneration: capturedInstance.adapterGeneration,
-        });
+        }, undefined, undefined, null); // clear waitReason — force-cancelled terminal state
 
         // Resolve so sendInput() waiters unblock (they'll see 'cancelled' and throw).
         this.resolveRespawnPromise(capturedInstance);
@@ -574,7 +581,7 @@ export class InterruptRespawnHandler {
       interruptPhase: instance.interruptPhase,
       lastTurnOutcome: instance.lastTurnOutcome,
       adapterGeneration: instance.adapterGeneration,
-    });
+    }, undefined, undefined, null); // clear waitReason on idle
   }
 
   /**
@@ -589,9 +596,18 @@ export class InterruptRespawnHandler {
     }
 
     // §6.3: Circuit breaker — exponential backoff on repeated respawns.
-    const breakerDelay = getOrCreateCircuitBreaker(instanceId).recordAttempt();
+    const breaker = getOrCreateCircuitBreaker(instanceId);
+    const breakerDelay = breaker.recordAttempt();
     if (breakerDelay > 0) {
+      // Surface the backoff as a waitReason so the user knows why respawn is delayed.
+      this.deps.queueUpdate(instanceId, instance.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+        kind: 'backoff',
+        attempt: breaker.snapshot().attempt,
+        retryAt: Date.now() + breakerDelay,
+      });
       await new Promise<void>(resolve => setTimeout(resolve, breakerDelay));
+      // Clear waitReason once the backoff expires (respawn will set its own reason).
+      this.deps.queueUpdate(instanceId, instance.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, null);
     }
     const hasActiveInterruptRequest =
       !!instance.interruptRequestId && instance.interruptPhase !== 'completed';
@@ -620,22 +636,6 @@ export class InterruptRespawnHandler {
         ?.createSnapshot(instanceId, 'pre-respawn', 'State captured before interrupt-respawn', 'checkpoint')
         .catch(() => undefined);
 
-      if (triggeredByInterrupt && instance.status !== 'respawning') {
-        this.deps.transitionState(instance, 'respawning');
-        this.emitInterruptBoundary(instance, {
-          phase: 'respawning',
-          requestId: instance.interruptRequestId ?? generateId(),
-          outcome: 'unresolved',
-        });
-        this.deps.queueUpdate(instanceId, 'respawning', instance.contextUsage, undefined, undefined, undefined, undefined, {
-          activeTurnId: instance.activeTurnId,
-          interruptRequestId: instance.interruptRequestId,
-          interruptRequestedAt: instance.interruptRequestedAt,
-          interruptPhase: instance.interruptPhase,
-          lastTurnOutcome: instance.lastTurnOutcome,
-          adapterGeneration: instance.adapterGeneration,
-        });
-      }
       const previousAdapter = this.deps.getAdapter(instanceId);
       const capabilities = this.deps.getAdapterRuntimeCapabilities(previousAdapter);
       const sessionId = instance.sessionId;
@@ -674,6 +674,30 @@ export class InterruptRespawnHandler {
         recoveryPlan.kind === 'native-resume' || recoveryPlan.kind === 'provider-fork';
       const shouldResume = canAttemptNativeResume;
       const shouldForkSession = shouldResume && recoveryPlan.kind === 'provider-fork';
+
+      // Transition to respawning now that we know the strategy.
+      // (Moved here from before the plan so we can include the strategy in waitReason.)
+      if (triggeredByInterrupt && instance.status !== 'respawning') {
+        this.deps.transitionState(instance, 'respawning');
+        this.emitInterruptBoundary(instance, {
+          phase: 'respawning',
+          requestId: instance.interruptRequestId ?? generateId(),
+          outcome: 'unresolved',
+        });
+        this.deps.queueUpdate(instanceId, 'respawning', instance.contextUsage, undefined, undefined, undefined, undefined, {
+          activeTurnId: instance.activeTurnId,
+          interruptRequestId: instance.interruptRequestId,
+          interruptRequestedAt: instance.interruptRequestedAt,
+          interruptPhase: instance.interruptPhase,
+          lastTurnOutcome: instance.lastTurnOutcome,
+          adapterGeneration: instance.adapterGeneration,
+          recoveryMethod: shouldResume ? 'native' : (hasConversation ? 'replay' : 'fresh'),
+        }, undefined, undefined, {
+          kind: 'respawning',
+          strategy: shouldResume ? 'native-resume' : 'fresh-replay',
+          startedAt: Date.now(),
+        });
+      }
 
       const newSessionId = shouldResume && shouldForkSession
         ? generateId()
@@ -875,7 +899,10 @@ export class InterruptRespawnHandler {
             recoveryMethod: instance.recoveryMethod,
             archivedUpToMessageId: instance.archivedUpToMessageId,
             historyThreadId: instance.historyThreadId,
-          }
+          },
+          undefined,
+          undefined,
+          null, // clear waitReason — respawn complete
         );
         logger.info('Respawn after interrupt complete', { instanceId });
       } catch (error) {
@@ -912,7 +939,10 @@ export class InterruptRespawnHandler {
             recoveryMethod: instance.recoveryMethod,
             archivedUpToMessageId: instance.archivedUpToMessageId,
             historyThreadId: instance.historyThreadId,
-          }
+          },
+          undefined,
+          undefined,
+          null, // clear waitReason — error terminal state
         );
         throw error;
       }
@@ -944,9 +974,16 @@ export class InterruptRespawnHandler {
     }
 
     // §6.3: Circuit breaker — exponential backoff on repeated unexpected exits.
-    const breakerDelay = getOrCreateCircuitBreaker(instanceId).recordAttempt();
+    const exitBreaker = getOrCreateCircuitBreaker(instanceId);
+    const breakerDelay = exitBreaker.recordAttempt();
     if (breakerDelay > 0) {
+      this.deps.queueUpdate(instanceId, instance.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+        kind: 'backoff',
+        attempt: exitBreaker.snapshot().attempt,
+        retryAt: Date.now() + breakerDelay,
+      });
       await new Promise<void>(resolve => setTimeout(resolve, breakerDelay));
+      this.deps.queueUpdate(instanceId, instance.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, null);
     }
 
     const release = await getSessionMutex().acquire(instanceId, 'respawn-unexpected', {
@@ -1012,6 +1049,17 @@ export class InterruptRespawnHandler {
       const shouldResume =
         recoveryPlan.kind === 'native-resume' || recoveryPlan.kind === 'provider-fork';
       const shouldForkSession = recoveryPlan.kind === 'provider-fork';
+
+      // Emit respawning waitReason for unexpected-exit path too.
+      if (instance.status === 'respawning') {
+        this.deps.queueUpdate(instanceId, 'respawning', undefined, undefined, undefined, undefined, undefined, {
+          recoveryMethod: shouldResume ? 'native' : (hasConversation ? 'replay' : 'fresh'),
+        }, undefined, undefined, {
+          kind: 'respawning',
+          strategy: shouldResume ? 'native-resume' : 'fresh-replay',
+          startedAt: Date.now(),
+        });
+      }
 
       const newSessionId = shouldResume && shouldForkSession
         ? generateId()
@@ -1181,7 +1229,10 @@ export class InterruptRespawnHandler {
             recoveryMethod: instance.recoveryMethod,
             archivedUpToMessageId: instance.archivedUpToMessageId,
             historyThreadId: instance.historyThreadId,
-          }
+          },
+          undefined,
+          undefined,
+          null, // clear waitReason — auto-respawn complete
         );
       } catch (error) {
         if (this.shouldAbortRespawn(instanceId, instance)) {
@@ -1210,7 +1261,10 @@ export class InterruptRespawnHandler {
             recoveryMethod: instance.recoveryMethod,
             archivedUpToMessageId: instance.archivedUpToMessageId,
             historyThreadId: instance.historyThreadId,
-          }
+          },
+          undefined,
+          undefined,
+          null, // clear waitReason — error terminal state
         );
         throw error;
       }

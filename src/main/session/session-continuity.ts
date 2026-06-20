@@ -30,6 +30,7 @@ import { ConversationHistoryCompactor, SessionCompactionPolicy } from './compact
 import { getProjectStoragePaths } from '../storage/project-storage-paths';
 import { SessionAutoSaveCoordinator } from './autosave-coordinator';
 import { getSessionPersistenceQueue } from './session-persistence-queue';
+import { computeResumeConfigFingerprint } from '../instance/lifecycle/session-recovery';
 
 const logger = getLogger('SessionContinuity');
 
@@ -114,6 +115,13 @@ export interface ResumeCursor {
   capturedAt: number;
   /** How this cursor was obtained */
   scanSource: 'native' | 'jsonl-scan' | 'thread-list' | 'replay';
+  /**
+   * Fingerprint of the resume-affecting config (provider/model/cwd) at capture
+   * time (§6.2). On resume, if the live config differs, native resume is skipped
+   * in favour of replay. Optional for backwards-compatibility with cursors
+   * persisted before this field existed.
+   */
+  configFingerprint?: string;
 }
 
 /**
@@ -1761,7 +1769,17 @@ export class SessionContinuityManager extends EventEmitter {
     try {
       const adapter = this.instanceManager.getAdapter(instanceId);
       if (adapter && typeof (adapter as { getResumeCursor?: () => unknown }).getResumeCursor === 'function') {
-        state.resumeCursor = ((adapter as { getResumeCursor: () => unknown }).getResumeCursor() ?? null) as SessionState['resumeCursor'];
+        const cursor = ((adapter as { getResumeCursor: () => unknown }).getResumeCursor() ?? null) as ResumeCursor | null;
+        if (cursor && !cursor.configFingerprint) {
+          // §6.2: stamp the resume-affecting config fingerprint at capture time so
+          // a later resume can detect a model/cwd change and fall back to replay.
+          cursor.configFingerprint = computeResumeConfigFingerprint({
+            provider: state.provider,
+            model: state.modelId,
+            cwd: state.workingDirectory,
+          });
+        }
+        state.resumeCursor = cursor;
       }
     } catch {
       // Best effort — don't let cursor capture fail the save

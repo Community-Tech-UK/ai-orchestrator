@@ -21,6 +21,7 @@ export interface CreateInstanceConfig {
   provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
   model?: string;
   bareMode?: boolean;
+  fastMode?: boolean;
   forceNodeId?: string;
 }
 
@@ -33,6 +34,7 @@ export interface CreateInstanceWithMessageConfig {
   provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
   model?: string;
   bareMode?: boolean;
+  fastMode?: boolean;
   forceNodeId?: string;
 }
 
@@ -170,6 +172,15 @@ export class InstanceIpcService {
   }
 
   /**
+   * Toggle or set fast mode for an instance (preserves conversation context).
+   * Omit `fastMode` to flip the current value.
+   */
+  async toggleFastMode(instanceId: string, fastMode?: boolean): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.toggleFastMode({ instanceId, fastMode });
+  }
+
+  /**
    * Change model for an instance (preserves conversation context)
    */
   async changeModel(
@@ -228,6 +239,18 @@ export class InstanceIpcService {
     if (!this.api) return () => { /* noop */ };
     return this.api.onInstanceStateUpdate((update) => {
       this.ngZone.run(() => callback(update));
+    });
+  }
+
+  /**
+   * Subscribe to fast-mode changes pushed from main (user toggle + auto-revert)
+   */
+  onFastToggled(
+    callback: (payload: { instanceId: string; fastMode: boolean; reason: 'user' | 'unavailable' }) => void,
+  ): () => void {
+    if (!this.api) return () => { /* noop */ };
+    return this.api.onFastToggled((payload) => {
+      this.ngZone.run(() => callback(payload));
     });
   }
 

@@ -50,6 +50,43 @@ describe('LocalInstanceManager', () => {
     expect(manager.getAllInstanceIds()).toEqual([]);
   });
 
+  describe('relayResumeProof (P2.9)', () => {
+    const relay = (id: string, adapter: unknown): void =>
+      (manager as unknown as { relayResumeProof: (i: string, a: unknown) => void })
+        .relayResumeProof(id, adapter);
+
+    it('emits a resume_proof state-change carrying the proof, deduped on repeat', () => {
+      const proof = { source: 'native', confirmed: true, requestedSessionId: 's1', actualSessionId: 's1' };
+      const adapter = { getResumeAttemptResult: vi.fn(() => proof) };
+      const onState = vi.fn();
+      manager.on('instance:stateChange', onState);
+
+      relay('inst-1', adapter);
+      expect(onState).toHaveBeenCalledTimes(1);
+      expect(onState).toHaveBeenCalledWith('inst-1', 'resume_proof', proof);
+
+      // Same proof again — deduped, no second emit.
+      relay('inst-1', adapter);
+      expect(onState).toHaveBeenCalledTimes(1);
+
+      // Proof changes (pending → confirmed transition) — relayed again.
+      adapter.getResumeAttemptResult.mockReturnValue({ ...proof, confirmed: false });
+      relay('inst-1', adapter);
+      expect(onState).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not emit when the adapter has no meaningful proof', () => {
+      const onState = vi.fn();
+      manager.on('instance:stateChange', onState);
+
+      relay('inst-1', { getResumeAttemptResult: () => null });
+      relay('inst-2', { getResumeAttemptResult: () => ({ source: 'none' }) });
+      relay('inst-3', {}); // adapter without the method
+
+      expect(onState).not.toHaveBeenCalled();
+    });
+  });
+
   it('rejects spawn for invalid working directory', async () => {
     await expect(
       manager.spawn({

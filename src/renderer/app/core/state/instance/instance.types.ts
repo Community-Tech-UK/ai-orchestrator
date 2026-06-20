@@ -12,6 +12,7 @@ import type {
   FileAttachment,
   InstanceLaunchMode as SharedInstanceLaunchMode,
   InstanceRecoveryMethod,
+  InstanceWaitReason,
   ThinkingContent,
 } from '../../../../../shared/types/instance.types';
 import type { ExecutionLocation } from '../../../../../shared/types/worker-node.types';
@@ -124,6 +125,8 @@ export interface Instance {
   archivedUpToMessageId?: string;
   workingDirectory: string;
   yoloMode: boolean;
+  /** Fast mode: faster output at some capability cost (Claude Opus / Codex priority tier). */
+  fastMode?: boolean;
   launchMode: InstanceLaunchMode;
   currentModel?: string; // Current model being used
   reasoningEffort?: ReasoningEffort; // Optional thinking/reasoning effort override
@@ -144,6 +147,8 @@ export interface Instance {
   executionLocation?: ExecutionLocation;
   /** Extensible backend metadata, including orchestration task/routing details for child instances. */
   metadata?: Record<string, unknown>;
+  /** Machine-readable wait reason for UI display (Phase 6 / §G). Set during backoff, interrupt-ack, respawning, etc. */
+  waitReason?: InstanceWaitReason;
 }
 
 // ============================================
@@ -184,6 +189,8 @@ export interface CreateInstanceConfig {
   provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
   model?: string;
   bareMode?: boolean;
+  /** Explicit fast-mode override; when omitted, resolved from per-provider memory. */
+  fastMode?: boolean;
   forceNodeId?: string;
 }
 

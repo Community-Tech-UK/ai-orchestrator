@@ -171,6 +171,7 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     forkSession: options.forkSession,
     mcpConfig: buildClaudeMcpConfig(options),
     reasoningEffort: options.reasoningEffort,
+    fastMode: options.fastMode,
     bare: options.bare,
     name: options.name,
     // Default prompt-section exclusion to true for orchestrated instances —
@@ -224,6 +225,7 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
     timeout: options.timeout,
     outputSchema: options.outputSchema,
     reasoningEffort: toCodexReasoningEffort(options.reasoningEffort),
+    fastMode: options.fastMode,
     rtkEnabled: Boolean(options.rtk?.enabled && options.rtk.binaryPath),
     ...(Object.keys(codexEnv).length > 0 ? { env: codexEnv } : {}),
     ...(mcpServersConfigToml ? { mcpServersConfigToml } : {}),

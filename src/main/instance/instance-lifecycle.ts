@@ -62,6 +62,7 @@ import { InstanceSpawner } from './lifecycle/instance-spawner';
 import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handler';
 import { buildInstanceRecord } from './lifecycle/instance-create-builder';
 import { resolveInitialModel } from './lifecycle/resolve-initial-model';
+import { resolveFastMode } from './lifecycle/resolve-fast-mode';
 import {
   applyOutputStyle,
   applyResolvedOutputStyle,
@@ -74,6 +75,7 @@ import { RestartPolicyHelpers } from './lifecycle/restart-policy-helpers';
 import {
   SessionRecoveryHandler,
   planSessionRecovery,
+  computeResumeConfigFingerprint,
   type RecoveryResult,
 } from './lifecycle/session-recovery';
 import { IdleMonitor } from './lifecycle/idle-monitor';
@@ -377,8 +379,8 @@ export class InstanceLifecycleManager extends EventEmitter {
       getInstance: (id) => this.deps.getInstance(id),
       forEachInstance: (cb) => this.deps.forEachInstance(cb),
       getAdapter: (id) => this.deps.getAdapter(id),
-      queueUpdate: (instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel) =>
-        this.deps.queueUpdate(instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel),
+      queueUpdate: (instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel, waitReason) =>
+        this.deps.queueUpdate(instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel, waitReason),
       deleteAdapter: (id) => { this.deps.deleteAdapter(id); },
       transitionState: (instance, newState) => this.transitionState(instance, newState),
       terminateInstance: (id, auto) => this.terminateInstance(id, auto),
@@ -391,8 +393,8 @@ export class InstanceLifecycleManager extends EventEmitter {
       getAdapter: (id) => this.deps.getAdapter(id),
       setAdapter: (id, adapter) => this.deps.setAdapter(id, adapter),
       deleteAdapter: (id) => { this.deps.deleteAdapter(id); },
-      queueUpdate: (instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel) =>
-        this.deps.queueUpdate(instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel),
+      queueUpdate: (instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel, waitReason) =>
+        this.deps.queueUpdate(instanceId, status, contextUsage, diffStats, displayName, error, executionLocation, sessionState, activityState, currentModel, waitReason),
       markInterrupted: (id) => this.deps.markInterrupted(id),
       clearInterrupted: (id) => this.deps.clearInterrupted(id),
       addToOutputBuffer: (instance, message) => this.deps.addToOutputBuffer(instance, message),
@@ -942,20 +944,28 @@ export class InstanceLifecycleManager extends EventEmitter {
       }
     }
 
-    // Restored sessions (history-restore, etc.) arrive with a populated
-    // initialOutputBuffer and no initialPrompt. The first real message
+    // Restored sessions (history-restore, native resume, thread wakeup) are a
+    // continuation of an existing, already-named thread. The first real message
     // after restore is a continuation, not a genuine first message — so
     // suppress auto-title re-firing (which would overwrite the restored
     // displayName with a title derived from the follow-up message) and
     // orchestration-prompt re-prepending (which was already applied to
     // the original first message).
+    //
+    // `isRestoredSession` is the authoritative signal from the restore
+    // coordinator and applies even when the prior transcript could not be
+    // loaded into `initialOutputBuffer` (empty/pruned history) — the case the
+    // buffer-content heuristic below silently missed, letting an auto-titled
+    // (non-user-renamed) session lose its name on the next message. The
+    // heuristic is kept as a fallback for any restore-like caller that
+    // pre-populates a transcript without setting the flag.
     const hasRestoredConversation = config.initialOutputBuffer?.some(
       (msg) => msg.type === 'user' || msg.type === 'assistant'
     ) ?? false;
     const hasInitialPrompt =
       typeof config.initialPrompt === 'string'
       && config.initialPrompt.trim().length > 0;
-    if (hasRestoredConversation && !hasInitialPrompt) {
+    if (config.isRestoredSession || (hasRestoredConversation && !hasInitialPrompt)) {
       this.deps.markFirstMessageReceived(instance.id);
     }
 
@@ -1350,6 +1360,17 @@ export class InstanceLifecycleManager extends EventEmitter {
 
         instance.currentModel = resolvedModel;
         instance.reasoningEffort = config.reasoningEffort;
+
+        // Fast mode: explicit per-instance override > per-provider remembered >
+        // global default. Stored on the instance so respawns (yolo/model/agent
+        // toggles, hibernate-wake) and the live fast toggle carry it forward.
+        const resolvedFastMode = resolveFastMode({
+          configOverride: config.fastModeOverride,
+          provider: resolvedCliType,
+          defaultFastModeByProvider: settingsAll.defaultFastModeByProvider,
+          defaultFastMode: settingsAll.defaultFastMode,
+        });
+        instance.fastMode = resolvedFastMode;
         instance.contextUsage = {
           ...instance.contextUsage,
           total: getProviderModelContextWindow(resolvedCliType, resolvedModel),
@@ -1376,6 +1397,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           launchMode: instance.launchMode,
           bare: instance.bareMode === true,
           reasoningEffort: config.reasoningEffort,
+          fastMode: resolvedFastMode,
           allowedTools: toolPermissions.allowedTools,
           disallowedTools: toolPermissions.disallowedToolsForSpawn,
           resume: config.resume,
@@ -1819,6 +1841,11 @@ export class InstanceLifecycleManager extends EventEmitter {
           executionLocation: instance.executionLocation.type,
           resumeCursor: sessionState?.resumeCursor ?? null,
           resumeCursorSource: sessionState?.resumeCursor?.scanSource,
+          currentConfigFingerprint: computeResumeConfigFingerprint({
+            provider: instance.provider,
+            model: instance.currentModel,
+            cwd: instance.workingDirectory,
+          }),
           capabilities: {
             supportsResume: Boolean(nativeSessionId) && !sessionState?.nativeResumeFailedAt,
             supportsForkSession: false,
@@ -1852,6 +1879,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           launchMode: instance.launchMode,
           bare: instance.bareMode === true,
           model: instance.currentModel,
+          fastMode: instance.fastMode,
           resume: canAttemptNativeResume,
           mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
           chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
@@ -2041,6 +2069,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         yoloMode: instance.yoloMode,
         launchMode: instance.launchMode,
         model: instance.currentModel,
+        fastMode: instance.fastMode,
         resume: true,
         forkSession: false,
         mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
@@ -2116,6 +2145,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         yoloMode: instance.yoloMode,
         launchMode: instance.launchMode,
         model: instance.currentModel,
+        fastMode: instance.fastMode,
         resume: false,
         forkSession: false,
         mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
@@ -2516,6 +2546,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         yoloMode: instance.yoloMode,
         launchMode: instance.launchMode,
         model: instance.currentModel,
+        fastMode: instance.fastMode,
         allowedTools: toolPermissions.allowedTools,
         disallowedTools: toolPermissions.disallowedToolsForSpawn,
         bare: instance.bareMode === true,
@@ -2716,6 +2747,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         yoloMode: newYoloMode,
         launchMode: instance.launchMode,
         bare: instance.bareMode === true,
+        fastMode: instance.fastMode,
         allowedTools: toolPermissions.allowedTools,
         disallowedTools: toolPermissions.disallowedToolsForSpawn,
         resume: shouldResume,
@@ -2819,6 +2851,74 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
     } finally {
       release();
     }
+  }
+
+  /**
+   * Flip fast mode for an instance. See {@link setFastMode}.
+   */
+  async toggleFastMode(instanceId: string): Promise<Instance> {
+    const instance = this.deps.getInstance(instanceId);
+    if (!instance) {
+      throw new Error(`Instance ${instanceId} not found`);
+    }
+    return this.setFastMode(instanceId, !(instance.fastMode ?? false));
+  }
+
+  /**
+   * Set fast mode for an instance to an explicit target value. Fast mode is a
+   * spawn-level setting for Claude (the `fastMode` settings key, Opus-only) and
+   * a per-turn service tier for Codex (`priority`), so applying it to a *running*
+   * session means respawning with resume — the same path model/agent/yolo
+   * toggles use (via {@link restartInstance}). When no adapter is running yet the
+   * next spawn picks the value up from `instance.fastMode`.
+   *
+   * `options.restart === false` updates the stored preference and notifies
+   * listeners WITHOUT respawning — used by the auto-revert path when the provider
+   * reports fast mode is unavailable for the current session (it already ran
+   * without it, so a restart would be wasteful). No-ops when already in the
+   * desired state. Throws if the instance is busy (mirrors {@link setYoloMode}).
+   */
+  async setFastMode(
+    instanceId: string,
+    desiredFastMode: boolean,
+    options?: { restart?: boolean; reason?: 'user' | 'unavailable' },
+  ): Promise<Instance> {
+    const instance = this.deps.getInstance(instanceId);
+    if (!instance) {
+      throw new Error(`Instance ${instanceId} not found`);
+    }
+    if ((instance.fastMode ?? false) === desiredFastMode) {
+      return instance;
+    }
+
+    const shouldRestart = options?.restart !== false;
+    if (shouldRestart && instance.status === 'busy') {
+      throw new Error('Cannot change fast mode while instance is busy. Please wait for the current operation to complete.');
+    }
+
+    instance.fastMode = desiredFastMode;
+    logger.info('Setting fast mode', {
+      instanceId,
+      fastMode: desiredFastMode,
+      provider: instance.provider,
+      reason: options?.reason ?? 'user',
+      willRestart: shouldRestart && !!this.deps.getAdapter(instanceId),
+    });
+
+    // Apply to a live session by respawning with resume so the new setting takes
+    // effect. restartInstance reconstructs spawn options from instance.* (now
+    // including fastMode). Skip when no adapter is running — the next spawn reads
+    // instance.fastMode directly.
+    if (shouldRestart && this.deps.getAdapter(instanceId)) {
+      await this.restartInstance(instanceId);
+    }
+
+    this.emit('fast-toggled', {
+      instanceId,
+      fastMode: desiredFastMode,
+      reason: options?.reason ?? 'user',
+    });
+    return instance;
   }
 
   // ============================================
@@ -2967,6 +3067,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         launchMode: instance.launchMode,
         bare: instance.bareMode === true,
         reasoningEffort: nextReasoningEffort,
+        fastMode: instance.fastMode,
         allowedTools: toolPermissions.allowedTools,
         disallowedTools: toolPermissions.disallowedToolsForSpawn,
         resume: shouldResume,

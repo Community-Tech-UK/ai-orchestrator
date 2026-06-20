@@ -1,5 +1,21 @@
 import { describe, it, expect, vi } from 'vitest';
-import { SessionRecoveryHandler, planSessionRecovery } from '../session-recovery';
+import {
+  SessionRecoveryHandler,
+  planSessionRecovery,
+  computeResumeConfigFingerprint,
+} from '../session-recovery';
+import type { ResumeCursor } from '../../../session/session-continuity';
+
+function cursor(overrides: Partial<ResumeCursor> = {}): ResumeCursor {
+  return {
+    provider: 'codex',
+    threadId: 'thread-abc',
+    workspacePath: '/tmp/project',
+    capturedAt: 0,
+    scanSource: 'native',
+    ...overrides,
+  };
+}
 
 describe('SessionRecoveryHandler', () => {
   it('tries native resume first', async () => {
@@ -121,6 +137,77 @@ describe('SessionRecoveryHandler', () => {
     expect(plan).toMatchObject({
       kind: 'replay-fallback',
       reason: 'provider session id is blacklisted',
+    });
+  });
+
+  describe('config fingerprint (§6.2)', () => {
+    it('computeResumeConfigFingerprint is stable and differs across model/cwd', () => {
+      const a = computeResumeConfigFingerprint({ provider: 'codex', model: 'gpt-5.5', cwd: '/p' });
+      const b = computeResumeConfigFingerprint({ provider: 'codex', model: 'gpt-5.5', cwd: '/p' });
+      const c = computeResumeConfigFingerprint({ provider: 'codex', model: 'gpt-5.4', cwd: '/p' });
+      const d = computeResumeConfigFingerprint({ provider: 'codex', model: 'gpt-5.5', cwd: '/other' });
+      expect(a).toBeTruthy();
+      expect(a).toBe(b);
+      expect(a).not.toBe(c);
+      expect(a).not.toBe(d);
+    });
+
+    it('returns undefined when there is nothing to fingerprint', () => {
+      expect(computeResumeConfigFingerprint({})).toBeUndefined();
+    });
+
+    it('skips native resume when cursor fingerprint differs from current config', () => {
+      const plan = planSessionRecovery({
+        instanceId: 'instance-1',
+        reason: 'wake',
+        previousProviderSessionId: 'session-abc',
+        provider: 'codex',
+        cwd: '/tmp/project',
+        capabilities: { supportsResume: true, supportsForkSession: false },
+        adapterGeneration: 1,
+        hasConversation: true,
+        resumeCursor: cursor({ configFingerprint: 'old-fingerprint-aaaa' }),
+        currentConfigFingerprint: 'new-fingerprint-bbbb',
+      });
+
+      expect(plan).toMatchObject({
+        kind: 'replay-fallback',
+        reason: 'resume config fingerprint changed since the session was created (model/cwd/MCP differ)',
+      });
+    });
+
+    it('allows native resume when fingerprints match', () => {
+      const plan = planSessionRecovery({
+        instanceId: 'instance-1',
+        reason: 'wake',
+        previousProviderSessionId: 'session-abc',
+        provider: 'codex',
+        cwd: '/tmp/project',
+        capabilities: { supportsResume: true, supportsForkSession: false },
+        adapterGeneration: 1,
+        hasConversation: true,
+        resumeCursor: cursor({ configFingerprint: 'same-fingerprint' }),
+        currentConfigFingerprint: 'same-fingerprint',
+      });
+
+      expect(plan).toMatchObject({ kind: 'native-resume' });
+    });
+
+    it('stays resume-eligible when the cursor has no fingerprint (legacy cursor)', () => {
+      const plan = planSessionRecovery({
+        instanceId: 'instance-1',
+        reason: 'wake',
+        previousProviderSessionId: 'session-abc',
+        provider: 'codex',
+        cwd: '/tmp/project',
+        capabilities: { supportsResume: true, supportsForkSession: false },
+        adapterGeneration: 1,
+        hasConversation: true,
+        resumeCursor: cursor(),
+        currentConfigFingerprint: 'new-fingerprint',
+      });
+
+      expect(plan).toMatchObject({ kind: 'native-resume' });
     });
   });
 });

@@ -5,6 +5,7 @@ import type {
   Instance,
   InstanceCreateConfig,
   InstanceStatus,
+  InstanceWaitReason,
   OutputMessage,
   SessionDiffStats,
 } from '../../shared/types/instance.types';
@@ -54,6 +55,7 @@ export interface LifecycleDependencies {
     },
     activityState?: import('../../shared/types/activity.types').ActivityState,
     currentModel?: string,
+    waitReason?: InstanceWaitReason | null,
   ) => void;
   serializeForIpc: (instance: Instance) => Record<string, unknown>;
   setupAdapterEvents: (instanceId: string, adapter: CliAdapter) => void;

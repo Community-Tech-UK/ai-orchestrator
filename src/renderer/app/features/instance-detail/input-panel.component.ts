@@ -66,6 +66,7 @@ import type {
   InstanceStatus,
   OutputMessage,
 } from '../../core/state/instance/instance.types';
+import type { InstanceWaitReason } from '../../../../shared/types/instance.types';
 import { ComposerToolbarComponent } from './composer-toolbar.component';
 import {
   tryStartLoopFromPanel,
@@ -145,6 +146,24 @@ export class InputPanelComponent implements OnDestroy {
   showWakeupControls = input<boolean>(false);
   hasThreadWakeups = input<boolean>(false);
   showWakeupReviveToggle = input<boolean>(false);
+  waitReason = input<InstanceWaitReason | undefined>(undefined);
+
+  readonly holdReasonLabel = computed<string | null>(() => {
+    const wr = this.waitReason();
+    if (!wr) return null;
+    switch (wr.kind) {
+      case 'respawning':    return `Held — session respawning (${wr.strategy})`;
+      case 'interrupt-ack': return 'Held — waiting for interrupt acknowledgement';
+      case 'backoff':       return `Held — backing off (attempt ${wr.attempt})`;
+      case 'quota-park':    return `Held — provider quota limit (${wr.provider})`;
+      case 'provider-slot': return `Held — waiting for provider slot (${wr.provider})`;
+      case 'resume-proof':  return 'Held — verifying resume';
+      case 'remote-heartbeat': return 'Held — remote worker unresponsive';
+      case 'mutex':         return `Held — waiting for session lock (${wr.operation})`;
+      case 'terminating':   return 'Held — instance terminating';
+      default:              return null;
+    }
+  });
 
   // Computed preview data for pending files
   pendingFilePreviews = computed(() => {

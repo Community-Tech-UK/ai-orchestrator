@@ -281,6 +281,7 @@ describe('InstanceListStore', () => {
       provider: 'claude',
       model: 'opus',
       bareMode: true,
+      fastMode: false,
       launchMode: 'interactive',
       forceNodeId: undefined,
     });

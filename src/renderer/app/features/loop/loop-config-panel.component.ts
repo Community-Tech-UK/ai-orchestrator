@@ -14,10 +14,14 @@ import type { PickerProvider } from '../models/compact-model-picker.types';
 // optional, so an empty `progressThresholds: {}` would fail validation.
 const DEFAULT_CAPS = {
   maxIterations: 50,
-  maxTokens: 1_000_000,
   maxCostCents: 20_000,
   maxToolCallsPerIteration: 200,
 };
+/** Lower bound for the optional token cap. Below this a single substantial
+ *  iteration (file reads + a long turn) would trip it instantly, which is the
+ *  exact foot-gun the old hidden 1M default caused on 1M-context models. */
+const MIN_MAX_TOKENS = 10_000;
+const MAX_MAX_TOKENS = 100_000_000;
 const DEFAULT_MAX_WALL_TIME_HOURS = 50;
 const MAX_WALL_TIME_HOURS = 7 * 24;
 const DEFAULT_COMPLETION = {
@@ -134,6 +138,10 @@ export class LoopConfigPanelComponent {
   maxIterations = signal<number | null>(DEFAULT_CAPS.maxIterations);
   maxHours = signal(DEFAULT_MAX_WALL_TIME_HOURS);
   maxDollars = signal<number | null>(DEFAULT_CAPS.maxCostCents / 100);
+  /** Total token budget across the whole loop. Null = no cap (the default),
+   *  so iterations/hours/spend govern. Previously hard-coded to 1M and hidden
+   *  from the UI, which silently killed 1M-context runs after one iteration. */
+  maxTokens = signal<number | null>(null);
   verifyCommand = signal('');
   quickVerifyCommand = signal('');
   provider = signal<PickerProvider>('claude');
@@ -278,6 +286,13 @@ export class LoopConfigPanelComponent {
     if (this.maxHours() > MAX_WALL_TIME_HOURS) return 'Max wall time must be 168 hours or less.';
     const maxDollars = this.maxDollars();
     if (maxDollars !== null && maxDollars < 1) return 'Max spend must be at least $1, or blank for no cap.';
+    const maxTokens = this.maxTokens();
+    if (maxTokens !== null && (!Number.isFinite(maxTokens) || maxTokens < MIN_MAX_TOKENS)) {
+      return 'Max tokens must be at least 10,000, or blank for no cap.';
+    }
+    if (maxTokens !== null && maxTokens > MAX_MAX_TOKENS) {
+      return 'Max tokens must be 100,000,000 or less.';
+    }
     if (this.compactContext()) {
       const pct = this.compactionThresholdPct();
       if (!Number.isFinite(pct) || pct < 10 || pct > 95) {
@@ -330,6 +345,15 @@ export class LoopConfigPanelComponent {
     this.maxIterations.set(numeric);
   }
 
+  onMaxTokensChange(value: number | string | null): void {
+    if (value === null || value === '') {
+      this.maxTokens.set(null);
+      return;
+    }
+    const numeric = typeof value === 'number' ? value : Number(value);
+    this.maxTokens.set(numeric);
+  }
+
   onBranchFanoutChange(value: number | string | null): void {
     const numeric = typeof value === 'number' ? value : Number(value);
     this.branchFanout.set(numeric);
@@ -378,7 +402,7 @@ export class LoopConfigPanelComponent {
       caps: {
         maxIterations: this.maxIterations(),
         maxWallTimeMs: this.maxHours() * 60 * 60 * 1000,
-        maxTokens: DEFAULT_CAPS.maxTokens,
+        maxTokens: this.maxTokens(),
         maxCostCents: maxDollars === null ? null : maxDollars * 100,
         maxToolCallsPerIteration: DEFAULT_CAPS.maxToolCallsPerIteration,
       },

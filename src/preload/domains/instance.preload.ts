@@ -24,6 +24,7 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
       model?: string;
       bareMode?: boolean;
+      fastMode?: boolean;
       forceNodeId?: string;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.INSTANCE_CREATE, payload);
@@ -41,6 +42,7 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       provider?: 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor' | 'auto';
       model?: string;
       bareMode?: boolean;
+      fastMode?: boolean;
       forceNodeId?: string;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(
@@ -150,6 +152,32 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       instanceId: string;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.INSTANCE_TOGGLE_YOLO_MODE, payload);
+    },
+
+    /**
+     * Toggle or set fast mode for an instance (preserves conversation context).
+     * Omit `fastMode` to flip the current value.
+     */
+    toggleFastMode: (payload: {
+      instanceId: string;
+      fastMode?: boolean;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTANCE_TOGGLE_FAST_MODE, payload);
+    },
+
+    /**
+     * Subscribe to fast-mode changes pushed from main (user toggle or provider
+     * auto-revert when fast mode is unavailable). Returns an unsubscribe fn.
+     */
+    onFastToggled: (
+      callback: (payload: { instanceId: string; fastMode: boolean; reason: 'user' | 'unavailable' }) => void
+    ): (() => void) => {
+      const listener = (
+        _event: IpcRendererEvent,
+        payload: { instanceId: string; fastMode: boolean; reason: 'user' | 'unavailable' }
+      ): void => callback(payload);
+      ipcRenderer.on(ch.INSTANCE_FAST_TOGGLED, listener);
+      return () => ipcRenderer.removeListener(ch.INSTANCE_FAST_TOGGLED, listener);
     },
 
     /**

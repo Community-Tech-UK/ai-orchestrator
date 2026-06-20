@@ -50,6 +50,21 @@ export interface AppSettings {
    * fall back to `getPrimaryModelForProvider(provider)`.
    */
   defaultModelByProvider: Record<string, string>;
+  /**
+   * Default "fast mode" preference for newly-spawned instances when no
+   * per-provider entry exists. Fast mode trades some capability for faster
+   * output: Claude sets the CLI `fastMode` settings key (Opus-only, needs a
+   * paid subscription/credits); Codex requests the `priority` service tier
+   * (~1.5x speed). Providers that don't support it ignore the flag.
+   */
+  defaultFastMode: boolean;
+  /**
+   * Last-selected fast-mode preference per CLI provider, so the toggle is
+   * remembered across provider switches (mirrors `defaultModelByProvider`).
+   * Keys are `CanonicalCliType` values minus 'auto'. Missing entries fall back
+   * to `defaultFastMode`.
+   */
+  defaultFastModeByProvider: Record<string, boolean>;
   theme: ThemeMode;
 
   // Orchestration
@@ -412,6 +427,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultCli: 'auto',
   defaultModel: 'opus[1m]',
   defaultModelByProvider: {},
+  defaultFastMode: false,
+  defaultFastModeByProvider: {},
   theme: 'dark',
 
   // Orchestration

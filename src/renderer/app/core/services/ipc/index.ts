@@ -160,6 +160,7 @@ export class IpcFacadeService {
   renameInstance = this.instance.renameInstance.bind(this.instance);
   changeAgentMode = this.instance.changeAgentMode.bind(this.instance);
   toggleYoloMode = this.instance.toggleYoloMode.bind(this.instance);
+  toggleFastMode = this.instance.toggleFastMode.bind(this.instance);
   changeModel = this.instance.changeModel.bind(this.instance);
   terminateAllInstances = this.instance.terminateAllInstances.bind(this.instance);
   listInstances = this.instance.listInstances.bind(this.instance);

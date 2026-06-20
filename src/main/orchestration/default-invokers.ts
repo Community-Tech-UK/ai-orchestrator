@@ -1138,9 +1138,34 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   // idempotent: if a cleanup is already in flight for the loop, this
   // call observes the same promise.
   coordinator.on('loop:state-changed', (data: unknown) => {
-    const payload = data as { loopRunId: string; state: { status: string } };
+    const payload = data as { loopRunId: string; state: { status: string; chatId?: string } };
     if (!isTerminalLoopStatus(payload?.state?.status ?? '')) return;
+    // Clear quota-park waitReason when the loop terminates.
+    const chatId = payload?.state?.chatId;
+    if (chatId) {
+      instanceManager.queueInstanceUpdate(chatId, { waitReason: null });
+    }
     void cleanupLoopAdapters(payload.loopRunId);
+  });
+
+  // D7: Surface quota-park as a machine-readable waitReason on the chat instance
+  // so the renderer can show "Provider limit — resumes in Xm" with a countdown.
+  coordinator.on('loop:provider-limit', (data: unknown) => {
+    const ev = data as { loopRunId?: string; resumeAt: number | null; willResume?: boolean };
+    if (!ev?.loopRunId) return;
+    // getLoop() returns the live LoopState; it's the only way to resolve chatId from loopRunId here.
+    const loopState = (coordinator as { getLoop?: (id: string) => { chatId?: string; config?: { provider?: string } } | undefined }).getLoop?.(ev.loopRunId);
+    const chatId = loopState?.chatId;
+    const provider = loopState?.config?.provider ?? 'unknown';
+    if (!chatId) return;
+    if (ev.willResume && typeof ev.resumeAt === 'number') {
+      instanceManager.queueInstanceUpdate(chatId, {
+        waitReason: { kind: 'quota-park', provider, resumeAt: ev.resumeAt },
+      });
+    } else {
+      // Not resuming (terminated) — clear the waitReason.
+      instanceManager.queueInstanceUpdate(chatId, { waitReason: null });
+    }
   });
 
   // LF-5: wire the real branch-and-select runtime fan-out (worktree-isolated
@@ -1208,6 +1233,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       provider: LoopProvider;
       model?: string;
       workspaceCwd: string;
+      /** P2: per-session worktree path; falls back to workspaceCwd when absent. */
+      executionCwd?: string;
       stage: string;
       seq: number;
       prompt: string;
@@ -1305,7 +1332,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     };
     emitActivity({
       kind: 'status',
-      message: `Iteration ${p.seq} starting in ${p.workspaceCwd}`,
+      message: `Iteration ${p.seq} starting in ${p.executionCwd ?? p.workspaceCwd}`,
       detail: { provider: p.provider, contextStrategy: p.config?.contextStrategy ?? 'same-session' },
     });
     const loopIterationTimeoutMs = p.iterationTimeoutMs ?? 30 * 60 * 1000;
@@ -1382,7 +1409,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         reusedAdapter = await createPersistentLoopAdapter({
           provider: p.provider,
           model: persistentModel,
-          workingDirectory: p.workspaceCwd,
+          workingDirectory: p.executionCwd ?? p.workspaceCwd,
           timeoutMs: loopIterationTimeoutMs,
           streamIdleTimeoutMs: loopActiveTimeoutMs,
           maxTurns: loopMaxTurns,
@@ -1411,10 +1438,10 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         // assistant stream events flow into the instance's transcript as a
         // normal turn would.
         instanceId: borrowedFromInstance ? p.chatId : undefined,
-        // Spawn the CLI inside the loop's workspace, not Electron's CWD.
-        // Without this the AI runs in `/` (or the app bundle path) and
-        // can't see any of the user's project files.
-        workingDirectory: p.workspaceCwd,
+        // Spawn the CLI inside the loop's execution directory. When worktree
+        // isolation is active, executionCwd is the per-session worktree path;
+        // otherwise it falls back to workspaceCwd (the repo root).
+        workingDirectory: p.executionCwd ?? p.workspaceCwd,
         requestedProvider: p.provider,
         payloadModel: p.model,
         // Opt this (Loop Mode) call into cost-tiered routing. Routing only
@@ -1545,6 +1572,30 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         }
       }
 
+      // D6: If borrowing the parent instance and it was interrupted mid-iteration
+      // by the user (not a normal completion), pause the loop rather than treating
+      // the incomplete output as a degraded iteration and retrying.
+      if (borrowedFromInstance) {
+        const chatInstance = instanceManager.getInstance(p.chatId);
+        const chatStatus = chatInstance?.status;
+        const wasInterrupted = chatStatus === 'idle' && chatInstance?.lastTurnOutcome === 'interrupted';
+        const isInterrupting = chatStatus === 'interrupting' || chatStatus === 'interrupt-escalating';
+        if (wasInterrupted || isInterrupting) {
+          logger.info('Loop iteration completed via user interrupt on parent instance — pausing loop', {
+            loopRunId: p.loopRunId,
+            chatId: p.chatId,
+            chatStatus,
+          });
+          // Signal the loop coordinator that this was a user-requested pause, not
+          // a degraded iteration. Calling cancelLoop pauses it cleanly.
+          const pauseLoop = (coordinator as { pauseLoop?: (id: string) => boolean }).pauseLoop;
+          if (typeof pauseLoop === 'function') {
+            pauseLoop.call(coordinator, p.loopRunId);
+          }
+          p.callback({ error: 'instance-interrupted' });
+          return;
+        }
+      }
       p.callback(childResult);
     } catch (err) {
       const message = logInvocationFailure({

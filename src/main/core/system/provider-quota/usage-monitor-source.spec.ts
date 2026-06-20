@@ -116,6 +116,44 @@ describe('UsageMonitorSource', () => {
     expect(await src.read()).toBeNull();
   });
 
+  it('aliases the legacy gemini state key onto the antigravity provider', async () => {
+    const src = makeSource({
+      json: {
+        providers: {
+          gemini: {
+            plan: 'personal',
+            windows: [
+              { label: 'pro · daily', used_percent: 11.5, reset_at: '2026-06-19T00:00:00Z' },
+              { label: 'flash · daily', used_percent: 0 },
+            ],
+          },
+        },
+      },
+    });
+    const ag = await src.readProvider('antigravity');
+    expect(ag).not.toBeNull();
+    expect(ag!.provider).toBe('antigravity');
+    expect(ag!.plan).toBe('personal');
+    expect(ag!.windows[0].id).toBe('antigravity.pro-daily');
+    expect(ag!.windows[0].used).toBeCloseTo(11.5);
+  });
+
+  it('prefers a native antigravity entry over the gemini alias', async () => {
+    const src = makeSource({
+      json: {
+        providers: {
+          gemini: { windows: [{ label: 'pro · daily', used_percent: 11.5 }] },
+          antigravity: { plan: 'pro', windows: [{ label: 'agy', used_percent: 80 }] },
+        },
+      },
+    });
+    const ag = await src.readProvider('antigravity');
+    expect(ag!.plan).toBe('pro');
+    expect(ag!.windows).toHaveLength(1);
+    expect(ag!.windows[0].id).toBe('antigravity.agy');
+    expect(ag!.windows[0].used).toBe(80);
+  });
+
   it('skips windows missing numeric used/limit', async () => {
     const src = makeSource({
       json: { gemini: { windows: [{ label: 'bad' }, { label: 'ok', used: 5, limit: 10 }] } },

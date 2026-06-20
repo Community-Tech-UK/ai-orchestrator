@@ -1033,6 +1033,14 @@ app-copilot-model-selector {
   font-size: 12px;
 }
 
+.queue-hold-reason {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+
 .queued-messages {
   max-height: 150px;
   overflow-y: auto;

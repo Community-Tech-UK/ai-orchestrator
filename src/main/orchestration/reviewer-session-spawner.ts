@@ -156,7 +156,7 @@ export class ReviewerSessionSpawner {
         displayName: opts.displayName ?? `Ping-pong reviewer (${opts.provider})`,
         // Root-level (no parentId): a `parentId` child skips repo-map / memory
         // loading, which would gut the deep-dive (bigchange_pingpong_review R1).
-        metadata: { pingPongReviewer: true, spawnedAt: startTs },
+        metadata: { pingPongReviewer: true, spawnedAt: startTs, hideFromProjectRail: true },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
