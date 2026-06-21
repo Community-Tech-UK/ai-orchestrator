@@ -1,9 +1,10 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { buildLoopCheckpoint } from './loop-checkpoint';
+import { resolveLoopArtifactPaths } from './loop-artifact-paths';
 import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
 
 describe('LoopCoordinator checkpoint restore', () => {
@@ -87,6 +88,54 @@ describe('LoopCoordinator checkpoint restore', () => {
     expect(coordinator.getLoop('loop-restore-1')?.status).toBe('running');
     await invoked;
     expect(invocations).toBe(1);
+  });
+
+  // P2 / Decision D fail-closed on restore: an isolated loop whose worktree is
+  // gone (crash + manual cleanup, or executionCwd never persisted) must surface
+  // a block rather than silently restoring against the shared repo root. A
+  // silent fallback recreates the exact collision/data-loss class isolation is
+  // meant to prevent.
+  function isolatedPausedState(over: Partial<LoopState['config']> = {}): LoopState {
+    const base = pausedState();
+    return {
+      ...base,
+      config: {
+        ...base.config,
+        isolateLoopWorkspaces: true,
+        ...over,
+      },
+    };
+  }
+
+  it('rejects restore + writes BLOCKED.md when isolated loop has no executionCwd (fail-closed)', async () => {
+    const state = isolatedPausedState({ executionCwd: undefined });
+
+    await expect(
+      coordinator.restoreLoopFromCheckpoint(buildLoopCheckpoint({ state, history: [], now: 500 })),
+    ).rejects.toThrow('isolateLoopWorkspaces: worktree missing on restore (fail-closed)');
+
+    // It must NOT have been restored into the active set under the shared root.
+    expect(coordinator.getLoop(state.id)).toBeUndefined();
+
+    // A BLOCKED.md is written to the loop's (root-anchored) artifact dir so the
+    // operator can diagnose the missing worktree.
+    const blockedPath = resolveLoopArtifactPaths(state.config.workspaceCwd, state.id).blocked;
+    expect(existsSync(blockedPath)).toBe(true);
+    expect(readFileSync(blockedPath, 'utf-8')).toContain('Worktree Missing on Restore');
+  });
+
+  it('rejects restore when the isolated worktree path no longer exists on disk (fail-closed)', async () => {
+    const ghostWorktree = join(workspace, '.worktrees', 'task-ghost-deadbeef');
+    const state = isolatedPausedState({ executionCwd: ghostWorktree });
+
+    await expect(
+      coordinator.restoreLoopFromCheckpoint(buildLoopCheckpoint({ state, history: [], now: 500 })),
+    ).rejects.toThrow('isolateLoopWorkspaces: worktree missing on restore (fail-closed)');
+
+    expect(coordinator.getLoop(state.id)).toBeUndefined();
+    const blockedPath = resolveLoopArtifactPaths(state.config.workspaceCwd, state.id).blocked;
+    expect(existsSync(blockedPath)).toBe(true);
+    expect(readFileSync(blockedPath, 'utf-8')).toContain(ghostWorktree);
   });
 
   it('restores and manually resumes a provider-limit checkpoint', async () => {

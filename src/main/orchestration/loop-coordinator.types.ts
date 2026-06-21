@@ -31,6 +31,13 @@ export interface LoopChildResult {
   contextCompacted?: { previousUtilization: number; newUtilization: number; reason: string };
   /** A3: adapter-layer degraded classification, when the feature flag was on. */
   degradedReason?: DegradedReason;
+  /**
+   * True when this iteration ran in the chat's borrowed live adapter, so its
+   * assistant stream already landed in the chat/instance transcript "as a
+   * normal turn would". The iteration→ledger write (close-the-loop-write-gap)
+   * skips these to avoid double-recording the same turn.
+   */
+  transcriptBound?: boolean;
 }
 
 export interface PauseGate {

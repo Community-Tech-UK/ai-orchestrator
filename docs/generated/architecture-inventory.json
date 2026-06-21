@@ -5120,7 +5120,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3169
+      "lines": 3170
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -5260,7 +5260,7 @@
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1690
+      "lines": 1696
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -5459,6 +5459,10 @@
       "lines": 1186
     },
     {
+      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
+      "lines": 1181
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-02-streaming-tool-executor.COMPLETED.md",
       "lines": 1177
     },
@@ -5473,10 +5477,6 @@
     {
       "path": "docs/superpowers/specs/2026-04-28-wave3-workflow-resume-history-recovery-design_completed.md",
       "lines": 1165
-    },
-    {
-      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
-      "lines": 1146
     },
     {
       "path": "docs/plans/completed/claude2_completed.md",
@@ -5551,16 +5551,16 @@
       "lines": 1059
     },
     {
+      "path": "src/shared/types/loop.types.ts",
+      "lines": 1037
+    },
+    {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
       "lines": 1036
     },
     {
       "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
       "lines": 1034
-    },
-    {
-      "path": "src/shared/types/loop.types.ts",
-      "lines": 1029
     },
     {
       "path": "docs/superpowers/plans/2026-03-14-worktree-safety-attention-cost.md",
@@ -5747,10 +5747,6 @@
       "lines": 881
     },
     {
-      "path": "src/main/app/initialization-steps.ts",
-      "lines": 880
-    },
-    {
       "path": "src/main/rlm/smart-compaction.ts",
       "lines": 880
     },
@@ -5839,6 +5835,10 @@
       "lines": 832
     },
     {
+      "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
+      "lines": 827
+    },
+    {
       "path": "src/renderer/app/features/debate/enhanced-debate-visualization.component.ts",
       "lines": 821
     },
@@ -5865,6 +5865,10 @@
     {
       "path": "docs/superpowers/specs/2026-05-06-claude-code-feature-harvest-design_completed.md",
       "lines": 814
+    },
+    {
+      "path": "src/main/app/initialization-steps.ts",
+      "lines": 812
     },
     {
       "path": "interrupt-resume-recovery-plan_completed.md",

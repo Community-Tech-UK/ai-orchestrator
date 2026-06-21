@@ -184,6 +184,110 @@ describe('registerLoopHandlers terminal summaries', () => {
     }));
   });
 
+  it('records a forked-session iteration as an assistant turn in the chat ledger (close-the-write-gap)', () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    hoisted.chatService.appendSystemEvent.mockResolvedValue(undefined);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const iterationHook = hoisted.coordinator.registerIterationHook.mock.calls[0]?.[0] as
+      ((payload: { state: LoopState; iteration: LoopIteration }) => void) | undefined;
+    const state = makeLoopState({ status: 'running', endedAt: null });
+    const iteration = makeLoopIteration({
+      loopRunId: state.id,
+      seq: 4,
+      outputFull: 'Refactored the resolver and added coverage.',
+      transcriptBound: false,
+    });
+
+    iterationHook?.({ state, iteration });
+
+    expect(hoisted.chatService.appendSystemEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId: 'chat-1',
+        nativeMessageId: 'loop-iter:loop-1:4',
+        nativeTurnId: 'loop:loop-1',
+        role: 'assistant',
+        phase: 'loop_iteration',
+        content: 'Refactored the resolver and added coverage.',
+      }),
+    );
+  });
+
+  it('does not double-record a borrowed-adapter iteration (its stream already entered the transcript)', () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const iterationHook = hoisted.coordinator.registerIterationHook.mock.calls[0]?.[0] as
+      ((payload: { state: LoopState; iteration: LoopIteration }) => void) | undefined;
+    const state = makeLoopState({ status: 'running', endedAt: null });
+    const iteration = makeLoopIteration({
+      loopRunId: state.id,
+      seq: 1,
+      outputFull: 'Already streamed into the borrowed instance transcript.',
+      transcriptBound: true,
+    });
+
+    iterationHook?.({ state, iteration });
+
+    expect(hoisted.chatService.appendSystemEvent).not.toHaveBeenCalled();
+  });
+
+  it('skips iterations that produced no text (nothing to remember)', () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const iterationHook = hoisted.coordinator.registerIterationHook.mock.calls[0]?.[0] as
+      ((payload: { state: LoopState; iteration: LoopIteration }) => void) | undefined;
+    const state = makeLoopState({ status: 'running', endedAt: null });
+    const iteration = makeLoopIteration({ loopRunId: state.id, outputFull: '', outputExcerpt: '' });
+
+    iterationHook?.({ state, iteration });
+
+    expect(hoisted.chatService.appendSystemEvent).not.toHaveBeenCalled();
+  });
+
+  it('records a forked-session iteration into the instance buffer for instance-detail loops', () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const emitSystemMessage = vi.fn();
+    const instanceManager = makeInstanceManager([], {
+      getInstance: vi.fn(() => ({ id: 'inst-1', outputBuffer: [] })),
+      emitSystemMessage,
+    });
+    // state.chatId is an instance id here, so it is not a chat.
+    hoisted.chatService.tryGetChat.mockReturnValue(null);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const iterationHook = hoisted.coordinator.registerIterationHook.mock.calls[0]?.[0] as
+      ((payload: { state: LoopState; iteration: LoopIteration }) => void) | undefined;
+    const state = makeLoopState({ status: 'running', endedAt: null });
+    const iteration = makeLoopIteration({
+      loopRunId: state.id,
+      seq: 2,
+      outputFull: 'Forked Codex iteration output.',
+      transcriptBound: false,
+    });
+
+    iterationHook?.({ state, iteration });
+
+    expect(hoisted.chatService.appendSystemEvent).not.toHaveBeenCalled();
+    expect(emitSystemMessage).toHaveBeenCalledWith(
+      'chat-1',
+      'Forked Codex iteration output.',
+      expect.objectContaining({ kind: 'loop-iteration', loopRunId: 'loop-1', iterationSeq: 2 }),
+    );
+  });
+
   it('does not overwrite the latest checkpoint history tail on the state change emitted after an iteration', () => {
     const windowManager = { sendToRenderer: vi.fn() };
     const instanceManager = makeInstanceManager([]);

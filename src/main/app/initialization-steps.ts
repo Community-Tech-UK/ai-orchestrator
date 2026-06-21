@@ -9,6 +9,7 @@ import {
   registerDefaultLoopInvoker,
 } from '../orchestration/default-invokers';
 import { getLoopStoreService } from '../orchestration/loop-store';
+import { reconcileOrphanedWorktrees } from '../orchestration/loop-worktree-reconcile';
 import { getOrchestratorPluginManager } from '../plugins/plugin-manager';
 import { getObservationIngestor, getObserverAgent, getReflectorAgent } from '../observation';
 import { initializePathValidator } from '../security/path-validator';
@@ -288,77 +289,8 @@ export function createInitializationSteps(
           // P3 worktree boot-reconcile: clean up orphaned worktrees left by
           // terminal loops whose async cleanup did not complete (crash, forced
           // quit). Runs before the intent reconciler so it does not race it.
-          {
-            const orphaned = service.store.getTerminalRunsWithWorktreePaths();
-            let reaped = 0;
-            for (const orphan of orphaned) {
-              try {
-                const { execFile: ef } = await import('child_process');
-                const { promisify: pfy } = await import('util');
-                const { stat: fsStat } = await import('fs/promises');
-                const execFileAsync = pfy(ef);
-                // Only reap if the directory still exists.
-                await fsStat(orphan.worktreePath);
-                // Determine the repo root from the worktree (linked worktrees
-                // know their root via git rev-parse --show-toplevel).
-                const { stdout: repoRoot } = await execFileAsync(
-                  'git', ['rev-parse', '--show-toplevel'],
-                  { cwd: orphan.worktreePath, encoding: 'utf-8', timeout: 10_000 },
-                ).catch(() => ({ stdout: '' }));
-                const root = repoRoot.toString().trim() || orphan.workspaceCwd;
-                // P3 / Decision C: harvest uncommitted agent work before reap.
-                // The async cleanup in the terminate path may have been cut short
-                // by a crash, leaving uncommitted output in the worktree. Commit
-                // it here so the branch preserves the work before force-removal.
-                const { stdout: statusOut } = await execFileAsync(
-                  'git', ['status', '--porcelain'],
-                  { cwd: orphan.worktreePath, encoding: 'utf-8', timeout: 10_000 },
-                ).catch(() => ({ stdout: '' }));
-                let stillDirty = statusOut.toString().trim().length > 0;
-                if (stillDirty) {
-                  await execFileAsync(
-                    'git', ['add', '-A'],
-                    { cwd: orphan.worktreePath, encoding: 'utf-8', timeout: 30_000 },
-                  ).catch(() => { /* best-effort */ });
-                  await execFileAsync(
-                    'git', ['commit', '--no-gpg-sign', '-m', 'Boot reconcile: captured uncommitted session output'],
-                    { cwd: orphan.worktreePath, encoding: 'utf-8', timeout: 30_000 },
-                  ).catch(() => { /* best-effort — empty commit is fine, git exits non-zero */ });
-                  // Re-check: if still dirty after commit, do NOT force-remove. The commit
-                  // may have failed (missing git identity, hook error, index lock). Removing
-                  // now would permanently discard uncommitted agent output. Leave it for
-                  // manual recovery — the DB pointer stays set so it appears on next boot.
-                  const { stdout: recheck } = await execFileAsync(
-                    'git', ['status', '--porcelain'],
-                    { cwd: orphan.worktreePath, encoding: 'utf-8', timeout: 10_000 },
-                  ).catch(() => ({ stdout: 'X' })); // treat error as dirty
-                  stillDirty = recheck.toString().trim().length > 0;
-                  if (stillDirty) {
-                    logger.warn('Loop store: boot reconcile skipping worktree removal — harvest commit failed, preserving for manual recovery', {
-                      loopRunId: orphan.id,
-                      worktreePath: orphan.worktreePath,
-                    });
-                    // Do NOT clear the DB pointer — leave it visible on next boot.
-                    continue;
-                  }
-                }
-                if (root) {
-                  await execFileAsync(
-                    'git', ['worktree', 'remove', '--force', orphan.worktreePath],
-                    { cwd: root, encoding: 'utf-8', timeout: 15_000 },
-                  ).catch(() => { /* best-effort */ });
-                }
-                service.store.clearWorktreeInfo(orphan.id);
-                reaped++;
-              } catch {
-                // worktree path already gone — just clear the DB column
-                service.store.clearWorktreeInfo(orphan.id);
-              }
-            }
-            if (reaped > 0 || orphaned.length > 0) {
-              logger.info(`Loop store: worktree reconcile — reaped ${reaped}/${orphaned.length} orphaned worktree(s)`);
-            }
-          }
+          // Logic lives in `loop-worktree-reconcile.ts` so it is unit-testable.
+          await reconcileOrphanedWorktrees(service.store);
 
           // NB2 reconciler: walk `<workspaceCwd>/.aio-loop-control/<loopRunId>/imported/`
           // for every resumable loop and import any intent files whose ids

@@ -270,6 +270,17 @@ export function createLoopMigrationsTable(db: SqliteDriver): void {
 }
 
 export function runLoopMigrations(db: SqliteDriver): void {
+  runLoopMigrationsUpTo(db, Number.POSITIVE_INFINITY);
+}
+
+/**
+ * Run migrations only up to (and including) `maxVersion`. Production always
+ * calls {@link runLoopMigrations} (no cap); this variant exists so tests can
+ * reconstruct an *older* app's schema — e.g. apply only versions ≤ 8 to
+ * simulate a pre-worktree-columns database, then assert the v9 migration
+ * upgrades it cleanly without data loss.
+ */
+export function runLoopMigrationsUpTo(db: SqliteDriver, maxVersion: number): void {
   createLoopMigrationsTable(db);
   const applied = new Set(
     db.prepare('SELECT version FROM loop_migrations')
@@ -279,6 +290,7 @@ export function runLoopMigrations(db: SqliteDriver): void {
 
   const run = db.transaction(() => {
     for (const m of MIGRATIONS) {
+      if (m.version > maxVersion) continue;
       if (applied.has(m.version)) continue;
       db.exec(m.up);
       db.prepare(`

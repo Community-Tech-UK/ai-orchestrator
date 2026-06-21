@@ -15,18 +15,15 @@ import {
 const logger = getLogger('AgenticPingPongReviewer');
 
 /**
- * Provider preference order for `'auto'` reviewer resolution. Deep-dive-capable
- * agentic CLIs first; `ollama` is intentionally excluded from auto (local/weak)
- * but may still be chosen if explicitly configured.
+ * Provider preference order for `'auto'` reviewer resolution. Deliberately
+ * restricted to the Claude ⇄ Codex pair: the reviewer is always the *other*
+ * member of the pair from the builder (Claude builds → Codex reviews, and vice
+ * versa). No third model (gemini, copilot, antigravity, cursor, ollama) is ever
+ * pulled in on `'auto'` — to use one as the reviewer, set an explicit
+ * `pingPongReviewerProvider`. For a builder outside the pair, Codex is preferred
+ * then Claude (still never a third model).
  */
-const AUTO_REVIEWER_PREFERENCE: readonly string[] = [
-  'codex',
-  'gemini',
-  'antigravity',
-  'copilot',
-  'claude',
-  'cursor',
-];
+const AUTO_REVIEWER_PREFERENCE: readonly string[] = ['codex', 'claude'];
 
 /** A single structured finding emitted by the reviewer (evidence required). */
 export interface PingPongReviewFinding {
@@ -181,9 +178,12 @@ async function resolveReviewerProvider(
   for (const candidate of AUTO_REVIEWER_PREFERENCE) {
     if (isEligible(candidate)) return candidate;
   }
-  // Last resort: any installed provider that isn't the builder / already tried.
-  const fallback = installed.find(isEligible);
-  return fallback ?? null;
+  // No eligible member of the Claude ⇄ Codex pair (builder is the only one
+  // installed, or the counterpart was already tried this run). Do NOT fall back
+  // to any other installed model — return null so the round is recorded as
+  // UNRELIABLE rather than silently dragging in a third provider. Set an
+  // explicit `pingPongReviewerProvider` to use a model outside the pair.
+  return null;
 }
 
 function resolveModelOverride(provider: string): string | undefined {

@@ -249,9 +249,11 @@ export interface AppSettings {
 
   // Conversational ping-pong review (bigchange_pingpong_review)
   /**
-   * Default reviewer provider for ping-pong mode. `'auto'` resolves to any
-   * installed provider that is NOT the builder's. A per-run override exists in
-   * the loop control.
+   * Default reviewer provider for ping-pong mode. `'auto'` pairs Claude ⇄ Codex:
+   * the reviewer is always the *other* member of that pair from the builder
+   * (Claude builds → Codex reviews, and vice versa). No third model is pulled in
+   * on `'auto'`; to review with gemini/copilot/etc. set an explicit provider
+   * here. A per-run override exists in the loop control.
    */
   pingPongReviewerProvider: CanonicalCliType;
   /** Default hard cap on ping-pong rounds (clamped 1..20). */
