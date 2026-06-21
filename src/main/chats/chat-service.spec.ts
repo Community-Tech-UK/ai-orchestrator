@@ -138,9 +138,13 @@ describe('ChatService', () => {
       '[Continue, working directory is now /work/new-project.]'
     );
     expect(instanceManager.inputs[1].message).toMatch(/\n\nContinue here$/);
+    // The cwd-switch replay block is the only context injected — the fresh
+    // session's universal rebuild must NOT also fire, or context would be
+    // duplicated.
+    expect(instanceManager.preambles[1]).toBeUndefined();
   });
 
-  it('prepends a queued loop handoff to the next message exactly once, then clears it', async () => {
+  it('rebuilds context from ledger on the turn after a loop epoch bump, exactly once', async () => {
     const { service, instanceManager } = createHarness();
     const chat = await service.createChat({
       provider: 'claude',
@@ -148,18 +152,144 @@ describe('ChatService', () => {
       name: 'Loop follow-up',
     });
 
-    service.queueLoopHandoff(chat.chat.id, '[Loop context] the loop fixed three findings.');
+    // Simulate a loop iteration landing in the ledger (Phase 1 — the actual
+    // iteration transcript is written by appendLoopIterationTranscript).
+    await service.appendSystemEvent({
+      chatId: chat.chat.id,
+      nativeMessageId: 'loop-iter:loop-1:1',
+      nativeTurnId: 'loop:loop-1',
+      phase: 'loop_iteration',
+      role: 'assistant',
+      content: 'Iteration complete. All three reviewer findings have been addressed.',
+    });
+
+    // Signal that the loop ran in a diverged session (Phase 2 — called by
+    // appendLoopTerminalSummary when the loop was not borrowed).
+    service.bumpLineageEpoch(chat.chat.id);
 
     await service.sendMessage({ chatId: chat.chat.id, text: 'Were these issues resolved?' });
     await service.sendMessage({ chatId: chat.chat.id, text: 'And the second one?' });
 
-    // First turn after the loop carries the handoff, with the user's text last.
-    expect(instanceManager.inputs[0].message).toContain(
-      '[Loop context] the loop fixed three findings.',
-    );
-    expect(instanceManager.inputs[0].message).toMatch(/\n\nWere these issues resolved\?$/);
-    // Consume-once: the second turn must not re-inject the handoff.
+    // First turn: instance received a continuity preamble from the ledger rebuild.
+    // The preamble contains the loop iteration content so the model can answer.
+    expect(instanceManager.preambles[0]).toContain('All three reviewer findings');
+    // First turn message itself is unchanged (preamble is queued separately).
+    expect(instanceManager.inputs[0].message).toBe('Were these issues resolved?');
+    // Second turn: rebuild-once — no preamble on the second send.
+    expect(instanceManager.preambles[1]).toBeUndefined();
     expect(instanceManager.inputs[1].message).toBe('And the second one?');
+  });
+
+  it('does not double-inject loop context when a cwd switch follows a loop (replay block carries it, flag cleared)', async () => {
+    const { service, instanceManager } = createHarness();
+    const chat = await service.createChat({
+      provider: 'claude',
+      currentCwd: '/work/old',
+      name: 'Loop then cwd switch',
+    });
+    await service.sendMessage({ chatId: chat.chat.id, text: 'Kick off' });
+
+    // A loop iteration lands in the ledger, then the loop terminates in a
+    // diverged session (sets the durable rebuild flag).
+    await service.appendSystemEvent({
+      chatId: chat.chat.id,
+      nativeMessageId: 'loop-iter:loop-1:1',
+      nativeTurnId: 'loop:loop-1',
+      phase: 'loop_iteration',
+      role: 'assistant',
+      content: 'Loop refactored the auth module.',
+    });
+    service.bumpLineageEpoch(chat.chat.id);
+
+    // Switching the project terminates the instance and appends a cwd-switch
+    // event; the next send prepends a cwd replay block that already replays the
+    // prior turns (including the loop iteration).
+    await service.setCwd(chat.chat.id, '/work/new');
+    await service.sendMessage({ chatId: chat.chat.id, text: 'Continue in new project' });
+
+    const cwdSend = instanceManager.inputs.at(-1)!;
+    expect(cwdSend.message).toContain('Loop refactored the auth module.');
+    // The rebuild preamble must be skipped — the cwd replay already carried it.
+    expect(instanceManager.preambles.at(-1)).toBeUndefined();
+
+    // The loop flag was cleared by the cwd path, so the next (non-cwd) send does
+    // NOT redundantly rebuild.
+    await service.sendMessage({ chatId: chat.chat.id, text: 'And again' });
+    expect(instanceManager.inputs.at(-1)!.message).toBe('And again');
+    expect(instanceManager.preambles.at(-1)).toBeUndefined();
+  });
+
+  it('rebuilds context from the ledger when a model switch forks the provider session', async () => {
+    const { service, ledger, instanceManager } = createHarness();
+    const chat = await service.createChat({
+      provider: 'claude',
+      currentCwd: '/work/project',
+      name: 'Model switch continuity',
+    });
+    const first = await service.sendMessage({ chatId: chat.chat.id, text: 'Add a login form' });
+    await ledger.appendMessage(first.chat.ledgerThreadId, {
+      role: 'assistant',
+      phase: null,
+      content: 'Login form added with email + password fields.',
+      createdAt: Date.now(),
+    });
+
+    // Switching the model terminates the instance; the next send spawns a fresh
+    // provider session that has no memory of the prior turns.
+    await service.setModel(chat.chat.id, 'opus-4-7');
+
+    await service.sendMessage({ chatId: chat.chat.id, text: 'Now add validation' });
+
+    expect(instanceManager.creates).toHaveLength(2);
+    // The fresh session is seeded with the prior conversation from the ledger.
+    const preamble = instanceManager.preambles.at(-1);
+    expect(preamble).toContain('Login form added');
+    // The user's actual message is unchanged.
+    expect(instanceManager.inputs.at(-1)?.message).toBe('Now add validation');
+  });
+
+  it('checkpoint-aware rebuild walks [durable summary] + [verbatim after checkpoint] (§4.4)', async () => {
+    const { service, ledger, instanceManager } = createHarness();
+    const chat = await service.createChat({
+      provider: 'claude',
+      currentCwd: '/work/project',
+      name: 'Checkpoint rebuild',
+    });
+    // Seed early turns that will be folded into a checkpoint summary.
+    const first = await service.sendMessage({ chatId: chat.chat.id, text: 'Early request' });
+    await ledger.appendMessage(first.chat.ledgerThreadId, {
+      role: 'assistant',
+      phase: null,
+      content: 'ASSISTANT-EARLY: did the early work.',
+      createdAt: Date.now(),
+    });
+    // A checkpoint compacts everything up to the early assistant turn (seq 2).
+    await ledger.writeCheckpoint(first.chat.ledgerThreadId, {
+      upToSequence: 2,
+      upToNativeId: null,
+      summary: 'DURABLE-SUMMARY: the early request was completed.',
+      summarizedMessageCount: 2,
+      summaryTokens: 8,
+    });
+    // A later assistant turn lands AFTER the checkpoint — must be replayed verbatim.
+    await ledger.appendMessage(first.chat.ledgerThreadId, {
+      role: 'assistant',
+      phase: null,
+      content: 'ASSISTANT-LATE: then added the follow-up feature.',
+      createdAt: Date.now(),
+    });
+    // Force a fresh provider session so the universal rebuild fires.
+    await service.setModel(chat.chat.id, 'opus-4-7');
+    await service.sendMessage({ chatId: chat.chat.id, text: 'What is left?' });
+
+    const preamble = instanceManager.preambles.at(-1);
+    expect(preamble).toBeDefined();
+    // Durable summary of the compacted prefix is present...
+    expect(preamble).toContain('DURABLE-SUMMARY');
+    // ...as is the verbatim turn after the checkpoint...
+    expect(preamble).toContain('ASSISTANT-LATE');
+    // ...but the pre-checkpoint verbatim turn was folded into the summary, not replayed.
+    expect(preamble).not.toContain('ASSISTANT-EARLY');
   });
 
   it('migrates a legacy global operator ledger thread into a setup-required chat', async () => {
@@ -493,7 +623,23 @@ describe('ChatService', () => {
       text: 'Continue now',
     });
     expect(secondInstanceManager.creates).toHaveLength(1);
+    // The user's message itself is unchanged...
     expect(secondInstanceManager.inputs[0].message).toBe('Continue now');
+    // ...but because the post-restart provider session is brand new and has no
+    // memory of the chat, §4.3's universal fallback rebuilds the prior turns
+    // from the ledger and injects them as a continuity preamble. Before this
+    // fix the fresh session received no context at all (the original "new
+    // session has no context" failure).
+    expect(secondInstanceManager.preambles[0]).toContain('Remember this after restart');
+
+    // Once the rebound session is reused (not fresh), the native fast path
+    // applies and no further preamble is injected.
+    await secondService.sendMessage({
+      chatId: created.chat.id,
+      text: 'And again',
+    });
+    expect(secondInstanceManager.creates).toHaveLength(1);
+    expect(secondInstanceManager.preambles[1]).toBeUndefined();
   });
 
   it('persists selected/open chat UI state and filters stale ids on restore', async () => {
@@ -861,7 +1007,10 @@ class FakeInstanceManager extends EventEmitter {
   }[] = [];
   readonly terminations: (string | null)[] = [];
   readonly yoloChanges: { instanceId: string; yolo: boolean }[] = [];
+  /** Preambles indexed by the send call that consumed them. */
+  readonly preambles: (string | undefined)[] = [];
   private readonly instances = new Map<string, Instance>();
+  private readonly pendingPreambles = new Map<string, string>();
 
   async createInstance(config: InstanceCreateConfig): Promise<Instance> {
     this.creates.push(config);
@@ -874,11 +1023,18 @@ class FakeInstanceManager extends EventEmitter {
     return this.instances.get(instanceId);
   }
 
+  queueContinuityPreamble(instanceId: string, preamble: string): void {
+    this.pendingPreambles.set(instanceId, preamble);
+  }
+
   async sendInput(
     instanceId: string,
     message: string,
     attachments?: FileAttachment[],
   ): Promise<void> {
+    const preamble = this.pendingPreambles.get(instanceId);
+    this.pendingPreambles.delete(instanceId);
+    this.preambles.push(preamble);
     this.inputs.push({ instanceId, message, attachments });
     const instance = this.instances.get(instanceId);
     if (instance) {

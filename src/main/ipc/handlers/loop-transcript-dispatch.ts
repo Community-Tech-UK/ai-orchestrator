@@ -112,12 +112,12 @@ export function appendLoopInterveneMessage(
  * assistant stream already landed in the transcript as a normal turn, so a
  * second write here would duplicate it.
  */
-export function appendLoopIterationTranscript(
+export async function appendLoopIterationTranscript(
   state: LoopState,
   iteration: LoopIteration,
   chatService: ChatService,
   instanceManager: InstanceManager,
-): void {
+): Promise<void> {
   if (iteration.transcriptBound) {
     return;
   }
@@ -127,14 +127,23 @@ export function appendLoopIterationTranscript(
   }
   const chat = chatService.tryGetChat(state.chatId);
   if (chat) {
-    void chatService.appendSystemEvent(event).catch((error) => {
+    // AWAIT (not fire-and-forget): the iteration hook that calls this is awaited
+    // by the LoopCoordinator, so awaiting here guarantees each iteration's
+    // assistant turn is durably in the ledger *before* the loop advances — and
+    // therefore before the terminal summary bumps the chat's lineage epoch. A
+    // fire-and-forget append could lose the race against an immediate follow-up
+    // send that consumes and clears the rebuild flag before the loop work has
+    // landed, permanently skipping it from the rebuilt context.
+    try {
+      await chatService.appendSystemEvent(event);
+    } catch (error) {
       logger.warn('Failed to append loop iteration to chat transcript', {
         loopRunId: state.id,
         chatId: state.chatId,
         seq: iteration.seq,
         error: error instanceof Error ? error.message : String(error),
       });
-    });
+    }
     return;
   }
   const instance = instanceManager.getInstance(state.chatId);
@@ -154,13 +163,32 @@ export function appendLoopTerminalSummary(
   chatService: ChatService,
   instanceManager: InstanceManager,
 ): void {
-  // Silent context handoff for the NEXT interactive turn: the loop ran in its
-  // own CLI session, so the chat's model never saw it. Without this, follow-ups
-  // ("were those issues resolved?") have no antecedent. Distinct from the
-  // visible recap card below.
-  const handoff = buildLoopContextHandoff(state);
   const chat = chatService.tryGetChat(state.chatId);
   if (chat) {
+    // Mark the session lineage as dirty FIRST (synchronously) so the next
+    // sendMessage rebuilds context from the ledger — which by now durably
+    // contains every loop iteration as an assistant turn, because the iteration
+    // hook awaits appendLoopIterationTranscript before the loop reaches this
+    // terminal state. Setting the flag before the async recap append closes the
+    // window where an instant follow-up could send before the flag was set.
+    // The binding is persisted to the DB so it survives restarts (this replaces
+    // the in-memory queueLoopHandoff band-aid).
+    //
+    // Isolated in its own try/catch: the binding write and the recap card are
+    // independent, so a binding-store failure must not prevent the user-facing
+    // recap from rendering.
+    try {
+      chatService.bumpLineageEpoch(state.chatId);
+    } catch (error) {
+      logger.warn('Failed to bump loop lineage epoch; chat recap will still render', {
+        loopRunId: state.id,
+        chatId: state.chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    // Write the human-facing recap card to the chat ledger. Fire-and-forget is
+    // fine: it's a system-role event that the ledger rebuild filters out, so its
+    // timing never affects continuity.
     void chatService.appendSystemEvent(buildLoopTerminalChatSummary(state)).catch((error) => {
       logger.warn('Failed to append loop terminal summary to chat transcript', {
         loopRunId: state.id,
@@ -168,13 +196,15 @@ export function appendLoopTerminalSummary(
         error: error instanceof Error ? error.message : String(error),
       });
     });
-    chatService.queueLoopHandoff(state.chatId, handoff);
     return;
   }
   const instance = instanceManager.getInstance(state.chatId);
   if (instance) {
     const summary = buildLoopTerminalChatSummary(state);
     instanceManager.emitSystemMessage(state.chatId, summary.content, summary.metadata);
+    // Instance-bound loops (started from instance-detail view) have no ledger
+    // thread; fall back to the existing summary-based handoff for continuity.
+    const handoff = buildLoopContextHandoff(state);
     instanceManager.queueContinuityPreamble(state.chatId, handoff);
     return;
   }

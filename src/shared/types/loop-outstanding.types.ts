@@ -9,15 +9,29 @@
 import type { LoopStatus } from './loop.types';
 
 /**
+ * One parsed OUTSTANDING.md bullet plus the agent's optional recommended
+ * decision/next-step for it (a `Recommendation:` sub-bullet the agent writes
+ * under the item). The recommendation pre-fills the answer box in the
+ * Outstanding panel so the human starts from a concrete suggestion instead of a
+ * blank field — it is a *suggestion only*, never auto-accepted as the answer.
+ */
+export interface LoopOutstandingEntry {
+  /** The bullet text (the work item / question itself). */
+  text: string;
+  /** The agent's one-line recommended decision/next step, or null when none. */
+  recommendation: string | null;
+}
+
+/**
  * Structured snapshot of a loop's OUTSTANDING.md, parsed at termination. The
  * agent maintains OUTSTANDING.md with work it could NOT resolve autonomously
  * (items needing a human) and unresolved questions.
  */
 export interface LoopOutstanding {
   /** Items under the "Needs human" / "Manual verification" sections. */
-  needsHuman: string[];
+  needsHuman: LoopOutstandingEntry[];
   /** Items under the "Open questions" section. */
-  openQuestions: string[];
+  openQuestions: LoopOutstandingEntry[];
   /** Raw OUTSTANDING.md text (for export / inspection). */
   raw: string;
   /** Epoch ms when this snapshot was captured. */
@@ -51,6 +65,13 @@ export interface LoopOutstandingItem {
    * the rationale survives, and surfaced in the panel + exported OUTSTANDING.md.
    */
   userResponse: string | null;
+  /**
+   * The agent's recommended decision/answer for this item (parsed from the
+   * `Recommendation:` sub-bullet in OUTSTANDING.md), or null when the agent gave
+   * none. Pre-fills the answer box as an editable suggestion; it is NOT counted
+   * as an answer until the human saves/accepts it, so the human gate stays real.
+   */
+  recommendedAnswer: string | null;
   status: LoopOutstandingItemStatus;
   /** The run's terminal status, for context in the panel (e.g. completed-needs-review). */
   loopStatus: LoopStatus;

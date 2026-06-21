@@ -2,10 +2,12 @@ import { getLogger } from '../logging/logger';
 import type {
   PingPongIssue,
   PingPongIssueStatus,
+  PingPongReviewerFault,
   PingPongReviewerVerdict,
   PingPongSeverity,
   PingPongSubject,
 } from '../../shared/types/loop-pingpong.types';
+import { isProviderNotice } from '../cli/provider-notice';
 import type { InstanceProvider } from '../../shared/types/instance.types';
 import {
   getReviewerSessionSpawner,
@@ -105,6 +107,12 @@ export interface PingPongReviewResult {
   spawnOutcome?: ReviewSessionOutcome;
   /** Why the verdict is UNRELIABLE (or other diagnostic context). */
   reason?: string;
+  /**
+   * Fault class for an `UNRELIABLE` verdict — distinguishes a reviewer-tool
+   * availability problem (rotate + back off) from a reviewer-quality problem
+   * (escalate sooner). Only meaningful when `verdict === 'UNRELIABLE'`.
+   */
+  fault?: PingPongReviewerFault;
 }
 
 export type PingPongReviewer = (
@@ -118,6 +126,7 @@ const MAX_NEW_LOW_FINDINGS = 5;
 
 function unreliable(
   reason: string,
+  fault: PingPongReviewerFault,
   partial: Partial<PingPongReviewResult> = {},
 ): PingPongReviewResult {
   return {
@@ -131,6 +140,7 @@ function unreliable(
     reviewerInstanceId: partial.reviewerInstanceId,
     spawnOutcome: partial.spawnOutcome,
     reason,
+    fault,
     completeness: partial.completeness,
   };
 }
@@ -175,14 +185,32 @@ async function resolveReviewerProvider(
     // Explicit provider unavailable / already tried → fall through to auto.
   }
 
+  // Tier 1 — the preferred Claude ⇄ Codex pair: the reviewer is the *other*
+  // member from the builder.
   for (const candidate of AUTO_REVIEWER_PREFERENCE) {
     if (isEligible(candidate)) return candidate;
   }
-  // No eligible member of the Claude ⇄ Codex pair (builder is the only one
-  // installed, or the counterpart was already tried this run). Do NOT fall back
-  // to any other installed model — return null so the round is recorded as
-  // UNRELIABLE rather than silently dragging in a third provider. Set an
-  // explicit `pingPongReviewerProvider` to use a model outside the pair.
+
+  // Tier 2 — pair exhausted (the counterpart is the builder, uninstalled, or
+  // already tried+failed this run). Rather than hard-fail and spiral straight
+  // into `reviewer-unavailable`, WIDEN to any other installed non-builder
+  // provider so a single throttled/unreachable counterpart can self-heal (e.g.
+  // Claude builds, Codex is rate-limited → fall back to Copilot). Faults from a
+  // widened reviewer are still classified + rotated like any other, so a flaky
+  // third model degrades gracefully instead of looping. This intentionally
+  // supersedes the older "never pull a third model on auto" rule, which made the
+  // pair a single point of failure.
+  const widened = installed.find((p) => isEligible(p));
+  if (widened) {
+    logger.info('Ping-pong auto pair exhausted — widening to a non-pair reviewer', {
+      builderProvider,
+      reviewer: widened,
+      tried,
+    });
+    return widened;
+  }
+
+  // Every installed non-builder provider is exhausted this run → no reviewer.
   return null;
 }
 
@@ -400,7 +428,10 @@ function capLowSeverityChurn(
  */
 export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
   if (input.signal?.aborted || input.isCancelled?.()) {
-    return unreliable('cancelled before reviewer spawn', { spawnOutcome: 'cancelled' });
+    // Cancellation is not a fault; the completion branch keys off spawnOutcome.
+    return unreliable('cancelled before reviewer spawn', 'infra_error', {
+      spawnOutcome: 'cancelled',
+    });
   }
 
   const provider = await resolveReviewerProvider(
@@ -411,6 +442,7 @@ export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
   if (!provider) {
     return unreliable(
       `no eligible reviewer provider (builder=${input.builderProvider}, tried=${input.triedReviewerProviders.join(',') || 'none'})`,
+      'unavailable',
     );
   }
 
@@ -438,12 +470,38 @@ export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
   };
 
   if (session.outcome !== 'settled') {
-    return unreliable(`reviewer session ${session.outcome}: ${session.error ?? ''}`.trim(), base);
+    // A throttled CLI can still report `settled` (it exits 0 and prints a notice
+    // as content) — that case is caught below. Here the session itself did not
+    // complete: a timeout is its own (transient) fault; cancellation is carried
+    // through via spawnOutcome and handled upstream; everything else is infra.
+    const sessionFault: PingPongReviewerFault =
+      session.outcome === 'timeout' ? 'timeout' : 'infra_error';
+    return unreliable(
+      `reviewer session ${session.outcome}: ${session.error ?? ''}`.trim(),
+      sessionFault,
+      base,
+    );
+  }
+
+  // A throttled/quota-limited CLI does not throw — it settles and prints a
+  // usage-limit notice as its "answer". Treat that as a transient availability
+  // fault (rotate to another provider / back off), NOT a verdict on the code and
+  // NOT the reviewer producing malformed output.
+  if (isProviderNotice(session.finalOutput)) {
+    return unreliable(
+      `reviewer provider returned a usage/rate-limit notice instead of a review`,
+      'rate_limited',
+      base,
+    );
   }
 
   const parsed = parseReviewerJson(session.finalOutput);
   if (!parsed) {
-    return unreliable('reviewer output was empty or unparseable (no JSON block)', base);
+    return unreliable(
+      'reviewer output was empty or unparseable (no JSON block)',
+      'malformed_output',
+      base,
+    );
   }
 
   const completenessRaw = (parsed['completeness'] ?? {}) as Record<string, unknown>;
@@ -461,6 +519,7 @@ export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
   if (!sufficient) {
     return unreliable(
       `reviewer did not demonstrate enough work (filesInspected=${filesInspected}, scopeCovered=${scopeCovered ? 'yes' : 'no'})`,
+      'malformed_output',
       { ...base, completeness },
     );
   }

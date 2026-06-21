@@ -26,6 +26,10 @@ export const LoopStatusSchema = z.enum([
   'cost-exceeded',
   'needs-human-arbitration',
   'reviewer-unreliable',
+  // Reviewer provider unavailable (rate-limited / unreachable / no eligible
+  // provider after fallback) — an availability fault, distinct from the reviewer
+  // emitting unusable output (`reviewer-unreliable`).
+  'reviewer-unavailable',
   'builder-unreliable',
   // LF-8: `idle` / `verify-failed` removed — dead states the coordinator never emitted.
 ]);
@@ -518,6 +522,10 @@ export const LoopOutstandingItemSchema = z.object({
   /** The human's recorded decision/answer, or null when none entered yet.
    *  `.nullish()` for back-compat with rows persisted before the column existed. */
   userResponse: z.string().nullish(),
+  /** The agent's recommended decision/answer for this item, or null when none.
+   *  Pre-fills the answer box as an editable suggestion (never auto-accepted).
+   *  `.nullish()` for back-compat with rows persisted before the column existed. */
+  recommendedAnswer: z.string().nullish(),
   status: LoopOutstandingItemStatusSchema,
   loopStatus: LoopStatusSchema,
   createdAt: z.number().int(),

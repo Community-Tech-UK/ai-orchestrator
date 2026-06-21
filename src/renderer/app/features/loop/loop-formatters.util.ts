@@ -131,6 +131,7 @@ export type TerminalLoopStatus =
   | 'cost-exceeded'
   | 'needs-human-arbitration'
   | 'reviewer-unreliable'
+  | 'reviewer-unavailable'
   | 'builder-unreliable';
 
 export function terminalStatusLabel(status: TerminalLoopStatus): string {
@@ -146,6 +147,7 @@ export function terminalStatusLabel(status: TerminalLoopStatus): string {
     case 'cost-exceeded':          return 'cost exceeded';
     case 'needs-human-arbitration': return 'needs arbitration';
     case 'reviewer-unreliable':    return 'reviewer unreliable';
+    case 'reviewer-unavailable':   return 'reviewer unavailable';
     case 'builder-unreliable':     return 'builder unreliable';
   }
 }
@@ -170,6 +172,7 @@ export function loopStatusLabel(status: string): string {
     case 'cost-exceeded':          return 'cost exceeded';
     case 'needs-human-arbitration': return 'needs arbitration';
     case 'reviewer-unreliable':    return 'reviewer unreliable';
+    case 'reviewer-unavailable':   return 'reviewer unavailable';
     case 'builder-unreliable':     return 'builder unreliable';
     case 'paused':                 return 'paused';
     case 'running':                return 'running';
@@ -236,6 +239,7 @@ export function loopStatusPill(input: {
     case 'cost-exceeded': return { kind: 'stopped', label: 'COST EXCEEDED' };
     case 'needs-human-arbitration': return { kind: 'needs-review', label: 'NEEDS ARBITRATION' };
     case 'reviewer-unreliable': return { kind: 'stopped', label: 'REVIEWER UNRELIABLE' };
+    case 'reviewer-unavailable': return { kind: 'stopped', label: 'REVIEWER UNAVAILABLE' };
     case 'builder-unreliable': return { kind: 'stopped', label: 'BUILDER UNRELIABLE' };
     default:            return { kind: 'paused', label: String(input.status).toUpperCase() };
   }

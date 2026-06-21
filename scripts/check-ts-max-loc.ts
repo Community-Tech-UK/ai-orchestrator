@@ -84,6 +84,8 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/cli/adapters/copilot-cli-adapter.ts': 1014,
   'src/main/cli/adapters/cursor-cli-adapter.ts': 1083,
   'src/main/cli/adapters/gemini-cli-adapter.ts': 892,
+  // Main process — chats
+  'src/main/chats/chat-service.ts': 775,
   // Main process — codemem
   'src/main/codemem/cas-store.ts': 765,
   'src/main/codemem/code-index-manager.ts': 792,

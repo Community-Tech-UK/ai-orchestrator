@@ -23,6 +23,8 @@ import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
 import type {
+  ConversationCheckpointRecord,
+  ConversationCheckpointUpsertInput,
   ConversationListQuery,
   ConversationMessageRecord,
   ConversationMessageUpsertInput,
@@ -187,6 +189,19 @@ export class ConversationLedgerWorkerClient implements LedgerStorePort {
       messages,
       cursor,
     ])) as ReconciliationResult;
+  }
+
+  async writeCheckpoint(
+    threadId: string,
+    input: ConversationCheckpointUpsertInput,
+  ): Promise<ConversationCheckpointRecord> {
+    return (await this.call('writeCheckpoint', [threadId, input])) as ConversationCheckpointRecord;
+  }
+
+  async getLatestCheckpoint(threadId: string): Promise<ConversationCheckpointRecord | null> {
+    return (await this.call('getLatestCheckpoint', [threadId])) as
+      | ConversationCheckpointRecord
+      | null;
   }
 
   async close(): Promise<void> {

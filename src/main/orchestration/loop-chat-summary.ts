@@ -171,10 +171,15 @@ const MAX_HANDOFF_FINAL_CHARS = 8_000;
  * Distinct from {@link buildLoopTerminalChatSummary} (the human-facing chat
  * card): a loop runs in its own CLI session, so the interactive chat's model
  * never saw the loop's turns. Without this handoff a follow-up like "were those
- * issues resolved?" has no antecedent. This block is prepended to the user's
- * next message (see `ChatService.queueLoopHandoff` /
- * `InstanceManager.queueContinuityPreamble`) so the model can answer follow-ups
- * about what the loop did.
+ * issues resolved?" has no antecedent.
+ *
+ * Scope: this is now used ONLY for **instance-bound** loops (started from the
+ * instance-detail view), which have no canonical ledger thread. It is prepended
+ * to the next interactive turn via `InstanceManager.queueContinuityPreamble`
+ * (see `appendLoopTerminalSummary`). Chat-bound loops no longer use this summary
+ * handoff — they rebuild full context from the ledger (which holds every loop
+ * iteration as an assistant turn) via `ChatService.bumpLineageEpoch` →
+ * `prepareTurnContext` (the §5.1 lineage-gated, checkpoint-aware rebuild).
  *
  * Carries the loop's objective, outcome, files touched, outstanding items, and
  * the agent's verbatim closing message (generously capped) — enough substance
@@ -247,12 +252,17 @@ function outstandingLines(state: LoopState): string[] {
   if (!outstanding) return [];
   const { needsHuman, openQuestions } = outstanding;
   if (needsHuman.length === 0 && openQuestions.length === 0) return [];
+  const renderEntry = (entry: { text: string; recommendation: string | null }): string[] => {
+    const out = [`- ${entry.text}`];
+    if (entry.recommendation) out.push(`  - Recommendation: ${entry.recommendation}`);
+    return out;
+  };
   const lines: string[] = [];
   if (needsHuman.length > 0) {
-    lines.push('', 'Needs human:', ...needsHuman.map((item) => `- ${item}`));
+    lines.push('', 'Needs human:', ...needsHuman.flatMap(renderEntry));
   }
   if (openQuestions.length > 0) {
-    lines.push('', 'Open questions:', ...openQuestions.map((item) => `- ${item}`));
+    lines.push('', 'Open questions:', ...openQuestions.flatMap(renderEntry));
   }
   return lines;
 }

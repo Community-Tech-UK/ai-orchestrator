@@ -102,6 +102,7 @@ export function loopStatusToPhase(status: LoopStatus): WorkflowLifecyclePhase {
     case 'cost-exceeded':
     case 'needs-human-arbitration':
     case 'reviewer-unreliable':
+    case 'reviewer-unavailable':
     case 'builder-unreliable':
       return 'failed';
     default:

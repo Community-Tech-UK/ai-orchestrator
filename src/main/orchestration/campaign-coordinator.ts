@@ -44,6 +44,7 @@ const LOOP_TERMINAL_STATUSES = new Set<LoopStatus>([
   'cost-exceeded',
   'needs-human-arbitration',
   'reviewer-unreliable',
+  'reviewer-unavailable',
   'builder-unreliable',
 ]);
 
@@ -71,6 +72,7 @@ function loopStatusToNodeStatus(ls: LoopStatus): CampaignNodeStatus {
     case 'cost-exceeded':
     case 'needs-human-arbitration':
     case 'reviewer-unreliable':
+    case 'reviewer-unavailable':
     case 'builder-unreliable': return 'failed';
     case 'provider-limit': return 'provider-limit';
     case 'cancelled': return 'operator-halted';

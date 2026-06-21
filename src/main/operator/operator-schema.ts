@@ -131,9 +131,21 @@ export function createOperatorTables(db: SqliteDriver): void {
       open_chat_ids_json TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS chat_session_bindings (
+      chat_id TEXT PRIMARY KEY,
+      provider TEXT,
+      session_id TEXT,
+      lineage_epoch INTEGER NOT NULL DEFAULT 0,
+      needs_rebuild INTEGER NOT NULL DEFAULT 0,
+      last_turn_native_id TEXT,
+      last_validated_at INTEGER,
+      updated_at INTEGER NOT NULL
+    );
   `);
 
   ensureChatsReasoningEffortColumn(db);
+  ensureChatSessionBindingLineageColumns(db);
 }
 
 interface TableInfoRow {
@@ -148,5 +160,26 @@ function ensureChatsReasoningEffortColumn(db: SqliteDriver): void {
 
   if (!columnNames.has('reasoning_effort')) {
     db.exec('ALTER TABLE chats ADD COLUMN reasoning_effort TEXT');
+  }
+}
+
+/**
+ * Backfill the §5.1 lineage-reconciliation columns onto pre-existing
+ * `chat_session_bindings` rows. `last_turn_native_id` is the ledger-tail marker
+ * (rule 4); `last_validated_at` records when the bound session last passed the
+ * lineage check. Both are nullable so legacy rows simply read as "unvalidated"
+ * and fall back to a conservative rebuild.
+ */
+function ensureChatSessionBindingLineageColumns(db: SqliteDriver): void {
+  const columns = db
+    .prepare('PRAGMA table_info(chat_session_bindings)')
+    .all() as TableInfoRow[];
+  const columnNames = new Set(columns.map((column) => column.name));
+
+  if (!columnNames.has('last_turn_native_id')) {
+    db.exec('ALTER TABLE chat_session_bindings ADD COLUMN last_turn_native_id TEXT');
+  }
+  if (!columnNames.has('last_validated_at')) {
+    db.exec('ALTER TABLE chat_session_bindings ADD COLUMN last_validated_at INTEGER');
   }
 }

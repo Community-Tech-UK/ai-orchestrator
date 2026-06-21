@@ -18,6 +18,8 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 import type {
+  ConversationCheckpointRecord,
+  ConversationCheckpointUpsertInput,
   ConversationListQuery,
   ConversationMessageRecord,
   ConversationMessageUpsertInput,
@@ -62,6 +64,11 @@ export interface LedgerStorePort {
     messages: ConversationMessageUpsertInput[],
     cursor?: ConversationSyncCursorUpsertInput,
   ): Promise<ReconciliationResult>;
+  writeCheckpoint(
+    threadId: string,
+    input: ConversationCheckpointUpsertInput,
+  ): Promise<ConversationCheckpointRecord>;
+  getLatestCheckpoint(threadId: string): Promise<ConversationCheckpointRecord | null>;
   /** Release resources (close the DB / terminate the worker). */
   close(): Promise<void>;
 }
@@ -137,6 +144,17 @@ export class InProcessLedgerStorePort implements LedgerStorePort {
     return this.store.replaceThreadMessagesFromImport(threadId, messages, cursor);
   }
 
+  async writeCheckpoint(
+    threadId: string,
+    input: ConversationCheckpointUpsertInput,
+  ): Promise<ConversationCheckpointRecord> {
+    return this.store.writeCheckpoint(threadId, input);
+  }
+
+  async getLatestCheckpoint(threadId: string): Promise<ConversationCheckpointRecord | null> {
+    return this.store.getLatestCheckpoint(threadId);
+  }
+
   async close(): Promise<void> {
     this.db?.close();
   }
@@ -154,4 +172,6 @@ export type LedgerStoreMethod =
   | 'upsertThread'
   | 'upsertMessages'
   | 'appendMessagesWithThreadTouch'
-  | 'replaceThreadMessagesFromImport';
+  | 'replaceThreadMessagesFromImport'
+  | 'writeCheckpoint'
+  | 'getLatestCheckpoint';
