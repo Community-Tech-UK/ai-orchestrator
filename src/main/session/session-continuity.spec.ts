@@ -51,6 +51,7 @@ vi.mock('../core/config/settings-manager', () => ({
 }));
 
 import { SessionContinuityManager as ImportedSessionContinuityManager } from './session-continuity';
+import { getSessionMutex, _resetSessionMutexForTesting } from './session-mutex';
 
 /** Cast-target for accessing private/protected members in tests. */
 interface TestableSessionContinuityManager {
@@ -67,6 +68,7 @@ interface TestableSessionContinuityManager {
   updateState(instanceId: string, updates: Partial<SessionState>): Promise<void>;
   markNativeResumeFailed(instanceId: string, errorCode?: number): Promise<void>;
   writeThroughIdentity(instanceId: string, identity: { sessionId?: string; resumeCursor?: unknown; nativeResumeFailedAt?: number | null }): Promise<void>;
+  writeThroughIdentityLocked(instanceId: string, identity: { sessionId?: string; resumeCursor?: unknown; nativeResumeFailedAt?: number | null }): Promise<void>;
   exportSession(instanceId: string): Promise<{ state: SessionState; snapshots: SessionSnapshot[] } | null>;
   shutdown(): void;
 }
@@ -620,6 +622,66 @@ describe('SessionContinuityManager logging', () => {
       await expect(
         manager.writeThroughIdentity('not-tracked', { sessionId: 'x' }),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  // Regression: lock-holding lifecycle ops (respawn fresh-fallback, YOLO/model/
+  // agent-mode toggle) call writeThroughIdentityLocked while already holding the
+  // per-instance session lock. The non-reentrant SessionMutex means the public
+  // writeThroughIdentity (which acquires inside saveStateAsync) self-deadlocks
+  // there — it stalls for the full 120s acquire timeout, surfaces as "CLI not
+  // ready for input", and kills the session. The *Locked variant must write
+  // under the already-held lock without re-acquiring.
+  describe('writeThroughIdentityLocked (re-entrant write under held lock)', () => {
+    afterEach(() => {
+      _resetSessionMutexForTesting();
+    });
+
+    it('persists without re-acquiring while the caller holds the session lock', async () => {
+      const manager = createManager();
+      await manager.readyPromise;
+      await manager.importSession({ state: makeState('inst-locked') });
+
+      const release = await getSessionMutex().acquire('inst-locked', 'test-holder');
+      try {
+        // If this re-acquired the lock it would block until the 120s timeout.
+        // Race against a short deadline so a regression fails in ~1s, not 120s.
+        const outcome = await Promise.race([
+          manager.writeThroughIdentityLocked('inst-locked', { sessionId: 'locked-session' }).then(() => 'done'),
+          new Promise<string>((resolve) => setTimeout(() => resolve('deadlocked'), 1000)),
+        ]);
+        expect(outcome).toBe('done');
+      } finally {
+        release();
+      }
+
+      const exported = await manager.exportSession('inst-locked');
+      expect(exported?.state.sessionId).toBe('locked-session');
+    });
+
+    it('public writeThroughIdentity still serializes on the lock (does not bypass it)', async () => {
+      const manager = createManager();
+      await manager.readyPromise;
+      await manager.importSession({ state: makeState('inst-pub') });
+
+      const release = await getSessionMutex().acquire('inst-pub', 'test-holder');
+      let settled = false;
+      const pending = manager
+        .writeThroughIdentity('inst-pub', { sessionId: 'pub-session' })
+        .then(() => {
+          settled = true;
+        });
+
+      // While another op holds the lock, the acquiring path must wait.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(settled).toBe(false);
+
+      release();
+      await pending;
+      expect(settled).toBe(true);
+
+      const exported = await manager.exportSession('inst-pub');
+      expect(exported?.state.sessionId).toBe('pub-session');
     });
   });
 });

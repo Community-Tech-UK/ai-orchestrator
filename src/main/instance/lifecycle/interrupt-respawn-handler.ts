@@ -858,7 +858,7 @@ export class InterruptRespawnHandler {
             // C1/B4: Persist the fresh session ID before reporting respawn
             // complete so a crash cannot replay the old doomed session/cursor.
             try {
-              await getSessionContinuityManagerIfInitialized()?.writeThroughIdentity(instanceId, {
+              await getSessionContinuityManagerIfInitialized()?.writeThroughIdentityLocked(instanceId, {
                 sessionId: fallbackSessionId,
                 resumeCursor: null,
               });
@@ -1236,7 +1236,7 @@ export class InterruptRespawnHandler {
             // C1/B4: Persist the fresh session ID before reporting respawn
             // complete so a crash cannot replay the old doomed session/cursor.
             try {
-              await getSessionContinuityManagerIfInitialized()?.writeThroughIdentity(instanceId, {
+              await getSessionContinuityManagerIfInitialized()?.writeThroughIdentityLocked(instanceId, {
                 sessionId: fallbackSessionId,
                 resumeCursor: null,
               });

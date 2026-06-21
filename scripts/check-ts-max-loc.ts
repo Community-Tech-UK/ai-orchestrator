@@ -170,7 +170,12 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/security/sandbox-manager.ts': 877,
   // Main process — session
   'src/main/session/checkpoint-manager.ts': 752,
-  'src/main/session/session-continuity.ts': 1819,
+  // Raised 1819 -> 1913 for the non-reentrant SessionMutex deadlock fix: split
+  // saveStateAsync into an acquiring wrapper + lock-free saveStateLocked, and
+  // added writeThroughIdentityLocked for lock-holding callers (respawn/YOLO/
+  // model/agent-mode fresh-fallback) that previously self-deadlocked. This file
+  // is an oversized god-object and is a decomposition candidate.
+  'src/main/session/session-continuity.ts': 1913,
   // Main process — workspace
   'src/main/workspace/git/vcs-manager.ts': 1296,
   // Raised 880 -> 1020 for the worktree-isolation P4-P7 wiring (opt-in + shared

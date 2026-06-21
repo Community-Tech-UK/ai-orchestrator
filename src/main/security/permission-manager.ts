@@ -141,6 +141,15 @@ export interface PermissionRule {
   scope: PermissionScope;
   /** Pattern to match (glob for files, regex for tools) */
   pattern: string;
+  /**
+   * Match `pattern` against the resource by exact string equality instead of
+   * regex/glob. Used for user-approved Bash commands: an arbitrary command
+   * string is not a safe regex — metacharacters (`|`, `.`, `*`, `(`) make it
+   * both fragile (fails to re-match) and over-broad (could match a DIFFERENT
+   * command). Exact match can only ever match the same command. Optional and
+   * defaults to false so existing regex/glob rules are unaffected.
+   */
+  literal?: boolean;
   /** Action to take when matched */
   action: PermissionAction;
   /** Priority (lower = higher priority, evaluated first) */
@@ -716,20 +725,20 @@ export class PermissionManager extends EventEmitter {
         this.addSessionRule(sessionId, {
           name: `User decision: ${action} ${request.scope} ${request.resource}`,
           scope: request.scope,
-          pattern: this.resourceToPattern(request.resource),
+          ...this.patternForUserDecision(request),
           action,
           priority: 5, // High priority
           enabled: true,
         });
         break;
 
-      case 'always':
+      case 'always': {
         // Add to user rules (would need persistence)
         const userRuleSet = this.ensureRuleSet('user', 'User Rules', 'user');
         this.addRule(userRuleSet.id, {
           name: `User decision: ${action} ${request.scope}`,
           scope: request.scope,
-          pattern: this.resourceToPattern(request.resource),
+          ...this.patternForUserDecision(request),
           action,
           priority: 20,
           source: 'user',
@@ -737,6 +746,7 @@ export class PermissionManager extends EventEmitter {
         });
         this.persistUserRulesToDisk();
         break;
+      }
     }
 
     this.emit('user_decision:recorded', {
@@ -999,6 +1009,13 @@ export class PermissionManager extends EventEmitter {
     const pattern = rule.pattern;
     const resource = request.resource;
 
+    // Literal (exact) rules bypass all glob/regex interpretation. Used for
+    // user-approved Bash commands so a metacharacter-laden command string is
+    // never reinterpreted as a (fragile, possibly over-broad) regex.
+    if (rule.literal) {
+      return resource === pattern;
+    }
+
     // Handle glob patterns for file paths
     if (
       rule.scope.startsWith('file_') ||
@@ -1144,6 +1161,21 @@ export class PermissionManager extends EventEmitter {
     const matcher = compileRules(rules);
     this.matcherCache.set(hash, matcher);
     return matcher;
+  }
+
+  /**
+   * Choose the stored pattern + match mode for a user permission decision.
+   * Bash commands are stored as literal exact matches (the full resource);
+   * everything else keeps the heuristic glob/regex pattern. Centralized so the
+   * `session` and `always` branches can't drift apart.
+   */
+  private patternForUserDecision(
+    request: PermissionRequest,
+  ): { pattern: string; literal?: boolean } {
+    const isBashScope = request.scope === 'bash_execute' || request.scope === 'bash_dangerous';
+    return isBashScope
+      ? { pattern: request.resource, literal: true }
+      : { pattern: this.resourceToPattern(request.resource) };
   }
 
   private resourceToPattern(resource: string): string {

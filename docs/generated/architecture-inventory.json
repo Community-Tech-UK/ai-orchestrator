@@ -5107,11 +5107,11 @@
       "lines": 3440
     },
     {
-      "path": "docs/superpowers/plans/2026-04-28-wave3-workflow-resume-history-recovery-plan_completed.md",
-      "lines": 3408
+      "path": "src/main/instance/instance-lifecycle.ts",
+      "lines": 3423
     },
     {
-      "path": "src/main/instance/instance-lifecycle.ts",
+      "path": "docs/superpowers/plans/2026-04-28-wave3-workflow-resume-history-recovery-plan_completed.md",
       "lines": 3408
     },
     {
@@ -5156,7 +5156,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2568
+      "lines": 2572
     },
     {
       "path": "src/main/channels/channel-message-router.ts",
@@ -5227,16 +5227,16 @@
       "lines": 1965
     },
     {
+      "path": "src/main/session/session-continuity.ts",
+      "lines": 1914
+    },
+    {
       "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
       "lines": 1911
     },
     {
       "path": "docs/superpowers/specs/2026-04-26-automations-design_completed.md",
       "lines": 1867
-    },
-    {
-      "path": "src/main/session/session-continuity.ts",
-      "lines": 1860
     },
     {
       "path": "packages/contracts/src/types/transport.types.ts",
@@ -5263,12 +5263,12 @@
       "lines": 1697
     },
     {
-      "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
-      "lines": 1635
+      "path": "src/main/security/permission-manager.ts",
+      "lines": 1656
     },
     {
-      "path": "src/main/security/permission-manager.ts",
-      "lines": 1624
+      "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
+      "lines": 1635
     },
     {
       "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",

@@ -266,6 +266,13 @@ interface InstanceManagerForContinuity {
   getAdapter(instanceId: string): unknown;
 }
 
+/** Identity fields written through to the persisted session state. */
+interface SessionIdentityWriteThrough {
+  sessionId?: string;
+  resumeCursor?: ResumeCursor | null;
+  nativeResumeFailedAt?: number | null;
+}
+
 export class SessionContinuityManager extends EventEmitter {
   private continuityDir: string;
   private stateDir: string;
@@ -1155,15 +1162,41 @@ export class SessionContinuityManager extends EventEmitter {
    */
   async writeThroughIdentity(
     instanceId: string,
-    identity: {
-      sessionId?: string;
-      resumeCursor?: ResumeCursor | null;
-      nativeResumeFailedAt?: number | null;
-    },
+    identity: SessionIdentityWriteThrough,
   ): Promise<void> {
+    if (!(await this.applyIdentityWriteThrough(instanceId, identity))) return;
+    await this.saveStateAsync(instanceId);
+  }
+
+  /**
+   * Identity write-through for callers that ALREADY hold the per-instance
+   * session lock. Lock-holding lifecycle ops (respawn fresh-fallback,
+   * YOLO/model/agent-mode toggles) must use this: {@link writeThroughIdentity}
+   * acquires the (non-reentrant) lock inside saveStateAsync, so a holder
+   * calling it self-deadlocks until the 120s timeout — surfacing as
+   * "CLI not ready for input" and a dead session. This writes under the
+   * lock the caller already owns.
+   */
+  async writeThroughIdentityLocked(
+    instanceId: string,
+    identity: SessionIdentityWriteThrough,
+  ): Promise<void> {
+    if (!(await this.applyIdentityWriteThrough(instanceId, identity))) return;
+    await this.saveStateLocked(instanceId);
+  }
+
+  /**
+   * Apply the identity fields to the tracked state and mark it dirty. Returns
+   * false when there is no tracked state for the instance (nothing to write).
+   * Shared by the acquiring and lock-held write-through paths.
+   */
+  private async applyIdentityWriteThrough(
+    instanceId: string,
+    identity: SessionIdentityWriteThrough,
+  ): Promise<boolean> {
     await this.readyPromise;
     const trackedState = this.sessionStates.get(instanceId);
-    if (!trackedState) return;
+    if (!trackedState) return false;
     const state = await this.hydrateTrackedState(instanceId, trackedState);
 
     if (identity.sessionId !== undefined) {
@@ -1179,7 +1212,7 @@ export class SessionContinuityManager extends EventEmitter {
 
     this.dirty.add(instanceId);
     this.appendSessionEvent(instanceId, 'identity_write_through', identity as Record<string, unknown>);
-    await this.saveStateAsync(instanceId);
+    return true;
   }
 
   /**
@@ -1385,12 +1418,35 @@ export class SessionContinuityManager extends EventEmitter {
   }
 
   private async saveStateAsync(instanceId: string): Promise<void> {
+    if (!this.sessionStates.has(instanceId)) return;
+
+    const release = await getSessionMutex().acquire(instanceId, 'auto-save');
+    try {
+      await this.saveStateLocked(instanceId);
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * Write the tracked session state to disk WITHOUT acquiring the session
+   * mutex. The caller MUST already hold the per-instance session lock. This is
+   * the lock-free core shared by {@link saveStateAsync} (which acquires first)
+   * and {@link writeThroughIdentityLocked} (invoked by operations that already
+   * hold the lock). Keeping a single core avoids drift between the two paths.
+   */
+  private async saveStateLocked(instanceId: string): Promise<void> {
     const trackedState = this.sessionStates.get(instanceId);
     if (!trackedState) return;
     const state = await this.hydrateTrackedState(instanceId, trackedState);
 
-    const mutex = getSessionMutex();
-    const release = await mutex.acquire(instanceId, 'auto-save');
+    // Cheap misuse guard: a *Locked write with no holder means a caller skipped
+    // the lock (would reintroduce torn-cursor races). isLocked can't tell which
+    // op holds it, but `false` is unambiguous misuse.
+    if (!getSessionMutex().isLocked(instanceId)) {
+      logger.warn('saveStateLocked invoked without the session lock held', { instanceId });
+    }
+
     try {
       // Capture resume cursor from adapter if available
       this.captureResumeCursor(instanceId, state);
@@ -1410,8 +1466,6 @@ export class SessionContinuityManager extends EventEmitter {
     } catch (error) {
       logger.error('Failed to save session state', error instanceof Error ? error : undefined, { instanceId });
       this.emit('state:save-error', { instanceId, error });
-    } finally {
-      release();
     }
   }
 
