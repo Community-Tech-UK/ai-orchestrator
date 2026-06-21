@@ -773,6 +773,14 @@ export interface LoopIteration {
   verifyOutputExcerpt: string;
   /** LF-2 semantic-progress verdict for this iteration (present when the check ran). */
   semanticProgress?: LoopSemanticProgressResult;
+  /**
+   * True when this iteration's assistant stream already landed in the chat /
+   * instance transcript (the borrowed live-adapter path). The iteration→ledger
+   * write skips these to avoid double-recording the same turn. Absent/false
+   * means the iteration ran in a forked loop session and must be written into
+   * the canonical thread explicitly (close-the-loop-write-gap).
+   */
+  transcriptBound?: boolean;
 }
 
 /**

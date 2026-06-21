@@ -1787,6 +1787,7 @@ export class LoopCoordinator extends EventEmitter {
         completionSignalsFired: [],
         verifyStatus: 'not-run',
         verifyOutputExcerpt: '',
+        transcriptBound: childResult.transcriptBound ?? false,
       };
 
       // -- update state aggregates pre-detection --

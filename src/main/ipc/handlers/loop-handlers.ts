@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { validateIpcPayload } from '@contracts/schemas/common';
@@ -23,11 +22,11 @@ import { prepareLoopStartConfig, attachNextObjectivePlanner } from '../../orches
 import { exportOutstandingMarkdown } from '../../orchestration/loop-outstanding-export';
 import { buildResumeWithAnswersPrompt } from '../../orchestration/loop-resume-with-answers';
 import {
-  buildLoopContextHandoff,
-  buildLoopInterveneChatEvent,
-  buildLoopStartChatEvent,
-  buildLoopTerminalChatSummary,
-} from '../../orchestration/loop-chat-summary';
+  appendLoopInterveneMessage,
+  appendLoopIterationTranscript,
+  appendLoopStartPrompt,
+  appendLoopTerminalSummary,
+} from './loop-transcript-dispatch';
 import { getLogger } from '../../logging/logger';
 import type { WindowManager } from '../../window-manager';
 import { defaultLoopConfig, type LoopState } from '../../../shared/types/loop.types';
@@ -69,6 +68,20 @@ export function registerLoopHandlers(deps: {
       store.resetRestartFailureCount(state.id);
     } catch (err) {
       logger.warn('LoopStore persistence failed for iteration', { error: String(err) });
+    }
+    // Close-the-loop-write-gap: record this iteration's closing message in the
+    // chat's canonical ledger thread so the interactive model remembers what the
+    // loop did (and it survives restart). Skipped for borrowed-adapter
+    // iterations, whose stream already landed in the transcript as a normal turn.
+    try {
+      appendLoopIterationTranscript(state, iteration, chatService, deps.instanceManager);
+    } catch (err) {
+      logger.warn('Failed to append loop iteration to chat transcript', {
+        loopRunId: state.id,
+        chatId: state.chatId,
+        seq: iteration.seq,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   });
 
@@ -545,122 +558,3 @@ function isTerminalLoopStatus(status: LoopState['status']): boolean {
   );
 }
 
-/**
- * The loop's `state.chatId` can be either a chat id (when the loop was started
- * from `chat-detail.component`) or an instance id (when it was started from
- * `instance-detail.component` — see `instance-detail.component.html` where
- * `[loopChatId]="inst.id"` is passed). Both surfaces share the LOOP_START IPC
- * but write to different stores. We dispatch here so the kickoff prompt lands
- * in the correct transcript and triggers the right auto-rename hook for the
- * surface the user is actually looking at.
- */
-function appendLoopStartPrompt(
-  state: LoopState,
-  chatService: ReturnType<typeof getChatService>,
-  instanceManager: InstanceManager,
-): void {
-  const chat = chatService.tryGetChat(state.chatId);
-  if (chat) {
-    void chatService.appendSystemEvent({
-      ...buildLoopStartChatEvent(state),
-      autoName: true,
-    }).catch((error) => {
-      logger.warn('Failed to append loop start prompt to chat transcript', {
-        loopRunId: state.id,
-        chatId: state.chatId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
-    return;
-  }
-  const instance = instanceManager.getInstance(state.chatId);
-  if (instance) {
-    instanceManager.appendSyntheticUserMessage(state.chatId, state.config.initialPrompt, {
-      autoTitle: true,
-      metadata: {
-        kind: 'loop-start',
-        loopRunId: state.id,
-        workspaceCwd: state.config.workspaceCwd,
-      },
-    });
-    return;
-  }
-  logger.warn('loop:started chatId resolves to neither chat nor instance — prompt not persisted', {
-    loopRunId: state.id,
-    chatId: state.chatId,
-  });
-}
-
-function appendLoopInterveneMessage(
-  state: LoopState,
-  message: string,
-  chatService: ReturnType<typeof getChatService>,
-  instanceManager: InstanceManager,
-): void {
-  const interventionId = randomUUID();
-  const chat = chatService.tryGetChat(state.chatId);
-  if (chat) {
-    void chatService.appendSystemEvent(buildLoopInterveneChatEvent({
-      state,
-      interventionId,
-      message,
-    })).catch((error) => {
-      logger.warn('Failed to append loop intervene message to chat transcript', {
-        loopRunId: state.id,
-        chatId: state.chatId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
-    return;
-  }
-  const instance = instanceManager.getInstance(state.chatId);
-  if (instance) {
-    instanceManager.appendSyntheticUserMessage(state.chatId, message, {
-      metadata: {
-        kind: 'loop-intervene',
-        loopRunId: state.id,
-        interventionId,
-      },
-    });
-    return;
-  }
-  logger.warn('loop intervene chatId resolves to neither chat nor instance — message not persisted', {
-    loopRunId: state.id,
-    chatId: state.chatId,
-  });
-}
-
-function appendLoopTerminalSummary(
-  state: LoopState,
-  chatService: ReturnType<typeof getChatService>,
-  instanceManager: InstanceManager,
-): void {
-  // Silent context handoff for the NEXT interactive turn: the loop ran in its
-  // own CLI session, so the chat's model never saw it. Without this, follow-ups
-  // ("were those issues resolved?") have no antecedent. Distinct from the
-  // visible recap card below.
-  const handoff = buildLoopContextHandoff(state);
-  const chat = chatService.tryGetChat(state.chatId);
-  if (chat) {
-    void chatService.appendSystemEvent(buildLoopTerminalChatSummary(state)).catch((error) => {
-      logger.warn('Failed to append loop terminal summary to chat transcript', {
-        loopRunId: state.id,
-        chatId: state.chatId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
-    chatService.queueLoopHandoff(state.chatId, handoff);
-    return;
-  }
-  const instance = instanceManager.getInstance(state.chatId);
-  if (instance) {
-    const summary = buildLoopTerminalChatSummary(state);
-    instanceManager.emitSystemMessage(state.chatId, summary.content, summary.metadata);
-    instanceManager.queueContinuityPreamble(state.chatId, handoff);
-    return;
-  }
-  logger.warn('loop terminal chatId resolves to neither chat nor instance — summary not persisted', {
-    loopRunId: state.id,
-    chatId: state.chatId,
-  });
-}

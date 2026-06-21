@@ -59,9 +59,11 @@ export interface ChatSystemEventInput {
   /**
    * Ledger role for the appended event. Defaults to `'system'`. Use `'user'`
    * for synthesized events that represent the user's intent (e.g. the loop
-   * kickoff prompt) so they render as user bubbles in the transcript.
+   * kickoff prompt) so they render as user bubbles in the transcript, or
+   * `'assistant'` for agent-produced turns (e.g. a loop iteration's closing
+   * message) so the model reads them back as real prior assistant turns.
    */
-  role?: 'user' | 'system';
+  role?: 'user' | 'system' | 'assistant';
   /**
    * When `true`, run the same `maybeAutoName(chat, content)` heuristic that
    * `sendMessage` runs on first-message arrival — derives the chat title from

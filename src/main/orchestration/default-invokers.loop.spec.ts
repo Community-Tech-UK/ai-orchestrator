@@ -228,6 +228,41 @@ describe('Loop Mode invoker plumbing', () => {
     expect(callArg.options.workingDirectory).not.toBe('/repo/root');
   });
 
+  // P2 isolation acceptance: the iteration's file-change delta must be computed
+  // against executionCwd (the worktree), not workspaceCwd (the repo root). If a
+  // regression snapshotted the root instead, an agent that edits only the
+  // worktree would report ZERO changes — corrupting no-progress detection and
+  // reviewer context. This drives the real invoker with real temp dirs and a
+  // mock "agent" that writes into the worktree.
+  it('computes filesChanged from executionCwd (the worktree), not the repo root (P2 isolation)', async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'inv-root-'));
+    const worktree = fs.mkdtempSync(path.join(os.tmpdir(), 'inv-wt-'));
+    try {
+      registerDefaultLoopInvoker({} as never);
+      // The "agent" runs during sendMessage: it writes a NEW file into the
+      // worktree (and a decoy into the repo root, which must be ignored).
+      hoisted.sendMessage.mockImplementation(async () => {
+        fs.writeFileSync(path.join(worktree, 'feature.ts'), 'export const added = true;\n');
+        fs.writeFileSync(path.join(repoRoot, 'root-decoy.ts'), 'should not be counted\n');
+        return { content: 'ok', usage: { totalTokens: 10 } };
+      });
+
+      const result = await emitIteration({
+        workspaceCwd: repoRoot,
+        executionCwd: worktree,
+      });
+
+      const changedPaths = (result as LoopChildResult).filesChanged.map((c) => c.path);
+      // The worktree edit is detected...
+      expect(changedPaths).toContain('feature.ts');
+      // ...and the repo-root decoy is NOT (the root was never snapshotted).
+      expect(changedPaths).not.toContain('root-decoy.ts');
+    } finally {
+      fs.rmSync(repoRoot, { recursive: true, force: true });
+      fs.rmSync(worktree, { recursive: true, force: true });
+    }
+  });
+
   it('resolves and creates loop child adapters for non-Claude chat providers', async () => {
     registerDefaultLoopInvoker({} as never);
     hoisted.resolveCliType.mockResolvedValueOnce('gemini');

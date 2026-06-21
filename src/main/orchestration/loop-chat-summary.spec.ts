@@ -8,6 +8,7 @@ import {
 import {
   buildLoopContextHandoff,
   buildLoopInterveneChatEvent,
+  buildLoopIterationChatEvent,
   buildLoopStartChatEvent,
   buildLoopTerminalChatSummary,
 } from './loop-chat-summary';
@@ -303,6 +304,92 @@ describe('buildLoopContextHandoff', () => {
 
     expect(handoff.length).toBeLessThan(12_000);
     expect(handoff).toContain('truncated');
+  });
+});
+
+describe('buildLoopIterationChatEvent', () => {
+  it('records the iteration closing message as an assistant turn grouped under the loop turn', () => {
+    const state = makeState({ id: 'loop-5', chatId: 'chat-2', status: 'running', endedAt: null });
+    const iteration = makeLastIteration({
+      seq: 3,
+      stage: 'IMPLEMENT',
+      endedAt: 42_000,
+      outputFull: 'Fixed the dark-mode regression and added a guard test.',
+      filesChanged: [{ path: 'src/a.ts', additions: 4, deletions: 1, contentHash: 'a' }],
+      testPassCount: 9,
+      testFailCount: 0,
+    });
+
+    const event = buildLoopIterationChatEvent(state, iteration);
+
+    expect(event).toEqual({
+      chatId: 'chat-2',
+      nativeMessageId: 'loop-iter:loop-5:3',
+      nativeTurnId: 'loop:loop-5',
+      phase: 'loop_iteration',
+      role: 'assistant',
+      content: 'Fixed the dark-mode regression and added a guard test.',
+      createdAt: 42_000,
+      metadata: expect.objectContaining({
+        kind: 'loop-iteration',
+        loopRunId: 'loop-5',
+        iterationSeq: 3,
+        stage: 'IMPLEMENT',
+        filesChanged: 1,
+        testPassCount: 9,
+        testFailCount: 0,
+      }),
+    });
+  });
+
+  it('returns null when the iteration produced no text (nothing to remember)', () => {
+    const state = makeState({ status: 'running', endedAt: null });
+    const iteration = makeLastIteration({ outputFull: '', outputExcerpt: '' });
+
+    expect(buildLoopIterationChatEvent(state, iteration)).toBeNull();
+  });
+
+  it('falls back to the detection excerpt when the full output is absent (pre-migration rows)', () => {
+    const state = makeState({ status: 'running', endedAt: null });
+    const iteration = makeLastIteration({ outputFull: '', outputExcerpt: 'partial stdout tail' });
+
+    expect(buildLoopIterationChatEvent(state, iteration)?.content).toBe('partial stdout tail');
+  });
+
+  it('uses a deterministic nativeMessageId per seq so re-appends dedupe idempotently across restarts', () => {
+    const state = makeState({ id: 'loop-r', status: 'running', endedAt: null });
+    const iteration = makeLastIteration({ seq: 2, outputFull: 'work' });
+
+    const first = buildLoopIterationChatEvent(state, iteration);
+    const second = buildLoopIterationChatEvent(state, iteration);
+
+    expect(first?.nativeMessageId).toBe('loop-iter:loop-r:2');
+    expect(second?.nativeMessageId).toBe(first?.nativeMessageId);
+  });
+
+  it('shares the loop turn id with the kickoff and terminal summary but uses a distinct message id', () => {
+    const state = makeState({ id: 'loop-grp', status: 'running', endedAt: null });
+    const iteration = makeLastIteration({ seq: 1, outputFull: 'work' });
+
+    const start = buildLoopStartChatEvent(state);
+    const iter = buildLoopIterationChatEvent(state, iteration);
+    const summary = buildLoopTerminalChatSummary({ ...state, status: 'completed', endedAt: 99_000 });
+
+    expect(iter?.nativeTurnId).toBe(start.nativeTurnId);
+    expect(iter?.nativeTurnId).toBe(summary.nativeTurnId);
+    expect(iter?.nativeMessageId).not.toBe(start.nativeMessageId);
+    expect(iter?.nativeMessageId).not.toBe(summary.nativeMessageId);
+  });
+
+  it('truncates a pathological iteration output so the chat ledger stays bounded', () => {
+    const state = makeState({ status: 'running', endedAt: null });
+    const huge = 'z'.repeat(20_000);
+    const iteration = makeLastIteration({ outputFull: huge });
+
+    const event = buildLoopIterationChatEvent(state, iteration);
+
+    expect(event?.content).toContain('truncated');
+    expect((event?.content.length ?? 0)).toBeLessThan(huge.length);
   });
 });
 

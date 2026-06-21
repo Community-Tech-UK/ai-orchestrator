@@ -79,6 +79,58 @@ export function buildLoopInterveneChatEvent(input: {
   };
 }
 
+// A single iteration's verbatim closing message is bounded so a pathological
+// output can't bloat the canonical chat ledger; the unabridged copy still lives
+// in the Loop trace + LoopStore iteration row.
+const MAX_ITERATION_CHARS = 16_000;
+
+/**
+ * Build the chat event for a single completed loop iteration's closing message.
+ *
+ * This is the core of the "close the loop write-gap" invariant: a loop runs in
+ * its own CLI session, so without this its iteration turns never enter the
+ * chat's canonical ledger thread and the interactive model has no memory of
+ * what the loop did. Appending each iteration as an `assistant`-role turn makes
+ * the visible recap card and the model's context the *same data by
+ * construction*.
+ *
+ * - `role: 'assistant'` — the content is the agent's own message, so the model
+ *   reads it back as a real prior assistant turn (not a summary).
+ * - `nativeMessageId` (`loop-iter:<runId>:<seq>`) is deterministic so the
+ *   ledger's dedupe (`hasMessage`) makes re-appends idempotent across restarts.
+ * - `nativeTurnId` (`loop:<id>`) groups every iteration with the kickoff and
+ *   the terminal recap card under one turn for renderer grouping.
+ *
+ * Returns `null` when the iteration produced no text (nothing to remember).
+ */
+export function buildLoopIterationChatEvent(
+  state: LoopState,
+  iteration: LoopIteration,
+): ChatSystemEventInput | null {
+  const content = truncate((iteration.outputFull || iteration.outputExcerpt || '').trim(), MAX_ITERATION_CHARS);
+  if (!content) {
+    return null;
+  }
+  return {
+    chatId: state.chatId,
+    nativeMessageId: `loop-iter:${state.id}:${iteration.seq}`,
+    nativeTurnId: `loop:${state.id}`,
+    phase: 'loop_iteration',
+    role: 'assistant',
+    content,
+    createdAt: iteration.endedAt ?? iteration.startedAt ?? Date.now(),
+    metadata: {
+      kind: 'loop-iteration',
+      loopRunId: state.id,
+      iterationSeq: iteration.seq,
+      stage: iteration.stage,
+      filesChanged: iteration.filesChanged.length,
+      ...(iteration.testPassCount !== null ? { testPassCount: iteration.testPassCount } : {}),
+      ...(iteration.testFailCount !== null ? { testFailCount: iteration.testFailCount } : {}),
+    },
+  };
+}
+
 export function buildLoopTerminalChatSummary(state: LoopState): ChatSystemEventInput {
   const last = state.lastIteration;
   const content = [

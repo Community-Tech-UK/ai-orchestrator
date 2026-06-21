@@ -1530,6 +1530,12 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         testFailCount,
         exitedCleanly: true,
         ...(result.degradedReason ? { degradedReason: result.degradedReason } : {}),
+        // When the chat's live adapter is borrowed, the iteration's assistant
+        // stream already flowed into the instance transcript as a normal turn,
+        // so the iteration→ledger write must skip it to avoid a duplicate. The
+        // forked-session path (fresh / persistent / non-borrowable provider)
+        // produces no transcript turn and is written into the canonical thread.
+        transcriptBound: borrowedFromInstance,
       };
 
       // LF-1: context discipline for the loop's OWN persistent same-session
