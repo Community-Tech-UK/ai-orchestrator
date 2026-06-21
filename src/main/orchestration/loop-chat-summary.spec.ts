@@ -6,6 +6,7 @@ import {
   type LoopState,
 } from '../../shared/types/loop.types';
 import {
+  buildLoopContextHandoff,
   buildLoopInterveneChatEvent,
   buildLoopStartChatEvent,
   buildLoopTerminalChatSummary,
@@ -128,6 +129,7 @@ describe('buildLoopTerminalChatSummary', () => {
         workHash: 'hash',
         outputSimilarityToPrev: null,
         outputExcerpt: 'Implemented the final loop slice.',
+        outputFull: 'Implemented the final loop slice.',
         progressVerdict: 'OK',
         progressSignals: [],
         completionSignalsFired: [{ id: 'done-promise', sufficient: true, detail: 'done' }],
@@ -162,6 +164,146 @@ describe('buildLoopTerminalChatSummary', () => {
     expect(summary.content).toContain('Verify: passed');
     expect(summary.content).toContain('all checks passed');
   });
+
+  it('renders the full closing message (not the tiny detection excerpt) in the latest evidence', () => {
+    // A realistic closing message that comfortably exceeds the old 2 KB chat
+    // cap but fits the display bound — it must appear whole.
+    const closing = `Summary of work:\n${'Finding line that explains the change. '.repeat(120)}`;
+    expect(closing.length).toBeGreaterThan(2_000);
+    expect(closing.length).toBeLessThan(16_000);
+
+    const state = makeState({
+      status: 'completed',
+      lastIteration: makeLastIteration({
+        outputExcerpt: closing.slice(0, 100),
+        outputFull: closing,
+        verifyStatus: 'not-run',
+        verifyOutputExcerpt: '',
+      }),
+    });
+
+    const summary = buildLoopTerminalChatSummary(state);
+    expect(summary.content).toContain('Latest evidence:');
+    expect(summary.content).toContain(closing.trim());
+    expect(summary.content).not.toContain('(truncated');
+  });
+
+  it('truncates an oversized closing message with a pointer to the full surfaces', () => {
+    const huge = 'q'.repeat(20_000);
+    const state = makeState({
+      status: 'completed',
+      lastIteration: makeLastIteration({
+        outputExcerpt: 'q'.repeat(100),
+        outputFull: huge,
+        verifyStatus: 'not-run',
+        verifyOutputExcerpt: '',
+      }),
+    });
+
+    const summary = buildLoopTerminalChatSummary(state);
+    expect(summary.content).toContain('(truncated');
+    expect(summary.content).toContain('Loop trace');
+    // Bounded, not the full 20 KB.
+    expect(summary.content.length).toBeLessThan(huge.length);
+  });
+});
+
+describe('buildLoopContextHandoff', () => {
+  it('frames the loop as background work and carries objective, outcome, files, and final response so the next turn can answer follow-ups', () => {
+    const state = makeState({
+      status: 'completed',
+      endReason: 'ping-pong converged: reviewer APPROVED',
+      totalIterations: 4,
+      config: defaultLoopConfig('/work/project', 'Review the worktree isolation plan'),
+      lastIteration: {
+        id: 'iter-3',
+        loopRunId: 'loop-1',
+        seq: 3,
+        stage: 'IMPLEMENT',
+        startedAt: 1_000,
+        endedAt: 2_000,
+        childInstanceId: 'child-1',
+        tokens: 1_000,
+        costCents: 2,
+        filesChanged: [{ path: 'src/a.ts', additions: 10, deletions: 1, contentHash: 'a' }],
+        toolCalls: [],
+        errors: [],
+        testPassCount: 12,
+        testFailCount: 0,
+        workHash: 'hash',
+        outputSimilarityToPrev: null,
+        outputExcerpt: 'All three reviewer findings were valid and addressed.',
+        outputFull: 'All three reviewer findings were valid and addressed.',
+        progressVerdict: 'OK',
+        progressSignals: [],
+        completionSignalsFired: [],
+        verifyStatus: 'passed',
+        verifyOutputExcerpt: '',
+      },
+    });
+
+    const handoff = buildLoopContextHandoff(state);
+
+    expect(handoff).toContain('background');
+    expect(handoff).toContain('Objective: Review the worktree isolation plan');
+    expect(handoff).toContain('Outcome: completed - ping-pong converged: reviewer APPROVED');
+    expect(handoff).toContain('Iterations: 4');
+    expect(handoff).toContain('Files changed: 1');
+    expect(handoff).toContain('src/a.ts');
+    expect(handoff).toContain('All three reviewer findings were valid and addressed.');
+  });
+
+  it('degrades gracefully when no iteration ran (objective + outcome only, no crash)', () => {
+    const state = makeState({
+      status: 'cancelled',
+      endReason: 'user-cancelled',
+      totalIterations: 0,
+      lastIteration: undefined,
+    });
+
+    const handoff = buildLoopContextHandoff(state);
+
+    expect(handoff).toContain('Outcome: cancelled - user-cancelled');
+    expect(handoff).toContain('Iterations: 0');
+    expect(handoff).not.toContain('Files changed:');
+    expect(handoff).not.toContain('final response');
+  });
+
+  it('truncates a pathological final response so the handoff stays bounded', () => {
+    const huge = 'y'.repeat(20_000);
+    const state = makeState({
+      lastIteration: {
+        id: 'iter-1',
+        loopRunId: 'loop-1',
+        seq: 1,
+        stage: 'IMPLEMENT',
+        startedAt: 1_000,
+        endedAt: 2_000,
+        childInstanceId: null,
+        tokens: 0,
+        costCents: 0,
+        filesChanged: [],
+        toolCalls: [],
+        errors: [],
+        testPassCount: null,
+        testFailCount: null,
+        workHash: 'hash',
+        outputSimilarityToPrev: null,
+        outputExcerpt: '',
+        outputFull: huge,
+        progressVerdict: 'OK',
+        progressSignals: [],
+        completionSignalsFired: [],
+        verifyStatus: 'not-run',
+        verifyOutputExcerpt: '',
+      },
+    });
+
+    const handoff = buildLoopContextHandoff(state);
+
+    expect(handoff.length).toBeLessThan(12_000);
+    expect(handoff).toContain('truncated');
+  });
 });
 
 function makeState(overrides: Partial<LoopState> = {}): LoopState {
@@ -186,6 +328,37 @@ function makeState(overrides: Partial<LoopState> = {}): LoopState {
     highestTestPassCount: 0,
     iterationsOnCurrentStage: 0,
     recentWarnIterationSeqs: [],
+    ...overrides,
+  };
+}
+
+function makeLastIteration(
+  overrides: Partial<NonNullable<LoopState['lastIteration']>> = {},
+): NonNullable<LoopState['lastIteration']> {
+  return {
+    id: 'iter-1',
+    loopRunId: 'loop-1',
+    seq: 1,
+    stage: 'IMPLEMENT',
+    startedAt: 1_000,
+    endedAt: 2_000,
+    childInstanceId: 'child-1',
+    tokens: 1_000,
+    costCents: 2,
+    filesChanged: [],
+    toolCalls: [],
+    errors: [],
+    testPassCount: null,
+    testFailCount: null,
+    workHash: 'hash',
+    outputSimilarityToPrev: null,
+    outputExcerpt: '',
+    outputFull: '',
+    progressVerdict: 'OK',
+    progressSignals: [],
+    completionSignalsFired: [],
+    verifyStatus: 'not-run',
+    verifyOutputExcerpt: '',
     ...overrides,
   };
 }

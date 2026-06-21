@@ -365,6 +365,7 @@ function loopIteration(): LoopIterationPayload {
     workHash: 'hash',
     outputSimilarityToPrev: null,
     outputExcerpt: 'iteration output that explains the child work',
+    outputFull: 'iteration output that explains the child work',
     progressVerdict: 'WARN',
     progressSignals: [
       { id: 'A', verdict: 'WARN', message: 'same work hash repeated' },

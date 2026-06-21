@@ -16,7 +16,8 @@ import type { ExecutionLocation } from '../../../shared/types/worker-node.types'
 import type { BrowserGatewayMcpConfigOptions } from '../../browser-gateway/browser-mcp-config';
 import type { ChromeDevtoolsMcpConfigOptions } from '../../browser-gateway/chrome-devtools-mcp-config';
 import { getLogger } from '../../logging/logger';
-import { planSessionRecovery } from './session-recovery';
+import { planSessionRecovery, computeResumeConfigFingerprint } from './session-recovery';
+import { getSessionContinuityManagerIfInitialized } from '../../session/session-continuity';
 
 const logger = getLogger('DeferredPermissionHandler');
 
@@ -124,6 +125,7 @@ export class DeferredPermissionHandler {
       });
 
       const capabilities = oldAdapter.getRuntimeCapabilities();
+      const continuityState = getSessionContinuityManagerIfInitialized()?.getSessionState(instanceId);
       const recoveryPlan = planSessionRecovery({
         instanceId,
         reason: 'deferred-permission',
@@ -135,6 +137,7 @@ export class DeferredPermissionHandler {
         cwd: instance.workingDirectory,
         yolo: instance.yoloMode,
         executionLocation: instance.executionLocation.type,
+        resumeCursor: continuityState?.resumeCursor ?? null,
         capabilities,
         activeTurnId: instance.activeTurnId,
         adapterGeneration: instance.adapterGeneration ?? 0,
@@ -146,6 +149,11 @@ export class DeferredPermissionHandler {
         replayUnsafeReason: capabilities.supportsResume
           ? undefined
           : 'deferred permission recovery requires a provider-native resumed turn',
+        currentConfigFingerprint: computeResumeConfigFingerprint({
+          provider: instance.provider,
+          model: instance.currentModel,
+          cwd: instance.workingDirectory,
+        }),
       });
       if (recoveryPlan.kind !== 'native-resume' && recoveryPlan.kind !== 'provider-fork') {
         throw new Error(`Deferred permission recovery cannot continue: ${recoveryPlan.kind === 'failed' ? recoveryPlan.reason : recoveryPlan.reason}`);

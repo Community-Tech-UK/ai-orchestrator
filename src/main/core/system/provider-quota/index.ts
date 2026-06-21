@@ -100,6 +100,8 @@ export { GeminiUsageEndpointProbe, parseGeminiQuotaPayload } from './gemini-usag
 export type {
   GeminiQuotaFetch,
   GeminiQuotaFileReader,
+  GeminiLoadCodeAssistFetch,
+  GeminiOAuthClientDiscovery,
   GeminiTokenRefreshFetch,
   GeminiUsageEndpointProbeOptions,
 } from './gemini-usage-endpoint-probe';

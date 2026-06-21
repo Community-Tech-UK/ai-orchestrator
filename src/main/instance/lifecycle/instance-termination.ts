@@ -9,13 +9,20 @@ import { RemoteCliAdapter } from '../../cli/adapters/remote-cli-adapter';
 import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 import { getLogger } from '../../logging/logger';
 import type { ConversationEndStatus } from '../../../shared/types/history.types';
-import type { Instance, InstanceStatus } from '../../../shared/types/instance.types';
+import type { Instance, InstanceStatus, InstanceWaitReason } from '../../../shared/types/instance.types';
 import { emitPluginHook } from '../../plugins/hook-emitter';
 import { normalizeProjectMemoryKey } from '../../memory/project-memory-key';
 import { deleteTurnSupervisor } from '../../session/session-turn-supervisor';
 import { deleteCircuitBreaker } from './respawn-circuit-breaker';
 
 const logger = getLogger('InstanceTermination');
+
+/**
+ * Upper bound on a graceful terminate. Mirrors BaseCliAdapter.terminate(), which
+ * sends SIGTERM and escalates to SIGKILL after 5s. Used only to compute the
+ * `terminating` waitReason deadline surfaced to the renderer.
+ */
+const TERMINATE_GRACE_MS = 5_000;
 
 export interface TranscriptImportOptions {
   wing: string;
@@ -34,6 +41,12 @@ export interface InstanceTerminationDeps {
   removeActivityDetector: (instanceId: string) => void;
   clearRecoveryHistory: (instanceId: string) => void;
   transitionState: (instance: Instance, status: InstanceStatus) => void;
+  /**
+   * Surface (or clear, with `null`) why the instance is currently waiting so a
+   * long terminate is never a silent spinner (plan §4.G / E1). Optional so
+   * lightweight constructions (and existing tests) need not provide it.
+   */
+  setWaitReason?: (instanceId: string, waitReason: InstanceWaitReason | null) => void;
   terminateChild: (instanceId: string, graceful: boolean) => Promise<void>;
   unregisterSupervisor: (instanceId: string) => void;
   unregisterOrchestration: (instanceId: string) => void;
@@ -60,7 +73,20 @@ export class InstanceTerminationCoordinator {
     this.deps.clearRecoveryHistory(instanceId);
 
     if (adapter) {
-      await this.terminateAdapter(instanceId, adapter, graceful);
+      // §4.G/E1: a graceful terminate can sit in a SIGTERM→SIGKILL wait for up
+      // to TERMINATE_GRACE_MS. Surface that wait so the user sees a reason, then
+      // clear it (the instance still exists until deleteInstance() below).
+      this.deps.setWaitReason?.(instanceId, {
+        kind: 'terminating',
+        force: !graceful,
+        startedAt: Date.now(),
+        deadlineAt: graceful ? Date.now() + TERMINATE_GRACE_MS : undefined,
+      });
+      try {
+        await this.terminateAdapter(instanceId, adapter, graceful);
+      } finally {
+        this.deps.setWaitReason?.(instanceId, null);
+      }
       this.deps.deleteAdapter(instanceId);
     }
 

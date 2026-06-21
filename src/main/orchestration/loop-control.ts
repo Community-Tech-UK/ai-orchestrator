@@ -315,25 +315,69 @@ export function cloneIntentWithStatus(
   };
 }
 
-export async function readLoopControlFileFromEnv(env: NodeJS.ProcessEnv): Promise<LoopControlFile> {
-  const controlFile = readRequiredEnv(env, 'ORCHESTRATOR_LOOP_CONTROL_FILE');
-  const loopRunId = readRequiredEnv(env, 'ORCHESTRATOR_LOOP_RUN_ID');
-  const secret = readRequiredEnv(env, 'ORCHESTRATOR_LOOP_CONTROL_SECRET');
+/**
+ * Discover a control file under `<cwd>/.aio-loop-control/<runId>/control.json`
+ * when the spawn env didn't point at one. This is the borrowed-adapter case:
+ * the loop runs in the parent chat's already-running CLI (no loop spawn env),
+ * and the agent's cwd is the workspace root, so the control dir is right below
+ * it. Picks the most-recently-updated control file (a borrowed loop owns the
+ * chat's single adapter, so in practice there is exactly one active control
+ * dir); the coordinator re-validates the intent's secret + iteration anyway.
+ */
+async function discoverControlFileFromCwd(cwd: string): Promise<string | undefined> {
+  const root = path.join(path.resolve(cwd), LOOP_CONTROL_DIR_NAME);
+  const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => []);
+  const candidates: { file: string; updatedAt: number }[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const file = path.join(root, entry.name, LOOP_CONTROL_FILE_NAME);
+    try {
+      const control = await readSizedJsonFile<LoopControlFile>(file, LOOP_CONTROL_MAX_JSON_BYTES);
+      candidates.push({ file, updatedAt: control.updatedAt ?? 0 });
+    } catch {
+      // Not a readable control dir — skip.
+    }
+  }
+  if (candidates.length === 0) return undefined;
+  candidates.sort((a, b) => b.updatedAt - a.updatedAt);
+  return candidates[0]!.file;
+}
+
+export async function readLoopControlFileFromEnv(
+  env: NodeJS.ProcessEnv,
+  cwd: string = process.cwd(),
+): Promise<LoopControlFile> {
+  // Normal loops get the control-file path from the adapter spawn env. Loops
+  // that borrow the parent chat's already-running adapter have no loop spawn
+  // env, so we discover the control file from the working directory instead.
+  // Run id and secret likewise come from the spawn env when present; when
+  // absent (borrowed adapter) we read them from the control file itself. The
+  // trust boundary is unchanged: the 0600 control file already holds the
+  // secret, so anyone who can read it could always sign intents. When the env
+  // DOES provide them we still cross-check, as defence against a stale env.
+  const controlFile = env['ORCHESTRATOR_LOOP_CONTROL_FILE'] ?? await discoverControlFileFromCwd(cwd);
+  if (!controlFile) {
+    throw new Error(
+      'ORCHESTRATOR_LOOP_CONTROL_FILE is required (and no .aio-loop-control control file was found under the working directory)',
+    );
+  }
   const resolved = path.resolve(controlFile);
   const control = await readSizedJsonFile<LoopControlFile>(resolved, LOOP_CONTROL_MAX_JSON_BYTES);
   if (control.version !== LOOP_CONTROL_VERSION) {
     throw new Error(`Unsupported loop-control version ${String(control.version)}`);
   }
-  if (control.loopRunId !== loopRunId) {
+  const envRunId = env['ORCHESTRATOR_LOOP_RUN_ID'];
+  if (envRunId && control.loopRunId !== envRunId) {
     throw new Error('Loop-control run id mismatch');
   }
-  if (control.secret !== secret) {
+  const envSecret = env['ORCHESTRATOR_LOOP_CONTROL_SECRET'];
+  if (envSecret && control.secret !== envSecret) {
     throw new Error('Loop-control secret mismatch');
   }
 
   const workspace = await realpathIfExists(control.workspaceCwd);
   const realControl = await fs.realpath(resolved);
-  const expectedRoot = path.join(workspace, LOOP_CONTROL_DIR_NAME, loopRunId);
+  const expectedRoot = path.join(workspace, LOOP_CONTROL_DIR_NAME, control.loopRunId);
   if (!isPathInside(realControl, expectedRoot)) {
     throw new Error('Loop-control file is outside the expected workspace control directory');
   }
@@ -347,7 +391,9 @@ export async function writeIntentFromCli(
   evidence: LoopTerminalIntentEvidence[],
   env: NodeJS.ProcessEnv,
 ): Promise<string> {
-  const secret = readRequiredEnv(env, 'ORCHESTRATOR_LOOP_CONTROL_SECRET');
+  // Borrowed-adapter loops have no spawn env, so fall back to the control
+  // file's own secret (see readLoopControlFileFromEnv for the trust rationale).
+  const secret = env['ORCHESTRATOR_LOOP_CONTROL_SECRET'] ?? control.secret;
   const id = `intent-${Date.now()}-${randomUUID().slice(0, 8)}`;
   const intent: RawIntentFile = {
     version: LOOP_CONTROL_VERSION,
@@ -586,14 +632,6 @@ async function realpathOrCreateDir(target: string): Promise<string> {
 function isPathInside(candidate: string, parent: string): boolean {
   const relative = path.relative(path.resolve(parent), path.resolve(candidate));
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-}
-
-function readRequiredEnv(env: NodeJS.ProcessEnv, key: keyof LoopControlEnv): string {
-  const value = env[key];
-  if (!value) {
-    throw new Error(`${key} is required`);
-  }
-  return value;
 }
 
 function readStringField(data: Record<string, unknown>, key: string): string {

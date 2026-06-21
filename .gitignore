@@ -47,6 +47,11 @@ benchmarks/orchestrator-benchmark/dist/
 .worktrees/
 .superpowers/
 
+# Per-worktree mise local override (P7 renderer-port namespacing).
+# Written into each isolated worktree at acquire time; must never be harvested.
+.mise.local.toml
+mise.local.toml
+
 # AI Orchestrator project memory skeletons
 .aio/
 

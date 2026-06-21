@@ -75,7 +75,9 @@ export class CursorUsageSummaryProbe implements ProviderQuotaProbe {
 
     const { credential, reason } = await this.credentialsReader.read();
     if (!credential) {
-      return failedSnapshot(takenAt, describeCredentialFailure(reason));
+      return failedSnapshot(takenAt, describeCredentialFailure(reason), {
+        needsReauth: reason === 'expired' || reason === 'not-found' || reason === 'malformed',
+      });
     }
 
     let status: number;
@@ -90,7 +92,11 @@ export class CursorUsageSummaryProbe implements ProviderQuotaProbe {
     }
 
     if (status === 401 || status === 403) {
-      return failedSnapshot(takenAt, 'Cursor session cookie rejected (401/403) — re-login may be required');
+      return failedSnapshot(
+        takenAt,
+        'Cursor session cookie rejected (401/403) — open Cursor and sign in to refresh',
+        { needsReauth: true },
+      );
     }
     if (status === 429) {
       return failedSnapshot(takenAt, 'Cursor usage-summary endpoint rate-limited (429)');
@@ -184,13 +190,18 @@ function parseResetsAt(value: string | null | undefined): number | null {
   return Number.isNaN(ms) ? null : ms;
 }
 
-function failedSnapshot(takenAt: number, error: string): ProviderQuotaSnapshot {
+function failedSnapshot(
+  takenAt: number,
+  error: string,
+  extra?: { needsReauth?: boolean },
+): ProviderQuotaSnapshot {
   return {
     provider: 'cursor',
     takenAt,
     source: 'admin-api',
     ok: false,
     error,
+    needsReauth: extra?.needsReauth,
     windows: [],
   };
 }
@@ -198,16 +209,16 @@ function failedSnapshot(takenAt: number, error: string): ProviderQuotaSnapshot {
 function describeCredentialFailure(reason: CursorCredentialFailureReason | undefined): string {
   switch (reason) {
     case 'expired':
-      return 'Cursor session token is expired (skipped — never refreshed read-only)';
+      return 'Cursor session token is expired — open Cursor and sign in to refresh';
     case 'denied':
       return 'Keychain access denied reading the Cursor session token';
     case 'malformed':
-      return 'Stored Cursor session token is malformed';
+      return 'Stored Cursor session token is malformed — open Cursor and sign in again';
     case 'unsupported':
       return 'Cursor usage polling currently requires the macOS Keychain session token';
     case 'not-found':
     default:
-      return 'Cursor is not signed in (no session token found)';
+      return 'Cursor is not signed in — open Cursor and sign in';
   }
 }
 

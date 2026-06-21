@@ -33,6 +33,11 @@ export interface LoopFinalSummaryLastIteration {
   seq: number;
   stage: 'PLAN' | 'REVIEW' | 'IMPLEMENT';
   outputExcerpt: string;
+  /** The agent's complete closing message (already bounded upstream by
+   *  `boundFullOutput`). The summary card renders this instead of the
+   *  detection excerpt so the user sees the whole final response. Falls
+   *  back to `outputExcerpt` for pre-migration runs. */
+  outputFull: string;
   filesChanged: { path: string; additions: number; deletions: number }[];
   testPassCount: number | null;
   testFailCount: number | null;

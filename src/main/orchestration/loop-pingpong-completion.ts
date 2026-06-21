@@ -244,7 +244,10 @@ export async function evaluatePingPongCompletion(
   const productionChanges = iteration.filesChanged.filter((f) => isReviewDrivenProductionChange(f.path));
   const noProductionChangeThisRound = productionChanges.length === 0;
 
-  const workspaceDiff = collectWorkspaceDiff(state.config.workspaceCwd);
+  // When isolation is active the agent edits the worktree, not the repo root —
+  // use executionCwd so the ping-pong reviewer sees the actual changes.
+  const diffCwd = state.config.executionCwd ?? state.config.workspaceCwd;
+  const workspaceDiff = collectWorkspaceDiff(diffCwd);
   const reviewer = deps.reviewer ?? agenticPingPongReviewer;
   const timeoutMs = Math.max(60_000, (reviewCfg.timeoutSeconds || 0) * 1000 || DEFAULT_REVIEWER_TIMEOUT_MS);
 

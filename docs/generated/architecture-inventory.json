@@ -5112,7 +5112,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3352
+      "lines": 3408
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
@@ -5120,7 +5120,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3028
+      "lines": 3169
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -5172,7 +5172,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2274
+      "lines": 2335
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
@@ -5183,12 +5183,12 @@
       "lines": 2220
     },
     {
-      "path": "docs/superpowers/plans/2026-04-09-resilient-codex-resume-and-agent-observability_completed.md",
-      "lines": 2117
+      "path": "src/main/cli/adapters/acp-cli-adapter.ts",
+      "lines": 2120
     },
     {
-      "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2113
+      "path": "docs/superpowers/plans/2026-04-09-resilient-codex-resume-and-agent-observability_completed.md",
+      "lines": 2117
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-c-reliability-lifecycle.md",
@@ -5235,16 +5235,16 @@
       "lines": 1867
     },
     {
+      "path": "src/main/session/session-continuity.ts",
+      "lines": 1860
+    },
+    {
       "path": "packages/contracts/src/types/transport.types.ts",
       "lines": 1840
     },
     {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-hardening.md",
       "lines": 1830
-    },
-    {
-      "path": "src/main/session/session-continuity.ts",
-      "lines": 1819
     },
     {
       "path": "docs/superpowers/plans/2026-03-21-discord-channels_completed.md",
@@ -5260,7 +5260,7 @@
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1687
+      "lines": 1690
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -5327,8 +5327,16 @@
       "lines": 1394
     },
     {
+      "path": "src/main/instance/instance-communication.spec.ts",
+      "lines": 1381
+    },
+    {
       "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
       "lines": 1378
+    },
+    {
+      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
+      "lines": 1362
     },
     {
       "path": "src/renderer/app/core/state/source-control.store.spec.ts",
@@ -5341,10 +5349,6 @@
     {
       "path": "src/main/memory/unified-controller.ts",
       "lines": 1343
-    },
-    {
-      "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 1340
     },
     {
       "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
@@ -5385,10 +5389,6 @@
     {
       "path": "src/main/cli/adapters/__tests__/cursor-cli-adapter.spec.ts",
       "lines": 1278
-    },
-    {
-      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
-      "lines": 1276
     },
     {
       "path": "docs/superpowers/plans/2026-04-13-collapsible-system-events_completed.md",
@@ -5475,6 +5475,10 @@
       "lines": 1165
     },
     {
+      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
+      "lines": 1146
+    },
+    {
       "path": "docs/plans/completed/claude2_completed.md",
       "lines": 1145
     },
@@ -5555,6 +5559,10 @@
       "lines": 1034
     },
     {
+      "path": "src/shared/types/loop.types.ts",
+      "lines": 1029
+    },
+    {
       "path": "docs/superpowers/plans/2026-03-14-worktree-safety-attention-cost.md",
       "lines": 1027
     },
@@ -5567,6 +5575,10 @@
       "lines": 1025
     },
     {
+      "path": "src/main/workspace/git/worktree-manager.ts",
+      "lines": 1025
+    },
+    {
       "path": "src/renderer/app/features/logs/logs-page.component.ts",
       "lines": 1020
     },
@@ -5575,12 +5587,12 @@
       "lines": 1014
     },
     {
-      "path": "src/main/ipc/handlers/session-handlers.ts",
-      "lines": 1003
+      "path": "src/renderer/app/features/loop/loop-control.component.ts",
+      "lines": 1006
     },
     {
-      "path": "src/shared/types/loop.types.ts",
-      "lines": 1002
+      "path": "src/main/ipc/handlers/session-handlers.ts",
+      "lines": 1003
     },
     {
       "path": "src/main/memory/project-memory-brief.ts",
@@ -5589,10 +5601,6 @@
     {
       "path": "src/renderer/app/features/debate/debate-visualization.component.ts",
       "lines": 993
-    },
-    {
-      "path": "src/renderer/app/features/loop/loop-control.component.ts",
-      "lines": 991
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-wave4-output-clipboard-theme-terminal-design_completed.md",
@@ -5609,10 +5617,6 @@
     {
       "path": "src/main/orchestration/cli-verification-extension.ts",
       "lines": 988
-    },
-    {
-      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
-      "lines": 985
     },
     {
       "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
@@ -5699,6 +5703,10 @@
       "lines": 909
     },
     {
+      "path": "src/main/chats/chat-service.spec.ts",
+      "lines": 907
+    },
+    {
       "path": "src/main/cli/adapters/base-cli-adapter.ts",
       "lines": 899
     },
@@ -5735,12 +5743,12 @@
       "lines": 888
     },
     {
-      "path": "src/main/chats/chat-service.spec.ts",
-      "lines": 885
-    },
-    {
       "path": "src/main/context/context-compactor.ts",
       "lines": 881
+    },
+    {
+      "path": "src/main/app/initialization-steps.ts",
+      "lines": 880
     },
     {
       "path": "src/main/rlm/smart-compaction.ts",
@@ -5859,6 +5867,10 @@
       "lines": 814
     },
     {
+      "path": "interrupt-resume-recovery-plan_completed.md",
+      "lines": 809
+    },
+    {
       "path": "src/main/ipc/handlers/__tests__/session-handlers.spec.ts",
       "lines": 808
     },
@@ -5876,10 +5888,6 @@
     },
     {
       "path": "src/main/orchestration/cross-model-review-service.ts",
-      "lines": 804
-    },
-    {
-      "path": "src/main/workspace/git/worktree-manager.ts",
       "lines": 804
     },
     {

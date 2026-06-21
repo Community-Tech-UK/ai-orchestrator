@@ -34,6 +34,16 @@ const logger = getLogger('IdleMonitor');
 
 const DEFAULT_INTERVAL_MS = 60_000;
 
+/**
+ * D4: how long a remote turn can go with NO sign of life (output / state / turn
+ * heartbeat) while still in an active status before we surface it as a stale
+ * `remote-heartbeat` wait. Generous so legitimately long remote tool calls
+ * (which still emit periodic worker heartbeats) don't trip it; a connected
+ * worker that has gone fully silent this long is wedged/suspended. Informational
+ * only — we surface the wait, we do not auto-terminate the remote turn.
+ */
+const REMOTE_HEARTBEAT_STALE_MS = 120_000;
+
 type QueueUpdate = (
   instanceId: string,
   status: InstanceStatus,
@@ -84,8 +94,50 @@ export interface IdleMonitorDeps {
 
 export class IdleMonitor {
   private timer: NodeJS.Timeout | null = null;
+  /** Remote instances currently surfaced with a stale `remote-heartbeat` wait (D4). */
+  private readonly remoteStaleSurfaced = new Set<string>();
 
   constructor(private readonly deps: IdleMonitorDeps) {}
+
+  /**
+   * D4: detect a connected-but-wedged remote worker. Local process liveness
+   * checks don't apply to remote instances, so instead we watch the adapter's
+   * last-activity clock: if an active remote turn has emitted nothing (output,
+   * state, or turn heartbeat) for REMOTE_HEARTBEAT_STALE_MS, surface a typed
+   * `remote-heartbeat` wait so the user sees why it's silent. Cleared once
+   * activity resumes or the turn leaves an active status.
+   */
+  private checkRemoteHeartbeatStale(instanceId: string, instance: Instance): void {
+    const isActive =
+      instance.status === 'busy' ||
+      instance.status === 'processing' ||
+      instance.status === 'thinking_deeply';
+    const adapter = this.deps.getAdapter(instanceId) as
+      | { getMillisSinceLastActivity?: () => number | null }
+      | undefined;
+    const staleMs = adapter?.getMillisSinceLastActivity?.() ?? null;
+    const nodeId =
+      instance.executionLocation?.type === 'remote' ? instance.executionLocation.nodeId : undefined;
+    const isStale = isActive && staleMs !== null && staleMs > REMOTE_HEARTBEAT_STALE_MS;
+
+    if (isStale) {
+      // Re-surface each tick so the renderer's staleForMs counter advances.
+      this.deps.queueUpdate(
+        instanceId, instance.status, undefined, undefined, undefined, undefined,
+        instance.executionLocation, undefined, undefined, undefined,
+        { kind: 'remote-heartbeat', nodeId: nodeId ?? 'unknown', staleForMs: staleMs as number },
+      );
+      this.remoteStaleSurfaced.add(instanceId);
+      logger.warn('Remote turn heartbeat stale', { instanceId, nodeId, staleForMs: staleMs });
+    } else if (this.remoteStaleSurfaced.has(instanceId)) {
+      // Recovered (activity resumed or turn no longer active) — clear the reason.
+      this.deps.queueUpdate(
+        instanceId, instance.status, undefined, undefined, undefined, undefined,
+        instance.executionLocation, undefined, undefined, undefined, null,
+      );
+      this.remoteStaleSurfaced.delete(instanceId);
+    }
+  }
 
   /** Start the periodic check timer. Safe to call multiple times (no-op if running). */
   start(intervalMs: number = DEFAULT_INTERVAL_MS): void {
@@ -179,6 +231,12 @@ export class IdleMonitor {
           if (skipRecovery) return;
 
           const isRemote = instance.executionLocation?.type === 'remote';
+
+          // D4: remote instances get a heartbeat-staleness check instead of the
+          // local-process blocked/exited checks (which can't see a remote PID).
+          if (isRemote) {
+            this.checkRemoteHeartbeatStale(instanceId, instance);
+          }
 
           let failure: DetectedFailure | null = null;
 

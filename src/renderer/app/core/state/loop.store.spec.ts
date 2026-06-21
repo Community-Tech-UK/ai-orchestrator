@@ -419,7 +419,8 @@ describe('LoopStore', () => {
     const last = loopIteration({
       seq: 3,
       stage: 'IMPLEMENT',
-      outputExcerpt: 'Implemented and verified the change.',
+      outputExcerpt: 'head…tail',
+      outputFull: 'Implemented and verified the change. Full closing message here.',
       filesChanged: [
         { path: 'src/a.ts', additions: 12, deletions: 3, contentHash: 'a' },
         { path: 'src/b.ts', additions: 4, deletions: 0, contentHash: 'b' },
@@ -446,7 +447,8 @@ describe('LoopStore', () => {
       lastIteration: {
         seq: 3,
         stage: 'IMPLEMENT',
-        outputExcerpt: 'Implemented and verified the change.',
+        outputExcerpt: 'head…tail',
+        outputFull: 'Implemented and verified the change. Full closing message here.',
         testPassCount: 42,
         testFailCount: 0,
         verifyStatus: 'passed',
@@ -659,6 +661,7 @@ function loopIteration(overrides: Partial<LoopIterationPayload> = {}): LoopItera
     workHash: 'hash',
     outputSimilarityToPrev: null,
     outputExcerpt: 'iteration output',
+    outputFull: 'iteration output',
     progressVerdict: 'OK',
     progressSignals: [],
     completionSignalsFired: [],

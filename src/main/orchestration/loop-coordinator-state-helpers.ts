@@ -173,6 +173,11 @@ export function applyLoopPlanRegenerationOnStall(params: {
 
 function blockedFileCandidates(state: LoopState): string[] {
   const scoped = resolveLoopArtifactPaths(state.config.workspaceCwd, state.id).blocked;
+  // When isolation is active, skip the root BLOCKED.md fallback: a stale or
+  // concurrent root file from another run would pause the wrong loop.
+  if (state.config.isolateLoopWorkspaces) {
+    return [scoped];
+  }
   return [scoped, path.join(state.config.workspaceCwd, 'BLOCKED.md')];
 }
 

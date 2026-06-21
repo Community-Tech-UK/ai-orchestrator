@@ -140,6 +140,28 @@ describe('ChatService', () => {
     expect(instanceManager.inputs[1].message).toMatch(/\n\nContinue here$/);
   });
 
+  it('prepends a queued loop handoff to the next message exactly once, then clears it', async () => {
+    const { service, instanceManager } = createHarness();
+    const chat = await service.createChat({
+      provider: 'claude',
+      currentCwd: '/work/project',
+      name: 'Loop follow-up',
+    });
+
+    service.queueLoopHandoff(chat.chat.id, '[Loop context] the loop fixed three findings.');
+
+    await service.sendMessage({ chatId: chat.chat.id, text: 'Were these issues resolved?' });
+    await service.sendMessage({ chatId: chat.chat.id, text: 'And the second one?' });
+
+    // First turn after the loop carries the handoff, with the user's text last.
+    expect(instanceManager.inputs[0].message).toContain(
+      '[Loop context] the loop fixed three findings.',
+    );
+    expect(instanceManager.inputs[0].message).toMatch(/\n\nWere these issues resolved\?$/);
+    // Consume-once: the second turn must not re-inject the handoff.
+    expect(instanceManager.inputs[1].message).toBe('And the second one?');
+  });
+
   it('migrates a legacy global operator ledger thread into a setup-required chat', async () => {
     const { service, ledger } = createHarness();
     const legacy = await ledger.startConversation({

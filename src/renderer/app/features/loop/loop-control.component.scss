@@ -445,10 +445,28 @@ button {
 .lsum-file-del { color: #f78c7c; }
 .lsum-file-more { opacity: 0.55; font-style: italic; }
 .lsum-recap-output { display: flex; flex-direction: column; gap: 3px; }
+.lsum-recap-output-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
 .lsum-recap-label {
   font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
   opacity: 0.55;
 }
+.lsum-recap-copy {
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.05);
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.lsum-recap-copy:hover { background: rgba(255, 255, 255, 0.1); }
 .lsum-recap-pre {
   margin: 0;
   padding: 8px 10px;

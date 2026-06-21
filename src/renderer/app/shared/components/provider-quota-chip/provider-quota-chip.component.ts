@@ -111,6 +111,12 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
                   (click)="refreshProvider(provider.provider)"
                 >Refresh</button>
               </span>
+              @if (provider.needsReauth) {
+                <span
+                  class="reauth-row"
+                  [attr.data-testid]="'quota-reauth-' + provider.provider"
+                >⚠ Reauth needed — {{ provider.reauthHint }}</span>
+              }
               @if (provider.windows.length > 0) {
                 @for (window of provider.windows; track window.id) {
                   <span class="window-row">
@@ -122,7 +128,7 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
                     }
                   </span>
                 }
-              } @else {
+              } @else if (!provider.needsReauth) {
                 <span class="window-row muted">{{ provider.status }}</span>
               }
             </span>
@@ -181,6 +187,13 @@ const PROVIDER_LABELS: Record<ProviderId, string> = {
     .bar-fill { display: block; height: 100%; background: currentColor; }
     .window-reset { grid-column: 1 / -1; opacity: 0.68; }
     .muted { color: var(--text-secondary, #a0a0a0); }
+    .reauth-row {
+      font-size: 0.7rem; font-weight: 600; line-height: 1.3;
+      color: #f6c453;
+      padding: 4px 7px; border-radius: 6px;
+      background: rgba(239,68,68,0.10);
+      border: 1px solid rgba(239,68,68,0.28);
+    }
   `],
 })
 export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
@@ -252,20 +265,28 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     const entries: { provider: ProviderId; code: string; value: string; percent: number; fg: string }[] = [];
     for (const provider of PROVIDER_ORDER) {
       const snap = snaps[provider];
-      if (!snap?.ok) continue;
-      const window = this.summaryWindow(snap);
+      if (!snap) continue;
+      const code = PROVIDER_CODES[provider];
+      const window = snap.ok ? this.summaryWindow(snap) : null;
       if (window) {
+        const percent = this.windowPercent(window);
         entries.push({
           provider,
-          code: PROVIDER_CODES[provider],
-          value: `${Math.round(this.windowPercent(window))}%`,
-          percent: this.windowPercent(window),
-          fg: stripEntryColor(this.windowPercent(window)),
+          code,
+          // Append a warning glyph when last-known numbers are shown but the
+          // login that produced them has expired.
+          value: `${Math.round(percent)}%${snap.needsReauth ? ' ⚠' : ''}`,
+          percent,
+          fg: snap.needsReauth ? BAND_COLORS.red.fg : stripEntryColor(percent),
         });
-      } else {
+      } else if (snap.needsReauth) {
+        // No usable windows and the user must sign in again — make it visible
+        // in the collapsed chip rather than hiding the provider entirely.
+        entries.push({ provider, code, value: 'reauth', percent: 0, fg: BAND_COLORS.red.fg });
+      } else if (snap.ok) {
         entries.push({
           provider,
-          code: PROVIDER_CODES[provider],
+          code,
           value: snap.plan ?? 'ok',
           percent: 0,
           fg: STRIP_NEUTRAL_FG,
@@ -281,11 +302,16 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
       .map((provider) => {
         const snap = snaps[provider];
         if (!snap) return null;
+        const needsReauth = snap.needsReauth === true;
         return {
           provider,
           label: PROVIDER_LABELS[provider],
           updatedText: formatUpdatedAge(snap.takenAt, this.nowMs()),
           status: snap.ok ? `Signed in · ${snap.plan ?? 'unknown plan'}` : (snap.error ?? 'Unavailable'),
+          needsReauth,
+          // The probe's error string is already the actionable instruction;
+          // fall back to a per-provider hint when it isn't present.
+          reauthHint: needsReauth ? (snap.error ?? PROVIDER_REAUTH_HINTS[provider]) : null,
           windows: snap.ok ? snap.windows.filter((window) => window.limit > 0) : [],
         };
       })
@@ -294,6 +320,8 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
         label: string;
         updatedText: string;
         status: string;
+        needsReauth: boolean;
+        reauthHint: string | null;
         windows: ProviderQuotaWindow[];
       } => entry !== null);
   });
@@ -415,4 +443,13 @@ const PROVIDER_CODES: Record<ProviderId, string> = {
 const PREFERRED_SUMMARY_WINDOW_IDS: Partial<Record<ProviderId, string[]>> = {
   claude: ['claude.weekly'],
   codex: ['codex.weekly'],
+};
+/** Fallback reauth instruction when a probe didn't supply its own. */
+const PROVIDER_REAUTH_HINTS: Record<ProviderId, string> = {
+  claude: 'Run `claude` to sign in again',
+  codex: 'Run `codex login` to sign in again',
+  gemini: 'Run `gemini` to sign in again',
+  antigravity: 'Run `agy` (or `gemini`) to sign in again',
+  copilot: 'Run `gh auth login` to sign in again',
+  cursor: 'Open Cursor and sign in to refresh the session',
 };

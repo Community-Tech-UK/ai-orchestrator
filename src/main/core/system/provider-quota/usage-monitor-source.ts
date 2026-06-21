@@ -35,8 +35,23 @@ import { getLogger } from '../../../logging/logger';
 
 const logger = getLogger('UsageMonitorSource');
 
-/** Default staleness ceiling — older than this and we ignore the file. */
-const DEFAULT_MAX_AGE_MS = 5 * 60_000;
+/**
+ * Default staleness ceiling — older than this and we ignore the file.
+ *
+ * The standalone token-usage-monitor's launchd poller (`com.suas.ccusage.poller`)
+ * runs on `StartInterval = 600s`, so a freshly-written `state.json` is routinely
+ * up to ~10 min old plus the poll's own runtime. A 5-min ceiling therefore
+ * discarded the file for roughly half of every poll cycle — which silently broke
+ * the *only* providers that depend on this fallback (Antigravity and Cursor,
+ * whose native probes report login/plan state but no usage windows). Claude /
+ * Codex / Copilot have working native windows and never consult this source, so
+ * the bug was invisible for them.
+ *
+ * Set the ceiling to two poll intervals (20 min) so a single delayed or
+ * skipped poll (e.g. the machine was briefly asleep) still counts as fresh,
+ * while a genuinely dead monitor (>20 min without an update) is still rejected.
+ */
+const DEFAULT_MAX_AGE_MS = 20 * 60_000;
 
 /** Provider keys we'll accept from state.json. Mirrors token-usage-monitor. */
 const KNOWN_PROVIDERS: readonly ProviderId[] = ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'];

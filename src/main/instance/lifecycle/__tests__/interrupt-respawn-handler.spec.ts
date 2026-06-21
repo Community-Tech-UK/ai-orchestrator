@@ -222,7 +222,7 @@ describe('InterruptRespawnHandler', () => {
     expect(queueUpdate.mock.calls.map((call) => call[1])).toEqual(['interrupting', 'cancelling', 'idle']);
   });
 
-  it('interrupt completion deadline fires and treats never-settling completion as rejected (A3)', async () => {
+  it('interrupt completion deadline does NOT settle the instance — force-abort net handles cleanup (A3)', async () => {
     vi.useFakeTimers();
     try {
       // completion promise that never resolves — simulates a wedged provider
@@ -236,19 +236,23 @@ describe('InterruptRespawnHandler', () => {
       expect(instance.status).toBe('interrupting');
       expect(instance.respawnPromise).toBeDefined();
 
-      // Advance past INTERRUPT_COMPLETION_DEADLINE_MS (15 000ms).
-      // withOperationDeadline rejects → handleInterruptCompletion treats the
-      // result as 'rejected' → instance: interrupting → cancelling → idle.
+      // Advance past INTERRUPT_COMPLETION_DEADLINE_MS (15s) but before INTERRUPT_FORCE_ABORT_MS (30s).
+      // handleInterruptCompletion returns early — it does NOT settle to idle.
+      // The force-abort net remains armed.
       await vi.advanceTimersByTimeAsync(16_000);
 
-      expect(instance.status).toBe('idle');
-      expect(instance.interruptPhase).toBe('completed');
-      expect(instance.lastTurnOutcome).toBe('interrupted');
-      // respawnPromise resolved — instance no longer holds a reference
-      expect(instance.respawnPromise).toBeUndefined();
-      // Force-abort net was cleared when respawnPromise resolved at the 15s mark;
-      // adapter.terminate(true) must NOT have been called.
-      expect(adapter.terminate).not.toHaveBeenCalledWith(true);
+      expect(instance.status).not.toBe('idle');
+      expect(instance.respawnPromise).toBeDefined(); // force-abort net not yet fired
+      expect(adapter.terminate).not.toHaveBeenCalledWith(true); // adapter still alive (not yet killed)
+
+      // Advance to 31s — force-abort net fires, terminates adapter, settles to 'cancelled'.
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      expect(adapter.terminate).toHaveBeenCalledWith(true);
+      expect(instance.status).toBe('cancelled');
+      expect(instance.interruptPhase).toBe('escalated');
+      expect(instance.lastTurnOutcome).toBe('cancelled');
+      expect(instance.respawnPromise).toBeUndefined(); // resolved by force-abort
     } finally {
       vi.useRealTimers();
     }

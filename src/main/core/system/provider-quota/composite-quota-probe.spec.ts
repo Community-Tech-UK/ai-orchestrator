@@ -60,6 +60,18 @@ describe('CompositeQuotaProbe', () => {
     expect(snap).toBe(OK_NO_WINDOWS);
   });
 
+  it('propagates needsReauth onto state.json windows when native flags reauth', async () => {
+    const nativeReauth: ProviderQuotaSnapshot = {
+      provider: 'codex', takenAt: 1, source: 'admin-api', ok: false,
+      error: 'token expired', needsReauth: true, windows: [],
+    };
+    const probe = new CompositeQuotaProbe(nativeProbe(nativeReauth), fallback(STATE_JSON));
+    const snap = await probe.probe({ signal: signal() });
+    expect(snap).not.toBe(STATE_JSON);
+    expect(snap!.windows).toEqual(STATE_JSON.windows);
+    expect(snap!.needsReauth).toBe(true);
+  });
+
   it('inherits the wrapped probe provider id', () => {
     const probe = new CompositeQuotaProbe(nativeProbe(OK_NO_WINDOWS), fallback(null));
     expect(probe.provider).toBe('codex');

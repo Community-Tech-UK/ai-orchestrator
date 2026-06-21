@@ -18,18 +18,25 @@ import { EventEmitter } from 'events';
 import {
   WorktreeConfig,
   WorktreeSession,
-  WorktreeStatus,
   WorktreeMergePreview,
   WorktreeMergeResult,
   MergeStrategy,
   CrossWorktreeConflict,
-  WorktreeHealthCheck,
   WorktreeCommit,
   createDefaultWorktreeConfig,
   sanitizeBranchName,
 } from '../../../shared/types/worktree.types';
 import { getLogger } from '../../logging/logger';
 import { getGitWriteQueue } from './git-write-queue';
+import { hermeticGitEnv } from './git-env';
+import { provisionWorktreeDependencies } from './worktree-deps';
+import { assignWorktreeRendererPort } from './worktree-port';
+import {
+  integrateViaWorktree,
+  integrateIntoSharedBranch,
+  tryAdvanceBaseBranch,
+  type SharedIntegrationResult,
+} from './worktree-integration';
 
 const logger = getLogger('WorktreeManager');
 
@@ -39,6 +46,10 @@ const execFileAsync = promisify(execFile);
 async function gitExec(args: string[], cwd: string, timeoutMs = 30_000): Promise<string> {
   const { stdout } = await execFileAsync('git', args, {
     cwd,
+    // Strip inherited GIT_DIR/GIT_INDEX_FILE/etc. (set when running inside a git
+    // hook) so the command resolves its repo purely from cwd. Without this,
+    // worktree ops run under a commit hook hit `.git/index: Not a directory`.
+    env: hermeticGitEnv(),
     encoding: 'utf-8',
     maxBuffer: 10 * 1024 * 1024,
     timeout: timeoutMs,
@@ -60,6 +71,10 @@ export class WorktreeManager extends EventEmitter {
   private sessions: Map<string, WorktreeSession> = new Map();
   private config: WorktreeConfig;
   private healthCheckInterval?: NodeJS.Timeout;
+  /** P5: cycle counter so we run gc at most once per 12 health-check intervals (~1h). */
+  private gcCycleCount = 0;
+  /** P7: renderer ports reserved by live sessions, so siblings don't collide. */
+  private reservedPorts = new Set<number>();
 
   static getInstance(): WorktreeManager {
     if (!this.instance) {
@@ -72,10 +87,12 @@ export class WorktreeManager extends EventEmitter {
     WorktreeManager.instance = null;
   }
 
+  // P4: constructor does not arm the health monitor so that injecting or
+  // acquiring the singleton via getInstance() is side-effect-free. Call
+  // startHealthMonitor() explicitly from app init code when desired.
   private constructor() {
     super();
     this.config = createDefaultWorktreeConfig();
-    this.startHealthMonitor();
   }
 
   configure(config: Partial<WorktreeConfig>): void {
@@ -153,13 +170,26 @@ export class WorktreeManager extends EventEmitter {
       // on the shared .git. Best-effort; failure doesn't block worktree creation.
       void gitExecSafe(['config', 'gc.auto', '0'], worktreePath);
 
+      // P7: assign a per-session renderer port and write the mise local override
+      // so this worktree's renderer/smoke tooling doesn't collide on 4567.
+      try {
+        const port = await assignWorktreeRendererPort(worktreePath, { exclude: this.reservedPorts });
+        this.reservedPorts.add(port);
+        session.rendererPort = port;
+      } catch (portErr) {
+        logger.warn('WorktreeManager: renderer port assignment failed (non-fatal)', {
+          worktreePath,
+          message: portErr instanceof Error ? portErr.message : String(portErr),
+        });
+      }
+
       await this.copyConfigFiles(repoRoot, worktreePath);
 
       session.status = 'installing';
       this.emit('worktree:installing', session);
 
       if (this.config.installDeps && !options?.skipInstall) {
-        await this.installDependencies(worktreePath);
+        await this.installDependencies(repoRoot, worktreePath);
       }
 
       session.status = 'active';
@@ -212,25 +242,30 @@ export class WorktreeManager extends EventEmitter {
     }
   }
 
-  private async installDependencies(worktreePath: string): Promise<void> {
-    const packageJsonPath = path.join(worktreePath, 'package.json');
-
+  /**
+   * P6: near-instant spin-up. Clone the root node_modules with an APFS
+   * copy-on-write clone (symlink-preserving), then assert the workspace
+   * symlinks and verify/repair the native-ABI binary. Falls back to a plain
+   * copy and finally the configured install command on EXDEV/non-APFS.
+   */
+  private async installDependencies(repoRoot: string, worktreePath: string): Promise<void> {
     try {
-      await fs.access(packageJsonPath);
-      // installCommand is a user-configured shell string; keep exec here but
-      // note this is not injectable because it is a static admin-set value
-      // (not derived from user/agent input). P6 will replace with APFS clonefile.
-      const { exec } = await import('child_process');
-      const execAsync = promisify(exec);
-      await execAsync(this.config.installCommand!, {
-        cwd: worktreePath,
-        timeout: 300_000,
+      const { method, symlinks, nativeAbi } = await provisionWorktreeDependencies(
+        repoRoot,
+        worktreePath,
+        { installCommand: this.config.installCommand },
+      );
+      const brokenLinks = symlinks.filter((s) => !s.ok);
+      const badAbi = nativeAbi.filter((a) => a.status === 'missing');
+      logger.info('WorktreeManager: dependencies provisioned', {
+        worktreePath,
+        method,
+        brokenLinks: brokenLinks.length > 0 ? brokenLinks : undefined,
+        missingAbi: badAbi.length > 0 ? badAbi.map((a) => a.module) : undefined,
       });
     } catch (error: unknown) {
-      const err = error as { code?: string; message?: string };
-      if (err.code !== 'ENOENT') {
-        logger.warn('Dependency installation warning', { worktreePath, message: err.message });
-      }
+      const err = error as { message?: string };
+      logger.warn('Dependency provisioning warning', { worktreePath, message: err.message });
     }
   }
 
@@ -251,18 +286,60 @@ export class WorktreeManager extends EventEmitter {
   }
 
   /**
+   * Adopt an existing on-disk worktree that was created in a previous process
+   * (e.g. after a crash + restore). Registers it in the in-memory session map
+   * so harvest/cleanup can be called on it in the normal terminate path, without
+   * re-running git worktree add.
+   *
+   * Idempotent: returns the existing session if the path is already registered.
+   */
+  async adoptWorktree(
+    instanceId: string,
+    worktreePath: string,
+    taskDescription: string,
+  ): Promise<WorktreeSession> {
+    const existing = [...this.sessions.values()].find((s) => s.worktreePath === worktreePath);
+    if (existing) return existing;
+
+    // Derive branch/base from the live worktree — no disk writes, read-only.
+    const branchName = await gitExecSafe(['branch', '--show-current'], worktreePath);
+    const baseCommit = await gitExecSafe(['rev-parse', 'HEAD'], worktreePath);
+
+    const session: WorktreeSession = {
+      id: `wt-adopted-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      instanceId,
+      worktreePath,
+      branchName: branchName || `task-restored-${Date.now().toString(36)}`,
+      baseBranch: '',
+      baseCommit: baseCommit || '',
+      status: 'active',
+      lastActivity: Date.now(),
+      commits: [],
+      filesChanged: [],
+      additions: 0,
+      deletions: 0,
+      createdAt: Date.now(),
+      taskDescription,
+      taskType: 'feature',
+    };
+
+    this.sessions.set(session.id, session);
+    return session;
+  }
+
+  /**
    * Harvest uncommitted changes from a worktree into a commit on its branch.
    * This captures agent output before reap — agents follow AGENTS.md which says
    * "NEVER commit" so the orchestrator commits on their behalf.
    */
-  async harvestWorktree(worktreeId: string): Promise<{ committed: boolean; hash?: string }> {
+  async harvestWorktree(worktreeId: string): Promise<{ committed: boolean; hasUncommittedWork: boolean; hash?: string }> {
     const session = this.sessions.get(worktreeId);
     if (!session) throw new Error(`Worktree not found: ${worktreeId}`);
 
     try {
       const status = await gitExecSafe(['status', '--porcelain'], session.worktreePath);
       if (!status.trim()) {
-        return { committed: false };
+        return { committed: false, hasUncommittedWork: false };
       }
 
       const result = await getGitWriteQueue().enqueue('harvest', async () => {
@@ -273,10 +350,12 @@ export class WorktreeManager extends EventEmitter {
       });
 
       logger.info('WorktreeManager: harvested uncommitted changes', { worktreeId, hash: result });
-      return { committed: true, hash: result };
+      return { committed: true, hasUncommittedWork: true, hash: result };
     } catch (error) {
       logger.error('WorktreeManager: harvest failed', error instanceof Error ? error : undefined, { worktreeId });
-      return { committed: false };
+      // hasUncommittedWork=true signals to the caller that work exists but commit failed;
+      // the worktree must NOT be force-removed to avoid data loss.
+      return { committed: false, hasUncommittedWork: true };
     }
   }
 
@@ -436,6 +515,13 @@ export class WorktreeManager extends EventEmitter {
       strategy?: MergeStrategy;
       commitMessage?: string;
       allowConflicts?: boolean;
+      /**
+       * P4 (opt-in): run the merge in a dedicated detached integration worktree
+       * instead of the root checkout. Used by the isolation lifecycle; the 5
+       * legacy callers leave this unset and keep the root-checkout semantics.
+       */
+      useIntegrationWorktree?: boolean;
+      integrationBranch?: string;
     }
   ): Promise<WorktreeMergeResult> {
     const session = this.sessions.get(worktreeId);
@@ -443,6 +529,10 @@ export class WorktreeManager extends EventEmitter {
 
     const repoRoot = await gitExec(['rev-parse', '--show-toplevel'], session.worktreePath);
     const strategy = options?.strategy || this.config.defaultStrategy;
+
+    if (options?.useIntegrationWorktree) {
+      return this.mergeViaIntegrationWorktree(session, repoRoot, strategy, options);
+    }
 
     const preview = await this.previewMerge(worktreeId, { strategy });
 
@@ -459,10 +549,11 @@ export class WorktreeManager extends EventEmitter {
     this.emit('worktree:merging', session);
 
     try {
-      // TODO(P4-integration-worktree): this merge path still runs in the root
-      // checkout, which races concurrent sessions. The fix (dedicated integration
-      // worktree + git-write-queue serialization) is tracked as a follow-up.
-      // For now, serialize through the queue to reduce .git lock contention.
+      // Legacy root-checkout merge path, kept for the 5 existing callers
+      // (branch-select, parallel coordinator, repo-job, campaign, IPC handler).
+      // The isolation lifecycle opts into mergeViaIntegrationWorktree() instead,
+      // which never touches the root checkout. Serialize through the queue to
+      // reduce .git lock contention on this path.
       const mergeCommit = await getGitWriteQueue().enqueue('merge', async () => {
         await gitExec(['checkout', session.baseBranch], repoRoot);
 
@@ -536,6 +627,100 @@ export class WorktreeManager extends EventEmitter {
   }
 
   /**
+   * P4 opt-in: merge by integrating the session branch in a dedicated detached
+   * worktree (never the root checkout). Produces an isolated integration branch;
+   * does NOT auto-cleanup the session worktree (the caller owns reap timing).
+   */
+  private async mergeViaIntegrationWorktree(
+    session: WorktreeSession,
+    repoRoot: string,
+    strategy: MergeStrategy,
+    options?: { commitMessage?: string; integrationBranch?: string },
+  ): Promise<WorktreeMergeResult> {
+    session.status = 'merging';
+    this.emit('worktree:merging', session);
+
+    const result = await integrateViaWorktree({
+      repoRoot,
+      baseDir: this.config.baseDir,
+      sessionBranch: session.branchName,
+      targetBranch: session.baseBranch,
+      strategy,
+      commitMessage: options?.commitMessage,
+      integrationBranch: options?.integrationBranch,
+    });
+
+    if (result.success) {
+      session.status = 'merged';
+      session.mergedAt = Date.now();
+      this.emit('worktree:merged', session);
+      return {
+        success: true,
+        worktreeId: session.id,
+        mergeCommit: result.mergeCommit,
+        integrationBranch: result.integrationBranch,
+      };
+    }
+
+    session.status = 'conflict';
+    this.emit('worktree:conflict', { session, error: result.error });
+    return {
+      success: false,
+      worktreeId: session.id,
+      error: result.error,
+      manualResolutionRequired: result.conflictFiles,
+    };
+  }
+
+  /**
+   * Auto-integrate a session's branch into the shared, accumulating integration
+   * branch (`integration/<baseBranch>` by default) via a dedicated integration
+   * worktree — never the root checkout. On success marks the session `merged`;
+   * optionally fast-forwards the base branch when it is not checked out anywhere.
+   * Used by the loop terminal-success path. Safe to call after harvest.
+   */
+  async integrateWorktree(
+    worktreeId: string,
+    options?: { strategy?: MergeStrategy; integrationBranch?: string; advanceBaseIfUnchecked?: boolean },
+  ): Promise<SharedIntegrationResult & { baseAdvanced?: boolean }> {
+    const session = this.sessions.get(worktreeId);
+    if (!session) throw new Error(`Worktree not found: ${worktreeId}`);
+
+    const repoRoot = await gitExec(['rev-parse', '--show-toplevel'], session.worktreePath);
+    const baseBranch = session.baseBranch || (await gitExec(['branch', '--show-current'], repoRoot));
+    const integrationBranch = options?.integrationBranch ?? `integration/${baseBranch}`;
+    const strategy = options?.strategy ?? this.config.defaultStrategy;
+
+    session.status = 'merging';
+    this.emit('worktree:merging', session);
+
+    const result = await integrateIntoSharedBranch({
+      repoRoot,
+      baseDir: this.config.baseDir,
+      sessionBranch: session.branchName,
+      integrationBranch,
+      baseBranch,
+      strategy,
+    });
+
+    if (!result.success) {
+      session.status = 'conflict';
+      this.emit('worktree:conflict', { session, error: result.error });
+      return result;
+    }
+
+    session.status = 'merged';
+    session.mergedAt = Date.now();
+    this.emit('worktree:merged', session);
+
+    let baseAdvanced = false;
+    if (options?.advanceBaseIfUnchecked) {
+      baseAdvanced = await tryAdvanceBaseBranch(repoRoot, baseBranch, integrationBranch);
+    }
+    return { ...result, baseAdvanced };
+  }
+
+  /**
    * Remove a worktree from disk and deregister it.
    *
    * Safety: by default refuses to remove a worktree with uncommitted changes
@@ -572,6 +757,11 @@ export class WorktreeManager extends EventEmitter {
       }
       // Abandoned branches are intentionally kept — the user can review the work.
 
+      // P7: release the reserved renderer port so it can be reused.
+      if (session.rendererPort) {
+        this.reservedPorts.delete(session.rendererPort);
+      }
+
       this.sessions.delete(worktreeId);
       this.emit('worktree:cleaned', session);
     } catch (error) {
@@ -581,7 +771,9 @@ export class WorktreeManager extends EventEmitter {
 
   // ============ Health Monitoring ============
 
-  private startHealthMonitor(): void {
+  /** Start the periodic health-check interval. Call explicitly from app init. */
+  startHealthMonitor(): void {
+    if (this.healthCheckInterval) return; // idempotent
     this.healthCheckInterval = setInterval(async () => {
       await this.runHealthChecks();
     }, 5 * 60 * 1000);
@@ -612,6 +804,27 @@ export class WorktreeManager extends EventEmitter {
             agentResponsive: false,
             diskUsageMB: 0,
           };
+        }
+      }
+    }
+
+    // P5: compensating gc — gc.auto 0 is set per worktree to prevent unserialized
+    // auto-gc, but that means objects accumulate indefinitely. Run a full gc on the
+    // repo root once per ~hour (every 12 health-check cycles at 5-min intervals).
+    this.gcCycleCount++;
+    if (this.gcCycleCount >= 12) {
+      this.gcCycleCount = 0;
+      const activeSessions = [...this.sessions.values()].filter((s) => s.status === 'active');
+      if (activeSessions.length > 0) {
+        const repoRoot = await gitExecSafe(
+          ['rev-parse', '--show-toplevel'],
+          activeSessions[0].worktreePath,
+        );
+        if (repoRoot) {
+          logger.debug('WorktreeManager: running periodic git gc on repo root', { repoRoot });
+          void getGitWriteQueue().enqueue('periodic-gc', () =>
+            gitExecSafe(['gc', '--auto'], repoRoot),
+          );
         }
       }
     }
@@ -783,6 +996,7 @@ export class WorktreeManager extends EventEmitter {
   destroy(): void {
     if (this.healthCheckInterval) {
       clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = undefined;
     }
   }
 }
@@ -793,11 +1007,18 @@ let worktreeManagerInstance: WorktreeManager | null = null;
 export function getWorktreeManager(): WorktreeManager {
   if (!worktreeManagerInstance) {
     worktreeManagerInstance = WorktreeManager.getInstance();
+    // Start the health monitor once, on first app-level use. Tests that acquire
+    // the singleton via _resetForTesting() + getInstance() directly (without
+    // going through this function) never arm the interval.
+    worktreeManagerInstance.startHealthMonitor();
   }
   return worktreeManagerInstance;
 }
 
 export function _resetWorktreeManagerForTesting(): void {
+  if (worktreeManagerInstance) {
+    worktreeManagerInstance.destroy();
+  }
   worktreeManagerInstance = null;
   WorktreeManager._resetForTesting();
 }

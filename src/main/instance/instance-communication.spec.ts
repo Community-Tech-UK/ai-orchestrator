@@ -215,6 +215,47 @@ describe('InstanceCommunicationManager', () => {
     expect(queueUpdate).toHaveBeenCalledWith(instance.id, 'terminated', undefined, undefined, undefined, undefined);
   });
 
+  it('§3.2: emits a typed invalid-session notice (not just raw error) when resume fails', async () => {
+    instance.provider = 'claude';
+    instance.providerSessionId = 'sess-xyz';
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    const outputs: OutputMessage[] = [];
+    manager.on('output', (e: { instanceId: string; message: OutputMessage }) => outputs.push(e.message));
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('output', createMessage('error', 'session not found: sess-xyz'));
+    await flushOutputHandlers();
+
+    expect(instance.sessionResumeBlacklisted).toBe(true);
+    const notice = outputs.find(
+      (m) => (m.metadata?.['notice'] as { kind?: string } | undefined)?.kind === 'invalid-session',
+    );
+    expect(notice).toBeDefined();
+    expect(notice!.type).toBe('system');
+    expect((notice!.metadata!['notice'] as { sessionId?: string }).sessionId).toBe('sess-xyz');
+  });
+
+  it('§3.2: does not emit a second invalid-session notice once already blacklisted', async () => {
+    instance.provider = 'claude';
+    instance.sessionResumeBlacklisted = true;
+    const adapter = new FakeAdapter('claude-cli') as unknown as CliAdapter;
+    adapters.set(instance.id, adapter);
+
+    const outputs: OutputMessage[] = [];
+    manager.on('output', (e: { message: OutputMessage }) => outputs.push(e.message));
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('output', createMessage('error', 'session not found'));
+    await flushOutputHandlers();
+
+    const notices = outputs.filter(
+      (m) => (m.metadata?.['notice'] as { kind?: string } | undefined)?.kind === 'invalid-session',
+    );
+    expect(notices).toHaveLength(0);
+  });
+
   it('reconciles a Cursor instance whose model is the auto sentinel to the agent-reported model', () => {
     instance.provider = 'cursor';
     instance.currentModel = 'auto';

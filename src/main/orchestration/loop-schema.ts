@@ -8,7 +8,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const LOOP_SCHEMA_VERSION = 9;
+export const LOOP_SCHEMA_VERSION = 10;
 
 interface LoopMigration {
   version: number;
@@ -242,6 +242,19 @@ const MIGRATIONS: LoopMigration[] = [
     up: `
       ALTER TABLE loop_runs ADD COLUMN worktree_path TEXT;
       ALTER TABLE loop_runs ADD COLUMN branch_name TEXT;
+    `,
+  },
+  {
+    // Persist the agent's complete closing message per iteration, distinct from
+    // the tiny head+tail `output_excerpt` that drives similarity/no-progress/
+    // completion detection. The summary card, trace inspector, and chat recap
+    // render this so the user can read the full final response instead of the
+    // 4 KB detection excerpt. Existing rows backfill to '' via the column
+    // default; new iterations write the bounded full output.
+    version: 10,
+    name: '010_loop_iterations_output_full',
+    up: `
+      ALTER TABLE loop_iterations ADD COLUMN output_full TEXT NOT NULL DEFAULT '';
     `,
   },
 ];

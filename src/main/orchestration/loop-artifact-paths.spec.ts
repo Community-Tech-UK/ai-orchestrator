@@ -49,4 +49,23 @@ describe('resolveLoopArtifactPaths', () => {
     expect(loopStateFile(p, 'DONE.txt')).toBe(path.join(p.dir, 'DONE.txt'));
     expect(loopStateRelFile(p, 'DONE.txt')).toBe(`${p.relDir}/DONE.txt`);
   });
+
+  // P1 isolation acceptance: state-dir paths must anchor to workspaceCwd (the repo
+  // root), not to any executionCwd (the per-session worktree). When isolation is
+  // active the agent's cwd is the worktree, so relative or executionCwd-anchored
+  // paths would resolve to the wrong directory.
+  it('all paths anchor at workspaceCwd — not at a hypothetical executionCwd (P1 isolation)', () => {
+    const workspaceCwd = '/real/repo/root';
+    const executionCwd = '/real/repo/root/.worktrees/task-abc-1n5w3f';
+    const p = resolveLoopArtifactPaths(workspaceCwd, 'loop-isolation-test');
+    // dir must be inside workspaceCwd
+    expect(p.dir.startsWith(workspaceCwd)).toBe(true);
+    // dir must NOT be inside executionCwd (the agent's cwd when isolation is active)
+    expect(p.dir.startsWith(executionCwd)).toBe(false);
+    // All derived paths inherit this anchoring
+    for (const key of ['stage', 'notes', 'iterationLog', 'tasks', 'blocked', 'outstanding'] as const) {
+      expect(p[key].startsWith(workspaceCwd)).toBe(true);
+      expect(p[key].startsWith(executionCwd)).toBe(false);
+    }
+  });
 });

@@ -503,7 +503,7 @@ There is no human in the loop to answer questions. You must:
 3. **If you are genuinely blocked** (missing credentials, ambiguous requirements that cannot be resolved by best-judgement, hardware/network you cannot access): write \`${blockedRel}\` describing exactly what you need, then exit. The loop will pause and wait for the operator.
 
 ## Step 0 — Loop state directory
-All loop-owned state files for THIS run live in \`${sd}/\` (relative to your working directory). Always read and write them at the exact paths given below — never at the workspace root, because another loop may be running in this same workspace and would collide. (Your code changes, the plan file, and any \`_completed\` renames still happen in the normal project tree — only the loop's own bookkeeping files live under \`${sd}/\`.)
+All loop-owned state files for THIS run live in \`${sd}/\` (absolute path — valid regardless of your working directory). Always read and write them at the exact paths given below — never at the workspace root, because another loop may be running in this same workspace and would collide. (Your code changes, the plan file, and any \`_completed\` renames still happen in the normal project tree — only the loop's own bookkeeping files live under \`${sd}/\`.)
 
 ## Step 1 — Read your state
 1. Open \`${stageRel}\`. It contains exactly one of: PLAN, REVIEW, IMPLEMENT.

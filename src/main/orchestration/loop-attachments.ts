@@ -49,7 +49,11 @@ export function dedupeFilenames(names: string[]): string[] {
 export interface SavedAttachment {
   /** Sanitized filename used on disk. */
   filename: string;
-  /** Path relative to the workspace root (forward slashes for cross-platform prompt rendering). */
+  /**
+   * Absolute path on disk. Handed to the agent in the prompt so the path
+   * resolves correctly even when the agent's cwd is a worktree, not the
+   * workspace root where the attachment was written.
+   */
   relativePath: string;
   /** Number of bytes actually written; 0 if the attachment was skipped. */
   size: number;
@@ -76,7 +80,9 @@ export async function saveLoopAttachments(
   for (let i = 0; i < attachments.length; i++) {
     const attachment = attachments[i];
     const filename = filenames[i];
-    const relativePath = `${LOOP_ATTACHMENT_ROOT}/${loopRunId}/${filename}`;
+    // Absolute path so the agent can locate the file regardless of cwd (which
+    // may be a worktree rather than workspaceCwd when isolation is active).
+    const relativePath = join(workspaceCwd, LOOP_ATTACHMENT_ROOT, loopRunId, filename);
     const size = attachment.data.byteLength;
 
     if (size > MAX_ATTACHMENT_BYTES) {

@@ -153,4 +153,64 @@ describe('IdleMonitor', () => {
       expect(dispatchRecovery).not.toHaveBeenCalled();
     },
   );
+
+  function makeRemoteMonitor(staleMs: number, queueUpdate: ReturnType<typeof vi.fn>, status = 'busy'): IdleMonitor {
+    const detector = {
+      setPid: vi.fn(),
+      detect: vi.fn(async () => ({ state: 'idle' as const, confidence: 'low' as const, staleAfterMs: 0, source: 'test' })),
+    } as unknown as ActivityStateDetector;
+    return new IdleMonitor({
+      getSettings: () => ({ autoTerminateIdleMinutes: 0 }),
+      getRecoveryEngine: () => ({ handleFailure: vi.fn() } as unknown as RecoveryRecipeEngine),
+      getActivityDetectors: () => new Map([['r1', detector]]),
+      getInstance: () => ({
+        id: 'r1',
+        status,
+        executionLocation: { type: 'remote', nodeId: 'node-x' },
+      } as unknown as Instance),
+      forEachInstance: vi.fn(),
+      getAdapter: () => ({ getMillisSinceLastActivity: () => staleMs }) as never,
+      queueUpdate,
+      deleteAdapter: vi.fn(),
+      transitionState: vi.fn(),
+      terminateInstance: vi.fn(async () => undefined),
+      hibernateInstance: vi.fn(async () => undefined),
+      dispatchRecovery: vi.fn(async () => undefined),
+    });
+  }
+
+  it('D4: surfaces a remote-heartbeat wait when a busy remote turn goes silent', async () => {
+    const queueUpdate = vi.fn();
+    makeRemoteMonitor(200_000, queueUpdate).check();
+    await flushAsyncWork();
+
+    const staleCall = queueUpdate.mock.calls.find(
+      (c) => (c[10] as { kind?: string } | null)?.kind === 'remote-heartbeat',
+    );
+    expect(staleCall).toBeDefined();
+    expect(staleCall![10]).toMatchObject({ kind: 'remote-heartbeat', nodeId: 'node-x' });
+    expect((staleCall![10] as { staleForMs: number }).staleForMs).toBeGreaterThanOrEqual(120_000);
+  });
+
+  it('D4: does NOT surface a remote-heartbeat wait when remote activity is recent', async () => {
+    const queueUpdate = vi.fn();
+    makeRemoteMonitor(1_000, queueUpdate).check();
+    await flushAsyncWork();
+
+    const staleCall = queueUpdate.mock.calls.find(
+      (c) => (c[10] as { kind?: string } | null)?.kind === 'remote-heartbeat',
+    );
+    expect(staleCall).toBeUndefined();
+  });
+
+  it('D4: does NOT surface a remote-heartbeat wait when the remote instance is idle (not active)', async () => {
+    const queueUpdate = vi.fn();
+    makeRemoteMonitor(200_000, queueUpdate, 'idle').check();
+    await flushAsyncWork();
+
+    const staleCall = queueUpdate.mock.calls.find(
+      (c) => (c[10] as { kind?: string } | null)?.kind === 'remote-heartbeat',
+    );
+    expect(staleCall).toBeUndefined();
+  });
 });

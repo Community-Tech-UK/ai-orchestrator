@@ -275,8 +275,8 @@ import { PromptModalComponent } from '../../shared/components/prompt-modal/promp
                   </summary>
                   <div class="li-grid">
                     <div>
-                      <div class="li-subtitle">Output excerpt</div>
-                      <pre>{{ iter.outputExcerpt || 'No output excerpt captured.' }}</pre>
+                      <div class="li-subtitle">Final response</div>
+                      <pre>{{ iter.outputFull || iter.outputExcerpt || 'No output captured.' }}</pre>
                     </div>
                     <div>
                       <div class="li-subtitle">Evidence</div>
@@ -383,10 +383,18 @@ import { PromptModalComponent } from '../../shared/components/prompt-modal/promp
               </ul>
             }
 
-            @if (li.outputExcerpt) {
+            @if (li.outputFull || li.outputExcerpt) {
               <div class="lsum-recap-output">
-                <div class="lsum-recap-label">Final response (iter {{ li.seq }} · {{ li.stage }})</div>
-                <pre class="lsum-recap-pre">{{ li.outputExcerpt }}</pre>
+                <div class="lsum-recap-output-head">
+                  <div class="lsum-recap-label">Final response (iter {{ li.seq }} · {{ li.stage }})</div>
+                  <button
+                    type="button"
+                    class="lsum-recap-copy"
+                    (click)="onCopyFinalResponse(li.outputFull || li.outputExcerpt)"
+                    [title]="copiedSummaryPart() === 'response' ? 'Copied!' : 'Copy the full final response'"
+                  >{{ copiedSummaryPart() === 'response' ? 'Copied ✓' : 'Copy' }}</button>
+                </div>
+                <pre class="lsum-recap-pre">{{ li.outputFull || li.outputExcerpt }}</pre>
               </div>
             }
           </div>
@@ -471,7 +479,7 @@ export class LoopControlComponent implements OnDestroy {
   /** Summary card UI state — owned by this component because the card
    *  itself is owned here. */
   protected promptExpanded = signal(false);
-  protected copiedSummaryPart = signal<'initial' | 'iteration' | null>(null);
+  protected copiedSummaryPart = signal<'initial' | 'iteration' | 'response' | null>(null);
   protected inspectorExpanded = signal(false);
   protected inspectorLoading = signal(false);
   protected hintModalOpen = signal(false);
@@ -794,12 +802,19 @@ export class LoopControlComponent implements OnDestroy {
     await this.copySummaryPrompt(prompt, 'iteration', 'continuation directive');
   }
 
+  /** Copy the agent's full final response (the closing message shown in the
+   *  summary card). Shares the "Copied ✓" flash plumbing with the prompt
+   *  copy buttons via {@link copySummaryPrompt}. */
+  async onCopyFinalResponse(response: string): Promise<void> {
+    await this.copySummaryPrompt(response, 'response', 'final response');
+  }
+
   /** Tightened helper used by the "Copy prompt" / "Copy continuation"
    *  buttons. Shared logic kept here (rather than in the formatters
    *  util) because it touches Angular signals + the clipboard service. */
   private async copySummaryPrompt(
     prompt: string,
-    which: 'initial' | 'iteration',
+    which: 'initial' | 'iteration' | 'response',
     label: string,
   ): Promise<void> {
     if (!prompt) return;

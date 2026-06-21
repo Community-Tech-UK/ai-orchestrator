@@ -109,6 +109,7 @@ describe('CursorUsageSummaryProbe', () => {
 
     expect(fetched).toBe(false);
     expect(snap!.error).toMatch(/expired/i);
+    expect(snap!.needsReauth).toBe(true);
   });
 
   it('maps rejected session cookies to ok=false', async () => {
@@ -120,6 +121,7 @@ describe('CursorUsageSummaryProbe', () => {
     const snap = await probe.probe({ signal: signal() });
 
     expect(snap!.ok).toBe(false);
-    expect(snap!.error).toMatch(/rejected|re-login/i);
+    expect(snap!.error).toMatch(/rejected|sign in/i);
+    expect(snap!.needsReauth).toBe(true);
   });
 });

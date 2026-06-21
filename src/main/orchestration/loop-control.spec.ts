@@ -10,6 +10,7 @@ import {
   listArchivedImportedIntentsByLoop,
   LOOP_CONTROL_MAX_JSON_BYTES,
   prepareLoopControl,
+  readLoopControlFileFromEnv,
   writeLoopControlFile,
   type LoopControlRuntime,
 } from './loop-control';
@@ -184,6 +185,79 @@ describe('loop-control CLI contract', () => {
   it('returns an empty list when imported/ does not exist (no orphans)', async () => {
     const empty = await listArchivedImportedIntentsByLoop(workspace, runtime.loopRunId);
     expect(empty).toEqual([]);
+  });
+});
+
+describe('loop-control on a borrowed adapter (no spawn env)', () => {
+  it('records an intent with only ORCHESTRATOR_LOOP_CONTROL_FILE set, reading run id + secret from the control file', async () => {
+    await writeLoopControlFile(runtime, 2);
+    const stderr: string[] = [];
+    const stdout: string[] = [];
+
+    // A borrowed adapter has no loop spawn env — only the self-locating shim's
+    // ORCHESTRATOR_LOOP_CONTROL_FILE. No run id, no secret.
+    const code = await runLoopControlCli(
+      ['node', 'aio-loop-control', 'complete', '--summary', 'done on borrowed adapter'],
+      { ORCHESTRATOR_LOOP_CONTROL_FILE: runtime.controlFile },
+      {
+        stdout: { write: (chunk: string) => { stdout.push(chunk); return true; } },
+        stderr: { write: (chunk: string) => { stderr.push(chunk); return true; } },
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(stderr).toEqual([]);
+    expect(stdout.join('')).toContain('iteration 2');
+    const imported = await importLoopTerminalIntents(runtime, {
+      maxIterationSeq: 2,
+      exactIterationSeq: 2,
+      terminalEligible: true,
+    });
+    expect(imported.rejected).toEqual([]);
+    expect(imported.accepted).toHaveLength(1);
+    expect(imported.accepted[0]).toMatchObject({
+      loopRunId: 'loop-test',
+      iterationSeq: 2,
+      kind: 'complete',
+      summary: 'done on borrowed adapter',
+    });
+  });
+
+  it('still rejects a mismatched env secret when one IS provided (defence unchanged for normal loops)', async () => {
+    await writeLoopControlFile(runtime, 1);
+    const stderr: string[] = [];
+
+    const code = await runLoopControlCli(
+      ['node', 'aio-loop-control', 'complete', '--summary', 'forged'],
+      { ...buildLoopControlEnv(runtime), ORCHESTRATOR_LOOP_CONTROL_SECRET: 'wrong-secret' },
+      {
+        stdout: { write: () => true },
+        stderr: { write: (chunk: string) => { stderr.push(chunk); return true; } },
+      },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr.join('')).toContain('secret mismatch');
+  });
+
+  it('discovers the control file from the working directory when no control-file env is set (covers the packaged SEA binary with no loop spawn env)', async () => {
+    await writeLoopControlFile(runtime, 4);
+
+    // No env at all — the reader must find <cwd>/.aio-loop-control/<runId>/control.json
+    // and read run id + secret from it.
+    const control = await readLoopControlFileFromEnv({}, workspace);
+
+    expect(control.loopRunId).toBe('loop-test');
+    expect(control.currentIterationSeq).toBe(4);
+    expect(control.secret).toBe(runtime.secret);
+  });
+
+  it('throws a clear error when neither env nor cwd yields a control file', async () => {
+    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'loop-control-empty-'));
+    await expect(readLoopControlFileFromEnv({}, emptyDir)).rejects.toThrow(
+      /ORCHESTRATOR_LOOP_CONTROL_FILE is required/,
+    );
+    fs.rmSync(emptyDir, { recursive: true, force: true });
   });
 });
 

@@ -45,6 +45,7 @@ function makeIteration(over: Partial<LoopIteration> = {}): LoopIteration {
     workHash: '',
     outputSimilarityToPrev: null,
     outputExcerpt: '',
+    outputFull: '',
     progressVerdict: 'OK',
     progressSignals: [],
     completionSignalsFired: [],

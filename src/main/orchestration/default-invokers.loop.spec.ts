@@ -207,6 +207,27 @@ describe('Loop Mode invoker plumbing', () => {
     expect(callArg.options.workingDirectory).not.toBe(process.cwd());
   });
 
+  // P2 isolation acceptance: when executionCwd is set, the CLI must spawn
+  // inside the per-session worktree, not in the repo root (workspaceCwd).
+  it('when executionCwd is set, uses it as workingDirectory instead of workspaceCwd (P2 isolation)', async () => {
+    registerDefaultLoopInvoker({} as never);
+    hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 10 } });
+
+    const result = emitIteration({
+      workspaceCwd: '/repo/root',
+      executionCwd: '/repo/root/.worktrees/task-abc-1n5w3f',
+    });
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+    await result;
+
+    expect(hoisted.createAdapter).toHaveBeenCalledTimes(1);
+    const callArg = hoisted.createAdapter.mock.calls[0][0];
+    // executionCwd takes precedence: agent spawns in the worktree, not the repo root
+    expect(callArg.options.workingDirectory).toBe('/repo/root/.worktrees/task-abc-1n5w3f');
+    expect(callArg.options.workingDirectory).not.toBe('/repo/root');
+  });
+
   it('resolves and creates loop child adapters for non-Claude chat providers', async () => {
     registerDefaultLoopInvoker({} as never);
     hoisted.resolveCliType.mockResolvedValueOnce('gemini');
@@ -698,6 +719,146 @@ describe('Loop Mode invoker plumbing', () => {
 
       expect(hoisted.sendMessage).toHaveBeenCalledTimes(2);
       expect(hoisted.setResume).not.toHaveBeenCalledWith(false);
+    });
+
+    it('D6: pauses the loop when the borrowed parent instance was interrupted mid-iteration', async () => {
+      const pauseLoop = vi.fn(() => true);
+      (hoisted.loopCoordinatorRef.current as unknown as { pauseLoop: typeof pauseLoop }).pauseLoop = pauseLoop;
+      const instanceManager = {
+        getInstance: vi.fn(() => ({
+          id: 'chat-live',
+          provider: 'claude',
+          workingDirectory: '/tmp/ws',
+          status: 'idle',
+          lastTurnOutcome: 'interrupted',
+        })),
+        getAdapter: vi.fn(() => hoisted.adapterRef.current),
+      };
+      registerDefaultLoopInvoker(instanceManager as never);
+      hoisted.sendMessage.mockResolvedValue({ content: 'partial', usage: { totalTokens: 5 } });
+
+      const result = await new Promise<LoopChildResult | { error: string }>((resolve) => {
+        hoisted.loopCoordinatorRef.current.emit('loop:invoke-iteration', {
+          correlationId: 'loop-int::0',
+          loopRunId: 'loop-int',
+          chatId: 'chat-live',
+          provider: 'claude',
+          workspaceCwd: '/tmp/ws',
+          stage: 'IMPLEMENT',
+          seq: 0,
+          prompt: 'iter 0',
+          config: { contextStrategy: 'same-session' },
+          callback: resolve,
+        });
+      });
+
+      expect(result).toEqual({ error: 'instance-interrupted' });
+      expect(pauseLoop).toHaveBeenCalledWith('loop-int');
+    });
+
+    it('D6: does NOT pause when the borrowed parent finished normally', async () => {
+      const pauseLoop = vi.fn(() => true);
+      (hoisted.loopCoordinatorRef.current as unknown as { pauseLoop: typeof pauseLoop }).pauseLoop = pauseLoop;
+      const instanceManager = {
+        getInstance: vi.fn(() => ({
+          id: 'chat-live',
+          provider: 'claude',
+          workingDirectory: '/tmp/ws',
+          status: 'idle',
+          lastTurnOutcome: 'completed',
+        })),
+        getAdapter: vi.fn(() => hoisted.adapterRef.current),
+      };
+      registerDefaultLoopInvoker(instanceManager as never);
+      hoisted.sendMessage.mockResolvedValue({ content: 'done', usage: { totalTokens: 5 } });
+
+      const result = await new Promise<LoopChildResult | { error: string }>((resolve) => {
+        hoisted.loopCoordinatorRef.current.emit('loop:invoke-iteration', {
+          correlationId: 'loop-ok::0',
+          loopRunId: 'loop-ok',
+          chatId: 'chat-live',
+          provider: 'claude',
+          workspaceCwd: '/tmp/ws',
+          stage: 'IMPLEMENT',
+          seq: 0,
+          prompt: 'iter 0',
+          config: { contextStrategy: 'same-session' },
+          callback: resolve,
+        });
+      });
+
+      expect((result as { error?: string }).error).not.toBe('instance-interrupted');
+      expect(pauseLoop).not.toHaveBeenCalled();
+    });
+
+    it('borrows the live Claude adapter even when loop control is active (control reaches it via the self-locating shim, not spawn env)', async () => {
+      const instanceManager = {
+        getInstance: vi.fn(() => ({ id: 'chat-live', provider: 'claude', workingDirectory: '/tmp/ws' })),
+        getAdapter: vi.fn(() => hoisted.adapterRef.current),
+      };
+      registerDefaultLoopInvoker(instanceManager as never);
+      hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 5 } });
+
+      const iter = new Promise<LoopChildResult | { error: string }>((resolve) => {
+        hoisted.loopCoordinatorRef.current.emit('loop:invoke-iteration', {
+          correlationId: 'loop-ctrl::0',
+          loopRunId: 'loop-ctrl',
+          chatId: 'chat-live',
+          provider: 'claude',
+          workspaceCwd: '/tmp/ws',
+          stage: 'PLAN',
+          seq: 0,
+          prompt: 'iter 0',
+          config: { contextStrategy: 'same-session' },
+          loopControlEnv: {
+            ORCHESTRATOR_LOOP_RUN_ID: 'loop-ctrl',
+            ORCHESTRATOR_LOOP_CONTROL_FILE: '/tmp/ws/.aio-loop-control/loop-ctrl/control.json',
+            ORCHESTRATOR_LOOP_CONTROL_SECRET: 'secret',
+            ORCHESTRATOR_LOOP_CLI: '/tmp/ws/.aio-loop-control/loop-ctrl/aio-loop-control',
+          },
+          callback: resolve,
+        });
+      });
+      await new Promise<void>((r) => setImmediate(r));
+      await new Promise<void>((r) => setImmediate(r));
+      await iter;
+
+      // Borrowed: no loop-owned adapter created; the chat's adapter ran the turn.
+      expect(hoisted.createAdapter).not.toHaveBeenCalled();
+      expect(hoisted.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not borrow when the loop is worktree-isolated — creates a loop-owned adapter pinned to the worktree', async () => {
+      const instanceManager = {
+        getInstance: vi.fn(() => ({ id: 'chat-live', provider: 'claude', workingDirectory: '/tmp/ws' })),
+        getAdapter: vi.fn(() => hoisted.adapterRef.current),
+      };
+      registerDefaultLoopInvoker(instanceManager as never);
+      hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 5 } });
+
+      const iter = new Promise<LoopChildResult | { error: string }>((resolve) => {
+        hoisted.loopCoordinatorRef.current.emit('loop:invoke-iteration', {
+          correlationId: 'loop-iso::0',
+          loopRunId: 'loop-iso',
+          chatId: 'chat-live',
+          provider: 'claude',
+          workspaceCwd: '/tmp/ws',
+          executionCwd: '/tmp/ws-worktree',
+          stage: 'PLAN',
+          seq: 0,
+          prompt: 'iter 0',
+          config: { contextStrategy: 'same-session' },
+          callback: resolve,
+        });
+      });
+      await new Promise<void>((r) => setImmediate(r));
+      await new Promise<void>((r) => setImmediate(r));
+      await iter;
+
+      // Isolated: borrowed chat adapter would run in the repo root, so a
+      // loop-owned adapter is created and pinned to the worktree instead.
+      expect(hoisted.createAdapter).toHaveBeenCalledTimes(1);
+      expect(hoisted.createAdapter.mock.calls[0][0].options.workingDirectory).toBe('/tmp/ws-worktree');
     });
 
     it('creates a loop-owned Codex adapter instead of borrowing the live Codex chat adapter', async () => {

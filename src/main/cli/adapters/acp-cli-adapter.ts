@@ -392,11 +392,18 @@ export class AcpCliAdapter extends BaseCliAdapter {
     // leak slots and stall future spawns indefinitely.
     if (this.acpConfig.concurrencyLimiter && this.acpConfig.concurrencyKey) {
       const key = this.acpConfig.concurrencyKey;
+      const startedAt = Date.now();
+      const deadlineAt = this.acpConfig.concurrencyAcquireTimeoutMs !== undefined
+        ? startedAt + this.acpConfig.concurrencyAcquireTimeoutMs
+        : undefined;
+      this.emit('slot:wait-start', { provider: key, startedAt, deadlineAt });
       try {
         this.concurrencyRelease = await this.acpConfig.concurrencyLimiter.acquire(key, {
           timeoutMs: this.acpConfig.concurrencyAcquireTimeoutMs,
         });
+        this.emit('slot:wait-end', { provider: key });
       } catch (error) {
+        this.emit('slot:wait-end', { provider: key });
         logger.warn('ACP concurrency acquire failed; refusing ungated spawn', {
           adapter: this.getName(),
           key,

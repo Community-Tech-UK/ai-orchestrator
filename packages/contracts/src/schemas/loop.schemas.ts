@@ -294,6 +294,22 @@ export const LoopConfigSchema = z.object({
    *  ms. The adapter may log/report silence, but the iteration's wall-clock
    *  timeout remains the hard abort path. */
   streamIdleTimeoutMs: z.number().int().positive().max(15 * 60 * 1000).optional(),
+  /** When true, each loop session runs in its own isolated git worktree.
+   *  The coordinator acquires a fresh branch off the repo root on start and
+   *  harvests any uncommitted agent work to that branch on termination.
+   *  Default: false (backward-compatible). */
+  isolateLoopWorkspaces: z.boolean().optional(),
+  /** Absolute path to the per-session worktree. Set automatically by the
+   *  coordinator when isolateLoopWorkspaces is true; may also be set by
+   *  callers directly. Omit to default to workspaceCwd. */
+  executionCwd: z.string().optional(),
+  /** Branch name of the per-session worktree. Set automatically alongside
+   *  executionCwd when isolateLoopWorkspaces is true. Read-only after start. */
+  worktreeBranch: z.string().optional(),
+  /** Auto-integrate the session branch into a shared `integration/<base>` branch
+   *  on terminal-success (via a dedicated integration worktree, never the root
+   *  checkout). Default: true when isolateLoopWorkspaces is true. */
+  autoIntegrateWorktree: z.boolean().optional(),
 });
 
 /** Partial config the renderer may submit; main process fills defaults. */
@@ -401,6 +417,9 @@ export const LoopIterationSchema = z.object({
   workHash: z.string(),
   outputSimilarityToPrev: z.number().min(0).max(1).nullable(),
   outputExcerpt: z.string(),
+  // Verbatim agent closing message (bounded by boundFullOutput). `.default('')`
+  // keeps pre-migration persisted iterations and older live payloads valid.
+  outputFull: z.string().default(''),
   progressVerdict: LoopVerdictSchema,
   progressSignals: z.array(ProgressSignalEvidenceSchema),
   completionSignalsFired: z.array(CompletionSignalEvidenceSchema),
