@@ -40,29 +40,45 @@
               </h2>
               <div class="rows">
                 @for (automation of group.automations; track automation.id) {
-                  <button type="button" class="row" (click)="select(automation)">
-                    @if (isActive(automation)) {
-                      <span class="status status--on" aria-hidden="true"></span>
-                    } @else {
-                      <span class="status status--paused" aria-hidden="true">⏸</span>
-                    }
-                    <span class="row-main">
-                      <span class="row-name">{{ automation.name }}</span>
-                      @if (byline(automation); as text) {
-                        <span class="row-byline">{{ text }}</span>
-                      }
-                    </span>
-                    <span class="row-right">
-                      @if ((automation.unreadRunCount ?? 0) > 0) {
-                        <span class="badge">{{ automation.unreadRunCount }}</span>
-                      }
+                  <div class="row">
+                    <button type="button" class="row-select" (click)="select(automation)">
                       @if (isActive(automation)) {
-                        <span class="row-schedule">{{ scheduleLabel(automation) }}</span>
+                        <span class="status status--on" aria-hidden="true"></span>
                       } @else {
-                        <span class="row-schedule muted">Paused</span>
+                        <span class="status status--paused" aria-hidden="true">⏸</span>
                       }
-                    </span>
-                  </button>
+                      <span class="row-main">
+                        <span class="row-name">{{ automation.name }}</span>
+                        @if (byline(automation); as text) {
+                          <span class="row-byline">{{ text }}</span>
+                        }
+                      </span>
+                      <span class="row-right">
+                        @if ((automation.unreadRunCount ?? 0) > 0) {
+                          <span class="badge">{{ automation.unreadRunCount }}</span>
+                        }
+                        @if (isActive(automation)) {
+                          <span class="row-schedule">{{ scheduleLabel(automation) }}</span>
+                        } @else {
+                          <span class="row-schedule muted">Paused</span>
+                        }
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      class="row-play"
+                      [disabled]="isRunning(automation)"
+                      [attr.aria-label]="'Run ' + automation.name + ' now'"
+                      [title]="isRunning(automation) ? 'Running…' : 'Run now'"
+                      (click)="runNow(automation)"
+                    >
+                      @if (isRunning(automation)) {
+                        <span class="row-play-spinner" aria-hidden="true"></span>
+                      } @else {
+                        <span class="row-play-icon" aria-hidden="true">▶</span>
+                      }
+                    </button>
+                  </div>
                 }
               </div>
             </section>

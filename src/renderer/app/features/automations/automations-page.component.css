@@ -23,8 +23,15 @@
     .group-subtitle { font-size: 12px; font-weight: 400; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .group + .group { margin-top: 30px; }
     .rows { display: flex; flex-direction: column; }
-    .row { display: flex; align-items: center; gap: 14px; width: 100%; padding: 14px 8px; text-align: left; border: none; border-bottom: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent); background: transparent; color: inherit; cursor: pointer; }
+    .row { display: flex; align-items: center; border-bottom: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent); }
     .row:hover { background: var(--bg-secondary); }
+    .row-select { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; padding: 14px 8px; text-align: left; border: none; background: transparent; color: inherit; cursor: pointer; font: inherit; }
+    .row-play { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; margin-right: 6px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 11px; transition: background .15s ease, color .15s ease, border-color .15s ease; }
+    .row-play:hover { background: var(--bg-tertiary); color: var(--primary-color); border-color: var(--border-color); }
+    .row-play:disabled { cursor: default; opacity: .7; }
+    .row-play-icon { line-height: 1; }
+    .row-play-spinner { width: 13px; height: 13px; border: 2px solid color-mix(in srgb, var(--text-muted) 40%, transparent); border-top-color: var(--primary-color); border-radius: 50%; animation: row-play-spin .7s linear infinite; }
+    @keyframes row-play-spin { to { transform: rotate(360deg); } }
     .status { flex: none; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; }
     .status--on { border: 2px solid var(--text-muted); border-radius: 50%; }
     .status--paused { color: var(--text-muted); font-size: 12px; }

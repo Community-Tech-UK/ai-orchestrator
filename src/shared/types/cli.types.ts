@@ -118,6 +118,27 @@ export interface CliElicitationMessage extends CliStreamMessageBase {
 }
 
 /**
+ * Rate-limit usage telemetry emitted by the Anthropic CLI. `status: 'allowed'`
+ * is the steady state (no action needed); other statuses indicate active
+ * throttling. `resetsAt` is a unix timestamp in SECONDS.
+ */
+export interface CliRateLimitInfo {
+  status?: string;
+  resetsAt?: number;
+  rateLimitType?: string;
+  overageStatus?: string;
+  overageDisabledReason?: string;
+  isUsingOverage?: boolean;
+}
+
+export interface CliRateLimitEventMessage extends CliStreamMessageBase {
+  type: 'rate_limit_event';
+  rate_limit_info?: CliRateLimitInfo;
+  session_id?: string;
+  uuid?: string;
+}
+
+/**
  * Context usage information
  */
 export interface CliContextUsage {
@@ -142,7 +163,8 @@ export type CliStreamMessage =
   | CliResultMessage
   | CliErrorMessage
   | CliInputRequiredMessage
-  | CliElicitationMessage;
+  | CliElicitationMessage
+  | CliRateLimitEventMessage;
 
 /**
  * Type guard functions

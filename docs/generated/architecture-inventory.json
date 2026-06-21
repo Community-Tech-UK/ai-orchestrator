@@ -5176,7 +5176,7 @@
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2225
+      "lines": 2273
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
@@ -5256,7 +5256,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1703
+      "lines": 1724
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
@@ -5335,6 +5335,10 @@
       "lines": 1378
     },
     {
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
+      "lines": 1375
+    },
+    {
       "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
       "lines": 1362
     },
@@ -5360,10 +5364,6 @@
     },
     {
       "path": "docs/superpowers/plans/2026-05-27-code-indexing-rework_completed.md",
-      "lines": 1328
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
       "lines": 1328
     },
     {
