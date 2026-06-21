@@ -771,13 +771,28 @@ export class InstanceLifecycleManager extends EventEmitter {
       }
 
       if (!resumeResult.confirmed) {
-        logger.warn('Adapter did not confirm native resume after readiness probe', {
-          instanceId,
-          source: resumeResult.source,
-          requestedSessionId: resumeResult.requestedSessionId,
-          actualSessionId: resumeResult.actualSessionId,
-          reason: resumeResult.reason,
-        });
+        // Distinguish the EXPECTED case (the adapter never attempted native
+        // resume because no transcript exists for this session under the cwd —
+        // e.g. a first turn that was blocked on a permission prompt and never
+        // flushed) from a genuine anomaly (resume WAS attempted but the CLI
+        // didn't echo back the requested session id). Both fall back to
+        // fresh+replay, but only the latter is worth a warning. Logging the
+        // expected case as a warn made routine degradation look like a constant
+        // failure.
+        if (resumeResult.source === 'fresh-fallback') {
+          logger.info('Native resume unavailable (no transcript for session under cwd); starting fresh with replay', {
+            instanceId,
+            requestedSessionId: resumeResult.requestedSessionId,
+          });
+        } else {
+          logger.warn('Adapter did not confirm native resume after readiness probe', {
+            instanceId,
+            source: resumeResult.source,
+            requestedSessionId: resumeResult.requestedSessionId,
+            actualSessionId: resumeResult.actualSessionId,
+            reason: resumeResult.reason,
+          });
+        }
         return false;
       }
 
@@ -2624,7 +2639,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
             pid = await adapter.spawn();
             try {
-              await getSessionContinuityManager().writeThroughIdentity(instanceId, { sessionId: fallbackOptions.sessionId, resumeCursor: null });
+              await getSessionContinuityManager().writeThroughIdentityLocked(instanceId, { sessionId: fallbackOptions.sessionId, resumeCursor: null });
             } catch (err) {
               logger.warn('writeThroughIdentity failed after fresh fallback (agent-mode-change)', {
                 instanceId,
@@ -2845,7 +2860,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
             pid = await adapter.spawn();
             try {
-              await getSessionContinuityManager().writeThroughIdentity(instanceId, { sessionId: fallbackOptions.sessionId, resumeCursor: null });
+              await getSessionContinuityManager().writeThroughIdentityLocked(instanceId, { sessionId: fallbackOptions.sessionId, resumeCursor: null });
             } catch (err) {
               logger.warn('writeThroughIdentity failed after fresh fallback (yolo-toggle)', {
                 instanceId,
@@ -3157,7 +3172,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
 
             pid = await adapter.spawn();
             try {
-              await getSessionContinuityManager().writeThroughIdentity(instanceId, { sessionId: fallbackOptions.sessionId, resumeCursor: null });
+              await getSessionContinuityManager().writeThroughIdentityLocked(instanceId, { sessionId: fallbackOptions.sessionId, resumeCursor: null });
             } catch (err) {
               logger.warn('writeThroughIdentity failed after fresh fallback (model-change)', {
                 instanceId,

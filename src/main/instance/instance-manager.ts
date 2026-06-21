@@ -840,8 +840,12 @@ export class InstanceManager extends EventEmitter {
 
       // Build a permission request for the PermissionManager
       const scope: PermissionScope = toolName === 'Bash' ? 'bash_execute' : 'tool_use';
+      // Use the FULL command (no truncation): the resource is the match key and
+      // the pattern persisted by an "always" decision. Truncating to 200 chars
+      // dropped the tail of long/compound commands, so an "always" rule for a
+      // long command could never match the (re-built) resource on a later run.
       const resource = toolName === 'Bash' && toolInput?.['command']
-        ? `bash:${String(toolInput['command']).substring(0, 200)}`
+        ? `bash:${String(toolInput['command'])}`
         : `tool:${toolName || 'unknown'}`;
 
       const request: PermissionRequest = {
