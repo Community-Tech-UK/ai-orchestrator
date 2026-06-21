@@ -28,6 +28,48 @@ export type PingPongReviewerVerdict =
   | 'UNRELIABLE';
 
 /**
+ * When a round is `UNRELIABLE`, *why* — the crucial distinction between "the
+ * reviewer tool couldn't deliver a verdict" and "the reviewer ran but its
+ * output was unusable". The two must never be conflated: a throttled/unreachable
+ * reviewer says NOTHING about the code's quality and must not masquerade as a
+ * verdict, whereas a reviewer that runs and emits garbage is genuinely being an
+ * unreliable *reviewer*.
+ *
+ * Availability faults (the first four) are transient/infrastructural — handled
+ * by provider rotation + back-off + a lenient `reviewer-unavailable` terminal.
+ * `malformed_output` is a reviewer-quality fault — handled by the stricter
+ * `reviewer-unreliable` terminal.
+ */
+export type PingPongReviewerFault =
+  /** No eligible reviewer provider could be resolved (pair exhausted / none installed). */
+  | 'unavailable'
+  /** Provider returned a usage/quota/rate-limit notice instead of a review (transient). */
+  | 'rate_limited'
+  /** Reviewer session exceeded its wall-clock budget. */
+  | 'timeout'
+  /** Spawn failed, the reviewer instance errored/crashed, or the manager was missing. */
+  | 'infra_error'
+  /** Reviewer ran but produced empty / unparseable / low-effort output. */
+  | 'malformed_output';
+
+/**
+ * True for faults that mean "the reviewer was unavailable / transiently failing"
+ * (an availability problem with the reviewer provider) rather than "the reviewer
+ * produced bad output" (a reviewer-quality problem). Drives which terminal
+ * status an exhausted run reaches.
+ */
+export function isReviewerAvailabilityFault(
+  fault: PingPongReviewerFault | undefined,
+): boolean {
+  return (
+    fault === 'unavailable' ||
+    fault === 'rate_limited' ||
+    fault === 'timeout' ||
+    fault === 'infra_error'
+  );
+}
+
+/**
  * Lifecycle of a single issue in the durable ledger. A fresh reviewer reads the
  * code cold each round but is handed the ledger and must classify each prior
  * issue, so settled points aren't blindly re-litigated and regressions are

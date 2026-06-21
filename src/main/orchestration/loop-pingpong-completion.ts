@@ -5,11 +5,13 @@ import type {
   LoopState,
   LoopStatus,
   PingPongIssue,
+  PingPongReviewerFault,
   PingPongSubject,
 } from '../../shared/types/loop.types';
 import {
   clampPingPongMaxRounds,
   defaultPingPongState,
+  isReviewerAvailabilityFault,
 } from '../../shared/types/loop.types';
 import { collectWorkspaceDiff } from './loop-diff';
 import { isReviewDrivenProductionChange } from './loop-coordinator-completion-gates';
@@ -29,8 +31,20 @@ type LoopEmit = (eventName: string, payload: unknown) => void;
 
 /** Default deep-dive timeout for an agentic reviewer round. */
 const DEFAULT_REVIEWER_TIMEOUT_MS = 15 * 60 * 1000;
-/** Repeated UNRELIABLE rounds (after provider fallback) → reviewer-unreliable. */
+/**
+ * Repeated reviewer-QUALITY faults (the reviewer ran but emitted unusable
+ * output) → reviewer-unreliable. Strict: a reviewer that keeps producing garbage
+ * is genuinely unreliable.
+ */
 const MAX_UNRELIABLE_ROUNDS = 3;
+/**
+ * Repeated reviewer-AVAILABILITY faults (rate-limited / unreachable / no
+ * eligible provider) → reviewer-unavailable. More lenient than the quality
+ * ceiling: these are transient and self-heal once a provider frees up (each
+ * round is a builder iteration apart, providing back-off), and the reviewer
+ * being throttled says nothing about the code.
+ */
+const MAX_REVIEWER_UNAVAILABLE_ROUNDS = 6;
 /** Repeated genuine disagreement rounds → needs-human-arbitration. */
 const MAX_CONTRADICTORY_ROUNDS = 3;
 /** Builder declares done but ignores blocking findings N rounds → builder-unreliable. */
@@ -285,7 +299,9 @@ export async function evaluatePingPongCompletion(
       },
     });
   } catch (err) {
-    // A throw is treated as UNRELIABLE (fail-closed), never a pass.
+    // A throw is treated as UNRELIABLE (fail-closed), never a pass. An unexpected
+    // exception is an infrastructure problem with the reviewer, not the reviewer
+    // judging the code — classify it as an availability fault.
     review = {
       verdict: 'UNRELIABLE',
       reviewerProvider: pp.lastReviewerProvider ?? '',
@@ -295,6 +311,7 @@ export async function evaluatePingPongCompletion(
       tokensUsed: 0,
       costCents: 0,
       reason: err instanceof Error ? err.message : String(err),
+      fault: 'infra_error',
     };
   } finally {
     pp.inFlightReviewerInstanceId = undefined;
@@ -321,35 +338,78 @@ export async function evaluatePingPongCompletion(
     return null;
   }
 
-  // 4) Fail-closed UNRELIABLE handling.
+  // 4) Fail-closed UNRELIABLE handling. Crucially, split "the reviewer was
+  // UNAVAILABLE" (rate-limited / unreachable / no eligible provider — an
+  // availability problem that says NOTHING about the code) from "the reviewer
+  // ran but produced UNUSABLE output" (a genuine reviewer-quality fault). The
+  // two escalate down separately-bounded paths so a throttled Codex never
+  // masquerades as "the reviewer judged the code unreliable".
   if (review.verdict === 'UNRELIABLE') {
+    const fault: PingPongReviewerFault = review.fault ?? 'malformed_output';
+    const availability = isReviewerAvailabilityFault(fault);
+
+    // One hard bound on consecutive unusable rounds (reset on any reliable
+    // round). roundCount does NOT advance on UNRELIABLE, so this counter — with
+    // the cost cap — is what prevents an unbounded reviewer-retry storm.
     pp.consecutiveUnreliableRounds += 1;
+
+    // Rotate away from the provider that just failed so the next attempt tries a
+    // different model. ('unavailable' carries no provider — nothing to rotate.)
     if (review.reviewerProvider) {
-      const tried = new Set(pp.triedReviewerProviders ?? []);
-      tried.add(review.reviewerProvider);
-      pp.triedReviewerProviders = [...tried];
+      pp.triedReviewerProviders = [
+        ...new Set([...(pp.triedReviewerProviders ?? []), review.reviewerProvider]),
+      ];
     }
+    const triedSnapshot = [...(pp.triedReviewerProviders ?? [])];
+    // A full-exhaustion 'unavailable' fault means every installed provider has
+    // already been tried this run. Clear the rotation so they ALL get another
+    // chance after back-off — transient throttling recovers with time, and the
+    // builder's next iteration supplies that delay.
+    if (fault === 'unavailable') {
+      pp.triedReviewerProviders = [];
+    }
+
     emit('loop:fresh-eyes-review-failed', {
       loopRunId: state.id,
       signal: 'ping-pong',
       round: pp.roundCount + 1,
       error: review.reason ?? 'reviewer unreliable',
       reviewerProvider: review.reviewerProvider,
+      fault,
     });
     logger.warn('Ping-pong reviewer round UNRELIABLE', {
       loopRunId: state.id,
       consecutive: pp.consecutiveUnreliableRounds,
+      fault,
+      availability,
       reason: review.reason,
     });
-    if (pp.consecutiveUnreliableRounds >= MAX_UNRELIABLE_ROUNDS) {
-      return {
-        status: 'reviewer-unreliable',
-        reason:
-          `Ping-pong reviewer was UNRELIABLE ${pp.consecutiveUnreliableRounds} rounds running ` +
-          `(tried: ${(pp.triedReviewerProviders ?? []).join(', ') || 'none'}). Last: ${review.reason ?? 'n/a'}.`,
-      };
+
+    // Availability faults get a more lenient ceiling (they self-heal once a
+    // provider frees up); quality faults escalate sooner. The terminal status is
+    // chosen by the *last* fault so the surfaced state matches the real failure.
+    const threshold = availability ? MAX_REVIEWER_UNAVAILABLE_ROUNDS : MAX_UNRELIABLE_ROUNDS;
+    if (pp.consecutiveUnreliableRounds >= threshold) {
+      const tried = triedSnapshot.join(', ') || 'none';
+      const last = review.reason ?? 'n/a';
+      return availability
+        ? {
+            status: 'reviewer-unavailable',
+            reason:
+              `Could not obtain a ping-pong review: the reviewer provider was ` +
+              `UNAVAILABLE ${pp.consecutiveUnreliableRounds} rounds running (${fault}; tried: ${tried}). ` +
+              `This is an availability problem with the reviewer — NOT a judgement on the code. ` +
+              `Check the reviewer provider's auth/quota or set an explicit ` +
+              `pingPongReviewerProvider. Last: ${last}.`,
+          }
+        : {
+            status: 'reviewer-unreliable',
+            reason:
+              `Ping-pong reviewer produced UNUSABLE output ${pp.consecutiveUnreliableRounds} rounds ` +
+              `running (${fault}; tried: ${tried}). Last: ${last}.`,
+          };
     }
-    // Retry next iteration with the next eligible provider (fallback rotation).
+    // Below threshold → retry next iteration with the next eligible provider.
     return null;
   }
 

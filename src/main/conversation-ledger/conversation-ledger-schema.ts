@@ -1,6 +1,6 @@
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const CONVERSATION_LEDGER_SCHEMA_VERSION = 1;
+export const CONVERSATION_LEDGER_SCHEMA_VERSION = 2;
 
 interface LedgerMigration {
   version: number;
@@ -88,6 +88,25 @@ const MIGRATIONS: LedgerMigration[] = [
         memory_kind TEXT NOT NULL,
         created_at INTEGER NOT NULL
       );
+    `,
+  },
+  {
+    version: 2,
+    name: '002_conversation_checkpoints',
+    up: `
+      CREATE TABLE IF NOT EXISTS conversation_checkpoints (
+        id TEXT PRIMARY KEY,
+        thread_id TEXT NOT NULL REFERENCES conversation_threads(id) ON DELETE CASCADE,
+        up_to_sequence INTEGER NOT NULL,
+        up_to_native_id TEXT,
+        summary TEXT NOT NULL,
+        summarized_message_count INTEGER NOT NULL,
+        summary_tokens INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_checkpoints_thread_seq
+        ON conversation_checkpoints(thread_id, up_to_sequence);
     `,
   },
 ];

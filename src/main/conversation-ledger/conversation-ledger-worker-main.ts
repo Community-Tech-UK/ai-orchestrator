@@ -29,6 +29,7 @@ import { runConversationLedgerMigrations } from './conversation-ledger-schema';
 import { ConversationLedgerStore } from './conversation-ledger-store';
 import type { AppendMessageInput, LedgerStoreMethod } from './ledger-store-port';
 import type {
+  ConversationCheckpointUpsertInput,
   ConversationListQuery,
   ConversationMessageUpsertInput,
   ConversationMessagesQuery,
@@ -116,6 +117,13 @@ function callStore(method: LedgerStoreMethod, args: unknown[]): unknown {
         args[1] as ConversationMessageUpsertInput[],
         args[2] as ConversationSyncCursorUpsertInput | undefined,
       );
+    case 'writeCheckpoint':
+      return store.writeCheckpoint(
+        args[0] as string,
+        args[1] as ConversationCheckpointUpsertInput,
+      );
+    case 'getLatestCheckpoint':
+      return store.getLatestCheckpoint(args[0] as string);
     default: {
       const exhaustive: never = method;
       throw new Error(`Unknown ledger store method: ${String(exhaustive)}`);

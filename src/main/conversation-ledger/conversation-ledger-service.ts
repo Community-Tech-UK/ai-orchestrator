@@ -5,6 +5,8 @@ import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriverFactory } from '../db/sqlite-driver';
 import { getLogger } from '../logging/logger';
 import type {
+  ConversationCheckpointRecord,
+  ConversationCheckpointUpsertInput,
   ConversationDiscoveryScope,
   ConversationLedgerConversation,
   ConversationMessagePage,
@@ -208,6 +210,38 @@ export class ConversationLedgerService {
    *  used to dedupe idempotent system events without loading the transcript. */
   async hasMessage(threadId: string, nativeMessageId: string): Promise<boolean> {
     return this.port.hasMessageWithNativeId(threadId, nativeMessageId);
+  }
+
+  /**
+   * Persist a durable compaction checkpoint (§4.4) — a summarized digest of all
+   * thread messages up to `upToSequence`. Lets a context rebuild stay bounded by
+   * walking `[checkpoint summary] + [verbatim tail]` instead of dropping older
+   * turns. The verbatim messages are never deleted, so the checkpoint is always
+   * regenerable.
+   */
+  async writeCheckpoint(
+    threadId: string,
+    input: ConversationCheckpointUpsertInput,
+  ): Promise<ConversationCheckpointRecord> {
+    return this.port.writeCheckpoint(threadId, input);
+  }
+
+  /** The checkpoint covering the largest message prefix for a thread, or null. */
+  async getLatestCheckpoint(threadId: string): Promise<ConversationCheckpointRecord | null> {
+    return this.port.getLatestCheckpoint(threadId);
+  }
+
+  /**
+   * Ascending window of messages with `sequence > afterSequence`. Used by the
+   * checkpoint producer to read the uncheckpointed tail, and by checkpoint-aware
+   * rebuild to replay the verbatim turns after the latest checkpoint.
+   */
+  async getMessagesAfter(
+    threadId: string,
+    afterSequence: number,
+    limit: number,
+  ): Promise<ConversationMessageRecord[]> {
+    return this.port.getMessages(threadId, { afterSequence, limit });
   }
 
   async discoverNativeConversations(scope: ConversationDiscoveryScope): Promise<ConversationThreadRecord[]> {

@@ -94,6 +94,10 @@ describe('loop-schema v9 worktree-columns migration', () => {
     expect(columnNames('loop_runs')).toEqual(
       expect.arrayContaining(['worktree_path', 'branch_name']),
     );
+    expect(appliedVersions()).toContain(11);
+    expect(columnNames('loop_outstanding_items')).toEqual(
+      expect.arrayContaining(['recommended_answer']),
+    );
   });
 
   it('re-running migrations is idempotent (no duplicate-application, no error)', () => {

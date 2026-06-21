@@ -36,6 +36,8 @@ import {
 import { ChatTranscriptBridge, createUserLedgerMessage } from './chat-transcript-bridge';
 import { ChatUiStateStore } from './chat-ui-state-store';
 import type { SqliteDriver } from '../db/sqlite-driver';
+import { ChatSessionBindingStore, evaluateLineage } from './chat-session-binding-store';
+import { buildLedgerRebuildPreamble, maybeProduceCheckpoint } from './chat-continuity';
 
 const logger = getLogger('ChatService');
 const CHAT_DETAIL_MESSAGE_LIMIT = 200;
@@ -82,18 +84,9 @@ export class ChatService {
   private readonly store: ChatStore;
   private readonly uiStateStore: ChatUiStateStore;
   private readonly bridge: ChatTranscriptBridge;
+  private readonly sessionBindingStore: ChatSessionBindingStore;
   private initialized = false;
   private migrationDone: Promise<void> = Promise.resolve();
-  /**
-   * Per-chat context handoff queued when a loop terminates, consumed (and
-   * cleared) on the chat's next outgoing message. A loop runs in its own CLI
-   * session, so without this the chat's model has no memory of the loop's work
-   * (see `buildLoopContextHandoff`). In-memory by design — mirrors
-   * `InstanceCommunication.queueContinuityPreamble`; the visible recap card is
-   * separately persisted to the ledger, so a restart loses only the silent
-   * priming, not the user-facing summary.
-   */
-  private readonly pendingLoopHandoffs = new Map<string, string>();
 
   static getInstance(config: ChatServiceConfig): ChatService {
     this.instance ??= new ChatService(config);
@@ -135,6 +128,7 @@ export class ChatService {
     const db = config.db ?? getOperatorDatabase().db;
     this.store = new ChatStore(db);
     this.uiStateStore = new ChatUiStateStore(db);
+    this.sessionBindingStore = new ChatSessionBindingStore(db);
     this.bridge = new ChatTranscriptBridge({
       ledger: this.ledger,
       chatStore: this.store,
@@ -406,10 +400,31 @@ export class ChatService {
       workingChat.ledgerThreadId,
       CHAT_REPLAY_MESSAGE_LIMIT,
     )).messages;
-    const instance = await this.ensureRuntime(workingChat);
+    const { instance, isFresh } = await this.ensureRuntime(workingChat);
     const replayed = this.withReplayIfNeeded(workingChat, replayMessages, text);
-    const messageForRuntime = this.withLoopHandoffIfPending(workingChat, replayed);
-    await this.instanceManager.sendInput(instance.id, messageForRuntime, input.attachments);
+    // `withReplayIfNeeded` already prepends a bounded replay block on a cwd
+    // switch; skip the rebuild preamble in that case so context isn't injected
+    // twice.
+    const cwdReplayApplied = replayed !== text;
+    await this.prepareTurnContext(workingChat, instance, replayMessages, {
+      isFresh,
+      skipReplay: cwdReplayApplied,
+    });
+    await this.instanceManager.sendInput(instance.id, replayed, input.attachments);
+    // The turn went out through `instance`'s session; rebind so the NEXT turn
+    // can take the native-resume fast path instead of rebuilding (§5.1). Records
+    // the just-appended user turn as the ledger-tail reconciliation marker.
+    this.recordSessionBinding(workingChat, instance, appended?.nativeMessageId ?? null);
+    // Off the hot path: keep the rebuild bounded under huge histories by folding
+    // old turns into a durable summary checkpoint (§4.4). Best-effort.
+    void maybeProduceCheckpoint(this.ledger, workingChat.id, workingChat.ledgerThreadId).catch(
+      (error) => {
+        logger.warn('Conversation checkpoint production failed', {
+          chatId: workingChat.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+    );
     const updated = this.store.update(workingChat.id, {
       currentInstanceId: instance.id,
       lastActiveAt: Date.now(),
@@ -495,13 +510,13 @@ export class ChatService {
     await this.bridge.flushAndUnlink(instanceId);
   }
 
-  private async ensureRuntime(chat: ChatRecord): Promise<Instance> {
+  private async ensureRuntime(chat: ChatRecord): Promise<{ instance: Instance; isFresh: boolean }> {
     const existing = chat.currentInstanceId
       ? this.instanceManager.getInstance(chat.currentInstanceId)
       : undefined;
     if (existing && existing.status !== 'terminated') {
       this.bridge.link(chat.id, existing.id);
-      return existing;
+      return { instance: existing, isFresh: false };
     }
 
     this.assertBootstrapComplete(chat);
@@ -525,7 +540,7 @@ export class ChatService {
       instanceId: instance.id,
       chat: updated,
     });
-    return instance;
+    return { instance, isFresh: true };
   }
 
   private withReplayIfNeeded(
@@ -555,32 +570,103 @@ export class ChatService {
   }
 
   /**
-   * Queue a loop's context handoff for this chat's next outgoing message. The
-   * loop coordinator (via the loop IPC handlers) calls this when a loop bound to
-   * this chat terminates, so the next interactive turn can answer follow-ups
-   * about the loop. Overwrites any prior pending handoff (latest loop wins).
+   * Mark this chat's session lineage as broken — called by the loop IPC
+   * handlers when a non-borrowed loop terminates. The loop ran in its own CLI
+   * session, so the interactive model has no memory of the loop iterations.
+   * Because Phase 1 writes every iteration into the chat's ledger thread as
+   * assistant turns, the next `sendMessage` can rebuild context from the ledger
+   * and inject it as a continuity preamble before the user's turn reaches the
+   * model.
+   *
+   * The flag is durable (persisted to the operator DB), so it survives an app
+   * restart — unlike the previous in-memory `pendingLoopHandoffs` mechanism.
    */
-  queueLoopHandoff(chatId: string, handoff: string): void {
-    if (!handoff.trim()) {
-      return;
-    }
-    this.pendingLoopHandoffs.set(chatId, handoff);
-    logger.info('Queued loop context handoff for next chat message', { chatId });
+  bumpLineageEpoch(chatId: string): void {
+    this.sessionBindingStore.markNeedsRebuild(chatId);
+    logger.info('Bumped loop lineage epoch — will rebuild from ledger on next send', { chatId });
   }
 
   /**
-   * Prepend a pending loop handoff (if any) to the outgoing message, then clear
-   * it so it primes exactly one turn. Sits in front of the cwd-switch replay so
-   * the freshest context (the loop that just ran) leads.
+   * Implements §4.3 + §5.1 of the continuity plan: the ledger is the single
+   * source of truth, and native provider `--resume` is only a fast path valid
+   * while session lineage is provably intact (`evaluateLineage`). Whenever it is
+   * not, the model's context is deterministically rebuilt from the ledger and
+   * injected as a continuity preamble before the user's turn reaches the
+   * provider.
+   *
+   * The lineage rules collapse every prior special case — loop divergence, fresh
+   * sessions after restart/eviction, provider/model switches, ledger rewrites —
+   * into one predicate. A valid binding ⇒ native resume, zero replay cost. Any
+   * doubt ⇒ rebuild (conservative by default; correctness over a cache hit).
+   *
+   * `messages` is the recent ledger tail *including* the just-appended current
+   * user turn; we replay only the prior turns so the current message isn't
+   * duplicated into the rebuilt history. The binding is (re)written after the
+   * send by {@link recordSessionBinding}, so this method only decides + injects.
    */
-  private withLoopHandoffIfPending(chat: ChatRecord, message: string): string {
-    const handoff = this.pendingLoopHandoffs.get(chat.id);
-    if (!handoff) {
-      return message;
+  private async prepareTurnContext(
+    chat: ChatRecord,
+    instance: Instance,
+    messages: ConversationMessageRecord[],
+    options: { isFresh: boolean; skipReplay: boolean },
+  ): Promise<void> {
+    const binding = this.sessionBindingStore.get(chat.id);
+    const lastTurnStillInLedger = binding?.lastTurnNativeId
+      ? await this.ledger.hasMessage(chat.ledgerThreadId, binding.lastTurnNativeId)
+      : true;
+    const verdict = evaluateLineage(binding, {
+      requestedProvider: chat.provider ?? instance.provider ?? 'unknown',
+      liveSessionId: instance.providerSessionId || instance.sessionId || '',
+      isFresh: options.isFresh,
+      lastTurnStillInLedger,
+    });
+    if (verdict.valid) {
+      return; // native-resume fast path — the bound session already has context.
     }
-    this.pendingLoopHandoffs.delete(chat.id);
-    logger.info('Prepended pending loop handoff to chat message', { chatId: chat.id });
-    return `${handoff}\n\n${message}`;
+    if (options.skipReplay) {
+      // A cwd-switch replay block was already prepended to the outgoing message
+      // by `withReplayIfNeeded`, replaying the same prior ledger turns (including
+      // any loop iterations). Context is delivered by that path; don't double
+      // inject. The binding is reset after the send regardless.
+      return;
+    }
+    const currentSequence = messages[messages.length - 1]?.sequence ?? Number.MAX_SAFE_INTEGER;
+    const priorTurns = messages.slice(0, -1);
+    if (!priorTurns.some((m) => m.role === 'user' || m.role === 'assistant')) {
+      return; // brand-new chat (or only system events) — nothing to replay.
+    }
+    const preamble = await buildLedgerRebuildPreamble(
+      this.ledger,
+      chat.ledgerThreadId,
+      priorTurns,
+      currentSequence,
+      verdict.reason,
+    );
+    if (preamble) {
+      this.instanceManager.queueContinuityPreamble(instance.id, preamble);
+      logger.info('Rebuilt turn context from ledger', {
+        chatId: chat.id,
+        reason: verdict.reason,
+      });
+    }
+  }
+
+  /**
+   * Record that the chat's context now lives in the live instance's session and
+   * is reconciled with the ledger up to `lastTurnNativeId`. Clears the durable
+   * rebuild flag so the next turn can take the native-resume fast path (§5.1).
+   */
+  private recordSessionBinding(
+    chat: ChatRecord,
+    instance: Instance,
+    lastTurnNativeId: string | null,
+  ): void {
+    this.sessionBindingStore.recordValidSession({
+      chatId: chat.id,
+      provider: chat.provider ?? instance.provider ?? 'unknown',
+      sessionId: instance.providerSessionId || instance.sessionId || '',
+      lastTurnNativeId,
+    });
   }
 
   private async detailFor(chat: ChatRecord): Promise<ChatDetail> {

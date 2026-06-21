@@ -159,6 +159,7 @@ interface LoopOutstandingItemRow {
   kind: string;
   text: string;
   user_response: string | null;
+  recommended_answer: string | null;
   status: string;
   loop_status: string;
   created_at: number;
@@ -175,6 +176,7 @@ function rowToOutstandingItem(row: LoopOutstandingItemRow): LoopOutstandingItem 
     kind: row.kind as LoopOutstandingItemKind,
     text: row.text,
     userResponse: row.user_response ?? null,
+    recommendedAnswer: row.recommended_answer ?? null,
     status: row.status as LoopOutstandingItemStatus,
     loopStatus: row.loop_status as LoopStatus,
     createdAt: row.created_at,
@@ -587,22 +589,28 @@ export class LoopStore {
     const outstanding = state.outstanding;
     if (!outstanding) return;
     const now = Date.now();
-    const rows: { kind: LoopOutstandingItemKind; text: string }[] = [
-      ...outstanding.needsHuman.map((text) => ({ kind: 'needs-human' as const, text })),
-      ...outstanding.openQuestions.map((text) => ({ kind: 'open-question' as const, text })),
+    const rows: { kind: LoopOutstandingItemKind; text: string; recommendation: string | null }[] = [
+      ...outstanding.needsHuman.map((e) => ({ kind: 'needs-human' as const, text: e.text, recommendation: e.recommendation })),
+      ...outstanding.openQuestions.map((e) => ({ kind: 'open-question' as const, text: e.text, recommendation: e.recommendation })),
     ];
     if (rows.length === 0) return;
+    // The deterministic id is keyed on (run, kind, text) — NOT the recommendation
+    // — so a re-capture upserts the same row. We refresh `recommended_answer` on
+    // conflict (the agent may have revised its suggestion); the user's
+    // `user_response`/`status` are intentionally left untouched so a saved answer
+    // always wins over the suggestion.
     const stmt = this.db.prepare(`
       INSERT INTO loop_outstanding_items (
-        id, loop_run_id, chat_id, workspace_cwd, kind, text, status,
+        id, loop_run_id, chat_id, workspace_cwd, kind, text, recommended_answer, status,
         loop_status, created_at, updated_at, resolved_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, NULL)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, NULL)
       ON CONFLICT(id) DO UPDATE SET
         loop_status = excluded.loop_status,
+        recommended_answer = excluded.recommended_answer,
         updated_at = excluded.updated_at
     `);
     const insertAll = this.db.transaction(() => {
-      for (const { kind, text } of rows) {
+      for (const { kind, text, recommendation } of rows) {
         stmt.run(
           outstandingItemId(state.id, kind, text),
           state.id,
@@ -610,6 +618,7 @@ export class LoopStore {
           state.config.workspaceCwd,
           kind,
           text,
+          recommendation,
           state.status,
           outstanding.capturedAt || now,
           now,
@@ -649,8 +658,8 @@ export class LoopStore {
     args.push(opts.limit ?? 200);
     const rows = this.db
       .prepare(`
-        SELECT id, loop_run_id, chat_id, workspace_cwd, kind, text, user_response, status,
-               loop_status, created_at, updated_at, resolved_at
+        SELECT id, loop_run_id, chat_id, workspace_cwd, kind, text, user_response,
+               recommended_answer, status, loop_status, created_at, updated_at, resolved_at
         FROM loop_outstanding_items
         ${whereSql}
         ORDER BY created_at DESC

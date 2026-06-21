@@ -20,13 +20,19 @@ function formatTimestamp(epochMs: number): string {
 }
 
 /**
- * Render one item as a markdown bullet, appending the human's recorded answer as
- * an indented sub-bullet when present. `bullet` is the list marker for the item
- * itself (`- [ ] ` for needs-human, `- ` for open questions). Multi-line answers
- * are indented so they stay nested under the item.
+ * Render one item as a markdown bullet, appending the agent's recommendation and
+ * the human's recorded answer as indented sub-bullets when present. `bullet` is
+ * the list marker for the item itself (`- [ ] ` for needs-human, `- ` for open
+ * questions). Multi-line answers are indented so they stay nested under the item.
  */
 function renderItem(item: LoopOutstandingItem, bullet: string): string[] {
   const lines = [`${bullet}${item.text}`];
+  const recommendation = item.recommendedAnswer?.trim();
+  if (recommendation) {
+    const [firstLine, ...rest] = recommendation.split(/\r?\n/);
+    lines.push(`  - **Recommendation:** ${firstLine}`);
+    for (const line of rest) lines.push(`    ${line}`);
+  }
   const answer = item.userResponse?.trim();
   if (answer) {
     const [firstLine, ...rest] = answer.split(/\r?\n/);

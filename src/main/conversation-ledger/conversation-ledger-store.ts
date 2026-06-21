@@ -2,6 +2,8 @@ import { randomUUID } from 'crypto';
 import { getLogger } from '../logging/logger';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import type {
+  ConversationCheckpointRecord,
+  ConversationCheckpointUpsertInput,
   ConversationConflictStatus,
   ConversationListQuery,
   ConversationMessageRecord,
@@ -77,6 +79,17 @@ interface CursorRow {
   source_mtime: number | null;
   last_seen_checksum: string | null;
   updated_at: number;
+}
+
+interface CheckpointRow {
+  id: string;
+  thread_id: string;
+  up_to_sequence: number;
+  up_to_native_id: string | null;
+  summary: string;
+  summarized_message_count: number;
+  summary_tokens: number;
+  created_at: number;
 }
 
 export class ConversationLedgerStore {
@@ -458,6 +471,69 @@ export class ConversationLedgerStore {
     return row !== undefined && row !== null;
   }
 
+  /**
+   * Persist a durable compaction checkpoint (§4.4). Upserts on
+   * `(thread_id, up_to_sequence)` so re-summarizing the same prefix replaces the
+   * prior row rather than accumulating duplicates. Never deletes the verbatim
+   * messages it summarizes — checkpoints are an additive, regenerable digest.
+   */
+  writeCheckpoint(
+    threadId: string,
+    input: ConversationCheckpointUpsertInput,
+  ): ConversationCheckpointRecord {
+    const existing = this.db.prepare(`
+      SELECT id FROM conversation_checkpoints
+      WHERE thread_id = ? AND up_to_sequence = ?
+    `).get<{ id: string }>(threadId, input.upToSequence);
+    const id = existing?.id ?? input.id ?? randomUUID();
+    const createdAt = input.createdAt ?? Date.now();
+    this.db.prepare(`
+      INSERT INTO conversation_checkpoints (
+        id, thread_id, up_to_sequence, up_to_native_id, summary,
+        summarized_message_count, summary_tokens, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        up_to_sequence = excluded.up_to_sequence,
+        up_to_native_id = excluded.up_to_native_id,
+        summary = excluded.summary,
+        summarized_message_count = excluded.summarized_message_count,
+        summary_tokens = excluded.summary_tokens,
+        created_at = excluded.created_at
+    `).run(
+      id,
+      threadId,
+      input.upToSequence,
+      input.upToNativeId ?? null,
+      input.summary,
+      input.summarizedMessageCount,
+      input.summaryTokens,
+      createdAt,
+    );
+    return {
+      id,
+      threadId,
+      upToSequence: input.upToSequence,
+      upToNativeId: input.upToNativeId ?? null,
+      summary: input.summary,
+      summarizedMessageCount: input.summarizedMessageCount,
+      summaryTokens: input.summaryTokens,
+      createdAt,
+    };
+  }
+
+  /** The checkpoint covering the largest message prefix for a thread (the one a
+   *  rebuild should anchor on), or null when none has been produced yet. */
+  getLatestCheckpoint(threadId: string): ConversationCheckpointRecord | null {
+    const row = this.db.prepare(`
+      SELECT * FROM conversation_checkpoints
+      WHERE thread_id = ?
+      ORDER BY up_to_sequence DESC
+      LIMIT 1
+    `).get<CheckpointRow>(threadId);
+    return row ? checkpointRowToRecord(row) : null;
+  }
+
   private upsertMessage(threadId: string, input: ConversationMessageUpsertInput): string {
     const existing = input.nativeMessageId
       ? this.db.prepare(`
@@ -549,6 +625,19 @@ function threadRowToRecord(row: ThreadRow): ConversationThreadRecord {
     conflictStatus: row.conflict_status,
     parentConversationId: row.parent_conversation_id,
     metadata: parseJsonObject(row.metadata_json, {}),
+  };
+}
+
+function checkpointRowToRecord(row: CheckpointRow): ConversationCheckpointRecord {
+  return {
+    id: row.id,
+    threadId: row.thread_id,
+    upToSequence: row.up_to_sequence,
+    upToNativeId: row.up_to_native_id,
+    summary: row.summary,
+    summarizedMessageCount: row.summarized_message_count,
+    summaryTokens: row.summary_tokens,
+    createdAt: row.created_at,
   };
 }
 

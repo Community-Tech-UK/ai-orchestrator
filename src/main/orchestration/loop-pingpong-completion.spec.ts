@@ -136,10 +136,17 @@ describe('evaluatePingPongCompletion', () => {
     expect(state.pingPong?.roundCount).toBe(1);
   });
 
-  it('is fail-closed: repeated UNRELIABLE rounds terminate as reviewer-unreliable, never a pass', async () => {
+  it('is fail-closed: repeated reviewer-QUALITY faults terminate as reviewer-unreliable, never a pass', async () => {
     const state = makeState(workspace);
+    // The reviewer RAN but emitted unusable output (malformed_output) — a genuine
+    // reviewer-quality fault, escalated at the strict 3-round ceiling.
     const reviewer = vi.fn<PingPongReviewer>().mockResolvedValue(
-      reviewResult({ verdict: 'UNRELIABLE', reviewerProvider: 'codex', reason: 'timeout' }),
+      reviewResult({
+        verdict: 'UNRELIABLE',
+        reviewerProvider: 'codex',
+        fault: 'malformed_output',
+        reason: 'empty or unparseable output',
+      }),
     );
     // Each call declares done again; UNRELIABLE should never converge.
     let result = await evaluatePingPongCompletion(baseDeps(state, reviewer));
@@ -149,6 +156,51 @@ describe('evaluatePingPongCompletion', () => {
     result = await evaluatePingPongCompletion(baseDeps(state, reviewer));
     expect(result?.status).toBe('reviewer-unreliable');
     expect(state.pingPong?.roundCount).toBe(0); // unreliable rounds never count
+  });
+
+  it('distinguishes availability faults: a rate-limited reviewer terminates as reviewer-unavailable, NOT reviewer-unreliable', async () => {
+    const state = makeState(workspace);
+    // The reviewer provider was throttled — an availability fault that says
+    // nothing about the code. Uses the more lenient 6-round ceiling and a DISTINCT
+    // terminal status so a throttled Codex is never reported as "the reviewer
+    // judged the code unreliable".
+    const reviewer = vi.fn<PingPongReviewer>().mockResolvedValue(
+      reviewResult({
+        verdict: 'UNRELIABLE',
+        reviewerProvider: 'codex',
+        fault: 'rate_limited',
+        reason: 'usage/rate-limit notice',
+      }),
+    );
+    let result: Awaited<ReturnType<typeof evaluatePingPongCompletion>> = null;
+    // Below the quality ceiling (3) it must NOT mis-terminate as reviewer-unreliable.
+    for (let i = 0; i < 5; i++) {
+      result = await evaluatePingPongCompletion(baseDeps(state, reviewer));
+      expect(result).toBeNull();
+    }
+    // The 6th consecutive availability fault crosses the lenient ceiling.
+    result = await evaluatePingPongCompletion(baseDeps(state, reviewer));
+    expect(result?.status).toBe('reviewer-unavailable');
+    expect(state.pingPong?.roundCount).toBe(0);
+  });
+
+  it('a reliable round clears the unreliable counter so transient faults do not accumulate forever', async () => {
+    const state = makeState(workspace);
+    const flaky = vi.fn<PingPongReviewer>()
+      // round 1+2: transient availability faults
+      .mockResolvedValueOnce(reviewResult({ verdict: 'UNRELIABLE', reviewerProvider: 'codex', fault: 'rate_limited' }))
+      .mockResolvedValueOnce(reviewResult({ verdict: 'UNRELIABLE', reviewerProvider: 'codex', fault: 'timeout' }))
+      // round 3: the reviewer recovers and APPROVES
+      .mockResolvedValue(reviewResult({ verdict: 'APPROVED' }));
+    let result = await evaluatePingPongCompletion(baseDeps(state, flaky));
+    expect(result).toBeNull();
+    expect(state.pingPong?.consecutiveUnreliableRounds).toBe(1);
+    result = await evaluatePingPongCompletion(baseDeps(state, flaky));
+    expect(result).toBeNull();
+    expect(state.pingPong?.consecutiveUnreliableRounds).toBe(2);
+    result = await evaluatePingPongCompletion(baseDeps(state, flaky));
+    expect(result?.status).toBe('completed');
+    expect(state.pingPong?.consecutiveUnreliableRounds).toBe(0);
   });
 
   it('stops with cost-exceeded when the cost cap is already hit', async () => {

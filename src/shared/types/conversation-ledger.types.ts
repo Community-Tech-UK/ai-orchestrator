@@ -85,6 +85,45 @@ export interface ConversationSyncCursorRecord {
   updatedAt: number;
 }
 
+/**
+ * Durable compaction checkpoint (§4.4 of the unified-conversation-continuity
+ * plan). A summarized digest of every thread message up to `upToSequence`, so a
+ * deterministic context rebuild can walk `[checkpoint summary] + [verbatim turns
+ * after the checkpoint]` and stay bounded under huge loop histories — instead of
+ * silently dropping older turns past a fixed window.
+ *
+ * Checkpoints are additive: the verbatim messages they summarize are NEVER
+ * deleted from `conversation_messages`, so a checkpoint is always regenerable
+ * from the durable tail (plan §10: "never discard verbatim until a checkpoint is
+ * verified"). At most one row per `(threadId, upToSequence)` — re-summarizing the
+ * same prefix replaces the prior row.
+ */
+export interface ConversationCheckpointRecord {
+  id: string;
+  threadId: string;
+  /** Sequence of the last ledger message folded into this checkpoint's summary. */
+  upToSequence: number;
+  /** nativeMessageId of that last folded message (cheap reconciliation marker). */
+  upToNativeId: string | null;
+  /** Summarized, model-readable digest of all messages up to `upToSequence`. */
+  summary: string;
+  /** Number of verbatim messages folded into the summary. */
+  summarizedMessageCount: number;
+  /** Approximate token size of `summary`. */
+  summaryTokens: number;
+  createdAt: number;
+}
+
+export interface ConversationCheckpointUpsertInput {
+  id?: string;
+  upToSequence: number;
+  upToNativeId?: string | null;
+  summary: string;
+  summarizedMessageCount: number;
+  summaryTokens: number;
+  createdAt?: number;
+}
+
 export interface ConversationThreadUpsertInput {
   id?: string;
   provider: ConversationProvider;

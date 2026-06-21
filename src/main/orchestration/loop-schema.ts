@@ -8,7 +8,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const LOOP_SCHEMA_VERSION = 10;
+export const LOOP_SCHEMA_VERSION = 11;
 
 interface LoopMigration {
   version: number;
@@ -255,6 +255,21 @@ const MIGRATIONS: LoopMigration[] = [
     name: '010_loop_iterations_output_full',
     up: `
       ALTER TABLE loop_iterations ADD COLUMN output_full TEXT NOT NULL DEFAULT '';
+    `,
+  },
+  {
+    // Agent-authored recommendation per outstanding item: the loop agent (which
+    // just did the work, with full context) writes a one-line recommended
+    // decision/next-step as a `Recommendation:` sub-bullet under each Needs-human
+    // / Open-question item. Persisted here so the Outstanding panel can pre-fill
+    // the answer box with a concrete suggestion instead of a blank field. It is a
+    // suggestion only — surfaced as an editable draft, never auto-accepted as the
+    // human's answer. Nullable: items without a recommendation (and pre-existing
+    // rows) backfill to NULL.
+    version: 11,
+    name: '011_loop_outstanding_recommended_answer',
+    up: `
+      ALTER TABLE loop_outstanding_items ADD COLUMN recommended_answer TEXT;
     `,
   },
 ];

@@ -607,11 +607,13 @@ There is no human in the loop. Make the decisions a senior engineer would defend
     \`\`\`
     ## Needs human
     - <only items literally impossible for an autonomous agent: physical-hardware testing, subjective/aesthetic or stakeholder sign-off, access/credentials you do not have. Each with a one-line WHY.>
+      - Recommendation: <the single concrete decision or next step you would take on this item if it were your call>
 
     ## Open questions
     - <assumptions you made where the goal was ambiguous>
+      - Recommendation: <the answer you'd pick / what you'd do>
     \`\`\`
-  The bar for "Needs human" is HIGH — do everything you possibly can yourself. Only genuinely human-required items go there. If a section has nothing, write \`- (none)\`.
+  Under EVERY item, add an indented \`- Recommendation:\` sub-bullet with your single best concrete decision/next step for it. The human sees this as a pre-filled, editable suggestion in their answer box (they still confirm it) — so make it specific and actionable, not "ask a human". The bar for "Needs human" is HIGH — do everything you possibly can yourself. Only genuinely human-required items go there. If a section has nothing, write \`- (none)\`.
 - \`${blockedRel}\` — only if you are truly, hard-blocked right now (missing credentials/access you cannot proceed without). Write what you need, then exit; the loop will pause for the operator.${priorObservationsBlock}${interventions}${existingSessionContextBlock}
 
 ## Goal (persistent across iterations)

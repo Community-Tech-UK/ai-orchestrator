@@ -139,4 +139,61 @@ describe('ConversationLedgerStore', () => {
       expect(store.hasMessageWithNativeId(thread.id, 'evt-2')).toBe(false);
     });
   });
+
+  describe('conversation checkpoints (§4.4)', () => {
+    it('returns null when no checkpoint exists', () => {
+      const thread = store.upsertThread({ provider: 'orchestrator', nativeThreadId: 'n', sourceKind: 'orchestrator' });
+      expect(store.getLatestCheckpoint(thread.id)).toBeNull();
+    });
+
+    it('writes a checkpoint and reads it back', () => {
+      const thread = store.upsertThread({ provider: 'orchestrator', nativeThreadId: 'n', sourceKind: 'orchestrator' });
+      const written = store.writeCheckpoint(thread.id, {
+        upToSequence: 10,
+        upToNativeId: 'msg-10',
+        summary: 'Earlier work summary.',
+        summarizedMessageCount: 10,
+        summaryTokens: 4,
+      });
+      expect(written.threadId).toBe(thread.id);
+      expect(store.getLatestCheckpoint(thread.id)).toMatchObject({
+        upToSequence: 10,
+        upToNativeId: 'msg-10',
+        summary: 'Earlier work summary.',
+        summarizedMessageCount: 10,
+      });
+    });
+
+    it('upserts (replaces) on the same upToSequence rather than duplicating', () => {
+      const thread = store.upsertThread({ provider: 'orchestrator', nativeThreadId: 'n', sourceKind: 'orchestrator' });
+      store.writeCheckpoint(thread.id, {
+        upToSequence: 5, upToNativeId: 'm5', summary: 'v1', summarizedMessageCount: 5, summaryTokens: 1,
+      });
+      store.writeCheckpoint(thread.id, {
+        upToSequence: 5, upToNativeId: 'm5', summary: 'v2', summarizedMessageCount: 5, summaryTokens: 1,
+      });
+      expect(store.getLatestCheckpoint(thread.id)?.summary).toBe('v2');
+    });
+
+    it('getLatestCheckpoint returns the one covering the largest prefix', () => {
+      const thread = store.upsertThread({ provider: 'orchestrator', nativeThreadId: 'n', sourceKind: 'orchestrator' });
+      store.writeCheckpoint(thread.id, {
+        upToSequence: 20, upToNativeId: 'm20', summary: 'later', summarizedMessageCount: 20, summaryTokens: 1,
+      });
+      store.writeCheckpoint(thread.id, {
+        upToSequence: 10, upToNativeId: 'm10', summary: 'earlier', summarizedMessageCount: 10, summaryTokens: 1,
+      });
+      expect(store.getLatestCheckpoint(thread.id)?.upToSequence).toBe(20);
+    });
+
+    it('isolates checkpoints per thread', () => {
+      const a = store.upsertThread({ provider: 'orchestrator', nativeThreadId: 'a', sourceKind: 'orchestrator' });
+      const b = store.upsertThread({ provider: 'orchestrator', nativeThreadId: 'b', sourceKind: 'orchestrator' });
+      store.writeCheckpoint(a.id, {
+        upToSequence: 3, upToNativeId: 'a3', summary: 'A', summarizedMessageCount: 3, summaryTokens: 1,
+      });
+      expect(store.getLatestCheckpoint(a.id)?.summary).toBe('A');
+      expect(store.getLatestCheckpoint(b.id)).toBeNull();
+    });
+  });
 });

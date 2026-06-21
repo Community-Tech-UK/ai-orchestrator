@@ -52,7 +52,7 @@ export function registerLoopHandlers(deps: {
 
   // Persist after every iteration completes (the coordinator's hook fires
   // after iteration is sealed). Also persist run row.
-  coordinator.registerIterationHook(({ state, iteration }) => {
+  coordinator.registerIterationHook(async ({ state, iteration }) => {
     try {
       store.upsertRun(state);
       store.insertIteration(iteration);
@@ -73,8 +73,14 @@ export function registerLoopHandlers(deps: {
     // chat's canonical ledger thread so the interactive model remembers what the
     // loop did (and it survives restart). Skipped for borrowed-adapter
     // iterations, whose stream already landed in the transcript as a normal turn.
+    //
+    // AWAIT this: the coordinator awaits the iteration hook, so awaiting the
+    // ledger write here guarantees the iteration's assistant turn is durable
+    // before the loop advances to its terminal state (which bumps the chat's
+    // rebuild flag). Without the await, an instant follow-up send could rebuild
+    // and clear the flag before the loop work reached the ledger.
     try {
-      appendLoopIterationTranscript(state, iteration, chatService, deps.instanceManager);
+      await appendLoopIterationTranscript(state, iteration, chatService, deps.instanceManager);
     } catch (err) {
       logger.warn('Failed to append loop iteration to chat transcript', {
         loopRunId: state.id,
@@ -554,6 +560,7 @@ function isTerminalLoopStatus(status: LoopState['status']): boolean {
     || status === 'cost-exceeded'
     || status === 'needs-human-arbitration'
     || status === 'reviewer-unreliable'
+    || status === 'reviewer-unavailable'
     || status === 'builder-unreliable'
   );
 }

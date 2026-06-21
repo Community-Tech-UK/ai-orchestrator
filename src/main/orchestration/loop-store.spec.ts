@@ -511,8 +511,11 @@ describe('LoopStore outstanding items', () => {
     const state = makeState({
       status: 'completed-needs-review',
       outstanding: {
-        needsHuman: ['Deploy to device and confirm camera works', 'Run on a GPU box'],
-        openQuestions: ['Should we cache the model?'],
+        needsHuman: [
+          { text: 'Deploy to device and confirm camera works', recommendation: 'Test on a Pixel 8 in the office' },
+          { text: 'Run on a GPU box', recommendation: null },
+        ],
+        openQuestions: [{ text: 'Should we cache the model?', recommendation: 'Yes — cache between runs' }],
         raw: '## Needs human\n- ...',
         capturedAt: 1_700_000_200_000,
       },
@@ -531,6 +534,11 @@ describe('LoopStore outstanding items', () => {
     expect(items.filter((i) => i.kind === 'open-question')).toHaveLength(1);
     expect(items.every((i) => i.status === 'open')).toBe(true);
     expect(items.every((i) => i.loopStatus === 'completed-needs-review')).toBe(true);
+    // The agent's recommendation round-trips; items without one stay null.
+    const camera = items.find((i) => i.text === 'Deploy to device and confirm camera works');
+    const gpu = items.find((i) => i.text === 'Run on a GPU box');
+    expect(camera?.recommendedAnswer).toBe('Test on a Pixel 8 in the office');
+    expect(gpu?.recommendedAnswer).toBeNull();
   });
 
   it('is a no-op when the state carries no outstanding snapshot', () => {

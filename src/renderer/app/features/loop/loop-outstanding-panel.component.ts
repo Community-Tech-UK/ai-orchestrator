@@ -13,6 +13,40 @@ import { LoopStore } from '../../core/state/loop.store';
 import { loopStatusLabel, relativeTime, formatTimestamp } from './loop-formatters.util';
 
 /**
+ * The non-empty answer the user has typed this session but not yet saved — an
+ * explicit draft edit that differs from the persisted value. Returns the text to
+ * persist, or undefined when there's no pending answer edit.
+ *
+ * A pre-filled recommendation (draft === undefined) is NOT an unsaved answer: it
+ * only becomes one once the user edits or saves it. An edit that just clears the
+ * box (whitespace-only) is also not an answer.
+ *
+ * Pure + exported so it can be unit-tested without an Angular TestBed (the
+ * project's vitest config has no Angular compiler plugin).
+ */
+export function outstandingUnsavedAnswer(
+  userResponse: string | null | undefined,
+  draft: string | undefined,
+): string | undefined {
+  if (draft === undefined) return undefined;
+  if (draft === (userResponse ?? '')) return undefined;
+  return draft.trim().length > 0 ? draft : undefined;
+}
+
+/**
+ * Whether an outstanding item has an answer to resume with: either a persisted
+ * `userResponse`, or one typed this session (flushed to the DB on resume). This
+ * is what "Resume with answers (N)" counts.
+ */
+export function outstandingHasAnswer(
+  userResponse: string | null | undefined,
+  draft: string | undefined,
+): boolean {
+  return (userResponse ?? '').trim().length > 0
+    || outstandingUnsavedAnswer(userResponse, draft) !== undefined;
+}
+
+/**
  * Aggregated "Outstanding" panel — surfaces the human-gated work captured from
  * completed loop runs (OUTSTANDING.md's "Needs human" + "Open questions") so it
  * doesn't get lost in the chat scroll-back or the hidden per-run state dir.
@@ -85,6 +119,9 @@ import { loopStatusLabel, relativeTime, formatTimestamp } from './loop-formatter
                     }
                   </div>
                   @if (item.status === 'open') {
+                    @if (isShowingRecommendation(item)) {
+                      <div class="o-suggested" title="The loop drafted this; edit if needed, then Save or Resolve to record it">✨ Suggested — review, then Save or Resolve to use</div>
+                    }
                     <textarea
                       class="o-answer-input"
                       rows="2"
@@ -98,7 +135,7 @@ import { loopStatusLabel, relativeTime, formatTimestamp } from './loop-formatter
                 </div>
                 <div class="o-actions">
                   @if (item.status === 'open') {
-                    <button type="button" class="o-act o-save" (click)="saveAnswer(item)" [disabled]="savingId() === item.id || !hasDraftChanges(item)" title="Save your answer (item stays open)">{{ savingId() === item.id ? 'Saving…' : 'Save answer' }}</button>
+                    <button type="button" class="o-act o-save" (click)="saveAnswer(item)" [disabled]="savingId() === item.id || !canSaveAnswer(item)" title="Save your answer (item stays open)">{{ savingId() === item.id ? 'Saving…' : 'Save answer' }}</button>
                     <button type="button" class="o-act o-resolve" (click)="setStatus(item, 'resolved')" title="Save answer (if any) and mark resolved">Resolve</button>
                     <button type="button" class="o-act o-dismiss" (click)="setStatus(item, 'dismissed')" title="Dismiss — not going to do this">Dismiss</button>
                   } @else {
@@ -124,6 +161,9 @@ import { loopStatusLabel, relativeTime, formatTimestamp } from './loop-formatter
                     }
                   </div>
                   @if (item.status === 'open') {
+                    @if (isShowingRecommendation(item)) {
+                      <div class="o-suggested" title="The loop drafted this; edit if needed, then Save or Resolve to record it">✨ Suggested — review, then Save or Resolve to use</div>
+                    }
                     <textarea
                       class="o-answer-input"
                       rows="2"
@@ -137,7 +177,7 @@ import { loopStatusLabel, relativeTime, formatTimestamp } from './loop-formatter
                 </div>
                 <div class="o-actions">
                   @if (item.status === 'open') {
-                    <button type="button" class="o-act o-save" (click)="saveAnswer(item)" [disabled]="savingId() === item.id || !hasDraftChanges(item)" title="Save your answer (item stays open)">{{ savingId() === item.id ? 'Saving…' : 'Save answer' }}</button>
+                    <button type="button" class="o-act o-save" (click)="saveAnswer(item)" [disabled]="savingId() === item.id || !canSaveAnswer(item)" title="Save your answer (item stays open)">{{ savingId() === item.id ? 'Saving…' : 'Save answer' }}</button>
                     <button type="button" class="o-act o-resolve" (click)="setStatus(item, 'resolved')" title="Save answer (if any) and mark answered">Answered</button>
                     <button type="button" class="o-act o-dismiss" (click)="setStatus(item, 'dismissed')" title="Dismiss">Dismiss</button>
                   } @else {
@@ -214,6 +254,11 @@ import { loopStatusLabel, relativeTime, formatTimestamp } from './loop-formatter
       font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em;
       padding: 1px 5px; border-radius: 3px; color: #8edc8e; background: rgba(142,220,142,0.1);
     }
+    .o-suggested {
+      margin-top: 6px; font-size: 10px; letter-spacing: 0.02em;
+      color: #9ec1ff; opacity: 0.9;
+    }
+    .o-suggested + .o-answer-input { margin-top: 3px; }
     .o-answer-input {
       display: block; width: 100%; box-sizing: border-box; margin-top: 6px;
       padding: 5px 7px; font: inherit; font-size: 11px; line-height: 1.4;
@@ -284,9 +329,13 @@ export class LoopOutstandingPanelComponent {
   protected needsHuman = computed(() => this.items().filter((i) => i.kind === 'needs-human'));
   protected openQuestions = computed(() => this.items().filter((i) => i.kind === 'open-question'));
   protected openCount = computed(() => this.items().filter((i) => i.status === 'open').length);
-  /** Open items that carry a saved answer — what "Resume with answers" feeds back. */
+  /** Open items that carry an answer — what "Resume with answers" feeds back.
+   *  Counts both a persisted `userResponse` AND a non-empty answer the user has
+   *  typed but not yet clicked "Save answer" on: those unsaved drafts are flushed
+   *  to the DB on resume (see `onResume`), so the count must reflect them or a
+   *  typed answer would silently show "Resume with answers (0)". */
   protected answeredCount = computed(
-    () => this.items().filter((i) => i.status === 'open' && (i.userResponse ?? '').trim().length > 0).length,
+    () => this.items().filter((i) => i.status === 'open' && this.hasAnswer(i)).length,
   );
   protected resuming = signal(false);
   protected resumeError = signal<string | null>(null);
@@ -316,17 +365,48 @@ export class LoopOutstandingPanelComponent {
     this.showAll.update((v) => !v);
   }
 
-  /** The text to show in the answer textarea: the unsaved draft if the user has
-   *  edited it this session, else the persisted answer, else empty. */
+  /** The text to show in the answer textarea, in priority order: the unsaved
+   *  draft (if edited this session), else the persisted human answer, else the
+   *  agent's recommendation as an editable suggestion, else empty. */
   protected draftFor(item: LoopOutstandingItemPayload): string {
     const draft = this.drafts()[item.id];
-    return draft !== undefined ? draft : (item.userResponse ?? '');
+    if (draft !== undefined) return draft;
+    const saved = item.userResponse ?? '';
+    if (saved) return saved;
+    return item.recommendedAnswer ?? '';
   }
 
-  /** True when the textarea has an unsaved edit different from the persisted value. */
-  protected hasDraftChanges(item: LoopOutstandingItemPayload): boolean {
+  /** True when the textarea is showing the agent's recommendation as a pre-fill
+   *  (no unsaved edit and no saved answer yet) — drives the "Suggested" badge.
+   *  A recommendation is a suggestion only; it does not count as an answer until
+   *  the human saves it, so `answeredCount`/Resume stay gated on `userResponse`. */
+  protected isShowingRecommendation(item: LoopOutstandingItemPayload): boolean {
+    return this.drafts()[item.id] === undefined
+      && !(item.userResponse ?? '').trim()
+      && !!(item.recommendedAnswer ?? '').trim();
+  }
+
+  /** Whether "Save answer" should be enabled: an explicit edit that differs from
+   *  the persisted answer, or a pre-filled recommendation the user hasn't saved. */
+  protected canSaveAnswer(item: LoopOutstandingItemPayload): boolean {
     const draft = this.drafts()[item.id];
-    return draft !== undefined && draft !== (item.userResponse ?? '');
+    if (draft !== undefined) return draft !== (item.userResponse ?? '');
+    return this.isShowingRecommendation(item);
+  }
+
+  /** A non-empty answer the user has typed this session but not yet saved (an
+   *  explicit edit that differs from the persisted value). Returns the text to
+   *  persist, or undefined when there's no pending edit. A pre-filled
+   *  recommendation is NOT an unsaved answer — it only becomes one once the user
+   *  edits or saves it (matching `isShowingRecommendation`). */
+  private unsavedAnswer(item: LoopOutstandingItemPayload): string | undefined {
+    return outstandingUnsavedAnswer(item.userResponse, this.drafts()[item.id]);
+  }
+
+  /** True when the item has an answer to resume with: either persisted, or typed
+   *  this session (and flushed on resume). */
+  protected hasAnswer(item: LoopOutstandingItemPayload): boolean {
+    return outstandingHasAnswer(item.userResponse, this.drafts()[item.id]);
   }
 
   protected onDraftInput(item: LoopOutstandingItemPayload, event: Event): void {
@@ -343,9 +423,13 @@ export class LoopOutstandingPanelComponent {
     item: LoopOutstandingItemPayload,
     status: 'open' | 'resolved' | 'dismissed',
   ): Promise<void> {
-    // Carry any unsaved answer edit along with the status change so a click on
-    // Resolve/Dismiss right after typing doesn't silently discard the text.
-    await this.commit(item, status, this.drafts()[item.id]);
+    // Resolve accepts whatever the box shows — a typed answer OR the pre-filled
+    // recommendation — so a one-click Resolve records the decision (this is the
+    // human accepting the suggestion). Dismiss/reopen only carry an explicit edit:
+    // dismissing means "not doing this", so the suggestion is never baked in as an
+    // answer, and reopening must not silently adopt the recommendation.
+    const response = status === 'resolved' ? this.draftFor(item) : this.drafts()[item.id];
+    await this.commit(item, status, response);
   }
 
   /** Single write path: set status (+ optional answer) then drop the local draft
@@ -408,12 +492,14 @@ export class LoopOutstandingPanelComponent {
 
   protected resumeTitle(): string {
     if (!this.chatId()) return 'Resume needs a session — open this from an instance';
-    if (this.answeredCount() === 0) return 'Save an answer on an item first';
-    return 'Start a new loop run that applies your saved answers';
+    if (this.answeredCount() === 0) return 'Type an answer on an item first';
+    return 'Start a new loop run that applies your answers';
   }
 
   /** Start a fresh loop run that applies the saved answers; the consumed items
-   *  are resolved server-side and the panel refreshes via the change event. */
+   *  are resolved server-side and the panel refreshes via the change event.
+   *  Any answers typed but not explicitly saved are flushed first so the server
+   *  (which reads the persisted answers) feeds them back. */
   protected async onResume(): Promise<void> {
     const chatId = this.chatId();
     const cwd = this.workspaceCwd();
@@ -421,10 +507,30 @@ export class LoopOutstandingPanelComponent {
     this.resumeError.set(null);
     this.resuming.set(true);
     try {
+      await this.flushUnsavedAnswers();
       const result = await this.store.resumeOutstandingWithAnswers(chatId, cwd);
       if (!result.ok) this.resumeError.set(result.error);
     } finally {
       this.resuming.set(false);
+    }
+  }
+
+  /** Persist every open item's typed-but-unsaved answer (status stays open) so a
+   *  subsequent resume sees them. Mirrors what "Save answer" does, in a batch. */
+  private async flushUnsavedAnswers(): Promise<void> {
+    const pending = this.items()
+      .filter((i) => i.status === 'open')
+      .map((i) => ({ id: i.id, answer: this.unsavedAnswer(i) }))
+      .filter((p): p is { id: string; answer: string } => p.answer !== undefined);
+    for (const { id, answer } of pending) {
+      const ok = await this.store.setOutstandingStatus(id, 'open', answer);
+      if (ok) {
+        this.drafts.update((m) => {
+          const next = { ...m };
+          delete next[id];
+          return next;
+        });
+      }
     }
   }
 

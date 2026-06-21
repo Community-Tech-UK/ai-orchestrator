@@ -5260,7 +5260,7 @@
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1696
+      "lines": 1697
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -5547,12 +5547,16 @@
       "lines": 1065
     },
     {
+      "path": "src/main/chats/chat-service.spec.ts",
+      "lines": 1063
+    },
+    {
       "path": "src/renderer/app/features/archive/archive-page.component.ts",
       "lines": 1059
     },
     {
       "path": "src/shared/types/loop.types.ts",
-      "lines": 1037
+      "lines": 1045
     },
     {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
@@ -5703,10 +5707,6 @@
       "lines": 909
     },
     {
-      "path": "src/main/chats/chat-service.spec.ts",
-      "lines": 907
-    },
-    {
       "path": "src/main/cli/adapters/base-cli-adapter.ts",
       "lines": 899
     },
@@ -5836,7 +5836,7 @@
     },
     {
       "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
-      "lines": 827
+      "lines": 828
     },
     {
       "path": "src/renderer/app/features/debate/enhanced-debate-visualization.component.ts",

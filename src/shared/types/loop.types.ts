@@ -18,6 +18,7 @@ export type {
   LoopPingPongState,
   PingPongIssue,
   PingPongIssueStatus,
+  PingPongReviewerFault,
   PingPongReviewerVerdict,
   PingPongSeverity,
   PingPongSubject,
@@ -26,6 +27,7 @@ export {
   clampPingPongMaxRounds,
   defaultPingPongConfig,
   defaultPingPongState,
+  isReviewerAvailabilityFault,
   PINGPONG_DEFAULT_MAX_ROUNDS,
   PINGPONG_MAX_MAX_ROUNDS,
   PINGPONG_MIN_MAX_ROUNDS,
@@ -683,11 +685,17 @@ export type LoopStatus =
    */
   | 'needs-human-arbitration'
   /**
-   * Ping-pong: the reviewer was repeatedly UNRELIABLE (timeouts, infra
-   * failures, unparseable/low-effort output, provider outage that survived
-   * fallback). Fail-closed — never silently treated as a clean pass.
+   * Ping-pong: the reviewer repeatedly produced UNUSABLE output (empty,
+   * unparseable, low-effort) — a reviewer-QUALITY fault. Fail-closed; distinct
+   * from `reviewer-unavailable` (reviewer couldn't be reached at all).
    */
   | 'reviewer-unreliable'
+  /**
+   * Ping-pong: no review could be obtained — the reviewer provider was
+   * UNAVAILABLE too long (rate-limited / unreachable / none eligible after
+   * fallback). An availability problem, NOT a code judgement nor garbage output.
+   */
+  | 'reviewer-unavailable'
   /**
    * Ping-pong: the builder keeps declaring done without ever addressing or
    * rebutting the open findings. Surfaced rather than looping forever.

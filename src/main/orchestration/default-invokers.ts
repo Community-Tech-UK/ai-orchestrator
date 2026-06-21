@@ -1082,7 +1082,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     || status === 'failed' || status === 'error' || status === 'no-progress' || status === 'provider-limit'
     // Ping-pong terminal states (bigchange_pingpong_review §4.11).
     || status === 'cost-exceeded' || status === 'needs-human-arbitration'
-    || status === 'reviewer-unreliable' || status === 'builder-unreliable';
+    || status === 'reviewer-unreliable' || status === 'reviewer-unavailable'
+    || status === 'builder-unreliable';
 
   // FU-8: cleanup function that tears down every adapter we own for a
   // given loop. Two callers may invoke this concurrently (the awaitable

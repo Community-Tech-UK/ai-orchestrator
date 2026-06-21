@@ -36,6 +36,7 @@ const hoisted = vi.hoisted(() => ({
   chatService: {
     appendSystemEvent: vi.fn(),
     tryGetChat: vi.fn(),
+    bumpLineageEpoch: vi.fn(),
   },
 }));
 

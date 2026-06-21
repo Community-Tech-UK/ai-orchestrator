@@ -1,3 +1,5 @@
+import type { LoopOutstandingEntry } from '../../shared/types/loop-outstanding.types';
+
 /**
  * Parsed view of a markdown plan-file's checkbox state. Single source of
  * truth shared by `LoopStageMachine.captureStartupSnapshot` and
@@ -29,9 +31,9 @@ export function parsePlanChecklist(text: string): PlanChecklistState {
 /** Parsed view of OUTSTANDING.md's actionable sections. */
 export interface OutstandingSections {
   /** Real bullets under a "Needs human" / "Requires human" / "Manual verif" heading. */
-  needsHuman: string[];
+  needsHuman: LoopOutstandingEntry[];
   /** Real bullets under an "Open questions" heading. */
-  openQuestions: string[];
+  openQuestions: LoopOutstandingEntry[];
 }
 
 /** Section a heading maps to, or null when it's an unrelated heading. */
@@ -43,6 +45,21 @@ const OPEN_QUESTIONS_HEADING = /open[-\s]*questions?|unresolved[-\s]*questions?/
 
 /** Placeholder bullets that mean "section is empty" — never counted as items. */
 const OUTSTANDING_PLACEHOLDER = /^(none|n\/?a|nil|empty|tbd|—|-)\.?$/i;
+
+/**
+ * A bullet whose text is the agent's recommended decision for the item it
+ * follows, e.g. `- Recommendation: provision the VPS in the UK region`. Requires
+ * an explicit colon so a genuine item that merely starts with the word (e.g.
+ * "Recommendation from legal needed") is NOT swallowed. Capture group 1 is the
+ * recommendation text (guaranteed non-empty by `(.+)`).
+ */
+const RECOMMENDATION_BULLET = /^(?:recommendation|recommended|suggestion|suggested)\s*:\s*(.+)$/i;
+
+/** Return the recommendation text if `text` is a `Recommendation:` bullet, else null. */
+function parseRecommendationBullet(text: string): string | null {
+  const m = text.match(RECOMMENDATION_BULLET);
+  return m ? m[1].trim() : null;
+}
 
 function classifyOutstandingHeading(title: string): OutstandingSectionKind {
   // Needs-human takes precedence so a "Needs human questions" heading (unlikely
@@ -74,17 +91,31 @@ export function parseOutstandingSections(raw: string): OutstandingSections {
   const result: OutstandingSections = { needsHuman: [], openQuestions: [] };
   if (!raw.trim()) return result;
   let section: OutstandingSectionKind = null;
+  // The item a `Recommendation:` bullet attaches to (the most recent real item
+  // in the current section). Reset on every heading so a recommendation can't
+  // leak across sections.
+  let lastEntry: LoopOutstandingEntry | null = null;
   for (const line of raw.split(/\r?\n/)) {
     const heading = line.match(/^#{1,6}\s+(.*)$/);
     if (heading) {
       section = classifyOutstandingHeading(heading[1].trim().toLowerCase());
+      lastEntry = null;
       continue;
     }
     if (!section) continue;
     const text = normalizeOutstandingBullet(line);
     if (text === null) continue;
-    if (section === 'needs-human') result.needsHuman.push(text);
-    else result.openQuestions.push(text);
+    const recommendation = parseRecommendationBullet(text);
+    if (recommendation !== null) {
+      // Attach to the preceding item (first recommendation wins); a stray
+      // recommendation with no item before it in the section is ignored.
+      if (lastEntry && lastEntry.recommendation === null) lastEntry.recommendation = recommendation;
+      continue;
+    }
+    const entry: LoopOutstandingEntry = { text, recommendation: null };
+    if (section === 'needs-human') result.needsHuman.push(entry);
+    else result.openQuestions.push(entry);
+    lastEntry = entry;
   }
   return result;
 }

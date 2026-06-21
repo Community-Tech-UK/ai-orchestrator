@@ -21,12 +21,47 @@ describe('parseOutstandingSections', () => {
 
     const result = parseOutstandingSections(raw);
     expect(result.needsHuman).toEqual([
-      'Deploy to a physical device and confirm the camera works.',
-      'Run on a machine with a GPU.',
+      { text: 'Deploy to a physical device and confirm the camera works.', recommendation: null },
+      { text: 'Run on a machine with a GPU.', recommendation: null },
     ]);
     expect(result.openQuestions).toEqual([
-      'Should the model be cached between runs?',
-      'What timeout is acceptable?',
+      { text: 'Should the model be cached between runs?', recommendation: null },
+      { text: 'What timeout is acceptable?', recommendation: null },
+    ]);
+  });
+
+  it('attaches Recommendation sub-bullets to the item they follow', () => {
+    const raw = [
+      '## Needs human',
+      '- Provision the Postgres VPS in the UK region.',
+      '  - Recommendation: use the IONOS Coventry VPS with TLS + UFW.',
+      '- Sign the release.',
+      '',
+      '## Open questions',
+      '- Should kits cache in Redis?',
+      '  - Recommendation: yes, with a TTL fallback.',
+    ].join('\n');
+    const result = parseOutstandingSections(raw);
+    expect(result.needsHuman).toEqual([
+      { text: 'Provision the Postgres VPS in the UK region.', recommendation: 'use the IONOS Coventry VPS with TLS + UFW.' },
+      { text: 'Sign the release.', recommendation: null },
+    ]);
+    expect(result.openQuestions).toEqual([
+      { text: 'Should kits cache in Redis?', recommendation: 'yes, with a TTL fallback.' },
+    ]);
+  });
+
+  it('ignores a Recommendation bullet with no preceding item in the section', () => {
+    const raw = '## Needs human\n- Recommendation: orphaned, nothing to attach to';
+    const result = parseOutstandingSections(raw);
+    expect(result.needsHuman).toEqual([]);
+  });
+
+  it('does not swallow an item that merely starts with the word recommendation (no colon)', () => {
+    const raw = '## Needs human\n- Recommendation from legal is required before launch';
+    const result = parseOutstandingSections(raw);
+    expect(result.needsHuman).toEqual([
+      { text: 'Recommendation from legal is required before launch', recommendation: null },
     ]);
   });
 
@@ -45,14 +80,14 @@ describe('parseOutstandingSections', () => {
       '1. Is `feature-x` in scope?',
     ].join('\n');
     const result = parseOutstandingSections(raw);
-    expect(result.needsHuman).toEqual(['Sign the release with the prod key']);
-    expect(result.openQuestions).toEqual(['Is feature-x in scope?']);
+    expect(result.needsHuman).toEqual([{ text: 'Sign the release with the prod key', recommendation: null }]);
+    expect(result.openQuestions).toEqual([{ text: 'Is feature-x in scope?', recommendation: null }]);
   });
 
   it('ignores bullets outside of recognised sections', () => {
     const raw = '## Summary\n- not an outstanding item\n## Needs human\n- a real one';
     const result = parseOutstandingSections(raw);
-    expect(result.needsHuman).toEqual(['a real one']);
+    expect(result.needsHuman).toEqual([{ text: 'a real one', recommendation: null }]);
     expect(result.openQuestions).toEqual([]);
   });
 
