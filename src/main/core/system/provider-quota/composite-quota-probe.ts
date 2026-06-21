@@ -49,7 +49,10 @@ export class CompositeQuotaProbe implements ProviderQuotaProbe {
       fallback = null;
     }
     if (fallback && fallback.windows.length > 0) {
-      return fallback;
+      // Surface last-known windows from the monitor, but keep an actionable
+      // reauth flag the native probe raised so the UI can still prompt sign-in
+      // (the monitor's cached numbers can outlive the user's own login).
+      return nativeSnap?.needsReauth ? { ...fallback, needsReauth: true } : fallback;
     }
 
     return nativeSnap;

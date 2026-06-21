@@ -136,6 +136,33 @@ export class InstanceCommunicationManager extends EventEmitter {
     return typeof turnId === 'string' ? turnId : undefined;
   }
 
+  /**
+   * §3.2: Surface a definitive invalid/expired session as a TYPED system notice
+   * (carried in `metadata.notice`) instead of leaving the raw provider error
+   * text in the message stream. The renderer can key off `notice.kind` to show
+   * a clear banner with honest recovery actions rather than a cryptic error.
+   * Emitted once per blacklist transition (callers guard on the transition).
+   */
+  private emitInvalidSessionNotice(instanceId: string, instance: Instance): void {
+    const message: OutputMessage = {
+      id: generateId(),
+      timestamp: Date.now(),
+      type: 'system',
+      content:
+        'This session could not be resumed — the provider no longer has it. ' +
+        'Continuing starts a fresh session; use "Replay from history" to restore prior context.',
+      metadata: {
+        notice: {
+          kind: 'invalid-session',
+          sessionId: instance.providerSessionId ?? instance.sessionId,
+          provider: instance.provider,
+        },
+      },
+    };
+    this.addToOutputBuffer(instance, message);
+    this.emit('output', { instanceId, message });
+  }
+
   private getAdapterCurrentTurnId(adapter: CliAdapter): string | undefined {
     if (typeof (adapter as { getCurrentTurnId?: unknown }).getCurrentTurnId !== 'function') {
       return undefined;
@@ -1011,21 +1038,26 @@ export class InstanceCommunicationManager extends EventEmitter {
         message = this.withRuntimeMetadata(message, adapterGenerationAtSubscribe, turnId);
 
         if (message.type === 'error' && isSessionNotFoundText(message.content)) {
+          const firstBlacklist = !instance.sessionResumeBlacklisted;
           instance.sessionResumeBlacklisted = true;
           logger.warn('Session id blacklisted due to resume failure output', {
             instanceId,
             sessionId: instance.sessionId,
           });
+          if (firstBlacklist) this.emitInvalidSessionNotice(instanceId, instance);
           // B4/C1: Persist blacklist immediately so a crash cannot replay the
-          // doomed session ID. writeThroughIdentity enqueues + awaits a disk save.
-          void getSessionContinuityManagerIfInitialized()?.writeThroughIdentity(instanceId, {
-            nativeResumeFailedAt: Date.now(),
-          }).catch((err: unknown) => {
+          // doomed session ID. Awaited so the save completes before this handler
+          // returns — eliminates the crash window between in-memory update and disk.
+          try {
+            await getSessionContinuityManagerIfInitialized()?.writeThroughIdentity(instanceId, {
+              nativeResumeFailedAt: Date.now(),
+            });
+          } catch (err: unknown) {
             logger.warn('writeThroughIdentity failed after blacklist set (output)', {
               instanceId,
               error: err instanceof Error ? err.message : String(err),
             });
-          });
+          }
         }
 
         // Sync CLI-assigned session ID back to instance for accurate history archiving.
@@ -1038,6 +1070,21 @@ export class InstanceCommunicationManager extends EventEmitter {
           instance.sessionId = cliSessionId;
           if (previousSessionId !== cliSessionId) {
             getTodoManager().copyTodos(previousSessionId, cliSessionId);
+          }
+          // Persist BEFORE notifying the UI — ensures disk is consistent if the
+          // process crashes in the window between in-memory adoption and save.
+          // A crash after queueUpdate but before the save would leave disk with the
+          // old session ID while the renderer had already stored the new one;
+          // the correct order is: save first, then tell the UI (B4/C1).
+          try {
+            await getSessionContinuityManagerIfInitialized()?.writeThroughIdentity(instanceId, {
+              sessionId: cliSessionId,
+            });
+          } catch (err: unknown) {
+            logger.warn('writeThroughIdentity failed after session ID update', {
+              instanceId,
+              error: err instanceof Error ? err.message : String(err),
+            });
           }
           this.deps.queueUpdate(
             instanceId,
@@ -1057,16 +1104,6 @@ export class InstanceCommunicationManager extends EventEmitter {
               historyThreadId: instance.historyThreadId,
             }
           );
-          // Write-through: persist new session ID immediately so a crash cannot
-          // replay the old (stale) session ID back to the provider (closes B4/C1).
-          void getSessionContinuityManagerIfInitialized()?.writeThroughIdentity(instanceId, {
-            sessionId: cliSessionId,
-          }).catch((err: unknown) => {
-            logger.warn('writeThroughIdentity failed after session ID update', {
-              instanceId,
-              error: err instanceof Error ? err.message : String(err),
-            });
-          });
         }
 
         // Reset circuit breaker counter on tool activity — tool-use sequences
@@ -1589,21 +1626,26 @@ export class InstanceCommunicationManager extends EventEmitter {
       // cannot loop on it.
       const errText = errorMessage;
       if (isSessionNotFoundText(errText)) {
+        const firstBlacklist = !instance.sessionResumeBlacklisted;
         instance.sessionResumeBlacklisted = true;
         logger.warn('Session id blacklisted due to resume failure', {
           instanceId,
           sessionId: instance.sessionId,
         });
+        if (firstBlacklist) this.emitInvalidSessionNotice(instanceId, instance);
         // B4/C1: Persist blacklist immediately so a crash cannot replay the
-        // doomed session ID.
-        void getSessionContinuityManagerIfInitialized()?.writeThroughIdentity(instanceId, {
-          nativeResumeFailedAt: Date.now(),
-        }).catch((err: unknown) => {
+        // doomed session ID. Awaited so the save completes before this handler
+        // returns — eliminates the crash window between in-memory update and disk.
+        try {
+          await getSessionContinuityManagerIfInitialized()?.writeThroughIdentity(instanceId, {
+            nativeResumeFailedAt: Date.now(),
+          });
+        } catch (err: unknown) {
           logger.warn('writeThroughIdentity failed after blacklist set (error)', {
             instanceId,
             error: err instanceof Error ? err.message : String(err),
           });
-        });
+        }
       }
 
       // Check if this is a context overflow error
@@ -1795,6 +1837,25 @@ export class InstanceCommunicationManager extends EventEmitter {
       };
       this.addToOutputBuffer(instance, stallMessage);
       this.emit('output', { instanceId, message: stallMessage });
+    });
+
+    adapter.on('slot:wait-start', ({ provider, startedAt, deadlineAt }: { provider: string; startedAt: number; deadlineAt?: number }) => {
+      if (isStaleAdapterEvent('slot:wait-start')) return;
+      const instance = this.deps.getInstance(instanceId);
+      if (!instance) return;
+      this.deps.queueUpdate(instanceId, instance.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+        kind: 'provider-slot',
+        provider,
+        startedAt,
+        deadlineAt,
+      });
+    });
+
+    adapter.on('slot:wait-end', () => {
+      if (isStaleAdapterEvent('slot:wait-end')) return;
+      const instance = this.deps.getInstance(instanceId);
+      if (!instance) return;
+      this.deps.queueUpdate(instanceId, instance.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, null);
     });
 
     adapter.on('exit', (code: number | null, signal: string | null) => {

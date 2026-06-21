@@ -20,10 +20,16 @@ import type { InterruptResult } from '../../cli/adapters/base-cli-adapter';
 
 // ── Module mocks (hoisted) ────────────────────────────────────────────────────
 
-const { mockSupervisor, mockCircuitBreaker, mockContinuity } = vi.hoisted(() => ({
+const { mockSupervisor, mockCircuitBreaker, mockContinuity, mockSessionMutex } = vi.hoisted(() => ({
   mockSupervisor: { recordInterrupt: vi.fn(), recordTurnEnd: vi.fn(), recordAdapterSetup: vi.fn() },
   mockCircuitBreaker: { recordAttempt: vi.fn(() => 0), isOpen: vi.fn(() => false) },
   mockContinuity: { createSnapshot: vi.fn().mockResolvedValue(null) },
+  // getLockInfo defaults to null (uncontended) so no waitReason churn unless a
+  // test opts into contention via mockReturnValue.
+  mockSessionMutex: {
+    acquire: vi.fn().mockResolvedValue(vi.fn()),
+    getLockInfo: vi.fn(() => null as null | { source: string; acquiredAt: number; durationMs: number; owner?: { operation?: string } }),
+  },
 }));
 
 vi.mock('../../logging/logger', () => ({
@@ -35,9 +41,7 @@ vi.mock('../../../shared/utils/id-generator', () => ({
 }));
 
 vi.mock('../../session/session-mutex', () => ({
-  getSessionMutex: vi.fn(() => ({
-    acquire: vi.fn().mockResolvedValue(vi.fn()),
-  })),
+  getSessionMutex: vi.fn(() => mockSessionMutex),
 }));
 
 vi.mock('../../session/session-turn-supervisor', () => ({
@@ -273,7 +277,7 @@ describe('InterruptRespawnHandler.interrupt()', () => {
     expect(state.adapter).toBeUndefined(); // deleted by escalation path
   });
 
-  it('never-settling completion: A3 deadline fires; instance transitions to idle', async () => {
+  it('never-settling completion: A3 deadline fires; force-abort net handles cleanup (NOT idle at 15s)', async () => {
     let completionResolve: (v: { status: 'interrupted' }) => void;
     const neverSettles = new Promise<{ status: 'interrupted' }>((_resolve) => {
       completionResolve = _resolve;
@@ -290,16 +294,24 @@ describe('InterruptRespawnHandler.interrupt()', () => {
     handler.interrupt('inst-1');
     expect(state.transitions).toContain('interrupting');
 
-    // Advance past INTERRUPT_COMPLETION_DEADLINE_MS (15_000)
+    // Advance past INTERRUPT_COMPLETION_DEADLINE_MS (15s) — handleInterruptCompletion
+    // returns early (A3 fix). Force-abort net is still armed; instance NOT idle yet.
     vi.advanceTimersByTime(16_000);
-    // Allow promise chain microtasks to run
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
 
-    // The deadline fires, result becomes {status:'rejected'}, and handleInterruptCompletion
-    // transitions to idle and resolves respawnPromise.
-    expect(state.transitions).toContain('idle');
+    expect(state.transitions).not.toContain('idle');
+    expect(instance.respawnPromise).toBeDefined(); // force-abort not yet fired
+
+    // Advance to 31s total — force-abort net fires, terminates adapter, settles to 'cancelled'.
+    vi.advanceTimersByTime(15_000);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(adapter.terminate).toHaveBeenCalledWith(true);
+    expect(state.transitions).toContain('cancelled');
     expect(instance.respawnPromise).toBeUndefined();
   });
 
@@ -365,5 +377,54 @@ describe('InterruptRespawnHandler.interrupt()', () => {
     const cancelledCall = state.queueUpdateCalls.find(args => args[1] === 'cancelled');
     expect(cancelledCall).toBeDefined();
     expect(cancelledCall![10]).toBeNull();
+  });
+});
+
+describe('InterruptRespawnHandler.respawnAfterInterrupt() — mutex waitReason (C3/§4.G)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCircuitBreaker.recordAttempt.mockReturnValue(0);
+    mockSessionMutex.acquire.mockResolvedValue(vi.fn());
+    mockSessionMutex.getLockInfo.mockReturnValue(null);
+  });
+
+  it('surfaces a `mutex` waitReason when the session lock is contended, then clears it', async () => {
+    // status 'cancelled' makes shouldAbortRespawn() return true right after the
+    // lock is acquired, so respawn exits before spawning a new adapter.
+    const instance = makeInstance({ status: 'cancelled' });
+    const state: FakeDepsState = { instance, adapter: makeAdapter(), queueUpdateCalls: [], outputMessages: [], transitions: [] };
+    const handler = new InterruptRespawnHandler(makeDeps(state));
+
+    mockSessionMutex.getLockInfo.mockReturnValue({
+      source: 'autosave', acquiredAt: Date.now(), durationMs: 1234, owner: { operation: 'save' },
+    });
+
+    await handler.respawnAfterInterrupt('inst-1');
+
+    const mutexCalls = state.queueUpdateCalls.filter(
+      (args) => (args[10] as { kind?: string } | null)?.kind === 'mutex',
+    );
+    expect(mutexCalls).toHaveLength(1);
+    expect(mutexCalls[0][10]).toMatchObject({ kind: 'mutex', operation: 'respawn', owner: 'save' });
+
+    // The reason must be cleared (null) after we own the lock.
+    const idx = state.queueUpdateCalls.indexOf(mutexCalls[0]);
+    const clearedAfter = state.queueUpdateCalls.slice(idx + 1).some((args) => args[10] === null);
+    expect(clearedAfter).toBe(true);
+  });
+
+  it('does not churn waitReason when the session lock is uncontended', async () => {
+    const instance = makeInstance({ status: 'cancelled' });
+    const state: FakeDepsState = { instance, adapter: makeAdapter(), queueUpdateCalls: [], outputMessages: [], transitions: [] };
+    const handler = new InterruptRespawnHandler(makeDeps(state));
+
+    mockSessionMutex.getLockInfo.mockReturnValue(null);
+
+    await handler.respawnAfterInterrupt('inst-1');
+
+    const mutexCalls = state.queueUpdateCalls.filter(
+      (args) => (args[10] as { kind?: string } | null)?.kind === 'mutex',
+    );
+    expect(mutexCalls).toHaveLength(0);
   });
 });

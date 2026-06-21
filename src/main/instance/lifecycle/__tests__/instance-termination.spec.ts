@@ -91,6 +91,7 @@ describe('InstanceTerminationCoordinator', () => {
       transitionState: vi.fn((instance, status) => {
         instance.status = status;
       }),
+      setWaitReason: vi.fn(),
       terminateChild: vi.fn().mockResolvedValue(undefined),
       unregisterSupervisor: vi.fn(),
       unregisterOrchestration: vi.fn(),
@@ -118,6 +119,59 @@ describe('InstanceTerminationCoordinator', () => {
     expect(deps.deleteInstance).toHaveBeenCalledWith(instance.id);
     expect(deps.forceReleaseSessionMutex).toHaveBeenCalledWith(instance.id);
     expect(deps.emitRemoved).toHaveBeenCalledWith(instance.id);
+  });
+
+  it('surfaces a terminating waitReason during a graceful terminate, then clears it', async () => {
+    const instance = makeInstance();
+    const adapter = makeAdapter();
+    instances.set(instance.id, instance);
+    adapters.set(instance.id, adapter);
+    const coordinator = new InstanceTerminationCoordinator(deps);
+
+    await coordinator.terminateInstance(instance.id, true);
+
+    const calls = (deps.setWaitReason as ReturnType<typeof vi.fn>).mock.calls;
+    // First call sets the terminating reason; a later call clears it (null).
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    const [firstId, firstReason] = calls[0];
+    expect(firstId).toBe(instance.id);
+    expect(firstReason).toMatchObject({ kind: 'terminating', force: false });
+    expect(typeof firstReason.startedAt).toBe('number');
+    expect(typeof firstReason.deadlineAt).toBe('number');
+    expect(calls[calls.length - 1]).toEqual([instance.id, null]);
+
+    // The waitReason must be set BEFORE the adapter is asked to terminate.
+    const setOrder = (deps.setWaitReason as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    const terminateOrder = (adapter.terminate as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    expect(setOrder).toBeLessThan(terminateOrder);
+  });
+
+  it('marks a force terminate (graceful=false) with force:true and no deadline', async () => {
+    const instance = makeInstance();
+    const adapter = makeAdapter();
+    instances.set(instance.id, instance);
+    adapters.set(instance.id, adapter);
+    const coordinator = new InstanceTerminationCoordinator(deps);
+
+    await coordinator.terminateInstance(instance.id, false);
+
+    const [, firstReason] = (deps.setWaitReason as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(firstReason).toMatchObject({ kind: 'terminating', force: true });
+    expect(firstReason.deadlineAt).toBeUndefined();
+  });
+
+  it('clears the terminating waitReason even if adapter.terminate rejects', async () => {
+    const instance = makeInstance();
+    const adapter = makeAdapter();
+    (adapter.terminate as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'));
+    instances.set(instance.id, instance);
+    adapters.set(instance.id, adapter);
+    const coordinator = new InstanceTerminationCoordinator(deps);
+
+    await coordinator.terminateInstance(instance.id, true);
+
+    const calls = (deps.setWaitReason as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls[calls.length - 1]).toEqual([instance.id, null]);
   });
 
   it('delegates child termination for terminate-children policy', async () => {

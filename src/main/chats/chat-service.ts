@@ -82,6 +82,16 @@ export class ChatService {
   private readonly bridge: ChatTranscriptBridge;
   private initialized = false;
   private migrationDone: Promise<void> = Promise.resolve();
+  /**
+   * Per-chat context handoff queued when a loop terminates, consumed (and
+   * cleared) on the chat's next outgoing message. A loop runs in its own CLI
+   * session, so without this the chat's model has no memory of the loop's work
+   * (see `buildLoopContextHandoff`). In-memory by design — mirrors
+   * `InstanceCommunication.queueContinuityPreamble`; the visible recap card is
+   * separately persisted to the ledger, so a restart loses only the silent
+   * priming, not the user-facing summary.
+   */
+  private readonly pendingLoopHandoffs = new Map<string, string>();
 
   static getInstance(config: ChatServiceConfig): ChatService {
     this.instance ??= new ChatService(config);
@@ -395,7 +405,8 @@ export class ChatService {
       CHAT_REPLAY_MESSAGE_LIMIT,
     )).messages;
     const instance = await this.ensureRuntime(workingChat);
-    const messageForRuntime = this.withReplayIfNeeded(workingChat, replayMessages, text);
+    const replayed = this.withReplayIfNeeded(workingChat, replayMessages, text);
+    const messageForRuntime = this.withLoopHandoffIfPending(workingChat, replayed);
     await this.instanceManager.sendInput(instance.id, messageForRuntime, input.attachments);
     const updated = this.store.update(workingChat.id, {
       currentInstanceId: instance.id,
@@ -539,6 +550,35 @@ export class ChatService {
       : 'the previous project';
     const replay = buildReplayBlock(messagesBeforeCurrent.slice(0, -1), previousCwd, chat.currentCwd ?? homedir());
     return replay ? `${replay}\n\n${text}` : text;
+  }
+
+  /**
+   * Queue a loop's context handoff for this chat's next outgoing message. The
+   * loop coordinator (via the loop IPC handlers) calls this when a loop bound to
+   * this chat terminates, so the next interactive turn can answer follow-ups
+   * about the loop. Overwrites any prior pending handoff (latest loop wins).
+   */
+  queueLoopHandoff(chatId: string, handoff: string): void {
+    if (!handoff.trim()) {
+      return;
+    }
+    this.pendingLoopHandoffs.set(chatId, handoff);
+    logger.info('Queued loop context handoff for next chat message', { chatId });
+  }
+
+  /**
+   * Prepend a pending loop handoff (if any) to the outgoing message, then clear
+   * it so it primes exactly one turn. Sits in front of the cwd-switch replay so
+   * the freshest context (the loop that just ran) leads.
+   */
+  private withLoopHandoffIfPending(chat: ChatRecord, message: string): string {
+    const handoff = this.pendingLoopHandoffs.get(chat.id);
+    if (!handoff) {
+      return message;
+    }
+    this.pendingLoopHandoffs.delete(chat.id);
+    logger.info('Prepended pending loop handoff to chat message', { chatId: chat.id });
+    return `${handoff}\n\n${message}`;
   }
 
   private async detailFor(chat: ChatRecord): Promise<ChatDetail> {

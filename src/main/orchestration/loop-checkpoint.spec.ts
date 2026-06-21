@@ -48,6 +48,7 @@ function iteration(seq: number): LoopIteration {
     workHash: `hash-${seq}`,
     outputSimilarityToPrev: null,
     outputExcerpt: '',
+    outputFull: '',
     progressVerdict: 'OK',
     progressSignals: [],
     completionSignalsFired: [],

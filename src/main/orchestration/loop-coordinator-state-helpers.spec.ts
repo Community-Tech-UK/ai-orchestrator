@@ -1,11 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, afterEach, beforeEach } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import type { LoopState } from '../../shared/types/loop.types';
 import {
   DEFAULT_LOOP_MAX_COST_CENTS,
   DEFAULT_LOOP_MAX_ITERATIONS,
   defaultLoopConfig,
 } from '../../shared/types/loop.types';
-import { checkLoopHardCaps, cloneLoopStateForBroadcast, materializeLoopConfig } from './loop-coordinator-state-helpers';
+import {
+  checkLoopHardCaps,
+  cloneLoopStateForBroadcast,
+  firstExistingBlockedFile,
+  materializeLoopConfig,
+} from './loop-coordinator-state-helpers';
 
 function stateWithTokens(totalTokens: number, maxTokens: number | null): LoopState {
   const config = defaultLoopConfig('/tmp/workspace', 'do work');
@@ -122,5 +130,65 @@ describe('LoopCoordinator state helpers', () => {
 
     expect(state.config.nextObjectivePlanner).toBeTypeOf('function');
     expect(cloned.config.nextObjectivePlanner).toBeUndefined();
+  });
+});
+
+// P1 isolation acceptance: when isolateLoopWorkspaces is true, a stale root
+// BLOCKED.md must not pause a sibling loop. Only the scoped per-run path is
+// checked; the root fallback is deliberately skipped.
+describe('firstExistingBlockedFile — P1 BLOCKED.md scope guard', () => {
+  let workspace: string;
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'blocked-scope-'));
+  });
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true });
+  });
+
+  function makeState(isolateLoopWorkspaces: boolean): LoopState {
+    const config = defaultLoopConfig(workspace, 'test goal');
+    config.isolateLoopWorkspaces = isolateLoopWorkspaces;
+    return {
+      id: 'loop-scope-test',
+      chatId: 'chat-1',
+      config,
+      status: 'running',
+      startedAt: Date.now(),
+      endedAt: null,
+      totalIterations: 0,
+      totalTokens: 0,
+      totalCostCents: 0,
+      currentStage: 'IMPLEMENT',
+      pendingInterventions: [],
+      completedFileRenameObserved: false,
+      doneSentinelPresentAtStart: false,
+      planChecklistFullyCheckedAtStart: false,
+      uncompletedPlanFilesAtStart: [],
+      tokensSinceLastTestImprovement: 0,
+      highestTestPassCount: 0,
+      iterationsOnCurrentStage: 0,
+      recentWarnIterationSeqs: [],
+      completionAttempts: 0,
+      lastCompletionEvidenceHash: null,
+      repeatedCompletionEvidenceCount: 0,
+      terminalIntentHistory: [],
+    };
+  }
+
+  it('non-isolated loop: finds root BLOCKED.md as a fallback', async () => {
+    // Write ONLY the root BLOCKED.md (not the scoped one).
+    await writeFile(join(workspace, 'BLOCKED.md'), 'blocker');
+    const result = await firstExistingBlockedFile(makeState(false));
+    expect(result).toBe(join(workspace, 'BLOCKED.md'));
+  });
+
+  it('isolated loop: ignores root BLOCKED.md even when it exists', async () => {
+    // Write ONLY the root BLOCKED.md — a stale artifact from another run.
+    await writeFile(join(workspace, 'BLOCKED.md'), 'stale blocker from other run');
+    // Isolated loop must NOT find the root file (it would pause the wrong loop).
+    const result = await firstExistingBlockedFile(makeState(true));
+    expect(result).toBeNull();
   });
 });

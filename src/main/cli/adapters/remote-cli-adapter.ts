@@ -14,12 +14,19 @@ import type { WorkerNodeConnectionServer } from '../../remote-node/worker-node-c
 import { getWorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 import type { CliType } from '../cli-detection';
 import type { UnifiedSpawnOptions } from './adapter-factory';
-import type { AdapterRuntimeCapabilities, CliResponse, CliSpawnMode, InterruptResult, ResumeAttemptResult } from './base-cli-adapter';
+import type { AdapterRuntimeCapabilities, CliResponse, CliSpawnMode, InterruptResult, ResumeAttemptResult, TurnInterruptCompletion } from './base-cli-adapter';
 import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../../pause/orchestrator-paused-error';
 
 const logger = getLogger('RemoteCliAdapter');
+
+/**
+ * Max time to wait for a terminal remote event after an interrupt before the
+ * completion settles to `unknown` (Phase 5 / A2 for remote). Bounds the await so
+ * the interrupt state machine never hangs on a wedged/silent worker.
+ */
+const REMOTE_INTERRUPT_COMPLETION_MS = 15_000;
 
 interface SpawnResponse {
   instanceId: string;
@@ -65,6 +72,13 @@ export class RemoteCliAdapter extends EventEmitter {
   private remoteInstanceId: string | null = null;
   /** Latest resume proof relayed from the worker adapter (P2.9). */
   private lastResumeAttemptResult: ResumeAttemptResult | null = null;
+  /**
+   * Wall-clock of the last sign of life from the remote turn (Phase 5 / D4):
+   * spawn, output, state-change, context, heartbeat, or complete. The idle
+   * monitor reads `getMillisSinceLastActivity()` to detect a connected-but-wedged
+   * worker whose turn-level heartbeat has gone stale.
+   */
+  private lastActivityAt: number | null = null;
   private readonly registry = getWorkerNodeRegistry();
   private registryListenersAttached = false;
   private readonly onRemoteOutputEvent = (event: RemoteOutputEvent): void => {
@@ -183,6 +197,7 @@ export class RemoteCliAdapter extends EventEmitter {
         nodeId: this.targetNodeId,
         instanceId: this.remoteInstanceId,
       });
+      this.markActivity();
       this.emit('spawned', -1);
       return -1; // No local PID for remote instances
     } catch (err) {
@@ -261,7 +276,31 @@ export class RemoteCliAdapter extends EventEmitter {
       this.emit('error', new Error(`Remote interrupt failed: ${err.message}`));
     });
 
-    return { status: 'accepted' };
+    // Phase 5 / A2-for-remote: return an ack PLUS a bounded completion that
+    // settles when the remote turn reaches a terminal event (complete/exit), or
+    // to `unknown` after a deadline — so the interrupt state machine never waits
+    // forever on a wedged or silent worker.
+    const completion = new Promise<TurnInterruptCompletion>((resolve) => {
+      let settled = false;
+      const finish = (result: TurnInterruptCompletion): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.off('complete', onTerminal);
+        this.off('exit', onTerminal);
+        resolve(result);
+      };
+      const onTerminal = (): void => finish({ status: 'interrupted', turnId: undefined });
+      const timer = setTimeout(
+        () => finish({ status: 'unknown', reason: 'remote interrupt: no terminal event before deadline' }),
+        REMOTE_INTERRUPT_COMPLETION_MS,
+      );
+      if (typeof timer.unref === 'function') timer.unref();
+      this.once('complete', onTerminal);
+      this.once('exit', onTerminal);
+    });
+
+    return { status: 'accepted', completion };
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -387,7 +426,22 @@ export class RemoteCliAdapter extends EventEmitter {
   // Remote event handlers — called by connection server when output arrives
   // ---------------------------------------------------------------------------
 
+  /** Record any sign of life from the remote turn (Phase 5 / D4). */
+  private markActivity(): void {
+    this.lastActivityAt = Date.now();
+  }
+
+  /**
+   * Milliseconds since the last sign of life from the remote turn, or `null` if
+   * no activity has been observed yet. Used by the idle monitor to detect a
+   * connected-but-wedged worker (stale turn heartbeat).
+   */
+  getMillisSinceLastActivity(): number | null {
+    return this.lastActivityAt === null ? null : Date.now() - this.lastActivityAt;
+  }
+
   handleRemoteOutput(message: OutputMessage): void {
+    this.markActivity();
     this.emit('output', message);
   }
 
@@ -398,6 +452,7 @@ export class RemoteCliAdapter extends EventEmitter {
   }
 
   handleRemoteStateChange(status: string): void {
+    this.markActivity();
     this.emit('stateChange', status);
     this.emit('status', status);
   }
@@ -407,18 +462,22 @@ export class RemoteCliAdapter extends EventEmitter {
   }
 
   handleRemotePermissionRequest(payload: unknown): void {
+    this.markActivity();
     this.emit('input_required', payload);
   }
 
   handleRemoteContext(usage: unknown): void {
+    this.markActivity();
     this.emit('context', usage);
   }
 
   handleRemoteHeartbeat(): void {
+    this.markActivity();
     this.emit('heartbeat');
   }
 
   handleRemoteComplete(response: CliResponse): void {
+    this.markActivity();
     this.emit('complete', response);
   }
 

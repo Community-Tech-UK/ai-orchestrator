@@ -69,6 +69,7 @@ function makeLoopIteration(overrides: Partial<LoopIteration> = {}): LoopIteratio
     workHash: 'hash',
     outputSimilarityToPrev: null,
     outputExcerpt: '',
+    outputFull: '',
     progressVerdict: 'OK',
     progressSignals: [],
     completionSignalsFired: [],
@@ -187,6 +188,22 @@ describe('LoopStore.getIterations pagination', () => {
     expect(store.getIterations('loop-paged', undefined, undefined, { limit: 2 }).map((i) => i.seq)).toEqual([0, 1]);
     expect(store.getIterations('loop-paged', undefined, undefined, { limit: 2, offset: 1 }).map((i) => i.seq)).toEqual([1, 2]);
     expect(store.countIterations('loop-paged')).toBe(3);
+  });
+
+  it('round-trips outputFull through persistence (migration 010) distinctly from the excerpt', () => {
+    const state = makeState({ id: 'loop-full' });
+    store.upsertRun(state);
+    store.insertIteration(makeLoopIteration({
+      id: 'loop-full-0',
+      loopRunId: 'loop-full',
+      seq: 0,
+      outputExcerpt: 'head…tail',
+      outputFull: 'The complete final response, every word of it.',
+    }));
+
+    const [iter] = store.getIterations('loop-full');
+    expect(iter.outputExcerpt).toBe('head…tail');
+    expect(iter.outputFull).toBe('The complete final response, every word of it.');
   });
 });
 
@@ -362,6 +379,91 @@ describe('FU-3: LoopStore restart-failure counter', () => {
     // Counter must still be 3 — upsertRun is allowed to change status and
     // counters but must leave restart_failure_count alone.
     expect(store.getRestartFailureCount('loop-preserve')).toBe(3);
+  });
+});
+
+describe('P3: LoopStore worktree column persistence', () => {
+  it('upsertRun persists worktree_path and branch_name from config on INSERT', () => {
+    const state = makeState({
+      id: 'loop-wt-1',
+      config: {
+        ...defaultLoopConfig('/tmp/project', 'goal'),
+        executionCwd: '/tmp/project/.worktrees/task-abc',
+        worktreeBranch: 'task-abc-1a2b3c',
+      },
+    });
+    store.upsertRun(state);
+
+    const row = (driver.prepare(
+      `SELECT worktree_path, branch_name FROM loop_runs WHERE id = 'loop-wt-1'`,
+    ).get() as { worktree_path: string | null; branch_name: string | null } | undefined);
+    expect(row?.worktree_path).toBe('/tmp/project/.worktrees/task-abc');
+    expect(row?.branch_name).toBe('task-abc-1a2b3c');
+  });
+
+  it('subsequent upsertRun calls do NOT overwrite worktree columns (INSERT-only pattern)', () => {
+    // First upsert writes the worktree columns.
+    const state = makeState({
+      id: 'loop-wt-2',
+      config: {
+        ...defaultLoopConfig('/tmp/project', 'goal'),
+        executionCwd: '/tmp/project/.worktrees/task-def',
+        worktreeBranch: 'task-def-4d5e6f',
+      },
+    });
+    store.upsertRun(state);
+
+    // Subsequent upserts (state changes) must NOT clobber the columns —
+    // only clearWorktreeInfo is allowed to NULL them.
+    store.upsertRun({ ...state, totalIterations: 1, status: 'running' });
+    store.upsertRun({ ...state, totalIterations: 2, status: 'running' });
+
+    const row = (driver.prepare(
+      `SELECT worktree_path, branch_name FROM loop_runs WHERE id = 'loop-wt-2'`,
+    ).get() as { worktree_path: string | null; branch_name: string | null } | undefined);
+    expect(row?.worktree_path).toBe('/tmp/project/.worktrees/task-def');
+    expect(row?.branch_name).toBe('task-def-4d5e6f');
+  });
+
+  it('clearWorktreeInfo nulls both columns; further upsertRun does not re-populate', () => {
+    const state = makeState({
+      id: 'loop-wt-3',
+      config: {
+        ...defaultLoopConfig('/tmp/project', 'goal'),
+        executionCwd: '/tmp/project/.worktrees/task-ghi',
+        worktreeBranch: 'task-ghi-7g8h9i',
+      },
+    });
+    store.upsertRun(state);
+    store.clearWorktreeInfo('loop-wt-3');
+
+    // Columns must be NULL after clear.
+    let row = (driver.prepare(
+      `SELECT worktree_path, branch_name FROM loop_runs WHERE id = 'loop-wt-3'`,
+    ).get() as { worktree_path: string | null; branch_name: string | null } | undefined);
+    expect(row?.worktree_path).toBeNull();
+    expect(row?.branch_name).toBeNull();
+
+    // A subsequent upsertRun (e.g. a late state-change event) must NOT re-populate
+    // the columns — the worktree is gone and re-writing its path would cause the
+    // boot reconcile to try to reap an already-removed worktree.
+    store.upsertRun({ ...state, totalIterations: 3, status: 'completed' });
+    row = (driver.prepare(
+      `SELECT worktree_path, branch_name FROM loop_runs WHERE id = 'loop-wt-3'`,
+    ).get() as { worktree_path: string | null; branch_name: string | null } | undefined);
+    expect(row?.worktree_path).toBeNull();
+    expect(row?.branch_name).toBeNull();
+  });
+
+  it('non-isolated loops leave worktree columns NULL', () => {
+    const state = makeState({ id: 'loop-no-wt' }); // no executionCwd / worktreeBranch
+    store.upsertRun(state);
+
+    const row = (driver.prepare(
+      `SELECT worktree_path, branch_name FROM loop_runs WHERE id = 'loop-no-wt'`,
+    ).get() as { worktree_path: string | null; branch_name: string | null } | undefined);
+    expect(row?.worktree_path).toBeNull();
+    expect(row?.branch_name).toBeNull();
   });
 });
 

@@ -1,7 +1,11 @@
 import type { ChatSystemEventInput } from '../chats/chat-service';
 import type { LoopIteration, LoopState } from '../../shared/types/loop.types';
 
-const MAX_EXCERPT_CHARS = 2_000;
+// The chat recap shows the agent's closing message inline. Sized to fit a
+// typical full final response (a few KB) so the common case is shown whole,
+// while still bounding a pathological output from bloating the chat ledger —
+// the unabridged copy always lives in the summary card + Loop trace.
+const MAX_EXCERPT_CHARS = 16_000;
 const MAX_FILE_PATHS = 8;
 
 /**
@@ -105,6 +109,57 @@ export function buildLoopTerminalChatSummary(state: LoopState): ChatSystemEventI
   };
 }
 
+const MAX_HANDOFF_OBJECTIVE_CHARS = 1_000;
+const MAX_HANDOFF_FINAL_CHARS = 8_000;
+
+/**
+ * Build the context-handoff block injected into the NEXT interactive chat turn
+ * after a loop terminates.
+ *
+ * Distinct from {@link buildLoopTerminalChatSummary} (the human-facing chat
+ * card): a loop runs in its own CLI session, so the interactive chat's model
+ * never saw the loop's turns. Without this handoff a follow-up like "were those
+ * issues resolved?" has no antecedent. This block is prepended to the user's
+ * next message (see `ChatService.queueLoopHandoff` /
+ * `InstanceManager.queueContinuityPreamble`) so the model can answer follow-ups
+ * about what the loop did.
+ *
+ * Carries the loop's objective, outcome, files touched, outstanding items, and
+ * the agent's verbatim closing message (generously capped) — enough substance
+ * to reason about, without replaying every iteration.
+ */
+export function buildLoopContextHandoff(state: LoopState): string {
+  const last = state.lastIteration;
+  const lines = [
+    `[Loop context] A background "${state.config.reviewStyle}" loop just ran to completion in this workspace as part of this chat. You did not see its iterations, so use the summary below to answer any follow-up questions about it.`,
+    '',
+    `Objective: ${truncate(state.config.initialPrompt.trim(), MAX_HANDOFF_OBJECTIVE_CHARS)}`,
+    `Outcome: ${state.status}${state.endReason ? ` - ${state.endReason}` : ''}`,
+    `Iterations: ${state.totalIterations}`,
+  ];
+  if (last) {
+    if (last.filesChanged.length > 0) {
+      lines.push(
+        `Files changed: ${last.filesChanged.length}${formatFileList(last.filesChanged.map((file) => file.path))}`,
+      );
+    }
+    if (last.testPassCount !== null || last.testFailCount !== null) {
+      lines.push(`Tests: ${last.testPassCount ?? 0} passed, ${last.testFailCount ?? 0} failed`);
+    }
+  }
+  lines.push(...outstandingLines(state));
+  // The agent's closing message — this is what answers "what did the loop
+  // conclude?". Prefer outputFull (the complete verbatim message); fall back to
+  // outputExcerpt (head+tail of stdout) on pre-migration rows. NOT
+  // verifyOutputExcerpt, which is the verification command's output, not the answer.
+  const finalResponse = (last?.outputFull || last?.outputExcerpt || '').trim();
+  if (finalResponse) {
+    lines.push('', "Loop's final response:", truncate(finalResponse, MAX_HANDOFF_FINAL_CHARS));
+  }
+  lines.push('', '[End loop context. Continue the conversation using the information above.]');
+  return lines.join('\n');
+}
+
 function summaryLines(state: LoopState, last: LoopIteration | undefined): string[] {
   const lines = [
     `Status: ${state.status}`,
@@ -156,7 +211,7 @@ function evidenceLines(last: LoopIteration | undefined): string[] {
   }
 
   const excerpt = truncate(
-    (last.verifyOutputExcerpt || last.outputExcerpt || '').trim(),
+    (last.verifyOutputExcerpt || last.outputFull || last.outputExcerpt || '').trim(),
     MAX_EXCERPT_CHARS,
   );
   if (!excerpt) {
@@ -195,9 +250,11 @@ function formatCost(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+const TRUNCATION_MARKER = '\n…(truncated — open the loop summary card or Loop trace for the full response)';
+
 function truncate(value: string, max: number): string {
   if (value.length <= max) {
     return value;
   }
-  return `${value.slice(0, max - 15).trimEnd()}\n...(truncated)`;
+  return `${value.slice(0, max - TRUNCATION_MARKER.length).trimEnd()}${TRUNCATION_MARKER}`;
 }

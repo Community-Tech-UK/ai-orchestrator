@@ -18,6 +18,30 @@ export function excerpt(s: string, max = 4096): string {
   return s.slice(0, half) + '\n…\n' + s.slice(-half);
 }
 
+/**
+ * Generous safety bound for the verbatim agent closing message persisted on
+ * each iteration as `outputFull`. Realistic closing messages are a few KB;
+ * 100k chars (~25k tokens) guarantees no real response is ever cut, while
+ * still bounding a pathological output so it can't bloat the loop DB or the
+ * live state payload.
+ *
+ * This is deliberately distinct from {@link excerpt}, which keeps a tiny
+ * head+tail string used for similarity / no-progress / completion detection.
+ * `outputFull` exists purely for human display (summary card, trace, chat
+ * recap), so it keeps the whole message rather than a head+tail slice.
+ */
+export const MAX_LOOP_OUTPUT_FULL_CHARS = 100_000;
+
+export function boundFullOutput(s: string): string {
+  if (!s) return '';
+  if (s.length <= MAX_LOOP_OUTPUT_FULL_CHARS) return s;
+  return (
+    `${s.slice(0, MAX_LOOP_OUTPUT_FULL_CHARS).trimEnd()}\n` +
+    `…(truncated — output exceeded ${MAX_LOOP_OUTPUT_FULL_CHARS.toLocaleString('en-US')} chars; ` +
+    'see the child instance transcript for the remainder)'
+  );
+}
+
 function tokenize(s: string): Set<string> {
   return new Set(
     s.toLowerCase()

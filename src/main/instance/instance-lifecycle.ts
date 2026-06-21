@@ -292,6 +292,12 @@ export class InstanceLifecycleManager extends EventEmitter {
         this.recoveryEngine?.clearHistory(id);
       },
       transitionState: (instance, status) => this.transitionState(instance, status),
+      setWaitReason: (id, waitReason) => {
+        const inst = deps.getInstance(id);
+        if (inst) {
+          deps.queueUpdate(id, inst.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, waitReason);
+        }
+      },
       terminateChild: (id, graceful) => this.terminateInstance(id, graceful),
       unregisterSupervisor: (id) => getSupervisorTree().unregisterInstance(id),
       unregisterOrchestration: (id) => deps.unregisterOrchestration(id),
@@ -737,28 +743,55 @@ export class InstanceLifecycleManager extends EventEmitter {
     timeoutMs = 5000,
     pollIntervalMs = 200,
   ): Promise<boolean> {
-    const healthy = await this.runtimeReadiness.waitForResumeHealth(instanceId, timeoutMs, pollIntervalMs);
-    if (!healthy) {
-      return false;
-    }
-
-    const resumeResult = this.getAdapterResumeAttemptResult(instanceId);
-    if (!resumeResult || resumeResult.source === 'none') {
-      return true;
-    }
-
-    if (!resumeResult.confirmed) {
-      logger.warn('Adapter did not confirm native resume after readiness probe', {
-        instanceId,
-        source: resumeResult.source,
-        requestedSessionId: resumeResult.requestedSessionId,
-        actualSessionId: resumeResult.actualSessionId,
-        reason: resumeResult.reason,
+    // §4.G/B-series: proving a native resume can take seconds. Surface a
+    // `resume-proof` waitReason for the duration so the user sees why the
+    // session is "thinking" before it accepts input — but only when there is a
+    // session id to prove (otherwise this probe isn't a resume at all).
+    const instance = this.deps.getInstance(instanceId);
+    const proofSessionId = instance?.providerSessionId ?? instance?.sessionId;
+    const surfaceProof = !!instance && !!proofSessionId;
+    if (surfaceProof) {
+      this.deps.queueUpdate(instanceId, instance!.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+        kind: 'resume-proof',
+        provider: instance!.provider,
+        sessionId: proofSessionId,
+        startedAt: Date.now(),
+        deadlineAt: Date.now() + timeoutMs,
       });
-      return false;
     }
+    try {
+      const healthy = await this.runtimeReadiness.waitForResumeHealth(instanceId, timeoutMs, pollIntervalMs);
+      if (!healthy) {
+        return false;
+      }
 
-    return true;
+      const resumeResult = this.getAdapterResumeAttemptResult(instanceId);
+      if (!resumeResult || resumeResult.source === 'none') {
+        return true;
+      }
+
+      if (!resumeResult.confirmed) {
+        logger.warn('Adapter did not confirm native resume after readiness probe', {
+          instanceId,
+          source: resumeResult.source,
+          requestedSessionId: resumeResult.requestedSessionId,
+          actualSessionId: resumeResult.actualSessionId,
+          reason: resumeResult.reason,
+        });
+        return false;
+      }
+
+      return true;
+    } finally {
+      if (surfaceProof) {
+        // Clear the resume-proof reason; the caller (respawn) sets its own next
+        // reason or the instance settles to ready/idle which clears it anyway.
+        const cur = this.deps.getInstance(instanceId);
+        if (cur) {
+          this.deps.queueUpdate(instanceId, cur.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, null);
+        }
+      }
+    }
   }
 
   private getAdapterResumeAttemptResult(instanceId: string): ResumeAttemptResult | null {
@@ -2590,7 +2623,14 @@ export class InstanceLifecycleManager extends EventEmitter {
             this.deps.setAdapter(instanceId, adapter);
 
             pid = await adapter.spawn();
-            void getSessionContinuityManager().writeThroughIdentity(instanceId, { sessionId: fallbackOptions.sessionId, resumeCursor: null }).catch(() => undefined);
+            try {
+              await getSessionContinuityManager().writeThroughIdentity(instanceId, { sessionId: fallbackOptions.sessionId, resumeCursor: null });
+            } catch (err) {
+              logger.warn('writeThroughIdentity failed after fresh fallback (agent-mode-change)', {
+                instanceId,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
             await this.waitForInputReadinessBoundary(instanceId, adapter);
 
             if (hasConversation) {
@@ -2804,7 +2844,14 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
             this.deps.setAdapter(instanceId, adapter);
 
             pid = await adapter.spawn();
-            void getSessionContinuityManager().writeThroughIdentity(instanceId, { sessionId: fallbackOptions.sessionId, resumeCursor: null }).catch(() => undefined);
+            try {
+              await getSessionContinuityManager().writeThroughIdentity(instanceId, { sessionId: fallbackOptions.sessionId, resumeCursor: null });
+            } catch (err) {
+              logger.warn('writeThroughIdentity failed after fresh fallback (yolo-toggle)', {
+                instanceId,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
             await this.waitForInputReadinessBoundary(instanceId, adapter);
 
             if (hasConversation) {
@@ -3109,7 +3156,14 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
             this.deps.setAdapter(instanceId, adapter);
 
             pid = await adapter.spawn();
-            void getSessionContinuityManager().writeThroughIdentity(instanceId, { sessionId: fallbackOptions.sessionId, resumeCursor: null }).catch(() => undefined);
+            try {
+              await getSessionContinuityManager().writeThroughIdentity(instanceId, { sessionId: fallbackOptions.sessionId, resumeCursor: null });
+            } catch (err) {
+              logger.warn('writeThroughIdentity failed after fresh fallback (model-change)', {
+                instanceId,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
             await this.waitForInputReadinessBoundary(instanceId, adapter);
 
             if (hasConversation) {
@@ -3291,10 +3345,12 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
           // Capture interruptSeq so we can abandon the nudge if a subsequent interrupt fires.
           const seqAtInterrupt = getOrCreateTurnSupervisor(instanceId).snapshot().interruptSeq;
           if (respawnPromise) {
-            await Promise.race([
-              respawnPromise,
-              new Promise<void>(resolve => setTimeout(resolve, 15_000)),
-            ]);
+            // Await the respawnPromise directly — the force-abort net guarantees
+            // it resolves within INTERRUPT_FORCE_ABORT_MS (≤30s), so no separate
+            // timeout is needed. A 15s race would fire before the force-abort and
+            // return the old (still-registered) adapter from getAdapter(), sending
+            // the nudge to the interrupted adapter instead of the fresh one (A7).
+            await respawnPromise;
           }
           // interruptSeq fence: if another interrupt fired while we waited, skip the nudge.
           if (!getOrCreateTurnSupervisor(instanceId).isInterruptSeqCurrent(seqAtInterrupt)) {

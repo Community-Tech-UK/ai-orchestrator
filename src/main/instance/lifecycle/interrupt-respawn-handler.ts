@@ -35,8 +35,8 @@ import type {
   InterruptResult,
   TurnInterruptCompletion,
 } from '../../cli/adapters/base-cli-adapter';
-import { getSessionMutex } from '../../session/session-mutex';
-import { planSessionRecovery } from './session-recovery';
+import { getSessionMutex, type SessionLockOwnerMetadata } from '../../session/session-mutex';
+import { planSessionRecovery, computeResumeConfigFingerprint } from './session-recovery';
 import { generateId } from '../../../shared/utils/id-generator';
 import { getLogger } from '../../logging/logger';
 import {
@@ -61,6 +61,7 @@ import { withOperationDeadline, isDeadlineExceeded } from '../../runtime/operati
 import { getOrCreateTurnSupervisor } from '../../session/session-turn-supervisor';
 import { getOrCreateCircuitBreaker } from './respawn-circuit-breaker';
 import { getSessionContinuityManagerIfInitialized } from '../../session/session-continuity';
+import { getLastStopSnapshotIfInitialized } from '../../session/last-stop-snapshot';
 
 const logger = getLogger('InterruptRespawn');
 
@@ -287,6 +288,16 @@ export class InterruptRespawnHandler {
       // Note: adapter.terminate() already holds its own `this.process`
       // reference internally, so it can SIGKILL even after we clear ours.
 
+      // C5/§3.6: Snapshot recoverable session state before destructive escalation
+      // so a forced-quit or crash doesn't lose the resume cursor.
+      try {
+        const continuity = getSessionContinuityManagerIfInitialized();
+        const snapshotMgr = getLastStopSnapshotIfInitialized();
+        if (continuity && snapshotMgr) {
+          snapshotMgr.saveSnapshot(continuity.buildRecoverableSessionList());
+        }
+      } catch { /* best effort — never block escalation */ }
+
       // A4: Delete the adapter from the registry BEFORE clearing processId so
       // no new operations can grab the stale adapter.
       this.deps.deleteAdapter(instanceId);
@@ -490,29 +501,32 @@ export class InterruptRespawnHandler {
     let result: TurnInterruptCompletion;
     try {
       // A3: deadline prevents a wedged provider from blocking recovery indefinitely.
-      // On timeout, treat as rejected and let the respawn path (or force-abort net)
-      // take over.
       result = await withOperationDeadline({
         name: 'interrupt-completion',
         owner: instanceId,
         deadlineMs: INTERRUPT_COMPLETION_DEADLINE_MS,
         operation: completion,
         onTimeout: (name, owner) => {
-          logger.warn('Interrupt completion timed out; treating as rejected', { name, owner, instanceId });
+          logger.warn('Interrupt completion timed out; force-abort net will handle cleanup', { name, owner, instanceId });
         },
       });
     } catch (err) {
       if (isDeadlineExceeded(err)) {
-        result = {
-          status: 'rejected',
-          reason: `interrupt completion timed out after ${INTERRUPT_COMPLETION_DEADLINE_MS}ms`,
-        };
-      } else {
-        result = {
-          status: 'rejected',
-          reason: err instanceof Error ? err.message : String(err),
-        };
+        // A3: completion deadline exceeded — the adapter accepted the interrupt
+        // but did not deliver a completion event within INTERRUPT_COMPLETION_DEADLINE_MS.
+        // Do NOT settle the instance to idle here. The force-abort net (armed at
+        // INTERRUPT_FORCE_ABORT_MS before this call) will fire, terminate the adapter,
+        // and settle the instance to 'cancelled'. Returning early keeps the timer active.
+        logger.warn('Interrupt completion deadline exceeded; deferring to force-abort net', {
+          instanceId,
+          deadlineMs: INTERRUPT_COMPLETION_DEADLINE_MS,
+        });
+        return;
       }
+      result = {
+        status: 'rejected',
+        reason: err instanceof Error ? err.message : String(err),
+      };
     }
 
     const instance = this.deps.getInstance(instanceId);
@@ -585,6 +599,38 @@ export class InterruptRespawnHandler {
   }
 
   /**
+   * Acquire the per-instance session lock, surfacing a `mutex` waitReason while
+   * the lock is contended (C3/§4.G) so a blocked respawn/save isn't a silent
+   * spinner. The reason is cleared the instant we own the lock (the caller then
+   * sets its own `respawning` reason). When the lock is free there is no
+   * waitReason churn at all. Returns the same release fn as the underlying
+   * mutex, so the caller's `finally { release() }` is unaffected.
+   */
+  private async acquireSessionLock(
+    instanceId: string,
+    instance: Instance,
+    source: string,
+    owner: SessionLockOwnerMetadata,
+  ): Promise<() => void> {
+    const heldBy = getSessionMutex().getLockInfo(instanceId);
+    if (heldBy) {
+      this.deps.queueUpdate(instanceId, instance.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+        kind: 'mutex',
+        operation: owner.operation ?? source,
+        owner: heldBy.owner?.operation ?? heldBy.source,
+        startedAt: Date.now(),
+      });
+    }
+    const release = await getSessionMutex().acquire(instanceId, source, owner);
+    if (heldBy) {
+      // We now own the lock; the contended wait is over. Clear the reason so the
+      // respawn's own waitReason (or none) takes over.
+      this.deps.queueUpdate(instanceId, instance.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, null);
+    }
+    return release;
+  }
+
+  /**
    * Respawn an instance after interrupt to continue the session.
    */
   async respawnAfterInterrupt(instanceId: string): Promise<void> {
@@ -615,7 +661,7 @@ export class InterruptRespawnHandler {
       this.isInterruptRecoveryStatus(instance.status) || hasActiveInterruptRequest;
     const replayReason = triggeredByInterrupt ? 'interrupt-respawn' : 'stuck-auto-respawn';
 
-    const release = await getSessionMutex().acquire(instanceId, 'respawn-interrupt', {
+    const release = await this.acquireSessionLock(instanceId, instance, 'respawn-interrupt', {
       operation: 'respawn',
       recoveryReason: triggeredByInterrupt ? 'interrupt' : 'unexpected-exit',
       turnId: instance.activeTurnId,
@@ -652,6 +698,7 @@ export class InterruptRespawnHandler {
       if (resumeBlacklisted) {
         logger.info('Skipping --resume for blacklisted session id', { instanceId, sessionId });
       }
+      const continuityState = getSessionContinuityManagerIfInitialized()?.getSessionState(instanceId);
       const recoveryPlan = planSessionRecovery({
         instanceId,
         reason: triggeredByInterrupt ? 'interrupt' : 'unexpected-exit',
@@ -663,12 +710,18 @@ export class InterruptRespawnHandler {
         cwd: instance.workingDirectory,
         yolo: instance.yoloMode,
         executionLocation: instance.executionLocation.type,
+        resumeCursor: continuityState?.resumeCursor ?? null,
         capabilities,
         activeTurnId: instance.activeTurnId,
         adapterGeneration: instance.adapterGeneration ?? 0,
         hasConversation,
         sessionResumeBlacklisted: resumeBlacklisted,
         providerSessionPersisted: instance.providerSessionPersisted,
+        currentConfigFingerprint: computeResumeConfigFingerprint({
+          provider: instance.provider,
+          model: instance.currentModel,
+          cwd: instance.workingDirectory,
+        }),
       });
       const canAttemptNativeResume =
         recoveryPlan.kind === 'native-resume' || recoveryPlan.kind === 'provider-fork';
@@ -802,6 +855,19 @@ export class InterruptRespawnHandler {
             actuallyResumed = false;
             instance.processId = pid;
             instance.providerSessionId = fallbackSessionId;
+            // C1/B4: Persist the fresh session ID before reporting respawn
+            // complete so a crash cannot replay the old doomed session/cursor.
+            try {
+              await getSessionContinuityManagerIfInitialized()?.writeThroughIdentity(instanceId, {
+                sessionId: fallbackSessionId,
+                resumeCursor: null,
+              });
+            } catch (err) {
+              logger.warn('writeThroughIdentity failed after interrupt fresh fallback', {
+                instanceId,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
             await this.deps.waitForAdapterWritable(instanceId, 3000);
 
             if (hasConversation) {
@@ -986,7 +1052,7 @@ export class InterruptRespawnHandler {
       this.deps.queueUpdate(instanceId, instance.status, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, null);
     }
 
-    const release = await getSessionMutex().acquire(instanceId, 'respawn-unexpected', {
+    const release = await this.acquireSessionLock(instanceId, instance, 'respawn-unexpected', {
       operation: 'respawn',
       recoveryReason: 'unexpected-exit',
       turnId: instance.activeTurnId,
@@ -1028,6 +1094,7 @@ export class InterruptRespawnHandler {
           sessionId,
         });
       }
+      const continuityStateAuto = getSessionContinuityManagerIfInitialized()?.getSessionState(instanceId);
       const recoveryPlan = planSessionRecovery({
         instanceId,
         reason: 'unexpected-exit',
@@ -1039,12 +1106,18 @@ export class InterruptRespawnHandler {
         cwd: instance.workingDirectory,
         yolo: instance.yoloMode,
         executionLocation: instance.executionLocation.type,
+        resumeCursor: continuityStateAuto?.resumeCursor ?? null,
         capabilities,
         activeTurnId: instance.activeTurnId,
         adapterGeneration: instance.adapterGeneration ?? 0,
         hasConversation,
         sessionResumeBlacklisted: resumeBlacklisted,
         providerSessionPersisted: instance.providerSessionPersisted,
+        currentConfigFingerprint: computeResumeConfigFingerprint({
+          provider: instance.provider,
+          model: instance.currentModel,
+          cwd: instance.workingDirectory,
+        }),
       });
       const shouldResume =
         recoveryPlan.kind === 'native-resume' || recoveryPlan.kind === 'provider-fork';
@@ -1160,6 +1233,19 @@ export class InterruptRespawnHandler {
             actuallyResumed = false;
             instance.processId = pid;
             instance.providerSessionId = fallbackSessionId;
+            // C1/B4: Persist the fresh session ID before reporting respawn
+            // complete so a crash cannot replay the old doomed session/cursor.
+            try {
+              await getSessionContinuityManagerIfInitialized()?.writeThroughIdentity(instanceId, {
+                sessionId: fallbackSessionId,
+                resumeCursor: null,
+              });
+            } catch (err) {
+              logger.warn('writeThroughIdentity failed after auto-respawn fresh fallback', {
+                instanceId,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
             await this.deps.waitForAdapterWritable(instanceId, 3000);
 
             if (hasConversation) {

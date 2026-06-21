@@ -25,6 +25,7 @@ import { cleanupOrphanedTmpFiles, quarantineFile, repairFile, validateTranscript
 import { getSessionMutex } from './session-mutex';
 import { measureAsync } from '../util/slow-operations';
 import { getResumeHintManager } from './resume-hint';
+import { getLastStopSnapshotIfInitialized, type RecoverableSession } from './last-stop-snapshot';
 import { getSafeStorage } from './safe-storage-accessor';
 import { ConversationHistoryCompactor, SessionCompactionPolicy } from './compaction-policy';
 import { getProjectStoragePaths } from '../storage/project-storage-paths';
@@ -1749,6 +1750,46 @@ export class SessionContinuityManager extends EventEmitter {
     } catch {
       // Best effort — never block shutdown
     }
+
+    // Persist multi-session last-stop snapshot (C5 / §3.6) — atomic write so
+    // a crash mid-write leaves the previous snapshot intact.
+    try {
+      const snapshotMgr = getLastStopSnapshotIfInitialized();
+      if (snapshotMgr) {
+        snapshotMgr.saveSnapshot(this.buildRecoverableSessionList());
+      }
+    } catch {
+      // Best effort — never block shutdown
+    }
+  }
+
+  /**
+   * Build a list of all currently-tracked sessions for the last-stop snapshot
+   * (C5 / §3.6). Called from both the shutdown path and before destructive
+   * interrupt escalation so the snapshot is always fresh before we destroy state.
+   */
+  /**
+   * Return the current in-memory session state for a specific instance.
+   * Used by lifecycle handlers that need the resume cursor without going through
+   * disk I/O (e.g. to pass configFingerprint + resumeCursor to planSessionRecovery).
+   * Returns null when the instance is not tracked.
+   */
+  getSessionState(instanceId: string): SessionState | null {
+    return this.sessionStates.get(instanceId) ?? null;
+  }
+
+  buildRecoverableSessionList(): RecoverableSession[] {
+    const now = Date.now();
+    return [...this.sessionStates.values()].map((state) => ({
+      instanceId: state.instanceId,
+      sessionId: state.sessionId,
+      resumeCursor: state.resumeCursor,
+      provider: state.provider,
+      modelId: state.modelId,
+      displayName: state.displayName,
+      workingDirectory: state.workingDirectory,
+      capturedAt: now,
+    }));
   }
 
   /**

@@ -83,6 +83,14 @@ export interface ProviderQuotaSnapshot {
    */
   ok: boolean;
   error?: string;
+  /**
+   * True when the failure (or stale data) is due to an authentication problem
+   * the user can fix by signing in again — e.g. an expired Cursor session token
+   * or a Gemini/Antigravity refresh token that no longer works. The UI surfaces
+   * this as an actionable "reauth needed" affordance rather than a generic
+   * error, and it survives even when last-known windows are still shown.
+   */
+  needsReauth?: boolean;
   /** May be empty if the probe ran but found no useful windows. */
   windows: ProviderQuotaWindow[];
   /**

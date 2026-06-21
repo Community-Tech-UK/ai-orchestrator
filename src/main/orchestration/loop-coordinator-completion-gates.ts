@@ -187,7 +187,10 @@ export async function runFreshEyesReviewGate(args: {
 
   emit('loop:fresh-eyes-review-started', { loopRunId: state.id, signal: signalId });
 
-  const workspaceDiff = collectWorkspaceDiff(state.config.workspaceCwd);
+  // When isolation is active the agent edits the worktree, not the repo root —
+  // use executionCwd so the reviewer sees the actual changes.
+  const diffCwd = state.config.executionCwd ?? state.config.workspaceCwd;
+  const workspaceDiff = collectWorkspaceDiff(diffCwd);
   const iterationFiles = iteration.filesChanged.map((f) => f.path);
   const filesChangedThisIteration = iterationFiles.length > 0
     ? iterationFiles

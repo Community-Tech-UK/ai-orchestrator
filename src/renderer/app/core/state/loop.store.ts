@@ -708,6 +708,11 @@ function snapshotLastIteration(
     seq: iteration.seq,
     stage: iteration.stage,
     outputExcerpt: truncateForSummary(iteration.outputExcerpt, MAX_SUMMARY_OUTPUT_CHARS),
+    // Carry the full closing message through verbatim — it's already bounded
+    // by `boundFullOutput` upstream, so no second display cap here (the card
+    // renders it in a scrollable panel). Fall back to the excerpt for
+    // pre-migration runs whose `outputFull` is empty.
+    outputFull: iteration.outputFull || iteration.outputExcerpt,
     filesChanged: iteration.filesChanged.map((file) => ({
       path: file.path,
       additions: file.additions,

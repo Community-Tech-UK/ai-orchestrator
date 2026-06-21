@@ -4,6 +4,8 @@ import {
   parseGeminiQuotaPayload,
   type GeminiQuotaFileReader,
   type GeminiQuotaFetch,
+  type GeminiLoadCodeAssistFetch,
+  type GeminiOAuthClientDiscovery,
   type GeminiTokenRefreshOptions,
   type GeminiTokenRefreshFetch,
 } from './gemini-usage-endpoint-probe';
@@ -26,8 +28,11 @@ function reader(files: Record<string, string | null>): GeminiQuotaFileReader {
   };
 }
 
+/** Default test discovery: never hit the real filesystem for the OAuth client. */
+const noDiscovery: GeminiOAuthClientDiscovery = async () => null;
+
 describe('GeminiUsageEndpointProbe', () => {
-  it('reads Gemini OAuth creds and project id, then returns grouped quota percentages', async () => {
+  it('reads OAuth creds and a configured project, then returns grouped quota percentages', async () => {
     const calls: { token: string; project: string }[] = [];
     const fetchQuota: GeminiQuotaFetch = async (token, project) => {
       calls.push({ token, project });
@@ -43,11 +48,10 @@ describe('GeminiUsageEndpointProbe', () => {
     };
 
     const probe = new GeminiUsageEndpointProbe({
-      readFile: reader({
-        'oauth_creds.json': CREDS_JSON,
-        'gemini_project': 'cloudaicompanion-prod',
-      }),
+      readFile: reader({ 'oauth_creds.json': CREDS_JSON }),
+      projectId: 'cloudaicompanion-prod',
       fetchQuota,
+      discoverOAuthClient: noDiscovery,
     });
 
     const snap = await probe.probe({ signal: new AbortController().signal });
@@ -70,7 +74,36 @@ describe('GeminiUsageEndpointProbe', () => {
     ]);
   });
 
-  it('refreshes an expired access token without touching the stored refresh token', async () => {
+  it('seeds the project id self-healingly via loadCodeAssist', async () => {
+    const loadCalls: string[] = [];
+    const fetchLoadCodeAssist: GeminiLoadCodeAssistFetch = async (token) => {
+      loadCalls.push(token);
+      return { status: 200, project: 'pure-gravity-nm5x8' };
+    };
+    const fetchQuota: GeminiQuotaFetch = async (_token, project) => ({
+      status: 200,
+      body: { buckets: [{ modelId: 'gemini-2.5-pro', remainingFraction: 0.5 }] },
+      projectSeen: project,
+    } as { status: number; body: unknown; projectSeen: string });
+
+    const probe = new GeminiUsageEndpointProbe({
+      readFile: reader({ 'oauth_creds.json': CREDS_JSON }),
+      fetchLoadCodeAssist,
+      fetchQuota,
+      discoverOAuthClient: noDiscovery,
+    });
+
+    const snap = await probe.probe({ signal: new AbortController().signal });
+    expect(loadCalls).toEqual(['gemini-access-token']);
+    expect(snap!.ok).toBe(true);
+
+    // Second probe must reuse the cached project (no extra loadCodeAssist call).
+    const snap2 = await probe.probe({ signal: new AbortController().signal });
+    expect(loadCalls).toEqual(['gemini-access-token']);
+    expect(snap2!.ok).toBe(true);
+  });
+
+  it('refreshes an expired token using a discovered OAuth client without touching the refresh token', async () => {
     const refreshes: string[] = [];
     const refreshToken: GeminiTokenRefreshFetch = async (refreshTokenValue) => {
       refreshes.push(refreshTokenValue);
@@ -89,19 +122,25 @@ describe('GeminiUsageEndpointProbe', () => {
           expiry_date: Date.now() - 1000,
           refresh_token: 'existing-refresh-token',
         }),
-        'gemini_project': 'cloudaicompanion-prod',
       }),
+      projectId: 'cloudaicompanion-prod',
       refreshToken,
       fetchQuota,
+      discoverOAuthClient: async () => ({ clientId: 'discovered-id', clientSecret: 'discovered-secret' }),
     });
 
     const snap = await probe.probe({ signal: new AbortController().signal });
 
     expect(refreshes).toEqual(['existing-refresh-token']);
     expect(snap!.ok).toBe(true);
+
+    // A second poll reuses the cached access token — no extra refresh.
+    const snap2 = await probe.probe({ signal: new AbortController().signal });
+    expect(refreshes).toEqual(['existing-refresh-token']);
+    expect(snap2!.ok).toBe(true);
   });
 
-  it('passes OAuth client metadata from runtime credentials when refreshing', async () => {
+  it('prefers OAuth client metadata from the creds file over discovery when refreshing', async () => {
     const refreshCalls: GeminiTokenRefreshOptions[] = [];
     const refreshToken: GeminiTokenRefreshFetch = async (_refreshTokenValue, opts) => {
       refreshCalls.push(opts);
@@ -121,10 +160,11 @@ describe('GeminiUsageEndpointProbe', () => {
           client_id: 'fixture-client-id',
           client_secret: 'fixture-client-marker',
         }),
-        'gemini_project': 'cloudaicompanion-prod',
       }),
+      projectId: 'cloudaicompanion-prod',
       refreshToken,
       fetchQuota,
+      discoverOAuthClient: noDiscovery,
     });
 
     const snap = await probe.probe({ signal: new AbortController().signal });
@@ -136,6 +176,50 @@ describe('GeminiUsageEndpointProbe', () => {
         clientSecret: 'fixture-client-marker',
       }),
     ]);
+  });
+
+  it('flags needsReauth when there is no credential file (signed out)', async () => {
+    const probe = new GeminiUsageEndpointProbe({
+      readFile: reader({ 'oauth_creds.json': null }),
+      projectId: 'cloudaicompanion-prod',
+      discoverOAuthClient: noDiscovery,
+    });
+    const snap = await probe.probe({ signal: new AbortController().signal });
+    expect(snap!.ok).toBe(false);
+    expect(snap!.needsReauth).toBe(true);
+    expect(snap!.error).toMatch(/not signed in/i);
+  });
+
+  it('flags needsReauth when the token is expired and cannot be refreshed', async () => {
+    const probe = new GeminiUsageEndpointProbe({
+      readFile: reader({
+        'oauth_creds.json': JSON.stringify({
+          access_token: 'expired-access-token',
+          expiry_date: Date.now() - 1000,
+          refresh_token: 'existing-refresh-token',
+        }),
+      }),
+      projectId: 'cloudaicompanion-prod',
+      // No env client, no creds client, discovery returns nothing → can't refresh.
+      discoverOAuthClient: noDiscovery,
+    });
+    const snap = await probe.probe({ signal: new AbortController().signal });
+    expect(snap!.ok).toBe(false);
+    expect(snap!.needsReauth).toBe(true);
+    expect(snap!.error).toMatch(/could not be refreshed/i);
+  });
+
+  it('flags needsReauth on a 401 from the quota endpoint', async () => {
+    const fetchQuota: GeminiQuotaFetch = async () => ({ status: 401, body: {} });
+    const probe = new GeminiUsageEndpointProbe({
+      readFile: reader({ 'oauth_creds.json': CREDS_JSON }),
+      projectId: 'cloudaicompanion-prod',
+      fetchQuota,
+      discoverOAuthClient: noDiscovery,
+    });
+    const snap = await probe.probe({ signal: new AbortController().signal });
+    expect(snap!.ok).toBe(false);
+    expect(snap!.needsReauth).toBe(true);
   });
 
   it('parses quota buckets by model family using the lowest remaining fraction', () => {
@@ -155,12 +239,11 @@ describe('GeminiUsageEndpointProbe', () => {
     ]);
   });
 
-  it('returns ok=false when no project id can be found', async () => {
+  it('returns ok=false when loadCodeAssist cannot seed a project id', async () => {
     const probe = new GeminiUsageEndpointProbe({
-      readFile: reader({
-        'oauth_creds.json': CREDS_JSON,
-        'gemini_project': null,
-      }),
+      readFile: reader({ 'oauth_creds.json': CREDS_JSON }),
+      fetchLoadCodeAssist: async () => ({ status: 200, project: null }),
+      discoverOAuthClient: noDiscovery,
     });
     const snap = await probe.probe({ signal: new AbortController().signal });
     expect(snap!.ok).toBe(false);

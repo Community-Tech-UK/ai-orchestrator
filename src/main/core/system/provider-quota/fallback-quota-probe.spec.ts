@@ -70,4 +70,22 @@ describe('FallbackQuotaProbe', () => {
 
     expect(result).toBe(fallback);
   });
+
+  it('propagates primary needsReauth onto a signed-in fallback snapshot', async () => {
+    const primary: ProviderQuotaSnapshot = {
+      provider: 'antigravity', takenAt: 1, source: 'admin-api', ok: false,
+      error: 'session expired and could not be refreshed', needsReauth: true, windows: [],
+    };
+    // Local login-state probe believes the user is signed in (no reauth flag).
+    const fallback: ProviderQuotaSnapshot = {
+      provider: 'antigravity', takenAt: 2, source: 'cli-result', ok: true, plan: 'personal', windows: [],
+    };
+
+    const result = await new FallbackQuotaProbe(probe(primary), probe(fallback)).probe({ signal: signal() });
+
+    expect(result).not.toBe(fallback);
+    expect(result!.ok).toBe(true);
+    expect(result!.plan).toBe('personal');
+    expect(result!.needsReauth).toBe(true);
+  });
 });

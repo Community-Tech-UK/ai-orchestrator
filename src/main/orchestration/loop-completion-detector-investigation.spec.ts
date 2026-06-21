@@ -55,7 +55,8 @@ function makeIteration(over: Partial<LoopIteration> = {}): LoopIteration {
     id: 'iter-1', loopRunId: 'loop-1', seq: 0, stage: 'IMPLEMENT', startedAt: 0, endedAt: 1,
     childInstanceId: null, tokens: 1, costCents: 0, filesChanged: [], toolCalls: [], errors: [],
     testPassCount: null, testFailCount: null, workHash: 'h', outputSimilarityToPrev: null,
-    outputExcerpt: 'TASK COMPLETE\n<promise>DONE</promise>', progressVerdict: 'OK',
+    outputExcerpt: 'TASK COMPLETE\n<promise>DONE</promise>',
+    outputFull: 'TASK COMPLETE\n<promise>DONE</promise>', progressVerdict: 'OK',
     progressSignals: [], completionSignalsFired: [], verifyStatus: 'not-run', verifyOutputExcerpt: '',
     ...over,
   };

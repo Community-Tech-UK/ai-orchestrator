@@ -711,6 +711,7 @@ function makeLoopIteration(overrides: Partial<LoopIteration> = {}): LoopIteratio
     workHash: 'hash',
     outputSimilarityToPrev: null,
     outputExcerpt: '',
+    outputFull: '',
     progressVerdict: 'OK',
     progressSignals: [],
     completionSignalsFired: [],

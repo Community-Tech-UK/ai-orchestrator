@@ -68,6 +68,10 @@ export interface WorktreeSession {
   // Task context
   taskDescription: string;
   taskType: 'feature' | 'bugfix' | 'refactor' | 'docs' | 'test';
+
+  // P7: per-session renderer port (runtime namespacing) so parallel
+  // renderer/smoke sessions don't collide on the shared AIO_RENDERER_PORT.
+  rendererPort?: number;
 }
 
 export interface WorktreeHealthCheck {
@@ -133,6 +137,12 @@ export interface WorktreeMergeResult {
   error?: string;
   resolvedConflicts?: string[];
   manualResolutionRequired?: string[];
+  /**
+   * P4: when the merge ran in a dedicated integration worktree (opt-in), the
+   * isolated branch that now holds the integrated result. The orchestrator
+   * fast-forwards the real target from here; the root checkout is never touched.
+   */
+  integrationBranch?: string;
 }
 
 // Events

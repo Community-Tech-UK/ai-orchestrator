@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ScriptedCliAdapter } from './scripted-cli-adapter';
+import { ScriptedCliAdapter, type InterruptFaultMode } from './scripted-cli-adapter';
 import { ReceiptBus } from './receipt-bus';
 import {
   awaitReceipt,
@@ -229,5 +229,82 @@ describe('ScriptedCliAdapter', () => {
       await a.sendMessage(userMessage);
       expect(bus.ofType('complete')).toHaveLength(1);
     });
+  });
+});
+
+describe('ScriptedCliAdapter interrupt/stdin fault modes (Phase 0 injection)', () => {
+  const userMsg: CliMessage = { role: 'user', content: 'hi' };
+
+  async function runningAdapter(mode: InterruptFaultMode): Promise<ScriptedCliAdapter> {
+    const a = new ScriptedCliAdapter({ interruptFaultMode: mode });
+    a.enqueueResponse('hi');
+    await a.sendMessage(userMsg);
+    return a;
+  }
+
+  it('accepted-no-completion: accepted with no completion promise', async () => {
+    const a = await runningAdapter('accepted-no-completion');
+    const r = a.interrupt();
+    expect(r.status).toBe('accepted');
+    expect(r.completion).toBeUndefined();
+  });
+
+  it('completion-settles: completion resolves to interrupted', async () => {
+    const a = await runningAdapter('completion-settles');
+    const r = a.interrupt();
+    expect(r.status).toBe('accepted');
+    await expect(r.completion).resolves.toMatchObject({ status: 'interrupted' });
+  });
+
+  it('completion-never-settles: completion promise never resolves', async () => {
+    const a = await runningAdapter('completion-never-settles');
+    const r = a.interrupt();
+    expect(r.completion).toBeInstanceOf(Promise);
+    const raced = await Promise.race([
+      r.completion!.then(() => 'settled'),
+      Promise.resolve('pending'),
+    ]);
+    expect(raced).toBe('pending');
+  });
+
+  it('ignores-sigterm: terminate is a no-op; never exits', async () => {
+    const a = await runningAdapter('ignores-sigterm');
+    await a.terminate();
+    expect(a.isRunning()).toBe(true);
+    expect(a.receipts.ofType('exit')).toHaveLength(0);
+  });
+
+  it('exits-after-interrupt: emits exit (SIGINT) after interrupt', async () => {
+    const a = await runningAdapter('exits-after-interrupt');
+    expect(a.interrupt().status).toBe('accepted');
+    await Promise.resolve(); // flush queued microtask
+    expect(a.isRunning()).toBe(false);
+    expect(a.receipts.ofType('exit')).toHaveLength(1);
+    expect(a.receipts.ofType('exit')[0].payload).toEqual({ code: 0, signal: 'SIGINT' });
+  });
+
+  it('never-exits-after-interrupt: interrupt accepted, terminate is a no-op', async () => {
+    const a = await runningAdapter('never-exits-after-interrupt');
+    expect(a.interrupt().status).toBe('accepted');
+    await a.terminate();
+    expect(a.isRunning()).toBe(true);
+    expect(a.receipts.ofType('exit')).toHaveLength(0);
+  });
+
+  it('wrong-turn-id-interrupt: accepted with a mismatched turnId (§6.1)', async () => {
+    const a = await runningAdapter('wrong-turn-id-interrupt');
+    const r = a.interrupt();
+    expect(r.status).toBe('accepted');
+    expect(r.turnId).toBe('mismatched-turn-id');
+  });
+
+  it('stdin-drain-never-fires: sendInput records the input but never resolves', async () => {
+    const a = await runningAdapter('stdin-drain-never-fires');
+    const raced = await Promise.race([
+      a.sendInput('msg').then(() => 'resolved'),
+      Promise.resolve('pending'),
+    ]);
+    expect(raced).toBe('pending');
+    expect(a.inputs).toEqual([{ message: 'msg', attachments: undefined }]);
   });
 });

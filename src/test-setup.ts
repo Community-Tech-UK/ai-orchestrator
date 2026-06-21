@@ -15,6 +15,19 @@ import {
   initSqliteWasm,
   createSqliteWasmDatabase,
 } from './main/db/sqlite-wasm-driver';
+import { stripScopedGitEnv } from './main/workspace/git/git-env';
+
+// ============================================================================
+// Hermetic git env (test-only)
+//
+// When the suite runs inside a git hook (pre-commit/pre-push — see
+// scripts/run-git-hook.js), git exports GIT_INDEX_FILE=.git/index (and friends)
+// into the environment. Any test that shells out to git against a temp repo then
+// inherits those and fails with `fatal: .git/index: index file open failed: Not
+// a directory`. Strip them once, up-front, so every real-git test resolves its
+// repo purely from cwd regardless of how the suite was launched.
+// ============================================================================
+stripScopedGitEnv(process.env);
 
 // ============================================================================
 // better-sqlite3 → sqlite-wasm (test-only)

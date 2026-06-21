@@ -15,8 +15,7 @@
  * `<workspaceCwd>/.aio-loop-state/<loopRunId>/`.
  *
  * Pure (path math only, no I/O) so it's trivially unit-tested and shared
- * verbatim by the stage machine, the completion detector, and the coordinator —
- * the agent prompt is handed the same `relDir` so every reader/writer agrees.
+ * verbatim by the stage machine, the completion detector, and the coordinator.
  *
  * NOT scoped here (deliberately): the user's `planFile` and the
  * `*_completed.md` rename gate stay workspace-relative — those are user docs,
@@ -33,9 +32,10 @@ export interface LoopArtifactPaths {
   dir: string;
   /**
    * Workspace-relative POSIX path to the state dir (e.g.
-   * `.aio-loop-state/loop-123-abcd`). Injected into the agent prompt so the
-   * agent reads/writes the same files the backend reads — the agent runs with
-   * cwd = workspaceCwd, so this relative path resolves correctly.
+   * `.aio-loop-state/loop-123-abcd`). Preserved for tooling and legacy callers;
+   * NOT injected into the agent prompt (the stage machine uses `dir`, which is
+   * absolute, so the agent locates state files correctly even when its cwd is a
+   * worktree rather than workspaceCwd).
    */
   relDir: string;
   /** Absolute path to STAGE.md inside the state dir. */

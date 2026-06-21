@@ -204,6 +204,14 @@ export class LoopStore {
    * configuration at start time and doesn't change during the run, so
    * a clobbering UPDATE is safe (and on rehydration it must round-trip
    * accurately — see migration 004).
+   *
+   * `worktree_path` / `branch_name` (P3) follow the same "INSERT-only"
+   * pattern as `restart_failure_count`: they are written on the initial
+   * INSERT (when config already has executionCwd / worktreeBranch set)
+   * but intentionally NOT included in the ON CONFLICT UPDATE SET clause.
+   * Only `clearWorktreeInfo` may mutate them after insert (to NULL them
+   * after cleanup). This prevents routine state-change upserts from
+   * re-populating the columns after clearWorktreeInfo has cleared them.
    */
   upsertRun(state: LoopState): void {
     this.db.prepare(`
@@ -211,8 +219,9 @@ export class LoopStore {
         id, chat_id, plan_file, config_json, status, started_at, ended_at,
         total_iterations, total_tokens, total_cost_cents, current_stage,
         completed_file_rename_observed, highest_test_pass_count, end_reason,
-        end_evidence_json, manual_review_only
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        end_evidence_json, manual_review_only,
+        worktree_path, branch_name
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         status = excluded.status,
         ended_at = excluded.ended_at,
@@ -242,6 +251,8 @@ export class LoopStore {
       state.endReason ?? null,
       state.endEvidence ? JSON.stringify(state.endEvidence) : null,
       state.manualReviewOnly ? 1 : 0,
+      state.config.executionCwd ?? null,
+      state.config.worktreeBranch ?? null,
     );
     for (const intent of state.terminalIntentHistory ?? []) {
       this.upsertTerminalIntent(intent);
@@ -263,6 +274,67 @@ export class LoopStore {
     }
   }
 
+  /**
+   * P3 boot-reconcile: return all terminal loop runs that still have a
+   * worktree_path recorded. These are candidates for orphaned worktree cleanup —
+   * the terminate path ran but the worktree was not removed (crash), or the app
+   * restarted before the async cleanup completed.
+   */
+  getTerminalRunsWithWorktreePaths(): Array<{
+    id: string;
+    worktreePath: string;
+    branchName: string | null;
+    workspaceCwd: string | null;
+    status: string;
+  }> {
+    type Row = {
+      id: string;
+      worktree_path: string;
+      branch_name: string | null;
+      config_json: string;
+      status: string;
+    };
+    try {
+      const rows = this.db.prepare(`
+        SELECT id, worktree_path, branch_name, config_json, status
+        FROM loop_runs
+        WHERE worktree_path IS NOT NULL
+          AND status NOT IN ('running', 'paused', 'provider-limit')
+      `).all<Row>();
+      return rows.map((row) => {
+        let workspaceCwd: string | null = null;
+        try {
+          const cfg = JSON.parse(row.config_json) as { workspaceCwd?: string };
+          workspaceCwd = typeof cfg.workspaceCwd === 'string' ? cfg.workspaceCwd : null;
+        } catch {
+          // unparseable config — can't determine repo root
+        }
+        return {
+          id: row.id,
+          worktreePath: row.worktree_path,
+          branchName: row.branch_name,
+          workspaceCwd,
+          status: row.status,
+        };
+      });
+    } catch (err) {
+      logger.warn('LoopStore.getTerminalRunsWithWorktreePaths: failed', { error: String(err) });
+      return [];
+    }
+  }
+
+  /** P3 boot-reconcile: clear the worktree columns after cleanup so the row
+   *  is not re-processed on the next boot. */
+  clearWorktreeInfo(loopRunId: string): void {
+    try {
+      this.db.prepare(
+        `UPDATE loop_runs SET worktree_path = NULL, branch_name = NULL WHERE id = ?`
+      ).run(loopRunId);
+    } catch (err) {
+      logger.warn('LoopStore.clearWorktreeInfo: failed', { loopRunId, error: String(err) });
+    }
+  }
+
   /** Persist a single iteration. */
   insertIteration(iter: LoopIteration): void {
     this.db.prepare(`
@@ -270,9 +342,9 @@ export class LoopStore {
         id, loop_run_id, seq, stage, started_at, ended_at, child_instance_id,
         tokens, cost_cents, files_changed_json, tool_calls_json, errors_json,
         test_pass_count, test_fail_count, work_hash, output_similarity_to_prev,
-        output_excerpt, progress_verdict, progress_signals_json,
+        output_excerpt, output_full, progress_verdict, progress_signals_json,
         completion_signals_fired_json, verify_status, verify_output_excerpt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       iter.id,
       iter.loopRunId,
@@ -291,6 +363,7 @@ export class LoopStore {
       iter.workHash,
       iter.outputSimilarityToPrev,
       iter.outputExcerpt,
+      iter.outputFull,
       iter.progressVerdict,
       JSON.stringify(iter.progressSignals),
       JSON.stringify(iter.completionSignalsFired),

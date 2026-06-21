@@ -23,6 +23,7 @@ import { prepareLoopStartConfig, attachNextObjectivePlanner } from '../../orches
 import { exportOutstandingMarkdown } from '../../orchestration/loop-outstanding-export';
 import { buildResumeWithAnswersPrompt } from '../../orchestration/loop-resume-with-answers';
 import {
+  buildLoopContextHandoff,
   buildLoopInterveneChatEvent,
   buildLoopStartChatEvent,
   buildLoopTerminalChatSummary,
@@ -634,6 +635,11 @@ function appendLoopTerminalSummary(
   chatService: ReturnType<typeof getChatService>,
   instanceManager: InstanceManager,
 ): void {
+  // Silent context handoff for the NEXT interactive turn: the loop ran in its
+  // own CLI session, so the chat's model never saw it. Without this, follow-ups
+  // ("were those issues resolved?") have no antecedent. Distinct from the
+  // visible recap card below.
+  const handoff = buildLoopContextHandoff(state);
   const chat = chatService.tryGetChat(state.chatId);
   if (chat) {
     void chatService.appendSystemEvent(buildLoopTerminalChatSummary(state)).catch((error) => {
@@ -643,12 +649,14 @@ function appendLoopTerminalSummary(
         error: error instanceof Error ? error.message : String(error),
       });
     });
+    chatService.queueLoopHandoff(state.chatId, handoff);
     return;
   }
   const instance = instanceManager.getInstance(state.chatId);
   if (instance) {
     const summary = buildLoopTerminalChatSummary(state);
     instanceManager.emitSystemMessage(state.chatId, summary.content, summary.metadata);
+    instanceManager.queueContinuityPreamble(state.chatId, handoff);
     return;
   }
   logger.warn('loop terminal chatId resolves to neither chat nor instance — summary not persisted', {

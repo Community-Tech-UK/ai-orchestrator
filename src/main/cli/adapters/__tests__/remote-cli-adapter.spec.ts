@@ -429,4 +429,57 @@ describe('RemoteCliAdapter', () => {
       expect(caps.selfManagedAutoCompaction).toBe(false);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Phase 5: interrupt completion + heartbeat-staleness tracking
+  // ---------------------------------------------------------------------------
+  describe('Phase 5 remote turn control', () => {
+    async function spawnReady(): Promise<void> {
+      (connection.sendRpc as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce({ instanceId: REMOTE_INSTANCE_ID }) // spawn
+        .mockResolvedValue(undefined); // subsequent RPCs (interrupt, etc.)
+      await adapter.spawn();
+    }
+
+    it('interrupt returns ack + a completion that settles on a terminal remote event', async () => {
+      await spawnReady();
+      const result = adapter.interrupt();
+      expect(result.status).toBe('accepted');
+      expect(result.completion).toBeInstanceOf(Promise);
+
+      mockRegistry.emit('remote:instance-complete', {
+        nodeId: TARGET_NODE_ID,
+        instanceId: REMOTE_INSTANCE_ID,
+        response: { id: 'r', role: 'assistant', content: '' },
+      });
+
+      await expect(result.completion).resolves.toMatchObject({ status: 'interrupted' });
+    });
+
+    it('interrupt completion settles to "unknown" after the deadline with no terminal event', async () => {
+      await spawnReady();
+      vi.useFakeTimers();
+      try {
+        const result = adapter.interrupt();
+        vi.advanceTimersByTime(15_001);
+        await expect(result.completion).resolves.toMatchObject({ status: 'unknown' });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('tracks remote activity (spawn + heartbeat) for staleness detection', async () => {
+      expect(adapter.getMillisSinceLastActivity()).toBeNull();
+      await spawnReady();
+      const afterSpawn = adapter.getMillisSinceLastActivity();
+      expect(afterSpawn).not.toBeNull();
+      expect(afterSpawn as number).toBeGreaterThanOrEqual(0);
+
+      mockRegistry.emit('remote:instance-heartbeat', {
+        nodeId: TARGET_NODE_ID,
+        instanceId: REMOTE_INSTANCE_ID,
+      });
+      expect(adapter.getMillisSinceLastActivity() as number).toBeLessThan(1_000);
+    });
+  });
 });

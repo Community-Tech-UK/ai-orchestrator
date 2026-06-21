@@ -148,8 +148,9 @@ describe('saveLoopAttachments / cleanupLoopAttachments', () => {
 
     expect(result).toHaveLength(2);
     expect(result[0].skipped).toBe(false);
-    expect(result[0].relativePath).toBe(`${LOOP_ATTACHMENT_ROOT}/run-1/foo.txt`);
-    expect(result[1].relativePath).toBe(`${LOOP_ATTACHMENT_ROOT}/run-1/bar.png`);
+    // Paths are now absolute so the agent can locate them when cwd is a worktree.
+    expect(result[0].relativePath).toBe(join(workspace, LOOP_ATTACHMENT_ROOT, 'run-1', 'foo.txt'));
+    expect(result[1].relativePath).toBe(join(workspace, LOOP_ATTACHMENT_ROOT, 'run-1', 'bar.png'));
 
     const fooPath = join(workspace, LOOP_ATTACHMENT_ROOT, 'run-1', 'foo.txt');
     const written = await readFile(fooPath);

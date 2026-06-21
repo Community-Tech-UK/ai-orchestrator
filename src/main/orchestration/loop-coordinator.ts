@@ -66,6 +66,7 @@ import {
 import { computeWorkHash } from './loop-work-hash';
 import { detectConvergeUntilCleanIntent, detectLoopGoalIntent } from './loop-intent';
 import {
+  boundFullOutput,
   completedPlanWatchDirs,
   excerpt,
   jaccard,
@@ -736,23 +737,31 @@ export class LoopCoordinator extends EventEmitter {
           { repoRoot: config.workspaceCwd, skipInstall: true, taskType: 'feature' },
         );
         config.executionCwd = worktreeSession.worktreePath;
+        // P3: also store branch name so upsertRun can persist it to branch_name column.
+        config.worktreeBranch = worktreeSession.branchName;
         this.worktreeSessionIds.set(id, worktreeSession.id);
-        // P3: persist worktree info for boot-reconcile (best-effort).
-        try {
-          getLoopStore().updateWorktreeInfo(id, worktreeSession.worktreePath, worktreeSession.branchName);
-        } catch {
-          /* intentionally ignored — persistence is best-effort here */
-        }
         logger.info('Loop start: acquired worktree', {
           loopRunId: id,
           worktreePath: worktreeSession.worktreePath,
           branch: worktreeSession.branchName,
         });
       } catch (err) {
-        logger.warn('Loop start: failed to acquire worktree — running in workspace root', {
-          loopRunId: id,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        // Decision D (fail-closed): isolation was requested — a silent fallback
+        // to the shared root would recreate the exact collision/data-loss class
+        // isolation is meant to prevent, but invisibly. Surface a block instead.
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        logger.error('Loop start: failed to acquire worktree — blocking loop (isolation required, fail-closed)', err instanceof Error ? err : new Error(errorMsg), { loopRunId: id });
+        // Write a root BLOCKED.md so the operator can diagnose the failure.
+        try {
+          const { writeFile: wf } = await import('node:fs/promises');
+          await wf(
+            path.join(config.workspaceCwd, 'BLOCKED.md'),
+            `# Worktree Acquisition Failed\n\nLoop start aborted: could not acquire an isolated worktree.\n\nError: ${errorMsg}\n\nResolve the issue (check \`.worktrees/\`, disk space, and git status) and restart the loop.\n`,
+          );
+        } catch {
+          // best-effort — don't mask the original error
+        }
+        throw new Error(`isolateLoopWorkspaces: worktree acquisition failed — ${errorMsg}`);
       }
     }
 
@@ -959,11 +968,65 @@ export class LoopCoordinator extends EventEmitter {
       throw new Error(`Cannot restore non-paused loop checkpoint: ${state.status}`);
     }
 
-    // P2 recovery guard: if the restored config has an executionCwd pointing at
-    // a worktree that no longer exists (crash + manual cleanup), fall back to
-    // workspaceCwd so the loop continues to run rather than failing on every
-    // spawn. A future boot-reconcile (P3) will re-acquire a worktree instead.
-    if (state.config.executionCwd && state.config.executionCwd !== state.config.workspaceCwd) {
+    // Decision D (fail-closed): when isolation is required, a missing worktree
+    // must surface a block — silently falling back to workspaceCwd recreates the
+    // exact collision/data-loss class isolation is meant to prevent.
+    if (state.config.isolateLoopWorkspaces) {
+      const missingCwd = !state.config.executionCwd
+        || state.config.executionCwd === state.config.workspaceCwd;
+      let pathMissing = false;
+      if (!missingCwd) {
+        try {
+          const { stat } = await import('fs/promises');
+          await stat(state.config.executionCwd!);
+        } catch {
+          pathMissing = true;
+        }
+      }
+      if (missingCwd || pathMissing) {
+        const missingPath = state.config.executionCwd ?? '(not set)';
+        logger.error('Loop restore: worktree missing/unset — blocking loop (isolation required, fail-closed)', undefined, { id: state.id, missingPath });
+        const paths = resolveLoopArtifactPaths(state.config.workspaceCwd, state.id);
+        try {
+          const { mkdir: mkd, writeFile: wf } = await import('node:fs/promises');
+          await mkd(paths.dir, { recursive: true });
+          await wf(
+            paths.blocked,
+            `# Worktree Missing on Restore\n\nLoop restore aborted: the isolated worktree no longer exists.\n\nMissing path: ${missingPath}\n\nResolve by cleaning up the loop or creating a replacement worktree, then restart.\n`,
+          );
+        } catch {
+          // best-effort
+        }
+        throw new Error(`isolateLoopWorkspaces: worktree missing on restore (fail-closed) — ${missingPath}`);
+      }
+      // Worktree exists — re-register it with WorktreeManager so the normal
+      // terminate path (harvestWorktree + cleanupWorktree) works correctly.
+      // Without this the in-memory worktreeSessionIds map is empty for restored
+      // loops and the terminate path silently skips cleanup.
+      if (!this.worktreeSessionIds.has(state.id)) {
+        try {
+          const worktreeManager = getWorktreeManager();
+          const adopted = await worktreeManager.adoptWorktree(
+            state.id,
+            state.config.executionCwd!,
+            state.config.initialPrompt.slice(0, 60),
+          );
+          this.worktreeSessionIds.set(state.id, adopted.id);
+          logger.info('Loop restore: re-registered existing worktree', {
+            id: state.id,
+            worktreePath: state.config.executionCwd,
+            sessionId: adopted.id,
+          });
+        } catch (err) {
+          logger.warn('Loop restore: failed to re-register worktree — cleanup deferred to next-boot reconcile', {
+            id: state.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    } else if (state.config.executionCwd && state.config.executionCwd !== state.config.workspaceCwd) {
+      // Non-isolated loop with executionCwd: if the path is gone, degrade
+      // gracefully to workspaceCwd (no isolation contract to enforce).
       try {
         const { stat } = await import('fs/promises');
         await stat(state.config.executionCwd);
@@ -1689,6 +1752,7 @@ export class LoopCoordinator extends EventEmitter {
 
       const prevIter = history[history.length - 1];
       const outputExcerpt = excerpt(childResult.output);
+      const outputFull = boundFullOutput(childResult.output);
       const outputSimToPrev = prevIter
         ? jaccard(outputExcerpt, prevIter.outputExcerpt)
         : null;
@@ -1717,6 +1781,7 @@ export class LoopCoordinator extends EventEmitter {
         workHash,
         outputSimilarityToPrev: outputSimToPrev,
         outputExcerpt,
+        outputFull,
         progressVerdict: 'OK',
         progressSignals: [],
         completionSignalsFired: [],
@@ -2944,13 +3009,89 @@ export class LoopCoordinator extends EventEmitter {
         try {
           const worktreeManager = getWorktreeManager();
           const isSuccess = status === 'completed' || status === 'completed-needs-review';
-          if (isSuccess) {
-            await worktreeManager.harvestWorktree(worktreeSessionId);
-          } else {
-            // Non-success: mark abandoned so cleanupWorktree won't block on dirty tree.
+          // Yield to the synchronous caller so it can register the adapter cleanup
+          // hook and store its promise in terminalCleanupPromises before we proceed.
+          // Without this yield the promise map is empty when we look it up below.
+          await Promise.resolve();
+          // Wait for the adapter (CLI child) to fully stop BEFORE harvesting.
+          // Decision C ordering: stop child → harvest → reap. If we harvest while
+          // the child is still alive it can write files after our commit snapshot,
+          // and those post-harvest writes would be silently deleted by cleanup.
+          const adapterDonePromise = this.terminalCleanupPromises.get(state.id);
+          if (adapterDonePromise) {
+            try {
+              await adapterDonePromise;
+            } catch {
+              // Adapter cleanup errors are already logged; proceed to harvest.
+            }
+          }
+          // Now harvest: commit any uncommitted agent work to the session branch so
+          // the branch is durable and reachable after the worktree is reaped.
+          // harvestWorktree is a no-op when there's nothing to commit.
+          const harvestResult = await worktreeManager.harvestWorktree(worktreeSessionId);
+          if (!harvestResult.committed && harvestResult.hasUncommittedWork) {
+            // Harvest failed but there is uncommitted agent work. Skip forced
+            // removal to avoid data loss — the worktree stays on disk for manual
+            // inspection. The next boot reconcile will see this as an orphan and
+            // can reap it after the operator has reviewed/retrieved the work.
+            logger.error('Loop terminate: harvest failed with uncommitted work — skipping worktree removal to preserve agent output', undefined, {
+              loopRunId: state.id,
+              worktreeSessionId,
+              status,
+            });
+            return;
+          }
+          // Auto-integration (Decision C): on terminal-success, merge the
+          // harvested session branch into the shared integration branch via a
+          // dedicated integration worktree (never the root checkout). On conflict
+          // the session branch + integration branch are left untouched for manual
+          // resolution; the worktree dir is still reaped below since the work is
+          // safely committed on the session branch.
+          if (isSuccess && state.config.autoIntegrateWorktree !== false) {
+            try {
+              const integration = await worktreeManager.integrateWorktree(worktreeSessionId, {
+                advanceBaseIfUnchecked: true,
+              });
+              if (integration.success) {
+                logger.info('Loop terminate: auto-integrated session branch', {
+                  loopRunId: state.id,
+                  worktreeSessionId,
+                  integrationBranch: integration.integrationBranch,
+                  mergeCommit: integration.mergeCommit,
+                  alreadyIntegrated: integration.alreadyIntegrated ?? false,
+                  baseAdvanced: integration.baseAdvanced ?? false,
+                });
+              } else {
+                logger.warn('Loop terminate: auto-integration conflict — session branch preserved for manual resolution', {
+                  loopRunId: state.id,
+                  worktreeSessionId,
+                  integrationBranch: integration.integrationBranch,
+                  conflictFiles: integration.conflictFiles,
+                });
+              }
+            } catch (integErr) {
+              logger.warn('Loop terminate: auto-integration failed (best-effort)', {
+                loopRunId: state.id,
+                worktreeSessionId,
+                error: integErr instanceof Error ? integErr.message : String(integErr),
+              });
+            }
+          }
+          if (!isSuccess) {
+            // Non-success: mark abandoned so the branch is kept (not deleted on
+            // cleanup) and callers know this worktree was not cleanly completed.
             await worktreeManager.abandonWorktree(worktreeSessionId, `loop-${status}`);
           }
-          await worktreeManager.cleanupWorktree(worktreeSessionId, { force: true });
+          // Do NOT use { force: true }. On the success path the harvest above
+          // already committed all changes so the worktree is clean; cleanupWorktree
+          // will verify this and fail loudly if somehow it is not. On the non-success
+          // path abandonWorktree set session.status = 'abandoned', which cleanupWorktree
+          // treats as pre-cleared. Neither path needs force — and using force on the
+          // success path would bypass the refuse-dirty guard that is P4's safety contract.
+          await worktreeManager.cleanupWorktree(worktreeSessionId);
+          // Clear the DB registry columns so the next boot reconcile does not
+          // try to reap a worktree that is already gone.
+          try { getLoopStore().clearWorktreeInfo(state.id); } catch { /* best-effort */ }
           logger.info('Loop terminate: worktree cleaned up', { loopRunId: state.id, worktreeSessionId, status });
         } catch (err) {
           logger.warn('Loop terminate: worktree cleanup failed (best-effort)', {

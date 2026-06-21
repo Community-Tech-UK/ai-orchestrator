@@ -22,6 +22,7 @@ interface LoopIterationRow {
   work_hash: string;
   output_similarity_to_prev: number | null;
   output_excerpt: string;
+  output_full: string;
   progress_verdict: string;
   progress_signals_json: string;
   completion_signals_fired_json: string;
@@ -55,6 +56,7 @@ function rowToLoopIteration(row: LoopIterationRow): LoopIteration {
     workHash: row.work_hash,
     outputSimilarityToPrev: row.output_similarity_to_prev,
     outputExcerpt: row.output_excerpt,
+    outputFull: row.output_full ?? '',
     progressVerdict: row.progress_verdict as LoopIteration['progressVerdict'],
     progressSignals: JSON.parse(row.progress_signals_json),
     completionSignalsFired: JSON.parse(row.completion_signals_fired_json),

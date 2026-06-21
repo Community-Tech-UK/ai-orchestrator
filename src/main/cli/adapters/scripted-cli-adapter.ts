@@ -53,21 +53,43 @@ export type ScriptStep =
 export type ScriptedTurn = ScriptStep[] | ((message: CliMessage) => ScriptStep[]);
 
 /**
- * Phase 0 fault-injection modes for interrupt/terminate behaviour.
+ * Phase 0 fault-injection modes for interrupt/terminate/stdin behaviour.
  *
- * - `normal`            — `interrupt()` returns `accepted` with a never-settling
- *                         completion (the default; tests must drive termination).
+ * - `normal`            — `interrupt()` returns `accepted` with NO completion
+ *                         (the default; tests must drive termination). This is
+ *                         the "accepted-without-completion" case (A2).
+ * - `accepted-no-completion` — explicit alias of `normal`, for readable tests.
  * - `completion-settles`— `interrupt()` returns `accepted` with a completion
  *                         promise that resolves to `interrupted`.
  * - `completion-never-settles` — `interrupt()` returns accepted with a promise
- *                         that never resolves (deadline path test).
+ *                         that never resolves (interrupt-completion deadline / A3).
  * - `ignores-sigterm`   — `terminate()` is a no-op; the adapter never exits.
+ * - `exits-after-interrupt` — `interrupt()` accepted, then the synthetic process
+ *                         emits `exit` on the next microtask (CLI that dies on SIGINT).
+ * - `never-exits-after-interrupt` — `interrupt()` accepted but the process never
+ *                         exits and `terminate()` is a no-op (wedged; force-abort path).
+ * - `wrong-turn-id-interrupt` — `interrupt()` accepted with a mismatched `turnId`
+ *                         (Codex abort-before-turnId race, §6.1).
+ * - `stdin-drain-never-fires` — `sendInput()` records the input but never resolves
+ *                         (stdin drain hang / D9).
+ *
+ * Out of this adapter's scope (modeled by other doubles/specs, not here):
+ *   resume-not-found → resume-error-classifier.spec + session-recovery.spec;
+ *   never-releases-mutex → session-mutex.spec;
+ *   app-server-init-timeout / spawn-never-emits → base-cli-adapter watchdog +
+ *   codex adapter specs; stale-adapter-send-after-respawn →
+ *   interrupt-respawn-handler.spec generation-fence tests.
  */
 export type InterruptFaultMode =
   | 'normal'
+  | 'accepted-no-completion'
   | 'completion-settles'
   | 'completion-never-settles'
-  | 'ignores-sigterm';
+  | 'ignores-sigterm'
+  | 'exits-after-interrupt'
+  | 'never-exits-after-interrupt'
+  | 'wrong-turn-id-interrupt'
+  | 'stdin-drain-never-fires';
 
 export interface ScriptedAdapterOptions {
   /** Reuse an external bus (e.g. shared across adapters); one is created if omitted. */
@@ -227,14 +249,34 @@ export class ScriptedCliAdapter extends BaseCliAdapter {
         const completion = new Promise<TurnInterruptCompletion>(() => undefined);
         return { status: 'accepted', completion };
       }
+      case 'exits-after-interrupt': {
+        // Model a CLI that exits shortly after receiving SIGINT.
+        queueMicrotask(() => {
+          if (this.spawnedEmitted && !this.terminated) {
+            this.terminated = true;
+            this.receipts.record('exit', { code: 0, signal: 'SIGINT' });
+            this.emit('exit', 0, 'SIGINT');
+          }
+        });
+        return { status: 'accepted' };
+      }
+      case 'wrong-turn-id-interrupt':
+        // Codex abort-before-turnId race (§6.1): accepted but with a turnId the
+        // caller never issued.
+        return { status: 'accepted', turnId: 'mismatched-turn-id' };
       default:
+        // 'normal' / 'accepted-no-completion' / 'never-exits-after-interrupt' /
+        // 'ignores-sigterm' / 'stdin-drain-never-fires': accepted, no completion.
         return { status: 'accepted' };
     }
   }
 
   override async terminate(graceful = true): Promise<void> {
-    if (this.interruptFaultMode === 'ignores-sigterm') {
-      // Fault injection: adapter ignores SIGTERM — never emits exit.
+    if (
+      this.interruptFaultMode === 'ignores-sigterm' ||
+      this.interruptFaultMode === 'never-exits-after-interrupt'
+    ) {
+      // Fault injection: adapter ignores SIGTERM / stays wedged — never emits exit.
       return;
     }
     await super.terminate(graceful);
@@ -325,6 +367,11 @@ export class ScriptedCliAdapter extends BaseCliAdapter {
 
   protected async sendInputImpl(message: string, attachments?: FileAttachment[]): Promise<void> {
     this.inputs.push({ message, attachments });
+    if (this.interruptFaultMode === 'stdin-drain-never-fires') {
+      // Fault injection (D9): the stdin write never drains. Used to test that
+      // callers bound their sendInput await rather than hanging forever.
+      await new Promise<void>(() => undefined);
+    }
   }
 
   // ---- internals -----------------------------------------------------------

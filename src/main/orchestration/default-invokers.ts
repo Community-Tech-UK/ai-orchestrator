@@ -1361,10 +1361,10 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     // these methods. Production InstanceManager always has them.
     const liveInstance = instanceManager.getInstance?.(p.chatId);
     const liveAdapter = liveInstance ? instanceManager.getAdapter?.(p.chatId) : undefined;
-    // A borrowed live adapter is already running, so loop-control env cannot
-    // be injected retroactively. Use a loop-owned adapter when control is on.
+    // Borrow the chat's live adapter so loop turns land in its CLI session for
+    // follow-up continuity; skip when worktree-isolated. Control via CLI shim.
     if (
-      !p.loopControlEnv &&
+      !(p.executionCwd && p.executionCwd !== p.workspaceCwd) &&
       liveAdapter &&
       canBorrowParentLoopAdapter(p.provider, liveInstance?.provider) &&
       isBaseCliAdapterLike(liveAdapter)
@@ -1428,7 +1428,10 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     }
 
     try {
-      const workspaceBefore = snapshotWorkspaceFiles(p.workspaceCwd);
+      // When isolation is active, snapshot the worktree (executionCwd), not the
+      // repo root — the agent edits the worktree and the diff must reflect that.
+      const workspaceDir = p.executionCwd ?? p.workspaceCwd;
+      const workspaceBefore = snapshotWorkspaceFiles(workspaceDir);
       const result = await invokeCliTextResponse({
         instanceManager,
         // When borrowing the parent instance's adapter, pass the instance id so
@@ -1493,11 +1496,11 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         enableAdapterResume(reusedAdapter);
       }
 
-      const workspaceDelta = snapshotFileChangesViaWorkspace(workspaceBefore, p.workspaceCwd);
+      const workspaceDelta = snapshotFileChangesViaWorkspace(workspaceBefore, workspaceDir);
       const workspaceDeltaPaths = new Set(workspaceDelta.map((change) => change.path));
       const filesChanged = mergeFileChanges(
         workspaceDelta,
-        snapshotFileChangesViaGit(p.workspaceCwd).filter((change) => workspaceDeltaPaths.has(change.path)),
+        snapshotFileChangesViaGit(workspaceDir).filter((change) => workspaceDeltaPaths.has(change.path)),
       );
       // FU-5: derive structured signals from the actual iteration output.
       // testPassCount/testFailCount feeds the D / D-prime signals;

@@ -22,6 +22,14 @@ export class FallbackQuotaProbe implements ProviderQuotaProbe {
     }
 
     const fallbackSnapshot = await this.fallback.probe(opts);
-    return fallbackSnapshot ?? primarySnapshot;
+    if (!fallbackSnapshot) return primarySnapshot;
+
+    // The cheaper fallback (e.g. local login-state check) may report "signed in"
+    // even when the primary could not refresh its quota token. Don't let that
+    // mask an actionable reauth need surfaced by the primary.
+    if (primarySnapshot?.needsReauth && !fallbackSnapshot.needsReauth) {
+      return { ...fallbackSnapshot, needsReauth: true };
+    }
+    return fallbackSnapshot;
   }
 }

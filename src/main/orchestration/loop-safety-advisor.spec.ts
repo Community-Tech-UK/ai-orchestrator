@@ -21,6 +21,7 @@ function iteration(overrides: Partial<LoopIteration>): LoopIteration {
     workHash: '',
     outputSimilarityToPrev: null,
     outputExcerpt: '',
+    outputFull: '',
     progressVerdict: 'progress' as LoopIteration['progressVerdict'],
     progressSignals: [],
     completionSignalsFired: [],

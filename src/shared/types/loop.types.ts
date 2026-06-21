@@ -530,6 +530,23 @@ export interface LoopConfig {
    * Serialized to the DB so recovery can rebuild the full config.
    */
   executionCwd?: string;
+  /**
+   * Branch name of the per-session worktree. Set by the coordinator alongside
+   * `executionCwd` when `isolateLoopWorkspaces` is true. Persisted to the DB
+   * via `config_json` and the dedicated `branch_name` column so boot-reconcile
+   * can identify the branch for audit/recovery purposes.
+   */
+  worktreeBranch?: string;
+  /**
+   * When isolation is on, automatically integrate the session branch on
+   * terminal-success: the orchestrator merges the harvested session branch into
+   * a shared, accumulating integration branch (`integration/<baseBranch>`) via a
+   * dedicated integration worktree — never the root checkout. On a clean merge
+   * the worktree is reaped as usual; on conflict the session branch and worktree
+   * output are preserved for manual resolution. Default: true when
+   * `isolateLoopWorkspaces` is true (set false to harvest-to-branch only).
+   */
+  autoIntegrateWorktree?: boolean;
 }
 
 /** Default config factory. */
@@ -737,8 +754,18 @@ export interface LoopIteration {
   workHash: string;
   /** Cosine/Jaccard similarity to previous iteration's output text (0..1). */
   outputSimilarityToPrev: number | null;
-  /** First & last 2KB of stdout for inspection. */
+  /**
+   * First & last 2KB of stdout, used for similarity / no-progress /
+   * completion detection. Deliberately small — see `excerpt()`.
+   */
   outputExcerpt: string;
+  /**
+   * The agent's complete closing message (verbatim, bounded only by a
+   * generous safety cap — see `boundFullOutput()`). Used purely for human
+   * display (summary card, trace, chat recap); never fed to detection.
+   * Empty string on pre-migration rows or iterations with no output.
+   */
+  outputFull: string;
   progressVerdict: LoopVerdict;
   progressSignals: ProgressSignalEvidence[];
   completionSignalsFired: CompletionSignalEvidence[];

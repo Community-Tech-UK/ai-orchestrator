@@ -101,6 +101,22 @@ describe('UsageMonitorSource', () => {
     expect(await src.read()).toBeNull();
   });
 
+  it('treats a 10-min-old file as fresh under the production default ceiling', async () => {
+    // The standalone monitor's launchd poller fires every 600s, so state.json is
+    // routinely up to ~10 min old. The production default ceiling must tolerate a
+    // full poll cycle — otherwise the Antigravity/Cursor fallback silently dies
+    // for half of every cycle. No maxAgeMs override here: exercise the real default.
+    const src = new UsageMonitorSource({
+      statePath: '/fake/state.json',
+      now: () => NOW,
+      statFile: async () => ({ mtimeMs: NOW - 10 * 60_000 }), // 10 min old
+      readFile: async () => JSON.stringify({ cursor: { windows: [{ label: 'included', used_percent: 65 }] } }),
+    });
+    const cursor = await src.readProvider('cursor');
+    expect(cursor).not.toBeNull();
+    expect(cursor!.windows[0].used).toBe(65);
+  });
+
   it('returns null when the file is absent (stat throws)', async () => {
     const src = makeSource({ statThrows: true });
     expect(await src.read()).toBeNull();

@@ -340,6 +340,57 @@ describe('ProviderQuotaChipComponent', () => {
       expect(store.refresh).toHaveBeenCalledWith('codex');
     });
 
+    it('surfaces a reauth marker in the strip and an actionable banner in the popover', () => {
+      store.setSnapshot('cursor', {
+        provider: 'cursor',
+        takenAt: Date.now(),
+        source: 'admin-api',
+        ok: false,
+        error: 'Cursor session token is expired — open Cursor and sign in to refresh',
+        needsReauth: true,
+        windows: [],
+      });
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      const stripText = host.querySelector('[data-testid="quota-strip"]')?.textContent ?? '';
+      expect(stripText).toContain('CUreauth');
+
+      const button = host.querySelector('button[data-testid="quota-toggle"]') as HTMLButtonElement;
+      button.click();
+      fixture.detectChanges();
+
+      const reauth = host.querySelector('[data-testid="quota-reauth-cursor"]');
+      expect(reauth).toBeTruthy();
+      expect(reauth?.textContent).toMatch(/reauth needed/i);
+      expect(reauth?.textContent).toMatch(/open cursor and sign in/i);
+    });
+
+    it('shows last-known windows plus a reauth warning when both are present', () => {
+      store.setSnapshot('cursor', {
+        provider: 'cursor',
+        takenAt: Date.now(),
+        source: 'inferred',
+        ok: true,
+        needsReauth: true,
+        windows: [{ ...makeWindow(65, 100), id: 'cursor.included', label: 'Cursor included' }],
+      });
+      fixture.detectChanges();
+
+      const host = fixture.nativeElement as HTMLElement;
+      const stripText = host.querySelector('[data-testid="quota-strip"]')?.textContent ?? '';
+      expect(stripText).toContain('CU65%');
+      expect(stripText).toContain('⚠');
+
+      const button = host.querySelector('button[data-testid="quota-toggle"]') as HTMLButtonElement;
+      button.click();
+      fixture.detectChanges();
+
+      const detail = host.querySelector('[data-testid="quota-provider-cursor"]');
+      expect(detail?.textContent).toContain('Cursor included');
+      expect(host.querySelector('[data-testid="quota-reauth-cursor"]')).toBeTruthy();
+    });
+
     it('keeps the detail popover open for inside clicks and closes it for outside clicks', () => {
       store.setSnapshot('codex', makeSnapshot('codex', 'plus', true, [
         { ...makeWindow(4, 100), id: 'codex.weekly', label: 'Codex weekly' },
