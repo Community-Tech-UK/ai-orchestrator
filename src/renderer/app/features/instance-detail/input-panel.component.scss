@@ -393,19 +393,19 @@ app-copilot-model-selector {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  min-height: 180px;
+  min-height: 0;
 }
 
 /* Textarea Wrapper - Container for ghost text overlay */
 .textarea-wrapper {
   position: relative;
   display: block;
-  flex: 1;
+  flex: 0 0 auto;
   min-width: 0;
-  min-height: clamp(148px, 20vh, 220px);
+  min-height: 0;
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 26px;
+  border-radius: 18px;
   overflow: hidden;
   transition: all var(--transition-fast);
   box-sizing: border-box;
@@ -424,12 +424,12 @@ app-copilot-model-selector {
 
 .message-input {
   width: 100%;
-  min-height: clamp(148px, 20vh, 220px);
-  max-height: min(40vh, 520px);
-  padding: 20px 22px;
+  min-height: 0;
+  max-height: min(30vh, 220px);
+  padding: 14px 18px;
   background: transparent;
   border: none;
-  border-radius: 26px;
+  border-radius: 18px;
   resize: none;
   line-height: 1.5;
   font-family: var(--font-display);
@@ -467,7 +467,7 @@ app-copilot-model-selector {
   left: 0;
   right: 0;
   bottom: 0;
-  padding: 20px 22px;
+  padding: 14px 18px;
   pointer-events: none;
   z-index: 1;
   overflow: hidden;
@@ -608,6 +608,43 @@ app-copilot-model-selector {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.wakeup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wakeup-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.wakeup-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: -2px -2px -2px 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+  }
 }
 
 .wakeup-segments,
@@ -852,6 +889,16 @@ app-copilot-model-selector {
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Idle instructional hints: stay out of the way until the composer is focused */
+.hint-idle {
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.input-panel:focus-within .hint-idle {
+  opacity: 0.8;
 }
 
 .hint-interrupt {

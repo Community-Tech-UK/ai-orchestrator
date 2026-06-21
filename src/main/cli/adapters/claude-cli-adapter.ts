@@ -27,7 +27,7 @@ import { getLogger } from '../../logging/logger';
 import { buildDeferPermissionHookCommand } from '../hooks/hook-path-resolver';
 import { HOST_CLI_CLOUD_SCHEDULER_TOOLS } from './host-cli-tool-policy';
 import { buildAskUserQuestionPrompt, parseAskUserQuestions } from './ask-user-question-prompt';
-import type { CliStreamMessage } from '../../../shared/types/cli.types';
+import type { CliStreamMessage, CliRateLimitInfo } from '../../../shared/types/cli.types';
 import type {
   OutputMessage,
   InstanceStatus,
@@ -108,6 +108,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private excludeSupportPromise: Promise<boolean> | null = null;
   private cliStatusPromise: Promise<CliStatus> | null = null;
   private lastResumeAttemptResult: ResumeAttemptResult | null = null;
+  private lastRateLimitInfo: CliRateLimitInfo | null = null;
 
   constructor(options: ClaudeCliSpawnOptions = {}) {
     // Build env passthrough for the spawned CLI process. The PreToolUse hook
@@ -162,6 +163,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
   getResumeAttemptResult(): ResumeAttemptResult | null {
     return this.lastResumeAttemptResult;
+  }
+
+  /** Latest rate-limit telemetry reported by the CLI, or null if none seen. */
+  getLastRateLimitInfo(): CliRateLimitInfo | null {
+    return this.lastRateLimitInfo;
   }
 
   /**
@@ -1913,6 +1919,48 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             schema: elicitationRaw.schema
           }
         });
+        break;
+      }
+
+      case 'rate_limit_event': {
+        // Anthropic usage telemetry. `status: 'allowed'` is the steady state and
+        // arrives every turn — keep it at debug so it doesn't spam as an
+        // "unrecognized message". Only surface a user-visible notice the first
+        // time the status flips into an actually-throttled state, so a stalled
+        // session shows *why* instead of going silent.
+        const info = (raw as { rate_limit_info?: CliRateLimitInfo }).rate_limit_info ?? null;
+        const prevStatus = this.lastRateLimitInfo?.status;
+        this.lastRateLimitInfo = info;
+        const status = info?.status;
+        const throttled = Boolean(status && status !== 'allowed');
+        if (throttled && status !== prevStatus) {
+          const resetsAtMs = typeof info?.resetsAt === 'number' ? info.resetsAt * 1000 : undefined;
+          const resetText = resetsAtMs ? new Date(resetsAtMs).toLocaleTimeString() : 'unknown';
+          logger.warn('Provider rate limit active', {
+            status,
+            rateLimitType: info?.rateLimitType,
+            overageStatus: info?.overageStatus,
+            resetsAt: resetsAtMs,
+          });
+          this.emit('output', {
+            id: generateId(),
+            timestamp: message.timestamp || Date.now(),
+            type: 'system',
+            content: `Provider rate limit "${status}" (${info?.rateLimitType ?? 'window'}). Resets at ${resetText}.`,
+            metadata: {
+              rateLimit: true,
+              status,
+              rateLimitType: info?.rateLimitType,
+              resetsAt: resetsAtMs,
+            },
+          });
+        } else {
+          logger.debug('Rate limit telemetry', {
+            status,
+            rateLimitType: info?.rateLimitType,
+            resetsAt: info?.resetsAt,
+          });
+        }
         break;
       }
 

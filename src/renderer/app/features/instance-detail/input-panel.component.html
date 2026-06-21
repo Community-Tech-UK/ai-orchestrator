@@ -238,7 +238,7 @@
         (keydown)="onKeyDown($event)"
         (focus)="onFocus()"
         (blur)="onBlur()"
-        rows="5"
+        rows="1"
         #textareaRef
       ></textarea>
     </div>
@@ -266,7 +266,7 @@
           (stopRequested)="onLoopStopRequested()"
         />
         @if (showWakeupControls()) {
-          <div class="wakeup-control">
+          <div class="wakeup-control" #wakeupControl>
             <button
               type="button"
               class="btn-wakeup"
@@ -284,6 +284,16 @@
             </button>
             @if (showWakeupMenu()) {
               <div class="wakeup-popover">
+                <div class="wakeup-header">
+                  <span class="wakeup-title">Schedule wakeup</span>
+                  <button
+                    type="button"
+                    class="wakeup-close"
+                    (click)="showWakeupMenu.set(false)"
+                    title="Close"
+                    aria-label="Close"
+                  >×</button>
+                </div>
                 <div class="wakeup-segments" role="tablist" aria-label="Wakeup mode">
                   <button
                     type="button"
@@ -356,7 +366,7 @@
         } @else if (isSteeringTarget()) {
           <span class="hint">Enter to queue, Shift+Enter for new line</span>
         } @else {
-          <span class="hint">Press Enter to send, Shift+Enter for new line</span>
+          <span class="hint hint-idle">Press Enter to send, Shift+Enter for new line</span>
         }
         @if (isInitializing()) {
           <span class="hint hint-starting">Starting up...</span>
@@ -367,7 +377,7 @@
         } @else if (isReplayFallback()) {
           <span class="hint hint-recovery">Condensed context will attach on send</span>
         } @else {
-          <span class="hint">Type / for commands, Cmd+K for palette</span>
+          <span class="hint hint-idle">Type / for commands, Cmd+K for palette</span>
         }
       </div>
 

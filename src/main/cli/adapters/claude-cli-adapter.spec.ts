@@ -602,3 +602,54 @@ describe('ClaudeCliAdapter B7 transcript-verified resume', () => {
     expect(decided).toBe(false);
   });
 });
+
+describe('ClaudeCliAdapter rate_limit_event handling', () => {
+  type OutputEvent = { type: string; content: string; metadata?: Record<string, unknown> };
+
+  function makeAdapter() {
+    const adapter = new ClaudeCliAdapter();
+    const outputs: OutputEvent[] = [];
+    adapter.on('output', (o: OutputEvent) => outputs.push(o));
+    const processCliMessage = (
+      adapter as unknown as { processCliMessage: (message: unknown) => void }
+    ).processCliMessage.bind(adapter);
+    const getLastRateLimitInfo = (
+      adapter as unknown as { getLastRateLimitInfo: () => { status?: string } | null }
+    ).getLastRateLimitInfo.bind(adapter);
+    return { adapter, outputs, processCliMessage, getLastRateLimitInfo };
+  }
+
+  it('records an allowed rate_limit_event without emitting a user-visible notice', () => {
+    const { outputs, processCliMessage, getLastRateLimitInfo } = makeAdapter();
+
+    processCliMessage({
+      type: 'rate_limit_event',
+      timestamp: 1,
+      rate_limit_info: { status: 'allowed', rateLimitType: 'five_hour', resetsAt: 1782079200 },
+    });
+
+    expect(getLastRateLimitInfo()?.status).toBe('allowed'); // handled (not the unrecognized default)
+    expect(outputs).toHaveLength(0); // steady state is quiet
+  });
+
+  it('surfaces a one-time notice when the status flips to throttled', () => {
+    const { outputs, processCliMessage, getLastRateLimitInfo } = makeAdapter();
+
+    processCliMessage({ type: 'rate_limit_event', timestamp: 1, rate_limit_info: { status: 'allowed' } });
+    processCliMessage({
+      type: 'rate_limit_event',
+      timestamp: 2,
+      rate_limit_info: { status: 'rejected', rateLimitType: 'five_hour', resetsAt: 1782079200 },
+    });
+
+    expect(getLastRateLimitInfo()?.status).toBe('rejected');
+    expect(outputs).toHaveLength(1);
+    expect(outputs[0]?.type).toBe('system');
+    expect(outputs[0]?.metadata?.['rateLimit']).toBe(true);
+    expect(outputs[0]?.content).toContain('rate limit');
+
+    // A repeat of the same throttled status must not spam another notice.
+    processCliMessage({ type: 'rate_limit_event', timestamp: 3, rate_limit_info: { status: 'rejected' } });
+    expect(outputs).toHaveLength(1);
+  });
+});

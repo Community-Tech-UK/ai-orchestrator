@@ -301,6 +301,28 @@ export class AutomationsPageComponent {
     }
   }
 
+  /** Per-automation in-flight state for the inline "run now" play button. */
+  private readonly runningIds = signal<ReadonlySet<string>>(new Set());
+
+  isRunning(automation: Automation): boolean {
+    return this.runningIds().has(automation.id);
+  }
+
+  /** Trigger an immediate manual run of the automation from the list row. */
+  async runNow(automation: Automation): Promise<void> {
+    if (this.runningIds().has(automation.id)) return;
+    this.runningIds.update((ids) => new Set(ids).add(automation.id));
+    try {
+      await this.store.runNow(automation.id);
+    } finally {
+      this.runningIds.update((ids) => {
+        const next = new Set(ids);
+        next.delete(automation.id);
+        return next;
+      });
+    }
+  }
+
   // --- Create / edit ---------------------------------------------------------
 
   startCreate(): void {

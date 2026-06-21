@@ -8,6 +8,7 @@ import {
   computed,
   effect,
   ElementRef,
+  HostListener,
   inject,
   input,
   OnDestroy,
@@ -118,6 +119,7 @@ export class InputPanelComponent implements OnDestroy {
   protected voice = inject(VoiceConversationStore);
   private filePreviewUrls = new Map<File, string>();
   private textareaRef = viewChild<ElementRef<HTMLTextAreaElement>>('textareaRef');
+  private wakeupControlRef = viewChild<ElementRef<HTMLElement>>('wakeupControl');
   private imageLightbox = viewChild(ImageLightboxComponent);
 
   instanceId = input.required<string>();
@@ -869,6 +871,25 @@ export class InputPanelComponent implements OnDestroy {
     }
   }
 
+  /** Dismiss the wakeup popover when clicking anywhere outside the wakeup control. */
+  @HostListener('document:click', ['$event'])
+  onDocumentClickForWakeup(event: MouseEvent): void {
+    if (!this.showWakeupMenu()) return;
+    const control = this.wakeupControlRef()?.nativeElement;
+    const target = event.target as Node | null;
+    if (control && target && !control.contains(target)) {
+      this.showWakeupMenu.set(false);
+    }
+  }
+
+  /** Dismiss the wakeup popover on Escape. */
+  @HostListener('document:keydown.escape')
+  onEscapeForWakeup(): void {
+    if (this.showWakeupMenu()) {
+      this.showWakeupMenu.set(false);
+    }
+  }
+
   onWakeupRunAtInput(event: Event): void {
     this.wakeupRunAtLocal.set((event.target as HTMLInputElement).value);
   }
@@ -1035,7 +1056,7 @@ export class InputPanelComponent implements OnDestroy {
 
     requestAnimationFrame(() => {
       this.resizeScheduled = false;
-      const maxHeight = Math.min(window.innerHeight * 0.38, 520);
+      const maxHeight = Math.min(window.innerHeight * 0.3, 220);
       const newHeight = Math.min(textarea.scrollHeight, maxHeight);
       if (textarea.style.height !== `${newHeight}px`) {
         textarea.style.height = 'auto';

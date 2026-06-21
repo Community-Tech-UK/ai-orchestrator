@@ -41,11 +41,7 @@ interface WelcomeProjectContext {
       <div class="welcome-view">
         <div class="welcome-shell">
           <div class="welcome-copy">
-            <p class="welcome-eyebrow">Operator Workspace</p>
-            <h1 class="welcome-title">Start with a brief, not a control panel.</h1>
-            <p class="welcome-hint">
-              Launch a session, point it at the right folder, and let the rest of the orchestration stack stay in the background until you need it.
-            </p>
+            <h1 class="welcome-title">Start with a brief.</h1>
 
             <div class="welcome-folder-wrapper">
               <span class="folder-label">Working directory</span>
@@ -146,7 +142,6 @@ interface WelcomeProjectContext {
                   </button>
                 }
               </div>
-              <span class="welcome-composer-hint">Describe the outcome, constraints, and context.</span>
             </div>
             <div class="welcome-input">
               <app-input-panel
@@ -191,7 +186,7 @@ interface WelcomeProjectContext {
         flex: 1;
         align-items: flex-start;
         justify-content: center;
-        padding: 40px 32px;
+        padding: 28px 32px;
         background:
           radial-gradient(circle at 18% 18%, rgba(var(--secondary-rgb), 0.12), transparent 26%),
           radial-gradient(circle at 82% 82%, rgba(var(--primary-rgb), 0.09), transparent 24%),
@@ -204,10 +199,10 @@ interface WelcomeProjectContext {
       }
 
       .welcome-shell {
-        width: min(980px, 100%);
+        width: min(680px, 100%);
         display: flex;
         flex-direction: column;
-        gap: 26px;
+        gap: 18px;
         position: relative;
         z-index: 1;
         margin-block: auto;
@@ -216,51 +211,34 @@ interface WelcomeProjectContext {
       .welcome-copy {
         display: flex;
         flex-direction: column;
-        gap: 18px;
+        gap: 14px;
         animation: fadeInUp 0.6s ease-out;
-        max-width: 720px;
+        width: 100%;
         z-index: 2;
-      }
-
-      .welcome-eyebrow {
-        font-family: var(--font-mono);
-        font-size: 11px;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
-        color: var(--text-muted);
       }
 
       .welcome-title {
         font-family: var(--font-display);
-        font-size: clamp(34px, 5vw, 52px);
+        font-size: clamp(22px, 2.8vw, 32px);
         font-weight: 600;
-        letter-spacing: -0.03em;
+        letter-spacing: -0.02em;
         color: var(--text-primary);
-        line-height: 0.94;
-        max-width: 12ch;
-      }
-
-      .welcome-hint {
-        max-width: 46ch;
-        font-size: 17px;
-        color: var(--text-secondary);
-        margin: 0;
-        line-height: 1.75;
+        line-height: 1.05;
+        max-width: 22ch;
       }
 
       .welcome-folder-wrapper {
         display: flex;
         flex-direction: column;
         gap: 8px;
-        width: min(520px, 100%);
-        padding: 18px 20px;
-        border-radius: 22px;
+        width: 100%;
+        padding: 14px 16px;
+        border-radius: 16px;
         border: 1px solid rgba(255, 255, 255, 0.07);
         background:
           linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0)),
           rgba(255, 255, 255, 0.03);
         backdrop-filter: blur(18px);
-        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.18);
       }
 
       .folder-label {
@@ -365,7 +343,7 @@ interface WelcomeProjectContext {
       .welcome-input-shell {
         display: flex;
         flex-direction: column;
-        gap: 16px;
+        gap: 10px;
         min-width: 0;
         animation: fadeInUp 0.6s ease-out 0.15s both;
         width: 100%;
@@ -390,11 +368,6 @@ interface WelcomeProjectContext {
         letter-spacing: 0.14em;
         text-transform: uppercase;
         color: var(--text-muted);
-      }
-
-      .welcome-composer-hint {
-        color: var(--text-secondary);
-        font-size: 15px;
       }
 
       .discard-draft-btn {
@@ -428,7 +401,7 @@ interface WelcomeProjectContext {
         }
 
         .welcome-title {
-          font-size: clamp(32px, 10vw, 46px);
+          font-size: clamp(22px, 6vw, 30px);
         }
       }
 
