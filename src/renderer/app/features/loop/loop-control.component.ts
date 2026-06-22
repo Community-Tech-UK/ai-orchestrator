@@ -25,6 +25,7 @@ import {
   loopPauseReason,
   loopStatusPill,
   shortTime,
+  summaryHasDistinctIterationPrompt as hasDistinctIterationPrompt,
   summarizeToolDetail,
   terminalStatusLabel,
 } from './loop-formatters.util';
@@ -828,17 +829,7 @@ export class LoopControlComponent implements OnDestroy {
     }, 1800);
   }
 
-  /** Centralized predicate so the template doesn't repeat the
-   *  null/empty/equality dance — and so a future contract change
-   *  (e.g. iterationPrompt becoming required) can be absorbed in one
-   *  place. */
-  summaryHasDistinctIterationPrompt(s: { initialPrompt: string; iterationPrompt?: string | null }): boolean {
-    return (
-      typeof s.iterationPrompt === 'string'
-      && s.iterationPrompt.length > 0
-      && s.iterationPrompt !== s.initialPrompt
-    );
-  }
+  protected readonly summaryHasDistinctIterationPrompt = hasDistinctIterationPrompt;
 
   async onToggleReactionsArmed(): Promise<void> {
     const id = this.chatId();
@@ -988,18 +979,13 @@ export class LoopControlComponent implements OnDestroy {
       .join('\n\n');
   }
 
-  // ────── presentational helpers (delegate to pure utils) ──────
-  // Methods rather than direct util references so the template binds
-  // cleanly without `import {…}` inside the @Component decorator.
-
-  protected duration(ms: number): string { return humanDuration(ms); }
-  protected tokens(n: number): string    { return humanTokens(n); }
-  protected cost(cents: number): string  { return formatCostCents(cents); }
-  protected time(ts: number): string     { return shortTime(ts); }
-  protected kindLabel(kind: string): string { return activityKindLabel(kind); }
-  protected toolDetail(detail?: Record<string, unknown>): string { return summarizeToolDetail(detail); }
-  protected iterationCapLabel(maxIterations: number | null): string { return maxIterations === null ? '∞' : String(maxIterations); }
-  protected summaryStatusLabel(status: 'completed' | 'completed-needs-review' | 'cancelled' | 'failed' | 'cap-reached' | 'error' | 'no-progress' | 'provider-limit'): string {
-    return terminalStatusLabel(status);
-  }
+  protected readonly duration = humanDuration;
+  protected readonly tokens = humanTokens;
+  protected readonly cost = formatCostCents;
+  protected readonly time = shortTime;
+  protected readonly kindLabel = activityKindLabel;
+  protected readonly toolDetail = summarizeToolDetail;
+  protected readonly iterationCapLabel = (maxIterations: number | null): string =>
+    maxIterations === null ? '∞' : String(maxIterations);
+  protected readonly summaryStatusLabel = terminalStatusLabel;
 }

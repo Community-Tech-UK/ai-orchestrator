@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   GeminiUsageEndpointProbe,
+  discoverGeminiOAuthClient,
   parseGeminiQuotaPayload,
+  type GeminiOAuthDiscoveryDeps,
   type GeminiQuotaFileReader,
   type GeminiQuotaFetch,
   type GeminiLoadCodeAssistFetch,
@@ -248,5 +250,59 @@ describe('GeminiUsageEndpointProbe', () => {
     const snap = await probe.probe({ signal: new AbortController().signal });
     expect(snap!.ok).toBe(false);
     expect(snap!.error).toMatch(/project/i);
+  });
+});
+
+describe('discoverGeminiOAuthClient', () => {
+  // Models the real machine: `agy` is a compiled binary in ~/.local/bin (no JS
+  // in its dir), while `gemini` resolves into a JS bundle that carries the
+  // client. The loop must skip past `agy` and keep going to `gemini`.
+  const AGY_DIR = '/home/u/.local/bin';
+  const GEMINI_BIN_DIR = '/home/u/.nvm/versions/node/v24/bin';
+  const GEMINI_BUNDLE_DIR = '/home/u/.nvm/versions/node/v24/lib/node_modules/@google/gemini-cli/bundle';
+
+  function fakeFs(): GeminiOAuthDiscoveryDeps {
+    return {
+      searchDirs: [AGY_DIR, GEMINI_BIN_DIR],
+      access: async (p: string) => {
+        if (p === `${AGY_DIR}/agy` || p === `${GEMINI_BIN_DIR}/gemini`) return;
+        throw new Error('ENOENT');
+      },
+      realpath: async (p: string) => {
+        if (p === `${GEMINI_BIN_DIR}/gemini`) return `${GEMINI_BUNDLE_DIR}/gemini.js`;
+        return p; // agy is its own realpath
+      },
+      readdir: async (p: string) => {
+        if (p === AGY_DIR) return ['agy', 'node', 'claude']; // no .js → no client
+        if (p === GEMINI_BUNDLE_DIR) return ['gemini.js', 'chunk-AAA.js'];
+        return [];
+      },
+      readFile: async (p: string) => {
+        if (p === `${GEMINI_BUNDLE_DIR}/chunk-AAA.js`) {
+          return 'const OAUTH_CLIENT_ID = "the-id";\nconst OAUTH_CLIENT_SECRET = "the-secret";';
+        }
+        return 'no client here';
+      },
+    };
+  }
+
+  it('skips the compiled `agy` binary and resolves the client from the gemini bundle', async () => {
+    const client = await discoverGeminiOAuthClient({}, fakeFs());
+    expect(client).toEqual({ clientId: 'the-id', clientSecret: 'the-secret' });
+  });
+
+  it('returns null when no candidate bundle yields the client', async () => {
+    const deps = fakeFs();
+    deps.readFile = async () => 'no client anywhere';
+    const client = await discoverGeminiOAuthClient({}, deps);
+    expect(client).toBeNull();
+  });
+
+  it('returns null when neither binary is on the search path', async () => {
+    const client = await discoverGeminiOAuthClient(
+      {},
+      { searchDirs: ['/nowhere'], access: async () => { throw new Error('ENOENT'); } },
+    );
+    expect(client).toBeNull();
   });
 });

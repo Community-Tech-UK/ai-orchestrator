@@ -9,4 +9,5 @@ export {
   getChatService,
   getChatServiceIfInitialized,
   type ChatServiceConfig,
+  type ChatSystemEventInput,
 } from './chat-service';

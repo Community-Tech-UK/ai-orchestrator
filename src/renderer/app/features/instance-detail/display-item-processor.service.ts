@@ -34,6 +34,11 @@ export {
 
 const TIME_GAP_THRESHOLD = 2 * 60 * 1000; // 2 minutes
 
+interface IndexedOutputMessage {
+  message: OutputMessage;
+  bufferIndex: number;
+}
+
 export class DisplayItemProcessor {
   private lastProcessedCount = 0;
   private items: DisplayItem[] = [];
@@ -49,13 +54,16 @@ export class DisplayItemProcessor {
     instanceId?: string,
     historyOffset = 0,
   ): DisplayItem[] {
+    const visibleMessages = this.getVisibleMessageEntries(messages, historyOffset);
+    const visibleMessageRefs = visibleMessages.map(entry => entry.message);
+
     // Detect instance switch, buffer shrink, or prepend (first message ID changed)
-    const currentFirstId = messages.length > 0 ? messages[0].id : null;
-    const processedMessagesChanged = this.haveProcessedMessagesChanged(messages);
+    const currentFirstId = visibleMessages.length > 0 ? visibleMessages[0].message.id : null;
+    const processedMessagesChanged = this.haveProcessedMessagesChanged(visibleMessageRefs);
     if (
       instanceId !== this.lastInstanceId ||
       historyOffset !== this.lastHistoryOffset ||
-      messages.length < this.lastProcessedCount ||
+      visibleMessages.length < this.lastProcessedCount ||
       (currentFirstId !== null && currentFirstId !== this.firstMessageId) ||
       processedMessagesChanged
     ) {
@@ -65,22 +73,21 @@ export class DisplayItemProcessor {
     this.lastHistoryOffset = historyOffset;
     this.firstMessageId = currentFirstId;
 
-    if (messages.length === this.lastProcessedCount) {
+    if (visibleMessages.length === this.lastProcessedCount) {
       return this.items;
     }
 
-    const newMessages = messages.slice(this.lastProcessedCount);
-    const bufferOffset = historyOffset + this.lastProcessedCount;
-    this.lastProcessedCount = messages.length;
+    const newMessages = visibleMessages.slice(this.lastProcessedCount);
+    this.lastProcessedCount = visibleMessages.length;
 
-    const rawItems = this.convertToItems(newMessages, bufferOffset);
+    const rawItems = this.convertToItems(newMessages);
 
     const prevLength = this.items.length;
     this.mergeNewItems(rawItems);
     this._newItemCount = this.items.length - prevLength;
 
     this.computeHeaders();
-    this.processedMessageRefs = messages.slice();
+    this.processedMessageRefs = visibleMessageRefs;
 
     return this.wrapForDisplay();
   }
@@ -108,16 +115,71 @@ export class DisplayItemProcessor {
     return this._newItemCount;
   }
 
-  private convertToItems(messages: readonly OutputMessage[], bufferOffset: number): DisplayItem[] {
+  private getVisibleMessageEntries(
+    messages: readonly OutputMessage[],
+    historyOffset: number,
+  ): IndexedOutputMessage[] {
+    const entries: IndexedOutputMessage[] = [];
+    let hasLaterSessionOutput = false;
+
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i];
+      if (!this.isTransientHealthWarning(message) || !hasLaterSessionOutput) {
+        entries.push({ message, bufferIndex: historyOffset + i });
+      }
+      if (this.isSessionOutput(message)) {
+        hasLaterSessionOutput = true;
+      }
+    }
+
+    return entries.reverse();
+  }
+
+  private isTransientHealthWarning(message: OutputMessage): boolean {
+    return message.type === 'system' && (
+      message.metadata?.['watchdogWarning'] === true ||
+      message.metadata?.['spawnStall'] === true
+    );
+  }
+
+  private isSessionOutput(message: OutputMessage): boolean {
+    if (message.type === 'system') {
+      return false;
+    }
+    if (message.content?.trim()) {
+      return true;
+    }
+    if (message.attachments && message.attachments.length > 0) {
+      return true;
+    }
+    if (message.failedImages && message.failedImages.length > 0) {
+      return true;
+    }
+    if (message.thinking && message.thinking.length > 0) {
+      return true;
+    }
+
+    const accumulatedContent = message.metadata?.['accumulatedContent'];
+    if (typeof accumulatedContent === 'string' && accumulatedContent.trim()) {
+      return true;
+    }
+
+    return Boolean(
+      message.metadata &&
+      (message.type === 'tool_use' || message.type === 'tool_result')
+    );
+  }
+
+  private convertToItems(messages: readonly IndexedOutputMessage[]): DisplayItem[] {
     const items: DisplayItem[] = [];
 
-    for (let i = 0; i < messages.length; i++) {
-      const msg = messages[i];
+    for (const entry of messages) {
+      const msg = entry.message;
       if (this.shouldSuppressInterruptNoise(msg)) {
         continue;
       }
 
-      const bufferIndex = bufferOffset + i;
+      const bufferIndex = entry.bufferIndex;
       const isStreaming =
         msg.metadata != null &&
         'streaming' in msg.metadata &&

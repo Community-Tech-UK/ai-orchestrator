@@ -80,6 +80,33 @@ describe('DisplayItemProcessor', () => {
     expect(items[0].repeatCount).toBeUndefined();
   });
 
+  it('suppresses transient stuck warnings after later session output', () => {
+    const warning = makeMsg({
+      id: 'stuck-warn-1',
+      type: 'system',
+      content: 'Instance may be stuck — no output for 73s. Will auto-restart if unresponsive.',
+      timestamp: 1_000,
+      metadata: { watchdogWarning: true, elapsedMs: 73_000 },
+    });
+    const reply = makeMsg({
+      id: 'reply-1',
+      type: 'assistant',
+      content: 'Continuing now.',
+      timestamp: 2_000,
+    });
+
+    const warningItems = processor.process([warning], 'instance-1');
+    expect(warningItems).toHaveLength(1);
+    expect(warningItems[0].message?.id).toBe('stuck-warn-1');
+    expect(warningItems[0].bufferIndex).toBe(0);
+
+    const resumedItems = processor.process([warning, reply], 'instance-1');
+    expect(resumedItems).toHaveLength(1);
+    expect(resumedItems[0].type).toBe('message');
+    expect(resumedItems[0].message?.id).toBe('reply-1');
+    expect(resumedItems[0].bufferIndex).toBe(1);
+  });
+
   it('should create thought-group for messages with thinking and no standalone content', () => {
     const msg = makeMsg({
       type: 'assistant',

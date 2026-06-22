@@ -80,9 +80,14 @@ import {
 import type { NlWorkflowSuggestion } from '../../../../shared/types/workflow.types';
 import {
   defaultWakeupLocal,
+  formatWaitReasonLabel,
   formatFileSize,
+  formatVoiceStatusLabel,
+  getFolderDisplayName,
   getFileIcon,
   parseWakeupLocal,
+  startsWithLikelyPath,
+  toLoopPickerProvider,
   truncateQueuedMessage,
 } from './input-panel-formatters';
 
@@ -150,22 +155,7 @@ export class InputPanelComponent implements OnDestroy {
   showWakeupReviveToggle = input<boolean>(false);
   waitReason = input<InstanceWaitReason | undefined>(undefined);
 
-  readonly holdReasonLabel = computed<string | null>(() => {
-    const wr = this.waitReason();
-    if (!wr) return null;
-    switch (wr.kind) {
-      case 'respawning':    return `Held — session respawning (${wr.strategy})`;
-      case 'interrupt-ack': return 'Held — waiting for interrupt acknowledgement';
-      case 'backoff':       return `Held — backing off (attempt ${wr.attempt})`;
-      case 'quota-park':    return `Held — provider quota limit (${wr.provider})`;
-      case 'provider-slot': return `Held — waiting for provider slot (${wr.provider})`;
-      case 'resume-proof':  return 'Held — verifying resume';
-      case 'remote-heartbeat': return 'Held — remote worker unresponsive';
-      case 'mutex':         return `Held — waiting for session lock (${wr.operation})`;
-      case 'terminating':   return 'Held — instance terminating';
-      default:              return null;
-    }
-  });
+  readonly holdReasonLabel = computed<string | null>(() => formatWaitReasonLabel(this.waitReason()));
 
   // Computed preview data for pending files
   pendingFilePreviews = computed(() => {
@@ -522,7 +512,7 @@ export class InputPanelComponent implements OnDestroy {
   readonly draftPickerProviders: PickerProvider[] = DEFAULT_INSTANCE_PROVIDERS;
   readonly loopProviderOptions: PickerProvider[] = DEFAULT_INSTANCE_PROVIDERS;
   readonly loopDefaultProvider = computed<PickerProvider>(() =>
-    this.toLoopProvider(
+    toLoopPickerProvider(
       this.isDraftComposer()
         ? this.selectedProvider()
         : this.provider(),
@@ -536,17 +526,6 @@ export class InputPanelComponent implements OnDestroy {
     this.newSessionDraft.setProvider(selection.provider);
     this.newSessionDraft.setModel(selection.model);
     this.newSessionDraft.setReasoningEffort(selection.reasoning);
-  }
-
-  private toLoopProvider(provider: ProviderType | InstanceProvider | null | undefined): PickerProvider {
-    return provider === 'claude'
-      || provider === 'codex'
-      || provider === 'gemini'
-      || provider === 'antigravity'
-      || provider === 'copilot'
-      || provider === 'cursor'
-      ? provider
-      : 'claude';
   }
 
   /** Effective YOLO mode: draft override ?? settings default */
@@ -625,29 +604,9 @@ export class InputPanelComponent implements OnDestroy {
     if (this.isVoiceActive()) return 'Stop voice conversation';
     return 'Start voice conversation';
   });
-  voiceStatusLabel = computed(() => {
-    const error = this.voice.error();
-    if (error) return error;
-
-    switch (this.voiceMode()) {
-      case 'connecting':
-        return 'Connecting voice...';
-      case 'listening':
-        return 'Listening';
-      case 'transcribing':
-        return this.voice.partialTranscript() || 'Listening';
-      case 'sending':
-        return 'Sending voice message...';
-      case 'waiting-for-session':
-        return 'Waiting for response...';
-      case 'speaking':
-        return 'Speaking';
-      case 'stopping':
-        return 'Stopping voice...';
-      default:
-        return null;
-    }
-  });
+  voiceStatusLabel = computed(() =>
+    formatVoiceStatusLabel(this.voiceMode(), this.voice.error(), this.voice.partialTranscript()),
+  );
   voiceProviderSummary = computed(() => this.voice.providerSummary());
   voiceMeterStyle = computed(() => `${Math.max(0.12, this.voice.audioLevel()).toFixed(3)}`);
 
@@ -821,11 +780,7 @@ export class InputPanelComponent implements OnDestroy {
     return this.message().trim().length > 0 || this.pendingFilePreviews().length > 0 || this.pendingFolders().length > 0;
   }
 
-  getFolderDisplayName(folderPath: string): string {
-    // Extract just the folder name from the full path
-    const parts = folderPath.split('/').filter(Boolean);
-    return parts[parts.length - 1] || folderPath;
-  }
+  getFolderDisplayName = getFolderDisplayName;
 
   onInput(event: Event): void {
     const stopComposer = this.perf.markComposerLatency();
@@ -847,7 +802,7 @@ export class InputPanelComponent implements OnDestroy {
 
     // Show command suggestions when typing "/" unless the leading token is a
     // path like "/Users/foo/file.md".
-    if (value.startsWith('/') && !value.includes('\n') && !this.startsWithLikelyPath(value)) {
+    if (value.startsWith('/') && !value.includes('\n') && !startsWithLikelyPath(value)) {
       this.showCommandSuggestions.set(true);
       this.selectedCommandIndex.set(0);
       void this.refreshSlashResolution(value);
@@ -1275,7 +1230,7 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   private async handleSlashCommand(text: string): Promise<boolean> {
-    if (!text.startsWith('/') || this.startsWithLikelyPath(text)) {
+    if (!text.startsWith('/') || startsWithLikelyPath(text)) {
       return false;
     }
 
@@ -1300,12 +1255,6 @@ export class InputPanelComponent implements OnDestroy {
     }
 
     return false;
-  }
-
-  private startsWithLikelyPath(text: string): boolean {
-    const firstToken = text.trimStart().split(/\s+/)[0] ?? '';
-    return /^\/{2}[^/\s]+\/[^/\s]+/.test(firstToken)
-      || /^\/[^/\s]+\/.+/.test(firstToken);
   }
 
   private clearSubmittedMessage(): void {

@@ -152,6 +152,17 @@ export function terminalStatusLabel(status: TerminalLoopStatus): string {
   }
 }
 
+export function summaryHasDistinctIterationPrompt(summary: {
+  initialPrompt: string;
+  iterationPrompt?: string | null;
+}): boolean {
+  return (
+    typeof summary.iterationPrompt === 'string'
+    && summary.iterationPrompt.length > 0
+    && summary.iterationPrompt !== summary.initialPrompt
+  );
+}
+
 /**
  * Friendly label for *any* loop status — used for the persisted
  * past-runs list which can include running/paused entries (e.g. when

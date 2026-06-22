@@ -2,7 +2,6 @@
 
 import type { LoopHardCaps } from './loop-config.types';
 export type { LoopHardCaps } from './loop-config.types';
-import type { LoopOutstanding } from './loop-outstanding.types';
 export type {
   LoopOutstanding,
   LoopOutstandingItem,
@@ -11,7 +10,6 @@ export type {
 } from './loop-outstanding.types';
 import type {
   LoopPingPongConfig,
-  LoopPingPongState,
 } from './loop-pingpong.types';
 export type {
   LoopPingPongConfig,
@@ -705,340 +703,25 @@ export type LoopStatus =
 // never emitted them (terminate() is only called with the states above), so
 // they implied lifecycle states the system never reached. Removed.
 
-/**
- * LF-7: outcome of the most recent completion attempt. Drives the UI
- * completion-gate stepper (LF-8) and the runbook's "why didn't it stop"
- * diagnosis. Undefined until the first completion attempt.
- */
-export type LoopCompletionOutcome =
-  | 'accepted'        // completion accepted → terminal completed / completed-needs-review
-  | 'verify-failed'   // verify (or quick-verify) failed → rejected, keep iterating
-  | 'unverifiable'    // no verify command → paused for operator review
-  | 'rename-gate'     // verify passed but the *_Completed.md rename gate blocked
-  | 'review-blocked'; // fresh-eyes cross-model review raised a blocking finding
-
-export type LoopVerdict = 'OK' | 'WARN' | 'CRITICAL';
-
-export interface LoopFileChange {
-  path: string;
-  additions: number;
-  deletions: number;
-  /**
-   * Hash of the resulting line set after this iteration. Used to compute
-   * churn (lines that revert to a prior state across iterations).
-   */
-  contentHash: string;
-}
-
-export interface LoopToolCallRecord {
-  toolName: string;
-  argsHash: string;
-  success: boolean;
-  durationMs: number;
-}
-
-export interface LoopErrorRecord {
-  bucket: string;       // ChildErrorClassifier bucket id
-  exactHash: string;    // sha256 of normalized message
-  excerpt: string;
-}
-
-export interface LoopIteration {
-  id: string;
-  loopRunId: string;
-  seq: number;
-  stage: LoopStage;
-  startedAt: number;
-  endedAt: number | null;
-  childInstanceId: string | null;
-  tokens: number;
-  costCents: number;
-  filesChanged: LoopFileChange[];
-  toolCalls: LoopToolCallRecord[];
-  errors: LoopErrorRecord[];
-  testPassCount: number | null;
-  testFailCount: number | null;
-  /** Hash of (sortedFileDiffPaths ‖ stage ‖ toolCallSignature). */
-  workHash: string;
-  /** Cosine/Jaccard similarity to previous iteration's output text (0..1). */
-  outputSimilarityToPrev: number | null;
-  /**
-   * First & last 2KB of stdout, used for similarity / no-progress /
-   * completion detection. Deliberately small — see `excerpt()`.
-   */
-  outputExcerpt: string;
-  /**
-   * The agent's complete closing message (verbatim, bounded only by a
-   * generous safety cap — see `boundFullOutput()`). Used purely for human
-   * display (summary card, trace, chat recap); never fed to detection.
-   * Empty string on pre-migration rows or iterations with no output.
-   */
-  outputFull: string;
-  progressVerdict: LoopVerdict;
-  progressSignals: ProgressSignalEvidence[];
-  completionSignalsFired: CompletionSignalEvidence[];
-  verifyStatus: 'not-run' | 'passed' | 'failed';
-  verifyOutputExcerpt: string;
-  /** LF-2 semantic-progress verdict for this iteration (present when the check ran). */
-  semanticProgress?: LoopSemanticProgressResult;
-  /**
-   * True when this iteration's assistant stream already landed in the chat /
-   * instance transcript (the borrowed live-adapter path). The iteration→ledger
-   * write skips these to avoid double-recording the same turn. Absent/false
-   * means the iteration ran in a forked loop session and must be written into
-   * the canonical thread explicitly (close-the-loop-write-gap).
-   */
-  transcriptBound?: boolean;
-}
-
-/**
- * Identifiers from `plan_loop_mode.md` § A. Aggressive no-progress detection.
- * A: Identical work hash
- * B: Edit churn (revert oscillation)
- * C: Stage stagnation
- * D: Test oscillation
- * D'(prime): Test stagnation while files written
- * E: Error repeat
- * F: Token-burn-without-progress
- * G: Tool call repetition
- * H: Output similarity
- */
-export type ProgressSignalId = 'A' | 'B' | 'C' | 'D' | 'D-prime' | 'E' | 'F' | 'G' | 'H' | 'BLOCKED';
-
-export interface ProgressSignalEvidence {
-  id: ProgressSignalId;
-  verdict: LoopVerdict; // OK never recorded; only WARN or CRITICAL.
-  message: string;
-  /** Optional structured payload for UI rendering. */
-  detail?: Record<string, unknown>;
-}
-
-export type CompletionSignalId =
-  | 'completed-rename'   // *_Completed.md rename
-  | 'done-promise'       // <promise>DONE</promise>
-  | 'done-sentinel'      // DONE.txt exists
-  | 'all-green'          // verify command passes (transition from prev failing)
-  | 'self-declared'      // "TASK COMPLETE" in output (auxiliary only)
-  | 'plan-checklist'     // PLAN.md checkboxes 100%
-  | 'declared-complete'  // explicit loop-control complete intent
-  | 'ledger-complete';   // LF-4: every LOOP_TASKS.md item is done/deferred
-
-export interface CompletionSignalEvidence {
-  id: CompletionSignalId;
-  /**
-   * Whether this signal alone can stop the loop. self-declared is always false;
-   * all others are true (subject to verify-before-stop).
-   */
-  sufficient: boolean;
-  detail: string;
-}
-
-export type LoopTerminalIntentKind = 'complete' | 'block' | 'fail';
-export type LoopTerminalIntentStatus = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'superseded';
-export type LoopTerminalIntentSource = 'loop-control-cli' | 'imported-file';
-export type LoopTerminalIntentEvidenceKind = 'summary' | 'command' | 'file' | 'test' | 'note';
-
-export interface LoopTerminalIntentEvidence {
-  kind: LoopTerminalIntentEvidenceKind;
-  label: string;
-  value: string;
-}
-
-export interface LoopTerminalIntent {
-  id: string;
-  loopRunId: string;
-  iterationSeq: number;
-  kind: LoopTerminalIntentKind;
-  summary: string;
-  evidence: LoopTerminalIntentEvidence[];
-  source: LoopTerminalIntentSource;
-  createdAt: number;
-  /**
-   * Coordinator clock timestamp. Ordering and terminal eligibility use this
-   * value, not the child-controlled createdAt.
-   */
-  receivedAt: number;
-  status: LoopTerminalIntentStatus;
-  statusReason?: string;
-  filePath?: string;
-}
-
-export interface LoopControlMetadata {
-  version: 1;
-  loopRunId: string;
-  workspaceCwd: string;
-  controlDir: string;
-  controlFile: string;
-  intentsDir: string;
-  currentIterationSeq: number;
-  cliPath: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface LoopState {
-  id: string;
-  chatId: string;
-  config: LoopConfig;
-  status: LoopStatus;
-  startedAt: number;
-  endedAt: number | null;
-  totalIterations: number;
-  totalTokens: number;
-  totalCostCents: number;
-  currentStage: LoopStage;
-  /** Most recent iteration (or undefined if not yet started). */
-  lastIteration?: LoopIteration;
-  /**
-   * Reason and evidence for the loop ending (populated when status enters a
-   * terminal state).
-   */
-  endReason?: string;
-  endEvidence?: Record<string, unknown>;
-  /**
-   * Structured snapshot of OUTSTANDING.md captured when the loop terminates.
-   * Populated best-effort in `terminate()` so the terminal chat summary and the
-   * broadcast state carry the human-gated items + open questions the agent
-   * couldn't resolve autonomously. Undefined when no OUTSTANDING.md was written.
-   */
-  outstanding?: LoopOutstanding;
-  /** Pending interventions to inject at next iteration. */
-  pendingInterventions: string[];
-  /** Workspace-local loop-control transport metadata, excluding the secret. */
-  loopControl?: LoopControlMetadata;
-  /** Current unconsumed terminal intent, if any. */
-  terminalIntentPending?: LoopTerminalIntent;
-  /** Full accepted/rejected/deferred terminal-intent audit trail for this run. */
-  terminalIntentHistory?: LoopTerminalIntent[];
-  /** Whether a *_Completed.md rename has been observed during this run. */
-  completedFileRenameObserved: boolean;
-  /**
-   * Workspace snapshot captured at startLoop. Used to differentiate
-   * "evidence the agent finished during this run" from "stale artefact
-   * left over from a prior run". Without these snapshots, completion
-   * signals like done-sentinel and plan-checklist would trigger immediately
-   * on iteration 0 whenever a workspace already contains a DONE.txt or a
-   * fully-ticked PLAN.md — terminating the loop with zero useful work.
-   *
-   * Not persisted in SQL columns: re-captured fresh on resume, which is
-   * the correct semantic (the workspace may have changed during the pause).
-   */
-  doneSentinelPresentAtStart: boolean;
-  /**
-   * True iff the configured planFile (if any) had all checkbox items
-   * checked at startLoop. When true, a "fully checked" plan-checklist is
-   * already the baseline state and is NOT treated as in-run completion.
-   * False when no planFile is configured or the plan was incomplete.
-   */
-  planChecklistFullyCheckedAtStart: boolean;
-  /**
-   * Root-level `.md` files that look like uncompleted planning docs at
-   * startLoop. Empty when the workspace has none. Drives auto-enabling
-   * of `requireCompletedFileRename`: when this list is non-empty and the
-   * caller did not explicitly set `requireCompletedFileRename`, the
-   * coordinator treats DONE.txt-alone as insufficient and demands at
-   * least one `*_Completed.md` rename to fire during the run. This is
-   * what catches the failure mode where an agent writes `DONE.txt` but
-   * forgets to rename the plan files it was asked to implement.
-   */
-  uncompletedPlanFilesAtStart: string[];
-  /**
-   * True when the loop has no configured `verifyCommand` — every
-   * completion attempt will be paused for human review instead of
-   * auto-completing. Set once at startLoop based on the materialized
-   * config; surfaced to the renderer so the UI can label these runs,
-   * and to the prompt builder so the agent learns the constraint
-   * before its first completion attempt.
-   */
-  manualReviewOnly: boolean;
-  /** Tracks tokens since last test-pass-count improvement. */
-  tokensSinceLastTestImprovement: number;
-  /** Highest test-pass-count seen so far. */
-  highestTestPassCount: number;
-  /** Iterations spent on the current stage (resets on stage change). */
-  iterationsOnCurrentStage: number;
-  /** WARN history for escalation logic — timestamps of recent WARN verdicts. */
-  recentWarnIterationSeqs: number[];
-  /**
-   * LF-7: count of completion attempts where verify passed but the
-   * `*_Completed.md` rename gate blocked. When it reaches
-   * `caps.maxCompletionAttempts`, the loop terminates as `cap-reached`
-   * instead of oscillating. Initialised to 0; persisted with `.default(0)`
-   * for back-compat with rows written before the field existed.
-   */
-  completionAttempts: number;
-  /**
-   * LF-7: outcome of the most recent completion attempt, for observability +
-   * the UI completion-gate stepper. Undefined until the first attempt.
-   */
-  lastCompletionOutcome?: LoopCompletionOutcome;
-  /**
-   * LF-4: true iff `LOOP_TASKS.md` was already fully resolved (every item
-   * done/deferred) at startLoop. Like `planChecklistFullyCheckedAtStart`, this
-   * is a staleness guard — a pre-resolved ledger from a prior run is the
-   * baseline, not in-run completion, so `ledger-complete` only fires on an
-   * in-run transition. Defaults false (no ledger, or had open items at start).
-   */
-  loopTasksLedgerResolvedAtStart: boolean;
-  /**
-   * claude2_todo #1b: fingerprints of the BLOCKING review-thread IDs that the
-   * fresh-eyes gate has flagged and that remain unresolved. Persists across
-   * completion attempts and is emptied ONLY when a fresh-eyes review returns
-   * clean — so the loop "converges only when it empties", and a re-run that
-   * surfaces the same findings is recognized as the same unresolved thread
-   * (not fresh progress). In-memory only (not persisted). Undefined until the
-   * first blocking review.
-   */
-  unresolvedReviewThreads?: string[];
-  /**
-   * claude2_todo #1c: bounded ring buffer of recent completion-attempt
-   * evidence hashes (most-recent last). Used to detect when the agent
-   * re-presents identical, unchanged completion evidence. In-memory only.
-   */
-  recentEvidenceHashes?: string[];
-  /**
-   * claude2_todo #1c: number of consecutive completion attempts whose evidence
-   * hash was unchanged from the previous attempt (>=1 once any attempt has
-   * been made). Resets to 1 the moment the evidence actually changes — so
-   * "unchanged weak evidence can't reset counters", but genuine new evidence
-   * does. In-memory only.
-   */
-  repeatedEvidenceCount?: number;
-  /**
-   * review-driven mode: count of consecutive clean fresh-eyes passes. A pass
-   * means the review output semantically says no actionable issues remain AND
-   * no production code changed this iteration. Resets to 0 on any iteration
-   * that changes production code or reports unresolved/ambiguous work. The
-   * loop converges when this reaches
-   * `completion.requiredCleanReviewPasses`. In-memory only; undefined/0 in
-   * gated mode.
-   */
-  consecutiveCleanReviewPasses?: number;
-  /**
-   * review-driven mode: count of consecutive iterations that hit CRITICAL
-   * no-progress while making NO production change AND not advancing the
-   * clean-review streak (i.e. the agent is re-reviewing settled work without
-   * converging or editing). Resets to 0 on any non-stalled iteration. When it
-   * reaches `completion.maxStalledReviewIterations` the loop self-terminates as
-   * `completed-needs-review` instead of spinning to a cap / circuit breaker.
-   * In-memory only; undefined/0 in gated mode.
-   */
-  reviewDrivenStallIterations?: number;
-  /**
-   * A4: one-shot flag set by `recordCompletionEvidence` when a verify
-   * contradiction is detected (verify failed after a prior verified pass).
-   * On the next completion attempt `runFreshEyesReviewGate` checks this flag
-   * and forces fresh-eyes even when `crossModelReview` is disabled or absent,
-   * then clears it. In-memory only; not persisted.
-   */
-  freshEyesForcedByContradiction?: boolean;
-  /**
-   * Ping-pong mode runtime state: round counter, durable issue ledger, current
-   * subject, in-flight reviewer metadata, and reviewer-side spend. Persisted so
-   * a mid-ping-pong app restart resumes the thread. Undefined unless the loop
-   * is running with `completion.crossModelReview.pingPong.enabled`.
-   */
-  pingPong?: LoopPingPongState;
-}
+export type {
+  CompletionSignalEvidence,
+  CompletionSignalId,
+  LoopCompletionOutcome,
+  LoopControlMetadata,
+  LoopErrorRecord,
+  LoopFileChange,
+  LoopIteration,
+  LoopState,
+  LoopTerminalIntent,
+  LoopTerminalIntentEvidence,
+  LoopTerminalIntentEvidenceKind,
+  LoopTerminalIntentKind,
+  LoopTerminalIntentSource,
+  LoopTerminalIntentStatus,
+  LoopToolCallRecord,
+  LoopVerdict,
+  ProgressSignalEvidence,
+  ProgressSignalId,
+} from './loop-state.types';
 
 export type { LoopActivityEvent, LoopActivityKind, LoopRunSummary, LoopStreamEvent } from './loop-stream.types';

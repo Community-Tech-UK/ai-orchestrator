@@ -33,48 +33,16 @@ import {
   maybeAutoName,
   normalizeChatName,
 } from './chat-service-helpers';
+import type { ChatServiceConfig, ChatSystemEventInput } from './chat-service.types';
+export type { ChatServiceConfig, ChatSystemEventInput } from './chat-service.types';
 import { ChatTranscriptBridge, createUserLedgerMessage } from './chat-transcript-bridge';
 import { ChatUiStateStore } from './chat-ui-state-store';
-import type { SqliteDriver } from '../db/sqlite-driver';
 import { ChatSessionBindingStore, evaluateLineage } from './chat-session-binding-store';
 import { buildLedgerRebuildPreamble, maybeProduceCheckpoint } from './chat-continuity';
 
 const logger = getLogger('ChatService');
 const CHAT_DETAIL_MESSAGE_LIMIT = 200;
 const CHAT_LOAD_OLDER_LIMIT = 200;
-
-export interface ChatServiceConfig {
-  db?: SqliteDriver;
-  ledger?: ConversationLedgerService;
-  instanceManager: InstanceManager;
-  eventBus?: EventEmitter;
-}
-
-export interface ChatSystemEventInput {
-  chatId: string;
-  nativeMessageId: string;
-  nativeTurnId?: string;
-  phase?: string;
-  content: string;
-  createdAt?: number;
-  metadata?: Record<string, unknown>;
-  /**
-   * Ledger role for the appended event. Defaults to `'system'`. Use `'user'`
-   * for synthesized events that represent the user's intent (e.g. the loop
-   * kickoff prompt) so they render as user bubbles in the transcript, or
-   * `'assistant'` for agent-produced turns (e.g. a loop iteration's closing
-   * message) so the model reads them back as real prior assistant turns.
-   */
-  role?: 'user' | 'system' | 'assistant';
-  /**
-   * When `true`, run the same `maybeAutoName(chat, content)` heuristic that
-   * `sendMessage` runs on first-message arrival — derives the chat title from
-   * the content if the chat is still `'Untitled chat'`. Intended for synthetic
-   * user-role events that semantically *are* the user's first message (loop
-   * kickoff prompts). No-op when the chat already has a custom name.
-   */
-  autoName?: boolean;
-}
 
 export class ChatService {
   private static instance: ChatService | null = null;

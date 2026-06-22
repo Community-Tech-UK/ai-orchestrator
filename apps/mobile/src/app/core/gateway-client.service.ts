@@ -2,6 +2,7 @@ import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { HostStore } from './host-store';
 import type {
   MobileAttachmentDto,
+  MobileClientEvent,
   MobileCreateInstanceRequest,
   MobileHistorySessionDto,
   MobileInstanceDto,
@@ -56,6 +57,12 @@ export class GatewayClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private currentHostId: string | null = null;
   private readonly lastSeq = new Map<string, number>();
+  /**
+   * The conversation the UI currently has open, reported up the WS so the gateway
+   * suppresses the unread-completion dot for it. Retained so it can be re-sent
+   * after a reconnect (the socket drops as the phone roams networks).
+   */
+  private activeView: string | null = null;
 
   constructor() {
     // (Re)connect whenever the active host changes.
@@ -75,6 +82,37 @@ export class GatewayClient {
   /** Pending prompts for one instance. */
   promptsFor(instanceId: string): MobilePromptDto[] {
     return this._prompts().filter((p) => p.instanceId === instanceId);
+  }
+
+  /**
+   * Report which conversation the UI has open (null when none) so the gateway
+   * doesn't flag the unread-completion dot for a session the user is watching.
+   * Cheap and idempotent — safe to call on every screen enter/leave.
+   */
+  setActiveView(instanceId: string | null): void {
+    if (this.activeView === instanceId) return;
+    this.activeView = instanceId;
+    this.sendClientEvent({ type: 'view', instanceId });
+  }
+
+  /**
+   * Clear the active view, but only if `instanceId` is still the one we reported.
+   * Lets a conversation screen relinquish its view on teardown without clobbering
+   * a newer screen that already claimed the view during a route transition.
+   */
+  clearActiveView(instanceId: string): void {
+    if (this.activeView === instanceId) this.setActiveView(null);
+  }
+
+  private sendClientEvent(event: MobileClientEvent): void {
+    const ws = this.ws;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify(event));
+      } catch {
+        /* best-effort; re-asserted on the next reconnect */
+      }
+    }
   }
 
   private connect(host: PairedHost | null): void {
@@ -117,7 +155,12 @@ export class GatewayClient {
     }
     this.ws = ws;
 
-    ws.onopen = () => this._state.set('connected');
+    ws.onopen = () => {
+      this._state.set('connected');
+      // Re-assert which conversation is open so a reconnect doesn't resurrect the
+      // dot for a session the user is still watching.
+      if (this.activeView) this.sendClientEvent({ type: 'view', instanceId: this.activeView });
+    };
     ws.onmessage = (ev: MessageEvent) => {
       try {
         this.handleEvent(JSON.parse(ev.data as string) as MobileServerEvent);

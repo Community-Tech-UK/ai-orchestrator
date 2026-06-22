@@ -108,6 +108,7 @@ import { LifecycleMemoryPressureMonitor } from './lifecycle/memory-pressure-moni
 import { getOrCreateTurnSupervisor } from '../session/session-turn-supervisor';
 import { getKnownModelsForCli, isRestoreOrReplayContinuity, requiresFreshAcpModelSpawn } from './lifecycle/create-validation-helpers';
 import type { McpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-context';
+import { resolveExecutionLocation } from './lifecycle/execution-location-resolver';
 
 const logger = getLogger('InstanceLifecycle');
 
@@ -197,74 +198,6 @@ export class InstanceLifecycleManager extends EventEmitter {
       timeoutMs: 2500,
       logger,
     });
-  }
-
-  /**
-   * Determine where an instance should execute based on its creation config.
-   * Returns { type: 'local' } by default. Only returns remote if:
-   * 1. A specific node is forced via forceNodeId, OR
-   * 2. Placement preferences match an available remote node
-   */
-  private resolveExecutionLocation(config: InstanceCreateConfig): ExecutionLocation {
-    // 1. Explicit node override
-    if (config.forceNodeId) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { getWorkerNodeRegistry } = require('../remote-node');
-        const registry = getWorkerNodeRegistry();
-        const node = registry.getNode(config.forceNodeId);
-        // Accept both 'connected' and 'degraded' — the UI allows selecting
-        // degraded nodes. Silently falling through to local when the user
-        // explicitly chose a remote node causes confusing spawn failures
-        // (e.g., local Claude CLI tries to use a remote CWD).
-        if (node?.status === 'connected' || node?.status === 'degraded') {
-          logger.info('Resolved execution location', {
-            type: 'remote',
-            reason: 'forceNodeId',
-            nodeId: config.forceNodeId,
-            nodeStatus: node.status,
-          });
-          return { type: 'remote', nodeId: config.forceNodeId };
-        }
-        if (config.forceNodeId) {
-          logger.warn('Forced nodeId not reachable — falling through to local', {
-            nodeId: config.forceNodeId,
-            nodeStatus: node?.status ?? 'not-found',
-          });
-        }
-      } catch (err) {
-        // Remote node module not available — fall through to local
-        logger.warn('Remote node module unavailable', { error: err instanceof Error ? err.message : String(err) });
-      }
-    }
-
-    // 2. Placement preferences
-    if (config.nodePlacement) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { getWorkerNodeRegistry } = require('../remote-node');
-        const registry = getWorkerNodeRegistry();
-        const node = registry.selectNode(config.nodePlacement);
-        if (node) {
-          logger.info('Resolved execution location', {
-            type: 'remote',
-            reason: 'nodePlacement',
-            nodeId: node.id,
-          });
-          return { type: 'remote', nodeId: node.id };
-        }
-      } catch {
-        // Remote node module not available — fall through to local
-      }
-    }
-
-    // 3. Default: local
-    logger.info('Resolved execution location', {
-      type: 'local',
-      forceNodeId: config.forceNodeId ?? null,
-      hasNodePlacement: Boolean(config.nodePlacement),
-    });
-    return { type: 'local' };
   }
 
   constructor(deps: LifecycleDependencies) {
@@ -1550,7 +1483,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             }
           }
         } else {
-          const executionLocation = this.resolveExecutionLocation(config);
+          const executionLocation = resolveExecutionLocation(config);
           instance.executionLocation = executionLocation;
           // Clear local MCP config for remote instances — paths don't exist on workers
           if (executionLocation.type === 'remote') {

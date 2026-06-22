@@ -18,6 +18,11 @@ import type {
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 import { getModelSwitchUnavailableReason } from '../../../../../shared/types/instance-status-policy';
+import {
+  fileToAttachments,
+  validateFiles,
+  type InstanceAttachment,
+} from './instance-attachments';
 
 export interface CreateInstanceWithMessageOptions {
   message: string;
@@ -59,11 +64,6 @@ export class InstanceListStore {
 
   private static readonly CREATE_INSTANCE_EVENT_FALLBACK_TIMEOUT_MS = 10_000;
   private static readonly CREATE_INSTANCE_EVENT_POLL_MS = 50;
-
-  // File size limits (Anthropic API limits)
-  private static readonly MAX_IMAGE_SIZE = 5 * 1024 * 1024;     // 5MB for images
-  private static readonly MAX_FILE_SIZE = 30 * 1024 * 1024;      // 30MB for other files
-  private static readonly MAX_IMAGE_DIMENSION = 2000;            // Claude API max for multi-image requests
 
   // ============================================
   // Instance CRUD Operations
@@ -796,19 +796,7 @@ export class InstanceListStore {
    * Validate files before sending - returns array of error messages
    */
   validateFiles(files: File[]): string[] {
-    const errors: string[] = [];
-    for (const file of files) {
-      const isImage = file.type.startsWith('image/');
-      const maxSize = isImage ? InstanceListStore.MAX_IMAGE_SIZE : InstanceListStore.MAX_FILE_SIZE;
-      const maxSizeMB = isImage ? 5 : 30;
-
-      // Images will be auto-compressed, so only show error if non-image is too large
-      if (!isImage && file.size > maxSize) {
-        const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
-        errors.push(`${file.name} is too large (${sizeMB}MB). Maximum size is ${maxSizeMB}MB.`);
-      }
-    }
-    return errors;
+    return validateFiles(files);
   }
 
   /**
@@ -816,218 +804,7 @@ export class InstanceListStore {
    * Oversized images are tiled into ≤2000px chunks to stay within
    * the Claude API's multi-image dimension limit.
    */
-  async fileToAttachments(file: File): Promise<{
-    name: string;
-    type: string;
-    size: number;
-    data: string;
-  }[]> {
-    const isImage = file.type.startsWith('image/');
-
-    // Non-image files: return single attachment
-    if (!isImage) {
-      if (file.size > InstanceListStore.MAX_FILE_SIZE) {
-        throw new Error(`File ${file.name} exceeds maximum size of 30MB`);
-      }
-      const data = await this.fileToDataURL(file);
-      return [{ name: file.name, type: file.type, size: file.size, data }];
-    }
-
-    // Image: check if tiling is needed
-    const dimensions = await this.getImageDimensions(file);
-    const maxDim = InstanceListStore.MAX_IMAGE_DIMENSION;
-
-    if (dimensions.width > maxDim || dimensions.height > maxDim) {
-      // Tile the image into ≤2000px chunks
-      return this.tileOversizedImage(file, dimensions);
-    }
-
-    // Small image: compress if over size limit, then return single attachment
-    let processedFile = file;
-    if (file.size > InstanceListStore.MAX_IMAGE_SIZE) {
-      processedFile = await this.tryCompressImage(file);
-    }
-
-    if (processedFile.size > InstanceListStore.MAX_IMAGE_SIZE) {
-      throw new Error(`File ${file.name} exceeds maximum size of 5MB`);
-    }
-
-    const data = await this.fileToDataURL(processedFile);
-    return [{ name: processedFile.name, type: processedFile.type, size: processedFile.size, data }];
-  }
-
-  /**
-   * Try to compress an image to fit within the 5MB limit
-   */
-  private async tryCompressImage(file: File): Promise<File> {
-    const qualities = [0.85, 0.75, 0.65, 0.55, 0.45, 0.35];
-
-    for (const quality of qualities) {
-      const compressed = await this.compressImage(file, quality);
-      if (compressed && compressed.size <= InstanceListStore.MAX_IMAGE_SIZE) {
-        const newFileName = file.name.replace(/\.[^.]+$/, '.webp');
-        return new File([compressed], newFileName, { type: 'image/webp' });
-      }
-    }
-
-    // If still too large, return original and let it fail with error
-    return file;
-  }
-
-  /**
-   * Compress an image to WebP format at the specified quality
-   */
-  private async compressImage(file: File, quality = 0.85): Promise<Blob | null> {
-    return new Promise((resolve) => {
-      const img = new Image();
-      const reader = new FileReader();
-
-      reader.onload = (e) => {
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          let width = img.width;
-          let height = img.height;
-
-          // Downscale if image exceeds maximum dimension
-          const maxDim = InstanceListStore.MAX_IMAGE_DIMENSION;
-          if (width > maxDim || height > maxDim) {
-            const ratio = Math.min(maxDim / width, maxDim / height);
-            width = Math.floor(width * ratio);
-            height = Math.floor(height * ratio);
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-
-          const ctx = canvas.getContext('2d');
-          if (!ctx) {
-            resolve(null);
-            return;
-          }
-
-          ctx.drawImage(img, 0, 0, width, height);
-
-          canvas.toBlob(
-            (blob) => {
-              resolve(blob);
-            },
-            'image/webp',
-            quality
-          );
-        };
-
-        img.onerror = () => resolve(null);
-        img.src = e.target?.result as string;
-      };
-
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(file);
-    });
-  }
-
-  /**
-   * Read a File as a data URL string
-   */
-  private fileToDataURL(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(new Error(`Failed to read file ${file.name}`));
-      reader.readAsDataURL(file);
-    });
-  }
-
-  /**
-   * Get the pixel dimensions of an image File
-   */
-  private getImageDimensions(file: File): Promise<{ width: number; height: number }> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const url = URL.createObjectURL(file);
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        resolve({ width: img.width, height: img.height });
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error(`Failed to load image ${file.name}`));
-      };
-      img.src = url;
-    });
-  }
-
-  /**
-   * Tile an oversized image into ≤2000px chunks.
-   * Width is scaled down to 2000 if needed; height is split into vertical tiles.
-   * Each tile is labeled (e.g. "screenshot_tile1of3.webp") so the model can
-   * reassemble them top-to-bottom.
-   */
-  private async tileOversizedImage(
-    file: File,
-    dimensions: { width: number; height: number }
-  ): Promise<{ name: string; type: string; size: number; data: string }[]> {
-    const maxDim = InstanceListStore.MAX_IMAGE_DIMENSION;
-    const img = await this.loadImage(file);
-
-    // Scale width to ≤2000, preserving aspect ratio
-    let drawWidth = dimensions.width;
-    let drawHeight = dimensions.height;
-    if (drawWidth > maxDim) {
-      const ratio = maxDim / drawWidth;
-      drawWidth = maxDim;
-      drawHeight = Math.floor(dimensions.height * ratio);
-    }
-
-    const tileHeight = maxDim;
-    const tileCount = Math.ceil(drawHeight / tileHeight);
-    const baseName = file.name.replace(/\.[^.]+$/, '');
-    const attachments: { name: string; type: string; size: number; data: string }[] = [];
-
-    for (let i = 0; i < tileCount; i++) {
-      const srcY = Math.floor((i * tileHeight / drawHeight) * dimensions.height);
-      const nextY = Math.floor(((i + 1) * tileHeight / drawHeight) * dimensions.height);
-      const srcH = Math.min(nextY, dimensions.height) - srcY;
-
-      const destH = Math.min(tileHeight, drawHeight - i * tileHeight);
-      const canvas = document.createElement('canvas');
-      canvas.width = drawWidth;
-      canvas.height = destH;
-
-      const ctx = canvas.getContext('2d');
-      if (!ctx) continue;
-
-      ctx.drawImage(img, 0, srcY, dimensions.width, srcH, 0, 0, drawWidth, destH);
-
-      const blob = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob((b) => resolve(b), 'image/webp', 0.92)
-      );
-      if (!blob) continue;
-
-      const tileName = `${baseName}_tile${i + 1}of${tileCount}.webp`;
-      const tileFile = new File([blob], tileName, { type: 'image/webp' });
-      const data = await this.fileToDataURL(tileFile);
-      attachments.push({ name: tileName, type: 'image/webp', size: tileFile.size, data });
-    }
-
-    return attachments;
-  }
-
-  /**
-   * Load a File into an HTMLImageElement
-   */
-  private loadImage(file: File): Promise<HTMLImageElement> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const url = URL.createObjectURL(file);
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        resolve(img);
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error(`Failed to load image ${file.name}`));
-      };
-      img.src = url;
-    });
+  async fileToAttachments(file: File): Promise<InstanceAttachment[]> {
+    return fileToAttachments(file);
   }
 }

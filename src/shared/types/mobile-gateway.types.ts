@@ -206,6 +206,16 @@ export type MobileServerEvent =
   | { type: 'permission-cleared'; data: { requestId: string; instanceId?: string } }
   | { type: 'pause-state'; data: MobilePauseDto };
 
+/**
+ * Control frames the phone sends UP the WebSocket to the gateway. Currently just
+ * the active-view report: which conversation the phone is looking at, so the
+ * gateway can suppress the "unread completion" dot for a session the user is
+ * already watching (mirrors the desktop "selected instance" rule). `instanceId`
+ * is null when the phone leaves the conversation for a list view.
+ */
+export type MobileClientEvent =
+  | { type: 'view'; instanceId: string | null };
+
 /** Request body for POST /api/instances/:id/input. */
 export interface MobileInputRequest {
   message: string;

@@ -5107,12 +5107,12 @@
       "lines": 3440
     },
     {
-      "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3423
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-28-wave3-workflow-resume-history-recovery-plan_completed.md",
       "lines": 3408
+    },
+    {
+      "path": "src/main/instance/instance-lifecycle.ts",
+      "lines": 3356
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
@@ -5155,10 +5155,6 @@
       "lines": 2659
     },
     {
-      "path": "src/main/instance/instance-manager.ts",
-      "lines": 2572
-    },
-    {
       "path": "src/main/channels/channel-message-router.ts",
       "lines": 2543
     },
@@ -5167,16 +5163,16 @@
       "lines": 2519
     },
     {
+      "path": "src/main/instance/instance-manager.ts",
+      "lines": 2504
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
       "lines": 2339
     },
     {
       "path": "src/main/instance/instance-communication.ts",
       "lines": 2335
-    },
-    {
-      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2273
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
@@ -5193,6 +5189,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-c-reliability-lifecycle.md",
       "lines": 2112
+    },
+    {
+      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
+      "lines": 2097
     },
     {
       "path": "docs/superpowers/plans/2026-04-13-codemem-phase1-index-and-lsp-facade_completed.md",
@@ -5227,10 +5227,6 @@
       "lines": 1965
     },
     {
-      "path": "src/main/session/session-continuity.ts",
-      "lines": 1914
-    },
-    {
       "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
       "lines": 1911
     },
@@ -5239,12 +5235,12 @@
       "lines": 1867
     },
     {
-      "path": "packages/contracts/src/types/transport.types.ts",
-      "lines": 1840
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-hardening.md",
       "lines": 1830
+    },
+    {
+      "path": "packages/contracts/src/types/transport.types.ts",
+      "lines": 1810
     },
     {
       "path": "docs/superpowers/plans/2026-03-21-discord-channels_completed.md",
@@ -5255,16 +5251,12 @@
       "lines": 1792
     },
     {
+      "path": "src/main/session/session-continuity.ts",
+      "lines": 1781
+    },
+    {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1724
-    },
-    {
-      "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1697
-    },
-    {
-      "path": "src/main/security/permission-manager.ts",
-      "lines": 1656
+      "lines": 1673
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -5272,6 +5264,10 @@
     },
     {
       "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",
+      "lines": 1613
+    },
+    {
+      "path": "src/main/orchestration/default-invokers.ts",
       "lines": 1613
     },
     {
@@ -5295,6 +5291,14 @@
       "lines": 1517
     },
     {
+      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
+      "lines": 1498
+    },
+    {
+      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
+      "lines": 1479
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-audit-phase2.COMPLETED.md",
       "lines": 1478
     },
@@ -5315,10 +5319,6 @@
       "lines": 1411
     },
     {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
-      "lines": 1405
-    },
-    {
       "path": "src/main/history/history-manager.ts",
       "lines": 1402
     },
@@ -5329,10 +5329,6 @@
     {
       "path": "src/main/instance/instance-communication.spec.ts",
       "lines": 1381
-    },
-    {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.ts",
-      "lines": 1378
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
@@ -5479,6 +5475,10 @@
       "lines": 1165
     },
     {
+      "path": "src/main/security/permission-manager.ts",
+      "lines": 1151
+    },
+    {
       "path": "docs/plans/completed/claude2_completed.md",
       "lines": 1145
     },
@@ -5555,16 +5555,8 @@
       "lines": 1059
     },
     {
-      "path": "src/shared/types/loop.types.ts",
-      "lines": 1045
-    },
-    {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
       "lines": 1036
-    },
-    {
-      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
-      "lines": 1034
     },
     {
       "path": "docs/superpowers/plans/2026-03-14-worktree-safety-attention-cost.md",
@@ -5579,10 +5571,6 @@
       "lines": 1025
     },
     {
-      "path": "src/main/workspace/git/worktree-manager.ts",
-      "lines": 1025
-    },
-    {
       "path": "src/renderer/app/features/logs/logs-page.component.ts",
       "lines": 1020
     },
@@ -5591,12 +5579,12 @@
       "lines": 1014
     },
     {
-      "path": "src/renderer/app/features/loop/loop-control.component.ts",
-      "lines": 1006
-    },
-    {
       "path": "src/main/ipc/handlers/session-handlers.ts",
       "lines": 1003
+    },
+    {
+      "path": "src/main/workspace/git/worktree-manager.ts",
+      "lines": 1001
     },
     {
       "path": "src/main/memory/project-memory-brief.ts",
@@ -5605,6 +5593,10 @@
     {
       "path": "src/renderer/app/features/debate/debate-visualization.component.ts",
       "lines": 993
+    },
+    {
+      "path": "src/renderer/app/features/loop/loop-control.component.ts",
+      "lines": 992
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-wave4-output-clipboard-theme-terminal-design_completed.md",
@@ -5871,6 +5863,10 @@
       "lines": 812
     },
     {
+      "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
+      "lines": 811
+    },
+    {
       "path": "interrupt-resume-recovery-plan_completed.md",
       "lines": 809
     },
@@ -5896,10 +5892,6 @@
     },
     {
       "path": "src/main/memory/procedural-store.ts",
-      "lines": 802
-    },
-    {
-      "path": "src/renderer/app/core/state/instance/instance.store.ts",
       "lines": 802
     }
   ]
