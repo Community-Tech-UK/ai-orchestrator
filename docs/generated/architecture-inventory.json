@@ -5116,7 +5116,7 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
-      "lines": 3308
+      "lines": 3330
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
@@ -5215,6 +5215,10 @@
       "lines": 2053
     },
     {
+      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
+      "lines": 2013
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-17-wave1-contracts-subpath-exports.md",
       "lines": 2006
     },
@@ -5225,10 +5229,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-13-session-restart-preserve-history_completed.md",
       "lines": 1965
-    },
-    {
-      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
-      "lines": 1911
     },
     {
       "path": "docs/superpowers/specs/2026-04-26-automations-design_completed.md",

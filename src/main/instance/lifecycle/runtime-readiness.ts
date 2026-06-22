@@ -234,9 +234,9 @@ export class RuntimeReadinessCoordinator {
     const result = a.getResumeAttemptResult();
     if (!result || result.source === 'none') return null;
     if (result.source === 'fresh-fallback') return false;
-    if (result.confirmed) return true;
     if (result.actualSessionId && result.requestedSessionId
         && result.actualSessionId !== result.requestedSessionId) return false;
+    if (result.confirmed) return true;
     return null;
   }
 }

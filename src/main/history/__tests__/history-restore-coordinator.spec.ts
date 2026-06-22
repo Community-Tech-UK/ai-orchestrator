@@ -188,6 +188,38 @@ describe('HistoryRestoreCoordinator', () => {
       expect(result.restoreMode).toBe('native-resume');
     });
 
+    it('returns resume-unconfirmed when adapter confirms a different session ID', async () => {
+      const nativeInstance = makeInstance({ id: 'native-instance', status: 'idle' });
+      getInstance.mockImplementation((id: string) =>
+        id === 'native-instance' ? nativeInstance : undefined,
+      );
+
+      const mismatchedAdapter = {
+        getResumeAttemptResult: () => ({
+          source: 'native' as const,
+          confirmed: true,
+          requestedSessionId: 'native-session',
+          actualSessionId: 'wrong-native-session',
+        }),
+      };
+      (manager as unknown as Record<string, unknown>).getAdapter = (id: string) =>
+        id === 'native-instance' ? mismatchedAdapter : undefined;
+
+      createInstance.mockImplementation(
+        async (config: { sessionId?: string; historyThreadId?: string; initialOutputBuffer?: OutputMessage[] }) =>
+          makeInstance({
+            id: 'native-instance',
+            historyThreadId: config.historyThreadId ?? 'history-thread',
+            outputBuffer: config.initialOutputBuffer ?? [],
+          }),
+      );
+
+      const result = await coordinator.restore(manager, 'entry-1');
+
+      expect(result.restoreMode).toBe('resume-unconfirmed');
+      expect(queueContinuityPreamble).toHaveBeenCalledWith('native-instance', expect.any(String));
+    });
+
     it('returns resume-unconfirmed when adapter reports fresh-fallback but instance is alive', async () => {
       // fresh-fallback means the adapter did NOT attempt native resume, so proof=false.
       // The instance is still alive → coordinator returns resume-unconfirmed (not replay-fallback),
