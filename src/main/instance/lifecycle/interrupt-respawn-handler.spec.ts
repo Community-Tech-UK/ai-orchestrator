@@ -241,6 +241,90 @@ describe('InterruptRespawnHandler.interrupt()', () => {
     expect(instance.interruptPhase).toBe('escalated');
   });
 
+  it('force-abort net stands down when a respawn has replaced the adapter', async () => {
+    const adapter = makeAdapter({
+      interrupt: vi.fn(() => ({ status: 'accepted' } as InterruptResult)),
+    });
+    const instance = makeInstance({ status: 'busy' });
+    const state: FakeDepsState = { instance, adapter, queueUpdateCalls: [], outputMessages: [], transitions: [] };
+    const handler = new InterruptRespawnHandler(makeDeps(state));
+
+    handler.interrupt('inst-1');
+    expect(state.transitions).toContain('interrupting');
+
+    // Simulate an in-flight respawn installing a healthy replacement adapter
+    // before the force-abort deadline.
+    const replacement = makeAdapter();
+    state.adapter = replacement;
+
+    vi.advanceTimersByTime(31_000);
+    await Promise.resolve();
+
+    // The net must NOT force-cancel the recovered session, tear down the
+    // replacement adapter, or emit a contradictory "force-cancelled" banner.
+    expect(state.transitions).not.toContain('cancelled');
+    expect(replacement.terminate).not.toHaveBeenCalled();
+    expect(state.outputMessages.some((m) => /force-cancelled/i.test(m.content))).toBe(false);
+  });
+
+  it('user interrupt suppresses unexpected-exit auto-respawn (sets autoRespawnSuppressedUntil past the force-abort window)', () => {
+    const adapter = makeAdapter({
+      interrupt: vi.fn(() => ({ status: 'accepted' } as InterruptResult)),
+    });
+    const instance = makeInstance({ status: 'busy' });
+    const state: FakeDepsState = { instance, adapter, queueUpdateCalls: [], outputMessages: [], transitions: [] };
+    const handler = new InterruptRespawnHandler(makeDeps(state));
+
+    const before = Date.now();
+    handler.interrupt('inst-1');
+
+    expect(instance.autoRespawnSuppressedUntil).toBeDefined();
+    // Must cover at least the 30s force-abort window so a CLI exit during
+    // interrupt handling cannot resurrect the session and continue the model.
+    expect(instance.autoRespawnSuppressedUntil!).toBeGreaterThan(before + 30_000);
+  });
+
+  it('noteInterruptSettled disarms the force-abort net when the CLI settles in place', async () => {
+    const adapter = makeAdapter({
+      interrupt: vi.fn(() => ({ status: 'accepted' } as InterruptResult)),
+    });
+    const instance = makeInstance({ status: 'busy' });
+    const state: FakeDepsState = { instance, adapter, queueUpdateCalls: [], outputMessages: [], transitions: [] };
+    const handler = new InterruptRespawnHandler(makeDeps(state));
+
+    handler.interrupt('inst-1');
+    expect(instance.respawnPromise).toBeInstanceOf(Promise);
+
+    // Simulate the resident CLI settling back to idle (the status handler would
+    // have already transitioned the instance) and notify the handler.
+    instance.status = 'idle';
+    handler.noteInterruptSettled('inst-1');
+
+    // The net is disarmed: respawn promise resolved, interrupt marked completed.
+    expect(instance.respawnPromise).toBeUndefined();
+    expect(instance.interruptPhase).toBe('completed');
+
+    // Advancing past the 30s deadline must NOT force-cancel the healthy session.
+    vi.advanceTimersByTime(31_000);
+    await Promise.resolve();
+
+    expect(state.transitions).not.toContain('cancelled');
+    expect(adapter.terminate).not.toHaveBeenCalled();
+    expect(state.outputMessages.some((m) => /force-cancelled/i.test(m.content))).toBe(false);
+  });
+
+  it('noteInterruptSettled is a no-op when no interrupt is in flight', () => {
+    const instance = makeInstance({ status: 'idle' });
+    const state: FakeDepsState = { instance, adapter: makeAdapter(), queueUpdateCalls: [], outputMessages: [], transitions: [] };
+    const handler = new InterruptRespawnHandler(makeDeps(state));
+
+    // No interrupt armed — must not touch interrupt bookkeeping.
+    handler.noteInterruptSettled('inst-1');
+
+    expect(instance.interruptPhase).toBeUndefined();
+    expect(state.transitions).toHaveLength(0);
+  });
+
   it('second-interrupt escalation: transitions to cancelled immediately', () => {
     const adapter = makeAdapter({
       interrupt: vi.fn(() => ({ status: 'accepted' } as InterruptResult)),

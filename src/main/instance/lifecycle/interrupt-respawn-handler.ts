@@ -362,6 +362,17 @@ export class InterruptRespawnHandler {
       instance.interruptRequestId = generateId();
       instance.interruptRequestedAt = requestedAt;
       instance.interruptPhase = interruptResult.status === 'escalated' ? 'escalated' : 'accepted';
+      // A user interrupt is an explicit "stop". Suppress the exit-handler's
+      // unexpected-exit auto-respawn for the duration of interrupt handling (the
+      // force-abort window plus a short margin). Otherwise, if the CLI process
+      // exits while the instance is briefly idle (e.g. a provider that exits the
+      // process after the interrupted turn settles), the auto-respawn path
+      // replays the conversation and drives the model to *continue working* —
+      // the exact "I pressed stop and it auto-restarted" regression. The
+      // dedicated interrupted-exit path (onInterruptedExit → respawnAfterInterrupt)
+      // is checked before this flag and is unaffected, so legitimate
+      // interrupt-respawn (which leaves the model idle) still runs.
+      instance.autoRespawnSuppressedUntil = requestedAt + INTERRUPT_FORCE_ABORT_MS + 5_000;
       // Bump message generation so wake messages are only consumed by the
       // freshly-spawned process, not the dying one still in its grace period.
       instance.messageGenerationId = (instance.messageGenerationId ?? 0) + 1;
@@ -411,6 +422,21 @@ export class InterruptRespawnHandler {
         const current = this.deps.getInstance(capturedInstanceId);
         if (!current || current !== capturedInstance) return;
         if (!respawnResolvers.has(capturedInstance)) return; // already resolved
+
+        // Stand down if a respawn already recovered the session. If the active
+        // adapter is no longer the one we captured, an in-flight respawn has
+        // installed a healthy replacement — force-cancelling now would tear that
+        // adapter down and stamp a contradictory "force-cancelled" banner on a
+        // live session (then leave it dead). The respawn owns the outcome and
+        // will disarm this net via resolveRespawnPromise() when it settles.
+        if (this.deps.getAdapter(capturedInstanceId) !== capturedAdapter) {
+          logger.info('Force-abort net standing down: respawn already replaced the adapter', {
+            instanceId: capturedInstanceId,
+            status: current.status,
+            interruptRequestId: current.interruptRequestId,
+          });
+          return;
+        }
 
         logger.warn('Force-abort net fired: interrupt did not settle within deadline', {
           instanceId: capturedInstanceId,
@@ -491,6 +517,43 @@ export class InterruptRespawnHandler {
     resolveRespawn();
     respawnResolvers.delete(instance);
     instance.respawnPromise = undefined;
+  }
+
+  /**
+   * Settle an in-flight interrupt in place when the adapter reports a settled
+   * status (idle / ready / waiting_for_input) while still in an `interrupting`
+   * or `cancelling` state.
+   *
+   * A resident CLI (e.g. Claude in `--print --input-format stream-json` mode)
+   * interrupts the current turn *without* exiting the process and *without*
+   * returning a completion promise — it simply goes back to idle. Neither the
+   * completion path (no promise) nor the exit→respawn path (no exit) fires, so
+   * the force-abort net would otherwise wait out its full deadline and wrongly
+   * force-cancel a perfectly healthy, idle session ~30s after the user already
+   * saw the model stop. This disarms the net and clears the interrupt
+   * bookkeeping so the interrupt is treated as completed in place.
+   *
+   * No-op unless an interrupt is actually in flight (force-abort armed or a
+   * respawn resolver pending), so an ordinary turn settling is unaffected.
+   * Status is intentionally NOT changed here — the adapter `status` handler has
+   * already moved the instance to its settled state.
+   */
+  noteInterruptSettled(instanceId: string): void {
+    const instance = this.deps.getInstance(instanceId);
+    if (!instance) return;
+    if (!forceAbortTimers.has(instance) && !respawnResolvers.has(instance)) return;
+
+    logger.info('Interrupt settled in place via adapter status; disarming force-abort net', {
+      instanceId,
+      status: instance.status,
+      interruptRequestId: instance.interruptRequestId,
+    });
+
+    this.deps.clearInterrupted(instanceId);
+    instance.interruptPhase = 'completed';
+    instance.lastTurnOutcome = 'interrupted';
+    // Clears the force-abort timer and resolves any sendInput() waiters.
+    this.resolveRespawnPromise(instance);
   }
 
   private async handleInterruptCompletion(
@@ -1017,12 +1080,11 @@ export class InterruptRespawnHandler {
 
       // Resolve the respawn promise so any sendInput() calls waiting on it
       // can proceed (or fail cleanly if the instance is now in error state).
-      const resolveRespawn = respawnResolvers.get(instance);
-      if (resolveRespawn) {
-        resolveRespawn();
-        respawnResolvers.delete(instance);
-        instance.respawnPromise = undefined;
-      }
+      // Use resolveRespawnPromise() (not a bare resolver) so the force-abort net
+      // armed by interrupt() is disarmed now that the respawn has settled. A bare
+      // resolve left the 30s timer running, so it could later fire on an
+      // already-recovered session and wrongly force-cancel it.
+      this.resolveRespawnPromise(instance);
     }
   }
 

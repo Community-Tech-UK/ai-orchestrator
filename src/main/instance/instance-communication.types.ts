@@ -52,6 +52,14 @@ export interface CommunicationDependencies {
   processOrchestrationOutput: (instanceId: string, content: string) => void;
   onInterruptedExit: (instanceId: string) => Promise<void>;
   onUnexpectedExit?: (instanceId: string) => Promise<void>;
+  /**
+   * Invoked when the adapter reports a settled status (idle/ready/
+   * waiting_for_input) while the instance is still in an in-place interrupt
+   * state ('interrupting'/'cancelling'). Lets the interrupt machinery disarm
+   * its force-abort net instead of force-cancelling a session the CLI already
+   * settled. See InterruptRespawnHandler.noteInterruptSettled().
+   */
+  onInterruptSettled?: (instanceId: string) => void;
   onChildExit?: (childId: string, instance: Instance, exitCode: number | null) => void | Promise<void>;
   ingestContext?: (instance: Instance, message: OutputMessage) => void;
   ingestToRLM: (instanceId: string, message: OutputMessage) => void;
