@@ -1391,6 +1391,14 @@ export class InstanceCommunicationManager extends EventEmitter {
 
         if (normalizedStatus === 'idle' || normalizedStatus === 'ready' || normalizedStatus === 'waiting_for_input') {
           this.deps.onToolStateChange?.(instanceId, 'idle');
+          // If the CLI settled back to idle while we were still interrupting in
+          // place (resident CLI, no process exit, no completion promise), tell the
+          // interrupt machinery to disarm its force-abort net — otherwise it would
+          // force-cancel this healthy idle session ~30s later. Only the in-place
+          // states qualify; 'respawning' is owned by the respawn flow.
+          if (previousStatus === 'interrupting' || previousStatus === 'cancelling') {
+            this.deps.onInterruptSettled?.(instanceId);
+          }
         }
 
         // On busy→idle/ready transition, compute diff stats and include them in the update

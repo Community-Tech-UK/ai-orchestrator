@@ -277,6 +277,7 @@ export class InstanceManager extends EventEmitter {
       processOrchestrationOutput: (id, content) => this.orchestrationMgr.processOrchestrationOutput(id, content),
       onInterruptedExit: (id) => this.lifecycle.respawnAfterInterrupt(id),
       onUnexpectedExit: (id) => this.lifecycle.respawnAfterUnexpectedExit(id),
+      onInterruptSettled: (id) => this.lifecycle.noteInterruptSettled(id),
       ingestContext: (inst, msg) => getContextEngine().ingest({
         instance: inst,
         message: msg,

@@ -5112,7 +5112,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3356
+      "lines": 3364
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
@@ -5164,15 +5164,15 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2504
+      "lines": 2505
+    },
+    {
+      "path": "src/main/instance/instance-communication.ts",
+      "lines": 2343
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
       "lines": 2339
-    },
-    {
-      "path": "src/main/instance/instance-communication.ts",
-      "lines": 2335
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
@@ -5315,6 +5315,10 @@
       "lines": 1456
     },
     {
+      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
+      "lines": 1424
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency.md",
       "lines": 1411
     },
@@ -5333,10 +5337,6 @@
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
       "lines": 1375
-    },
-    {
-      "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
-      "lines": 1362
     },
     {
       "path": "src/renderer/app/core/state/source-control.store.spec.ts",

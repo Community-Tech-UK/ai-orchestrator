@@ -3205,6 +3205,14 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
     return this.interruptRespawn.respawnAfterUnexpectedExit(instanceId);
   }
 
+  /**
+   * Settle an in-flight interrupt in place when the CLI reports a settled
+   * status without exiting (delegates to InterruptRespawnHandler).
+   */
+  noteInterruptSettled(instanceId: string): void {
+    this.interruptRespawn.noteInterruptSettled(instanceId);
+  }
+
   // ============================================
   // Plan Mode Management (delegated to PlanModeManager)
   // ============================================

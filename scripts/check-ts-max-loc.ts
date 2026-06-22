@@ -101,12 +101,12 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/indexing/benchmarks/benchmark-utils.ts': 820,
   'src/main/indexing/tree-sitter-chunker.ts': 716,
   // Main process — instance
-  'src/main/instance/instance-communication.ts': 2338,
+  'src/main/instance/instance-communication.ts': 2343,
   'src/main/instance/instance-context.ts': 1240,
-  'src/main/instance/instance-lifecycle.ts': 3356,
-  'src/main/instance/instance-manager.ts': 2504,
+  'src/main/instance/instance-lifecycle.ts': 3364,
+  'src/main/instance/instance-manager.ts': 2505,
   'src/main/instance/instance-orchestration.ts': 1068,
-  'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1362,
+  'src/main/instance/lifecycle/interrupt-respawn-handler.ts': 1424,
   // Main process — IPC handlers
   'src/main/ipc/handlers/app-handlers.ts': 660,
   'src/main/ipc/handlers/instance-handlers.ts': 1138,
