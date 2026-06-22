@@ -25,6 +25,7 @@ import type {
   MobileMessagesResumeDto,
   MobilePauseDto,
   MobilePromptDto,
+  MobileClientEvent,
   MobileServerEvent,
   MobileSnapshot,
 } from '../../shared/types/mobile-gateway.types';
@@ -183,6 +184,14 @@ export class MobileGatewayServer {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   /** Liveness flag per live WS client, driven by the ping/pong heartbeat reaper. */
   private readonly clientAlive = new WeakMap<WebSocket, boolean>();
+  /**
+   * The conversation each connected client currently has open, keyed by socket.
+   * Fed by the client's `view` control frame. While any client views an
+   * instance, its completion does not raise the unread dot (the user is already
+   * watching it — mirrors the desktop "selected instance" rule). Pruned on
+   * disconnect/reap so a dropped socket never pins a session as "being viewed".
+   */
+  private readonly activeViewByClient = new Map<WebSocket, string>();
 
   /** Pending "needs you" prompts keyed by requestId. */
   private readonly prompts = new Map<string, MobilePromptDto>();
@@ -191,6 +200,14 @@ export class MobileGatewayServer {
    * transition that fires a "agent finished" completion push. Pruned on removal.
    */
   private readonly lastStatusByInstance = new Map<string, string>();
+  /**
+   * Instances that finished a turn the phone hasn't viewed yet — surfaced as the
+   * per-session "unread completion" blue dot in the snapshot. Set on the
+   * working→idle edge (alongside the completion push), cleared when the phone
+   * views the conversation, sends input, the session starts a new turn, or the
+   * instance is removed.
+   */
+  private readonly unreadCompletions = new Set<string>();
   /** The orchestration handler we attached to, for clean detach on stop. */
   private orchestration: EmitterLike | null = null;
   private attachedPause: GatewayPauseSource | null = null;
@@ -328,7 +345,10 @@ export class MobileGatewayServer {
     const httpServer: Server = tls
       ? createHttpsServer({ cert: tls.cert, key: tls.key }, requestHandler)
       : createServer(requestHandler);
-    this.wss = new WebSocketServer({ noServer: true });
+    // Clients only send tiny control frames (view reports); real input rides
+    // REST. Bound the payload so a misbehaving/hostile socket can't buffer huge
+    // frames on a shell-capable, remotely-reachable server.
+    this.wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 
     httpServer.on('upgrade', (req, socket, head) => {
       this.handleUpgrade(req, socket, head);
@@ -379,6 +399,7 @@ export class MobileGatewayServer {
       }
     }
     this.clients.clear();
+    this.activeViewByClient.clear();
     this.prompts.clear();
 
     if (this.wss) {
@@ -471,6 +492,7 @@ export class MobileGatewayServer {
       for (const client of this.clients) {
         if (this.clientAlive.get(client) === false) {
           this.clients.delete(client);
+          this.activeViewByClient.delete(client);
           try {
             client.terminate();
           } catch {
@@ -542,6 +564,7 @@ export class MobileGatewayServer {
   private handleInstanceRemoved(instanceId: string): void {
     this.clearPromptsForInstance(instanceId);
     this.lastStatusByInstance.delete(instanceId);
+    this.unreadCompletions.delete(instanceId);
     this.scheduleSnapshotBroadcast();
   }
 
@@ -572,17 +595,41 @@ export class MobileGatewayServer {
   }
 
   /**
-   * Sends a non-approval "agent finished" push when an instance transitions out
-   * of a working status into `idle` (a completed turn awaiting the user's next
-   * message). Only the working→idle edge fires — repeated idle heartbeats and the
-   * first-ever status for an instance are ignored — so the user is pinged once per
-   * completed turn, not on every snapshot.
+   * Sends a non-approval "agent finished" push and raises the per-session unread
+   * completion dot when an instance transitions out of a working status into
+   * `idle` (a completed turn awaiting the user's next message). Only the
+   * working→idle edge fires — repeated idle heartbeats and the first-ever status
+   * for an instance are ignored — so the user is pinged once per completed turn,
+   * not on every snapshot. Entering a working status clears any stale dot: a
+   * fresh turn supersedes the previous (unviewed) completion.
    */
   private notifyCompletionOnIdle(instanceId: string, status: string): void {
     const prev = this.lastStatusByInstance.get(instanceId);
     this.lastStatusByInstance.set(instanceId, status);
+    if (WORKING_STATUSES.has(status)) {
+      this.unreadCompletions.delete(instanceId);
+      return;
+    }
     if (prev && WORKING_STATUSES.has(prev) && status === 'idle') {
+      // Don't raise the dot for a conversation the user is already watching on a
+      // connected phone (mirrors the desktop "selected instance" rule). The push
+      // still fires — iOS suppresses its own banner while the app is foreground,
+      // and a backgrounded-but-still-"viewing" client should still be alerted.
+      if (!this.isInstanceBeingViewed(instanceId)) {
+        this.unreadCompletions.add(instanceId);
+      }
       this.sendCompletionPush(instanceId);
+    }
+  }
+
+  /**
+   * Clears the unread completion dot for an instance once the phone engages with
+   * it (views the conversation or sends input). Broadcasts a refreshed snapshot
+   * only when the flag actually changed.
+   */
+  private markCompletionViewed(instanceId: string): void {
+    if (this.unreadCompletions.delete(instanceId)) {
+      this.scheduleSnapshotBroadcast();
     }
   }
 
@@ -746,11 +793,16 @@ export class MobileGatewayServer {
     const instances = (this.deps?.instanceManager.getAllInstances() ?? [])
       .filter((instance) => instance.status !== 'terminated')
       .map(serializeInstance)
-      .map((dto) =>
-        promptCounts.has(dto.id)
-          ? { ...dto, pendingApprovalCount: promptCounts.get(dto.id)! }
-          : dto,
-      );
+      .map((dto) => {
+        const pending = promptCounts.get(dto.id);
+        const unread = this.unreadCompletions.has(dto.id);
+        if (pending === undefined && !unread) return dto;
+        return {
+          ...dto,
+          ...(pending !== undefined ? { pendingApprovalCount: pending } : {}),
+          hasUnreadCompletion: unread,
+        };
+      });
     return {
       hostName: os.hostname(),
       serverTime: Date.now(),
@@ -818,16 +870,58 @@ export class MobileGatewayServer {
     this.clients.add(ws);
     this.clientAlive.set(ws, true);
     ws.on('pong', () => this.clientAlive.set(ws, true));
+    ws.on('message', (data) => this.handleClientMessage(ws, data));
     ws.on('close', () => {
       this.clients.delete(ws);
+      this.activeViewByClient.delete(ws);
     });
     ws.on('error', () => {
       this.clients.delete(ws);
+      this.activeViewByClient.delete(ws);
     });
     // Initial snapshot (includes pending prompts + pause state).
     ws.send(
       JSON.stringify({ type: 'snapshot', data: this.buildSnapshot() } satisfies MobileServerEvent),
     );
+  }
+
+  /**
+   * Parse a client control frame. Currently only the `view` report, which
+   * records (per socket) the conversation the phone is looking at so completions
+   * for that session don't raise the unread dot. Defensive: malformed frames are
+   * silently ignored — a client must never be able to crash the gateway.
+   */
+  private handleClientMessage(ws: WebSocket, data: unknown): void {
+    try {
+      const raw = Array.isArray(data)
+        ? Buffer.concat(data as Buffer[]).toString('utf8')
+        : Buffer.isBuffer(data)
+          ? data.toString('utf8')
+          : data instanceof ArrayBuffer
+            ? Buffer.from(data).toString('utf8')
+            : String(data);
+      const event = JSON.parse(raw) as MobileClientEvent;
+      if (event?.type === 'view') {
+        const id = typeof event.instanceId === 'string' && event.instanceId ? event.instanceId : null;
+        if (id) {
+          this.activeViewByClient.set(ws, id);
+          // Opening a conversation counts as viewing it — drop any existing dot.
+          this.markCompletionViewed(id);
+        } else {
+          this.activeViewByClient.delete(ws);
+        }
+      }
+    } catch {
+      /* ignore malformed control frame */
+    }
+  }
+
+  /** True while any connected client has this instance's conversation open. */
+  private isInstanceBeingViewed(instanceId: string): boolean {
+    for (const viewed of this.activeViewByClient.values()) {
+      if (viewed === instanceId) return true;
+    }
+    return false;
   }
 
   // ---------------------------------------------------------------------------
@@ -957,6 +1051,10 @@ export class MobileGatewayServer {
       return;
     }
 
+    // Fetching the transcript means the phone is viewing this session — drop its
+    // unread completion dot (mirrors the desktop "selected instance" clear).
+    this.markCompletionViewed(instanceId);
+
     const buffer = instance.outputBuffer ?? [];
     const rawFromSeq = url.searchParams.get('fromSeq');
 
@@ -1032,6 +1130,9 @@ export class MobileGatewayServer {
       this.sendJson(res, 404, { error: 'Instance not found' });
       return;
     }
+    // Sending input means the phone is engaged with this session — drop its
+    // unread completion dot.
+    this.markCompletionViewed(instanceId);
     // B2: at-most-once — a retried input with the same key must not be queued
     // twice. Optional key (no natural requestId on a free-form message), so the
     // guard only engages when the client supplies one.

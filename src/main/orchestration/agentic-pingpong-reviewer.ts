@@ -8,6 +8,7 @@ import type {
   PingPongSubject,
 } from '../../shared/types/loop-pingpong.types';
 import { isProviderNotice } from '../cli/provider-notice';
+import { detectAvailableClis } from '../cli/cli-detection';
 import type { InstanceProvider } from '../../shared/types/instance.types';
 import {
   getReviewerSessionSpawner,
@@ -17,15 +18,27 @@ import {
 const logger = getLogger('AgenticPingPongReviewer');
 
 /**
- * Provider preference order for `'auto'` reviewer resolution. Deliberately
- * restricted to the Claude ⇄ Codex pair: the reviewer is always the *other*
- * member of the pair from the builder (Claude builds → Codex reviews, and vice
- * versa). No third model (gemini, copilot, antigravity, cursor, ollama) is ever
- * pulled in on `'auto'` — to use one as the reviewer, set an explicit
- * `pingPongReviewerProvider`. For a builder outside the pair, Codex is preferred
- * then Claude (still never a third model).
+ * First-choice provider order for `'auto'` reviewer resolution. Claude and
+ * Codex stay the preferred pair, but the resolver may widen to another
+ * installed non-builder provider after that pair is exhausted so a throttled
+ * counterpart does not become a single point of failure.
  */
 const AUTO_REVIEWER_PREFERENCE: readonly string[] = ['codex', 'claude'];
+const REVIEWER_JSON_EXAMPLE = [
+  '```json',
+  '{',
+  '  "verdict": "APPROVED",',
+  '  "summary": "No blocking issues remain.",',
+  '  "completeness": {',
+  '    "filesInspected": 1,',
+  '    "commandsRun": 0,',
+  '    "scopeCovered": "src/example.ts and relevant tests"',
+  '  },',
+  '  "findings": [],',
+  '  "ledger": []',
+  '}',
+  '```',
+].join('\n');
 
 /** A single structured finding emitted by the reviewer (evidence required). */
 export interface PingPongReviewFinding {
@@ -123,6 +136,7 @@ export type PingPongReviewer = (
 const MIN_FILES_INSPECTED = 1;
 /** Cap on NEW low/medium findings per round to throttle nitpick churn. */
 const MAX_NEW_LOW_FINDINGS = 5;
+const MAX_FORMAT_REPAIR_PROMPT_CHARS = 40_000;
 
 function unreliable(
   reason: string,
@@ -155,8 +169,6 @@ async function resolveReviewerProvider(
   builderProvider: string,
   tried: readonly string[],
 ): Promise<string | null> {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { detectAvailableClis } = require('../cli/cli-detection') as typeof import('../cli/cli-detection');
   let installed: string[] = [];
   try {
     const clis = await detectAvailableClis();
@@ -268,23 +280,59 @@ function buildPrompt(input: PingPongReviewerInput): string {
     `Do NOT manufacture nitpicks to look thorough. Severities that block: ${blocking}.\n\n` +
     `${ledgerBlock(input.ledger)}\n` +
     `${diffBlock}\n\n` +
-    `## Required output\n` +
-    `After your analysis, emit EXACTLY ONE fenced \`\`\`json block (and nothing after it) ` +
-    `matching this schema:\n` +
-    '```json\n' +
-    `{\n` +
-    `  "verdict": "APPROVED" | "CHANGES_REQUESTED",\n` +
-    `  "summary": "one paragraph",\n` +
-    `  "completeness": { "filesInspected": <int>, "commandsRun": <int>, "scopeCovered": "what you covered" },\n` +
-    `  "findings": [\n` +
-    `    { "title": "...", "severity": "critical|high|medium|low", "file": "path:line",\n` +
-    `      "evidence": "what you inspected proving this", "body": "the issue", "novelty": "new|persisted|regression", "ledgerId": "id-or-omit" }\n` +
-    `  ],\n` +
-    `  "ledger": [ { "id": "existing-ledger-id", "status": "open|resolved|rebutted|regression", "note": "why" } ]\n` +
-    `}\n` +
-    '```\n' +
+    requiredOutputInstructions(
+      `After your analysis, emit EXACTLY ONE fenced \`\`\`json block (and nothing after it).`,
+    ) +
     `Use "APPROVED" only when there are NO blocking findings. Classify every prior ledger id.`
   );
+}
+
+function requiredOutputInstructions(opening: string): string {
+  return (
+    `## Required output\n` +
+    opening +
+    ` ` +
+    `The JSON inside the fence must be valid parseable JSON, not a schema.\n\n` +
+    `Field constraints:\n` +
+    `- verdict: "APPROVED" or "CHANGES_REQUESTED".\n` +
+    `- completeness.filesInspected and completeness.commandsRun: integers.\n` +
+    `- findings[].severity: "critical", "high", "medium", or "low".\n` +
+    `- findings[].novelty: "new", "persisted", or "regression".\n` +
+    `- ledger[].status: "open", "resolved", "rebutted", or "regression".\n\n` +
+    `Example shape:\n` +
+    REVIEWER_JSON_EXAMPLE +
+    `\n`
+  );
+}
+
+function buildFormatRepairPrompt(input: PingPongReviewerInput, previousOutput: string): string {
+  return (
+    `# Ping-pong reviewer format repair\n\n` +
+    `You already completed a ping-pong review for round ${input.roundNumber}/${input.maxRounds}, ` +
+    `but your answer did not include a parseable JSON block. Convert ONLY your previous answer ` +
+    `into the required JSON shape.\n\n` +
+    `Rules:\n` +
+    `- Do NOT perform a new review.\n` +
+    `- Do NOT add findings that were not present in your previous answer.\n` +
+    `- If your previous answer clearly approved the work with no blocking issues, use "APPROVED".\n` +
+    `- If your previous answer raised material blocking issues, use "CHANGES_REQUESTED" and include them.\n` +
+    `- If your previous answer does not show what was inspected, set filesInspected to 0 and scopeCovered to "".\n` +
+    `- Respond with EXACTLY ONE fenced \`\`\`json block and nothing after it.\n\n` +
+    requiredOutputInstructions(
+      `Convert the previous answer into EXACTLY ONE fenced \`\`\`json block (and nothing after it).`,
+    ) +
+    `\n` +
+    `Previous reviewer answer:\n` +
+    previousOutput.slice(0, MAX_FORMAT_REPAIR_PROMPT_CHARS)
+  );
+}
+
+function repairTimeoutMs(timeoutMs: number): number {
+  return Math.min(120_000, Math.max(30_000, Math.floor(timeoutMs / 4)));
+}
+
+function sessionFault(outcome: ReviewSessionOutcome): PingPongReviewerFault {
+  return outcome === 'timeout' ? 'timeout' : 'infra_error';
 }
 
 /** Tolerant extraction of the trailing JSON block from free-form reviewer output. */
@@ -461,25 +509,27 @@ export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
     onProgress: input.onProgress,
   });
 
-  const base = {
+  let tokensUsed = session.tokensUsed;
+  let costCents = session.costCents;
+  let reviewerInstanceId = session.instanceId;
+  let spawnOutcome = session.outcome;
+  const base = (): Partial<PingPongReviewResult> => ({
     reviewerProvider: provider,
-    tokensUsed: session.tokensUsed,
-    costCents: session.costCents,
-    reviewerInstanceId: session.instanceId,
-    spawnOutcome: session.outcome,
-  };
+    tokensUsed,
+    costCents,
+    reviewerInstanceId,
+    spawnOutcome,
+  });
 
   if (session.outcome !== 'settled') {
     // A throttled CLI can still report `settled` (it exits 0 and prints a notice
     // as content) — that case is caught below. Here the session itself did not
     // complete: a timeout is its own (transient) fault; cancellation is carried
     // through via spawnOutcome and handled upstream; everything else is infra.
-    const sessionFault: PingPongReviewerFault =
-      session.outcome === 'timeout' ? 'timeout' : 'infra_error';
     return unreliable(
       `reviewer session ${session.outcome}: ${session.error ?? ''}`.trim(),
-      sessionFault,
-      base,
+      sessionFault(session.outcome),
+      base(),
     );
   }
 
@@ -491,16 +541,51 @@ export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
     return unreliable(
       `reviewer provider returned a usage/rate-limit notice instead of a review`,
       'rate_limited',
-      base,
+      base(),
     );
   }
 
-  const parsed = parseReviewerJson(session.finalOutput);
+  let parsed = parseReviewerJson(session.finalOutput);
+  if (!parsed && session.finalOutput.trim().length > 0) {
+    const repair = await spawner.runReviewSession({
+      provider: provider as InstanceProvider,
+      modelOverride: resolveModelOverride(provider),
+      workingDirectory: input.workspaceCwd,
+      prompt: buildFormatRepairPrompt(input, session.finalOutput),
+      displayName: `Ping-pong reviewer format repair ${input.roundNumber}/${input.maxRounds} (${provider})`,
+      timeoutMs: repairTimeoutMs(input.timeoutMs),
+      signal: input.signal,
+      isCancelled: input.isCancelled,
+      onSpawned: input.onSpawned,
+      onProgress: input.onProgress,
+    });
+    tokensUsed += repair.tokensUsed;
+    costCents += repair.costCents;
+    reviewerInstanceId = repair.instanceId || reviewerInstanceId;
+    spawnOutcome = repair.outcome;
+
+    if (repair.outcome !== 'settled') {
+      return unreliable(
+        `reviewer format repair ${repair.outcome}: ${repair.error ?? ''}`.trim(),
+        sessionFault(repair.outcome),
+        base(),
+      );
+    }
+    if (isProviderNotice(repair.finalOutput)) {
+      return unreliable(
+        'reviewer provider returned a usage/rate-limit notice during format repair',
+        'rate_limited',
+        base(),
+      );
+    }
+    parsed = parseReviewerJson(repair.finalOutput);
+  }
+
   if (!parsed) {
     return unreliable(
       'reviewer output was empty or unparseable (no JSON block)',
       'malformed_output',
-      base,
+      base(),
     );
   }
 
@@ -520,7 +605,7 @@ export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
     return unreliable(
       `reviewer did not demonstrate enough work (filesInspected=${filesInspected}, scopeCovered=${scopeCovered ? 'yes' : 'no'})`,
       'malformed_output',
-      { ...base, completeness },
+      { ...base(), completeness },
     );
   }
 
@@ -559,9 +644,9 @@ export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
     ledgerClassifications,
     completeness,
     summary,
-    tokensUsed: session.tokensUsed,
-    costCents: session.costCents,
-    reviewerInstanceId: session.instanceId,
-    spawnOutcome: session.outcome,
+    tokensUsed,
+    costCents,
+    reviewerInstanceId,
+    spawnOutcome,
   };
 };

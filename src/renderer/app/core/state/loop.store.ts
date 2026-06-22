@@ -15,9 +15,9 @@ import {
 import type {
   LoopBanner,
   LoopFinalSummary,
-  LoopFinalSummaryLastIteration,
   LoopRunningIteration,
 } from './loop-store.types';
+import { snapshotLastIteration } from './loop-store-summary';
 
 /**
  * One active loop per chat in v1. The store holds:
@@ -691,42 +691,4 @@ export class LoopStore {
       || status === 'provider-limit'
     );
   }
-}
-
-/** Truncate the agent's final response so the summary card never blows
- *  out — the full text is always available via Inspect trace. */
-const MAX_SUMMARY_OUTPUT_CHARS = 4_000;
-/** Truncate verify command output similarly. Verify dumps can be huge
- *  (full test logs); the trace inspector keeps the unabridged copy. */
-const MAX_SUMMARY_VERIFY_CHARS = 1_500;
-
-function snapshotLastIteration(
-  iteration: LoopStatePayload['lastIteration'],
-): LoopFinalSummaryLastIteration | undefined {
-  if (!iteration) return undefined;
-  return {
-    seq: iteration.seq,
-    stage: iteration.stage,
-    outputExcerpt: truncateForSummary(iteration.outputExcerpt, MAX_SUMMARY_OUTPUT_CHARS),
-    // Carry the full closing message through verbatim — it's already bounded
-    // by `boundFullOutput` upstream, so no second display cap here (the card
-    // renders it in a scrollable panel). Fall back to the excerpt for
-    // pre-migration runs whose `outputFull` is empty.
-    outputFull: iteration.outputFull || iteration.outputExcerpt,
-    filesChanged: iteration.filesChanged.map((file) => ({
-      path: file.path,
-      additions: file.additions,
-      deletions: file.deletions,
-    })),
-    testPassCount: iteration.testPassCount,
-    testFailCount: iteration.testFailCount,
-    verifyStatus: iteration.verifyStatus,
-    verifyOutputExcerpt: truncateForSummary(iteration.verifyOutputExcerpt, MAX_SUMMARY_VERIFY_CHARS),
-    progressVerdict: iteration.progressVerdict,
-  };
-}
-
-function truncateForSummary(value: string, max: number): string {
-  if (value.length <= max) return value;
-  return `${value.slice(0, max - 18).trimEnd()}\n…(truncated)`;
 }

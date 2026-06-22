@@ -176,7 +176,7 @@ describe('InstanceMessagingStore', () => {
     });
   });
 
-  it('does not show the renderer timeout for a long-running Codex turn before the backend watchdog can resolve', async () => {
+  it('does not clear busy for long-running Codex turns at the renderer timeout boundary', async () => {
     const currentStore = store!;
     const currentStateService = stateService!;
     currentStateService.addInstance(createInstance({ provider: 'codex', status: 'idle' }));
@@ -184,7 +184,7 @@ describe('InstanceMessagingStore', () => {
 
     void currentStore.sendInput('inst-1', 'long codex turn');
 
-    await vi.advanceTimersByTimeAsync(60_100);
+    await vi.advanceTimersByTimeAsync(11 * 60_000 + 100);
 
     const instance = currentStateService.getInstance('inst-1');
     expect(instance?.status).toBe('busy');

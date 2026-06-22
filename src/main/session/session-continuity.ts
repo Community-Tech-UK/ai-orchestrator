@@ -14,7 +14,7 @@ import * as path from 'path';
 import { EventEmitter } from 'events';
 import { registerCleanup } from '../util/cleanup-registry';
 import { withLock } from '../util/file-lock';
-import type { Instance, InstanceProvider } from '../../shared/types/instance.types';
+import type { Instance } from '../../shared/types/instance.types';
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
@@ -32,6 +32,23 @@ import { getProjectStoragePaths } from '../storage/project-storage-paths';
 import { SessionAutoSaveCoordinator } from './autosave-coordinator';
 import { getSessionPersistenceQueue } from './session-persistence-queue';
 import { computeResumeConfigFingerprint } from '../instance/lifecycle/session-recovery';
+import type {
+  ContinuityConfig,
+  ConversationEntry,
+  ResumeCursor,
+  ResumeOptions,
+  SessionSnapshot,
+  SessionState,
+} from './session-continuity.types';
+export type {
+  ContinuityConfig,
+  ConversationEntry,
+  PendingTask,
+  ResumeCursor,
+  ResumeOptions,
+  SessionSnapshot,
+  SessionState,
+} from './session-continuity.types';
 
 const logger = getLogger('SessionContinuity');
 
@@ -82,161 +99,11 @@ function migrateSessionState(state: Record<string, unknown>): Record<string, unk
 const DEFAULT_RESUME_AUTOSAVE_GRACE_MS = 60_000;
 
 /**
- * Session snapshot for point-in-time restoration
- */
-export interface SessionSnapshot {
-  id: string;
-  instanceId: string;
-  sessionId?: string;
-  historyThreadId?: string;
-  timestamp: number;
-  name?: string;
-  description?: string;
-  state: SessionState;
-  schemaVersion?: number;
-  metadata: {
-    messageCount: number;
-    tokensUsed: number;
-    duration: number;
-    trigger: 'auto' | 'manual' | 'checkpoint';
-  };
-}
-
-/**
- * Persisted cursor for crash-resilient session resumption
- */
-export interface ResumeCursor {
-  /** Provider type that owns this thread */
-  provider: string;
-  /** Provider-specific thread/session ID for resume */
-  threadId: string;
-  /** Workspace path for filesystem-based discovery fallback */
-  workspacePath: string;
-  /** Epoch ms when cursor was captured — used for staleness check */
-  capturedAt: number;
-  /** How this cursor was obtained */
-  scanSource: 'native' | 'jsonl-scan' | 'thread-list' | 'replay';
-  /**
-   * Fingerprint of the resume-affecting config (provider/model/cwd) at capture
-   * time (§6.2). On resume, if the live config differs, native resume is skipped
-   * in favour of replay. Optional for backwards-compatibility with cursors
-   * persisted before this field existed.
-   */
-  configFingerprint?: string;
-}
-
-/**
- * Complete session state for restoration
- */
-export interface SessionState {
-  instanceId: string;
-  sessionId?: string;
-  historyThreadId?: string;
-  nativeResumeFailedAt?: number | null;
-  displayName: string;
-  isRenamed?: boolean;
-  agentId: string;
-  modelId: string;
-  provider?: InstanceProvider;
-  workingDirectory: string;
-  systemPrompt?: string;
-  temperature?: number;
-  maxTokens?: number;
-  conversationHistory: ConversationEntry[];
-  contextUsage: {
-    used: number;
-    total: number;
-    costEstimate?: number;
-  };
-  pendingTasks: PendingTask[];
-  environmentVariables: Record<string, string>;
-  activeFiles: string[];
-  gitBranch?: string;
-  customInstructions?: string;
-  skillsLoaded: string[];
-  hooksActive: string[];
-  lastWriteTimestamp?: number;
-  lastWriteSource?: string;
-  /** Persisted resume cursor for crash-resilient session restore */
-  resumeCursor?: ResumeCursor | null;
-}
-
-/**
- * Conversation entry with full metadata
- */
-export interface ConversationEntry {
-  id: string;
-  role: 'user' | 'assistant' | 'system' | 'tool';
-  content: string;
-  timestamp: number;
-  tokens?: number;
-  toolUse?: {
-    toolName: string;
-    input: unknown;
-    output?: string;
-  };
-  thinking?: string;
-  isCompacted?: boolean;
-}
-
-/**
- * Pending task that needs to resume
- */
-export interface PendingTask {
-  id: string;
-  type: 'completion' | 'tool_execution' | 'approval_required';
-  description: string;
-  createdAt: number;
-  context?: unknown;
-}
-
-/**
  * Pre-termination validation gate result.
  * Inspired by codex-plugin-cc's stop-review-gate-hook pattern.
  */
 // Re-exported from termination-gate-manager.ts for backward compatibility.
 export type { TerminationGateResult, SessionTerminationGate } from './termination-gate-manager';
-
-/**
- * Session continuity configuration
- */
-export interface ContinuityConfig {
-  autoSaveEnabled: boolean;
-  autoSaveIntervalMs: number;
-  maxSnapshots: number;
-  /** Global cap across ALL sessions. Oldest snapshots pruned first. */
-  maxTotalSnapshots: number;
-  snapshotRetentionDays: number;
-  compressOldSnapshots: boolean;
-  resumeOnStartup: boolean;
-  preserveToolResults: boolean;
-  /** Soft sizing hint for persisted history compaction, not a hard message cap. */
-  maxConversationEntries: number;
-  /** Number of newest state files to load into the resumable-session index at startup. 0 means unlimited. */
-  maxLoadedStateFiles: number;
-  encryptOnDisk: boolean;
-  persistSessionContent: boolean;
-  redactToolOutputs: boolean;
-}
-
-/**
- * Resume options
- */
-export interface ResumeOptions {
-  restoreMessages?: boolean;
-  restoreContext?: boolean;
-  restoreTasks?: boolean;
-  restoreEnvironment?: boolean;
-  fromSnapshot?: string;
-
-  /**
-   * When true, validates that all parallel tool results are present in the
-   * conversation history before completing resume. Logs warnings for any
-   * tool_result entries that appear to have placeholders or missing content.
-   * Inspired by Claude Code 2.1.80 fix for --resume dropping parallel tool results.
-   */
-  validateParallelToolResults?: boolean;
-}
 
 /** D12: Maximum time to wait for async init before operating in degraded mode. */
 const INIT_TIMEOUT_MS = 30_000;

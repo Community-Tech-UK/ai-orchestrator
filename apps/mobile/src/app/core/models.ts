@@ -105,6 +105,14 @@ export type MobileServerEvent =
   | { type: 'permission-cleared'; data: { requestId: string; instanceId?: string } }
   | { type: 'pause-state'; data: MobilePauseDto };
 
+/**
+ * Control frames the phone sends UP the WebSocket. The active-view report lets
+ * the gateway suppress the unread-completion dot for the conversation the user
+ * is currently watching. `instanceId` is null when no conversation is open.
+ */
+export type MobileClientEvent =
+  | { type: 'view'; instanceId: string | null };
+
 /** Request bodies. */
 export interface MobileAttachmentDto {
   name: string;

@@ -93,6 +93,8 @@ type OrganizeMode = 'project' | 'chronological';
                 </span>
                 @if (s.pendingApprovalCount > 0) {
                   <span class="badge attention">⚠</span>
+                } @else if (s.hasUnreadCompletion) {
+                  <span class="unread"></span>
                 }
                 <span class="chevron">›</span>
               </button>
@@ -142,6 +144,7 @@ type OrganizeMode = 'project' | 'chronological';
       .badge { font-size: 12px; padding: 2px 8px; border-radius: var(--radius-pill); }
       .badge.attention { color: var(--accent-attention); background: rgba(255, 159, 10, 0.15); }
       .badge.busy { color: var(--accent-action); background: rgba(10, 132, 255, 0.15); }
+      .unread { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-action); flex: none; }
       .chevron { color: var(--text-secondary); font-size: 20px; }
       .fab {
         position: fixed; right: 20px; bottom: calc(20px + env(safe-area-inset-bottom));

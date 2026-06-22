@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   computed,
   effect,
@@ -318,6 +319,14 @@ export class ConversationComponent {
   }
 
   constructor() {
+    // Tell the gateway which conversation is open so it won't flag the unread
+    // completion dot for a session the user is actively watching. Cleared when
+    // the component is torn down (back to the list / different screen).
+    effect(() => {
+      this.gateway.setActiveView(this.instanceId() || null);
+    });
+    inject(DestroyRef).onDestroy(() => this.gateway.clearActiveView(this.instanceId()));
+
     // Load (and resync on reconnect) the transcript for the open instance.
     effect(() => {
       const id = this.instanceId();

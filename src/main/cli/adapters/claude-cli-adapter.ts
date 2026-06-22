@@ -3,7 +3,6 @@
  * Extends BaseCliAdapter for multi-CLI support
  */
 
-import { createHash } from 'crypto';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { homedir, tmpdir } from 'os';
 import { join } from 'path';
@@ -55,6 +54,14 @@ import {
   helpAdvertisesExcludeDynamicSections,
   isVersionAtLeast,
 } from './claude-cli-feature-probes';
+import {
+  createApprovalTraceId,
+  createPermissionKey,
+  extractPermissionDetails,
+  isPermissionDenialContent,
+  summarizeClaudeLogText,
+  type ClaudeToolUseContext,
+} from './claude-cli-permission-details';
 
 export type { DeferredToolUse } from './claude-cli-adapter.types';
 export type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
@@ -82,7 +89,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   /** Deduplicate AskUserQuestion prompts that can be emitted in multiple stream shapes */
   private emittedAskUserQuestionKeys = new Set<string>();
   /** Map tool_use ids to tool metadata for robust permission-denial parsing */
-  private toolUseContexts = new Map<string, { name: string; input: Record<string, unknown> }>();
+  private toolUseContexts = new Map<string, ClaudeToolUseContext>();
   /** Cached context window from last result message for accurate streaming percentage */
   private lastKnownContextWindow: number;
   /** Last accurate per-API-call context occupancy (input + cache + output of
@@ -1215,7 +1222,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     logger.debug('Sending as user message', {
       contentLength: text.length,
       jsonMessageLength: jsonMessage.length,
-      contentPreview: this.summarizeLogText(text),
+      contentPreview: summarizeClaudeLogText(text),
     });
     await this.formatter.sendRaw(jsonMessage);
 
@@ -1248,7 +1255,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         raw.includes('denied') || raw.includes('not allowed') || raw.includes('is_error')) {
       logger.debug('RAW STDOUT (permission-related)', {
         rawLength: raw.length,
-        preview: this.summarizeLogText(raw, 400),
+        preview: summarizeClaudeLogText(raw, 400),
       });
     }
 
@@ -1276,7 +1283,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       if (errorText.includes('permission') || errorText.includes('approve') || errorText.includes('allow') || errorText.includes('y/n')) {
         logger.debug('STDERR contains permission-like content', {
           errorLength: errorText.length,
-          preview: this.summarizeLogText(errorText, 220),
+          preview: summarizeClaudeLogText(errorText, 220),
         });
       }
 
@@ -1440,8 +1447,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               logger.info('[APPROVAL_TRACE] tool_result_error_received', {
                 toolUseId: block.tool_use_id,
                 contentLength: block.content.length,
-                contentPreview: this.summarizeLogText(block.content, 300),
-                isPermissionDenial: this.isPermissionDenialContent(block.content)
+                contentPreview: summarizeClaudeLogText(block.content, 300),
+                isPermissionDenial: isPermissionDenialContent(block.content)
               });
             }
 
@@ -1449,17 +1456,18 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               block.type === 'tool_result' &&
               block.is_error === true &&
               typeof block.content === 'string' &&
-              this.isPermissionDenialContent(block.content)
+              isPermissionDenialContent(block.content)
             ) {
               logger.debug('Permission denial detected in tool_result', {
                 toolUseId: block.tool_use_id,
                 contentLength: block.content.length,
-                contentPreview: this.summarizeLogText(block.content, 220)
+                contentPreview: summarizeClaudeLogText(block.content, 220)
               });
 
-              const { action, path, displayPath } = this.extractPermissionDetails(
+              const { action, path, displayPath } = extractPermissionDetails(
                 block.content,
-                block.tool_use_id
+                block.tool_use_id,
+                this.toolUseContexts
               );
 
               // Capture the authoritative tool name (e.g. 'Edit', 'Write') from the
@@ -1471,7 +1479,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               const denialToolName = denialToolContext?.name;
 
               // Create a unique key for this permission request to avoid duplicate prompts
-              const permissionKey = this.createPermissionKey(action, path);
+              const permissionKey = createPermissionKey(action, path);
 
               // Skip if we already have a pending request for this exact permission
               if (this.pendingPermissions.has(permissionKey)) {
@@ -1516,7 +1524,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
               });
 
               const inputRequestId = generateId();
-              const approvalTraceId = this.createApprovalTraceId('permission');
+              const approvalTraceId = createApprovalTraceId('permission');
               const prompt = `Permission required: Claude wants to ${action} ${displayPath}. Choose Always to add a Claude allow rule and restart the session, or reject to continue with this action denied.`;
               const timestamp = message.timestamp || Date.now();
 
@@ -1828,14 +1836,14 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
         this.emit('status', 'waiting_for_input' as InstanceStatus);
         const inputRequestId = generateId();
-        const approvalTraceId = this.createApprovalTraceId('input_required');
+        const approvalTraceId = createApprovalTraceId('input_required');
         const prompt = message.prompt || 'Input required';
         const timestamp = message.timestamp || Date.now();
 
         logger.debug('Processing input_required', {
           inputRequestId,
           promptLength: prompt.length,
-          promptPreview: this.summarizeLogText(prompt)
+          promptPreview: summarizeClaudeLogText(prompt)
         });
         logger.info('[APPROVAL_TRACE] adapter_emit_input_required', {
           approvalTraceId,
@@ -1888,7 +1896,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
         logger.info('MCP elicitation received', {
           serverName,
-          messagePreview: this.summarizeLogText(elicitationMsg),
+          messagePreview: summarizeClaudeLogText(elicitationMsg),
           hasSchema: Boolean(elicitationRaw.schema),
           requestId: elicitationRaw.request_id
         });
@@ -1969,7 +1977,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         logger.warn('Unrecognized CLI message type', {
           type: unhandled.type,
           keys: Object.keys(message),
-          preview: this.summarizeLogText(JSON.stringify(message), 300)
+          preview: summarizeClaudeLogText(JSON.stringify(message), 300)
         });
         break;
       }
@@ -1995,7 +2003,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     this.emittedAskUserQuestionKeys.add(dedupeKey);
 
     const inputRequestId = generateId();
-    const approvalTraceId = this.createApprovalTraceId('ask_user_question');
+    const approvalTraceId = createApprovalTraceId('ask_user_question');
     this.emit('status', 'waiting_for_input' as InstanceStatus);
     logger.info('[APPROVAL_TRACE] adapter_emit_ask_user_question', {
       approvalTraceId,
@@ -2031,15 +2039,6 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         traceStage: 'adapter:ask_user_question_output'
       }
     });
-  }
-
-  private summarizeLogText(value: string, maxLength = 160): string {
-    const normalized = value.replace(/\s+/g, ' ').trim();
-    if (normalized.length <= maxLength) {
-      return normalized;
-    }
-
-    return `${normalized.slice(0, maxLength)}... (${normalized.length} chars)`;
   }
 
   private rememberToolUse(
@@ -2094,179 +2093,4 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     return isVersionAtLeast(this.cachedCliStatus?.version, DEFER_MIN_VERSION);
   }
 
-  /**
-   * Detect whether a tool_result error content indicates a permission denial.
-   * Claude CLI has changed its denial wording across versions, so we match
-   * several known patterns rather than a single literal string.
-   */
-  private isPermissionDenialContent(content: string): boolean {
-    const lower = content.toLowerCase();
-    const patterns = [
-      "haven't granted it yet",          // Original Claude CLI wording
-      "hasn't been granted",             // Alternate phrasing
-      "permission denied",               // Generic denial
-      "not allowed to",                  // "You are not allowed to..."
-      "not permitted",                   // "This tool is not permitted"
-      "requires permission",             // "This action requires permission"
-      "does not have permission",        // "Claude does not have permission"
-      "need permission",                 // "You need permission to..."
-      "must grant permission",           // "You must grant permission"
-      "allow this tool",                 // "Please allow this tool"
-      "tool is not approved",            // Approval-gated tools
-      "denied by permission",            // "Action denied by permission policy"
-      "permission to use this tool",     // "You haven't given permission to use this tool"
-      "tool use is not allowed",         // Direct denial
-      "is not allowed in",               // "Bash is not allowed in acceptEdits mode"
-      "isn't allowed",                   // Contraction variant
-      "not authorized",                  // Authorization-style denial
-    ];
-    const claudeRequestedPermissionPattern =
-      /\bclaude requested permissions? to (?:access|add|change|create|delete|edit|execute|modify|move|open|read|remove|rename|run|update|use|view|write)\b/i;
-
-    return patterns.some(p => lower.includes(p))
-      || claudeRequestedPermissionPattern.test(content);
-  }
-
-  private extractPermissionDetails(
-    content: string,
-    toolUseId: string | undefined
-  ): { action: string; path: string; displayPath: string } {
-    const normalizedContent = content.replace(/\s+/g, ' ').trim();
-
-    let action: string | undefined;
-    let path: string | undefined;
-    let displayPath: string | undefined;
-
-    const patterns: RegExp[] = [
-      /permissions? to (\w+) to (.+?)(?:,| but\b| because\b| which\b|\.(?:\s|$)|$)/i,
-      /permissions? to (\w+) on (.+?)(?:,| but\b| because\b| which\b|\.(?:\s|$)|$)/i,
-      /permissions? to (\w+) for (.+?)(?:,| but\b| because\b| which\b|\.(?:\s|$)|$)/i,
-      /permissions? to (access|add|change|create|delete|edit|modify|move|open|read|remove|rename|update|view|write) (.+?)(?:,| but\b| because\b| which\b|\.(?:\s|$)|$)/i
-    ];
-
-    for (const pattern of patterns) {
-      const match = normalizedContent.match(pattern);
-      if (match) {
-        action = match[1]?.trim().toLowerCase();
-        path = match[2]?.trim();
-        if (action && path) {
-          break;
-        }
-      }
-    }
-
-    const toolContext = toolUseId ? this.toolUseContexts.get(toolUseId) : undefined;
-    if (toolContext) {
-      if (!action) {
-        action = toolContext.name.toLowerCase();
-      }
-      if (!path) {
-        const extractedTarget = this.extractPermissionTargetFromToolInput(toolContext.input);
-        path = extractedTarget?.rawValue;
-        displayPath = extractedTarget?.displayValue;
-      }
-    }
-
-    if (!action) {
-      action = 'access';
-    }
-    if (!path) {
-      path = 'a file';
-    }
-    if (!displayPath) {
-      displayPath = this.summarizeLogText(path);
-    }
-
-    return {
-      action,
-      path,
-      displayPath
-    };
-  }
-
-  private extractPermissionTargetFromToolInput(
-    input: Record<string, unknown>
-  ): { rawValue: string; displayValue: string } | undefined {
-    const preferredKeys = [
-      'file_path',
-      'path',
-      'filepath',
-      'target_file',
-      'target',
-      'destination',
-      'url',
-      'uri'
-    ];
-
-    for (const key of preferredKeys) {
-      const described = this.describePermissionTarget(key, input[key]);
-      if (described) {
-        return described;
-      }
-    }
-
-    for (const [key, value] of Object.entries(input)) {
-      const described = this.describePermissionTarget(key, value);
-      if (described) {
-        return described;
-      }
-    }
-
-    return undefined;
-  }
-
-  private describePermissionTarget(
-    key: string,
-    value: unknown
-  ): { rawValue: string; displayValue: string } | undefined {
-    if (typeof value !== 'string') {
-      return undefined;
-    }
-
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return undefined;
-    }
-
-    const normalizedKey = key.toLowerCase();
-    const isPathLikeKey = normalizedKey === 'file_path'
-      || normalizedKey === 'path'
-      || normalizedKey === 'filepath'
-      || normalizedKey === 'target_file'
-      || normalizedKey === 'target'
-      || normalizedKey === 'destination'
-      || normalizedKey === 'url'
-      || normalizedKey === 'uri';
-    const looksLikePath = trimmed.startsWith('/')
-      || trimmed.startsWith('./')
-      || trimmed.startsWith('../')
-      || /^[A-Za-z]:[\\/]/.test(trimmed)
-      || trimmed.includes('/')
-      || trimmed.includes('\\');
-    const looksLikeUrl = /^https?:\/\//i.test(trimmed);
-
-    if (isPathLikeKey || looksLikePath || looksLikeUrl) {
-      return {
-        rawValue: trimmed,
-        displayValue: this.summarizeLogText(trimmed)
-      };
-    }
-
-    return {
-      rawValue: trimmed,
-      displayValue: `${normalizedKey} (${trimmed.length} chars)`
-    };
-  }
-
-  private createPermissionKey(action: string, path: string): string {
-    const digest = createHash('sha256')
-      .update(`${action}\u0000${path}`)
-      .digest('hex')
-      .slice(0, 16);
-    return `${action}:${digest}`;
-  }
-
-  private createApprovalTraceId(kind: string): string {
-    return `approval-${kind}-${generateId()}`;
-  }
 }

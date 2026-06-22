@@ -26,6 +26,7 @@ import {
 const MAX_QUEUE_RETRIES = 3;
 const DEFAULT_SEND_INPUT_IPC_TIMEOUT_MS = 60_000;
 const TURN_BLOCKING_SEND_INPUT_IPC_TIMEOUT_MS = 11 * 60_000;
+const NO_SEND_INPUT_IPC_TIMEOUT_MS = null;
 
 @Injectable({ providedIn: 'root' })
 export class InstanceMessagingStore {
@@ -554,8 +555,12 @@ export class InstanceMessagingStore {
 
   private async sendInputWithTimeout(
     operation: Promise<IpcResponse>,
-    timeoutMs: number
+    timeoutMs: number | null
   ): Promise<IpcResponse> {
+    if (timeoutMs === null) {
+      return operation;
+    }
+
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<IpcResponse>((resolve) => {
       timeoutId = setTimeout(() => {
@@ -577,11 +582,19 @@ export class InstanceMessagingStore {
     }
   }
 
-  private getSendInputTimeoutMs(provider: Instance['provider']): number {
+  private getSendInputTimeoutMs(provider: Instance['provider']): number | null {
+    // Codex app-server turns can legitimately run for much longer than the
+    // renderer's bridge guard while still streaming output and heartbeats.
+    // Let the main-process Codex watchdogs own failure detection so the
+    // renderer does not clear the busy UI while text is still arriving.
+    if (provider === 'codex') {
+      return NO_SEND_INPUT_IPC_TIMEOUT_MS;
+    }
+
     // Some adapters keep the IPC send promise open for the whole turn rather
     // than just message acceptance. Keep this renderer guard beyond backend
     // watchdogs so it only catches a wedged bridge, not normal long turns.
-    if (provider === 'cursor' || provider === 'copilot' || provider === 'codex') {
+    if (provider === 'cursor' || provider === 'copilot') {
       return TURN_BLOCKING_SEND_INPUT_IPC_TIMEOUT_MS;
     }
     return DEFAULT_SEND_INPUT_IPC_TIMEOUT_MS;

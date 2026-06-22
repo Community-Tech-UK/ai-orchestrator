@@ -31,6 +31,12 @@ import type { InstanceStatus, CreateInstanceConfig, OutputMessage } from './inst
 import type { CreateInstanceWithMessageOptions } from './instance-list.store';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
+import {
+  isInterruptRecoveryStatus,
+  isReadyForInputStatus,
+  isTerminalStatus,
+} from './instance-messaging-queue-utils';
+import { withStatusTimeline } from './instance-status-timeline';
 
 @Injectable({ providedIn: 'root' })
 export class InstanceStore implements OnDestroy {
@@ -291,7 +297,7 @@ export class InstanceStore implements OnDestroy {
             contextUsage: update.contextUsage || inst.contextUsage,
             lastActivity: Date.now(),
             metadata: newStatus
-              ? this.withStatusTimeline(inst.metadata, newStatus, Date.now())
+              ? withStatusTimeline(inst.metadata, newStatus, Date.now())
               : inst.metadata,
           diffStats:
             update.diffStats !== undefined ? update.diffStats ?? undefined : inst.diffStats,
@@ -328,21 +334,19 @@ export class InstanceStore implements OnDestroy {
     });
 
     // Set unread completion flag on busy→idle/ready/waiting_for_input/error
-    if (previousStatus === 'busy' &&
-        (newStatus === 'idle' || newStatus === 'ready' ||
-         newStatus === 'waiting_for_input' || newStatus === 'error')) {
+    if (previousStatus === 'busy' && (isReadyForInputStatus(newStatus) || newStatus === 'error')) {
       if (this.queries.selectedInstanceId() !== update.instanceId) {
         this.stateService.updateInstance(update.instanceId, { hasUnreadCompletion: true });
       }
     }
 
     // Process queued messages AFTER state is updated
-    if (newStatus === 'idle' || newStatus === 'ready' || newStatus === 'waiting_for_input') {
+    if (isReadyForInputStatus(newStatus)) {
       this.messagingStore.processMessageQueue(update.instanceId);
     }
 
     // Clear stuck queued messages when instance enters a terminal/fatal state
-    if (newStatus === 'failed' || newStatus === 'error' || newStatus === 'terminated' || newStatus === 'cancelled' || newStatus === 'superseded') {
+    if (isTerminalStatus(newStatus)) {
       this.messagingStore.clearQueueWithNotification(update.instanceId);
     }
   }
@@ -388,7 +392,7 @@ export class InstanceStore implements OnDestroy {
             contextUsage: update.contextUsage || instance.contextUsage,
             lastActivity: timestamp,
             metadata: update.status
-              ? this.withStatusTimeline(instance.metadata, status, timestamp)
+              ? withStatusTimeline(instance.metadata, status, timestamp)
               : instance.metadata,
             diffStats:
               update.diffStats !== undefined ? update.diffStats ?? undefined : instance.diffStats,
@@ -430,21 +434,19 @@ export class InstanceStore implements OnDestroy {
       const prevStatus = previousStatuses.get(update.instanceId);
 
       // Set unread flag on busy→completion transitions
-      if (prevStatus === 'busy' &&
-          (newStatus === 'idle' || newStatus === 'ready' ||
-           newStatus === 'waiting_for_input' || newStatus === 'error')) {
+      if (prevStatus === 'busy' && (isReadyForInputStatus(newStatus) || newStatus === 'error')) {
         if (selectedId !== update.instanceId) {
           this.stateService.updateInstance(update.instanceId, { hasUnreadCompletion: true });
         }
       }
 
       // Process queued messages
-      if (newStatus === 'idle' || newStatus === 'ready' || newStatus === 'waiting_for_input') {
+      if (isReadyForInputStatus(newStatus)) {
         this.messagingStore.processMessageQueue(update.instanceId);
       }
 
       // Clear stuck queued messages when instance enters a terminal/fatal state
-      if (newStatus === 'failed' || newStatus === 'error' || newStatus === 'terminated' || newStatus === 'cancelled' || newStatus === 'superseded') {
+      if (isTerminalStatus(newStatus)) {
         this.messagingStore.clearQueueWithNotification(update.instanceId);
       }
     }
@@ -479,39 +481,6 @@ export class InstanceStore implements OnDestroy {
     });
   }
 
-  private withStatusTimeline(
-    metadata: Record<string, unknown> | undefined,
-    status: InstanceStatus,
-    timestamp: number,
-  ): Record<string, unknown> {
-    const current = metadata ?? {};
-    const orchestration = this.isRecord(current['orchestration'])
-      ? current['orchestration']
-      : {};
-    const existing = Array.isArray(orchestration['statusTimeline'])
-      ? orchestration['statusTimeline'].filter((entry): entry is { status: string; timestamp: number } =>
-          this.isRecord(entry)
-          && typeof entry['status'] === 'string'
-          && typeof entry['timestamp'] === 'number'
-        )
-      : [];
-    const last = existing[existing.length - 1];
-    const statusTimeline = last?.status === status
-      ? existing
-      : [...existing, { status, timestamp }].slice(-100);
-    return {
-      ...current,
-      orchestration: {
-        ...orchestration,
-        statusTimeline,
-      },
-    };
-  }
-
-  private isRecord(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object' && !Array.isArray(value);
-  }
-
   /** Get the timestamp when the selected instance became busy (for elapsed time) */
   getSelectedInstanceBusySince(): number | undefined {
     const id = this.queries.selectedInstanceId();
@@ -536,21 +505,11 @@ export class InstanceStore implements OnDestroy {
       this.respawnTimers.delete(instanceId);
     }
 
-    const isInterruptRecoveryState =
-      newStatus === 'respawning'
-      || newStatus === 'interrupting'
-      || newStatus === 'cancelling'
-      || newStatus === 'interrupt-escalating';
-
-    if (isInterruptRecoveryState) {
+    if (isInterruptRecoveryStatus(newStatus)) {
       const timer = setTimeout(() => {
         this.respawnTimers.delete(instanceId);
         const inst = this.stateService.getInstance(instanceId);
-        const stillRecovering = inst
-          && (inst.status === 'respawning'
-            || inst.status === 'interrupting'
-            || inst.status === 'cancelling'
-            || inst.status === 'interrupt-escalating');
+        const stillRecovering = inst && isInterruptRecoveryStatus(inst.status);
         if (stillRecovering) {
           console.error('Interrupt recovery timeout: force-terminating stuck instance', { instanceId });
           this.listStore.terminateInstance(instanceId).then(() =>

@@ -17,7 +17,6 @@ import type {
 } from '@shared/types/instance.types';
 import type { RepoJobStatus, RepoJobType } from '@shared/types/repo-job.types';
 import type { ExecutionLocation } from '@shared/types/worker-node.types';
-import type { ChannelPlatform } from '@shared/types/channels';
 import type { ActivityState } from '@shared/types/activity.types';
 import type { ReasoningEffort } from '@shared/types/provider.types';
 
@@ -1799,41 +1798,12 @@ export interface RecentDirsClearPayload {
   keepPinned?: boolean;
 }
 
-// ============ Channel Payloads ============
-
-export interface ChannelConnectPayload {
-  platform: ChannelPlatform;
-  token?: string;
-}
-
-export interface ChannelDisconnectPayload {
-  platform: ChannelPlatform;
-}
-
-export interface ChannelGetMessagesPayload {
-  platform: ChannelPlatform;
-  chatId: string;
-  limit?: number;
-  before?: number;
-}
-
-export interface ChannelSendMessagePayload {
-  platform: ChannelPlatform;
-  chatId: string;
-  content: string;
-  replyTo?: string;
-}
-
-export interface ChannelPairSenderPayload {
-  platform: ChannelPlatform;
-  code: string;
-}
-
-export interface ChannelSetAccessPolicyPayload {
-  platform: ChannelPlatform;
-  mode: 'pairing' | 'allowlist' | 'disabled';
-}
-
-export interface ChannelGetAccessPolicyPayload {
-  platform: ChannelPlatform;
-}
+export type {
+  ChannelConnectPayload,
+  ChannelDisconnectPayload,
+  ChannelGetAccessPolicyPayload,
+  ChannelGetMessagesPayload,
+  ChannelPairSenderPayload,
+  ChannelSendMessagePayload,
+  ChannelSetAccessPolicyPayload,
+} from './transport-channel.types';

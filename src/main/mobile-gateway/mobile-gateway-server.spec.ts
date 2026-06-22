@@ -1299,6 +1299,99 @@ describe('MobileGatewayServer', () => {
     expect(posts).toHaveLength(0);
   });
 
+  // ---- per-session unread completion dot (the mobile "blue dot") ----
+
+  async function snapshotInstance(token: string, id: string) {
+    const res = await authed(token, '/api/snapshot');
+    const snap = (await res.json()) as { instances: { id: string; hasUnreadCompletion: boolean }[] };
+    return snap.instances.find((i) => i.id === id);
+  }
+
+  it('raises hasUnreadCompletion on a working→idle transition', async () => {
+    const token = await pairToken();
+    source.emit('instance:state-update', { instanceId: 'a', status: 'busy' });
+    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+    expect((await snapshotInstance(token, 'a'))?.hasUnreadCompletion).toBe(true);
+  });
+
+  it('does not raise hasUnreadCompletion for idle without a prior working status', async () => {
+    const token = await pairToken();
+    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+    expect((await snapshotInstance(token, 'a'))?.hasUnreadCompletion).toBe(false);
+  });
+
+  it('clears hasUnreadCompletion once the phone fetches the transcript', async () => {
+    const token = await pairToken();
+    source.emit('instance:state-update', { instanceId: 'a', status: 'busy' });
+    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+    expect((await snapshotInstance(token, 'a'))?.hasUnreadCompletion).toBe(true);
+
+    await authed(token, '/api/instances/a/messages');
+    expect((await snapshotInstance(token, 'a'))?.hasUnreadCompletion).toBe(false);
+  });
+
+  it('clears a stale hasUnreadCompletion dot when a new turn starts', async () => {
+    const token = await pairToken();
+    source.emit('instance:state-update', { instanceId: 'a', status: 'busy' });
+    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+    source.emit('instance:state-update', { instanceId: 'a', status: 'busy' });
+    expect((await snapshotInstance(token, 'a'))?.hasUnreadCompletion).toBe(false);
+  });
+
+  it('suppresses hasUnreadCompletion while a client reports it is viewing the session', async () => {
+    const token = await pairToken();
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${token}`);
+    const messages = collectMessages(ws);
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', resolve);
+      ws.once('error', reject);
+    });
+    try {
+      await nextOfType(messages, 'snapshot');
+      // Phone opens the conversation for 'a'.
+      ws.send(JSON.stringify({ type: 'view', instanceId: 'a' }));
+      await new Promise((r) => setTimeout(r, 20));
+
+      // A turn completes while 'a' is being watched → no dot.
+      source.emit('instance:state-update', { instanceId: 'a', status: 'busy' });
+      source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+      expect((await snapshotInstance(token, 'a'))?.hasUnreadCompletion).toBe(false);
+
+      // Phone leaves the conversation; the next completion does raise the dot.
+      ws.send(JSON.stringify({ type: 'view', instanceId: null }));
+      await new Promise((r) => setTimeout(r, 20));
+      source.emit('instance:state-update', { instanceId: 'a', status: 'busy' });
+      source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+      expect((await snapshotInstance(token, 'a'))?.hasUnreadCompletion).toBe(true);
+    } finally {
+      ws.close();
+    }
+  });
+
+  it('raises the dot again once the viewing client disconnects', async () => {
+    const token = await pairToken();
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${token}`);
+    const messages = collectMessages(ws);
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', resolve);
+      ws.once('error', reject);
+    });
+    await nextOfType(messages, 'snapshot');
+    ws.send(JSON.stringify({ type: 'view', instanceId: 'a' }));
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Socket drops (phone roamed off the network).
+    await new Promise<void>((resolve) => {
+      ws.once('close', () => resolve());
+      ws.close();
+    });
+    await new Promise((r) => setTimeout(r, 20));
+
+    source.emit('instance:state-update', { instanceId: 'a', status: 'busy' });
+    source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
+    expect((await snapshotInstance(token, 'a'))?.hasUnreadCompletion).toBe(true);
+  });
+
   it('reports secure=false and a ws:// tailnetUrl when no TLS is configured', () => {
     const status = server.getStatus();
     expect(status.secure).toBe(false);

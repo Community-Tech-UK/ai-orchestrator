@@ -91,7 +91,6 @@ import { getPauseCoordinator } from '../pause/pause-coordinator';
 import { OrchestratorPausedError } from '../pause/orchestrator-paused-error';
 import { IPC_CHANNELS } from '@contracts/channels';
 import type { WindowManager } from '../window-manager';
-import { getResourceGovernor } from '../process/resource-governor';
 import {
   getHistoryRestoreCoordinator,
   type HistoryRestoreCoordinatorOptions,
@@ -102,9 +101,14 @@ import {
   getIndexedCodebaseContextService,
   type IndexedCodebaseContextInfo,
 } from '../indexing/indexed-codebase-context';
+import {
+  getResourceGovernorCreationBlockReason,
+  sanitizeCreateConfig,
+  summarizeInputRequiredPayload,
+  summarizeLogText,
+} from './instance-manager-logging';
 
 const logger = getLogger('InstanceManager');
-const LOG_PREVIEW_LENGTH = 160;
 const CHILD_STARTUP_TIMEOUT_MS = 60_000;
 const INPUT_PREFLIGHT_DEADLINE_MS = 5_000;
 const INPUT_CONTEXT_DEADLINE_MS = 500;
@@ -133,78 +137,6 @@ export interface InstanceStateChangedEvent {
 }
 
 export type { InstanceSettledEvent, InstanceSettledWaitOptions };
-
-function summarizeLogText(value: string | undefined, maxLength = LOG_PREVIEW_LENGTH): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const normalized = value.replace(/\s+/g, ' ').trim();
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, maxLength)}... (${normalized.length} chars)`;
-}
-
-function sanitizeCreateConfig(config: InstanceCreateConfig): Partial<InstanceCreateConfig> {
-  const { attachments, initialOutputBuffer, initialPrompt, ...rest } = config;
-  return {
-    ...rest,
-    initialPrompt: initialPrompt ? summarizeLogText(initialPrompt, 240) : undefined,
-    attachments: attachments?.map((attachment) => ({
-      name: attachment.name,
-      type: attachment.type,
-      size: attachment.size,
-      data: `[${attachment.size} bytes omitted]`,
-    })),
-    initialOutputBuffer: initialOutputBuffer
-      ? initialOutputBuffer.map((message) => ({
-          ...message,
-          content: summarizeLogText(message.content, 240) ?? '',
-        }))
-      : undefined,
-  };
-}
-
-function getResourceGovernorCreationBlockReason(): string | null {
-  try {
-    return getResourceGovernor().getCreationBlockReason();
-  } catch (error) {
-    logger.debug('Resource governor unavailable while checking instance creation gate', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return null;
-  }
-}
-
-function summarizeInputRequiredPayload(payload: {
-  instanceId: string;
-  requestId: string;
-  prompt: string;
-  timestamp: number;
-  metadata?: Record<string, unknown>;
-}): Record<string, unknown> {
-  const metadata = payload.metadata ?? {};
-  return {
-    instanceId: payload.instanceId,
-    requestId: payload.requestId,
-    timestamp: payload.timestamp,
-    promptLength: payload.prompt.length,
-    promptPreview: summarizeLogText(payload.prompt),
-    metadataType: typeof metadata['type'] === 'string' ? metadata['type'] : undefined,
-    approvalTraceId: typeof metadata['approvalTraceId'] === 'string'
-      ? metadata['approvalTraceId']
-      : undefined,
-    action: typeof metadata['action'] === 'string' ? metadata['action'] : undefined,
-    path: typeof metadata['path'] === 'string'
-      ? summarizeLogText(metadata['path'])
-      : undefined,
-    permissionKey: typeof metadata['permissionKey'] === 'string'
-      ? metadata['permissionKey']
-      : undefined,
-  };
-}
 
 export class InstanceManager extends EventEmitter {
   // Sub-managers

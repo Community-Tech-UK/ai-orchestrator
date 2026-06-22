@@ -13,6 +13,7 @@ import {
   loopStatusPill,
   relativeTime,
   shortTime,
+  summaryHasDistinctIterationPrompt,
   summarizeToolDetail,
   terminalStatusLabel,
 } from './loop-formatters.util';
@@ -106,6 +107,15 @@ describe('loopStatusLabel', () => {
 
   it('falls through unknown statuses verbatim (forward-compat)', () => {
     expect(loopStatusLabel('not-yet-defined')).toBe('not-yet-defined');
+  });
+});
+
+describe('summaryHasDistinctIterationPrompt', () => {
+  it('requires a non-empty iteration prompt that differs from the initial prompt', () => {
+    expect(summaryHasDistinctIterationPrompt({ initialPrompt: 'build it' })).toBe(false);
+    expect(summaryHasDistinctIterationPrompt({ initialPrompt: 'build it', iterationPrompt: '' })).toBe(false);
+    expect(summaryHasDistinctIterationPrompt({ initialPrompt: 'build it', iterationPrompt: 'build it' })).toBe(false);
+    expect(summaryHasDistinctIterationPrompt({ initialPrompt: 'build it', iterationPrompt: 'continue' })).toBe(true);
   });
 });
 

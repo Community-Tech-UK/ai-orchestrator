@@ -592,7 +592,7 @@ describe('PuppeteerBrowserDriver', () => {
     let currentUrl = 'http://localhost:4567';
     const handlers = new Map<string, (value: unknown) => void>();
     const cdpSession = {
-      send: vi.fn(),
+      send: vi.fn(async () => undefined),
       on: vi.fn((event: string, handler: (value: unknown) => void) => {
         handlers.set(event, handler);
         return cdpSession;
