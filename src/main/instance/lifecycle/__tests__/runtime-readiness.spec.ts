@@ -66,6 +66,36 @@ describe('RuntimeReadinessCoordinator', () => {
     await expect(result).resolves.toBe(true);
   });
 
+  it('rejects resume health when adapter proof confirms a different session id', async () => {
+    const adapter = makeAdapter({
+      getResumeAttemptResult: () => ({
+        source: 'native',
+        confirmed: true,
+        requestedSessionId: 'thread-requested',
+        actualSessionId: 'thread-other',
+      }),
+    } as Partial<CliAdapter>);
+    const instance = {
+      processId: 123,
+      status: 'initializing',
+    } as Pick<Instance, 'processId' | 'status'>;
+    const coordinator = new RuntimeReadinessCoordinator({
+      getInstance: () => instance,
+      getAdapter: () => adapter,
+    });
+
+    const result = coordinator.waitForResumeHealth('instance-1', 500);
+
+    adapter.emit('output', {
+      id: 'message-1',
+      type: 'assistant',
+      content: 'ready from wrong thread',
+      timestamp: Date.now(),
+    });
+
+    await expect(result).resolves.toBe(false);
+  });
+
   it('treats session-not-found errors as failed native resume health', async () => {
     const adapter = makeAdapter();
     const instance = {

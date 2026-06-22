@@ -676,15 +676,19 @@ export class CodexCliAdapter extends BaseCliAdapter {
       const approvalPolicy = this.cliConfig.approvalMode === 'full-auto' ? 'never' : 'never';
       const sandbox = this.mapSandboxMode();
 
-      // === 4-step resume fallback chain ===
+      // Resume exact native thread when one is requested. If that exact thread
+      // is unavailable, start fresh and let the higher layer replay continuity;
+      // never substitute a nearby workspace thread.
       let threadId: string | null = null;
       let resumeSource: ResumeCursor['scanSource'] | null = null;
       const resumeRequested = this.shouldResumeNextTurn;
+      const requestedResumeSessionId = resumeRequested ? this.sessionId ?? undefined : undefined;
+      const hasSpecificResumeTarget = Boolean(requestedResumeSessionId);
       this.lastResumeAttemptResult = resumeRequested
         ? {
             source: 'none',
             confirmed: false,
-            requestedSessionId: this.sessionId ?? undefined,
+            requestedSessionId: requestedResumeSessionId,
             reason: 'Native resume not attempted yet',
           }
         : {
@@ -693,10 +697,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
             reason: 'Fresh thread requested',
           };
 
-      // Step 1: Resume from persisted cursor (if config.resume and cursor is fresh)
-      if (this.shouldResumeNextTurn && this.sessionId) {
+      // Step 1: Resume the exact persisted thread id.
+      if (this.shouldResumeNextTurn && requestedResumeSessionId) {
         try {
-          const requestedSessionId = this.sessionId;
+          const requestedSessionId = requestedResumeSessionId;
           const resumeResult = await client.request('thread/resume', {
             threadId: requestedSessionId,
             cwd,
@@ -704,22 +708,39 @@ export class CodexCliAdapter extends BaseCliAdapter {
             approvalPolicy,
             sandbox,
           });
-          threadId = resumeResult.threadId || resumeResult.thread?.id || null;
-          resumeSource = 'native';
-          this.lastResumeAttemptResult = {
-            source: 'native',
-            confirmed: Boolean(threadId),
-            requestedSessionId,
-            actualSessionId: threadId ?? undefined,
-          };
-          logger.info('App-server thread resumed from persisted cursor', { threadId });
-        } catch (error) {
-          if (this.isRecoverableThreadResumeError(error)) {
-            logger.warn('Persisted cursor resume failed (recoverable), trying JSONL scan', { error: String(error) });
+          const resumedThreadId = resumeResult.threadId || resumeResult.thread?.id || null;
+          if (resumedThreadId === requestedSessionId) {
+            threadId = resumedThreadId;
+            resumeSource = 'native';
+            this.lastResumeAttemptResult = {
+              source: 'native',
+              confirmed: true,
+              requestedSessionId,
+              actualSessionId: threadId,
+            };
+            logger.info('App-server thread resumed from persisted cursor', { threadId });
+          } else {
             this.lastResumeAttemptResult = {
               source: 'native',
               confirmed: false,
-              requestedSessionId: this.sessionId ?? undefined,
+              requestedSessionId,
+              actualSessionId: resumedThreadId ?? undefined,
+              reason: resumedThreadId
+                ? 'Codex resumed a different thread than requested'
+                : 'Codex returned no thread id for resume',
+            };
+            logger.warn('Persisted cursor resume returned an unexpected thread id, falling back to fresh thread', {
+              requestedSessionId,
+              actualSessionId: resumedThreadId,
+            });
+          }
+        } catch (error) {
+          if (this.isRecoverableThreadResumeError(error)) {
+            logger.warn('Persisted cursor resume failed (recoverable), falling back to fresh thread', { error: String(error) });
+            this.lastResumeAttemptResult = {
+              source: 'native',
+              confirmed: false,
+              requestedSessionId: requestedResumeSessionId,
               reason: error instanceof Error ? error.message : String(error),
             };
           } else {
@@ -728,9 +749,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
         }
       }
 
-      // Step 2: Prefer thread/list over filesystem scan — query the server's own thread
-      // index for this workspace before falling back to JSONL file walking (D12).
-      if (!threadId && this.shouldResumeNextTurn) {
+      // Step 2: Best-effort discovery for callers that explicitly request resume
+      // without a concrete session id. Do not run this after a specific id failed:
+      // same-workspace/native history is not proof of the requested conversation.
+      if (!threadId && this.shouldResumeNextTurn && !hasSpecificResumeTarget) {
         try {
           const listResult = await client.request('thread/list', {
             cwd,
@@ -776,7 +798,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
       }
 
       // Step 3: Scan filesystem for threadId (last resort before fresh start)
-      if (!threadId && this.shouldResumeNextTurn) {
+      if (!threadId && this.shouldResumeNextTurn && !hasSpecificResumeTarget) {
         const scanResult = await this.sessionScanner.findSessionForWorkspace(cwd);
         if (scanResult) {
           try {
@@ -840,7 +862,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
           ? {
               source: 'fresh-fallback',
               confirmed: false,
-              requestedSessionId: this.sessionId ?? undefined,
+              requestedSessionId: requestedResumeSessionId,
               actualSessionId: threadId ?? undefined,
               reason: 'Started a fresh Codex thread after native resume was unavailable',
             }

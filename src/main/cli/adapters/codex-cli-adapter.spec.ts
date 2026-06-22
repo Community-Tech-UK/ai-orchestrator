@@ -1322,6 +1322,108 @@ Hey! I'm here. What do you want to tackle?`;
           actualSessionId: 'thread-fresh',
         });
       });
+
+      it('does not substitute a thread/list candidate when explicit resume session is missing', async () => {
+        const adapter = new CodexCliAdapter({ workingDir: '/tmp/project' });
+        (adapter as unknown as { shouldResumeNextTurn: boolean }).shouldResumeNextTurn = true;
+        (adapter as unknown as { sessionId: string }).sessionId = 'thread-requested';
+        const scanSpy = vi.fn().mockResolvedValue({
+          threadId: 'thread-scanned',
+          sessionFilePath: '/tmp/session.jsonl',
+          workspacePath: '/tmp/project',
+          timestamp: Date.now(),
+        });
+        (adapter as unknown as { sessionScanner: { findSessionForWorkspace: typeof scanSpy } }).sessionScanner = {
+          findSessionForWorkspace: scanSpy,
+        };
+
+        const request = vi.fn().mockImplementation((method: string, params?: { threadId?: string }) => {
+          if (method === 'thread/resume' && params?.threadId === 'thread-requested') {
+            throw new Error('thread/resume failed: no rollout found for thread id thread-requested');
+          }
+          if (method === 'thread/resume') {
+            return Promise.resolve({ threadId: params?.threadId });
+          }
+          if (method === 'thread/list') {
+            return Promise.resolve({ data: [{ id: 'thread-other-workspace-candidate' }] });
+          }
+          if (method === 'thread/start') {
+            return Promise.resolve({ threadId: 'thread-fresh' });
+          }
+          return Promise.resolve({});
+        });
+        const neverExits = new Promise<void>(() => {
+          // Intentionally pending.
+        });
+        vi.spyOn(
+          adapter as unknown as { connectAppServer(cwd: string): Promise<unknown> },
+          'connectAppServer',
+        ).mockResolvedValue({
+          request,
+          exitPromise: neverExits,
+          getExitError: () => null,
+        });
+
+        await (adapter as unknown as { initAppServerMode(): Promise<void> }).initAppServerMode();
+
+        expect(request).not.toHaveBeenCalledWith('thread/list', expect.anything());
+        expect(scanSpy).not.toHaveBeenCalled();
+        expect(request).not.toHaveBeenCalledWith('thread/resume', expect.objectContaining({
+          threadId: 'thread-other-workspace-candidate',
+        }));
+        expect(request).not.toHaveBeenCalledWith('thread/resume', expect.objectContaining({
+          threadId: 'thread-scanned',
+        }));
+        expect(request).toHaveBeenCalledWith('thread/start', expect.objectContaining({
+          cwd: '/tmp/project',
+        }));
+        expect(adapter.getResumeAttemptResult()).toMatchObject({
+          source: 'fresh-fallback',
+          confirmed: false,
+          requestedSessionId: 'thread-requested',
+          actualSessionId: 'thread-fresh',
+        });
+      });
+
+      it('starts fresh when exact thread/resume returns a different thread id', async () => {
+        const adapter = new CodexCliAdapter({ workingDir: '/tmp/project' });
+        (adapter as unknown as { shouldResumeNextTurn: boolean }).shouldResumeNextTurn = true;
+        (adapter as unknown as { sessionId: string }).sessionId = 'thread-requested';
+
+        const request = vi.fn().mockImplementation((method: string) => {
+          if (method === 'thread/resume') {
+            return Promise.resolve({ threadId: 'thread-other' });
+          }
+          if (method === 'thread/start') {
+            return Promise.resolve({ threadId: 'thread-fresh' });
+          }
+          return Promise.resolve({});
+        });
+        const neverExits = new Promise<void>(() => {
+          // Intentionally pending.
+        });
+        vi.spyOn(
+          adapter as unknown as { connectAppServer(cwd: string): Promise<unknown> },
+          'connectAppServer',
+        ).mockResolvedValue({
+          request,
+          exitPromise: neverExits,
+          getExitError: () => null,
+        });
+
+        await (adapter as unknown as { initAppServerMode(): Promise<void> }).initAppServerMode();
+
+        expect(request).toHaveBeenCalledWith('thread/start', expect.objectContaining({
+          cwd: '/tmp/project',
+        }));
+        expect((adapter as unknown as { appServerThreadId: string }).appServerThreadId).toBe('thread-fresh');
+        expect(adapter.getResumeAttemptResult()).toMatchObject({
+          source: 'fresh-fallback',
+          confirmed: false,
+          requestedSessionId: 'thread-requested',
+          actualSessionId: 'thread-fresh',
+        });
+      });
     });
 
     describe('exec mode', () => {

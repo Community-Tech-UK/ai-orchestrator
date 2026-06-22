@@ -37,6 +37,8 @@ function getAdapterResumeProof(instanceManager: InstanceManager, instanceId: str
   if (!result || result.source === 'none') return null;
   // fresh-fallback means no native resume was attempted — definitively not confirmed.
   if (result.source === 'fresh-fallback') return false;
+  if (result.actualSessionId && result.requestedSessionId
+      && result.actualSessionId !== result.requestedSessionId) return false;
   if (result.confirmed) return true;
   if (result.reason) return false;
   return null;
