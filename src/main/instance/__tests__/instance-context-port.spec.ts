@@ -147,4 +147,55 @@ describe('InstanceContextPort', () => {
     const { InstanceContextManager } = await import('../instance-context');
     expect(new InstanceContextManager().formatUnifiedMemoryContextBlock(null)).toBeNull();
   });
+
+  it('formatUnifiedMemoryContextBlock treats activated skill instructions as actionable', async () => {
+    const { InstanceContextManager } = await import('../instance-context');
+    const block = new InstanceContextManager().formatUnifiedMemoryContextBlock({
+      context: 'Activated Skill Instructions:\nFollow the public writing rules.',
+      tokens: 12,
+      longTermCount: 0,
+      proceduralCount: 0,
+      skillCount: 1,
+      durationMs: 1,
+    });
+
+    expect(block).toContain('Follow activated skill instructions when relevant.');
+    expect(block).toContain('Treat memory notes as background.');
+  });
+
+  it('loads skill context for short direct triggers such as use my tone', async () => {
+    const { InstanceContextManager } = await import('../instance-context');
+    const mgr = new InstanceContextManager();
+    const retrieve = vi.fn().mockResolvedValue({
+      shortTerm: [],
+      longTerm: [],
+      procedural: [],
+      skills: [
+        '# Human Public Writing\nZero literal U+2014 characters in public drafts.',
+      ],
+      totalTokens: 20,
+    });
+
+    (mgr as unknown as { unifiedMemory: { retrieve: typeof retrieve } }).unifiedMemory = {
+      retrieve,
+    };
+
+    const context = await mgr.buildUnifiedMemoryContext(
+      { id: 'inst-1', sessionId: 'session-1' } as never,
+      'use my tone',
+      'task-1',
+      1000,
+    );
+
+    expect(retrieve).toHaveBeenCalledTimes(1);
+    expect(retrieve.mock.calls[0]?.[2]).toMatchObject({
+      types: ['skills'],
+      sessionId: 'session-1',
+      instanceId: 'inst-1',
+      includeWakeContext: false,
+    });
+    expect(context?.context).toContain('Activated Skill Instructions:');
+    expect(context?.context).toContain('Zero literal U+2014 characters');
+    expect(context?.skillCount).toBe(1);
+  });
 });

@@ -33,18 +33,21 @@ vi.mock('../rlm/embedding-service', () => ({
 const mockMatchTrigger = vi.fn();
 const mockListSkills = vi.fn();
 const mockLoadSkill = vi.fn();
+const mockDiscoverSkillsWithBuiltins = vi.fn();
 
 vi.mock('../skills/skill-registry', () => ({
   getSkillRegistry: () => ({
     matchTrigger: mockMatchTrigger,
     listSkills: mockListSkills,
     loadSkill: mockLoadSkill,
+    discoverSkillsWithBuiltins: mockDiscoverSkillsWithBuiltins,
   }),
   SkillRegistry: {
     getInstance: () => ({
       matchTrigger: mockMatchTrigger,
       listSkills: mockListSkills,
       loadSkill: mockLoadSkill,
+      discoverSkillsWithBuiltins: mockDiscoverSkillsWithBuiltins,
     }),
   },
 }));
@@ -91,6 +94,7 @@ describe('SkillsLoader', () => {
       coreContent: '# Skill Content',
       tokenEstimate: 100,
     });
+    mockDiscoverSkillsWithBuiltins.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -327,6 +331,42 @@ describe('SkillsLoader', () => {
       const detected = await loader.detectRelevantSkills('How do I use ng generate?');
 
       expect(detected.some((s) => s.name === 'angular')).toBe(true);
+    });
+
+    it('should discover built-in trigger skills and keep exact matches when embeddings fail', async () => {
+      const publicWritingSkill = {
+        id: 'skill-human-public-writing',
+        metadata: {
+          name: 'human-public-writing',
+          description: 'Use when writing public-facing prose or when the user says use my tone.',
+          triggers: ['use my tone'],
+        },
+        corePath: 'human-public-writing/SKILL.md',
+      };
+      let discovered = false;
+
+      mockDiscoverSkillsWithBuiltins.mockImplementation(async () => {
+        discovered = true;
+        return [publicWritingSkill];
+      });
+      mockListSkills.mockImplementation(() => discovered ? [publicWritingSkill] : []);
+      mockMatchTrigger.mockReturnValue([
+        {
+          skill: publicWritingSkill,
+          trigger: 'use my tone',
+          confidence: 1,
+        },
+      ]);
+      mockEmbed.mockRejectedValue(new Error('Embedding service offline'));
+
+      const detected = await loader.detectRelevantSkills('use my tone');
+
+      expect(mockDiscoverSkillsWithBuiltins).toHaveBeenCalled();
+      expect(detected[0]).toMatchObject({
+        name: 'human-public-writing',
+        source: 'trigger',
+        similarity: 1,
+      });
     });
 
     it('should mark source correctly for embedding-only matches', async () => {

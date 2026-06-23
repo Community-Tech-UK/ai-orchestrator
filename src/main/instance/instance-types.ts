@@ -43,6 +43,7 @@ export type UnifiedMemoryContextInfo = {
   tokens: number;
   longTermCount: number;
   proceduralCount: number;
+  skillCount?: number;
   durationMs: number;
 };
 
