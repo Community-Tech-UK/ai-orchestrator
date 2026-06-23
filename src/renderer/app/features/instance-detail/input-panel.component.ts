@@ -432,14 +432,6 @@ export class InputPanelComponent implements OnDestroy {
       || status === 'thinking_deeply'
       || status === 'waiting_for_permission';
   });
-  readonly isTerminalTarget = computed(() => {
-    const status = this.instanceStatus();
-    return status === 'failed'
-      || status === 'error'
-      || status === 'terminated'
-      || status === 'cancelled'
-      || status === 'superseded';
-  });
   /**
    * Show a stop button in place of the send/queue arrow when the instance is
    * actively working AND the composer has no content to send. With content the
@@ -1202,9 +1194,6 @@ export class InputPanelComponent implements OnDestroy {
 
     this.recordPromptHistory(text, false);
     this.sendMessage.emit(text);
-    if (this.isTerminalTarget()) {
-      return;
-    }
     this.clearSubmittedMessage();
   }
 
@@ -1223,9 +1212,6 @@ export class InputPanelComponent implements OnDestroy {
 
     this.recordPromptHistory(text, false);
     this.steerMessage.emit(text);
-    if (this.isTerminalTarget()) {
-      return;
-    }
     this.clearSubmittedMessage();
   }
 

@@ -143,6 +143,26 @@ describe('ProjectRailBuilderService', () => {
     expect(groups[0]?.sessionCount).toBe(1);
   });
 
+  it('hides superseded edit sources from project folders and counts only the replacement', () => {
+    const groups = service.buildProjectGroups(buildInput({
+      instances: [
+        makeInstance('edited-source', {
+          status: 'terminated',
+          supersededBy: 'edited-replacement',
+          cancelledForEdit: true,
+        }),
+        makeInstance('edited-replacement', {
+          displayName: 'Edited replacement',
+          lastActivity: 2000,
+        }),
+      ],
+    }));
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.liveItems.map((item) => item.instance.id)).toEqual(['edited-replacement']);
+    expect(groups[0]?.sessionCount).toBe(1);
+  });
+
   it('hides archived worker calls marked hidden from project folders', () => {
     const groups = service.buildProjectGroups(buildInput({
       historyEntries: [

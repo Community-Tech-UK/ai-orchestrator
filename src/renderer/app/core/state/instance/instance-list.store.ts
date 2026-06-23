@@ -301,20 +301,28 @@ export class InstanceListStore {
   /**
    * Restart an instance
    */
-  async restartInstance(instanceId: string): Promise<void> {
+  async restartInstance(instanceId: string): Promise<boolean> {
     const instance = this.stateService.getInstance(instanceId);
     if (instance && !supportsResumeRestart(instance.provider)) {
-      await this.ipc.restartFreshInstance(instanceId);
-      return;
+      return this.handleRestartResponse(
+        await this.ipc.restartFreshInstance(instanceId),
+        'Failed to restart instance'
+      );
     }
-    await this.ipc.restartInstance(instanceId);
+    return this.handleRestartResponse(
+      await this.ipc.restartInstance(instanceId),
+      'Failed to restart instance'
+    );
   }
 
   /**
    * Restart an instance with fresh context
    */
-  async restartFreshInstance(instanceId: string): Promise<void> {
-    await this.ipc.restartFreshInstance(instanceId);
+  async restartFreshInstance(instanceId: string): Promise<boolean> {
+    return this.handleRestartResponse(
+      await this.ipc.restartFreshInstance(instanceId),
+      'Failed to restart instance with fresh context'
+    );
   }
 
   /**
@@ -702,6 +710,18 @@ export class InstanceListStore {
 
   private isRecord(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  private handleRestartResponse(
+    response: { success: boolean; error?: { message?: string } },
+    fallbackMessage: string,
+  ): boolean {
+    if (response.success) {
+      return true;
+    }
+
+    this.stateService.setError(response.error?.message || fallbackMessage);
+    return false;
   }
 
   private inferInstanceProvider(data: Record<string, unknown>): Instance['provider'] {

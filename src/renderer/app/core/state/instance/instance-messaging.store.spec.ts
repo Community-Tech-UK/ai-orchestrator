@@ -47,6 +47,7 @@ describe('InstanceMessagingStore', () => {
     validateFiles: vi.fn(() => []),
     fileToAttachments: vi.fn(),
     interruptInstance: vi.fn(),
+    restartInstance: vi.fn(),
   };
 
   beforeEach(() => {
@@ -57,6 +58,8 @@ describe('InstanceMessagingStore', () => {
     listStoreMock.fileToAttachments.mockReset();
     listStoreMock.interruptInstance.mockReset();
     listStoreMock.interruptInstance.mockResolvedValue(true);
+    listStoreMock.restartInstance.mockReset();
+    listStoreMock.restartInstance.mockResolvedValue(true);
     TestBed.resetTestingModule();
 
     TestBed.configureTestingModule({
@@ -257,6 +260,28 @@ describe('InstanceMessagingStore', () => {
       false
     );
     expect(currentStateService.getInstance('source-1')?.outputBuffer).toEqual([]);
+  });
+
+  it('queues a message and restarts the same instance when sending to a terminated session', async () => {
+    const currentStore = store!;
+    const currentStateService = stateService!;
+    currentStateService.addInstance(createInstance({ status: 'terminated' }));
+    ipcMock.sendInput.mockResolvedValue({ success: true });
+
+    await currentStore.sendInput('inst-1', 'continue here');
+
+    expect(listStoreMock.restartInstance).toHaveBeenCalledWith('inst-1');
+    expect(ipcMock.sendInput).not.toHaveBeenCalled();
+    expect(currentStore.getMessageQueue('inst-1')).toEqual([
+      { message: 'continue here', files: undefined },
+    ]);
+
+    currentStateService.updateInstance('inst-1', { status: 'idle' });
+    currentStore.processMessageQueue('inst-1');
+    await vi.advanceTimersByTimeAsync(150);
+
+    expect(ipcMock.sendInput).toHaveBeenCalledWith('inst-1', 'continue here', undefined, false);
+    expect(currentStore.getQueuedMessageCount('inst-1')).toBe(0);
   });
 
   it('restores terminal queued messages as a system notice instead of an error', () => {

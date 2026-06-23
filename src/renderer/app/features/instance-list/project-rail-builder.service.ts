@@ -650,7 +650,8 @@ export class ProjectRailBuilderService {
   }
 
   private isProjectRailHiddenInstance(instance: Instance): boolean {
-    return instance.metadata?.['hideFromProjectRail'] === true
+    return (instance.cancelledForEdit === true && !!instance.supersededBy)
+      || instance.metadata?.['hideFromProjectRail'] === true
       || typeof instance.metadata?.['spawnDepth'] === 'number';
   }
 }

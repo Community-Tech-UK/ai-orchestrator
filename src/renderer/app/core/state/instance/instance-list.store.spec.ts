@@ -404,8 +404,9 @@ describe('InstanceListStore', () => {
       hasUnreadCompletion: true,
     });
 
-    await store.restartInstance(instance.id);
+    const restarted = await store.restartInstance(instance.id);
 
+    expect(restarted).toBe(true);
     expect(ipc.restartInstance).toHaveBeenCalledWith(instance.id);
     expect(stateService.getInstance(instance.id)).toMatchObject({
       status: 'busy',
@@ -445,12 +446,46 @@ describe('InstanceListStore', () => {
 
     stateService.addInstance(instance);
 
-    await store.restartFreshInstance(instance.id);
+    const restarted = await store.restartFreshInstance(instance.id);
 
+    expect(restarted).toBe(true);
     expect(ipc.restartFreshInstance).toHaveBeenCalledWith(instance.id);
     expect(stateService.getInstance(instance.id)?.outputBuffer).toEqual(
       instance.outputBuffer
     );
+  });
+
+  it('returns false and surfaces the backend error when restart fails', async () => {
+    const instance = store.deserializeInstance({
+      id: 'instance-restart-fails',
+      displayName: 'Restart fails',
+      createdAt: 1,
+      historyThreadId: 'thread-restart-fails',
+      parentId: null,
+      childrenIds: [],
+      status: 'terminated',
+      contextUsage: {
+        used: 0,
+        total: 200000,
+        percentage: 0,
+      },
+      lastActivity: 2,
+      sessionId: 'session-restart-fails',
+      workingDirectory: '/tmp/project',
+      yoloMode: false,
+      provider: 'claude',
+      outputBuffer: [],
+    });
+    ipc.restartInstance.mockResolvedValue({
+      success: false,
+      error: { message: 'Illegal transition: terminated → initializing' },
+    });
+    stateService.addInstance(instance);
+
+    const restarted = await store.restartInstance(instance.id);
+
+    expect(restarted).toBe(false);
+    expect(stateService.state().error).toBe('Illegal transition: terminated → initializing');
   });
 
   it('does not request a model change while an instance is not waiting for user input', async () => {

@@ -478,7 +478,7 @@ export class InstanceDetailComponent {
       case 'busy':
         return 'Processing...';
       case 'terminated':
-        return 'Instance terminated';
+        return `Type to restart ${providerName} and continue...`;
       default:
         return `Send a message to ${providerName}...`;
     }

@@ -429,6 +429,22 @@ export class InstanceLifecycleManager extends EventEmitter {
     });
   }
 
+  private resetTerminalStateForRestart(instance: Instance): void {
+    if (instance.status !== 'terminated' && instance.status !== 'failed') {
+      return;
+    }
+
+    const previousStatus = instance.status;
+    const sm = this.deps.getStateMachine?.(instance.id) ?? new InstanceStateMachine(previousStatus);
+    sm.reset('idle');
+    this.deps.setStateMachine?.(instance.id, sm);
+    instance.status = 'idle';
+    logger.info('Reset terminal lifecycle state for same-instance restart', {
+      instanceId: instance.id,
+      previousStatus,
+    });
+  }
+
   private getAdapterRuntimeCapabilities(adapter?: CliAdapter) {
     return this.runtimeReadiness.getAdapterRuntimeCapabilities(adapter);
   }
@@ -2219,6 +2235,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       }
 
       instance.restartCount += 1;
+      this.resetTerminalStateForRestart(instance);
       this.transitionState(instance, 'initializing');
       this.deps.queueUpdate(
         instanceId,
@@ -2390,6 +2407,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       this.deps.setAdapter(instanceId, adapter);
 
       instance.restartCount += 1;
+      this.resetTerminalStateForRestart(instance);
       this.transitionState(instance, 'initializing');
       this.deps.queueUpdate(
         instanceId,
