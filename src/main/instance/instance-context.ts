@@ -505,7 +505,8 @@ export class InstanceContextManager implements InstanceContextPort {
     taskId: string,
     maxTokens: number = this.config.unifiedMemoryContextMaxTokens
   ): Promise<UnifiedMemoryContextInfo | null> {
-    if (message.trim().length < this.config.unifiedMemoryContextMinChars) return null;
+    const trimmedMessage = message.trim();
+    if (trimmedMessage.length === 0) return null;
 
     const effectiveMaxTokens = Math.min(
       this.config.unifiedMemoryContextMaxTokens,
@@ -513,12 +514,15 @@ export class InstanceContextManager implements InstanceContextPort {
     );
     if (effectiveMaxTokens <= 0) return null;
 
-    const types: MemoryType[] = ['long_term'];
+    const types: MemoryType[] =
+      trimmedMessage.length < this.config.unifiedMemoryContextMinChars
+        ? ['skills']
+        : ['long_term', 'skills'];
     const startTime = Date.now();
 
     try {
       const result = await this.withTimeout(
-        this.unifiedMemory.retrieve(message, taskId, {
+        this.unifiedMemory.retrieve(trimmedMessage, taskId, {
           types,
           maxTokens: effectiveMaxTokens,
           sessionId: instance.sessionId,
@@ -541,6 +545,7 @@ export class InstanceContextManager implements InstanceContextPort {
         tokens: this.estimateTokens(trimmed),
         longTermCount: result.longTerm.length,
         proceduralCount: result.procedural.length,
+        skillCount: (result.skills ?? []).length,
         durationMs: Date.now() - startTime
       };
     } catch (error) {
@@ -577,14 +582,24 @@ export class InstanceContextManager implements InstanceContextPort {
   ): string | null {
     if (!context) return null;
 
+    const guidance =
+      (context.skillCount ?? 0) > 0
+        ? [
+            'This context was added by the app, not typed by the user.',
+            'Follow activated skill instructions when relevant.',
+            'Treat memory notes as background.',
+            'Do not mention this block unless directly asked about injected context.'
+          ].join(' ')
+        : [
+            'This context was added by the app, not typed by the user.',
+            'Treat it as non-authoritative background and do not mention this block',
+            'unless directly asked about injected context.'
+          ].join(' ');
+
     return [
       '[Orchestrator Memory Context]',
       'Source: Harness memory retrieval',
-      [
-        'This context was added by the app, not typed by the user.',
-        'Treat it as non-authoritative background and do not mention this block',
-        'unless directly asked about injected context.'
-      ].join(' '),
+      guidance,
       context.context,
       '[End Orchestrator Memory Context]'
     ].join('\n');
@@ -975,10 +990,16 @@ export class InstanceContextManager implements InstanceContextPort {
     result: UnifiedRetrievalResult
   ): string | null {
     const sections: string[] = [];
+    const skills = result.skills ?? [];
 
     if (result.wakeContext?.trim()) {
       sections.push('Wake Context:');
       sections.push(result.wakeContext.trim());
+    }
+
+    if (skills.length > 0) {
+      sections.push('Activated Skill Instructions:');
+      sections.push(...skills.map((item) => item.trim()).filter(Boolean));
     }
 
     if (result.procedural.length > 0) {

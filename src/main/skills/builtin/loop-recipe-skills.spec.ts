@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { SkillRegistry, _resetSkillRegistryForTesting } from '../skill-registry';
 
 const builtinSkillDir = join(process.cwd(), 'src/main/skills/builtin');
 
@@ -13,6 +14,23 @@ const LOOP_RECIPE_SKILLS = [
 ];
 
 describe('built-in loop-recipe skills', () => {
+  afterEach(() => {
+    _resetSkillRegistryForTesting();
+  });
+
+  it('discovers loop recipes through built-in registry discovery', async () => {
+    _resetSkillRegistryForTesting();
+    const registry = SkillRegistry.getInstance();
+    const skills = await registry.discoverSkillsWithBuiltins([]);
+    const discoveredNames = new Set(skills.map((skill) => skill.metadata.name));
+
+    for (const skillName of LOOP_RECIPE_SKILLS) {
+      expect(discoveredNames.has(skillName), `${skillName} discovered`).toBe(true);
+    }
+
+    expect(registry.matchTrigger('/docs-sweep')[0]?.skill.metadata.name).toBe('docs-sweep');
+  });
+
   it.each(LOOP_RECIPE_SKILLS)('%s declares valid frontmatter', (skillName) => {
     const content = readFileSync(join(builtinSkillDir, skillName, 'SKILL.md'), 'utf8');
     const frontmatter = content.match(/^---\n([\s\S]*?)\n---/);

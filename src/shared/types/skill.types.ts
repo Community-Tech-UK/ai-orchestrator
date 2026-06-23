@@ -201,8 +201,21 @@ export function parseSkillFrontmatter(content: string): SkillMetadata | null {
   const triggers: string[] = [];
 
   for (const line of lines) {
-    if (line.trim().startsWith('triggers:')) {
-      inTriggers = true;
+    const trimmedLine = line.trim();
+
+    if (trimmedLine.startsWith('triggers:')) {
+      const inlineValue = trimmedLine.substring('triggers:'.length).trim();
+      if (inlineValue.startsWith('[') && inlineValue.endsWith(']')) {
+        triggers.push(
+          ...inlineValue
+            .slice(1, -1)
+            .split(',')
+            .map((trigger) => trigger.trim().replace(/^["']|["']$/g, ''))
+            .filter(Boolean)
+        );
+      } else {
+        inTriggers = true;
+      }
       continue;
     }
 
@@ -231,6 +244,11 @@ export function parseSkillFrontmatter(content: string): SkillMetadata | null {
     switch (key) {
       case 'name':
         metadata.name = value;
+        break;
+      case 'trigger':
+        if (value) {
+          triggers.push(value);
+        }
         break;
       case 'description':
         metadata.description = value;

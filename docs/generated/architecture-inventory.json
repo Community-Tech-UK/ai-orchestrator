@@ -5399,6 +5399,10 @@
       "lines": 1263
     },
     {
+      "path": "src/main/instance/instance-context.ts",
+      "lines": 1261
+    },
+    {
       "path": "docs/plans/2026-03-02-architectural-remediation-plan.md",
       "lines": 1257
     },
@@ -5416,10 +5420,6 @@
     },
     {
       "path": "docs/superpowers/plans/2026-04-26-mode-picker-relocation.md",
-      "lines": 1240
-    },
-    {
-      "path": "src/main/instance/instance-context.ts",
       "lines": 1240
     },
     {

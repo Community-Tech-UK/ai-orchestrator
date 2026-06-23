@@ -457,6 +457,20 @@ describe('ContextWorkerClient', () => {
     expect(client.formatUnifiedMemoryContextBlock(null)).toBeNull();
   });
 
+  it('formatUnifiedMemoryContextBlock treats activated skill instructions as actionable', () => {
+    const result = client.formatUnifiedMemoryContextBlock({
+      context: 'Activated Skill Instructions:\nFollow the public writing rules.',
+      tokens: 12,
+      longTermCount: 0,
+      proceduralCount: 0,
+      skillCount: 1,
+      durationMs: 1,
+    });
+
+    expect(result).toContain('Follow activated skill instructions when relevant.');
+    expect(result).toContain('Treat memory notes as background.');
+  });
+
   it('formatRlmContextBlock wraps context with source label', () => {
     const result = client.formatRlmContextBlock({
       context: 'some context text',

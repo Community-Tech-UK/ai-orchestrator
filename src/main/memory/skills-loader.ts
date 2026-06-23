@@ -56,6 +56,8 @@ export class SkillsLoader extends EventEmitter {
   private config: SkillsLoaderConfig;
   private embeddingService: EmbeddingService;
   private skillRegistry: SkillRegistry;
+  private registryDiscoveryAttempted = false;
+  private registryDiscoveryPromise: Promise<void> | null = null;
 
   // Skill manifest entries (from skills.json)
   private manifestSkills: Map<string, SkillManifestEntry> = new Map();
@@ -91,7 +93,12 @@ export class SkillsLoader extends EventEmitter {
   // ============ Configuration ============
 
   configure(config: Partial<SkillsLoaderConfig>): void {
+    const skillsDirChanged =
+      config.skillsDir !== undefined && config.skillsDir !== this.config.skillsDir;
     this.config = { ...this.config, ...config };
+    if (skillsDirChanged) {
+      this.registryDiscoveryAttempted = false;
+    }
   }
 
   getConfig(): SkillsLoaderConfig {
@@ -109,6 +116,8 @@ export class SkillsLoader extends EventEmitter {
     const manifestPath = path.join(projectRoot, this.config.manifestPath || '.claude/skills/skills.json');
     await this.loadManifest(manifestPath);
 
+    await this.discoverRegistrySkills();
+
     // Also discover skills from SkillRegistry
     await this.syncWithRegistry();
 
@@ -118,6 +127,45 @@ export class SkillsLoader extends EventEmitter {
     }
 
     this.emit('initialized', { totalSkills: this.manifestSkills.size });
+  }
+
+  private getRegistryDiscoveryPaths(): string[] {
+    const paths = [
+      this.config.skillsDir || DEFAULT_CONFIG.skillsDir,
+      '.claude/skills',
+      '.agents/skills',
+      '.codex/skills',
+    ].filter((entry): entry is string => !!entry);
+
+    return Array.from(new Set(paths));
+  }
+
+  private async discoverRegistrySkills(): Promise<void> {
+    if (this.registryDiscoveryAttempted) return;
+    if (this.registryDiscoveryPromise) {
+      await this.registryDiscoveryPromise;
+      return;
+    }
+
+    const registryWithDiscovery = this.skillRegistry as SkillRegistry & {
+      discoverSkillsWithBuiltins?: (searchPaths: string[]) => Promise<SkillBundle[]>;
+    };
+
+    if (typeof registryWithDiscovery.discoverSkillsWithBuiltins !== 'function') {
+      this.registryDiscoveryAttempted = true;
+      return;
+    }
+
+    this.registryDiscoveryPromise = registryWithDiscovery
+      .discoverSkillsWithBuiltins(this.getRegistryDiscoveryPaths())
+      .then(() => {
+        this.registryDiscoveryAttempted = true;
+      })
+      .finally(() => {
+        this.registryDiscoveryPromise = null;
+      });
+
+    await this.registryDiscoveryPromise;
   }
 
   /**
@@ -172,6 +220,7 @@ export class SkillsLoader extends EventEmitter {
 
     for (const entry of entries) {
       if (!entry.description) continue;
+      if (this.descriptionEmbeddings.has(entry.name)) continue;
 
       try {
         const result = await this.embeddingService.embed(entry.description);
@@ -197,10 +246,11 @@ export class SkillsLoader extends EventEmitter {
    */
   async detectRelevantSkills(userMessage: string): Promise<DetectedSkill[]> {
     const startTime = Date.now();
-
-    // Get embedding for user message
-    const messageResult = await this.embeddingService.embed(userMessage);
-    const messageEmbedding = messageResult.embedding;
+    await this.discoverRegistrySkills();
+    await this.syncWithRegistry();
+    if (this.config.cacheEmbeddings) {
+      await this.precomputeEmbeddings();
+    }
 
     const matched: DetectedSkill[] = [];
     const seenNames = new Set<string>();
@@ -212,49 +262,46 @@ export class SkillsLoader extends EventEmitter {
       if (entry && !seenNames.has(entry.name)) {
         seenNames.add(entry.name);
 
-        // Calculate embedding similarity if we have it cached
-        let similarity = match.confidence;
-        const cachedEmbedding = this.descriptionEmbeddings.get(entry.name);
-        if (cachedEmbedding) {
-          similarity = this.embeddingService.cosineSimilarity(
-            messageEmbedding,
-            cachedEmbedding
-          );
-        }
-
         matched.push({
           name: entry.name,
           description: entry.description,
           contentPath: entry.contentPath,
           priority: entry.priority,
-          similarity,
-          source: cachedEmbedding ? 'both' : 'trigger',
+          similarity: match.confidence,
+          source: 'trigger',
         });
       }
     }
 
-    // 2. Check embedding-based matches
-    for (const [skillName, embedding] of this.descriptionEmbeddings) {
-      if (seenNames.has(skillName)) continue;
+    // 2. Check embedding-based matches when semantic lookup is available.
+    try {
+      const messageResult = await this.embeddingService.embed(userMessage);
+      const messageEmbedding = messageResult.embedding;
 
-      const similarity = this.embeddingService.cosineSimilarity(
-        messageEmbedding,
-        embedding
-      );
+      for (const [skillName, embedding] of this.descriptionEmbeddings) {
+        if (seenNames.has(skillName)) continue;
 
-      if (similarity >= this.config.similarityThreshold) {
-        const entry = this.manifestSkills.get(skillName)!;
-        seenNames.add(skillName);
+        const similarity = this.embeddingService.cosineSimilarity(
+          messageEmbedding,
+          embedding
+        );
 
-        matched.push({
-          name: entry.name,
-          description: entry.description,
-          contentPath: entry.contentPath,
-          priority: entry.priority,
-          similarity,
-          source: 'embedding',
-        });
+        if (similarity >= this.config.similarityThreshold) {
+          const entry = this.manifestSkills.get(skillName)!;
+          seenNames.add(skillName);
+
+          matched.push({
+            name: entry.name,
+            description: entry.description,
+            contentPath: entry.contentPath,
+            priority: entry.priority,
+            similarity,
+            source: 'embedding',
+          });
+        }
       }
+    } catch (error) {
+      this.emit('embedding:error', { query: userMessage.slice(0, 100), error });
     }
 
     // Sort by similarity (descending), then by priority (descending)
@@ -410,6 +457,8 @@ export class SkillsLoader extends EventEmitter {
   clear(): void {
     this.manifestSkills.clear();
     this.descriptionEmbeddings.clear();
+    this.registryDiscoveryAttempted = false;
+    this.registryDiscoveryPromise = null;
     this.stats = {
       totalSkills: 0,
       cachedEmbeddings: 0,
