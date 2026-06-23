@@ -166,6 +166,15 @@ export class InstanceStateMachine {
   }
 
   /**
+   * Start a new lifecycle epoch from an explicit state. This is not a normal
+   * transition; callers use it before a same-instance restart after a terminal
+   * process lifecycle ended.
+   */
+  reset(initial: InstanceStatus = 'initializing'): void {
+    this._current = initial;
+  }
+
+  /**
    * Returns true if a transition from the current state to `next` is allowed.
    * Does not mutate state.
    */

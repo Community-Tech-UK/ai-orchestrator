@@ -338,6 +338,15 @@ describe('InstanceStateMachine – terminal states', () => {
     const sm = new InstanceStateMachine('failed');
     expect(() => sm.transition('failed')).toThrow(InvalidTransitionError);
   });
+
+  it('can be explicitly reset for a new lifecycle epoch after termination', () => {
+    const sm = new InstanceStateMachine('terminated');
+
+    sm.reset('idle');
+    sm.transition('initializing');
+
+    expect(sm.current).toBe('initializing');
+  });
 });
 
 // ---------------------------------------------------------------------------

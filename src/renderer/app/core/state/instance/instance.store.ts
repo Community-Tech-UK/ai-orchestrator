@@ -623,12 +623,12 @@ export class InstanceStore implements OnDestroy {
 
   /** Restart an instance */
   async restartInstance(instanceId: string): Promise<void> {
-    return this.listStore.restartInstance(instanceId);
+    await this.listStore.restartInstance(instanceId);
   }
 
   /** Restart an instance with fresh context */
   async restartFreshInstance(instanceId: string): Promise<void> {
-    return this.listStore.restartFreshInstance(instanceId);
+    await this.listStore.restartFreshInstance(instanceId);
   }
 
   /** Rename an instance */

@@ -303,7 +303,7 @@
           <!-- Input panel (composer) -->
           <app-input-panel
             [instanceId]="inst.id"
-            [disabled]="inst.status === 'terminated' || contextWarningLevel() === 'emergency'"
+            [disabled]="contextWarningLevel() === 'emergency'"
             [placeholder]="inputPlaceholder()"
             [pendingFiles]="pendingFiles()"
             [pendingFolders]="pendingFolders()"

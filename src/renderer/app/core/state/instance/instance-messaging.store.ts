@@ -37,6 +37,7 @@ export class InstanceMessagingStore {
   private pauseStore = inject(PauseStore);
   private queueWatchdog: ReturnType<typeof setInterval> | null = null;
   private interruptRequests = new Map<string, number>();
+  private terminalRestartRequests = new Set<string>();
   private static readonly RECENT_INTERRUPT_MS = 5000;
 
   constructor() {
@@ -72,6 +73,7 @@ export class InstanceMessagingStore {
       }
 
       if (instance.status === 'idle' || instance.status === 'ready' || instance.status === 'waiting_for_input') {
+        this.terminalRestartRequests.delete(instanceId);
         this.processMessageQueue(instanceId);
       } else if (
         instance.status === 'failed'
@@ -80,6 +82,9 @@ export class InstanceMessagingStore {
         || instance.status === 'cancelled'
         || instance.status === 'superseded'
       ) {
+        if (this.terminalRestartRequests.has(instanceId)) {
+          continue;
+        }
         // Terminal state: messages can never be delivered — clear with notification
         this.clearQueueWithNotification(instanceId);
       }
@@ -122,6 +127,10 @@ export class InstanceMessagingStore {
    * composer so they can re-send after restarting.
    */
   clearQueueWithNotification(instanceId: string): void {
+    if (this.terminalRestartRequests.has(instanceId)) {
+      return;
+    }
+
     const queue = this.stateService.messageQueue().get(instanceId);
     if (!queue || queue.length === 0) return;
 
@@ -198,9 +207,12 @@ export class InstanceMessagingStore {
 
     this.clearRecoveryMarkersOnUserInput(targetInstanceId, instance);
 
-    // Reject immediately if instance is in a terminal state — sending will fail
-    // and the optimistic busy status would mask the real state from retry logic.
     if (isTerminalStatus(instance.status)) {
+      if (this.canRestartForTerminalSend(instance.status)) {
+        await this.queueMessageAndRestartTerminalInstance(targetInstanceId, { message, files });
+        return;
+      }
+
       console.warn('InstanceMessagingStore: Cannot send to instance in terminal state', {
         instanceId: targetInstanceId,
         status: instance.status,
@@ -517,6 +529,7 @@ export class InstanceMessagingStore {
     if (instance.status !== 'idle' && instance.status !== 'ready' && instance.status !== 'waiting_for_input') {
       return;
     }
+    this.terminalRestartRequests.delete(instanceId);
 
     const currentMap = this.stateService.messageQueue();
     const queue = currentMap.get(instanceId);
@@ -623,6 +636,27 @@ export class InstanceMessagingStore {
     }
 
     return { instanceId, instance };
+  }
+
+  private canRestartForTerminalSend(status: InstanceStatus): boolean {
+    return status === 'terminated'
+      || status === 'failed'
+      || status === 'error'
+      || status === 'cancelled';
+  }
+
+  private async queueMessageAndRestartTerminalInstance(
+    instanceId: string,
+    queuedMessage: QueuedMessage,
+  ): Promise<void> {
+    this.enqueueMessageFront(instanceId, queuedMessage);
+    this.terminalRestartRequests.add(instanceId);
+
+    const restarted = await this.listStore.restartInstance(instanceId);
+    if (!restarted) {
+      this.terminalRestartRequests.delete(instanceId);
+      this.clearQueueWithNotification(instanceId);
+    }
   }
 
   private getRetryDisposition(
