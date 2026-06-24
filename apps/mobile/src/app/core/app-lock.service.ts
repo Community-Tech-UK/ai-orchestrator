@@ -104,7 +104,7 @@ export class AppLockService {
     try {
       const mod = await import('@aparajita/capacitor-biometric-auth');
       await mod.BiometricAuth.authenticate({
-        reason: 'Unlock AI Orchestrator',
+        reason: 'Unlock harness',
         cancelTitle: 'Cancel',
         allowDeviceCredential: true,
         iosFallbackTitle: 'Use Passcode',

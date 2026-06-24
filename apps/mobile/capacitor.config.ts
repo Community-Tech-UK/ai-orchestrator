@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.shutupandshave.aiorchestrator',
-  appName: 'AI Orchestrator',
+  appName: 'harness',
   // Angular's application builder emits the browser bundle under www/browser.
   webDir: 'www/browser',
   ios: {

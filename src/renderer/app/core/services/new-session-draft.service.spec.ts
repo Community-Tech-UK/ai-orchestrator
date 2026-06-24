@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { NewSessionDraftService } from './new-session-draft.service';
 import { ProviderStateService } from './provider-state.service';
+import { WorkspaceIpcService } from './ipc/workspace-ipc.service';
+import { ScratchDirectoryService } from './scratch-directory.service';
 
 /**
  * Lightweight stub of ProviderStateService so we don't have to spin up
@@ -32,14 +34,28 @@ function createService(): NewSessionDraftService {
 
 describe('NewSessionDraftService', () => {
   let service: NewSessionDraftService;
+  let workspaceIpc: { hintActive: ReturnType<typeof vi.fn> };
+  let scratchDirectory: {
+    init: ReturnType<typeof vi.fn>;
+    isScratch: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
     window.localStorage.clear();
+    workspaceIpc = {
+      hintActive: vi.fn().mockResolvedValue(true),
+    };
+    scratchDirectory = {
+      init: vi.fn().mockResolvedValue(undefined),
+      isScratch: vi.fn((path: string | null | undefined) => path === '/Users/suas/.ai-orchestrator/scratch'),
+    };
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [
         NewSessionDraftService,
         { provide: ProviderStateService, useClass: StubProviderStateService },
+        { provide: WorkspaceIpcService, useValue: workspaceIpc },
+        { provide: ScratchDirectoryService, useValue: scratchDirectory },
       ],
     });
     service = createService();
@@ -99,6 +115,48 @@ describe('NewSessionDraftService', () => {
     expect(service.hasSavedDraftFor('/Users/suas/work/orchestrat0r/claude-orchestrator')).toBe(true);
   });
 
+  it('hints the active workspace when opening a project draft', async () => {
+    service.open('/Users/suas/work/orchestrat0r/claude-orchestrator', 'node-1');
+    await Promise.resolve();
+
+    expect(service.workingDirectory()).toBe('/Users/suas/work/orchestrat0r/claude-orchestrator');
+    expect(service.nodeId()).toBe('node-1');
+    expect(workspaceIpc.hintActive).toHaveBeenCalledWith(
+      '/Users/suas/work/orchestrat0r/claude-orchestrator',
+      'node-1',
+    );
+  });
+
+  it('reuses the draft node when reopening a project draft without an explicit node', async () => {
+    service.open('/Users/suas/work/orchestrat0r/claude-orchestrator', 'node-1');
+    await Promise.resolve();
+    workspaceIpc.hintActive.mockClear();
+
+    service.open('/Users/suas/work/orchestrat0r/claude-orchestrator');
+    await Promise.resolve();
+
+    expect(service.nodeId()).toBe('node-1');
+    expect(workspaceIpc.hintActive).toHaveBeenCalledWith(
+      '/Users/suas/work/orchestrat0r/claude-orchestrator',
+      'node-1',
+    );
+  });
+
+  it('does not hint a workspace when opening the default draft', () => {
+    service.open(null);
+
+    expect(service.workingDirectory()).toBeNull();
+    expect(workspaceIpc.hintActive).not.toHaveBeenCalled();
+  });
+
+  it('does not hint the scratch workspace when opening a scratch draft directly', async () => {
+    service.open('/Users/suas/.ai-orchestrator/scratch');
+    await Promise.resolve();
+
+    expect(service.workingDirectory()).toBe('/Users/suas/.ai-orchestrator/scratch');
+    expect(workspaceIpc.hintActive).not.toHaveBeenCalled();
+  });
+
   it('defaults agentId to "build" on a fresh draft', () => {
     expect(service.agentId()).toBe('build');
   });
@@ -121,6 +179,8 @@ describe('NewSessionDraftService', () => {
         providers: [
           NewSessionDraftService,
           { provide: ProviderStateService, useClass: StubProviderStateService },
+          { provide: WorkspaceIpcService, useValue: workspaceIpc },
+          { provide: ScratchDirectoryService, useValue: scratchDirectory },
         ],
       });
       const reloaded = createService();
@@ -155,6 +215,8 @@ describe('NewSessionDraftService', () => {
       providers: [
         NewSessionDraftService,
         { provide: ProviderStateService, useClass: StubProviderStateService },
+        { provide: WorkspaceIpcService, useValue: workspaceIpc },
+        { provide: ScratchDirectoryService, useValue: scratchDirectory },
       ],
     });
     const reloaded = createService();
@@ -186,6 +248,8 @@ describe('NewSessionDraftService', () => {
       providers: [
         NewSessionDraftService,
         { provide: ProviderStateService, useClass: StubProviderStateService },
+        { provide: WorkspaceIpcService, useValue: workspaceIpc },
+        { provide: ScratchDirectoryService, useValue: scratchDirectory },
       ],
     });
     const reloaded = createService();
@@ -245,6 +309,8 @@ describe('NewSessionDraftService', () => {
         providers: [
           NewSessionDraftService,
           { provide: ProviderStateService, useClass: StubProviderStateService },
+          { provide: WorkspaceIpcService, useValue: workspaceIpc },
+          { provide: ScratchDirectoryService, useValue: scratchDirectory },
         ],
       });
       const reloaded = createService();

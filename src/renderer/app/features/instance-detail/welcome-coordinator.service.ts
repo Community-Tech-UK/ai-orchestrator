@@ -1,4 +1,4 @@
-import { Injectable, inject, signal, computed } from '@angular/core';
+import { Injectable, inject, signal, computed, effect } from '@angular/core';
 import { InstanceStore } from '../../core/state/instance.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import {
@@ -79,6 +79,12 @@ export class WelcomeCoordinatorService {
   } | null>(null);
 
   private welcomeContextRequestId = 0;
+
+  constructor() {
+    effect(() => {
+      this.welcomeSelectedNodeId.set(this.newSessionDraft.nodeId());
+    });
+  }
 
   // ---------------------------------------------------------------------------
   // Delegated signals from NewSessionDraftService (convenience re-exports)

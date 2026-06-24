@@ -1,5 +1,5 @@
 /**
- * Mirrors src/shared/types/mobile-gateway.types.ts in the main AI Orchestrator
+ * Mirrors src/shared/types/mobile-gateway.types.ts in the main harness
  * repo. Kept as a local copy because this app is a standalone package, not a
  * monorepo workspace. If the gateway DTOs change, update both.
  */

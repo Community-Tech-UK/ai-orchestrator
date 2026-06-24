@@ -70,7 +70,9 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       nodeId: signal<string | null>(null),
       updatedAt: signal(1),
       hasActiveContent: signal(true),
-      setNodeId: vi.fn(),
+      setNodeId: vi.fn((nodeId: string | null) => {
+        newSessionDraft.nodeId.set(nodeId);
+      }),
       clearActiveComposer: vi.fn(),
     };
     recentDirs = {
@@ -201,6 +203,31 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       provider: 'claude',
       model: CLAUDE_MODELS.OPUS_1M,
       launchMode: 'interactive',
+      forceNodeId: undefined,
+    });
+  });
+
+  it('syncs welcome node selection from the active draft node', async () => {
+    const creatingChange = vi.fn();
+    newSessionDraft.nodeId.set('node-stale');
+    TestBed.flushEffects();
+    newSessionDraft.nodeId.set(null);
+    TestBed.flushEffects();
+
+    const launched = await service.onWelcomeSendMessage(
+      'Start locally',
+      creatingChange,
+    );
+
+    expect(launched).toBe(true);
+    expect(store.createInstanceWithMessage).toHaveBeenCalledWith({
+      message: 'Folders:\nplans\n\nStart locally',
+      files: [],
+      workingDirectory: '/repo',
+      agentId: 'build',
+      provider: 'claude',
+      model: CLAUDE_MODELS.OPUS_1M,
+      launchMode: 'orchestrated',
       forceNodeId: undefined,
     });
   });
