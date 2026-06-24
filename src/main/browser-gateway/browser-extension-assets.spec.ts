@@ -1,5 +1,13 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { runInNewContext } from 'node:vm';
+import { describe, expect, it, vi } from 'vitest';
+
+interface BrowserExtensionBackgroundHarness {
+  forceReleaseCommandResources: (command: {
+    target?: { tabId?: number };
+  }) => Promise<void>;
+  tabDebuggerChains: Map<number, Promise<void>>;
+}
 
 describe('browser extension assets', () => {
   it('ships a live authenticated-tab bridge with command polling and page access', () => {
@@ -119,6 +127,25 @@ describe('browser extension assets', () => {
     expect(background).not.toMatch(/pollInFlight = false;\s*\n\s*if \(!message \|\| message\.type !== 'browser_command'/);
   });
 
+  it('watchdogs browser commands so a stuck CDP operation cannot block the queue forever', () => {
+    const background = readFileSync('resources/browser-extension/background.js', 'utf-8');
+
+    expect(background).toContain('function runCommandWithWatchdog');
+    expect(background).toContain('commandExecutionTimeoutMs(command)');
+    expect(background).toContain('browser_extension_command_timeout');
+    expect(background).toContain('function forceReleaseCommandResources');
+    expect(background).toContain('chrome.debugger.detach({ tabId })');
+  });
+
+  it('releases a stuck per-tab debugger chain when the command watchdog fires', async () => {
+    const harness = loadBackgroundHarnessForTest();
+    harness.tabDebuggerChains.set(42, new Promise<void>(() => undefined));
+
+    await harness.forceReleaseCommandResources({ target: { tabId: 42 } });
+
+    expect(harness.tabDebuggerChains.has(42)).toBe(false);
+  });
+
   it('keeps controlled tabs unfrozen and undiscarded against background throttling', () => {
     const background = readFileSync('resources/browser-extension/background.js', 'utf-8');
     const manifest = JSON.parse(
@@ -179,3 +206,50 @@ describe('browser extension assets', () => {
     expect(popup).toContain('chrome.runtime.reload()');
   });
 });
+
+function loadBackgroundHarnessForTest(): BrowserExtensionBackgroundHarness {
+  const background = readFileSync('resources/browser-extension/background.js', 'utf-8');
+  const listener = { addListener: vi.fn() };
+  const nativePort = {
+    onMessage: listener,
+    onDisconnect: listener,
+    postMessage: vi.fn(),
+  };
+  const context = {
+    console,
+    clearTimeout: vi.fn(),
+    setTimeout: vi.fn(() => 0),
+    chrome: {
+      alarms: {
+        create: vi.fn(),
+        onAlarm: listener,
+      },
+      debugger: {
+        detach: vi.fn(async () => undefined),
+      },
+      runtime: {
+        connectNative: vi.fn(() => nativePort),
+        lastError: undefined,
+        onInstalled: listener,
+        onMessage: listener,
+        onStartup: listener,
+        sendNativeMessage: vi.fn(),
+      },
+      scripting: {
+        executeScript: vi.fn(async () => []),
+      },
+      tabs: {
+        onRemoved: listener,
+        onUpdated: listener,
+        query: vi.fn(async () => []),
+      },
+    },
+    __backgroundHarness: undefined as BrowserExtensionBackgroundHarness | undefined,
+  };
+  runInNewContext(
+    `${background}\n;globalThis.__backgroundHarness = { forceReleaseCommandResources, tabDebuggerChains };`,
+    context,
+    { filename: 'resources/browser-extension/background.js' },
+  );
+  return context.__backgroundHarness!;
+}

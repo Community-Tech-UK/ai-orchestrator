@@ -30,6 +30,9 @@ import { providerFromContext } from './browser-gateway-action-guard';
 import { findMatchingBrowserGrant } from './browser-grant-policy';
 import { redactBrowserText } from './browser-redaction';
 
+const EXTENSION_COMMAND_RESULT_GRACE_MS = 5_000;
+const SHORT_EXTENSION_COMMAND_RESULT_GRACE_MS = 500;
+
 interface BrowserExistingTabOperationsDeps {
   extensionCommandStore: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
   extensionTabStore: Pick<BrowserExtensionTabStore, 'attachTab'>;
@@ -214,7 +217,8 @@ export class BrowserExistingTabOperations {
         windowId: attachment.windowId,
       },
       ...(payload ? { payload } : {}),
-      timeoutMs,
+      timeoutMs: extensionCommandCallerTimeoutMs(timeoutMs),
+      executionTimeoutMs: timeoutMs,
     }).catch((error: unknown) => {
       // A command that times out in the user's real Chrome may have ALREADY
       // applied — the extension performed it, the ack just never came back.
@@ -224,7 +228,7 @@ export class BrowserExistingTabOperations {
       // plain timeout (safe to retry). This is the single choke point every
       // existing-tab command flows through.
       const message = error instanceof Error ? error.message : String(error);
-      if (message === 'browser_extension_command_timeout' && isMutatingBrowserCommand(command)) {
+      if (message.startsWith('browser_extension_command_timeout') && isMutatingBrowserCommand(command)) {
         throw new Error('browser_extension_command_timeout_maybe_applied');
       }
       throw error instanceof Error ? error : new Error(message);
@@ -452,6 +456,13 @@ export class BrowserExistingTabOperations {
       data: attachment.screenshotBase64,
     });
   }
+}
+
+function extensionCommandCallerTimeoutMs(executionTimeoutMs: number): number {
+  const graceMs = executionTimeoutMs >= 5_000
+    ? EXTENSION_COMMAND_RESULT_GRACE_MS
+    : SHORT_EXTENSION_COMMAND_RESULT_GRACE_MS;
+  return executionTimeoutMs + graceMs;
 }
 
 function extractScreenshotBase64(result: unknown): string {

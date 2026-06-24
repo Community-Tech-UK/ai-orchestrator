@@ -28,6 +28,7 @@ export interface BrowserExtensionQueuedCommand {
   command: BrowserExtensionCommandName;
   target?: BrowserExtensionCommandTarget;
   payload?: Record<string, unknown>;
+  timeoutMs?: number;
   createdAt: number;
 }
 
@@ -43,6 +44,7 @@ export interface BrowserExtensionSendCommandRequest {
   target?: BrowserExtensionCommandTarget;
   payload?: Record<string, unknown>;
   timeoutMs?: number;
+  executionTimeoutMs?: number;
 }
 
 export interface BrowserExtensionPollRequest {
@@ -87,17 +89,22 @@ export class BrowserExtensionCommandStore {
 
   sendCommand(request: BrowserExtensionSendCommandRequest): Promise<unknown> {
     const queueKey = request.queueKey ?? 'local';
+    const timeoutMs = request.timeoutMs ?? 30_000;
+    const executionTimeoutMs = request.executionTimeoutMs ?? timeoutMs;
     const command: BrowserExtensionQueuedCommand = {
       id: randomUUID(),
       command: request.command,
       ...(request.target ? { target: request.target } : {}),
       ...(request.payload ? { payload: request.payload } : {}),
+      ...(Number.isFinite(executionTimeoutMs) && executionTimeoutMs > 0
+        ? { timeoutMs: Math.floor(executionTimeoutMs) }
+        : {}),
       createdAt: Date.now(),
     };
-    const timeoutMs = request.timeoutMs ?? 30_000;
     return new Promise<unknown>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(command.id);
+        this.removeQueuedCommand(queueKey, command.id);
         reject(new Error('browser_extension_command_timeout'));
       }, timeoutMs);
       this.pending.set(command.id, {
@@ -192,6 +199,23 @@ export class BrowserExtensionCommandStore {
       return;
     }
     this.queueFor(queueKey).push(command);
+  }
+
+  private removeQueuedCommand(
+    queueKey: BrowserExtensionCommandQueueKey,
+    commandId: string,
+  ): void {
+    const queue = this.queues.get(queueKey);
+    if (!queue) {
+      return;
+    }
+    const index = queue.findIndex((command) => command.id === commandId);
+    if (index >= 0) {
+      queue.splice(index, 1);
+    }
+    if (queue.length === 0) {
+      this.queues.delete(queueKey);
+    }
   }
 
   private queueFor(queueKey: BrowserExtensionCommandQueueKey): BrowserExtensionQueuedCommand[] {
