@@ -885,6 +885,8 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
     expect(driver.waitFor).not.toHaveBeenCalled();
     expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
       command: 'query_elements',
+      timeoutMs: 65_000,
+      executionTimeoutMs: 60_000,
       target: {
         profileId: appStoreConnectTab.profileId,
         targetId: appStoreConnectTab.targetId,

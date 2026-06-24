@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BrowserExtensionCommandStore } from './browser-extension-command-store';
 
 describe('BrowserExtensionCommandStore', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('delivers a queued tab command to the extension and resolves the caller result', async () => {
     const store = new BrowserExtensionCommandStore();
     const pending = store.sendCommand({
@@ -42,6 +46,59 @@ describe('BrowserExtensionCommandStore', () => {
     await expect(pending).resolves.toEqual({
       clicked: true,
     });
+  });
+
+  it('delivers an extension execution timeout separately from the caller wait budget', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const pending = store.sendCommand({
+      command: 'accessibility_snapshot',
+      target: {
+        profileId: 'existing-tab:7:42',
+        targetId: 'existing-tab:7:42:target',
+        tabId: 42,
+        windowId: 7,
+      },
+      timeoutMs: 65_000,
+      executionTimeoutMs: 60_000,
+    } as never);
+
+    const command = await store.pollCommand({ timeoutMs: 1 });
+
+    expect(command).toMatchObject({
+      command: 'accessibility_snapshot',
+      timeoutMs: 60_000,
+    });
+
+    store.resolveCommand({
+      commandId: command!.id,
+      ok: true,
+      result: { nodes: [] },
+    });
+    await expect(pending).resolves.toEqual({ nodes: [] });
+  });
+
+  it('removes an undelivered queued command when the caller wait budget expires', async () => {
+    vi.useFakeTimers();
+    const store = new BrowserExtensionCommandStore();
+    const pending = store.sendCommand({
+      command: 'accessibility_snapshot',
+      target: {
+        profileId: 'existing-tab:7:42',
+        targetId: 'existing-tab:7:42:target',
+        tabId: 42,
+        windowId: 7,
+      },
+      timeoutMs: 10,
+      executionTimeoutMs: 60_000,
+    } as never);
+    const rejected = expect(pending).rejects.toThrow('browser_extension_command_timeout');
+
+    await vi.advanceTimersByTimeAsync(10);
+    await rejected;
+
+    const poll = store.pollCommand({ timeoutMs: 1 });
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(poll).resolves.toBeNull();
   });
 
   it('returns null when the extension polls and no command arrives before the timeout', async () => {

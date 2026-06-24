@@ -7,6 +7,8 @@ const RECONNECT_MAX_MS = 30000;
 const MAX_OUTBOX = 50;
 const MAX_INVENTORY_TABS = 40;
 const CONTROL_GROUP_TITLE = 'Harness';
+const DEFAULT_COMMAND_TIMEOUT_MS = 30000;
+const MAX_COMMAND_TIMEOUT_MS = 120000;
 
 let nativePort = null;
 let pollInFlight = false;
@@ -176,7 +178,7 @@ async function handleNativeMessage(message) {
 
 async function runBrowserCommand(command) {
   try {
-    const result = await executeBrowserCommand(command);
+    const result = await runCommandWithWatchdog(command);
     if (isTabPayload(result)) {
       postNativeMessage({ type: 'attach_tab', tab: result });
     }
@@ -202,6 +204,59 @@ async function runBrowserCommand(command) {
     pollInFlight = false;
     scheduleNextPoll(0);
   }
+}
+
+function runCommandWithWatchdog(command) {
+  const timeoutMs = commandExecutionTimeoutMs(command);
+  let settled = false;
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      void forceReleaseCommandResources(command);
+      reject(new Error('browser_extension_command_timeout'));
+    }, timeoutMs);
+
+    Promise.resolve()
+      .then(() => executeBrowserCommand(command))
+      .then((result) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        resolve(result);
+      }, (error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        reject(error);
+      });
+  });
+}
+
+function commandExecutionTimeoutMs(command) {
+  const value = command?.timeoutMs;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return DEFAULT_COMMAND_TIMEOUT_MS;
+  }
+  return Math.max(1000, Math.min(MAX_COMMAND_TIMEOUT_MS, Math.floor(value)));
+}
+
+async function forceReleaseCommandResources(command) {
+  const tabId = command?.target?.tabId;
+  if (typeof tabId !== 'number') {
+    return;
+  }
+  tabDebuggerChains.delete(tabId);
+  if (chrome.debugger?.detach) {
+    await chrome.debugger.detach({ tabId }).catch(() => undefined);
+  }
+  await stopControlledTab(tabId).catch(() => undefined);
 }
 
 function pollForCommand() {
