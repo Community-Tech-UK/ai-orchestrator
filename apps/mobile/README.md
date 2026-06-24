@@ -1,6 +1,6 @@
-# AI Orchestrator — Mobile
+# harness — Mobile
 
-A small iPhone app (Angular + Capacitor) that connects to AI Orchestrator instances
+A small iPhone app (Angular + Capacitor) that connects to harness instances
 over **Tailscale** and lets you watch and **control** your agents from anywhere: read
 transcripts, send prompts, **approve/deny** the permission prompts agents block on,
 stop/start work, and get **push alerts** when an agent needs you. Built to be installed
@@ -59,13 +59,12 @@ npx cap add ios
 ## Build & run on your phone
 
 ```bash
-npm run build            # Angular production build → www/
-npx cap sync ios         # copy web assets + native deps into the iOS project
+npm run sync             # build + copy native deps + patch iOS display metadata
 npx cap open ios         # opens Xcode
 ```
 
 In Xcode: select your iPhone, set your signing Team, and Run. (`npm run ios` chains
-build + sync + open.) For fast UI iteration without native bits: `npm run start`
+build + sync + the tracked iOS display-name patch + open.) For fast UI iteration without native bits: `npm run start`
 (push + QR scanning are no-ops in the browser; paste-pairing still works).
 
 ## Pairing

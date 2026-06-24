@@ -50,6 +50,10 @@ import { WorkspaceRailComponent } from './workspace-rail.component';
 import { BrowserPreviewNoticeComponent } from './browser-preview-notice.component';
 import { SessionProgressPanelComponent } from '../instance-detail/session-progress-panel.component';
 import { DEFAULT_KEYBINDING_ELIGIBILITY_STATE } from '../../../../shared/types/keybinding.types';
+import {
+  resolveDashboardProjectContext,
+  type DashboardProjectContext,
+} from './dashboard-project-context';
 
 @Component({
   selector: 'app-dashboard',
@@ -297,6 +301,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
     // Initialize remote node store (seeds from IPC + subscribes to live updates)
     void this.remoteNodeStore.initialize();
+    void this.scratchDirectory.init();
 
     // Register keybinding handlers
     this.registerKeybindingHandlers();
@@ -352,9 +357,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
       }),
       this.actionDispatch.register({
         id: 'new-instance',
-        run: () => {
-          this.createInstance();
-        },
+        run: () => this.createInstance(),
       }),
       this.actionDispatch.register({
         id: 'close-instance',
@@ -497,26 +500,62 @@ export class DashboardComponent implements OnInit, OnDestroy {
     );
   }
 
-  createInstance(): void {
-    const workingDirectory = this.settingsStore.settings().defaultWorkingDirectory || null;
-    this.chatStore.deselect();
-    this.historyStore.clearSelection();
-    this.newSessionDraft.open(workingDirectory);
-    this.store.setSelectedInstance(null);
+  async createInstance(): Promise<void> {
+    await this.scratchDirectory.init();
+    const context = this.getCurrentProjectContext();
+    this.openNewSessionDraft(
+      context?.workingDirectory ?? this.settingsStore.settings().defaultWorkingDirectory ?? null,
+      context?.nodeId ?? null,
+    );
   }
 
   /**
-   * Start a general chat — a regular session that runs in the dedicated
-   * scratch directory rather than a project workspace. It renders exactly like
-   * any other session and is grouped under the "Chats" rail group.
+   * Start a new chat. When the user is already viewing a project, keep the
+   * draft in that project; otherwise use the dedicated scratch directory for a
+   * general chat.
    */
   async createGeneralChat(): Promise<void> {
     await this.scratchDirectory.init();
-    const scratchDir = this.scratchDirectory.dir();
+    const context = this.getCurrentProjectContext();
+    if (context) {
+      this.openNewSessionDraft(context.workingDirectory, context.nodeId);
+      return;
+    }
+
+    const scratchDir = this.scratchDirectory.dir() ?? null;
+    this.openNewSessionDraft(scratchDir, null);
+  }
+
+  private openNewSessionDraft(workingDirectory: string | null, nodeId: string | null): void {
     this.chatStore.deselect();
     this.historyStore.clearSelection();
-    this.newSessionDraft.open(scratchDir);
+    this.newSessionDraft.open(workingDirectory, nodeId, {
+      hintWorkspace: !workingDirectory || !this.scratchDirectory.isScratch(workingDirectory),
+    });
     this.store.setSelectedInstance(null);
+  }
+
+  private getCurrentProjectContext(): DashboardProjectContext | null {
+    const selectedInstance = this.store.selectedInstance();
+    const selectedChat = this.chatStore.selectedChatId()
+      ? this.chatStore.selectedChat()
+      : null;
+    const previewConversation = this.historyStore.previewConversation();
+    return resolveDashboardProjectContext({
+      selectedInstance,
+      selectedChat: this.chatStore.selectedChatId()
+        ? { currentCwd: selectedChat?.currentCwd ?? null }
+        : null,
+      previewConversation: previewConversation
+        ? {
+            workingDirectory: previewConversation.entry.workingDirectory,
+            executionLocation: previewConversation.entry.executionLocation ?? null,
+          }
+        : null,
+      draftWorkingDirectory: this.newSessionDraft.workingDirectory(),
+      draftNodeId: this.newSessionDraft.nodeId(),
+      isScratch: (workingDirectory) => this.scratchDirectory.isScratch(workingDirectory),
+    });
   }
 
   selectChats(): void {

@@ -132,6 +132,23 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
           >
             {{ attachBusy() ? '…' : '＋' }}
           </button>
+          <button
+            type="button"
+            class="attach"
+            (click)="pasteImageFromClipboard()"
+            [disabled]="attachBusy() || sending()"
+            aria-label="Paste image from clipboard"
+          >
+            @if (attachBusy()) {
+              …
+            } @else {
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M9 4h6a2 2 0 0 1 2 2v1h1a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-1H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h1V3h3v1Z" />
+                <path d="M8 7h10v11H8V7Z" />
+                <path d="M7 4h10" />
+              </svg>
+            }
+          </button>
         }
         <textarea
           rows="1"
@@ -140,6 +157,7 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
           [ngModelOptions]="{ standalone: true }"
           placeholder="Message…"
           (keydown.enter)="onEnter($event)"
+          (paste)="onPaste($event)"
         ></textarea>
         <button type="submit" class="send" [disabled]="!online() || !canSend() || sending()">
           {{ sending() ? '…' : '↑' }}
@@ -246,6 +264,10 @@ import { buildDisplayItems, type DisplayItem } from '../../shared/transcript-ite
         color: var(--text); font-size: 22px; line-height: 1;
       }
       .attach:disabled { opacity: 0.4; }
+      .attach svg {
+        width: 20px; height: 20px; display: block; margin: auto;
+        fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round;
+      }
       .composer textarea {
         flex: 1; resize: none; max-height: 120px; background: var(--surface); color: var(--text);
         border: 1px solid rgba(255,255,255,0.12); border-radius: 18px; padding: 10px 14px; font-size: 16px; font-family: inherit;
@@ -407,6 +429,36 @@ export class ConversationComponent {
       }
     } catch {
       /* user cancelled or the pick failed — nothing to add */
+    } finally {
+      this.attachBusy.set(false);
+    }
+  }
+
+  protected async pasteImageFromClipboard(): Promise<void> {
+    if (this.attachBusy()) return;
+    this.attachBusy.set(true);
+    try {
+      const pasted = await this.images.pasteImageFromClipboard();
+      if (pasted) {
+        this.attachments.update((current) => [...current, pasted]);
+      }
+    } catch {
+      /* paste denied or unsupported — nothing to add */
+    } finally {
+      this.attachBusy.set(false);
+    }
+  }
+
+  protected async onPaste(event: ClipboardEvent): Promise<void> {
+    if (this.attachBusy()) return;
+    this.attachBusy.set(true);
+    try {
+      const pasted = await this.images.attachmentsFromPasteEvent(event);
+      if (pasted.length) {
+        this.attachments.update((current) => [...current, ...pasted]);
+      }
+    } catch {
+      /* browser paste data can vary by platform */
     } finally {
       this.attachBusy.set(false);
     }

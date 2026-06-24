@@ -20,8 +20,8 @@ import { ChangeDetectionStrategy, Component, output } from '@angular/core';
         <button
           class="btn-header-icon"
           (click)="newChatClicked.emit()"
-          title="New chat — general chat, no workspace"
-          aria-label="Start a new general chat"
+          title="New chat"
+          aria-label="Start a new chat"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

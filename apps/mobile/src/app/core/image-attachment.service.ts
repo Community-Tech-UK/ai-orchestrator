@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
 import { Camera } from '@capacitor/camera';
+import { Clipboard } from '@capacitor/clipboard';
 import type { MobileAttachmentDto } from './models';
 
 /** Longest edge we downscale picked photos to before sending. */
@@ -40,16 +41,64 @@ export class ImageAttachmentService {
     return out;
   }
 
+  async pasteImageFromClipboard(): Promise<MobileAttachmentDto | null> {
+    if (!this.available) {
+      return null;
+    }
+    try {
+      const result = await Clipboard.read();
+      if (!this.isClipboardImage(result.type, result.value)) {
+        return null;
+      }
+      return await this.dataUrlToAttachment(result.value, `clipboard-${Date.now()}.jpg`);
+    } catch {
+      return null;
+    }
+  }
+
+  async attachmentsFromPasteEvent(event: ClipboardEvent): Promise<MobileAttachmentDto[]> {
+    const files = this.imageFilesFromClipboard(event.clipboardData).slice(0, MAX_PICK);
+    if (!files.length) {
+      return [];
+    }
+    event.preventDefault();
+    const out: MobileAttachmentDto[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const dto = await this.blobToAttachment(files[i], this.toJpegName(files[i].name, i));
+      if (dto) {
+        out.push(dto);
+      }
+    }
+    return out;
+  }
+
   private async toAttachment(webPath: string | undefined, index: number): Promise<MobileAttachmentDto | null> {
     if (!webPath) {
       return null;
     }
     try {
       const blob = await (await fetch(webPath)).blob();
+      return await this.blobToAttachment(blob, `photo-${Date.now()}-${index + 1}.jpg`);
+    } catch {
+      return null;
+    }
+  }
+
+  private async dataUrlToAttachment(dataUrl: string, name: string): Promise<MobileAttachmentDto | null> {
+    try {
+      const blob = await (await fetch(dataUrl)).blob();
+      return await this.blobToAttachment(blob, name);
+    } catch {
+      return null;
+    }
+  }
+
+  private async blobToAttachment(blob: Blob, name: string): Promise<MobileAttachmentDto | null> {
+    try {
       const data = await this.downscaleToJpegDataUrl(blob);
       const base64 = data.slice(data.indexOf(',') + 1);
       return {
-        name: `photo-${Date.now()}-${index + 1}.jpg`,
+        name,
         type: 'image/jpeg',
         size: Math.round((base64.length * 3) / 4),
         data,
@@ -57,6 +106,36 @@ export class ImageAttachmentService {
     } catch {
       return null;
     }
+  }
+
+  private imageFilesFromClipboard(data: DataTransfer | null): File[] {
+    if (!data) {
+      return [];
+    }
+    const files = Array.from(data.files).filter((file) => file.type.startsWith('image/'));
+    if (files.length) {
+      return files;
+    }
+    return Array.from(data.items)
+      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null);
+  }
+
+  private isClipboardImage(type: string, value: string): boolean {
+    const normalizedType = type.toLowerCase();
+    return (
+      value.startsWith('data:image/') ||
+      normalizedType === 'image' ||
+      normalizedType.startsWith('image/')
+    );
+  }
+
+  private toJpegName(name: string, index: number): string {
+    if (!name.trim()) {
+      return `pasted-image-${Date.now()}-${index + 1}.jpg`;
+    }
+    return name.replace(/\.[^.]*$/, '') + '.jpg';
   }
 
   private downscaleToJpegDataUrl(blob: Blob): Promise<string> {

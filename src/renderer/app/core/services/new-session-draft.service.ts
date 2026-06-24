@@ -10,6 +10,7 @@ import type { InstanceLaunchMode } from '../../../../shared/types/instance.types
 import { BUILTIN_AGENTS, getDefaultAgent } from '../../../../shared/types/agent.types';
 import { ProviderStateService, type ProviderType } from './provider-state.service';
 import { WorkspaceIpcService } from './ipc/workspace-ipc.service';
+import { ScratchDirectoryService } from './scratch-directory.service';
 import type {
   NewSessionDraftState,
   NewSessionDraftStoreState,
@@ -21,6 +22,7 @@ import type {
 export class NewSessionDraftService {
   private readonly providerState = inject(ProviderStateService);
   private readonly workspaceIpc = inject(WorkspaceIpcService);
+  private readonly scratchDirectory = inject(ScratchDirectoryService);
   private readonly storageKey = 'new-session-drafts:v1';
   private readonly defaultDraftKey = '__default__';
   private persistHandle: number | null = null;
@@ -51,9 +53,13 @@ export class NewSessionDraftService {
     }
   }
 
-  open(workingDirectory?: string | null, nodeId?: string | null): void {
+  open(workingDirectory?: string | null, nodeId?: string | null, options?: { hintWorkspace?: boolean }): void {
     const normalized = this.normalizePath(workingDirectory);
     const draftKey = this.getDraftKey(normalized);
+    const draftNodeId = nodeId !== undefined ? nodeId ?? null : this.state().drafts[draftKey]?.nodeId ?? null;
+    if (options?.hintWorkspace !== false) {
+      this.hintActiveWorkspace(normalized, draftNodeId);
+    }
     this.patchState((current) => {
       const draft = this.ensureDraft(current.drafts[draftKey], normalized);
       return {
@@ -72,20 +78,9 @@ export class NewSessionDraftService {
     const normalized = this.normalizePath(workingDirectory);
     const nextKey = this.getDraftKey(normalized);
 
-    // Best-effort unified workspace hint. Fire-and-forget — the IPC service
-    // swallows its own errors, so this can't throw and slow down the draft
-    // state update. The main-process handler fans the hint out to every
-    // coordinator that subscribes to "workspace is present" events (codemem
-    // prewarm, codebase auto-index, project knowledge mirror), so each
-    // subsystem prioritises this workspace before the user spawns an
-    // instance against it. We pass any existing nodeId for the **target**
-    // path so remote-workspace hints are correctly short-circuited
-    // server-side rather than triggering local fan-out.
-    if (normalized) {
-      const nextDraft = this.state().drafts[nextKey];
-      const nodeId = nextDraft?.nodeId ?? null;
-      void this.workspaceIpc.hintActive(normalized, nodeId);
-    }
+    // Best-effort prewarm/index hint. `hintActiveWorkspace` suppresses the
+    // general-chat scratch directory so Chats never enter project indexing.
+    this.hintActiveWorkspace(normalized, this.state().drafts[nextKey]?.nodeId ?? null);
 
     this.patchState((current) => {
       const currentDraft = this.getDraftForState(current, current.activeKey);
@@ -497,6 +492,15 @@ export class NewSessionDraftService {
         : [],
       updatedAt: typeof draft?.updatedAt === 'number' ? draft.updatedAt : Date.now(),
     };
+  }
+
+  private hintActiveWorkspace(path: string | null, nodeId: string | null): void {
+    if (path) void this.hintActiveWorkspaceAfterScratchInit(path, nodeId);
+  }
+
+  private async hintActiveWorkspaceAfterScratchInit(path: string, nodeId: string | null): Promise<void> {
+    await this.scratchDirectory.init();
+    if (!this.scratchDirectory.isScratch(path)) void this.workspaceIpc.hintActive(path, nodeId);
   }
 
   private isReasoningEffort(value: unknown): value is ReasoningEffort {

@@ -22,7 +22,7 @@ import { AppLockService } from '../../core/app-lock.service';
     <div class="lock" role="dialog" aria-modal="true" aria-label="App locked">
       <div class="brand">
         <span class="glyph" aria-hidden="true">🔒</span>
-        <h1>AI Orchestrator</h1>
+        <h1>harness</h1>
         <p class="muted">Locked</p>
       </div>
 
