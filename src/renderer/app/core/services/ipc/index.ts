@@ -153,6 +153,7 @@ export class IpcFacadeService {
   createInstance = this.instance.createInstance.bind(this.instance);
   createInstanceWithMessage = this.instance.createInstanceWithMessage.bind(this.instance);
   sendInput = this.instance.sendInput.bind(this.instance);
+  steerInput = this.instance.steerInput.bind(this.instance);
   terminateInstance = this.instance.terminateInstance.bind(this.instance);
   interruptInstance = this.instance.interruptInstance.bind(this.instance);
   restartInstance = this.instance.restartInstance.bind(this.instance);

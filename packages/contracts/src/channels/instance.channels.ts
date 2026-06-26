@@ -17,6 +17,7 @@ export const INSTANCE_CHANNELS = {
   INSTANCE_FAST_TOGGLED: 'instance:fast-toggled',
   INSTANCE_CHANGE_MODEL: 'instance:change-model',
   INSTANCE_SEND_INPUT: 'instance:send-input',
+  INSTANCE_STEER_INPUT: 'instance:steer-input',
   INSTANCE_INTERRUPT: 'instance:interrupt',
   INSTANCE_STATE_UPDATE: 'instance:state-update',
   INSTANCE_BATCH_UPDATE: 'instance:batch-update',

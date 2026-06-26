@@ -24,6 +24,7 @@ import {
   InstanceRestartFreshPayloadSchema,
   InstanceRestartPayloadSchema,
   InstanceSendInputPayloadSchema,
+  InstanceSteerInputPayloadSchema,
   InstanceTerminatePayloadSchema,
   InstanceToggleFastModePayloadSchema,
   UserActionRespondRawPayloadSchema,
@@ -223,6 +224,47 @@ export function registerInstanceHandlers(deps: {
           success: false,
           error: {
             code: 'SEND_FAILED',
+            message: (error as Error).message,
+            timestamp: Date.now()
+          }
+        };
+      }
+    }
+  );
+
+  // Steer active turn through the main-process control plane.
+  ipcMain.handle(
+    IPC_CHANNELS.INSTANCE_STEER_INPUT,
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const validatedPayload = validateIpcPayload(
+          InstanceSteerInputPayloadSchema,
+          payload,
+          'INSTANCE_STEER_INPUT'
+        );
+
+        logger.info('IPC INSTANCE_STEER_INPUT received', {
+          instanceId: validatedPayload.instanceId,
+          messageLength: validatedPayload.message?.length,
+          attachmentsCount: validatedPayload.attachments?.length ?? 0,
+          attachmentNames: validatedPayload.attachments?.map((a) => a.name)
+        });
+
+        await instanceManager.steerInput(
+          validatedPayload.instanceId,
+          validatedPayload.message,
+          validatedPayload.attachments as import('../../../shared/types/instance.types').FileAttachment[] | undefined,
+        );
+
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'STEER_FAILED',
             message: (error as Error).message,
             timestamp: Date.now()
           }

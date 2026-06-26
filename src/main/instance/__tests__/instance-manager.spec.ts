@@ -181,6 +181,11 @@ vi.mock('../../logging/logger', () => ({
 // ---------------------------------------------------------------------------
 const mockAdapterSpawn = vi.fn().mockResolvedValue(12345);
 const mockAdapterSendInput = vi.fn().mockResolvedValue(undefined);
+const acceptedInterruptResult = () => ({
+  status: 'accepted' as const,
+  completion: Promise.resolve({ status: 'interrupted' as const }),
+});
+const mockAdapterInterrupt = vi.fn(acceptedInterruptResult);
 const mockAdapterTerminate = vi.fn().mockResolvedValue(undefined);
 const mockAutoTitleMaybeGenerate = vi.fn().mockResolvedValue(undefined);
 const mockAutoTitleClearInstance = vi.fn();
@@ -191,6 +196,7 @@ function makeMockAdapter() {
   const adapter = new EventEmitter() as EventEmitter & {
     spawn: () => Promise<number>;
     sendInput: (msg: string, attachments?: unknown[]) => Promise<void>;
+    interrupt: () => ReturnType<typeof acceptedInterruptResult>;
     terminate: (graceful: boolean) => Promise<void>;
     getName: () => string;
     getRuntimeCapabilities: () => {
@@ -205,6 +211,7 @@ function makeMockAdapter() {
   };
   adapter.spawn = mockAdapterSpawn;
   adapter.sendInput = mockAdapterSendInput;
+  adapter.interrupt = mockAdapterInterrupt;
   adapter.terminate = mockAdapterTerminate;
   adapter.getName = () => mockAdapterName;
   adapter.getRuntimeCapabilities = () => ({
@@ -773,6 +780,7 @@ describe('InstanceManager', () => {
     // Restore default mocks after clearAllMocks wipes them
     mockAdapterSpawn.mockResolvedValue(12345);
     mockAdapterSendInput.mockResolvedValue(undefined);
+    mockAdapterInterrupt.mockImplementation(acceptedInterruptResult);
     mockAdapterTerminate.mockResolvedValue(undefined);
     mockCreateCliAdapter.mockImplementation(() => makeMockAdapter());
     mockIndexedBuildContext.mockReset();
@@ -1525,6 +1533,32 @@ describe('InstanceManager', () => {
           event.event.content === 'user message text',
       );
       expect(userOutputs.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('steerInput interrupts the active turn then sends the follow-up through the main send path', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Main Steer Test',
+      });
+      await instance.readyPromise;
+      manager.updateInstanceStatus(instance.id, 'ready');
+      manager.updateInstanceStatus(instance.id, 'busy');
+      mockAdapterSendInput.mockClear();
+      mockAdapterInterrupt.mockClear();
+
+      await manager.steerInput(instance.id, 'stop and inspect the failing spec');
+
+      expect(mockAdapterInterrupt).toHaveBeenCalledTimes(1);
+      expect(mockAdapterSendInput).toHaveBeenCalledWith(
+        expect.stringContaining('stop and inspect the failing spec'),
+        undefined,
+      );
+      const userMessages = instance.outputBuffer.filter(
+        (message) =>
+          message.type === 'user' &&
+          message.content === 'stop and inspect the failing spec',
+      );
+      expect(userMessages).toHaveLength(1);
     });
 
     it('injects indexed codebase context into normal root user turns', async () => {

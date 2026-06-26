@@ -271,7 +271,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   override getAdapterCapabilities(): AdapterCapabilities {
     // Only advertise resident capabilities when the process is actually running
     // with an open stdin — not before spawn or after exit — AND the
-    // residentClaude flag is explicitly enabled by the caller.
+    // residentClaude is enabled for normal instance spawns; direct adapter
+    // callers/tests can still disable it explicitly.
     const residentEnabled = this.spawnOptions.residentClaude === true;
     const isResident = residentEnabled && this.isRealPipe();
     return {
@@ -293,7 +294,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
    * recovery (resolving respawnPromise only after the new process is ready).
    *
    * Falls back to the base-class SIGINT path when:
-   *  - `residentClaude` is not set to true in spawn options (default off), or
+   *  - `residentClaude` is not set to true in spawn options, or
    *  - the process or formatter is not currently live (pre-spawn, post-exit).
    */
   override interrupt(): InterruptResult {

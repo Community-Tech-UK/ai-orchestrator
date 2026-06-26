@@ -128,6 +128,7 @@ function makeMockInstanceManager(): InstanceManager {
     terminateInstance: vi.fn(),
     terminateAllInstances: vi.fn(),
     sendInput: vi.fn(),
+    steerInput: vi.fn(),
     interruptInstance: vi.fn(),
     restartInstance: vi.fn(),
     restartFreshInstance: vi.fn(),
@@ -458,6 +459,60 @@ describe('instance-handlers', () => {
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('SEND_FAILED');
+    });
+  });
+
+  // ----------------------------------------------------------
+  // INSTANCE_STEER_INPUT
+  // ----------------------------------------------------------
+
+  describe('INSTANCE_STEER_INPUT', () => {
+    it('steers an active turn through the main-process steer operation', async () => {
+      vi.mocked(mockInstanceManager.steerInput).mockResolvedValue(undefined);
+
+      const result = await invoke(IPC_CHANNELS.INSTANCE_STEER_INPUT, {
+        instanceId: 'inst-7',
+        message: 'Stop and inspect the failing spec instead',
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockInstanceManager.steerInput).toHaveBeenCalledWith(
+        'inst-7',
+        'Stop and inspect the failing spec instead',
+        undefined,
+      );
+    });
+
+    it('passes attachments through to steerInput', async () => {
+      vi.mocked(mockInstanceManager.steerInput).mockResolvedValue(undefined);
+
+      const attachments = [
+        { name: 'screenshot.png', type: 'image/png', size: 100, data: 'aGVsbG8=' },
+      ];
+
+      const result = await invoke(IPC_CHANNELS.INSTANCE_STEER_INPUT, {
+        instanceId: 'inst-7',
+        message: 'Use this image as the new direction',
+        attachments,
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockInstanceManager.steerInput).toHaveBeenCalledWith(
+        'inst-7',
+        'Use this image as the new direction',
+        attachments,
+      );
+    });
+
+    it('rejects invalid payload for INSTANCE_STEER_INPUT', async () => {
+      const result = await invoke(IPC_CHANNELS.INSTANCE_STEER_INPUT, {
+        instanceId: 'inst-7',
+        message: '',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.code).toBe('STEER_FAILED');
+      expect(mockInstanceManager.steerInput).not.toHaveBeenCalled();
     });
   });
 

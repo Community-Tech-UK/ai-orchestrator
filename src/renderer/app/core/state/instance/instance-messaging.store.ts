@@ -13,6 +13,7 @@ import type { Instance, InstanceStatus, OutputMessage, QueuedMessage } from './i
 import { PauseStore } from '../pause/pause.store';
 import {
   createQueuedMetadata,
+  inputFilesToAttachments,
   isActiveTurnStatus,
   isInterruptRecoveryStatus,
   isReadyForInputStatus,
@@ -279,9 +280,33 @@ export class InstanceMessagingStore {
       return;
     }
 
-    this.enqueueSteerMessage(targetInstanceId, { message, files, kind: 'steer' });
+    if (this.pauseStore.isPaused() || this.hasRecentInterruptRequest(targetInstanceId)) {
+      this.enqueueSteerMessage(targetInstanceId, { message, files, kind: 'steer' });
+      await this.requestInterruptForSteer(targetInstanceId, instance.status);
+      return;
+    }
 
-    await this.requestInterruptForSteer(targetInstanceId, instance.status);
+    const attachments = files && files.length > 0
+      ? await inputFilesToAttachments(targetInstanceId, files, 'steer', this.listStore, this.addErrorToOutput.bind(this))
+      : undefined;
+    if (attachments === null) return;
+
+    this.noteInterruptRequested(targetInstanceId);
+    const result = await this.sendInputWithTimeout(
+      this.ipc.steerInput(targetInstanceId, message, attachments),
+      this.getSendInputTimeoutMs(instance.provider)
+    );
+
+    if (!result.success) {
+      console.error('InstanceMessagingStore: steerInput failed', result.error);
+      this.interruptRequests.delete(targetInstanceId);
+      this.enqueueSteerMessage(targetInstanceId, { message, files, kind: 'steer' });
+      this.addErrorToOutput(
+        targetInstanceId,
+        `Steer message queued, but the active turn did not accept main-process steer:\n${result.error?.message || 'Failed to steer message'}`
+      );
+      await this.requestInterruptForSteer(targetInstanceId, instance.status);
+    }
   }
 
   async steerQueuedMessage(instanceId: string, index: number): Promise<void> {
@@ -395,32 +420,10 @@ export class InstanceMessagingStore {
       return;
     }
 
-    // Validate files first
-    if (files && files.length > 0) {
-      const validationErrors = this.listStore.validateFiles(files);
-      if (validationErrors.length > 0) {
-        const errorMessage = validationErrors.join('\n');
-        console.error('InstanceMessagingStore: File validation failed:', errorMessage);
-        this.addErrorToOutput(targetInstanceId, `Failed to send message:\n${errorMessage}`);
-        return;
-      }
-    }
-
-    // Convert files to base64 for IPC
-    let attachments;
-    try {
-      attachments =
-        files && files.length > 0
-          ? (await Promise.all(files.map((f) => this.listStore.fileToAttachments(f)))).flat()
-          : undefined;
-    } catch (error) {
-      console.error('InstanceMessagingStore: File conversion failed:', error);
-      this.addErrorToOutput(
-        targetInstanceId,
-        `Failed to process attachment: ${(error as Error).message}`
-      );
-      return;
-    }
+    const attachments = files && files.length > 0
+      ? await inputFilesToAttachments(targetInstanceId, files, 'send', this.listStore, this.addErrorToOutput.bind(this))
+      : undefined;
+    if (attachments === null) return;
 
     // Optimistically update status (only if not already in a terminal state)
     if (previousStatus !== 'failed' && previousStatus !== 'error' && previousStatus !== 'terminated') {

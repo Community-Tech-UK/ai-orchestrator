@@ -112,6 +112,8 @@ export class SettingsManager extends EventEmitter {
     this.migrateCliProviderAlias();
     // Existing installs may have persisted the old, heavy auto-index default.
     this.migrateLegacyCodebaseAutoIndexDefault();
+    // Existing installs may have persisted the pre-redesign Claude steer path.
+    this.migrateResidentClaudeDefault();
     // Existing installs may have persisted the old 15s auxiliary slot timeouts,
     // which are too short for a cold local-model load.
     this.migrateAuxiliarySlotTimeouts();
@@ -205,6 +207,18 @@ export class SettingsManager extends EventEmitter {
     }
 
     migrationStore.set(CODEBASE_AUTOINDEX_DISABLED_MIGRATION_KEY, true);
+  }
+
+  /**
+   * Claude steering should abort the turn through the resident stream protocol,
+   * not SIGINT + respawn. The setting is read-only, so old persisted `false`
+   * values are stale rollout state rather than user intent.
+   */
+  private migrateResidentClaudeDefault(): void {
+    if (this.store.get('residentClaudeSession') !== true) {
+      logger.info('Enabling resident Claude sessions for no-respawn steering');
+      this.store.set('residentClaudeSession', true);
+    }
   }
 
   /**

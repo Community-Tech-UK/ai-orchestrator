@@ -1,4 +1,5 @@
 import type { InstanceStatus, QueuedMessage } from './instance.types';
+import type { FileAttachment } from '../../../../../shared/types/instance.types';
 
 export interface SendInputImmediateOptions {
   skipUserBubble?: boolean;
@@ -82,4 +83,36 @@ export function pickQueuedMetadata(
   }
 
   return metadata;
+}
+
+export interface FileAttachmentAdapter {
+  validateFiles(files: File[]): string[];
+  fileToAttachments(file: File): Promise<FileAttachment[]>;
+}
+
+export async function inputFilesToAttachments(
+  instanceId: string,
+  files: File[],
+  action: 'send' | 'steer',
+  adapter: FileAttachmentAdapter,
+  addErrorToOutput: (instanceId: string, message: string) => void,
+): Promise<FileAttachment[] | null> {
+  const validationErrors = adapter.validateFiles(files);
+  if (validationErrors.length > 0) {
+    const errorMessage = validationErrors.join('\n');
+    console.error('InstanceMessagingStore: File validation failed:', errorMessage);
+    addErrorToOutput(instanceId, `Failed to ${action} message:\n${errorMessage}`);
+    return null;
+  }
+
+  try {
+    return (await Promise.all(files.map((f) => adapter.fileToAttachments(f)))).flat();
+  } catch (error) {
+    console.error('InstanceMessagingStore: File conversion failed:', error);
+    addErrorToOutput(
+      instanceId,
+      `Failed to process attachment: ${(error as Error).message}`
+    );
+    return null;
+  }
 }
