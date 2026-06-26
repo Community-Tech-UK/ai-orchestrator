@@ -135,6 +135,7 @@ vi.mock('child_process', async (importOriginal) => {
 });
 
 import { ClaudeCliAdapter, DEFER_MIN_VERSION } from '../claude-cli-adapter';
+import { InputFormatter } from '../../input-formatter';
 import { NdjsonParser } from '../../ndjson-parser';
 
 describe('ClaudeCliAdapter', () => {
@@ -745,6 +746,9 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
 
     it('sends SIGINT to the running process group and returns accepted', () => {
       const { adapter, proc } = adapterWithRunningProcess();
+      // Resident path requires a writable formatter; without one, base SIGINT fires.
+      // So ensure no formatter is set for this test.
+      (adapter as unknown as { formatter: null }).formatter = null;
       const killSpy = vi.spyOn(process, 'kill').mockImplementation(
         ((pid: number | string, signal?: NodeJS.Signals | number) => {
           expect(pid).toBe(-proc.pid);
@@ -761,6 +765,218 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
     it('returns already-idle when no process is running', () => {
       const adapter = new ClaudeCliAdapter({});
       expect(adapter.interrupt().status).toBe('already-idle');
+    });
+  });
+
+  describe('resident interrupt path (control_request / control_response)', () => {
+    function adapterWithResidentProcess(): {
+      adapter: ClaudeCliAdapter;
+      proc: FakeProc;
+      processCliMessage: (msg: unknown) => void;
+    } {
+      const adapter = new ClaudeCliAdapter({ residentClaude: true });
+      const proc = makeFakeProc();
+      // Simulate a live resident process: process + writable formatter.
+      (adapter as unknown as { process: FakeProc | null }).process = proc;
+      // Build a minimal writable-stdin formatter
+      (adapter as unknown as { formatter: InputFormatter | null }).formatter =
+        new InputFormatter(proc.stdin as unknown as import('stream').Writable);
+      const processCliMessage = (
+        adapter as unknown as { processCliMessage: (m: unknown) => void }
+      ).processCliMessage.bind(adapter);
+      return { adapter, proc, processCliMessage };
+    }
+
+    it('getAdapterCapabilities returns resident when process is alive and stdin writable', () => {
+      const { adapter } = adapterWithResidentProcess();
+      const caps = adapter.getAdapterCapabilities();
+      expect(caps.residentSession).toBe(true);
+      expect(caps.liveInterrupt).toBe(true);
+      expect(caps.liveSteer).toBe(true);
+    });
+
+    it('getAdapterCapabilities returns non-resident when no process', () => {
+      const adapter = new ClaudeCliAdapter({});
+      const caps = adapter.getAdapterCapabilities();
+      expect(caps.residentSession).toBe(false);
+      expect(caps.liveInterrupt).toBe(false);
+      expect(caps.liveSteer).toBe(false);
+    });
+
+    it('interrupt() sends control_request{interrupt} via stdin when process is resident', async () => {
+      const { adapter, proc } = adapterWithResidentProcess();
+      const result = adapter.interrupt();
+
+      expect(result.status).toBe('accepted');
+      expect(result.completion).toBeInstanceOf(Promise);
+
+      // stdin.write should have been called with a JSON containing control_request
+      const written = proc.stdin.write.mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .join('');
+      expect(written).toContain('"type":"control_request"');
+      expect(written).toContain('"subtype":"interrupt"');
+    });
+
+    it('interrupt() does NOT send SIGINT when process is resident', async () => {
+      const { adapter } = adapterWithResidentProcess();
+      const killSpy = vi.spyOn(process, 'kill');
+      adapter.interrupt();
+      expect(killSpy).not.toHaveBeenCalled();
+    });
+
+    it('control_response{success} resolves the interrupt completion promise', async () => {
+      const { adapter, processCliMessage } = adapterWithResidentProcess();
+      const result = adapter.interrupt();
+      expect(result.completion).toBeInstanceOf(Promise);
+
+      // Simulate CLI acknowledging the interrupt
+      processCliMessage({ type: 'control_response', subtype: 'interrupt', status: 'success' });
+
+      const completion = await result.completion!;
+      expect(completion.status).toBe('interrupted');
+    });
+
+    it('control_response{error} resolves completion with rejected status', async () => {
+      const { adapter, processCliMessage } = adapterWithResidentProcess();
+      const result = adapter.interrupt();
+
+      processCliMessage({
+        type: 'control_response',
+        subtype: 'interrupt',
+        status: 'error',
+        error: 'no active turn',
+      });
+
+      const completion = await result.completion!;
+      expect(completion.status).toBe('rejected');
+      expect(completion.reason).toContain('no active turn');
+    });
+
+    it('control_response with unknown subtype does not resolve the interrupt promise', () => {
+      const { adapter, processCliMessage } = adapterWithResidentProcess();
+      const result = adapter.interrupt();
+      // Send a control_response for a different subtype — should not resolve
+      processCliMessage({ type: 'control_response', subtype: 'other', status: 'success' });
+      // The promise should still be pending (not resolved/rejected within this tick)
+      let settled = false;
+      result.completion?.then(() => { settled = true; }).catch(() => { settled = true; });
+      // No microtask flush — promise should still be pending
+      expect(settled).toBe(false);
+    });
+
+    it('sendEndSession writes end_session JSON to stdin', async () => {
+      const { adapter, proc } = adapterWithResidentProcess();
+      await adapter.sendEndSession();
+      const written = proc.stdin.write.mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .join('');
+      expect(written).toContain('"type":"end_session"');
+    });
+
+    it('sendEndSession is a no-op when no formatter', async () => {
+      const adapter = new ClaudeCliAdapter({});
+      await expect(adapter.sendEndSession()).resolves.toBeUndefined();
+    });
+
+    it('residentClaude:false disables the resident interrupt path and falls through to SIGINT', () => {
+      const adapter = new ClaudeCliAdapter({ residentClaude: false });
+      const proc = makeFakeProc();
+      (adapter as unknown as { process: FakeProc | null }).process = proc;
+      (adapter as unknown as { formatter: InputFormatter | null }).formatter =
+        new InputFormatter(proc.stdin as unknown as import('stream').Writable);
+
+      const killSpy = vi.spyOn(process, 'kill').mockImplementation(
+        ((pid: number | string, signal?: NodeJS.Signals | number) => {
+          expect(pid).toBe(-proc.pid);
+          expect(signal).toBe('SIGINT');
+          return true;
+        }) as typeof process.kill,
+      );
+
+      const result = adapter.interrupt();
+      // Should fall through to SIGINT (no completion promise)
+      expect(result.status).toBe('accepted');
+      expect(result.completion).toBeUndefined();
+      expect(killSpy).toHaveBeenCalled();
+    });
+
+    it('process exit during resident interrupt leaves completion pending (exit handler owns recovery)', () => {
+      // When the process exits before control_response arrives, pendingInterruptResolve is
+      // cleared WITHOUT resolving. The exit event then fires, triggering onInterruptedExit()
+      // → respawnAfterInterrupt() which owns recovery and resolves respawnPromise only after
+      // the new process is ready. Resolving with 'rejected' here would prematurely settle
+      // the instance to idle (before the new process is spawned), unblocking sendInput()
+      // against a null formatter and losing the queued steer message.
+      const { adapter, proc } = adapterWithResidentProcess();
+      const result = adapter.interrupt();
+      expect(result.completion).toBeInstanceOf(Promise);
+
+      // Simulate process dying before control_response arrives
+      const handleExit = (adapter as unknown as { handleExit(code: number | null, signal: string | null): void }).handleExit.bind(adapter);
+      handleExit(1, null);
+
+      // The completion promise must NOT be settled by process exit — it stays pending
+      // until the 15s interrupt-completion deadline fires in handleInterruptCompletion.
+      // This ensures the exit handler path owns respawn rather than prematurely idling.
+      let settled = false;
+      result.completion?.then(() => { settled = true; }).catch(() => { settled = true; });
+      // No await — promise must still be pending after synchronous handleExit
+      expect(settled).toBe(false);
+
+      // Also verify pendingInterruptResolve was cleared (no double-settle risk)
+      const internals = adapter as unknown as { pendingInterruptResolve: unknown };
+      expect(internals.pendingInterruptResolve).toBeNull();
+
+      void proc; // referenced to suppress unused warning
+    });
+
+    it('stdin EPIPE during resident interrupt clears pendingInterruptResolve without resolving completion', async () => {
+      // When stdin.write fails (EPIPE) before control_response arrives, the catch
+      // handler clears pendingInterruptResolve WITHOUT resolving the completion promise.
+      // Same principle as the process-exit case: the exit handler path owns recovery.
+      const { adapter, proc } = adapterWithResidentProcess();
+
+      // Override stdin.write to fire the callback with an EPIPE error
+      proc.stdin.write = vi.fn((_chunk: unknown, _encoding?: unknown, cb?: unknown) => {
+        if (typeof cb === 'function') {
+          queueMicrotask(() => (cb as (e: Error) => void)(new Error('EPIPE: write to closed pipe')));
+        }
+        return true;
+      });
+
+      const result = adapter.interrupt();
+      expect(result.status).toBe('accepted');
+      expect(result.completion).toBeInstanceOf(Promise);
+
+      // Wait for the EPIPE catch handler to propagate through the promise chain:
+      // write-callback → sendRaw rejects → writeToStdin → sendControlRequest → .catch()
+      for (let i = 0; i < 6; i++) {
+        await Promise.resolve();
+      }
+
+      // pendingInterruptResolve must be cleared (exit handler owns recovery)
+      const internals = adapter as unknown as { pendingInterruptResolve: unknown };
+      expect(internals.pendingInterruptResolve).toBeNull();
+
+      // Completion must NOT be settled — the 15s deadline in handleInterruptCompletion
+      // handles early return; respawnAfterInterrupt() owns the actual recovery
+      let settled = false;
+      result.completion?.then(() => { settled = true; }).catch(() => { settled = true; });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+    });
+
+    it('residentClaude:false makes getAdapterCapabilities return non-resident', () => {
+      const adapter = new ClaudeCliAdapter({ residentClaude: false });
+      const proc = makeFakeProc();
+      (adapter as unknown as { process: FakeProc | null }).process = proc;
+      (adapter as unknown as { formatter: InputFormatter | null }).formatter =
+        new InputFormatter(proc.stdin as unknown as import('stream').Writable);
+      const caps = adapter.getAdapterCapabilities();
+      expect(caps.residentSession).toBe(false);
+      expect(caps.liveInterrupt).toBe(false);
+      expect(caps.liveSteer).toBe(false);
     });
   });
 });

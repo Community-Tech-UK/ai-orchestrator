@@ -2009,4 +2009,23 @@ Hey! I'm here. What do you want to tackle?`;
       });
     });
   });
+
+  describe('getAdapterCapabilities (AdapterCapabilities)', () => {
+    it('returns non-resident capabilities in exec (one-shot) mode', () => {
+      const adapter = new CodexCliAdapter();
+      const caps = adapter.getAdapterCapabilities();
+      expect(caps.residentSession).toBe(false);
+      expect(caps.liveInterrupt).toBe(false);
+      expect(caps.liveSteer).toBe(false);
+    });
+
+    it('returns resident capabilities when in app-server mode', () => {
+      const adapter = new CodexCliAdapter();
+      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+      const caps = adapter.getAdapterCapabilities();
+      expect(caps.residentSession).toBe(true);
+      expect(caps.liveInterrupt).toBe(true);
+      expect(caps.liveSteer).toBe(true);
+    });
+  });
 });

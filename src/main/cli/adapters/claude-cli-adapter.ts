@@ -8,6 +8,7 @@ import { homedir, tmpdir } from 'os';
 import { join } from 'path';
 import {
   BaseCliAdapter,
+  type AdapterCapabilities,
   AdapterRuntimeCapabilities,
   CliAdapterConfig,
   CliCapabilities,
@@ -17,7 +18,9 @@ import {
   CliToolCall,
   CliUsage,
   ndjsonSafeStringify,
+  type InterruptResult,
   type ResumeAttemptResult,
+  type TurnInterruptCompletion,
 } from './base-cli-adapter';
 import { NdjsonParser } from '../ndjson-parser';
 import { InputFormatter } from '../input-formatter';
@@ -116,6 +119,13 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private cliStatusPromise: Promise<CliStatus> | null = null;
   private lastResumeAttemptResult: ResumeAttemptResult | null = null;
   private lastRateLimitInfo: CliRateLimitInfo | null = null;
+  /**
+   * Resolver for the resident-interrupt completion promise.
+   * Set when `interrupt()` sends a `control_request{interrupt}` to stdin;
+   * resolved when `control_response{status:'success'}` arrives on stdout
+   * or on error/timeout. Non-null only during an active resident interrupt.
+   */
+  private pendingInterruptResolve: ((result: TurnInterruptCompletion) => void) | null = null;
 
   constructor(options: ClaudeCliSpawnOptions = {}) {
     // Build env passthrough for the spawned CLI process. The PreToolUse hook
@@ -244,6 +254,106 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       // there is no native hook).
       selfManagedAutoCompaction: true,
     };
+  }
+
+  /**
+   * Resident-session capability descriptor.
+   *
+   * Claude CLI in `--print --input-format stream-json` mode keeps stdin open,
+   * accepts `control_request{interrupt}` to abort a turn without exiting, and
+   * then awaits the next `user` message on stdin for the next turn. That makes
+   * it a fully resident, steerable server.
+   *
+   * The adapter sets capabilities to `{true,true,true}` when the process is
+   * alive and the formatter is open. The orchestrator uses this to skip the
+   * SIGINT + respawn cycle and instead steer via stdin messages.
+   */
+  override getAdapterCapabilities(): AdapterCapabilities {
+    // Only advertise resident capabilities when the process is actually running
+    // with an open stdin — not before spawn or after exit — AND the
+    // residentClaude flag is explicitly enabled by the caller.
+    const residentEnabled = this.spawnOptions.residentClaude === true;
+    const isResident = residentEnabled && this.isRealPipe();
+    return {
+      residentSession: isResident,
+      liveInterrupt: isResident,
+      liveSteer: isResident,
+    };
+  }
+
+  /**
+   * Resident interrupt: sends `control_request{interrupt}` to stdin instead of
+   * SIGINT. The CLI aborts the in-flight turn, stays alive, and replies with
+   * `control_response{status:'success'}`. Returns a completion promise that
+   * resolves when the response arrives.
+   *
+   * If the stdin write fails (EPIPE) or the process exits before `control_response`,
+   * the completion promise is left pending — the 15s deadline in handleInterruptCompletion
+   * causes it to return early, and onInterruptedExit() → respawnAfterInterrupt() owns
+   * recovery (resolving respawnPromise only after the new process is ready).
+   *
+   * Falls back to the base-class SIGINT path when:
+   *  - `residentClaude` is not set to true in spawn options (default off), or
+   *  - the process or formatter is not currently live (pre-spawn, post-exit).
+   */
+  override interrupt(): InterruptResult {
+    if (this.spawnOptions.residentClaude === true && this.isRealPipe() && this.formatter) {
+      // Resident path: protocol-level interrupt, no SIGINT, process stays alive.
+      let resolve!: (result: TurnInterruptCompletion) => void;
+      const completion = new Promise<TurnInterruptCompletion>((res) => {
+        resolve = res;
+      });
+      this.pendingInterruptResolve = resolve;
+
+      this.formatter.sendControlRequest('interrupt').catch((err: unknown) => {
+        // stdin write failed (EPIPE / process already exiting).
+        // Clear the resolver WITHOUT resolving it — do NOT settle to 'rejected' here.
+        // The process is dying, so handleExit() will fire → exit event →
+        // onInterruptedExit() → respawnAfterInterrupt() owns the recovery.
+        // Resolving with 'rejected' would cause handleInterruptCompletion() to
+        // prematurely settle to idle (before the new process is ready), unblocking
+        // sendInput() against a null formatter and losing the queued steer message.
+        // The 15s interrupt-completion deadline + force-abort net handle stuck processes.
+        logger.warn('Failed to send control_request interrupt; deferring recovery to exit handler', {
+          sessionId: this.sessionId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        if (this.pendingInterruptResolve === resolve) {
+          this.pendingInterruptResolve = null;
+        }
+      });
+
+      logger.info('Sent control_request interrupt (resident path)', {
+        sessionId: this.sessionId,
+        pid: this.getPid(),
+      });
+      return { status: 'accepted', completion };
+    }
+
+    // Fallback: process is not resident (already dead or pre-spawn) — use SIGINT.
+    logger.info('Falling back to SIGINT interrupt (process not resident)', {
+      sessionId: this.sessionId,
+      pid: this.getPid(),
+    });
+    return super.interrupt();
+  }
+
+  /**
+   * Send `end_session` to gracefully tear down the resident CLI process.
+   * Called during instance termination to let the CLI flush its transcript.
+   */
+  async sendEndSession(): Promise<void> {
+    if (!this.isRealPipe() || !this.formatter) return;
+    try {
+      const endSessionMsg = ndjsonSafeStringify({ type: 'end_session' });
+      await this.formatter.sendRaw(endSessionMsg);
+      logger.info('Sent end_session to Claude CLI', { sessionId: this.sessionId });
+    } catch (err) {
+      logger.debug('sendEndSession failed (process already closed)', {
+        sessionId: this.sessionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   /**
@@ -1304,6 +1414,18 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       this.processCliMessage(message);
     }
 
+    // Clear any in-flight resident interrupt WITHOUT resolving it.
+    // Do NOT resolve with 'rejected' here: the 'exit' event (emitted below) triggers
+    // onInterruptedExit() → respawnAfterInterrupt(), which resolves respawnPromise only
+    // after the new process is ready. Resolving the completion promise here with 'rejected'
+    // would cause handleInterruptCompletion() to prematurely settle the instance to idle,
+    // unblocking sendInput() against a null formatter and losing the queued steer message.
+    // handleInterruptCompletion() will time out via its 15s deadline and return early;
+    // the force-abort net (30s) is cancelled by resolveRespawnPromise() in respawnAfterInterrupt().
+    if (this.pendingInterruptResolve) {
+      this.pendingInterruptResolve = null;
+    }
+
     this.process = null;
     this.formatter = null;
     this.parser.reset();
@@ -1967,6 +2089,34 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
             status,
             rateLimitType: info?.rateLimitType,
             resetsAt: info?.resetsAt,
+          });
+        }
+        break;
+      }
+
+      case 'control_response': {
+        // Resident-interrupt acknowledgement from Claude CLI.
+        // Resolves the completion promise returned by interrupt() so the
+        // orchestrator can proceed without a respawn cycle.
+        const ctrl = raw as { subtype?: string; status?: string; error?: string };
+        if (ctrl.subtype === 'interrupt' && this.pendingInterruptResolve) {
+          const resolve = this.pendingInterruptResolve;
+          this.pendingInterruptResolve = null;
+          if (ctrl.status === 'success') {
+            logger.info('Resident interrupt acknowledged by CLI', { sessionId: this.sessionId });
+            resolve({ status: 'interrupted' });
+          } else {
+            logger.warn('control_response interrupt non-success', {
+              status: ctrl.status,
+              error: ctrl.error,
+              sessionId: this.sessionId,
+            });
+            resolve({ status: 'rejected', reason: ctrl.error ?? `control_response status=${ctrl.status}` });
+          }
+        } else {
+          logger.debug('control_response received with no pending resolver', {
+            subtype: ctrl.subtype,
+            status: ctrl.status,
           });
         }
         break;

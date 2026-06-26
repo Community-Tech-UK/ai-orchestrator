@@ -65,6 +65,13 @@ export interface AppSettings {
    * to `defaultFastMode`.
    */
   defaultFastModeByProvider: Record<string, boolean>;
+  /**
+   * Enable the resident-session interrupt path for Claude (Phase 2c rollout gate).
+   * When true, the Claude adapter sends `control_request{interrupt}` to stdin instead
+   * of SIGINT, keeping the process alive across turns.
+   * Default false — flip to true after soak validation.
+   */
+  residentClaudeSession: boolean;
   theme: ThemeMode;
 
   // Orchestration
@@ -431,6 +438,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultModelByProvider: {},
   defaultFastMode: false,
   defaultFastModeByProvider: {},
+  residentClaudeSession: false,
   theme: 'dark',
 
   // Orchestration

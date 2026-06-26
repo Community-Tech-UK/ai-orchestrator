@@ -120,6 +120,7 @@ export const SETTINGS_TOOL_POLICY = {
   defaultModelByProvider: open(modelByProviderSchema),
   defaultFastMode: open(z.boolean()),
   defaultFastModeByProvider: open(fastModeByProviderSchema),
+  residentClaudeSession: readOnly(),
   theme: open(themeSchema),
   maxChildrenPerParent: open(numberSettingSchema('maxChildrenPerParent')),
   maxTotalInstances: open(numberSettingSchema('maxTotalInstances')),

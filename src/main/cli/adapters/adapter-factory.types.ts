@@ -69,6 +69,10 @@ export interface UnifiedSpawnOptions {
    *  settings key (Opus-only); Codex → `priority` service tier. Ignored by
    *  providers that don't support it. */
   fastMode?: boolean;
+  /** Enable the resident-session interrupt path for Claude (Phase 2c gate).
+   *  When true, uses `control_request{interrupt}` instead of SIGINT.
+   *  Defaults false — set from AppSettings.residentClaudeSession. */
+  residentClaude?: boolean;
   /** Minimal mode (Claude CLI only): skip hooks, LSP, plugins for faster startup.
    *  Requires explicit API key — OAuth/keychain auth is skipped. Defaults to false. */
   bare?: boolean;
