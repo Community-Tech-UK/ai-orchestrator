@@ -41,6 +41,7 @@ describe('InstanceMessagingStore', () => {
 
   const ipcMock = {
     sendInput: vi.fn(),
+    steerInput: vi.fn(),
   };
 
   const listStoreMock = {
@@ -53,6 +54,8 @@ describe('InstanceMessagingStore', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     ipcMock.sendInput.mockReset();
+    ipcMock.steerInput.mockReset();
+    ipcMock.steerInput.mockResolvedValue({ success: true });
     listStoreMock.validateFiles.mockReset();
     listStoreMock.validateFiles.mockReturnValue([]);
     listStoreMock.fileToAttachments.mockReset();
@@ -358,7 +361,7 @@ describe('InstanceMessagingStore', () => {
     ]);
   });
 
-  it('queues steer messages ahead of passive queued messages and interrupts once', async () => {
+  it('delegates active-turn steer to the main process without local queue/interrupt races', async () => {
     const currentStore = store!;
     const currentStateService = stateService!;
     currentStateService.addInstance(createInstance({ status: 'busy' }));
@@ -367,10 +370,10 @@ describe('InstanceMessagingStore', () => {
     await currentStore.steerInput('inst-1', 'stop and do this');
 
     expect(ipcMock.sendInput).not.toHaveBeenCalled();
-    expect(listStoreMock.interruptInstance).toHaveBeenCalledTimes(1);
-    expect(listStoreMock.interruptInstance).toHaveBeenCalledWith('inst-1');
+    expect(ipcMock.steerInput).toHaveBeenCalledTimes(1);
+    expect(ipcMock.steerInput).toHaveBeenCalledWith('inst-1', 'stop and do this', undefined);
+    expect(listStoreMock.interruptInstance).not.toHaveBeenCalled();
     expect(currentStore.getMessageQueue('inst-1')).toEqual([
-      { message: 'stop and do this', files: undefined, kind: 'steer' },
       { message: 'later', files: undefined },
     ]);
   });

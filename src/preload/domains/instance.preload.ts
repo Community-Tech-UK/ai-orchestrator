@@ -63,6 +63,17 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       return ipcRenderer.invoke(ch.INSTANCE_SEND_INPUT, payload);
     },
 
+    /**
+     * Steer the active turn with a follow-up message.
+     */
+    steerInput: (payload: {
+      instanceId: string;
+      message: string;
+      attachments?: unknown[];
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTANCE_STEER_INPUT, payload);
+    },
+
     instanceQueueSave: (payload: {
       instanceId: string;
       queue: {

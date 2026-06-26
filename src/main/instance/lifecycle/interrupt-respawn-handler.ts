@@ -112,6 +112,13 @@ const INTERRUPT_FORCE_ABORT_MS = 30_000;
 /** Deadline for `handleInterruptCompletion()` to receive a provider completion. */
 const INTERRUPT_COMPLETION_DEADLINE_MS = 15_000;
 
+function residentClaudeForSpawn(instance: Instance): boolean {
+  if (instance.residentClaude !== true) {
+    instance.residentClaude = true;
+  }
+  return true;
+}
+
 export interface InterruptRespawnDeps {
   // readers
   getInstance: (id: string) => Instance | undefined;
@@ -838,7 +845,7 @@ export class InterruptRespawnHandler {
         yoloMode: instance.yoloMode,
         model: instance.currentModel,
         bare: instance.bareMode === true,
-        residentClaude: instance.residentClaude ?? false,
+        residentClaude: residentClaudeForSpawn(instance),
         resume: shouldResume,
         forkSession: shouldForkSession,
         mcpConfig: this.deps.getMcpConfig(instance.executionLocation, instance.id, cliType),
@@ -1220,7 +1227,7 @@ export class InterruptRespawnHandler {
         yoloMode: instance.yoloMode,
         model: instance.currentModel,
         bare: instance.bareMode === true,
-        residentClaude: instance.residentClaude ?? false,
+        residentClaude: residentClaudeForSpawn(instance),
         resume: shouldResume,
         forkSession: shouldForkSession,
         mcpConfig: this.deps.getMcpConfig(instance.executionLocation, instance.id, cliType),

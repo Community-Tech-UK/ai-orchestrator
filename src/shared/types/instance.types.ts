@@ -401,9 +401,9 @@ export interface Instance {
    */
   fastMode?: boolean;
   /**
-   * Whether to use the resident-session interrupt path for Claude (Phase 2c gate).
-   * Set from AppSettings.residentClaudeSession at instance creation; carried
-   * forward on respawns so all adapters for this instance use the same setting.
+   * Whether to use the resident-session interrupt path for Claude.
+   * Normal instance spawns migrate this on so steering aborts the current turn
+   * without respawning the process.
    */
   residentClaude?: boolean;
   currentModel?: string; // Current model override (e.g., 'gpt-5.3-codex')

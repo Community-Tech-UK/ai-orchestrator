@@ -93,6 +93,11 @@ export class InstanceIpcService {
     return this.api.sendInput({ instanceId, message, attachments, isRetry });
   }
 
+  async steerInput(instanceId: string, message: string, attachments?: FileAttachment[]): Promise<IpcResponse> {
+    if (!this.api?.steerInput) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.steerInput({ instanceId, message, attachments });
+  }
+
   async instanceQueueSave(instanceId: string, queue: PersistedQueuedMessage[]): Promise<IpcResponse> {
     if (!this.api?.instanceQueueSave) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.instanceQueueSave({ instanceId, queue });

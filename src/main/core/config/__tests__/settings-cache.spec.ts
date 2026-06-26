@@ -120,6 +120,14 @@ describe('SettingsManager settings cache', () => {
     expect(mgr.get('codebaseAutoIndexEnabled')).toBe(true);
   });
 
+  it('migrates persisted resident Claude sessions to enabled', () => {
+    store['residentClaudeSession'] = false;
+
+    const mgr = new SettingsManager();
+
+    expect(mgr.get('residentClaudeSession')).toBe(true);
+  });
+
   it('merges missing auxiliary slots once during construction', () => {
     store['__migration_auxiliary_slot_timeouts_20260606'] = true;
     store['__migration_auxiliary_frontier_fallback_20260606'] = true;

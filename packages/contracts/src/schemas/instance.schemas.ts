@@ -58,15 +58,17 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
 
 // ============ Instance Input ============
 
+const InstanceInputAttachmentSchema = z.object({
+  name: z.string().max(500),
+  type: z.string().max(100),
+  size: z.number().int().min(0).max(50 * 1024 * 1024),
+  data: z.string().optional(),
+});
+
 export const InstanceSendInputPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
   message: z.string().max(500000),
-  attachments: z.array(z.object({
-    name: z.string().max(500),
-    type: z.string().max(100),
-    size: z.number().int().min(0).max(50 * 1024 * 1024),
-    data: z.string().optional(),
-  })).max(10).optional(),
+  attachments: z.array(InstanceInputAttachmentSchema).max(10).optional(),
   isRetry: z.boolean().optional(),
   /**
    * Optional stable key for at-most-once delivery (B2). A retried send carrying
@@ -80,6 +82,17 @@ export const InstanceSendInputPayloadSchema = z.object({
 );
 
 export type InstanceSendInputPayload = z.infer<typeof InstanceSendInputPayloadSchema>;
+
+export const InstanceSteerInputPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  message: z.string().max(500000),
+  attachments: z.array(InstanceInputAttachmentSchema).max(10).optional(),
+}).refine(
+  (data) => data.message.trim().length > 0 || (data.attachments && data.attachments.length > 0),
+  { message: 'Either message must be non-empty or attachments must be provided' }
+);
+
+export type InstanceSteerInputPayload = z.infer<typeof InstanceSteerInputPayloadSchema>;
 
 // ============ Output History ============
 

@@ -112,6 +112,12 @@ const logger = getLogger('InstanceManager');
 const CHILD_STARTUP_TIMEOUT_MS = 60_000;
 const INPUT_PREFLIGHT_DEADLINE_MS = 5_000;
 const INPUT_CONTEXT_DEADLINE_MS = 500;
+const STEER_INTERRUPT_STATUSES = new Set<InstanceStatus>([
+  'busy',
+  'processing',
+  'thinking_deeply',
+  'waiting_for_permission',
+]);
 
 interface InputContextBundle {
   rlmContext: RlmContextInfo | null;
@@ -1270,6 +1276,30 @@ export class InstanceManager extends EventEmitter {
 
   interruptInstance(instanceId: string): boolean {
     return this.lifecycle.interruptInstance(instanceId);
+  }
+
+  async steerInput(
+    instanceId: string,
+    message: string,
+    attachments?: FileAttachment[],
+  ): Promise<void> {
+    const instance = this.state.getInstance(instanceId);
+    if (!instance) {
+      throw new Error(`Instance ${instanceId} not found`);
+    }
+
+    if (getPauseCoordinator().isPaused()) {
+      throw new OrchestratorPausedError('Instance steer refused while orchestrator is paused');
+    }
+
+    if (STEER_INTERRUPT_STATUSES.has(instance.status)) {
+      const interrupted = this.lifecycle.interruptInstance(instanceId);
+      if (!interrupted) {
+        throw new Error(`Instance ${instanceId} did not accept steer interrupt`);
+      }
+    }
+
+    await this.sendInput(instanceId, message, attachments);
   }
 
   async hibernateInstance(instanceId: string): Promise<void> {
