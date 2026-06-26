@@ -1368,6 +1368,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           defaultFastMode: settingsAll.defaultFastMode,
         });
         instance.fastMode = resolvedFastMode;
+        instance.residentClaude = settingsAll.residentClaudeSession ?? false;
         instance.contextUsage = {
           ...instance.contextUsage,
           total: getProviderModelContextWindow(resolvedCliType, resolvedModel),
@@ -1395,6 +1396,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           bare: instance.bareMode === true,
           reasoningEffort: config.reasoningEffort,
           fastMode: resolvedFastMode,
+          residentClaude: instance.residentClaude ?? false,
           allowedTools: toolPermissions.allowedTools,
           disallowedTools: toolPermissions.disallowedToolsForSpawn,
           resume: config.resume,
@@ -1877,6 +1879,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           bare: instance.bareMode === true,
           model: instance.currentModel,
           fastMode: instance.fastMode,
+          residentClaude: instance.residentClaude ?? false,
           resume: canAttemptNativeResume,
           mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
           chromeDevtoolsMcp: this.spawnConfigBuilder.getChromeDevtoolsMcpOptions(instance.executionLocation) ?? undefined,
@@ -2067,6 +2070,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         launchMode: instance.launchMode,
         model: instance.currentModel,
         fastMode: instance.fastMode,
+        residentClaude: instance.residentClaude ?? false,
         resume: true,
         forkSession: false,
         mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
@@ -2143,6 +2147,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         launchMode: instance.launchMode,
         model: instance.currentModel,
         fastMode: instance.fastMode,
+        residentClaude: instance.residentClaude ?? false,
         resume: false,
         forkSession: false,
         mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType),
@@ -2546,6 +2551,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         launchMode: instance.launchMode,
         model: instance.currentModel,
         fastMode: instance.fastMode,
+        residentClaude: instance.residentClaude ?? false,
         allowedTools: toolPermissions.allowedTools,
         disallowedTools: toolPermissions.disallowedToolsForSpawn,
         bare: instance.bareMode === true,
@@ -2754,6 +2760,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         launchMode: instance.launchMode,
         bare: instance.bareMode === true,
         fastMode: instance.fastMode,
+        residentClaude: instance.residentClaude ?? false,
         allowedTools: toolPermissions.allowedTools,
         disallowedTools: toolPermissions.disallowedToolsForSpawn,
         resume: shouldResume,
@@ -3081,6 +3088,7 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
         bare: instance.bareMode === true,
         reasoningEffort: nextReasoningEffort,
         fastMode: instance.fastMode,
+        residentClaude: instance.residentClaude ?? false,
         allowedTools: toolPermissions.allowedTools,
         disallowedTools: toolPermissions.disallowedToolsForSpawn,
         resume: shouldResume,

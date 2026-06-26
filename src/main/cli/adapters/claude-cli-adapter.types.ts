@@ -126,6 +126,18 @@ export interface ClaudeCliSpawnOptions {
    *  requires a paid subscription/credits. The CLI surfaces a "fast mode
    *  unavailable" notice when it can't honor it. Defaults to false. */
   fastMode?: boolean;
+  /**
+   * Enable the resident-session interrupt path (Phase 2c rollout gate).
+   *
+   * When true, the adapter sends `control_request{interrupt}` to stdin instead
+   * of SIGINT, keeping the Claude CLI process alive across turns and allowing
+   * mid-turn steer messages to be delivered without a respawn cycle.
+   *
+   * Defaults to false (opt-in). Set via AppSettings.residentClaudeSession —
+   * flip that setting to true after soak validation to enable for all instances.
+   * Pass `true` explicitly in tests or when calling the adapter directly.
+   */
+  residentClaude?: boolean;
   /** Minimal mode (--bare): skips hooks, LSP, plugins, auto-memory, CLAUDE.md
    *  auto-discovery, and keychain reads for faster startup (~14% faster).
    *  Requires explicit ANTHROPIC_API_KEY or apiKeyHelper — OAuth/keychain auth

@@ -172,6 +172,7 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     mcpConfig: buildClaudeMcpConfig(options),
     reasoningEffort: options.reasoningEffort,
     fastMode: options.fastMode,
+    residentClaude: options.residentClaude,
     bare: options.bare,
     name: options.name,
     // Default prompt-section exclusion to true for orchestrated instances —

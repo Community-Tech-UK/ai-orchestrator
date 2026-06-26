@@ -168,13 +168,19 @@ export class ContextWarningComponent {
   message = computed(() => {
     const pct = Math.round(this.percentage());
     const estimatedNote = this.isEstimated() ? ' (estimated)' : '';
+    const prefix = `Context at ~${pct}%${estimatedNote}`;
+    // Only claim a compaction is underway when one actually is. Otherwise the
+    // banner contradicts the "Compact Now" button shown alongside it.
+    if (this.isCompacting()) {
+      return `${prefix} \u2014 compacting...`;
+    }
     switch (this.level()) {
       case 'emergency':
-        return `Context at ~${pct}%${estimatedNote} \u2014 compaction required`;
+        return `${prefix} \u2014 compaction required`;
       case 'critical':
-        return `Context at ~${pct}%${estimatedNote} \u2014 compacting...`;
+        return `${prefix} \u2014 compaction recommended`;
       default:
-        return `Context at ~${pct}%${estimatedNote} \u2014 auto-compact at 80%`;
+        return `${prefix} \u2014 auto-compact at 80%`;
     }
   });
 

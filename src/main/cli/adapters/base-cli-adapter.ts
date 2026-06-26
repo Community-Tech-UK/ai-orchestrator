@@ -16,6 +16,7 @@ import type { FileAttachment } from '../../../shared/types/instance.types';
 import { estimateTokens as sharedEstimateTokens } from '../../../shared/utils/token-estimate';
 import type { DegradedOutputSignals } from './degraded-output-classifier';
 import type {
+  AdapterCapabilities,
   AdapterRuntimeCapabilities,
   CliAdapterConfig,
   CliCapabilities,
@@ -58,6 +59,7 @@ export interface SpawnTarget {
 }
 
 export type {
+  AdapterCapabilities,
   AdapterRuntimeCapabilities,
   CliAdapterConfig,
   CliAdapterEvents,
@@ -443,6 +445,22 @@ export abstract class BaseCliAdapter extends EventEmitter {
       supportsDeferPermission: false,
       selfManagedAutoCompaction: false,
     };
+  }
+
+  /**
+   * Steer/interrupt capabilities for the resident-session redesign.
+   *
+   * When `liveInterrupt` is true, the orchestrator sends a `control_request`
+   * (or provider-equivalent) instead of SIGINT to abort a turn, and the
+   * process stays alive. When `liveSteer` is true, a new user message can be
+   * delivered to the same process immediately after the interrupt without a
+   * spawn cycle.
+   *
+   * Subclasses override this when they support resident operation (e.g. Claude
+   * in `--print --input-format stream-json` mode, Codex app-server).
+   */
+  getAdapterCapabilities(): AdapterCapabilities {
+    return { residentSession: false, liveInterrupt: false, liveSteer: false };
   }
 
   // ============ Protected Helper Methods ============

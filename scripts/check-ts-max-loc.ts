@@ -79,7 +79,7 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — CLI adapters
   'src/main/cli/adapters/acp-cli-adapter.ts': 2142,
   'src/main/cli/adapters/base-cli-adapter.ts': 899,
-  'src/main/cli/adapters/claude-cli-adapter.ts': 2097,
+  'src/main/cli/adapters/claude-cli-adapter.ts': 2218,
   'src/main/cli/adapters/codex-cli-adapter.ts': 3308,
   'src/main/cli/adapters/copilot-cli-adapter.ts': 1014,
   'src/main/cli/adapters/cursor-cli-adapter.ts': 1083,

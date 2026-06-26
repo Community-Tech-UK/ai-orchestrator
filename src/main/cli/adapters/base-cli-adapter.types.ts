@@ -51,6 +51,25 @@ export interface CliCapabilities {
 }
 
 /**
+ * Steer/interrupt capabilities that determine whether the adapter supports
+ * resident-session (no-respawn) interrupt and steer operations.
+ *
+ * - `residentSession` — the process survives across turns; no respawn between messages.
+ * - `liveInterrupt`   — can abort a turn without killing the process (via a protocol
+ *                       message rather than SIGINT). Requires `residentSession`.
+ * - `liveSteer`       — can deliver a new user message into the running process after
+ *                       an interrupt without a spawn cycle. Requires `liveInterrupt`.
+ *
+ * Defaults: all false (one-shot / SIGINT-based model). Adapters override
+ * `getAdapterCapabilities()` when they support resident operation.
+ */
+export interface AdapterCapabilities {
+  residentSession: boolean;
+  liveInterrupt: boolean;
+  liveSteer: boolean;
+}
+
+/**
  * Runtime orchestration capabilities that influence lifecycle behavior.
  */
 export interface AdapterRuntimeCapabilities {

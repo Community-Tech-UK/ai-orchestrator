@@ -5112,11 +5112,11 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3382
+      "lines": 3390
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
-      "lines": 3330
+      "lines": 3343
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
@@ -5175,6 +5175,10 @@
       "lines": 2339
     },
     {
+      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
+      "lines": 2247
+    },
+    {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
       "lines": 2220
     },
@@ -5195,10 +5199,6 @@
       "lines": 2108
     },
     {
-      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2097
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-13-codemem-phase1-index-and-lsp-facade_completed.md",
       "lines": 2091
     },
@@ -5216,7 +5216,7 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
-      "lines": 2013
+      "lines": 2032
     },
     {
       "path": "docs/superpowers/plans/2026-04-17-wave1-contracts-subpath-exports.md",
@@ -5316,7 +5316,7 @@
     },
     {
       "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
-      "lines": 1424
+      "lines": 1426
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency.md",
@@ -5615,6 +5615,10 @@
       "lines": 988
     },
     {
+      "path": "src/main/cli/adapters/__tests__/claude-cli-adapter.spec.ts",
+      "lines": 983
+    },
+    {
       "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
       "lines": 983
     },
@@ -5695,12 +5699,12 @@
       "lines": 924
     },
     {
-      "path": "src/main/history/history-manager.spec.ts",
-      "lines": 909
+      "path": "src/main/cli/adapters/base-cli-adapter.ts",
+      "lines": 917
     },
     {
-      "path": "src/main/cli/adapters/base-cli-adapter.ts",
-      "lines": 899
+      "path": "src/main/history/history-manager.spec.ts",
+      "lines": 909
     },
     {
       "path": "src/main/workspace/lsp-manager.ts",

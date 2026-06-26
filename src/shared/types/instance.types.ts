@@ -400,6 +400,12 @@ export interface Instance {
    * toggleable live via `toggleFastMode`. Providers without support ignore it.
    */
   fastMode?: boolean;
+  /**
+   * Whether to use the resident-session interrupt path for Claude (Phase 2c gate).
+   * Set from AppSettings.residentClaudeSession at instance creation; carried
+   * forward on respawns so all adapters for this instance use the same setting.
+   */
+  residentClaude?: boolean;
   currentModel?: string; // Current model override (e.g., 'gpt-5.3-codex')
   reasoningEffort?: ReasoningEffort; // Optional model thinking/reasoning effort override
 

@@ -118,6 +118,18 @@ export interface CliElicitationMessage extends CliStreamMessageBase {
 }
 
 /**
+ * Control response from Claude CLI in resident streaming mode
+ * (`--print --input-format stream-json`).
+ * Emitted on stdout in response to a `control_request` message sent on stdin.
+ */
+export interface CliControlResponseMessage extends CliStreamMessageBase {
+  type: 'control_response';
+  subtype: 'interrupt' | string;
+  status: 'success' | 'error';
+  error?: string;
+}
+
+/**
  * Rate-limit usage telemetry emitted by the Anthropic CLI. `status: 'allowed'`
  * is the steady state (no action needed); other statuses indicate active
  * throttling. `resetsAt` is a unix timestamp in SECONDS.
@@ -164,7 +176,8 @@ export type CliStreamMessage =
   | CliErrorMessage
   | CliInputRequiredMessage
   | CliElicitationMessage
-  | CliRateLimitEventMessage;
+  | CliRateLimitEventMessage
+  | CliControlResponseMessage;
 
 /**
  * Type guard functions

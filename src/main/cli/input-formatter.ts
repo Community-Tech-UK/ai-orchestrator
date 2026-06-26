@@ -134,6 +134,18 @@ export class InputFormatter {
   }
 
   /**
+   * Send a `control_request` message to the CLI (resident streaming mode only).
+   * Used to abort the in-flight turn without killing the process; the CLI replies
+   * with `control_response {status:'success'}` and stays resident for the next turn.
+   *
+   * @param subtype - control request subtype, e.g. `'interrupt'`
+   */
+  async sendControlRequest(subtype: string): Promise<void> {
+    logger.debug('sendControlRequest called', { subtype });
+    await this.writeToStdin({ type: 'control_request', subtype });
+  }
+
+  /**
    * Close the stdin stream
    */
   close(): void {

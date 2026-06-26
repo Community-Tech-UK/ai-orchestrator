@@ -38,6 +38,7 @@ import {
   CliToolCall,
   ResumeAttemptResult,
   TurnInterruptCompletion,
+  type AdapterCapabilities,
 } from './base-cli-adapter';
 import type { ContextUsage, FileAttachment, InstanceStatus, OutputMessage, ThinkingContent } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
@@ -657,6 +658,18 @@ export class CodexCliAdapter extends BaseCliAdapter {
   /** Whether app-server mode is currently active. */
   isAppServerMode(): boolean {
     return this.useAppServer;
+  }
+
+  override getAdapterCapabilities(): AdapterCapabilities {
+    // app-server mode is a persistent, resident process: interrupt via
+    // `turn/interrupt` RPC (no SIGINT) and steer via the next `turn/start` call.
+    // exec fallback is one-shot: each message spawns a fresh process.
+    const resident = this.useAppServer;
+    return {
+      residentSession: resident,
+      liveInterrupt: resident,
+      liveSteer: resident,
+    };
   }
 
   // ═══════════════════════════════════════════════════════════════════════
