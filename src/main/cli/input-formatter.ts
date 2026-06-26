@@ -136,13 +136,25 @@ export class InputFormatter {
   /**
    * Send a `control_request` message to the CLI (resident streaming mode only).
    * Used to abort the in-flight turn without killing the process; the CLI replies
-   * with `control_response {status:'success'}` and stays resident for the next turn.
+   * with `control_response {response:{subtype:'success', request_id}}` and stays
+   * resident for the next turn.
+   *
+   * The Claude CLI stream-json control protocol nests the subtype under a
+   * `request` object and correlates the reply via `request_id`. A flat
+   * `{type, subtype}` shape makes the CLI throw
+   * `undefined is not an object (evaluating 'e.request.subtype')` on stdin and
+   * the interrupt never lands.
    *
    * @param subtype - control request subtype, e.g. `'interrupt'`
+   * @param requestId - correlation id echoed back in the `control_response`
    */
-  async sendControlRequest(subtype: string): Promise<void> {
-    logger.debug('sendControlRequest called', { subtype });
-    await this.writeToStdin({ type: 'control_request', subtype });
+  async sendControlRequest(subtype: string, requestId: string): Promise<void> {
+    logger.debug('sendControlRequest called', { subtype, requestId });
+    await this.writeToStdin({
+      type: 'control_request',
+      request_id: requestId,
+      request: { subtype },
+    });
   }
 
   /**
