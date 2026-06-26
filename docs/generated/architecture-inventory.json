@@ -5181,7 +5181,7 @@
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2248
+      "lines": 2286
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
@@ -5588,6 +5588,10 @@
       "lines": 1014
     },
     {
+      "path": "src/main/cli/adapters/__tests__/claude-cli-adapter.spec.ts",
+      "lines": 1004
+    },
+    {
       "path": "src/main/ipc/handlers/session-handlers.ts",
       "lines": 1003
     },
@@ -5618,10 +5622,6 @@
     {
       "path": "src/main/orchestration/cli-verification-extension.ts",
       "lines": 988
-    },
-    {
-      "path": "src/main/cli/adapters/__tests__/claude-cli-adapter.spec.ts",
-      "lines": 983
     },
     {
       "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
@@ -5872,6 +5872,10 @@
       "lines": 814
     },
     {
+      "path": "src/main/orchestration/cross-model-review-service.ts",
+      "lines": 813
+    },
+    {
       "path": "src/main/app/initialization-steps.ts",
       "lines": 812
     },
@@ -5893,10 +5897,6 @@
     },
     {
       "path": "src/main/core/config/claude-md-loader.ts",
-      "lines": 804
-    },
-    {
-      "path": "src/main/orchestration/cross-model-review-service.ts",
       "lines": 804
     },
     {

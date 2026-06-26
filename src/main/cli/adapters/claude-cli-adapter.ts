@@ -121,11 +121,17 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private lastRateLimitInfo: CliRateLimitInfo | null = null;
   /**
    * Resolver for the resident-interrupt completion promise.
-   * Set when `interrupt()` sends a `control_request{interrupt}` to stdin;
-   * resolved when `control_response{status:'success'}` arrives on stdout
-   * or on error/timeout. Non-null only during an active resident interrupt.
+   * Set when `interrupt()` sends a `control_request{request:{subtype:'interrupt'}}`
+   * to stdin; resolved when the matching `control_response{response:{subtype:'success'}}`
+   * arrives on stdout or on error/timeout. Non-null only during an active resident interrupt.
    */
   private pendingInterruptResolve: ((result: TurnInterruptCompletion) => void) | null = null;
+  /**
+   * `request_id` of the in-flight resident interrupt, echoed back by the CLI in
+   * the `control_response`. Used to correlate the ack to this interrupt and
+   * cleared alongside {@link pendingInterruptResolve}.
+   */
+  private pendingInterruptRequestId: string | null = null;
 
   constructor(options: ClaudeCliSpawnOptions = {}) {
     // Build env passthrough for the spawned CLI process. The PreToolUse hook
@@ -283,10 +289,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   /**
-   * Resident interrupt: sends `control_request{interrupt}` to stdin instead of
-   * SIGINT. The CLI aborts the in-flight turn, stays alive, and replies with
-   * `control_response{status:'success'}`. Returns a completion promise that
-   * resolves when the response arrives.
+   * Resident interrupt: sends `control_request{request:{subtype:'interrupt'}}`
+   * (with a correlation `request_id`) to stdin instead of SIGINT. The CLI aborts
+   * the in-flight turn, stays alive, and replies with the matching
+   * `control_response{response:{subtype:'success'}}`. Returns a completion promise
+   * that resolves when the response arrives.
    *
    * If the stdin write fails (EPIPE) or the process exits before `control_response`,
    * the completion promise is left pending — the 15s deadline in handleInterruptCompletion
@@ -305,8 +312,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         resolve = res;
       });
       this.pendingInterruptResolve = resolve;
+      const requestId = `interrupt_${generateId()}`;
+      this.pendingInterruptRequestId = requestId;
 
-      this.formatter.sendControlRequest('interrupt').catch((err: unknown) => {
+      this.formatter.sendControlRequest('interrupt', requestId).catch((err: unknown) => {
         // stdin write failed (EPIPE / process already exiting).
         // Clear the resolver WITHOUT resolving it — do NOT settle to 'rejected' here.
         // The process is dying, so handleExit() will fire → exit event →
@@ -321,6 +330,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         });
         if (this.pendingInterruptResolve === resolve) {
           this.pendingInterruptResolve = null;
+          this.pendingInterruptRequestId = null;
         }
       });
 
@@ -1425,6 +1435,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     // the force-abort net (30s) is cancelled by resolveRespawnPromise() in respawnAfterInterrupt().
     if (this.pendingInterruptResolve) {
       this.pendingInterruptResolve = null;
+      this.pendingInterruptRequestId = null;
     }
 
     this.process = null;
@@ -2099,25 +2110,52 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         // Resident-interrupt acknowledgement from Claude CLI.
         // Resolves the completion promise returned by interrupt() so the
         // orchestrator can proceed without a respawn cycle.
-        const ctrl = raw as { subtype?: string; status?: string; error?: string };
-        if (ctrl.subtype === 'interrupt' && this.pendingInterruptResolve) {
+        //
+        // Wire shape (stream-json control protocol): the payload is nested under
+        // `response` and correlated by `request_id`:
+        //   {type:'control_response', response:{subtype:'success'|'error', request_id, error?}}
+        // A defensive fallback also accepts a flat {subtype,status,error} shape.
+        const ctrl = raw as {
+          response?: { subtype?: string; request_id?: string; error?: string };
+          subtype?: string;
+          status?: string;
+          error?: string;
+          request_id?: string;
+        };
+        const resp = ctrl.response ?? ctrl;
+        const respId = resp.request_id ?? ctrl.request_id;
+        // Correlate to the in-flight interrupt: match the echoed request_id when
+        // present; if the CLI omits it, fall back to "any ack while one interrupt
+        // is pending" (interrupts are serialized, so at most one is in flight).
+        const matchesPending =
+          this.pendingInterruptResolve !== null &&
+          (respId === undefined ||
+            this.pendingInterruptRequestId === null ||
+            respId === this.pendingInterruptRequestId);
+        if (matchesPending && this.pendingInterruptResolve) {
           const resolve = this.pendingInterruptResolve;
           this.pendingInterruptResolve = null;
-          if (ctrl.status === 'success') {
-            logger.info('Resident interrupt acknowledged by CLI', { sessionId: this.sessionId });
+          this.pendingInterruptRequestId = null;
+          const subtype = resp.subtype ?? ctrl.subtype;
+          const isError = subtype === 'error' || ctrl.status === 'error';
+          if (!isError) {
+            logger.info('Resident interrupt acknowledged by CLI', { sessionId: this.sessionId, requestId: respId });
             resolve({ status: 'interrupted' });
           } else {
+            const reason = resp.error ?? ctrl.error ?? `control_response subtype=${subtype ?? ctrl.status}`;
             logger.warn('control_response interrupt non-success', {
+              subtype,
               status: ctrl.status,
-              error: ctrl.error,
+              error: reason,
               sessionId: this.sessionId,
             });
-            resolve({ status: 'rejected', reason: ctrl.error ?? `control_response status=${ctrl.status}` });
+            resolve({ status: 'rejected', reason });
           }
         } else {
-          logger.debug('control_response received with no pending resolver', {
-            subtype: ctrl.subtype,
-            status: ctrl.status,
+          logger.debug('control_response received with no matching pending interrupt', {
+            respId,
+            pendingRequestId: this.pendingInterruptRequestId,
+            subtype: resp.subtype ?? ctrl.subtype,
           });
         }
         break;

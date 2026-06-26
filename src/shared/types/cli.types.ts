@@ -121,11 +121,22 @@ export interface CliElicitationMessage extends CliStreamMessageBase {
  * Control response from Claude CLI in resident streaming mode
  * (`--print --input-format stream-json`).
  * Emitted on stdout in response to a `control_request` message sent on stdin.
+ *
+ * The payload is nested under `response` and correlated to the originating
+ * `control_request` via `request_id`. The legacy flat fields are kept optional
+ * for defensive parsing of older CLI builds.
  */
 export interface CliControlResponseMessage extends CliStreamMessageBase {
   type: 'control_response';
-  subtype: 'interrupt' | string;
-  status: 'success' | 'error';
+  response?: {
+    subtype: 'success' | 'error' | string;
+    request_id?: string;
+    error?: string;
+  };
+  /** @deprecated legacy flat shape — prefer `response.subtype`. */
+  subtype?: 'interrupt' | string;
+  /** @deprecated legacy flat shape — prefer `response.subtype`. */
+  status?: 'success' | 'error';
   error?: string;
 }
 

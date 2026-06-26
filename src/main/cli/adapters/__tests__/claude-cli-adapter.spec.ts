@@ -803,19 +803,32 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
       expect(caps.liveSteer).toBe(false);
     });
 
-    it('interrupt() sends control_request{interrupt} via stdin when process is resident', async () => {
+    it('interrupt() sends control_request with nested request.subtype + request_id when resident', async () => {
       const { adapter, proc } = adapterWithResidentProcess();
       const result = adapter.interrupt();
 
       expect(result.status).toBe('accepted');
       expect(result.completion).toBeInstanceOf(Promise);
 
-      // stdin.write should have been called with a JSON containing control_request
+      // The CLI stream-json control protocol requires the subtype nested under
+      // `request` plus a `request_id`. A flat {type,subtype} makes the CLI throw
+      // "undefined is not an object (evaluating 'e.request.subtype')".
       const written = proc.stdin.write.mock.calls
         .map((c: unknown[]) => String(c[0]))
         .join('');
-      expect(written).toContain('"type":"control_request"');
-      expect(written).toContain('"subtype":"interrupt"');
+      const line = written.split('\n').find((l) => l.includes('control_request'));
+      expect(line, 'a control_request line should be written').toBeTruthy();
+      const parsed = JSON.parse(line!) as {
+        type: string;
+        request_id?: string;
+        request?: { subtype?: string };
+      };
+      expect(parsed.type).toBe('control_request');
+      expect(parsed.request?.subtype).toBe('interrupt');
+      expect(typeof parsed.request_id).toBe('string');
+      expect(parsed.request_id!.length).toBeGreaterThan(0);
+      // The flat shape must NOT be emitted.
+      expect(parsed).not.toHaveProperty('subtype');
     });
 
     it('interrupt() does NOT send SIGINT when process is resident', async () => {
@@ -825,13 +838,20 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
       expect(killSpy).not.toHaveBeenCalled();
     });
 
+    function pendingRequestId(adapter: ClaudeCliAdapter): string | null {
+      return (adapter as unknown as { pendingInterruptRequestId: string | null }).pendingInterruptRequestId;
+    }
+
     it('control_response{success} resolves the interrupt completion promise', async () => {
       const { adapter, processCliMessage } = adapterWithResidentProcess();
       const result = adapter.interrupt();
       expect(result.completion).toBeInstanceOf(Promise);
 
-      // Simulate CLI acknowledging the interrupt
-      processCliMessage({ type: 'control_response', subtype: 'interrupt', status: 'success' });
+      // Simulate CLI acknowledging the interrupt (nested response shape, echoing request_id).
+      processCliMessage({
+        type: 'control_response',
+        response: { subtype: 'success', request_id: pendingRequestId(adapter) },
+      });
 
       const completion = await result.completion!;
       expect(completion.status).toBe('interrupted');
@@ -843,9 +863,7 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
 
       processCliMessage({
         type: 'control_response',
-        subtype: 'interrupt',
-        status: 'error',
-        error: 'no active turn',
+        response: { subtype: 'error', request_id: pendingRequestId(adapter), error: 'no active turn' },
       });
 
       const completion = await result.completion!;
@@ -853,11 +871,14 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
       expect(completion.reason).toContain('no active turn');
     });
 
-    it('control_response with unknown subtype does not resolve the interrupt promise', () => {
+    it('control_response with a non-matching request_id does not resolve the interrupt promise', () => {
       const { adapter, processCliMessage } = adapterWithResidentProcess();
       const result = adapter.interrupt();
-      // Send a control_response for a different subtype — should not resolve
-      processCliMessage({ type: 'control_response', subtype: 'other', status: 'success' });
+      // Ack carries a request_id that doesn't match the in-flight interrupt — ignore it.
+      processCliMessage({
+        type: 'control_response',
+        response: { subtype: 'success', request_id: 'unrelated-request-id' },
+      });
       // The promise should still be pending (not resolved/rejected within this tick)
       let settled = false;
       result.completion?.then(() => { settled = true; }).catch(() => { settled = true; });
