@@ -170,7 +170,7 @@ export class LoopConfigPanelComponent {
   freshEyesReview = signal(false);
   /** Ping-pong mode: a different-provider agentic reviewer reviews every
    *  builder done-declaration until both models agree (or a backstop fires). */
-  pingPongEnabled = signal(false);
+  pingPongEnabled = signal(true);
   pingPongReviewerProvider = signal<'auto' | 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'cursor'>('auto');
   pingPongSubject = signal<'auto' | 'plan' | 'impl'>('auto');
   pingPongMaxRounds = signal(15);

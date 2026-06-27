@@ -342,6 +342,78 @@ describe('CrossModelReviewService', () => {
     expect(modelKeyPresent).toBe(false);
   });
 
+  it('runs codex at low reasoning effort and forces structured depth even for tiered requests', async () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+
+    let capturedEffort: unknown = 'unset';
+    let capturedPrompt = '';
+    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+      capturedEffort = (options as { reasoningEffort?: unknown }).reasoningEffort;
+      return {
+        sendMessage: async ({ content }: { content: string }) => {
+          capturedPrompt = content;
+          return {
+            content: JSON.stringify({
+              correctness: { reasoning: 'ok', score: 4, issues: [] },
+              completeness: { reasoning: 'ok', score: 4, issues: [] },
+              security: { reasoning: 'ok', score: 4, issues: [] },
+              consistency: { reasoning: 'ok', score: 4, issues: [] },
+              overall_verdict: 'APPROVE',
+              summary: 'approved',
+            }),
+          };
+        },
+        terminate: vi.fn().mockResolvedValue(undefined),
+      };
+    });
+
+    const result = await service.executeOneReview(
+      makeRequest({ reviewDepth: 'tiered' }),
+      'codex',
+      30,
+      new AbortController().signal,
+    );
+
+    expect(capturedEffort).toBe('low');
+    // A structured prompt asks for the 4-dimension scoring schema, not tiered traces.
+    expect(capturedPrompt).not.toContain('traces');
+    expect(result?.reviewType).toBe('structured');
+  });
+
+  it('keeps full tiered depth and default effort for non-codex reviewers', async () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+
+    let effortKeyPresent = true;
+    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+      effortKeyPresent = 'reasoningEffort' in options;
+      return {
+        sendMessage: async () => ({
+          content: JSON.stringify({
+            scores: {
+              correctness: { reasoning: 'ok', score: 4, issues: [] },
+              completeness: { reasoning: 'ok', score: 4, issues: [] },
+              security: { reasoning: 'ok', score: 4, issues: [] },
+              consistency: { reasoning: 'ok', score: 4, issues: [] },
+            },
+            overall_verdict: 'APPROVE',
+            summary: 'approved',
+          }),
+        }),
+        terminate: vi.fn().mockResolvedValue(undefined),
+      };
+    });
+
+    const result = await service.executeOneReview(
+      makeRequest({ reviewDepth: 'tiered' }),
+      'copilot',
+      30,
+      new AbortController().signal,
+    );
+
+    expect(effortKeyPresent).toBe(false);
+    expect(result?.reviewType).toBe('tiered');
+  });
+
   describe('onInstanceIdle working-directory safety', () => {
     function makeWorkingAdapter(): { sendMessage: () => Promise<{ content: string }>; terminate: () => Promise<void> } {
       return {

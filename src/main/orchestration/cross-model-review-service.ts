@@ -321,6 +321,14 @@ export class CrossModelReviewService extends EventEmitter {
       resetTimeoutMs: 60000,
     });
 
+    // Codex is slow: a tiered review at default effort blows the per-review deadline
+    // (the configured `timeout` is codex's absolute total budget) and gets dropped
+    // every time. Force structured depth + low reasoning effort for codex only so it
+    // finishes in budget; other reviewers keep full depth. Declared in the outer
+    // scope so the parse below uses the same depth the adapter was prompted with.
+    const isCodex = cliType === 'codex';
+    const effectiveDepth: 'structured' | 'tiered' = isCodex ? 'structured' : request.reviewDepth;
+
     try {
       const response = await breaker.execute(async () => {
         if (signal.aborted) throw new Error('Review cancelled');
@@ -334,6 +342,7 @@ export class CrossModelReviewService extends EventEmitter {
             workingDirectory: request.workingDirectory,
             timeout: timeoutSeconds * 1000,
             yoloMode: false,
+            ...(isCodex ? { reasoningEffort: 'low' as const } : {}),
             // When no override is configured, leave `model` unset so the
             // reviewer CLI uses its own default/auto routing.
             ...(reviewerModel ? { model: reviewerModel } : {}),
@@ -349,7 +358,7 @@ export class CrossModelReviewService extends EventEmitter {
             throw new Error('Review cancelled');
           }
 
-          const prompt = request.reviewDepth === 'tiered'
+          const prompt = effectiveDepth === 'tiered'
             ? buildTieredReviewPrompt(request.taskDescription, request.content)
             : buildStructuredReviewPrompt(request.taskDescription, request.content);
 
@@ -369,7 +378,7 @@ export class CrossModelReviewService extends EventEmitter {
         }
       });
 
-      const parsed = this.parseReviewResponse(cliType, response.content, request.reviewDepth, Date.now() - startTime);
+      const parsed = this.parseReviewResponse(cliType, response.content, effectiveDepth, Date.now() - startTime);
       if (!parsed) {
         logger.warn('Skipping unparseable reviewer response', { cliType, reviewId: request.id });
         return null;

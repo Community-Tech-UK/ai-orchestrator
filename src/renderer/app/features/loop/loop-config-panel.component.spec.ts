@@ -74,6 +74,31 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.completion?.requiredCleanReviewPasses).toBe(2);
   });
 
+  it('defaults ping-pong review to checked and emits ping-pong completion config', () => {
+    const checkbox = fixture.nativeElement.querySelector('.pingpong-toggle input') as HTMLInputElement | null;
+    const config = component.buildConfig();
+
+    expect(component.pingPongEnabled()).toBe(true);
+    expect(checkbox?.checked).toBe(true);
+    expect(config?.completion?.crossModelReview?.pingPong).toEqual({
+      enabled: true,
+      reviewerProvider: 'auto',
+      subject: 'auto',
+      maxRounds: 15,
+    });
+  });
+
+  it('can opt out of ping-pong review', () => {
+    component.pingPongEnabled.set(false);
+    fixture.detectChanges();
+
+    const checkbox = fixture.nativeElement.querySelector('.pingpong-toggle input') as HTMLInputElement | null;
+    const config = component.buildConfig();
+
+    expect(checkbox?.checked).toBe(false);
+    expect(config?.completion?.crossModelReview).toBeUndefined();
+  });
+
   it('defaults the loop provider from the current chat provider', () => {
     fixture.componentRef.setInput('defaultProvider', 'codex');
     fixture.detectChanges();
@@ -97,6 +122,7 @@ describe('LoopConfigPanelComponent', () => {
   });
 
   it('emits the chosen completion mode and clean-pass count', () => {
+    component.pingPongEnabled.set(false);
     component.completionMode.set('gated');
     component.requiredCleanPasses.set(4);
     const config = component.buildConfig();
@@ -193,6 +219,7 @@ describe('LoopConfigPanelComponent', () => {
   });
 
   it('sends fresh-eyes review config only when explicitly enabled', () => {
+    component.pingPongEnabled.set(false);
     expect(component.buildConfig()?.completion?.crossModelReview).toBeUndefined();
 
     component.freshEyesReview.set(true);
