@@ -2521,6 +2521,10 @@ export class InstanceLifecycleManager extends EventEmitter {
       // Update instance with new agent
       instance.agentId = newAgentId;
       instance.agentMode = newAgent.mode;
+      // Revive a terminal (failed/terminated) instance before re-initializing, so
+      // an agent-mode change on a crashed session respawns instead of throwing an
+      // IllegalTransitionError. Mirrors restartInstance(); no-op when non-terminal.
+      this.resetTerminalStateForRestart(instance);
       this.transitionState(instance, 'initializing');
 
       // If leaving plan mode, reset plan mode state
@@ -2732,6 +2736,13 @@ Proceed with implementation. Do NOT request to switch modes - you are already in
       }
 
       instance.yoloMode = newYoloMode;
+      // A crashed instance can be sitting in a terminal state (failed/terminated)
+      // — e.g. an "Awaiting approval" row whose process died. Terminal states have
+      // no outgoing transitions, so transitionState('initializing') would throw an
+      // IllegalTransitionError, the toggle would reject, and YOLO would appear "not
+      // to stick". Revive the same-instance lifecycle first, exactly as
+      // restartInstance() does. No-op for non-terminal states.
+      this.resetTerminalStateForRestart(instance);
       this.transitionState(instance, 'initializing');
 
       if (newYoloMode) {
