@@ -81,6 +81,42 @@ describe('LoopCoordinator usage-aware throttling', () => {
     }
   });
 
+  it('reactive backstop: refreshes quota on a 5-hour limit notice before deciding whether to terminate', async () => {
+    const resetsAt = Date.now() + 60_000;
+    const scheduler = vi.fn(() => () => { /* noop */ });
+    const refresh = vi.fn(async () => snapshot([win({
+      id: 'claude.5h',
+      label: '5-hour session',
+      used: 100,
+      remaining: 0,
+      resetsAt,
+    })]));
+    coordinator.setProviderLimitResumeScheduler(scheduler);
+    (coordinator as LoopCoordinator & {
+      setQuotaSnapshotRefresher: (fn: typeof refresh) => void;
+    }).setQuotaSnapshotRefresher(refresh);
+    coordinator.setQuotaSnapshotProvider(() => null);
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as { callback: (r: LoopChildResult) => void };
+      p.callback(iterationResult('5-hour limit reached'));
+    });
+
+    const state = await startLoop('chat-notice-refresh-park');
+    try {
+      await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'paused', 5000);
+      expect(refresh).toHaveBeenCalledWith('claude');
+      expect(coordinator.getLoop(state.id)?.status).toBe('paused');
+      expect(scheduler).toHaveBeenCalledWith(expect.objectContaining({
+        loopRunId: state.id,
+        resumeAt: resetsAt,
+        source: 'notice',
+        windowId: 'claude.5h',
+      }));
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  });
+
   it('preventive: parks before spawning the first iteration when the window is >= 90%', async () => {
     let invokeCount = 0;
     const events: unknown[] = [];

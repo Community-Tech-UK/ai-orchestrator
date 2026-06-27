@@ -73,6 +73,33 @@ describe('ReviewerSessionSpawner', () => {
     expect(manager.terminateInstance).toHaveBeenCalledWith('rev-1', false);
   });
 
+  it('prefers settled output over a stale live instance snapshot', async () => {
+    const stale = mockInstance('rev-1', '```json\n{"verdict":"APPROVED","completeness":{"filesInspected":0}}\n```');
+    const settled = mockInstance(
+      'rev-1',
+      '```json\n{"verdict":"CHANGES_REQUESTED","completeness":{"filesInspected":34}}\n```',
+    );
+    const manager = makeManager({
+      createInstance: vi.fn().mockResolvedValue(stale),
+      waitForInstanceSettled: vi.fn().mockResolvedValue(settled),
+      getInstance: vi.fn().mockReturnValue(stale),
+    });
+    const spawner = getReviewerSessionSpawner();
+    spawner.setInstanceManager(manager);
+
+    const result = await spawner.runReviewSession({
+      provider: 'codex',
+      workingDirectory: '/repo',
+      prompt: 'deep dive',
+      timeoutMs: 5000,
+    });
+
+    expect(result.outcome).toBe('settled');
+    expect(result.finalOutput).toContain('CHANGES_REQUESTED');
+    expect(result.finalOutput).toContain('"filesInspected":34');
+    expect(result.finalOutput).not.toContain('"filesInspected":0');
+  });
+
   it('reports timeout (and still tears down) when settle times out', async () => {
     const manager = makeManager({
       waitForInstanceSettled: vi.fn().mockRejectedValue(new Error('Timed out waiting for instance rev-1 to settle')),

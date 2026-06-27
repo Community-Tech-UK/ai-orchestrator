@@ -63,6 +63,10 @@ export function isInstanceSettledStatus(status: InstanceStatus): boolean {
   return INSTANCE_SETTLED_STATUSES.has(status);
 }
 
+function isOutputOptionalSettledStatus(status: InstanceStatus): boolean {
+  return status === 'error' || status === 'failed' || status === 'terminated';
+}
+
 export function findLatestSettlingOutput(
   outputBuffer: readonly Pick<OutputMessage, 'id' | 'timestamp' | 'type'>[],
   afterTimestamp = 0,
@@ -105,8 +109,17 @@ export function isInstanceSettled(input: InstanceSettledPredicateInput): boolean
     return false;
   }
 
-  if (!findLatestSettlingOutput(input.outputBuffer, input.afterTimestamp)) {
-    return false;
+  const settlingOutput = findLatestSettlingOutput(input.outputBuffer, input.afterTimestamp);
+  if (!settlingOutput) {
+    if (!isOutputOptionalSettledStatus(input.status)) {
+      return false;
+    }
+    if (
+      input.afterTimestamp !== undefined
+      && (input.lastEventAt === undefined || input.lastEventAt < input.afterTimestamp)
+    ) {
+      return false;
+    }
   }
 
   const debounceMs = input.debounceMs ?? INSTANCE_SETTLED_DEBOUNCE_MS;

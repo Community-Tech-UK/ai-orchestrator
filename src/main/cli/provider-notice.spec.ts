@@ -13,6 +13,8 @@ describe('isProviderNotice', () => {
       'Your limit resets at 6pm',
       'Too many requests',
       'quota exceeded',
+      'Error: You have exceeded your monthly quota (Request ID: <redacted>)',
+      'Monthly quota reached. Try again later.',
     ];
     for (const text of notices) {
       expect(isProviderNotice(text), text).toBe(true);
@@ -24,6 +26,7 @@ describe('isProviderNotice', () => {
       'Fix the session-limit retry bug',
       'Session limit reset handling',
       'Add rate limiting to the API',
+      'Build the monthly quota dashboard',
       'Investigate the broken deployment',
       'Refactor the AuthService session cache',
       'Implement loopfixex.md',

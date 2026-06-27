@@ -353,6 +353,11 @@ export class LoopCoordinator extends EventEmitter {
     this.providerLimitHandler.setQuotaSnapshotProvider(fn);
   }
 
+  /** Override active quota refresh used after provider-limit notices. */
+  setQuotaSnapshotRefresher(fn: ((provider: ProviderId) => Promise<ProviderQuotaSnapshot | null>) | null): void {
+    this.providerLimitHandler.setQuotaSnapshotRefresher(fn);
+  }
+
   /** Opt into riding paid overage credits (decision #3 alternative). */
   setAllowOverage(allow: boolean): void {
     this.providerLimitHandler.setAllowOverage(allow);
@@ -1725,7 +1730,7 @@ export class LoopCoordinator extends EventEmitter {
       // detection — park (auto-resume when we know the reset) or terminate with
       // a distinct `provider-limit` reason.
       if (isProviderNotice(childResult.output)) {
-        const derived = this.providerLimitHandler.deriveProviderLimitResume(state);
+        const derived = await this.providerLimitHandler.deriveProviderLimitResumeAfterRefresh(state);
         const outcome = this.providerLimitHandler.handleProviderLimit(state, {
           reason: `provider usage/limit notice in iteration output: "${excerpt(childResult.output).slice(0, 160)}"`,
           resumeAt: derived.resumeAt,

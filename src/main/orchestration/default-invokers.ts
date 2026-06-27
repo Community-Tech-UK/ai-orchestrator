@@ -22,7 +22,7 @@ import { recordCostAttribution } from '../core/system/cost-attribution';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
 import { coerceToFailoverError } from '../core/failover-error';
 import { getDefaultModelForCli } from '../../shared/types/provider.types';
-import type { ProviderId } from '../../shared/types/provider-quota.types';
+import type { ProviderId, ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 import { getModelRouter, resolveRoutedModel } from '../routing';
 import { getAuxiliaryLlmService } from '../rlm/auxiliary-llm-service';
 import type { CliType } from '../cli/cli-detection';
@@ -1202,6 +1202,15 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   if (typeof setQuotaSnapshotProvider === 'function') {
     setQuotaSnapshotProvider.call(coordinator, (provider) =>
       getProviderQuotaService().getSnapshot(provider),
+    );
+  }
+
+  const setQuotaSnapshotRefresher = (coordinator as {
+    setQuotaSnapshotRefresher?: (fn: (provider: ProviderId) => Promise<ProviderQuotaSnapshot | null>) => void;
+  }).setQuotaSnapshotRefresher;
+  if (typeof setQuotaSnapshotRefresher === 'function') {
+    setQuotaSnapshotRefresher.call(coordinator, (provider) =>
+      getProviderQuotaService().refresh(provider),
     );
   }
 

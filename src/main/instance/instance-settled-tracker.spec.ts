@@ -75,4 +75,42 @@ describe('InstanceSettledTracker', () => {
 
     await expect(waiting).resolves.toBe(current);
   });
+
+  it('settles an error state after the watched timestamp even without output', async () => {
+    const current = instance({
+      status: 'error',
+      outputBuffer: [],
+    });
+    const emitter = new EventEmitter();
+    const tracker = new InstanceSettledTracker({
+      getInstance: (id) => (id === current.id ? current : undefined),
+      emitter,
+    });
+    tracker.recordActivity(current.id, 1_100);
+
+    await expect(tracker.waitForSettled(current.id, {
+      afterTimestamp: 1_000,
+      timeoutMs: 1_000,
+      debounceMs: 0,
+    })).resolves.toBe(current);
+  });
+
+  it('settles an outputless error state through the default debounce path', async () => {
+    const now = Date.now();
+    const current = instance({
+      status: 'error',
+      outputBuffer: [],
+    });
+    const emitter = new EventEmitter();
+    const tracker = new InstanceSettledTracker({
+      getInstance: (id) => (id === current.id ? current : undefined),
+      emitter,
+    });
+    tracker.recordActivity(current.id, now - 1_000);
+
+    await expect(tracker.waitForSettled(current.id, {
+      afterTimestamp: now - 2_000,
+      timeoutMs: 1_000,
+    })).resolves.toBe(current);
+  });
 });

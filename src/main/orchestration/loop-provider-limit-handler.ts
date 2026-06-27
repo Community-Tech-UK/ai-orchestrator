@@ -17,6 +17,7 @@ const logger = getLogger('LoopProviderLimitHandler');
 
 export class LoopProviderLimitHandler {
   private quotaSnapshotProvider: (provider: ProviderId) => ProviderQuotaSnapshot | null = () => null;
+  private quotaSnapshotRefresher: ((provider: ProviderId) => Promise<ProviderQuotaSnapshot | null>) | null = null;
   private allowOverage = false;
   private resumeCancellers = new Map<string, () => void>();
   private providerLimitResumeScheduler: ProviderLimitResumeScheduler | null = null;
@@ -31,6 +32,10 @@ export class LoopProviderLimitHandler {
 
   setQuotaSnapshotProvider(fn: (provider: ProviderId) => ProviderQuotaSnapshot | null): void {
     this.quotaSnapshotProvider = fn;
+  }
+
+  setQuotaSnapshotRefresher(fn: ((provider: ProviderId) => Promise<ProviderQuotaSnapshot | null>) | null): void {
+    this.quotaSnapshotRefresher = fn;
   }
 
   setAllowOverage(allow: boolean): void {
@@ -63,12 +68,40 @@ export class LoopProviderLimitHandler {
   }
 
   deriveProviderLimitResume(state: LoopState): { resumeAt: number | null; windowId?: string } {
-    let snapshot: ProviderQuotaSnapshot | null = null;
-    try {
-      snapshot = this.quotaSnapshotProvider(this.quotaIdForLoopProvider(state));
-    } catch {
-      snapshot = null;
+    return this.deriveResumeFromSnapshot(this.readQuotaSnapshot(state));
+  }
+
+  async deriveProviderLimitResumeAfterRefresh(
+    state: LoopState,
+  ): Promise<{ resumeAt: number | null; windowId?: string }> {
+    const provider = this.quotaIdForLoopProvider(state);
+    if (this.quotaSnapshotRefresher) {
+      try {
+        const refreshed = await this.quotaSnapshotRefresher(provider);
+        const derived = this.deriveResumeFromSnapshot(refreshed);
+        if (derived.resumeAt !== null) return derived;
+      } catch (err) {
+        logger.debug('Quota refresh failed while deriving provider-limit resume', {
+          loopRunId: state.id,
+          provider,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
+    return this.deriveProviderLimitResume(state);
+  }
+
+  private readQuotaSnapshot(state: LoopState): ProviderQuotaSnapshot | null {
+    try {
+      return this.quotaSnapshotProvider(this.quotaIdForLoopProvider(state));
+    } catch {
+      return null;
+    }
+  }
+
+  private deriveResumeFromSnapshot(
+    snapshot: ProviderQuotaSnapshot | null,
+  ): { resumeAt: number | null; windowId?: string } {
     if (!snapshot || !snapshot.ok) return { resumeAt: null };
 
     const now = Date.now();

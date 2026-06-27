@@ -194,10 +194,10 @@ export class ReviewerSessionSpawner {
         onProgress: opts.onProgress,
       });
 
-      const live = im.getInstance(instanceId) ?? settled ?? instance;
+      const live = settled ?? im.getInstance(instanceId) ?? instance;
       const tokensUsed = Math.max(0, live.totalTokensUsed ?? 0);
       const costCents = this.estimateCostCents(tokensUsed, opts.modelOverride ?? opts.provider);
-      const finalOutput = this.extractFinalOutput(im, instanceId);
+      const finalOutput = this.extractFinalOutput(im, instanceId, live);
       const failed = live.status === 'failed' || live.status === 'error';
 
       result = {
@@ -245,8 +245,12 @@ export class ReviewerSessionSpawner {
   }
 
   /** Read the reviewer's last assistant message as plain text. */
-  private extractFinalOutput(im: InstanceManager, instanceId: string): string {
-    const instance = im.getInstance(instanceId);
+  private extractFinalOutput(
+    im: InstanceManager,
+    instanceId: string,
+    preferredInstance?: Instance,
+  ): string {
+    const instance = preferredInstance ?? im.getInstance(instanceId);
     if (!instance) return '';
     const buffer = instance.outputBuffer ?? [];
     for (let i = buffer.length - 1; i >= 0; i--) {

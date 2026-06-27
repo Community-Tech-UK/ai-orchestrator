@@ -24,6 +24,8 @@ export const PROVIDER_NOTICE_PATTERNS: readonly RegExp[] = [
   /\b\d+\s*-?\s*hour\s+limit\s+reached\b/i,          // "5-hour limit reached"
   /\blimit\s*[·•∙‧]\s*resets?\b/i,                   // "limit · resets"
   /\bresets?\s+(?:at\s+)?\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?/i, // "resets 6:30pm"
+  /\byou\s+have\s+exceeded\s+your\s+\w+\s+quota\b/i,  // Copilot: "You have exceeded your monthly quota"
+  /\b(?:daily|weekly|monthly)\s+quota\s+(?:exceeded|reached)\b/i,
   /\b(?:too many requests|quota exceeded)\b/i,
 ];
 

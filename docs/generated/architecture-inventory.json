@@ -5125,7 +5125,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3170
+      "lines": 3175
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -5268,11 +5268,11 @@
       "lines": 1635
     },
     {
-      "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",
-      "lines": 1613
+      "path": "src/main/orchestration/default-invokers.ts",
+      "lines": 1622
     },
     {
-      "path": "src/main/orchestration/default-invokers.ts",
+      "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",
       "lines": 1613
     },
     {

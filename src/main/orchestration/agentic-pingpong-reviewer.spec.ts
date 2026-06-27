@@ -54,6 +54,38 @@ describe('agenticPingPongReviewer', () => {
     runReviewSession.mockReset();
   });
 
+  it('classifies a Copilot monthly-quota notice as rate-limited without format repair', async () => {
+    runReviewSession.mockResolvedValueOnce({
+      outcome: 'settled',
+      finalOutput: 'Error: You have exceeded your monthly quota (Request ID: <redacted>)',
+      instanceId: 'rev-1',
+      tokensUsed: 123,
+      costCents: 4,
+    });
+
+    const result = await agenticPingPongReviewer({
+      loopRunId: 'loop-1',
+      workspaceCwd: '/repo',
+      goal: 'finish the widget',
+      subject: 'impl',
+      builderProvider: 'claude',
+      reviewerProviderSetting: 'copilot',
+      triedReviewerProviders: [],
+      ledger: [],
+      roundNumber: 1,
+      maxRounds: 15,
+      blockingSeverities: ['critical', 'high'],
+      timeoutMs: 90_000,
+    });
+
+    expect(result.verdict).toBe('UNRELIABLE');
+    expect(result.fault).toBe('rate_limited');
+    expect(result.reason).toContain('usage/rate-limit notice');
+    expect(result.tokensUsed).toBe(123);
+    expect(result.costCents).toBe(4);
+    expect(runReviewSession).toHaveBeenCalledTimes(1);
+  });
+
   it('repairs a prose reviewer answer into the required JSON before declaring the round unusable', async () => {
     const prose = 'I inspected src/widget.ts and ran npm test. No blocking issues remain.';
     runReviewSession
