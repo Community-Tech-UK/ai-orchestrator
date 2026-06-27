@@ -1,0 +1,66 @@
+#!/usr/bin/env sh
+#
+# stay-on-main guard  (git reference-transaction hook)
+# ----------------------------------------------------
+# Fires on EVERY ref update in this repo (commit, branch -f, update-ref, reset,
+# fetch-into-ref), no matter which tool runs git: your orchestrator, the codex CLI,
+# the superpowers tooling, or your own shell. Unlike pre-commit / pre-push it is NOT
+# skipped by `--no-verify`, so it is the only place a guarantee about `main` can hold.
+#
+# What it stops (these are the exact operations that were trashing your history):
+#   1. Moving / force-moving `main` while you are checked out on another branch,
+#      i.e. `git branch -f main HEAD` from a codex/* branch. That is the "Reset to
+#      HEAD" you saw in the reflog, run under the leaked Test <test@example.com> identity.
+#   2. Deleting `main`.
+# What it always allows:
+#   - Normal commits and merges made while you are actually ON main (main advances).
+#   - Commits on any side branch (those never touch refs/heads/main).
+#
+# ROLLOUT — it is WARN-ONLY until you opt in, so installing it cannot break anything:
+#   * As shipped: logs a line to stderr when something force-moves main, never blocks.
+#   * To enforce (start blocking):   touch "$(git rev-parse --git-dir)/stay-on-main-enforce"
+#   * To go back to warn-only:       rm    "$(git rev-parse --git-dir)/stay-on-main-enforce"
+#
+# DELIBERATE integration onto main (e.g. the orchestrator's worktree-integration path)
+# must opt in per-command:           AIO_ALLOW_MAIN_UPDATE=1 git <...>
+#
+# Requires git >= 2.28 (reference-transaction hook). Fails OPEN on any internal error.
+
+[ "$1" = "prepared" ] || exit 0
+
+# Fast path: only do work if this transaction touches refs/heads/main.
+mainline=""
+while read -r old new ref rest; do
+  [ "$ref" = "refs/heads/main" ] && mainline="$old $new"
+done
+[ -n "$mainline" ] || exit 0
+
+# Deliberate, audited integration bypass.
+[ "${AIO_ALLOW_MAIN_UPDATE:-0}" = "1" ] && exit 0
+
+# shellcheck disable=SC2086
+set -- $mainline
+old=$1
+new=$2
+ZERO=0000000000000000000000000000000000000000
+cur=$(git symbolic-ref --quiet HEAD 2>/dev/null || true)
+gitdir=$(git rev-parse --git-dir 2>/dev/null || echo .git)
+
+violation=""
+if [ "$new" = "$ZERO" ]; then
+  violation="refusing to delete 'main'"
+elif [ "$cur" != "refs/heads/main" ]; then
+  violation="refusing to move 'main' while checked out on '${cur#refs/heads/}' ($old -> $new)"
+fi
+[ -n "$violation" ] || exit 0
+
+if [ -f "$gitdir/stay-on-main-enforce" ]; then
+  echo "stay-on-main guard: $violation" >&2
+  echo "  This is the force-move that lands work on main from a side branch." >&2
+  echo "  If this is a real integration, re-run it as: AIO_ALLOW_MAIN_UPDATE=1 git <...>" >&2
+  exit 1
+fi
+
+echo "stay-on-main guard [WARN, not enforcing]: $violation" >&2
+echo "  enable blocking with: touch \"$gitdir/stay-on-main-enforce\"" >&2
+exit 0
