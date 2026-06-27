@@ -5160,12 +5160,12 @@
       "lines": 2659
     },
     {
-      "path": "src/main/channels/channel-message-router.ts",
-      "lines": 2543
+      "path": "src/main/instance/instance-manager.ts",
+      "lines": 2555
     },
     {
-      "path": "src/main/instance/instance-manager.ts",
-      "lines": 2535
+      "path": "src/main/channels/channel-message-router.ts",
+      "lines": 2543
     },
     {
       "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing.md",
@@ -5236,16 +5236,16 @@
       "lines": 1965
     },
     {
+      "path": "src/main/instance/__tests__/instance-manager.spec.ts",
+      "lines": 1937
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-26-automations-design_completed.md",
       "lines": 1867
     },
     {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-hardening.md",
       "lines": 1830
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.spec.ts",
-      "lines": 1826
     },
     {
       "path": "packages/contracts/src/types/transport.types.ts",

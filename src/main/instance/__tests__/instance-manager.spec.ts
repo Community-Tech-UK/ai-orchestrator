@@ -15,6 +15,7 @@ import { EventEmitter } from 'events';
 
 const {
   mockCreateCliAdapter,
+  mockCommandExecuteCommandString,
   mockIndexedBuildContext,
   mockIndexedFormatContextBlock,
   mockIndexedBuildFastPathResult,
@@ -24,6 +25,7 @@ const {
   mockResourceGovernorGetCreationBlockReason,
 } = vi.hoisted(() => ({
   mockCreateCliAdapter: vi.fn(),
+  mockCommandExecuteCommandString: vi.fn().mockResolvedValue(null),
   mockIndexedBuildContext: vi.fn(),
   mockIndexedFormatContextBlock: vi.fn(),
   mockIndexedBuildFastPathResult: vi.fn(),
@@ -347,7 +349,7 @@ vi.mock('../../orchestration/orchestration-protocol', () => ({
 // ---------------------------------------------------------------------------
 vi.mock('../../commands/command-manager', () => ({
   getCommandManager: vi.fn(() => ({
-    executeCommandString: vi.fn().mockResolvedValue(null),
+    executeCommandString: mockCommandExecuteCommandString,
   })),
 }));
 
@@ -783,6 +785,8 @@ describe('InstanceManager', () => {
     mockAdapterInterrupt.mockImplementation(acceptedInterruptResult);
     mockAdapterTerminate.mockResolvedValue(undefined);
     mockCreateCliAdapter.mockImplementation(() => makeMockAdapter());
+    mockCommandExecuteCommandString.mockReset();
+    mockCommandExecuteCommandString.mockResolvedValue(null);
     mockIndexedBuildContext.mockReset();
     mockIndexedBuildContext.mockResolvedValue(null);
     mockIndexedFormatContextBlock.mockReset();
@@ -1449,6 +1453,113 @@ describe('InstanceManager', () => {
         provider: 'claude',
         model: 'opus',
         wasSlashCommand: false,
+      }));
+    });
+
+    it('handles /goal slash commands without forwarding raw slash text', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Goal Command Test',
+      });
+      await instance.readyPromise;
+      mockAdapterSendInput.mockClear();
+      mockCommandExecuteCommandString.mockResolvedValueOnce({
+        command: {
+          id: 'builtin-goal',
+          name: 'goal',
+          template: '',
+          builtIn: true,
+          createdAt: 1,
+          updatedAt: 1,
+          source: 'builtin',
+        },
+        args: ['ship', 'settings'],
+        resolvedPrompt: '',
+        execution: { type: 'goal' },
+      });
+
+      await manager.sendInput(instance.id, '/goal ship settings');
+
+      expect(instance.metadata?.['goal']).toMatchObject({
+        objective: 'ship settings',
+        status: 'active',
+      });
+      const providerPrompt = mockAdapterSendInput.mock.calls.at(-1)?.[0] as string;
+      expect(providerPrompt).toContain('Active goal');
+      expect(providerPrompt).toContain('ship settings');
+      expect(providerPrompt).not.toContain('/goal ship settings');
+      expect(instance.outputBuffer).toContainEqual(expect.objectContaining({
+        type: 'user',
+        content: '/goal ship settings',
+      }));
+      expect(instance.outputBuffer).toContainEqual(expect.objectContaining({
+        type: 'system',
+        content: expect.stringContaining('Active goal set'),
+      }));
+    });
+
+    it('injects active goal context into later normal turns', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Goal Context Test',
+      });
+      await instance.readyPromise;
+      mockCommandExecuteCommandString.mockResolvedValueOnce({
+        command: {
+          id: 'builtin-goal',
+          name: 'goal',
+          template: '',
+          builtIn: true,
+          createdAt: 1,
+          updatedAt: 1,
+          source: 'builtin',
+        },
+        args: ['ship', 'settings'],
+        resolvedPrompt: '',
+        execution: { type: 'goal' },
+      });
+      await manager.sendInput(instance.id, '/goal ship settings');
+      mockAdapterSendInput.mockClear();
+      mockCommandExecuteCommandString.mockResolvedValueOnce(null);
+
+      await manager.sendInput(instance.id, 'what is next?');
+
+      const sentMessage = mockAdapterSendInput.mock.calls.at(-1)?.[0] as string;
+      expect(sentMessage).toContain('## Active /goal');
+      expect(sentMessage).toContain('ship settings');
+      expect(sentMessage).toContain('what is next?');
+    });
+
+    it('does not execute /goal through direct sendInput for unsupported providers', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Unsupported Goal Provider Test',
+      });
+      await instance.readyPromise;
+      instance.provider = 'gemini';
+      mockAdapterSendInput.mockClear();
+      mockCommandExecuteCommandString.mockResolvedValueOnce({
+        command: {
+          id: 'builtin-goal',
+          name: 'goal',
+          template: '',
+          builtIn: true,
+          createdAt: 1,
+          updatedAt: 1,
+          source: 'builtin',
+        },
+        args: ['ship', 'settings'],
+        resolvedPrompt: '',
+        execution: { type: 'goal' },
+      });
+
+      await manager.sendInput(instance.id, '/goal ship settings');
+
+      expect(instance.metadata?.['goal']).toBeUndefined();
+      expect(mockAdapterSendInput).not.toHaveBeenCalled();
+      expect(instance.outputBuffer).toContainEqual(expect.objectContaining({
+        type: 'system',
+        content: expect.stringContaining('Goal mode is available for Claude and Codex sessions'),
       }));
     });
 

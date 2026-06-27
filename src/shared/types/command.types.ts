@@ -123,6 +123,7 @@ export interface CommandRegistrySnapshot {
 export type CommandExecution =
   | { type: 'prompt' }
   | { type: 'compact' }
+  | { type: 'goal' }
   | { type: 'ui'; actionId: string };
 
 /**
@@ -282,6 +283,26 @@ export const BUILT_IN_COMMANDS: Omit<CommandTemplate, 'id' | 'createdAt' | 'upda
     category: 'workflow',
     usage: '/plan <feature>',
     examples: ['/plan prompt history recall'],
+    builtIn: true,
+  },
+  {
+    name: 'goal',
+    description: 'Set or manage an active completion goal',
+    template: '',
+    hint: 'Set a goal, or use pause/resume/clear',
+    execution: { type: 'goal' },
+    category: 'session',
+    usage: '/goal [condition|pause|resume|clear]',
+    examples: [
+      '/goal finish the settings migration and verify tests pass',
+      '/goal',
+      '/goal pause',
+      '/goal resume',
+      '/goal clear',
+    ],
+    applicability: { provider: ['claude', 'codex'] },
+    disabledReason: 'Goal mode is available for Claude and Codex sessions',
+    rankHints: { pinned: true, providerAffinity: ['claude', 'codex'], weight: 10 },
     builtIn: true,
   },
   {

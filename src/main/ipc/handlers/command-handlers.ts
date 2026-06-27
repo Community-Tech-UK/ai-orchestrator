@@ -192,6 +192,17 @@ export function registerCommandHandlers(
           };
         }
 
+        if (executed.execution.type === 'goal') {
+          const goalInput = `/${executed.command.name}${executed.args.length > 0 ? ` ${executed.args.join(' ')}` : ''}`;
+          await instanceManager.sendInput(validated.instanceId, goalInput);
+          getUsageTracker().record('command', executed.command.id, workingDirectory);
+
+          return {
+            success: true,
+            data: executed
+          };
+        }
+
         // Send the resolved prompt to the instance
         await instanceManager.sendInput(
           validated.instanceId,

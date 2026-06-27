@@ -17,6 +17,8 @@ import type { PendingEnvelope } from '../providers/provider-runtime-event-bus';
 import { getLogger } from '../logging/logger';
 import { generateChildPrompt, stripOrchestrationMarkers } from '../orchestration/orchestration-protocol';
 import { getCommandManager } from '../commands/command-manager';
+import { appendActiveGoalContext } from '../commands/goal-command';
+import { handleInstanceGoalCommand } from '../commands/instance-goal-command';
 import { resolveSessionReferences } from '../session/session-reference-resolver';
 import { getActionCircuitBreaker } from '../security/action-circuit-breaker';
 import { forgetLspFeedbackInstance } from '../codemem/lsp-feedback-registration';
@@ -1422,8 +1424,9 @@ export class InstanceManager extends EventEmitter {
     // This keeps UX consistent (user types `/commit`, instance receives the expanded template).
     let resolvedMessage = message;
     let resolvedCommandName: string | undefined;
+    let resolvedCommandArgs: string[] | undefined;
     let resolvedCommandMeta: {
-      executionType: 'prompt' | 'compact' | 'ui';
+      executionType: 'prompt' | 'compact' | 'goal' | 'ui';
       model?: string;
       agent?: string;
       subtask?: boolean;
@@ -1444,6 +1447,7 @@ export class InstanceManager extends EventEmitter {
     });
     if (resolvedCommand) {
       resolvedCommandName = resolvedCommand.command.name;
+      resolvedCommandArgs = resolvedCommand.args;
       resolvedMessage = resolvedCommand.resolvedPrompt;
       resolvedCommandMeta = {
         executionType: resolvedCommand.execution.type,
@@ -1582,6 +1586,22 @@ export class InstanceManager extends EventEmitter {
       return;
     }
 
+    if (resolvedCommandMeta?.executionType === 'goal') {
+      await handleInstanceGoalCommand({
+        instance,
+        args: resolvedCommandArgs ?? [],
+        attachments,
+        userMessage,
+        autoContinuation: options?.autoContinuation === true,
+        recordUserMessage: (msg) => {
+          if (!options?.isRetry) { this.communication.addToOutputBuffer(instance, msg); this.publishOutput(instanceId, msg); }
+        },
+        emitSystemMessage: (content, metadata) => this.emitSystemMessage(instanceId, content, metadata),
+        sendProviderPrompt: (prompt, files, opts) => this.communication.sendInput(instanceId, prompt, files, null, opts),
+      });
+      return;
+    }
+
     // If the command requests a subtask (or specifies model/agent), run it in a child instance.
     // This avoids trying to change system prompts/models mid-session.
     const shouldRunAsSubtask =
@@ -1601,7 +1621,7 @@ export class InstanceManager extends EventEmitter {
       return;
     }
 
-    let contextBlock = this.buildContextBlock(inputContexts);
+    let contextBlock = appendActiveGoalContext(this.buildContextBlock(inputContexts), instance);
 
     const isFirstTrackedInput = !this.hasReceivedFirstMessage.has(instanceId);
     const hasPriorConversationHistory = instance.outputBuffer.some(

@@ -76,6 +76,24 @@ describe('CommandManager', () => {
     }));
   });
 
+  it('exposes /goal as a Claude/Codex session command', async () => {
+    const manager = new CommandManager();
+    const commands = await manager.getAllCommands();
+
+    expect(commands).toContainEqual(expect.objectContaining({
+      id: 'builtin-goal',
+      name: 'goal',
+      execution: { type: 'goal' },
+      category: 'session',
+      usage: '/goal [condition|pause|resume|clear]',
+      applicability: { provider: ['claude', 'codex'] },
+    }));
+
+    const resolved = await manager.executeCommand('builtin-goal', ['ship', 'settings']);
+    expect(resolved?.execution).toEqual({ type: 'goal' });
+    expect(resolved?.args).toEqual(['ship', 'settings']);
+  });
+
   it('includes markdown commands in the registry listing with stable ids', async () => {
     const markdownCommand: CommandTemplate = {
       id: createMarkdownCommandId('workspace:review'),
