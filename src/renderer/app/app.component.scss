@@ -50,6 +50,16 @@
   top: 12px;
 }
 
+/* On Windows the native minimise/maximise/close controls live in the top-right
+ * corner via Electron's titleBarOverlay. AppComponent measures the real control
+ * strip from the Window Controls Overlay geometry and sets an inline `right`
+ * inset (px) on this element so the chips never sit underneath the buttons. This
+ * static value is only a fallback for the first frame before the inline style is
+ * applied — it assumes a ~138px control strip (3 × 46px) plus a 12px gap. */
+.title-bar-overlay.windows {
+  right: 150px;
+}
+
 .startup-status-chip,
 .title-activity-chip {
   display: inline-flex;

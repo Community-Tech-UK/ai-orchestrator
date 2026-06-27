@@ -33,7 +33,31 @@ declare global {
     __stressFixtures?: StressFixturesService;
     __workspaceBench?: WorkspaceBenchmarkHarness;
   }
+
+  /**
+   * Window Controls Overlay API (Electron `titleBarOverlay` on Windows/Linux).
+   * Exposes the exact rectangle of the draggable title-bar area that is NOT
+   * covered by the native minimise/maximise/close buttons, plus a geometry
+   * change event. Not present on macOS (`hiddenInset`) or when unsupported.
+   */
+  interface WindowControlsOverlay extends EventTarget {
+    readonly visible: boolean;
+    getTitlebarAreaRect(): DOMRect;
+    addEventListener(type: 'geometrychange', listener: (event: Event) => void): void;
+    removeEventListener(type: 'geometrychange', listener: (event: Event) => void): void;
+  }
+
+  interface Navigator {
+    readonly windowControlsOverlay?: WindowControlsOverlay;
+  }
 }
+
+/**
+ * Fallback width (px) reserved on the right edge of the title bar for the native
+ * window controls when the Window Controls Overlay geometry is unavailable.
+ * Windows caption buttons are ~46px each (3 × 46 = 138) plus a small gap.
+ */
+const WINDOW_CONTROLS_FALLBACK_INSET = 150;
 
 @Component({
   selector: 'app-root',
@@ -71,6 +95,16 @@ export class AppComponent implements OnInit, OnDestroy {
   private resumeToastTimer: ReturnType<typeof setTimeout> | null = null;
 
   isMacOS = false;
+
+  /**
+   * Right-edge inset (px) for the title-bar status cluster so it always clears
+   * the native window controls on Windows/Linux. Driven by the live Window
+   * Controls Overlay geometry; falls back to a safe constant. 0 on macOS (the
+   * cluster is positioned from the left of the traffic lights via SCSS instead).
+   */
+  protected readonly titleBarControlsInset = signal(WINDOW_CONTROLS_FALLBACK_INSET);
+  private windowControlsOverlayCleanup: (() => void) | null = null;
+
   readonly startupCapabilities = signal<StartupCapabilityReport | null>(null);
   private readonly dismissedStartupBannerFingerprint = signal<string | null>(
     this.readDismissedStartupBannerFingerprint(),
@@ -148,6 +182,13 @@ export class AppComponent implements OnInit, OnDestroy {
       this.isMacOS = navigator.platform?.toLowerCase().includes('mac') ?? false;
     }
 
+    // On Windows/Linux the native caption buttons live top-right via Electron's
+    // titleBarOverlay. Track their exact geometry so the status cluster never
+    // ends up underneath the maximise/close buttons.
+    if (!this.isMacOS) {
+      this.bindWindowControlsOverlay();
+    }
+
     // Expose dev tools on window for console access (referenced in workspace-benchmarks.md)
     window.__perfService = this.perfService;
     window.__stressFixtures = this.stressFixtures;
@@ -183,11 +224,50 @@ export class AppComponent implements OnInit, OnDestroy {
     }
   }
 
+  /**
+   * Subscribe to the Window Controls Overlay geometry and keep
+   * {@link titleBarControlsInset} in sync with the real caption-button strip.
+   * Recomputes on `geometrychange` (maximise/restore/resize/DPI change) and on
+   * window resize as a belt-and-braces fallback for environments that don't
+   * fire `geometrychange` reliably.
+   */
+  private bindWindowControlsOverlay(): void {
+    const recompute = () => this.updateWindowControlsInset();
+    recompute();
+
+    const overlay = navigator.windowControlsOverlay;
+    overlay?.addEventListener('geometrychange', recompute);
+    window.addEventListener('resize', recompute);
+
+    this.windowControlsOverlayCleanup = () => {
+      overlay?.removeEventListener('geometrychange', recompute);
+      window.removeEventListener('resize', recompute);
+    };
+  }
+
+  private updateWindowControlsInset(): void {
+    const overlay = navigator.windowControlsOverlay;
+    if (!overlay?.visible) {
+      this.titleBarControlsInset.set(WINDOW_CONTROLS_FALLBACK_INSET);
+      return;
+    }
+
+    const rect = overlay.getTitlebarAreaRect();
+    // The titlebar area rect excludes the caption buttons. On Windows the
+    // controls sit to the right, so the reserved strip is everything past the
+    // area's right edge. A 12px gap keeps the cluster visually clear of them.
+    const controlsWidth = Math.max(0, window.innerWidth - (rect.x + rect.width));
+    const inset = controlsWidth > 0 ? controlsWidth + 12 : WINDOW_CONTROLS_FALLBACK_INSET;
+    this.titleBarControlsInset.set(inset);
+  }
+
   ngOnDestroy(): void {
     if (this.resumeToastTimer) clearTimeout(this.resumeToastTimer);
     this.resumeToastTimer = null;
     this.menuListenerCleanup?.();
     this.menuListenerCleanup = null;
+    this.windowControlsOverlayCleanup?.();
+    this.windowControlsOverlayCleanup = null;
   }
 
   startupCapabilitySummary(): string {
