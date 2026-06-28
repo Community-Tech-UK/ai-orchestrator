@@ -65,6 +65,11 @@ const SLOT_TEST_PROMPTS: Record<AuxiliaryLlmSlot, { system: string; user: string
     system: 'You answer a focused sub-question using only the provided context.',
     user: 'Context: The retry helper lives in src/net/retry.ts and uses exponential backoff.\n\nQuestion: Where is backoff implemented?\n\nAnswer:',
   },
+  verifyOutputSummary: {
+    system:
+      'You summarize failing test/verify output for an engineer. In 1-4 short bullets, give the most likely root cause(s) and the files/symbols to look at. Be terse; do not restate full stack traces.',
+    user: 'Verify output:\nFAIL src/net/retry.spec.ts > backoff doubles each attempt\n  AssertionError: expected 200 to be 400\n    at src/net/retry.ts:42\n\nSummary:',
+  },
 };
 
 const GENERIC_TEST_PROMPT = {

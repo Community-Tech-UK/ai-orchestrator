@@ -49,6 +49,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
     getSelectedInstanceBusySince: ReturnType<typeof vi.fn>;
     getInstance: ReturnType<typeof vi.fn>;
     sendInput: ReturnType<typeof vi.fn>;
+    addInstanceFromData: ReturnType<typeof vi.fn>;
     setInstanceMessages: ReturnType<typeof vi.fn>;
     setInstanceRestoreMode: ReturnType<typeof vi.fn>;
     setSelectedInstance: ReturnType<typeof vi.fn>;
@@ -62,6 +63,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
   let loopPromptHistory: {
     remember: ReturnType<typeof vi.fn>;
   };
+  let forkSession: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     historyStore = {
@@ -75,6 +77,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
       getSelectedInstanceBusySince: vi.fn(() => null),
       getInstance: vi.fn(() => createInstance()),
       sendInput: vi.fn(),
+      addInstanceFromData: vi.fn(),
       setInstanceMessages: vi.fn(),
       setInstanceRestoreMode: vi.fn(),
       setSelectedInstance: vi.fn(),
@@ -88,6 +91,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
     loopPromptHistory = {
       remember: vi.fn(),
     };
+    forkSession = vi.fn();
 
     TestBed.resetTestingModule();
     TestBed.overrideComponent(InstanceDetailComponent, {
@@ -107,7 +111,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
         { provide: InstanceStore, useValue: instanceStore },
         { provide: HistoryStore, useValue: historyStore },
         { provide: SettingsStore, useValue: createSettingsStoreMock() },
-        { provide: ElectronIpcService, useValue: { forkSession: vi.fn() } },
+        { provide: ElectronIpcService, useValue: { forkSession } },
         { provide: RecentDirectoriesIpcService, useValue: { selectFolderAndTrack: vi.fn() } },
         {
           provide: ProviderIpcService,
@@ -197,6 +201,40 @@ describe('InstanceDetailComponent history preview restore send', () => {
     expect(loopStore.start).toHaveBeenCalledWith('restored-1', config, []);
     expect(loopPromptHistory.remember).toHaveBeenCalledWith('Continue until done');
     expect(resolved).toEqual([{ ok: true, error: undefined }]);
+  });
+
+  it('restores a history preview before forking an edited resend', async () => {
+    historyStore.restoreEntry.mockResolvedValue({
+      success: true,
+      instanceId: 'restored-1',
+      restoredMessages: createConversation().messages,
+    });
+    forkSession.mockResolvedValue({ success: true, data: { id: 'fork-1' } });
+
+    await fixture.componentInstance.onResendEdited({
+      messageIndex: 0,
+      messageId: 'msg-1',
+      text: 'Edited first prompt',
+      retryMode: 'transcript-only',
+    });
+
+    expect(historyStore.restoreEntry).toHaveBeenCalledWith('history-1', '/tmp/project');
+    expect(forkSession).toHaveBeenCalledWith(
+      'restored-1',
+      0,
+      'Edit resend at message msg-1',
+      'Edited first prompt',
+      {
+        atMessageId: 'msg-1',
+        sourceMessageId: 'msg-1',
+        attachments: undefined,
+        preserveRuntimeSettings: true,
+        supersedeSource: true,
+      },
+    );
+    expect(instanceStore.addInstanceFromData).toHaveBeenCalledWith({ id: 'fork-1' });
+    expect(instanceStore.setSelectedInstance).toHaveBeenCalledWith('fork-1');
+    expect(historyStore.clearSelection).toHaveBeenCalled();
   });
 });
 

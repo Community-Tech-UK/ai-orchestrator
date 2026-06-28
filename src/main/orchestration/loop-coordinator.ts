@@ -75,6 +75,7 @@ import {
 } from './loop-coordinator-utils';
 import { resolveCompletion, type EvidenceResolution } from './evidence-resolver';
 import { EvidenceStore } from './evidence-store';
+import { summarizeVerifyOutput } from './verify-output-summarizer';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import {
   computeCompletionEvidenceHash,
@@ -1246,6 +1247,7 @@ export class LoopCoordinator extends EventEmitter {
         if (state.lastIteration) {
           state.lastIteration.verifyStatus = 'failed';
           state.lastIteration.verifyOutputExcerpt = excerpt(verify.output);
+          void this.enrichVerifyFailureSummary(state, state.lastIteration, verify.output);
         }
         this.emit('loop:claimed-done-but-failed', {
           loopRunId: state.id,
@@ -1322,6 +1324,31 @@ export class LoopCoordinator extends EventEmitter {
       status === 'no-progress' ||
       status === 'provider-limit'
     );
+  }
+
+  /**
+   * Best-effort, fire-and-forget local-model TL;DR of a FAILED verify command,
+   * attached to the iteration for operator display. Off the decision path (zero
+   * completion latency), never influences completion (resolver reads only
+   * verifyStatus), never throws. Guarded: only mutates/broadcasts when the
+   * iteration is still current and the loop still live.
+   */
+  private async enrichVerifyFailureSummary(
+    state: LoopState,
+    iteration: LoopIteration | undefined,
+    rawOutput: string,
+  ): Promise<void> {
+    if (!iteration || !rawOutput) return;
+    try {
+      const summary = await summarizeVerifyOutput(rawOutput);
+      if (!summary || state.lastIteration !== iteration) return;
+      iteration.verifySummary = summary.text;
+      if (!this.isTerminalStatus(state.status)) {
+        this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
+      }
+    } catch {
+      /* operator-UX enrichment must never disturb the loop */
+    }
   }
 
   /** Snapshot of the live loop state. */
@@ -2205,6 +2232,11 @@ export class LoopCoordinator extends EventEmitter {
       history.push(iteration);
       if (history.length > 50) history.splice(0, history.length - 50);
       state.lastIteration = iteration;
+
+      // Operator-UX only: best-effort local-model TL;DR of failed verify output.
+      if (iteration.verifyStatus === 'failed') {
+        void this.enrichVerifyFailureSummary(state, iteration, verifyOutputForEmit);
+      }
 
       // -- run iteration log + post-iteration hooks --
       try {

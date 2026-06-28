@@ -88,6 +88,14 @@ interface HistoryPreviewView {
   error: string | null;
 }
 
+interface ResendEditedEvent {
+  messageIndex: number;
+  messageId?: string;
+  text: string;
+  attachments?: { name: string; type: string; size: number; data?: string }[];
+  retryMode?: 'transcript-only';
+}
+
 @Component({
   selector: 'app-instance-detail',
   standalone: true,
@@ -854,23 +862,42 @@ export class InstanceDetailComponent {
     this.draftService.clearPendingFolders(inst.id);
   }
 
-  async onResendEdited(event: {
-    messageIndex: number;
-    messageId?: string;
-    text: string;
-    attachments?: { name: string; type: string; size: number; data?: string }[];
-    retryMode?: 'transcript-only';
-  }): Promise<void> {
+  async onResendEdited(event: ResendEditedEvent): Promise<void> {
     const inst = this.instance();
-    if (!inst) return;
+    if (inst) {
+      await this.forkEditedResend(inst.id, event);
+      return;
+    }
 
+    const preview = this.historyPreview();
+    if (!preview) return;
+
+    const restoredInstanceId = await this.ensureHistoryPreviewRestored();
+    if (!restoredInstanceId) {
+      return;
+    }
+
+    const forkedInstanceId = await this.forkEditedResend(restoredInstanceId, event);
+    if (!forkedInstanceId) {
+      return;
+    }
+
+    this.historyPreviewRestoredEntryId = null;
+    this.historyPreviewRestoredInstanceId = null;
+    this.historyStore.clearSelection();
+  }
+
+  private async forkEditedResend(
+    instanceId: string,
+    event: ResendEditedEvent,
+  ): Promise<string | null> {
     // Pass the edited text as initialPrompt so the main process delivers it
     // inside the fork's background init (right after CLI spawns). Sending via
     // a separate IPC after fork raced the renderer's status-gated queue: the
     // queue would drain before the new instance reached 'idle', and the
     // message would silently land nowhere.
     const result = await this.ipc.forkSession(
-      inst.id,
+      instanceId,
       event.messageIndex,
       `Edit resend at message ${event.messageId ?? event.messageIndex}`,
       event.text,
@@ -883,15 +910,16 @@ export class InstanceDetailComponent {
       },
     );
 
-    if (!result?.success || !result.data) return;
+    if (!result?.success || !result.data) return null;
 
     const data = result.data as { id?: string };
-    if (!data.id) return;
+    if (!data.id) return null;
 
     // Pre-populate renderer state so 'output' events for the new fork don't
     // arrive before the 'instance:created' event registers the instance.
     this.store.addInstanceFromData(result.data);
     this.store.setSelectedInstance(data.id);
+    return data.id;
   }
 
   onCancelQueuedMessage(index: number): void {

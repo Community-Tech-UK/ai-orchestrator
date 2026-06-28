@@ -284,6 +284,10 @@ import { PromptModalComponent } from '../../shared/components/prompt-modal/promp
                       <p>{{ signalSummary(iter) }}</p>
                       <p>{{ testSummary(iter) }}</p>
                       <p>{{ filesPreview(iter) }}</p>
+                      @if (iter.verifySummary) {
+                        <div class="li-subtitle">Verify summary (local model)</div>
+                        <pre>{{ iter.verifySummary }}</pre>
+                      }
                       @if (iter.verifyOutputExcerpt) {
                         <div class="li-subtitle">Verify output</div>
                         <pre>{{ iter.verifyOutputExcerpt }}</pre>

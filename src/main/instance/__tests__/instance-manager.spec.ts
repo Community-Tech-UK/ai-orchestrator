@@ -682,6 +682,7 @@ vi.mock('../../learning/outcome-tracker', () => ({
 vi.mock('../../learning/strategy-learner', () => ({
   StrategyLearner: {
     getInstance: vi.fn().mockReturnValue({
+      getRecommendation: vi.fn(() => null),
       learnFromOutcome: vi.fn(),
       initialize: vi.fn().mockResolvedValue(undefined),
     }),
@@ -751,6 +752,10 @@ vi.mock('../../codemem', () => {
 // ---------------------------------------------------------------------------
 
 import { InstanceManager } from '../instance-manager';
+import { generateChildPrompt } from '../../orchestration/orchestration-protocol';
+import { getWorkerNodeRegistry, WorkerNodeRegistry } from '../../remote-node/worker-node-registry';
+import type { RoutingDecision } from '../../routing';
+import type { SpawnChildCommand } from '../../orchestration/orchestration-protocol';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -760,6 +765,17 @@ const TEST_WORKING_DIR = '/tmp/test-project';
 
 function createManager(): InstanceManager {
   return new InstanceManager();
+}
+
+function registerWindowsWorkerNode(): void {
+  getWorkerNodeRegistry().registerNode({
+    id: 'node-win', name: 'windows-pc', address: '127.0.0.1', status: 'connected', activeInstances: 0,
+    capabilities: {
+      platform: 'win32', arch: 'x64', cpuCores: 16, totalMemoryMB: 32768, availableMemoryMB: 24000, supportedClis: ['claude'],
+      hasBrowserRuntime: false, hasBrowserMcp: false, hasAndroidMcp: false, hasDocker: false, maxConcurrentInstances: 4,
+      workingDirectories: [TEST_WORKING_DIR], browsableRoots: [TEST_WORKING_DIR], discoveredProjects: [],
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -828,6 +844,7 @@ describe('InstanceManager', () => {
     mockTaskManager.startTimeoutChecker.mockImplementation(() => undefined);
     mockSettingsGetAll.mockReturnValue({ ...mockSettingsData });
     mockResourceGovernorGetCreationBlockReason.mockReturnValue(null);
+    WorkerNodeRegistry._resetForTesting();
 
     manager = createManager();
   });
@@ -1721,6 +1738,48 @@ describe('InstanceManager', () => {
         storeId: 'ctx-codebase',
         durationMs: 7,
       }));
+    });
+  });
+
+  describe('orchestration child prompts', () => {
+    it('passes Windows worker runtime hints into generated child prompts', async () => {
+      registerWindowsWorkerNode();
+      const parent = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Parent',
+      });
+      await parent.readyPromise;
+      vi.mocked(generateChildPrompt).mockClear();
+
+      const command: SpawnChildCommand = {
+        action: 'spawn_child',
+        task: 'Capture diagnostics on the Windows worker',
+        node: 'windows-pc',
+      };
+      const routingDecision: RoutingDecision = {
+        model: 'claude-sonnet',
+        complexity: 'moderate',
+        tier: 'balanced',
+        confidence: 0.9,
+        reason: 'test routing',
+      };
+
+      await (manager as unknown as {
+        createChildInstance: (
+          parentId: string,
+          command: SpawnChildCommand,
+          routingDecision: RoutingDecision,
+        ) => Promise<unknown>;
+      }).createChildInstance(parent.id, command, routingDecision);
+
+      expect(generateChildPrompt).toHaveBeenCalledWith(
+        expect.any(String),
+        parent.id,
+        'Capture diagnostics on the Windows worker',
+        undefined,
+        undefined,
+        { executionPlatform: 'win32', workerName: 'windows-pc' },
+      );
     });
   });
 

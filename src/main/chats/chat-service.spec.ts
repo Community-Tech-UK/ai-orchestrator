@@ -951,6 +951,37 @@ describe('ChatService', () => {
       expect(lastCreate.reasoningEffort).toBe('high');
     });
 
+    it('uses Codex xhigh when createChat omits reasoningEffort', async () => {
+      const { service, instanceManager } = createHarness();
+      const chat = await service.createChat({
+        provider: 'codex',
+        currentCwd: '/work/project',
+        name: 'Default reasoning',
+      });
+      expect(chat.chat.reasoningEffort).toBe('xhigh');
+
+      await service.sendMessage({ chatId: chat.chat.id, text: 'Hi' });
+
+      const lastCreate = instanceManager.creates[instanceManager.creates.length - 1];
+      expect(lastCreate.reasoningEffort).toBe('xhigh');
+    });
+
+    it('keeps explicit null reasoningEffort as provider-decided', async () => {
+      const { service, instanceManager } = createHarness();
+      const chat = await service.createChat({
+        provider: 'codex',
+        reasoningEffort: null,
+        currentCwd: '/work/project',
+        name: 'Provider-decided reasoning',
+      });
+      expect(chat.chat.reasoningEffort).toBeNull();
+
+      await service.sendMessage({ chatId: chat.chat.id, text: 'Hi' });
+
+      const lastCreate = instanceManager.creates[instanceManager.creates.length - 1];
+      expect(lastCreate.reasoningEffort).toBeUndefined();
+    });
+
     it('forwards updated model and reasoning on the respawned runtime', async () => {
       const { service, instanceManager } = createHarness();
       const chat = await service.createChat({

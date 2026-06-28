@@ -24,6 +24,86 @@ Why Claude *feels* solid: it logs 5× more error lines (1225 vs 221) but they ar
 recoverable warnings on a persistent streaming process. Codex failures are
 **terminal to the operation** (review failed, loop iteration failed).
 
+## Post-review clarification (2026-06-28): app-server failure taxonomy
+
+Cross-model review flagged that the earlier excerpts could be read as one broad
+"Failed to initialize OpenAI Codex" root cause. That is too imprecise for the
+current code. I do **not** find that exact phrase in source at HEAD; where it
+appears in UI/log excerpts, treat it as a user-facing wrapper until the lower
+level event is identified. The verified Codex failure paths are distinct:
+
+1. **CLI availability / spawn check**: `spawn()` first runs `checkStatus()`. If
+   `codex --version` cannot run, `spawn()` throws `status.error || 'Codex CLI is
+   unavailable'`. This is a startup failure before any thread exists.
+2. **App-server initialization degradation**: if `codex app-server` is available
+   but `initAppServerMode()` fails or times out, `spawn()` logs
+   `App-server initialization failed, falling back to exec mode`, sets spawn mode
+   to degraded `subprocess-exec`, then still emits `spawned` and `status=idle`.
+   That is an initialization degradation, not a mid-session stall and not a
+   failed instance by itself.
+3. **App-server mid-session turn failure**: after a successful app-server spawn,
+   `sendInputImpl()` emits `busy`, then `appServerSendMessage()` runs the turn.
+   Thread-loss errors are retried once by reopening a fresh thread. Other turn
+   errors, or a second failure after reopen, propagate back to `sendInputImpl()`
+   and are classified as recoverable (`status=idle`) or fatal (`status=error`).
+4. **Exec-mode per-turn failure**: exec mode has its own child-process path and
+   is intentionally recoverable for many failures because the process is already
+   gone and the next turn can spawn fresh. Instance-level handlers also normalize
+   stateless exec `error` status to `idle`.
+
+The watchdog terms also need to stay separate:
+
+- **Codex app-server notification-idle watchdog**: inside
+  `appServerSendMessageInner()`, this is a JSON-RPC notification watchdog. It
+  fires when no app-server notifications arrive for `NOTIFICATION_IDLE_MS` with
+  no active item, or `NOTIFICATION_IDLE_ACTIVE_MS` while an item is active,
+  capped by the total deadline. It rejects the active turn with
+  `Codex turn stalled: no notifications received for ...`. It does not emit the
+  base `stream:idle` event.
+- **Codex exec idle/deadline timers**: inside `executePreparedMessage()`, the
+  idle timer kills a silent child process; the deadline timer enforces the total
+  per-attempt budget. Exec mode also emits synthetic heartbeats so the outer
+  manager does not mistake normal Codex silence for a stuck instance.
+- **BaseCliAdapter stream-idle watchdog**: inherited subprocess adapters use this
+  stdout-silence timer to emit `stream:idle`. That event is diagnostic/degraded
+  output machinery, not the Codex app-server notification-idle path.
+- **StuckProcessDetector**: the instance-manager-level detector tracks
+  output/heartbeat plus `generating` or `tool_executing` state. It emits soft
+  `process:suspect-stuck` warnings and hard `process:stuck`, which currently
+  routes to `respawnAfterInterrupt()`. It is outside both Codex app-server
+  notification-idle and base stream-idle.
+
+Thread reopen changes the compaction story. `reopenAppServerThread()` starts a
+brand-new Codex thread, swaps `appServerThreadId`/`sessionId`, resets
+`systemPromptSent` and `rtkAwarenessSent`, and stores a new native resume cursor.
+The new server-side thread has no prior conversation context. That means a
+successful reopen preserves the user-visible operation by retrying the message,
+but it invalidates any assumption that native compaction acted on the original
+thread's prior context. Follow-up analysis must treat "reopened fresh thread"
+as a continuity reset, not as "same native thread compacted and continued."
+
+The compaction retry path has explicit idle downgrades. In the `sendInput()`
+catch path and in the adapter `error` handler, context-overflow recovery tries
+`compactContext(instanceId)` and then either retries once with delegation
+guidance or returns to `idle` with a "delegate large file reads" message. If the
+retry itself fails, the catch callback also transitions the instance to `idle`.
+If compaction fails or no compaction handler exists, the code falls through to
+normal error handling instead.
+
+**Corrected root-cause conclusion:** the analyzed Codex symptoms cannot be
+collapsed into "Failed to initialize OpenAI Codex." At HEAD, initialization
+failure, initialization fallback-to-exec, app-server mid-turn notification-idle
+stall, app-server thread-loss/reopen, exec idle/deadline timeout, and
+manager-level stuck detection are separate branches with different final
+statuses. For a mid-session Codex stall, the load-bearing question is which
+branch fired: app-server notification-idle or process exit can end as `error`
+unless classified recoverable; thread-loss reopen can end as `idle` after a
+fresh-thread retry; context-overflow compaction can explicitly downgrade to
+`idle`; stateless exec failures are commonly recoverable and normalized to
+`idle`. `failed` is not the normal final status for these specific Codex adapter
+paths; it can appear in other lifecycle/child flows, so it should not be claimed
+without the concrete instance event sequence.
+
 ## Key code locations (verified at HEAD)
 
 - `src/main/orchestration/cross-model-review-service.ts:212` — `workingDirectory: instance?.workingDirectory || process.cwd()` (no remote check, no existence check)

@@ -8,6 +8,12 @@ import {
   ORCHESTRATION_MARKER_END,
 } from './orchestration-protocol.types';
 import type { OrchestratorNodeSummary } from './orchestration-protocol.types';
+import type { NodePlatform } from '../../shared/types/worker-node.types';
+
+export interface ChildPromptRuntimeHints {
+  executionPlatform?: NodePlatform;
+  workerName?: string;
+}
 
 /**
  * Render a live snapshot of connected worker nodes for the orchestrator prompt.
@@ -34,7 +40,10 @@ function formatConnectedNodesSnapshot(nodes?: OrchestratorNodeSummary[]): string
     const detail = caps.length > 0 ? ` — ${caps.join(', ')}` : '';
     return `- \`${n.name}\`${detail}`;
   });
-  return `**Workers connected right now** (use the exact name as the \`node\` value):\n${lines.join('\n')}`;
+  const windowsShellRule = nodes.some((n) => n.platform === 'win32')
+    ? '\n\n**Windows worker shell rule:** When targeting a Windows worker, Harness will also prompt the child to use Bash/Git Bash for shell commands and avoid PowerShell unless the task explicitly requires PowerShell.'
+    : '';
+  return `**Workers connected right now** (use the exact name as the \`node\` value):\n${lines.join('\n')}${windowsShellRule}`;
 }
 
 /**
@@ -247,9 +256,11 @@ export function generateChildPrompt(
   parentId: string,
   task: string,
   taskId?: string,
-  parentContext?: string
+  parentContext?: string,
+  runtimeHints?: ChildPromptRuntimeHints
 ): string {
   const taskIdInfo = taskId ? ` (Task: ${taskId})` : '';
+  const runtimeSection = formatChildRuntimeSection(runtimeHints);
 
   // Build parent context section if provided
   const contextSection = parentContext
@@ -260,6 +271,7 @@ export function generateChildPrompt(
 ${contextSection}
 **Your Task:** ${task}
 
+${runtimeSection}
 Focus only on this task. Be thorough but concise. You cannot spawn children.
 
 ### Reporting Results
@@ -302,5 +314,18 @@ ${ORCHESTRATION_MARKER_END}
 Your structured report is stored externally and your parent can retrieve specific parts without loading everything into context.
 
 Instance: ${childId} | Parent: ${parentId}
+`;
+}
+
+function formatChildRuntimeSection(runtimeHints?: ChildPromptRuntimeHints): string {
+  if (runtimeHints?.executionPlatform !== 'win32') {
+    return '';
+  }
+
+  const nodeLabel = runtimeHints.workerName?.trim()
+    ? ` on \`${runtimeHints.workerName.trim()}\``
+    : '';
+  return `## Windows Worker Shell Rule
+You are running${nodeLabel} on Windows. Use Bash/Git Bash for shell commands. Do not use PowerShell or pwsh unless the task explicitly requires PowerShell. Prefer portable Bash commands and invoke Windows executables from Bash when needed.
 `;
 }

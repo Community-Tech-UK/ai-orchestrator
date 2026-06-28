@@ -2318,12 +2318,17 @@ export class InstanceManager extends EventEmitter {
       .filter((msg) => msg.length > 0);
     const parentContext = parentContextMessages.length > 0 ? parentContextMessages.join('\n\n') : undefined;
 
+    const forceNodeId = this.resolveChildNodeId(command, parent);
+    const targetNode = forceNodeId ? getWorkerNodeRegistry().getNode(forceNodeId) : undefined;
     const childPrompt = generateChildPrompt(
       tempChildId,
       parentId,
       command.task,
       undefined,
-      parentContext
+      parentContext,
+      targetNode?.capabilities.platform
+        ? { executionPlatform: targetNode.capabilities.platform, workerName: targetNode.name || targetNode.id }
+        : undefined
     );
 
     const childAgentId = this.orchestrationMgr.resolveChildAgentId(command);
@@ -2358,11 +2363,6 @@ export class InstanceManager extends EventEmitter {
         metadata: { ...(msg.metadata ?? {}), seededFromParent: true },
       }))
       .filter((msg) => msg.content.length > 0);
-
-    // Resolve the target worker node: an explicit `node` on the command (a
-    // connected worker's id or name) wins; otherwise inherit the parent's
-    // remote node so children of remote sessions stay on the same machine.
-    const forceNodeId = this.resolveChildNodeId(command, parent);
 
     const child = await this.createInstance({
       workingDirectory: command.workingDirectory || parent.workingDirectory,

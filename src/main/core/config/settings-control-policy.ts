@@ -92,6 +92,7 @@ const auxiliarySlotMapSchema = z.object({
   retrievalHypothesis: auxiliarySlotSchema.optional(),
   branchScoring: auxiliarySlotSchema.optional(),
   subQueryExecution: auxiliarySlotSchema.optional(),
+  verifyOutputSummary: auxiliarySlotSchema.optional(),
 } satisfies Record<AuxiliaryLlmSlot, z.ZodOptional<typeof auxiliarySlotSchema>>).strict();
 const auxiliarySlotPayloadSchema = jsonBackedObjectSchema(auxiliarySlotMapSchema);
 

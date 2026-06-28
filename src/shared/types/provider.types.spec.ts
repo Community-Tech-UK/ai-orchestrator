@@ -9,6 +9,7 @@ import {
   PROVIDER_MODEL_LIST,
   REASONING_EFFORTS,
   getDefaultModelForCli,
+  getDefaultReasoningEffort,
   getPrimaryModelForProvider,
   getProviderModelContextWindow,
   normalizeModelAliasForProvider,
@@ -100,6 +101,12 @@ describe('provider model lists', () => {
       'max',
       'workflow',
     ]);
+  });
+
+  it('pins app-level reasoning defaults for providers that need them', () => {
+    expect(getDefaultReasoningEffort('claude')).toBe('high');
+    expect(getDefaultReasoningEffort('codex')).toBe('xhigh');
+    expect(getDefaultReasoningEffort('gemini')).toBeNull();
   });
 
   it('exposes Gemini models through the Copilot fallback model list', () => {

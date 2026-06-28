@@ -273,8 +273,10 @@ describe('NewSessionDraftService', () => {
     service.setReasoningEffort('max');
     expect(service.reasoningEffort()).toBe('max');
 
-    // Codex has no fixed default effort → provider-decided (null).
     service.setProvider('codex');
+    expect(service.reasoningEffort()).toBe('xhigh');
+
+    service.setProvider('gemini');
     expect(service.reasoningEffort()).toBeNull();
   });
 

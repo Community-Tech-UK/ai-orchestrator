@@ -16,7 +16,8 @@ export type AuxiliaryLlmSlot =
   | 'loopScoring'
   | 'retrievalHypothesis'
   | 'branchScoring'
-  | 'subQueryExecution';
+  | 'subQueryExecution'
+  | 'verifyOutputSummary';
 
 export type AuxiliaryLlmTier = 'quick' | 'quality';
 
@@ -38,6 +39,7 @@ export const DEFAULT_SLOT_TIERS: Record<AuxiliaryLlmSlot, AuxiliaryLlmTier> = {
   retrievalHypothesis: 'quick',
   branchScoring: 'quick',
   subQueryExecution: 'quality',
+  verifyOutputSummary: 'quality',
 };
 
 export type AuxiliaryLlmProvider =

@@ -13,6 +13,7 @@ const ALL_SLOTS: AuxiliaryLlmSlot[] = [
   'retrievalHypothesis',
   'branchScoring',
   'subQueryExecution',
+  'verifyOutputSummary',
 ];
 
 describe('DEFAULT_SETTINGS — auxiliary LLM fields', () => {
@@ -28,7 +29,7 @@ describe('DEFAULT_SETTINGS — auxiliary LLM fields', () => {
     expect(() => JSON.parse(DEFAULT_SETTINGS.auxiliaryLlmSlotsJson)).not.toThrow();
   });
 
-  it('auxiliaryLlmSlotsJson contains all ten slots', () => {
+  it('auxiliaryLlmSlotsJson contains all eleven slots', () => {
     const slots = JSON.parse(DEFAULT_SETTINGS.auxiliaryLlmSlotsJson) as AuxiliaryLlmSlotConfigMap;
     for (const slot of ALL_SLOTS) {
       expect(slots).toHaveProperty(slot);

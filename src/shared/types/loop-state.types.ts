@@ -81,6 +81,14 @@ export interface LoopIteration {
   completionSignalsFired: CompletionSignalEvidence[];
   verifyStatus: 'not-run' | 'passed' | 'failed';
   verifyOutputExcerpt: string;
+  /**
+   * Optional local-model TL;DR of a FAILED verify command's output, produced
+   * best-effort and asynchronously after the excerpt is stored. Purely operator
+   * UX — never influences the completion decision. Absent when auxiliary models
+   * are off/unavailable or the verify passed. In-memory + broadcast only (not
+   * persisted across restarts).
+   */
+  verifySummary?: string;
   /** LF-2 semantic-progress verdict for this iteration (present when the check ran). */
   semanticProgress?: LoopSemanticProgressResult;
   /**

@@ -43,6 +43,8 @@ export interface LoopFinalSummaryLastIteration {
   testFailCount: number | null;
   verifyStatus: 'not-run' | 'passed' | 'failed';
   verifyOutputExcerpt: string;
+  /** Optional local-model TL;DR of a failed verify command (operator UX). */
+  verifySummary?: string;
   progressVerdict: 'OK' | 'WARN' | 'CRITICAL';
 }
 

@@ -11,7 +11,7 @@ import type {
   ChatSendMessageInput,
   ChatUiState,
 } from '../../shared/types/chat.types';
-import type { ReasoningEffort } from '../../shared/types/provider.types';
+import { getDefaultReasoningEffort, type ReasoningEffort } from '../../shared/types/provider.types';
 import type {
   ConversationMessagePage,
   ConversationMessageRecord,
@@ -185,7 +185,7 @@ export class ChatService {
       name,
       provider: input.provider,
       model: input.model ?? null,
-      reasoningEffort: input.reasoningEffort ?? null,
+      reasoningEffort: input.reasoningEffort === undefined ? getDefaultReasoningEffort(input.provider) : input.reasoningEffort,
       currentCwd: input.currentCwd,
       yolo: input.yolo ?? false,
       ledgerThreadId: thread.id,

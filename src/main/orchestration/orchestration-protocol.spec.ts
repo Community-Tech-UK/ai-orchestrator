@@ -80,6 +80,19 @@ describe('generateOrchestrationPrompt', () => {
       expect(withNodes).toContain('CLIs: claude/codex');
     });
 
+    it('tells parents that Windows worker children use Bash instead of PowerShell', () => {
+      const withWindowsNode = generateOrchestrationPrompt(instanceId, 'claude-sonnet-4', [
+        {
+          id: 'n1',
+          name: 'windows-pc',
+          platform: 'win32',
+        },
+      ]);
+      expect(withWindowsNode).toContain('Windows worker shell rule');
+      expect(withWindowsNode).toContain('Bash/Git Bash');
+      expect(withWindowsNode).toContain('avoid PowerShell');
+    });
+
     it('states explicitly when no workers are connected', () => {
       expect(prompt).toContain('No worker nodes are connected right now');
     });
@@ -313,6 +326,22 @@ describe('generateChildPrompt', () => {
     const withContext = generateChildPrompt('c', 'p', 'task body', undefined, 'recent decisions: none');
     expect(withContext).toContain('## Parent Context');
     expect(withContext).toContain('recent decisions: none');
+  });
+
+  it('adds Bash-only shell guidance for Windows worker children', () => {
+    const out = generateChildPrompt(
+      'c',
+      'p',
+      'task body',
+      undefined,
+      undefined,
+      { executionPlatform: 'win32', workerName: 'windows-pc' },
+    );
+
+    expect(out).toContain('## Windows Worker Shell Rule');
+    expect(out).toContain('windows-pc');
+    expect(out).toContain('Use Bash/Git Bash');
+    expect(out).toContain('Do not use PowerShell');
   });
 
   it('lists each artifact type currently advertised in the prompt', () => {

@@ -429,6 +429,8 @@ export const LoopIterationSchema = z.object({
   completionSignalsFired: z.array(CompletionSignalEvidenceSchema),
   verifyStatus: z.enum(['not-run', 'passed', 'failed']),
   verifyOutputExcerpt: z.string(),
+  /** Optional local-model TL;DR of a failed verify command (operator UX). */
+  verifySummary: z.string().optional(),
   semanticProgress: LoopSemanticProgressResultSchema.optional(),
 });
 

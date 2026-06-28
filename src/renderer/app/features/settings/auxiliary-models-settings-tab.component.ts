@@ -44,6 +44,7 @@ const SLOTS: AuxiliaryLlmSlot[] = [
   'retrievalHypothesis',
   'branchScoring',
   'subQueryExecution',
+  'verifyOutputSummary',
 ];
 
 const PROVIDERS = ['ollama', 'openai-compatible'] as const;
@@ -64,6 +65,7 @@ const WIRED_SLOTS = new Set<AuxiliaryLlmSlot>([
   'retrievalHypothesis',
   'branchScoring',
   'subQueryExecution',
+  'verifyOutputSummary',
 ]);
 
 /** Inline test state for a single slot row. */

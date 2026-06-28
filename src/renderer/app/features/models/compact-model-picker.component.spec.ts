@@ -165,7 +165,7 @@ describe('CompactModelPickerComponent', () => {
     }).onUnifiedSelect({ kind: 'model', provider: 'codex', modelId: 'gpt-5.5' });
 
     expect(emitted).toEqual([
-      { provider: 'codex', model: 'gpt-5.5', reasoning: null },
+      { provider: 'codex', model: 'gpt-5.5', reasoning: 'xhigh' },
     ]);
     // pending-create should NOT touch chatStore.
     expect(chatStore.setModel).not.toHaveBeenCalled();
@@ -188,7 +188,7 @@ describe('CompactModelPickerComponent', () => {
     }).onUnifiedSelect({ kind: 'model', provider: 'claude', modelId: 'sonnet' });
 
     expect(emitted).toEqual([
-      { provider: 'claude', model: 'sonnet', reasoning: null },
+      { provider: 'claude', model: 'sonnet', reasoning: 'high' },
     ]);
   });
 
@@ -203,10 +203,10 @@ describe('CompactModelPickerComponent', () => {
 
     expect(chatStore.setProvider).toHaveBeenCalledWith('chat-1', 'codex');
     expect(chatStore.setModel).toHaveBeenCalledWith('chat-1', 'gpt-5.5');
-    expect(chatStore.setReasoning).not.toHaveBeenCalled();
+    expect(chatStore.setReasoning).toHaveBeenCalledWith('chat-1', 'xhigh');
   });
 
-  it('live model row commits the selected model and clears explicit reasoning', async () => {
+  it('live model row commits the selected model and restores provider default reasoning', async () => {
     fixture.componentRef.setInput('mode', 'live-instance');
     fixture.componentRef.setInput('chat', chatRecord({
       provider: 'codex',
@@ -221,7 +221,7 @@ describe('CompactModelPickerComponent', () => {
 
     expect(chatStore.setProvider).not.toHaveBeenCalled();
     expect(chatStore.setModel).toHaveBeenCalledWith('chat-1', 'gpt-5.5-mini');
-    expect(chatStore.setReasoning).toHaveBeenCalledWith('chat-1', null);
+    expect(chatStore.setReasoning).toHaveBeenCalledWith('chat-1', 'xhigh');
   });
 
   it('reasoning-leaf commit emits provider+model+reasoning together', async () => {

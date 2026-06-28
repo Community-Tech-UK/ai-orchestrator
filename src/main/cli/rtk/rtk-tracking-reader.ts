@@ -81,27 +81,44 @@ export interface RtkTrackingReaderOptions {
 }
 
 /**
- * Compute the platform-specific path to RTK's tracking.db.
- * Mirrors the behavior of the Rust `dirs::data_dir()` crate that RTK uses.
+ * RTK's data directory. Mirrors the Rust `dirs::data_dir()` crate that RTK uses.
  */
-export function getRtkTrackingDbPath(): string {
+function getRtkDataDir(): string {
   const home = homedir();
   if (process.platform === 'darwin') {
-    return path.join(home, 'Library', 'Application Support', 'rtk', 'tracking.db');
+    return path.join(home, 'Library', 'Application Support', 'rtk');
   }
   if (process.platform === 'win32') {
     const appData =
       process.env['APPDATA'] && process.env['APPDATA'].length > 0
         ? process.env['APPDATA']
         : path.join(home, 'AppData', 'Roaming');
-    return path.join(appData, 'rtk', 'tracking.db');
+    return path.join(appData, 'rtk');
   }
   // Linux / other unix
   const xdg =
     process.env['XDG_DATA_HOME'] && process.env['XDG_DATA_HOME'].length > 0
       ? process.env['XDG_DATA_HOME']
       : path.join(home, '.local', 'share');
-  return path.join(xdg, 'rtk', 'tracking.db');
+  return path.join(xdg, 'rtk');
+}
+
+/**
+ * Compute the path to RTK's tracking DB.
+ *
+ * RTK renamed this file from `tracking.db` to `history.db` (~v0.40+). The schema
+ * is unchanged, so we probe the current name first and fall back to the legacy
+ * name. If neither exists yet, return the current name so callers report a stable
+ * "not present" path. (Previously this hard-coded `tracking.db`, which made the
+ * savings panel always read empty against a modern rtk that writes `history.db`.)
+ */
+export function getRtkTrackingDbPath(): string {
+  const dir = getRtkDataDir();
+  const current = path.join(dir, 'history.db');
+  const legacy = path.join(dir, 'tracking.db');
+  if (existsSync(current)) return current;
+  if (existsSync(legacy)) return legacy;
+  return current;
 }
 
 /**

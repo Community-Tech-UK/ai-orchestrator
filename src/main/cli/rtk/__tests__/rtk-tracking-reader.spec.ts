@@ -120,10 +120,11 @@ describe('rtk-tracking-reader', () => {
   });
 
   describe('getRtkTrackingDbPath', () => {
-    it('returns a platform-appropriate path', () => {
+    it('returns a platform-appropriate path (current or legacy db name)', () => {
       const result = getRtkTrackingDbPath();
       expect(result).toContain('rtk');
-      expect(result).toContain('tracking.db');
+      // RTK renamed tracking.db -> history.db (~v0.40+); accept either.
+      expect(result).toMatch(/(history|tracking)\.db$/);
       if (process.platform === 'darwin') {
         expect(result).toContain('Library/Application Support');
       }

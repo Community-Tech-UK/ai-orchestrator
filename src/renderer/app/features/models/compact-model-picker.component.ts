@@ -27,6 +27,7 @@ import { ModelSelectionPanelComponent } from './model-selection-panel.component'
 import { DynamicModelCatalogService } from './dynamic-model-catalog.service';
 import { UnifiedCatalogStore } from './unified-catalog.store';
 import {
+  getDefaultReasoningEffort,
   getPrimaryModelForProvider,
   type ModelDisplayInfo,
   type ReasoningEffort,
@@ -400,14 +401,14 @@ export class CompactModelPickerComponent {
     this.menuOpen.set(false);
     if (selection.kind === 'provider') {
       // Provider row clicks reset the model to the new provider's primary
-      // default and select the provider's highest intelligence level when
-      // one exists. Without the model reset, the chat would keep the OLD
-      // provider's model id, which is invalid for the new provider's runtime.
+      // default and the provider's app-level reasoning default. Without the
+      // model reset, the chat would keep the OLD provider's model id, which is
+      // invalid for the new provider's runtime.
       const newDefaultModel = getPrimaryModelForProvider(selection.provider) ?? null;
       const ok = await this.controller.commitSelection({
         provider: selection.provider,
         modelId: newDefaultModel,
-        reasoning: null,
+        reasoning: getDefaultReasoningEffort(selection.provider),
       });
       if (ok) this.flashStatus(`Provider: ${PROVIDER_MENU_LABELS[selection.provider]}`);
       return;
@@ -417,7 +418,7 @@ export class CompactModelPickerComponent {
       const ok = await this.controller.commitSelection({
         provider: selection.provider,
         modelId: selection.modelId,
-        reasoning: null,
+        reasoning: getDefaultReasoningEffort(selection.provider),
       });
       if (ok) {
         const label =

@@ -29,6 +29,22 @@ npm run check:ts-max-loc    # TypeScript file size ratchet; fix any violations
 npm run test                # Run tests (uses vitest)
 ```
 
+## Running Tests (read before running the suite)
+
+- **Prefer `npm run test:quiet`** over `vitest` / `npm test` directly. It prints
+  only failures (each verbatim) plus a one-line pass summary, and tees the full
+  output to `_scratch/test-run.log` for drill-down. Running the default reporter
+  dumps ~10k tests' output into your context and forces a compaction.
+- **During debugging, run the single relevant spec, not the whole suite:**
+  `npm run test:quiet -- path/to/file.spec.ts`. Targeted runs also skip the
+  slower full-gate preflight.
+- **Reserve the full suite for a final gate** once the targeted spec is green —
+  not mid-investigation.
+- On failure, `test:quiet` adds a TL;DR from a **local** model (Ollama / LM Studio)
+  if one is reachable — zero cloud tokens. Point it at a LAN box with
+  `AIO_AUX_LLM_URL=http://<host>:11434`, or it reads the endpoint configured in
+  the app's Settings → Auxiliary Models. Disable with `AIO_TEST_SUMMARY=0`.
+
 ## Critical Rules
 
 - **NEVER commit or push** unless the user explicitly asks you to

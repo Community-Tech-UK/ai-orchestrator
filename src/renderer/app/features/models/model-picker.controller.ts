@@ -229,9 +229,10 @@ export class ModelPickerController {
     }
 
     if (provider === 'codex') {
-      // Codex has no fixed default effort, so keep the provider-decide row.
+      // Codex defaults to xhigh in the app, but keep an explicit provider-decide
+      // row so users can clear the override and let the CLI decide.
       return markDefault([
-        { id: 'default', label: 'Default', description: 'Let the provider decide' },
+        { id: 'default', label: 'Provider', description: 'Let the provider decide' },
         { id: 'none', label: 'Off', description: 'No extra reasoning effort' },
         { id: 'minimal', label: 'Minimal', description: 'Light reasoning' },
         { id: 'low', label: 'Low', description: 'Shorter thinking' },
