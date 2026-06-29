@@ -32,6 +32,7 @@ import type { CreateInstanceWithMessageOptions } from './instance-list.store';
 import type { HistoryRestoreMode } from '../../../../../shared/types/history.types';
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
 import {
+  isActiveTurnStatus,
   isInterruptRecoveryStatus,
   isReadyForInputStatus,
   isTerminalStatus,
@@ -333,8 +334,9 @@ export class InstanceStore implements OnDestroy {
       return { ...current, instances: newMap };
     });
 
-    // Set unread completion flag on busy→idle/ready/waiting_for_input/error
-    if (previousStatus === 'busy' && (isReadyForInputStatus(newStatus) || newStatus === 'error')) {
+    // Set unread completion flag on active-turn→idle/ready/waiting_for_input/error.
+    // Codex can pass through processing/thinking_deeply before settling.
+    if (isActiveTurnStatus(previousStatus) && (isReadyForInputStatus(newStatus) || newStatus === 'error')) {
       if (this.queries.selectedInstanceId() !== update.instanceId) {
         this.stateService.updateInstance(update.instanceId, { hasUnreadCompletion: true });
       }
@@ -433,8 +435,8 @@ export class InstanceStore implements OnDestroy {
       const newStatus = update.status as InstanceStatus;
       const prevStatus = previousStatuses.get(update.instanceId);
 
-      // Set unread flag on busy→completion transitions
-      if (prevStatus === 'busy' && (isReadyForInputStatus(newStatus) || newStatus === 'error')) {
+      // Set unread flag on active-turn→completion transitions.
+      if (isActiveTurnStatus(prevStatus) && (isReadyForInputStatus(newStatus) || newStatus === 'error')) {
         if (selectedId !== update.instanceId) {
           this.stateService.updateInstance(update.instanceId, { hasUnreadCompletion: true });
         }

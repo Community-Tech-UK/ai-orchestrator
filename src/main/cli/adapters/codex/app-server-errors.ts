@@ -58,7 +58,16 @@ export function extractCodexAppServerError(
       ?? nestedError?.['codex_error_info']
       ?? nestedError?.['codexErrorInfo'],
   );
-  const willRetry = typeof params['willRetry'] === 'boolean' ? params['willRetry'] : undefined;
+  const willRetry =
+    typeof params['willRetry'] === 'boolean'
+      ? params['willRetry']
+      : typeof params['will_retry'] === 'boolean'
+        ? params['will_retry']
+        : typeof nestedError?.['willRetry'] === 'boolean'
+          ? nestedError['willRetry']
+          : typeof nestedError?.['will_retry'] === 'boolean'
+            ? nestedError['will_retry']
+            : undefined;
 
   return {
     additionalDetails,

@@ -375,6 +375,10 @@ export class CodexCliAdapter extends BaseCliAdapter {
       // App-server mode supports native compaction via thread/compact/start.
       // This is dynamic — only true after spawn() detects app-server support.
       supportsNativeCompaction: this.useAppServer,
+      // App-server also emits its own thread/compacted events and honors
+      // Codex's native auto-compact threshold, so the orchestrator should not
+      // proactively call thread/compact/start at its generic 80% threshold.
+      selfManagedAutoCompaction: this.useAppServer,
       supportsPermissionPrompts: false,
       supportsDeferPermission: false,
     };
@@ -555,6 +559,7 @@ export class CodexCliAdapter extends BaseCliAdapter {
     if (/unauthorized|authentication|forbidden|login required/i.test(message)) return false;
     if (isSessionNotFoundText(message)) return false;
     if (/unknown model|model not found|invalid model/i.test(message)) return false;
+    if (/responseStreamDisconnected|stream disconnected before completion|incomplete response returned|content_filter/i.test(message)) return true;
     return /http 5\d\d|network error|connection (refused|reset|timed out|closed)|dns|tls|handshake|rate limit|timeout|socket hang up|econnreset/i.test(message);
   }
 
@@ -1881,6 +1886,15 @@ export class CodexCliAdapter extends BaseCliAdapter {
         // Include codex_error_info in the error message so upstream overflow detection
         // can match it (e.g., "ContextWindowExceeded" matches /context.?window.?exceeded/i).
         const fullMessage = formatCodexAppServerError(errorDetails);
+        if (errorDetails.willRetry === true) {
+          logger.warn('Retrying error notification from app-server', {
+            additionalDetails: errorDetails.additionalDetails,
+            codexErrorInfo: errorDetails.codexErrorInfo,
+            error: errorDetails.message,
+            willRetry: true,
+          });
+          break;
+        }
         state.error = new Error(fullMessage);
         logger.warn('Error notification from app-server', {
           additionalDetails: errorDetails.additionalDetails,

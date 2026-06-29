@@ -343,6 +343,27 @@ describe('LoopCoordinator review-driven completion', () => {
     }
   }, 30_000);
 
+  it('treats repeated no-change completion with verification evidence as done-needs-review, not a critical stall', async () => {
+    const needsReview = waitForEvent<{ reason: string }>('loop:completed-needs-review');
+    const driver = driveLoop(Array.from({ length: 8 }, () =>
+      childResult('Task complete.\nVerification run:\n- `mvn test` passed.'),
+    ));
+
+    let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
+    try {
+      state = await startReviewDrivenLoop('chat-rd-verified-no-change', {
+        maxStalledReviewIterations: 5,
+      });
+      const ev = await needsReview;
+      expect(ev.reason).toContain('verified completion');
+      await waitForCondition(() => coordinator.getLoop(state!.id)?.status === 'completed-needs-review');
+      expect(coordinator.getLoop(state.id)?.status).toBe('completed-needs-review');
+      expect(driver.invocations()).toBe(3);
+    } finally {
+      if (state) await coordinator.cancelLoop(state.id);
+    }
+  }, 30_000);
+
   it('does not treat ambiguous completion claims as a clean pass', async () => {
     driveLoop([
       childResult('I think it is basically done now.'),

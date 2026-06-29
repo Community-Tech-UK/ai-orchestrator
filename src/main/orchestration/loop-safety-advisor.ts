@@ -30,9 +30,10 @@ export function critiqueLoopIteration(iteration: LoopIteration): SafetyCritique 
     iteration.verifyStatus !== 'not-run' ||
     iteration.testPassCount !== null ||
     iteration.testFailCount !== null;
+  const text = iteration.outputFull || iteration.outputExcerpt || '';
   return critiqueSafety({
-    text: iteration.outputExcerpt ?? '',
-    hasVerificationEvidence: verificationRan,
+    text,
+    hasVerificationEvidence: verificationRan ? true : undefined,
   });
 }
 

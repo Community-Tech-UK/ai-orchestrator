@@ -144,6 +144,37 @@ describe('CompactionCoordinator self-managed auto-compaction', () => {
     expect(restartCompact).toHaveBeenCalledTimes(1);
   });
 
+  it('skips auto-trigger but keeps manual native compaction for self-managed native adapters', async () => {
+    const coordinator = CompactionCoordinator.getInstance();
+    const nativeCompact = vi.fn(async () => true);
+    const restartCompact = vi.fn(async () => true);
+
+    coordinator.configure({
+      nativeCompact,
+      restartCompact,
+      supportsNativeCompaction: () => true,
+      selfManagesAutoCompaction: () => true,
+    });
+
+    coordinator.onContextUpdate('inst-codex-app-server', {
+      used: 850_000,
+      total: 1_000_000,
+      percentage: 85,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(nativeCompact).not.toHaveBeenCalled();
+    expect(restartCompact).not.toHaveBeenCalled();
+
+    const result = await coordinator.compactInstance('inst-codex-app-server');
+
+    expect(result.success).toBe(true);
+    expect(result.method).toBe('native');
+    expect(nativeCompact).toHaveBeenCalledTimes(1);
+    expect(restartCompact).not.toHaveBeenCalled();
+  });
+
   it('still emits context-warning events for self-managed adapters so the UI shows pressure', () => {
     const coordinator = CompactionCoordinator.getInstance();
 

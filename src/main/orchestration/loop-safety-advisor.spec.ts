@@ -66,6 +66,16 @@ describe('critiqueLoopIteration', () => {
     expect(c.blocking.some((o) => o.kind === 'missing-evidence')).toBe(false);
   });
 
+  it('uses full output for verification evidence when the excerpt omitted it', () => {
+    const c = critiqueLoopIteration(
+      iteration({
+        outputExcerpt: 'Task complete.',
+        outputFull: 'Task complete.\nVerification run:\n- `mvn test` passed.',
+      }),
+    );
+    expect(c.blocking.some((o) => o.kind === 'missing-evidence')).toBe(false);
+  });
+
   it('approves a clean iteration', () => {
     const c = critiqueLoopIteration(iteration({ outputExcerpt: 'Investigating the parser bug.' }));
     expect(c.approved).toBe(true);

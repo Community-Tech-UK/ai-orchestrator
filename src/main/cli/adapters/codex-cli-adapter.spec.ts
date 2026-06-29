@@ -402,6 +402,17 @@ Hey! I'm here. What do you want to tackle?`;
     it('reports supportsNativeCompaction=false when not in app-server mode', () => {
       const adapter = new CodexCliAdapter();
       expect(adapter.getRuntimeCapabilities().supportsNativeCompaction).toBe(false);
+      expect(adapter.getRuntimeCapabilities().selfManagedAutoCompaction).toBe(false);
+    });
+
+    it('reports app-server mode as self-managed for automatic compaction', () => {
+      const adapter = new CodexCliAdapter();
+      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+
+      expect(adapter.getRuntimeCapabilities()).toMatchObject({
+        supportsNativeCompaction: true,
+        selfManagedAutoCompaction: true,
+      });
     });
 
     it('reports isAppServerMode()=false before spawn', () => {
@@ -525,6 +536,33 @@ Hey! I'm here. What do you want to tackle?`;
   });
 
   describe('app-server assistant streaming', () => {
+    it('keeps retrying app-server error notifications as warnings instead of poisoning the turn', () => {
+      const adapter = new CodexCliAdapter();
+      const internals = adapter as unknown as {
+        createTurnCaptureState(threadId: string): {
+          error: unknown;
+        };
+        handleTurnNotification(
+          state: unknown,
+          notification: { method: string; params: Record<string, unknown> },
+        ): void;
+      };
+      const state = internals.createTurnCaptureState('thread-1');
+
+      internals.handleTurnNotification(state, {
+        method: 'error',
+        params: {
+          error: { message: 'Reconnecting... 3/5' },
+          willRetry: true,
+          codex_error_info: {
+            responseStreamDisconnected: { httpStatusCode: null },
+          },
+        },
+      });
+
+      expect(state.error).toBeNull();
+    });
+
     it('resets cached context usage when Codex reports native thread compaction', () => {
       const adapter = new CodexCliAdapter();
       const internals = adapter as unknown as {
@@ -996,6 +1034,25 @@ Hey! I'm here. What do you want to tackle?`;
 
       const statuses = collectStatuses(adapter);
       await expect(adapter.sendInput('retry me')).rejects.toThrow(/connection reset/i);
+
+      expect(statuses).toEqual(['busy', 'idle']);
+    });
+
+    it('emits status=idle in app-server mode for response stream disconnect failures', async () => {
+      const adapter = await spawnExecAdapter();
+      (adapter as unknown as { useAppServer: boolean }).useAppServer = true;
+      (adapter as unknown as { appServerClient: unknown }).appServerClient = {};
+      vi.spyOn(
+        adapter as unknown as { appServerSendMessage(m: string, a?: unknown): Promise<void> },
+        'appServerSendMessage'
+      ).mockRejectedValue(
+        new Error(
+          'stream disconnected before completion: Incomplete response returned, reason: content_filter - [codex_error_info: {"responseStreamDisconnected":{"httpStatusCode":null}}]'
+        )
+      );
+
+      const statuses = collectStatuses(adapter);
+      await expect(adapter.sendInput('retry me')).rejects.toThrow(/responseStreamDisconnected/i);
 
       expect(statuses).toEqual(['busy', 'idle']);
     });

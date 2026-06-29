@@ -71,6 +71,22 @@ describe('snapshotWorkspaceFiles (filesystem walk)', () => {
     const changes = snapshotFileChangesViaWorkspace(before, workspace);
     expect(changes.map((c) => c.path)).toEqual(['src/Main.java']);
   });
+
+  it('prioritizes nested source repos over large archive directories before the snapshot cap', () => {
+    workspace = mkdtempSync(join(tmpdir(), 'loop-snap-'));
+    for (let i = 0; i < 5_010; i++) {
+      write(workspace, `aaa-archive/live-${i}.log`, `log ${i}`);
+    }
+    write(workspace, 'unstablepvp/.git/HEAD', 'ref: refs/heads/main');
+    write(workspace, 'unstablepvp/pom.xml', '<project />');
+    write(workspace, 'unstablepvp/src/main/java/Main.java', 'class Main {}');
+
+    const before = snapshotWorkspaceFiles(workspace);
+    write(workspace, 'unstablepvp/src/main/java/Main.java', 'class Main { void run() {} }');
+
+    const changes = snapshotFileChangesViaWorkspace(before, workspace);
+    expect(changes.map((c) => c.path)).toContain('unstablepvp/src/main/java/Main.java');
+  });
 });
 
 describe('snapshotFileChangesViaGit', () => {

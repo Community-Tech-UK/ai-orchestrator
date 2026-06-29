@@ -1372,14 +1372,17 @@ export class InstanceCommunicationManager extends EventEmitter {
         const previousStatus = this.transitionAdapterStatus(instanceId, instance, normalizedStatus);
         instance.lastActivity = Date.now();
 
-        // A settled turn (busy → ready-for-input) proves the provider has
+        const wasActiveTurn = ACTIVE_CHILD_TURN_STATUSES.has(previousStatus);
+        const isTurnComplete = CHILD_TURN_COMPLETE_STATUSES.has(normalizedStatus);
+
+        // A settled turn (active → ready-for-input) proves the provider has
         // flushed this session to disk, so a later `--resume <sessionId>` is
         // safe. Flip the fresh-session guard exactly once; `undefined` (restored
         // / woken sessions) is left untouched. See Instance.providerSessionPersisted.
         if (
           instance.providerSessionPersisted === false
-          && previousStatus === 'busy'
-          && (normalizedStatus === 'idle' || normalizedStatus === 'ready' || normalizedStatus === 'waiting_for_input')
+          && wasActiveTurn
+          && isTurnComplete
         ) {
           instance.providerSessionPersisted = true;
         }
@@ -1401,10 +1404,12 @@ export class InstanceCommunicationManager extends EventEmitter {
           }
         }
 
-        // On busy→idle/ready transition, compute diff stats and include them in the update
+        // On active→settled transition, compute diff stats and include them in the update.
+        // Codex can enter processing/thinking_deeply while a turn is still active;
+        // restricting this to exact busy→idle misses those completed turns.
         if (
-          previousStatus === 'busy' &&
-          (normalizedStatus === 'idle' || normalizedStatus === 'ready') &&
+          wasActiveTurn &&
+          isTurnComplete &&
           this.deps.getDiffTracker
         ) {
           const tracker = this.deps.getDiffTracker(instanceId);

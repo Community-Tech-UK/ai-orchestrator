@@ -143,6 +143,7 @@ import {
   evaluatePingPongCompletion as evaluatePingPongCompletionGate,
   type PingPongTerminal,
 } from './loop-pingpong-completion';
+import { isVerifiedNoChangeCompletionClaim } from './loop-verified-completion-claim';
 import type { PingPongReviewer } from './agentic-pingpong-reviewer';
 import type { PingPongSubject } from '../../shared/types/loop-pingpong.types';
 import {
@@ -2370,9 +2371,20 @@ export class LoopCoordinator extends EventEmitter {
         );
         const advancingConvergence = (state.consecutiveCleanReviewPasses ?? 0) > 0;
         if (!madeProductionChange && !advancingConvergence) {
+          const primary = evaluation.primary ?? evaluation.signals[0];
+          if (isVerifiedNoChangeCompletionClaim(iteration)) {
+            const reason =
+              `Review-driven loop reached a verified completion with no production changes ` +
+              `after a repeated-work CRITICAL signal` +
+              (primary ? ` (${primary.message})` : '') +
+              `. Stopped for human review instead of treating the settled no-change state as a stall.`;
+            state.lastCompletionOutcome = 'accepted';
+            this.emit('loop:completed-needs-review', { loopRunId: state.id, reason, acceptedByOperator: false });
+            this.terminate(state, 'completed-needs-review', reason);
+            return;
+          }
           state.reviewDrivenStallIterations = (state.reviewDrivenStallIterations ?? 0) + 1;
           const limit = Math.max(1, state.config.completion.maxStalledReviewIterations ?? 3);
-          const primary = evaluation.primary ?? evaluation.signals[0];
           if (state.reviewDrivenStallIterations >= limit) {
             const reason =
               `Review-driven loop stalled: ${state.reviewDrivenStallIterations} consecutive ` +

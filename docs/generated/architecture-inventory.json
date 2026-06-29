@@ -5121,11 +5121,11 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
-      "lines": 3343
+      "lines": 3357
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3207
+      "lines": 3219
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -5173,7 +5173,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2343
+      "lines": 2348
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave4-output-clipboard-theme-terminal-plan_completed.md",
@@ -5208,6 +5208,10 @@
       "lines": 2091
     },
     {
+      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
+      "lines": 2089
+    },
+    {
       "path": "docs/codex_todo_completed.md",
       "lines": 2086
     },
@@ -5218,10 +5222,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-04-remote-nodes-settings_completed.md",
       "lines": 2070
-    },
-    {
-      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
-      "lines": 2032
     },
     {
       "path": "docs/superpowers/plans/2026-04-17-wave1-contracts-subpath-exports.md",

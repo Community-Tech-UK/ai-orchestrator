@@ -132,6 +132,29 @@ function extractFromCommand(command: string, workingDirectory: string): string[]
 }
 
 /**
+ * Extract file paths from short adapter-generated status text such as Codex
+ * app-server's "Editing file: src/foo.ts" / "File modified: src/foo.ts".
+ */
+function extractFromContent(content: string, workingDirectory: string): string[] {
+  const found: string[] = [];
+  const text = content.trim();
+  const patterns = [
+    /^Editing file:\s*(.+)$/i,
+    /^File\s+\S+:\s*(.+)$/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    if (!match) continue;
+    if (match[1].trim().toLowerCase() === 'unknown') continue;
+    const resolved = resolveWithinDir(match[1], workingDirectory);
+    if (resolved) found.push(resolved);
+  }
+
+  return found;
+}
+
+/**
  * Parses a unified diff patch (Codex apply_patch) and extracts destination paths.
  */
 function extractFromPatch(patch: string, workingDirectory: string): string[] {
@@ -306,6 +329,7 @@ export function extractFilePaths(
     rawInput && typeof rawInput === 'object' && !Array.isArray(rawInput)
       ? (rawInput as ToolInput)
       : {};
+  const metadataAsInput: ToolInput = meta as ToolInput;
 
   if (READ_ONLY_TOOLS.has(toolName)) return [];
 
@@ -326,7 +350,11 @@ export function extractFilePaths(
 
   // If provider-specific extraction yielded nothing, try the generic fallback
   if (paths.length === 0) {
-    paths = extractGeneric(input, workingDirectory);
+    paths = extractGeneric({ ...metadataAsInput, ...input }, workingDirectory);
+  }
+
+  if (paths.length === 0) {
+    paths = extractFromContent(message.content, workingDirectory);
   }
 
   return [...new Set(paths)];

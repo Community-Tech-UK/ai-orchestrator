@@ -14,6 +14,7 @@ import { emitPluginHook } from '../../plugins/hook-emitter';
 import { normalizeProjectMemoryKey } from '../../memory/project-memory-key';
 import { deleteTurnSupervisor } from '../../session/session-turn-supervisor';
 import { deleteCircuitBreaker } from './respawn-circuit-breaker';
+import { mergeSessionBranchToMain } from './session-branch-merge';
 
 const logger = getLogger('InstanceTermination');
 
@@ -65,6 +66,10 @@ export class InstanceTerminationCoordinator {
     const adapter = this.deps.getAdapter(instanceId);
     const instance = this.deps.getInstance(instanceId);
 
+    // Capture clean-completion BEFORE teardown mutates status: a regular (root)
+    // session that finished its turn sits at 'idle'; one killed mid-task does not.
+    const finishedCleanlyOnEntry = !!instance && !instance.parentId && instance.status === 'idle';
+
     this.deps.forceReleaseSessionMutex(instanceId);
     this.deps.stopStuckTracking?.(instanceId);
     this.deps.deleteDiffTracker?.(instanceId);
@@ -95,6 +100,7 @@ export class InstanceTerminationCoordinator {
     }
 
     await this.archiveRootConversation(instanceId, instance);
+    await this.maybeMergeSessionBranch(instanceId, instance, graceful, finishedCleanlyOnEntry);
     this.mineTranscript(instanceId, instance, 'terminate');
     this.markTerminated(instance);
     instance.processId = null;
@@ -199,6 +205,50 @@ export class InstanceTerminationCoordinator {
     } catch (error) {
       logger.error('Failed to archive instance to history', error instanceof Error ? error : undefined, {
         instanceId,
+      });
+    }
+  }
+
+  /**
+   * On a clean, user-ended root session (agent finished its turn -> 'idle'), merge the
+   * working branch back into base and delete it. Off by default; opt in with
+   * AIO_AUTO_MERGE_SESSION=1. Fail-safe: any error is logged and teardown continues.
+   */
+  private async maybeMergeSessionBranch(
+    instanceId: string,
+    instance: Instance,
+    graceful: boolean,
+    finishedCleanly: boolean,
+  ): Promise<void> {
+    if (
+      process.env['AIO_AUTO_MERGE_SESSION'] !== '1' ||
+      !graceful ||
+      !finishedCleanly ||
+      !instance.workingDirectory
+    ) {
+      return;
+    }
+    try {
+      const result = await mergeSessionBranchToMain(instance.workingDirectory);
+      if (result.merged) {
+        logger.info('Auto-merged session branch into base on clean completion', {
+          instanceId,
+          branch: result.branch,
+          base: result.base,
+        });
+      } else if (result.reason === 'conflict') {
+        logger.warn('Session branch left intact: merge conflict with base', {
+          instanceId,
+          branch: result.branch,
+          base: result.base,
+        });
+      } else {
+        logger.info('Session branch merge-back skipped', { instanceId, reason: result.reason });
+      }
+    } catch (error) {
+      logger.warn('Session branch merge-back failed; continuing teardown', {
+        instanceId,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }

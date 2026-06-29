@@ -42,6 +42,40 @@ const WORKSPACE_SNAPSHOT_IGNORED_DIRS = new Set([
   'target',
 ]);
 const WORKSPACE_SNAPSHOT_IGNORED_FILES = new Set(['.DS_Store']);
+const WORKSPACE_SNAPSHOT_SOURCE_MARKERS = [
+  '.git',
+  'angular.json',
+  'build.gradle',
+  'build.gradle.kts',
+  'Cargo.toml',
+  'composer.json',
+  'deno.json',
+  'deno.jsonc',
+  'Gemfile',
+  'go.mod',
+  'lerna.json',
+  'mix.exs',
+  'nx.json',
+  'package.json',
+  'pnpm-workspace.yaml',
+  'pom.xml',
+  'pyproject.toml',
+  'settings.gradle',
+  'settings.gradle.kts',
+  'tsconfig.json',
+] as const;
+const WORKSPACE_SNAPSHOT_SOURCE_MARKER_NAMES = new Set<string>(WORKSPACE_SNAPSHOT_SOURCE_MARKERS);
+const WORKSPACE_SNAPSHOT_PREFERRED_DIRS = new Set([
+  'app',
+  'apps',
+  'lib',
+  'libs',
+  'modules',
+  'packages',
+  'plugins',
+  'projects',
+  'src',
+]);
 
 /**
  * True when any path segment is an ignored directory (or the file itself is
@@ -133,6 +167,36 @@ function hashWorkspaceFile(absPath: string, stat: fs.Stats): string {
     .slice(0, 16);
 }
 
+function hasSourceMarker(dir: string): boolean {
+  try {
+    return WORKSPACE_SNAPSHOT_SOURCE_MARKERS.some((marker) => fs.existsSync(path.join(dir, marker)));
+  } catch {
+    return false;
+  }
+}
+
+function isDeprioritizedWorkspaceDir(name: string): boolean {
+  return (
+    /(?:^|[-_])archives?(?:[-_]|$)/i.test(name) ||
+    /(?:^|[-_])backups?(?:[-_]|$)/i.test(name) ||
+    /(?:^|[-_])logs?(?:[-_]|$)/i.test(name) ||
+    /^deploy-(?:backups?|verification)$/i.test(name) ||
+    /^local-servers?$/i.test(name) ||
+    /^tmp$/i.test(name)
+  );
+}
+
+function workspaceSnapshotEntryPriority(parentDir: string, entry: fs.Dirent): number {
+  if (entry.isDirectory()) {
+    if (isDeprioritizedWorkspaceDir(entry.name)) return 9;
+    if (hasSourceMarker(path.join(parentDir, entry.name))) return 0;
+    if (WORKSPACE_SNAPSHOT_PREFERRED_DIRS.has(entry.name)) return 1;
+    return 4;
+  }
+  if (entry.isFile() && WORKSPACE_SNAPSHOT_SOURCE_MARKER_NAMES.has(entry.name)) return 2;
+  return 5;
+}
+
 export function snapshotWorkspaceFiles(cwd: string): WorkspaceSnapshot {
   const root = path.resolve(cwd);
   const snapshot: WorkspaceSnapshot = new Map();
@@ -148,7 +212,11 @@ export function snapshotWorkspaceFiles(cwd: string): WorkspaceSnapshot {
       return;
     }
 
-    entries.sort((a, b) => a.name.localeCompare(b.name));
+    entries.sort((a, b) => {
+      const priorityDelta =
+        workspaceSnapshotEntryPriority(dir, a) - workspaceSnapshotEntryPriority(dir, b);
+      return priorityDelta || a.name.localeCompare(b.name);
+    });
     for (const entry of entries) {
       if (limitReached) return;
       if (entry.isSymbolicLink()) continue;
