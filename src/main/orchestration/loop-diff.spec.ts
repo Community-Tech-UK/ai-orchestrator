@@ -110,17 +110,20 @@ describe('collectWorkspaceDiff', () => {
     }
   });
 
-  it('excludes the loop-control dir (secret token) and other internal noise from untracked output', () => {
+  it('excludes loop-owned internal dirs from untracked output', () => {
     workspace = mkdtempSync(join(tmpdir(), 'loop-diff-'));
     mkdirSync(join(workspace, '.aio-loop-control'), { recursive: true });
+    mkdirSync(join(workspace, '.aio-loop-state', 'loop-1'), { recursive: true });
     writeFileSync(join(workspace, '.aio-loop-control', 'control.json'), '{"secret":"do-not-leak"}\n');
+    writeFileSync(join(workspace, '.aio-loop-state', 'loop-1', 'AUDIT.md'), 'loop audit\n');
     writeFileSync(join(workspace, 'real.ts'), 'export const ok = 1;\n');
     const out = collectWorkspaceDiff(
       workspace,
       {},
-      fakeRunner({ untracked: '.aio-loop-control/control.json\nreal.ts\n' }),
+      fakeRunner({ untracked: '.aio-loop-control/control.json\n.aio-loop-state/loop-1/AUDIT.md\nreal.ts\n' }),
     );
     expect(out.diff).not.toContain('do-not-leak');
+    expect(out.diff).not.toContain('loop audit');
     expect(out.diff).toContain('real.ts');
     expect(out.changedFiles).toEqual(['real.ts']);
   });

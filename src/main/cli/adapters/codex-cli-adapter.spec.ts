@@ -6,12 +6,20 @@ import { PassThrough } from 'stream';
 import { EventEmitter } from 'events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const listBrowserApprovalRequestsMock = vi.hoisted(() => vi.fn(() => []));
+
 // Keep all real exports; only stub the process-tree killer so idle-timeout
 // tests don't signal real PIDs.
 vi.mock('./codex/app-server-client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./codex/app-server-client')>();
   return { ...actual, terminateProcessTree: vi.fn() };
 });
+
+vi.mock('../../browser-gateway/browser-approval-store', () => ({
+  getBrowserApprovalStore: () => ({
+    listRequests: listBrowserApprovalRequestsMock,
+  }),
+}));
 
 import { CodexCliAdapter, CodexTimeoutError } from './codex-cli-adapter';
 
@@ -81,6 +89,8 @@ function collectStdin(proc: MockChildProcess): Promise<string> {
 
 describe('CodexCliAdapter', () => {
   afterEach(() => {
+    listBrowserApprovalRequestsMock.mockReset();
+    listBrowserApprovalRequestsMock.mockReturnValue([]);
     vi.restoreAllMocks();
   });
 
@@ -1253,6 +1263,71 @@ Hey! I'm here. What do you want to tackle?`;
         expect(reopenSpy).toHaveBeenCalledTimes(1);
         expect(statuses).toEqual(['busy', 'idle']);
         expect((adapter as unknown as { appServerThreadId: string }).appServerThreadId).toBe('thread-new-after-stall');
+      });
+
+      it('keeps the app-server notification watchdog alive while browser approval is pending', async () => {
+        const adapter = new CodexCliAdapter({
+          browserGatewayInstanceId: 'instance-1',
+        });
+        const neverExits = new Promise<void>(() => {
+          // Intentionally pending.
+        });
+        const client = {
+          notificationHandler: null as ((notification: {
+            method: string;
+            params: Record<string, unknown>;
+          }) => void) | null,
+          exitPromise: neverExits,
+          request: vi.fn().mockResolvedValue({
+            turn: { id: 'turn-1', status: 'inProgress' },
+          }),
+          setNotificationHandler(handler: typeof client.notificationHandler): void {
+            this.notificationHandler = handler;
+          },
+        };
+        (adapter as unknown as { appServerClient: typeof client }).appServerClient = client;
+        (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+        listBrowserApprovalRequestsMock.mockReturnValue([
+          {
+            requestId: 'browser-approval-1',
+            status: 'pending',
+            expiresAt: Date.now() + 30 * 60 * 1000,
+          },
+        ]);
+
+        const heartbeats: number[] = [];
+        adapter.on('heartbeat', () => heartbeats.push(Date.now()));
+
+        vi.useFakeTimers();
+        try {
+          const capturePromise = (adapter as unknown as {
+            captureTurn(input: unknown[]): Promise<unknown>;
+          }).captureTurn([{ type: 'text', text: 'click the button', text_elements: [] }]);
+          let settled = false;
+          capturePromise.then(
+            () => { settled = true; },
+            () => { settled = true; },
+          );
+          await vi.advanceTimersByTimeAsync(90_001);
+
+          expect(settled).toBe(false);
+          expect(heartbeats.length).toBeGreaterThanOrEqual(1);
+
+          listBrowserApprovalRequestsMock.mockReturnValue([]);
+          client.notificationHandler?.({
+            method: 'turn/completed',
+            params: {
+              threadId: 'thread-1',
+              turn: { id: 'turn-1', status: 'completed' },
+            },
+          });
+
+          await expect(capturePromise).resolves.toMatchObject({
+            completed: true,
+          });
+        } finally {
+          vi.useRealTimers();
+        }
       });
 
       it('does not retry on non-thread-loss errors (e.g. HTTP 500)', async () => {

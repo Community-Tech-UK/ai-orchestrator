@@ -50,7 +50,20 @@ export interface LoopFinalSummaryLastIteration {
 
 export interface LoopFinalSummary {
   loopRunId: string;
-  status: 'completed' | 'completed-needs-review' | 'cancelled' | 'failed' | 'cap-reached' | 'error' | 'no-progress' | 'provider-limit';
+  status:
+    | 'completed'
+    | 'completed-needs-review'
+    | 'cancelled'
+    | 'failed'
+    | 'cap-reached'
+    | 'error'
+    | 'no-progress'
+    | 'provider-limit'
+    | 'cost-exceeded'
+    | 'needs-human-arbitration'
+    | 'reviewer-unreliable'
+    | 'reviewer-unavailable'
+    | 'builder-unreliable';
   reason: string;
   iterations: number;
   tokens: number;

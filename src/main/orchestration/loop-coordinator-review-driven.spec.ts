@@ -14,7 +14,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult, type FreshEyesReviewerResult } from './loop-coordinator';
@@ -26,6 +27,8 @@ const PHRASE = 'There are no outstanding issues';
 
 let workspace: string;
 let coordinator: LoopCoordinator;
+const gitOk = spawnSync('git', ['--version'], { encoding: 'utf8' }).status === 0;
+const maybe = gitOk ? it : it.skip;
 
 beforeEach(() => {
   workspace = mkdtempSync(join(tmpdir(), 'loop-review-driven-'));
@@ -44,7 +47,11 @@ function fileChange(path: string): LoopFileChange {
   return { path, additions: 1, deletions: 0, contentHash: `h-${path}` };
 }
 
-function childResult(output: string, filesChanged: LoopFileChange[] = []): LoopChildResult {
+function childResult(
+  output: string,
+  filesChanged: LoopFileChange[] = [],
+  extra: Partial<LoopChildResult> = {},
+): LoopChildResult {
   return {
     childInstanceId: null,
     output,
@@ -55,6 +62,7 @@ function childResult(output: string, filesChanged: LoopFileChange[] = []): LoopC
     testPassCount: null,
     testFailCount: null,
     exitedCleanly: true,
+    ...extra,
   };
 }
 
@@ -65,13 +73,16 @@ function childResult(output: string, filesChanged: LoopFileChange[] = []): LoopC
  */
 function driveLoop(
   script: LoopChildResult[],
-  opts: { outstanding?: string } = {},
+  opts: { outstanding?: string; tasks?: string } = {},
 ): { invocations: () => number } {
   let i = 0;
   coordinator.on('loop:invoke-iteration', (payload: unknown) => {
     const p = payload as { callback: (r: LoopChildResult) => void };
     if (opts.outstanding !== undefined) {
       writeRunState(payload, 'OUTSTANDING.md', opts.outstanding);
+    }
+    if (opts.tasks !== undefined) {
+      writeRunState(payload, 'LOOP_TASKS.md', opts.tasks);
     }
     const r = i < script.length ? script[i] : childResult('still working, more to do');
     i += 1;
@@ -141,6 +152,277 @@ describe('LoopCoordinator review-driven completion', () => {
       if (state) await coordinator.cancelLoop(state.id);
     }
   }, 25_000);
+
+  it('runs the final audit gate before accepting review-driven convergence', async () => {
+    const rejected = waitForEvent<{ failure: string }>('loop:claimed-done-but-failed');
+    driveLoop(
+      [
+        childResult(`Did some work.\n${PHRASE}`),
+        childResult(`Re-reviewed, nothing left.\n${PHRASE}`),
+      ],
+      { tasks: '# Loop Tasks\n\n- [ ] Finish the deliverable\n' },
+    );
+
+    let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
+    try {
+      state = await coordinator.startLoop('chat-rd-final-audit', {
+        initialPrompt: 'implement everything',
+        workspaceCwd: workspace,
+        caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 10 },
+        completion: reviewDrivenCompletion(),
+        audit: {
+          finalAuditMode: 'gate',
+          preflightMode: 'off',
+          planPacketMode: 'off',
+          cleanlinessScan: true,
+        },
+      });
+
+      const ev = await rejected;
+
+      expect(ev.failure).toContain('final audit');
+      expect(coordinator.getLoop(state.id)?.status).toBe('running');
+      expect(coordinator.getLoop(state.id)?.latestFinalAudit?.status).toBe('failed');
+      expect(coordinator.getLoop(state.id)?.pendingInterventions.at(-1)?.message).toContain('final audit');
+    } finally {
+      if (state) await coordinator.cancelLoop(state.id);
+    }
+  }, 25_000);
+
+  it('broadcasts the sealed iteration after final audit rejects completion', async () => {
+    const rejected = waitForEvent<{ failure: string }>('loop:claimed-done-but-failed');
+    let broadcastAuditStatus: string | undefined;
+    coordinator.on('loop:state-changed', (payload: unknown) => {
+      const state = (payload as { state?: { lastIteration?: { finalAudit?: { status?: string } } } }).state;
+      broadcastAuditStatus = state?.lastIteration?.finalAudit?.status ?? broadcastAuditStatus;
+    });
+    driveLoop(
+      [
+        childResult(`Did some work.\n${PHRASE}`),
+        childResult(`Re-reviewed, nothing left.\n${PHRASE}`),
+      ],
+      { tasks: '# Loop Tasks\n\n- [ ] Finish the deliverable\n' },
+    );
+
+    let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
+    try {
+      state = await coordinator.startLoop('chat-rd-final-audit-broadcast', {
+        initialPrompt: 'implement everything',
+        workspaceCwd: workspace,
+        caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 10 },
+        completion: reviewDrivenCompletion(),
+        audit: {
+          finalAuditMode: 'gate',
+          preflightMode: 'off',
+          planPacketMode: 'off',
+          cleanlinessScan: true,
+        },
+      });
+
+      await rejected;
+      await waitForCondition(() => broadcastAuditStatus === 'failed', 2_000);
+
+      expect(coordinator.getLoop(state.id)?.latestFinalAudit?.status).toBe('failed');
+    } finally {
+      if (state) await coordinator.cancelLoop(state.id);
+    }
+  }, 25_000);
+
+  it('runs the final audit gate before accepting ping-pong convergence', async () => {
+    coordinator.setPingPongSubjectResolver(async () => 'impl');
+    coordinator.setPingPongReviewerForTesting(async () => ({
+      verdict: 'APPROVED',
+      reviewerProvider: 'codex',
+      findings: [],
+      ledgerClassifications: [],
+      summary: 'approved',
+      tokensUsed: 0,
+      costCents: 0,
+      spawnOutcome: 'settled',
+    }));
+    const rejected = waitForEvent<{ failure: string }>('loop:claimed-done-but-failed');
+    driveLoop(
+      [
+        childResult(`Ping-pong-ready completion.\n${PHRASE}`),
+      ],
+      { tasks: '# Loop Tasks\n\n- [ ] Finish the deliverable\n' },
+    );
+
+    let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
+    try {
+      state = await coordinator.startLoop('chat-rd-pingpong-final-audit', {
+        initialPrompt: 'implement everything',
+        workspaceCwd: workspace,
+        caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 10 },
+        completion: reviewDrivenCompletion({
+          crossModelReview: {
+            enabled: true,
+            blockingSeverities: ['critical', 'high'],
+            timeoutSeconds: 10,
+            reviewDepth: 'structured',
+            pingPong: { enabled: true, reviewerProvider: 'auto', subject: 'impl', maxRounds: 15 },
+          },
+        }),
+        audit: {
+          finalAuditMode: 'gate',
+          preflightMode: 'off',
+          planPacketMode: 'off',
+          cleanlinessScan: true,
+        },
+      });
+
+      const ev = await rejected;
+
+      expect(ev.failure).toContain('final audit');
+      expect(coordinator.getLoop(state.id)?.status).toBe('running');
+      expect(coordinator.getLoop(state.id)?.latestFinalAudit?.status).toBe('failed');
+      expect(coordinator.getLoop(state.id)?.pendingInterventions.at(-1)?.message).toContain('final audit');
+    } finally {
+      if (state) await coordinator.cancelLoop(state.id);
+    }
+  }, 25_000);
+
+  maybe('keeps a verified clean ping-pong convergence completed after the final audit gate', async () => {
+    initGitRepo();
+    coordinator.setPingPongSubjectResolver(async () => 'impl');
+    coordinator.setPingPongReviewerForTesting(async () => ({
+      verdict: 'APPROVED',
+      reviewerProvider: 'codex',
+      findings: [],
+      ledgerClassifications: [],
+      summary: 'approved',
+      tokensUsed: 0,
+      costCents: 0,
+      spawnOutcome: 'settled',
+    }));
+    const terminal = Promise.race([
+      waitForEvent<{ loopRunId: string }>('loop:completed')
+        .then((ev) => ({ type: 'completed' as const, loopRunId: ev.loopRunId })),
+      waitForEvent<{ reason: string }>('loop:completed-needs-review')
+        .then((ev) => ({ type: 'needs-review' as const, reason: ev.reason })),
+    ]);
+    driveLoop([
+      childResult(`Ping-pong-ready completion.\n${PHRASE}`, [fileChange('src/pingpong.ts')]),
+    ]);
+    coordinator.once('loop:invoke-iteration', () => {
+      mkdirSync(join(workspace, 'src'), { recursive: true });
+      writeFileSync(join(workspace, 'src', 'pingpong.ts'), 'export const pingpong = true;\n', 'utf8');
+    });
+
+    let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
+    try {
+      state = await coordinator.startLoop('chat-rd-pingpong-audit-passed', {
+        initialPrompt: 'implement everything',
+        workspaceCwd: workspace,
+        caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 10 },
+        completion: reviewDrivenCompletion({
+          verifyCommand: `${JSON.stringify(process.execPath)} -e "process.exit(0)"`,
+          crossModelReview: {
+            enabled: true,
+            blockingSeverities: ['critical', 'high'],
+            timeoutSeconds: 10,
+            reviewDepth: 'structured',
+            pingPong: { enabled: true, reviewerProvider: 'auto', subject: 'impl', maxRounds: 15 },
+          },
+        }),
+        audit: {
+          finalAuditMode: 'gate',
+          preflightMode: 'off',
+          planPacketMode: 'off',
+          cleanlinessScan: true,
+        },
+      });
+
+      const ev = await terminal;
+      expect(ev.type).toBe('completed');
+      await waitForCondition(() => coordinator.getLoop(state!.id)?.status === 'completed');
+
+      expect(coordinator.getLoop(state.id)?.latestFinalAudit?.status).toBe('passed');
+      expect(coordinator.getLoop(state.id)?.lastIteration?.verifyStatus).toBe('passed');
+    } finally {
+      if (state) await coordinator.cancelLoop(state.id);
+    }
+  }, 25_000);
+
+  it('keeps ping-pong terminal statuses terminal when a later cancel is requested', async () => {
+    coordinator.setPingPongSubjectResolver(async () => 'impl');
+    coordinator.setPingPongReviewerForTesting(async () => ({
+      verdict: 'APPROVED',
+      reviewerProvider: 'codex',
+      findings: [],
+      ledgerClassifications: [],
+      summary: 'approved',
+      tokensUsed: 0,
+      costCents: 0,
+      spawnOutcome: 'settled',
+    }));
+    driveLoop([
+      childResult(`Ping-pong-ready completion.\n${PHRASE}`, [], { costUsd: 0.01 }),
+    ]);
+
+    const state = await coordinator.startLoop('chat-rd-pingpong-terminal-idempotent', {
+      initialPrompt: 'implement everything',
+      workspaceCwd: workspace,
+      caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 10, maxCostCents: 1 },
+      completion: reviewDrivenCompletion({
+        crossModelReview: {
+          enabled: true,
+          blockingSeverities: ['critical', 'high'],
+          timeoutSeconds: 10,
+          reviewDepth: 'structured',
+          pingPong: { enabled: true, reviewerProvider: 'auto', subject: 'impl', maxRounds: 15 },
+        },
+      }),
+      audit: {
+        finalAuditMode: 'off',
+        preflightMode: 'off',
+        planPacketMode: 'off',
+        cleanlinessScan: false,
+      },
+    });
+
+    await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'cost-exceeded');
+
+    expect(coordinator.getLoop(state.id)?.status).toBe('cost-exceeded');
+    await expect(coordinator.cancelLoop(state.id)).resolves.toBe(false);
+    expect(coordinator.getLoop(state.id)?.status).toBe('cost-exceeded');
+  }, 25_000);
+
+  it('writes a phase fix spec and stops with a handoff after repeated final-audit failures', async () => {
+    driveLoop(
+      Array.from({ length: 5 }, () => childResult(`Still convinced this is done.\n${PHRASE}`)),
+      { tasks: '# Loop Tasks\n\n- [ ] Phase 1: Finish the deliverable\n' },
+    );
+
+    let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
+    try {
+      state = await coordinator.startLoop('chat-rd-phase-recovery', {
+        initialPrompt: 'implement everything',
+        workspaceCwd: workspace,
+        caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 10 },
+        completion: reviewDrivenCompletion({ requiredCleanReviewPasses: 1 }),
+        audit: {
+          finalAuditMode: 'gate',
+          preflightMode: 'off',
+          planPacketMode: 'off',
+          cleanlinessScan: true,
+        },
+      });
+
+      await waitForCondition(() => coordinator.getLoop(state!.id)?.status === 'no-progress');
+
+      const current = coordinator.getLoop(state.id);
+      const paths = resolveLoopArtifactPaths(workspace, state.id);
+      const fixSpec = join(paths.phasesDir, 'phase-1.fix.md');
+
+      expect(current?.phaseRecovery?.['phase-1']?.consecutiveFailures).toBe(3);
+      expect(current?.endReason).toContain('phase-1');
+      expect(existsSync(fixSpec)).toBe(true);
+      expect(readFileSync(fixSpec, 'utf8')).toContain('ledger-open');
+    } finally {
+      if (state) await coordinator.cancelLoop(state.id);
+    }
+  }, 30_000);
 
   it('resets the clean-pass streak when production code changes', async () => {
     // clean, then a production change (resets), then clean → only 1 in the
@@ -364,6 +646,47 @@ describe('LoopCoordinator review-driven completion', () => {
     }
   }, 30_000);
 
+  it('runs the final audit gate before the verified no-change fallback terminates', async () => {
+    const terminalOrRejected = Promise.race([
+      waitForEvent<{ failure: string }>('loop:claimed-done-but-failed', 15_000)
+        .then((ev) => ({ type: 'rejected' as const, failure: ev.failure })),
+      waitForEvent<{ reason: string }>('loop:completed-needs-review', 15_000)
+        .then((ev) => ({ type: 'needs-review' as const, reason: ev.reason })),
+    ]);
+    driveLoop(
+      Array.from({ length: 8 }, () =>
+        childResult('Task complete.\nVerification run:\n- `mvn test` passed.'),
+      ),
+      { tasks: '# Loop Tasks\n\n- [ ] Finish the deliverable\n' },
+    );
+
+    let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
+    try {
+      state = await coordinator.startLoop('chat-rd-verified-no-change-audit', {
+        initialPrompt: 'implement everything',
+        workspaceCwd: workspace,
+        caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 10 },
+        completion: reviewDrivenCompletion({ maxStalledReviewIterations: 5 }),
+        audit: {
+          finalAuditMode: 'gate',
+          preflightMode: 'off',
+          planPacketMode: 'off',
+          cleanlinessScan: true,
+        },
+      });
+
+      const ev = await terminalOrRejected;
+
+      expect(ev.type).toBe('rejected');
+      expect(ev.type === 'rejected' ? ev.failure : ev.reason).toContain('final audit');
+      expect(coordinator.getLoop(state.id)?.status).toBe('running');
+      expect(coordinator.getLoop(state.id)?.latestFinalAudit?.status).toBe('failed');
+      expect(coordinator.getLoop(state.id)?.pendingInterventions.at(-1)?.message).toContain('final audit');
+    } finally {
+      if (state) await coordinator.cancelLoop(state.id);
+    }
+  }, 30_000);
+
   it('does not treat ambiguous completion claims as a clean pass', async () => {
     driveLoop([
       childResult('I think it is basically done now.'),
@@ -390,5 +713,26 @@ async function waitForCondition(fn: () => boolean, timeoutMs = 20_000): Promise<
   while (!fn()) {
     if (Date.now() - start > timeoutMs) throw new Error('timeout waiting for condition');
     await sleep(50);
+  }
+}
+
+function initGitRepo(): void {
+  git('init', '-q');
+  git('config', 'user.email', 'test@example.com');
+  git('config', 'user.name', 'Test');
+  git('config', 'commit.gpgsign', 'false');
+  mkdirSync(join(workspace, 'src'), { recursive: true });
+  writeFileSync(join(workspace, 'src', 'baseline.ts'), 'export const baseline = true;\n', 'utf8');
+  git('add', '-A');
+  git('commit', '-q', '-m', 'init');
+}
+
+function git(...args: string[]): void {
+  const result = spawnSync('git', args, {
+    cwd: workspace,
+    encoding: 'utf8',
+  });
+  if (result.status !== 0) {
+    throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
   }
 }

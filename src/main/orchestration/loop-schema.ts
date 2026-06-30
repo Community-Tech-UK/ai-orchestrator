@@ -8,7 +8,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const LOOP_SCHEMA_VERSION = 11;
+export const LOOP_SCHEMA_VERSION = 12;
 
 interface LoopMigration {
   version: number;
@@ -270,6 +270,17 @@ const MIGRATIONS: LoopMigration[] = [
     name: '011_loop_outstanding_recommended_answer',
     up: `
       ALTER TABLE loop_outstanding_items ADD COLUMN recommended_answer TEXT;
+    `,
+  },
+  {
+    // Persist the final audit result attached to the sealed iteration. The live
+    // coordinator mutates LoopIteration.finalAudit after running the completion
+    // audit; storing the JSON here keeps history, pagination, and restart
+    // recovery aligned with the contract schema.
+    version: 12,
+    name: '012_loop_iterations_final_audit',
+    up: `
+      ALTER TABLE loop_iterations ADD COLUMN final_audit_json TEXT;
     `,
   },
 ];

@@ -22,7 +22,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult, type FreshEyesReviewerResult } from './loop-coordinator';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
-import { defaultLoopConfig } from '../../shared/types/loop.types';
+import { defaultLoopConfig, type LoopPendingInput } from '../../shared/types/loop.types';
 
 /** Write a loop-state file into the run's per-run state dir (.aio-loop-state/<runId>/). */
 function writeRunState(payload: unknown, name: string, content: string): void {
@@ -175,7 +175,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     const initialEndReason = state.endReason;
 
     const active = (coordinator as unknown as {
-      active: Map<string, { pendingInterventions: string[]; status: string; endReason?: string }>;
+      active: Map<string, { pendingInterventions: LoopPendingInput[]; status: string; endReason?: string }>;
     }).active;
     let live = active.get(state.id);
     for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -186,7 +186,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
       await new Promise((r) => setTimeout(r, 50));
     }
 
-    const pendingInterventions = live?.pendingInterventions ?? [];
+    const pendingInterventions = live?.pendingInterventions.map((item) => item.message) ?? [];
     const status = live?.status;
     const reason = live?.endReason;
 

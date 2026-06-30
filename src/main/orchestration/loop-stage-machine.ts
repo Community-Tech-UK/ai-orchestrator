@@ -15,6 +15,18 @@ import {
   type NotesCurationResult,
 } from './loop-stage-markdown';
 import { LOOP_TEXT_FILE_MAX_BYTES, readUtf8FileHead, readUtf8FileTail } from './bounded-file-read';
+import {
+  renderCapsRemaining,
+  renderPendingInput,
+  type PendingInputLike,
+} from './loop-stage-prompt-helpers';
+import {
+  ARTIFACT_FILES,
+  INVESTIGATION_REPORT_FILE,
+  LOOP_TASKS_FILE,
+  LOOP_TASKS_TEMPLATE,
+} from './loop-stage-files';
+import { renderPlanPacketInstructions } from './loop-plan-packet';
 
 export {
   curateNotesContent,
@@ -23,29 +35,9 @@ export {
   type NotesCurationResult,
   type PlanChecklistState,
 } from './loop-stage-markdown';
+export { INVESTIGATION_REPORT_FILE, LOOP_TASKS_FILE } from './loop-stage-files';
 
 const logger = getLogger('LoopStageMachine');
-
-const ARTIFACT_FILES = ['STAGE.md', 'NOTES.md', 'ITERATION_LOG.md'] as const;
-
-/** LF-4: the structured task ledger filename. */
-export const LOOP_TASKS_FILE = 'LOOP_TASKS.md';
-
-/**
- * Deliverable filename for an investigation/audit loop (`goalIntent:
- * 'investigation'`). The agent writes its cited answer here; the completion
- * detector requires it to exist and be substantive before accepting completion.
- */
-export const INVESTIGATION_REPORT_FILE = 'REPORT.md';
-
-/** The fresh, item-less ledger template written at the start of every run. */
-const LOOP_TASKS_TEMPLATE =
-  '# Loop Tasks\n\n' +
-  'Structured task ledger. For a multi-item goal, list concrete work items\n' +
-  'here as markdown checkboxes. The loop stops only when EVERY item is\n' +
-  '`[x]` (done) or `[-]` (deferred, with a reason) — and verify passes.\n\n' +
-  'Markers: `[ ]` todo · `[~]` in progress · `[x]` done · `[-] … — deferred: <why>`.\n\n' +
-  '<!-- Example:\n- [ ] Implement the parser\n- [~] Wire the coordinator\n- [-] Cross-model fan-out — deferred: out of scope for v1\n-->\n';
 
 const VALID_STAGES = new Set<LoopStage>(['PLAN', 'REVIEW', 'IMPLEMENT']);
 const LOOP_ARTIFACT_HEAD_BYTES = LOOP_TEXT_FILE_MAX_BYTES;
@@ -359,8 +351,9 @@ export class LoopStageMachine {
   buildPrompt(args: {
     config: LoopConfig;
     iterationSeq: number;
-    pendingInterventions: string[];
+    pendingInterventions: PendingInputLike[];
     existingSessionContext?: string;
+    currentStage?: LoopStage;
     /**
      * Uncompleted plan-like `.md` filenames at the workspace root, captured
      * once at startLoop. When non-empty the prompt explicitly tells the
@@ -388,6 +381,7 @@ export class LoopStageMachine {
       iterationSeq,
       pendingInterventions,
       existingSessionContext,
+      currentStage = config.initialStage,
       uncompletedPlanFilesAtStart = [],
       manualReviewOnly = false,
       priorObservations = [],
@@ -404,6 +398,15 @@ export class LoopStageMachine {
     const doneRel = `${sd}/${config.completion.doneSentinelFile || 'DONE.txt'}`;
     const blockedRel = `${sd}/BLOCKED.md`;
     const reportRel = `${sd}/${INVESTIGATION_REPORT_FILE}`;
+    const planPacketBlock = config.audit?.planPacketMode === 'prompted'
+      ? `\n\n## Plan Packet\n${renderPlanPacketInstructions(this.paths)}\n`
+      : '';
+    const reanchorBlock =
+      `\n\n## System Reminder\n` +
+      `- Current stage: ${currentStage} (read \`${stageRel}\`; it is the source of truth).\n` +
+      `- Caps remaining: ${renderCapsRemaining(config, iterationSeq)}.\n` +
+      `- Ledger anchor: \`${tasksRel}\`. Keep exactly one \`[~]\` doing item when work is active; all terminal items must be \`[x]\` or \`[-]\` with a reason.\n` +
+      `- Block status: if \`${blockedRel}\` exists, resolve it or keep the loop paused with the exact blocker.\n`;
     // Investigation/audit goal: the agent ANSWERS the goal (with file:line
     // evidence in REPORT.md) instead of editing production code. `undefined`
     // intent is treated as implementation.
@@ -465,7 +468,7 @@ export class LoopStageMachine {
       : '';
     const interventions =
       pendingInterventions.length > 0
-        ? `\n\n## User Intervention\nThe operator added the following hint(s) since the last iteration. Treat them as binding direction:\n\n${pendingInterventions.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n`
+        ? `\n\n## User Intervention\nThe operator added the following hint(s) since the last iteration. Treat them as binding direction:\n\n${pendingInterventions.map(renderPendingInput).join('\n')}\n`
         : '';
     // Iteration 0 sees the goal (initialPrompt). Iterations 1+ see the
     // continuation directive (iterationPrompt) if one was set, falling back
@@ -510,7 +513,7 @@ All loop-owned state files for THIS run live in \`${sd}/\` (absolute path — va
 2. Open ${planRef}.
 3. Open \`${notesRel}\`. It contains the rolling notes from prior iterations.
 4. Open \`${logRel}\` if you need detailed per-iteration history.
-5. Open \`${tasksRel}\` — the structured task ledger. For a multi-item goal, list every concrete work item there as a markdown checkbox and keep it current: \`[ ]\` todo, \`[~]\` in progress, \`[x]\` done, \`[-] … — deferred: <why>\`. **The loop stops only when every ledger item is \`[x]\` or \`[-]\` (with a reason) AND verify passes** — so an item you can't finish must be explicitly deferred with a reason, not left \`[ ]\`. (If no plan file is configured and the goal is broad, you may instead keep a \`## Completion Inventory\` in \`${notesRel}\`, but the ledger is preferred because the loop reads it as the source of truth for stopping.)${investigationBlock}${uncompletedPlansBlock}${freshEyesReviewBlock}${manualReviewBlock}${priorObservationsBlock}${interventions}${promptBlocks}
+5. Open \`${tasksRel}\` — the structured task ledger. For a multi-item goal, list every concrete work item there as a markdown checkbox and keep it current: \`[ ]\` todo, \`[~]\` in progress, \`[x]\` done, \`[-] … — deferred: <why>\`. **The loop stops only when every ledger item is \`[x]\` or \`[-]\` (with a reason) AND verify passes** — so an item you can't finish must be explicitly deferred with a reason, not left \`[ ]\`. (If no plan file is configured and the goal is broad, you may instead keep a \`## Completion Inventory\` in \`${notesRel}\`, but the ledger is preferred because the loop reads it as the source of truth for stopping.)${reanchorBlock}${planPacketBlock}${investigationBlock}${uncompletedPlansBlock}${freshEyesReviewBlock}${manualReviewBlock}${priorObservationsBlock}${interventions}${promptBlocks}
 
 ## Step 2 — Do this iteration's work
 
@@ -549,7 +552,7 @@ Begin.`;
   buildReviewDrivenPrompt(args: {
     config: LoopConfig;
     iterationSeq: number;
-    pendingInterventions: string[];
+    pendingInterventions: PendingInputLike[];
     existingSessionContext?: string;
     priorObservations?: string[];
   }): string {
@@ -564,13 +567,14 @@ Begin.`;
     const notesRel = `${sd}/NOTES.md`;
     const outstandingRel = `${sd}/OUTSTANDING.md`;
     const blockedRel = `${sd}/BLOCKED.md`;
+    const tasksRel = `${sd}/${LOOP_TASKS_FILE}`;
     const preferredCleanStatement = (config.completion.noOutstandingPhrase ?? 'There are no outstanding issues').trim();
     const required = Math.max(1, config.completion.requiredCleanReviewPasses ?? 2);
     const verifyCmd = config.completion.verifyCommand?.trim();
 
     const interventions =
       pendingInterventions.length > 0
-        ? `\n\n## Direction since last iteration (binding — operator hints and/or review findings to address)\n${pendingInterventions.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n`
+        ? `\n\n## Direction since last iteration (binding — operator hints and/or review findings to address)\n${pendingInterventions.map(renderPendingInput).join('\n')}\n`
         : '';
     const priorObservationsBlock = priorObservations.length > 0
       ? `\n\n## Prior observations (not binding)\nHints from previous runs in this workspace — may be stale:\n${priorObservations.map((o, i) => `${i + 1}. ${o}`).join('\n')}\n`
@@ -586,6 +590,9 @@ Begin.`;
     const contextModeLine = config.contextStrategy === 'same-session'
       ? 'You are running inside an autonomous Loop Mode using one persistent child CLI session across iterations. State still belongs on disk so the loop can recover if the process restarts.'
       : 'You are running inside an autonomous Loop Mode. State lives on disk; every iteration is a fresh process — do not rely on chat history.';
+    const planPacketBlock = config.audit?.planPacketMode === 'prompted'
+      ? `\n- \`${this.paths.roadmap}\` and phase files under \`${this.paths.phasesDir}\` — write or update the loop plan packet with Acceptance Criteria, Required Commands, and Evidence. Seed or update \`${tasksRel}\` from those criteria so final audit can verify coverage.`
+      : '';
 
     return `# Loop Mode (review-driven) — Iteration ${iterationSeq}
 
@@ -614,7 +621,7 @@ There is no human in the loop. Make the decisions a senior engineer would defend
       - Recommendation: <the answer you'd pick / what you'd do>
     \`\`\`
   Under EVERY item, add an indented \`- Recommendation:\` sub-bullet with your single best concrete decision/next step for it. The human sees this as a pre-filled, editable suggestion in their answer box (they still confirm it) — so make it specific and actionable, not "ask a human". The bar for "Needs human" is HIGH — do everything you possibly can yourself. Only genuinely human-required items go there. If a section has nothing, write \`- (none)\`.
-- \`${blockedRel}\` — only if you are truly, hard-blocked right now (missing credentials/access you cannot proceed without). Write what you need, then exit; the loop will pause for the operator.${priorObservationsBlock}${interventions}${existingSessionContextBlock}
+- \`${blockedRel}\` — only if you are truly, hard-blocked right now (missing credentials/access you cannot proceed without). Write what you need, then exit; the loop will pause for the operator.${planPacketBlock}${priorObservationsBlock}${interventions}${existingSessionContextBlock}
 
 ## Goal (persistent across iterations)
 ${config.initialPrompt}

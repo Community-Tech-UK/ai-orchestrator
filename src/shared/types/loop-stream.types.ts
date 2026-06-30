@@ -22,6 +22,8 @@ export type LoopStreamEvent =
   | { type: 'completed'; loopRunId: string; signal: CompletionSignalId; verifyOutput: string; acceptedByOperator?: boolean }
   /** LF-7: terminal "done, needs a human glance" - operator-accepted or budget-exhausted-but-verified. */
   | { type: 'completed-needs-review'; loopRunId: string; reason: string; acceptedByOperator: boolean }
+  | { type: 'provider-limit'; loopRunId: string; reason?: string; willResume: boolean; resumeAt?: number | null }
+  | { type: 'terminal-status'; loopRunId: string; status: LoopStreamTerminalStatus; reason?: string }
   | { type: 'failed'; loopRunId: string; reason: string }
   | {
       type: 'cap-reached';
@@ -31,6 +33,15 @@ export type LoopStreamEvent =
     }
   | { type: 'cancelled'; loopRunId: string }
   | { type: 'error'; loopRunId: string; error: string };
+
+export type LoopStreamTerminalStatus =
+  | 'no-progress'
+  | 'provider-limit'
+  | 'cost-exceeded'
+  | 'needs-human-arbitration'
+  | 'reviewer-unreliable'
+  | 'reviewer-unavailable'
+  | 'builder-unreliable';
 
 export type LoopActivityKind =
   | 'spawned'

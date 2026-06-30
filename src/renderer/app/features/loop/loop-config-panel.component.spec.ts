@@ -219,6 +219,72 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.completion?.quickVerifyTimeoutMs).toBe(120_000);
   });
 
+  it('emits default audit config', () => {
+    const config = component.buildConfig();
+
+    expect(config?.audit).toEqual({
+      finalAuditMode: 'gate',
+      preflightMode: 'record',
+      planPacketMode: 'prompted',
+      cleanlinessScan: true,
+    });
+  });
+
+  it('defaults plan packets off for short low-iteration loops without a plan file', () => {
+    component.prompt.set('fix the small bug');
+    component.maxIterations.set(3);
+    fixture.detectChanges();
+
+    const config = component.buildConfig();
+
+    expect(config?.audit?.planPacketMode).toBe('off');
+  });
+
+  it('preserves an explicit plan-packet override for short low-iteration loops', () => {
+    component.prompt.set('fix the small bug');
+    component.maxIterations.set(3);
+    component.showAdvanced.set(true);
+    fixture.detectChanges();
+
+    const planPacket = fixture.nativeElement.querySelector('#loop-cfg-plan-packet') as HTMLSelectElement;
+    planPacket.value = 'prompted';
+    planPacket.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+
+    const config = component.buildConfig();
+
+    expect(config?.audit?.planPacketMode).toBe('prompted');
+  });
+
+  it('emits custom audit controls from advanced settings', () => {
+    component.showAdvanced.set(true);
+    fixture.detectChanges();
+
+    const preflight = fixture.nativeElement.querySelector('#loop-cfg-preflight') as HTMLSelectElement;
+    const finalAudit = fixture.nativeElement.querySelector('#loop-cfg-final-audit') as HTMLSelectElement;
+    const planPacket = fixture.nativeElement.querySelector('#loop-cfg-plan-packet') as HTMLSelectElement;
+    const cleanliness = fixture.nativeElement.querySelector('#loop-cfg-cleanliness-scan') as HTMLInputElement;
+
+    preflight.value = 'block';
+    preflight.dispatchEvent(new Event('change'));
+    finalAudit.value = 'observe';
+    finalAudit.dispatchEvent(new Event('change'));
+    planPacket.value = 'off';
+    planPacket.dispatchEvent(new Event('change'));
+    cleanliness.checked = false;
+    cleanliness.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+
+    const config = component.buildConfig();
+
+    expect(config?.audit).toEqual({
+      finalAuditMode: 'observe',
+      preflightMode: 'block',
+      planPacketMode: 'off',
+      cleanlinessScan: false,
+    });
+  });
+
   it('sends fresh-eyes review config only when explicitly enabled', () => {
     component.pingPongEnabled.set(false);
     expect(component.buildConfig()?.completion?.crossModelReview).toBeUndefined();

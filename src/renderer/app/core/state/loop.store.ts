@@ -10,6 +10,7 @@ import {
   type LoopActivityPayload,
   type LoopOutstandingQuery,
   type LoopOutstandingStatus,
+  type LoopPendingInputKind,
   type LoopStartConfigInput,
 } from '../services/ipc/loop-ipc.service';
 import type {
@@ -17,6 +18,10 @@ import type {
   LoopFinalSummary,
   LoopRunningIteration,
 } from './loop-store.types';
+import {
+  isActiveLoopStatePayload,
+  isTerminalLoopStatePayload,
+} from './loop-state-status';
 import { snapshotLastIteration } from './loop-store-summary';
 
 /**
@@ -100,7 +105,7 @@ export class LoopStore {
   isRunningForChat = (chatId: string) =>
     computed(() => {
       const a = this.activeByChat().get(chatId);
-      return !!a && (a.status === 'running' || a.status === 'paused');
+      return !!a && isActiveLoopStatePayload(a);
     });
 
   /**
@@ -114,7 +119,7 @@ export class LoopStore {
   readonly runningChatIds = computed(() => {
     const ids = new Set<string>();
     for (const [chatId, state] of this.activeByChat()) {
-      if (state.status === 'running' || state.status === 'paused') {
+      if (isActiveLoopStatePayload(state)) {
         ids.add(chatId);
       }
     }
@@ -427,8 +432,10 @@ export class LoopStore {
     if (ok && chatId) this.setBanner(chatId, null);
   }
 
-  async intervene(loopRunId: string, message: string): Promise<void> {
-    const response = await this.ipc.intervene(loopRunId, message);
+  async intervene(loopRunId: string, message: string, kind?: LoopPendingInputKind): Promise<void> {
+    const response = kind
+      ? await this.ipc.intervene(loopRunId, message, kind)
+      : await this.ipc.intervene(loopRunId, message);
     const ok = this.applyControlResponse(loopRunId, response, 'hint');
     if (ok) {
       this.addControlActivity(loopRunId, 'status', 'Hint queued for the next loop iteration');
@@ -538,7 +545,7 @@ export class LoopStore {
   }
 
   private applyState(state: LoopStatePayload): void {
-    if (this.isTerminalStatus(state.status)) {
+    if (isTerminalLoopStatePayload(state)) {
       // The loop is over — clear any lingering paused-no-progress / claimed-failed
       // banner now. Otherwise the orange bar stays on screen with buttons
       // (Resume anyway / Stop / Inject hint) that all early-return because
@@ -679,16 +686,4 @@ export class LoopStore {
     return null;
   }
 
-  private isTerminalStatus(status: LoopStatePayload['status']): status is LoopFinalSummary['status'] {
-    return (
-      status === 'completed'
-      || status === 'completed-needs-review'
-      || status === 'cancelled'
-      || status === 'failed'
-      || status === 'cap-reached'
-      || status === 'error'
-      || status === 'no-progress'
-      || status === 'provider-limit'
-    );
-  }
 }

@@ -297,10 +297,14 @@ describe('signal F — token burn without progress', () => {
 
 describe('signal G — tool repetition', () => {
   it('WARN at warn threshold within iteration', () => {
-    const calls = Array.from({ length: T.toolRepeatWarnPerIteration }, () => ({
+    const th = {
+      ...T,
+      identicalToolCallConsecutiveCritical: T.toolRepeatWarnPerIteration + 1,
+    } satisfies LoopProgressThresholds;
+    const calls = Array.from({ length: th.toolRepeatWarnPerIteration }, () => ({
       toolName: 'Read', argsHash: 'a', success: true, durationMs: 1,
     }));
-    const sig = signalG_toolRepetition([], makeIteration({ toolCalls: calls }), T);
+    const sig = signalG_toolRepetition([], makeIteration({ toolCalls: calls }), th);
     expect(sig?.verdict).toBe('WARN');
   });
 
@@ -316,6 +320,28 @@ describe('signal G — tool repetition', () => {
     const current = makeIteration({ toolCalls: set });
     const sig = signalG_toolRepetition(history, current, T);
     expect(sig?.verdict).toBe('CRITICAL');
+  });
+
+  it('CRITICAL at three consecutive identical tool calls before the generic repeat threshold', () => {
+    const th = {
+      ...T,
+      toolRepeatWarnPerIteration: 5,
+      toolRepeatCriticalPerIteration: 8,
+      identicalToolCallConsecutiveCritical: 3,
+    } satisfies LoopProgressThresholds;
+    const current = makeIteration({
+      toolCalls: [
+        { toolName: 'Read', argsHash: 'same-file', success: true, durationMs: 1 },
+        { toolName: 'Read', argsHash: 'same-file', success: true, durationMs: 1 },
+        { toolName: 'Read', argsHash: 'same-file', success: true, durationMs: 1 },
+      ],
+    });
+
+    const sig = signalG_toolRepetition([], current, th);
+
+    expect(sig?.verdict).toBe('CRITICAL');
+    expect(sig?.message).toContain('consecutively');
+    expect(sig?.detail).toMatchObject({ consecutiveIdentical: 3 });
   });
 });
 

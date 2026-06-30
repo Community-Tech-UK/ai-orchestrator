@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { runLoopControlCli } from './loop-control-cli';
 import { CompletedFileWatcher } from './loop-completion-detector';
-import { defaultLoopConfig, type LoopTerminalIntentEvidence } from '../../shared/types/loop.types';
+import * as blockUtils from './loop-coordinator-block-utils';
+import { defaultLoopConfig } from '../../shared/types/loop.types';
 
 let workspace: string;
 let coordinator: LoopCoordinator;
@@ -28,7 +29,7 @@ afterEach(() => {
 describe('LoopCoordinator block sanity gate', () => {
   it('rejects a toolchain-class block when liveness probe is alive and continues looping', async () => {
     const probeSpy = vi
-      .spyOn(coordinator as unknown as { runWorkspaceLivenessProbe: (cwd: string, timeoutMs: number) => Promise<{ alive: boolean; detail: string }> }, 'runWorkspaceLivenessProbe')
+      .spyOn(blockUtils, 'runWorkspaceLivenessProbe')
       .mockResolvedValue({ alive: true, detail: 'exec-ok; fs-ok' });
 
     const pausedSignals: unknown[] = [];
@@ -98,7 +99,7 @@ describe('LoopCoordinator block sanity gate', () => {
 
   it('honors a toolchain-class block when liveness probe is dead', async () => {
     vi
-      .spyOn(coordinator as unknown as { runWorkspaceLivenessProbe: (cwd: string, timeoutMs: number) => Promise<{ alive: boolean; detail: string }> }, 'runWorkspaceLivenessProbe')
+      .spyOn(blockUtils, 'runWorkspaceLivenessProbe')
       .mockResolvedValue({ alive: false, detail: 'exec-failed; fs-read-failed' });
 
     const paused = waitForEvent<{ signal: { message: string; detail?: Record<string, unknown> } }>(
@@ -153,10 +154,7 @@ describe('LoopCoordinator block sanity gate', () => {
   });
 
   it('honors a non-toolchain block with evidence without running the probe', async () => {
-    const probeSpy = vi.spyOn(
-      coordinator as unknown as { runWorkspaceLivenessProbe: (cwd: string, timeoutMs: number) => Promise<{ alive: boolean; detail: string }> },
-      'runWorkspaceLivenessProbe',
-    );
+    const probeSpy = vi.spyOn(blockUtils, 'runWorkspaceLivenessProbe');
     const paused = waitForEvent(coordinator, 'loop:paused-no-progress', 5000);
 
     coordinator.on('loop:invoke-iteration', async (payload: unknown) => {
@@ -202,18 +200,14 @@ describe('LoopCoordinator block sanity gate', () => {
   });
 
   it('classifier marks toolchain-class and evidence-less blocks, but not API-key-with-evidence', () => {
-    const isToolchainClassBlock = (coordinator as unknown as {
-      isToolchainClassBlock: (summary: string, evidence: LoopTerminalIntentEvidence[]) => boolean;
-    }).isToolchainClassBlock.bind(coordinator);
-
-    expect(isToolchainClassBlock('Bash read/write commands keep returning empty output', [
+    expect(blockUtils.isToolchainClassBlock('Bash read/write commands keep returning empty output', [
       { kind: 'note', label: 'n', value: 'looks broken' },
     ])).toBe(true);
 
-    expect(isToolchainClassBlock('Everything is blocked', [])).toBe(true);
+    expect(blockUtils.isToolchainClassBlock('Everything is blocked', [])).toBe(true);
 
     expect(
-      isToolchainClassBlock('Missing OPENAI_API_KEY, cannot proceed', [
+      blockUtils.isToolchainClassBlock('Missing OPENAI_API_KEY, cannot proceed', [
         { kind: 'command', label: 'printenv', value: 'OPENAI_API_KEY=<missing>' },
       ]),
     ).toBe(false);
@@ -221,7 +215,7 @@ describe('LoopCoordinator block sanity gate', () => {
 
   it('does not pause on BLOCKED.md when probe proves liveness and moves file aside', async () => {
     vi
-      .spyOn(coordinator as unknown as { runWorkspaceLivenessProbe: (cwd: string, timeoutMs: number) => Promise<{ alive: boolean; detail: string }> }, 'runWorkspaceLivenessProbe')
+      .spyOn(blockUtils, 'runWorkspaceLivenessProbe')
       .mockResolvedValue({ alive: true, detail: 'exec-ok; fs-ok' });
 
     let invokeCount = 0;

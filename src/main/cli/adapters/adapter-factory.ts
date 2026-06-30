@@ -228,6 +228,7 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
     reasoningEffort: toCodexReasoningEffort(options.reasoningEffort),
     fastMode: options.fastMode,
     rtkEnabled: Boolean(options.rtk?.enabled && options.rtk.binaryPath),
+    ...(options.browserGatewayMcp?.instanceId ? { browserGatewayInstanceId: options.browserGatewayMcp.instanceId } : {}),
     ...(Object.keys(codexEnv).length > 0 ? { env: codexEnv } : {}),
     ...(mcpServersConfigToml ? { mcpServersConfigToml } : {}),
   };

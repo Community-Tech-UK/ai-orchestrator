@@ -250,6 +250,48 @@ describe('LoopStageMachine', () => {
     expect(p).toContain('Use test fixtures, not the real db');
   });
 
+  it('buildPrompt renders typed pending inputs by message and kind instead of object stringification', () => {
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    const cfg = defaultLoopConfig(tmpDir, 'x');
+    const p = m.buildPrompt({
+      config: cfg,
+      iterationSeq: 2,
+      pendingInterventions: [{
+        id: 'input-1',
+        kind: 'steer',
+        message: 'Switch to the smaller parser boundary.',
+        enqueuedAt: 123,
+        source: 'human',
+      }] as never,
+    });
+
+    expect(p).toContain('User Intervention');
+    expect(p).toContain('steer');
+    expect(p).toContain('Switch to the smaller parser boundary.');
+    expect(p).not.toContain('[object Object]');
+  });
+
+  it('buildPrompt includes a terse system reminder with current stage, caps, and ledger anchor', () => {
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    const cfg = defaultLoopConfig(tmpDir, 'finish the plan');
+    cfg.caps.maxIterations = 10;
+    cfg.caps.maxTokens = 50_000;
+    cfg.caps.maxCostCents = 2_500;
+    const p = m.buildPrompt({
+      config: cfg,
+      iterationSeq: 4,
+      pendingInterventions: [],
+    });
+
+    expect(p).toContain('System Reminder');
+    expect(p).toContain('Current stage');
+    expect(p).toContain('IMPLEMENT');
+    expect(p).toContain('Caps remaining');
+    expect(p).toContain('6 iteration');
+    expect(p).toContain('LOOP_TASKS.md');
+    expect(p).toContain('exactly one');
+  });
+
   it('buildPrompt includes the persistent goal block on every iteration', () => {
     const m = new LoopStageMachine(tmpDir, RUN_ID);
     const cfg = defaultLoopConfig(tmpDir, 'My specific goal text');
@@ -600,5 +642,28 @@ describe('LoopStageMachine.buildReviewDrivenPrompt', () => {
     };
     const prompt = m.buildReviewDrivenPrompt({ config: cfg, iterationSeq: 1, pendingInterventions: [] });
     expect(prompt).toContain('npm test');
+  });
+
+  it('includes plan-packet artifact instructions when review-driven plan packets are prompted', () => {
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    const cfg = {
+      ...defaultLoopConfig(tmpDir, 'x'),
+      audit: {
+        finalAuditMode: 'gate' as const,
+        preflightMode: 'record' as const,
+        planPacketMode: 'prompted' as const,
+        cleanlinessScan: true,
+      },
+      completion: {
+        ...defaultLoopConfig(tmpDir, 'x').completion,
+        mode: 'review-driven' as const,
+      },
+    };
+
+    const prompt = m.buildReviewDrivenPrompt({ config: cfg, iterationSeq: 0, pendingInterventions: [] });
+
+    expect(prompt).toContain('ROADMAP.md');
+    expect(prompt).toContain(m.paths.phasesDir);
+    expect(prompt).toContain('LOOP_TASKS.md');
   });
 });

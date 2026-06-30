@@ -206,4 +206,13 @@ describe('CampaignPageComponent editor', () => {
       statuses: ['completed', 'completed-needs-review'],
     });
   });
+
+  it('does not offer provider-limit as an edge terminal predicate', () => {
+    const component = fixture.componentInstance as unknown as {
+      terminalStatuses: string[];
+    };
+
+    expect(component.terminalStatuses).not.toContain('provider-limit');
+    expect(component.terminalStatuses).toContain('failed');
+  });
 });

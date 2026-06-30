@@ -11,7 +11,6 @@ const LoopTerminalStatusSchema = z.enum([
   'completed',
   'completed-needs-review',
   'failed',
-  'provider-limit',
   'operator-halted',
 ]);
 

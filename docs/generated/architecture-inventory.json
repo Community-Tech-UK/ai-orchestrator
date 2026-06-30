@@ -5121,11 +5121,11 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
-      "lines": 3357
+      "lines": 3358
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3181
+      "lines": 3328
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -5188,6 +5188,10 @@
       "lines": 2234
     },
     {
+      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
+      "lines": 2164
+    },
+    {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
       "lines": 2120
     },
@@ -5206,10 +5210,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-13-codemem-phase1-index-and-lsp-facade_completed.md",
       "lines": 2091
-    },
-    {
-      "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
-      "lines": 2089
     },
     {
       "path": "docs/codex_todo_completed.md",
@@ -5269,7 +5269,7 @@
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1622
+      "lines": 1627
     },
     {
       "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",
@@ -5440,8 +5440,16 @@
       "lines": 1219
     },
     {
+      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
+      "lines": 1212
+    },
+    {
       "path": "src/renderer/app/features/plugins/plugins-page.component.ts",
       "lines": 1208
+    },
+    {
+      "path": "src/main/orchestration/__tests__/campaign-coordinator.spec.ts",
+      "lines": 1196
     },
     {
       "path": "src/main/orchestration/debate-coordinator.ts",
@@ -5458,10 +5466,6 @@
     {
       "path": "src/main/channels/__tests__/channel-message-router.spec.ts",
       "lines": 1186
-    },
-    {
-      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
-      "lines": 1181
     },
     {
       "path": "src/main/ipc/handlers/instance-handlers.ts",
@@ -5508,16 +5512,16 @@
       "lines": 1123
     },
     {
+      "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
+      "lines": 1121
+    },
+    {
       "path": "docs/plans/bigchange_remote-nodes_completed.md",
       "lines": 1113
     },
     {
       "path": "docs/superpowers/plans/2026-04-06-remote-nodes-ux.md",
       "lines": 1109
-    },
-    {
-      "path": "src/main/orchestration/__tests__/campaign-coordinator.spec.ts",
-      "lines": 1106
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-wave5-orchestration-hud-verification-verdicts-design_completed.md",
@@ -5564,6 +5568,10 @@
       "lines": 1044
     },
     {
+      "path": "src/renderer/app/features/loop/loop-control.component.ts",
+      "lines": 1036
+    },
+    {
       "path": "src/renderer/app/features/plan/plan-page.component.ts",
       "lines": 1036
     },
@@ -5604,12 +5612,12 @@
       "lines": 997
     },
     {
-      "path": "src/renderer/app/features/loop/loop-control.component.ts",
-      "lines": 996
-    },
-    {
       "path": "src/renderer/app/features/debate/debate-visualization.component.ts",
       "lines": 993
+    },
+    {
+      "path": "src/main/core/error-recovery.ts",
+      "lines": 991
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-wave4-output-clipboard-theme-terminal-design_completed.md",
@@ -5676,10 +5684,6 @@
       "lines": 951
     },
     {
-      "path": "src/main/core/error-recovery.ts",
-      "lines": 950
-    },
-    {
       "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
       "lines": 945
     },
@@ -5744,6 +5748,10 @@
       "lines": 888
     },
     {
+      "path": "src/main/orchestration/loop-store.spec.ts",
+      "lines": 886
+    },
+    {
       "path": "src/main/context/context-compactor.ts",
       "lines": 881
     },
@@ -5757,10 +5765,6 @@
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-error-recovery-resilience.COMPLETED.md",
-      "lines": 876
-    },
-    {
-      "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
       "lines": 876
     },
     {

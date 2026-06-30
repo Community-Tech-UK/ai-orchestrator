@@ -698,6 +698,37 @@ describe('Loop Mode invoker plumbing', () => {
     await finished;
   });
 
+  it('does not terminate a child for resumable provider-limit state changes', async () => {
+    registerDefaultLoopInvoker({} as never);
+    let resolveSend!: (value: { content: string; usage: { totalTokens: number } }) => void;
+    hoisted.sendMessage.mockImplementation(() => new Promise((resolve) => {
+      resolveSend = resolve;
+    }));
+
+    const finished = emitIteration({ config: { contextStrategy: 'fresh-child' } });
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+
+    hoisted.loopCoordinatorRef.current.emit('loop:state-changed', {
+      loopRunId: 'loop-1',
+      state: { status: 'provider-limit', endedAt: null },
+    });
+    await new Promise<void>((r) => setImmediate(r));
+
+    expect(hoisted.terminate).not.toHaveBeenCalled();
+
+    hoisted.loopCoordinatorRef.current.emit('loop:state-changed', {
+      loopRunId: 'loop-1',
+      state: { status: 'provider-limit', endedAt: 1_778_310_600_000 },
+    });
+    await new Promise<void>((r) => setImmediate(r));
+
+    expect(hoisted.terminate).toHaveBeenCalledWith(false);
+
+    resolveSend({ content: 'late result after provider limit', usage: { totalTokens: 1 } });
+    await finished;
+  });
+
   describe('contextStrategy: same-session', () => {
     it('switches a borrowed parent Claude adapter into resume mode after the first same-session iteration', async () => {
       const instanceManager = {

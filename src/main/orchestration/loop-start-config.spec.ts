@@ -1,10 +1,9 @@
 /**
  * LF-3a (loopfixex §13) — loop start-config preparation.
  *
- * Verifies the two start-time safety rules: the default completion authority
- * (fresh-eyes cross-model review when no verify command is supplied — we no
- * longer infer/force a heavy machine verify command) and the estimated usage-cap
- * precondition for operator-reviewed loops.
+ * Verifies the start-time safety rules: user-started loops default to
+ * review-driven self-review, explicit gated/no-verify loops default to the
+ * cross-model gate, and operator-reviewed loops require an estimated usage cap.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -129,6 +128,58 @@ describe('prepareLoopStartConfig (LF-3a)', () => {
       cadence: 2,
     });
     expect(prepared.nextObjectivePlanner).toBeTypeOf('function');
+  });
+
+  it('defaults user-started audit to gate, record preflight, and prompted plan packets for substantial loops', async () => {
+    const prepared = await prepareLoopStartConfig(mkConfig());
+
+    expect(prepared.audit).toEqual({
+      finalAuditMode: 'gate',
+      preflightMode: 'record',
+      planPacketMode: 'prompted',
+      cleanlinessScan: true,
+    });
+  });
+
+  it('keeps plan packets off by default for short low-iteration loops without a plan file', async () => {
+    const prepared = await prepareLoopStartConfig(mkConfig({
+      caps: { ...defaultLoopConfig(workspace, 'g').caps, maxIterations: 3 },
+    }));
+
+    expect(prepared.audit?.planPacketMode).toBe('off');
+  });
+
+  it('defaults plan packets to prompted for long prompts and plan-file loops', async () => {
+    const longPrompt = 'x'.repeat(800);
+    const byPrompt = await prepareLoopStartConfig(mkConfig({
+      initialPrompt: longPrompt,
+      caps: { ...defaultLoopConfig(workspace, longPrompt).caps, maxIterations: 3 },
+    }));
+    const byPlanFile = await prepareLoopStartConfig(mkConfig({
+      planFile: 'PLAN.md',
+      caps: { ...defaultLoopConfig(workspace, 'g').caps, maxIterations: 3 },
+    }));
+
+    expect(byPrompt.audit?.planPacketMode).toBe('prompted');
+    expect(byPlanFile.audit?.planPacketMode).toBe('prompted');
+  });
+
+  it('preserves explicit user-started audit overrides', async () => {
+    const prepared = await prepareLoopStartConfig(mkConfig({
+      audit: {
+        finalAuditMode: 'observe',
+        preflightMode: 'block',
+        planPacketMode: 'off',
+        cleanlinessScan: false,
+      },
+    }));
+
+    expect(prepared.audit).toEqual({
+      finalAuditMode: 'observe',
+      preflightMode: 'block',
+      planPacketMode: 'off',
+      cleanlinessScan: false,
+    });
   });
 });
 

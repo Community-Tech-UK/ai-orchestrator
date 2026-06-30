@@ -18,7 +18,7 @@ import { getLoopCoordinator } from '../../orchestration/loop-coordinator';
 import { buildLoopCheckpoint } from '../../orchestration/loop-checkpoint';
 import { getLoopStore } from '../../orchestration/loop-store';
 import { inferLoopVerifyCommand } from '../../orchestration/loop-verify-command';
-import { prepareLoopStartConfig, attachNextObjectivePlanner } from '../../orchestration/loop-start-config';
+import { prepareLoopStartConfig } from '../../orchestration/loop-start-config';
 import { exportOutstandingMarkdown } from '../../orchestration/loop-outstanding-export';
 import { buildResumeWithAnswersPrompt } from '../../orchestration/loop-resume-with-answers';
 import {
@@ -29,7 +29,7 @@ import {
 } from './loop-transcript-dispatch';
 import { getLogger } from '../../logging/logger';
 import type { WindowManager } from '../../window-manager';
-import { defaultLoopConfig, type LoopState } from '../../../shared/types/loop.types';
+import type { LoopState } from '../../../shared/types/loop.types';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getChatService } from '../../chats';
 import { buildExistingSessionContext } from '../../orchestration/loop-existing-session-context';
@@ -124,13 +124,20 @@ export function registerLoopHandlers(deps: {
           history: data.state.lastIteration ? [data.state.lastIteration] : [],
         }),
       });
+      // Some completion metadata is attached after the normal iteration hook
+      // has already sealed the row (for example finalAudit in ping-pong and
+      // review-driven terminal paths). Refresh the last row on state changes so
+      // history pagination and checkpoint state stay aligned.
+      if (data.state.lastIteration) {
+        store.insertIteration(data.state.lastIteration);
+      }
     } catch (err) {
       logger.warn('LoopStore persistence failed for state change', {
         loopRunId: data.loopRunId,
         error: String(err),
       });
     }
-    if (isTerminalLoopStatus(data.state.status)) {
+    if (shouldAppendTerminalSummary(data.state)) {
       try {
         appendLoopTerminalSummary(data.state, chatService, deps.instanceManager);
       } catch (err) {
@@ -306,7 +313,9 @@ export function registerLoopHandlers(deps: {
   ipcMain.handle(IPC_CHANNELS.LOOP_INTERVENE, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(LoopInterveneePayloadSchema, payload, 'LOOP_INTERVENE');
-      const ok = coordinator.intervene(validated.loopRunId, validated.message);
+      const ok = validated.kind
+        ? coordinator.intervene(validated.loopRunId, validated.message, validated.kind)
+        : coordinator.intervene(validated.loopRunId, validated.message);
       if (ok) {
         const state = coordinator.getLoop(validated.loopRunId);
         if (state) {
@@ -453,7 +462,11 @@ export function registerLoopHandlers(deps: {
   ipcMain.handle(IPC_CHANNELS.LOOP_RESUME_WITH_ANSWERS, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(LoopResumeWithAnswersPayloadSchema, payload, 'LOOP_RESUME_WITH_ANSWERS');
-      const open = store.listOutstandingItems({ chatId: validated.chatId, status: 'open' });
+      const open = store.listOutstandingItems({
+        chatId: validated.chatId,
+        workspaceCwd: validated.workspaceCwd,
+        status: 'open',
+      });
       const answered = open.filter((i) => (i.userResponse ?? '').trim().length > 0);
       const unanswered = open.filter((i) => (i.userResponse ?? '').trim().length === 0);
       if (answered.length === 0) {
@@ -470,23 +483,28 @@ export function registerLoopHandlers(deps: {
         originalGoal: sourceConfig?.initialPrompt,
       });
 
-      // Reuse the source config but pin the new prompt + workspace, and drop the
-      // plan-file rename gate: the original plan file is unrelated to this
-      // decision-application run and forcing its rename would stall completion.
-      const base = sourceConfig ?? defaultLoopConfig(validated.workspaceCwd, prompt);
-      // Re-attach the next-objective planner: the stored config opts in via
-      // `nextObjectivePlanning`, but the runtime `nextObjectivePlanner` function
-      // doesn't survive JSON serialization, so a rehydrated config would run
-      // without it. `prepareLoopStartConfig` does this on the normal start path;
-      // we bypass that here, so apply the same fix-up explicitly.
-      const partialConfig = attachNextObjectivePlanner({
-        ...base,
-        initialPrompt: prompt,
-        workspaceCwd: validated.workspaceCwd,
-        planFile: undefined,
-        nextObjectivePlanner: undefined,
-        completion: { ...base.completion, requireCompletedFileRename: false },
-      });
+      // Reuse the source config when available, but run it through the same
+      // start preparation as normal LOOP_START. That preserves source choices
+      // while also restoring runtime-only planner functions and applying the
+      // current safety defaults for fallback runs.
+      const resumeConfig = sourceConfig
+        ? {
+            ...sourceConfig,
+            initialPrompt: prompt,
+            workspaceCwd: validated.workspaceCwd,
+            planFile: undefined,
+            executionCwd: undefined,
+            worktreeBranch: undefined,
+            nextObjectivePlanner: undefined,
+            completion: { ...sourceConfig.completion, requireCompletedFileRename: false },
+          }
+        : {
+            initialPrompt: prompt,
+            workspaceCwd: validated.workspaceCwd,
+            planFile: undefined,
+            completion: { requireCompletedFileRename: false },
+          };
+      const partialConfig = await prepareLoopStartConfig(resumeConfig);
 
       const existingSessionContext = buildExistingSessionContext(deps.instanceManager, validated.chatId);
       const state = await coordinator.startLoop(
@@ -538,6 +556,13 @@ function errorResponse(code: string, error: unknown): IpcResponse {
       timestamp: Date.now(),
     },
   };
+}
+
+function shouldAppendTerminalSummary(state: LoopState): boolean {
+  if (state.status === 'provider-limit') {
+    return state.endedAt !== null;
+  }
+  return isTerminalLoopStatus(state.status);
 }
 
 function isTerminalLoopStatus(status: LoopState['status']): boolean {

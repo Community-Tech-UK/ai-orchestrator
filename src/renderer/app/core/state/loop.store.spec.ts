@@ -387,7 +387,7 @@ describe('LoopStore', () => {
     });
   });
 
-  it('treats provider-limit as terminal and captures a stopped summary', () => {
+  it('treats ended provider-limit as terminal and captures a stopped summary', () => {
     store.ensureWired();
     listeners.stateChanged.forEach((cb) => cb({
       loopRunId: 'loop-1',
@@ -411,6 +411,64 @@ describe('LoopStore', () => {
       iterations: 0,
       reason: '5-hour session exhausted',
     });
+  });
+
+  it('keeps a provider-limit checkpoint with no endedAt active for resume', () => {
+    store.ensureWired();
+
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: {
+        ...activeState(),
+        status: 'provider-limit',
+        endedAt: null,
+        endReason: 'provider window exhausted',
+      },
+    }));
+
+    expect(store.activeForChat('chat-1')()).toMatchObject({
+      id: 'loop-1',
+      status: 'provider-limit',
+    });
+    expect(store.runningChatIds().has('chat-1')).toBe(true);
+    expect(store.summaryForChat('chat-1')()).toBeNull();
+  });
+
+  it('treats ping-pong terminal statuses as terminal and captures summaries', () => {
+    store.ensureWired();
+    const terminalStatuses: LoopStatePayload['status'][] = [
+      'cost-exceeded',
+      'needs-human-arbitration',
+      'reviewer-unreliable',
+      'reviewer-unavailable',
+      'builder-unreliable',
+    ];
+
+    for (const status of terminalStatuses) {
+      listeners.stateChanged.forEach((cb) => cb({
+        loopRunId: 'loop-1',
+        state: activeState(),
+      }));
+
+      listeners.stateChanged.forEach((cb) => cb({
+        loopRunId: 'loop-1',
+        state: {
+          ...activeState(),
+          status,
+          totalIterations: 3,
+          endedAt: 1778310600000,
+          endReason: `ping-pong terminal: ${status}`,
+        },
+      }));
+
+      expect(store.activeForChat('chat-1')(), status).toBeUndefined();
+      expect(store.runningChatIds().has('chat-1'), status).toBe(false);
+      expect(store.summaryForChat('chat-1')(), status).toMatchObject({
+        status,
+        iterations: 3,
+        reason: `ping-pong terminal: ${status}`,
+      });
+    }
   });
 
   it('snapshots the last iteration onto the terminal summary so the card can recap without an extra IPC', () => {

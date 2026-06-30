@@ -2,15 +2,21 @@ import * as path from 'path';
 import { createHash } from 'crypto';
 import type {
   LoopConfig,
+  LoopPreflightResult,
   LoopState,
   LoopTerminalIntent,
+  ProgressSignalEvidence,
 } from '../../shared/types/loop.types';
+import type { LongRunResourceDecision } from '../runtime/long-run-resource-governor';
 import {
+  coercePendingInput,
+  createLoopPendingInput,
   defaultLoopConfig,
   LOOP_MAX_PLAN_REGENERATIONS,
 } from '../../shared/types/loop.types';
 import { resolveLoopArtifactPaths } from './loop-artifact-paths';
-import { readUtf8FileHead } from './bounded-file-read';
+import { LOOP_TEXT_FILE_MAX_BYTES, readUtf8FileHead, readUtf8FileHeadSync } from './bounded-file-read';
+import { parseOutstandingSections } from './loop-stage-markdown';
 
 function normalizeLoopCaps(
   base: LoopConfig['caps'],
@@ -46,6 +52,7 @@ export function materializeLoopConfig(
       stageCriticalIterations: { ...base.progressThresholds.stageCriticalIterations, ...(p.progressThresholds?.stageCriticalIterations ?? {}) },
     },
     completion: { ...base.completion, ...(p.completion ?? {}) },
+    audit: { ...base.audit, ...(p.audit ?? {}) },
   };
 }
 
@@ -84,7 +91,7 @@ export function cloneLoopStateForBroadcast(s: LoopState): LoopState {
   return {
     ...s,
     config,
-    pendingInterventions: [...s.pendingInterventions],
+    pendingInterventions: s.pendingInterventions.map((item) => ({ ...coercePendingInput(item) })),
     recentWarnIterationSeqs: [...s.recentWarnIterationSeqs],
     completionAttempts: s.completionAttempts,
     loopControl: s.loopControl ? { ...s.loopControl } : undefined,
@@ -158,10 +165,13 @@ export function applyLoopPlanRegenerationOnStall(params: {
   if (params.done >= LOOP_MAX_PLAN_REGENERATIONS) return false;
   params.state.recentWarnIterationSeqs = [];
   params.state.pendingInterventions.push(
-    'The current plan/approach is STALLING (repeated no-progress). Treat the plan as ' +
-    'disposable: throw it out and regenerate it from the goal. Re-derive the task list in ' +
-    '`LOOP_TASKS.md` from scratch, pick a DIFFERENT approach for the stuck part, and proceed. ' +
-    `(disposable-plan regeneration ${params.done + 1}/${LOOP_MAX_PLAN_REGENERATIONS})`,
+    createLoopPendingInput(
+      'The current plan/approach is STALLING (repeated no-progress). Treat the plan as ' +
+      'disposable: throw it out and regenerate it from the goal. Re-derive the task list in ' +
+      '`LOOP_TASKS.md` from scratch, pick a DIFFERENT approach for the stuck part, and proceed. ' +
+      `(disposable-plan regeneration ${params.done + 1}/${LOOP_MAX_PLAN_REGENERATIONS})`,
+      { source: 'plan-regen' },
+    ),
   );
   params.emit('loop:plan-regenerated', {
     loopRunId: params.state.id,
@@ -268,4 +278,45 @@ export async function archiveBlockedFileForIntent(params: {
       `block intent recorded but BLOCKED.md could not be archived (${code ?? 'unknown'}): ${reason}. The next iteration will re-pause on the residual file until you resolve it manually.`,
     );
   }
+}
+
+export function captureLoopOutstanding(state: LoopState): void {
+  try {
+    const paths = resolveLoopArtifactPaths(state.config.workspaceCwd, state.id);
+    const raw = readUtf8FileHeadSync(paths.outstanding, LOOP_TEXT_FILE_MAX_BYTES).text;
+    const { needsHuman, openQuestions } = parseOutstandingSections(raw);
+    if (needsHuman.length === 0 && openQuestions.length === 0) return;
+    state.outstanding = {
+      needsHuman,
+      openQuestions,
+      raw,
+      capturedAt: Date.now(),
+    };
+  } catch {
+    // Missing or unreadable OUTSTANDING.md should never block loop termination.
+  }
+}
+
+export function resourceGovernorPauseSignal(
+  reason: string,
+  decision: LongRunResourceDecision,
+): ProgressSignalEvidence {
+  return {
+    id: 'BLOCKED',
+    verdict: 'CRITICAL',
+    message: reason,
+    detail: { reason: 'resource-governor', decision },
+  };
+}
+
+export function preflightBlockedSignal(
+  reason: string,
+  preflight: LoopPreflightResult,
+): ProgressSignalEvidence {
+  return {
+    id: 'BLOCKED',
+    verdict: 'CRITICAL',
+    message: reason,
+    detail: { preflight },
+  };
 }

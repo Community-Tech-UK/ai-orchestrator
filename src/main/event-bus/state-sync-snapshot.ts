@@ -65,7 +65,7 @@ function toLoopSnapshot(loop: LoopState): ThinClientLoopRunSnapshot {
     loopRunId: loop.id,
     chatId: loop.chatId,
     status: loop.status,
-    phase: loopStatusToPhase(loop.status),
+    phase: loopStateToPhase(loop),
     totalIterations: loop.totalIterations,
     totalTokens: loop.totalTokens,
     totalCostCents: loop.totalCostCents,
@@ -76,6 +76,13 @@ function toLoopSnapshot(loop: LoopState): ThinClientLoopRunSnapshot {
     iterationPrompt: loop.config.iterationPrompt ?? null,
     workspaceCwd: loop.config.workspaceCwd,
   };
+}
+
+function loopStateToPhase(loop: Pick<LoopState, 'status' | 'endedAt'>): ThinClientLoopRunSnapshot['phase'] {
+  if (loop.status === 'provider-limit' && loop.endedAt != null) {
+    return 'failed';
+  }
+  return loopStatusToPhase(loop.status);
 }
 
 function toAutomationRunSnapshot(run: AutomationRun): ThinClientAutomationRunSnapshot {

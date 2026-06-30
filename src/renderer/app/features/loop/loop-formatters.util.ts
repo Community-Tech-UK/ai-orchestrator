@@ -115,9 +115,9 @@ export function activityKindLabel(kind: string): string {
 
 /**
  * Friendly label for a *terminal* loop status — what we show on the
- * "Loop ended — …" summary card. Confined to the five terminal states
- * by its parameter type so callers don't accidentally render
- * "running ✓" on the summary.
+ * "Loop ended — …" summary card. Confined to stopped/summary statuses
+ * by its parameter type so callers don't accidentally render "running ✓"
+ * on the summary.
  */
 export type TerminalLoopStatus =
   | 'completed'
@@ -223,6 +223,7 @@ export interface LoopStatusPill {
  */
 export function loopStatusPill(input: {
   status: string;
+  endedAt?: number | null;
   manualReviewOnly?: boolean;
   lastCompletionOutcome?: string;
   bannerKind?: 'no-progress' | 'claimed-failed' | null;
@@ -246,7 +247,10 @@ export function loopStatusPill(input: {
     case 'error':       return { kind: 'stopped', label: 'ERROR' };
     case 'cap-reached': return { kind: 'stopped', label: 'CAP REACHED' };
     case 'no-progress': return { kind: 'no-progress', label: 'NO PROGRESS' };
-    case 'provider-limit': return { kind: 'stopped', label: 'PROVIDER LIMIT' };
+    case 'provider-limit':
+      return input.endedAt === null
+        ? { kind: 'paused', label: 'PROVIDER LIMIT' }
+        : { kind: 'stopped', label: 'PROVIDER LIMIT' };
     case 'cost-exceeded': return { kind: 'stopped', label: 'COST EXCEEDED' };
     case 'needs-human-arbitration': return { kind: 'needs-review', label: 'NEEDS ARBITRATION' };
     case 'reviewer-unreliable': return { kind: 'stopped', label: 'REVIEWER UNRELIABLE' };
@@ -467,7 +471,7 @@ export function buildInspectorProgress(input: {
     headline = input.totalIterations === 0
       ? `Iteration ${input.runningSeq} running · just getting started`
       : `Iteration ${input.runningSeq} running`;
-  } else if (input.status === 'paused') {
+  } else if (input.status === 'paused' || input.statusPillKind === 'paused') {
     headline = `Paused after ${input.totalIterations} iteration${input.totalIterations === 1 ? '' : 's'}`;
   } else {
     headline = `${input.totalIterations} iteration${input.totalIterations === 1 ? '' : 's'} run`;

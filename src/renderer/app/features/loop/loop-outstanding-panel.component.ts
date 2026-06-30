@@ -46,6 +46,29 @@ export function outstandingHasAnswer(
     || outstandingUnsavedAnswer(userResponse, draft) !== undefined;
 }
 
+export function outstandingItemInScope(
+  item: Pick<LoopOutstandingItemPayload, 'chatId' | 'workspaceCwd'>,
+  chatId: string | null | undefined,
+  workspaceCwd: string | null | undefined,
+): boolean {
+  if (!chatId && !workspaceCwd) return false;
+  return (!chatId || item.chatId === chatId)
+    && (!workspaceCwd || item.workspaceCwd === workspaceCwd);
+}
+
+export function buildOutstandingQuery(
+  chatId: string | null | undefined,
+  workspaceCwd: string | null | undefined,
+  status: 'open' | 'all',
+): { chatId?: string; workspaceCwd?: string; status: 'open' | 'all' } | null {
+  if (!chatId && !workspaceCwd) return null;
+  return {
+    ...(chatId ? { chatId } : {}),
+    ...(workspaceCwd ? { workspaceCwd } : {}),
+    status,
+  };
+}
+
 /**
  * Aggregated "Outstanding" panel — surfaces the human-gated work captured from
  * completed loop runs (OUTSTANDING.md's "Needs human" + "Open questions") so it
@@ -320,10 +343,7 @@ export class LoopOutstandingPanelComponent {
   protected items = computed<LoopOutstandingItemPayload[]>(() => {
     const chatId = this.chatId();
     const cwd = this.workspaceCwd();
-    if (!chatId && !cwd) return [];
-    return this.store.outstanding().filter((i) => (
-      chatId ? i.chatId === chatId : i.workspaceCwd === cwd
-    ));
+    return this.store.outstanding().filter((i) => outstandingItemInScope(i, chatId, cwd));
   });
 
   protected needsHuman = computed(() => this.items().filter((i) => i.kind === 'needs-human'));
@@ -350,13 +370,10 @@ export class LoopOutstandingPanelComponent {
       const chatId = this.chatId();
       const cwd = this.workspaceCwd();
       const status = this.showAll() ? ('all' as const) : ('open' as const);
-      if (!chatId && !cwd) return;
+      const query = buildOutstandingQuery(chatId, cwd, status);
+      if (!query) return;
       untracked(() => {
-        if (chatId) {
-          void this.store.loadOutstanding({ chatId, status });
-        } else if (cwd) {
-          void this.store.loadOutstanding({ workspaceCwd: cwd, status });
-        }
+        void this.store.loadOutstanding(query);
       });
     });
   }

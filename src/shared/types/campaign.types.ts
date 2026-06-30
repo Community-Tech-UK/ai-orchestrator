@@ -21,18 +21,19 @@ export type CampaignLoopConfig =
 // Terminal status predicate
 // -------------------------------------------------------------------------
 
-/** Terminal statuses a loop run can reach. */
+/** Terminal campaign-node statuses that can satisfy an edge predicate. */
 export type LoopTerminalStatus =
   | 'completed'
   | 'completed-needs-review'
   | 'failed'
-  | 'provider-limit'
   | 'operator-halted';
 
 /**
- * Predicate on a loop's terminal status.
+ * Predicate on a campaign node's terminal status.
  * An edge only fires when the upstream node's terminal status satisfies this.
  * Default (undefined) = fire on any terminal status.
+ * `provider-limit` is intentionally excluded: campaign nodes parked on a
+ * provider limit are resumable, and ended provider-limit loops map to `failed`.
  */
 export type TerminalStatusPredicate =
   | { type: 'is'; status: LoopTerminalStatus }
@@ -116,6 +117,7 @@ export type CampaignNodeStatus =
   | 'completed'
   | 'completed-needs-review'
   | 'failed'
+  /** Resumable node pause while the underlying loop waits for provider quota. */
   | 'provider-limit'
   | 'operator-halted';
 

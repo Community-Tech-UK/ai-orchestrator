@@ -81,6 +81,7 @@ import { enrichSpawnError } from './base-cli-adapter-utils';
 import { extractReasoningSections, mergeReasoningSections, shorten } from './codex/reasoning';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import { isSessionNotFoundText } from './resume-error-classifier';
+import { hasPendingBrowserApproval } from './codex/browser-approval-watchdog';
 
 const logger = getLogger('CodexCliAdapter');
 
@@ -120,6 +121,7 @@ export interface CodexCliConfig {
   additionalWritableDirs?: string[];
   /** Approval mode: suggest, auto-edit, or full-auto */
   approvalMode?: CodexApprovalMode;
+  browserGatewayInstanceId?: string;
   /** Run without persisting session files to disk */
   ephemeral?: boolean;
   /** Model to use (gpt-5.5, gpt-5.3-codex, etc.) */
@@ -1282,15 +1284,9 @@ export class CodexCliAdapter extends BaseCliAdapter {
     // notifications are forwarded to the previous handler.
     const previousHandler = client.notificationHandler;
 
-    // Notification idle watchdog — detects stalled turns where no notifications
-    // arrive for an extended period (process alive but unresponsive).
-    //
-    // Codex's app-server JSON-RPC emits notifications at item boundaries only
-    // (item/started, item/completed) — there are no sub-item deltas. A single
-    // item (long reasoning block, long-running shell command, mcp call) can
-    // legitimately take minutes with zero notifications in between. We use a
-    // generous timeout while items are in flight and tighten it once the turn
-    // is idle between items, so genuine hangs still surface quickly.
+    // Notification idle watchdog. Codex app-server emits at item boundaries,
+    // so active items get a long silence budget while between-item hangs still
+    // surface quickly. Pending Browser Gateway approvals pause this watchdog.
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
     let activeItems = 0;
     const armIdleWatchdog = () => {
@@ -1298,6 +1294,11 @@ export class CodexCliAdapter extends BaseCliAdapter {
       const timeoutMs = this.resolveNotificationIdleTimeoutMs(activeItems);
       idleTimer = setTimeout(() => {
         if (!state.completed) {
+          if (hasPendingBrowserApproval(this.cliConfig.browserGatewayInstanceId)) {
+            this.emit('heartbeat');
+            armIdleWatchdog();
+            return;
+          }
           state.rejectCompletion(
             new Error(`Codex turn stalled: no notifications received for ${timeoutMs}ms`)
           );

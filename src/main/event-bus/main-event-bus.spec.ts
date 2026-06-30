@@ -152,6 +152,63 @@ describe('MainEventBus', () => {
     }));
   });
 
+  it('derives ended provider-limit loop state changes as failed lifecycle events', () => {
+    const bus = new MainEventBus({ now: () => 20 });
+    const lifecycle = new CollectingTransport(new Set<EventTier>(['lifecycle']));
+    bus.addTransport(lifecycle);
+
+    bus.emitRendererEvent(IPC_CHANNELS.LOOP_STATE_CHANGED, {
+      loopRunId: 'loop-ended-provider-limit',
+      state: {
+        id: 'loop-ended-provider-limit',
+        chatId: 'chat-1',
+        status: 'provider-limit',
+        endedAt: 1_778_310_600_000,
+      },
+    });
+
+    expect(lifecycle.events.at(-1)).toEqual(expect.objectContaining({
+      seq: 1,
+      tier: 'lifecycle',
+      type: 'loop:phase-changed',
+      payload: {
+        loopRunId: 'loop-ended-provider-limit',
+        chatId: 'chat-1',
+        status: 'provider-limit',
+        phase: 'failed',
+      },
+    }));
+  });
+
+  it('keeps nested state endedAt=null authoritative over stale top-level loop payload data', () => {
+    const bus = new MainEventBus({ now: () => 20 });
+    const lifecycle = new CollectingTransport(new Set<EventTier>(['lifecycle']));
+    bus.addTransport(lifecycle);
+
+    bus.emitRendererEvent(IPC_CHANNELS.LOOP_STATE_CHANGED, {
+      loopRunId: 'loop-restored-provider-limit',
+      endedAt: 1_778_310_600_000,
+      state: {
+        id: 'loop-restored-provider-limit',
+        chatId: 'chat-1',
+        status: 'provider-limit',
+        endedAt: null,
+      },
+    });
+
+    expect(lifecycle.events.at(-1)).toEqual(expect.objectContaining({
+      seq: 1,
+      tier: 'lifecycle',
+      type: 'loop:phase-changed',
+      payload: {
+        loopRunId: 'loop-restored-provider-limit',
+        chatId: 'chat-1',
+        status: 'provider-limit',
+        phase: 'paused',
+      },
+    }));
+  });
+
   it('derives automation lifecycle phase events from automation run changes', () => {
     const bus = new MainEventBus({ now: () => 30 });
     const lifecycle = new CollectingTransport(new Set<EventTier>(['lifecycle']));

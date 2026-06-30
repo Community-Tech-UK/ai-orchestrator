@@ -46,7 +46,6 @@ const TERMINAL_STATUSES: LoopTerminalStatus[] = [
   'completed',
   'completed-needs-review',
   'failed',
-  'provider-limit',
   'operator-halted',
 ];
 const PROVIDERS: Provider[] = ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'];

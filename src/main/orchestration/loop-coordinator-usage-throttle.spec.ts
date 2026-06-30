@@ -49,6 +49,7 @@ describe('LoopCoordinator usage-aware throttling', () => {
       expect(invokeCount).toBe(1);
       expect(events).toHaveLength(1);
       expect((events[0] as { source: string }).source).toBe('notice');
+      expect(coordinator.resumeLoop(state.id)).toBe(false);
     } finally {
       await coordinator.cancelLoop(state.id);
     }
@@ -56,6 +57,7 @@ describe('LoopCoordinator usage-aware throttling', () => {
 
   it('reactive backstop: parks (auto-resume) when the quota snapshot has a future reset', async () => {
     const resetsAt = Date.now() + 60_000;
+    let invokeCount = 0;
     const scheduler = vi.fn(() => () => { /* noop */ });
     coordinator.setProviderLimitResumeScheduler(scheduler);
     // Headroom so the preventive ladder does not park before the iteration runs;
@@ -63,19 +65,26 @@ describe('LoopCoordinator usage-aware throttling', () => {
     coordinator.setQuotaSnapshotProvider(() => snapshot([win({ used: 20, resetsAt })]));
     coordinator.on('loop:invoke-iteration', (payload: unknown) => {
       const p = payload as { callback: (r: LoopChildResult) => void };
-      p.callback(iterationResult('usage limit reached'));
+      invokeCount += 1;
+      p.callback(iterationResult(invokeCount === 1 ? 'usage limit reached' : 'real work after resume'));
     });
 
     const state = await startLoop('chat-notice-park');
     try {
-      await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'paused', 5000);
-      expect(coordinator.getLoop(state.id)?.status).toBe('paused');
+      await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'provider-limit', 5000);
+      expect(coordinator.getLoop(state.id)).toMatchObject({
+        status: 'provider-limit',
+        endedAt: null,
+      });
       expect(scheduler).toHaveBeenCalledWith(expect.objectContaining({
         loopRunId: state.id,
         resumeAt: resetsAt,
         reason: expect.stringContaining('provider usage/limit notice'),
         source: 'notice',
       }));
+      expect(invokeCount).toBe(1);
+      expect(coordinator.resumeLoop(state.id)).toBe(true);
+      await waitForCondition(() => invokeCount >= 2, 5000);
     } finally {
       await coordinator.cancelLoop(state.id);
     }
@@ -103,9 +112,12 @@ describe('LoopCoordinator usage-aware throttling', () => {
 
     const state = await startLoop('chat-notice-refresh-park');
     try {
-      await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'paused', 5000);
+      await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'provider-limit', 5000);
       expect(refresh).toHaveBeenCalledWith('claude');
-      expect(coordinator.getLoop(state.id)?.status).toBe('paused');
+      expect(coordinator.getLoop(state.id)).toMatchObject({
+        status: 'provider-limit',
+        endedAt: null,
+      });
       expect(scheduler).toHaveBeenCalledWith(expect.objectContaining({
         loopRunId: state.id,
         resumeAt: resetsAt,
@@ -132,8 +144,11 @@ describe('LoopCoordinator usage-aware throttling', () => {
 
     const state = await startLoop('chat-preventive-park');
     try {
-      await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'paused', 5000);
-      expect(coordinator.getLoop(state.id)?.status).toBe('paused');
+      await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'provider-limit', 5000);
+      expect(coordinator.getLoop(state.id)).toMatchObject({
+        status: 'provider-limit',
+        endedAt: null,
+      });
       expect(invokeCount).toBe(0); // never spawned a paid iteration
       expect(events.length).toBeGreaterThanOrEqual(1);
       expect((events[0] as { source: string }).source).toBe('quota');

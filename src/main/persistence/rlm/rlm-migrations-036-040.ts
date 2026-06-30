@@ -59,4 +59,34 @@ export const RLM_MIGRATIONS_036_040: Migration[] = [
       -- additive column in place on rollback.
     `,
   },
+  {
+    name: '039_add_session_compaction_markers',
+    up: `
+      CREATE TABLE IF NOT EXISTS session_compaction_markers (
+        id                   TEXT PRIMARY KEY,
+        instance_id          TEXT NOT NULL,
+        thread_id            TEXT,
+        project_key          TEXT,
+        method               TEXT NOT NULL,
+        created_at           INTEGER NOT NULL,
+        utilization_before   REAL,
+        utilization_after    REAL,
+        ledger_anchor        INTEGER NOT NULL,
+        metadata_json        TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_compaction_markers_instance
+        ON session_compaction_markers(instance_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_compaction_markers_project
+        ON session_compaction_markers(project_key, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_compaction_markers_created
+        ON session_compaction_markers(created_at DESC);
+    `,
+    down: `
+      DROP INDEX IF EXISTS idx_compaction_markers_created;
+      DROP INDEX IF EXISTS idx_compaction_markers_project;
+      DROP INDEX IF EXISTS idx_compaction_markers_instance;
+      DROP TABLE IF EXISTS session_compaction_markers;
+    `,
+  },
 ];

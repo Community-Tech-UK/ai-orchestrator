@@ -90,6 +90,12 @@ describe('terminalStatusLabel', () => {
     expect(terminalStatusLabel('cap-reached')).toBe('cap reached');
     expect(terminalStatusLabel('error')).toBe('error');
     expect(terminalStatusLabel('no-progress')).toBe('no progress');
+    expect(terminalStatusLabel('provider-limit')).toBe('provider limit');
+    expect(terminalStatusLabel('cost-exceeded')).toBe('cost exceeded');
+    expect(terminalStatusLabel('needs-human-arbitration')).toBe('needs arbitration');
+    expect(terminalStatusLabel('reviewer-unreliable')).toBe('reviewer unreliable');
+    expect(terminalStatusLabel('reviewer-unavailable')).toBe('reviewer unavailable');
+    expect(terminalStatusLabel('builder-unreliable')).toBe('builder unreliable');
   });
 });
 
@@ -123,7 +129,21 @@ describe('summaryHasDistinctIterationPrompt', () => {
 // never renders a blank/garbled status cell, and every terminal status must
 // resolve via terminalStatusLabel.
 describe('LoopStatus label completeness (LF-8 contract)', () => {
-  const TERMINAL = new Set(['completed', 'completed-needs-review', 'cancelled', 'failed', 'cap-reached', 'error', 'no-progress']);
+  const TERMINAL = new Set([
+    'completed',
+    'completed-needs-review',
+    'cancelled',
+    'failed',
+    'cap-reached',
+    'error',
+    'no-progress',
+    'provider-limit',
+    'cost-exceeded',
+    'needs-human-arbitration',
+    'reviewer-unreliable',
+    'reviewer-unavailable',
+    'builder-unreliable',
+  ]);
 
   it('every LoopStatus resolves to a non-empty loopStatusLabel', () => {
     for (const status of LoopStatusSchema.options) {
@@ -152,6 +172,17 @@ describe('loopStatusPill (LF-8)', () => {
     expect(loopStatusPill({ status: 'completed-needs-review' })).toEqual({ kind: 'needs-review', label: 'NEEDS REVIEW' });
     expect(loopStatusPill({ status: 'cancelled' }).kind).toBe('stopped');
     expect(loopStatusPill({ status: 'cap-reached' }).label).toBe('CAP REACHED');
+  });
+
+  it('renders provider-limit checkpoints as paused until they have ended', () => {
+    expect(loopStatusPill({ status: 'provider-limit', endedAt: null })).toEqual({
+      kind: 'paused',
+      label: 'PROVIDER LIMIT',
+    });
+    expect(loopStatusPill({ status: 'provider-limit', endedAt: 1_778_310_600_000 })).toEqual({
+      kind: 'stopped',
+      label: 'PROVIDER LIMIT',
+    });
   });
 
   it('distinguishes the three pause flavours', () => {
@@ -374,6 +405,20 @@ describe('buildInspectorProgress', () => {
     expect(p.headline).toBe('Paused after 3 iterations');
     expect(p.statusLabel).toBe('PAUSED · NO PROGRESS');
     expect(p.stageText).toBe('IMPLEMENT · 2 iters on stage');
+  });
+
+  it('summarises a resumable provider-limit checkpoint as paused between iterations', () => {
+    const p = buildInspectorProgress({
+      ...base,
+      status: 'provider-limit',
+      statusPillKind: 'paused',
+      statusPillLabel: 'PROVIDER LIMIT',
+      totalIterations: 3,
+      runningSeq: null,
+    });
+
+    expect(p.headline).toBe('Paused after 3 iterations');
+    expect(p.statusLabel).toBe('PROVIDER LIMIT');
   });
 
   it('surfaces completion attempts with the last outcome', () => {

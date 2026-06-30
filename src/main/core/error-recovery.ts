@@ -354,6 +354,48 @@ const ERROR_PATTERNS: ErrorPattern[] = [
   },
 ];
 
+function headerValue(headers: Record<string, string> | undefined, name: string): string | undefined {
+  if (!headers) return undefined;
+  const lowerName = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === lowerName) return value;
+  }
+  return undefined;
+}
+
+function parsePositiveNumber(value: string | undefined): number | null {
+  if (!value) return null;
+  const parsed = Number(value.trim());
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function parseRetryAfterHeaderMs(value: string | undefined): number | undefined {
+  const seconds = parsePositiveNumber(value);
+  if (seconds !== null) return seconds * 1000;
+
+  const dateMs = Date.parse(value ?? '');
+  if (!Number.isFinite(dateMs)) return undefined;
+  return Math.max(0, dateMs - Date.now());
+}
+
+function parseRateLimitResetHeaderMs(value: string | undefined): number | undefined {
+  const numeric = parsePositiveNumber(value);
+  if (numeric === null) return undefined;
+
+  const epochMs = numeric > 1_000_000_000_000
+    ? numeric
+    : numeric > 1_000_000_000
+      ? numeric * 1000
+      : Date.now() + numeric * 1000;
+  return Math.max(0, epochMs - Date.now());
+}
+
+function parseServerRetryAfterMs(headers: Record<string, string> | undefined): number | undefined {
+  const retryAfter = parseRetryAfterHeaderMs(headerValue(headers, 'retry-after'));
+  if (retryAfter !== undefined) return retryAfter;
+  return parseRateLimitResetHeaderMs(headerValue(headers, 'x-ratelimit-reset'));
+}
+
 /**
  * Error Recovery Manager
  *
@@ -444,12 +486,11 @@ export class ErrorRecoveryManager extends EventEmitter {
       if (messageMatch || codeMatch) {
         // Extract retry-after from headers if present
         let retryAfterMs = pattern.retryAfterMs;
-        const retryAfterHeader = (error as Error & { headers?: Record<string, string> }).headers?.['retry-after'];
-        if (retryAfterHeader) {
-          const seconds = parseInt(retryAfterHeader, 10);
-          if (!isNaN(seconds)) {
-            retryAfterMs = seconds * 1000;
-          }
+        const parsedRetryAfterMs = parseServerRetryAfterMs(
+          (error as Error & { headers?: Record<string, string> }).headers,
+        );
+        if (parsedRetryAfterMs !== undefined) {
+          retryAfterMs = parsedRetryAfterMs;
         }
 
         const classified: ClassifiedError = {

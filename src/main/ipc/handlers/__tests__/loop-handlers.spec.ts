@@ -35,6 +35,9 @@ const hoisted = vi.hoisted(() => ({
     getIterations: vi.fn(),
     getCheckpoint: vi.fn(),
     listResumableCheckpoints: vi.fn(),
+    getRunConfig: vi.fn(),
+    listOutstandingItems: vi.fn(),
+    setOutstandingItemStatus: vi.fn(),
   },
   chatService: {
     appendSystemEvent: vi.fn(),
@@ -102,6 +105,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   hoisted.coordinator.getLoop.mockReturnValue(undefined);
   hoisted.store.getCheckpoint.mockReturnValue(null);
+  hoisted.store.getRunConfig.mockReturnValue(null);
+  hoisted.store.listOutstandingItems.mockReturnValue([]);
+  hoisted.store.setOutstandingItemStatus.mockReturnValue(true);
   // Default: behave as if state.chatId is a real chat. Individual tests can
   // override this to exercise the instance-id fallback path.
   hoisted.chatService.tryGetChat.mockReturnValue({ id: 'chat-1' });
@@ -365,6 +371,48 @@ describe('registerLoopHandlers terminal summaries', () => {
     }));
   });
 
+  it('refreshes the last iteration row on state change so post-hook audit fields persist', () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const stateHandler = hoisted.coordinator.on.mock.calls.find((call) =>
+      call[0] === 'loop:state-changed'
+    )?.[1] as ((data: { loopRunId: string; state: LoopState }) => void) | undefined;
+    const iteration = makeLoopIteration({
+      loopRunId: 'loop-1',
+      seq: 8,
+      finalAudit: {
+        status: 'needs-review',
+        ranAt: 1_700_000_002_000,
+        coverage: {
+          criteriaTotal: 1,
+          criteriaVerified: 0,
+          criteriaUnverified: 1,
+          verifyCommandRan: false,
+          repoComparisonRan: true,
+          cleanlinessScanRan: true,
+        },
+        findings: [{
+          severity: 'review',
+          code: 'plan-criteria-unproven',
+          message: 'Evidence needs operator review.',
+        }],
+        changedFiles: ['ROADMAP.md'],
+      },
+    });
+    const state = makeLoopState({
+      status: 'completed-needs-review',
+      lastIteration: iteration,
+    });
+
+    stateHandler?.({ loopRunId: state.id, state });
+
+    expect(hoisted.store.insertIteration).toHaveBeenCalledWith(iteration);
+  });
+
   it('appends a durable chat summary when a loop enters a terminal state', () => {
     const windowManager = { sendToRenderer: vi.fn() };
     const instanceManager = makeInstanceManager([]);
@@ -391,6 +439,53 @@ describe('registerLoopHandlers terminal summaries', () => {
       'loop:state-changed',
       { loopRunId: state.id, state },
     );
+  });
+
+  it('appends a durable chat summary when a provider-limit loop cannot auto-resume', () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const state = makeLoopState({
+      status: 'provider-limit',
+      endReason: 'provider limit reached without a reset window',
+    });
+    const stateHandler = hoisted.coordinator.on.mock.calls.find((call) =>
+      call[0] === 'loop:state-changed'
+    )?.[1] as ((data: { loopRunId: string; state: LoopState }) => void) | undefined;
+
+    stateHandler?.({ loopRunId: state.id, state });
+
+    expect(hoisted.chatService.appendSystemEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId: 'chat-1',
+        nativeMessageId: 'loop-summary:loop-1',
+        content: expect.stringContaining('Loop ended - provider-limit'),
+      }),
+    );
+  });
+
+  it('does not append a chat summary for a restored resumable provider-limit checkpoint', () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const state = makeLoopState({
+      status: 'provider-limit',
+      endedAt: null,
+      endReason: 'provider window exhausted',
+    });
+    const stateHandler = hoisted.coordinator.on.mock.calls.find((call) =>
+      call[0] === 'loop:state-changed'
+    )?.[1] as ((data: { loopRunId: string; state: LoopState }) => void) | undefined;
+
+    stateHandler?.({ loopRunId: state.id, state });
+
+    expect(hoisted.chatService.appendSystemEvent).not.toHaveBeenCalled();
   });
 
   it('does not append a chat summary for non-terminal loop state changes', () => {
@@ -532,13 +627,13 @@ describe('LOOP_START handler — kickoff prompt persistence', () => {
     expect(response).toEqual({ success: true, data: { state: startState } });
   });
 
-  it('starts the loop under the fresh-eyes cross-model review default when the verify command is blank (LF-3a: no longer infers a machine verify command nor rejects)', async () => {
-    // LF-3a: a blank verify command no longer triggers workspace inference of a
+  it('keeps the legacy gated fresh-eyes cross-model authority when a blank-verify config explicitly carries gated mode', async () => {
+    // A blank verify command no longer triggers workspace inference of a
     // machine verify command (e.g. `npm run verify`), nor does it reject the
-    // start up front. The handler defers to prepareLoopStartConfig, which makes
-    // the fresh-eyes cross-model review the completion authority. Even with a
-    // package.json "verify" script present, nothing is inferred. (The full
-    // inference/fresh-eyes matrix lives in loop-start-config.spec.ts.)
+    // start up front. This payload carries defaultLoopConfig's explicit
+    // engine-level `gated` mode, so prepareLoopStartConfig preserves that
+    // legacy mode and supplies the cross-model gate. The user-started
+    // review-driven default matrix lives in loop-start-config.spec.ts.
     tempWorkspace = mkdtempSync(join(tmpdir(), 'loop-handler-verify-'));
     writeFileSync(
       join(tempWorkspace, 'package.json'),
@@ -571,6 +666,12 @@ describe('LOOP_START handler — kickoff prompt persistence', () => {
     expect(hoisted.coordinator.startLoop).toHaveBeenCalledWith(
       'chat-1',
       expect.objectContaining({
+        audit: {
+          finalAuditMode: 'gate',
+          preflightMode: 'record',
+          planPacketMode: 'prompted',
+          cleanlinessScan: true,
+        },
         completion: expect.objectContaining({
           verifyCommand: '',
           crossModelReview: expect.objectContaining({ enabled: true }),
@@ -776,6 +877,150 @@ describe('LOOP_RESUME handler', () => {
     expect(hoisted.coordinator.restoreLoopFromCheckpoint).toHaveBeenCalledWith(checkpoint);
     expect(response.success).toBe(true);
     expect(response.data).toEqual({ ok: true, state });
+  });
+});
+
+describe('LOOP_RESUME_WITH_ANSWERS handler', () => {
+  it('prepares fallback resumed runs with normal user-start audit and review-driven defaults', async () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    const startState = makeLoopState({ status: 'running', endedAt: null });
+    hoisted.coordinator.startLoop.mockResolvedValue(startState);
+    hoisted.store.getRunConfig.mockReturnValue(null);
+    hoisted.store.listOutstandingItems.mockReturnValue([
+      {
+        id: 'out-1',
+        loopRunId: 'missing-run',
+        chatId: 'chat-1',
+        workspaceCwd: '/work/project',
+        kind: 'open-question',
+        status: 'open',
+        text: 'Which storage backend should be used?',
+        userResponse: 'Use SQLite.',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ]);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_RESUME_WITH_ANSWERS);
+
+    const response = await handler({}, {
+      chatId: 'chat-1',
+      workspaceCwd: '/work/project',
+    });
+
+    expect(response.success).toBe(true);
+    expect(hoisted.coordinator.startLoop).toHaveBeenCalledWith(
+      'chat-1',
+      expect.objectContaining({
+        workspaceCwd: '/work/project',
+        planFile: undefined,
+        audit: {
+          finalAuditMode: 'gate',
+          preflightMode: 'record',
+          planPacketMode: 'prompted',
+          cleanlinessScan: true,
+        },
+        completion: expect.objectContaining({
+          mode: 'review-driven',
+          requireCompletedFileRename: false,
+        }),
+      }),
+      undefined,
+      expect.any(Object),
+    );
+  });
+
+  it('only consumes answered outstanding items from the requested workspace', async () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    const startState = makeLoopState({ status: 'running', endedAt: null });
+    hoisted.coordinator.startLoop.mockResolvedValue(startState);
+    hoisted.store.getRunConfig.mockReturnValue(null);
+    hoisted.store.listOutstandingItems.mockReturnValue([
+      {
+        id: 'out-target',
+        loopRunId: 'loop-target',
+        chatId: 'chat-1',
+        workspaceCwd: '/repo/target',
+        kind: 'needs-human',
+        status: 'open',
+        text: 'Which rollout path should target use?',
+        userResponse: 'Use staged rollout.',
+        createdAt: 2,
+        updatedAt: 2,
+      },
+    ]);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_RESUME_WITH_ANSWERS);
+
+    const response = await handler({}, {
+      chatId: 'chat-1',
+      workspaceCwd: '/repo/target',
+    });
+
+    expect(response.success).toBe(true);
+    expect(hoisted.store.listOutstandingItems).toHaveBeenCalledWith({
+      chatId: 'chat-1',
+      workspaceCwd: '/repo/target',
+      status: 'open',
+    });
+  });
+
+  it('drops stale per-run worktree paths when reusing a source run config', async () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    const startState = makeLoopState({ status: 'running', endedAt: null });
+    const sourceConfig = {
+      ...defaultLoopConfig('/repo/root', 'Original goal'),
+      isolateLoopWorkspaces: true,
+      executionCwd: '/repo/root/.worktrees/loop-old',
+      worktreeBranch: 'loop/old',
+    };
+    hoisted.coordinator.startLoop.mockResolvedValue(startState);
+    hoisted.store.getRunConfig.mockReturnValue(sourceConfig);
+    hoisted.store.listOutstandingItems.mockReturnValue([
+      {
+        id: 'out-1',
+        loopRunId: 'loop-old',
+        chatId: 'chat-1',
+        workspaceCwd: '/repo/root',
+        kind: 'needs-human',
+        status: 'open',
+        text: 'Need product decision.',
+        userResponse: 'Proceed with the simpler flow.',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ]);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_RESUME_WITH_ANSWERS);
+
+    const response = await handler({}, {
+      chatId: 'chat-1',
+      workspaceCwd: '/repo/root',
+    });
+
+    expect(response.success).toBe(true);
+    expect(hoisted.coordinator.startLoop).toHaveBeenCalledWith(
+      'chat-1',
+      expect.objectContaining({
+        isolateLoopWorkspaces: true,
+        executionCwd: undefined,
+        worktreeBranch: undefined,
+      }),
+      undefined,
+      expect.any(Object),
+    );
   });
 });
 

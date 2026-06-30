@@ -158,6 +158,23 @@ describe('LoopControlComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Resume');
   });
 
+  it('shows resume controls for a restored provider-limit checkpoint', async () => {
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), status: 'provider-limit', endedAt: null },
+    }));
+    fixture.detectChanges();
+
+    const resume = fixture.nativeElement.querySelector('.ls-actions button[title="Resume loop"]') as HTMLButtonElement | null;
+    expect(fixture.nativeElement.textContent).toContain('PROVIDER LIMIT');
+    expect(resume).toBeTruthy();
+
+    resume!.click();
+    await settle(fixture);
+
+    expect(ipc.resume).toHaveBeenCalledWith('loop-1');
+  });
+
   it('shows a read-only run-config summary while the loop is active (LF-8)', () => {
     listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state: activeState() }));
     fixture.detectChanges();
@@ -168,6 +185,45 @@ describe('LoopControlComponent', () => {
     expect(text).toContain('claude');           // provider value
     expect(text).toContain('same-session');     // context strategy value
     expect(text).toContain('1.00M tok');        // configured maxTokens is an active cap
+  });
+
+  it('shows compact preflight and final-audit status without exposing absolute artifact paths', () => {
+    const state = activeState();
+    state.config.audit = {
+      finalAuditMode: 'gate',
+      preflightMode: 'record',
+      planPacketMode: 'prompted',
+      cleanlinessScan: true,
+    };
+    state.preflight = {
+      status: 'failed',
+      ranAt: 1778310001000,
+      commands: [],
+    };
+    state.latestFinalAudit = {
+      status: 'needs-review',
+      ranAt: 1778310002000,
+      coverage: {
+        criteriaTotal: 2,
+        criteriaVerified: 1,
+        criteriaUnverified: 1,
+        verifyCommandRan: true,
+        repoComparisonRan: true,
+        cleanlinessScanRan: true,
+      },
+      findings: [],
+      changedFiles: ['src/a.ts'],
+      reportPath: '/tmp/project/.aio-loop-state/loop-1/AUDIT.md',
+    };
+
+    listeners.stateChanged.forEach((cb) => cb({ loopRunId: 'loop-1', state }));
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Preflight failed');
+    expect(text).toContain('Audit gate needs review');
+    expect(text).toContain('AUDIT.md');
+    expect(text).not.toContain('/tmp/project/.aio-loop-state/loop-1/AUDIT.md');
   });
 
   it('routes visible no-progress banner controls to the loop id', async () => {

@@ -4,7 +4,10 @@ import type {
   LoopStage,
   LoopState,
 } from '../../shared/types/loop.types';
-import { defaultCrossModelReviewConfig } from '../../shared/types/loop.types';
+import {
+  createLoopPendingInput,
+  defaultCrossModelReviewConfig,
+} from '../../shared/types/loop.types';
 import type { LoopCompletionDetector } from './loop-completion-detector';
 import { LOOP_STATE_DIR_NAME } from './loop-artifact-paths';
 import { collectWorkspaceDiff } from './loop-diff';
@@ -87,9 +90,11 @@ export async function evaluateReviewDrivenCompletion(args: {
     if (v.status === 'failed') {
       verifyOk = false;
       state.pendingInterventions.push(
-        'Your review reported no outstanding issues, but the configured verify command failed. ' +
-        'Treat this as an outstanding issue and fix it before signalling done again:\n\n' +
-        (excerpt(v.output, 8192) || '(verify produced no output)'),
+        createLoopPendingInput(
+          'Your review reported no outstanding issues, but the configured verify command failed. ' +
+          'Treat this as an outstanding issue and fix it before signalling done again:\n\n' +
+          (excerpt(v.output, 8192) || '(verify produced no output)'),
+        ),
       );
     }
   }
@@ -304,7 +309,7 @@ export async function runFreshEyesReviewGate(args: {
     persistenceNote +
     `\n\nAddress each item, then re-attempt completion.`;
 
-  state.pendingInterventions.push(interventionMessage);
+  state.pendingInterventions.push(createLoopPendingInput(interventionMessage));
   setConvergenceNote(
     `${ranked.length} blocking review finding(s) remained` +
       (threadDiff.persisted.length > 0

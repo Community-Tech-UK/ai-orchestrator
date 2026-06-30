@@ -131,7 +131,7 @@ describe('evaluatePingPongCompletion', () => {
     const result = await evaluatePingPongCompletion(baseDeps(state, reviewer));
     expect(result).toBeNull();
     expect(state.pendingInterventions.length).toBe(1);
-    expect(state.pendingInterventions[0]).toContain('null deref');
+    expect(state.pendingInterventions[0]?.message).toContain('null deref');
     expect(state.pingPong?.ledger.length).toBe(1);
     expect(state.pingPong?.roundCount).toBe(1);
   });
@@ -222,7 +222,7 @@ describe('evaluatePingPongCompletion', () => {
     };
     const result = await evaluatePingPongCompletion(deps);
     expect(result).toBeNull();
-    expect(state.pendingInterventions[0]).toContain('verify command FAILED');
+    expect(state.pendingInterventions[0]?.message).toContain('verify command FAILED');
   });
 
   it('honours a skip-next-round operator control (no reviewer spawned, flag consumed)', async () => {

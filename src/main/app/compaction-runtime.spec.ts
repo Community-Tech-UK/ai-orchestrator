@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CompactionCoordinator } from '../context/compaction-coordinator';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
-import { setupCompactionCoordinator } from './compaction-runtime';
+import {
+  recordProviderThreadCompactionMarker,
+  setCompactionMarkerRecorderForTesting,
+  setupCompactionCoordinator,
+} from './compaction-runtime';
 
 const settingsManagerMock = vi.hoisted(() => ({
   get: vi.fn(() => 0),
@@ -22,12 +26,14 @@ function makeWindowManager(): WindowManager {
 describe('setupCompactionCoordinator', () => {
   beforeEach(() => {
     CompactionCoordinator._resetForTesting();
+    setCompactionMarkerRecorderForTesting(() => undefined);
     settingsManagerMock.get.mockReset();
     settingsManagerMock.get.mockReturnValue(0);
     settingsManagerMock.on.mockReset();
   });
 
   afterEach(() => {
+    setCompactionMarkerRecorderForTesting(null);
     CompactionCoordinator._resetForTesting();
     vi.restoreAllMocks();
   });
@@ -55,8 +61,13 @@ describe('setupCompactionCoordinator', () => {
 
   it('resets renderer context usage after successful native compaction when no provider context event follows', async () => {
     const compactContext = vi.fn(async () => true);
+    const recordMarker = vi.fn();
+    setCompactionMarkerRecorderForTesting(recordMarker);
     const instance = {
       id: 'inst-1',
+      providerSessionId: 'thread-1',
+      sessionId: 'legacy-thread-1',
+      workingDirectory: '/repo',
       status: 'busy',
       contextUsage: {
         used: 188_000,
@@ -98,6 +109,14 @@ describe('setupCompactionCoordinator', () => {
       reason: 'context-compacted',
       method: 'native',
     });
+    expect(recordMarker).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'inst-1',
+      threadId: 'thread-1',
+      projectKey: '/repo',
+      method: 'native',
+      utilizationBefore: 94,
+      utilizationAfter: 0,
+    }));
     expect(emitOutputMessage).toHaveBeenCalledWith(
       'inst-1',
       expect.objectContaining({
@@ -193,5 +212,48 @@ describe('setupCompactionCoordinator', () => {
 
     const coordinator = CompactionCoordinator.getInstance();
     expect(coordinator.isSelfManagedAutoCompaction('inst-1')).toBe(true);
+  });
+
+  it('records provider-managed thread compactions as self-managed markers', () => {
+    const recordMarker = vi.fn();
+    setCompactionMarkerRecorderForTesting(recordMarker);
+
+    recordProviderThreadCompactionMarker({
+      instanceId: 'inst-1',
+      instance: {
+        id: 'inst-1',
+        provider: 'codex',
+        providerSessionId: 'thread-provider',
+        sessionId: 'thread-local',
+        workingDirectory: '/repo',
+        contextUsage: {
+          used: 25_000,
+          total: 100_000,
+          percentage: 25,
+        },
+      } as never,
+      provider: 'codex',
+      sessionId: 'thread-envelope',
+      messageId: 'msg-1',
+      createdAt: 1234,
+      messageMetadata: { threadCompacted: true },
+    });
+
+    expect(recordMarker).toHaveBeenCalledWith(expect.objectContaining({
+      instanceId: 'inst-1',
+      threadId: 'thread-envelope',
+      projectKey: '/repo',
+      method: 'self-managed',
+      createdAt: 1234,
+      utilizationBefore: null,
+      utilizationAfter: 25,
+      ledgerAnchor: 1234,
+      metadata: expect.objectContaining({
+        source: 'provider-thread-compacted',
+        provider: 'codex',
+        messageId: 'msg-1',
+        messageMetadata: { threadCompacted: true },
+      }),
+    }));
   });
 });

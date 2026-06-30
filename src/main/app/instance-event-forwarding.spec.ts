@@ -15,7 +15,12 @@ import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-run
 
 // ── Hoisted mocks (vi.mock factories are hoisted above const declarations) ────
 
-const { mockTraceSink, mockRecordSpan, mockContinuity } = vi.hoisted(() => ({
+const {
+  mockTraceSink,
+  mockRecordSpan,
+  mockContinuity,
+  mockRecordProviderThreadCompactionMarker,
+} = vi.hoisted(() => ({
   mockTraceSink: { enqueue: vi.fn() },
   mockRecordSpan: vi.fn(),
   mockContinuity: {
@@ -24,6 +29,7 @@ const { mockTraceSink, mockRecordSpan, mockContinuity } = vi.hoisted(() => ({
     updateState: vi.fn(),
     addConversationEntry: vi.fn(),
   },
+  mockRecordProviderThreadCompactionMarker: vi.fn(),
 }));
 
 vi.mock('../observability/provider-runtime-trace-sink', () => ({
@@ -36,6 +42,10 @@ vi.mock('../observability/otel-spans', () => ({
 
 vi.mock('../session/session-continuity', () => ({
   getSessionContinuityManager: vi.fn(() => mockContinuity),
+}));
+
+vi.mock('./compaction-runtime', () => ({
+  recordProviderThreadCompactionMarker: mockRecordProviderThreadCompactionMarker,
 }));
 
 vi.mock('../observability', () => ({}));
@@ -171,5 +181,47 @@ describe('setupInstanceEventForwarding', () => {
 
     const sent = mockSendToRenderer.mock.calls[0][1] as ProviderRuntimeEventEnvelope;
     expect(sent.model).toBe('claude-opus-4-7');
+  });
+
+  it('records provider-managed thread compaction markers from normalized output metadata', () => {
+    const instance = {
+      id: 'inst-1',
+      provider: 'codex',
+      providerSessionId: 'provider-thread-1',
+      sessionId: 'session-1',
+      workingDirectory: '/repo',
+      contextUsage: { used: 25_000, total: 100_000, percentage: 25 },
+    };
+    const mgr = buildManager({ 'inst-1': instance });
+    setupInstanceEventForwarding({
+      instanceManager: mgr,
+      windowManager: mockWindowManager,
+      isStatelessExecProvider: () => false,
+      getNodeLatencyForInstance: () => undefined,
+    });
+
+    mgr.emit('provider:normalized-event', {
+      ...makeEnvelope('output'),
+      provider: 'codex',
+      sessionId: 'provider-thread-1',
+      event: {
+        kind: 'output',
+        content: 'Codex automatically compacted the conversation to free context space.',
+        messageType: 'system',
+        messageId: 'msg-compact',
+        timestamp: 1234,
+        metadata: { threadCompacted: true },
+      },
+    } as ProviderRuntimeEventEnvelope);
+
+    expect(mockRecordProviderThreadCompactionMarker).toHaveBeenCalledWith({
+      instanceId: 'inst-1',
+      instance,
+      provider: 'codex',
+      sessionId: 'provider-thread-1',
+      messageId: 'msg-compact',
+      createdAt: 1234,
+      messageMetadata: { threadCompacted: true },
+    });
   });
 });

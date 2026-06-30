@@ -52,6 +52,8 @@ ${COMPACTION_TEMPLATE_SECTIONS.join('\n')}
 ${anchorSection}
 For "Completed Actions": list each tool invocation on one line as: \`<tool-name>: <exit-status-or-result-excerpt>\`. Omit bulk output — keep only the command name and outcome.
 For "Key Decisions": explain the WHY, not just what was chosen.
+For "Pending User Asks": copy every unresolved user ask or intervention verbatim; do not paraphrase, merge, or polish it.
+For "Remaining Work": include the immediate next step verbatim when present, then any later work in priority order.
 Target: ~500 tokens total. Do not add information not present in the turns.
 
 <conversation_turns>

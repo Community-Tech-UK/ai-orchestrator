@@ -205,6 +205,40 @@ describe('LoopStore.getIterations pagination', () => {
     expect(iter.outputExcerpt).toBe('head…tail');
     expect(iter.outputFull).toBe('The complete final response, every word of it.');
   });
+
+  it('round-trips finalAudit through iteration persistence', () => {
+    const state = makeState({ id: 'loop-final-audit' });
+    store.upsertRun(state);
+    const finalAudit: NonNullable<LoopIteration['finalAudit']> = {
+      status: 'failed',
+      ranAt: 1_700_000_002_000,
+      coverage: {
+        criteriaTotal: 2,
+        criteriaVerified: 1,
+        criteriaUnverified: 1,
+        verifyCommandRan: true,
+        repoComparisonRan: true,
+        cleanlinessScanRan: true,
+      },
+      findings: [{
+        severity: 'blocking',
+        code: 'plan-criteria-unproven',
+        message: 'Acceptance criterion lacks evidence.',
+        file: 'ROADMAP.md',
+      }],
+      changedFiles: ['src/main/orchestration/loop-store.ts'],
+      reportPath: '/tmp/project/.aio-loop-state/loop-final-audit/AUDIT.md',
+    };
+    store.insertIteration(makeLoopIteration({
+      id: 'loop-final-audit-0',
+      loopRunId: 'loop-final-audit',
+      seq: 0,
+      finalAudit,
+    }));
+
+    const [iter] = store.getIterations('loop-final-audit');
+    expect(iter.finalAudit).toEqual(finalAudit);
+  });
 });
 
 describe('LoopStore checkpoints', () => {
@@ -370,6 +404,54 @@ describe('LoopStore checkpoints', () => {
     });
 
     expect(store.listResumableCheckpoints().map((checkpoint) => checkpoint.loopRunId)).toContain(state.id);
+  });
+
+  it('lists resumable run rows for paused and live provider-limit loops', () => {
+    const paused = makeState({ id: 'loop-paused', status: 'paused', endedAt: null });
+    const providerLimit = makeState({ id: 'loop-provider-limit-live', status: 'provider-limit', endedAt: null });
+    const endedProviderLimit = makeState({
+      id: 'loop-provider-limit-ended',
+      status: 'provider-limit',
+      endedAt: 1_700_000_120_000,
+    });
+    for (const state of [paused, providerLimit, endedProviderLimit]) {
+      store.upsertRun(state);
+    }
+
+    const ids = store.listResumableRuns().map(({ runRow }) => runRow.id);
+    expect(ids).toContain(paused.id);
+    expect(ids).toContain(providerLimit.id);
+    expect(ids).not.toContain(endedProviderLimit.id);
+  });
+
+  it('does not list ended provider-limit checkpoints as resumable', () => {
+    const resumable = makeState({ id: 'loop-provider-limit-live', status: 'provider-limit', endedAt: null });
+    const ended = makeState({
+      id: 'loop-provider-limit-terminal',
+      status: 'provider-limit',
+      endedAt: 1_700_000_120_000,
+    });
+    for (const state of [resumable, ended]) {
+      store.persistStateCheckpoint({
+        state,
+        checkpoint: {
+          version: 1,
+          loopRunId: state.id,
+          chatId: state.chatId,
+          status: 'provider-limit',
+          state,
+          historyTail: [],
+          convergenceNote: null,
+          planRegenerationCount: 0,
+          pendingContextReset: false,
+          updatedAt: 1234,
+        },
+      });
+    }
+
+    const ids = store.listResumableCheckpoints().map((checkpoint) => checkpoint.loopRunId);
+    expect(ids).toContain(resumable.id);
+    expect(ids).not.toContain(ended.id);
   });
 });
 
@@ -585,6 +667,39 @@ describe('P3: LoopStore worktree column persistence', () => {
     ).get() as { worktree_path: string | null; branch_name: string | null } | undefined);
     expect(row?.worktree_path).toBeNull();
     expect(row?.branch_name).toBeNull();
+  });
+
+  it('lists ended provider-limit worktrees for cleanup but leaves resumable provider-limit checkpoints alone', () => {
+    const ended = makeState({
+      id: 'loop-provider-limit-ended',
+      status: 'provider-limit',
+      endedAt: 1_700_000_120_000,
+      config: {
+        ...defaultLoopConfig('/tmp/project', 'goal'),
+        executionCwd: '/tmp/project/.worktrees/provider-limit-ended',
+        worktreeBranch: 'provider-limit-ended-123',
+      },
+    });
+    const resumable = makeState({
+      id: 'loop-provider-limit-resumable',
+      status: 'provider-limit',
+      endedAt: null,
+      config: {
+        ...defaultLoopConfig('/tmp/project', 'goal'),
+        executionCwd: '/tmp/project/.worktrees/provider-limit-resumable',
+        worktreeBranch: 'provider-limit-resumable-123',
+      },
+    });
+    store.upsertRun(ended);
+    store.upsertRun(resumable);
+
+    expect(store.getTerminalRunsWithWorktreePaths()).toEqual([
+      expect.objectContaining({
+        id: 'loop-provider-limit-ended',
+        status: 'provider-limit',
+        worktreePath: '/tmp/project/.worktrees/provider-limit-ended',
+      }),
+    ]);
   });
 });
 

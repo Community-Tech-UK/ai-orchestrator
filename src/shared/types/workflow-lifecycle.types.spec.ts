@@ -57,6 +57,11 @@ describe('workflow lifecycle projection', () => {
       error: 'failed',
       'no-progress': 'failed',
       'cap-reached': 'failed',
+      'cost-exceeded': 'failed',
+      'needs-human-arbitration': 'failed',
+      'reviewer-unreliable': 'failed',
+      'reviewer-unavailable': 'failed',
+      'builder-unreliable': 'failed',
     };
 
     it.each(Object.entries(cases))('maps %s -> %s', (status, phase) => {
@@ -69,6 +74,14 @@ describe('workflow lifecycle projection', () => {
 
     it('treats completed-needs-review as a successful terminal', () => {
       expect(loopStatusToPhase('completed-needs-review')).toBe('completed');
+    });
+
+    it('treats ping-pong deadlock and reviewer fault statuses as failed terminals', () => {
+      expect(isTerminalPhase(loopStatusToPhase('cost-exceeded'))).toBe(true);
+      expect(isTerminalPhase(loopStatusToPhase('needs-human-arbitration'))).toBe(true);
+      expect(isTerminalPhase(loopStatusToPhase('reviewer-unreliable'))).toBe(true);
+      expect(isTerminalPhase(loopStatusToPhase('reviewer-unavailable'))).toBe(true);
+      expect(isTerminalPhase(loopStatusToPhase('builder-unreliable'))).toBe(true);
     });
   });
 

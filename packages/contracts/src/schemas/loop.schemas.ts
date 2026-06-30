@@ -1,4 +1,13 @@
 import { z } from 'zod';
+import {
+  LoopAuditConfigSchema,
+  LoopAuditConfigInputSchema,
+  LoopFinalAuditResultSchema,
+  LoopPhaseRecoveryStateSchema,
+  LoopPreflightResultSchema,
+  LoopRepoBaselineSnapshotSchema,
+} from './loop-audit.schemas';
+export * from './loop-audit.schemas';
 
 const LOOP_MAX_WALL_TIME_MS_SCHEMA_CAP = 7 * 24 * 60 * 60 * 1000;
 
@@ -17,9 +26,8 @@ export const LoopStatusSchema = z.enum([
   'error',
   'no-progress',
   'cap-reached',
-  // Usage-aware throttling: the loop stopped because the active provider
-  // returned a usage/rate-limit notice (or its quota window is exhausted),
-  // rather than grinding iterations into paid overage as `cap-reached`.
+  // Usage-aware throttling. With endedAt=null this is parked/resumable;
+  // with endedAt set it is terminal because no resume window was available.
   'provider-limit',
   // Ping-pong terminal states (bigchange_pingpong_review §4.11). Each surfaces a
   // distinct deadlock/unreliability instead of silently passing or spinning.
@@ -103,6 +111,7 @@ export const LoopProgressThresholdsSchema = z.object({
   pauseOnTokenBurn: z.boolean().default(false),
   toolRepeatWarnPerIteration: z.number().int().min(2).max(1000),
   toolRepeatCriticalPerIteration: z.number().int().min(2).max(1000),
+  identicalToolCallConsecutiveCritical: z.number().int().min(2).max(100).default(3),
   testStagnationWarnIterations: z.number().int().min(1).max(50),
   testStagnationCriticalIterations: z.number().int().min(1).max(50),
   churnRatioWarn: z.number().min(0).max(1),
@@ -284,6 +293,12 @@ export const LoopConfigSchema = z.object({
   context: LoopContextConfigSchema.optional(),
   exploration: LoopExplorationConfigSchema.optional(),
   plan: LoopPlanConfigSchema.optional(),
+  audit: LoopAuditConfigSchema.default({
+    finalAuditMode: 'observe',
+    preflightMode: 'off',
+    planPacketMode: 'off',
+    cleanlinessScan: true,
+  }),
   nextObjectivePlanning: LoopNextObjectivePlanningConfigSchema.optional(),
   completion: LoopCompletionConfigSchema,
   allowDestructiveOps: z.boolean(),
@@ -317,7 +332,7 @@ export const LoopConfigSchema = z.object({
 });
 
 /** Partial config the renderer may submit; main process fills defaults. */
-export const LoopConfigInputSchema = LoopConfigSchema.partial({
+export const LoopConfigInputSchema = LoopConfigSchema.omit({ audit: true }).partial({
   caps: true,
   progressThresholds: true,
   completion: true,
@@ -327,8 +342,9 @@ export const LoopConfigInputSchema = LoopConfigSchema.partial({
   allowDestructiveOps: true,
   initialStage: true,
   planFile: true,
+}).extend({
+  audit: LoopAuditConfigInputSchema.optional(),
 });
-
 // ============ Iteration / state ============
 
 export const LoopFileChangeSchema = z.object({
@@ -344,6 +360,40 @@ export const LoopToolCallRecordSchema = z.object({
   success: z.boolean(),
   durationMs: z.number().int().nonnegative(),
 });
+
+export const LoopPendingInputKindSchema = z.enum(['steer', 'queue']);
+export const LoopPendingInputSourceSchema = z.enum([
+  'human',
+  'block-override',
+  'plan-regen',
+  'phase-recovery',
+  'subagent-result',
+  'wakeup',
+]);
+
+export const LoopPendingInputSchema = z.object({
+  id: z.string().min(1),
+  kind: LoopPendingInputKindSchema,
+  message: z.string().min(1),
+  enqueuedAt: z.number().int().nonnegative(),
+  source: LoopPendingInputSourceSchema,
+});
+
+const LegacyLoopPendingInputSchema = z.string().min(1).transform((message) => ({
+  id: `legacy-${Math.abs(hashPendingMessage(message))}`,
+  kind: 'queue' as const,
+  message,
+  enqueuedAt: 0,
+  source: 'human' as const,
+}));
+
+function hashPendingMessage(input: string): number {
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    hash = Math.imul(31, hash) + input.charCodeAt(i);
+  }
+  return hash;
+}
 
 export const LoopErrorRecordSchema = z.object({
   bucket: z.string(),
@@ -438,6 +488,7 @@ export const LoopIterationSchema = z.object({
   verifyOutputExcerpt: z.string(),
   /** Optional local-model TL;DR of a failed verify command (operator UX). */
   verifySummary: z.string().optional(),
+  finalAudit: LoopFinalAuditResultSchema.optional(),
   semanticProgress: LoopSemanticProgressResultSchema.optional(),
 });
 
@@ -455,7 +506,11 @@ export const LoopStateSchema = z.object({
   lastIteration: LoopIterationSchema.optional(),
   endReason: z.string().optional(),
   endEvidence: z.record(z.string(), z.unknown()).optional(),
-  pendingInterventions: z.array(z.string()),
+  repoBaseline: LoopRepoBaselineSnapshotSchema.optional(),
+  preflight: LoopPreflightResultSchema.optional(),
+  latestFinalAudit: LoopFinalAuditResultSchema.optional(),
+  phaseRecovery: z.record(z.string(), LoopPhaseRecoveryStateSchema).optional(),
+  pendingInterventions: z.array(z.union([LoopPendingInputSchema, LegacyLoopPendingInputSchema])),
   loopControl: LoopControlMetadataSchema.optional(),
   inFlightIteration: LoopInFlightIterationSchema.optional(),
   terminalIntentPending: LoopTerminalIntentSchema.optional(),
@@ -569,6 +624,7 @@ export const LoopByIdPayloadSchema = z.object({
 export const LoopInterveneePayloadSchema = z.object({
   loopRunId: z.string().min(1),
   message: z.string().min(1),
+  kind: LoopPendingInputKindSchema.optional(),
 });
 
 export const LoopListByChatPayloadSchema = z.object({

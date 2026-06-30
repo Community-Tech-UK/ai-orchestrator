@@ -259,6 +259,38 @@ describe('registerCommandHandlers', () => {
     }));
   });
 
+  it('ignores terminal provider-limit loops for /goal status', async () => {
+    mocks.commandManager.executeCommand.mockResolvedValue(makeParsedGoal([]));
+    const endedProviderLimit = {
+      ...makeLoopState({
+        initialPrompt: 'ship settings',
+        workspaceCwd: '/tmp/project',
+      }),
+      status: 'provider-limit' as const,
+      endedAt: 1_778_313_000_000,
+      endReason: 'provider limit reached without a reset window',
+    };
+    mocks.loopCoordinator.getActiveLoops.mockReturnValue([endedProviderLimit]);
+    const instanceManager = makeInstanceManager();
+    registerCommandHandlers(instanceManager as never);
+
+    const response = await invoke(IPC_CHANNELS.COMMAND_EXECUTE, {
+      instanceId: 'inst-1',
+      commandId: 'builtin-goal',
+      args: [],
+    });
+
+    expect(response.success).toBe(true);
+    expect(instanceManager.emitSystemMessage).toHaveBeenCalledWith(
+      'inst-1',
+      'No active goal loop is set for this session.',
+      expect.objectContaining({ source: 'goal-command', action: 'status', status: 'none' }),
+    );
+    expect(response.data).toEqual(expect.objectContaining({
+      goal: { action: 'status', loopRunId: null },
+    }));
+  });
+
   it('pauses the active /goal loop instead of sending provider text', async () => {
     mocks.commandManager.executeCommand.mockResolvedValue(makeParsedGoal(['pause']));
     const active = makeLoopState({

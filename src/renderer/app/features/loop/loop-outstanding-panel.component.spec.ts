@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { outstandingHasAnswer, outstandingUnsavedAnswer } from './loop-outstanding-panel.component';
+import {
+  buildOutstandingQuery,
+  outstandingHasAnswer,
+  outstandingItemInScope,
+  outstandingUnsavedAnswer,
+} from './loop-outstanding-panel.component';
 
 /**
  * Tests for the pure answer-detection helpers behind the "Resume with answers (N)"
@@ -61,5 +66,43 @@ describe('outstandingHasAnswer', () => {
   it('still counts a persisted answer even if the draft was cleared to match it', () => {
     // draft === persisted → no pending edit, but the persisted value still counts.
     expect(outstandingHasAnswer('keep me', 'keep me')).toBe(true);
+  });
+});
+
+describe('outstandingItemInScope', () => {
+  const item = {
+    chatId: 'chat-1',
+    workspaceCwd: '/repo/target',
+  };
+
+  it('requires both chat and workspace to match when both scopes are known', () => {
+    expect(outstandingItemInScope(item, 'chat-1', '/repo/target')).toBe(true);
+    expect(outstandingItemInScope(item, 'chat-1', '/repo/other')).toBe(false);
+    expect(outstandingItemInScope(item, 'chat-2', '/repo/target')).toBe(false);
+  });
+
+  it('keeps chat-only and workspace-only scopes available', () => {
+    expect(outstandingItemInScope(item, 'chat-1', null)).toBe(true);
+    expect(outstandingItemInScope(item, null, '/repo/target')).toBe(true);
+    expect(outstandingItemInScope(item, null, '/repo/other')).toBe(false);
+  });
+});
+
+describe('buildOutstandingQuery', () => {
+  it('includes workspaceCwd when loading an outstanding panel scoped to a chat and workspace', () => {
+    expect(buildOutstandingQuery('chat-1', '/repo/target', 'open')).toEqual({
+      chatId: 'chat-1',
+      workspaceCwd: '/repo/target',
+      status: 'open',
+    });
+  });
+
+  it('supports the existing single-scope queries', () => {
+    expect(buildOutstandingQuery('chat-1', null, 'all')).toEqual({ chatId: 'chat-1', status: 'all' });
+    expect(buildOutstandingQuery(null, '/repo/target', 'open')).toEqual({
+      workspaceCwd: '/repo/target',
+      status: 'open',
+    });
+    expect(buildOutstandingQuery(null, null, 'open')).toBeNull();
   });
 });

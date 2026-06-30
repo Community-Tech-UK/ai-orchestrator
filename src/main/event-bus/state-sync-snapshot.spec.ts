@@ -205,6 +205,65 @@ describe('buildStateSyncSnapshot', () => {
       },
     ]);
   });
+
+  it('projects ended provider-limit loops as failed in the thin-client snapshot', () => {
+    const snapshot = buildStateSyncSnapshot({
+      instanceManager: {
+        getAllInstancesForIpc: () => [],
+      },
+      loopCoordinator: {
+        getActiveLoops: () => [
+          {
+            id: 'loop-ended-provider-limit',
+            chatId: 'chat-1',
+            status: 'provider-limit',
+            startedAt: 100,
+            endedAt: 200,
+            endReason: 'provider limit reached without a reset window',
+            totalIterations: 1,
+            totalTokens: 900,
+            totalCostCents: 12,
+            config: {
+              initialPrompt: 'Fix it',
+              workspaceCwd: '/workspace',
+            },
+          } as LoopState,
+        ],
+      },
+      automationStore: {
+        listRuns: () => [],
+      },
+      pauseCoordinator: {
+        toPayload: () => ({
+          isPaused: false,
+          reasons: [],
+          pausedAt: null,
+          lastChange: 0,
+        }),
+      },
+      appStore: {
+        getState: () => ({
+          instances: {},
+          global: {
+            memoryPressure: 'normal',
+            creationPaused: false,
+            activeTaskCount: 0,
+            shutdownRequested: false,
+          },
+        }),
+      },
+      getSeq: () => 7,
+    });
+
+    expect(snapshot.loopRuns).toEqual([
+      expect.objectContaining({
+        loopRunId: 'loop-ended-provider-limit',
+        status: 'provider-limit',
+        phase: 'failed',
+        endedAt: 200,
+      }),
+    ]);
+  });
 });
 
 function makeAutomationRun(overrides: Partial<AutomationRun>): AutomationRun {

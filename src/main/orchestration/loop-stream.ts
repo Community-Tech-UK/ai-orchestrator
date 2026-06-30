@@ -1,8 +1,10 @@
 import type { EventEmitter } from 'events';
 import type {
   CompletionSignalEvidence,
+  LoopState,
   LoopStage,
   LoopStreamEvent,
+  LoopStreamTerminalStatus,
   LoopTerminalIntent,
   LoopVerdict,
   ProgressSignalEvidence,
@@ -29,6 +31,17 @@ export async function* streamLoopEvents({
       resolve = null;
     }
   };
+  let terminalEmitted = false;
+  const finish = () => {
+    done = true;
+    if (resolve) { resolve(); resolve = null; }
+  };
+  const pushTerminal = (e: LoopStreamEvent) => {
+    if (terminalEmitted) return;
+    terminalEmitted = true;
+    push(e);
+    finish();
+  };
 
   const onIterationStarted = (d: { loopRunId: string; seq: number; stage: LoopStage }) => {
     if (d.loopRunId === loopRunId) push({ type: 'iteration-started', loopRunId, seq: d.seq, stage: d.stage });
@@ -53,38 +66,66 @@ export async function* streamLoopEvents({
   };
   const onCompleted = (d: { loopRunId: string; signal: CompletionSignalEvidence['id']; verifyOutput: string }) => {
     if (d.loopRunId === loopRunId) {
-      push({ type: 'completed', loopRunId, signal: d.signal, verifyOutput: d.verifyOutput });
-      done = true;
-      if (resolve) { resolve(); resolve = null; }
+      pushTerminal({ type: 'completed', loopRunId, signal: d.signal, verifyOutput: d.verifyOutput });
     }
+  };
+  const onCompletedNeedsReview = (d: { loopRunId: string; reason: string; acceptedByOperator: boolean }) => {
+    if (d.loopRunId === loopRunId) {
+      pushTerminal({
+        type: 'completed-needs-review',
+        loopRunId,
+        reason: d.reason,
+        acceptedByOperator: d.acceptedByOperator,
+      });
+    }
+  };
+  const onProviderLimit = (d: {
+    loopRunId: string;
+    reason?: string;
+    willResume: boolean;
+    resumeAt?: number | null;
+  }) => {
+    if (d.loopRunId !== loopRunId) return;
+    const event: LoopStreamEvent = {
+      type: 'provider-limit',
+      loopRunId,
+      reason: d.reason,
+      willResume: d.willResume,
+      resumeAt: d.resumeAt,
+    };
+    if (d.willResume) push(event);
+    else pushTerminal(event);
   };
   const onFailed = (d: { loopRunId: string; reason: string }) => {
     if (d.loopRunId === loopRunId) {
-      push({ type: 'failed', loopRunId, reason: d.reason });
-      done = true;
-      if (resolve) { resolve(); resolve = null; }
+      pushTerminal({ type: 'failed', loopRunId, reason: d.reason });
     }
   };
   const onCap = (d: { loopRunId: string; cap: 'iterations' | 'wall-time' | 'tokens' | 'cost'; reason?: string }) => {
     if (d.loopRunId === loopRunId) {
-      push({ type: 'cap-reached', loopRunId, cap: d.cap, reason: d.reason });
-      done = true;
-      if (resolve) { resolve(); resolve = null; }
+      pushTerminal({ type: 'cap-reached', loopRunId, cap: d.cap, reason: d.reason });
     }
   };
   const onCancelled = (d: { loopRunId: string }) => {
     if (d.loopRunId === loopRunId) {
-      push({ type: 'cancelled', loopRunId });
-      done = true;
-      if (resolve) { resolve(); resolve = null; }
+      pushTerminal({ type: 'cancelled', loopRunId });
     }
   };
   const onError = (d: { loopRunId: string; error: string }) => {
     if (d.loopRunId === loopRunId) {
-      push({ type: 'error', loopRunId, error: d.error });
-      done = true;
-      if (resolve) { resolve(); resolve = null; }
+      pushTerminal({ type: 'error', loopRunId, error: d.error });
     }
+  };
+  const onStateChanged = (d: { loopRunId: string; state: Pick<LoopState, 'status' | 'endReason' | 'endedAt'> }) => {
+    if (d.loopRunId !== loopRunId || terminalEmitted) return;
+    const terminalStatus = streamTerminalStatus(d.state);
+    if (!terminalStatus) return;
+    pushTerminal({
+      type: 'terminal-status',
+      loopRunId,
+      status: terminalStatus,
+      reason: d.state.endReason,
+    });
   };
 
   emitter.on('loop:iteration-started', onIterationStarted);
@@ -95,10 +136,13 @@ export async function* streamLoopEvents({
   emitter.on('loop:terminal-intent-rejected', onTerminalIntentRejected);
   emitter.on('loop:intervention-applied', onIntervention);
   emitter.on('loop:completed', onCompleted);
+  emitter.on('loop:completed-needs-review', onCompletedNeedsReview);
+  emitter.on('loop:provider-limit', onProviderLimit);
   emitter.on('loop:failed', onFailed);
   emitter.on('loop:cap-reached', onCap);
   emitter.on('loop:cancelled', onCancelled);
   emitter.on('loop:error', onError);
+  emitter.on('loop:state-changed', onStateChanged);
 
   yield { type: 'started', loopRunId, chatId };
 
@@ -117,9 +161,28 @@ export async function* streamLoopEvents({
     emitter.off('loop:terminal-intent-rejected', onTerminalIntentRejected);
     emitter.off('loop:intervention-applied', onIntervention);
     emitter.off('loop:completed', onCompleted);
+    emitter.off('loop:completed-needs-review', onCompletedNeedsReview);
+    emitter.off('loop:provider-limit', onProviderLimit);
     emitter.off('loop:failed', onFailed);
     emitter.off('loop:cap-reached', onCap);
     emitter.off('loop:cancelled', onCancelled);
     emitter.off('loop:error', onError);
+    emitter.off('loop:state-changed', onStateChanged);
+  }
+}
+
+function streamTerminalStatus(state: Pick<LoopState, 'status' | 'endedAt'>): LoopStreamTerminalStatus | null {
+  switch (state.status) {
+    case 'no-progress':
+    case 'cost-exceeded':
+    case 'needs-human-arbitration':
+    case 'reviewer-unreliable':
+    case 'reviewer-unavailable':
+    case 'builder-unreliable':
+      return state.status;
+    case 'provider-limit':
+      return state.endedAt == null ? null : state.status;
+    default:
+      return null;
   }
 }

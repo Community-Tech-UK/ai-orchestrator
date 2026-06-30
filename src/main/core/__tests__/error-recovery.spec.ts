@@ -48,6 +48,7 @@ describe('ErrorRecoveryManager', () => {
 
   afterEach(() => {
     ErrorRecoveryManager._resetForTesting();
+    vi.useRealTimers();
   });
 
   // -------------------------------------------------------------------------
@@ -119,6 +120,36 @@ describe('ErrorRecoveryManager', () => {
       const result = manager.classifyError(makeError('some message', 429));
 
       expect(result.category).toBe(ErrorCategory.RATE_LIMITED);
+    });
+
+    it('parses Retry-After HTTP-date headers for rate limits', () => {
+      const now = Date.UTC(2026, 0, 1, 0, 0, 0);
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(now));
+      const error = makeError('Too many requests');
+      (error as Error & { headers?: Record<string, string> }).headers = {
+        'Retry-After': 'Thu, 01 Jan 2026 00:15:00 GMT',
+      };
+
+      const result = manager.classifyError(error);
+
+      expect(result.category).toBe(ErrorCategory.RATE_LIMITED);
+      expect(result.retryAfterMs).toBe(15 * 60 * 1000);
+    });
+
+    it('parses x-ratelimit-reset epoch headers for rate limits', () => {
+      const now = Date.UTC(2026, 0, 1, 0, 0, 0);
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(now));
+      const error = makeError('rate limit exceeded');
+      (error as Error & { headers?: Record<string, string> }).headers = {
+        'x-ratelimit-reset': String(Math.floor((now + 20 * 60 * 1000) / 1000)),
+      };
+
+      const result = manager.classifyError(error);
+
+      expect(result.category).toBe(ErrorCategory.RATE_LIMITED);
+      expect(result.retryAfterMs).toBe(20 * 60 * 1000);
     });
 
     it('classifies permission errors separately from auth', () => {

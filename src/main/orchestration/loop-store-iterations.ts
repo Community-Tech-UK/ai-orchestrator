@@ -28,6 +28,7 @@ interface LoopIterationRow {
   completion_signals_fired_json: string;
   verify_status: string;
   verify_output_excerpt: string;
+  final_audit_json: string | null;
 }
 
 function boundLoopIterationLimit(limit: number | undefined): number {
@@ -38,7 +39,7 @@ function boundLoopIterationLimit(limit: number | undefined): number {
 }
 
 function rowToLoopIteration(row: LoopIterationRow): LoopIteration {
-  return {
+  const iteration: LoopIteration = {
     id: row.id,
     loopRunId: row.loop_run_id,
     seq: row.seq,
@@ -63,6 +64,10 @@ function rowToLoopIteration(row: LoopIterationRow): LoopIteration {
     verifyStatus: row.verify_status as LoopIteration['verifyStatus'],
     verifyOutputExcerpt: row.verify_output_excerpt,
   };
+  if (row.final_audit_json) {
+    iteration.finalAudit = JSON.parse(row.final_audit_json) as NonNullable<LoopIteration['finalAudit']>;
+  }
+  return iteration;
 }
 
 export function selectLoopIterations(

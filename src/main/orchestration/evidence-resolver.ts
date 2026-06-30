@@ -26,7 +26,10 @@
 import type {
   CompletionSignalEvidence,
   CompletionSignalId,
+  LoopAuditFinding,
+  LoopAuditStatus,
   LoopCompletionOutcome,
+  LoopFinalAuditMode,
 } from '../../shared/types/loop.types';
 
 // ============ Input / Output types ============
@@ -103,6 +106,12 @@ export interface EvidenceInput {
   completionAttempts: number;
   /** Budget: max attempts before the loop accepts as completed-needs-review. */
   maxCompletionAttempts: number;
+  /** Final audit mode configured for this loop. */
+  finalAuditMode: LoopFinalAuditMode;
+  /** Final audit result computed by the coordinator before completion resolution. */
+  finalAuditStatus: LoopAuditStatus;
+  /** Final audit findings; used only for human-readable reasons. */
+  finalAuditFindings: LoopAuditFinding[];
 }
 
 /** Possible decisions the resolver can return. */
@@ -333,6 +342,36 @@ export function resolveCompletion(input: EvidenceInput): EvidenceResolution {
       convergenceNote: verifyPassed
         ? 'completion unverifiable (fresh-eyes review produced no verdict after verify passed)'
         : 'completion unverifiable (no verify command; fresh-eyes review produced no verdict)',
+    };
+  }
+
+  // Final audit gate: evaluated only after independent authority and the
+  // existing secondary gates pass. In observe mode it is surfaced on state but
+  // never changes completion; in gate mode blocking findings reject completion
+  // and review findings terminate as completed-needs-review.
+  if (input.finalAuditMode === 'gate' && input.finalAuditStatus === 'failed') {
+    const blockingCount = input.finalAuditFindings.filter((finding) => finding.severity === 'blocking').length;
+    return {
+      decision: 'continue',
+      authorityTier: tier,
+      outcome: 'review-blocked',
+      signalId: candidate.id,
+      reason: `final audit blocked completion (${blockingCount || input.finalAuditFindings.length} finding(s))`,
+      needsReviewReason: null,
+      convergenceNote: 'final audit blocked completion',
+    };
+  }
+
+  if (input.finalAuditMode === 'gate' && input.finalAuditStatus === 'needs-review') {
+    const needsReviewReason = 'Final audit requires operator review before this loop can be considered cleanly complete.';
+    return {
+      decision: 'stop-needs-review',
+      authorityTier: tier,
+      outcome: 'unverifiable',
+      signalId: candidate.id,
+      reason: needsReviewReason,
+      needsReviewReason,
+      convergenceNote: null,
     };
   }
 

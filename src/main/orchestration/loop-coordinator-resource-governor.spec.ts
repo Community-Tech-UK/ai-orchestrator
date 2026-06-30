@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
-import { defaultLoopConfig } from '../../shared/types/loop.types';
+import { defaultLoopConfig, type ProgressSignalEvidence } from '../../shared/types/loop.types';
 
 describe('LoopCoordinator resource governor', () => {
   let workspace: string;
@@ -26,8 +26,8 @@ describe('LoopCoordinator resource governor', () => {
 
   it('pauses before starting the next iteration when the resource governor returns pause-loop', async () => {
     let invocations = 0;
-    const paused = new Promise<void>((resolve) => {
-      coordinator.on('loop:paused-no-progress', () => resolve());
+    const paused = new Promise<{ signal: ProgressSignalEvidence }>((resolve) => {
+      coordinator.on('loop:paused-no-progress', (payload) => resolve(payload as { signal: ProgressSignalEvidence }));
     });
     coordinator.on('loop:invoke-iteration', (payload: unknown) => {
       const p = payload as { callback: (result: LoopChildResult) => void };
@@ -53,9 +53,14 @@ describe('LoopCoordinator resource governor', () => {
       completion: { ...defaultLoopConfig(workspace, 'finish the work').completion, requireFreshEyesReview: false },
     });
 
-    await paused;
+    const pausedPayload = await paused;
 
     expect(invocations).toBe(1);
     expect(coordinator.getLoop(state.id)?.status).toBe('paused');
+    expect(pausedPayload.signal).toMatchObject({
+      id: 'BLOCKED',
+      verdict: 'CRITICAL',
+      message: 'Paused by resource governor: rss-above-critical',
+    });
   });
 });

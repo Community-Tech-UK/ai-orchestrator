@@ -10,8 +10,7 @@ import type { PickerProvider } from '../models/compact-model-picker.types';
 
 // Defaults that match defaultLoopConfig() in src/shared/types/loop.types.ts.
 // We must include all sub-fields whenever caps/completion/progressThresholds
-// are sent — Zod's `LoopConfigInputSchema` only makes the top-level keys
-// optional, so an empty `progressThresholds: {}` would fail validation.
+// are sent — those strict blocks fail validation if they are present but empty.
 const DEFAULT_CAPS = {
   maxIterations: 50,
   maxToolCallsPerIteration: 200,
@@ -49,6 +48,7 @@ const DEFAULT_PROGRESS_THRESHOLDS = {
   pauseOnTokenBurn: false,
   toolRepeatWarnPerIteration: 5,
   toolRepeatCriticalPerIteration: 8,
+  identicalToolCallConsecutiveCritical: 3,
   testStagnationWarnIterations: 3,
   testStagnationCriticalIterations: 5,
   churnRatioWarn: 0.30,
@@ -68,6 +68,13 @@ const DEFAULT_EXPLORATION = {
 const DEFAULT_NEXT_OBJECTIVE_PLANNING = {
   cadence: 1,
 };
+const DEFAULT_AUDIT = {
+  finalAuditMode: 'gate' as const,
+  preflightMode: 'record' as const,
+  planPacketMode: 'prompted' as const,
+  cleanlinessScan: true,
+};
+type PlanPacketMode = 'off' | 'prompted';
 
 /**
  * Inline accordion panel for configuring and starting a loop.
@@ -162,6 +169,10 @@ export class LoopConfigPanelComponent {
   branchFanout = signal(DEFAULT_EXPLORATION.fanout);
   nextObjectivePlanning = signal(false);
   nextObjectiveCadence = signal(DEFAULT_NEXT_OBJECTIVE_PLANNING.cadence);
+  finalAuditMode = signal<'off' | 'observe' | 'gate'>(DEFAULT_AUDIT.finalAuditMode);
+  preflightMode = signal<'off' | 'record' | 'block'>(DEFAULT_AUDIT.preflightMode);
+  planPacketMode = signal<PlanPacketMode>(DEFAULT_AUDIT.planPacketMode);
+  cleanlinessScan = signal(DEFAULT_AUDIT.cleanlinessScan);
   /** Reset threshold as a fraction (mirrors defaultLoopContextConfig 0.6). */
   compactionResetUtilization = signal(0.6);
   compactionThresholdPct = computed(() => Math.round(this.compactionResetUtilization() * 100));
@@ -192,8 +203,16 @@ export class LoopConfigPanelComponent {
   pauseOnTokenBurn = signal(false);
   allowDestructive = signal(false);
   showAdvanced = signal(false);
+  private planPacketModeManuallyOverridden = false;
   planFileRequiresRename = computed(() => this.planFile().trim().length > 0);
   effectiveRequireRename = computed(() => this.planFileRequiresRename() || this.requireRename());
+  private defaultPlanPacketMode = computed<PlanPacketMode>(() => {
+    if (this.planFile().trim()) return 'prompted';
+    if (this.prompt().length >= 800) return 'prompted';
+    const maxIterations = this.maxIterations();
+    if (maxIterations === null) return 'prompted';
+    return maxIterations >= 5 ? 'prompted' : 'off';
+  });
 
   constructor() {
     // Scope history to the workspace so directives don't leak across
@@ -234,6 +253,13 @@ export class LoopConfigPanelComponent {
         return;
       }
       this.prompt.set(DEFAULT_LOOP_PROMPT);
+    });
+    // Match prepareLoopStartConfig's dynamic plan-packet default. If the user
+    // explicitly changes the Advanced select, preserve that choice.
+    effect(() => {
+      const mode = this.defaultPlanPacketMode();
+      if (this.planPacketModeManuallyOverridden) return;
+      untracked(() => this.planPacketMode.set(mode));
     });
     // Push validity + current config up to the host on every change so the
     // host doesn't need a viewChild reference (which has timing issues with
@@ -361,6 +387,11 @@ export class LoopConfigPanelComponent {
   onNextObjectiveCadenceChange(value: number | string | null): void {
     const numeric = typeof value === 'number' ? value : Number(value);
     this.nextObjectiveCadence.set(numeric);
+  }
+
+  onPlanPacketModeChange(value: PlanPacketMode): void {
+    this.planPacketModeManuallyOverridden = true;
+    this.planPacketMode.set(value);
   }
 
   onProviderChange(value: string): void {
@@ -498,6 +529,12 @@ export class LoopConfigPanelComponent {
           }
         : {}),
       plan: { regenerateOnStall: this.regenerateOnStall() },
+      audit: {
+        finalAuditMode: this.finalAuditMode(),
+        preflightMode: this.preflightMode(),
+        planPacketMode: this.planPacketMode(),
+        cleanlinessScan: this.cleanlinessScan(),
+      },
       iterationTimeoutMs: this.iterationTimeoutMin() * 60 * 1000,
       streamIdleTimeoutMs: this.streamIdleTimeoutSec() * 1000,
     };

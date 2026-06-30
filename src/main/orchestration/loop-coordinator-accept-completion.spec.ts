@@ -10,7 +10,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
@@ -178,5 +178,24 @@ describe('LoopCoordinator.acceptCompletion (LF-7)', () => {
     expect(ok).toBe(false);
     expect(liveState(state.id)?.status).toBe('paused');
     expect(liveState(state.id)?.lastCompletionOutcome).toBe('verify-failed');
+  });
+
+  it('rejects operator accept when final audit gate finds open ledger items', async () => {
+    const state = await startManualReviewLoop();
+    const live = liveState(state.id)!;
+    const paths = resolveLoopArtifactPaths(workspace, state.id);
+    writeFileSync(paths.tasks, '# Loop Tasks\n\n- [ ] finish the actual work\n');
+    live.config.completion.verifyCommand = 'true';
+    live.config.audit.finalAuditMode = 'gate';
+
+    const ok = await coordinator.acceptCompletion(state.id);
+
+    expect(ok).toBe(false);
+    expect(liveState(state.id)?.status).toBe('paused');
+    expect(liveState(state.id)?.lastCompletionOutcome).toBe('review-blocked');
+    expect(liveState(state.id)?.latestFinalAudit?.status).toBe('failed');
+    expect(liveState(state.id)?.pendingInterventions.at(-1)?.message).toContain('final audit');
+    expect(existsSync(paths.audit)).toBe(true);
+    expect(readFileSync(paths.audit, 'utf8')).toContain('ledger-open');
   });
 });

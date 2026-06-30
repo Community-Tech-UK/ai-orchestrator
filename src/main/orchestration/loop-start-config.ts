@@ -33,9 +33,9 @@ type LoopStartConfigLike =
  * into `nextObjectivePlanning` but has no live `nextObjectivePlanner` (e.g. a
  * config rehydrated from persisted JSON, where functions don't survive
  * serialization). Idempotent: a config that already has a planner, or doesn't
- * want one, is returned unchanged. Exported so the resume-with-answers handler
- * — which reuses a stored config and bypasses `prepareLoopStartConfig` — can
- * apply the same fix-up before starting the run.
+ * want one, is returned unchanged. Exported for direct tests and any caller
+ * that intentionally prepares a fully materialized config without going through
+ * `prepareLoopStartConfig`.
  */
 export function attachNextObjectivePlanner<
   T extends Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string },
@@ -53,6 +53,7 @@ export async function prepareLoopStartConfig(
   config: LoopStartConfigLike,
 ): Promise<Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string }> {
   const verifyCommand = config.completion?.verifyCommand?.trim() ?? '';
+  const audit = prepareUserStartedAuditConfig(config);
   // LF-3a: operator-reviewed loops sit paused waiting for a human Accept and get
   // resumed/re-attempted repeatedly, so require an explicit local usage cap.
   if (
@@ -86,6 +87,7 @@ export async function prepareLoopStartConfig(
     });
     return attachNextObjectivePlanner({
       ...config,
+      audit,
       completion: {
         ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
         ...(config.completion ?? {}),
@@ -98,6 +100,7 @@ export async function prepareLoopStartConfig(
   if (verifyCommand || config.completion?.allowOperatorReviewedCompletion) {
     return attachNextObjectivePlanner({
       ...config,
+      audit,
       completion: {
         ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
         ...(config.completion ?? {}),
@@ -114,6 +117,7 @@ export async function prepareLoopStartConfig(
   if (config.completion?.crossModelReview !== undefined) {
     return attachNextObjectivePlanner({
       ...config,
+      audit,
       completion: {
         ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
         ...config.completion,
@@ -127,6 +131,7 @@ export async function prepareLoopStartConfig(
   });
   return attachNextObjectivePlanner({
     ...config,
+    audit,
     completion: {
       ...defaultLoopConfig(config.workspaceCwd, config.initialPrompt).completion,
       ...(config.completion ?? {}),
@@ -134,4 +139,24 @@ export async function prepareLoopStartConfig(
       crossModelReview: defaultCrossModelReviewConfig(),
     },
   });
+}
+
+function prepareUserStartedAuditConfig(config: LoopStartConfigLike): LoopConfig['audit'] {
+  const audit = config.audit;
+  return {
+    finalAuditMode: audit?.finalAuditMode ?? 'gate',
+    preflightMode: audit?.preflightMode ?? 'record',
+    planPacketMode: audit?.planPacketMode ?? defaultPlanPacketMode(config),
+    cleanlinessScan: audit?.cleanlinessScan ?? true,
+  };
+}
+
+function defaultPlanPacketMode(config: LoopStartConfigLike): LoopConfig['audit']['planPacketMode'] {
+  if (config.planFile?.trim()) return 'prompted';
+  if (config.initialPrompt.length >= 800) return 'prompted';
+  const maxIterations = config.caps?.maxIterations;
+  if (maxIterations === null) return 'prompted';
+  const configuredOrDefault = maxIterations ?? defaultLoopConfig(config.workspaceCwd, config.initialPrompt).caps.maxIterations;
+  const effectiveMaxIterations = configuredOrDefault ?? Number.POSITIVE_INFINITY;
+  return effectiveMaxIterations >= 5 ? 'prompted' : 'off';
 }

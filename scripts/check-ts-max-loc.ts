@@ -143,9 +143,9 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/orchestration/debate-coordinator.ts': 1196,
   'src/main/orchestration/default-invokers.ts': 1613,
   'src/main/orchestration/embedding-service.ts': 845,
-  // Raised 3101 -> 3170 for the worktree auto-integration wiring on the loop
-  // terminal-success path (harvest -> integrate into shared branch -> reap).
-  'src/main/orchestration/loop-coordinator.ts': 3170,
+  // Raised 3170 -> 3277 for typed intervention queueing and audit-gate
+  // integration points. Audit mechanics live in loop-audit-runtime.ts.
+  'src/main/orchestration/loop-coordinator.ts': 3277,
   'src/main/orchestration/loop-store.ts': 721,
   'src/main/orchestration/loop-progress-detector.ts': 725,
   'src/main/orchestration/multi-verify-coordinator.ts': 1177,
@@ -248,7 +248,8 @@ const ALLOWLIST: Record<string, number> = {
 function countLines(filePath: string): number {
   try {
     const content = readFileSync(filePath, 'utf8');
-    return content.split('\n').length;
+    const withoutFinalNewline = content.endsWith('\n') ? content.slice(0, -1) : content;
+    return withoutFinalNewline === '' ? 0 : withoutFinalNewline.split('\n').length;
   } catch {
     return 0;
   }

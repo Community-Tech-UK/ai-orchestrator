@@ -4,8 +4,10 @@ import {
   LoopConfigSchema,
   LoopCrossModelReviewConfigSchema,
   LoopHardCapsSchema,
+  LoopInterveneePayloadSchema,
   LoopTerminalIntentSchema,
   LoopReviewSeveritySchema,
+  LoopStartPayloadSchema,
   LoopStateSchema,
 } from '../loop.schemas';
 
@@ -248,6 +250,12 @@ describe('Loop schemas — type/schema drift guards', () => {
       expect(parsed.uncompletedPlanFilesAtStart).toEqual([]);
       expect(parsed.terminalIntentHistory).toEqual([]);
       expect(parsed.inFlightIteration).toBeUndefined();
+      expect(parsed.config.audit).toEqual({
+        finalAuditMode: 'observe',
+        preflightMode: 'off',
+        planPacketMode: 'off',
+        cleanlinessScan: true,
+      });
     });
 
     it('round-trips an in-flight iteration marker for crash recovery checkpoints', () => {
@@ -336,20 +344,22 @@ describe('Loop schemas — type/schema drift guards', () => {
     });
   });
 
-  describe('LoopConfigSchema long-run caps', () => {
-    it('accepts a 50-hour maxWallTimeMs loop cap', () => {
-      const config = {
-        initialPrompt: 'run for a long time',
-        workspaceCwd: '/repo',
-        provider: 'claude',
-        reviewStyle: 'single',
-        contextStrategy: 'fresh-child',
+  describe('LoopStateSchema.pendingInterventions', () => {
+    const minimalState = {
+      id: 'loop-1',
+      chatId: 'chat-1',
+      config: {
+        initialPrompt: 'do thing',
+        workspaceCwd: '/tmp',
+        provider: 'claude' as const,
+        reviewStyle: 'single' as const,
+        contextStrategy: 'fresh-child' as const,
         caps: {
-          maxIterations: null,
-          maxWallTimeMs: 50 * 60 * 60 * 1000,
-          maxTokens: null,
-          maxCostCents: null,
-          maxToolCallsPerIteration: 200,
+          maxIterations: 50,
+          maxWallTimeMs: 60_000,
+          maxTokens: 100_000,
+          maxCostCents: 100,
+          maxToolCallsPerIteration: 100,
         },
         progressThresholds: {
           identicalHashWarnConsecutive: 2,
@@ -357,8 +367,8 @@ describe('Loop schemas — type/schema drift guards', () => {
           identicalHashCriticalWindow: 3,
           similarityWarnMean: 0.85,
           similarityCriticalMean: 0.92,
-          stageWarnIterations: { PLAN: 3, REVIEW: 3, IMPLEMENT: 8 },
-          stageCriticalIterations: { PLAN: 5, REVIEW: 5, IMPLEMENT: 12 },
+          stageWarnIterations: { PLAN: 3, REVIEW: 2, IMPLEMENT: 8 },
+          stageCriticalIterations: { PLAN: 5, REVIEW: 3, IMPLEMENT: 12 },
           errorRepeatWarnInWindow: 3,
           errorRepeatCriticalInWindow: 4,
           tokensWithoutProgressWarn: 25_000,
@@ -366,82 +376,272 @@ describe('Loop schemas — type/schema drift guards', () => {
           pauseOnTokenBurn: false,
           toolRepeatWarnPerIteration: 5,
           toolRepeatCriticalPerIteration: 8,
+          identicalToolCallConsecutiveCritical: 3,
           testStagnationWarnIterations: 3,
           testStagnationCriticalIterations: 5,
-          churnRatioWarn: 0.3,
-          churnRatioCritical: 0.5,
+          churnRatioWarn: 0.30,
+          churnRatioCritical: 0.50,
           warnEscalationWindow: 5,
           warnEscalationCount: 3,
         },
         completion: {
-          completedFilenamePattern: '*_[Cc]ompleted.md',
+          completedFilenamePattern: '*_completed.md',
           donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
           doneSentinelFile: 'DONE.txt',
-          verifyCommand: 'true',
-          allowOperatorReviewedCompletion: false,
+          verifyCommand: '',
           verifyTimeoutMs: 600_000,
           runVerifyTwice: true,
           requireCompletedFileRename: false,
         },
-        initialStage: 'IMPLEMENT',
         allowDestructiveOps: false,
-      };
+        initialStage: 'IMPLEMENT' as const,
+      },
+      status: 'running' as const,
+      startedAt: 0,
+      endedAt: null,
+      totalIterations: 0,
+      totalTokens: 0,
+      totalCostCents: 0,
+      currentStage: 'IMPLEMENT' as const,
+      completedFileRenameObserved: false,
+      doneSentinelPresentAtStart: false,
+      planChecklistFullyCheckedAtStart: false,
+      uncompletedPlanFilesAtStart: [],
+      tokensSinceLastTestImprovement: 0,
+      highestTestPassCount: 0,
+      iterationsOnCurrentStage: 0,
+      recentWarnIterationSeqs: [],
+    };
 
-      expect(LoopConfigSchema.safeParse(config).success).toBe(true);
+    it('coerces legacy string interventions to typed queue records', () => {
+      const parsed = LoopStateSchema.parse({
+        ...minimalState,
+        pendingInterventions: ['use fixtures, not production'],
+      });
+
+      expect(parsed.pendingInterventions).toEqual([
+        expect.objectContaining({
+          kind: 'queue',
+          message: 'use fixtures, not production',
+          source: 'human',
+        }),
+      ]);
+    });
+
+    it('accepts typed steer and queue pending inputs', () => {
+      const parsed = LoopStateSchema.parse({
+        ...minimalState,
+        pendingInterventions: [{
+          id: 'input-1',
+          kind: 'steer',
+          message: 'pivot at the next safe boundary',
+          enqueuedAt: 123,
+          source: 'human',
+        }],
+      });
+
+      expect(parsed.pendingInterventions[0]).toEqual({
+        id: 'input-1',
+        kind: 'steer',
+        message: 'pivot at the next safe boundary',
+        enqueuedAt: 123,
+        source: 'human',
+      });
+    });
+
+    it('accepts an intervention kind in the IPC payload and leaves omitted kind undefined', () => {
+      expect(LoopInterveneePayloadSchema.parse({
+        loopRunId: 'loop-1',
+        message: 'later',
+      }).kind).toBeUndefined();
+      expect(LoopInterveneePayloadSchema.parse({
+        loopRunId: 'loop-1',
+        message: 'now',
+        kind: 'steer',
+      }).kind).toBe('steer');
+    });
+  });
+
+  describe('LoopConfigSchema long-run caps', () => {
+    const baseConfig = {
+      initialPrompt: 'run for a long time',
+      workspaceCwd: '/repo',
+      provider: 'claude',
+      reviewStyle: 'single',
+      contextStrategy: 'fresh-child',
+      caps: {
+        maxIterations: null,
+        maxWallTimeMs: 50 * 60 * 60 * 1000,
+        maxTokens: null,
+        maxCostCents: null,
+        maxToolCallsPerIteration: 200,
+      },
+      progressThresholds: {
+        identicalHashWarnConsecutive: 2,
+        identicalHashCriticalConsecutive: 3,
+        identicalHashCriticalWindow: 3,
+        similarityWarnMean: 0.85,
+        similarityCriticalMean: 0.92,
+        stageWarnIterations: { PLAN: 3, REVIEW: 3, IMPLEMENT: 8 },
+        stageCriticalIterations: { PLAN: 5, REVIEW: 5, IMPLEMENT: 12 },
+        errorRepeatWarnInWindow: 3,
+        errorRepeatCriticalInWindow: 4,
+        tokensWithoutProgressWarn: 25_000,
+        tokensWithoutProgressCritical: 60_000,
+        pauseOnTokenBurn: false,
+        toolRepeatWarnPerIteration: 5,
+        toolRepeatCriticalPerIteration: 8,
+        testStagnationWarnIterations: 3,
+        testStagnationCriticalIterations: 5,
+        churnRatioWarn: 0.3,
+        churnRatioCritical: 0.5,
+        warnEscalationWindow: 5,
+        warnEscalationCount: 3,
+      },
+      completion: {
+        completedFilenamePattern: '*_[Cc]ompleted.md',
+        donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
+        doneSentinelFile: 'DONE.txt',
+        verifyCommand: 'true',
+        allowOperatorReviewedCompletion: false,
+        verifyTimeoutMs: 600_000,
+        runVerifyTwice: true,
+        requireCompletedFileRename: false,
+      },
+      initialStage: 'IMPLEMENT',
+      allowDestructiveOps: false,
+    };
+
+    it('accepts a 50-hour maxWallTimeMs loop cap', () => {
+      expect(LoopConfigSchema.safeParse(baseConfig).success).toBe(true);
     });
 
     it('accepts serializable next-objective planning config', () => {
       const parsed = LoopConfigSchema.parse({
-        initialPrompt: 'run for a long time',
-        workspaceCwd: '/repo',
-        provider: 'claude',
-        reviewStyle: 'single',
-        contextStrategy: 'fresh-child',
-        caps: {
-          maxIterations: null,
-          maxWallTimeMs: 50 * 60 * 60 * 1000,
-          maxTokens: null,
-          maxCostCents: null,
-          maxToolCallsPerIteration: 200,
-        },
-        progressThresholds: {
-          identicalHashWarnConsecutive: 2,
-          identicalHashCriticalConsecutive: 3,
-          identicalHashCriticalWindow: 3,
-          similarityWarnMean: 0.85,
-          similarityCriticalMean: 0.92,
-          stageWarnIterations: { PLAN: 3, REVIEW: 3, IMPLEMENT: 8 },
-          stageCriticalIterations: { PLAN: 5, REVIEW: 5, IMPLEMENT: 12 },
-          errorRepeatWarnInWindow: 3,
-          errorRepeatCriticalInWindow: 4,
-          tokensWithoutProgressWarn: 25_000,
-          tokensWithoutProgressCritical: 60_000,
-          pauseOnTokenBurn: false,
-          toolRepeatWarnPerIteration: 5,
-          toolRepeatCriticalPerIteration: 8,
-          testStagnationWarnIterations: 3,
-          testStagnationCriticalIterations: 5,
-          churnRatioWarn: 0.3,
-          churnRatioCritical: 0.5,
-          warnEscalationWindow: 5,
-          warnEscalationCount: 3,
-        },
-        completion: {
-          completedFilenamePattern: '*_[Cc]ompleted.md',
-          donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
-          doneSentinelFile: 'DONE.txt',
-          verifyCommand: 'true',
-          allowOperatorReviewedCompletion: false,
-          verifyTimeoutMs: 600_000,
-          runVerifyTwice: true,
-          requireCompletedFileRename: false,
-        },
+        ...baseConfig,
         nextObjectivePlanning: { enabled: true, cadence: 2 },
-        initialStage: 'IMPLEMENT',
-        allowDestructiveOps: false,
       });
 
       expect(parsed.nextObjectivePlanning).toEqual({ enabled: true, cadence: 2 });
+    });
+
+    it('accepts audit config modes and rejects invalid mode strings', () => {
+      const parsed = LoopConfigSchema.parse({
+        ...baseConfig,
+        audit: {
+          finalAuditMode: 'gate',
+          preflightMode: 'record',
+          planPacketMode: 'prompted',
+          cleanlinessScan: true,
+        },
+      });
+
+      expect(parsed.audit).toEqual({
+        finalAuditMode: 'gate',
+        preflightMode: 'record',
+        planPacketMode: 'prompted',
+        cleanlinessScan: true,
+      });
+      expect(LoopConfigSchema.safeParse({
+        ...baseConfig,
+        audit: {
+          finalAuditMode: 'strict',
+          preflightMode: 'record',
+          planPacketMode: 'prompted',
+          cleanlinessScan: true,
+        },
+      }).success).toBe(false);
+    });
+
+    it('accepts full state payloads with repo baseline, preflight, and final audit', () => {
+      const parsed = LoopStateSchema.parse({
+        id: 'loop-audit',
+        chatId: 'chat-1',
+        config: baseConfig,
+        status: 'running',
+        startedAt: 0,
+        endedAt: null,
+        totalIterations: 0,
+        totalTokens: 0,
+        totalCostCents: 0,
+        currentStage: 'IMPLEMENT',
+        pendingInterventions: [],
+        completedFileRenameObserved: false,
+        doneSentinelPresentAtStart: false,
+        planChecklistFullyCheckedAtStart: false,
+        uncompletedPlanFilesAtStart: [],
+        tokensSinceLastTestImprovement: 0,
+        highestTestPassCount: 0,
+        iterationsOnCurrentStage: 0,
+        recentWarnIterationSeqs: [],
+        repoBaseline: {
+          source: 'git',
+          capturedAt: 1,
+          workspaceCwd: '/repo',
+          headRef: 'abc',
+          dirtyAtStart: false,
+          trackedDirtyAtStart: [],
+          untrackedAtStart: [],
+        },
+        preflight: {
+          status: 'passed',
+          ranAt: 2,
+          commands: [{
+            label: 'quick-verify',
+            command: 'npm run lint',
+            status: 'passed',
+            durationMs: 10,
+            outputExcerpt: 'ok',
+          }],
+        },
+        latestFinalAudit: {
+          status: 'passed',
+          ranAt: 3,
+          coverage: {
+            criteriaTotal: 1,
+            criteriaVerified: 1,
+            criteriaUnverified: 0,
+            verifyCommandRan: true,
+            repoComparisonRan: true,
+            cleanlinessScanRan: true,
+          },
+          findings: [],
+          changedFiles: ['src/a.ts'],
+          reportPath: '/repo/.aio-loop-state/loop-audit/AUDIT.md',
+        },
+      });
+
+      expect(parsed.latestFinalAudit?.status).toBe('passed');
+      expect(parsed.preflight?.commands[0]?.label).toBe('quick-verify');
+    });
+  });
+
+  describe('LoopStartPayloadSchema', () => {
+    it('does not materialize full-config audit defaults when start input omits audit', () => {
+      const parsed = LoopStartPayloadSchema.parse({
+        chatId: 'chat-1',
+        config: {
+          initialPrompt: 'implement the feature',
+          workspaceCwd: '/repo',
+        },
+      });
+
+      expect(parsed.config.audit).toBeUndefined();
+    });
+
+    it('preserves partial audit overrides without filling omitted audit fields', () => {
+      const parsed = LoopStartPayloadSchema.parse({
+        chatId: 'chat-1',
+        config: {
+          initialPrompt: 'implement the feature',
+          workspaceCwd: '/repo',
+          audit: {
+            preflightMode: 'block',
+          },
+        },
+      });
+
+      expect(parsed.config.audit).toEqual({ preflightMode: 'block' });
     });
   });
 

@@ -39,6 +39,9 @@ function base(over: Partial<EvidenceInput> = {}): EvidenceInput {
     allowOperatorReviewedCompletion: false,
     completionAttempts: 0,
     maxCompletionAttempts: 3,
+    finalAuditMode: 'observe',
+    finalAuditStatus: 'passed',
+    finalAuditFindings: [],
     ...over,
   };
 }
@@ -403,6 +406,77 @@ describe('resolveCompletion — verify passed, b&b ok, fresh-eyes clean → STOP
     expect(r.decision).toBe('stop');
     expect(r.signalId).toBe('done-sentinel');
     expect(r.authorityTier).toBe(2);
+  });
+});
+
+// ============ Final audit gate ============
+
+describe('resolveCompletion — final audit gate', () => {
+  it('continues/review-blocked when gate mode final audit fails', () => {
+    const r = resolveCompletion(base({
+      candidate: declaredSig,
+      verifyStatus: 'passed',
+      beltAndBracesPassed: true,
+      finalAuditMode: 'gate',
+      finalAuditStatus: 'failed',
+      finalAuditFindings: [{
+        severity: 'blocking',
+        code: 'ledger-open',
+        message: 'LOOP_TASKS.md still has open items.',
+      }],
+    }));
+    expect(r.decision).toBe('continue');
+    expect(r.outcome).toBe('review-blocked');
+    expect(r.reason).toContain('final audit');
+  });
+
+  it('stops needs-review when gate mode final audit needs review', () => {
+    const r = resolveCompletion(base({
+      candidate: declaredSig,
+      verifyStatus: 'passed',
+      beltAndBracesPassed: true,
+      finalAuditMode: 'gate',
+      finalAuditStatus: 'needs-review',
+      finalAuditFindings: [{
+        severity: 'review',
+        code: 'plan-criteria-unproven',
+        message: 'One criterion lacks evidence.',
+      }],
+    }));
+    expect(r.decision).toBe('stop-needs-review');
+    expect(r.outcome).toBe('unverifiable');
+    expect(r.needsReviewReason).toContain('Final audit');
+  });
+
+  it('does not block in observe mode even when final audit fails', () => {
+    const r = resolveCompletion(base({
+      candidate: declaredSig,
+      verifyStatus: 'passed',
+      beltAndBracesPassed: true,
+      finalAuditMode: 'observe',
+      finalAuditStatus: 'failed',
+      finalAuditFindings: [{
+        severity: 'blocking',
+        code: 'ledger-open',
+        message: 'LOOP_TASKS.md still has open items.',
+      }],
+    }));
+    expect(r.decision).toBe('stop');
+    expect(r.outcome).toBe('accepted');
+  });
+
+  it('does not block when final audit mode is off and the audit was skipped', () => {
+    const r = resolveCompletion(base({
+      candidate: declaredSig,
+      verifyStatus: 'passed',
+      beltAndBracesPassed: true,
+      finalAuditMode: 'off',
+      finalAuditStatus: 'skipped',
+      finalAuditFindings: [],
+    }));
+
+    expect(r.decision).toBe('stop');
+    expect(r.outcome).toBe('accepted');
   });
 });
 

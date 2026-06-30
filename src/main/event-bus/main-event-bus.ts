@@ -227,7 +227,10 @@ export class MainEventBus {
   private emitLoopPhaseChanged(payload: unknown): void {
     const record = asRecord(payload);
     const state = asRecord(record?.['state']);
-    const phaseProjection = projectLoopStatus(state?.['status'] ?? record?.['status']);
+    const phaseProjection = projectLoopStatus(
+      state?.['status'] ?? record?.['status'],
+      hasOwnRecordKey(state, 'endedAt') ? state['endedAt'] : record?.['endedAt'],
+    );
     const loopRunId = asString(record?.['loopRunId'] ?? state?.['id']);
     if (!loopRunId || !phaseProjection) {
       return;
@@ -339,6 +342,10 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null ? value as Record<string, unknown> : null;
 }
 
+function hasOwnRecordKey(record: Record<string, unknown> | null, key: string): record is Record<string, unknown> {
+  return record !== null && Object.prototype.hasOwnProperty.call(record, key);
+}
+
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
@@ -358,13 +365,17 @@ function projectInstanceStatus(
 }
 
 function projectLoopStatus(
-  value: unknown
+  value: unknown,
+  endedAt?: unknown,
 ): { status: LoopStatus; phase: LoopPhaseChangedPayload['phase'] } | undefined {
   if (typeof value !== 'string') {
     return undefined;
   }
   const status = value as LoopStatus;
   try {
+    if (status === 'provider-limit' && endedAt != null) {
+      return { status, phase: 'failed' };
+    }
     return { status, phase: loopStatusToPhase(status) };
   } catch {
     return undefined;

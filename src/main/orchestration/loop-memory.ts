@@ -34,6 +34,8 @@ export interface LoopLearningRecord {
   goal: string;
   /** Terminal status or 'critical' for an in-run dead-end. */
   status: string;
+  /** Terminal timestamp when known; distinguishes resumable vs ended provider-limit. */
+  endedAt?: number | null;
   /** End reason / convergence note — the "why". */
   reason: string;
   /** Specific observations: dead-ends, deferred items, winning approach. */
@@ -69,6 +71,7 @@ export function distillLearning(input: {
   workspaceCwd: string;
   goal: string;
   status: string;
+  endedAt?: number | null;
   reason: string;
   lastCompletionOutcome?: string;
   deferredItems?: string[];
@@ -78,13 +81,15 @@ export function distillLearning(input: {
   if (input.lastCompletionOutcome) observations.push(`last completion outcome: ${input.lastCompletionOutcome}`);
   for (const d of input.deadEnds ?? []) observations.push(`dead-end: ${d}`);
   for (const d of input.deferredItems ?? []) observations.push(`deferred: ${d}`);
-  return {
+  const record: LoopLearningRecord = {
     workspaceCwd: input.workspaceCwd,
     goal: input.goal,
     status: input.status,
     reason: input.reason,
     observations,
   };
+  if (input.endedAt !== undefined) record.endedAt = input.endedAt;
+  return record;
 }
 
 function truncate(value: string, max: number): string {
@@ -127,10 +132,23 @@ export class InMemoryLoopMemoryStore implements LoopMemoryStore {
 export const defaultLoopMemoryStore = new InMemoryLoopMemoryStore();
 
 /** Map a loop terminal status to the EpisodicStore's coarse outcome. */
-export function loopStatusToOutcome(status: string): 'success' | 'partial' | 'failure' {
+export function loopStatusToOutcome(
+  status: string,
+  endedAt?: number | null,
+): 'success' | 'partial' | 'failure' {
   if (status === 'completed') return 'success';
-  if (status === 'failed' || status === 'error' || status === 'cancelled') return 'failure';
-  return 'partial'; // completed-needs-review, no-progress, cap-reached, in-run 'no-progress'
+  if (status === 'provider-limit' && endedAt != null) return 'failure';
+  if (
+    status === 'failed' ||
+    status === 'error' ||
+    status === 'cancelled' ||
+    status === 'cost-exceeded' ||
+    status === 'needs-human-arbitration' ||
+    status === 'reviewer-unreliable' ||
+    status === 'reviewer-unavailable' ||
+    status === 'builder-unreliable'
+  ) return 'failure';
+  return 'partial'; // completed-needs-review, no-progress, cap-reached, resumable provider-limit
 }
 
 interface DurableLearningsFile {
@@ -221,7 +239,7 @@ export class DurableLoopMemoryStore implements LoopMemoryStore {
         sessionId: `loop:${normalizeProjectMemoryKey(record.workspaceCwd)}:${record.createdAt ?? 0}:${randomUUID().slice(0, 8)}`,
         summary: `Loop ${record.status}: ${record.goal} — ${record.reason}`,
         keyEvents: record.observations.slice(0, 8),
-        outcome: loopStatusToOutcome(record.status),
+        outcome: loopStatusToOutcome(record.status, record.endedAt),
         lessonsLearned: record.observations.slice(0, 8),
         timestamp: record.createdAt ?? Date.now(),
       });

@@ -89,9 +89,19 @@ describe('loopStatusToOutcome', () => {
     expect(loopStatusToOutcome('failed')).toBe('failure');
     expect(loopStatusToOutcome('error')).toBe('failure');
     expect(loopStatusToOutcome('cancelled')).toBe('failure');
+    expect(loopStatusToOutcome('cost-exceeded')).toBe('failure');
+    expect(loopStatusToOutcome('needs-human-arbitration')).toBe('failure');
+    expect(loopStatusToOutcome('reviewer-unreliable')).toBe('failure');
+    expect(loopStatusToOutcome('reviewer-unavailable')).toBe('failure');
+    expect(loopStatusToOutcome('builder-unreliable')).toBe('failure');
     expect(loopStatusToOutcome('completed-needs-review')).toBe('partial');
     expect(loopStatusToOutcome('no-progress')).toBe('partial');
     expect(loopStatusToOutcome('cap-reached')).toBe('partial');
+  });
+
+  it('maps ended provider-limit loops to failure and resumable ones to partial', () => {
+    expect(loopStatusToOutcome('provider-limit', 1_778_313_000_000)).toBe('failure');
+    expect(loopStatusToOutcome('provider-limit', null)).toBe('partial');
   });
 });
 

@@ -31,6 +31,8 @@ export interface LoopControlResult {
   state?: LoopStatePayload | null;
 }
 
+export type LoopPendingInputKind = 'steer' | 'queue';
+
 export interface LoopStartConfigInput {
   initialPrompt: string;
   /** Optional continuation directive used on iterations 1+. If omitted,
@@ -99,6 +101,7 @@ export interface LoopStartConfigInput {
     pauseOnTokenBurn: boolean;
     toolRepeatWarnPerIteration: number;
     toolRepeatCriticalPerIteration: number;
+    identicalToolCallConsecutiveCritical: number;
     testStagnationWarnIterations: number;
     testStagnationCriticalIterations: number;
     churnRatioWarn: number;
@@ -120,6 +123,12 @@ export interface LoopStartConfigInput {
   nextObjectivePlanning?: {
     enabled: boolean;
     cadence: number;
+  };
+  audit?: {
+    finalAuditMode: 'off' | 'observe' | 'gate';
+    preflightMode: 'off' | 'record' | 'block';
+    planPacketMode: 'off' | 'prompted';
+    cleanlinessScan: boolean;
   };
   initialStage?: 'PLAN' | 'REVIEW' | 'IMPLEMENT';
   allowDestructiveOps?: boolean;
@@ -175,9 +184,15 @@ export class LoopIpcService {
     return this.api.loopResume(loopRunId) as Promise<IpcResponse<LoopControlResult>>;
   }
 
-  async intervene(loopRunId: string, message: string): Promise<IpcResponse<LoopControlResult>> {
+  async intervene(
+    loopRunId: string,
+    message: string,
+    kind?: LoopPendingInputKind,
+  ): Promise<IpcResponse<LoopControlResult>> {
     if (!this.api) return notInElectron();
-    return this.api.loopIntervene(loopRunId, message) as Promise<IpcResponse<LoopControlResult>>;
+    return (kind
+      ? this.api.loopIntervene(loopRunId, message, kind)
+      : this.api.loopIntervene(loopRunId, message)) as Promise<IpcResponse<LoopControlResult>>;
   }
 
   async cancel(loopRunId: string): Promise<IpcResponse<LoopControlResult>> {

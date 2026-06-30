@@ -322,7 +322,7 @@ describe('LoopCoordinator terminal intents', () => {
         failure: expect.stringContaining('first verify failed'),
       });
       await iterationComplete;
-      expect(coordinator.getLoop(state.id)?.pendingInterventions).toEqual([
+      expect(coordinator.getLoop(state.id)?.pendingInterventions.map((item) => item.message)).toEqual([
         expect.stringContaining('first verify failed'),
       ]);
     } finally {
@@ -381,7 +381,7 @@ describe('LoopCoordinator terminal intents', () => {
         failure: expect.stringContaining('second verify failed'),
       });
       await iterationComplete;
-      expect(coordinator.getLoop(state.id)?.pendingInterventions).toEqual([
+      expect(coordinator.getLoop(state.id)?.pendingInterventions.map((item) => item.message)).toEqual([
         expect.stringContaining('second verify failed'),
       ]);
     } finally {
@@ -428,7 +428,7 @@ describe('LoopCoordinator terminal intents', () => {
         failure: expect.stringContaining('no *_Completed.md rename observed'),
       });
       await iterationComplete;
-      expect(coordinator.getLoop(state.id)?.pendingInterventions).toEqual([
+      expect(coordinator.getLoop(state.id)?.pendingInterventions.map((item) => item.message)).toEqual([
         expect.stringContaining('*_Completed.md rename'),
       ]);
     } finally {

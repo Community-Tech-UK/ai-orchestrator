@@ -56,6 +56,7 @@ const DEFAULT_MAX_UNTRACKED_FILE_CHARS = 16_000;
 const IGNORED_UNTRACKED_PREFIXES = [
   '.aio-loop-control/',
   '.aio-loop-attachments/',
+  '.aio-loop-state/',
   '.git/',
   'node_modules/',
 ];

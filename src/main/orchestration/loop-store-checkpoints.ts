@@ -70,7 +70,8 @@ export function listResumableLoopCheckpoints(db: SqliteDriver, limit = 50): Loop
     SELECT c.*
     FROM loop_checkpoints c
     JOIN loop_runs r ON r.id = c.loop_run_id
-    WHERE r.status IN ('paused', 'provider-limit')
+    WHERE r.status = 'paused'
+       OR (r.status = 'provider-limit' AND r.ended_at IS NULL)
     ORDER BY c.updated_at DESC
     LIMIT ?
   `).all<LoopCheckpointRow>(Math.max(1, Math.min(limit, 200)));

@@ -1,16 +1,31 @@
 import { ContextCompactor } from '../context/context-compactor';
-import { getCompactionCoordinator } from '../context/compaction-coordinator';
+import { getCompactionCoordinator, type CompactionResult } from '../context/compaction-coordinator';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
+import { getRLMDatabase } from '../persistence/rlm-database';
+import {
+  recordCompactionMarker,
+  type RecordCompactionMarkerParams,
+} from '../persistence/rlm/rlm-compaction-markers';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
-import type { ContextUsage } from '../../shared/types/instance.types';
+import type { ContextUsage, Instance } from '../../shared/types/instance.types';
 
 const logger = getLogger('CompactionRuntime');
 
 interface NativeCompactionAdapter {
   compactContext?: () => Promise<boolean>;
+}
+
+type CompactionMarkerRecorder = (params: RecordCompactionMarkerParams) => void;
+
+let compactionMarkerRecorder: CompactionMarkerRecorder = recordCompactionMarkerToRlm;
+
+export function setCompactionMarkerRecorderForTesting(
+  recorder: CompactionMarkerRecorder | null,
+): void {
+  compactionMarkerRecorder = recorder ?? recordCompactionMarkerToRlm;
 }
 
 function buildPostCompactionUsage(previousUsage: ContextUsage): ContextUsage {
@@ -27,6 +42,69 @@ function buildPostCompactionUsage(previousUsage: ContextUsage): ContextUsage {
     source: 'post-compaction-reset',
     isEstimated: true,
   };
+}
+
+function recordCompactionMarkerToRlm(params: RecordCompactionMarkerParams): void {
+  try {
+    recordCompactionMarker(getRLMDatabase().getRawDb(), params);
+  } catch (error) {
+    logger.warn('Failed to record compaction marker', {
+      instanceId: params.instanceId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function recordCompactionBoundary(
+  instanceId: string,
+  instance: Instance,
+  result: CompactionResult,
+): void {
+  const createdAt = Date.now();
+  compactionMarkerRecorder({
+    instanceId,
+    threadId: instance.providerSessionId || instance.sessionId || null,
+    projectKey: instance.workingDirectory,
+    method: result.method,
+    createdAt,
+    utilizationBefore: result.previousUsage?.percentage ?? null,
+    utilizationAfter: result.newUsage?.percentage ?? null,
+    ledgerAnchor: createdAt,
+    metadata: {
+      previousUsage: result.previousUsage ?? null,
+      newUsage: result.newUsage ?? null,
+    },
+  });
+}
+
+export function recordProviderThreadCompactionMarker(params: {
+  instanceId: string;
+  instance?: Instance | null;
+  provider?: string;
+  sessionId?: string;
+  messageId?: string;
+  createdAt?: number;
+  messageMetadata?: Record<string, unknown>;
+}): void {
+  const createdAt = params.createdAt ?? Date.now();
+  const usage = params.instance?.contextUsage;
+  compactionMarkerRecorder({
+    instanceId: params.instanceId,
+    threadId: params.sessionId || params.instance?.providerSessionId || params.instance?.sessionId || null,
+    projectKey: params.instance?.workingDirectory ?? null,
+    method: 'self-managed',
+    createdAt,
+    utilizationBefore: null,
+    utilizationAfter: usage?.percentage ?? null,
+    ledgerAnchor: createdAt,
+    metadata: {
+      source: 'provider-thread-compacted',
+      provider: params.provider ?? params.instance?.provider ?? null,
+      messageId: params.messageId ?? null,
+      contextUsage: usage ?? null,
+      messageMetadata: params.messageMetadata ?? null,
+    },
+  });
 }
 
 export function setupCompactionCoordinator(
@@ -218,6 +296,7 @@ export function setupCompactionCoordinator(
             newUsage: result.newUsage,
           },
         };
+        recordCompactionBoundary(instanceId, instance, result);
         instanceManager.emitOutputMessage(instanceId, boundaryMessage);
       }
     }

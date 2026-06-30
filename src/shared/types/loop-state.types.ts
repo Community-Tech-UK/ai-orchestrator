@@ -2,6 +2,10 @@ import type { LoopOutstanding } from './loop-outstanding.types';
 import type { LoopPingPongState } from './loop-pingpong.types';
 import type {
   LoopConfig,
+  LoopFinalAuditResult,
+  LoopPhaseRecoveryState,
+  LoopPreflightResult,
+  LoopRepoBaselineSnapshot,
   LoopSemanticProgressResult,
   LoopStage,
   LoopStatus,
@@ -37,6 +41,56 @@ export interface LoopToolCallRecord {
   argsHash: string;
   success: boolean;
   durationMs: number;
+}
+
+export type LoopPendingInputKind = 'steer' | 'queue';
+export type LoopPendingInputSource =
+  | 'human'
+  | 'block-override'
+  | 'plan-regen'
+  | 'phase-recovery'
+  | 'subagent-result'
+  | 'wakeup';
+
+export interface LoopPendingInput {
+  id: string;
+  kind: LoopPendingInputKind;
+  message: string;
+  enqueuedAt: number;
+  source: LoopPendingInputSource;
+}
+
+export function createLoopPendingInput(
+  message: string,
+  opts: {
+    id?: string;
+    kind?: LoopPendingInputKind;
+    enqueuedAt?: number;
+    source?: LoopPendingInputSource;
+  } = {},
+): LoopPendingInput {
+  const enqueuedAt = opts.enqueuedAt ?? Date.now();
+  return {
+    id: opts.id ?? `pending-${enqueuedAt}-${Math.random().toString(36).slice(2, 10)}`,
+    kind: opts.kind ?? 'queue',
+    message,
+    enqueuedAt,
+    source: opts.source ?? 'human',
+  };
+}
+
+export function coercePendingInput(input: string | LoopPendingInput): LoopPendingInput {
+  return typeof input === 'string'
+    ? createLoopPendingInput(input, { id: `legacy-${Math.abs(hashPendingMessage(input))}`, enqueuedAt: 0 })
+    : input;
+}
+
+function hashPendingMessage(input: string): number {
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    hash = Math.imul(31, hash) + input.charCodeAt(i);
+  }
+  return hash;
 }
 
 export interface LoopErrorRecord {
@@ -89,6 +143,8 @@ export interface LoopIteration {
    * persisted across restarts).
    */
   verifySummary?: string;
+  /** Supergoal-inspired final audit result captured at the completion seam. */
+  finalAudit?: LoopFinalAuditResult;
   /** LF-2 semantic-progress verdict for this iteration (present when the check ran). */
   semanticProgress?: LoopSemanticProgressResult;
   /**
@@ -196,7 +252,11 @@ export interface LoopState {
   endReason?: string;
   endEvidence?: Record<string, unknown>;
   outstanding?: LoopOutstanding;
-  pendingInterventions: string[];
+  repoBaseline?: LoopRepoBaselineSnapshot;
+  preflight?: LoopPreflightResult;
+  latestFinalAudit?: LoopFinalAuditResult;
+  phaseRecovery?: Record<string, LoopPhaseRecoveryState>;
+  pendingInterventions: LoopPendingInput[];
   loopControl?: LoopControlMetadata;
   inFlightIteration?: LoopInFlightIteration;
   terminalIntentPending?: LoopTerminalIntent;

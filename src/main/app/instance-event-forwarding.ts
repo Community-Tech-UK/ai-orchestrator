@@ -27,12 +27,13 @@ import { toOutputMessageFromProviderEnvelope } from '../providers/provider-outpu
 import { recordProviderRuntimeEventSpan } from '../observability/otel-spans';
 import { getProviderRuntimeTraceSink } from '../observability/provider-runtime-trace-sink';
 import { BoundedAsyncQueue } from '../runtime/bounded-async-queue';
+import { recordProviderThreadCompactionMarker } from './compaction-runtime';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { ProviderRuntimeEventEnvelopeSchema } from '@contracts/schemas/provider-runtime-events';
 import { isFastModeUnavailableNotice } from '../instance/lifecycle/fast-mode-notice';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
-import type { Instance, InstanceStatus } from '../../shared/types/instance.types';
+import type { Instance, InstanceStatus, OutputMessage } from '../../shared/types/instance.types';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
 const logger = getLogger('InstanceEventForwarding');
@@ -61,6 +62,10 @@ function toSlice(instance: Instance): InstanceSlice {
     errorCount: instance.errorCount,
     totalTokensUsed: instance.totalTokensUsed,
   };
+}
+
+function isProviderThreadCompactionMessage(message: OutputMessage): boolean {
+  return message.metadata?.['threadCompacted'] === true;
 }
 
 type ContinuityTask =
@@ -178,6 +183,18 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
 
     const message = toOutputMessageFromProviderEnvelope(enrichedEnvelope);
     if (!message) return;
+
+    if (isProviderThreadCompactionMessage(message)) {
+      recordProviderThreadCompactionMarker({
+        instanceId: enrichedEnvelope.instanceId,
+        instance,
+        provider: enrichedEnvelope.provider,
+        sessionId: enrichedEnvelope.sessionId,
+        messageId: message.id,
+        createdAt: message.timestamp,
+        messageMetadata: message.metadata,
+      });
+    }
 
     // Auto-revert: when the provider reports fast mode is unavailable (no paid
     // tier / ineligible plan), flip the stored preference off without restarting

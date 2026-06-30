@@ -228,7 +228,8 @@ export class RetryManager extends EventEmitter {
         const delay = this.calculateDelay(
           state.attempt,
           config,
-          classifiedError.retryAfterMs
+          classifiedError.retryAfterMs,
+          classifiedError.category,
         );
         state.nextRetryAt = Date.now() + delay;
 
@@ -288,20 +289,30 @@ export class RetryManager extends EventEmitter {
   private calculateDelay(
     attempt: number,
     config: RetryConfig,
-    errorRetryAfterMs?: number
+    errorRetryAfterMs?: number,
+    category?: ErrorCategory,
   ): number {
     // Use error-specified delay if available and greater than calculated
     let baseDelay = config.initialDelayMs * Math.pow(config.backoffMultiplier, attempt - 1);
+    const rateLimitServerDelay = category === ErrorCategory.RATE_LIMITED
+      && typeof errorRetryAfterMs === 'number'
+      && errorRetryAfterMs > 0;
+    let usingRateLimitServerDelay = false;
 
     if (errorRetryAfterMs && errorRetryAfterMs > baseDelay) {
       baseDelay = errorRetryAfterMs;
+      usingRateLimitServerDelay = rateLimitServerDelay;
     }
 
-    // Apply max delay cap
-    baseDelay = Math.min(baseDelay, config.maxDelayMs);
+    // Apply max delay cap, except for explicit Retry-After values from
+    // rate-limit responses. Those server windows are authoritative and can be
+    // longer than the generic retry cap.
+    if (!usingRateLimitServerDelay) {
+      baseDelay = Math.min(baseDelay, config.maxDelayMs);
+    }
 
     // Apply jitter if enabled
-    if (config.jitter) {
+    if (config.jitter && !usingRateLimitServerDelay) {
       const jitterRange = baseDelay * config.jitterFactor;
       const jitter = (Math.random() * 2 - 1) * jitterRange; // -jitterRange to +jitterRange
       baseDelay = Math.max(0, baseDelay + jitter);

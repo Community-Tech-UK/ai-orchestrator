@@ -89,6 +89,14 @@ export {
   bufferToEmbedding
 } from './rlm-vectors';
 
+// Compaction marker operations
+export {
+  recordCompactionMarker,
+  listCompactionMarkers,
+  type RecordCompactionMarkerParams,
+  type CompactionMarker
+} from './rlm-compaction-markers';
+
 // Backup operations
 export {
   backupDatabase,

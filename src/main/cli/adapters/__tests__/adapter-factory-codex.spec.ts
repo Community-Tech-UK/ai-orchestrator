@@ -90,9 +90,13 @@ describe('adapter factory - codex', () => {
     const toml = (adapter as unknown as {
       cliConfig: { mcpServersConfigToml?: string };
     }).cliConfig.mcpServersConfigToml ?? '';
+    const config = (adapter as unknown as {
+      cliConfig: { browserGatewayInstanceId?: string };
+    }).cliConfig;
 
     expect(toml).toContain('[mcp_servers."browser-gateway"]');
     expect(toml).toContain('[mcp_servers."chrome-devtools"]');
+    expect(config.browserGatewayInstanceId).toBe('instance-browser');
   });
 
   it('injects static config/mcp-servers.json servers (e.g. imap) into the Codex TOML', () => {

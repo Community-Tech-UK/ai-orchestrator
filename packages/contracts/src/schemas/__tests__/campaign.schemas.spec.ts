@@ -34,6 +34,15 @@ describe('CampaignSpecSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  it('rejects provider-limit edge predicates because provider-limit nodes are resumable', () => {
+    const result = CampaignSpecSchema.safeParse({
+      ...baseSpec(),
+      edges: [{ from: 'a', to: 'b', when: { type: 'is', status: 'provider-limit' } }],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it('rejects edge predicates with an empty status list', () => {
     const result = CampaignSpecSchema.safeParse({
       ...baseSpec(),

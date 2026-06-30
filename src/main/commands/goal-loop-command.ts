@@ -5,6 +5,7 @@ import type { InstanceManager } from '../instance/instance-manager';
 import type { LoopProvider, LoopState } from '../../shared/types/loop.types';
 import { getLogger } from '../logging/logger';
 import { getLoopCoordinator } from '../orchestration/loop-coordinator';
+import { isActiveLoopRuntimeState } from '../orchestration/loop-runtime-status';
 import { getLoopStore } from '../orchestration/loop-store';
 import { prepareLoopStartConfig } from '../orchestration/loop-start-config';
 import {
@@ -128,7 +129,7 @@ async function executeGoalControl(input: {
   const coordinator = getLoopCoordinator();
   const store = getLoopStore();
   const active = coordinator.getActiveLoops()
-    .filter((state) => state.chatId === input.instanceId && isGoalControllableStatus(state.status))
+    .filter((state) => state.chatId === input.instanceId && isActiveLoopRuntimeState(state))
     .sort((a, b) => b.startedAt - a.startedAt)[0];
 
   if (action.type === 'status') {
@@ -199,10 +200,6 @@ function emitGoalSystemMessage(
     loopRunId: state?.id,
     status: state?.status ?? 'none',
   });
-}
-
-function isGoalControllableStatus(status: LoopState['status']): boolean {
-  return status === 'running' || status === 'paused' || status === 'provider-limit';
 }
 
 function asLoopProvider(provider: string | undefined): LoopProvider | undefined {

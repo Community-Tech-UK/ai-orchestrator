@@ -149,7 +149,9 @@ export class LoopProviderLimitHandler {
     });
 
     if (willResume) {
-      state.status = 'paused';
+      state.status = 'provider-limit';
+      state.endedAt = null;
+      state.endReason = opts.reason;
       this.deps.setConvergenceNote(state.id, opts.reason);
       this.scheduleResume(state, {
         resumeAt: reset as number,

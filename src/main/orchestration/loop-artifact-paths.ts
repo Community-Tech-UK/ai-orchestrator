@@ -46,6 +46,16 @@ export interface LoopArtifactPaths {
   iterationLog: string;
   /** Absolute path to LOOP_TASKS.md inside the state dir. */
   tasks: string;
+  /** Absolute path to ROADMAP.md inside the state dir. */
+  roadmap: string;
+  /** Absolute path to AUDIT.md inside the state dir. */
+  audit: string;
+  /** Absolute path to PRE_FLIGHT.md inside the state dir. */
+  preflight: string;
+  /** Absolute path to repo-baseline.json inside the state dir. */
+  repoBaseline: string;
+  /** Absolute path to the phase artifact directory inside the state dir. */
+  phasesDir: string;
   /** Absolute path to the archived prior-run ledger inside the state dir. */
   tasksArchive: string;
   /** Absolute path to BLOCKED.md inside the state dir. */
@@ -73,6 +83,11 @@ export function resolveLoopArtifactPaths(workspaceCwd: string, loopRunId: string
     notes: path.join(dir, 'NOTES.md'),
     iterationLog: path.join(dir, 'ITERATION_LOG.md'),
     tasks: path.join(dir, 'LOOP_TASKS.md'),
+    roadmap: path.join(dir, 'ROADMAP.md'),
+    audit: path.join(dir, 'AUDIT.md'),
+    preflight: path.join(dir, 'PRE_FLIGHT.md'),
+    repoBaseline: path.join(dir, 'repo-baseline.json'),
+    phasesDir: path.join(dir, 'phases'),
     tasksArchive: path.join(dir, 'LOOP_TASKS.prev.md'),
     blocked: path.join(dir, 'BLOCKED.md'),
     outstanding: path.join(dir, 'OUTSTANDING.md'),

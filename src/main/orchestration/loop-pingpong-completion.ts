@@ -10,6 +10,7 @@ import type {
 } from '../../shared/types/loop.types';
 import {
   clampPingPongMaxRounds,
+  createLoopPendingInput,
   defaultPingPongState,
   isReviewerAvailabilityFault,
 } from '../../shared/types/loop.types';
@@ -429,9 +430,11 @@ export async function evaluatePingPongCompletion(
       const verify = await deps.runVerify().catch(() => ({ ok: true, output: '' }));
       if (!verify.ok) {
         state.pendingInterventions.push(
-          'The ping-pong reviewer APPROVED, but the configured verify command FAILED. ' +
+          createLoopPendingInput(
+            'The ping-pong reviewer APPROVED, but the configured verify command FAILED. ' +
             'Treat this as a blocking issue and fix it before re-declaring done:\n\n' +
             (verify.output.slice(0, 8192) || '(verify produced no output)'),
+          ),
         );
         emit('loop:fresh-eyes-review-blocked', {
           loopRunId: state.id,
@@ -478,7 +481,7 @@ export async function evaluatePingPongCompletion(
     summary: review.summary,
   });
 
-  state.pendingInterventions.push(buildIntervention(review, blocking, advisory));
+  state.pendingInterventions.push(createLoopPendingInput(buildIntervention(review, blocking, advisory)));
 
   if (blocking.length === 0) {
     // Low-only churn round.

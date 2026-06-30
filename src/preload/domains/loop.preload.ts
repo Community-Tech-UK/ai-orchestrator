@@ -59,7 +59,16 @@ export interface LoopConfigInput {
   };
   /** LF-4: disposable-plan behaviour. */
   plan?: { regenerateOnStall: boolean };
+  /** Supergoal-inspired preflight, plan packet, and final audit controls. */
+  audit?: {
+    finalAuditMode: 'off' | 'observe' | 'gate';
+    preflightMode: 'off' | 'record' | 'block';
+    planPacketMode: 'off' | 'prompted';
+    cleanlinessScan: boolean;
+  };
 }
+
+export type LoopPendingInputKind = 'steer' | 'queue';
 
 export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNELS) {
   const sub = (channel: string) => (callback: (payload: unknown) => void): (() => void) => {
@@ -79,8 +88,8 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
       ipcRenderer.invoke(ch.LOOP_PAUSE, { loopRunId }),
     loopResume: (loopRunId: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_RESUME, { loopRunId }),
-    loopIntervene: (loopRunId: string, message: string): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.LOOP_INTERVENE, { loopRunId, message }),
+    loopIntervene: (loopRunId: string, message: string, kind?: LoopPendingInputKind): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.LOOP_INTERVENE, kind ? { loopRunId, message, kind } : { loopRunId, message }),
     loopCancel: (loopRunId: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_CANCEL, { loopRunId }),
     loopAcceptCompletion: (loopRunId: string): Promise<IpcResponse> =>

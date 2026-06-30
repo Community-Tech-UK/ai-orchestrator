@@ -1071,11 +1071,16 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
 
   const isTerminalLoopStatus = (status: string): boolean =>
     status === 'completed' || status === 'completed-needs-review' || status === 'cancelled' || status === 'cap-reached'
-    || status === 'failed' || status === 'error' || status === 'no-progress' || status === 'provider-limit'
+    || status === 'failed' || status === 'error' || status === 'no-progress'
     // Ping-pong terminal states (bigchange_pingpong_review §4.11).
     || status === 'cost-exceeded' || status === 'needs-human-arbitration'
     || status === 'reviewer-unreliable' || status === 'reviewer-unavailable'
     || status === 'builder-unreliable';
+  const isTerminalLoopState = (state: { status?: string; endedAt?: unknown } | undefined): boolean => {
+    if (!state?.status) return false;
+    if (state.status === 'provider-limit') return state.endedAt != null;
+    return isTerminalLoopStatus(state.status);
+  };
 
   // FU-8: cleanup function that tears down every adapter we own for a
   // given loop. Two callers may invoke this concurrently (the awaitable
@@ -1131,8 +1136,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   // idempotent: if a cleanup is already in flight for the loop, this
   // call observes the same promise.
   coordinator.on('loop:state-changed', (data: unknown) => {
-    const payload = data as { loopRunId: string; state: { status: string; chatId?: string } };
-    if (!isTerminalLoopStatus(payload?.state?.status ?? '')) return;
+    const payload = data as { loopRunId: string; state?: { status?: string; chatId?: string; endedAt?: unknown } };
+    if (!isTerminalLoopState(payload?.state)) return;
     // Clear quota-park waitReason when the loop terminates.
     const chatId = payload?.state?.chatId;
     if (chatId) {

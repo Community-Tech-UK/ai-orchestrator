@@ -15,70 +15,28 @@ import type {
 import type { LoopStatus } from '../../shared/types/loop.types';
 import { prepareLoopStartConfig } from './loop-start-config';
 import { getWorktreeManager } from '../workspace/git/worktree-manager';
+import {
+  isActiveCampaignNodeStatus,
+  isLoopProviderLimited,
+  isLoopTerminal,
+  loopStatusToNodeStatus,
+  normalizeLoopStatusSnapshot,
+  type CampaignLoopStatusReaderResult,
+  type CampaignLoopStatusSnapshot,
+} from './campaign-loop-status';
 
 const logger = getLogger('CampaignCoordinator');
 type PreparedCampaignLoopConfig = Awaited<ReturnType<typeof prepareLoopStartConfig>>;
 type CampaignLoopStarter = (chatId: string, config: PreparedCampaignLoopConfig) => Promise<{ id: string }>;
 type CampaignLoopCanceller = (loopRunId: string) => Promise<boolean>;
 type CampaignWorktreePreparer = (campaign: CampaignRun, node: CampaignNode) => Promise<string>;
-type CampaignLoopStatusReader = (loopRunId: string) => LoopStatus | null;
+type CampaignLoopStatusReader = (loopRunId: string) => CampaignLoopStatusReaderResult;
 const CAMPAIGN_PREDICATE_STATUSES = new Set<string>([
   'completed',
   'completed-needs-review',
   'failed',
-  'provider-limit',
   'operator-halted',
 ]);
-
-/** Terminal LoopStatus values. */
-const LOOP_TERMINAL_STATUSES = new Set<LoopStatus>([
-  'completed',
-  'completed-needs-review',
-  'cancelled',
-  'failed',
-  'error',
-  'no-progress',
-  'cap-reached',
-  'provider-limit',
-  // Ping-pong terminal states (bigchange_pingpong_review §4.11).
-  'cost-exceeded',
-  'needs-human-arbitration',
-  'reviewer-unreliable',
-  'reviewer-unavailable',
-  'builder-unreliable',
-]);
-
-function isLoopTerminal(status: LoopStatus): boolean {
-  return LOOP_TERMINAL_STATUSES.has(status);
-}
-
-/** Node statuses that imply an in-flight loop the campaign is waiting on. */
-function isActiveCampaignNodeStatus(status: CampaignNodeStatus): boolean {
-  return status === 'running' || status === 'provider-limit';
-}
-
-/** Map a LoopStatus to a CampaignNodeStatus. */
-function loopStatusToNodeStatus(ls: LoopStatus): CampaignNodeStatus {
-  switch (ls) {
-    case 'completed': return 'completed';
-    case 'completed-needs-review': return 'completed-needs-review';
-    case 'failed':
-    case 'error':
-    case 'no-progress':
-    case 'cap-reached':
-    // Ping-pong non-converged terminals map to a failed campaign node so the
-    // campaign treats "didn't converge" uniformly; arbitration/unreliable are
-    // surfaced in the loop UI, not the campaign graph.
-    case 'cost-exceeded':
-    case 'needs-human-arbitration':
-    case 'reviewer-unreliable':
-    case 'reviewer-unavailable':
-    case 'builder-unreliable': return 'failed';
-    case 'provider-limit': return 'provider-limit';
-    case 'cancelled': return 'operator-halted';
-    default: return 'failed';
-  }
-}
 
 /** Evaluate a TerminalStatusPredicate against a CampaignNodeStatus. Exported for unit testing. */
 export function evaluatePredicate(status: CampaignNodeStatus, predicate: TerminalStatusPredicate): boolean {
@@ -198,7 +156,8 @@ export class CampaignCoordinator extends EventEmitter {
 
   private loopStatusReader: CampaignLoopStatusReader = (loopRunId) => {
     try {
-      return getLoopStoreService().store.getRunSummary(loopRunId)?.status ?? null;
+      const summary = getLoopStoreService().store.getRunSummary(loopRunId);
+      return summary ? { status: summary.status, endedAt: summary.endedAt } : null;
     } catch {
       return null;
     }
@@ -249,12 +208,26 @@ export class CampaignCoordinator extends EventEmitter {
 
     // Subscribe to loop state changes for DAG advancement.
     const coordinator = getLoopCoordinator();
-    coordinator.on('loop:state-changed', ({ loopRunId, state }: { loopRunId: string; state: { status: LoopStatus } }) => {
+    coordinator.on('loop:provider-limit', ({ loopRunId, willResume }: { loopRunId: string; willResume?: boolean }) => {
+      if (willResume) {
+        void this.onLoopProviderLimited(loopRunId);
+      }
+    });
+    coordinator.on('loop:state-changed', ({ loopRunId, state }: {
+      loopRunId: string;
+      state: { status: LoopStatus; endedAt?: number | null };
+    }) => {
       if (state.status === 'running') {
         void this.onLoopRunning(loopRunId);
       }
-      if (isLoopTerminal(state.status)) {
-        void this.onLoopTerminal(loopRunId, state.status);
+      const snapshot: CampaignLoopStatusSnapshot = {
+        status: state.status,
+        endedAt: state.endedAt ?? null,
+      };
+      if (isLoopProviderLimited(snapshot)) {
+        void this.onLoopProviderLimited(loopRunId);
+      } else if (isLoopTerminal(snapshot)) {
+        void this.onLoopTerminal(loopRunId, snapshot.status, snapshot.endedAt);
       }
     });
 
@@ -273,8 +246,8 @@ export class CampaignCoordinator extends EventEmitter {
       for (const [nodeId, nodeRun] of campaign.nodeRuns) {
         if (!nodeRun.loopRunId) continue;
 
-        const loopStatus = this.loopStatusReader(nodeRun.loopRunId);
-        if (loopStatus === 'paused' && isActiveCampaignNodeStatus(nodeRun.status)) {
+        const loopSnapshot = normalizeLoopStatusSnapshot(this.loopStatusReader(nodeRun.loopRunId));
+        if (loopSnapshot?.status === 'paused' && isActiveCampaignNodeStatus(nodeRun.status)) {
           this.loopRunToNode.set(nodeRun.loopRunId, { campaignId: campaign.id, nodeId });
           campaign.status = 'paused';
           campaign.pausedReason = `Node ${nodeId} loop paused after app restart; resume that loop to continue the campaign`;
@@ -282,21 +255,27 @@ export class CampaignCoordinator extends EventEmitter {
           continue;
         }
 
-        if (!loopStatus && isActiveCampaignNodeStatus(nodeRun.status)) {
+        if (!loopSnapshot && isActiveCampaignNodeStatus(nodeRun.status)) {
           campaign.status = 'paused';
           campaign.pausedReason = `Node ${nodeId} loop ${nodeRun.loopRunId} is missing after app restart`;
           this.store.upsertCampaign(campaign);
           continue;
         }
 
-        if (loopStatus && isLoopTerminal(loopStatus)) {
+        if (loopSnapshot && isLoopProviderLimited(loopSnapshot) && isActiveCampaignNodeStatus(nodeRun.status)) {
+          this.loopRunToNode.set(nodeRun.loopRunId, { campaignId: campaign.id, nodeId });
+          await this.onLoopProviderLimited(nodeRun.loopRunId);
+          continue;
+        }
+
+        if (loopSnapshot && isLoopTerminal(loopSnapshot)) {
           this.loopRunToNode.set(nodeRun.loopRunId, { campaignId: campaign.id, nodeId });
           if (isActiveCampaignNodeStatus(nodeRun.status) && this.isCampaignPausedForNode(campaign, nodeId)) {
             campaign.status = 'running';
             campaign.pausedReason = undefined;
             this.store.upsertCampaign(campaign);
           }
-          await this.onLoopTerminal(nodeRun.loopRunId, loopStatus);
+          await this.onLoopTerminal(nodeRun.loopRunId, loopSnapshot.status, loopSnapshot.endedAt);
           continue;
         }
 
@@ -493,31 +472,53 @@ export class CampaignCoordinator extends EventEmitter {
     }
   }
 
-  private async onLoopTerminal(loopRunId: string, loopStatus: LoopStatus): Promise<void> {
+  private async onLoopProviderLimited(loopRunId: string): Promise<void> {
     const mapping = this.loopRunToNode.get(loopRunId);
     if (!mapping) return;
 
     const { campaignId, nodeId } = mapping;
-    if (loopStatus !== 'provider-limit') {
-      this.loopRunToNode.delete(loopRunId);
+    const campaign = this.activeCampaigns.get(campaignId);
+    if (!campaign) return;
+    const reason = `Node ${nodeId} hit provider limit; waiting for loop auto-resume`;
+    const existing = campaign.nodeRuns.get(nodeId);
+    if (
+      existing?.status === 'provider-limit'
+      && campaign.status === 'paused'
+      && campaign.pausedReason === reason
+    ) {
+      return;
     }
 
+    this.updateNodeRun(campaign, nodeId, {
+      status: 'provider-limit',
+    });
+
+    logger.info('Campaign node parked on provider limit', { campaignId, nodeId, loopRunId });
+    this.pauseCampaign(campaign, reason);
+  }
+
+  private async onLoopTerminal(loopRunId: string, loopStatus: LoopStatus, endedAt: number | null = null): Promise<void> {
+    const mapping = this.loopRunToNode.get(loopRunId);
+    if (!mapping) return;
+
+    const { campaignId, nodeId } = mapping;
     const campaign = this.activeCampaigns.get(campaignId);
     if (!campaign) return;
 
-    const nodeStatus = loopStatusToNodeStatus(loopStatus);
+    const nodeStatus = loopStatusToNodeStatus(loopStatus, endedAt);
+    if (nodeStatus === 'provider-limit') {
+      await this.onLoopProviderLimited(loopRunId);
+      return;
+    }
+
+    this.loopRunToNode.delete(loopRunId);
     this.updateNodeRun(campaign, nodeId, {
       status: nodeStatus,
-      ...(nodeStatus === 'provider-limit' ? {} : { endedAt: Date.now() }),
+      endedAt: Date.now(),
     });
 
     logger.info('Campaign node reached terminal', { campaignId, nodeId, nodeStatus, loopRunId });
     this.emit('campaign:node-terminal', { campaignId, nodeId, status: nodeStatus });
-
-    if (nodeStatus === 'provider-limit') {
-      this.pauseCampaign(campaign, `Node ${nodeId} hit provider limit; waiting for loop auto-resume`);
-      return;
-    }
 
     // Handle needs-review per policy.
     if (nodeStatus === 'completed-needs-review') {

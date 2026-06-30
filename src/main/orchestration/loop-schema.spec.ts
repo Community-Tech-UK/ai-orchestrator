@@ -57,7 +57,7 @@ describe('loop-schema v9 worktree-columns migration', () => {
       )
       .run('legacy-run-1', 'chat-legacy', '{"workspaceCwd":"/old/project"}', 'completed', 1_700_000_000_000, 7);
 
-    // 3. New app boots → full migrations run, adding v9 (worktree cols) + v10.
+    // 3. New app boots → full migrations run, adding all newer columns.
     runLoopMigrations(driver);
 
     // 4. The migration was recorded and the columns now exist.
@@ -97,6 +97,10 @@ describe('loop-schema v9 worktree-columns migration', () => {
     expect(appliedVersions()).toContain(11);
     expect(columnNames('loop_outstanding_items')).toEqual(
       expect.arrayContaining(['recommended_answer']),
+    );
+    expect(appliedVersions()).toContain(12);
+    expect(columnNames('loop_iterations')).toEqual(
+      expect.arrayContaining(['final_audit_json']),
     );
   });
 

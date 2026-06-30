@@ -485,6 +485,31 @@ export function signalG_toolRepetition(
   current: LoopIteration,
   th: LoopProgressThresholds,
 ): ProgressSignalEvidence | null {
+  const consecutiveCritical = th.identicalToolCallConsecutiveCritical ?? 3;
+  let consecutiveIdentical = 1;
+  let consecutiveKey = '';
+  for (let i = 1; i < current.toolCalls.length; i++) {
+    const prev = current.toolCalls[i - 1];
+    const curr = current.toolCalls[i];
+    const prevKey = `${prev.toolName}::${prev.argsHash}`;
+    const currKey = `${curr.toolName}::${curr.argsHash}`;
+    if (currKey === prevKey) {
+      consecutiveIdentical++;
+      consecutiveKey = currKey;
+      if (consecutiveIdentical >= consecutiveCritical) {
+        return {
+          id: 'G',
+          verdict: 'CRITICAL',
+          message: `Tool ${curr.toolName} called ${consecutiveIdentical}× consecutively with identical arguments`,
+          detail: { topKey: consecutiveKey, consecutiveIdentical, threshold: consecutiveCritical },
+        };
+      }
+    } else {
+      consecutiveIdentical = 1;
+      consecutiveKey = '';
+    }
+  }
+
   // within-iteration
   const counts = new Map<string, number>();
   for (const tc of current.toolCalls) {

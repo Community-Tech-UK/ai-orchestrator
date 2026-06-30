@@ -37,7 +37,8 @@ describe('LoopCoordinator checkpoint restore', () => {
       totalTokens: 100,
       totalCostCents: 0,
       currentStage: 'IMPLEMENT',
-      pendingInterventions: ['remember this'],
+      // Legacy checkpoints stored this queue as raw strings; restore should coerce it.
+      pendingInterventions: ['remember this'] as unknown as LoopState['pendingInterventions'],
       completedFileRenameObserved: false,
       doneSentinelPresentAtStart: false,
       planChecklistFullyCheckedAtStart: false,
@@ -51,6 +52,24 @@ describe('LoopCoordinator checkpoint restore', () => {
       loopTasksLedgerResolvedAtStart: false,
     };
   }
+
+  it('captures and persists a repo baseline when a loop starts', async () => {
+    coordinator.on('loop:invoke-iteration', () => { /* keep the loop live until after assertion */ });
+
+    const state = await coordinator.startLoop('chat-baseline', {
+      initialPrompt: 'inspect baseline',
+      workspaceCwd: workspace,
+      caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1 },
+    });
+    const baselinePath = resolveLoopArtifactPaths(workspace, state.id).repoBaseline;
+
+    expect(state.repoBaseline?.workspaceCwd).toBe(workspace);
+    expect(existsSync(baselinePath)).toBe(true);
+    expect(JSON.parse(readFileSync(baselinePath, 'utf8'))).toMatchObject({
+      source: state.repoBaseline?.source,
+      workspaceCwd: workspace,
+    });
+  });
 
   it('restores a paused loop without auto-running it', async () => {
     let invocations = 0;
@@ -83,11 +102,27 @@ describe('LoopCoordinator checkpoint restore', () => {
     }));
 
     expect(restored.status).toBe('paused');
-    expect(coordinator.getLoop('loop-restore-1')?.pendingInterventions).toEqual(['remember this']);
+    expect(coordinator.getLoop('loop-restore-1')?.pendingInterventions.map((item) => item.message)).toEqual(['remember this']);
     expect(coordinator.resumeLoop('loop-restore-1')).toBe(true);
     expect(coordinator.getLoop('loop-restore-1')?.status).toBe('running');
     await invoked;
     expect(invocations).toBe(1);
+  });
+
+  it('materializes audit defaults when restoring a legacy checkpoint without audit config', async () => {
+    const legacy = pausedState();
+    const legacyConfig = { ...legacy.config } as Partial<LoopState['config']>;
+    delete legacyConfig.audit;
+    legacy.config = legacyConfig as LoopState['config'];
+
+    const restored = await coordinator.restoreLoopFromCheckpoint(buildLoopCheckpoint({
+      state: legacy,
+      history: [],
+      convergenceNote: 'legacy paused checkpoint',
+      now: 500,
+    }));
+
+    expect(restored.config.audit).toEqual(defaultLoopConfig(workspace, 'goal').audit);
   });
 
   it('treats a running checkpoint as an interrupted paused loop on restore', async () => {
@@ -195,5 +230,52 @@ describe('LoopCoordinator checkpoint restore', () => {
     expect(coordinator.getLoop('loop-restore-1')?.status).toBe('running');
     await invoked;
     expect(invocations).toBe(1);
+  });
+
+  it('allows cancelling a restored provider-limit checkpoint before resume', async () => {
+    await coordinator.restoreLoopFromCheckpoint(buildLoopCheckpoint({
+      state: pausedState('provider-limit'),
+      history: [],
+      convergenceNote: 'provider window exhausted',
+      now: 500,
+    }));
+
+    await expect(coordinator.cancelLoop('loop-restore-1')).resolves.toBe(true);
+    expect(coordinator.getLoop('loop-restore-1')?.status).toBe('cancelled');
+  });
+
+  it('treats a restored provider-limit checkpoint as active for same-chat starts', async () => {
+    await coordinator.restoreLoopFromCheckpoint(buildLoopCheckpoint({
+      state: pausedState('provider-limit'),
+      history: [],
+      convergenceNote: 'provider window exhausted',
+      now: 500,
+    }));
+
+    await expect(
+      coordinator.startLoop('chat-restore', {
+        initialPrompt: 'another loop',
+        workspaceCwd: workspace,
+      }),
+    ).rejects.toThrow('A loop is already provider-limit for this chat');
+  });
+
+  it('rejects terminal provider-limit checkpoints instead of restoring them as resumable', async () => {
+    const state = {
+      ...pausedState('provider-limit'),
+      endedAt: Date.now(),
+      endReason: 'provider limit reached without a reset window',
+    };
+
+    await expect(
+      coordinator.restoreLoopFromCheckpoint(buildLoopCheckpoint({
+        state,
+        history: [],
+        convergenceNote: 'provider window exhausted',
+        now: 500,
+      })),
+    ).rejects.toThrow('Cannot restore terminal provider-limit loop checkpoint');
+
+    expect(coordinator.getLoop(state.id)).toBeUndefined();
   });
 });

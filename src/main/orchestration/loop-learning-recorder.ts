@@ -16,6 +16,7 @@ export function recordLoopLearningForState(opts: {
       workspaceCwd: state.config.workspaceCwd,
       goal: state.config.initialPrompt,
       status,
+      endedAt: state.endedAt,
       reason: state.endReason ?? note ?? status,
       lastCompletionOutcome: state.lastCompletionOutcome,
       deadEnds: note ? [note] : [],

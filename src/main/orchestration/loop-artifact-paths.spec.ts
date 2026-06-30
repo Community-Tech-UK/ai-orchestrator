@@ -17,6 +17,11 @@ describe('resolveLoopArtifactPaths', () => {
     expect(p.notes).toBe(path.join(dir, 'NOTES.md'));
     expect(p.iterationLog).toBe(path.join(dir, 'ITERATION_LOG.md'));
     expect(p.tasks).toBe(path.join(dir, 'LOOP_TASKS.md'));
+    expect(p.roadmap).toBe(path.join(dir, 'ROADMAP.md'));
+    expect(p.audit).toBe(path.join(dir, 'AUDIT.md'));
+    expect(p.preflight).toBe(path.join(dir, 'PRE_FLIGHT.md'));
+    expect(p.repoBaseline).toBe(path.join(dir, 'repo-baseline.json'));
+    expect(p.phasesDir).toBe(path.join(dir, 'phases'));
     expect(p.tasksArchive).toBe(path.join(dir, 'LOOP_TASKS.prev.md'));
     expect(p.blocked).toBe(path.join(dir, 'BLOCKED.md'));
   });
@@ -63,9 +68,18 @@ describe('resolveLoopArtifactPaths', () => {
     // dir must NOT be inside executionCwd (the agent's cwd when isolation is active)
     expect(p.dir.startsWith(executionCwd)).toBe(false);
     // All derived paths inherit this anchoring
-    for (const key of ['stage', 'notes', 'iterationLog', 'tasks', 'blocked', 'outstanding'] as const) {
+    for (const key of ['stage', 'notes', 'iterationLog', 'tasks', 'roadmap', 'audit', 'preflight', 'repoBaseline', 'phasesDir', 'blocked', 'outstanding'] as const) {
       expect(p[key].startsWith(workspaceCwd)).toBe(true);
       expect(p[key].startsWith(executionCwd)).toBe(false);
+    }
+  });
+
+  it('keeps audit/planning artifact paths scoped out of the workspace root', () => {
+    const workspaceCwd = '/repo';
+    const p = resolveLoopArtifactPaths(workspaceCwd, 'loop-audit');
+    for (const key of ['roadmap', 'audit', 'preflight', 'repoBaseline', 'phasesDir'] as const) {
+      expect(p[key]).toContain(`${LOOP_STATE_DIR_NAME}${path.sep}loop-audit`);
+      expect(path.dirname(p[key])).not.toBe(workspaceCwd);
     }
   });
 });

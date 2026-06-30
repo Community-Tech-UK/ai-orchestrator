@@ -121,6 +121,19 @@ describe('validateCampaignSpec — basic validation', () => {
     expect(result.errors.some((e) => e.includes('predicate status'))).toBe(true);
   });
 
+  it('rejects provider-limit edge predicates because provider-limit nodes are resumable', () => {
+    const result = validateCampaignSpec(buildSpec({
+      nodes: [
+        { id: 'a', loopConfig: { initialPrompt: 'A', workspaceCwd: '/tmp' }, dependsOn: [] },
+        { id: 'b', loopConfig: { initialPrompt: 'B', workspaceCwd: '/tmp' }, dependsOn: [] },
+      ],
+      edges: [{ from: 'a', to: 'b', when: { type: 'is', status: 'provider-limit' as never } }],
+    }));
+
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('predicate status'))).toBe(true);
+  });
+
   it('rejects edge predicates with an empty status list', () => {
     const result = validateCampaignSpec(buildSpec({
       nodes: [
@@ -745,8 +758,8 @@ describe('evaluatePredicate — edge gate predicates', () => {
     const pred: TerminalStatusPredicate = { type: 'not', status: 'failed' };
     expect(evaluatePredicate('completed', pred)).toBe(true);
     expect(evaluatePredicate('completed-needs-review', pred)).toBe(true);
+    expect(evaluatePredicate('operator-halted', pred)).toBe(true);
     expect(evaluatePredicate('failed', pred)).toBe(false);
-    expect(evaluatePredicate('provider-limit', pred)).toBe(true);
   });
 
   it('gated skip — spec with when predicate is valid', () => {
@@ -841,19 +854,96 @@ describe('CampaignCoordinator — provider-limit choreography', () => {
     const internals = coordinator as unknown as {
       activeCampaigns: Map<string, CampaignRun>;
       loopRunToNode: Map<string, { campaignId: string; nodeId: string }>;
-      onLoopTerminal: (loopRunId: string, loopStatus: string) => Promise<void>;
+      onLoopProviderLimited: (loopRunId: string) => Promise<void>;
     };
     internals.activeCampaigns.set(run.id, run);
     internals.loopRunToNode.set('loop-provider-limit', { campaignId: run.id, nodeId: 'a' });
+    const terminalEvents: unknown[] = [];
+    coordinator.on('campaign:node-terminal', (event) => terminalEvents.push(event));
 
-    await internals.onLoopTerminal('loop-provider-limit', 'provider-limit');
+    await internals.onLoopProviderLimited('loop-provider-limit');
 
     expect(run.status).toBe('paused');
     expect(run.pausedReason).toContain('provider limit');
     expect(run.nodeRuns.get('a')?.status).toBe('provider-limit');
     expect(run.endedAt).toBeUndefined();
+    expect(terminalEvents).toEqual([]);
     expect(internals.activeCampaigns.get(run.id)).toBe(run);
     expect(internals.loopRunToNode.get('loop-provider-limit')).toEqual({ campaignId: run.id, nodeId: 'a' });
+  });
+
+  it('does not emit duplicate pauses when the same provider-limit park is observed twice', async () => {
+    const coordinator = new CampaignCoordinator();
+    const run: CampaignRun = {
+      id: 'camp-provider-limit-idempotent',
+      spec: buildSpec({ id: 'camp-provider-limit-idempotent' }),
+      status: 'running',
+      nodeRuns: new Map([
+        ['a', {
+          nodeId: 'a',
+          campaignId: 'camp-provider-limit-idempotent',
+          status: 'running',
+          loopRunId: 'loop-provider-limit-idempotent',
+          startedAt: 1_000_001,
+        }],
+      ]),
+      startedAt: 1_000_000,
+    };
+
+    const internals = coordinator as unknown as {
+      activeCampaigns: Map<string, CampaignRun>;
+      loopRunToNode: Map<string, { campaignId: string; nodeId: string }>;
+      onLoopProviderLimited: (loopRunId: string) => Promise<void>;
+    };
+    internals.activeCampaigns.set(run.id, run);
+    internals.loopRunToNode.set('loop-provider-limit-idempotent', {
+      campaignId: run.id,
+      nodeId: 'a',
+    });
+    const pauses: unknown[] = [];
+    coordinator.on('campaign:paused', (event) => pauses.push(event));
+
+    await internals.onLoopProviderLimited('loop-provider-limit-idempotent');
+    await internals.onLoopProviderLimited('loop-provider-limit-idempotent');
+
+    expect(pauses).toHaveLength(1);
+    expect(run.status).toBe('paused');
+    expect(run.nodeRuns.get('a')?.status).toBe('provider-limit');
+  });
+
+  it('marks an ended provider-limit loop as failed instead of waiting forever for auto-resume', async () => {
+    const coordinator = new CampaignCoordinator();
+    const run: CampaignRun = {
+      id: 'camp-provider-limit-ended',
+      spec: buildSpec({ id: 'camp-provider-limit-ended' }),
+      status: 'running',
+      nodeRuns: new Map([
+        ['a', {
+          nodeId: 'a',
+          campaignId: 'camp-provider-limit-ended',
+          status: 'running',
+          loopRunId: 'loop-provider-limit-ended',
+          startedAt: 1_000_001,
+        }],
+      ]),
+      startedAt: 1_000_000,
+    };
+
+    const internals = coordinator as unknown as {
+      activeCampaigns: Map<string, CampaignRun>;
+      loopRunToNode: Map<string, { campaignId: string; nodeId: string }>;
+      onLoopTerminal: (loopRunId: string, loopStatus: string, endedAt?: number | null) => Promise<void>;
+    };
+    internals.activeCampaigns.set(run.id, run);
+    internals.loopRunToNode.set('loop-provider-limit-ended', { campaignId: run.id, nodeId: 'a' });
+
+    await internals.onLoopTerminal('loop-provider-limit-ended', 'provider-limit', 1_778_313_000_000);
+
+    expect(run.status).toBe('paused');
+    expect(run.pausedReason).toContain('failed');
+    expect(run.nodeRuns.get('a')?.status).toBe('failed');
+    expect(run.nodeRuns.get('a')?.endedAt).toBeTypeOf('number');
+    expect(internals.loopRunToNode.has('loop-provider-limit-ended')).toBe(false);
   });
 
   it('pauses the campaign for operator review when a child loop fails', async () => {

@@ -82,6 +82,33 @@ button {
 .lg-step[data-state="blocked"] { color: #f78c7c; border-color: rgba(247,140,124,0.55); background: rgba(247,140,124,0.14); font-weight: 700; }
 .lg-step[data-state="pending"] { color: rgba(231,231,234,0.55); }
 
+.loop-audit {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin: -2px 0 6px; padding: 5px 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.025);
+  border-radius: 6px; font-size: 10px;
+}
+.loop-audit code {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.72;
+}
+.lau-chip {
+  padding: 1px 8px; border-radius: 999px;
+  font-family: var(--font-mono, monospace);
+  text-transform: uppercase; letter-spacing: 0.04em;
+  border: 1px solid rgba(255,255,255,0.12);
+}
+.lau-chip[data-state="passed"] { color: #8edc8e; border-color: rgba(142,220,142,0.4); background: rgba(142,220,142,0.10); }
+.lau-chip[data-state="failed"] { color: #f78c7c; border-color: rgba(247,140,124,0.55); background: rgba(247,140,124,0.14); font-weight: 700; }
+.lau-chip[data-state="needs-review"] { color: #f7c07a; border-color: rgba(247,192,122,0.5); background: rgba(247,192,122,0.14); font-weight: 700; }
+.lau-chip[data-state="pending"],
+.lau-chip[data-state="skipped"],
+.lau-chip[data-state="off"] { color: rgba(231,231,234,0.55); }
+
 /* LF-8 read-only run-config summary — what spawned the active run. */
 .loop-runcfg {
   margin: -2px 0 6px; padding: 4px 10px;

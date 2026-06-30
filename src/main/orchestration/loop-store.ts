@@ -296,7 +296,10 @@ export class LoopStore {
         SELECT id, worktree_path, branch_name, config_json, status
         FROM loop_runs
         WHERE worktree_path IS NOT NULL
-          AND status NOT IN ('running', 'paused', 'provider-limit')
+          AND (
+            status NOT IN ('running', 'paused', 'provider-limit')
+            OR (status = 'provider-limit' AND ended_at IS NOT NULL)
+          )
       `).all<Row>();
       return rows.map((row) => {
         let workspaceCwd: string | null = null;
@@ -340,8 +343,9 @@ export class LoopStore {
         tokens, cost_cents, files_changed_json, tool_calls_json, errors_json,
         test_pass_count, test_fail_count, work_hash, output_similarity_to_prev,
         output_excerpt, output_full, progress_verdict, progress_signals_json,
-        completion_signals_fired_json, verify_status, verify_output_excerpt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        completion_signals_fired_json, verify_status, verify_output_excerpt,
+        final_audit_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       iter.id,
       iter.loopRunId,
@@ -366,6 +370,7 @@ export class LoopStore {
       JSON.stringify(iter.completionSignalsFired),
       iter.verifyStatus,
       iter.verifyOutputExcerpt,
+      iter.finalAudit ? JSON.stringify(iter.finalAudit) : null,
     );
   }
 
@@ -410,12 +415,13 @@ export class LoopStore {
     return rows.map(rowToRunSummary);
   }
 
-  /** Re-hydrate paused/running loops at app startup. */
+  /** Re-hydrate paused/running loops, plus parked provider-limit loops, at app startup. */
   listResumableRuns(): { runRow: LoopRunRow; config: LoopConfig }[] {
     const rows = this.db
       .prepare(`
         SELECT * FROM loop_runs
         WHERE status IN ('running', 'paused')
+           OR (status = 'provider-limit' AND ended_at IS NULL)
         ORDER BY started_at ASC
       `)
       .all<LoopRunRow>();

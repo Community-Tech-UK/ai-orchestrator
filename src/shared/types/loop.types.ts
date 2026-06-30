@@ -11,6 +11,25 @@ export type {
 import type {
   LoopPingPongConfig,
 } from './loop-pingpong.types';
+import type {
+  LoopAuditConfig,
+} from './loop-audit.types';
+import { defaultLoopAuditConfig } from './loop-audit.types';
+export type {
+  LoopAuditConfig,
+  LoopAuditFinding,
+  LoopAuditStatus,
+  LoopFinalAuditMode,
+  LoopFinalAuditResult,
+  LoopPhaseRecoveryState,
+  LoopPhaseSpec,
+  LoopPlanPacketMode,
+  LoopPlanPacketSummary,
+  LoopPreflightMode,
+  LoopPreflightResult,
+  LoopRepoBaselineSnapshot,
+} from './loop-audit.types';
+export { defaultLoopAuditConfig } from './loop-audit.types';
 export type {
   LoopPingPongConfig,
   LoopPingPongState,
@@ -91,6 +110,8 @@ export interface LoopProgressThresholds {
   /** Within-iteration tool repetition. */
   toolRepeatWarnPerIteration: number;       // default 5
   toolRepeatCriticalPerIteration: number;   // default 8
+  /** Consecutive identical tool calls within one iteration. */
+  identicalToolCallConsecutiveCritical: number; // default 3
   /** Test-pass-count unchanged with file writes. */
   testStagnationWarnIterations: number;     // default 3
   testStagnationCriticalIterations: number; // default 5
@@ -460,6 +481,8 @@ export interface LoopConfig {
   exploration?: LoopExplorationConfig;
   /** LF-4 disposable-plan behaviour (regenerate on stall). Optional; default off. */
   plan?: LoopPlanConfig;
+  /** Supergoal-inspired planning, preflight, and final-audit controls. */
+  audit: LoopAuditConfig;
   /** Sanity gate: before honoring a toolchain/environment-class block intent or
    *  BLOCKED.md, run a cheap liveness probe in the workspace. If the toolchain is
    *  actually responsive, the block is self-refuting and is NOT honored. */
@@ -588,6 +611,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       pauseOnTokenBurn: false,
       toolRepeatWarnPerIteration: 5,
       toolRepeatCriticalPerIteration: 8,
+      identicalToolCallConsecutiveCritical: 3,
       testStagnationWarnIterations: 3,
       testStagnationCriticalIterations: 5,
       churnRatioWarn: 0.30,
@@ -599,6 +623,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
     context: defaultLoopContextConfig(),
     exploration: defaultLoopExplorationConfig(),
     plan: defaultLoopPlanConfig(),
+    audit: defaultLoopAuditConfig(),
     nextObjectivePlanning: defaultNextObjectivePlanningConfig(),
     blockSanityProbe: { enabled: true, timeoutMs: 5000 },
     degradedIterationRetry: { enabled: true, maxRetries: 2 },
@@ -662,12 +687,13 @@ export type LoopStatus =
   | 'no-progress'
   | 'cap-reached'
   /**
-   * Usage-aware throttling terminal state: the loop stopped because the
-   * active provider signalled a usage/rate limit (a provider notice in the
-   * iteration output, or an exhausted quota window) instead of grinding into
-   * paid overage and reporting a misleading `cap-reached`. Distinct so the UI
-   * can say "hit provider limit — resumes when the window resets" and the
-   * operator isn't left thinking the work itself stalled.
+   * Usage-aware throttling state: the active provider signalled a usage/rate
+   * limit (a provider notice in iteration output, or an exhausted quota
+   * window) instead of grinding into paid overage as `cap-reached`.
+   *
+   * `endedAt === null` means the loop is parked/resumable; `endedAt !== null`
+   * means no resume window was available and the provider-limit state is
+   * terminal. Consumers must use `endedAt` to distinguish the two.
    */
   | 'provider-limit'
   /**
@@ -712,6 +738,9 @@ export type {
   LoopFileChange,
   LoopInFlightIteration,
   LoopIteration,
+  LoopPendingInput,
+  LoopPendingInputKind,
+  LoopPendingInputSource,
   LoopState,
   LoopTerminalIntent,
   LoopTerminalIntentEvidence,
@@ -725,4 +754,15 @@ export type {
   ProgressSignalId,
 } from './loop-state.types';
 
-export type { LoopActivityEvent, LoopActivityKind, LoopRunSummary, LoopStreamEvent } from './loop-stream.types';
+export {
+  coercePendingInput,
+  createLoopPendingInput,
+} from './loop-state.types';
+
+export type {
+  LoopActivityEvent,
+  LoopActivityKind,
+  LoopRunSummary,
+  LoopStreamEvent,
+  LoopStreamTerminalStatus,
+} from './loop-stream.types';

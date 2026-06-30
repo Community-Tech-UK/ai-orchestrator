@@ -62,6 +62,9 @@ function baseInput(over: Partial<EvidenceInput> = {}): EvidenceInput {
     allowOperatorReviewedCompletion: false,
     completionAttempts: 0,
     maxCompletionAttempts: 3,
+    finalAuditMode: 'observe',
+    finalAuditStatus: 'passed',
+    finalAuditFindings: [],
     ...over,
   };
 }

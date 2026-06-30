@@ -163,6 +163,32 @@
         />
       </section>
 
+      <section class="row split audit-config">
+        <div>
+          <label for="loop-cfg-preflight">Preflight</label>
+          <select id="loop-cfg-preflight" [ngModel]="preflightMode()" (ngModelChange)="preflightMode.set($event)">
+            <option value="off">Off</option>
+            <option value="record">Record only</option>
+            <option value="block">Block on red baseline</option>
+          </select>
+        </div>
+        <div>
+          <label for="loop-cfg-final-audit">Final audit</label>
+          <select id="loop-cfg-final-audit" [ngModel]="finalAuditMode()" (ngModelChange)="finalAuditMode.set($event)">
+            <option value="observe">Observe</option>
+            <option value="gate">Gate completion</option>
+            <option value="off">Off</option>
+          </select>
+        </div>
+        <div>
+          <label for="loop-cfg-plan-packet">Plan packet</label>
+          <select id="loop-cfg-plan-packet" [ngModel]="planPacketMode()" (ngModelChange)="onPlanPacketModeChange($event)">
+            <option value="off">Off</option>
+            <option value="prompted">Prompt in PLAN</option>
+          </select>
+        </div>
+      </section>
+
       <section class="row split">
         <div>
           <label for="loop-cfg-provider">Provider</label>
@@ -337,6 +363,16 @@
             </label>
           </div>
         }
+        <label>
+          <input
+            id="loop-cfg-cleanliness-scan"
+            type="checkbox"
+            [checked]="cleanlinessScan()"
+            (change)="cleanlinessScan.set(toggleEvent($event))"
+          />
+          Scan final diff for debug leftovers
+          <span class="hint">(conflict markers, focused tests, console logs)</span>
+        </label>
         <label class="warn">
           <input type="checkbox" [checked]="allowDestructive()" (change)="allowDestructive.set(toggleEvent($event))" />
           Allow destructive ops (rm -rf, force-push)

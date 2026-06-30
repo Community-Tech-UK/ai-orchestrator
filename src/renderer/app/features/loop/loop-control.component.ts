@@ -104,7 +104,7 @@ import { PromptModalComponent } from '../../shared/components/prompt-modal/promp
     }
 
     @if (active(); as a) {
-      <div class="loop-status" [class.paused]="a.status === 'paused'">
+      <div class="loop-status" [class.paused]="a.status === 'paused' || (a.status === 'provider-limit' && a.endedAt === null)">
         @if (statusPill(); as pill) {
           <span class="ls-pill" [attr.data-pill]="pill.kind">{{ pill.label }}</span>
         }
@@ -122,7 +122,7 @@ import { PromptModalComponent } from '../../shared/components/prompt-modal/promp
         <span class="ls-actions">
           @if (a.status === 'running') {
             <button type="button" (click)="onPause()" title="Pause loop">Pause</button>
-          } @else if (a.status === 'paused') {
+          } @else if (a.status === 'paused' || (a.status === 'provider-limit' && a.endedAt === null)) {
             @if (pauseKind() === 'awaiting-review') {
               <button type="button" class="ls-accept" (click)="onAcceptCompletion()" title="Accept the work as complete">Accept as complete</button>
             }
@@ -159,6 +159,16 @@ import { PromptModalComponent } from '../../shared/components/prompt-modal/promp
             @if (step.state !== 'skipped') {
               <span class="lg-step" [attr.data-state]="step.state">{{ step.label }}</span>
             }
+          }
+        </div>
+      }
+
+      @if (auditStatus(); as audit) {
+        <div class="loop-audit" title="Preflight and final audit status">
+          <span class="lau-chip" [attr.data-state]="audit.preflightState">{{ audit.preflightLabel }}</span>
+          <span class="lau-chip" [attr.data-state]="audit.finalAuditState">{{ audit.finalAuditLabel }}</span>
+          @if (audit.reportFile) {
+            <code>{{ audit.reportFile }}</code>
           }
         </div>
       }
@@ -533,6 +543,7 @@ export class LoopControlComponent implements OnDestroy {
     const b = this.banner();
     return loopStatusPill({
       status: a.status,
+      endedAt: a.endedAt,
       manualReviewOnly: a.manualReviewOnly,
       lastCompletionOutcome: a.lastCompletionOutcome,
       bannerKind: b?.kind ?? null,
@@ -576,6 +587,26 @@ export class LoopControlComponent implements OnDestroy {
     const a = this.active();
     if (!a) return false;
     return a.status === 'paused' || a.lastCompletionOutcome !== undefined;
+  });
+
+  auditStatus = computed(() => {
+    const a = this.active();
+    if (!a) return null;
+    const auditConfig = a.config.audit;
+    if (!auditConfig && !a.preflight && !a.latestFinalAudit) return null;
+    const preflightMode = auditConfig?.preflightMode ?? 'off';
+    const finalAuditMode = auditConfig?.finalAuditMode ?? 'off';
+    const preflightStatus = a.preflight?.status ?? (preflightMode === 'off' ? 'off' : 'pending');
+    const finalAuditStatus = a.latestFinalAudit?.status ?? (finalAuditMode === 'off' ? 'skipped' : 'pending');
+    return {
+      preflightState: preflightStatus,
+      finalAuditState: finalAuditStatus,
+      preflightLabel: `Preflight ${this.auditStatusLabel(preflightStatus)}`,
+      finalAuditLabel: `Audit ${finalAuditMode} ${this.auditStatusLabel(finalAuditStatus)}`,
+      reportFile: a.latestFinalAudit?.reportPath
+        ? this.basename(a.latestFinalAudit.reportPath)
+        : null,
+    };
   });
 
   /**
@@ -795,6 +826,15 @@ export class LoopControlComponent implements OnDestroy {
     if (this.tickHandle) clearInterval(this.tickHandle);
     if (this.copyClearHandle) clearTimeout(this.copyClearHandle);
     this.reactionEventUnsub?.();
+  }
+
+  private auditStatusLabel(status: string): string {
+    return status === 'needs-review' ? 'needs review' : status;
+  }
+
+  private basename(filePath: string): string {
+    const normalized = filePath.replace(/\\/g, '/');
+    return normalized.slice(normalized.lastIndexOf('/') + 1) || normalized;
   }
 
   // ────── summary card actions ──────

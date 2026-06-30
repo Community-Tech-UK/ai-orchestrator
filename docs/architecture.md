@@ -91,6 +91,15 @@ Located in `src/main/orchestration/` (27 files):
    - HUD state and quick-action bundles are derived in orchestration services and consumed by renderer orchestration components
    - Verification verdicts are derived by `verification-verdict-deriver.ts` and pushed through `verification:verdict-ready` with raw responses preserved
 
+8. **Loop Mode planning and audit envelope**
+   - `loop-coordinator.ts` owns iteration scheduling, completion seams, preflight execution, final-audit gating, and state transitions.
+   - Loop-owned artifacts are scoped under `.aio-loop-state/<loopRunId>/`: `LOOP_TASKS.md`, `ROADMAP.md`, `PRE_FLIGHT.md`, `AUDIT.md`, `repo-baseline.json`, and `phases/`.
+   - Repo baselines are captured by `loop-repo-state.ts`; comparisons use single-revision working-tree diffs so tracked, staged, unstaged, and untracked files are visible while `.aio-loop-control/`, `.aio-loop-attachments/`, `.aio-loop-state/`, `.git/`, and `node_modules/` stay excluded.
+   - Audit config modes are explicit: `finalAuditMode` is `off`, `observe`, or `gate`; `preflightMode` is `off`, `record`, or `block`; `planPacketMode` is `off` or `prompted`; `cleanlinessScan` controls added-line scans for conflict markers, focused tests, and debug statements.
+   - Preflight runs once before the first child iteration when enabled. `record` stores `PRE_FLIGHT.md` and continues on red; `block` pauses before implementation if verification is red.
+   - Completion authority remains machine-owned: verify/fresh-eyes evidence and existing gates are resolved by `evidence-resolver.ts`; in `gate` mode, `loop-final-audit.ts` can reject completion or stop as `completed-needs-review`. In `observe` mode, audit findings are persisted but do not change completion.
+   - Plan packets are prompted during PLAN mode by `loop-stage-machine.ts` and parsed by `loop-plan-packet.ts` for final-audit coverage. Malformed packets require review; transcript markers from Supergoal or native `/goal` are not used.
+
 ## Provider System
 
 Located in `src/main/providers/`:

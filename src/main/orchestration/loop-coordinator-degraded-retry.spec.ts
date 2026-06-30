@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { runLoopControlCli } from './loop-control-cli';
 import { CompletedFileWatcher } from './loop-completion-detector';
+import { classifyDegradedIteration } from './loop-coordinator-block-utils';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 
 let workspace: string;
@@ -184,13 +185,6 @@ describe('LoopCoordinator degraded iteration retry', () => {
   });
 
   it('classifies degraded iterations correctly', () => {
-    const classifyDegradedIteration = (coordinator as unknown as {
-      classifyDegradedIteration: (
-        childResult: LoopChildResult | null,
-        invocationError: string | null,
-      ) => 'invocation-error' | 'void-iteration' | null;
-    }).classifyDegradedIteration.bind(coordinator);
-
     expect(classifyDegradedIteration(null, 'boom')).toBe('invocation-error');
     expect(classifyDegradedIteration(null, null)).toBeNull();
     expect(classifyDegradedIteration(iterationResult(''), null)).toBe('void-iteration');

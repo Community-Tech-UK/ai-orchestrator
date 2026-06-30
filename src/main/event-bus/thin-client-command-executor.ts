@@ -21,7 +21,7 @@ import {
 import { SnapshotTakePayloadSchema } from '@contracts/schemas/session';
 import type { CommandName } from '../../shared/types/thin-client-event.types';
 import type { IpcResponse } from '../../shared/types/ipc.types';
-import type { LoopConfig, LoopState } from '../../shared/types/loop.types';
+import type { LoopConfig, LoopPendingInputKind, LoopState } from '../../shared/types/loop.types';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { ChatService } from '../chats';
 import { getPauseCoordinator } from '../pause/pause-coordinator';
@@ -89,7 +89,7 @@ export interface ThinClientCommandExecutorDeps {
     pauseLoop(loopRunId: string): boolean;
     resumeLoop(loopRunId: string): boolean;
     cancelLoop(loopRunId: string): Promise<boolean>;
-    intervene(loopRunId: string, message: string): boolean;
+    intervene(loopRunId: string, message: string, kind?: LoopPendingInputKind): boolean;
     acceptCompletion(loopRunId: string): Promise<boolean>;
     getLoop(loopRunId: string): unknown;
   };
@@ -347,7 +347,9 @@ function interveneLoop(
   try {
     const validated = validateIpcPayload(LoopInterveneePayloadSchema, payload, 'THIN_CLIENT_LOOP_INTERVENE');
     const coordinator = getLoopCoordinatorForDeps(deps);
-    const ok = coordinator.intervene(validated.loopRunId, validated.message);
+    const ok = validated.kind
+      ? coordinator.intervene(validated.loopRunId, validated.message, validated.kind)
+      : coordinator.intervene(validated.loopRunId, validated.message);
     if (ok) {
       appendLoopInterveneMessage(deps, coordinator.getLoop(validated.loopRunId), validated.message);
     }
