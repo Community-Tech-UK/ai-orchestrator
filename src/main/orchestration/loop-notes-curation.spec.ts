@@ -1,5 +1,5 @@
 /**
- * LF-3 (loopfixex §LF-3) — NOTES.md curation + cost-cap default.
+ * LF-3 (loopfixex §LF-3) — NOTES.md curation + cost-cap defaults.
  *
  * NOTES.md is agent-maintained, re-read every iteration, and otherwise
  * unbounded. `curateNotesContent` bounds it on long runs while preserving the
@@ -77,8 +77,8 @@ describe('curateNotesContent (LF-3)', () => {
 });
 
 describe('defaultLoopConfig cost cap (LF-3)', () => {
-  it('defaults maxCostCents to a concrete loop spend cap', () => {
+  it('defaults maxCostCents to no estimated usage cap', () => {
     const cfg = defaultLoopConfig('/tmp/ws', 'goal');
-    expect(cfg.caps.maxCostCents).toBe(20_000);
+    expect(cfg.caps.maxCostCents).toBeNull();
   });
 });

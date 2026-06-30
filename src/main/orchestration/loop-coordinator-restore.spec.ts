@@ -90,6 +90,30 @@ describe('LoopCoordinator checkpoint restore', () => {
     expect(invocations).toBe(1);
   });
 
+  it('treats a running checkpoint as an interrupted paused loop on restore', async () => {
+    const interrupted = {
+      ...pausedState(),
+      status: 'running' as const,
+      inFlightIteration: {
+        seq: 3,
+        stage: 'IMPLEMENT' as const,
+        startedAt: 1_700_000_000_000,
+        idempotencyKey: 'loop-restore-1:iteration:3',
+      },
+    };
+
+    const restored = await coordinator.restoreLoopFromCheckpoint(buildLoopCheckpoint({
+      state: interrupted,
+      history: [],
+      convergenceNote: 'app restarted mid-iteration',
+      now: 500,
+    }));
+
+    expect(restored.status).toBe('paused');
+    expect(restored.inFlightIteration).toEqual(interrupted.inFlightIteration);
+    expect(coordinator.getLoop('loop-restore-1')?.status).toBe('paused');
+  });
+
   // P2 / Decision D fail-closed on restore: an isolated loop whose worktree is
   // gone (crash + manual cleanup, or executionCwd never persisted) must surface
   // a block rather than silently restoring against the shared repo root. A

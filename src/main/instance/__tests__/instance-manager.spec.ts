@@ -23,6 +23,11 @@ const {
   mockProjectMemoryBuildBrief,
   mockPromptHistoryRecord,
   mockResourceGovernorGetCreationBlockReason,
+  mockLoopCoordinator,
+  mockLoopStore,
+  mockPrepareLoopStartConfig,
+  mockAppendLoopStartPrompt,
+  mockChatService,
 } = vi.hoisted(() => ({
   mockCreateCliAdapter: vi.fn(),
   mockCommandExecuteCommandString: vi.fn().mockResolvedValue(null),
@@ -43,6 +48,22 @@ const {
   }),
   mockPromptHistoryRecord: vi.fn(),
   mockResourceGovernorGetCreationBlockReason: vi.fn<() => string | null>(() => null),
+  mockLoopCoordinator: {
+    startLoop: vi.fn(),
+    getActiveLoops: vi.fn(),
+    pauseLoop: vi.fn(),
+    resumeLoop: vi.fn(),
+    cancelLoop: vi.fn(),
+    getLoop: vi.fn(),
+  },
+  mockLoopStore: {
+    upsertRun: vi.fn(),
+  },
+  mockPrepareLoopStartConfig: vi.fn(),
+  mockAppendLoopStartPrompt: vi.fn(),
+  mockChatService: {
+    tryGetChat: vi.fn(),
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -351,6 +372,26 @@ vi.mock('../../commands/command-manager', () => ({
   getCommandManager: vi.fn(() => ({
     executeCommandString: mockCommandExecuteCommandString,
   })),
+}));
+
+vi.mock('../../orchestration/loop-coordinator', () => ({
+  getLoopCoordinator: vi.fn(() => mockLoopCoordinator),
+}));
+
+vi.mock('../../orchestration/loop-store', () => ({
+  getLoopStore: vi.fn(() => mockLoopStore),
+}));
+
+vi.mock('../../orchestration/loop-start-config', () => ({
+  prepareLoopStartConfig: mockPrepareLoopStartConfig,
+}));
+
+vi.mock('../../ipc/handlers/loop-transcript-dispatch', () => ({
+  appendLoopStartPrompt: mockAppendLoopStartPrompt,
+}));
+
+vi.mock('../../chats', () => ({
+  getChatService: vi.fn(() => mockChatService),
 }));
 
 vi.mock('../../commands/markdown-command-registry', () => ({
@@ -826,6 +867,33 @@ describe('InstanceManager', () => {
     });
     mockPromptHistoryRecord.mockReset();
     mockAdapterName = 'claude-cli';
+    mockLoopCoordinator.startLoop.mockImplementation(async (chatId: string, config: unknown) => ({
+      id: 'loop-goal-1',
+      chatId,
+      config,
+      status: 'running',
+      startedAt: 1,
+      endedAt: null,
+      currentStage: 'IMPLEMENT',
+      totalIterations: 0,
+      totalTokens: 0,
+      totalCostCents: 0,
+      lastIteration: null,
+      pendingInterventions: [],
+      errors: [],
+      filesChanged: [],
+      convergenceNote: null,
+      manualReviewOnly: true,
+    }));
+    mockLoopCoordinator.getActiveLoops.mockReturnValue([]);
+    mockLoopCoordinator.pauseLoop.mockReturnValue(true);
+    mockLoopCoordinator.resumeLoop.mockReturnValue(true);
+    mockLoopCoordinator.cancelLoop.mockResolvedValue(true);
+    mockLoopCoordinator.getLoop.mockReturnValue(undefined);
+    mockLoopStore.upsertRun.mockReset();
+    mockPrepareLoopStartConfig.mockImplementation(async (config: unknown) => config);
+    mockAppendLoopStartPrompt.mockReset();
+    mockChatService.tryGetChat.mockReturnValue(null);
 
     mockResolveAgent.mockResolvedValue({
       id: 'build',
@@ -1473,7 +1541,7 @@ describe('InstanceManager', () => {
       }));
     });
 
-    it('handles /goal slash commands without forwarding raw slash text', async () => {
+    it('routes raw /goal slash commands into Loop Mode without forwarding provider text', async () => {
       const instance = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,
         displayName: 'Goal Command Test',
@@ -1497,25 +1565,37 @@ describe('InstanceManager', () => {
 
       await manager.sendInput(instance.id, '/goal ship settings');
 
-      expect(instance.metadata?.['goal']).toMatchObject({
-        objective: 'ship settings',
-        status: 'active',
-      });
-      const providerPrompt = mockAdapterSendInput.mock.calls.at(-1)?.[0] as string;
-      expect(providerPrompt).toContain('Active goal');
-      expect(providerPrompt).toContain('ship settings');
-      expect(providerPrompt).not.toContain('/goal ship settings');
-      expect(instance.outputBuffer).toContainEqual(expect.objectContaining({
-        type: 'user',
-        content: '/goal ship settings',
+      expect(mockAdapterSendInput).not.toHaveBeenCalled();
+      expect(instance.metadata?.['goal']).toBeUndefined();
+      expect(mockPrepareLoopStartConfig).toHaveBeenCalledWith(expect.objectContaining({
+        initialPrompt: 'ship settings',
+        workspaceCwd: TEST_WORKING_DIR,
+        provider: 'claude',
+        goalIntent: 'implementation',
+        completion: expect.objectContaining({
+          mode: 'gated',
+          verifyCommand: '',
+          allowOperatorReviewedCompletion: true,
+        }),
       }));
-      expect(instance.outputBuffer).toContainEqual(expect.objectContaining({
-        type: 'system',
-        content: expect.stringContaining('Active goal set'),
+      expect(mockLoopCoordinator.startLoop).toHaveBeenCalledWith(
+        instance.id,
+        expect.objectContaining({ initialPrompt: 'ship settings', workspaceCwd: TEST_WORKING_DIR }),
+        undefined,
+        { existingSessionContext: undefined },
+      );
+      expect(mockLoopStore.upsertRun).toHaveBeenCalledWith(expect.objectContaining({
+        id: 'loop-goal-1',
+        chatId: instance.id,
       }));
+      expect(mockAppendLoopStartPrompt).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'loop-goal-1', chatId: instance.id }),
+        mockChatService,
+        manager,
+      );
     });
 
-    it('injects active goal context into later normal turns', async () => {
+    it('does not create legacy active-goal metadata after raw /goal starts Loop Mode', async () => {
       const instance = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,
         displayName: 'Goal Context Test',
@@ -1542,15 +1622,15 @@ describe('InstanceManager', () => {
       await manager.sendInput(instance.id, 'what is next?');
 
       const sentMessage = mockAdapterSendInput.mock.calls.at(-1)?.[0] as string;
-      expect(sentMessage).toContain('## Active /goal');
-      expect(sentMessage).toContain('ship settings');
+      expect(instance.metadata?.['goal']).toBeUndefined();
+      expect(sentMessage).not.toContain('## Active /goal');
       expect(sentMessage).toContain('what is next?');
     });
 
-    it('does not execute /goal through direct sendInput for unsupported providers', async () => {
+    it('allows raw /goal for Gemini because Loop Mode owns execution', async () => {
       const instance = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,
-        displayName: 'Unsupported Goal Provider Test',
+        displayName: 'Gemini Goal Provider Test',
       });
       await instance.readyPromise;
       instance.provider = 'gemini';
@@ -1574,10 +1654,12 @@ describe('InstanceManager', () => {
 
       expect(instance.metadata?.['goal']).toBeUndefined();
       expect(mockAdapterSendInput).not.toHaveBeenCalled();
-      expect(instance.outputBuffer).toContainEqual(expect.objectContaining({
-        type: 'system',
-        content: expect.stringContaining('Goal mode is available for Claude and Codex sessions'),
-      }));
+      expect(mockLoopCoordinator.startLoop).toHaveBeenCalledWith(
+        instance.id,
+        expect.objectContaining({ provider: 'gemini', initialPrompt: 'ship settings' }),
+        undefined,
+        expect.any(Object),
+      );
     });
 
     it('does not prepend orchestration context to restored conversations with prior history', async () => {

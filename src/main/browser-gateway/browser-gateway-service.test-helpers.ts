@@ -8,7 +8,10 @@ import type {
   BrowserProfile,
   BrowserTarget,
 } from '@contracts/types/browser';
-import { BrowserGatewayService } from './browser-gateway-service';
+import {
+  BrowserGatewayService,
+  type BrowserGatewayServiceOptions,
+} from './browser-gateway-service';
 import type { BrowserExtensionCommandStore } from './browser-extension-command-store';
 import type { BrowserGatewayHealthReport } from './browser-health-service';
 import type { BrowserAutoApprovePredicate } from './browser-auto-approve';
@@ -91,6 +94,7 @@ export function makeService(overrides: {
   extensionCommandStore?: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
   resolvePreferredDebugPort?: (profileId: string) => number | undefined;
   stageUploadFileOnNode?: (nodeId: string, localPath: string) => Promise<string>;
+  useSingleton?: boolean;
 } = {}) {
   const audits: BrowserAuditEntry[] = [];
   const approvalRequests: BrowserApprovalRequest[] = [];
@@ -256,7 +260,7 @@ export function makeService(overrides: {
     ),
     detachTab: vi.fn(),
   };
-  const service = new BrowserGatewayService({
+  const serviceOptions: BrowserGatewayServiceOptions = {
     profileStore,
     profileRegistry,
     targetRegistry: {
@@ -340,7 +344,10 @@ export function makeService(overrides: {
         warnings: [],
       }),
     },
-  });
+  };
+  const service = overrides.useSingleton
+    ? BrowserGatewayService.initialize(serviceOptions)
+    : new BrowserGatewayService(serviceOptions);
 
   return {
     service,

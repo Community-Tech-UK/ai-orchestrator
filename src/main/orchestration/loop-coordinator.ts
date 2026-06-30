@@ -63,10 +63,12 @@ import {
   writeLoopControlFile,
   type LoopControlRuntime,
 } from './loop-control';
+import { invokeLoopChildIteration } from './loop-child-invoker';
 import { computeWorkHash } from './loop-work-hash';
 import { detectConvergeUntilCleanIntent, detectLoopGoalIntent } from './loop-intent';
 import {
   boundFullOutput,
+  buildOperatorReviewPauseMessages,
   completedPlanWatchDirs,
   excerpt,
   jaccard,
@@ -127,6 +129,7 @@ import {
   type LoopChildResult,
   type LoopIntentPersistHook,
   type LoopIterationHook,
+  type LoopPreIterationHook,
   type LoopRuntimeContext,
   type PauseGate,
   type ProviderLimitResumeScheduler,
@@ -225,6 +228,7 @@ export class LoopCoordinator extends EventEmitter {
   private runtimeContexts = new Map<string, LoopRuntimeContext>();
   private loopControls = new Map<string, LoopControlRuntime>();
   private nextObjectivePlanners = new Map<string, NextObjectivePlanner>();
+  private preIterationHooks: LoopPreIterationHook[] = [];
   private iterationHooks: LoopIterationHook[] = [];
   private intentPersistHook: LoopIntentPersistHook | null = null;
   private adapterCleanupHook: LoopAdapterCleanupHook | null = null;
@@ -509,6 +513,7 @@ export class LoopCoordinator extends EventEmitter {
       this.instance.runtimeContexts.clear();
       this.instance.loopControls.clear();
       this.instance.nextObjectivePlanners.clear();
+      this.instance.preIterationHooks = [];
       this.instance.iterationHooks = [];
       this.instance.intentPersistHook = null;
       this.instance.adapterCleanupHook = null;
@@ -518,6 +523,21 @@ export class LoopCoordinator extends EventEmitter {
       this.instance.removeAllListeners();
       this.instance = null;
     }
+  }
+
+  /**
+   * Register a pre-iteration hook. Hooks run after the next iteration's
+   * idempotency marker is installed on state and before the child provider is
+   * invoked. Unlike post-iteration hooks, failures are load-bearing: throwing
+   * aborts the spawn so a loop does not begin paid work without a durable
+   * pre-iteration checkpoint.
+   */
+  registerPreIterationHook(hook: LoopPreIterationHook): () => void {
+    this.preIterationHooks.push(hook);
+    return () => {
+      const i = this.preIterationHooks.indexOf(hook);
+      if (i >= 0) this.preIterationHooks.splice(i, 1);
+    };
   }
 
   /**
@@ -970,6 +990,14 @@ export class LoopCoordinator extends EventEmitter {
       });
       state.pingPong.inFlightReviewerInstanceId = undefined;
       state.pingPong.inFlightRound = undefined;
+    }
+    if (state.status === 'running') {
+      state.status = 'paused';
+      state.endReason = state.endReason ?? 'app-restart';
+      logger.info('Loop restore: treating running checkpoint as interrupted paused state', {
+        id: state.id,
+        inFlightSeq: state.inFlightIteration?.seq,
+      });
     }
     if (state.status !== 'paused' && state.status !== 'provider-limit') {
       throw new Error(`Cannot restore non-paused loop checkpoint: ${state.status}`);
@@ -1626,6 +1654,15 @@ export class LoopCoordinator extends EventEmitter {
       // removed it.)
       state.pendingInterventions.length = 0;
 
+      const inFlightIteration = {
+        seq,
+        stage,
+        startedAt: iterStart,
+        idempotencyKey: this.iterationIdempotencyKey(state.id, seq),
+      };
+      state.inFlightIteration = inFlightIteration;
+      await this.runPreIterationHooks(state, inFlightIteration);
+
       this.emit('loop:iteration-started', { loopRunId: state.id, seq, stage });
 
       let childResult: LoopChildResult | null = null;
@@ -1729,12 +1766,15 @@ export class LoopCoordinator extends EventEmitter {
         } else if (state.status === 'paused') {
           // D6: inner retry loop exited because the parent instance was interrupted
           // (pauseLoop() was called). Propagate to runLoop's top-of-iteration pause check.
+          this.clearInFlightIteration(state, seq);
+          this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
           continue;
         } else {
           this.terminate(state, 'error', invocationError ?? 'iteration invocation failed');
           return;
         }
       }
+      this.clearInFlightIteration(state, seq);
 
       // If the loop was cancelled (or terminated otherwise) while the
       // iteration was in flight, drop the result silently. Don't accumulate
@@ -2105,50 +2145,31 @@ export class LoopCoordinator extends EventEmitter {
           // rename-gate budget exhausted; fall through to post-log terminal handling
           completionNeedsReviewReason = resolution.needsReviewReason!;
         } else if (resolution.decision === 'pause-operator-review') {
-          // Verify was skipped (no verify command), so the fresh-eyes cross-model
-          // review is the only thing that could independently confirm completion.
-          // Two distinct situations land here, and they MUST read differently to
+          // Completion reached a state that needs operator judgment. Two
+          // distinct situations land here, and they MUST read differently to
           // the operator:
           //   (a) freshEyesErrored — the review ran but produced no verdict (the
           //       reviewer threw, returned unparseable output, or no reviewer CLI
-          //       was available). This is NOT "you forgot a verify command"; the
-          //       default verification exists and crashed.
+          //       was available). If verify passed, that evidence is preserved,
+          //       but the explicitly enabled review gate still did not pass.
           //   (b) otherwise — fresh-eyes review was never enabled (or did not run)
           //       and there is no verify command, so there is no authority at all.
           // The resolver already distinguishes the two in `resolution.reason`;
           // surface it verbatim instead of the old one-size "no verify command
           // configured" string, which hid a crashed reviewer behind a config nag.
           this.rejectPendingCompleteIntent(state, resolution.reason);
-          const failure = freshEyesErrored
-            ? 'Completion cannot be auto-confirmed: the fresh-eyes review that would ' +
-              'independently verify this loop could not produce a verdict (the reviewers ' +
-              'returned unparseable output, or none were available). No verify command is ' +
-              'configured as a fallback, so the loop is pausing for operator review. Inspect ' +
-              'the work and accept it manually, or fix the reviewer setup (or add a verify ' +
-              'command) and keep iterating.'
-            : 'Completion cannot be confirmed: no verify command is configured and fresh-eyes ' +
-              'review is not enabled, so the loop has no independent way to check the work is ' +
-              'actually done. Configure a verify command (your test / lint / build command) or ' +
-              'enable fresh-eyes review before starting a loop that should auto-complete, or ' +
-              'inspect the reported evidence and stop the loop manually.';
+          const pauseMessages = buildOperatorReviewPauseMessages({
+            freshEyesErrored,
+            verifyStatus: v2.status,
+          });
           this.emit('loop:claimed-done-but-failed', {
             loopRunId: state.id,
             signal: candidate.id,
-            failure,
+            failure: pauseMessages.failure,
           });
-          const intervention = freshEyesErrored
-            ? 'Your completion was NOT accepted. The fresh-eyes review that would independently ' +
-              'confirm it could not produce a verdict this time (the reviewers returned ' +
-              'unparseable output, or none were available). Do not simply re-declare completion ' +
-              '— it will be rejected again until an independent review succeeds. The loop is ' +
-              'pausing for operator review.'
-            : 'Your completion was NOT accepted. This loop has no verify command configured and ' +
-              'fresh-eyes review is not enabled, so it cannot independently confirm the work is ' +
-              'finished. Do not simply re-declare completion — it will be rejected again. The ' +
-              'loop is pausing for operator review because only the operator can decide whether ' +
-              'your reported verification evidence is sufficient without an independent verify command.';
-          state.pendingInterventions.push(intervention);
+          state.pendingInterventions.push(pauseMessages.intervention);
           this.convergenceNotes.set(state.id, resolution.convergenceNote ?? 'completion was unverifiable (no verify command configured)');
+          state.endReason = resolution.reason;
           pauseBecauseCompletionCannotBeVerified = true;
         } else {
           // decision === 'continue' — map the specific outcome to the right rejection action
@@ -2463,7 +2484,7 @@ export class LoopCoordinator extends EventEmitter {
       if (pauseBecauseCompletionCannotBeVerified) {
         state.status = 'paused';
         this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
-        logger.info('Loop paused — completion cannot be verified without a verify command', { loopRunId: state.id });
+        logger.info('Loop paused — completion requires operator review', { loopRunId: state.id });
         continue;
       }
 
@@ -2677,109 +2698,49 @@ export class LoopCoordinator extends EventEmitter {
   // ============ Internal — child invocation (extensibility) ============
 
   private invokeChild(state: LoopState, prompt: string, stage: LoopStage, forceContextReset = false): Promise<LoopChildResult> {
-    if (this.listenerCount('loop:invoke-iteration') === 0) {
-      throw new Error(
-        'No handler registered for loop:invoke-iteration. ' +
-        'Register one in src/main/index.ts to wire LLM invocation.'
-      );
-    }
-    return new Promise<LoopChildResult>((resolve, reject) => {
-      let settled = false;
-      const correlationId = `${state.id}::${state.totalIterations}`;
-      const iterationTimeoutMs = Math.max(
-        1,
-        state.config.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
-      );
-      const streamIdleTimeoutMs = Math.max(
-        1,
-        state.config.streamIdleTimeoutMs ?? 5 * 60 * 1000,
-      );
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      let lastActivityAt = 0;
-      const seq = state.totalIterations;
-
-      const onActivity = (payload: unknown): void => {
-        const activity = payload as {
-          loopRunId?: string;
-          seq?: number;
-          kind?: string;
-        };
-        if (activity.loopRunId !== state.id || activity.seq !== seq) return;
-        if (activity.kind === 'stream-idle' || activity.kind === 'error') return;
-        lastActivityAt = Date.now();
-      };
-
-      const cleanup = (): void => {
-        if (timeout) {
-          clearTimeout(timeout);
-          timeout = undefined;
-        }
-        this.off('loop:activity', onActivity);
-      };
-
-      const scheduleTimeout = (delayMs: number): void => {
-        timeout = setTimeout(handleTimeout, Math.max(1, delayMs));
-      };
-
-      const handleTimeout = (): void => {
-        timeout = undefined;
-        if (settled) return;
-        const idleMs = lastActivityAt > 0 ? Date.now() - lastActivityAt : Number.POSITIVE_INFINITY;
-        if (lastActivityAt > 0 && idleMs < streamIdleTimeoutMs) {
-          const nextDelayMs = Math.max(
-            1,
-            Math.min(iterationTimeoutMs, streamIdleTimeoutMs - idleMs),
-          );
-          logger.info('Loop iteration timeout checkpoint extended while child is active', {
-            loopRunId: state.id,
-            seq,
-            iterationTimeoutMs,
-            streamIdleTimeoutMs,
-            idleMs,
-            nextDelayMs,
-          });
-          scheduleTimeout(nextDelayMs);
-          return;
-        }
-        settled = true;
-        cleanup();
-        reject(new Error(`Loop iteration timed out after ${iterationTimeoutMs}ms`));
-      };
-
-      this.on('loop:activity', onActivity);
-      scheduleTimeout(iterationTimeoutMs);
-
-      this.emit('loop:invoke-iteration', {
-        correlationId,
-        loopRunId: state.id,
-        chatId: state.chatId,
-        provider: state.config.provider,
-        model: this.downshiftModelByLoop.get(state.id),
-        workspaceCwd: state.config.workspaceCwd,
-        executionCwd: state.config.executionCwd,
-        stage,
-        seq: state.totalIterations,
-        config: state.config,
-        prompt,
-        loopControlEnv: this.loopControls.has(state.id)
-          ? buildLoopControlEnv(this.loopControls.get(state.id)!)
-          : undefined,
-        iterationTimeoutMs: state.config.iterationTimeoutMs,
-        streamIdleTimeoutMs: state.config.streamIdleTimeoutMs,
-        // LF-4 RPI: recycle the same-session context before this iteration runs.
-        forceContextReset,
-        callback: (result: LoopChildResult | { error: string }) => {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          if ('error' in result) reject(new Error(result.error));
-          else resolve(result);
-        },
-      });
+    const control = this.loopControls.get(state.id);
+    return invokeLoopChildIteration({
+      emitter: this,
+      state,
+      prompt,
+      stage,
+      forceContextReset,
+      downshiftModel: this.downshiftModelByLoop.get(state.id),
+      loopControlEnv: control ? buildLoopControlEnv(control) : undefined,
+      idempotencyKey: state.inFlightIteration?.idempotencyKey
+        ?? this.iterationIdempotencyKey(state.id, state.totalIterations),
     });
   }
 
   // ============ Internal — helpers ============
+
+  private iterationIdempotencyKey(loopRunId: string, seq: number): string {
+    return `${loopRunId}:iteration:${seq}`;
+  }
+
+  private async runPreIterationHooks(
+    state: LoopState,
+    inFlightIteration: NonNullable<LoopState['inFlightIteration']>,
+  ): Promise<void> {
+    for (const hook of this.preIterationHooks) {
+      try {
+        await hook({ state, inFlightIteration });
+      } catch (err) {
+        logger.warn('Pre-iteration hook threw; aborting child invocation', {
+          loopRunId: state.id,
+          seq: inFlightIteration.seq,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
+    }
+  }
+
+  private clearInFlightIteration(state: LoopState, seq: number): void {
+    if (state.inFlightIteration?.seq === seq) {
+      state.inFlightIteration = undefined;
+    }
+  }
 
   private appendLoopControlPrompt(state: LoopState, prompt: string): string {
     const loopControl = this.loopControls.get(state.id);
@@ -3013,6 +2974,7 @@ export class LoopCoordinator extends EventEmitter {
     this.providerLimitHandler.clearResumeTimer(state.id);
     this.downshiftModelByLoop.delete(state.id);
     state.status = status;
+    state.inFlightIteration = undefined;
     state.endedAt = Date.now();
     state.endReason = reason ?? status;
     state.endEvidence = {

@@ -31,8 +31,8 @@ import { getLogger } from '../../logging/logger';
 import type { WindowManager } from '../../window-manager';
 import { defaultLoopConfig, type LoopState } from '../../../shared/types/loop.types';
 import type { InstanceManager } from '../../instance/instance-manager';
-import { buildReplayContinuityMessage } from '../../session/replay-continuity';
 import { getChatService } from '../../chats';
+import { buildExistingSessionContext } from '../../orchestration/loop-existing-session-context';
 
 const logger = getLogger('LoopHandlers');
 
@@ -52,20 +52,35 @@ export function registerLoopHandlers(deps: {
 
   // Persist after every iteration completes (the coordinator's hook fires
   // after iteration is sealed). Also persist run row.
+  coordinator.registerPreIterationHook(async ({ state }) => {
+    try {
+      store.persistStateCheckpoint({
+        state,
+        checkpoint: buildLoopCheckpoint({
+          state,
+          history: state.lastIteration ? [state.lastIteration] : [],
+        }),
+      });
+    } catch (err) {
+      logger.warn('LoopStore persistence failed before iteration', {
+        loopRunId: state.id,
+        seq: state.inFlightIteration?.seq,
+        error: String(err),
+      });
+      throw err;
+    }
+  });
+
   coordinator.registerIterationHook(async ({ state, iteration }) => {
     try {
-      store.upsertRun(state);
-      store.insertIteration(iteration);
-      store.upsertCheckpoint(buildLoopCheckpoint({
+      store.persistIterationSnapshot({
         state,
-        history: [iteration],
-      }));
-      // FU-3: a completed iteration means the loop is making progress
-      // through restarts. Reset the consecutive-interruption counter so
-      // a loop that crashed once and then ran a clean iteration is back
-      // in good standing — the next boot will only re-arm the counter
-      // if the iteration ends without completing.
-      store.resetRestartFailureCount(state.id);
+        iteration,
+        checkpoint: buildLoopCheckpoint({
+          state,
+          history: [iteration],
+        }),
+      });
     } catch (err) {
       logger.warn('LoopStore persistence failed for iteration', { error: String(err) });
     }
@@ -102,12 +117,19 @@ export function registerLoopHandlers(deps: {
   // Forward state changes to renderer.
   coordinator.on('loop:state-changed', (data: { loopRunId: string; state: LoopState }) => {
     try {
-      store.upsertRun(data.state);
-      store.upsertCheckpoint(buildLoopCheckpoint({
+      store.persistStateCheckpoint({
         state: data.state,
-        history: data.state.lastIteration ? [data.state.lastIteration] : [],
-      }));
-    } catch { /* logged below */ }
+        checkpoint: buildLoopCheckpoint({
+          state: data.state,
+          history: data.state.lastIteration ? [data.state.lastIteration] : [],
+        }),
+      });
+    } catch (err) {
+      logger.warn('LoopStore persistence failed for state change', {
+        loopRunId: data.loopRunId,
+        error: String(err),
+      });
+    }
     if (isTerminalLoopStatus(data.state.status)) {
       try {
         appendLoopTerminalSummary(data.state, chatService, deps.instanceManager);
@@ -505,36 +527,7 @@ export function registerLoopHandlers(deps: {
   });
 }
 
-export function buildExistingSessionContext(
-  instanceManager: InstanceManager,
-  chatId: string,
-): string | undefined {
-  const instance = instanceManager.getInstance(chatId);
-  if (!instance || instance.outputBuffer.length === 0) {
-    return undefined;
-  }
-
-  const context = buildReplayContinuityMessage(instance.outputBuffer, {
-    reason: 'loop-existing-session',
-    maxTurns: 24,
-    maxCharsPerMessage: 1000,
-  });
-  if (!context) {
-    return undefined;
-  }
-
-  logger.info('Attached existing session context to loop start', {
-    chatId,
-    messageCount: instance.outputBuffer.length,
-    contextLength: context.length,
-  });
-
-  return [
-    context,
-    '',
-    'Use this as prior context from the existing visible session. It is read-only background; the loop goal remains the current task.',
-  ].join('\n');
-}
+export { buildExistingSessionContext };
 
 function errorResponse(code: string, error: unknown): IpcResponse {
   return {
@@ -564,4 +557,3 @@ function isTerminalLoopStatus(status: LoopState['status']): boolean {
     || status === 'builder-unreliable'
   );
 }
-

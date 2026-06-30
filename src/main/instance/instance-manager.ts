@@ -18,7 +18,7 @@ import { getLogger } from '../logging/logger';
 import { generateChildPrompt, stripOrchestrationMarkers } from '../orchestration/orchestration-protocol';
 import { getCommandManager } from '../commands/command-manager';
 import { appendActiveGoalContext } from '../commands/goal-command';
-import { handleInstanceGoalCommand } from '../commands/instance-goal-command';
+import { executeGoalLoopCommandForInstanceInput } from '../commands/goal-loop-command';
 import { resolveSessionReferences } from '../session/session-reference-resolver';
 import { getActionCircuitBreaker } from '../security/action-circuit-breaker';
 import { forgetLspFeedbackInstance } from '../codemem/lsp-feedback-registration';
@@ -1424,7 +1424,6 @@ export class InstanceManager extends EventEmitter {
     // This keeps UX consistent (user types `/commit`, instance receives the expanded template).
     let resolvedMessage = message;
     let resolvedCommandName: string | undefined;
-    let resolvedCommandArgs: string[] | undefined;
     let resolvedCommandMeta: {
       executionType: 'prompt' | 'compact' | 'goal' | 'ui';
       model?: string;
@@ -1447,7 +1446,6 @@ export class InstanceManager extends EventEmitter {
     });
     if (resolvedCommand) {
       resolvedCommandName = resolvedCommand.command.name;
-      resolvedCommandArgs = resolvedCommand.args;
       resolvedMessage = resolvedCommand.resolvedPrompt;
       resolvedCommandMeta = {
         executionType: resolvedCommand.execution.type,
@@ -1587,17 +1585,11 @@ export class InstanceManager extends EventEmitter {
     }
 
     if (resolvedCommandMeta?.executionType === 'goal') {
-      await handleInstanceGoalCommand({
+      await executeGoalLoopCommandForInstanceInput({
+        instanceManager: this,
+        instanceId,
         instance,
-        args: resolvedCommandArgs ?? [],
-        attachments,
-        userMessage,
-        autoContinuation: options?.autoContinuation === true,
-        recordUserMessage: (msg) => {
-          if (!options?.isRetry) { this.communication.addToOutputBuffer(instance, msg); this.publishOutput(instanceId, msg); }
-        },
-        emitSystemMessage: (content, metadata) => this.emitSystemMessage(instanceId, content, metadata),
-        sendProviderPrompt: (prompt, files, opts) => this.communication.sendInput(instanceId, prompt, files, null, opts),
+        executed: resolvedCommand,
       });
       return;
     }

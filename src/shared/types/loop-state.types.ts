@@ -173,6 +173,13 @@ export interface LoopControlMetadata {
   updatedAt: number;
 }
 
+export interface LoopInFlightIteration {
+  seq: number;
+  stage: LoopStage;
+  startedAt: number;
+  idempotencyKey: string;
+}
+
 export interface LoopState {
   id: string;
   chatId: string;
@@ -191,6 +198,7 @@ export interface LoopState {
   outstanding?: LoopOutstanding;
   pendingInterventions: string[];
   loopControl?: LoopControlMetadata;
+  inFlightIteration?: LoopInFlightIteration;
   terminalIntentPending?: LoopTerminalIntent;
   terminalIntentHistory?: LoopTerminalIntent[];
   completedFileRenameObserved: boolean;

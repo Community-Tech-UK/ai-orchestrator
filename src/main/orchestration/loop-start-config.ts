@@ -8,7 +8,7 @@
  *      default the completion authority to the fresh-eyes cross-model review
  *      instead of forcing a heavy machine verify command; an explicit
  *      `crossModelReview` choice from the caller is preserved;
- *   2. require a non-null cost cap for operator-reviewed loops, which sit
+ *   2. require a non-null estimated usage cap for operator-reviewed loops, which sit
  *      paused awaiting a human Accept and get resumed repeatedly.
  */
 
@@ -54,17 +54,15 @@ export async function prepareLoopStartConfig(
 ): Promise<Partial<LoopConfig> & { initialPrompt: string; workspaceCwd: string }> {
   const verifyCommand = config.completion?.verifyCommand?.trim() ?? '';
   // LF-3a: operator-reviewed loops sit paused waiting for a human Accept and get
-  // resumed/re-attempted repeatedly, so they're the most likely to burn spend.
-  // Require a non-null cost cap. Ordinary UI-started loops now get a default
-  // cap, but programmatic callers can still explicitly clear it.
+  // resumed/re-attempted repeatedly, so require an explicit local usage cap.
   if (
     config.completion?.allowOperatorReviewedCompletion &&
     config.caps?.maxCostCents === null
   ) {
     throw new Error(
-      'Operator-reviewed completion requires a spend cap (Max spend $). ' +
+      'Operator-reviewed completion requires an estimated usage cap. ' +
       'These loops pause for manual sign-off and can be resumed repeatedly, so an ' +
-      'unbounded run is unsafe. Set a Max spend, or configure a verify command.',
+      'unbounded run is unsafe. Set Estimated usage cap, or configure a verify command.',
     );
   }
   // Completion mode. The default for user-started loops is 'review-driven':

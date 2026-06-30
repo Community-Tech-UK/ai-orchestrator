@@ -14,7 +14,6 @@ import type { PickerProvider } from '../models/compact-model-picker.types';
 // optional, so an empty `progressThresholds: {}` would fail validation.
 const DEFAULT_CAPS = {
   maxIterations: 50,
-  maxCostCents: 20_000,
   maxToolCallsPerIteration: 200,
 };
 /** Lower bound for the optional token cap. Below this a single substantial
@@ -137,7 +136,7 @@ export class LoopConfigPanelComponent {
   planFile = signal('');
   maxIterations = signal<number | null>(DEFAULT_CAPS.maxIterations);
   maxHours = signal(DEFAULT_MAX_WALL_TIME_HOURS);
-  maxDollars = signal<number | null>(DEFAULT_CAPS.maxCostCents / 100);
+  maxDollars = signal<number | null>(null);
   /** Total token budget across the whole loop. Null = no cap (the default),
    *  so iterations/hours/spend govern. Previously hard-coded to 1M and hidden
    *  from the UI, which silently killed 1M-context runs after one iteration. */
@@ -285,7 +284,7 @@ export class LoopConfigPanelComponent {
     if (this.maxHours() < 1) return 'Max wall time must be at least 1 hour.';
     if (this.maxHours() > MAX_WALL_TIME_HOURS) return 'Max wall time must be 168 hours or less.';
     const maxDollars = this.maxDollars();
-    if (maxDollars !== null && maxDollars < 1) return 'Max spend must be at least $1, or blank for no cap.';
+    if (maxDollars !== null && maxDollars < 1) return 'Estimated usage cap must be at least $1, or blank for no cap.';
     const maxTokens = this.maxTokens();
     if (maxTokens !== null && (!Number.isFinite(maxTokens) || maxTokens < MIN_MAX_TOKENS)) {
       return 'Max tokens must be at least 10,000, or blank for no cap.';
@@ -300,7 +299,7 @@ export class LoopConfigPanelComponent {
       }
     }
     if (this.branchSelect()) {
-      if (maxDollars === null) return 'Branch-select on stuck requires a spend cap ($). Set Max spend.';
+      if (maxDollars === null) return 'Branch-select on stuck requires an estimated usage cap ($). Set Estimated usage cap.';
       const fanout = this.branchFanout();
       if (!Number.isFinite(fanout) || fanout < 2 || fanout > 8) {
         return 'Branch fanout must be between 2 and 8.';
@@ -313,9 +312,9 @@ export class LoopConfigPanelComponent {
       }
     }
     // LF-3a: operator-reviewed loops pause for manual sign-off and get resumed
-    // repeatedly — require a spend cap so an unbounded run can't sit and burn.
+    // repeatedly — require a usage cap so an unbounded run can't sit and burn.
     if (this.operatorReviewedCompletion() && maxDollars === null) {
-      return 'Operator-reviewed completion requires a spend cap ($). Set Max spend, or add a verify command.';
+      return 'Operator-reviewed completion requires an estimated usage cap ($). Set Estimated usage cap, or add a verify command.';
     }
     return null;
   });

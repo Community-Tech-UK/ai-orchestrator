@@ -31,6 +31,7 @@ import { isGitRepository } from '../../git/git-probe-service';
 import { InstanceManager } from '../../instance/instance-manager';
 import { getUsageTracker } from '../../usage/usage-tracker';
 import { evaluateApplicability } from '../../../shared/utils/command-applicability';
+import { executeGoalCommand } from './goal-command-handler';
 
 export function registerCommandHandlers(
   instanceManager: InstanceManager
@@ -193,14 +194,17 @@ export function registerCommandHandlers(
         }
 
         if (executed.execution.type === 'goal') {
-          const goalInput = `/${executed.command.name}${executed.args.length > 0 ? ` ${executed.args.join(' ')}` : ''}`;
-          await instanceManager.sendInput(validated.instanceId, goalInput);
-          getUsageTracker().record('command', executed.command.id, workingDirectory);
-
-          return {
-            success: true,
-            data: executed
-          };
+          const result = await executeGoalCommand({
+            instanceManager,
+            instanceId: validated.instanceId,
+            workingDirectory,
+            provider: instance?.provider,
+            executed,
+          });
+          if (result.success) {
+            getUsageTracker().record('command', executed.command.id, workingDirectory);
+          }
+          return result;
         }
 
         // Send the resolved prompt to the instance

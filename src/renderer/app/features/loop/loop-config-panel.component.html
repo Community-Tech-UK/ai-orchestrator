@@ -126,7 +126,7 @@
       <input id="loop-cfg-cap-hours" type="number" min="1" max="168" [ngModel]="maxHours()" (ngModelChange)="maxHours.set($event)" />
     </div>
     <div>
-      <label for="loop-cfg-cap-cost">Max spend ($) <span class="hint">(blank = no cap)</span></label>
+      <label for="loop-cfg-cap-cost">Estimated usage cap ($) <span class="hint">(blank = no cap)</span></label>
       <input id="loop-cfg-cap-cost" type="number" min="1" max="1000" placeholder="No cap" [ngModel]="maxDollars()" (ngModelChange)="maxDollars.set($event)" />
     </div>
     <div>
@@ -278,7 +278,7 @@
           <div class="cfg-inline-warn">
             ⚠ This loop pauses for manual sign-off when it thinks it's done — there is no
             auto-complete without a verify command. Finish it with <strong>Accept as complete</strong>
-            in the loop controls. Requires a spend cap.
+            in the loop controls. Requires an estimated usage cap.
           </div>
         }
         <label>
@@ -300,7 +300,7 @@
         <label>
           <input type="checkbox" [checked]="branchSelect()" (change)="branchSelect.set(toggleEvent($event))" />
           Branch-select on stuck
-          <span class="hint">(fan out candidates before pausing; requires spend cap)</span>
+          <span class="hint">(fan out candidates before pausing; requires estimated usage cap)</span>
         </label>
         @if (branchSelect()) {
           <div class="cfg-inline-grid">

@@ -300,9 +300,9 @@ export const BUILT_IN_COMMANDS: Omit<CommandTemplate, 'id' | 'createdAt' | 'upda
       '/goal resume',
       '/goal clear',
     ],
-    applicability: { provider: ['claude', 'codex'] },
-    disabledReason: 'Goal mode is available for Claude and Codex sessions',
-    rankHints: { pinned: true, providerAffinity: ['claude', 'codex'], weight: 10 },
+    applicability: { requiresWorkingDirectory: true },
+    disabledReason: 'Goal mode requires a working directory',
+    rankHints: { pinned: true, providerAffinity: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor'], weight: 10 },
     builtIn: true,
   },
   {

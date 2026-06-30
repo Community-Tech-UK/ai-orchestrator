@@ -1,6 +1,7 @@
 import type {
   LoopErrorRecord,
   LoopFileChange,
+  LoopInFlightIteration,
   LoopIteration,
   LoopState,
   LoopTerminalIntent,
@@ -49,6 +50,12 @@ export interface IterationHookContext {
   iteration: LoopIteration;
 }
 
+export interface PreIterationHookContext {
+  state: LoopState;
+  inFlightIteration: LoopInFlightIteration;
+}
+
+export type LoopPreIterationHook = (ctx: PreIterationHookContext) => Promise<void> | void;
 export type LoopIterationHook = (ctx: IterationHookContext) => Promise<void> | void;
 export type LoopIntentPersistHook = (intent: LoopTerminalIntent) => Promise<void> | void;
 export type LoopAdapterCleanupHook = (loopRunId: string) => Promise<void>;

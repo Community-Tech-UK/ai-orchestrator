@@ -1,10 +1,15 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { BrowserGatewayService } from './browser-gateway-service';
 import { makeGrant, makeProfile, makeService, makeTarget } from './browser-gateway-service.test-helpers';
 
 describe('BrowserGatewayService', () => {
+  afterEach(() => {
+    BrowserGatewayService._resetForTesting();
+  });
+
   it('returns an actionable bootstrap reason when no managed profiles exist', async () => {
     const { service } = makeService({ profile: null, profiles: [] });
 
@@ -469,6 +474,39 @@ describe('BrowserGatewayService', () => {
       instanceId: 'instance-1',
       allowedActionClasses: ['input'],
       autonomous: false,
+    });
+    expect(approvalStore.resolveRequest).toHaveBeenCalledWith('request-1', {
+      status: 'approved',
+      grantId: 'grant-1',
+    });
+  });
+
+  it('installs auto-approval when the singleton already exists before runtime initialization', async () => {
+    BrowserGatewayService._resetForTesting();
+    const { service, driver, approvalStore, grants } = makeService({
+      useSingleton: true,
+    });
+
+    BrowserGatewayService.initialize({
+      autoApproveRequests: ({ instanceId }) => instanceId === 'instance-1',
+    });
+
+    const result = await service.click({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      selector: 'button.continue',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+    });
+    expect(driver.click).toHaveBeenCalledWith('profile-1', 'target-1', 'button.continue');
+    expect(grants[0]).toMatchObject({
+      instanceId: 'instance-1',
+      allowedActionClasses: ['input'],
     });
     expect(approvalStore.resolveRequest).toHaveBeenCalledWith('request-1', {
       status: 'approved',

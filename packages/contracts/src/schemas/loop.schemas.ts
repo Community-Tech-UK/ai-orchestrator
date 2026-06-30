@@ -403,6 +403,13 @@ export const LoopControlMetadataSchema = z.object({
   updatedAt: z.number().int(),
 });
 
+export const LoopInFlightIterationSchema = z.object({
+  seq: z.number().int().nonnegative(),
+  stage: LoopStageSchema,
+  startedAt: z.number().int(),
+  idempotencyKey: z.string().min(1),
+});
+
 export const LoopIterationSchema = z.object({
   id: z.string(),
   loopRunId: z.string(),
@@ -450,6 +457,7 @@ export const LoopStateSchema = z.object({
   endEvidence: z.record(z.string(), z.unknown()).optional(),
   pendingInterventions: z.array(z.string()),
   loopControl: LoopControlMetadataSchema.optional(),
+  inFlightIteration: LoopInFlightIterationSchema.optional(),
   terminalIntentPending: LoopTerminalIntentSchema.optional(),
   terminalIntentHistory: z.array(LoopTerminalIntentSchema).default([]),
   completedFileRenameObserved: z.boolean(),

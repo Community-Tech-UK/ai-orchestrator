@@ -435,6 +435,37 @@ export class LoopStore {
     return countLoopIterations(this.db, loopRunId);
   }
 
+  /**
+   * Persist the sealed iteration snapshot as one durable unit. This keeps the
+   * run row, iteration row, checkpoint row, and restart counter coherent across
+   * process crashes or serialization failures.
+   */
+  persistIterationSnapshot(input: {
+    state: LoopState;
+    iteration: LoopIteration;
+    checkpoint: LoopCheckpoint;
+  }): void {
+    const persist = this.db.transaction(() => {
+      this.upsertRun(input.state);
+      this.insertIteration(input.iteration);
+      this.upsertCheckpoint(input.checkpoint);
+      this.resetRestartFailureCount(input.state.id);
+    });
+    persist();
+  }
+
+  /** Persist a state-only checkpoint in the same transaction as the run row. */
+  persistStateCheckpoint(input: {
+    state: LoopState;
+    checkpoint: LoopCheckpoint;
+  }): void {
+    const persist = this.db.transaction(() => {
+      this.upsertRun(input.state);
+      this.upsertCheckpoint(input.checkpoint);
+    });
+    persist();
+  }
+
   upsertCheckpoint(checkpoint: LoopCheckpoint): void {
     upsertLoopCheckpoint(this.db, checkpoint);
   }

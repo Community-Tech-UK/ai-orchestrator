@@ -364,8 +364,10 @@ describe('resolveCompletion — verify passed, b&b ok, fresh-eyes clean → STOP
     expect(r.authorityTier).toBe(2);
   });
 
-  it('returns stop/accepted when reviewer errored (infra error → do not pin loop open)', () => {
-    // When the reviewer throws, freshEyesErrored=true; we should still allow stop.
+  it('pauses for operator review when reviewer errored despite a passing verify', () => {
+    // A configured fresh-eyes gate that fails infrastructurally is not a clean
+    // review verdict. Passing verify is evidence, but not enough to silently
+    // bypass an explicitly enabled review gate.
     const r = resolveCompletion(base({
       candidate: renameSig,
       verifyStatus: 'passed',
@@ -374,11 +376,12 @@ describe('resolveCompletion — verify passed, b&b ok, fresh-eyes clean → STOP
       freshEyesBlockingCount: 0,
       freshEyesErrored: true,
     }));
-    expect(r.decision).toBe('stop');
-    expect(r.outcome).toBe('accepted');
+    expect(r.decision).toBe('pause-operator-review');
+    expect(r.outcome).toBe('unverifiable');
+    expect(r.reason).toContain('fresh-eyes review');
   });
 
-  it('returns stop/accepted when reviewer ran with zero reviewers (infra unavailable)', () => {
+  it('returns stop/accepted when reviewer ran with no blocking findings', () => {
     const r = resolveCompletion(base({
       candidate: renameSig,
       verifyStatus: 'passed',
@@ -457,10 +460,8 @@ describe('resolveCompletion — agent-cannot-self-declare invariant', () => {
       freshEyesBlockingCount: 1,
       freshEyesErrored: true, // error AND findings
     }));
-    // When errored is true, the resolver does NOT treat it as blocking
-    // (per coordinator behaviour: "don't pin loop open on reviewer errors").
-    // The errored flag overrides blocking findings — allow stop.
-    expect(r.decision).toBe('stop');
+    expect(r.decision).toBe('continue');
+    expect(r.outcome).toBe('review-blocked');
   });
 });
 

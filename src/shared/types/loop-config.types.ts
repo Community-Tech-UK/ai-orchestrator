@@ -4,12 +4,11 @@ export interface LoopHardCaps {
   /** Wall-time budget in milliseconds. Default 50h. */
   maxWallTimeMs: number;
   /** Token budget across the whole loop. Null means unbounded (the default) so
-   *  the cost/iteration/wall-time caps govern instead. */
+   *  the iteration/wall-time caps govern instead. */
   maxTokens: number | null;
   /**
-   * Cost cap in cents. Null means unbounded. Default 20,000 ($200), matching
-   * the Agent SDK credit boundary so Loop Mode is bounded unless the caller
-   * explicitly clears the cap.
+   * Estimated cost cap in cents. Null means unbounded (the default). This is
+   * an optional local safety cap, not a provider billing/subscription limit.
    */
   maxCostCents: number | null;
   /** Per-iteration tool-call cap. Default 200. */

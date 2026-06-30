@@ -11,6 +11,7 @@ import { ipcMain } from 'electron';
 
 const hoisted = vi.hoisted(() => ({
   coordinator: {
+    registerPreIterationHook: vi.fn(),
     registerIterationHook: vi.fn(),
     setIntentPersistHook: vi.fn(),
     on: vi.fn(),
@@ -26,6 +27,8 @@ const hoisted = vi.hoisted(() => ({
     upsertRun: vi.fn(),
     insertIteration: vi.fn(),
     upsertCheckpoint: vi.fn(),
+    persistIterationSnapshot: vi.fn(),
+    persistStateCheckpoint: vi.fn(),
     upsertTerminalIntent: vi.fn(),
     getRunSummary: vi.fn(),
     listRunsForChat: vi.fn(),
@@ -158,10 +161,13 @@ describe('registerLoopHandlers terminal summaries', () => {
 
     stateHandler?.({ loopRunId: state.id, state });
 
-    expect(hoisted.store.upsertCheckpoint).toHaveBeenCalledWith(expect.objectContaining({
-      loopRunId: state.id,
-      chatId: state.chatId,
-      status: state.status,
+    expect(hoisted.store.persistStateCheckpoint).toHaveBeenCalledWith(expect.objectContaining({
+      state,
+      checkpoint: expect.objectContaining({
+        loopRunId: state.id,
+        chatId: state.chatId,
+        status: state.status,
+      }),
     }));
   });
 
@@ -179,9 +185,48 @@ describe('registerLoopHandlers terminal summaries', () => {
 
     iterationHook?.({ state, iteration });
 
-    expect(hoisted.store.upsertCheckpoint).toHaveBeenCalledWith(expect.objectContaining({
-      loopRunId: state.id,
-      historyTail: [iteration],
+    expect(hoisted.store.persistIterationSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      state,
+      iteration,
+      checkpoint: expect.objectContaining({
+        loopRunId: state.id,
+        historyTail: [iteration],
+      }),
+    }));
+  });
+
+  it('persists a checkpoint before a child iteration is invoked', () => {
+    const windowManager = { sendToRenderer: vi.fn() };
+    const instanceManager = makeInstanceManager([]);
+    registerLoopHandlers({
+      windowManager: windowManager as never,
+      instanceManager,
+    });
+    const preIterationHook = hoisted.coordinator.registerPreIterationHook.mock.calls[0]?.[0] as
+      ((payload: { state: LoopState }) => void) | undefined;
+    const state = makeLoopState({
+      status: 'running',
+      endedAt: null,
+      inFlightIteration: {
+        seq: 3,
+        stage: 'IMPLEMENT',
+        startedAt: 1_700_000_000_000,
+        idempotencyKey: 'loop-1:iteration:3',
+      },
+    });
+
+    preIterationHook?.({ state });
+
+    expect(hoisted.store.persistStateCheckpoint).toHaveBeenCalledWith(expect.objectContaining({
+      state,
+      checkpoint: expect.objectContaining({
+        loopRunId: state.id,
+        status: 'running',
+        state: expect.objectContaining({
+          inFlightIteration: state.inFlightIteration,
+        }),
+        historyTail: [],
+      }),
     }));
   });
 
@@ -311,9 +356,12 @@ describe('registerLoopHandlers terminal summaries', () => {
     iterationHook?.({ state, iteration });
     stateHandler?.({ loopRunId: state.id, state });
 
-    expect(hoisted.store.upsertCheckpoint).toHaveBeenLastCalledWith(expect.objectContaining({
-      loopRunId: state.id,
-      historyTail: [iteration],
+    expect(hoisted.store.persistStateCheckpoint).toHaveBeenCalledWith(expect.objectContaining({
+      state,
+      checkpoint: expect.objectContaining({
+        loopRunId: state.id,
+        historyTail: [iteration],
+      }),
     }));
   });
 
@@ -331,7 +379,7 @@ describe('registerLoopHandlers terminal summaries', () => {
 
     stateHandler?.({ loopRunId: state.id, state });
 
-    expect(hoisted.store.upsertRun).toHaveBeenCalledWith(state);
+    expect(hoisted.store.persistStateCheckpoint).toHaveBeenCalledWith(expect.objectContaining({ state }));
     expect(hoisted.chatService.appendSystemEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         chatId: 'chat-1',

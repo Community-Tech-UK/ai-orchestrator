@@ -7,6 +7,65 @@ export interface VerifyOutcomeLike {
   output: string;
 }
 
+export interface OperatorReviewPauseMessages {
+  failure: string;
+  intervention: string;
+}
+
+export function buildOperatorReviewPauseMessages(args: {
+  freshEyesErrored: boolean;
+  verifyStatus: VerifyOutcomeLike['status'];
+}): OperatorReviewPauseMessages {
+  const verifyPassedButReviewErrored = args.freshEyesErrored && args.verifyStatus === 'passed';
+  if (verifyPassedButReviewErrored) {
+    return {
+      failure:
+        'Completion cannot be auto-confirmed: verify passed, but the configured fresh-eyes ' +
+        'review could not produce a verdict (the reviewers returned unparseable output, ' +
+        'or none were available). The loop is pausing for operator review instead of ' +
+        'silently bypassing the review gate. Inspect the work and accept it manually, or ' +
+        'fix the reviewer setup and keep iterating.',
+      intervention:
+        'Your completion was NOT accepted. Verify passed, but the configured fresh-eyes ' +
+        'review could not produce a verdict this time (the reviewers returned unparseable ' +
+        'output, or none were available). Do not simply re-declare completion — it will ' +
+        'be rejected again until a fresh-eyes review succeeds or the operator accepts the work. ' +
+        'The loop is pausing for operator review.',
+    };
+  }
+  if (args.freshEyesErrored) {
+    return {
+      failure:
+        'Completion cannot be auto-confirmed: the fresh-eyes review that would ' +
+        'independently verify this loop could not produce a verdict (the reviewers ' +
+        'returned unparseable output, or none were available). No verify command is ' +
+        'configured as a fallback, so the loop is pausing for operator review. Inspect ' +
+        'the work and accept it manually, or fix the reviewer setup (or add a verify ' +
+        'command) and keep iterating.',
+      intervention:
+        'Your completion was NOT accepted. The fresh-eyes review that would independently ' +
+        'confirm it could not produce a verdict this time (the reviewers returned ' +
+        'unparseable output, or none were available). Do not simply re-declare completion ' +
+        '— it will be rejected again until an independent review succeeds. The loop is ' +
+        'pausing for operator review.',
+    };
+  }
+  return {
+    failure:
+      'Completion cannot be confirmed: no verify command is configured and fresh-eyes ' +
+      'review is not enabled, so the loop has no independent way to check the work is ' +
+      'actually done. Configure a verify command (your test / lint / build command) or ' +
+      'enable fresh-eyes review before starting a loop that should auto-complete, or ' +
+      'inspect the reported evidence and stop the loop manually.',
+    intervention:
+      'Your completion was NOT accepted. This loop has no verify command configured and ' +
+      'fresh-eyes review is not enabled, so it cannot independently confirm the work is ' +
+      'finished. Do not simply re-declare completion — it will be rejected again. The ' +
+      'loop is pausing for operator review because only the operator can decide whether ' +
+      'your reported verification evidence is sufficient without an independent verify command.',
+  };
+}
+
 export function sleep(ms: number): Promise<void> {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }

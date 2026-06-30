@@ -208,6 +208,127 @@ describe('LoopStore.getIterations pagination', () => {
 });
 
 describe('LoopStore checkpoints', () => {
+  it('persists run, iteration, checkpoint, and restart counter in one iteration snapshot', () => {
+    const state = makeState({ id: 'loop-atomic', status: 'running', endedAt: null });
+    store.upsertRun(state);
+    driver.prepare('UPDATE loop_runs SET restart_failure_count = 2 WHERE id = ?').run(state.id);
+    const iteration = makeLoopIteration({
+      id: 'loop-atomic-0',
+      loopRunId: state.id,
+      seq: 0,
+      outputFull: 'sealed output',
+    });
+
+    store.persistIterationSnapshot({
+      state,
+      iteration,
+      checkpoint: {
+        version: 1,
+        loopRunId: state.id,
+        chatId: state.chatId,
+        status: 'running',
+        state,
+        historyTail: [iteration],
+        convergenceNote: 'keep going',
+        planRegenerationCount: 0,
+        pendingContextReset: false,
+        updatedAt: 4321,
+      },
+    });
+
+    expect(store.getRunSummary(state.id)?.status).toBe('running');
+    expect(store.getIterations(state.id).map((i) => i.id)).toEqual([iteration.id]);
+    expect(store.getCheckpoint(state.id)).toEqual(expect.objectContaining({
+      loopRunId: state.id,
+      convergenceNote: 'keep going',
+      updatedAt: 4321,
+    }));
+    expect(store.getRestartFailureCount(state.id)).toBe(0);
+  });
+
+  it('rolls back the whole iteration snapshot when checkpoint serialization fails', () => {
+    const state = makeState({ id: 'loop-atomic-fail', status: 'running', endedAt: null });
+    const iteration = makeLoopIteration({
+      id: 'loop-atomic-fail-0',
+      loopRunId: state.id,
+      seq: 0,
+    });
+    const checkpoint = {
+      version: 1,
+      loopRunId: state.id,
+      chatId: state.chatId,
+      status: 'running',
+      state: { ...state },
+      historyTail: [iteration],
+      convergenceNote: null,
+      planRegenerationCount: 0,
+      pendingContextReset: false,
+      updatedAt: 1234,
+    };
+    (checkpoint.state as LoopState & { self?: unknown }).self = checkpoint;
+
+    expect(() => store.persistIterationSnapshot({
+      state,
+      iteration,
+      checkpoint,
+    })).toThrow(/circular structure/i);
+
+    expect(store.getRunSummary(state.id)).toBeNull();
+    expect(store.getIterations(state.id)).toEqual([]);
+    expect(store.getCheckpoint(state.id)).toBeNull();
+  });
+
+  it('persists run and checkpoint atomically for state-only snapshots', () => {
+    const state = makeState({ id: 'loop-state-checkpoint', status: 'paused', endedAt: null });
+
+    store.persistStateCheckpoint({
+      state,
+      checkpoint: {
+        version: 1,
+        loopRunId: state.id,
+        chatId: state.chatId,
+        status: 'paused',
+        state,
+        historyTail: [],
+        convergenceNote: 'paused by operator',
+        planRegenerationCount: 0,
+        pendingContextReset: false,
+        updatedAt: 2222,
+      },
+    });
+
+    expect(store.getRunSummary(state.id)?.status).toBe('paused');
+    expect(store.getCheckpoint(state.id)).toEqual(expect.objectContaining({
+      loopRunId: state.id,
+      convergenceNote: 'paused by operator',
+    }));
+  });
+
+  it('rolls back state-only snapshots when checkpoint serialization fails', () => {
+    const state = makeState({ id: 'loop-state-checkpoint-fail', status: 'paused', endedAt: null });
+    const checkpoint = {
+      version: 1,
+      loopRunId: state.id,
+      chatId: state.chatId,
+      status: 'paused',
+      state: { ...state },
+      historyTail: [],
+      convergenceNote: 'paused by operator',
+      planRegenerationCount: 0,
+      pendingContextReset: false,
+      updatedAt: 2222,
+    };
+    (checkpoint.state as LoopState & { self?: unknown }).self = checkpoint;
+
+    expect(() => store.persistStateCheckpoint({
+      state,
+      checkpoint,
+    })).toThrow(/circular structure/i);
+
+    expect(store.getRunSummary(state.id)).toBeNull();
+    expect(store.getCheckpoint(state.id)).toBeNull();
+  });
+
   it('round-trips the latest loop checkpoint', () => {
     const state = makeState({ id: 'loop-checkpoint', status: 'running', endedAt: null });
     store.upsertRun(state);

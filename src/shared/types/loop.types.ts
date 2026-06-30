@@ -41,7 +41,7 @@ export const DEFAULT_LOOP_MAX_ITERATIONS = 50;
  * only a few dollars). The cap is still configurable per-run via `caps.maxTokens`.
  */
 export const DEFAULT_LOOP_MAX_TOKENS: number | null = null;
-export const DEFAULT_LOOP_MAX_COST_CENTS = 20_000;
+export const DEFAULT_LOOP_MAX_COST_CENTS: number | null = null;
 
 /** What "fresh eyes" looks like at REVIEW stage. */
 export type LoopReviewStyle =
@@ -710,6 +710,7 @@ export type {
   LoopControlMetadata,
   LoopErrorRecord,
   LoopFileChange,
+  LoopInFlightIteration,
   LoopIteration,
   LoopState,
   LoopTerminalIntent,

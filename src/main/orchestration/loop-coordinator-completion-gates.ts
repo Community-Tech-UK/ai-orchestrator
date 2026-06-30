@@ -215,7 +215,7 @@ export async function runFreshEyesReviewGate(args: {
       config: effectiveCfg,
     });
   } catch (err) {
-    logger.warn('Fresh-eyes reviewer threw - letting completion proceed', {
+    logger.warn('Fresh-eyes reviewer threw - no clean review verdict produced', {
       loopRunId: state.id,
       error: err instanceof Error ? err.message : String(err),
     });

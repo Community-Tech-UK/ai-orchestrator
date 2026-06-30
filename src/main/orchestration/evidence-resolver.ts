@@ -79,8 +79,8 @@ export interface EvidenceInput {
   freshEyesBlockingCount: number;
   /**
    * Whether the fresh-eyes reviewer threw an error (infra unavailable).
-   * When true AND freshEyesBlockingCount is 0, the gate is treated as
-   * non-blocking (per coordinator: "don't pin loop open on reviewer errors").
+   * When true AND freshEyesRan is true, an explicitly enabled review gate did
+   * not produce a clean verdict and must not silently auto-complete.
    */
   freshEyesErrored: boolean;
   /**
@@ -121,8 +121,9 @@ export type EvidenceDecision =
    */
   | 'stop-needs-review'
   /**
-   * Pause for operator review (status=paused). Used when verify is skipped
-   * (unverifiable) — the operator must manually accept or inspect the work.
+   * Pause for operator review (status=paused). Used when independent authority
+   * is unavailable or an explicitly configured review gate fails
+   * infrastructurally — the operator must manually accept or inspect the work.
    */
   | 'pause-operator-review';
 
@@ -187,7 +188,8 @@ function signalTier(id: CompletionSignalId): 3 | 4 {
  *        budget remaining → continue (rename-gate).
  *        budget exhausted → stop-needs-review (rename-gate).
  *   6. authority present + belt-and-braces passed + fresh-eyes blocking → continue (review-blocked).
- *   7. authority present + belt-and-braces passed + fresh-eyes clean → stop (accepted).
+ *   7. authority present + belt-and-braces passed + fresh-eyes infra error → pause-operator-review.
+ *   8. authority present + belt-and-braces passed + fresh-eyes clean → stop (accepted).
  */
 export function resolveCompletion(input: EvidenceInput): EvidenceResolution {
   // --- No sufficient signal: nothing to decide ---
@@ -241,10 +243,10 @@ export function resolveCompletion(input: EvidenceInput): EvidenceResolution {
   // agent's completion signal is self-declared only and we must NOT
   // auto-terminate — pausing for an operator is the safe terminal.
   //
-  // A reviewer-infra error is deliberately NOT an authority: for a verify-gated
-  // loop a failed reviewer is non-blocking (verify carries the completion), but
-  // for a no-verify loop it would mean stopping with zero independent evidence
-  // — exactly the rubber-stamp the ladder exists to prevent.
+  // A reviewer-infra error is deliberately NOT an authority: for no-verify
+  // loops it would mean stopping with zero independent evidence, and for
+  // verify-gated loops it would silently bypass an explicitly configured
+  // review gate. Both cases fail closed to operator review below.
   const verifyPassed = input.verifyStatus === 'passed';
   const reviewIsAuthority =
     input.verifyStatus === 'skipped' && input.freshEyesRan && !input.freshEyesErrored;
@@ -300,8 +302,13 @@ export function resolveCompletion(input: EvidenceInput): EvidenceResolution {
     };
   }
 
-  // Fresh-eyes review gate
-  if (input.freshEyesRan && input.freshEyesBlockingCount > 0 && !input.freshEyesErrored) {
+  // Fresh-eyes review gate.
+  // Blocking findings are authoritative even if the reviewer also surfaced an
+  // infrastructure warning; real findings must not be hidden behind the error
+  // bit. A pure infrastructure error is also not a clean verdict: when the gate
+  // was explicitly enabled, fail closed to operator review rather than silently
+  // accepting on verify alone.
+  if (input.freshEyesRan && input.freshEyesBlockingCount > 0) {
     return {
       decision: 'continue',
       authorityTier: tier,
@@ -310,6 +317,22 @@ export function resolveCompletion(input: EvidenceInput): EvidenceResolution {
       reason: `fresh-eyes review blocked completion (${input.freshEyesBlockingCount} blocking finding(s))`,
       needsReviewReason: null,
       convergenceNote: null, // coordinator sets this itself with reviewer details
+    };
+  }
+
+  if (input.freshEyesRan && input.freshEyesErrored) {
+    return {
+      decision: 'pause-operator-review',
+      authorityTier: tier,
+      outcome: 'unverifiable',
+      signalId: candidate.id,
+      reason: verifyPassed
+        ? 'completion not independently confirmed — verify passed, but the configured fresh-eyes review could not produce a verdict; pausing for operator review rather than silently accepting'
+        : 'completion not independently confirmed — no verify command, and the fresh-eyes review could not produce a verdict (reviewer returned unparseable output or no reviewers were available)',
+      needsReviewReason: null,
+      convergenceNote: verifyPassed
+        ? 'completion unverifiable (fresh-eyes review produced no verdict after verify passed)'
+        : 'completion unverifiable (no verify command; fresh-eyes review produced no verdict)',
     };
   }
 

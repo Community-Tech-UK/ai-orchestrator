@@ -247,6 +247,92 @@ describe('Loop schemas — type/schema drift guards', () => {
       const parsed = LoopStateSchema.parse(minimalState);
       expect(parsed.uncompletedPlanFilesAtStart).toEqual([]);
       expect(parsed.terminalIntentHistory).toEqual([]);
+      expect(parsed.inFlightIteration).toBeUndefined();
+    });
+
+    it('round-trips an in-flight iteration marker for crash recovery checkpoints', () => {
+      const minimalState = {
+        id: 'loop-1',
+        chatId: 'chat-1',
+        config: {
+          initialPrompt: 'do thing',
+          workspaceCwd: '/tmp',
+          provider: 'claude' as const,
+          reviewStyle: 'single' as const,
+          contextStrategy: 'fresh-child' as const,
+          caps: {
+            maxIterations: 50,
+            maxWallTimeMs: 60_000,
+            maxTokens: 100_000,
+            maxCostCents: 100,
+            maxToolCallsPerIteration: 100,
+          },
+          progressThresholds: {
+            identicalHashWarnConsecutive: 2,
+            identicalHashCriticalConsecutive: 3,
+            identicalHashCriticalWindow: 3,
+            similarityWarnMean: 0.85,
+            similarityCriticalMean: 0.92,
+            stageWarnIterations: { PLAN: 3, REVIEW: 2, IMPLEMENT: 8 },
+            stageCriticalIterations: { PLAN: 5, REVIEW: 3, IMPLEMENT: 12 },
+            errorRepeatWarnInWindow: 3,
+            errorRepeatCriticalInWindow: 4,
+            tokensWithoutProgressWarn: 25_000,
+            tokensWithoutProgressCritical: 60_000,
+            pauseOnTokenBurn: false,
+            toolRepeatWarnPerIteration: 5,
+            toolRepeatCriticalPerIteration: 8,
+            testStagnationWarnIterations: 3,
+            testStagnationCriticalIterations: 5,
+            churnRatioWarn: 0.30,
+            churnRatioCritical: 0.50,
+            warnEscalationWindow: 5,
+            warnEscalationCount: 3,
+          },
+          completion: {
+            completedFilenamePattern: '*_completed.md',
+            donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
+            doneSentinelFile: 'DONE.txt',
+            verifyCommand: '',
+            verifyTimeoutMs: 600_000,
+            runVerifyTwice: true,
+            requireCompletedFileRename: false,
+          },
+          allowDestructiveOps: false,
+          initialStage: 'IMPLEMENT' as const,
+        },
+        status: 'running' as const,
+        startedAt: 0,
+        endedAt: null,
+        totalIterations: 0,
+        totalTokens: 0,
+        totalCostCents: 0,
+        currentStage: 'IMPLEMENT' as const,
+        pendingInterventions: [],
+        completedFileRenameObserved: false,
+        doneSentinelPresentAtStart: false,
+        planChecklistFullyCheckedAtStart: false,
+        uncompletedPlanFilesAtStart: [],
+        inFlightIteration: {
+          seq: 0,
+          stage: 'IMPLEMENT' as const,
+          startedAt: 123,
+          idempotencyKey: 'loop-1:iteration:0',
+        },
+        tokensSinceLastTestImprovement: 0,
+        highestTestPassCount: 0,
+        iterationsOnCurrentStage: 0,
+        recentWarnIterationSeqs: [],
+      };
+
+      const parsed = LoopStateSchema.parse(minimalState);
+
+      expect(parsed.inFlightIteration).toEqual({
+        seq: 0,
+        stage: 'IMPLEMENT',
+        startedAt: 123,
+        idempotencyKey: 'loop-1:iteration:0',
+      });
     });
   });
 

@@ -5125,7 +5125,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3219
+      "lines": 3181
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -5161,7 +5161,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2555
+      "lines": 2547
     },
     {
       "path": "src/main/channels/channel-message-router.ts",
@@ -5185,7 +5185,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2220
+      "lines": 2234
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
@@ -5220,16 +5220,16 @@
       "lines": 2078
     },
     {
+      "path": "src/main/instance/__tests__/instance-manager.spec.ts",
+      "lines": 2078
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-04-remote-nodes-settings_completed.md",
       "lines": 2070
     },
     {
       "path": "docs/superpowers/plans/2026-04-17-wave1-contracts-subpath-exports.md",
       "lines": 2006
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.spec.ts",
-      "lines": 1996
     },
     {
       "path": "docs/superpowers/plans/2026-04-11-knowledge-ui-completion_completed.md",
@@ -5344,6 +5344,10 @@
       "lines": 1375
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
+      "lines": 1353
+    },
+    {
       "path": "src/renderer/app/core/state/source-control.store.spec.ts",
       "lines": 1345
     },
@@ -5378,10 +5382,6 @@
     {
       "path": "src/main/ipc/orchestration-ipc-handler.ts",
       "lines": 1316
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
-      "lines": 1315
     },
     {
       "path": "src/main/workspace/git/vcs-manager.ts",
@@ -5760,6 +5760,10 @@
       "lines": 876
     },
     {
+      "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
+      "lines": 876
+    },
+    {
       "path": "src/renderer/app/features/verification/dashboard/verification-dashboard.component.spec.ts",
       "lines": 873
     },
@@ -5838,10 +5842,6 @@
     {
       "path": "src/renderer/app/core/state/instance/instance-list.store.ts",
       "lines": 831
-    },
-    {
-      "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
-      "lines": 828
     },
     {
       "path": "src/renderer/app/features/debate/enhanced-debate-visualization.component.ts",

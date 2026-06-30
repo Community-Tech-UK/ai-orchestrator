@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { LoopState } from '../../shared/types/loop.types';
 import {
-  DEFAULT_LOOP_MAX_COST_CENTS,
   DEFAULT_LOOP_MAX_ITERATIONS,
   defaultLoopConfig,
 } from '../../shared/types/loop.types';
@@ -93,13 +92,13 @@ describe('LoopCoordinator state helpers', () => {
     expect(config.caps.maxIterations).toBe(DEFAULT_LOOP_MAX_ITERATIONS);
   });
 
-  it('materializes omitted maxCostCents as the default cost cap', () => {
+  it('materializes omitted maxCostCents as no estimated cost cap', () => {
     const config = materializeLoopConfig({
       initialPrompt: 'do work',
       workspaceCwd: '/tmp/workspace',
     });
 
-    expect(config.caps.maxCostCents).toBe(DEFAULT_LOOP_MAX_COST_CENTS);
+    expect(config.caps.maxCostCents).toBeNull();
   });
 
   it('stops on iteration count when the default maxIterations cap is reached', () => {

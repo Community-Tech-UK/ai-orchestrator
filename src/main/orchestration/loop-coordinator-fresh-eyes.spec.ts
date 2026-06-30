@@ -9,9 +9,9 @@
  *      intervention and the loop continues.
  *   2. When the reviewer returns no blocking findings, the loop stops
  *      normally (review gate is transparent).
- *   3. When the reviewer throws or fails infrastructurally, the loop
- *      does NOT pin open — it lets completion proceed. (A broken reviewer
- *      shouldn't trap an otherwise-done agent forever.)
+ *   3. When the reviewer throws or fails infrastructurally, an explicitly
+ *      enabled review gate does not silently pass — the loop pauses for
+ *      operator review instead of auto-completing.
  *   4. The review block stays opt-in even when `uncompletedPlanFilesAtStart`
  *      is non-empty.
  */
@@ -294,10 +294,10 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     expect(r.pendingInterventions.length).toBe(0);
   });
 
-  it('ALLOWS completion when the reviewer is unavailable BUT a verify command carries authority', async () => {
+  it('PAUSES when the reviewer is unavailable even if a verify command passed', async () => {
     // runOneIterationAttempt always configures verifyCommand: 'true' (passing).
-    // With an independent verify authority, an unavailable reviewer (empty
-    // reviewersUsed) is correctly non-blocking — the loop still completes.
+    // A configured review gate that returns zero reviewers is an infrastructure
+    // failure, not a clean review. It must not be silently bypassed.
     const r = await runOneIterationAttempt({
       reviewResult: {
         findings: [],
@@ -308,7 +308,8 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
       completedRenameFile: 'plan_completed.md',
     });
 
-    expect(r.ended).toBe(true);
+    expect(r.ended).toBe(false);
+    expect(r.endReason).toContain('operator review');
   });
 
   it('does NOT false-complete a no-verify loop when no reviewers are available', async () => {
@@ -389,7 +390,7 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     expect(claimedFailure).not.toContain('fresh-eyes review is not enabled');
   });
 
-  it('ALLOWS completion when the reviewer throws (does not pin loop open)', async () => {
+  it('PAUSES when the reviewer throws instead of silently completing', async () => {
     writeFileSync(join(workspace, 'plan.md'), '# Plan\n');
     coordinator.setFreshEyesReviewer(async () => {
       throw new Error('synthetic reviewer crash');
@@ -403,7 +404,13 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     });
 
     let ended = false;
+    let claimedDoneButFailed = false;
+    let claimedFailure = '';
     coordinator.on('loop:completed', () => { ended = true; });
+    coordinator.on('loop:claimed-done-but-failed', (e: unknown) => {
+      claimedDoneButFailed = true;
+      claimedFailure = (e as { failure: string }).failure;
+    });
 
     const state = await coordinator.startLoop('chat-fresh-eyes-reviewer-throws', {
       initialPrompt: 'implement plan.md',
@@ -432,7 +439,14 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     if ((coordinator as unknown as { active: Map<string, { status: string }> }).active.get(state.id)?.status === 'running') {
       coordinator.cancelLoop(state.id);
     }
-    expect(ended).toBe(true);
+    const live = (coordinator as unknown as {
+      active: Map<string, { status: string; endReason?: string }>;
+    }).active.get(state.id);
+    expect(ended).toBe(false);
+    expect(claimedDoneButFailed).toBe(true);
+    expect(claimedFailure).toContain('fresh-eyes review');
+    expect(live?.status).toBe('paused');
+    expect(live?.endReason).toContain('operator review');
   });
 
   it('SKIPS the gate entirely when crossModelReview.enabled is false', async () => {

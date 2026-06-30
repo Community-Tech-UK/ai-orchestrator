@@ -196,9 +196,9 @@ export class BrowserGatewayService {
   private readonly grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
   private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
   private readonly healthService: Pick<BrowserHealthService, 'diagnose'>;
-  private readonly autoApproveRequests?: BrowserGatewayServiceOptions['autoApproveRequests'];
-  private readonly resolvePreferredDebugPort?: BrowserGatewayServiceOptions['resolvePreferredDebugPort'];
-  private readonly stageUploadFileOnNode: NonNullable<BrowserGatewayServiceOptions['stageUploadFileOnNode']>;
+  private autoApproveRequests?: BrowserGatewayServiceOptions['autoApproveRequests'];
+  private resolvePreferredDebugPort?: BrowserGatewayServiceOptions['resolvePreferredDebugPort'];
+  private stageUploadFileOnNode: NonNullable<BrowserGatewayServiceOptions['stageUploadFileOnNode']>;
   private readonly actionGuard: BrowserGatewayActionGuard;
   private readonly resultRecorder: BrowserGatewayResultRecorder;
   private readonly existingTabOperations: BrowserExistingTabOperations;
@@ -248,7 +248,7 @@ export class BrowserGatewayService {
       extensionTabStore: this.extensionTabStore,
       grantStore: this.grantStore,
       approvalStore: this.approvalStore,
-      autoApproveRequests: this.autoApproveRequests,
+      autoApproveRequests: (request) => Boolean(this.autoApproveRequests?.(request)),
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
     });
   }
@@ -263,12 +263,26 @@ export class BrowserGatewayService {
   static initialize(options: BrowserGatewayServiceOptions = {}): BrowserGatewayService {
     if (!this.instance) {
       this.instance = new BrowserGatewayService(options);
+    } else {
+      this.instance.configure(options);
     }
     return this.instance;
   }
 
   static _resetForTesting(): void {
     this.instance = null;
+  }
+
+  private configure(options: BrowserGatewayServiceOptions = {}): void {
+    if (options.autoApproveRequests) {
+      this.autoApproveRequests = options.autoApproveRequests;
+    }
+    if (options.resolvePreferredDebugPort) {
+      this.resolvePreferredDebugPort = options.resolvePreferredDebugPort;
+    }
+    if (options.stageUploadFileOnNode) {
+      this.stageUploadFileOnNode = options.stageUploadFileOnNode;
+    }
   }
 
   async listProfiles(

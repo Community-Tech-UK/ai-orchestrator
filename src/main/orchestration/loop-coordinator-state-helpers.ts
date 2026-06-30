@@ -88,6 +88,7 @@ export function cloneLoopStateForBroadcast(s: LoopState): LoopState {
     recentWarnIterationSeqs: [...s.recentWarnIterationSeqs],
     completionAttempts: s.completionAttempts,
     loopControl: s.loopControl ? { ...s.loopControl } : undefined,
+    inFlightIteration: s.inFlightIteration ? { ...s.inFlightIteration } : undefined,
     terminalIntentPending: s.terminalIntentPending
       ? { ...s.terminalIntentPending, evidence: s.terminalIntentPending.evidence.map((item) => ({ ...item })) }
       : undefined,

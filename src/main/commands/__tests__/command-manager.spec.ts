@@ -76,7 +76,7 @@ describe('CommandManager', () => {
     }));
   });
 
-  it('exposes /goal as a Claude/Codex session command', async () => {
+  it('exposes /goal as an orchestrator Loop Mode command', async () => {
     const manager = new CommandManager();
     const commands = await manager.getAllCommands();
 
@@ -86,7 +86,7 @@ describe('CommandManager', () => {
       execution: { type: 'goal' },
       category: 'session',
       usage: '/goal [condition|pause|resume|clear]',
-      applicability: { provider: ['claude', 'codex'] },
+      applicability: { requiresWorkingDirectory: true },
     }));
 
     const resolved = await manager.executeCommand('builtin-goal', ['ship', 'settings']);

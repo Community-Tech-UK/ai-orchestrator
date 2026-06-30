@@ -14,15 +14,15 @@ describe('defaultLoopConfig', () => {
     expect(config.caps.maxIterations).toBe(50);
   });
 
-  it('defaults the token cap to unbounded (cost/iteration caps govern)', () => {
+  it('defaults the token cap to unbounded (iteration/wall-time caps govern)', () => {
     const config = defaultLoopConfig('/tmp/project', 'finish the backlog');
 
     expect(config.caps.maxTokens).toBeNull();
   });
 
-  it('defaults the cost cap to 200 dollars', () => {
+  it('defaults the estimated cost cap to unbounded', () => {
     const config = defaultLoopConfig('/tmp/project', 'finish the backlog');
 
-    expect(config.caps.maxCostCents).toBe(20_000);
+    expect(config.caps.maxCostCents).toBeNull();
   });
 });

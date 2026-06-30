@@ -131,13 +131,14 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.completion?.requiredCleanReviewPasses).toBe(4);
   });
 
-  it('sets a default spend cap', () => {
+  it('defaults to no estimated spend cap', () => {
     const config = component.buildConfig();
 
-    expect(config?.caps?.maxCostCents).toBe(20_000);
+    expect(component.maxDollars()).toBeNull();
+    expect(config?.caps?.maxCostCents).toBeNull();
   });
 
-  it('defaults to no token cap (spend/iterations govern)', () => {
+  it('defaults to no token cap (iteration/wall-time caps govern)', () => {
     const config = component.buildConfig();
 
     expect(config?.caps?.maxTokens).toBeNull();
@@ -181,7 +182,7 @@ describe('LoopConfigPanelComponent', () => {
     expect(config?.context?.compaction.resetAtUtilization).toBe(0.6);
   });
 
-  it('emits an explicit spend cap when provided', () => {
+  it('emits an explicit estimated usage cap when provided', () => {
     component.maxDollars.set(500);
 
     const config = component.buildConfig();
@@ -292,12 +293,12 @@ describe('LoopConfigPanelComponent', () => {
     expect(component.buildConfig()).toBeNull();
   });
 
-  it('requires a spend cap before enabling branch-select on stuck', () => {
+  it('requires an estimated usage cap before enabling branch-select on stuck', () => {
     component.branchSelect.set(true);
     component.maxDollars.set(null);
     fixture.detectChanges();
 
-    expect(component.validationError()).toBe('Branch-select on stuck requires a spend cap ($). Set Max spend.');
+    expect(component.validationError()).toBe('Branch-select on stuck requires an estimated usage cap ($). Set Estimated usage cap.');
     expect(component.buildConfig()).toBeNull();
   });
 

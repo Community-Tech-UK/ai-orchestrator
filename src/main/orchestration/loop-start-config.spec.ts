@@ -3,7 +3,7 @@
  *
  * Verifies the two start-time safety rules: the default completion authority
  * (fresh-eyes cross-model review when no verify command is supplied — we no
- * longer infer/force a heavy machine verify command) and the cost-cap
+ * longer infer/force a heavy machine verify command) and the estimated usage-cap
  * precondition for operator-reviewed loops.
  */
 
@@ -92,7 +92,7 @@ describe('prepareLoopStartConfig (LF-3a)', () => {
     expect(prepared.completion?.crossModelReview?.enabled).toBe(false);
   });
 
-  it('rejects operator-reviewed completion without a spend cap', async () => {
+  it('rejects operator-reviewed completion without an estimated usage cap', async () => {
     await expect(
       prepareLoopStartConfig(mkConfig({
         caps: { ...defaultLoopConfig(workspace, 'g').caps, maxCostCents: null },
@@ -102,10 +102,10 @@ describe('prepareLoopStartConfig (LF-3a)', () => {
           allowOperatorReviewedCompletion: true,
         },
       })),
-    ).rejects.toThrow(/spend cap/i);
+    ).rejects.toThrow(/usage cap/i);
   });
 
-  it('allows operator-reviewed completion with a spend cap', async () => {
+  it('allows operator-reviewed completion with an estimated usage cap', async () => {
     const prepared = await prepareLoopStartConfig(mkConfig({
       caps: { ...defaultLoopConfig(workspace, 'g').caps, maxCostCents: 1000 },
       completion: {
