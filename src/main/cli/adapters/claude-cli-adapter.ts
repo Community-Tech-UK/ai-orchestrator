@@ -23,6 +23,7 @@ import {
   type TurnInterruptCompletion,
 } from './base-cli-adapter';
 import { NdjsonParser } from '../ndjson-parser';
+import { parseNdjsonLine } from '../json-parse';
 import { InputFormatter } from '../input-formatter';
 import { processAttachments, buildMessageWithFiles } from '../file-handler';
 import { getLogger } from '../../logging/logger';
@@ -902,8 +903,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     const lines = raw.split('\n').filter((line) => line.trim());
 
     for (const line of lines) {
-      try {
-        const msg = JSON.parse(line) as RawCliPayload;
+      const parsedLine = parseNdjsonLine<RawCliPayload>(line);
+      if (parsedLine.ok) {
+        const msg = parsedLine.value;
 
         if (msg.type === 'assistant' && msg.message?.content) {
           // Extract text content
@@ -973,7 +975,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         ) {
           legacySystemTotal = msg.usage.total_tokens;
         }
-      } catch {
+      } else {
         // Ignore non-JSON lines
       }
     }

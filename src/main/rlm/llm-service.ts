@@ -30,6 +30,7 @@ import {
 } from './llm-service.constants';
 import { getAuxiliaryLlmService } from './auxiliary-llm-service';
 import type { AuxiliaryLlmSlot } from '../../shared/types/auxiliary-llm.types';
+import { sanitizeProviderText } from '../security/surrogate-sanitizer';
 
 // Re-export public API so existing importers are unaffected.
 export type {
@@ -581,6 +582,7 @@ Answer:`;
     }
 
     const model = this.config.model || CLAUDE_MODELS.HAIKU;
+    const safePrompts = sanitizeProviderText({ systemPrompt, userPrompt });
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -593,8 +595,8 @@ Answer:`;
         model,
         max_tokens: this.config.maxTokens || 4096,
         temperature: this.config.temperature || 0.3,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userPrompt }],
+        system: safePrompts.systemPrompt,
+        messages: [{ role: 'user', content: safePrompts.userPrompt }],
         stream: true,
       }),
       signal,
@@ -667,13 +669,14 @@ Answer:`;
   ): AsyncGenerator<StreamChunk, void, unknown> {
     const host = this.config.ollamaHost || 'http://localhost:11434';
     const model = this.config.model || 'llama3';
+    const safePrompts = sanitizeProviderText({ systemPrompt, userPrompt });
 
     const response = await fetch(`${host}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model,
-        prompt: `${systemPrompt}\n\nUser: ${userPrompt}`,
+        prompt: `${safePrompts.systemPrompt}\n\nUser: ${safePrompts.userPrompt}`,
         stream: true,
         options: {
           temperature: this.config.temperature || 0.3,
@@ -746,6 +749,7 @@ Answer:`;
     }
 
     const model = this.config.model || OPENAI_MODELS.GPT55_MINI;
+    const safePrompts = sanitizeProviderText({ systemPrompt, userPrompt });
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -758,8 +762,8 @@ Answer:`;
         max_tokens: this.config.maxTokens || 4096,
         temperature: this.config.temperature || 0.3,
         messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
+          { role: 'system', content: safePrompts.systemPrompt },
+          { role: 'user', content: safePrompts.userPrompt },
         ],
         stream: true,
       }),
@@ -833,6 +837,7 @@ Answer:`;
     }
 
     const model = this.config.model || CLAUDE_MODELS.HAIKU; // Use Haiku for speed
+    const safePrompts = sanitizeProviderText({ systemPrompt, userPrompt });
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -845,8 +850,8 @@ Answer:`;
         model,
         max_tokens: this.config.maxTokens || 4096,
         temperature: this.config.temperature || 0.3,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userPrompt }],
+        system: safePrompts.systemPrompt,
+        messages: [{ role: 'user', content: safePrompts.userPrompt }],
       }),
     });
 
@@ -868,13 +873,14 @@ Answer:`;
   private async generateWithOllama(systemPrompt: string, userPrompt: string): Promise<string> {
     const host = this.config.ollamaHost || 'http://localhost:11434';
     const model = this.config.model || 'llama3';
+    const safePrompts = sanitizeProviderText({ systemPrompt, userPrompt });
 
     const response = await fetch(`${host}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model,
-        prompt: `${systemPrompt}\n\nUser: ${userPrompt}`,
+        prompt: `${safePrompts.systemPrompt}\n\nUser: ${safePrompts.userPrompt}`,
         stream: false,
         options: {
           temperature: this.config.temperature || 0.3,
@@ -901,6 +907,7 @@ Answer:`;
     }
 
     const model = this.config.model || OPENAI_MODELS.GPT55_MINI; // Use mini for speed
+    const safePrompts = sanitizeProviderText({ systemPrompt, userPrompt });
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -913,8 +920,8 @@ Answer:`;
         max_tokens: this.config.maxTokens || 4096,
         temperature: this.config.temperature || 0.3,
         messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
+          { role: 'system', content: safePrompts.systemPrompt },
+          { role: 'user', content: safePrompts.userPrompt },
         ],
       }),
     });

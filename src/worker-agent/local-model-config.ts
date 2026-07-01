@@ -20,5 +20,12 @@ export const OLLAMA_LOCAL_BASE_URL = 'http://127.0.0.1:11434';
  */
 export const LMSTUDIO_LOCAL_BASE_URL = 'http://127.0.0.1:1234';
 
+/**
+ * Default worker-local OpenAI-compatible STT endpoint. The coordinator must not
+ * dial this worker loopback URL directly; audio reaches it only through the
+ * worker-agent `audio.transcribe` RPC proxy.
+ */
+export const SPEACHES_STT_LOCAL_BASE_URL = 'http://127.0.0.1:8000';
+
 /** Timeout for the lightweight startup/heartbeat reachability probes. */
 export const LOCAL_MODEL_PROBE_TIMEOUT_MS = 2000;

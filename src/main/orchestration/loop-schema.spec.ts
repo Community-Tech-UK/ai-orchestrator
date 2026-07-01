@@ -102,6 +102,14 @@ describe('loop-schema v9 worktree-columns migration', () => {
     expect(columnNames('loop_iterations')).toEqual(
       expect.arrayContaining(['final_audit_json']),
     );
+    expect(appliedVersions()).toContain(13);
+    expect(columnNames('loop_iterations')).toEqual(
+      expect.arrayContaining(['verify_failure_kind']),
+    );
+    expect(appliedVersions()).toContain(14);
+    expect(columnNames('loop_terminal_intents')).toEqual(
+      expect.arrayContaining(['resume_at']),
+    );
   });
 
   it('re-running migrations is idempotent (no duplicate-application, no error)', () => {

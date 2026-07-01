@@ -2,6 +2,7 @@ import type { FileAttachment } from '../shared/types/instance.types';
 import { DEFAULT_OLLAMA_KEEP_ALIVE } from '../shared/types/auxiliary-llm.types';
 import { generateOpenAiCompatibleOnWorker } from './worker-auxiliary-generate';
 import { OLLAMA_LOCAL_BASE_URL, LMSTUDIO_LOCAL_BASE_URL } from './local-model-config';
+import { z, ZodError } from 'zod/v4';
 import type {
   FsReadDirectoryParams,
   FsReadFileParams,
@@ -25,6 +26,7 @@ import {
 import {
   AuxiliaryModelListParamsSchema,
   AuxiliaryModelGenerateParamsSchema,
+  AudioTranscribeParamsSchema,
   ConfigUpdateParamsSchema,
 } from '../main/remote-node/rpc-schemas';
 import type {
@@ -62,6 +64,8 @@ import {
 import type { WorkerTerminalHandler } from './worker-terminal-handler';
 import type { RpcMessage } from './worker-rpc-types';
 import { validateScope } from './worker-rpc-types';
+
+type AudioTranscribeParams = z.infer<typeof AudioTranscribeParamsSchema>;
 
 interface WorkerRpcDispatcherDeps {
   config: WorkerConfig;
@@ -400,6 +404,12 @@ export class WorkerRpcDispatcher {
           result = { text };
           break;
         }
+        case COORDINATOR_TO_NODE.AUDIO_TRANSCRIBE: {
+          const validated = AudioTranscribeParamsSchema.parse(params);
+          const text = await this.handleAudioTranscribe(validated);
+          result = { text };
+          break;
+        }
         default:
           this.deps.sendError(
             msg.id!,
@@ -476,9 +486,53 @@ export class WorkerRpcDispatcher {
     throw new Error(`Unsupported provider: ${params.provider}`);
   }
 
+  private async handleAudioTranscribe(params: AudioTranscribeParams): Promise<string> {
+    if (params.provider !== 'openai-compatible') {
+      throw new Error(`Unsupported audio transcription provider: ${params.provider}`);
+    }
+
+    const baseUrl = normalizeWorkerLocalBaseUrl(params.baseUrl);
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), params.timeoutMs);
+    try {
+      const body = new FormData();
+      body.append('file', new Blob([Buffer.from(params.audioBase64, 'base64')], {
+        type: 'audio/wav',
+      }), 'segment.wav');
+      body.append('model', params.model);
+      body.append('language', params.language);
+      body.append('task', params.task);
+      body.append('response_format', 'json');
+
+      const response = await fetch(`${baseUrl}/v1/audio/transcriptions`, {
+        method: 'POST',
+        body,
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(`audio.transcribe failed: ${response.status}`);
+      }
+      const data = await response.json() as { text?: unknown };
+      if (typeof data.text !== 'string') {
+        throw new Error('audio.transcribe response missing text');
+      }
+      return data.text;
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(`audio.transcribe timed out after ${params.timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(tid);
+    }
+  }
+
   private getRpcErrorCode(method: string | undefined, err: unknown): number {
     if (err instanceof FsRpcError) {
       return RPC_ERROR_CODES.FILESYSTEM_ERROR;
+    }
+    if (err instanceof ZodError) {
+      return RPC_ERROR_CODES.INVALID_PARAMS;
     }
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes('Instance not found')) {
@@ -489,4 +543,12 @@ export class WorkerRpcDispatcher {
     }
     return RPC_ERROR_CODES.INTERNAL_ERROR;
   }
+}
+
+function normalizeWorkerLocalBaseUrl(raw: string): string {
+  const url = new URL(raw);
+  if (!['127.0.0.1', 'localhost', '::1'].includes(url.hostname)) {
+    throw new Error('audio.transcribe baseUrl must be worker-local loopback.');
+  }
+  return url.toString().replace(/\/+$/, '');
 }

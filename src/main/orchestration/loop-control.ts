@@ -18,6 +18,8 @@ export const LOOP_CONTROL_FILE_NAME = 'control.json';
 export const LOOP_CONTROL_VERSION = 1 as const;
 export const LOOP_CONTROL_PROMPT_VERSION = 1 as const;
 export const LOOP_CONTROL_MAX_JSON_BYTES = 16 * 1024;
+export const LOOP_WAKEUP_MIN_DELAY_MS = 60_000;
+export const LOOP_WAKEUP_MAX_DELAY_MS = 3_600_000;
 
 export interface LoopControlRuntime extends LoopControlMetadata {
   secret: string;
@@ -44,6 +46,7 @@ interface RawIntentFile {
   kind: LoopTerminalIntentKind;
   summary: string;
   evidence?: LoopTerminalIntentEvidence[];
+  resumeAt?: number;
   source?: 'loop-control-cli' | 'imported-file';
   createdAt: number;
   secret: string;
@@ -178,6 +181,7 @@ export async function importLoopTerminalIntents(
         receivedAt,
         status: 'pending',
         filePath,
+        resumeAt: raw.resumeAt,
       };
       accepted.push(intent);
       // NB2: do NOT archive accepted files here. The caller must persist
@@ -285,6 +289,7 @@ async function listArchivedImportedIntentsFromControlDir(
         receivedAt: Date.now(),
         status: 'pending',
         filePath,
+        resumeAt: raw.resumeAt,
       });
     } catch (err) {
       logger.warn('Failed to read archived imported intent', {
@@ -390,6 +395,7 @@ export async function writeIntentFromCli(
   summary: string,
   evidence: LoopTerminalIntentEvidence[],
   env: NodeJS.ProcessEnv,
+  resumeAt?: number,
 ): Promise<string> {
   // Borrowed-adapter loops have no spawn env, so fall back to the control
   // file's own secret (see readLoopControlFileFromEnv for the trust rationale).
@@ -403,6 +409,7 @@ export async function writeIntentFromCli(
     kind,
     summary,
     evidence: normalizeEvidence(evidence),
+    ...(kind === 'wakeup' ? { resumeAt: requireWakeupResumeAt(resumeAt) } : {}),
     source: 'loop-control-cli',
     createdAt: Date.now(),
     secret,
@@ -427,6 +434,7 @@ export function summarizeLoopControlPrompt(runtime: LoopControlRuntime): string 
     'Loop Terminal Control:',
     `- When the requested work is complete and verified by you, run: "${runtime.cliPath}" complete --summary "<what is done>"`,
     `- If genuinely blocked and another iteration cannot help, run: "${runtime.cliPath}" block --summary "<exact blocker>"`,
+    `- If waiting for an external event would help, run: "${runtime.cliPath}" wakeup --summary "<why to resume>" --resume-in "<seconds>"`,
     `- If the task should be marked failed, run: "${runtime.cliPath}" fail --summary "<failure reason>"`,
     '- This command records your intent only. The coordinator still requires its configured verification and fresh-eyes gates before marking completion.',
     '- If no verify command is configured, a complete intent pauses for operator review instead of auto-completing.',
@@ -465,8 +473,8 @@ function parseRawIntent(value: unknown): RawIntentFile {
   }
   const data = value as Record<string, unknown>;
   const kind = data['kind'];
-  if (kind !== 'complete' && kind !== 'block' && kind !== 'fail') {
-    throw new Error('Intent kind must be complete, block, or fail');
+  if (kind !== 'complete' && kind !== 'block' && kind !== 'fail' && kind !== 'wakeup') {
+    throw new Error('Intent kind must be complete, block, fail, or wakeup');
   }
   const summary = readStringField(data, 'summary');
   if (!summary.trim()) {
@@ -486,6 +494,7 @@ function parseRawIntent(value: unknown): RawIntentFile {
     kind,
     summary,
     evidence,
+    resumeAt: kind === 'wakeup' ? readNonnegativeIntegerField(data, 'resumeAt') : undefined,
     source: data['source'] === 'imported-file' ? 'imported-file' : 'loop-control-cli',
     createdAt: readNonnegativeIntegerField(data, 'createdAt'),
     secret: readStringField(data, 'secret'),
@@ -509,9 +518,24 @@ function validateIntentAgainstRuntime(
   if (raw.iterationSeq > options.maxIterationSeq) {
     throw new Error(`Intent iterationSeq ${raw.iterationSeq} is ahead of imported loop state ${options.maxIterationSeq}`);
   }
-  if (!options.terminalEligible && raw.kind !== 'block') {
+  if (!options.terminalEligible && raw.kind !== 'block' && raw.kind !== 'wakeup') {
     throw new Error('Loop is not currently eligible for terminal complete/fail intents');
   }
+}
+
+export function clampLoopWakeupResumeAt(now: number, requestedResumeAt: number): number {
+  const boundedDelay = Math.min(
+    LOOP_WAKEUP_MAX_DELAY_MS,
+    Math.max(LOOP_WAKEUP_MIN_DELAY_MS, requestedResumeAt - now),
+  );
+  return now + boundedDelay;
+}
+
+function requireWakeupResumeAt(resumeAt: number | undefined): number {
+  if (!Number.isInteger(resumeAt) || (resumeAt as number) <= 0) {
+    throw new Error('wakeup intents require a resumeAt timestamp');
+  }
+  return resumeAt as number;
 }
 
 function normalizeEvidence(evidence: readonly unknown[]): LoopTerminalIntentEvidence[] {

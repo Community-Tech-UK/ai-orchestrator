@@ -978,6 +978,76 @@ describe('InstanceCommunicationManager', () => {
     ).toBe(true);
   });
 
+  it('compacts and retries when sendInput throws a provider-specific context overflow', async () => {
+    const adapter = new FakeAdapter('gemini-cli');
+    adapter.sendInput
+      .mockRejectedValueOnce(new Error('The input token count (201,000) exceeds the maximum number of tokens allowed (200,000).'))
+      .mockResolvedValueOnce(undefined);
+    const compactContext = vi.fn().mockResolvedValue(undefined);
+    adapters.set(instance.id, adapter as unknown as CliAdapter);
+
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, currentAdapter) => {
+        adapters.set(id, currentAdapter);
+      },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      compactContext,
+      emitProviderRuntimeEvent,
+    });
+
+    await manager.sendInput(instance.id, 'summarize the workspace');
+
+    expect(compactContext).toHaveBeenCalledWith(instance.id);
+    expect(adapter.sendInput).toHaveBeenCalledTimes(2);
+    expect(adapter.sendInput.mock.calls[1][0]).toContain('[SYSTEM: Context Overflow Recovery]');
+    expect(instance.outputBuffer.some(message => message.metadata?.['contextOverflow'] === true)).toBe(true);
+  });
+
+  it('compacts immediately on a silent empty assistant response near the context ceiling', async () => {
+    const adapter = new FakeAdapter('codex-cli') as unknown as CliAdapter;
+    const compactContext = vi.fn().mockResolvedValue(undefined);
+    adapters.set(instance.id, adapter);
+    instance.status = 'busy';
+    instance.contextUsage = {
+      used: 198_200,
+      total: 200_000,
+      percentage: 99.1,
+      inputTokens: 198_200,
+      outputTokens: 0,
+    };
+
+    manager = new InstanceCommunicationManager({
+      getInstance: (id) => (id === instance.id ? instance : undefined),
+      getAdapter: (id) => adapters.get(id),
+      setAdapter: (id, currentAdapter) => {
+        adapters.set(id, currentAdapter);
+      },
+      deleteAdapter: (id) => adapters.delete(id),
+      queueUpdate,
+      processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined),
+      ingestToRLM: vi.fn(),
+      ingestToUnifiedMemory: vi.fn(),
+      compactContext,
+      emitProviderRuntimeEvent,
+    });
+
+    manager.setupAdapterEvents(instance.id, adapter);
+    (adapter as unknown as EventEmitter).emit('output', createMessage('assistant', ''));
+    await flushOutputHandlers();
+
+    expect(compactContext).toHaveBeenCalledWith(instance.id);
+    expect(instance.outputBuffer.some(message => message.metadata?.['contextOverflow'] === true)).toBe(true);
+    expect(instance.outputBuffer.some(message => message.type === 'assistant' && message.content === '')).toBe(false);
+  });
+
   it('suppresses duplicate UI errors while keeping transient stateless exec failures retryable', async () => {
     const adapter = new FakeAdapter('copilot-cli') as unknown as CliAdapter;
     const forwarded: OutputMessage[] = [];

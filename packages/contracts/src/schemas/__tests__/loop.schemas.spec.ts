@@ -5,6 +5,7 @@ import {
   LoopCrossModelReviewConfigSchema,
   LoopHardCapsSchema,
   LoopInterveneePayloadSchema,
+  LoopIterationSchema,
   LoopTerminalIntentSchema,
   LoopReviewSeveritySchema,
   LoopStartPayloadSchema,
@@ -344,6 +345,39 @@ describe('Loop schemas — type/schema drift guards', () => {
     });
   });
 
+  describe('LoopIterationSchema.verifyFailureKind', () => {
+    it('round-trips the verify failure kind for failed verify infrastructure diagnostics', () => {
+      const parsed = LoopIterationSchema.parse({
+        id: 'iter-1',
+        loopRunId: 'loop-1',
+        seq: 0,
+        stage: 'IMPLEMENT',
+        startedAt: 1,
+        endedAt: 2,
+        childInstanceId: null,
+        tokens: 0,
+        costCents: 0,
+        filesChanged: [],
+        toolCalls: [],
+        errors: [],
+        testPassCount: null,
+        testFailCount: null,
+        workHash: 'hash',
+        outputSimilarityToPrev: null,
+        outputExcerpt: '',
+        outputFull: '',
+        progressVerdict: 'OK',
+        progressSignals: [],
+        completionSignalsFired: [],
+        verifyStatus: 'failed',
+        verifyOutputExcerpt: 'verify timed out',
+        verifyFailureKind: 'timeout',
+      });
+
+      expect(parsed.verifyFailureKind).toBe('timeout');
+    });
+  });
+
   describe('LoopStateSchema.pendingInterventions', () => {
     const minimalState = {
       id: 'loop-1',
@@ -447,6 +481,37 @@ describe('Loop schemas — type/schema drift guards', () => {
         enqueuedAt: 123,
         source: 'human',
       });
+    });
+
+    it('accepts context-survival pending inputs emitted by the loop engine', () => {
+      const parsed = LoopStateSchema.parse({
+        ...minimalState,
+        pendingInterventions: [{
+          id: 'input-context-1',
+          kind: 'queue',
+          message: 'Keep working while context budget remains healthy.',
+          enqueuedAt: 456,
+          source: 'context-survival',
+        }],
+      });
+
+      expect(parsed.pendingInterventions[0]?.source).toBe('context-survival');
+    });
+
+    it('defaults announce-then-halt nudge count and accepts its pending-input source', () => {
+      const parsed = LoopStateSchema.parse({
+        ...minimalState,
+        pendingInterventions: [{
+          id: 'input-announce-1',
+          kind: 'queue',
+          message: 'Continue now. Execute the announced command.',
+          enqueuedAt: 789,
+          source: 'announce-then-halt',
+        }],
+      });
+
+      expect(parsed.announceThenHaltNudgeCount).toBe(0);
+      expect(parsed.pendingInterventions[0]?.source).toBe('announce-then-halt');
     });
 
     it('accepts an intervention kind in the IPC payload and leaves omitted kind undefined', () => {
@@ -662,6 +727,26 @@ describe('Loop schemas — type/schema drift guards', () => {
         });
         expect(parsed.kind).toBe(kind);
       }
+    });
+  });
+
+  describe('LoopTerminalIntentSchema.wakeup', () => {
+    it('accepts wakeup intents with a resumeAt timestamp', () => {
+      const parsed = LoopTerminalIntentSchema.parse({
+        id: 'intent-wakeup',
+        loopRunId: 'loop-1',
+        iterationSeq: 2,
+        kind: 'wakeup',
+        summary: 'wait for external CI',
+        evidence: [],
+        source: 'loop-control-cli',
+        createdAt: 1_700_000_000_000,
+        receivedAt: 1_700_000_000_100,
+        status: 'accepted',
+        resumeAt: 1_700_000_060_000,
+      });
+
+      expect(parsed.resumeAt).toBe(1_700_000_060_000);
     });
   });
 });

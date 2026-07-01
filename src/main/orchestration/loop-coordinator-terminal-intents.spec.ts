@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
-import { defaultLoopConfig } from '../../shared/types/loop.types';
+import { defaultLoopConfig, type LoopTerminalIntent } from '../../shared/types/loop.types';
 import { runLoopControlCli } from './loop-control-cli';
 
 let workspace: string;
@@ -238,6 +238,80 @@ describe('LoopCoordinator terminal intents', () => {
     await expect(failed).resolves.toMatchObject({ reason: 'preflight failure declaration' });
     expect(coordinator.getLoop(state.id)?.status).toBe('failed');
     expect(invokeCount).toBe(1);
+  });
+
+  it('schedules a wakeup intent, pauses, and injects wakeup context when resumed', async () => {
+    const scheduler = vi.fn(() => () => { /* noop */ });
+    const persisted: LoopTerminalIntent[] = [];
+    coordinator.setProviderLimitResumeScheduler(scheduler);
+    coordinator.setIntentPersistHook((intent) => {
+      persisted.push(intent);
+    });
+    let invokeCount = 0;
+    let secondPrompt = '';
+
+    coordinator.on('loop:invoke-iteration', async (payload: unknown) => {
+      const p = payload as {
+        prompt: string;
+        loopControlEnv: NodeJS.ProcessEnv;
+        callback: (result: LoopChildResult | { error: string }) => void;
+      };
+      invokeCount += 1;
+      if (invokeCount === 1) {
+        const code = await runLoopControlCli(
+          ['node', 'aio-loop-control', 'wakeup', '--summary', 'wait for external CI to finish', '--resume-in', '60'],
+          p.loopControlEnv,
+          silentIo(),
+        );
+        expect(code).toBe(0);
+        p.callback(iterationResult('scheduled delayed follow-up'));
+        return;
+      }
+      secondPrompt = p.prompt;
+      p.callback(iterationResult('resumed after wakeup'));
+    });
+
+    const state = await coordinator.startLoop('chat-wakeup-intent', {
+      initialPrompt: 'do thing',
+      workspaceCwd: workspace,
+      caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 3 },
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
+      },
+    });
+
+    try {
+      await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'paused', 5000);
+      expect(invokeCount).toBe(1);
+      expect(scheduler).toHaveBeenCalledWith(expect.objectContaining({
+        loopRunId: state.id,
+        source: 'wakeup',
+        action: 'wakeup',
+        reason: 'wait for external CI to finish',
+      }));
+      expect(coordinator.getLoop(state.id)?.terminalIntentHistory).toEqual([
+        expect.objectContaining({
+          kind: 'wakeup',
+          status: 'accepted',
+          statusReason: expect.stringContaining('scheduled wakeup'),
+        }),
+      ]);
+      expect(persisted).toEqual([
+        expect.objectContaining({
+          kind: 'wakeup',
+          status: 'accepted',
+          resumeAt: expect.any(Number),
+        }),
+      ]);
+
+      expect(coordinator.resumeLoop(state.id)).toBe(true);
+      await waitForCondition(() => invokeCount >= 2, 5000);
+      expect(secondPrompt).toContain('Wakeup resumed');
+      expect(secondPrompt).toContain('wait for external CI to finish');
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
   });
 
   it('accepts a complete intent from an intervention-consuming iteration when verify passes', async () => {

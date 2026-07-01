@@ -488,6 +488,42 @@ describe('LoopCompletionDetector.runVerify', () => {
     cfg.completion.verifyTimeoutMs = 5000;
     const r = await det.runVerify(cfg);
     expect(r.status).toBe('failed');
+    expect(r.failureKind).toBe('command');
+    expect(r.exitCode).toBe(1);
+  });
+
+  it('reports timeout failures separately from command failures', async () => {
+    const det = new LoopCompletionDetector();
+    const cfg = defaultLoopConfig(tmpDir, 'x');
+    const node = process.execPath.replace(/"/g, '\\"');
+    cfg.completion.verifyCommand = `"${node}" -e "setTimeout(() => {}, 1000)"`;
+    cfg.completion.verifyTimeoutMs = 50;
+    const r = await det.runVerify(cfg);
+    expect(r.status).toBe('failed');
+    expect(r.failureKind).toBe('timeout');
+    expect(r.exitCode).toBeNull();
+  });
+
+  it('reports spawn failures as infrastructure failures', async () => {
+    if (process.platform === 'win32') return;
+    const det = new LoopCompletionDetector();
+    const cfg = defaultLoopConfig(tmpDir, 'x');
+    const previousShell = process.env['SHELL'];
+    process.env['SHELL'] = path.join(tmpDir, 'missing-shell');
+    try {
+      cfg.completion.verifyCommand = 'true';
+      cfg.completion.verifyTimeoutMs = 5000;
+      const r = await det.runVerify(cfg);
+      expect(r.status).toBe('failed');
+      expect(r.failureKind).toBe('infra');
+      expect(r.output).toContain('failed to spawn');
+    } finally {
+      if (previousShell === undefined) {
+        delete process.env['SHELL'];
+      } else {
+        process.env['SHELL'] = previousShell;
+      }
+    }
   });
 });
 

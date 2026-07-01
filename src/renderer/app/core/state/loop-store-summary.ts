@@ -24,6 +24,7 @@ export function snapshotLastIteration(
     testFailCount: iteration.testFailCount,
     verifyStatus: iteration.verifyStatus,
     verifyOutputExcerpt: truncateForSummary(iteration.verifyOutputExcerpt, MAX_SUMMARY_VERIFY_CHARS),
+    verifyFailureKind: iteration.verifyFailureKind,
     verifySummary: iteration.verifySummary,
     progressVerdict: iteration.progressVerdict,
   };

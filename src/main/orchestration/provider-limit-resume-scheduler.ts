@@ -10,7 +10,7 @@ export interface ProviderLimitResumeRequest {
   provider: ProviderId;
   resumeAt: number;
   reason: string;
-  source: 'quota' | 'notice';
+  source: 'quota' | 'notice' | 'wakeup';
   action: string;
   windowId?: string;
 }
@@ -20,14 +20,17 @@ export function scheduleProviderLimitResume(params: {
   resumeLoop: (loopRunId: string) => boolean;
 }): () => void {
   const { request, resumeLoop } = params;
+  const isWakeup = request.source === 'wakeup';
   let automationId: string | null = null;
   let cancelled = false;
 
   void (async () => {
     const { createAutomationWithScheduling } = await import('../automations/automation-create-service');
     const automation = await createAutomationWithScheduling({
-      name: `Resume loop after ${request.provider} quota reset`,
-      description: `Auto-created provider-limit wake for loop ${request.loopRunId}.`,
+      name: isWakeup ? 'Resume loop after scheduled wakeup' : `Resume loop after ${request.provider} quota reset`,
+      description: isWakeup
+        ? `Auto-created scheduled wakeup for loop ${request.loopRunId}.`
+        : `Auto-created provider-limit wake for loop ${request.loopRunId}.`,
       enabled: true,
       schedule: {
         type: 'oneTime',
@@ -49,7 +52,9 @@ export function scheduleProviderLimitResume(params: {
           loopRunId: request.loopRunId,
         },
         prompt: [
-          `Provider quota window reset for loop ${request.loopRunId}.`,
+          isWakeup
+            ? `Scheduled wakeup time reached for loop ${request.loopRunId}.`
+            : `Provider quota window reset for loop ${request.loopRunId}.`,
           `Reason: ${request.reason}`,
           'Harness will try to resume the paused loop directly. If direct resume is unavailable, report the loop status and next action.',
         ].join('\n'),
@@ -70,7 +75,7 @@ export function scheduleProviderLimitResume(params: {
   const delay = Math.max(0, request.resumeAt - Date.now()) + 5_000;
   const timer = setTimeout(() => {
     const resumed = resumeLoop(request.loopRunId);
-    logger.info('Provider-limit local resume timer fired', {
+    logger.info(isWakeup ? 'Scheduled wakeup local resume timer fired' : 'Provider-limit local resume timer fired', {
       loopRunId: request.loopRunId,
       resumed,
     });

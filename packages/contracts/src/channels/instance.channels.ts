@@ -35,6 +35,7 @@ export const INSTANCE_CHANNELS = {
 
   // Context compaction
   INSTANCE_COMPACT: 'instance:compact',
+  INSTANCE_RECOVER_COMPACTION_CONTEXT: 'instance:recover-compaction-context',
   INSTANCE_COMPACT_STATUS: 'instance:compact-status',
   CONTEXT_WARNING: 'context:warning',
 

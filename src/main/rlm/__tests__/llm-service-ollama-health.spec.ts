@@ -22,6 +22,16 @@ vi.mock('../../logging/logger', () => ({
   })),
 }));
 
+function mockJsonResponse(body: unknown, ok = true, status = 200): Response {
+  return {
+    ok,
+    status,
+    statusText: ok ? 'OK' : 'Error',
+    json: () => Promise.resolve(body),
+    text: () => Promise.resolve(JSON.stringify(body)),
+  } as unknown as Response;
+}
+
 describe('LLMService.summarize() — auxiliary routing', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -202,6 +212,80 @@ describe('LLMService.subQueryViaAux() — auxiliary routing', () => {
 
     expect(subSpy).toHaveBeenCalledTimes(1);
     expect(out).toBe('frontier answer');
+  });
+});
+
+describe('LLMService direct provider request sanitization', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    const { LLMService } = await import('../llm-service');
+    LLMService._resetForTesting();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('strips lone surrogates from Anthropic request bodies', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockJsonResponse({ content: [{ type: 'text', text: 'ok' }] }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { getLLMService } = await import('../llm-service');
+    const service = getLLMService({ provider: 'anthropic', anthropicApiKey: 'sk-test' });
+
+    await (service as unknown as {
+      generateWithAnthropic: (systemPrompt: string, userPrompt: string) => Promise<string>;
+    }).generateWithAnthropic(
+      'sys\uD800 prompt \uD83D\uDE00 zero\u200Bwidth',
+      'user\uDC00 prompt \uD83D\uDE00 zero\u200Bwidth',
+    );
+
+    const anthropicCall = fetchMock.mock.calls.find(([url]) => url === 'https://api.anthropic.com/v1/messages');
+    const body = JSON.parse((anthropicCall?.[1] as RequestInit).body as string);
+    expect(body.system).toBe('sys prompt \uD83D\uDE00 zero\u200Bwidth');
+    expect(body.messages).toEqual([
+      { role: 'user', content: 'user prompt \uD83D\uDE00 zero\u200Bwidth' },
+    ]);
+  });
+
+  it('strips lone surrogates from Ollama prompt parts before concatenating', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockJsonResponse({ response: 'ok' }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { getLLMService } = await import('../llm-service');
+    const service = getLLMService({ provider: 'ollama', ollamaHost: 'http://ollama.test' });
+
+    await (service as unknown as {
+      generateWithOllama: (systemPrompt: string, userPrompt: string) => Promise<string>;
+    }).generateWithOllama('sys\uD83D', '\uDE00user \uD83D\uDE00 zero\u200Bwidth');
+
+    const generateCall = fetchMock.mock.calls.find(([url]) => url === 'http://ollama.test/api/generate');
+    const body = JSON.parse((generateCall?.[1] as RequestInit).body as string);
+    expect(body.prompt).toBe('sys\n\nUser: user \uD83D\uDE00 zero\u200Bwidth');
+  });
+
+  it('strips lone surrogates from OpenAI request bodies', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockJsonResponse({ choices: [{ message: { content: 'ok' } }] }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { getLLMService } = await import('../llm-service');
+    const service = getLLMService({ provider: 'openai', openaiApiKey: 'sk-test' });
+
+    await (service as unknown as {
+      generateWithOpenAI: (systemPrompt: string, userPrompt: string) => Promise<string>;
+    }).generateWithOpenAI(
+      'sys\uD800 prompt \uD83D\uDE00 zero\u200Bwidth',
+      'user\uDC00 prompt \uD83D\uDE00 zero\u200Bwidth',
+    );
+
+    const openAiCall = fetchMock.mock.calls.find(([url]) => url === 'https://api.openai.com/v1/chat/completions');
+    const body = JSON.parse((openAiCall?.[1] as RequestInit).body as string);
+    expect(body.messages).toEqual([
+      { role: 'system', content: 'sys prompt \uD83D\uDE00 zero\u200Bwidth' },
+      { role: 'user', content: 'user prompt \uD83D\uDE00 zero\u200Bwidth' },
+    ]);
   });
 });
 

@@ -98,6 +98,7 @@ function buildManager(instances: Record<string, unknown> = {}): import('../insta
 describe('setupInstanceEventForwarding', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRecordProviderThreadCompactionMarker.mockReturnValue('marker-1');
   });
 
   it('forwards provider:normalized-event to renderer IPC', () => {
@@ -183,7 +184,7 @@ describe('setupInstanceEventForwarding', () => {
     expect(sent.model).toBe('claude-opus-4-7');
   });
 
-  it('records provider-managed thread compaction markers from normalized output metadata', () => {
+  it('records provider-managed thread compaction markers and forwards the marker id in output metadata', () => {
     const instance = {
       id: 'inst-1',
       provider: 'codex',
@@ -223,5 +224,18 @@ describe('setupInstanceEventForwarding', () => {
       createdAt: 1234,
       messageMetadata: { threadCompacted: true },
     });
+    expect(mockSendToRenderer).toHaveBeenCalledWith(
+      IPC_CHANNELS.PROVIDER_RUNTIME_EVENT,
+      expect.objectContaining({
+        event: expect.objectContaining({
+          metadata: expect.objectContaining({
+            threadCompacted: true,
+            compactionMarkerId: 'marker-1',
+            isCompactionBoundary: true,
+            method: 'self-managed',
+          }),
+        }),
+      }),
+    );
   });
 });

@@ -54,12 +54,14 @@ export function parseCompactionSummary(message: OutputMessage): CompactionSummar
 
   const fallbackMode = message.metadata['fallbackMode'];
   const tokensReclaimed = message.metadata['tokensReclaimed'];
+  const markerId = message.metadata['compactionMarkerId'];
   return {
     reason,
     beforeCount,
     afterCount,
     tokensReclaimed: typeof tokensReclaimed === 'number' ? tokensReclaimed : undefined,
     fallbackMode: isCompactionFallbackMode(fallbackMode) ? fallbackMode : undefined,
+    markerId: typeof markerId === 'string' ? markerId : undefined,
     at: typeof at === 'number' ? at : message.timestamp,
   };
 }

@@ -20,7 +20,7 @@ import { PerfInstrumentationService } from '../../core/services/perf-instrumenta
 import { PromptSuggestionService } from '../../core/services/prompt-suggestion.service';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
 import { ProviderStateService } from '../../core/services/provider-state.service';
-import { CommandStore } from '../../core/state/command.store';
+import { CommandStore, type ExtendedCommand } from '../../core/state/command.store';
 import { PromptHistoryStore } from '../../core/state/prompt-history.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { VoiceConversationStore } from '../../core/voice/voice-conversation.store';
@@ -135,6 +135,8 @@ class ComposerToolbarStubComponent {
   @Input() contextUsage: unknown = undefined;
   @Input() provider = 'claude';
   @Input() currentModel: string | undefined = undefined;
+  @Input() currentReasoningEffort: unknown = undefined;
+  @Input() instanceStatus = 'idle';
 }
 
 @Component({
@@ -450,7 +452,45 @@ describe('InputPanelComponent queued message editing', () => {
     }
     expect(error.textContent).toContain('No slash command found for /not-a-command');
   });
+
+  it('uses fuzzy ranking for slash command suggestions while preserving the suggestion shape', () => {
+    const component = fixture.componentInstance;
+    const commandStore = TestBed.inject(CommandStore) as unknown as {
+      commands: { set(commands: ExtendedCommand[]): void };
+    };
+    commandStore.commands.set([
+      command('doctor', 'Open diagnostics'),
+      command('review-pr', 'Review a pull request', { aliases: ['pr-review'], category: 'review' }),
+      command('settings', 'Open settings'),
+    ]);
+
+    component.message.set('/rvw');
+
+    expect(component.filteredCommands().map(cmd => cmd.name)).toEqual(['review-pr']);
+    expect(component.filteredCommands()[0]).toMatchObject({
+      id: 'review-pr',
+      name: 'review-pr',
+      description: 'Review a pull request',
+    });
+  });
 });
+
+function command(
+  name: string,
+  description: string,
+  overrides: Partial<ExtendedCommand> = {},
+): ExtendedCommand {
+  return {
+    id: name,
+    name,
+    description,
+    template: '',
+    builtIn: true,
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
 
 function createCommandStoreMock(): Partial<CommandStore> {
   return {

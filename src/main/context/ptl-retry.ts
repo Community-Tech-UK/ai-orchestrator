@@ -47,22 +47,92 @@ export interface PTLRetryResult<T> {
   error?: string;
 }
 
+export type ContextOverflowReason = 'provider-message' | 'silent-empty-response' | 'near-window-fill';
+
+export type ContextOverflowEvidence =
+  | {
+      readonly matched: true;
+      readonly reason: ContextOverflowReason;
+      readonly detail: string;
+    }
+  | {
+      readonly matched: false;
+      readonly detail: string;
+    };
+
+export interface ContextOverflowClassifierInput {
+  readonly errorText?: string;
+  readonly outputText?: string;
+  readonly promptTokens?: number;
+  readonly contextWindowTokens?: number;
+}
+
 /**
  * Patterns that indicate a prompt-too-long / context overflow error.
  * Covers Anthropic, OpenAI, Google, and generic error formats.
  */
-const PTL_ERROR_PATTERNS = [
+const PROVIDER_OVERFLOW_PATTERNS = [
   /prompt is too long/i,
   /request_too_large/i,
-  /context.?window.?exceeded/i,
+  /context.?window.?(?:exceeded|overflow|full)/i,
+  /exceeds context.?window/i,
+  /context.?length.?(?:exceeded|overflow|limit)/i,
   /context_length_exceeded/i,
   /maximum context length/i,
+  /too many tokens/i,
   /token limit exceeded/i,
+  /token.?limit/i,
+  /input token count.*exceeds.*maximum/i,
   /input.*too long/i,
   /exceeds the model's maximum/i,
+  /exceeds the maximum number of tokens/i,
   /max_tokens.*exceeded/i,
   /ran out of room in.*context window/i,    // Codex CLI error message
 ] as const;
+
+const NON_CONTEXT_OVERFLOW_PATTERNS = [
+  /max(?:imum)? output tokens?/i,
+  /output token limit/i,
+  /response was truncated/i,
+  /finish_reason[^\n]*length/i,
+] as const;
+
+const SILENT_FAILURE_PATTERNS = [
+  /exited unexpectedly/i,
+  /exited with code/i,
+  /turn stalled/i,
+  /empty response/i,
+  /no response/i,
+  /stream ended/i,
+] as const;
+
+const SILENT_EMPTY_OUTPUT_FILL_RATIO = 0.99;
+const NEAR_WINDOW_FAILURE_FILL_RATIO = 0.995;
+
+function parseTokenNumber(input: string): number {
+  return parseInt(input.replace(/,/g, ''), 10);
+}
+
+function formatRatio(ratio: number): string {
+  return `${(ratio * 100).toFixed(1)}%`;
+}
+
+function getPromptFillRatio(input: ContextOverflowClassifierInput): number | undefined {
+  const promptTokens = input.promptTokens;
+  const contextWindowTokens = input.contextWindowTokens;
+  if (
+    typeof promptTokens !== 'number'
+    || typeof contextWindowTokens !== 'number'
+    || !Number.isFinite(promptTokens)
+    || !Number.isFinite(contextWindowTokens)
+    || promptTokens <= 0
+    || contextWindowTokens <= 0
+  ) {
+    return undefined;
+  }
+
+  return promptTokens / contextWindowTokens;
+}
 
 /**
  * Extract the observed token count from an error message, if present.
@@ -73,21 +143,83 @@ export function extractOverflowTokenCount(errorMessage: string): { observed?: nu
   const match = errorMessage.match(/(\d[\d,]*)\s*tokens?\s*(?:>|exceeds?|over)\s*(\d[\d,]*)/i);
   if (match) {
     return {
-      observed: parseInt(match[1].replace(/,/g, ''), 10),
-      maximum: parseInt(match[2].replace(/,/g, ''), 10),
+      observed: parseTokenNumber(match[1]),
+      maximum: parseTokenNumber(match[2]),
     };
   }
 
   // Pattern: "maximum context length is M tokens, however you requested N"
-  const altMatch = errorMessage.match(/maximum.*?(\d[\d,]*)\s*tokens.*?requested.*?(\d[\d,]*)/i);
+  const altMatch = errorMessage.match(/maximum.*?(\d[\d,]*)\s*tokens.*?(?:requested|resulted in).*?(\d[\d,]*)/i);
   if (altMatch) {
     return {
-      maximum: parseInt(altMatch[1].replace(/,/g, ''), 10),
-      observed: parseInt(altMatch[2].replace(/,/g, ''), 10),
+      maximum: parseTokenNumber(altMatch[1]),
+      observed: parseTokenNumber(altMatch[2]),
+    };
+  }
+
+  // Pattern: "input token count (N) exceeds the maximum ... (M)"
+  const countMatch = errorMessage.match(
+    /(?:input\s+)?token count\s*\(?(\d[\d,]*)\)?.*?exceeds?.*?maximum.*?\(?(\d[\d,]*)\)?/i,
+  );
+  if (countMatch) {
+    return {
+      observed: parseTokenNumber(countMatch[1]),
+      maximum: parseTokenNumber(countMatch[2]),
     };
   }
 
   return {};
+}
+
+export function classifyContextOverflow(input: ContextOverflowClassifierInput): ContextOverflowEvidence {
+  const errorText = input.errorText?.trim() ?? '';
+  const outputText = input.outputText;
+  const text = errorText;
+
+  if (text && !NON_CONTEXT_OVERFLOW_PATTERNS.some(pattern => pattern.test(text))) {
+    const matchedPattern = PROVIDER_OVERFLOW_PATTERNS.find(pattern => pattern.test(text));
+    if (matchedPattern) {
+      return {
+        matched: true,
+        reason: 'provider-message',
+        detail: `provider overflow message matched ${matchedPattern}`,
+      };
+    }
+  }
+
+  const promptFillRatio = getPromptFillRatio(input);
+  if (promptFillRatio === undefined) {
+    return { matched: false, detail: 'no provider message or token evidence' };
+  }
+
+  if (
+    outputText !== undefined
+    && outputText.trim() === ''
+    && promptFillRatio >= SILENT_EMPTY_OUTPUT_FILL_RATIO
+  ) {
+    return {
+      matched: true,
+      reason: 'silent-empty-response',
+      detail: `empty assistant output with prompt at ${formatRatio(promptFillRatio)} of context window`,
+    };
+  }
+
+  if (
+    text
+    && SILENT_FAILURE_PATTERNS.some(pattern => pattern.test(text))
+    && promptFillRatio >= NEAR_WINDOW_FAILURE_FILL_RATIO
+  ) {
+    return {
+      matched: true,
+      reason: 'near-window-fill',
+      detail: `failure near context ceiling with prompt at ${formatRatio(promptFillRatio)} of context window`,
+    };
+  }
+
+  return {
+    matched: false,
+    detail: `no high-confidence context overflow evidence at ${formatRatio(promptFillRatio)} of context window`,
+  };
 }
 
 /**
@@ -95,7 +227,7 @@ export function extractOverflowTokenCount(errorMessage: string): { observed?: nu
  */
 export function isContextOverflowError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return PTL_ERROR_PATTERNS.some(pattern => pattern.test(message));
+  return classifyContextOverflow({ errorText: message }).matched;
 }
 
 /**

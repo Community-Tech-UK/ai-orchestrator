@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VoiceService, VoiceServiceError } from './voice-service';
+import { DEFAULT_SETTINGS, type AppSettings } from '../../../shared/types/settings.types';
+import type {
+  VoiceProviderStatus,
+  VoiceTranscriptionSession,
+} from '@contracts/schemas/voice';
+import type {
+  VoiceTranscriptionProvider,
+  VoiceTranscriptionProviderId,
+  VoiceTtsProvider,
+} from './providers/types';
 
 const ORIGINAL_OPENAI_API_KEY = process.env['OPENAI_API_KEY'];
 
@@ -8,6 +18,59 @@ function jsonResponse(body: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+function settings(overrides: Partial<AppSettings> = {}): AppSettings {
+  return { ...DEFAULT_SETTINGS, ...overrides };
+}
+
+function fakeTtsProvider(): VoiceTtsProvider {
+  return {
+    id: 'local-macos-say',
+    getStatus: vi.fn(() => ({
+      id: 'local-macos-say',
+      label: 'macOS Local Voice',
+      source: 'local' as const,
+      capabilities: ['tts' as const],
+      available: true,
+      configured: true,
+      active: false,
+      privacy: 'local' as const,
+    })),
+    synthesize: vi.fn(),
+    cancel: vi.fn(() => false),
+    destroy: vi.fn(),
+  };
+}
+
+function fakeTranscriptionProvider(
+  id: VoiceTranscriptionProviderId,
+  status: Partial<VoiceProviderStatus>
+): VoiceTranscriptionProvider {
+  return {
+    id,
+    getStatus: vi.fn(() => ({
+      id,
+      label: id,
+      source: id === 'openai-realtime' ? 'cloud' : 'local',
+      capabilities: ['stt'],
+      available: true,
+      configured: true,
+      active: false,
+      privacy: id === 'openai-realtime' ? 'provider-cloud' : 'local',
+      ...status,
+    })),
+    createSession: vi.fn(async () => ({
+      transport: id === 'openai-realtime' ? 'webrtc' : 'local-segmented',
+      sessionId: `${id}-session`,
+      model: 'distil-large-v3',
+      providerId: id,
+      ...(id === 'openai-realtime'
+        ? { clientSecret: 'ephemeral-secret' }
+        : { sampleRate: 16000, language: 'en', task: 'transcribe' as const }),
+    } as VoiceTranscriptionSession)),
+    closeSession: vi.fn(() => false),
+  };
 }
 
 describe('VoiceService', () => {
@@ -42,7 +105,10 @@ describe('VoiceService', () => {
       cancel: vi.fn(() => false),
       destroy: vi.fn(),
     };
-    const service = new VoiceService({ localTts });
+    const service = new VoiceService({
+      localTts,
+      commandExists: () => false,
+    });
 
     expect(service.getStatus()).toMatchObject({
       available: false,
@@ -105,7 +171,10 @@ describe('VoiceService', () => {
       cancel: vi.fn(() => false),
       destroy: vi.fn(),
     };
-    const service = new VoiceService({ localTts });
+    const service = new VoiceService({
+      localTts,
+      commandExists: () => false,
+    });
 
     await expect(service.synthesizeSpeech({
       requestId: 'tts-local',
@@ -136,7 +205,7 @@ describe('VoiceService', () => {
     }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const service = new VoiceService();
+    const service = new VoiceService({ commandExists: () => false });
     service.setTemporaryOpenAiApiKey('sk-test-temporary-key-with-enough-length');
 
     const session = await service.createTranscriptionSession({
@@ -185,7 +254,7 @@ describe('VoiceService', () => {
       },
     })));
 
-    const service = new VoiceService();
+    const service = new VoiceService({ commandExists: () => false });
     service.setTemporaryOpenAiApiKey('sk-test-temporary-key-with-enough-length');
 
     await expect(service.createTranscriptionSession({
@@ -196,7 +265,7 @@ describe('VoiceService', () => {
   });
 
   it('rejects over-limit TTS input as a rejected promise', async () => {
-    const service = new VoiceService();
+    const service = new VoiceService({ commandExists: () => false });
     service.setTemporaryOpenAiApiKey('sk-test-temporary-key-with-enough-length');
 
     await expect(service.synthesizeSpeech({
@@ -215,7 +284,7 @@ describe('VoiceService', () => {
       },
     }, 429)));
 
-    const service = new VoiceService();
+    const service = new VoiceService({ commandExists: () => false });
     service.setTemporaryOpenAiApiKey('sk-test-temporary-key-with-enough-length');
 
     await expect(service.synthesizeSpeech({
@@ -228,6 +297,145 @@ describe('VoiceService', () => {
     })).rejects.toMatchObject({
       code: 'speech-rate-limited',
       message: 'quota failed for [redacted]',
+    });
+  });
+
+  it('prefers local STT over OpenAI in auto mode when a local route is healthy', () => {
+    const service = new VoiceService({
+      localTts: fakeTtsProvider(),
+      localTranscription: fakeTranscriptionProvider('local-whisper', {
+        location: 'worker-node',
+        latencyClass: 'near-realtime',
+      }),
+      openAiTranscription: fakeTranscriptionProvider('openai-realtime', {
+        location: 'cloud',
+        latencyClass: 'live',
+      }),
+    });
+    service.configure(settings({ voiceSttRoutingMode: 'auto' }));
+
+    const status = service.getStatus();
+
+    expect(status.activeTranscriptionProviderId).toBe('local-whisper');
+    expect(status.providers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'local-whisper', active: true }),
+      expect.objectContaining({ id: 'openai-realtime', active: false }),
+    ]));
+  });
+
+  it('falls back to OpenAI in auto mode when local STT is unavailable', () => {
+    const service = new VoiceService({
+      localTts: fakeTtsProvider(),
+      localTranscription: fakeTranscriptionProvider('local-whisper', {
+        available: false,
+        configured: true,
+        location: 'worker-node',
+      }),
+      openAiTranscription: fakeTranscriptionProvider('openai-realtime', {
+        available: true,
+        location: 'cloud',
+      }),
+    });
+    service.configure(settings({ voiceSttRoutingMode: 'auto' }));
+
+    expect(service.getStatus().activeTranscriptionProviderId).toBe('openai-realtime');
+  });
+
+  it('threads command existence into the default local STT provider for CLI fallback', () => {
+    const service = new VoiceService({
+      localTts: fakeTtsProvider(),
+      commandExists: (command) => command === 'whisper-cli',
+      openAiTranscription: fakeTranscriptionProvider('openai-realtime', {
+        available: false,
+      }),
+    });
+    service.configure(settings({
+      voiceSttRoutingMode: 'this-device',
+      voiceLocalSttModel: '/models/ggml-distil-large-v3.bin',
+    }));
+
+    expect(service.getStatus()).toMatchObject({
+      available: true,
+      activeTranscriptionProviderId: 'local-whisper',
+    });
+  });
+
+  it('honors explicit cloud routing even when local STT is healthy', () => {
+    const service = new VoiceService({
+      localTts: fakeTtsProvider(),
+      localTranscription: fakeTranscriptionProvider('local-whisper', {
+        location: 'this-device',
+      }),
+      openAiTranscription: fakeTranscriptionProvider('openai-realtime', {
+        available: true,
+        location: 'cloud',
+      }),
+    });
+    service.configure(settings({ voiceSttRoutingMode: 'cloud' }));
+
+    expect(service.getStatus().activeTranscriptionProviderId).toBe('openai-realtime');
+  });
+
+  it('does not fall back to cloud when worker-node routing is explicitly selected', () => {
+    const service = new VoiceService({
+      localTts: fakeTtsProvider(),
+      localTranscription: fakeTranscriptionProvider('local-whisper', {
+        available: false,
+        configured: true,
+        location: 'worker-node',
+      }),
+      openAiTranscription: fakeTranscriptionProvider('openai-realtime', {
+        available: true,
+        location: 'cloud',
+      }),
+    });
+    service.configure(settings({ voiceSttRoutingMode: 'worker-node' }));
+
+    expect(service.getStatus()).toMatchObject({
+      available: false,
+      activeTranscriptionProviderId: undefined,
+      unavailableReason: expect.stringContaining('Speech-to-text provider'),
+    });
+  });
+
+  it('routes local STT chunks through the local transcription provider', async () => {
+    const localTranscription = {
+      ...fakeTranscriptionProvider('local-whisper', {
+        location: 'worker-node',
+        latencyClass: 'near-realtime',
+      }),
+      pushSegment: vi.fn(async () => ({
+        sessionId: 'local-session-1',
+        kind: 'final' as const,
+        text: 'hello local',
+        segmentId: 4,
+      })),
+    };
+    const service = new VoiceService({
+      localTts: fakeTtsProvider(),
+      localTranscription,
+      openAiTranscription: fakeTranscriptionProvider('openai-realtime', {
+        available: false,
+      }),
+    });
+
+    await expect(service.pushLocalSttChunk({
+      sessionId: 'local-session-1',
+      seq: 4,
+      wavBase64: 'UklGRg==',
+      last: true,
+    })).resolves.toEqual({
+      sessionId: 'local-session-1',
+      kind: 'final',
+      text: 'hello local',
+      segmentId: 4,
+    });
+
+    expect(localTranscription.pushSegment).toHaveBeenCalledWith({
+      sessionId: 'local-session-1',
+      seq: 4,
+      wavBase64: 'UklGRg==',
+      last: true,
     });
   });
 });

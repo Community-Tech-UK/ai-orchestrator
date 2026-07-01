@@ -7,6 +7,7 @@ import {
   runMigrations,
 } from './rlm-schema';
 import {
+  getCompactionMarker,
   listCompactionMarkers,
   recordCompactionMarker,
 } from './rlm-compaction-markers';
@@ -90,5 +91,30 @@ describe('RLM compaction markers', () => {
         metadata: { source: 'manual' },
       }),
     ]);
+  });
+
+  it('retrieves one marker by id', () => {
+    const db = openMigratedDb();
+    recordCompactionMarker(db, {
+      id: 'marker-1',
+      instanceId: 'inst-1',
+      threadId: 'thread-1',
+      projectKey: '/repo',
+      method: 'self-managed',
+      createdAt: 100,
+      ledgerAnchor: 90,
+      metadata: { source: 'provider-thread-compacted' },
+    });
+
+    expect(getCompactionMarker(db, 'marker-1')).toMatchObject({
+      id: 'marker-1',
+      instanceId: 'inst-1',
+      threadId: 'thread-1',
+      projectKey: '/repo',
+      method: 'self-managed',
+      ledgerAnchor: 90,
+      metadata: { source: 'provider-thread-compacted' },
+    });
+    expect(getCompactionMarker(db, 'missing')).toBeNull();
   });
 });

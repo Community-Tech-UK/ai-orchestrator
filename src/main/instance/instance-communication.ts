@@ -32,7 +32,7 @@ import {
 } from './orchestrator-attachment-fallback';
 import { isInstanceSettledStatus } from './instance-state-machine';
 import { generateId } from '../../shared/utils/id-generator';
-import { isContextOverflowError, extractOverflowTokenCount } from '../context/ptl-retry';
+import { classifyContextOverflow, extractOverflowTokenCount } from '../context/ptl-retry';
 import { BudgetAction } from '../context/token-budget-tracker.js';
 import { getTokenStatsService } from '../memory/token-stats';
 import { getTokenCounter } from '../rlm/token-counter';
@@ -809,19 +809,18 @@ export class InstanceCommunicationManager extends EventEmitter {
       // The adapter's on('error') handler won't fire for thrown errors,
       // so we must handle context overflow recovery inline.
       const errorMsg = sendError instanceof Error ? sendError.message : String(sendError);
-      const isOverflow = isContextOverflowError(errorMsg);
+      const overflowEvidence = classifyContextOverflow({
+        errorText: errorMsg,
+        promptTokens: instance.contextUsage?.inputTokens ?? instance.contextUsage?.used,
+        contextWindowTokens: instance.contextUsage?.total,
+      });
 
-      // Also treat process crashes as context overflow when context is near/at 100%.
-      // Codex app-server may crash without returning a graceful overflow error.
-      const contextPct = instance.contextUsage?.percentage ?? 0;
-      const isCrashAtFullContext = !isOverflow
-        && contextPct >= 95
-        && (errorMsg.includes('exited unexpectedly') || errorMsg.includes('exited with code') || errorMsg.includes('turn stalled'));
-
-      if ((isOverflow || isCrashAtFullContext) && this.deps.compactContext) {
+      if (overflowEvidence.matched && this.deps.compactContext) {
         const tokenInfo = extractOverflowTokenCount(errorMsg);
         logger.info('Context overflow detected in sendInput path, attempting compaction', {
           instanceId,
+          reason: overflowEvidence.reason,
+          detail: overflowEvidence.detail,
           observedTokens: tokenInfo.observed,
           maximumTokens: tokenInfo.maximum,
         });
@@ -1131,6 +1130,37 @@ export class InstanceCommunicationManager extends EventEmitter {
           // Successful response means overflow retry worked — allow future retries
           if (hasContent) {
             this.contextOverflowRetried.delete(instanceId);
+          }
+          if (!hasContent) {
+            const overflowEvidence = classifyContextOverflow({
+              outputText: accumulatedContent || message.content,
+              promptTokens: instance.contextUsage?.inputTokens ?? instance.contextUsage?.used,
+              contextWindowTokens: instance.contextUsage?.total,
+            });
+            if (overflowEvidence.matched && this.deps.compactContext) {
+              logger.warn('Silent context overflow suspected; compacting', {
+                instanceId,
+                reason: overflowEvidence.reason,
+                detail: overflowEvidence.detail,
+              });
+              const compactingMessage: OutputMessage = {
+                id: generateId(),
+                timestamp: Date.now(),
+                type: 'system',
+                content: 'Empty response near the context limit. Compacting conversation history...',
+                metadata: { contextOverflow: true, silentEmptyResponse: true },
+              };
+              this.addToOutputBuffer(instance, compactingMessage);
+              this.emit('output', { instanceId, message: compactingMessage });
+              try {
+                await this.deps.compactContext(instanceId);
+                this.resetCircuitBreaker(instanceId);
+                this.contextWarningIssued.delete(instanceId);
+              } catch (compactErr) {
+                logger.error('Compaction failed during silent overflow recovery', compactErr instanceof Error ? compactErr : undefined, { instanceId });
+              }
+              return;
+            }
           }
           const circuitOk = this.recordResponse(instanceId, hasContent);
 
@@ -1662,12 +1692,21 @@ export class InstanceCommunicationManager extends EventEmitter {
       }
 
       // Check if this is a context overflow error
+      const overflowEvidence = classifyContextOverflow({
+        errorText: errorMessage,
+        promptTokens: instance.contextUsage?.inputTokens ?? instance.contextUsage?.used,
+        contextWindowTokens: instance.contextUsage?.total,
+      });
       const classified = getErrorRecoveryManager().classifyError(error);
-      if (classified.category === ErrorCategory.RESOURCE && classified.technicalDetails?.includes('context')) {
+      if (
+        overflowEvidence.matched
+        || (classified.category === ErrorCategory.RESOURCE && classified.technicalDetails?.includes('context'))
+      ) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         const tokenInfo = extractOverflowTokenCount(errorMsg);
         logger.info('Context overflow detected, attempting compaction', {
           instanceId,
+          ...(overflowEvidence.matched ? { reason: overflowEvidence.reason, detail: overflowEvidence.detail } : {}),
           observedTokens: tokenInfo.observed,
           maximumTokens: tokenInfo.maximum,
         });

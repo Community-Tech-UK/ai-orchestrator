@@ -5,6 +5,7 @@ export type SettingsTab =
   | 'orchestration'
   | 'connections'
   | 'network'
+  | 'voice'
   | 'memory'
   | 'display'
   | 'ecosystem'
@@ -187,6 +188,13 @@ export const NAV_ITEMS: SettingsNavItem[] = [
     summary: 'Connect external services that can control Orchestrator remotely.',
     group: 'Network & Remote',
     keywords: 'providers accounts auth login',
+  },
+  {
+    id: 'voice',
+    label: 'Voice',
+    summary: 'Configure local-first speech-to-text routing and provider health.',
+    group: 'Network & Remote',
+    keywords: 'voice stt speech transcription local whisper speaches worker gpu openai microphone audio',
   },
   {
     id: 'remote-nodes',

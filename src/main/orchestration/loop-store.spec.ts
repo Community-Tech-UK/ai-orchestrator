@@ -239,6 +239,23 @@ describe('LoopStore.getIterations pagination', () => {
     const [iter] = store.getIterations('loop-final-audit');
     expect(iter.finalAudit).toEqual(finalAudit);
   });
+
+  it('round-trips verifyFailureKind through iteration persistence', () => {
+    const state = makeState({ id: 'loop-verify-kind' });
+    store.upsertRun(state);
+    store.insertIteration(makeLoopIteration({
+      id: 'loop-verify-kind-0',
+      loopRunId: 'loop-verify-kind',
+      seq: 0,
+      verifyStatus: 'failed',
+      verifyOutputExcerpt: 'verify timed out',
+      verifyFailureKind: 'timeout',
+    }));
+
+    const [iter] = store.getIterations('loop-verify-kind');
+    expect(iter.verifyStatus).toBe('failed');
+    expect(iter.verifyFailureKind).toBe('timeout');
+  });
 });
 
 describe('LoopStore checkpoints', () => {
@@ -738,6 +755,35 @@ describe('LoopStore terminal intents', () => {
         statusReason: 'verified',
         filePath: undefined,
       },
+    ]);
+  });
+
+  it('persists wakeup intent resume timestamps', () => {
+    store.upsertRun(makeState({
+      terminalIntentHistory: [
+        {
+          id: 'intent-wakeup',
+          loopRunId: 'loop-1',
+          iterationSeq: 4,
+          kind: 'wakeup',
+          summary: 'wait for CI',
+          evidence: [],
+          source: 'loop-control-cli',
+          createdAt: 10,
+          receivedAt: 20,
+          status: 'accepted',
+          statusReason: 'scheduled wakeup',
+          resumeAt: 1_700_000_060_000,
+        },
+      ],
+    }));
+
+    expect(store.listTerminalIntents('loop-1')).toEqual([
+      expect.objectContaining({
+        id: 'intent-wakeup',
+        kind: 'wakeup',
+        resumeAt: 1_700_000_060_000,
+      }),
     ]);
   });
 });

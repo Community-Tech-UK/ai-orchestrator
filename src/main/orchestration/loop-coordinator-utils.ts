@@ -1,10 +1,48 @@
 import * as path from 'path';
-import type { LoopConfig } from '../../shared/types/loop.types';
+import type { LoopConfig, LoopIteration } from '../../shared/types/loop.types';
 import { completedPlanFileCandidates } from './loop-completion-detector';
 
 export interface VerifyOutcomeLike {
   status: 'passed' | 'skipped' | 'failed';
   output: string;
+  failureKind?: 'command' | 'timeout' | 'infra';
+}
+
+export function applyVerifyOutcomeToIteration(iteration: LoopIteration, outcome: VerifyOutcomeLike): void {
+  iteration.verifyStatus = outcome.status === 'skipped' ? 'not-run' : outcome.status;
+  iteration.verifyOutputExcerpt = excerpt(outcome.output);
+  iteration.verifyFailureKind = outcome.status === 'failed' ? outcome.failureKind : undefined;
+}
+
+export function verifyFailureIntervention(
+  friendlyLabel: string,
+  output: string,
+  failureKind: VerifyOutcomeLike['failureKind'],
+): string {
+  const excerpted = excerpt(output, 8192) || `(${friendlyLabel} produced no output)`;
+  if (failureKind === 'infra') {
+    return `Your completion was rejected because the ${friendlyLabel} command could not be started. ` +
+      'This is a verification infrastructure failure, not evidence that the code/tests are wrong. ' +
+      'Fix the verify command environment or report it as blocked, then re-declare completion:\n\n' +
+      excerpted;
+  }
+  if (failureKind === 'timeout') {
+    return `Your completion was rejected because the ${friendlyLabel} command timed out before producing a reliable result. ` +
+      'Treat this as verifier infrastructure unless the output clearly identifies a real hung test. ' +
+      'Fix the timeout/hang cause or report it as blocked, then re-declare completion:\n\n' +
+      excerpted;
+  }
+  return `Your completion was rejected because the ${friendlyLabel} command failed. ` +
+    'Fix these errors before re-declaring completion:\n\n' +
+    excerpted;
+}
+
+export function selectedVerifyFailureKind(
+  primary: VerifyOutcomeLike,
+  final: VerifyOutcomeLike,
+): VerifyOutcomeLike['failureKind'] {
+  if (final !== primary && final.status === 'failed') return final.failureKind;
+  return primary.status === 'failed' ? primary.failureKind : undefined;
 }
 
 export interface OperatorReviewPauseMessages {

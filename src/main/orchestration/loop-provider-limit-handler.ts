@@ -124,7 +124,7 @@ export class LoopProviderLimitHandler {
       reason: string;
       resumeAt: number | null;
       source: 'quota' | 'notice';
-      action: QuotaThrottleDecision['action'] | 'notice';
+      action: QuotaThrottleDecision['action'] | 'notice' | 'wakeup';
       windowId?: string;
       mustStop?: boolean;
     },
@@ -176,6 +176,15 @@ export class LoopProviderLimitHandler {
     return 'terminated';
   }
 
+  scheduleWakeupResume(state: LoopState, opts: { resumeAt: number; reason: string }): void {
+    this.scheduleResume(state, {
+      resumeAt: opts.resumeAt,
+      reason: opts.reason,
+      source: 'wakeup',
+      action: 'wakeup',
+    });
+  }
+
   private quotaIdForLoopProvider(state: LoopState): ProviderId {
     return state.config.provider;
   }
@@ -185,8 +194,8 @@ export class LoopProviderLimitHandler {
     opts: {
       resumeAt: number;
       reason: string;
-      source: 'quota' | 'notice';
-      action: QuotaThrottleDecision['action'] | 'notice';
+      source: 'quota' | 'notice' | 'wakeup';
+      action: QuotaThrottleDecision['action'] | 'notice' | 'wakeup';
       windowId?: string;
     },
   ): void {

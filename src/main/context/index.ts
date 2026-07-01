@@ -15,8 +15,11 @@ export { CompactionEpochTracker, type CompactionEpoch, type CompactionRecord } f
 export { ContextCollapse, type ContextCollapseConfig, type CollapsibleTurn } from './context-collapse';
 export {
   executeWithPTLRetry,
+  classifyContextOverflow,
   isContextOverflowError,
   extractOverflowTokenCount,
+  type ContextOverflowClassifierInput,
+  type ContextOverflowEvidence,
   type PTLTurn,
   type PTLRetryResult,
 } from './ptl-retry';

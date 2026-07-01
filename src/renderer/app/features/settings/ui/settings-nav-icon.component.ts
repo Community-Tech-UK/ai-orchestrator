@@ -132,6 +132,14 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
           <path d="M4.5 4.5a11 11 0 0 0 0 15" /><path d="M19.5 4.5a11 11 0 0 1 0 15" />
         </svg>
       }
+      @case ('voice') {
+        <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z" />
+          <path d="M5 11a7 7 0 0 0 14 0" />
+          <path d="M12 18v3" />
+          <path d="M8 21h8" />
+        </svg>
+      }
       @case ('ecosystem') {
         <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" />

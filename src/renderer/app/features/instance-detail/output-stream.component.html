@@ -103,7 +103,21 @@
             <div class="compaction-summary-card">
               <div class="compaction-summary-header">
                 <span class="compaction-summary-title">Context compacted</span>
-                <span class="compaction-summary-time">{{ item.compactionSummary.at | date: 'HH:mm:ss' }}</span>
+                <span class="compaction-summary-actions">
+                  @if (item.compactionSummary.markerId; as markerId) {
+                    <button
+                      type="button"
+                      class="compaction-recover-btn"
+                      [class.queued]="compactionRecoveryState()[markerId] === 'queued'"
+                      [class.failed]="compactionRecoveryState()[markerId] === 'failed'"
+                      [disabled]="isCompactionRecoveryDisabled(markerId)"
+                      (click)="recoverCompactionContext($event, markerId)"
+                      title="Queue preserved context for the next turn">
+                      {{ compactionRecoveryLabel(markerId) }}
+                    </button>
+                  }
+                  <span class="compaction-summary-time">{{ item.compactionSummary.at | date: 'HH:mm:ss' }}</span>
+                </span>
               </div>
               <div class="compaction-summary-body">
                 <span>{{ formatCompactionReason(item.compactionSummary.reason) }}</span>
@@ -152,6 +166,18 @@
               <div class="compaction-boundary">
                 <div class="boundary-line"></div>
                 <span class="boundary-label">{{ getCompactionLabel(item.message) }}</span>
+                @if (getCompactionMarkerId(item.message); as markerId) {
+                  <button
+                    type="button"
+                    class="compaction-recover-btn boundary-recover-btn"
+                    [class.queued]="compactionRecoveryState()[markerId] === 'queued'"
+                    [class.failed]="compactionRecoveryState()[markerId] === 'failed'"
+                    [disabled]="isCompactionRecoveryDisabled(markerId)"
+                    (click)="recoverCompactionContext($event, markerId)"
+                    title="Queue preserved context for the next turn">
+                    {{ compactionRecoveryLabel(markerId) }}
+                  </button>
+                }
                 <div class="boundary-line"></div>
               </div>
             } @else if (isRestoreNotice(item.message)) {

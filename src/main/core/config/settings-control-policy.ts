@@ -52,6 +52,13 @@ const reviewDepthSchema = z.enum(['structured', 'tiered']);
 const reviewProviderSchema = z.enum(['gemini', 'antigravity', 'codex', 'copilot', 'claude', 'cursor']);
 const reviewTypeSchema = z.enum(['code', 'plan', 'architecture']);
 const cliUpdatePolicySchema = z.enum(['off', 'notify', 'auto']);
+const voiceSttRoutingModeSchema = z.enum([
+  'auto',
+  'this-device',
+  'worker-node',
+  'cloud',
+  'this-device-or-cloud',
+]);
 const auxiliaryRoutingModeSchema = z.enum(['off', 'local-first', 'cheap-first', 'manual-only']);
 const auxiliaryProviderSchema = z.enum([
   'ollama',
@@ -64,6 +71,11 @@ const auxiliaryProviderSchema = z.enum([
 const modelIdSchema = z.string().max(512);
 const shortStringSchema = z.string().min(1).max(128);
 const settingStringSchema = z.string().max(4096);
+const optionalUrlSchema = z.union([z.literal(''), z.string().url().max(4096)]);
+const optionalEnvNameSchema = z.union([
+  z.literal(''),
+  z.string().max(128).regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
+]);
 const modelByProviderSchema = z.record(shortStringSchema, modelIdSchema);
 const fastModeByProviderSchema = z.record(shortStringSchema, z.boolean());
 const auxiliarySlotSchema = z.object({
@@ -187,6 +199,14 @@ export const SETTINGS_TOOL_POLICY = {
     z.enum(['auto', 'gemini', 'antigravity', 'codex', 'copilot', 'claude', 'cursor']),
   ),
   pingPongMaxRounds: open(z.number().int().min(1).max(20)),
+  voiceSttRoutingMode: open(voiceSttRoutingModeSchema),
+  voiceLocalSttEnabled: open(z.boolean()),
+  voiceLocalSttWorkerNodeId: open(z.string().max(128)),
+  voiceLocalSttModel: open(modelIdSchema),
+  voiceLocalSttLanguage: open(z.string().trim().min(2).max(16)),
+  voiceThisDeviceSttEndpointUrl: open(optionalUrlSchema),
+  voiceThisDeviceSttApiKeyEnv: open(optionalEnvNameSchema),
+  voiceLocalSttMaxSegmentMs: open(z.number().finite().int().min(500).max(60_000)),
   remoteNodesEnabled: readOnly(true),
   remoteNodesServerPort: readOnly(true),
   remoteNodesServerHost: readOnly(true),

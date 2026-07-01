@@ -208,3 +208,13 @@ describe('GeminiCliAdapter one-shot errors', () => {
     await expect(sendPromise).rejects.toThrow(/1/);
   });
 });
+
+describe('GeminiCliAdapter stream JSON parsing', () => {
+  it('recovers assistant content from a repaired stream-json line', () => {
+    const adapter = new GeminiCliAdapter();
+
+    const response = adapter.parseOutput('{"type":"message","role":"assistant","content":"repaired",}\n');
+
+    expect(response.content).toBe('repaired');
+  });
+});

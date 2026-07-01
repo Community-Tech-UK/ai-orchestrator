@@ -90,8 +90,19 @@ import {
   toLoopPickerProvider,
   truncateQueuedMessage,
 } from './input-panel-formatters';
+import { fuzzyRank } from '../../shared/utils/fuzzy';
 
 const LOOP_START_ACK_TIMEOUT_MS = 30_000;
+
+function commandSuggestionText(command: ExtendedCommand): string {
+  return [
+    command.name,
+    ...(command.aliases ?? []),
+    command.description,
+    command.category ?? '',
+    command.usage ?? '',
+  ].filter(Boolean).join(' ');
+}
 
 @Component({
   selector: 'app-input-panel',
@@ -362,12 +373,9 @@ export class InputPanelComponent implements OnDestroy {
 
     if (!query) return visible.slice(0, 8); // Show first 8 commands when just "/" is typed
 
-    return visible
-      .filter(cmd =>
-        cmd.name.toLowerCase().startsWith(query) ||
-        (cmd.aliases ?? []).some((alias) => alias.toLowerCase().startsWith(query))
-      )
-      .slice(0, 8);
+    return fuzzyRank(query, visible, commandSuggestionText)
+      .slice(0, 8)
+      .map(result => result.item);
   });
   resolutionCommands = computed((): ExtendedCommand[] => {
     const resolution = this.slashResolution();

@@ -18,7 +18,7 @@ interface NativeCompactionAdapter {
   compactContext?: () => Promise<boolean>;
 }
 
-type CompactionMarkerRecorder = (params: RecordCompactionMarkerParams) => void;
+type CompactionMarkerRecorder = (params: RecordCompactionMarkerParams) => string | null | undefined;
 
 let compactionMarkerRecorder: CompactionMarkerRecorder = recordCompactionMarkerToRlm;
 
@@ -44,14 +44,15 @@ function buildPostCompactionUsage(previousUsage: ContextUsage): ContextUsage {
   };
 }
 
-function recordCompactionMarkerToRlm(params: RecordCompactionMarkerParams): void {
+function recordCompactionMarkerToRlm(params: RecordCompactionMarkerParams): string | null {
   try {
-    recordCompactionMarker(getRLMDatabase().getRawDb(), params);
+    return recordCompactionMarker(getRLMDatabase().getRawDb(), params);
   } catch (error) {
     logger.warn('Failed to record compaction marker', {
       instanceId: params.instanceId,
       error: error instanceof Error ? error.message : String(error),
     });
+    return null;
   }
 }
 
@@ -59,9 +60,9 @@ function recordCompactionBoundary(
   instanceId: string,
   instance: Instance,
   result: CompactionResult,
-): void {
+): string | null {
   const createdAt = Date.now();
-  compactionMarkerRecorder({
+  return compactionMarkerRecorder({
     instanceId,
     threadId: instance.providerSessionId || instance.sessionId || null,
     projectKey: instance.workingDirectory,
@@ -74,7 +75,7 @@ function recordCompactionBoundary(
       previousUsage: result.previousUsage ?? null,
       newUsage: result.newUsage ?? null,
     },
-  });
+  }) ?? null;
 }
 
 export function recordProviderThreadCompactionMarker(params: {
@@ -85,10 +86,10 @@ export function recordProviderThreadCompactionMarker(params: {
   messageId?: string;
   createdAt?: number;
   messageMetadata?: Record<string, unknown>;
-}): void {
+}): string | null {
   const createdAt = params.createdAt ?? Date.now();
   const usage = params.instance?.contextUsage;
-  compactionMarkerRecorder({
+  return compactionMarkerRecorder({
     instanceId: params.instanceId,
     threadId: params.sessionId || params.instance?.providerSessionId || params.instance?.sessionId || null,
     projectKey: params.instance?.workingDirectory ?? null,
@@ -104,7 +105,7 @@ export function recordProviderThreadCompactionMarker(params: {
       contextUsage: usage ?? null,
       messageMetadata: params.messageMetadata ?? null,
     },
-  });
+  }) ?? null;
 }
 
 export function setupCompactionCoordinator(
@@ -284,6 +285,7 @@ export function setupCompactionCoordinator(
           });
         }
 
+        const markerId = recordCompactionBoundary(instanceId, instance, result);
         const boundaryMessage = {
           id: crypto.randomUUID(),
           timestamp: Date.now(),
@@ -294,9 +296,9 @@ export function setupCompactionCoordinator(
             method: result.method,
             previousUsage: result.previousUsage,
             newUsage: result.newUsage,
+            ...(markerId ? { compactionMarkerId: markerId } : {}),
           },
         };
-        recordCompactionBoundary(instanceId, instance, result);
         instanceManager.emitOutputMessage(instanceId, boundaryMessage);
       }
     }

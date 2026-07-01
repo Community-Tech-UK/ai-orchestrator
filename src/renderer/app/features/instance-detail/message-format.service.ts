@@ -105,7 +105,10 @@ export class MessageFormatService {
   }
 
   isCompactionBoundary(message: OutputMessage): boolean {
-    return message.type === 'system' && !!message.metadata?.['isCompactionBoundary'];
+    return message.type === 'system' && (
+      !!message.metadata?.['isCompactionBoundary'] ||
+      message.metadata?.['threadCompacted'] === true
+    );
   }
 
   isRestoreNotice(message: OutputMessage): boolean {
@@ -126,6 +129,11 @@ export class MessageFormatService {
     }
 
     return `Context compacted ${methodLabel}`.trim();
+  }
+
+  getCompactionMarkerId(message: OutputMessage): string | null {
+    const markerId = message.metadata?.['compactionMarkerId'];
+    return typeof markerId === 'string' && markerId.trim() ? markerId : null;
   }
 
   formatCompactionReason(reason: string): string {

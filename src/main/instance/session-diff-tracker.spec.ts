@@ -163,41 +163,64 @@ describe('SessionDiffTracker', () => {
       expect(Object.keys(stats.files)).toHaveLength(0);
     });
 
-    it('accumulates stats across multiple computeDiff calls', () => {
+    it('reports the NET change across multiple computeDiff calls (no double-count)', () => {
       const filePath = path.join(tmpDir, 'multi-turn.txt');
       writeFile(filePath, 'line1\n');
 
-      // Turn 1
+      // Turn 1 — session baseline is captured as "line1\n".
       tracker.captureBaseline(filePath);
       writeFile(filePath, 'line1\nline2\n');
       const statsAfterTurn1 = tracker.computeDiff();
 
       expect(statsAfterTurn1.totalAdded).toBe(1);
 
-      // Turn 2 — baseline is now "line1\nline2\n"
+      // Turn 2 — the file is touched again, but its session baseline stays
+      // "line1\n" (later captures are ignored). The diff is net vs the original,
+      // NOT cumulative churn against the previous turn.
       tracker.captureBaseline(filePath);
       writeFile(filePath, 'line1\nline2\nline3\n');
       const statsAfterTurn2 = tracker.computeDiff();
 
-      // Accumulated: 1 (turn1) + 1 (turn2) = 2 added
+      // Net vs "line1\n" is +2, not 1 (turn1) + 1 (turn2) tallied separately.
       expect(statsAfterTurn2.totalAdded).toBe(2);
       expect(statsAfterTurn2.totalDeleted).toBe(0);
     });
 
-    it('clears per-turn baselines after computation', () => {
-      const filePath = path.join(tmpDir, 'cleared.txt');
+    it('nets out changes that are later reverted', () => {
+      const filePath = path.join(tmpDir, 'reverted.txt');
+      writeFile(filePath, 'line1\n');
+
+      // Session baseline = "line1\n".
+      tracker.captureBaseline(filePath);
+
+      // Turn 1: add a line.
+      writeFile(filePath, 'line1\nline2\n');
+      expect(tracker.computeDiff().totalAdded).toBe(1);
+
+      // Turn 2: revert the file back to its baseline. The old cumulative tracker
+      // would still report +1 forever; net semantics drop it to zero.
+      writeFile(filePath, 'line1\n');
+      const stats = tracker.computeDiff();
+
+      expect(stats.totalAdded).toBe(0);
+      expect(stats.totalDeleted).toBe(0);
+      expect(Object.keys(stats.files)).toHaveLength(0);
+    });
+
+    it('re-diffs against the session baseline on every call (baselines persist)', () => {
+      const filePath = path.join(tmpDir, 'persistent.txt');
       writeFile(filePath, 'original\n');
 
       tracker.captureBaseline(filePath);
       writeFile(filePath, 'modified\n');
-      tracker.computeDiff(); // consumes baseline
+      tracker.computeDiff(); // baseline retained for the session
 
-      // Second computeDiff with no new capture should produce no new changes.
+      // A later turn changes the file again WITHOUT a new captureBaseline.
+      // The diff is still measured against the original "original\n".
       writeFile(filePath, 'modified-again\n');
-      const stats = tracker.computeDiff(); // no baselines → no new changes
+      const stats = tracker.computeDiff();
 
-      // Still shows the accumulated total from turn 1 (1 added + 1 deleted),
-      // but nothing additional from the second modification.
+      // "original\n" → "modified-again\n" is one line replaced: +1 / -1.
       expect(stats.totalAdded).toBe(1);
       expect(stats.totalDeleted).toBe(1);
     });

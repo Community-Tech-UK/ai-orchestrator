@@ -45,6 +45,7 @@ import { generateId } from '../../../shared/utils/id-generator';
 import { computeTokenCost } from '../../../shared/data/model-pricing';
 import { extractThinkingContent, type ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { buildMessageWithFiles, processAttachments, type ProcessedAttachment } from '../file-handler';
+import { parseNdjsonLine } from '../json-parse';
 import { getLogger } from '../../logging/logger';
 import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
 import { getModelCapabilitiesRegistry } from '../../providers/model-capabilities';
@@ -3122,12 +3123,11 @@ export class CodexCliAdapter extends BaseCliAdapter {
 
   private processStdoutLine(line: string, state: CodexExecutionState): void {
     const trimmed = line.trim();
-    if (!trimmed) {
-      return;
-    }
+    if (!trimmed) return;
 
-    try {
-      const event = JSON.parse(trimmed) as Record<string, unknown>;
+    const parsedLine = parseNdjsonLine<Record<string, unknown>>(trimmed);
+    if (parsedLine.ok) {
+      const event = parsedLine.value;
       const eventType = typeof event['type'] === 'string' ? event['type'] : '';
 
       // Every valid JSON event from `codex exec --json` is proof the turn is
@@ -3168,9 +3168,9 @@ export class CodexCliAdapter extends BaseCliAdapter {
       }
 
       return;
-    } catch {
-      // Non-JSON lines are kept in raw stdout and parsed later as fallback content.
     }
+    // Non-JSON lines are kept in raw stdout and parsed later as fallback content.
+    if (trimmed.startsWith('{')) logger.warn('Failed to parse Codex exec JSONL line', { linePreview: trimmed.slice(0, 200) });
   }
 
   private shouldUseResumeCommand(): boolean {

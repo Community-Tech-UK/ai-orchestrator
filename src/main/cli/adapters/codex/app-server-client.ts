@@ -22,6 +22,7 @@ import { getLogger } from '../../../logging/logger';
 import { getSafeEnvForTrustedProcess } from '../../../security/env-filter';
 import { CODEX_TIMEOUTS } from '../../../../shared/constants/limits';
 import { buildCliSpawnOptions } from '../../cli-environment';
+import { parseNdjsonLine } from '../../json-parse';
 import type {
   AppServerMethod,
   AppServerNotification,
@@ -217,13 +218,12 @@ abstract class AppServerClientBase {
     const trimmed = line.trim();
     if (!trimmed) return;
 
-    let message: Record<string, unknown>;
-    try {
-      message = JSON.parse(trimmed) as Record<string, unknown>;
-    } catch {
+    const parsedLine = parseNdjsonLine<Record<string, unknown>>(trimmed);
+    if (!parsedLine.ok || !isJsonRpcRecord(parsedLine.value)) {
       logger.warn('Failed to parse JSONL line from app-server', { line: trimmed.slice(0, 200) });
       return;
     }
+    const message = parsedLine.value;
 
     // Response to a pending request
     if ('id' in message && typeof message['id'] === 'number') {
@@ -294,6 +294,10 @@ abstract class AppServerClientBase {
 
     this.resolveExit();
   }
+}
+
+function isJsonRpcRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 // ─── Direct (Spawned) Client ────────────────────────────────────────────────

@@ -22,7 +22,7 @@ import type {
 } from './loop-fresh-eyes-reviewer';
 import type { LoopCleanReviewClassifier } from './loop-clean-review-classifier';
 import type { LoopStageMachine } from './loop-stage-machine';
-import { excerpt } from './loop-coordinator-utils';
+import { applyVerifyOutcomeToIteration, verifyFailureIntervention } from './loop-coordinator-utils';
 
 const logger = getLogger('LoopCoordinator');
 
@@ -85,15 +85,12 @@ export async function evaluateReviewDrivenCompletion(args: {
   let verifyOk = true;
   if (reviewVerdict.clean && noProductionChanges && cfg.verifyCommand?.trim()) {
     const v = await completionDetector.runVerify(state.config);
-    iteration.verifyStatus = v.status === 'skipped' ? 'not-run' : v.status;
-    iteration.verifyOutputExcerpt = excerpt(v.output);
+    applyVerifyOutcomeToIteration(iteration, v);
     if (v.status === 'failed') {
       verifyOk = false;
       state.pendingInterventions.push(
         createLoopPendingInput(
-          'Your review reported no outstanding issues, but the configured verify command failed. ' +
-          'Treat this as an outstanding issue and fix it before signalling done again:\n\n' +
-          (excerpt(v.output, 8192) || '(verify produced no output)'),
+          verifyFailureIntervention('verify', v.output, v.failureKind),
         ),
       );
     }

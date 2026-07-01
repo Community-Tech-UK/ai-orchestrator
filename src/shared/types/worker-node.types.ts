@@ -25,6 +25,13 @@ export interface WorkerLocalModelCapability {
   healthy: boolean;
 }
 
+export interface WorkerLocalSttCapability {
+  provider: 'openai-compatible' | 'whisper-cli';
+  baseUrl: string;
+  models: string[];
+  healthy: boolean;
+}
+
 /**
  * Non-secret summary of a node's browser-automation configuration, surfaced in
  * capabilities so the coordinator UI can reflect current settings. Deliberately
@@ -110,6 +117,7 @@ export interface WorkerNodeCapabilities {
   browsableRoots: string[];
   discoveredProjects: DiscoveredProject[];
   localModelEndpoints?: WorkerLocalModelCapability[];
+  localSttEndpoints?: WorkerLocalSttCapability[];
 }
 
 export interface WorkerNodeInfo {

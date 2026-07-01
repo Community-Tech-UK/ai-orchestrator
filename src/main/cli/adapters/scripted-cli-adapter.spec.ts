@@ -8,6 +8,7 @@ import {
   errorTurn,
   multiChunkTurn,
   simpleTextTurn,
+  tokenPacedTurn,
   toolUseTurn,
 } from './scripted-cli-adapter.test-helpers';
 import type { CliMessage } from './base-cli-adapter.types';
@@ -28,6 +29,42 @@ describe('ScriptedCliAdapter', () => {
     expect(response.role).toBe('assistant');
     expect(response.content).toBe('Hello world');
     expect(response.usage?.outputTokens).toBeGreaterThan(0);
+  });
+
+  it('scripts token pacing, prompt-cache usage, and deterministic cost', async () => {
+    adapter.enqueueTurn(tokenPacedTurn('cached answer', {
+      inputTokens: 800,
+      outputTokens: 200,
+      cacheReadTokens: 400,
+      cacheWriteTokens: 100,
+      reasoningTokens: 50,
+      cost: 0.0123,
+      duration: 456,
+      contextWindowTokens: 200_000,
+      contextSteps: 2,
+      contextSource: 'scripted-test',
+    }));
+
+    const response = await adapter.sendMessage(userMessage);
+
+    expect(adapter.receipts.all().map((r) => r.type)).toEqual([
+      'spawned',
+      'context',
+      'context',
+      'output',
+      'complete',
+    ]);
+    expect(adapter.receipts.ofType('context').map((r) => r.payload.used)).toEqual([775, 1550]);
+    expect(response.usage).toEqual({
+      inputTokens: 800,
+      outputTokens: 200,
+      cacheReadTokens: 400,
+      cacheWriteTokens: 100,
+      reasoningTokens: 50,
+      totalTokens: 1550,
+      cost: 0.0123,
+      duration: 456,
+    });
   });
 
   it('records receipts mirroring the emitted events, in order', async () => {
@@ -115,6 +152,27 @@ describe('ScriptedCliAdapter', () => {
     adapter.enqueueTurn([{ kind: 'error', error: 'soft' }, { kind: 'complete' }]);
     await expect(adapter.sendMessage(userMessage)).resolves.toBeDefined();
     expect(adapter.receipts.ofType('error')).toHaveLength(1);
+  });
+
+  it('aborts a delayed turn before later steps are played', async () => {
+    adapter.enqueueTurn([
+      { kind: 'output', content: 'before abort' },
+      { kind: 'output', content: 'after abort', delayMs: 1_000 },
+      { kind: 'complete', response: { content: 'after abort' } },
+    ]);
+
+    const turn = adapter.sendMessage(userMessage);
+    await awaitReceipt(
+      adapter.receipts,
+      (receipt) => receipt.type === 'output' && receipt.payload === 'before abort',
+      { includePast: false, timeoutMs: 1_000 },
+    );
+
+    expect(adapter.abortActiveTurn('scripted budget abort')).toBe(true);
+    await expect(turn).rejects.toThrow('scripted budget abort');
+    expect(adapter.receipts.ofType('output').map((r) => r.payload)).toEqual(['before abort']);
+    expect(adapter.receipts.ofType('error')[0]?.payload).toEqual(new Error('scripted budget abort'));
+    expect(adapter.abortActiveTurn()).toBe(false);
   });
 
   describe('lifecycle (synthetic process)', () => {
@@ -215,7 +273,7 @@ describe('ScriptedCliAdapter', () => {
       const iterator = adapter.sendMessageStream(userMessage);
       const drained = drainRuntime(adapter);
       await expect((async () => {
-        for await (const _ of iterator) { /* consume */ }
+        for await (const chunk of iterator) { void chunk; }
       })()).rejects.toThrow('stream-boom');
       await expect(drained).resolves.toBeUndefined();
     });

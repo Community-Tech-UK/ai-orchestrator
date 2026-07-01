@@ -35,12 +35,18 @@ const DEFAULT_THRESHOLDS: Record<string, number> = {
 
 export interface OutputPersistenceConfig {
   thresholds?: Record<string, number>;
+  delegateInspectionHint?: boolean;
+}
+
+export interface OutputPersistenceOptions {
+  delegateInspectionHint?: boolean;
 }
 
 export class OutputPersistenceManager {
   private static instance: OutputPersistenceManager | null = null;
 
   private thresholds: Record<string, number> = { ...DEFAULT_THRESHOLDS };
+  private delegateInspectionHint = false;
   private cacheDir: string;
 
   private constructor() {
@@ -63,6 +69,9 @@ export class OutputPersistenceManager {
     if (config.thresholds) {
       this.thresholds = { ...this.thresholds, ...config.thresholds };
     }
+    if (typeof config.delegateInspectionHint === 'boolean') {
+      this.delegateInspectionHint = config.delegateInspectionHint;
+    }
   }
 
   /**
@@ -70,7 +79,11 @@ export class OutputPersistenceManager {
    * to disk and return a truncated preview with a retrieval marker.
    * Otherwise returns `output` unchanged.
    */
-  async maybeExternalize(toolName: string, output: string): Promise<string> {
+  async maybeExternalize(
+    toolName: string,
+    output: string,
+    options: OutputPersistenceOptions = {},
+  ): Promise<string> {
     const threshold = this.thresholds[toolName] ?? this.thresholds['default'];
 
     if (output.length <= threshold) {
@@ -91,8 +104,12 @@ export class OutputPersistenceManager {
     const head = output.slice(0, PREVIEW_HEAD_CHARS);
     const tail = output.slice(-PREVIEW_TAIL_CHARS);
     const originalSize = output.length;
+    const includeDelegateHint = options.delegateInspectionHint ?? this.delegateInspectionHint;
+    const delegateHint = includeDelegateHint
+      ? `Hint: delegate a sub-agent to grep \`${filePath}\` for relevant excerpts; do not read it yourself.\n`
+      : '';
 
-    return `${head}\n…\n${tail}\n\n[Full output saved: ${filePath}] (${originalSize} chars)\n`;
+    return `${head}\n…\n${tail}\n\n[Full output saved: ${filePath}] (${originalSize} chars)\n${delegateHint}`;
   }
 
   /**

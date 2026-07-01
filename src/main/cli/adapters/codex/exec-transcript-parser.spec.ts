@@ -69,6 +69,27 @@ describe('parseCodexExecTranscript', () => {
     expect(parsed.errorMessage).toBe('stream disconnected before completion');
   });
 
+  it('recovers assistant content from a repaired transcript line', () => {
+    const transcript = '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"repaired"},}';
+
+    const parsed = parseCodexExecTranscript(transcript, [], 'response-1');
+
+    expect(parsed.hasMeaningfulOutput).toBe(true);
+    expect(parsed.response.content).toBe('repaired');
+  });
+
+  it('does not use partial terminal usage records for accounting', () => {
+    const transcript = [
+      '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}',
+      '{"type":"turn.completed","usage":{"input_tokens":40',
+    ].join('\n');
+
+    const parsed = parseCodexExecTranscript(transcript, [], 'response-1');
+
+    expect(parsed.response.content).toBe('ok');
+    expect(parsed.response.usage).toBeUndefined();
+  });
+
   it('leaves errorMessage undefined for a successful transcript', () => {
     const transcript = [
       JSON.stringify({ type: 'item.completed', item: { id: 'item_0', type: 'agent_message', text: 'hi' } }),

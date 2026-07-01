@@ -569,6 +569,13 @@
         margin-bottom: 6px;
       }
 
+      .compaction-summary-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
       .compaction-summary-title {
         color: var(--text-primary);
         font-weight: 700;
@@ -578,6 +585,44 @@
         flex-shrink: 0;
         color: var(--text-muted);
         font: 11px var(--font-mono);
+      }
+
+      .compaction-recover-btn {
+        border: 1px solid rgba(var(--primary-rgb), 0.32);
+        border-radius: 6px;
+        background: rgba(var(--primary-rgb), 0.12);
+        color: var(--text-primary);
+        font: 11px var(--font-mono);
+        line-height: 1;
+        padding: 5px 7px;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+
+      .compaction-recover-btn:hover:not(:disabled) {
+        border-color: rgba(var(--primary-rgb), 0.5);
+        background: rgba(var(--primary-rgb), 0.18);
+      }
+
+      .compaction-recover-btn:disabled {
+        cursor: default;
+        opacity: 0.65;
+      }
+
+      .compaction-recover-btn.queued {
+        color: rgba(34, 197, 94, 0.95);
+        border-color: rgba(34, 197, 94, 0.35);
+        background: rgba(34, 197, 94, 0.1);
+      }
+
+      .compaction-recover-btn.failed {
+        color: rgba(248, 113, 113, 0.95);
+        border-color: rgba(248, 113, 113, 0.35);
+        background: rgba(248, 113, 113, 0.1);
+      }
+
+      .boundary-recover-btn {
+        flex: 0 0 auto;
       }
 
       .compaction-summary-body {

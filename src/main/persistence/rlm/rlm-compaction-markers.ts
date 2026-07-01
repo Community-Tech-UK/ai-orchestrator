@@ -111,6 +111,18 @@ export function listCompactionMarkers(
   return rows.map(rowToMarker);
 }
 
+export function getCompactionMarker(
+  db: SqliteDriver,
+  id: string,
+): CompactionMarker | null {
+  const row = db.prepare(`
+    SELECT *
+    FROM session_compaction_markers
+    WHERE id = ?
+  `).get(id) as CompactionMarkerRow | undefined;
+  return row ? rowToMarker(row) : null;
+}
+
 function rowToMarker(row: CompactionMarkerRow): CompactionMarker {
   return {
     id: row.id,

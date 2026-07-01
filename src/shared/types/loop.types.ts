@@ -749,6 +749,7 @@ export type {
   LoopTerminalIntentSource,
   LoopTerminalIntentStatus,
   LoopToolCallRecord,
+  LoopVerifyFailureKind,
   LoopVerdict,
   ProgressSignalEvidence,
   ProgressSignalId,

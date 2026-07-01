@@ -398,6 +398,13 @@ describe('NdjsonParser (used by ClaudeCliAdapter for stream parsing)', () => {
     expect((msgs[0] as { content?: string }).content).toBe('ok');
   });
 
+  it('repairs complete NDJSON lines with common provider JSON defects', () => {
+    const msgs = parser.parse('{"type":"assistant","content":"repaired",}\n');
+
+    expect(msgs).toHaveLength(1);
+    expect((msgs[0] as { content?: string }).content).toBe('repaired');
+  });
+
   it('stamps a timestamp when one is missing', () => {
     const chunk = JSON.stringify({ type: 'assistant', content: 'hello' }) + '\n';
     const msgs = parser.parse(chunk);
@@ -417,6 +424,13 @@ describe('NdjsonParser (used by ClaudeCliAdapter for stream parsing)', () => {
     const msgs = parser.flush();
     expect(msgs).toHaveLength(1);
     expect((msgs[0] as { content?: string }).content).toBe('hello');
+  });
+
+  it('flush() emits a partial trailing streaming object', () => {
+    parser.parse('{"type":"assistant","content":"partial');
+    const msgs = parser.flush();
+    expect(msgs).toHaveLength(1);
+    expect((msgs[0] as { content?: string }).content).toBe('partial');
   });
 
   it('flush() discards incomplete trailing content', () => {

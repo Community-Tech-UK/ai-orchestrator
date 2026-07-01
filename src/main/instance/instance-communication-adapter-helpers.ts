@@ -2,7 +2,7 @@ import { BaseCliAdapter, type AdapterRuntimeCapabilities } from '../cli/adapters
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
 import { getErrorRecoveryManager } from '../core/error-recovery';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
-import { isContextOverflowError } from '../context/ptl-retry';
+import { classifyContextOverflow, isContextOverflowError } from '../context/ptl-retry';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
 
 export function getAdapterRuntimeCapabilities(adapter: CliAdapter): AdapterRuntimeCapabilities {
@@ -54,6 +54,11 @@ export function isRecoverableStatelessExecTurnError(adapter: CliAdapter, error: 
     return false;
   }
 
+  const overflowEvidence = classifyContextOverflow({ errorText });
+  if (overflowEvidence.matched) {
+    return false;
+  }
+
   const classified = getErrorRecoveryManager().classifyError(error);
   return !(classified.category === ErrorCategory.RESOURCE && classified.technicalDetails?.includes('context'));
 }
@@ -77,4 +82,3 @@ export function isCorruptedSessionMessage(content: string): boolean {
     lower.includes('invalid_request_error') && lower.includes('non-empty')
   );
 }
-

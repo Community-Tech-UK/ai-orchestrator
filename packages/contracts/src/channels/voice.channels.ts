@@ -8,6 +8,8 @@ export const VOICE_CHANNELS = {
   VOICE_OPENAI_TEMP_KEY_CLEAR: 'voice:openai-temp-key:clear',
   VOICE_TRANSCRIPTION_SESSION_CREATE: 'voice:transcription-session:create',
   VOICE_TRANSCRIPTION_SESSION_CLOSE: 'voice:transcription-session:close',
+  VOICE_LOCAL_STT_CHUNK: 'voice:local-stt:chunk',
+  VOICE_LOCAL_STT_EVENT: 'voice:local-stt:event',
   VOICE_TTS_SYNTHESIZE: 'voice:tts:synthesize',
   VOICE_TTS_CANCEL: 'voice:tts:cancel',
 } as const;

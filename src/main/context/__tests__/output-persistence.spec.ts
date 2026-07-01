@@ -83,6 +83,18 @@ describe('OutputPersistenceManager', () => {
       expect(mockWriteFile).toHaveBeenCalledOnce();
       expect(result).toContain('[Full output saved:');
       expect(result).toContain('51000 chars');
+      expect(result).not.toContain('delegate a sub-agent');
+    });
+
+    it('adds a sub-agent inspection hint when configured for delegated retrieval', async () => {
+      const manager = OutputPersistenceManager.getInstance();
+      manager.configure({ delegateInspectionHint: true });
+      const large = 'z'.repeat(51_000);
+      const result = await manager.maybeExternalize('default', large);
+
+      expect(result).toContain('[Full output saved:');
+      expect(result).toContain('delegate a sub-agent');
+      expect(result).toContain('do not read it yourself');
     });
 
     it('truncated preview contains first 2K and last 1K of original content', async () => {

@@ -19,8 +19,16 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult, type FreshEyesReviewerResult } from './loop-coordinator';
+import type { LoopCompletionDetector } from './loop-completion-detector';
+import { evaluateReviewDrivenCompletion } from './loop-coordinator-completion-gates';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
-import { defaultLoopConfig, type LoopFileChange } from '../../shared/types/loop.types';
+import type { LoopStageMachine } from './loop-stage-machine';
+import {
+  defaultLoopConfig,
+  type LoopFileChange,
+  type LoopIteration,
+  type LoopState,
+} from '../../shared/types/loop.types';
 import { classifyCleanReviewText } from './loop-clean-review-classifier';
 
 const PHRASE = 'There are no outstanding issues';
@@ -132,6 +140,89 @@ function waitForEvent<T>(event: string, timeoutMs = 20_000): Promise<T> {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('LoopCoordinator review-driven completion', () => {
+  it('distinguishes review-driven verify infrastructure failures from test failures', async () => {
+    const config = defaultLoopConfig(workspace, 'x');
+    config.completion = reviewDrivenCompletion({
+      verifyCommand: 'npm test',
+      requiredCleanReviewPasses: 1,
+    });
+    const state = {
+      id: 'loop-rd-verify-infra',
+      chatId: 'chat-rd-verify-infra',
+      config,
+      status: 'running',
+      startedAt: 0,
+      endedAt: null,
+      totalIterations: 0,
+      totalTokens: 0,
+      totalCostCents: 0,
+      currentStage: 'IMPLEMENT',
+      pendingInterventions: [],
+      completedFileRenameObserved: false,
+      doneSentinelPresentAtStart: false,
+      planChecklistFullyCheckedAtStart: false,
+      uncompletedPlanFilesAtStart: [],
+      tokensSinceLastTestImprovement: 0,
+      highestTestPassCount: 0,
+      iterationsOnCurrentStage: 0,
+      recentWarnIterationSeqs: [],
+    } as unknown as LoopState;
+    const iteration = {
+      id: 'loop-rd-verify-infra-0',
+      loopRunId: state.id,
+      seq: 0,
+      stage: 'IMPLEMENT',
+      startedAt: 0,
+      endedAt: null,
+      childInstanceId: null,
+      tokens: 0,
+      costCents: 0,
+      filesChanged: [],
+      toolCalls: [],
+      errors: [],
+      testPassCount: null,
+      testFailCount: null,
+      workHash: 'hash',
+      outputSimilarityToPrev: null,
+      outputExcerpt: PHRASE,
+      outputFull: PHRASE,
+      progressVerdict: 'OK',
+      progressSignals: [],
+      completionSignalsFired: [],
+      verifyStatus: 'not-run',
+      verifyOutputExcerpt: '',
+    } satisfies LoopIteration;
+    const completionDetector = {
+      runVerify: async () => ({
+        status: 'failed' as const,
+        output: 'verify command failed to spawn: ENOENT',
+        durationMs: 1,
+        exitCode: null,
+        failureKind: 'infra' as const,
+      }),
+    } as unknown as LoopCompletionDetector;
+
+    const result = await evaluateReviewDrivenCompletion({
+      state,
+      iteration,
+      fullOutput: PHRASE,
+      stageMachine: { readOutstanding: async () => ({ raw: '', needsHuman: false }) } as unknown as LoopStageMachine,
+      seq: 0,
+      stage: 'IMPLEMENT',
+      completionDetector,
+      runFreshEyesReviewGate: async () => ({ blocked: false, ran: false, errored: false }),
+      classifyCleanReview: async () => ({ clean: true, confidence: 1, reason: 'clean' }),
+      emit: () => undefined,
+    });
+
+    const intervention = state.pendingInterventions.at(-1)?.message ?? '';
+    expect(result).toBeNull();
+    expect(iteration.verifyStatus).toBe('failed');
+    expect(iteration.verifyFailureKind).toBe('infra');
+    expect(intervention).toContain('verification infrastructure failure');
+    expect(intervention).toContain('not evidence that the code/tests are wrong');
+  });
+
   it('converges to `completed` after N consecutive clean passes, not before', async () => {
     const completed = waitForEvent<{ signal: string }>('loop:completed');
     // Two clean passes (clear no-issues review + no changes) → converge at iteration 2.
@@ -387,6 +478,69 @@ describe('LoopCoordinator review-driven completion', () => {
     await expect(coordinator.cancelLoop(state.id)).resolves.toBe(false);
     expect(coordinator.getLoop(state.id)?.status).toBe('cost-exceeded');
   }, 25_000);
+
+  it('aborts the in-flight ping-pong reviewer signal when the loop is paused', async () => {
+    coordinator.setPingPongSubjectResolver(async () => 'impl');
+    let reviewerSignal: AbortSignal | undefined;
+    let resolveReviewerStarted: (() => void) | undefined;
+    const reviewerStarted = new Promise<void>((resolve) => {
+      resolveReviewerStarted = resolve;
+    });
+    coordinator.setPingPongReviewerForTesting(async (input) => {
+      reviewerSignal = input.signal;
+      resolveReviewerStarted?.();
+      await Promise.race([
+        new Promise<void>((resolve) => input.signal.addEventListener('abort', () => resolve(), { once: true })),
+        sleep(100),
+      ]);
+      return {
+        verdict: 'UNRELIABLE',
+        reviewerProvider: 'codex',
+        findings: [],
+        ledgerClassifications: [],
+        summary: '',
+        tokensUsed: 0,
+        costCents: 0,
+        spawnOutcome: input.signal.aborted ? 'cancelled' : 'settled',
+        fault: 'infra_error',
+      };
+    });
+    driveLoop([
+      childResult(`Ping-pong-ready completion.\n${PHRASE}`),
+    ]);
+
+    let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
+    try {
+      state = await coordinator.startLoop('chat-rd-pingpong-pause-abort', {
+        initialPrompt: 'implement everything',
+        workspaceCwd: workspace,
+        caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 10 },
+        completion: reviewDrivenCompletion({
+          crossModelReview: {
+            enabled: true,
+            blockingSeverities: ['critical', 'high'],
+            timeoutSeconds: 10,
+            reviewDepth: 'structured',
+            pingPong: { enabled: true, reviewerProvider: 'auto', subject: 'impl', maxRounds: 15 },
+          },
+        }),
+        audit: {
+          finalAuditMode: 'off',
+          preflightMode: 'off',
+          planPacketMode: 'off',
+          cleanlinessScan: false,
+        },
+      });
+
+      await reviewerStarted;
+      expect(coordinator.pauseLoop(state.id)).toBe(true);
+      await waitForCondition(() => reviewerSignal?.aborted === true, 1_000);
+
+      expect(reviewerSignal?.reason).toBe('loop paused');
+    } finally {
+      if (state) await coordinator.cancelLoop(state.id);
+    }
+  }, 10_000);
 
   it('writes a phase fix spec and stops with a handoff after repeated final-audit failures', async () => {
     driveLoop(

@@ -22,6 +22,7 @@
  */
 
 import type { FileAttachment } from '../../../shared/types/instance.types';
+import type { ContextUsage } from '../../../shared/types/instance.types';
 import { estimateTokens } from '../../../shared/utils/token-estimate';
 import { BaseCliAdapter } from './base-cli-adapter';
 import type {
@@ -43,6 +44,7 @@ export type ScriptStep =
   | { kind: 'tool_use'; toolCall: CliToolCall; delayMs?: number }
   | { kind: 'tool_result'; toolCall: CliToolCall; delayMs?: number }
   | { kind: 'status'; status: string; delayMs?: number }
+  | { kind: 'context'; usage: ContextUsage; delayMs?: number }
   | { kind: 'error'; error: string; delayMs?: number; fail?: boolean }
   | { kind: 'complete'; response?: Partial<CliResponse>; delayMs?: number };
 
@@ -123,12 +125,23 @@ const DEFAULT_CAPABILITIES: CliCapabilities = {
   outputFormats: ['text'],
 };
 
-function delay(ms: number | undefined): Promise<void> {
+function delay(ms: number | undefined, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(abortError(signal));
+  }
   if (!ms || ms <= 0) return Promise.resolve();
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const t = setTimeout(resolve, ms);
     (t as { unref?: () => void }).unref?.();
+    signal?.addEventListener('abort', () => {
+      clearTimeout(t);
+      reject(abortError(signal));
+    }, { once: true });
   });
+}
+
+function abortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason ?? 'Scripted turn aborted'));
 }
 
 export class ScriptedCliAdapter extends BaseCliAdapter {
@@ -146,6 +159,7 @@ export class ScriptedCliAdapter extends BaseCliAdapter {
   private readonly interruptFaultMode: InterruptFaultMode;
   /** Promise tracking the currently-playing turn, awaited by `drain()`. */
   private inflight: Promise<void> = Promise.resolve();
+  private activeTurnAbort: AbortController | null = null;
   /** Records inputs delivered via `sendInput`, for assertions. */
   readonly inputs: { message: string; attachments?: FileAttachment[] }[] = [];
 
@@ -204,6 +218,18 @@ export class ScriptedCliAdapter extends BaseCliAdapter {
    */
   drain(): Promise<void> {
     return this.inflight;
+  }
+
+  /** Abort the currently-playing scripted turn at its next delay boundary. */
+  abortActiveTurn(reason = 'Scripted turn aborted'): boolean {
+    const controller = this.activeTurnAbort;
+    if (!controller || controller.signal.aborted) {
+      return false;
+    }
+    const error = new Error(reason);
+    this.fire('error', error);
+    controller.abort(error);
+    return true;
   }
 
   // ---- BaseCliAdapter contract ---------------------------------------------
@@ -295,8 +321,16 @@ export class ScriptedCliAdapter extends BaseCliAdapter {
     this.markSpawned();
     const steps = this.takeTurn(message);
     let result: CliResponse | undefined;
+    const abortController = new AbortController();
+    this.activeTurnAbort = abortController;
     this.inflight = (async () => {
-      result = await this.playSteps(steps);
+      try {
+        result = await this.playSteps(steps, abortController.signal);
+      } finally {
+        if (this.activeTurnAbort === abortController) {
+          this.activeTurnAbort = null;
+        }
+      }
     })();
     await this.inflight;
     // playSteps always returns a CliResponse (synthesises one if no `complete`).
@@ -309,20 +343,26 @@ export class ScriptedCliAdapter extends BaseCliAdapter {
     // `spawned` is deterministic.
     this.markSpawned();
     const steps = this.takeTurn(message);
+    const abortController = new AbortController();
+    this.activeTurnAbort = abortController;
     let resolveInflight!: () => void;
     this.inflight = new Promise<void>((resolve) => {
       resolveInflight = resolve;
     });
-    return this.playStream(steps, resolveInflight);
+    return this.playStream(steps, resolveInflight, abortController);
   }
 
   /** Inner generator for `sendMessageStream`; `done` resolves the `inflight` latch. */
-  private async *playStream(steps: ScriptStep[], done: () => void): AsyncGenerator<string> {
+  private async *playStream(
+    steps: ScriptStep[],
+    done: () => void,
+    abortController: AbortController,
+  ): AsyncGenerator<string> {
     const outputs: string[] = [];
     let completed = false;
     try {
       for (const step of steps) {
-        await delay(step.delayMs);
+        await delay(step.delayMs, abortController.signal);
         switch (step.kind) {
           case 'output':
             this.fireOutput(step.content);
@@ -338,6 +378,9 @@ export class ScriptedCliAdapter extends BaseCliAdapter {
           case 'status':
             this.fire('status', step.status);
             break;
+          case 'context':
+            this.fireContext(step.usage);
+            break;
           case 'error':
             this.fire('error', step.error);
             if (step.fail) throw new Error(step.error);
@@ -352,6 +395,9 @@ export class ScriptedCliAdapter extends BaseCliAdapter {
     } finally {
       // Always resolve so `drain()` reflects turn completion even when the
       // consumer breaks early or the turn throws.
+      if (this.activeTurnAbort === abortController) {
+        this.activeTurnAbort = null;
+      }
       done();
     }
   }
@@ -360,7 +406,7 @@ export class ScriptedCliAdapter extends BaseCliAdapter {
     return { id: this.nextId(), content: raw, role: 'assistant' };
   }
 
-  protected buildArgs(_message: CliMessage): string[] {
+  protected buildArgs(): string[] {
     // No real process is spawned; args are irrelevant for the scripted adapter.
     return [];
   }
@@ -389,11 +435,11 @@ export class ScriptedCliAdapter extends BaseCliAdapter {
     return typeof turn === 'function' ? turn(message) : turn;
   }
 
-  private async playSteps(steps: ScriptStep[]): Promise<CliResponse> {
+  private async playSteps(steps: ScriptStep[], signal: AbortSignal): Promise<CliResponse> {
     const outputs: string[] = [];
     let response: CliResponse | undefined;
     for (const step of steps) {
-      await delay(step.delayMs);
+      await delay(step.delayMs, signal);
       switch (step.kind) {
         case 'output':
           this.fireOutput(step.content);
@@ -407,6 +453,9 @@ export class ScriptedCliAdapter extends BaseCliAdapter {
           break;
         case 'status':
           this.fire('status', step.status);
+          break;
+        case 'context':
+          this.fireContext(step.usage);
           break;
         case 'error':
           this.fire('error', step.error);
@@ -454,9 +503,14 @@ export class ScriptedCliAdapter extends BaseCliAdapter {
     this.emit('complete', response);
   }
 
+  private fireContext(usage: ContextUsage): void {
+    this.receipts.record('context', usage);
+    this.emit('context', usage);
+  }
+
   private fire(
     event: 'tool_use' | 'tool_result' | 'status' | 'error' | 'spawned',
-    payload: CliToolCall | string | number,
+    payload: CliToolCall | string | number | Error,
   ): void {
     // The payload type lines up with the event by construction at every call site.
     this.receipts.record(event, payload as never);

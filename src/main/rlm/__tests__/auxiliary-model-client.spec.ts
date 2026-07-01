@@ -195,6 +195,21 @@ describe('generateWithOllama', () => {
     expect(body.keep_alive).toBe('2h');
   });
 
+  it('strips lone surrogates from prompt parts before concatenating', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(mockResponse({ response: 'ok' }, true));
+    vi.stubGlobal('fetch', mockFetch);
+    const { generateWithOllama } = await import('../auxiliary-model-client');
+    await generateWithOllama('http://127.0.0.1:11434', {
+      ...BASE_GENERATE_REQUEST,
+      systemPrompt: 'sys\uD83D',
+      userPrompt: '\uDE00user \uD83D\uDE00 zero\u200Bwidth',
+    });
+
+    const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(options.body as string);
+    expect(body.prompt).toBe('sys\n\nuser \uD83D\uDE00 zero\u200Bwidth');
+  });
+
   it('throws with "timed out" on AbortError', async () => {
     const abortError = new Error('The operation was aborted');
     abortError.name = 'AbortError';
@@ -308,6 +323,26 @@ describe('generateWithOpenAiCompatible', () => {
     const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(options.body as string);
     expect(body.response_format).toBeUndefined();
+  });
+
+  it('strips lone surrogates from OpenAI-compatible message content', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(
+      mockResponse({ choices: [{ message: { content: 'hello' } }] }, true)
+    );
+    vi.stubGlobal('fetch', mockFetch);
+    const { generateWithOpenAiCompatible } = await import('../auxiliary-model-client');
+    await generateWithOpenAiCompatible('http://localhost:1234', undefined, {
+      ...BASE_GENERATE_REQUEST,
+      systemPrompt: 'sys\uD800 prompt \uD83D\uDE00 zero\u200Bwidth',
+      userPrompt: 'user\uDC00 prompt \uD83D\uDE00 zero\u200Bwidth',
+    });
+
+    const [, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(options.body as string);
+    expect(body.messages).toEqual([
+      { role: 'system', content: 'sys prompt \uD83D\uDE00 zero\u200Bwidth' },
+      { role: 'user', content: 'user prompt \uD83D\uDE00 zero\u200Bwidth' },
+    ]);
   });
 
   it('throws with "timed out" on AbortError', async () => {

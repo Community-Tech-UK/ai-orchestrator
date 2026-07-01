@@ -136,6 +136,13 @@ export function createInstanceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CH
       return ipcRenderer.invoke(ch.INSTANCE_COMPACT, payload);
     },
 
+    recoverCompactionContext: (payload: {
+      instanceId: string;
+      markerId: string;
+    }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.INSTANCE_RECOVER_COMPACTION_CONTEXT, payload);
+    },
+
     /**
      * Rename an instance
      */

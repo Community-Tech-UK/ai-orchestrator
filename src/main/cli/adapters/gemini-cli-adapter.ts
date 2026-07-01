@@ -31,6 +31,7 @@ import { generateId } from '../../../shared/utils/id-generator';
 import { computeTokenCost } from '../../../shared/data/model-pricing';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
+import { logGeminiParseFailure, parseGeminiNdjsonEvent, parseGeminiStreamingEvent } from './gemini-json';
 
 const logger = getLogger('GeminiCliAdapter');
 
@@ -226,7 +227,11 @@ export class GeminiCliAdapter extends BaseCliAdapter {
         const lines = chunk.split('\n').filter((l: string) => l.trim());
         for (const line of lines) {
           try {
-            const event = JSON.parse(line);
+            const event = parseGeminiNdjsonEvent(line);
+            if (!event) {
+              logGeminiParseFailure(logger, line);
+              throw new Error('Invalid JSON stream line');
+            }
             // Handle Gemini stream-json event types.
             // Primary content events:
             //   {"type":"message","role":"assistant","content":"..."}
@@ -471,7 +476,11 @@ export class GeminiCliAdapter extends BaseCliAdapter {
       const lines = chunkStr.split('\n').filter((l: string) => l.trim());
       for (const line of lines) {
         try {
-          const event = JSON.parse(line);
+          const event = parseGeminiNdjsonEvent(line);
+          if (!event) {
+            logGeminiParseFailure(logger, line);
+            throw new Error('Invalid JSON stream line');
+          }
           // Assistant messages: {"type":"message","role":"assistant","content":"..."}
           if (
             event.type === 'message' &&
@@ -528,7 +537,11 @@ export class GeminiCliAdapter extends BaseCliAdapter {
 
     for (const line of lines) {
       try {
-        const event = JSON.parse(line);
+        const event = parseGeminiStreamingEvent(line);
+        if (!event) {
+          logGeminiParseFailure(logger, line);
+          continue;
+        }
         if (
           event.type === 'message' &&
           event.role === 'assistant' &&
@@ -608,7 +621,11 @@ export class GeminiCliAdapter extends BaseCliAdapter {
     const lines = raw.split('\n').filter((l) => l.trim());
     for (const line of lines) {
       try {
-        const event = JSON.parse(line);
+        const event = parseGeminiNdjsonEvent(line);
+        if (!event) {
+          logGeminiParseFailure(logger, line);
+          continue;
+        }
         if (event.type === 'result' && event.status === 'error' && event.error) {
           return event.error.message || JSON.stringify(event.error);
         }
@@ -687,7 +704,11 @@ export class GeminiCliAdapter extends BaseCliAdapter {
 
     for (const line of lines) {
       try {
-        const event = JSON.parse(line);
+        const event = parseGeminiNdjsonEvent(line);
+        if (!event) {
+          logGeminiParseFailure(logger, line);
+          continue;
+        }
 
         // Format 1: result with stats
         if (event.type === 'result' && event.stats) {

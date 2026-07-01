@@ -28,6 +28,7 @@ interface LoopIterationRow {
   completion_signals_fired_json: string;
   verify_status: string;
   verify_output_excerpt: string;
+  verify_failure_kind: string | null;
   final_audit_json: string | null;
 }
 
@@ -64,6 +65,9 @@ function rowToLoopIteration(row: LoopIterationRow): LoopIteration {
     verifyStatus: row.verify_status as LoopIteration['verifyStatus'],
     verifyOutputExcerpt: row.verify_output_excerpt,
   };
+  if (row.verify_failure_kind) {
+    iteration.verifyFailureKind = row.verify_failure_kind as NonNullable<LoopIteration['verifyFailureKind']>;
+  }
   if (row.final_audit_json) {
     iteration.finalAudit = JSON.parse(row.final_audit_json) as NonNullable<LoopIteration['finalAudit']>;
   }

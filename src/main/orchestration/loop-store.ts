@@ -144,6 +144,7 @@ interface LoopTerminalIntentRow {
   received_at: number;
   status_reason: string | null;
   file_path: string | null;
+  resume_at: number | null;
 }
 
 interface LoopOutstandingItemRow {
@@ -277,20 +278,20 @@ export class LoopStore {
    * the terminate path ran but the worktree was not removed (crash), or the app
    * restarted before the async cleanup completed.
    */
-  getTerminalRunsWithWorktreePaths(): Array<{
+  getTerminalRunsWithWorktreePaths(): {
     id: string;
     worktreePath: string;
     branchName: string | null;
     workspaceCwd: string | null;
     status: string;
-  }> {
-    type Row = {
+  }[] {
+    interface Row {
       id: string;
       worktree_path: string;
       branch_name: string | null;
       config_json: string;
       status: string;
-    };
+    }
     try {
       const rows = this.db.prepare(`
         SELECT id, worktree_path, branch_name, config_json, status
@@ -344,8 +345,8 @@ export class LoopStore {
         test_pass_count, test_fail_count, work_hash, output_similarity_to_prev,
         output_excerpt, output_full, progress_verdict, progress_signals_json,
         completion_signals_fired_json, verify_status, verify_output_excerpt,
-        final_audit_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        verify_failure_kind, final_audit_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       iter.id,
       iter.loopRunId,
@@ -370,6 +371,7 @@ export class LoopStore {
       JSON.stringify(iter.completionSignalsFired),
       iter.verifyStatus,
       iter.verifyOutputExcerpt,
+      iter.verifyFailureKind ?? null,
       iter.finalAudit ? JSON.stringify(iter.finalAudit) : null,
     );
   }
@@ -488,14 +490,15 @@ export class LoopStore {
     this.db.prepare(`
       INSERT INTO loop_terminal_intents (
         id, loop_run_id, iteration_seq, kind, status, summary, evidence_json,
-        source, created_at, received_at, status_reason, file_path, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        source, created_at, received_at, status_reason, file_path, resume_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         status = excluded.status,
         status_reason = excluded.status_reason,
         evidence_json = excluded.evidence_json,
         summary = excluded.summary,
         file_path = excluded.file_path,
+        resume_at = excluded.resume_at,
         updated_at = excluded.updated_at
     `).run(
       intent.id,
@@ -510,6 +513,7 @@ export class LoopStore {
       intent.receivedAt,
       intent.statusReason ?? null,
       intent.filePath ?? null,
+      intent.resumeAt ?? null,
       Date.now(),
     );
   }
@@ -517,7 +521,7 @@ export class LoopStore {
   listTerminalIntents(loopRunId: string): LoopTerminalIntent[] {
     const rows = this.db.prepare(`
       SELECT id, loop_run_id, iteration_seq, kind, status, summary, evidence_json,
-             source, created_at, received_at, status_reason, file_path
+             source, created_at, received_at, status_reason, file_path, resume_at
       FROM loop_terminal_intents
       WHERE loop_run_id = ?
       ORDER BY received_at ASC
@@ -535,6 +539,7 @@ export class LoopStore {
       receivedAt: row.received_at,
       statusReason: row.status_reason ?? undefined,
       filePath: row.file_path ?? undefined,
+      resumeAt: row.resume_at ?? undefined,
     }));
   }
 

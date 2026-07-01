@@ -22,10 +22,16 @@ import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
+import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 
 let workspace: string;
 let coordinator: LoopCoordinator;
+
+function pathForRunState(workspaceCwd: string, loopRunId: string): { dir: string; done: string } {
+  const paths = resolveLoopArtifactPaths(workspaceCwd, loopRunId);
+  return { dir: paths.dir, done: loopStateFile(paths, 'DONE.txt') };
+}
 
 beforeEach(() => {
   workspace = mkdtempSync(join(tmpdir(), 'loop-completion-seed-'));
@@ -301,6 +307,71 @@ describe('LoopCoordinator auto-enables requireCompletedFileRename from uncomplet
 });
 
 describe('LoopCoordinator completion classification hardening', () => {
+  it('reruns a failed verify once when anti-flake verification is enabled before rejecting completion', async () => {
+    let invocations = 0;
+    coordinator.removeAllListeners('loop:invoke-iteration');
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      invocations += 1;
+      const p = payload as { callback: (result: LoopChildResult) => void };
+      const runState = payload as { loopRunId: string; workspaceCwd: string };
+      const paths = pathForRunState(runState.workspaceCwd, runState.loopRunId);
+      mkdirSync(paths.dir, { recursive: true });
+      writeFileSync(paths.done, 'finished\n');
+      queueMicrotask(() => {
+        p.callback({
+          childInstanceId: null,
+          output: 'TASK COMPLETE\n<promise>DONE</promise>\n',
+          tokens: 10,
+          filesChanged: [],
+          toolCalls: [],
+          errors: [],
+          testPassCount: null,
+          testFailCount: null,
+          exitedCleanly: true,
+        });
+      });
+    });
+
+    const terminalState = new Promise<{ status: string; endReason?: string }>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('loop did not reach terminal state')), 8_000);
+      coordinator.on('loop:state-changed', (data: unknown) => {
+        const state = (data as { state: { status: string; endReason?: string } }).state;
+        if (!['completed', 'cap-reached', 'error', 'failed'].includes(state.status)) return;
+        clearTimeout(timeout);
+        resolve({ status: state.status, endReason: state.endReason });
+      });
+    });
+
+    const verifyCommand =
+      'if [ -f verify-first-failed ]; then exit 0; else touch verify-first-failed; exit 1; fi';
+    const state = await coordinator.startLoop('chat-anti-flake-fail', {
+      initialPrompt: 'finish the task',
+      workspaceCwd: workspace,
+      caps: {
+        maxIterations: 1,
+        maxWallTimeMs: 60_000,
+        maxTokens: 1_000_000,
+        maxCostCents: 100,
+        maxToolCallsPerIteration: 200,
+      },
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        verifyCommand,
+        runVerifyTwice: true,
+      },
+    });
+
+    try {
+      await expect(terminalState).resolves.toEqual({
+        status: 'completed',
+        endReason: 'signal=done-sentinel',
+      });
+      expect(invocations).toBe(1);
+    } finally {
+      coordinator.cancelLoop(state.id);
+    }
+  });
+
   it('completes after a nested configured plan rename in REVIEW instead of spawning a second iteration that can error', async () => {
     writeFileSync(join(workspace, 'STAGE.md'), 'REVIEW\n');
     mkdirSync(join(workspace, 'docs', 'plans'), { recursive: true });

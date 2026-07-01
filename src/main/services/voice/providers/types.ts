@@ -1,4 +1,6 @@
 import type {
+  VoiceLocalSttChunkPayload,
+  VoiceLocalSttEvent,
   VoiceProviderStatus,
   VoiceTranscriptionSession,
   VoiceTtsResult,
@@ -6,7 +8,7 @@ import type {
 import type { VoiceKeySource } from '../../../../shared/types/voice.types';
 
 export type VoiceTtsFormat = 'mp3' | 'wav' | 'opus';
-export type VoiceTranscriptionProviderId = 'openai-realtime';
+export type VoiceTranscriptionProviderId = 'openai-realtime' | 'local-whisper';
 export type VoiceTtsProviderId = 'local-macos-say' | 'openai-tts';
 export type VoiceProviderId = VoiceTranscriptionProviderId | VoiceTtsProviderId;
 
@@ -40,6 +42,9 @@ export interface VoiceTranscriptionProvider {
   getStatus(): VoiceProviderStatus;
   createSession(input: CreateVoiceTranscriptionSessionInput): Promise<VoiceTranscriptionSession>;
   closeSession(sessionId: string): boolean;
+  pushSegment?(
+    input: Pick<VoiceLocalSttChunkPayload, 'sessionId' | 'seq' | 'wavBase64' | 'last'>
+  ): Promise<VoiceLocalSttEvent>;
 }
 
 export interface VoiceTtsProvider {

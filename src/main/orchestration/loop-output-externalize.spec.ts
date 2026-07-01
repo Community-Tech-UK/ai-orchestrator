@@ -27,9 +27,20 @@ describe('maybeExternalizeLoopOutput (LF-1)', () => {
   it('offloads an oversized output and returns the compact preview', async () => {
     const big = 'y'.repeat(LOOP_OUTPUT_EXTERNALIZE_THRESHOLD + 1);
     const result = await maybeExternalizeLoopOutput(big, true, externalize);
-    expect(externalize).toHaveBeenCalledWith('loop-iteration-output', big);
+    expect(externalize).toHaveBeenCalledWith('loop-iteration-output', big, undefined);
     expect(result).toContain('cached');
     expect(result.length).toBeLessThan(big.length);
+  });
+
+  it('passes the delegate-inspection hint flag to the output externalizer', async () => {
+    const big = 'y'.repeat(LOOP_OUTPUT_EXTERNALIZE_THRESHOLD + 1);
+    await maybeExternalizeLoopOutput(big, true, externalize, { delegateInspectionHint: true });
+
+    expect(externalize).toHaveBeenCalledWith(
+      'loop-iteration-output',
+      big,
+      { delegateInspectionHint: true },
+    );
   });
 
   it('degrades to the full output when the externalizer throws', async () => {

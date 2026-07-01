@@ -2,6 +2,8 @@
  * Structured compaction prompt helpers.
  */
 
+import { summarizeFileOperations, type FileOperation } from './file-operation-extractor';
+
 /**
  * Structured compaction prompt sections. The prior summary (if any) is injected
  * as an anchor so decisions/state from earlier compaction rounds are preserved.
@@ -17,6 +19,7 @@ const COMPACTION_TEMPLATE_SECTIONS = [
   '## Key Decisions',
   '## Pending User Asks',
   '## Relevant Files',
+  '## File Operations Observed',
   '## Remaining Work',
   '## Critical Context',
 ] as const;
@@ -36,9 +39,16 @@ export function redactSecrets(text: string): string {
     .replace(/api_key\s*=\s*\S+/gi, 'api_key=[REDACTED]');
 }
 
-export function buildCompactionPrompt(conversationText: string, priorSummary: string | null): string {
+export function buildCompactionPrompt(
+  conversationText: string,
+  priorSummary: string | null,
+  fileOperations: readonly FileOperation[] = []
+): string {
   const anchorSection = priorSummary
     ? `\n\n<prior_summary>\n${priorSummary}\n</prior_summary>\n\nPreserve all decisions and state from the prior summary above as-is. Only add deltas for what changed in the new conversation turns below.\n`
+    : '';
+  const fileOperationSection = fileOperations.length > 0
+    ? `\n\n<file_operations_observed>\n${summarizeFileOperations(fileOperations)}\n</file_operations_observed>\n\nFor "File Operations Observed": preserve the bounded list above, keeping operation kind, path, and source. Do not add paths that are not present in the turns.\n`
     : '';
 
   return `CONTEXT COMPACTION - REFERENCE ONLY.
@@ -50,6 +60,7 @@ Use exactly these section headers (omit any section that has no relevant content
 
 ${COMPACTION_TEMPLATE_SECTIONS.join('\n')}
 ${anchorSection}
+${fileOperationSection}
 For "Completed Actions": list each tool invocation on one line as: \`<tool-name>: <exit-status-or-result-excerpt>\`. Omit bulk output — keep only the command name and outcome.
 For "Key Decisions": explain the WHY, not just what was chosen.
 For "Pending User Asks": copy every unresolved user ask or intervention verbatim; do not paraphrase, merge, or polish it.

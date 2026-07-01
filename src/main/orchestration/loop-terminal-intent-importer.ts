@@ -28,6 +28,10 @@ export async function importTerminalIntentsForBoundary(opts: {
     reason: string,
   ) => LoopTerminalIntent;
   rememberTerminalIntent: (state: LoopState, intent: LoopTerminalIntent) => void;
+  handleWakeupIntent?: (
+    state: LoopState,
+    intent: LoopTerminalIntent,
+  ) => Promise<LoopTerminalIntent | void> | LoopTerminalIntent | void;
   persistHook: LoopIntentPersistHook | null;
 }): Promise<void> {
   const { state, loopControl, options } = opts;
@@ -75,7 +79,21 @@ export async function importTerminalIntentsForBoundary(opts: {
   }
   opts.rememberTerminalIntent(state, latest);
   persistOrder.push({ intent: latest, filePath: latest.filePath });
-  state.terminalIntentPending = latest;
+
+  let recordedIntent = latest;
+  if (latest.kind === 'wakeup') {
+    const resumeAt = latest.resumeAt ?? Date.now() + 60_000;
+    recordedIntent = opts.transitionTerminalIntent(
+      state,
+      latest,
+      'accepted',
+      `scheduled wakeup for ${new Date(resumeAt).toISOString()}`,
+    );
+    const winner = persistOrder.find((entry) => entry.intent.id === latest.id);
+    if (winner) winner.intent = recordedIntent;
+  } else {
+    state.terminalIntentPending = latest;
+  }
 
   if (opts.persistHook) {
     for (const entry of persistOrder) {
@@ -100,9 +118,11 @@ export async function importTerminalIntentsForBoundary(opts: {
     }
   }
 
+  let recordedIntentArchiveFailed = false;
   for (const entry of persistOrder) {
     if (!entry.filePath) continue;
     await commitImportedIntent(loopControl, entry.filePath).catch((err: unknown) => {
+      if (entry.intent.id === recordedIntent.id) recordedIntentArchiveFailed = true;
       logger.warn('Failed to archive imported intent file after persistence; retry on next boundary', {
         loopRunId: state.id,
         intentId: entry.intent.id,
@@ -112,14 +132,19 @@ export async function importTerminalIntentsForBoundary(opts: {
     });
   }
 
-  opts.emit('loop:terminal-intent-recorded', { loopRunId: state.id, intent: latest });
+  if (recordedIntent.kind === 'wakeup') {
+    if (recordedIntentArchiveFailed) return;
+    recordedIntent = await opts.handleWakeupIntent?.(state, recordedIntent) ?? recordedIntent;
+  }
+
+  opts.emit('loop:terminal-intent-recorded', { loopRunId: state.id, intent: recordedIntent });
   opts.emit('loop:activity', {
     loopRunId: state.id,
-    seq: latest.iterationSeq,
+    seq: recordedIntent.iterationSeq,
     stage: state.currentStage,
     timestamp: Date.now(),
     kind: 'status',
-    message: `Loop-control ${latest.kind} intent recorded: ${latest.summary}`,
-    detail: { intentId: latest.id, kind: latest.kind },
+    message: `Loop-control ${recordedIntent.kind} intent recorded: ${recordedIntent.summary}`,
+    detail: { intentId: recordedIntent.id, kind: recordedIntent.kind },
   });
 }

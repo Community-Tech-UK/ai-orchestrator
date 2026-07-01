@@ -64,7 +64,8 @@ export interface EvidenceInput {
   /**
    * Status of the full verify run.
    * - 'passed'  — verify command exited 0 (both v1 and v2 when runVerifyTwice).
-   * - 'failed'  — verify command exited non-zero or timed out.
+   * - 'failed'  — verify did not produce a green result; callers keep the
+   *               command/timeout/infra distinction on the VerifyOutcome.
    * - 'skipped' — no verifyCommand configured.
    */
   verifyStatus: VerifyStatus;

@@ -211,6 +211,13 @@ export const InstanceCompactPayloadSchema = z.object({
 
 export type ValidatedInstanceCompactPayload = z.infer<typeof InstanceCompactPayloadSchema>;
 
+export const InstanceRecoverCompactionContextPayloadSchema = z.object({
+  instanceId: InstanceIdSchema,
+  markerId: z.string().min(1).max(200),
+});
+
+export type InstanceRecoverCompactionContextPayload = z.infer<typeof InstanceRecoverCompactionContextPayloadSchema>;
+
 // ============ User Action Response ============
 
 export const UserActionResponsePayloadSchema = z.object({

@@ -6,6 +6,8 @@ import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { CompletedFileWatcher } from './loop-completion-detector';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 import type { ProviderQuotaSnapshot, ProviderQuotaWindow } from '../../shared/types/provider-quota.types';
+import { ScriptedCliAdapter } from '../cli/adapters/scripted-cli-adapter';
+import { tokenPacedTurn } from '../cli/adapters/scripted-cli-adapter.test-helpers';
 
 let workspace: string;
 let coordinator: LoopCoordinator;
@@ -35,7 +37,7 @@ describe('LoopCoordinator usage-aware throttling', () => {
     coordinator.on('loop:provider-limit', (e) => events.push(e));
     coordinator.setQuotaSnapshotProvider(() => null); // no reset info → terminate
     coordinator.on('loop:invoke-iteration', (payload: unknown) => {
-      const p = payload as { callback: (r: LoopChildResult) => void };
+      const p = payload as { prompt?: string; callback: (r: LoopChildResult) => void };
       invokeCount += 1;
       p.callback(iterationResult("You've hit your session limit · resets 6:30pm"));
     });
@@ -280,11 +282,23 @@ describe('LoopCoordinator usage-aware throttling', () => {
 
   it('records provider-reported iteration cost instead of a flat token estimate', async () => {
     coordinator.setQuotaSnapshotProvider(() => snapshot([win({ used: 20 })]));
-    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+    coordinator.on('loop:invoke-iteration', async (payload: unknown) => {
       const p = payload as { callback: (r: LoopChildResult) => void };
+      const scripted = new ScriptedCliAdapter();
+      scripted.enqueueTurn(tokenPacedTurn('billable work happened', {
+        inputTokens: 800_000,
+        outputTokens: 100_000,
+        cacheReadTokens: 50_000,
+        cacheWriteTokens: 40_000,
+        reasoningTokens: 10_000,
+        cost: 0.42,
+        contextWindowTokens: 1_000_000,
+        contextSteps: 1,
+      }));
+      const response = await scripted.sendMessage({ role: 'user', content: p.prompt ?? 'loop iteration' });
       p.callback({
-        ...iterationResult('billable work happened', { tokens: 1_000_000 }),
-        costUsd: 0.42,
+        ...iterationResult(response.content, { tokens: response.usage?.totalTokens ?? 0 }),
+        costUsd: response.usage?.cost,
       } as LoopChildResult);
     });
 

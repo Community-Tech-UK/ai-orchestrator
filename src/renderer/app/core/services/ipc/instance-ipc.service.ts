@@ -338,6 +338,18 @@ export class InstanceIpcService {
     return this.api.compactInstance({ instanceId });
   }
 
+  async recoverCompactionContext(
+    instanceId: string,
+    markerId: string,
+  ): Promise<IpcResponse<{ markerId: string; queuedForNextTurn: true; segmentsIncluded: number; contextChars: number }>> {
+    if (!this.api?.recoverCompactionContext) {
+      return { success: false, error: { message: 'Not in Electron' } };
+    }
+    return this.api.recoverCompactionContext({ instanceId, markerId }) as Promise<
+      IpcResponse<{ markerId: string; queuedForNextTurn: true; segmentsIncluded: number; contextChars: number }>
+    >;
+  }
+
   /**
    * Subscribe to compaction status updates
    */

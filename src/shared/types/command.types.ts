@@ -361,23 +361,49 @@ export function getMarkdownCommandNameFromId(commandId: string): string | null {
   }
 }
 
+const ARG_SLICE_PATTERN = /\$\{@:(\d+):(\d+)\}/g;
+const ARG_DEFAULT_PATTERN = /\$\{(\d+):-([^}]*)\}/g;
+const POSITIONAL_ARG_PATTERN = /\$(\d+)/g;
+const UNRESOLVED_ARG_SLICE_PATTERN = /\$\{@:[^}]*\}/g;
+const UNRESOLVED_ARG_DEFAULT_PATTERN = /\$\{\d+:-[^}]*\}/g;
+
 /**
  * Resolve command template placeholders
  */
 export function resolveTemplate(template: string, args: string[]): string {
+  const allArgs = args.join(' ');
   let result = template;
 
-  // Replace numbered placeholders ($1, $2, etc.)
-  args.forEach((arg, index) => {
-    result = result.replace(new RegExp(`\\$${index + 1}`, 'g'), arg);
+  result = result.replace(
+    ARG_SLICE_PATTERN,
+    (_match: string, startRaw: string, lengthRaw: string) => {
+      const start = Number.parseInt(startRaw, 10);
+      const length = Number.parseInt(lengthRaw, 10);
+      if (start < 1 || length < 1) {
+        return '';
+      }
+
+      return args.slice(start - 1, start - 1 + length).join(' ');
+    },
+  );
+
+  result = result.replace(ARG_DEFAULT_PATTERN, (_match: string, indexRaw: string, defaultValue: string) => {
+    const arg = args[Number.parseInt(indexRaw, 10) - 1];
+    return arg && arg.length > 0 ? arg : defaultValue;
+  });
+
+  result = result.replace(POSITIONAL_ARG_PATTERN, (_match: string, indexRaw: string) => {
+    return args[Number.parseInt(indexRaw, 10) - 1] ?? '';
   });
 
   // Replace $ARGUMENTS with all args joined
-  result = result.replace(/\$ARGUMENTS/g, args.join(' '));
+  result = result.replace(/\$ARGUMENTS/g, allArgs);
   // Also support ${ARGUMENTS} (common in markdown templates)
-  result = result.replace(/\$\{ARGUMENTS\}/g, args.join(' '));
+  result = result.replace(/\$\{ARGUMENTS\}/g, allArgs);
 
   // Clean up any remaining unreplaced placeholders
+  result = result.replace(UNRESOLVED_ARG_SLICE_PATTERN, '');
+  result = result.replace(UNRESOLVED_ARG_DEFAULT_PATTERN, '');
   result = result.replace(/\$\d+/g, '');
   result = result.replace(/\$\{\d+\}/g, '');
 

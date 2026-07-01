@@ -57,6 +57,33 @@ describe('ErrorWithholder', () => {
     expect(result.outcome).toBe(RecoveryOutcome.FAILED);
   });
 
+  it('accepts silent overflow evidence before attempting recovery', async () => {
+    const result = await withholder.handlePromptTooLong({
+      outputText: '',
+      promptTokens: 198_000,
+      contextWindowTokens: 200_000,
+    });
+
+    expect(result.outcome).toBe(RecoveryOutcome.RECOVERED);
+    expect(result.stage).toBe('context_collapse');
+    expect(mockCollapseRecover).toHaveBeenCalledOnce();
+  });
+
+  it('rejects weak silent evidence without running recovery', async () => {
+    const result = await withholder.handlePromptTooLong({
+      outputText: '',
+      promptTokens: 40_000,
+      contextWindowTokens: 200_000,
+    });
+
+    expect(result).toEqual<RecoveryResult>({
+      outcome: RecoveryOutcome.FAILED,
+      stage: 'not_context_overflow',
+    });
+    expect(mockCollapseRecover).not.toHaveBeenCalled();
+    expect(mockReactiveCompact).not.toHaveBeenCalled();
+  });
+
   it('handles max-output-tokens with escalation', async () => {
     const result = await withholder.handleMaxOutputTokens();
     expect(result.outcome).toBe(RecoveryOutcome.RECOVERED);

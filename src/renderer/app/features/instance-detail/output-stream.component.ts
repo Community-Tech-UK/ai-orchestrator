@@ -162,6 +162,7 @@ export class OutputStreamComponent {
 
   protected copiedMessageId = signal<string | null>(null);
   protected expandedUserMessageIds = signal(new Set<string>());
+  protected compactionRecoveryState = signal<Record<string, 'recovering' | 'queued' | 'failed'>>({});
   private copyResetTimer: number | null = null;
 
   // Context menu state
@@ -848,6 +849,53 @@ export class OutputStreamComponent {
 
   formatCompactionFallbackMode(mode: string): string {
     return this.messageFormat.formatCompactionFallbackMode(mode);
+  }
+
+  getCompactionMarkerId(message: OutputMessage): string | null {
+    return this.messageFormat.getCompactionMarkerId(message);
+  }
+
+  compactionRecoveryLabel(markerId: string): string {
+    switch (this.compactionRecoveryState()[markerId]) {
+      case 'recovering':
+        return 'Recovering';
+      case 'queued':
+        return 'Queued';
+      case 'failed':
+        return 'Retry recover';
+      default:
+        return 'Recover context';
+    }
+  }
+
+  isCompactionRecoveryDisabled(markerId: string): boolean {
+    const state = this.compactionRecoveryState()[markerId];
+    return state === 'recovering' || state === 'queued';
+  }
+
+  async recoverCompactionContext(event: MouseEvent, markerId: string): Promise<void> {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!markerId || this.isCompactionRecoveryDisabled(markerId)) {
+      return;
+    }
+    this.setCompactionRecoveryState(markerId, 'recovering');
+    try {
+      const result = await this.instanceIpc.recoverCompactionContext(this.instanceId(), markerId);
+      if (result.success) {
+        this.setCompactionRecoveryState(markerId, 'queued');
+      } else {
+        this.setCompactionRecoveryState(markerId, 'failed');
+        console.error('Failed to recover compaction context:', result.error?.message ?? 'Unknown error');
+      }
+    } catch (error) {
+      this.setCompactionRecoveryState(markerId, 'failed');
+      console.error('Failed to recover compaction context:', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private setCompactionRecoveryState(markerId: string, state: 'recovering' | 'queued' | 'failed'): void {
+    this.compactionRecoveryState.update((current) => ({ ...current, [markerId]: state }));
   }
 
   /** Returns false if thinking is hidden AND response is empty. */

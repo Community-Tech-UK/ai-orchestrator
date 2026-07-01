@@ -65,6 +65,35 @@ export function queryByWingRoom(db: SqliteDriver, filter: { wing?: string; room?
   `).all(...params) as VerbatimSegmentRow[];
 }
 
+export function querySegmentsForCompactionRecovery(
+  db: SqliteDriver,
+  filter: { wings?: string[]; beforeCreatedAt?: number; limit?: number },
+): VerbatimSegmentRow[] {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  const wings = Array.from(new Set((filter.wings ?? []).filter(Boolean)));
+
+  if (wings.length > 0) {
+    conditions.push(`wing IN (${wings.map(() => '?').join(', ')})`);
+    params.push(...wings);
+  }
+  if (filter.beforeCreatedAt !== undefined) {
+    conditions.push('created_at <= ?');
+    params.push(filter.beforeCreatedAt);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  params.push(filter.limit ?? 8);
+
+  return db.prepare(`
+    SELECT *
+    FROM verbatim_segments
+    ${where}
+    ORDER BY importance DESC, created_at DESC
+    LIMIT ?
+  `).all(...params) as VerbatimSegmentRow[];
+}
+
 export function getTopByImportance(db: SqliteDriver, limit: number, wing?: string): VerbatimSegmentRow[] {
   if (wing) {
     return db.prepare('SELECT * FROM verbatim_segments WHERE wing = ? ORDER BY importance DESC LIMIT ?').all(wing, limit) as VerbatimSegmentRow[];

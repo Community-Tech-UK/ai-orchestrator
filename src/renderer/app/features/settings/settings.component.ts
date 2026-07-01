@@ -44,6 +44,7 @@ import { NetworkSettingsTabComponent } from './network-settings-tab.component';
 import { DoctorSettingsTabComponent } from './doctor-settings-tab.component';
 import { RtkSavingsTabComponent } from './rtk-savings-tab.component';
 import { AuxiliaryModelsSettingsTabComponent } from './auxiliary-models-settings-tab.component';
+import { VoiceSettingsTabComponent } from './voice-settings-tab.component';
 import { McpPageComponent } from '../mcp/mcp-page.component';
 import { HooksPageComponent } from '../hooks/hooks-page.component';
 import { WorktreePageComponent } from '../worktree/worktree-page.component';
@@ -87,6 +88,7 @@ import {
     ProviderQuotaSettingsTabComponent,
     RtkSavingsTabComponent,
     AuxiliaryModelsSettingsTabComponent,
+    VoiceSettingsTabComponent,
     McpPageComponent,
     HooksPageComponent,
     WorktreePageComponent,

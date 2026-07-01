@@ -216,6 +216,37 @@ describe('AuxiliaryLlmService — local-first routing', () => {
     expect(text).toBe('generated via openai-compat');
     expect(decision.provider).toBe('openai-compatible');
   });
+
+  it('passes sanitized prompts to OpenAI-compatible generation', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+
+    mocks.probeOllama.mockResolvedValue(false);
+    mocks.probeOpenAi.mockResolvedValue(true);
+    mocks.listOpenAi.mockResolvedValue([{ id: 'gpt-4o-mini', name: 'gpt-4o-mini', provider: 'openai-compatible', endpointId: 'bbb' }]);
+    mocks.generateOpenAi.mockResolvedValue('generated via openai-compat');
+
+    service.configure(baseSettings({
+      auxiliaryLlmEndpointsJson: JSON.stringify([{
+        id: 'openai-ep',
+        label: 'OpenAI Compat',
+        provider: 'openai-compatible',
+        baseUrl: 'http://localhost:1234',
+        source: 'manual',
+        enabled: true,
+      }]),
+    }));
+
+    await service.generate(
+      'webExtract',
+      'sys\uD800 prompt \uD83D\uDE00 zero\u200Bwidth',
+      'user\uDC00 prompt \uD83D\uDE00 zero\u200Bwidth',
+    );
+
+    const request = mocks.generateOpenAi.mock.calls[0]?.[2];
+    expect(request?.systemPrompt).toBe('sys prompt \uD83D\uDE00 zero\u200Bwidth');
+    expect(request?.userPrompt).toBe('user prompt \uD83D\uDE00 zero\u200Bwidth');
+  });
 });
 
 describe('AuxiliaryLlmService — manual-only routing', () => {
@@ -569,6 +600,26 @@ describe('AuxiliaryLlmService — worker-node discovery and routing', () => {
     // its ~4k default for long-input slots.
     expect((params as { numCtx: number }).numCtx).toBeGreaterThanOrEqual(4096);
     expect(mocks.generateOllama).not.toHaveBeenCalled();
+  });
+
+  it('passes sanitized prompts to worker-node RPC generation', async () => {
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOllama.mockResolvedValue(false);
+    remoteState.rpc = vi.fn().mockResolvedValue({ text: 'compressed by worker' });
+
+    seedConnectedWorker();
+    service.configure(baseSettings());
+
+    await service.generate(
+      'compression',
+      'sys\uD800 prompt \uD83D\uDE00 zero\u200Bwidth',
+      'user\uDC00 prompt \uD83D\uDE00 zero\u200Bwidth',
+    );
+
+    const params = remoteState.rpc.mock.calls[0]?.[2] as { systemPrompt: string; userPrompt: string };
+    expect(params.systemPrompt).toBe('sys prompt \uD83D\uDE00 zero\u200Bwidth');
+    expect(params.userPrompt).toBe('user prompt \uD83D\uDE00 zero\u200Bwidth');
   });
 
   it('prefers the remote worker node over a healthy coordinator localhost Ollama (local-first)', async () => {

@@ -1,4 +1,5 @@
 import type { DegradedReason } from './degraded-output-classifier';
+import type { ContextUsage } from '../../../shared/types/instance.types';
 
 /**
  * Configuration for CLI adapters
@@ -276,6 +277,7 @@ export type CliEvent =
   | 'tool_use'    // Tool invocation
   | 'tool_result' // Tool response
   | 'status'      // Status update
+  | 'context'     // Context/token usage update
   | 'error'       // Error occurred
   | 'complete'    // Response finished
   | 'exit'        // Process exited
@@ -290,6 +292,7 @@ export interface CliAdapterEvents {
   'tool_use': (toolCall: CliToolCall) => void;
   'tool_result': (toolCall: CliToolCall) => void;
   'status': (status: string) => void;
+  'context': (usage: ContextUsage) => void;
   'error': (error: Error | string) => void;
   'complete': (response: CliResponse) => void;
   'exit': (code: number | null, signal: string | null) => void;

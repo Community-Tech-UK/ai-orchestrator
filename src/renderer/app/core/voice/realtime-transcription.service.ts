@@ -2,13 +2,17 @@ import {
   Injectable,
   NgZone,
   Signal,
-  WritableSignal,
   inject,
   signal,
 } from '@angular/core';
 import { Observable, Subject } from 'rxjs';
-import type { VoiceTranscriptionSession } from '@contracts/schemas/voice';
+import type { VoiceWebrtcTranscriptionSession } from '@contracts/schemas/voice';
 import type { VoiceErrorCode } from '../../../../shared/types/voice.types';
+import {
+  AudioMeter,
+  createAudioMeter,
+  stopMediaStream,
+} from './voice-audio-capture';
 
 export interface VoiceTranscriptEvent {
   kind:
@@ -40,10 +44,6 @@ export class VoiceTranscriptionError extends Error {
   }
 }
 
-interface AudioMeter {
-  stop(): void;
-}
-
 interface ConnectionState {
   closed: boolean;
   disconnectTimer: ReturnType<typeof setTimeout> | null;
@@ -57,13 +57,13 @@ export class RealtimeTranscriptionService {
   private readonly zone = inject(NgZone);
 
   async connect(
-    session: VoiceTranscriptionSession,
+    session: VoiceWebrtcTranscriptionSession,
     audioContext: AudioContext
   ): Promise<VoiceTranscriptionConnection> {
     const stream = await this.getMicrophoneStream();
     const audioTracks = stream.getAudioTracks();
     if (audioTracks.length === 0) {
-      this.stopStream(stream);
+      stopMediaStream(stream);
       throw new VoiceTranscriptionError(
         'microphone-unavailable',
         'No usable microphone track is available.'
@@ -71,7 +71,7 @@ export class RealtimeTranscriptionService {
     }
 
     const level = signal(0);
-    const meter = this.createAudioMeter(audioContext, stream, level);
+    const meter = createAudioMeter(audioContext, stream, level, this.zone);
     const peer = new RTCPeerConnection({
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
     });
@@ -137,7 +137,7 @@ export class RealtimeTranscriptionService {
       state.closed = true;
       this.clearDisconnectTimer(state);
       meter.stop();
-      this.stopStream(stream);
+      stopMediaStream(stream);
       peer.close();
       throw error;
     }
@@ -176,7 +176,7 @@ export class RealtimeTranscriptionService {
     stream: MediaStream,
     channel: RTCDataChannel,
     events: Subject<VoiceTranscriptEvent>,
-    level: WritableSignal<number>,
+    level: Signal<number>,
     meter: AudioMeter,
     state: ConnectionState
   ): VoiceTranscriptionConnection {
@@ -188,7 +188,7 @@ export class RealtimeTranscriptionService {
         state.closed = true;
         this.clearDisconnectTimer(state);
         meter.stop();
-        this.stopStream(stream);
+        stopMediaStream(stream);
         if (channel.readyState !== 'closed') channel.close();
         peer.close();
         events.complete();
@@ -316,44 +316,6 @@ export class RealtimeTranscriptionService {
     state.disconnectTimer = null;
   }
 
-  private createAudioMeter(
-    audioContext: AudioContext,
-    stream: MediaStream,
-    level: WritableSignal<number>
-  ): AudioMeter {
-    const source = audioContext.createMediaStreamSource(stream);
-    const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 512;
-    source.connect(analyser);
-    const data = new Uint8Array(analyser.frequencyBinCount);
-    let frame = 0;
-    let stopped = false;
-
-    const tick = () => {
-      if (stopped) return;
-      analyser.getByteTimeDomainData(data);
-      let sum = 0;
-      for (const value of data) {
-        const centered = value - 128;
-        sum += centered * centered;
-      }
-      const rms = Math.sqrt(sum / data.length) / 128;
-      this.zone.run(() => level.set(Math.min(1, rms * 3)));
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-
-    return {
-      stop: () => {
-        stopped = true;
-        cancelAnimationFrame(frame);
-        source.disconnect();
-        analyser.disconnect();
-        level.set(0);
-      },
-    };
-  }
-
   private handleRealtimeEvent(
     rawData: string,
     events: Subject<VoiceTranscriptEvent>
@@ -430,9 +392,4 @@ export class RealtimeTranscriptionService {
     return typeof value === 'string' ? value : undefined;
   }
 
-  private stopStream(stream: MediaStream): void {
-    for (const track of stream.getTracks()) {
-      track.stop();
-    }
-  }
 }

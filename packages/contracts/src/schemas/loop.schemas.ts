@@ -10,9 +10,7 @@ import {
 export * from './loop-audit.schemas';
 
 const LOOP_MAX_WALL_TIME_MS_SCHEMA_CAP = 7 * 24 * 60 * 60 * 1000;
-
 // ============ Enums ============
-
 export const LoopStageSchema = z.enum(['PLAN', 'REVIEW', 'IMPLEMENT']);
 export const LoopGoalIntentSchema = z.enum(['implementation', 'investigation']);
 export const LoopStatusSchema = z.enum([
@@ -52,10 +50,10 @@ export const LoopCompletionOutcomeSchema = z.enum([
   'review-blocked',
 ]);
 export const LoopVerdictSchema = z.enum(['OK', 'WARN', 'CRITICAL']);
+export const LoopVerifyFailureKindSchema = z.enum(['command', 'timeout', 'infra']);
 export const LoopProviderSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']);
 export const LoopReviewStyleSchema = z.enum(['single', 'debate', 'star-chamber']);
 export const LoopContextStrategySchema = z.enum(['fresh-child', 'hybrid', 'same-session']);
-
 export const ProgressSignalIdSchema = z.enum(['A', 'B', 'C', 'D', 'D-prime', 'E', 'F', 'G', 'H', 'BLOCKED']);
 export const CompletionSignalIdSchema = z.enum([
   'completed-rename',
@@ -346,7 +344,6 @@ export const LoopConfigInputSchema = LoopConfigSchema.omit({ audit: true }).part
   audit: LoopAuditConfigInputSchema.optional(),
 });
 // ============ Iteration / state ============
-
 export const LoopFileChangeSchema = z.object({
   path: z.string(),
   additions: z.number().int().nonnegative(),
@@ -363,12 +360,8 @@ export const LoopToolCallRecordSchema = z.object({
 
 export const LoopPendingInputKindSchema = z.enum(['steer', 'queue']);
 export const LoopPendingInputSourceSchema = z.enum([
-  'human',
-  'block-override',
-  'plan-regen',
-  'phase-recovery',
-  'subagent-result',
-  'wakeup',
+  'human', 'block-override', 'plan-regen', 'phase-recovery',
+  'context-survival', 'announce-then-halt', 'subagent-result', 'wakeup',
 ]);
 
 export const LoopPendingInputSchema = z.object({
@@ -414,7 +407,7 @@ export const CompletionSignalEvidenceSchema = z.object({
   detail: z.string(),
 });
 
-export const LoopTerminalIntentKindSchema = z.enum(['complete', 'block', 'fail']);
+export const LoopTerminalIntentKindSchema = z.enum(['complete', 'block', 'fail', 'wakeup']);
 export const LoopTerminalIntentStatusSchema = z.enum(['pending', 'accepted', 'deferred', 'rejected', 'superseded']);
 export const LoopTerminalIntentSourceSchema = z.enum(['loop-control-cli', 'imported-file']);
 export const LoopTerminalIntentEvidenceKindSchema = z.enum(['summary', 'command', 'file', 'test', 'note']);
@@ -438,6 +431,11 @@ export const LoopTerminalIntentSchema = z.object({
   status: LoopTerminalIntentStatusSchema,
   statusReason: z.string().optional(),
   filePath: z.string().optional(),
+  resumeAt: z.number().int().positive().optional(),
+}).superRefine((intent, ctx) => {
+  if (intent.kind === 'wakeup' && intent.resumeAt === undefined) {
+    ctx.addIssue({ code: 'custom', path: ['resumeAt'], message: 'wakeup intents require resumeAt' });
+  }
 });
 
 export const LoopControlMetadataSchema = z.object({
@@ -452,7 +450,6 @@ export const LoopControlMetadataSchema = z.object({
   createdAt: z.number().int(),
   updatedAt: z.number().int(),
 });
-
 export const LoopInFlightIterationSchema = z.object({
   seq: z.number().int().nonnegative(),
   stage: LoopStageSchema,
@@ -486,6 +483,7 @@ export const LoopIterationSchema = z.object({
   completionSignalsFired: z.array(CompletionSignalEvidenceSchema),
   verifyStatus: z.enum(['not-run', 'passed', 'failed']),
   verifyOutputExcerpt: z.string(),
+  verifyFailureKind: LoopVerifyFailureKindSchema.optional(),
   /** Optional local-model TL;DR of a failed verify command (operator UX). */
   verifySummary: z.string().optional(),
   finalAudit: LoopFinalAuditResultSchema.optional(),
@@ -539,6 +537,7 @@ export const LoopStateSchema = z.object({
   /** LF-7: verified-but-ungated completion-attempt counter. Defaults to 0 for
    *  back-compat with loop-state rows persisted before the field existed. */
   completionAttempts: z.number().int().nonnegative().default(0),
+  announceThenHaltNudgeCount: z.number().int().nonnegative().default(0),
   /** LF-7: outcome of the most recent completion attempt. Optional for
    *  back-compat with rows persisted before the field existed. */
   lastCompletionOutcome: LoopCompletionOutcomeSchema.optional(),

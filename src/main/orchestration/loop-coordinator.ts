@@ -1,21 +1,10 @@
 /**
  * Loop Coordinator
  *
- * Per-chat-session "Ralph loop" with aggressive no-progress detection and
- * verify-before-stop completion. The default `contextStrategy` is
- * `same-session` (one persistent child CLI reused across iterations); LF-1
- * makes context discipline mandatory for it — the loop recycles its own
- * persistent adapter to a fresh session once context utilization crosses
- * `context.compaction.resetAtUtilization`, re-anchoring from durable disk
- * state. `fresh-child` remains a supported, lowest-context-rot option.
- * See docs/plans/loopfixex.md (LF-1). The coordinator itself never invokes
- * LLMs — it emits an extensibility event
- * `loop:invoke-iteration` with a callback, and a handler registered in
- * `src/main/index.ts` performs the actual provider invocation. This mirrors
- * `DebateCoordinator`'s pattern.
- *
- * The mantra holds: every loop-detection decision is made structurally
- * (hashes, frequencies, thresholds), never by asking the agent if it's stuck.
+ * Per-chat-session loop orchestration with structural progress detection,
+ * verification-gated completion, and boundary-only child invocation through
+ * `loop:invoke-iteration`. The coordinator never asks the agent whether it is
+ * stuck; stuck/done decisions come from hashes, counters, files, and gates.
  */
 
 import { EventEmitter } from 'events';
@@ -44,6 +33,7 @@ import {
   LoopCompletionDetector,
   CompletedFileWatcher,
 } from './loop-completion-detector';
+import { maybeQueueAnnounceThenHaltContinuation } from './loop-announce-then-halt';
 import { wireLoopCompletionWatcher } from './loop-completion-watcher-runtime';
 import { LoopProgressDetector } from './loop-progress-detector';
 import { LoopStageMachine } from './loop-stage-machine';
@@ -71,12 +61,15 @@ import { computeWorkHash } from './loop-work-hash';
 import { detectConvergeUntilCleanIntent, detectLoopGoalIntent } from './loop-intent';
 import {
   boundFullOutput,
+  applyVerifyOutcomeToIteration,
   buildOperatorReviewPauseMessages,
   completedPlanWatchDirs,
   excerpt,
   jaccard,
+  selectedVerifyFailureKind,
   sleep,
   type VerifyOutcomeLike,
+  verifyFailureIntervention,
 } from './loop-coordinator-utils';
 import { resolveCompletion, type EvidenceResolution } from './evidence-resolver';
 import {
@@ -117,6 +110,7 @@ import {
   defaultLoopMemoryStore,
   type LoopMemoryStore,
 } from './loop-memory';
+import { applyLoopContextSurvivalDecision, defaultLoopContextSurvivalManager, type LoopContextSurvivalManager } from './loop-context-survival';
 import {
   classifyDegradedIteration as classifyDegradedIterationHelper,
   getBlockOverrideInterventionText as getBlockOverrideInterventionTextHelper,
@@ -163,7 +157,6 @@ import type { PingPongReviewer } from './agentic-pingpong-reviewer';
 import type { PingPongSubject } from '../../shared/types/loop-pingpong.types';
 import {
   applyLoopPlanRegenerationOnStall,
-  archiveBlockedFileForIntent as archiveBlockedFileForIntentHelper,
   captureLoopOutstanding,
   canRegenerateLoopPlanOnStall,
   checkLoopHardCaps,
@@ -178,6 +171,11 @@ import {
   syntheticChildResultFromTerminalIntent as syntheticChildResultFromTerminalIntentHelper,
 } from './loop-coordinator-state-helpers';
 import {
+  pauseForBlockIntentAction,
+  scheduleWakeupIntent,
+  type ScheduledWakeup,
+} from './loop-terminal-intent-actions';
+import {
   isActiveLoopRuntimeState,
   isParkedLoopRuntimeState,
   isTerminalLoopRuntimeState,
@@ -188,6 +186,7 @@ import { importTerminalIntentsForBoundary as importTerminalIntentsForBoundaryHel
 import type { LoopCheckpoint } from './loop-checkpoint';
 import type { LongRunResourceDecision } from '../runtime/long-run-resource-governor';
 import { createAuxiliaryNextObjectivePlanner } from './loop-next-objective-planner';
+import { LoopPingPongReviewAbortRegistry } from './loop-pingpong-review-abort';
 import { getWorktreeManager } from '../workspace/git/worktree-manager';
 import { getLoopStore } from './loop-store';
 export { computeWorkHash } from './loop-work-hash';
@@ -262,6 +261,7 @@ export class LoopCoordinator extends EventEmitter {
    * is true, cleared in terminate(). Used for harvest+cleanup on terminal.
    */
   private worktreeSessionIds = new Map<string, string>();
+  private pingPongReviewAborts = new LoopPingPongReviewAbortRegistry();
 
   private progressDetector = new LoopProgressDetector();
   private completionDetector = new LoopCompletionDetector();
@@ -351,6 +351,8 @@ export class LoopCoordinator extends EventEmitter {
     this.loopMemoryStore = store;
   }
 
+  private contextSurvivalManager: LoopContextSurvivalManager | null = defaultLoopContextSurvivalManager;
+  setContextSurvivalManager(manager: LoopContextSurvivalManager | null): void { this.contextSurvivalManager = manager; }
   setResourceGovernor(governor: LoopResourceGovernor | null): void { this.resourceGovernor = governor; }
 
   /**
@@ -370,6 +372,7 @@ export class LoopCoordinator extends EventEmitter {
 
   /** Current model downshift override, keyed by loopRunId. */
   private downshiftModelByLoop = new Map<string, string>();
+  private scheduledWakeups = new Map<string, ScheduledWakeup>();
 
   /** Override the quota snapshot source (production wiring / tests). */
   setQuotaSnapshotProvider(fn: (provider: ProviderId) => ProviderQuotaSnapshot | null): void {
@@ -535,6 +538,10 @@ export class LoopCoordinator extends EventEmitter {
       this.instance.intentPersistHook = null;
       this.instance.adapterCleanupHook = null;
       this.instance.terminalCleanupPromises.clear();
+      this.instance.pingPongReviewAborts.abortAll('test reset');
+      this.instance.pingPongReviewAborts.clear();
+      this.instance.contextSurvivalManager = defaultLoopContextSurvivalManager;
+      this.instance.scheduledWakeups.clear();
       this.instance.evidenceStore = null;
       this.instance.evidenceStoreResolved = false;
       this.instance.removeAllListeners();
@@ -945,6 +952,7 @@ export class LoopCoordinator extends EventEmitter {
       iterationsOnCurrentStage: 0,
       recentWarnIterationSeqs: [],
       completionAttempts: 0,
+      announceThenHaltNudgeCount: 0,
       unresolvedReviewThreads: [],
       recentEvidenceHashes: [],
       repeatedEvidenceCount: 0,
@@ -1026,7 +1034,7 @@ export class LoopCoordinator extends EventEmitter {
     if (state.status === 'provider-limit' && state.endedAt != null) {
       throw new Error('Cannot restore terminal provider-limit loop checkpoint');
     }
-    state.pendingInterventions = (state.pendingInterventions as Array<string | LoopPendingInput>)
+    state.pendingInterventions = (state.pendingInterventions as (string | LoopPendingInput)[])
       .map((item) => coercePendingInput(item));
     state.repoBaseline = await ensureLoopRepoBaselineForRestore(state);
     if (state.status !== 'paused' && state.status !== 'provider-limit') {
@@ -1146,6 +1154,7 @@ export class LoopCoordinator extends EventEmitter {
     if (!state) return false;
     if (state.status !== 'running') return false;
     state.status = 'paused';
+    this.pingPongReviewAborts.abortPause(loopRunId, 'loop paused');
     this.emit('loop:state-changed', { loopRunId, state: this.cloneStateForBroadcast(state) });
     logger.info('Loop paused (manual)', { loopRunId });
     return true;
@@ -1186,6 +1195,16 @@ export class LoopCoordinator extends EventEmitter {
     if (!state) return false;
     if (state.status !== 'paused' && state.status !== 'provider-limit') return false;
     if (state.status === 'provider-limit' && state.endedAt != null) return false;
+    const wakeup = this.scheduledWakeups.get(loopRunId);
+    if (wakeup) {
+      state.pendingInterventions.push(
+        createLoopPendingInput(
+          `Wakeup resumed: ${wakeup.summary}`,
+          { source: 'wakeup' },
+        ),
+      );
+      this.scheduledWakeups.delete(loopRunId);
+    }
     // A manual resume supersedes any pending provider-limit auto-resume timer.
     this.providerLimitHandler.clearResumeTimer(loopRunId);
     state.status = 'running';
@@ -1238,6 +1257,7 @@ export class LoopCoordinator extends EventEmitter {
     if (!state) return false;
     if (isTerminalLoopRuntimeState(state)) return false;
     this.cancelFlags.set(loopRunId, true);
+    this.pingPongReviewAborts.abortTerminal(loopRunId, 'loop cancelled');
     // unblock pause if any
     const gate = this.pauseGates.get(loopRunId);
     if (gate) {
@@ -1283,9 +1303,7 @@ export class LoopCoordinator extends EventEmitter {
       logger.info('acceptCompletion ignored — loop is not paused', { loopRunId, status: state.status });
       return false;
     }
-    const eligible =
-      state.lastCompletionOutcome === 'unverifiable'
-      || state.terminalIntentPending?.kind === 'complete';
+    const eligible = state.lastCompletionOutcome === 'unverifiable' || state.terminalIntentPending?.kind === 'complete';
     if (!eligible) {
       logger.info('acceptCompletion ignored — loop is not awaiting review', {
         loopRunId,
@@ -1306,16 +1324,13 @@ export class LoopCoordinator extends EventEmitter {
         state.lastCompletionOutcome = 'verify-failed';
         this.convergenceNotes.set(state.id, 'operator-accept verify failed');
         if (state.lastIteration) {
-          state.lastIteration.verifyStatus = 'failed';
-          state.lastIteration.verifyOutputExcerpt = excerpt(verify.output);
+          applyVerifyOutcomeToIteration(state.lastIteration, verify);
           void this.enrichVerifyFailureSummary(state, state.lastIteration, verify.output);
         }
         this.emit('loop:claimed-done-but-failed', {
           loopRunId: state.id,
           signal: 'declared-complete',
-          failure:
-            'Operator accept was rejected because the verify command failed:\n\n' +
-            (excerpt(verify.output, 8192) || '(verify produced no output)'),
+          failure: 'Operator accept was rejected. ' + verifyFailureIntervention('verify', verify.output, verify.failureKind),
         });
         this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
         return false;
@@ -1344,8 +1359,7 @@ export class LoopCoordinator extends EventEmitter {
       }
       state.lastCompletionOutcome = 'accepted';
       if (state.lastIteration) {
-        state.lastIteration.verifyStatus = 'passed';
-        state.lastIteration.verifyOutputExcerpt = excerpt(verify.output);
+        applyVerifyOutcomeToIteration(state.lastIteration, verify);
       }
       if (state.config.audit.finalAuditMode === 'gate' && finalAudit.status === 'needs-review') {
         const reason = 'operator accepted completion; final audit requires review';
@@ -1547,6 +1561,7 @@ export class LoopCoordinator extends EventEmitter {
         maxIterationSeq: state.totalIterations,
         terminalEligible: state.status === 'running',
       });
+      if (isParkedLoopRuntimeState(state)) continue;
       if (state.terminalIntentPending?.kind === 'fail') {
         const intent = state.terminalIntentPending;
         this.transitionTerminalIntent(state, intent, 'accepted', 'fail intent imported before next iteration');
@@ -1724,6 +1739,7 @@ export class LoopCoordinator extends EventEmitter {
             config: state.config,
             iterationSeq: seq,
             pendingInterventions: state.pendingInterventions,
+            capUsage: { totalTokens: state.totalTokens, totalCostCents: state.totalCostCents },
             existingSessionContext: this.runtimeContexts.get(state.id)?.existingSessionContext,
             priorObservations: this.runtimeContexts.get(state.id)?.priorObservations,
             uncompletedPlanFilesAtStart: state.uncompletedPlanFilesAtStart,
@@ -2115,19 +2131,16 @@ export class LoopCoordinator extends EventEmitter {
           ? quick
           : await this.completionDetector.runVerify(state.config);
         const verifyLabel = quick.status === 'failed' ? 'quick verify' : 'verify';
-        iteration.verifyStatus = v1.status === 'skipped' ? 'not-run' : v1.status;
-        iteration.verifyOutputExcerpt = excerpt(v1.output);
+        applyVerifyOutcomeToIteration(iteration, v1);
         verifyOutputForEmit = v1.output;
 
-        // anti-flake: optionally run verify a second time before checking secondary gates
+        // Confirm failures as well as passes: red→green is treated as a
+        // transient verifier flake, while pass→fail stays rejected.
         let v2: VerifyOutcomeLike = v1;
-        if (v1.status === 'passed' && state.config.completion.runVerifyTwice) {
+        if (quick.status !== 'failed' && v1.status !== 'skipped' && state.config.completion.runVerifyTwice) {
           v2 = await this.completionDetector.runVerify(state.config);
-          if (v2.status === 'failed') {
-            iteration.verifyStatus = 'failed';
-            iteration.verifyOutputExcerpt = excerpt(v2.output);
-            verifyOutputForEmit = v2.output;
-          }
+          applyVerifyOutcomeToIteration(iteration, v2);
+          verifyOutputForEmit = v2.output;
         }
 
         // Run the fresh-eyes gate and check belt-and-braces BEFORE calling the
@@ -2273,9 +2286,11 @@ export class LoopCoordinator extends EventEmitter {
               this.rejectCompletionAttempt(
                 state,
                 'second verify failed',
-                'Your completion was rejected because the anti-flake second verify run failed. ' +
-                  'Fix these errors before re-declaring completion:\n\n' +
-                  (excerpt(v2.output, 8192) || '(second verify produced no output)'),
+                verifyFailureIntervention(
+                  'anti-flake second verify',
+                  v2.output,
+                  v2.failureKind,
+                ),
               );
               this.emit('loop:claimed-done-but-failed', {
                 loopRunId: state.id,
@@ -2286,9 +2301,11 @@ export class LoopCoordinator extends EventEmitter {
               this.rejectCompletionAttempt(
                 state,
                 `${friendlyLabel} failed`,
-                `Your completion was rejected because the ${friendlyLabel} command failed. ` +
-                  'Fix these errors before re-declaring completion:\n\n' +
-                  (excerpt(failedVerifyOutput, 8192) || `(${friendlyLabel} produced no output)`),
+                verifyFailureIntervention(
+                  friendlyLabel,
+                  failedVerifyOutput,
+                  selectedVerifyFailureKind(v1, v2),
+                ),
               );
               this.emit('loop:claimed-done-but-failed', {
                 loopRunId: state.id,
@@ -2413,6 +2430,14 @@ export class LoopCoordinator extends EventEmitter {
         logger.warn('NOTES.md curation failed', { loopRunId: state.id, error: String(err) });
       }
 
+      const completionWillStopOrPause = Boolean(
+        pingPongTerminal || reviewDrivenTerminal || stopWithSignal || completionNeedsReviewReason
+        || pauseBecauseCompletionCannotBeVerified,
+      );
+      if (!completionWillStopOrPause && state.status === 'running') maybeQueueAnnounceThenHaltContinuation(state, iteration);
+      if (!completionWillStopOrPause && state.status === 'running' && state.pendingInterventions.length === 0) {
+        await applyLoopContextSurvivalDecision({ manager: this.contextSurvivalManager, state, iteration, childResult, pendingContextReset: this.pendingContextReset, emit: (eventName, payload) => this.emit(eventName, payload) });
+      }
       for (const hook of this.iterationHooks) {
         try { await hook({ state, iteration }); } catch (err) {
           logger.warn('Iteration hook threw', { error: String(err) });
@@ -2803,13 +2828,11 @@ export class LoopCoordinator extends EventEmitter {
       seq,
       stage,
       completionDetector: this.completionDetector,
-      runFreshEyesReviewGate: (signalId, reviewIteration, verifyOutput) =>
-        this.runFreshEyesReviewGate(state, signalId, reviewIteration, verifyOutput),
+      runFreshEyesReviewGate: (signalId, reviewIteration, verifyOutput) => this.runFreshEyesReviewGate(state, signalId, reviewIteration, verifyOutput),
       classifyCleanReview: this.cleanReviewClassifier,
       emit: (eventName, payload) => this.emit(eventName, payload),
     });
   }
-
   private async evaluatePingPongCompletion(
     state: LoopState,
     iteration: LoopIteration,
@@ -2817,38 +2840,32 @@ export class LoopCoordinator extends EventEmitter {
     seq: number,
     stage: LoopStage,
   ): Promise<PingPongTerminal | null> {
-    const ac = new AbortController();
-    return evaluatePingPongCompletionGate({
-      state,
-      iteration,
-      fullOutput,
-      seq,
-      stage,
-      classifyCleanReview: this.cleanReviewClassifier,
-      emit: (eventName, payload) => this.emit(eventName, payload),
-      // Pause/cancel both abort the in-flight reviewer. The settled-tracker
-      // polls this predicate, so a pause is detected within ~1s and the
-      // reviewer instance is torn down.
-      isCancelled: () => this.cancelFlags.get(state.id) === true || isParkedLoopRuntimeState(state),
-      signal: ac.signal,
-      // Fold reviewer spend into the loop budget so the cost cap bounds
-      // ping-pong (builder spend alone would not).
-      foldReviewerSpend: (tokens, costCents) => {
-        state.totalTokens += tokens;
-        state.totalCostCents += costCents;
-      },
-      reviewer: this.pingPongReviewer,
-      resolveSubject: this.pingPongSubjectResolver,
-      // impl-mode verify gate: APPROVED converges only if verify is green too.
-      // A 'skipped' verify (no command) is treated as ok — ping-pong's authority
-      // is the mutual review, not the verify command (R4).
-      runVerify: async () => {
-        const v = await this.completionDetector.runVerify(state.config);
-        iteration.verifyStatus = v.status === 'skipped' ? 'not-run' : v.status;
-        iteration.verifyOutputExcerpt = excerpt(v.output);
-        return { ok: v.status !== 'failed', output: v.output };
-      },
-    });
+    const reviewAbort = this.pingPongReviewAborts.create(state.id);
+    try {
+      return await evaluatePingPongCompletionGate({
+        state,
+        iteration,
+        fullOutput,
+        seq,
+        stage,
+        classifyCleanReview: this.cleanReviewClassifier,
+        emit: (eventName, payload) => this.emit(eventName, payload),
+        isCancelled: () => this.cancelFlags.get(state.id) === true || isParkedLoopRuntimeState(state),
+        signal: reviewAbort.signal,
+        foldReviewerSpend: (tokens, costCents) => {
+          state.totalTokens += tokens; state.totalCostCents += costCents;
+        },
+        reviewer: this.pingPongReviewer,
+        resolveSubject: this.pingPongSubjectResolver,
+        runVerify: async () => {
+          const v = await this.completionDetector.runVerify(state.config);
+          applyVerifyOutcomeToIteration(iteration, v);
+          return { ok: v.status !== 'failed', output: v.output };
+        },
+      });
+    } finally {
+      reviewAbort.cleanup();
+    }
   }
 
   private async runFreshEyesReviewGate(
@@ -2935,6 +2952,7 @@ export class LoopCoordinator extends EventEmitter {
       transitionTerminalIntent: (targetState, intent, status, reason) =>
         this.transitionTerminalIntent(targetState, intent, status, reason),
       rememberTerminalIntent: (targetState, intent) => this.rememberTerminalIntent(targetState, intent),
+      handleWakeupIntent: (targetState, intent) => this.handleWakeupIntent(targetState, intent),
       persistHook: this.intentPersistHook,
     });
   }
@@ -2974,6 +2992,21 @@ export class LoopCoordinator extends EventEmitter {
     this.convergenceNotes.set(state.id, reason);
   }
 
+  private handleWakeupIntent(state: LoopState, intent: LoopTerminalIntent): LoopTerminalIntent | undefined {
+    return scheduleWakeupIntent({
+      state,
+      intent,
+      scheduledWakeups: this.scheduledWakeups,
+      transitionTerminalIntent: (targetState, targetIntent, status, reason) =>
+        this.transitionTerminalIntent(targetState, targetIntent, status, reason),
+      scheduleWakeupResume: (targetState, opts) =>
+        this.providerLimitHandler.scheduleWakeupResume(targetState, opts),
+      setConvergenceNote: (loopRunId, note) => this.convergenceNotes.set(loopRunId, note),
+      cloneStateForBroadcast: (targetState) => this.cloneStateForBroadcast(targetState),
+      emit: (eventName, payload) => this.emit(eventName, payload),
+    });
+  }
+
   private async handleFinalAuditBlockedCompletion(params: {
     state: LoopState;
     iteration: LoopIteration | undefined;
@@ -3001,91 +3034,16 @@ export class LoopCoordinator extends EventEmitter {
   }
 
   private async pauseForBlockIntent(state: LoopState, intent: LoopTerminalIntent): Promise<void> {
-    const probeCfg = state.config.blockSanityProbe;
-    const probeEnabled = probeCfg?.enabled !== false; // default-on when undefined
-    let failedProbeDetail: string | undefined;
-    if (probeEnabled && isToolchainClassBlockHelper(intent.summary, intent.evidence)) {
-      const probe = await runWorkspaceLivenessProbeHelper(
-        state.config.workspaceCwd,
-        probeCfg?.timeoutMs ?? 5000,
-      );
-      if (probe.alive) {
-        this.transitionTerminalIntent(
-          state,
-          intent,
-          'rejected',
-          `block not honored — liveness probe passed (${probe.detail})`,
-        );
-        state.terminalIntentPending = undefined;
-        state.pendingInterventions.push(
-          createLoopPendingInput(getBlockOverrideInterventionTextHelper(), { source: 'block-override' }),
-        );
-        this.convergenceNotes.set(state.id, 'block overridden by liveness probe');
-        this.emit('loop:activity', {
-          loopRunId: state.id,
-          seq: state.totalIterations,
-          stage: state.currentStage,
-          timestamp: Date.now(),
-          kind: 'status',
-          message: 'Block intent overridden: liveness probe confirmed toolchain responsive',
-          detail: { intentId: intent.id, probe: probe.detail },
-        });
-        logger.info('Block intent overridden by liveness probe', {
-          loopRunId: state.id,
-          intentId: intent.id,
-          probe: probe.detail,
-        });
-        return;
-      }
-      failedProbeDetail = probe.detail;
-    }
-
-    this.transitionTerminalIntent(state, intent, 'accepted', 'block intent accepted');
-    state.terminalIntentPending = undefined;
-    await this.archiveBlockedFileForIntent(state, intent);
-    state.status = 'paused';
-    const signal: ProgressSignalEvidence = {
-      id: 'BLOCKED',
-      verdict: 'CRITICAL',
-      message: failedProbeDetail
-        ? `Loop-control block intent: ${intent.summary} (liveness probe failed: ${failedProbeDetail})`
-        : `Loop-control block intent: ${intent.summary}`,
-      detail: {
-        intentId: intent.id,
-        evidence: intent.evidence,
-        ...(failedProbeDetail ? { probeDetail: failedProbeDetail } : {}),
-      },
-    };
-    this.emit('loop:paused-no-progress', { loopRunId: state.id, signal });
-    this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
-    logger.info('Loop paused from loop-control block intent', {
-      loopRunId: state.id,
-      intentId: intent.id,
-      probeDetail: failedProbeDetail,
-    });
-  }
-
-  private async archiveBlockedFileForIntent(state: LoopState, intent: LoopTerminalIntent): Promise<void> {
     const loopControl = this.loopControls.get(state.id);
-    await archiveBlockedFileForIntentHelper({
+    await pauseForBlockIntentAction({
       state,
       intent,
       loopControlDir: loopControl?.controlDir,
-      debugAbsent: () => logger.debug?.('BLOCKED.md absent at archive time — operator likely removed it', {
-        loopRunId: state.id,
-        intentId: intent.id,
-      }),
-      warn: ({ errorCode, error }) => logger.warn('Failed to archive BLOCKED.md after structured block intent', {
-        loopRunId: state.id,
-        intentId: intent.id,
-        errorCode,
-        error,
-      }),
-      emitArchiveFailure: (failure) => this.emit('loop:claimed-done-but-failed', {
-        loopRunId: state.id,
-        signal: 'declared-complete',
-        failure,
-      }),
+      transitionTerminalIntent: (targetState, targetIntent, status, reason) =>
+        this.transitionTerminalIntent(targetState, targetIntent, status, reason),
+      setConvergenceNote: (loopRunId, note) => this.convergenceNotes.set(loopRunId, note),
+      cloneStateForBroadcast: (targetState) => this.cloneStateForBroadcast(targetState),
+      emit: (eventName, payload) => this.emit(eventName, payload),
     });
   }
 
@@ -3119,7 +3077,9 @@ export class LoopCoordinator extends EventEmitter {
     if (isTerminalLoopRuntimeState(state)) return;
     // Cancel any pending provider-limit auto-resume; this run is over.
     this.providerLimitHandler.clearResumeTimer(state.id);
+    this.pingPongReviewAborts.abortTerminal(state.id, reason ?? status);
     this.downshiftModelByLoop.delete(state.id);
+    this.scheduledWakeups.delete(state.id);
     state.status = status;
     state.inFlightIteration = undefined;
     state.endedAt = Date.now();

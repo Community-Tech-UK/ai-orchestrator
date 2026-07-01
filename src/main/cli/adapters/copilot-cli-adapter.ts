@@ -39,6 +39,7 @@ import type {
 import { generateId } from '../../../shared/utils/id-generator';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { getDefaultCopilotCliLaunch } from '../copilot-cli-launch';
+import { parseNdjsonLine, parseStreamingJson } from '../json-parse';
 
 // ============ Re-exports from extracted modules (public API preserved) ============
 
@@ -528,12 +529,11 @@ export class CopilotCliAdapter extends BaseCliAdapter {
           const trimmed = line.trim();
           if (!trimmed) continue;
 
-          let event: CopilotEvent;
-          try {
-            event = JSON.parse(trimmed) as CopilotEvent;
-          } catch {
+          const event = parseCopilotNdjsonEvent(trimmed);
+          if (!event) {
             // Non-JSON output (shouldn't happen under --output-format json, but
             // `copilot update` banners or similar can sneak through). Skip.
+            logCopilotParseFailure(trimmed);
             continue;
           }
 
@@ -554,11 +554,11 @@ export class CopilotCliAdapter extends BaseCliAdapter {
         // Flush any final partial line (shouldn't have JSON mid-object under
         // --stream on because each event is newline-terminated, but be safe).
         if (lineBuffer.trim()) {
-          try {
-            const trailingEvent = JSON.parse(lineBuffer.trim()) as CopilotEvent;
+          const trailingEvent = parseCopilotStreamingEvent(lineBuffer.trim());
+          if (trailingEvent && !(trailingEvent.type === 'result' && trailingEvent.partial === true)) {
             handleCopilotEvent(trailingEvent);
-          } catch {
-            /* drop incomplete trailing line */
+          } else {
+            logCopilotParseFailure(lineBuffer.trim());
           }
           lineBuffer = '';
         }
@@ -624,15 +624,15 @@ export class CopilotCliAdapter extends BaseCliAdapter {
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-        try {
-          const event = JSON.parse(trimmed) as CopilotEvent;
+        const event = parseCopilotNdjsonEvent(trimmed);
+        if (event) {
           if (event.type === 'assistant.message_delta' && event.data?.deltaContent) {
             yield event.data.deltaContent;
           } else if (event.type === 'result' && event.sessionId) {
             this.copilotSessionId = event.sessionId;
           }
-        } catch {
-          /* skip non-JSON */
+        } else {
+          logCopilotParseFailure(trimmed);
         }
       }
     }
@@ -645,8 +645,11 @@ export class CopilotCliAdapter extends BaseCliAdapter {
 
     const lines = raw.split('\n').filter((l) => l.trim());
     for (const line of lines) {
-      try {
-        const event = JSON.parse(line) as CopilotEvent;
+      const event = parseCopilotStreamingEvent(line);
+      if (event) {
+        if (event.type === 'result' && event.partial === true) {
+          continue;
+        }
         if (event.type === 'assistant.message' && event.data?.content) {
           finalContent = event.data.content;
           if (typeof event.data.outputTokens === 'number') {
@@ -654,8 +657,8 @@ export class CopilotCliAdapter extends BaseCliAdapter {
             usage.totalTokens = event.data.outputTokens;
           }
         }
-      } catch {
-        /* skip non-JSON */
+      } else {
+        logCopilotParseFailure(line);
       }
     }
 
@@ -1011,3 +1014,47 @@ type CopilotEvent =
         | 'assistant.turn_end';
       data?: unknown;
     };
+
+function parseCopilotNdjsonEvent(line: string): CopilotEvent | null {
+  const result = parseNdjsonLine<CopilotEvent>(line);
+  return result.ok && isCopilotEvent(result.value) ? result.value : null;
+}
+
+function parseCopilotStreamingEvent(line: string): (CopilotEvent & { partial?: boolean }) | null {
+  const strict = parseCopilotNdjsonEvent(line);
+  if (strict) {
+    return strict;
+  }
+
+  const result = parseStreamingJson<CopilotEvent>(line);
+  if (!result.ok || !isCopilotEvent(result.value)) {
+    return null;
+  }
+  if (result.partial && !hasUsefulPartialCopilotPayload(result.value)) {
+    return null;
+  }
+  return result.partial ? { ...result.value, partial: true } : result.value;
+}
+
+function isCopilotEvent(value: unknown): value is CopilotEvent {
+  return value !== null
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && typeof (value as { type?: unknown }).type === 'string';
+}
+
+function logCopilotParseFailure(line: string): void {
+  if (line.trim().startsWith('{')) {
+    logger.warn('Failed to parse Copilot stream-json line', { linePreview: line.slice(0, 200) });
+  }
+}
+
+function hasUsefulPartialCopilotPayload(event: CopilotEvent): boolean {
+  if (event.type === 'assistant.message') {
+    return typeof event.data?.content === 'string' && event.data.content.length > 0;
+  }
+  if (event.type === 'assistant.message_delta') {
+    return typeof event.data?.deltaContent === 'string' && event.data.deltaContent.length > 0;
+  }
+  return false;
+}

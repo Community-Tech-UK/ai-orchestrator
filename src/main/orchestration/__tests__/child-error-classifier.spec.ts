@@ -23,6 +23,25 @@ describe('ChildErrorClassifier', () => {
     expect(result.suggestedAction).toBe('retry_different_model');
   });
 
+  it('classifies provider-specific overflow messages through the shared classifier', () => {
+    const result = classifier.classify(
+      'The input token count (201,000) exceeds the maximum number of tokens allowed (200,000).',
+      'busy',
+    );
+
+    expect(result.category).toBe('context_overflow');
+    expect(result.retryable).toBe(true);
+    expect(result.suggestedAction).toBe('retry_different_model');
+  });
+
+  it('keeps generic crashes as crashes without token evidence', () => {
+    const result = classifier.classify('process exited with code 1', 'busy');
+
+    expect(result.category).toBe('process_crash');
+    expect(result.retryable).toBe(true);
+    expect(result.suggestedAction).toBe('retry');
+  });
+
   it('classifies process crashes', () => {
     const result = classifier.classify('Process exited with code 1', 'busy');
     expect(result.category).toBe('process_crash');

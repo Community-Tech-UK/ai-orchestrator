@@ -35,6 +35,7 @@ import {
 import { getTokenCounter } from './token-counter';
 import { getLogger } from '../logging/logger';
 import { computeNumCtx, hostKeyFromUrl, localhostOllamaEndpoint, resolveSlotModel, pickModelForTier, workerEndpointHealthy, workerLoadedContexts, endpointAdvertisesModel, DEFAULT_SLOT_TIERS } from './auxiliary-llm-utils';
+import { sanitizeProviderText } from '../security/surrogate-sanitizer';
 // remote-node imports are lazy — worker-node-connection and service-rpc-client
 // transitively import electron via remote-auth → settings-manager, which
 // crashes in worker_thread contexts. We must NOT top-level-import them.
@@ -503,6 +504,7 @@ export class AuxiliaryLlmService extends EventEmitter {
     const tokenCounter = getTokenCounter();
     const promptTokens = tokenCounter.countTokens(systemPrompt) + tokenCounter.countTokens(userPrompt);
     const numCtx = computeNumCtx(promptTokens, slotConfig.maxOutputTokens, slotConfig.maxInputTokens);
+    const safePrompts = sanitizeProviderText({ systemPrompt, userPrompt });
 
     // Proxy worker-node endpoints; the coordinator must not dial worker localhost directly.
     if (ep.source === 'worker-node') {
@@ -515,8 +517,7 @@ export class AuxiliaryLlmService extends EventEmitter {
         {
           provider: ep.provider,
           model,
-          systemPrompt,
-          userPrompt,
+          systemPrompt: safePrompts.systemPrompt, userPrompt: safePrompts.userPrompt,
           temperature: slotConfig.temperature,
           maxOutputTokens: slotConfig.maxOutputTokens,
           timeoutMs: slotConfig.timeoutMs,
@@ -529,8 +530,7 @@ export class AuxiliaryLlmService extends EventEmitter {
     }
 
     const req = {
-      systemPrompt,
-      userPrompt,
+      systemPrompt: safePrompts.systemPrompt, userPrompt: safePrompts.userPrompt,
       model,
       temperature: slotConfig.temperature,
       maxOutputTokens: slotConfig.maxOutputTokens,

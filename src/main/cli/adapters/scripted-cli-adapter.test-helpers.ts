@@ -11,7 +11,7 @@
  * of which real provider would have produced the turn.
  */
 
-import type { CliToolCall } from './base-cli-adapter.types';
+import type { CliToolCall, CliUsage } from './base-cli-adapter.types';
 import type { ReceiptBus, ReceiptPredicate, Receipt, AwaitReceiptOptions } from './receipt-bus';
 import type { ScriptedCliAdapter, ScriptStep } from './scripted-cli-adapter';
 
@@ -50,6 +50,76 @@ export function multiChunkTurn(chunks: string[] = ['Thinking… ', 'here is ', '
     ...chunks.map((content): ScriptStep => ({ kind: 'output', content })),
     { kind: 'complete', response: { content: chunks.join('') } },
   ];
+}
+
+export interface TokenPacedTurnOptions extends CliUsage {
+  readonly contextWindowTokens: number;
+  readonly contextSteps?: number;
+  readonly contextSource?: string;
+  readonly metadata?: Record<string, unknown>;
+}
+
+/**
+ * A deterministic usage fixture for cost/quota tests: emits optional context
+ * pacing, then output, then a complete response with exact provider usage.
+ */
+export function tokenPacedTurn(content: string, options: TokenPacedTurnOptions): ScriptStep[] {
+  const usage = tokenPacedUsage(options);
+  const totalTokens = usage.totalTokens ?? 0;
+  const contextSteps = Math.max(0, Math.floor(options.contextSteps ?? 0));
+  const contextWindowTokens = Math.max(1, options.contextWindowTokens);
+  const steps: ScriptStep[] = [];
+
+  for (let index = 1; index <= contextSteps; index += 1) {
+    const used = Math.round((totalTokens * index) / contextSteps);
+    steps.push({
+      kind: 'context',
+      usage: {
+        used,
+        total: contextWindowTokens,
+        percentage: (used / contextWindowTokens) * 100,
+        inputTokens: usage.inputTokens ?? 0,
+        outputTokens: usage.outputTokens ?? 0,
+        cumulativeTokens: used,
+        ...(options.contextSource ? { source: options.contextSource } : {}),
+      },
+    });
+  }
+
+  steps.push({ kind: 'output', content });
+  steps.push({
+    kind: 'complete',
+    response: {
+      content,
+      usage,
+      ...(options.metadata ? { metadata: options.metadata } : {}),
+    },
+  });
+  return steps;
+}
+
+function tokenPacedUsage(options: TokenPacedTurnOptions): CliUsage {
+  const totalTokens = options.totalTokens ?? sumDefined(
+    options.inputTokens,
+    options.outputTokens,
+    options.cacheReadTokens,
+    options.cacheWriteTokens,
+    options.reasoningTokens,
+  );
+  return {
+    ...(options.inputTokens !== undefined ? { inputTokens: options.inputTokens } : {}),
+    ...(options.outputTokens !== undefined ? { outputTokens: options.outputTokens } : {}),
+    ...(options.cacheReadTokens !== undefined ? { cacheReadTokens: options.cacheReadTokens } : {}),
+    ...(options.cacheWriteTokens !== undefined ? { cacheWriteTokens: options.cacheWriteTokens } : {}),
+    ...(options.reasoningTokens !== undefined ? { reasoningTokens: options.reasoningTokens } : {}),
+    totalTokens,
+    ...(options.cost !== undefined ? { cost: options.cost } : {}),
+    ...(options.duration !== undefined ? { duration: options.duration } : {}),
+  };
+}
+
+function sumDefined(...values: (number | undefined)[]): number {
+  return values.reduce<number>((sum, value) => sum + (value ?? 0), 0);
 }
 
 /** A tool-use turn: status → tool_use → tool_result → final text → complete. */

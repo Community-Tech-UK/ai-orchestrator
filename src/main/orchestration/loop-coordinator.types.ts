@@ -67,8 +67,8 @@ export interface ProviderLimitResumeScheduleRequest {
   provider: ProviderId;
   resumeAt: number;
   reason: string;
-  source: 'quota' | 'notice';
-  action: QuotaThrottleDecision['action'] | 'notice';
+  source: 'quota' | 'notice' | 'wakeup';
+  action: QuotaThrottleDecision['action'] | 'notice' | 'wakeup';
   windowId?: string;
 }
 

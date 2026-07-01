@@ -5,6 +5,8 @@ import {
 } from './electron-ipc.service';
 import type {
   VoiceStatus,
+  VoiceLocalSttChunkPayload,
+  VoiceLocalSttEvent,
   VoiceTranscriptionSession,
   VoiceTtsResult,
 } from '@contracts/schemas/voice';
@@ -42,6 +44,20 @@ export class VoiceIpcService extends ElectronIpcService {
       await this.requireApi().closeVoiceTranscriptionSession(sessionId) as IpcResponse<{ closed: boolean }>
     );
     return response.closed;
+  }
+
+  async pushLocalSttChunk(
+    payload: Omit<VoiceLocalSttChunkPayload, 'ipcAuthToken'>
+  ): Promise<{ accepted: boolean }> {
+    return this.unwrap<{ accepted: boolean }>(
+      await this.requireApi().pushVoiceLocalSttChunk(payload) as IpcResponse<{ accepted: boolean }>
+    );
+  }
+
+  onLocalSttEvent(callback: (event: VoiceLocalSttEvent) => void): () => void {
+    return this.requireApi().onVoiceLocalSttEvent((event) => {
+      callback(event as VoiceLocalSttEvent);
+    });
   }
 
   async synthesizeSpeech(payload: {

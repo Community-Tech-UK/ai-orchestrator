@@ -375,7 +375,7 @@ import { PromptModalComponent } from '../../shared/components/prompt-modal/promp
                 <span class="lsum-stat">
                   <span class="lsum-stat-label">Verify</span>
                   <span class="lsum-stat-value" [class.bad]="li.verifyStatus === 'failed'" [class.ok]="li.verifyStatus === 'passed'">
-                    {{ li.verifyStatus }}
+                    {{ li.verifyStatus }}{{ li.verifyFailureKind ? ' (' + li.verifyFailureKind + ')' : '' }}
                   </span>
                 </span>
               }
@@ -1014,7 +1014,10 @@ export class LoopControlComponent implements OnDestroy {
         .map((signal) => `${signal.id}:${signal.sufficient ? 'sufficient' : 'insufficient'}`)
         .join(', ')
       : 'none';
-    return `Signals: progress ${progress}; completion ${completion}; verify ${iteration.verifyStatus}`;
+    const verify = iteration.verifyFailureKind
+      ? `${iteration.verifyStatus} (${iteration.verifyFailureKind})`
+      : iteration.verifyStatus;
+    return `Signals: progress ${progress}; completion ${completion}; verify ${verify}`;
   }
 
   protected errorSummary(iteration: LoopIterationPayload): string {

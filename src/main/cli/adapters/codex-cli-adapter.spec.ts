@@ -152,6 +152,30 @@ describe('CodexCliAdapter', () => {
     expect(response.usage?.cost).toBeCloseTo(0.000096, 10);
   });
 
+  it('uses repaired exec JSONL lines for live tool-use output and keeps the turn running', async () => {
+    const adapter = new CodexCliAdapter({ workingDir: '/tmp/project' });
+    const spawnSpy = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
+    const outputs: { content: string; type: string }[] = [];
+    adapter.on('output', (message) => {
+      outputs.push({ content: message.content, type: message.type });
+    });
+
+    queueCodexRun(spawnSpy, {
+      stdoutLines: [
+        '{"type":"item.created","item":{"type":"command_execution","command":"npm test"},}',
+        '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"done"}}',
+      ],
+    });
+
+    const response = await adapter.sendMessage({ role: 'user', content: 'run tests' });
+
+    expect(response.content).toBe('done');
+    expect(outputs).toContainEqual({
+      type: 'tool_use',
+      content: 'Running command: npm test',
+    });
+  });
+
   it('extracts Codex planning text into thinking blocks', () => {
     const adapter = new CodexCliAdapter();
     const planningMessage = `# Crafting a friendly response

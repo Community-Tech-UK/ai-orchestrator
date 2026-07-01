@@ -15,6 +15,7 @@
  */
 
 import type { CliEvent, CliResponse, CliToolCall, SpawnModeChange } from './base-cli-adapter.types';
+import type { ContextUsage } from '../../../shared/types/instance.types';
 
 /** Maps each adapter event name to the payload recorded for it. */
 export interface ReceiptPayloadMap {
@@ -22,6 +23,7 @@ export interface ReceiptPayloadMap {
   tool_use: CliToolCall;
   tool_result: CliToolCall;
   status: string;
+  context: ContextUsage;
   error: Error | string;
   complete: CliResponse;
   exit: { code: number | null; signal: string | null };

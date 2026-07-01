@@ -166,9 +166,46 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
 
   instanceManager.on('provider:normalized-event', (envelope: ProviderRuntimeEventEnvelope) => {
     const instance = instanceManager.getInstance(envelope.instanceId);
-    const enrichedEnvelope: ProviderRuntimeEventEnvelope = envelope.model || !instance?.currentModel
+    let enrichedEnvelope: ProviderRuntimeEventEnvelope = envelope.model || !instance?.currentModel
       ? envelope
       : { ...envelope, model: instance.currentModel };
+
+    let message = toOutputMessageFromProviderEnvelope(enrichedEnvelope);
+    if (message && isProviderThreadCompactionMessage(message)) {
+      const markerId = recordProviderThreadCompactionMarker({
+        instanceId: enrichedEnvelope.instanceId,
+        instance,
+        provider: enrichedEnvelope.provider,
+        sessionId: enrichedEnvelope.sessionId,
+        messageId: message.id,
+        createdAt: message.timestamp,
+        messageMetadata: message.metadata,
+      });
+      if (markerId) {
+        const metadata = {
+          ...(enrichedEnvelope.event.kind === 'output' ? enrichedEnvelope.event.metadata : {}),
+          compactionMarkerId: markerId,
+          isCompactionBoundary: true,
+          method: 'self-managed',
+        };
+        enrichedEnvelope = {
+          ...enrichedEnvelope,
+          event: enrichedEnvelope.event.kind === 'output'
+            ? { ...enrichedEnvelope.event, metadata }
+            : enrichedEnvelope.event,
+        };
+        message = {
+          ...message,
+          metadata: {
+            ...message.metadata,
+            compactionMarkerId: markerId,
+            isCompactionBoundary: true,
+            method: 'self-managed',
+          },
+        };
+      }
+    }
+
     if (process.env['NODE_ENV'] !== 'production') {
       ProviderRuntimeEventEnvelopeSchema.parse(enrichedEnvelope);
     }
@@ -181,20 +218,7 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
     // Renderer IPC — the only synchronous operation in this hot path.
     windowManager.sendToRenderer(IPC_CHANNELS.PROVIDER_RUNTIME_EVENT, enrichedEnvelope);
 
-    const message = toOutputMessageFromProviderEnvelope(enrichedEnvelope);
     if (!message) return;
-
-    if (isProviderThreadCompactionMessage(message)) {
-      recordProviderThreadCompactionMarker({
-        instanceId: enrichedEnvelope.instanceId,
-        instance,
-        provider: enrichedEnvelope.provider,
-        sessionId: enrichedEnvelope.sessionId,
-        messageId: message.id,
-        createdAt: message.timestamp,
-        messageMetadata: message.metadata,
-      });
-    }
 
     // Auto-revert: when the provider reports fast mode is unavailable (no paid
     // tier / ineligible plan), flip the stored preference off without restarting

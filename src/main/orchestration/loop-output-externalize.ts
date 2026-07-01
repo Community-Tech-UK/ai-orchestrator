@@ -25,8 +25,16 @@ const logger = getLogger('LoopOutputExternalize');
  */
 export const LOOP_OUTPUT_EXTERNALIZE_THRESHOLD = 50_000;
 
+export interface LoopOutputExternalizeOptions {
+  delegateInspectionHint?: boolean;
+}
+
 /** Offloads `(toolName, output)` to a cache and returns a compact preview. */
-export type OutputExternalizer = (toolName: string, output: string) => Promise<string>;
+export type OutputExternalizer = (
+  toolName: string,
+  output: string,
+  options?: LoopOutputExternalizeOptions,
+) => Promise<string>;
 
 /**
  * Production externalizer — the shared OutputPersistenceManager. Lazy-required
@@ -38,7 +46,7 @@ function defaultExternalizer(): OutputExternalizer | null {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getOutputPersistenceManager } = require('../context/output-persistence') as typeof import('../context/output-persistence');
     const manager = getOutputPersistenceManager();
-    return (toolName, output) => manager.maybeExternalize(toolName, output);
+    return (toolName, output, options) => manager.maybeExternalize(toolName, output, options);
   } catch {
     return null;
   }
@@ -54,13 +62,16 @@ function defaultExternalizer(): OutputExternalizer | null {
 export async function maybeExternalizeLoopOutput(
   output: string,
   enabled: boolean,
-  externalize?: OutputExternalizer,
+  externalizeOrOptions?: OutputExternalizer | LoopOutputExternalizeOptions,
+  maybeOptions?: LoopOutputExternalizeOptions,
 ): Promise<string> {
   if (!enabled || output.length <= LOOP_OUTPUT_EXTERNALIZE_THRESHOLD) return output;
+  const externalize = typeof externalizeOrOptions === 'function' ? externalizeOrOptions : undefined;
+  const options = typeof externalizeOrOptions === 'function' ? maybeOptions : externalizeOrOptions;
   const fn = externalize ?? defaultExternalizer();
   if (!fn) return output;
   try {
-    return await fn('loop-iteration-output', output);
+    return await fn('loop-iteration-output', output, options);
   } catch (err) {
     logger.warn('LF-1 output externalization failed; keeping full output', {
       error: err instanceof Error ? err.message : String(err),

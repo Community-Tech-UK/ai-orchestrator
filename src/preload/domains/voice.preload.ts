@@ -29,6 +29,20 @@ export function createVoiceDomain(
     closeVoiceTranscriptionSession: (sessionId: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.VOICE_TRANSCRIPTION_SESSION_CLOSE, withAuth({ sessionId })),
 
+    pushVoiceLocalSttChunk: (payload: {
+      sessionId: string;
+      seq: number;
+      wavBase64: string;
+      last?: boolean;
+    }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.VOICE_LOCAL_STT_CHUNK, withAuth(payload)),
+
+    onVoiceLocalSttEvent: (callback: (event: unknown) => void): (() => void) => {
+      const listener = (_event: unknown, payload: unknown) => callback(payload);
+      ipcRenderer.on(ch.VOICE_LOCAL_STT_EVENT, listener);
+      return () => ipcRenderer.removeListener(ch.VOICE_LOCAL_STT_EVENT, listener);
+    },
+
     synthesizeVoiceSpeech: (payload: {
       requestId: string;
       input: string;

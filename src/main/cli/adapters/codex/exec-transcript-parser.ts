@@ -1,6 +1,7 @@
 import type { CliResponse, CliToolCall, CliUsage } from '../base-cli-adapter';
 import { generateId } from '../../../../shared/utils/id-generator';
 import { extractThinkingContent, type ThinkingBlock } from '../../../../shared/utils/thinking-extractor';
+import { parseNdjsonLine, parseStreamingJson } from '../../json-parse';
 import type { CodexDiagnostic } from './exec-diagnostics';
 import { extractReasoningSections, mergeReasoningSections } from './reasoning';
 
@@ -33,8 +34,9 @@ export function parseCodexExecTranscript(
   let errorMessage: string | undefined;
 
   for (const line of lines) {
-    try {
-      const event = JSON.parse(line) as Record<string, unknown>;
+    const parsedLine = parseCodexJsonLine(line);
+    if (parsedLine.ok) {
+      const { event, partial } = parsedLine;
       const type = typeof event['type'] === 'string' ? event['type'] : '';
 
       if (!threadId) {
@@ -59,6 +61,10 @@ export function parseCodexExecTranscript(
         if (cleaned && !errorMessage) {
           errorMessage = cleaned;
         }
+        continue;
+      }
+
+      if (partial && type === 'turn.completed') {
         continue;
       }
 
@@ -150,7 +156,7 @@ export function parseCodexExecTranscript(
         contentParts.push(event['text']);
         continue;
       }
-    } catch {
+    } else {
       if (!line.startsWith('{')) {
         contentParts.push(line);
       }
@@ -198,6 +204,46 @@ export function parseCodexExecTranscript(
   };
 }
 
+function parseCodexJsonLine(
+  line: string
+): { ok: true; event: Record<string, unknown>; partial: boolean } | { ok: false } {
+  const repaired = parseNdjsonLine<Record<string, unknown>>(line);
+  if (repaired.ok && isRecord(repaired.value)) {
+    return { ok: true, event: repaired.value, partial: false };
+  }
+
+  const streaming = parseStreamingJson<Record<string, unknown>>(line);
+  if (streaming.ok && isRecord(streaming.value)) {
+    if (streaming.partial && !hasUsefulPartialCodexPayload(streaming.value)) {
+      return { ok: false };
+    }
+    return { ok: true, event: streaming.value, partial: streaming.partial };
+  }
+
+  return { ok: false };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasUsefulPartialCodexPayload(event: Record<string, unknown>): boolean {
+  const type = typeof event['type'] === 'string' ? event['type'] : '';
+  if (type === 'item.completed' && isRecord(event['item'])) {
+    const item = event['item'];
+    return typeof item['text'] === 'string'
+      || typeof item['content'] === 'string'
+      || (isRecord(item['message']) && typeof item['message']['content'] === 'string');
+  }
+  if (type === 'message') {
+    return typeof event['content'] === 'string';
+  }
+  if (type === 'agent_message' && isRecord(event['message'])) {
+    return typeof event['message']['content'] === 'string';
+  }
+  return type === 'text' && typeof event['text'] === 'string';
+}
+
 function extractTurnFailedMessage(event: Record<string, unknown>): string | undefined {
   const error = event['error'];
   if (error && typeof error === 'object') {
@@ -223,8 +269,9 @@ function cleanCodexErrorMessage(raw: string | undefined): string | undefined {
   const trimmed = raw.trim();
   if (!trimmed) return undefined;
   if (trimmed.startsWith('{')) {
-    try {
-      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    const repaired = parseNdjsonLine<Record<string, unknown>>(trimmed);
+    if (repaired.ok) {
+      const parsed = repaired.value;
       const nestedError = parsed['error'];
       const nestedMessage =
         nestedError && typeof nestedError === 'object'
@@ -234,8 +281,6 @@ function cleanCodexErrorMessage(raw: string | undefined): string | undefined {
       if (typeof inner === 'string' && inner.trim()) {
         return inner.trim();
       }
-    } catch {
-      // Not valid JSON — fall through and return the raw string.
     }
   }
   return trimmed;

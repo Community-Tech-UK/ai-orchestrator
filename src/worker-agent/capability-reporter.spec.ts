@@ -100,6 +100,8 @@ describe('capability-reporter', () => {
     ollamaTags?: { ok: boolean; status?: number; json?: () => Promise<unknown> };
     lmStudioModels?: { ok: boolean; status?: number; json?: () => Promise<unknown> };
     lmStudioV0?: { ok: boolean; status?: number; json?: () => Promise<unknown> };
+    sttModels?: { ok: boolean; status?: number; json?: () => Promise<unknown> };
+    sttAudioRoute?: { ok: boolean; status?: number; json?: () => Promise<unknown> };
   }): void {
     vi.stubGlobal('fetch', vi.fn((url: string) => {
       if (typeof url === 'string' && url.includes('/api/tags')) {
@@ -112,6 +114,16 @@ describe('capability-reporter', () => {
       if (typeof url === 'string' && url.includes('/api/v0/models')) {
         return routes.lmStudioV0
           ? Promise.resolve(routes.lmStudioV0)
+          : Promise.reject(new Error('ECONNREFUSED'));
+      }
+      if (typeof url === 'string' && url === 'http://127.0.0.1:8000/v1/models') {
+        return routes.sttModels
+          ? Promise.resolve(routes.sttModels)
+          : Promise.reject(new Error('ECONNREFUSED'));
+      }
+      if (typeof url === 'string' && url === 'http://127.0.0.1:8000/v1/audio/transcriptions') {
+        return routes.sttAudioRoute
+          ? Promise.resolve(routes.sttAudioRoute)
           : Promise.reject(new Error('ECONNREFUSED'));
       }
       if (typeof url === 'string' && url.includes('/v1/models')) {
@@ -342,6 +354,44 @@ describe('capability-reporter', () => {
       const caps = await reportCapabilities(['/workspace']);
 
       expect(caps.localModelEndpoints).toEqual([]);
+    });
+  });
+
+  describe('detectLocalSttEndpoints via reportCapabilities', () => {
+    it('advertises a healthy speaches endpoint separately from local LLM endpoints', async () => {
+      mockFetchByUrl({
+        sttModels: {
+          ok: true,
+          json: () => Promise.resolve({
+            data: [{ id: 'distil-large-v3' }, { id: 'Systran/faster-whisper-large-v3' }],
+          }),
+        },
+        sttAudioRoute: { ok: false, status: 405 },
+      });
+
+      const caps = await reportCapabilities(['/workspace']);
+
+      expect(caps.localModelEndpoints).toEqual([]);
+      expect(caps.localSttEndpoints).toEqual([{
+        provider: 'openai-compatible',
+        baseUrl: 'http://127.0.0.1:8000',
+        models: ['distil-large-v3', 'Systran/faster-whisper-large-v3'],
+        healthy: true,
+      }]);
+    });
+
+    it('does not advertise an OpenAI-compatible LLM server as STT without audio-route evidence', async () => {
+      mockFetchByUrl({
+        sttModels: {
+          ok: true,
+          json: () => Promise.resolve({ data: [{ id: 'qwen2.5-coder-7b' }] }),
+        },
+        sttAudioRoute: { ok: false, status: 404 },
+      });
+
+      const caps = await reportCapabilities(['/workspace']);
+
+      expect(caps.localSttEndpoints).toEqual([]);
     });
   });
 

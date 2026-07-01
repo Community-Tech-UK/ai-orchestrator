@@ -4,6 +4,7 @@
 
 import type { CliStreamMessage } from '../../shared/types/cli.types';
 import { getLogger } from '../logging/logger';
+import { parseNdjsonLine, parseStreamingJson } from './json-parse';
 
 const logger = getLogger('NdjsonParser');
 
@@ -25,6 +26,19 @@ function normalizeTimestamp(timestamp: unknown): number {
     }
   }
   return Date.now();
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasPartialMessagePayload(message: CliStreamMessage): boolean {
+  const record = message as unknown as Record<string, unknown>;
+  return Object.keys(record).some((key) => key !== 'type' && key !== 'timestamp');
+}
+
+function parseIssue(result: ReturnType<typeof parseNdjsonLine<CliStreamMessage>>): string {
+  return result.ok ? 'Parsed NDJSON value was not an object' : result.error;
 }
 
 export class NdjsonParser {
@@ -75,14 +89,15 @@ export class NdjsonParser {
       for (const line of lines.slice(0, -1)) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-        try {
-          const parsed = JSON.parse(trimmed) as CliStreamMessage;
+        const result = parseNdjsonLine<CliStreamMessage>(trimmed);
+        if (result.ok && isObject(result.value)) {
+          const parsed = result.value;
           parsed.timestamp = normalizeTimestamp(parsed.timestamp);
           messages.push(parsed);
-        } catch (err) {
+        } else {
           logger.warn('Failed to parse NDJSON line during buffer overflow recovery', {
             linePreview: trimmed.substring(0, 100),
-            error: (err as Error).message
+            error: parseIssue(result)
           });
         }
       }
@@ -100,8 +115,9 @@ export class NdjsonParser {
       const trimmed = line.trim();
       if (!trimmed) continue;
 
-      try {
-        const parsed = JSON.parse(trimmed) as CliStreamMessage;
+      const result = parseNdjsonLine<CliStreamMessage>(trimmed);
+      if (result.ok && isObject(result.value)) {
+        const parsed = result.value;
         parsed.timestamp = normalizeTimestamp(parsed.timestamp);
 
         // Log input_required and elicitation messages specifically for debugging
@@ -110,9 +126,9 @@ export class NdjsonParser {
         }
 
         messages.push(parsed);
-      } catch (error) {
+      } else {
         // Log parse errors but continue processing
-        logger.warn('Failed to parse NDJSON line', { linePreview: trimmed.substring(0, 100), error });
+        logger.warn('Failed to parse NDJSON line', { linePreview: trimmed.substring(0, 100), error: parseIssue(result) });
       }
     }
 
@@ -128,17 +144,21 @@ export class NdjsonParser {
       return [];
     }
 
-    try {
-      const parsed = JSON.parse(this.buffer.trim()) as CliStreamMessage;
+    const result = parseStreamingJson<CliStreamMessage>(this.buffer.trim());
+    if (result.ok && isObject(result.value) && (!result.partial || hasPartialMessagePayload(result.value))) {
+      const parsed = result.value;
       parsed.timestamp = normalizeTimestamp(parsed.timestamp);
       this.buffer = '';
       return [parsed];
-    } catch {
-      // Final content wasn't valid JSON
-      logger.warn('Discarding incomplete NDJSON buffer', { buffer: this.buffer });
-      this.buffer = '';
-      return [];
     }
+
+    // Final content wasn't valid enough to recover.
+    logger.warn('Discarding incomplete NDJSON buffer', {
+      buffer: this.buffer,
+      ...(!result.ok ? { error: result.error } : {}),
+    });
+    this.buffer = '';
+    return [];
   }
 
   /**

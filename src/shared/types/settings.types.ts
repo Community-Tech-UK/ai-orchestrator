@@ -17,6 +17,7 @@ export type CliType = CanonicalCliType | 'openai'; // legacy alias kept for pers
 export type ConfigSource = 'project' | 'user' | 'default';
 export type DefaultMissedRunPolicy = 'skip' | 'notify' | 'runOnce';
 export type PauseReachabilityProbeMode = 'disabled' | 'reachable-means-vpn' | 'unreachable-means-vpn';
+export type VoiceSttRoutingMode = 'auto' | 'this-device' | 'worker-node' | 'cloud' | 'this-device-or-cloud';
 /**
  * How Harness handles newer versions of the CLI providers it wraps:
  * - `'off'`    — don't check; hide the update pill.
@@ -266,6 +267,16 @@ export interface AppSettings {
   /** Default hard cap on ping-pong rounds (clamped 1..20). */
   pingPongMaxRounds: number;
 
+  // Voice STT
+  voiceSttRoutingMode: VoiceSttRoutingMode;
+  voiceLocalSttEnabled: boolean;
+  voiceLocalSttWorkerNodeId: string;
+  voiceLocalSttModel: string;
+  voiceLocalSttLanguage: string;
+  voiceThisDeviceSttEndpointUrl: string;
+  voiceThisDeviceSttApiKeyEnv: string;
+  voiceLocalSttMaxSegmentMs: number;
+
   // Remote Nodes
   remoteNodesEnabled: boolean;
   remoteNodesServerPort: number;
@@ -514,6 +525,16 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // Conversational ping-pong review
   pingPongReviewerProvider: 'auto',
   pingPongMaxRounds: 15,
+
+  // Voice STT
+  voiceSttRoutingMode: 'auto',
+  voiceLocalSttEnabled: true,
+  voiceLocalSttWorkerNodeId: '',
+  voiceLocalSttModel: '',
+  voiceLocalSttLanguage: 'en',
+  voiceThisDeviceSttEndpointUrl: '',
+  voiceThisDeviceSttApiKeyEnv: '',
+  voiceLocalSttMaxSegmentMs: 5000,
 
   // Remote Nodes
   remoteNodesEnabled: false,

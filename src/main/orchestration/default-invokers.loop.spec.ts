@@ -40,10 +40,11 @@ const hoisted = vi.hoisted(() => ({
     provider: 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor';
     resumeAt: number;
     reason: string;
-    source: 'quota' | 'notice';
+    source: 'quota' | 'notice' | 'wakeup';
     action: string;
     windowId?: string;
   }) => (() => void) | void) | null },
+  maybeExternalizeLoopOutput: vi.fn(),
   loopCoordinatorRef: { current: null as unknown as EventEmitter },
   adapterRef: { current: null as unknown as EventEmitter & {
     sendMessage: ReturnType<typeof vi.fn>;
@@ -95,6 +96,9 @@ vi.mock('../core/failover-error', () => ({ coerceToFailoverError: vi.fn(() => nu
 vi.mock('../../shared/types/provider.types', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../shared/types/provider.types')>()),
   getDefaultModelForCli: vi.fn(() => 'default-model'),
+}));
+vi.mock('./loop-output-externalize', () => ({
+  maybeExternalizeLoopOutput: hoisted.maybeExternalizeLoopOutput,
 }));
 vi.mock('../automations/automation-create-service', () => ({
   createAutomationWithScheduling: hoisted.createAutomationWithScheduling,
@@ -152,6 +156,7 @@ describe('Loop Mode invoker plumbing', () => {
     hoisted.createAdapter.mockReset();
     hoisted.createAutomationWithScheduling.mockReset().mockResolvedValue({ id: 'automation-1' });
     hoisted.deleteAutomation.mockReset().mockResolvedValue({ runningInstanceIds: [] });
+    hoisted.maybeExternalizeLoopOutput.mockReset().mockImplementation(async (output: string) => output);
     hoisted.providerLimitSchedulerRef.current = null;
     hoisted.resolveCliType.mockReset().mockResolvedValue('claude');
     hoisted.getBreaker.mockImplementation(() => ({
@@ -308,6 +313,50 @@ describe('Loop Mode invoker plumbing', () => {
       tokens: 1_000_000,
       costUsd: 0.42,
     });
+  });
+
+  it('enables delegated large-output retrieval hints when branch exploration is enabled', async () => {
+    registerDefaultLoopInvoker({} as never);
+    hoisted.sendMessage.mockResolvedValue({
+      content: 'big loop output',
+      usage: { totalTokens: 1 },
+    });
+
+    await emitIteration({
+      config: {
+        contextStrategy: 'fresh-child',
+        context: { compaction: { enabled: true, resetAtUtilization: 0.6, clearToolResults: true } },
+        exploration: { enabled: true, fanout: 3, crossModel: false, selector: 'verify+listwise' },
+      },
+    });
+
+    expect(hoisted.maybeExternalizeLoopOutput).toHaveBeenCalledWith(
+      'big loop output',
+      true,
+      { delegateInspectionHint: true },
+    );
+  });
+
+  it('leaves delegated large-output retrieval hints disabled when branch exploration is disabled', async () => {
+    registerDefaultLoopInvoker({} as never);
+    hoisted.sendMessage.mockResolvedValue({
+      content: 'ordinary loop output',
+      usage: { totalTokens: 1 },
+    });
+
+    await emitIteration({
+      config: {
+        contextStrategy: 'fresh-child',
+        context: { compaction: { enabled: true, resetAtUtilization: 0.6, clearToolResults: true } },
+        exploration: { enabled: false, fanout: 3, crossModel: false, selector: 'verify+listwise' },
+      },
+    });
+
+    expect(hoisted.maybeExternalizeLoopOutput).toHaveBeenCalledWith(
+      'ordinary loop output',
+      true,
+      undefined,
+    );
   });
 
   it('marks loop sendMessage calls as activity-aware timeout eligible', async () => {

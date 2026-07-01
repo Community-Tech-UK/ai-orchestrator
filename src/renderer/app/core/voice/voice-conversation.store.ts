@@ -1,7 +1,10 @@
 import { Injectable, NgZone, inject, signal } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { VoiceIpcService } from '../services/ipc/voice-ipc.service';
-import type { VoiceProviderStatus } from '@contracts/schemas/voice';
+import type {
+  VoiceProviderStatus,
+  VoiceTranscriptionSession,
+} from '@contracts/schemas/voice';
 import type {
   InstanceProvider,
   InstanceStatus,
@@ -19,6 +22,7 @@ import {
   VoiceTranscriptionConnection,
   VoiceTranscriptionError,
 } from './realtime-transcription.service';
+import { LocalSegmentedTranscriptionService } from './local-segmented-transcription.service';
 import { VoicePlaybackService } from './voice-playback.service';
 
 export interface VoiceConversationSessionContext {
@@ -34,6 +38,7 @@ export interface VoiceConversationSessionContext {
 export class VoiceConversationStore {
   private readonly voiceIpc = inject(VoiceIpcService);
   private readonly transcription = inject(RealtimeTranscriptionService);
+  private readonly localTranscription = inject(LocalSegmentedTranscriptionService);
   private readonly playback = inject(VoicePlaybackService);
   private readonly zone = inject(NgZone);
 
@@ -182,13 +187,7 @@ export class VoiceConversationStore {
     }
   }
 
-  private async connectTranscription(session: {
-    sessionId: string;
-    clientSecret: string;
-    expiresAt?: number;
-    model: string;
-    sdpUrl?: string;
-  }): Promise<void> {
+  private async connectTranscription(session: VoiceTranscriptionSession): Promise<void> {
     if (!this.audioContext) {
       throw new Error('AudioContext is not available.');
     }
@@ -196,7 +195,9 @@ export class VoiceConversationStore {
     this.connection?.close();
     await this.releaseCurrentTranscriptionSession();
     this.currentTranscriptionSessionId = session.sessionId;
-    this.connection = await this.transcription.connect(session, this.audioContext);
+    this.connection = session.transport === 'local-segmented'
+      ? await this.localTranscription.connect(session, this.audioContext)
+      : await this.transcription.connect(session, this.audioContext);
     this.transcriptSubscription = this.connection.events.subscribe((event) => {
       this.zone.run(() => this.handleTranscriptEvent(event));
     });
@@ -444,19 +445,35 @@ export class VoiceConversationStore {
   private summarizeProviders(providers: VoiceProviderStatus[]): string | null {
     const activeProviders = providers.filter((provider) => provider.active);
     if (activeProviders.length === 0) return null;
-    const hasLocalTts = activeProviders.some((provider) =>
-      provider.id === 'local-macos-say'
-    );
-    const hasCloudStt = activeProviders.some((provider) =>
-      provider.capabilities.includes('stt') && provider.privacy === 'provider-cloud'
-    );
-    const hasCloudTts = activeProviders.some((provider) =>
-      provider.capabilities.includes('tts') && provider.privacy === 'provider-cloud'
-    );
-    if (hasLocalTts && hasCloudStt) return 'Local TTS + cloud STT';
-    if (hasCloudStt && hasCloudTts) return 'Cloud STT/TTS';
-    if (activeProviders.every((provider) => provider.privacy === 'local')) return 'Local voice';
+
+    const stt = activeProviders.find((provider) => provider.capabilities.includes('stt'));
+    const tts = activeProviders.find((provider) => provider.capabilities.includes('tts'));
+    const sttLabel = stt ? this.summarizeSttProvider(stt) : null;
+    const ttsLabel = tts ? this.summarizeTtsProvider(tts) : null;
+    if (sttLabel && ttsLabel) return `${sttLabel} + ${ttsLabel}`;
+    if (sttLabel) return sttLabel;
+    if (ttsLabel) return ttsLabel;
     return activeProviders.map((provider) => provider.label).join(' + ');
+  }
+
+  private summarizeSttProvider(provider: VoiceProviderStatus): string {
+    if (provider.id === 'local-whisper') {
+      if (provider.location === 'worker-node') return 'Worker STT';
+      if (provider.location === 'this-device') return 'This-device STT';
+      return 'Local STT';
+    }
+    if (provider.privacy === 'provider-cloud' || provider.location === 'cloud') {
+      return 'Cloud STT';
+    }
+    return provider.label;
+  }
+
+  private summarizeTtsProvider(provider: VoiceProviderStatus): string {
+    if (provider.id === 'local-macos-say') return 'local TTS';
+    if (provider.privacy === 'provider-cloud' || provider.location === 'cloud') {
+      return 'cloud TTS';
+    }
+    return provider.label;
   }
 
   private enterError(code: VoiceErrorCode, message: string): void {

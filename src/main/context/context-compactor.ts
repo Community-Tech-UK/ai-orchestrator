@@ -18,6 +18,7 @@ import { Microcompact, type MicrocompactTurn, type MicrocompactResult } from './
 import { ContextCollapse, type CollapsibleTurn, type ApplyResult } from './context-collapse';
 import { buildCompactionPrompt, redactSecrets } from './context-compaction-prompt';
 import { generateLocalSummary } from './context-local-summary';
+import { extractFileOperationsFromTurns } from './file-operation-extractor';
 
 export { buildCompactionPrompt, redactSecrets } from './context-compaction-prompt';
 
@@ -287,9 +288,10 @@ export class ContextCompactor extends EventEmitter {
         // This turn's tool outputs are outside the protection window — prune them
         for (const tc of turn.toolCalls) {
           if (tc.output && tc.outputTokens > 0) {
-            totalPruned += tc.outputTokens;
+            const placeholderTokens = 10;
+            totalPruned += Math.max(0, tc.outputTokens - placeholderTokens);
             tc.output = '[Output pruned for context optimization]';
-            tc.outputTokens = 10; // Minimal placeholder cost
+            tc.outputTokens = placeholderTokens;
           }
         }
         prunedTurns++;
@@ -352,8 +354,12 @@ export class ContextCompactor extends EventEmitter {
 
       // Phase 2: Summarize old turns
       const turnsToPreserve = Math.min(this.config.preserveRecent, this.state.turns.length);
-      const turnsToCompact = this.state.turns.slice(0, -turnsToPreserve || undefined);
-      const preservedTurns = this.state.turns.slice(-turnsToPreserve);
+      const turnsToCompact = turnsToPreserve === 0
+        ? [...this.state.turns]
+        : this.state.turns.slice(0, -turnsToPreserve);
+      const preservedTurns = turnsToPreserve === 0
+        ? []
+        : this.state.turns.slice(-turnsToPreserve);
 
       // Always protect the most recent user turn, even if it falls outside preserveRecent.
       // This ensures the active user request is never silently dropped into the summary.
@@ -487,8 +493,9 @@ export class ContextCompactor extends EventEmitter {
    * If the timeout fires, falls back to local summary generation.
    */
   private async generateSummaryWithTimeout(turns: ConversationTurn[]): Promise<ConversationSummary> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('Compaction summary timed out')), COMPACTION_TIMEOUT_MS);
+      timeout = setTimeout(() => reject(new Error('Compaction summary timed out')), COMPACTION_TIMEOUT_MS);
     });
 
     try {
@@ -514,6 +521,8 @@ export class ContextCompactor extends EventEmitter {
         tokenCount: this.estimateTokens(localContent),
         timestamp: Date.now(),
       };
+    } finally {
+      if (timeout) clearTimeout(timeout);
     }
   }
 
@@ -551,7 +560,11 @@ export class ContextCompactor extends EventEmitter {
     const isLlmAvailable = await llm.isAvailable();
 
     if (isLlmAvailable) {
-      const compactionPrompt = buildCompactionPrompt(conversationText, priorSummary);
+      const compactionPrompt = buildCompactionPrompt(
+        conversationText,
+        priorSummary,
+        extractFileOperationsFromTurns(turns)
+      );
       const compactionSystemPrompt =
         'You are a context compaction assistant. Produce a structured summary of the provided conversation turns using the section headers given in the prompt. Be concise and preserve key decisions, file names, and pending work.';
 
@@ -637,7 +650,6 @@ export class ContextCompactor extends EventEmitter {
    * Returns after the first stage that brings usage below threshold.
    */
   async compactLayered(): Promise<CompactionResult & { stage: string }> {
-    this.metrics.attempts++;
     const originalTokens = this.state.totalTokens;
 
     // Stage 1: Microcompact
@@ -663,6 +675,7 @@ export class ContextCompactor extends EventEmitter {
       this.updateFillRatio();
 
       if (!this.shouldCompact()) {
+        this.metrics.attempts++;
         this.metrics.successes++;
         this.metrics.totalTokensSaved += mcResult.tokensSaved;
         return this.buildResult(originalTokens, 'microcompact');
@@ -687,6 +700,7 @@ export class ContextCompactor extends EventEmitter {
       this.updateFillRatio();
 
       if (!this.shouldCompact()) {
+        this.metrics.attempts++;
         this.metrics.successes++;
         this.metrics.totalTokensSaved += applied.tokensSaved;
         return this.buildResult(originalTokens, 'context_collapse');

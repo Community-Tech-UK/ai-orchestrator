@@ -4,6 +4,7 @@ import { execFileSync } from 'child_process';
 import type {
   WorkerNodeCapabilities,
   WorkerLocalModelCapability,
+  WorkerLocalSttCapability,
   WorkerLoadedModel,
   NodePlatform,
   WorkerNodeBrowserAutomationSummary,
@@ -15,6 +16,7 @@ import { ProjectDiscovery } from '../main/remote-node/project-discovery';
 import {
   OLLAMA_LOCAL_BASE_URL,
   LMSTUDIO_LOCAL_BASE_URL,
+  SPEACHES_STT_LOCAL_BASE_URL,
   LOCAL_MODEL_PROBE_TIMEOUT_MS,
 } from './local-model-config';
 
@@ -36,6 +38,7 @@ export async function reportCapabilities(
   const projects = await discovery.scan(workingDirectories);
 
   const localModelEndpoints = await detectLocalModelEndpoints();
+  const localSttEndpoints = await detectLocalSttEndpoints();
 
   const hasBrowserRuntime = resolveChromeExecutablePath() !== null;
 
@@ -64,6 +67,7 @@ export async function reportCapabilities(
     browsableRoots: workingDirectories,
     discoveredProjects: projects,
     localModelEndpoints,
+    localSttEndpoints,
   };
 }
 
@@ -104,6 +108,11 @@ async function detectLocalModelEndpoints(): Promise<WorkerLocalModelCapability[]
   }
 
   return endpoints;
+}
+
+async function detectLocalSttEndpoints(): Promise<WorkerLocalSttCapability[]> {
+  const endpoint = await probeOpenAiCompatibleSttCapability(SPEACHES_STT_LOCAL_BASE_URL);
+  return endpoint ? [endpoint] : [];
 }
 
 /** Probe Ollama's native `/api/tags`. Returns null when unreachable. */
@@ -153,6 +162,68 @@ async function probeLmStudioCapability(): Promise<WorkerLocalModelCapability | n
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+async function probeOpenAiCompatibleSttCapability(
+  baseUrl: string
+): Promise<WorkerLocalSttCapability | null> {
+  const models = await listOpenAiCompatibleModelIds(baseUrl);
+  if (!models) return null;
+
+  const hasAudioRoute = await probeAudioTranscriptionsRoute(baseUrl);
+  if (!hasAudioRoute && !models.some(isLikelySttModelId)) {
+    return null;
+  }
+
+  return {
+    provider: 'openai-compatible',
+    baseUrl,
+    models,
+    healthy: true,
+  };
+}
+
+async function listOpenAiCompatibleModelIds(baseUrl: string): Promise<string[] | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), LOCAL_MODEL_PROBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${baseUrl}/v1/models`, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const data = await response.json() as { data?: { id: string }[] };
+    return (data.data ?? [])
+      .map((model) => model.id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function probeAudioTranscriptionsRoute(baseUrl: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), LOCAL_MODEL_PROBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${baseUrl}/v1/audio/transcriptions`, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    return response.status === 400 || response.status === 401 || response.status === 405;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function isLikelySttModelId(modelId: string): boolean {
+  const normalized = modelId.toLowerCase();
+  return normalized.includes('whisper') ||
+    normalized.includes('distil-large-v3') ||
+    normalized.includes('transcribe');
 }
 
 /** Shape of LM Studio's native `/api/v0/models` rows we care about. */

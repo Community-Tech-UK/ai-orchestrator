@@ -44,8 +44,13 @@ const WORK_DISPATCH_METHODS = new Set<string>([
   COORDINATOR_TO_NODE.INSTANCE_WAKE,
   COORDINATOR_TO_NODE.AUXILIARY_MODEL_GENERATE,
   COORDINATOR_TO_NODE.AUXILIARY_MODEL_LIST,
+  COORDINATOR_TO_NODE.AUDIO_TRANSCRIBE,
   COORDINATOR_TO_NODE.TERMINAL_CREATE,
 ]);
+
+export function isWorkerNodeWorkDispatchMethod(method: string): boolean {
+  return WORK_DISPATCH_METHODS.has(method);
+}
 
 function trustedPlatformFromParams(params: Record<string, unknown> | undefined): NodePlatform | undefined {
   const capabilities = params?.['capabilities'];

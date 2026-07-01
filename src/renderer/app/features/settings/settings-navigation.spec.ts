@@ -13,4 +13,19 @@ describe('settings navigation', () => {
     expect(networkIndex).toBeLessThan(connectionsIndex);
     expect(connectionsIndex).toBeLessThan(remoteNodesIndex);
   });
+
+  it('exposes local-first voice settings with the network and remote controls', () => {
+    const voice = NAV_ITEMS.find((item) => item.id === 'voice');
+    const connectionsIndex = NAV_ITEMS.findIndex((item) => item.id === 'connections');
+    const voiceIndex = NAV_ITEMS.findIndex((item) => item.id === 'voice');
+    const remoteNodesIndex = NAV_ITEMS.findIndex((item) => item.id === 'remote-nodes');
+
+    expect(voice).toEqual(expect.objectContaining({
+      label: 'Voice',
+      group: 'Network & Remote',
+      keywords: expect.stringContaining('stt'),
+    }));
+    expect(connectionsIndex).toBeLessThan(voiceIndex);
+    expect(voiceIndex).toBeLessThan(remoteNodesIndex);
+  });
 });

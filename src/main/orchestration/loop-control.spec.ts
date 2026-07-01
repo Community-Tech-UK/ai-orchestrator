@@ -66,6 +66,38 @@ describe('loop-control CLI contract', () => {
     ]);
   });
 
+  it('records a wakeup intent with a clamped resume timestamp even when terminal intents are not eligible', async () => {
+    await writeLoopControlFile(runtime, 4);
+    const before = Date.now();
+
+    const code = await runLoopControlCli(
+      ['node', 'aio-loop-control', 'wakeup', '--summary', 'wait for the nightly build', '--resume-in', '5'],
+      buildLoopControlEnv(runtime),
+      silentIo(),
+    );
+    const after = Date.now();
+
+    expect(code).toBe(0);
+    const imported = await importLoopTerminalIntents(runtime, {
+      maxIterationSeq: 4,
+      exactIterationSeq: 4,
+      terminalEligible: false,
+    });
+    expect(imported.rejected).toEqual([]);
+    expect(imported.accepted).toHaveLength(1);
+    const accepted = imported.accepted[0] as typeof imported.accepted[number] & { resumeAt?: number };
+    expect(accepted).toMatchObject({
+      loopRunId: 'loop-test',
+      iterationSeq: 4,
+      kind: 'wakeup',
+      summary: 'wait for the nightly build',
+      source: 'loop-control-cli',
+      status: 'pending',
+    });
+    expect(accepted.resumeAt).toBeGreaterThanOrEqual(before + 60_000);
+    expect(accepted.resumeAt).toBeLessThanOrEqual(after + 61_000);
+  });
+
   it('rejects a control file path that resolves outside the workspace control directory', async () => {
     const outside = path.join(os.tmpdir(), `loop-control-outside-${Date.now()}.json`);
     fs.writeFileSync(outside, JSON.stringify({

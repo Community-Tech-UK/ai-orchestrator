@@ -292,6 +292,93 @@ describe('LoopStageMachine', () => {
     expect(p).toContain('exactly one');
   });
 
+  it('buildPrompt renders token and cost headroom from live loop totals when provided', () => {
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    const cfg = defaultLoopConfig(tmpDir, 'finish the plan');
+    cfg.caps.maxTokens = 50_000;
+    cfg.caps.maxCostCents = 2_500;
+
+    const p = m.buildPrompt({
+      config: cfg,
+      iterationSeq: 4,
+      pendingInterventions: [],
+      capUsage: { totalTokens: 12_345, totalCostCents: 375 },
+    });
+
+    expect(p).toContain('37655 token(s) remaining');
+    expect(p).toContain('2125 cent(s) remaining');
+  });
+
+  it('buildPrompt anchors the reminder to the live task ledger summary', () => {
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    fs.mkdirSync(paths.dir, { recursive: true });
+    fs.writeFileSync(paths.tasks, [
+      '# Loop Tasks',
+      '- [x] Inventory existing prompt state',
+      '- [~] Wire F1 re-anchor reminder',
+      '- [ ] Add focused tests',
+      '- [-] Hardware validation — deferred: physical device required',
+      '',
+    ].join('\n'));
+    const cfg = defaultLoopConfig(tmpDir, 'finish the plan');
+
+    const p = m.buildPrompt({
+      config: cfg,
+      iterationSeq: 4,
+      pendingInterventions: [],
+    });
+
+    expect(p).toContain('Ledger status: 2/4 resolved');
+    expect(p).toContain('next: Wire F1 re-anchor reminder');
+    expect(p).toContain('doing: 1');
+  });
+
+  it('buildPrompt cadence-gates the full open ledger list in the reminder', () => {
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    fs.mkdirSync(paths.dir, { recursive: true });
+    fs.writeFileSync(paths.tasks, [
+      '# Loop Tasks',
+      '- [x] Inventory existing prompt state',
+      '- [~] Wire F1 re-anchor reminder',
+      '- [ ] Add focused tests',
+      '',
+    ].join('\n'));
+    const cfg = defaultLoopConfig(tmpDir, 'finish the plan');
+
+    const quietPrompt = m.buildPrompt({
+      config: cfg,
+      iterationSeq: 9,
+      pendingInterventions: [],
+    });
+    const cadencePrompt = m.buildPrompt({
+      config: cfg,
+      iterationSeq: 10,
+      pendingInterventions: [],
+    });
+
+    expect(quietPrompt).not.toContain('Open ledger items:');
+    expect(cadencePrompt).toContain('Open ledger items:');
+    expect(cadencePrompt).toContain('[~] Wire F1 re-anchor reminder');
+    expect(cadencePrompt).toContain('[ ] Add focused tests');
+  });
+
+  it('buildPrompt reports whether BLOCKED.md is currently present', () => {
+    const m = new LoopStageMachine(tmpDir, RUN_ID);
+    fs.mkdirSync(paths.dir, { recursive: true });
+    fs.writeFileSync(paths.blocked, 'Need a signing certificate.\n');
+    const cfg = defaultLoopConfig(tmpDir, 'finish the plan');
+
+    const p = m.buildPrompt({
+      config: cfg,
+      iterationSeq: 1,
+      pendingInterventions: [],
+    });
+
+    expect(p).toContain('Block status: `');
+    expect(p).toContain('BLOCKED.md` exists');
+    expect(p).toContain('Need a signing certificate.');
+  });
+
   it('buildPrompt includes the persistent goal block on every iteration', () => {
     const m = new LoopStageMachine(tmpDir, RUN_ID);
     const cfg = defaultLoopConfig(tmpDir, 'My specific goal text');

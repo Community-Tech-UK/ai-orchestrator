@@ -400,6 +400,34 @@ describe('AnthropicApiProvider', () => {
       expect(contextState?.utilizationPercent).toBeGreaterThan(0);
       expect(anthropicSdkMocks.create).toHaveBeenCalled();
     });
+
+    it('strips lone surrogates from provider-bound request text only', async () => {
+      const directProvider = new AnthropicApiProvider({
+        ...config,
+        enablePromptCaching: false,
+      });
+      await directProvider.initialize({
+        sessionId: 'direct-session',
+        workingDirectory: '/test',
+        systemPrompt: 'sys\uD800 prompt \uD83D\uDE00 zero\u200Bwidth',
+      });
+
+      await directProvider.sendMessage('user\uDC00 prompt \uD83D\uDE00 zero\u200Bwidth');
+
+      type AnthropicRequest = {
+        system: string;
+        messages: Array<{
+          content: Array<{ type: string; text?: string }>;
+        }>;
+      };
+      const countRequest = anthropicSdkMocks.countTokens.mock.calls.at(-1)?.[0] as AnthropicRequest;
+      const createRequest = anthropicSdkMocks.create.mock.calls.at(-1)?.[0] as AnthropicRequest;
+
+      expect(countRequest.system).toBe('sys prompt \uD83D\uDE00 zero\u200Bwidth');
+      expect(createRequest.system).toBe('sys prompt \uD83D\uDE00 zero\u200Bwidth');
+      expect(countRequest.messages[0]?.content[0]?.text).toBe('user prompt \uD83D\uDE00 zero\u200Bwidth');
+      expect(createRequest.messages[0]?.content[0]?.text).toBe('user prompt \uD83D\uDE00 zero\u200Bwidth');
+    });
   });
 
   describe('terminate', () => {

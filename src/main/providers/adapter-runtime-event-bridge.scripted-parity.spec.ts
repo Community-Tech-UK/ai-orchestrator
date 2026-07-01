@@ -30,6 +30,7 @@ import {
   errorTurn,
   multiChunkTurn,
   simpleTextTurn,
+  tokenPacedTurn,
   toolUseTurn,
 } from '../cli/adapters/scripted-cli-adapter.test-helpers';
 import type { CliMessage } from '../cli/adapters/base-cli-adapter.types';
@@ -69,6 +70,55 @@ describe('ScriptedCliAdapter → adapter-runtime-event-bridge (parity)', () => {
     expect(events[2]?.event).toMatchObject({ kind: 'complete' });
     const complete = events[2]?.event as { kind: 'complete'; tokensUsed?: number };
     expect(complete.tokensUsed).toBeGreaterThan(0);
+  });
+
+  it('bridges scripted token pacing, cache usage, cost, and quota diagnostics', async () => {
+    const adapter = new ScriptedCliAdapter();
+    const { events } = observe(adapter);
+    const resetAt = Date.now() + 60_000;
+
+    adapter.enqueueTurn(tokenPacedTurn('cached answer', {
+      inputTokens: 800,
+      outputTokens: 200,
+      cacheReadTokens: 400,
+      cacheWriteTokens: 100,
+      reasoningTokens: 50,
+      cost: 0.0123,
+      contextWindowTokens: 200_000,
+      contextSteps: 2,
+      metadata: {
+        quota: {
+          exhausted: false,
+          resetAt,
+          message: '5-hour window has headroom',
+        },
+      },
+    }));
+    await adapter.sendMessage(userMessage);
+    await drainRuntime(adapter);
+
+    expect(kinds(events)).toEqual(['spawned', 'context', 'context', 'output', 'complete']);
+    expect(events.filter((event) => event.kind === 'context').map((event) => {
+      const context = event.event as { used: number; total: number; percentage: number };
+      return { used: context.used, total: context.total, percentage: context.percentage };
+    })).toEqual([
+      { used: 775, total: 200_000, percentage: 0.3875 },
+      { used: 1550, total: 200_000, percentage: 0.775 },
+    ]);
+
+    const complete = events.at(-1);
+    expect(complete?.event).toMatchObject({
+      kind: 'complete',
+      tokensUsed: 1550,
+      costUsd: 0.0123,
+      quota: {
+        exhausted: false,
+        resetAt,
+        message: '5-hour window has headroom',
+      },
+    });
+    expect((complete?.rawPayload as { usage?: { cacheReadTokens?: number; cacheWriteTokens?: number } }).usage)
+      .toMatchObject({ cacheReadTokens: 400, cacheWriteTokens: 100 });
   });
 
   it('plays a tool-use turn into the full status/tool_use/tool_result sequence', async () => {
@@ -173,7 +223,9 @@ describe('ScriptedCliAdapter → adapter-runtime-event-bridge (parity)', () => {
     // tool names/ids/inputs, token counts) must match across providers/runs.
     const stable = (events: NormalizedAdapterRuntimeEvent[]): unknown[] =>
       events.map(({ event }) => {
-        const { messageId: _id, timestamp: _ts, ...rest } = event as Record<string, unknown>;
+        const rest = { ...event } as Record<string, unknown>;
+        delete rest['messageId'];
+        delete rest['timestamp'];
         return rest;
       });
 

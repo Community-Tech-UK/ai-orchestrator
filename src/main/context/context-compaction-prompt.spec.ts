@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildCompactionPrompt } from './context-compaction-prompt';
+import type { FileOperation } from './file-operation-extractor';
 
 describe('buildCompactionPrompt', () => {
   it('instructs the summarizer to preserve pending asks and remaining next step verbatim', () => {
@@ -24,5 +25,19 @@ describe('buildCompactionPrompt', () => {
     expect(prompt).toContain('<prior_summary>');
     expect(prompt).toContain('old summary');
     expect(prompt).toContain('</prior_summary>');
+  });
+
+  it('places bounded file operations after relevant files when provided', () => {
+    const operations: FileOperation[] = [
+      { kind: 'edit', path: 'src/main/context/context-compactor.ts', source: 'tool-output' },
+      { kind: 'write', path: 'docs/loop-notes.md', source: 'assistant-text' },
+    ];
+    const prompt = buildCompactionPrompt('new turn', null, operations);
+
+    expect(prompt).toContain('## File Operations Observed');
+    expect(prompt).toContain('- edit: src/main/context/context-compactor.ts (tool-output)');
+    expect(prompt).toMatch(
+      /## Relevant Files[\s\S]*## File Operations Observed[\s\S]*## Remaining Work/
+    );
   });
 });

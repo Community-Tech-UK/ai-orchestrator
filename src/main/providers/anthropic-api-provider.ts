@@ -52,6 +52,7 @@ import {
 } from '../../shared/types/api-features.types';
 import type { ProviderAdapterCapabilities } from '@sdk/provider-adapter';
 import type { ProviderName, ProviderPromptWeightBreakdown } from '@contracts/types/provider-runtime-events';
+import { sanitizeProviderText } from '../security/surrogate-sanitizer';
 
 // ============================================
 // Types
@@ -255,28 +256,24 @@ export class AnthropicApiProvider extends BaseProvider {
         supportsContextEditing(this.model) &&
         contextEditingFallback.shouldUseFallback(contextState);
 
+      const providerRequest = sanitizeProviderText({
+        model: this.model,
+        max_tokens: this.maxTokens,
+        system: this.session.systemPrompt as any,
+        messages: this.session.messages,
+      });
       let response: Anthropic.Message;
 
       if (useContextEditing) {
         // Use context editing fallback
         response = await contextEditingFallback.createMessageWithClearing(
           this.client,
-          {
-            model: this.model,
-            max_tokens: this.maxTokens,
-            messages: this.session.messages,
-            system: this.session.systemPrompt as any,
-          },
+          providerRequest,
           this.sessionId
         );
       } else {
         // Standard API call with caching
-        response = await this.client.messages.create({
-          model: this.model,
-          max_tokens: this.maxTokens,
-          system: this.session.systemPrompt as any,
-          messages: this.session.messages,
-        }, {
+        response = await this.client.messages.create(providerRequest, {
           headers: {
             'anthropic-beta': 'token-efficient-tools-2025-02-19',
           },
@@ -489,11 +486,11 @@ export class AnthropicApiProvider extends BaseProvider {
 
     try {
       const tokenCount = await this.client.messages.countTokens(
-        {
+        sanitizeProviderText({
           model: this.model,
           system: this.session.systemPrompt as any,
           messages: this.session.messages,
-        },
+        }),
         {
           headers: {
             'anthropic-beta': 'token-efficient-tools-2025-02-19',

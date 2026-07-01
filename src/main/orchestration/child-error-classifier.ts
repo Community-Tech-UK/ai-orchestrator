@@ -9,6 +9,7 @@
 import { getLogger } from '../logging/logger';
 import type { ChildErrorClassification, ChildErrorCategory } from '../../shared/types/child-announce.types';
 import { isAbortError, isFsInaccessible } from '../util/error-utils';
+import { classifyContextOverflow } from '../context/ptl-retry';
 
 const logger = getLogger('ChildErrorClassifier');
 
@@ -32,19 +33,6 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     retryable: true,
     suggestedAction: 'retry',
     userMessage: () => 'Child instance timed out. May succeed on retry.',
-  },
-  {
-    patterns: [
-      /context.?length.?exceeded/i,
-      /token.?limit/i,
-      /context.?overflow/i,
-      /maximum.?context/i,
-      /too many tokens/i,
-    ],
-    category: 'context_overflow',
-    retryable: true,
-    suggestedAction: 'retry_different_model',
-    userMessage: () => 'Child ran out of context window. Try with a larger-context model.',
   },
   {
     patterns: [
@@ -173,6 +161,17 @@ export class ChildErrorClassifier {
         userMessage: 'Child instance was detected as stuck (no progress).',
         retryable: true,
         suggestedAction: 'retry',
+        rawError: errorMessage,
+      };
+    }
+
+    const overflowEvidence = classifyContextOverflow({ errorText: errorMessage });
+    if (overflowEvidence.matched) {
+      return {
+        category: 'context_overflow',
+        userMessage: 'Child ran out of context window. Try with a larger-context model.',
+        retryable: true,
+        suggestedAction: 'retry_different_model',
         rawError: errorMessage,
       };
     }

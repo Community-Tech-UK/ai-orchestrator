@@ -1,4 +1,6 @@
 import type {
+  VoiceLocalSttChunkPayload,
+  VoiceLocalSttEvent,
   VoiceProviderStatus,
   VoiceStatus,
   VoiceTranscriptionSession,
@@ -6,6 +8,12 @@ import type {
 } from '@contracts/schemas/voice';
 import { existsSync } from 'fs';
 import { delimiter, join } from 'path';
+import {
+  DEFAULT_SETTINGS,
+  type AppSettings,
+  type VoiceSttRoutingMode,
+} from '../../../shared/types/settings.types';
+import { LocalWhisperTranscriptionProvider } from './providers/local-whisper-transcription-provider';
 import { MacosSayTtsProvider } from './providers/macos-say-tts-provider';
 import { OpenAiRealtimeTranscriptionProvider } from './providers/openai-realtime-transcription-provider';
 import { OpenAiTtsProvider } from './providers/openai-tts-provider';
@@ -33,6 +41,7 @@ const TTS_TIMEOUT_MS = 30000;
 export interface VoiceServiceDeps {
   localTts?: VoiceTtsProvider;
   openAiTts?: VoiceTtsProvider;
+  localTranscription?: VoiceTranscriptionProvider;
   openAiTranscription?: VoiceTranscriptionProvider;
   commandExists?: (command: string) => boolean;
 }
@@ -43,6 +52,7 @@ export class VoiceService {
   private readonly ttsProviders: VoiceTtsProvider[];
   private readonly commandExists: (command: string) => boolean;
   private readonly cancelledTtsRequests = new Set<string>();
+  private settings: AppSettings = DEFAULT_SETTINGS;
   private ttsQueue: Promise<unknown> = Promise.resolve();
 
   constructor(deps: VoiceServiceDeps = {}) {
@@ -52,12 +62,33 @@ export class VoiceService {
     };
     this.commandExists = deps.commandExists ?? commandExistsInPath;
     this.transcriptionProviders = [
+      deps.localTranscription ?? new LocalWhisperTranscriptionProvider({
+        commandExists: this.commandExists,
+      }),
       deps.openAiTranscription ?? new OpenAiRealtimeTranscriptionProvider(openAiDeps),
     ];
     this.ttsProviders = [
       deps.localTts ?? new MacosSayTtsProvider(),
       deps.openAiTts ?? new OpenAiTtsProvider(openAiDeps),
     ];
+  }
+
+  configure(settings: AppSettings): void {
+    this.settings = settings;
+    for (const provider of this.transcriptionProviders) {
+      if (this.hasTranscriptionProviderConfigure(provider)) {
+        provider.configure(settings);
+      }
+    }
+  }
+
+  async refreshLocalSttHealth(): Promise<void> {
+    const provider = this.transcriptionProviders.find((candidate) =>
+      candidate.id === 'local-whisper'
+    );
+    if (provider && this.hasTranscriptionProviderRefresh(provider)) {
+      await provider.refreshHealth();
+    }
   }
 
   getStatus(): VoiceStatus {
@@ -119,6 +150,26 @@ export class VoiceService {
       if (provider.closeSession(sessionId)) return true;
     }
     return false;
+  }
+
+  async pushLocalSttChunk(
+    payload: VoiceLocalSttChunkPayload
+  ): Promise<VoiceLocalSttEvent> {
+    const provider = this.transcriptionProviders.find((candidate) =>
+      candidate.id === 'local-whisper'
+    );
+    if (!provider?.pushSegment) {
+      throw new VoiceServiceError(
+        'local-stt-backend-unavailable',
+        'Local speech-to-text is not available.'
+      );
+    }
+    return provider.pushSegment({
+      sessionId: payload.sessionId,
+      seq: payload.seq,
+      wavBase64: payload.wavBase64,
+      last: payload.last,
+    });
   }
 
   synthesizeSpeech(input: VoiceTtsInput): Promise<VoiceTtsResult> {
@@ -231,7 +282,6 @@ export class VoiceService {
     return [
       ...this.transcriptionProviders.map((provider) => provider.getStatus()),
       ...this.ttsProviders.map((provider) => provider.getStatus()),
-      this.localWhisperStatus(),
       this.claudeVoiceStreamStatus(),
       this.codexRealtimeStatus(),
     ];
@@ -240,7 +290,39 @@ export class VoiceService {
   private selectActiveTranscriptionProviderId(
     statuses: VoiceProviderStatus[]
   ): VoiceTranscriptionProviderId | undefined {
+    const local = statuses.find((provider) => provider.id === 'local-whisper');
     const openAi = statuses.find((provider) => provider.id === 'openai-realtime');
+    return this.selectTranscriptionProviderForMode(
+      this.settings.voiceSttRoutingMode,
+      local,
+      openAi
+    );
+  }
+
+  private selectTranscriptionProviderForMode(
+    mode: VoiceSttRoutingMode,
+    local: VoiceProviderStatus | undefined,
+    openAi: VoiceProviderStatus | undefined
+  ): VoiceTranscriptionProviderId | undefined {
+    if (mode === 'cloud') {
+      return openAi?.available ? 'openai-realtime' : undefined;
+    }
+    if (mode === 'this-device') {
+      return local?.available && local.location === 'this-device'
+        ? 'local-whisper'
+        : undefined;
+    }
+    if (mode === 'worker-node') {
+      return local?.available && local.location === 'worker-node'
+        ? 'local-whisper'
+        : undefined;
+    }
+    if (mode === 'this-device-or-cloud') {
+      if (local?.available && local.location === 'this-device') return 'local-whisper';
+      return openAi?.available ? 'openai-realtime' : undefined;
+    }
+
+    if (local?.available) return 'local-whisper';
     return openAi?.available ? 'openai-realtime' : undefined;
   }
 
@@ -258,30 +340,12 @@ export class VoiceService {
     activeTtsProviderId: VoiceTtsProviderId | undefined
   ): string {
     if (!activeTranscriptionProviderId && !activeTtsProviderId) {
-      return 'Speech-to-text requires an OpenAI API key until a local or CLI-native STT provider is configured, and no text-to-speech provider is available.';
+      return 'Speech-to-text provider is unavailable, and no text-to-speech provider is available.';
     }
     if (!activeTranscriptionProviderId) {
-      return 'Speech-to-text requires an OpenAI API key until a local or CLI-native STT provider is configured.';
+      return 'Speech-to-text provider is unavailable.';
     }
     return 'No text-to-speech provider is available.';
-  }
-
-  private localWhisperStatus(): VoiceProviderStatus {
-    const configured = this.commandExists('whisper') || this.commandExists('whisper-cli');
-    return {
-      id: 'local-whisper',
-      label: 'Local Whisper STT',
-      source: 'local',
-      capabilities: ['stt'],
-      available: false,
-      configured,
-      active: false,
-      privacy: 'local',
-      reason: configured
-        ? 'A Whisper CLI was detected, but no long-lived streaming STT adapter is enabled yet.'
-        : 'No supported local streaming STT provider is configured.',
-      requiresSetup: 'Install and configure a supported streaming Whisper adapter.',
-    };
   }
 
   private claudeVoiceStreamStatus(): VoiceProviderStatus {
@@ -345,6 +409,22 @@ export class VoiceService {
 
   private isTtsProviderId(providerId: string): providerId is VoiceTtsProviderId {
     return this.ttsProviders.some((provider) => provider.id === providerId);
+  }
+
+  private hasTranscriptionProviderConfigure(
+    provider: VoiceTranscriptionProvider
+  ): provider is VoiceTranscriptionProvider & {
+    configure(settings: AppSettings): void;
+  } {
+    return 'configure' in provider && typeof provider.configure === 'function';
+  }
+
+  private hasTranscriptionProviderRefresh(
+    provider: VoiceTranscriptionProvider
+  ): provider is VoiceTranscriptionProvider & {
+    refreshHealth(): Promise<void>;
+  } {
+    return 'refreshHealth' in provider && typeof provider.refreshHealth === 'function';
   }
 }
 

@@ -79,6 +79,12 @@ const WorkerNodeCapabilitiesSchema = z.object({
     models: z.array(z.string()),
     healthy: z.boolean(),
   })).optional(),
+  localSttEndpoints: z.array(z.object({
+    provider: z.enum(['openai-compatible', 'whisper-cli']),
+    baseUrl: z.string(),
+    models: z.array(z.string()),
+    healthy: z.boolean(),
+  })).optional(),
 });
 
 // -- Node -> Coordinator schemas -----------------------------------------------
@@ -330,6 +336,27 @@ export const AuxiliaryModelGenerateParamsSchema = z.object({
   numCtx: z.number().int().positive().optional(),
 });
 
+const AUDIO_TRANSCRIBE_AUDIO_BASE64_MAX_LENGTH = 16 * 1024 * 1024;
+const AudioTranscribeBaseParamsSchema = z.object({
+  model: z.string().min(1),
+  language: z.string().trim().min(2).max(16),
+  task: z.enum(['transcribe', 'translate']),
+  audioBase64: z.string().min(1).max(AUDIO_TRANSCRIBE_AUDIO_BASE64_MAX_LENGTH),
+  sampleRate: z.number().int().positive().max(192000),
+  timeoutMs: z.number().int().positive(),
+});
+
+export const AudioTranscribeParamsSchema = z.discriminatedUnion('provider', [
+  AudioTranscribeBaseParamsSchema.extend({
+    provider: z.literal('openai-compatible'),
+    baseUrl: z.string().url(),
+  }),
+  AudioTranscribeBaseParamsSchema.extend({
+    provider: z.literal('whisper-cli'),
+    baseUrl: z.string().url().optional(),
+  }),
+]);
+
 // -- Schema map for method-based lookup ---------------------------------------
 
 export const RPC_PARAM_SCHEMAS: Record<string, z.ZodType> = {
@@ -382,6 +409,7 @@ export const COORDINATOR_TO_NODE_PARAM_SCHEMAS: Record<string, z.ZodType> = {
   'browser.stopManaged': BrowserStopManagedParamsSchema,
   'auxiliaryModel.list': AuxiliaryModelListParamsSchema,
   'auxiliaryModel.generate': AuxiliaryModelGenerateParamsSchema,
+  'audio.transcribe': AudioTranscribeParamsSchema,
 };
 
 /**

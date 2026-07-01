@@ -4,15 +4,18 @@
 
 import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
+import type { AppSettings } from '../../../shared/types/settings.types';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   VoiceAuthenticatedPayloadSchema,
   VoiceCloseTranscriptionSessionPayloadSchema,
   VoiceCreateTranscriptionSessionPayloadSchema,
+  VoiceLocalSttChunkPayloadSchema,
   VoiceSetTemporaryOpenAiKeyPayloadSchema,
   VoiceTtsCancelPayloadSchema,
   VoiceTtsPayloadSchema,
 } from '@contracts/schemas/voice';
+import { getSettingsManager } from '../../core/config/settings-manager';
 import { getVoiceService, VoiceServiceError } from '../../services/voice';
 
 interface RegisterVoiceHandlersDeps {
@@ -25,6 +28,15 @@ interface RegisterVoiceHandlersDeps {
 
 export function registerVoiceHandlers(deps: RegisterVoiceHandlersDeps): void {
   const voice = getVoiceService();
+  const settings = getSettingsManager();
+  voice.configure(settings.getAll());
+  void voice.refreshLocalSttHealth().catch(() => undefined);
+  settings.on('setting-changed', (key: keyof AppSettings) => {
+    if (VOICE_STT_SETTING_KEYS.has(key)) {
+      voice.configure(settings.getAll());
+      void voice.refreshLocalSttHealth().catch(() => undefined);
+    }
+  });
 
   ipcMain.handle(IPC_CHANNELS.VOICE_STATUS_GET, async (): Promise<IpcResponse> => {
     try {
@@ -145,6 +157,42 @@ export function registerVoiceHandlers(deps: RegisterVoiceHandlersDeps): void {
   );
 
   ipcMain.handle(
+    IPC_CHANNELS.VOICE_LOCAL_STT_CHUNK,
+    async (
+      event: IpcMainInvokeEvent,
+      payload: unknown
+    ): Promise<IpcResponse> => {
+      try {
+        const authError = deps.ensureAuthorized(
+          event,
+          IPC_CHANNELS.VOICE_LOCAL_STT_CHUNK,
+          payload
+        );
+        if (authError) return authError;
+        const validated = validateIpcPayload(
+          VoiceLocalSttChunkPayloadSchema,
+          payload,
+          'VOICE_LOCAL_STT_CHUNK'
+        );
+        const transcriptEvent = await voice.pushLocalSttChunk(validated);
+        event.sender.send(IPC_CHANNELS.VOICE_LOCAL_STT_EVENT, transcriptEvent);
+        return { success: true, data: { accepted: true } };
+      } catch (error) {
+        const sessionId = sessionIdFromPayload(payload);
+        if (sessionId) {
+          event.sender.send(IPC_CHANNELS.VOICE_LOCAL_STT_EVENT, {
+            sessionId,
+            kind: 'error',
+            error: error instanceof Error ? error.message : 'Local STT failed.',
+          });
+          return { success: true, data: { accepted: false } };
+        }
+        return voiceErrorResponse(error, 'VOICE_LOCAL_STT_CHUNK_FAILED');
+      }
+    }
+  );
+
+  ipcMain.handle(
     IPC_CHANNELS.VOICE_TTS_SYNTHESIZE,
     async (
       event: IpcMainInvokeEvent,
@@ -204,6 +252,23 @@ export function registerVoiceHandlers(deps: RegisterVoiceHandlersDeps): void {
       }
     }
   );
+}
+
+const VOICE_STT_SETTING_KEYS = new Set<keyof AppSettings>([
+  'voiceSttRoutingMode',
+  'voiceLocalSttEnabled',
+  'voiceLocalSttWorkerNodeId',
+  'voiceLocalSttModel',
+  'voiceLocalSttLanguage',
+  'voiceThisDeviceSttEndpointUrl',
+  'voiceThisDeviceSttApiKeyEnv',
+  'voiceLocalSttMaxSegmentMs',
+]);
+
+function sessionIdFromPayload(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const sessionId = (payload as Record<string, unknown>)['sessionId'];
+  return typeof sessionId === 'string' && sessionId.trim() ? sessionId : null;
 }
 
 function voiceErrorResponse(error: unknown, fallbackCode: string): IpcResponse {

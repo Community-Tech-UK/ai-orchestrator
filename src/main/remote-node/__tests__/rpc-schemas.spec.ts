@@ -10,6 +10,7 @@ import {
   TerminalOutputParamsSchema,
   TerminalExitParamsSchema,
   ProviderDiagnoseParamsSchema,
+  AudioTranscribeParamsSchema,
   AuxiliaryModelListParamsSchema,
   AuxiliaryModelGenerateParamsSchema,
   ConfigUpdateParamsSchema,
@@ -75,6 +76,36 @@ describe('rpc-schemas', () => {
           hasDocker: false,
           maxConcurrentInstances: 10,
           workingDirectories: ['/tmp'],
+        },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts worker-local STT endpoint capabilities', () => {
+      const result = NodeRegisterParamsSchema.safeParse({
+        nodeId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+        name: 'windows-stt',
+        capabilities: {
+          platform: 'win32',
+          arch: 'x64',
+          cpuCores: 16,
+          totalMemoryMB: 96000,
+          availableMemoryMB: 64000,
+          supportedClis: ['claude'],
+          hasBrowserRuntime: true,
+          hasBrowserMcp: false,
+          hasAndroidMcp: false,
+          hasDocker: false,
+          maxConcurrentInstances: 10,
+          workingDirectories: ['/tmp'],
+          localSttEndpoints: [
+            {
+              provider: 'openai-compatible',
+              baseUrl: 'http://127.0.0.1:8000',
+              models: ['distil-large-v3'],
+              healthy: true,
+            },
+          ],
         },
       });
       expect(result.success).toBe(true);
@@ -180,6 +211,50 @@ describe('rpc-schemas', () => {
 
     it('registers provider.diagnose in the coordinator->node schema map', () => {
       expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['provider.diagnose']).toBe(ProviderDiagnoseParamsSchema);
+    });
+  });
+
+  describe('AudioTranscribeParamsSchema', () => {
+    const validOpenAiCompatible = {
+      provider: 'openai-compatible',
+      baseUrl: 'http://127.0.0.1:8000',
+      model: 'distil-large-v3',
+      language: 'en',
+      task: 'transcribe',
+      audioBase64: 'UklGRg==',
+      sampleRate: 16000,
+      timeoutMs: 30000,
+    };
+
+    it('accepts an OpenAI-compatible local STT request', () => {
+      expect(AudioTranscribeParamsSchema.safeParse(validOpenAiCompatible).success).toBe(true);
+    });
+
+    it('accepts a whisper-cli request without a base URL', () => {
+      expect(AudioTranscribeParamsSchema.safeParse({
+        provider: 'whisper-cli',
+        model: 'distil-large-v3',
+        language: 'en',
+        task: 'transcribe',
+        audioBase64: 'UklGRg==',
+        sampleRate: 16000,
+        timeoutMs: 30000,
+      }).success).toBe(true);
+    });
+
+    it('rejects empty audio and unsupported tasks', () => {
+      expect(AudioTranscribeParamsSchema.safeParse({
+        ...validOpenAiCompatible,
+        audioBase64: '',
+      }).success).toBe(false);
+      expect(AudioTranscribeParamsSchema.safeParse({
+        ...validOpenAiCompatible,
+        task: 'summarize',
+      }).success).toBe(false);
+    });
+
+    it('registers audio.transcribe in the coordinator->node schema map', () => {
+      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['audio.transcribe']).toBe(AudioTranscribeParamsSchema);
     });
   });
 

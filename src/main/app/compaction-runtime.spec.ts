@@ -61,7 +61,7 @@ describe('setupCompactionCoordinator', () => {
 
   it('resets renderer context usage after successful native compaction when no provider context event follows', async () => {
     const compactContext = vi.fn(async () => true);
-    const recordMarker = vi.fn();
+    const recordMarker = vi.fn(() => 'marker-1');
     setCompactionMarkerRecorderForTesting(recordMarker);
     const instance = {
       id: 'inst-1',
@@ -123,6 +123,7 @@ describe('setupCompactionCoordinator', () => {
         metadata: expect.objectContaining({
           previousUsage: expect.objectContaining({ percentage: 94 }),
           newUsage: expect.objectContaining({ percentage: 0 }),
+          compactionMarkerId: 'marker-1',
         }),
       }),
     );
@@ -215,10 +216,10 @@ describe('setupCompactionCoordinator', () => {
   });
 
   it('records provider-managed thread compactions as self-managed markers', () => {
-    const recordMarker = vi.fn();
+    const recordMarker = vi.fn(() => 'marker-1');
     setCompactionMarkerRecorderForTesting(recordMarker);
 
-    recordProviderThreadCompactionMarker({
+    expect(recordProviderThreadCompactionMarker({
       instanceId: 'inst-1',
       instance: {
         id: 'inst-1',
@@ -237,7 +238,7 @@ describe('setupCompactionCoordinator', () => {
       messageId: 'msg-1',
       createdAt: 1234,
       messageMetadata: { threadCompacted: true },
-    });
+    })).toBe('marker-1');
 
     expect(recordMarker).toHaveBeenCalledWith(expect.objectContaining({
       instanceId: 'inst-1',

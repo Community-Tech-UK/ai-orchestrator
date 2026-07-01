@@ -15,7 +15,6 @@ import {
   InstanceQueueSavePayloadSchema,
   InstanceChangeAgentPayloadSchema,
   InstanceChangeModelPayloadSchema,
-  InstanceCompactPayloadSchema,
   InstanceCreatePayloadSchema,
   InstanceCreateWithMessagePayloadSchema,
   InstanceInterruptPayloadSchema,
@@ -33,11 +32,11 @@ import {
 import { InstanceManager } from '../../instance/instance-manager';
 import { WindowManager } from '../../window-manager';
 import { getSettingsManager } from '../../core/config/settings-manager';
-import { getContextEngine } from '../../context/context-engine';
 import { getRemoteObserverServer } from '../../remote/observer-server';
 import { getSelfPermissionGranter } from '../../security/self-permission-granter';
 import { getPauseCoordinator } from '../../pause/pause-coordinator';
 import { clearInstanceQueueStore, loadAllInstanceQueues, saveInstanceQueue } from './instance-queue-store';
+import { registerInstanceCompactionHandlers } from './instance-compaction-handlers';
 import { createInitialUserMessage, serializeInstance } from './instance-handler-serializers';
 
 const logger = getLogger('InstanceHandlers');
@@ -662,34 +661,7 @@ export function registerInstanceHandlers(deps: {
     }
   );
 
-  // ============================================
-  // Context Compaction Handlers
-  // ============================================
-
-  // Manual compact trigger
-  ipcMain.handle(
-    IPC_CHANNELS.INSTANCE_COMPACT,
-    async (event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
-      try {
-        const validated = validateIpcPayload(
-          InstanceCompactPayloadSchema,
-          payload,
-          'INSTANCE_COMPACT'
-        );
-        const result = await getContextEngine().compactInstance(validated.instanceId);
-        return { success: true, data: result };
-      } catch (error) {
-        return {
-          success: false,
-          error: {
-            code: 'COMPACT_FAILED',
-            message: (error as Error).message,
-            timestamp: Date.now()
-          }
-        };
-      }
-    }
-  );
+  registerInstanceCompactionHandlers(instanceManager);
 
   // ============================================
   // Output History

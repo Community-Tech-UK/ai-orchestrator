@@ -240,10 +240,18 @@ export interface CompletionObservationInput {
   state: LoopState;
 }
 
+export type VerifyFailureKind = 'command' | 'timeout' | 'infra';
+
 export type VerifyOutcome =
   | { status: 'passed'; output: string; durationMs: number }
   | { status: 'skipped'; output: string; durationMs: number }
-  | { status: 'failed'; output: string; durationMs: number; exitCode: number | null };
+  | {
+      status: 'failed';
+      output: string;
+      durationMs: number;
+      exitCode: number | null;
+      failureKind: VerifyFailureKind;
+    };
 
 /** Minimum trimmed length for an investigation REPORT.md to count as substantive. */
 const MIN_INVESTIGATION_REPORT_CHARS = 200;
@@ -541,6 +549,7 @@ export class LoopCompletionDetector {
           output: `${stdout}\n${stderr}\n(${label} timed out after ${timeoutMs}ms)`,
           durationMs: Date.now() - started,
           exitCode: null,
+          failureKind: 'timeout',
         });
       }, timeoutMs);
 
@@ -550,7 +559,13 @@ export class LoopCompletionDetector {
         if (code === 0) {
           resolve({ status: 'passed', output, durationMs: Date.now() - started });
         } else {
-          resolve({ status: 'failed', output, durationMs: Date.now() - started, exitCode: code });
+          resolve({
+            status: 'failed',
+            output,
+            durationMs: Date.now() - started,
+            exitCode: code,
+            failureKind: 'command',
+          });
         }
       });
       child.on('error', (err) => {
@@ -560,6 +575,7 @@ export class LoopCompletionDetector {
           output: `${label} command failed to spawn: ${err.message}`,
           durationMs: Date.now() - started,
           exitCode: null,
+          failureKind: 'infra',
         });
       });
     });

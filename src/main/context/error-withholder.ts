@@ -13,6 +13,11 @@
 import { EventEmitter } from 'events';
 import { OutputTokenEscalator } from './output-token-escalator';
 import { getLogger } from '../logging/logger';
+import {
+  classifyContextOverflow,
+  type ContextOverflowClassifierInput,
+  type ContextOverflowEvidence,
+} from './ptl-retry';
 
 const logger = getLogger('ErrorWithholder');
 
@@ -48,8 +53,22 @@ export class ErrorWithholder extends EventEmitter {
    * Handle prompt-too-long (413) error.
    * Attempts recovery in order: collapse → reactive compact → fail.
    */
-  async handlePromptTooLong(): Promise<RecoveryResult> {
-    this.emit('error:withheld', { type: 'prompt_too_long' });
+  async handlePromptTooLong(evidenceInput?: ContextOverflowClassifierInput): Promise<RecoveryResult> {
+    let evidence: ContextOverflowEvidence | undefined;
+    if (evidenceInput) {
+      evidence = classifyContextOverflow(evidenceInput);
+      if (!evidence.matched) {
+        logger.info('Prompt-too-long recovery skipped because evidence was weak', {
+          detail: evidence.detail,
+        });
+        return { outcome: RecoveryOutcome.FAILED, stage: 'not_context_overflow' };
+      }
+    }
+
+    this.emit('error:withheld', {
+      type: 'prompt_too_long',
+      ...(evidence?.matched ? { reason: evidence.reason, detail: evidence.detail } : {}),
+    });
 
     // Stage 1: Context collapse recovery (cheapest)
     try {

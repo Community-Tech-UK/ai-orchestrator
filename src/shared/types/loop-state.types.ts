@@ -43,12 +43,16 @@ export interface LoopToolCallRecord {
   durationMs: number;
 }
 
+export type LoopVerifyFailureKind = 'command' | 'timeout' | 'infra';
+
 export type LoopPendingInputKind = 'steer' | 'queue';
 export type LoopPendingInputSource =
   | 'human'
   | 'block-override'
   | 'plan-regen'
   | 'phase-recovery'
+  | 'context-survival'
+  | 'announce-then-halt'
   | 'subagent-result'
   | 'wakeup';
 
@@ -136,6 +140,12 @@ export interface LoopIteration {
   verifyStatus: 'not-run' | 'passed' | 'failed';
   verifyOutputExcerpt: string;
   /**
+   * Why a failed verify failed. `command` means the command ran and returned a
+   * non-zero exit; `timeout`/`infra` mean the verifier itself could not produce
+   * reliable test evidence.
+   */
+  verifyFailureKind?: LoopVerifyFailureKind;
+  /**
    * Optional local-model TL;DR of a FAILED verify command's output, produced
    * best-effort and asynchronously after the excerpt is stored. Purely operator
    * UX — never influences the completion decision. Absent when auxiliary models
@@ -190,7 +200,7 @@ export interface CompletionSignalEvidence {
   detail: string;
 }
 
-export type LoopTerminalIntentKind = 'complete' | 'block' | 'fail';
+export type LoopTerminalIntentKind = 'complete' | 'block' | 'fail' | 'wakeup';
 export type LoopTerminalIntentStatus = 'pending' | 'accepted' | 'deferred' | 'rejected' | 'superseded';
 export type LoopTerminalIntentSource = 'loop-control-cli' | 'imported-file';
 export type LoopTerminalIntentEvidenceKind = 'summary' | 'command' | 'file' | 'test' | 'note';
@@ -214,6 +224,7 @@ export interface LoopTerminalIntent {
   status: LoopTerminalIntentStatus;
   statusReason?: string;
   filePath?: string;
+  resumeAt?: number;
 }
 
 export interface LoopControlMetadata {
@@ -271,6 +282,7 @@ export interface LoopState {
   iterationsOnCurrentStage: number;
   recentWarnIterationSeqs: number[];
   completionAttempts: number;
+  announceThenHaltNudgeCount?: number;
   lastCompletionOutcome?: LoopCompletionOutcome;
   loopTasksLedgerResolvedAtStart: boolean;
   unresolvedReviewThreads?: string[];

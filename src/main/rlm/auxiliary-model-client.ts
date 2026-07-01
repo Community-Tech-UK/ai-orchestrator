@@ -10,6 +10,7 @@ import {
   type AuxiliaryLlmModelInfo,
 } from '../../shared/types/auxiliary-llm.types';
 import { extractChatCompletionText } from '../../shared/utils/openai-response';
+import { sanitizeProviderText } from '../security/surrogate-sanitizer';
 
 export interface AuxiliaryGenerateRequest {
   systemPrompt: string;
@@ -128,16 +129,17 @@ export async function generateWithOllama(
   request: AuxiliaryGenerateRequest
 ): Promise<string> {
   const { controller, clear } = makeAbortController(request.timeoutMs);
+  const safeRequest = sanitizeProviderText(request);
   const body = {
-    model: request.model,
-    prompt: `${request.systemPrompt}\n\n${request.userPrompt}`,
+    model: safeRequest.model,
+    prompt: `${safeRequest.systemPrompt}\n\n${safeRequest.userPrompt}`,
     stream: false,
-    keep_alive: request.keepAlive ?? DEFAULT_OLLAMA_KEEP_ALIVE,
-    ...(request.requireJson ? { format: 'json' } : {}),
+    keep_alive: safeRequest.keepAlive ?? DEFAULT_OLLAMA_KEEP_ALIVE,
+    ...(safeRequest.requireJson ? { format: 'json' } : {}),
     options: {
-      temperature: request.temperature,
-      num_predict: request.maxOutputTokens,
-      ...(request.numCtx ? { num_ctx: request.numCtx } : {}),
+      temperature: safeRequest.temperature,
+      num_predict: safeRequest.maxOutputTokens,
+      ...(safeRequest.numCtx ? { num_ctx: safeRequest.numCtx } : {}),
     },
   };
 
@@ -247,19 +249,20 @@ export async function generateWithOpenAiCompatible(
   request: AuxiliaryGenerateRequest
 ): Promise<string> {
   const { controller, clear } = makeAbortController(request.timeoutMs);
+  const safeRequest = sanitizeProviderText(request);
   const buildBody = (includeJsonFormat: boolean): Record<string, unknown> => {
     const body: Record<string, unknown> = {
-      model: request.model,
+      model: safeRequest.model,
       // NOTE: no /no_think here. This client dials endpoints the coordinator
       // configures directly, which may be cloud (OpenAI etc.); we don't inject a
       // local-model reasoning directive into them. The worker path (LM Studio)
       // applies it where reasoning models actually live.
       messages: [
-        { role: 'system', content: request.systemPrompt },
-        { role: 'user', content: request.userPrompt },
+        { role: 'system', content: safeRequest.systemPrompt },
+        { role: 'user', content: safeRequest.userPrompt },
       ],
-      temperature: request.temperature,
-      max_tokens: request.maxOutputTokens,
+      temperature: safeRequest.temperature,
+      max_tokens: safeRequest.maxOutputTokens,
     };
     if (includeJsonFormat) {
       body['response_format'] = { type: 'json_object' };

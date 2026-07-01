@@ -242,6 +242,11 @@ export class HistoryManager {
         currentModel: instance.currentModel,
         executionLocation,
         snippets,
+        // Net line-change summary for the completed session, shown as the
+        // +add/-del badge on the history rail. Falls back to a previous entry's
+        // summary when re-archiving a restored thread whose live instance no
+        // longer carries diff stats.
+        changeSummary: this.resolveChangeSummary(instance, previousEntries),
         // Preserve automation provenance across the live → archived boundary (and
         // across re-archival of a restored thread, whose live instance no longer
         // carries the original automation metadata).
@@ -1078,6 +1083,28 @@ export class HistoryManager {
   private shouldHideInstanceFromProjectRail(instance: Instance): boolean {
     return instance.metadata?.['hideFromProjectRail'] === true
       || typeof instance.metadata?.['spawnDepth'] === 'number';
+  }
+
+  /**
+   * Derive the archived thread's change summary (net added/deleted lines) from
+   * the live instance's diff stats. When re-archiving a restored thread whose
+   * live instance no longer carries diff stats, preserve a previous entry's
+   * summary rather than dropping the badge. Returns `null` when there is no
+   * meaningful change to report.
+   */
+  private resolveChangeSummary(
+    instance: Instance,
+    previousEntries: ConversationHistoryEntry[]
+  ): ConversationHistoryEntry['changeSummary'] {
+    const stats = instance.diffStats;
+    if (stats && (stats.totalAdded > 0 || stats.totalDeleted > 0)) {
+      return { additions: stats.totalAdded, deletions: stats.totalDeleted };
+    }
+
+    const previous = previousEntries.find(
+      (e) => e.changeSummary && (e.changeSummary.additions > 0 || e.changeSummary.deletions > 0)
+    )?.changeSummary;
+    return previous ?? null;
   }
 
   /**

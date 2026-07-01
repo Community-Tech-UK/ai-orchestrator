@@ -17,6 +17,7 @@ describe('DisplayItemProcessor compaction summary items', () => {
           beforeCount: 120,
           afterCount: 35,
           fallbackMode: 'in-place',
+          compactionMarkerId: 'marker-1',
           at: 20,
         },
       },
@@ -32,6 +33,7 @@ describe('DisplayItemProcessor compaction summary items', () => {
         beforeCount: 120,
         afterCount: 35,
         fallbackMode: 'in-place',
+        markerId: 'marker-1',
         at: 20,
       },
     });

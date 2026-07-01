@@ -48,6 +48,16 @@ function makeToolCall(overrides?: Partial<ToolCallRecord>): ToolCallRecord {
   };
 }
 
+function totalTokensFromState(state: ReturnType<ContextCompactor['getState']>): number {
+  return state.turns.reduce((sum, turn) => {
+    const toolTokens = (turn.toolCalls ?? []).reduce(
+      (toolSum, toolCall) => toolSum + toolCall.inputTokens + toolCall.outputTokens,
+      0
+    );
+    return sum + turn.tokenCount + toolTokens;
+  }, 0);
+}
+
 describe('ContextCompactor', () => {
   let compactor: ContextCompactor;
 
@@ -193,6 +203,20 @@ describe('ContextCompactor', () => {
       );
       expect(prunedTurns.length).toBeGreaterThan(0);
     });
+
+    it('keeps totalTokens consistent with placeholder output tokens after pruning', () => {
+      compactor.updateConfig({ maxContextTokens: 500000 });
+
+      for (let i = 0; i < 10; i++) {
+        const toolCall = makeToolCall({ outputTokens: 10000, output: 'original content' });
+        compactor.addTurn(makeTurn({ tokenCount: 100, toolCalls: [toolCall] }));
+      }
+
+      compactor.pruneToolOutputs();
+      const state = compactor.getState();
+
+      expect(state.totalTokens).toBe(totalTokensFromState(state));
+    });
   });
 
   describe('config management', () => {
@@ -306,6 +330,80 @@ describe('ContextCompactor', () => {
       const hasUserTurn = state.turns.some(t => t.role === 'user');
       expect(hasUserTurn).toBe(true);
     });
+
+    it('honors preserveRecent zero while still protecting the latest user turn', async () => {
+      compactor.updateConfig({
+        maxContextTokens: 1100,
+        autoCompact: false,
+        triggerThreshold: 0.85,
+        preserveRecent: 0,
+      });
+
+      for (let i = 0; i < 10; i++) {
+        compactor.addTurn(makeTurn({
+          tokenCount: 100,
+          role: i % 2 === 0 ? 'user' : 'assistant',
+          content: `turn ${i}`,
+        }));
+      }
+
+      const result = await compactor.compact();
+      expect(result.summaryGenerated).toBe(true);
+
+      const state = compactor.getState();
+      expect(state.turns).toHaveLength(1);
+      expect(state.turns[0].role).toBe('user');
+      expect(state.turns[0].content).toBe('turn 8');
+    });
+  });
+
+  describe('compactLayered', () => {
+    it('records one metrics attempt when it falls through to full compaction', async () => {
+      compactor.updateConfig({
+        maxContextTokens: 500,
+        autoCompact: false,
+        triggerThreshold: 0.85,
+        preserveRecent: 2,
+      });
+
+      for (let i = 0; i < 10; i++) {
+        compactor.addTurn(makeTurn({
+          tokenCount: 90,
+          role: i % 2 === 0 ? 'user' : 'assistant',
+          content: `turn ${i}`,
+        }));
+      }
+
+      await compactor.compactLayered();
+
+      expect(compactor.getMetrics().attempts).toBe(1);
+    });
+
+    it('clears the summary timeout after a successful full compaction', async () => {
+      vi.useFakeTimers();
+      try {
+        compactor.updateConfig({
+          maxContextTokens: 1100,
+          autoCompact: false,
+          triggerThreshold: 0.85,
+          preserveRecent: 2,
+        });
+
+        for (let i = 0; i < 10; i++) {
+          compactor.addTurn(makeTurn({
+            tokenCount: 100,
+            role: i % 2 === 0 ? 'user' : 'assistant',
+            content: `turn ${i}`,
+          }));
+        }
+
+        await compactor.compact();
+
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe('redactSecrets', () => {
@@ -406,6 +504,33 @@ describe('ContextCompactor', () => {
       const summary = compactor.getState().summaries[0].content;
       expect(summary).toContain('## Commands Run');
       expect(summary).toContain('bash');
+    });
+
+    it('preserves observed file operations in the local fallback summary', async () => {
+      compactor.updateConfig(largeCompactionConfig());
+
+      const toolCall = makeToolCall({
+        name: 'Edit',
+        input: '{"file_path":"src/main/context/context-compactor.ts"}',
+        output: 'Updated src/main/context/context-compactor.ts',
+      });
+      for (let i = 0; i < 10; i++) {
+        compactor.addTurn(makeTurn({
+          tokenCount: 100,
+          role: i % 2 === 0 ? 'user' : 'assistant',
+          content: i === 0
+            ? 'Please update src/main/context/context-compactor.ts'
+            : 'continuing implementation',
+          toolCalls: i === 1 ? [toolCall] : undefined,
+        }));
+      }
+
+      const result = await compactor.compact();
+      expect(result.summaryGenerated).toBe(true);
+
+      const summary = compactor.getState().summaries[0].content;
+      expect(summary).toContain('## File Operations Observed');
+      expect(summary).toContain('- edit: src/main/context/context-compactor.ts');
     });
 
     it('anchors subsequent summaries on the previous one', async () => {

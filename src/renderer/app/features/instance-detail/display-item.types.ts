@@ -69,5 +69,6 @@ export interface CompactionSummaryDisplay {
   afterCount: number;
   tokensReclaimed?: number;
   fallbackMode?: CompactionFallbackMode;
+  markerId?: string;
   at: number;
 }

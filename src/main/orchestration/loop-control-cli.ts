@@ -1,5 +1,6 @@
 import type { LoopTerminalIntentEvidence, LoopTerminalIntentKind } from '../../shared/types/loop.types';
 import {
+  clampLoopWakeupResumeAt,
   readLoopControlFileFromEnv,
   writeIntentFromCli,
 } from './loop-control';
@@ -21,7 +22,7 @@ export async function runLoopControlCli(
       return 0;
     }
     const control = await readLoopControlFileFromEnv(env);
-    const filePath = await writeIntentFromCli(control, args.kind, args.summary, args.evidence, env);
+    const filePath = await writeIntentFromCli(control, args.kind, args.summary, args.evidence, env, args.resumeAt);
     io.stdout.write(`Loop ${args.kind} intent recorded for ${control.loopRunId} iteration ${control.currentIterationSeq}: ${filePath}\n`);
     return 0;
   } catch (err) {
@@ -34,6 +35,7 @@ interface ParsedArgs {
   kind: LoopTerminalIntentKind;
   summary: string;
   evidence: LoopTerminalIntentEvidence[];
+  resumeAt?: number;
   help: boolean;
 }
 
@@ -42,12 +44,13 @@ function parseArgs(args: readonly string[]): ParsedArgs {
   if (!first || first === '--help' || first === '-h') {
     return { kind: 'complete', summary: '', evidence: [], help: true };
   }
-  if (first !== 'complete' && first !== 'block' && first !== 'fail') {
-    throw new Error('First argument must be complete, block, or fail');
+  if (first !== 'complete' && first !== 'block' && first !== 'fail' && first !== 'wakeup') {
+    throw new Error('First argument must be complete, block, fail, or wakeup');
   }
 
   let summary = '';
   const evidence: LoopTerminalIntentEvidence[] = [];
+  let resumeAt: number | undefined;
   const rest = args.slice(1);
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index]!;
@@ -72,6 +75,20 @@ function parseArgs(args: readonly string[]): ParsedArgs {
       index += 1;
       continue;
     }
+    if (arg === '--resume-in') {
+      const value = rest[index + 1];
+      if (!value) throw new Error('--resume-in requires a value');
+      resumeAt = resumeAtFromDelaySeconds(value);
+      index += 1;
+      continue;
+    }
+    if (arg === '--resume-at') {
+      const value = rest[index + 1];
+      if (!value) throw new Error('--resume-at requires a value');
+      resumeAt = resumeAtFromEpochMs(value);
+      index += 1;
+      continue;
+    }
     if (!arg.startsWith('-') && !summary) {
       summary = arg;
       continue;
@@ -82,8 +99,31 @@ function parseArgs(args: readonly string[]): ParsedArgs {
   if (!summary.trim()) {
     throw new Error('--summary is required');
   }
+  if (first === 'wakeup' && resumeAt === undefined) {
+    throw new Error('wakeup requires --resume-in <seconds> or --resume-at <epoch-ms>');
+  }
+  if (first !== 'wakeup' && resumeAt !== undefined) {
+    throw new Error('--resume-in/--resume-at are only valid for wakeup');
+  }
 
-  return { kind: first, summary: summary.trim(), evidence, help: false };
+  return { kind: first, summary: summary.trim(), evidence, resumeAt, help: false };
+}
+
+function resumeAtFromDelaySeconds(value: string): number {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    throw new Error('--resume-in must be a positive number of seconds');
+  }
+  const now = Date.now();
+  return clampLoopWakeupResumeAt(now, now + Math.round(seconds * 1000));
+}
+
+function resumeAtFromEpochMs(value: string): number {
+  const epochMs = Number(value);
+  if (!Number.isInteger(epochMs) || epochMs <= 0) {
+    throw new Error('--resume-at must be a positive epoch-ms timestamp');
+  }
+  return clampLoopWakeupResumeAt(Date.now(), epochMs);
 }
 
 function parseEvidenceArg(value: string): LoopTerminalIntentEvidence {
@@ -103,6 +143,7 @@ function helpText(): string {
     'Usage:',
     '  aio-loop-control complete --summary "<what is complete>" [--evidence kind:label=value]',
     '  aio-loop-control block --summary "<exact blocker>"',
+    '  aio-loop-control wakeup --summary "<why to resume>" --resume-in "<seconds>"',
     '  aio-loop-control fail --summary "<failure reason>"',
     '',
   ].join('\n');

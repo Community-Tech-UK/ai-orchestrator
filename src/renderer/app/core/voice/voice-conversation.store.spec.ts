@@ -9,6 +9,7 @@ import {
   type VoiceTranscriptEvent,
   type VoiceTranscriptionConnection,
 } from './realtime-transcription.service';
+import { LocalSegmentedTranscriptionService } from './local-segmented-transcription.service';
 import { VoiceConversationStore } from './voice-conversation.store';
 import { VoicePlaybackService } from './voice-playback.service';
 
@@ -23,6 +24,7 @@ interface StoreHarness {
   sendInput: ReturnType<typeof vi.fn>;
   steerInput: ReturnType<typeof vi.fn>;
   closeConnection: ReturnType<typeof vi.fn>;
+  closeLocalConnection: ReturnType<typeof vi.fn>;
   voiceIpc: {
     getStatus: ReturnType<typeof vi.fn>;
     createTranscriptionSession: ReturnType<typeof vi.fn>;
@@ -30,6 +32,8 @@ interface StoreHarness {
     synthesizeSpeech: ReturnType<typeof vi.fn>;
     cancelSpeech: ReturnType<typeof vi.fn>;
   };
+  connectTranscription: ReturnType<typeof vi.fn>;
+  connectLocalTranscription: ReturnType<typeof vi.fn>;
 }
 
 function message(
@@ -47,11 +51,18 @@ function message(
 
 function createHarness(status: StoreHarnessContextStatus = 'idle'): StoreHarness {
   const events = new Subject<VoiceTranscriptEvent>();
+  const localEvents = new Subject<VoiceTranscriptEvent>();
   const closeConnection = vi.fn();
+  const closeLocalConnection = vi.fn();
   const connection: VoiceTranscriptionConnection = {
     events: events.asObservable(),
     level: signal(0),
     close: closeConnection,
+  };
+  const localConnection: VoiceTranscriptionConnection = {
+    events: localEvents.asObservable(),
+    level: signal(0),
+    close: closeLocalConnection,
   };
   const voiceIpc = {
     getStatus: vi.fn(async () => ({
@@ -102,6 +113,9 @@ function createHarness(status: StoreHarnessContextStatus = 'idle'): StoreHarness
   const transcription = {
     connect: vi.fn(async () => connection),
   };
+  const localTranscription = {
+    connect: vi.fn(async () => localConnection),
+  };
   const playback = {
     stop: vi.fn(),
     play: vi.fn(async () => undefined),
@@ -112,6 +126,7 @@ function createHarness(status: StoreHarnessContextStatus = 'idle'): StoreHarness
       VoiceConversationStore,
       { provide: VoiceIpcService, useValue: voiceIpc },
       { provide: RealtimeTranscriptionService, useValue: transcription },
+      { provide: LocalSegmentedTranscriptionService, useValue: localTranscription },
       { provide: VoicePlaybackService, useValue: playback },
     ],
   });
@@ -134,6 +149,9 @@ function createHarness(status: StoreHarnessContextStatus = 'idle'): StoreHarness
     sendInput,
     steerInput,
     closeConnection,
+    closeLocalConnection,
+    connectTranscription: transcription.connect,
+    connectLocalTranscription: localTranscription.connect,
     voiceIpc,
   };
 }
@@ -178,6 +196,125 @@ describe('VoiceConversationStore', () => {
     expect(harness.sendInput).toHaveBeenCalledWith('hello session');
     expect(harness.steerInput).not.toHaveBeenCalled();
     expect(harness.store.mode()).toBe('waiting-for-session');
+  });
+
+  it('routes local segmented sessions to the segmented transcription connector', async () => {
+    const harness = createHarness('idle');
+    harness.voiceIpc.getStatus.mockResolvedValueOnce({
+      available: true,
+      keySource: 'missing',
+      canConfigureTemporaryKey: true,
+      activeTranscriptionProviderId: 'local-whisper',
+      activeTtsProviderId: 'local-macos-say',
+      providers: [
+        {
+          id: 'local-whisper',
+          label: 'Local Whisper STT',
+          source: 'local' as const,
+          capabilities: ['stt' as const],
+          available: true,
+          configured: true,
+          active: true,
+          privacy: 'local' as const,
+          latencyClass: 'near-realtime' as const,
+          location: 'worker-node' as const,
+        },
+        {
+          id: 'local-macos-say',
+          label: 'macOS Local Voice',
+          source: 'local' as const,
+          capabilities: ['tts' as const],
+          available: true,
+          configured: true,
+          active: true,
+          privacy: 'local' as const,
+        },
+      ],
+    });
+    harness.voiceIpc.createTranscriptionSession.mockResolvedValueOnce({
+      transport: 'local-segmented',
+      sessionId: 'local-session-1',
+      model: 'distil-large-v3',
+      providerId: 'local-whisper',
+      sampleRate: 16000,
+      language: 'en',
+      task: 'transcribe',
+    });
+
+    await harness.store.start({
+      instanceId: 'instance-1',
+      status: 'idle',
+      messages: [],
+      provider: 'claude',
+      sendInput: harness.sendInput,
+      steerInput: harness.steerInput,
+    });
+
+    expect(harness.connectTranscription).not.toHaveBeenCalled();
+    expect(harness.connectLocalTranscription).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transport: 'local-segmented',
+        sessionId: 'local-session-1',
+      }),
+      expect.any(FakeAudioContext),
+    );
+    expect(harness.voiceIpc.closeTranscriptionSession).not.toHaveBeenCalledWith('local-session-1');
+    expect(harness.store.mode()).toBe('listening');
+  });
+
+  it('summarizes worker-node STT distinctly for the input-panel provider badge', async () => {
+    const harness = createHarness('idle');
+    harness.voiceIpc.getStatus.mockResolvedValueOnce({
+      available: true,
+      keySource: 'missing',
+      canConfigureTemporaryKey: true,
+      activeTranscriptionProviderId: 'local-whisper',
+      activeTtsProviderId: 'local-macos-say',
+      providers: [
+        {
+          id: 'local-whisper',
+          label: 'Local Whisper STT',
+          source: 'local' as const,
+          capabilities: ['stt' as const],
+          available: true,
+          configured: true,
+          active: true,
+          privacy: 'local' as const,
+          latencyClass: 'near-realtime' as const,
+          location: 'worker-node' as const,
+        },
+        {
+          id: 'local-macos-say',
+          label: 'macOS Local Voice',
+          source: 'local' as const,
+          capabilities: ['tts' as const],
+          available: true,
+          configured: true,
+          active: true,
+          privacy: 'local' as const,
+        },
+      ],
+    });
+    harness.voiceIpc.createTranscriptionSession.mockResolvedValueOnce({
+      transport: 'local-segmented',
+      sessionId: 'local-session-1',
+      model: 'distil-large-v3',
+      providerId: 'local-whisper',
+      sampleRate: 16000,
+      language: 'en',
+      task: 'transcribe',
+    });
+
+    await harness.store.start({
+      instanceId: 'instance-1',
+      status: 'idle',
+      messages: [],
+      provider: 'claude',
+      sendInput: harness.sendInput,
+      steerInput: harness.steerInput,
+    });
+
+    expect(harness.store.providerSummary()).toBe('Worker STT + local TTS');
   });
 
   it('steers final voice transcripts while a session is actively working', async () => {

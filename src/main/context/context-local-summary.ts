@@ -1,4 +1,8 @@
 import type { ConversationTurn } from './context-compactor';
+import {
+  extractFileOperationsFromTurns,
+  summarizeFileOperations,
+} from './file-operation-extractor';
 
 /**
  * Generate a local summary without an API call.
@@ -49,6 +53,10 @@ export function generateLocalSummary(turns: ConversationTurn[], priorSummary: st
   const commandsSection = toolLines.length > 0
     ? toolLines.slice(0, 10).join('\n')
     : '- (none)';
+  const fileOperations = extractFileOperationsFromTurns(turns);
+  const fileOperationsSection = fileOperations.length > 0
+    ? `\n\n## File Operations Observed\n${summarizeFileOperations(fileOperations, 40)}`
+    : '';
 
   return `## Objective
 ${objective}
@@ -60,7 +68,7 @@ ${assistantMessages.length} assistant turns processed, ${userMessages.length} us
 ${pendingItems}
 
 ## Commands Run
-${commandsSection}
+${commandsSection}${fileOperationsSection}
 
 ## Verification Status
 (local compaction — no LLM verification available; ${turns.length} turns compacted)`;

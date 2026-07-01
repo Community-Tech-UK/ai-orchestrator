@@ -42,7 +42,11 @@ vi.mock('../remote-worker-repair-tracker', () => ({
   getRemoteWorkerRepairTracker: () => mockRepairTracker,
 }));
 
-import { WorkerNodeConnectionServer } from '../worker-node-connection';
+import {
+  isWorkerNodeWorkDispatchMethod,
+  WorkerNodeConnectionServer,
+} from '../worker-node-connection';
+import { COORDINATOR_TO_NODE } from '../worker-node-rpc';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -270,5 +274,11 @@ describe('WorkerNodeConnectionServer — sendRpc timeout & disconnect', () => {
     expect(wss.options?.maxPayload).toBe(80 * 1024 * 1024);
 
     server.stop();
+  });
+});
+
+describe('WorkerNodeConnectionServer — work dispatch classification', () => {
+  it('treats audio.transcribe as real remote-node work', () => {
+    expect(isWorkerNodeWorkDispatchMethod(COORDINATOR_TO_NODE.AUDIO_TRANSCRIBE)).toBe(true);
   });
 });

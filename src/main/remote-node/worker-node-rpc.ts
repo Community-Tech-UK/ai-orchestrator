@@ -71,6 +71,7 @@ export const COORDINATOR_TO_NODE = {
   BROWSER_STOP_MANAGED: 'browser.stopManaged',
   AUXILIARY_MODEL_LIST: 'auxiliaryModel.list',
   AUXILIARY_MODEL_GENERATE: 'auxiliaryModel.generate',
+  AUDIO_TRANSCRIBE: 'audio.transcribe',
 } as const;
 
 export type RpcScope = 'instance' | 'service';

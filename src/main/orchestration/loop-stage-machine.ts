@@ -14,10 +14,14 @@ import {
   parsePlanChecklist,
   type NotesCurationResult,
 } from './loop-stage-markdown';
-import { LOOP_TEXT_FILE_MAX_BYTES, readUtf8FileHead, readUtf8FileTail } from './bounded-file-read';
 import {
-  renderCapsRemaining,
+  LOOP_TEXT_FILE_MAX_BYTES,
+  readUtf8FileHead,
+  readUtf8FileTail,
+} from './bounded-file-read';
+import {
   renderPendingInput,
+  renderSystemReminder,
   type PendingInputLike,
 } from './loop-stage-prompt-helpers';
 import {
@@ -352,6 +356,7 @@ export class LoopStageMachine {
     config: LoopConfig;
     iterationSeq: number;
     pendingInterventions: PendingInputLike[];
+    capUsage?: { totalTokens: number; totalCostCents: number };
     existingSessionContext?: string;
     currentStage?: LoopStage;
     /**
@@ -401,12 +406,7 @@ export class LoopStageMachine {
     const planPacketBlock = config.audit?.planPacketMode === 'prompted'
       ? `\n\n## Plan Packet\n${renderPlanPacketInstructions(this.paths)}\n`
       : '';
-    const reanchorBlock =
-      `\n\n## System Reminder\n` +
-      `- Current stage: ${currentStage} (read \`${stageRel}\`; it is the source of truth).\n` +
-      `- Caps remaining: ${renderCapsRemaining(config, iterationSeq)}.\n` +
-      `- Ledger anchor: \`${tasksRel}\`. Keep exactly one \`[~]\` doing item when work is active; all terminal items must be \`[x]\` or \`[-]\` with a reason.\n` +
-      `- Block status: if \`${blockedRel}\` exists, resolve it or keep the loop paused with the exact blocker.\n`;
+    const reanchorBlock = renderSystemReminder({ blockedPath: blockedRel, capUsage: args.capUsage, config, currentStage, iterationSeq, stagePath: stageRel, tasksPath: tasksRel });
     // Investigation/audit goal: the agent ANSWERS the goal (with file:line
     // evidence in REPORT.md) instead of editing production code. `undefined`
     // intent is treated as implementation.

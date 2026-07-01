@@ -98,6 +98,7 @@ export class OpenAiRealtimeTranscriptionProvider implements VoiceTranscriptionPr
       createdAt: Date.now(),
     };
     return {
+      transport: 'webrtc',
       sessionId,
       clientSecret: this.extractClientSecret(json),
       expiresAt: this.extractExpiresAt(json),

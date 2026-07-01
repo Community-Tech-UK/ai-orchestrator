@@ -8,7 +8,7 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 
-export const LOOP_SCHEMA_VERSION = 12;
+export const LOOP_SCHEMA_VERSION = 14;
 
 interface LoopMigration {
   version: number;
@@ -281,6 +281,27 @@ const MIGRATIONS: LoopMigration[] = [
     name: '012_loop_iterations_final_audit',
     up: `
       ALTER TABLE loop_iterations ADD COLUMN final_audit_json TEXT;
+    `,
+  },
+  {
+    // Distinguish real red verify commands from verifier infrastructure faults.
+    // `verify_status` remains the broad pass/fail UI state; this optional
+    // reason lets history and recovery explain whether the command exited
+    // non-zero, timed out, or failed to spawn.
+    version: 13,
+    name: '013_loop_iterations_verify_failure_kind',
+    up: `
+      ALTER TABLE loop_iterations ADD COLUMN verify_failure_kind TEXT;
+    `,
+  },
+  {
+    // Scheduled wakeups are terminal-control intents that pause the loop until a
+    // requested re-entry time. Persist the requested epoch-ms timestamp so the
+    // recovered intent history can explain when the wakeup was meant to resume.
+    version: 14,
+    name: '014_loop_terminal_intents_resume_at',
+    up: `
+      ALTER TABLE loop_terminal_intents ADD COLUMN resume_at INTEGER;
     `,
   },
 ];

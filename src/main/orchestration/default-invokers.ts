@@ -1249,6 +1249,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         contextStrategy?: string;
         // LF-1 context-discipline block (optional; defaults applied below).
         context?: { compaction?: { enabled: boolean; resetAtUtilization: number; clearToolResults: boolean } };
+        // LF-5 branch-and-select enables B7's delegated retrieval hint for offloaded output.
+        exploration?: { enabled?: boolean };
         // Agentic-turn backstop per iteration; null disables, undefined → default.
         maxTurnsPerIteration?: number | null;
       };
@@ -1524,7 +1526,14 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       // (the agent appends <promise>DONE</promise> at the END) survive in the
       // preserved tail. Best-effort; never blocks the loop.
       const ctxCompaction = p.config?.context?.compaction ?? defaultLoopContextConfig().compaction;
-      const retainedOutput = await maybeExternalizeLoopOutput(result.response, ctxCompaction.clearToolResults);
+      const externalizeOptions = p.config?.exploration?.enabled === true
+        ? { delegateInspectionHint: true }
+        : undefined;
+      const retainedOutput = await maybeExternalizeLoopOutput(
+        result.response,
+        ctxCompaction.clearToolResults,
+        externalizeOptions,
+      );
       const childResult: LoopChildResult = {
         childInstanceId: null,
         output: retainedOutput,
