@@ -65,12 +65,37 @@ export interface ModelCatalogEntry {
 }
 
 const VERIFIED = '2026-05-29';
+const FABLE_VERIFIED = '2026-06-09';
 
 /** Comprehensive static model catalog. */
 export const MODEL_CATALOG: ModelCatalogEntry[] = [
   // ─────────────────────────────────────────────────
   // Anthropic — Claude 4.x family
   // ─────────────────────────────────────────────────
+  {
+    id: 'claude-fable-5',
+    name: 'Claude Fable 5',
+    provider: 'anthropic',
+    contextWindow: 1_000_000,
+    maxOutputTokens: 128_000,
+    pricing: {
+      inputPer1mTokens: 10.0,
+      outputPer1mTokens: 50.0,
+      cachePer1mWrite: 12.5,
+      cachePer1mRead: 1.0,
+    },
+    inputModalities: ['text', 'image'],
+    outputModalities: ['text'],
+    capabilities: {
+      functionCalling: true,
+      streaming: true,
+      promptCaching: true,
+      reasoning: true,
+      bestFor: ['demanding reasoning', 'long-horizon agentic work', 'complex coding', 'analysis'],
+    },
+    lastVerified: FABLE_VERIFIED,
+    active: true,
+  },
   {
     id: 'claude-opus-4-8',
     name: 'Claude Opus 4.8',

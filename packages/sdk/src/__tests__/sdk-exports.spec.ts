@@ -5,6 +5,7 @@ import {
   defineTool,
   type NotifierPlugin,
   type OrchestratorHooks,
+  type PluginProviderAdapterDescriptor,
   type ProviderCapabilities,
   type ProviderConfig,
   type ProviderSessionOptions,
@@ -129,5 +130,29 @@ describe('SDK exports', () => {
     expect(status.available).toBe(true);
     expect(caps.streaming).toBe(true);
     expect(opts.systemMessageConfig?.mode).toBe('customize');
+  });
+
+  it('exports plugin provider adapter API types', () => {
+    const descriptor: PluginProviderAdapterDescriptor = {
+      provider: 'plugin:test-provider',
+      displayName: 'Test Provider',
+      capabilities: {
+        interruption: true,
+        permissionPrompts: true,
+        sessionResume: true,
+        streamingOutput: true,
+        usageReporting: false,
+        subAgents: false,
+      },
+      defaultConfig: {
+        type: 'openai-compatible',
+        name: 'Test Provider',
+        enabled: true,
+      },
+      isolation: 'worker',
+    };
+
+    expect(descriptor.provider).toBe('plugin:test-provider');
+    expect(descriptor.isolation).toBe('worker');
   });
 });

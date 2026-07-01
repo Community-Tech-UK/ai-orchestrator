@@ -100,6 +100,22 @@ describe('otel-spans', () => {
     expect(spans[0].name).toBe('orchestration.verification');
   });
 
+  it('redacts secrets from span error status before export', async () => {
+    const secret = 'Bearer abcdef1234567890ghijkl';
+
+    await expect(
+      traceVerification('v-secret', {}, async () => {
+        throw new Error(`provider rejected ${secret}`);
+      }),
+    ).rejects.toThrow('provider rejected');
+
+    await provider.forceFlush();
+    const [span] = exporter.getFinishedSpans();
+
+    expect(span.status.message).not.toContain(secret);
+    expect(span.status.message).toContain('Bearer <redacted-secret>');
+  });
+
   it('returns the value produced by the wrapped function', async () => {
     const result = await traceDebate('d-2', {}, async () => 42);
 

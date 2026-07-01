@@ -107,6 +107,7 @@ export function summarizeToolDetail(detail?: Record<string, unknown>): string {
 export function activityKindLabel(kind: string): string {
   switch (kind) {
     case 'tool_use': return 'tool';
+    case 'tool_result': return 'result';
     case 'input_required': return 'input';
     case 'stream-idle': return 'quiet';
     default: return kind;

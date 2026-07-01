@@ -47,6 +47,7 @@ export type LoopActivityKind =
   | 'spawned'
   | 'status'
   | 'tool_use'
+  | 'tool_result'
   | 'assistant'
   | 'system'
   | 'input_required'

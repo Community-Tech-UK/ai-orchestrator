@@ -14,8 +14,8 @@ const logger = getLogger('LoopContextSurvival');
 // PLAN→IMPLEMENT transition, or degraded-adapter recovery — anything that
 // leaves `childResult.contextCompacted` set), the next prompt starts from a
 // blank session. Re-inject the plan file, the active LOOP_TASKS.md ledger, and
-// this iteration's edited files so the fresh session doesn't have to
-// rediscover them from scratch. Bounded so a noisy run can't dominate the
+// this iteration's recently read/edited files so the fresh session doesn't have
+// to rediscover them from scratch. Bounded so a noisy run can't dominate the
 // next prompt.
 const MAX_REHYDRATE_FILES = 5;
 const MAX_REHYDRATE_BYTES_PER_FILE = 20_000;
@@ -108,10 +108,9 @@ function resolveBudgetTokens(state: LoopState): number {
 
 /**
  * Collect the small, fixed set of paths worth rehydrating after a context
- * reset: the plan file, the LOOP_TASKS.md ledger, and this iteration's edited
- * files (the only "read" set the loop actually captures today — see spec B5b
- * for the not-yet-implemented recently-*read* variant). Deduped, capped at
- * `MAX_REHYDRATE_FILES`, resolved to absolute paths.
+ * reset: the plan file, the LOOP_TASKS.md ledger, and this iteration's recently
+ * read/edited files. Deduped, capped at `MAX_REHYDRATE_FILES`, resolved to
+ * absolute paths.
  */
 function buildRehydrationPaths(state: LoopState, childResult: LoopChildResult): string[] {
   const cwd = state.config.workspaceCwd;
@@ -126,6 +125,9 @@ function buildRehydrationPaths(state: LoopState, childResult: LoopChildResult): 
   };
   add(state.config.planFile);
   add(resolveLoopArtifactPaths(cwd, state.id).tasks);
+  for (const readPath of childResult.filesRead ?? []) {
+    add(readPath);
+  }
   for (const change of childResult.filesChanged) {
     add(change.path);
   }
@@ -224,7 +226,7 @@ export async function applyLoopContextSurvivalDecision(
     );
   }
 
-  // B5a: rehydrate plan/ledger/edited-files after a context reset. Best-effort
+  // B5: rehydrate plan/ledger/recent files after a context reset. Best-effort
   // — a read failure here must never block the loop from continuing.
   let rehydrated = false;
   if (decision.rehydrate && decision.rehydrate.length > 0) {

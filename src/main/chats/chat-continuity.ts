@@ -57,8 +57,12 @@ export async function buildLedgerRebuildPreamble(
     reason: reason === 'loop-divergence' ? 'loop-context-restore' : 'session-rebuild',
     maxTurns: CHAT_REBUILD_MAX_TURNS,
   });
+  const branchSummaryContext = verbatim
+    .filter(isBranchSummaryRecord)
+    .map((message) => message.content)
+    .join('\n\n');
   if (!checkpoint) {
-    return replay;
+    return joinContextBlocks(branchSummaryContext, replay);
   }
   const summaryBlock = [
     '<conversation_summary>',
@@ -66,7 +70,37 @@ export async function buildLedgerRebuildPreamble(
     checkpoint.summary,
     '</conversation_summary>',
   ].join('\n');
-  return replay ? `${summaryBlock}\n\n${replay}` : summaryBlock;
+  return joinContextBlocks(summaryBlock, branchSummaryContext, replay);
+}
+
+export function isRebuildContextTurn(message: ConversationMessageRecord): boolean {
+  if (message.role === 'user' || message.role === 'assistant') {
+    return true;
+  }
+  return isBranchSummaryRecord(message);
+}
+
+function isBranchSummaryRecord(message: ConversationMessageRecord): boolean {
+  const metadata = message.rawJson?.['metadata'];
+  return (
+    message.phase === 'branch_summary'
+    || (
+      metadata !== null
+      && typeof metadata === 'object'
+      && !Array.isArray(metadata)
+      && (metadata as Record<string, unknown>)['kind'] === 'branch-summary'
+    )
+  );
+}
+
+function joinContextBlocks(
+  ...blocks: readonly (string | null | undefined)[]
+): string | null {
+  const joined = blocks
+    .map((block) => block?.trim() ?? '')
+    .filter(Boolean)
+    .join('\n\n');
+  return joined || null;
 }
 
 /**

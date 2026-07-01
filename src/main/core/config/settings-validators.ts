@@ -94,6 +94,24 @@ const validateProbeMode: Validator<'pauseReachabilityProbeMode'> = (value) => {
   return { ok: false, error: `Invalid mode: ${String(value)}` };
 };
 
+const validateProjectPluginTrust: Validator<'projectPluginTrust'> = (value) => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return { ok: false, error: 'Expected object map' };
+  }
+
+  const out: AppSettings['projectPluginTrust'] = {};
+  for (const [root, trust] of Object.entries(value)) {
+    if (root.length === 0 || root.length > 4096) {
+      return { ok: false, error: `Invalid project root key: ${root}` };
+    }
+    if (trust !== 'trusted' && trust !== 'untrusted' && trust !== 'ask') {
+      return { ok: false, error: `Invalid trust decision for ${root}: ${String(trust)}` };
+    }
+    out[root] = trust;
+  }
+  return { ok: true, value: out };
+};
+
 function validateIntInRange(
   min: number,
   max: number
@@ -119,4 +137,5 @@ export const PAUSE_SETTING_VALIDATORS: Partial<{
   pauseReachabilityProbeHost: validateHostPort,
   pauseReachabilityProbeMode: validateProbeMode,
   pauseReachabilityProbeIntervalSec: validateIntInRange(10, 600),
+  projectPluginTrust: validateProjectPluginTrust,
 };

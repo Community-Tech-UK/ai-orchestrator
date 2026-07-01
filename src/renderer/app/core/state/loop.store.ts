@@ -24,6 +24,7 @@ import {
   isTerminalLoopStatePayload,
 } from './loop-state-status';
 import { snapshotLastIteration } from './loop-store-summary';
+import { followUpDrainedActivity, steeringDowngradedActivity } from './loop-store-task18-activity';
 
 /**
  * One active loop per chat in v1. The store holds:
@@ -268,7 +269,8 @@ export class LoopStore {
         detail: { signal, reviewersUsed, blockingFindings, summary },
       });
     });
-
+    this.ipc.onSteeringDowngraded((event) => this.addActivity(steeringDowngradedActivity(event, this.activeByLoop(event.loopRunId))));
+    this.ipc.onFollowUpDrained((event) => this.addActivity(followUpDrainedActivity(event, this.activeByLoop(event.loopRunId))));
     this.ipc.onCompleted(({ loopRunId }) => {
       const chatId = this.findChatIdForLoop(loopRunId);
       if (chatId) this.setBanner(chatId, null);

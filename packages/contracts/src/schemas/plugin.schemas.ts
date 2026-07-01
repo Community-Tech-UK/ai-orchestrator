@@ -165,6 +165,8 @@ export type RuntimePluginPrunePayload = z.infer<typeof RuntimePluginPrunePayload
 // Skill Frontmatter Schema
 // ============================================
 
+const SkillNamePattern = /^[a-z0-9_-]+(:[a-z0-9_-]+)?$/;
+
 /**
  * Skill frontmatter schema — validates YAML frontmatter in skill files.
  * Replaces the hand-rolled parseSkillFrontmatter() in skill.types.ts.
@@ -172,7 +174,11 @@ export type RuntimePluginPrunePayload = z.infer<typeof RuntimePluginPrunePayload
 export const SkillFrontmatterSchema = z.object({
   name: z.string()
     .min(1, 'Skill name is required')
-    .max(200, 'Skill name must be 200 characters or fewer'),
+    .max(200, 'Skill name must be 200 characters or fewer')
+    .regex(
+      SkillNamePattern,
+      'Skill name must use lowercase letters, digits, hyphen, underscore, and at most one plugin prefix colon',
+    ),
   description: z.string()
     .min(1, 'Skill description is required')
     .max(5000, 'Skill description must be 5000 characters or fewer'),

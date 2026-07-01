@@ -76,6 +76,44 @@ describe('LoopCoordinator pre-iteration persistence marker', () => {
     expect(coordinator.getLoop(state.id)?.inFlightIteration).toBeUndefined();
   });
 
+  it('copies invoker capture metadata into the sealed iteration record', async () => {
+    const iterationComplete = new Promise<void>((resolve) => {
+      coordinator.on('loop:iteration-complete', () => resolve());
+    });
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as {
+        callback: (result: LoopChildResult) => void;
+      };
+      queueMicrotask(() => p.callback({
+        ...childResult(),
+        filesRead: ['src/input.ts'],
+        finishReason: 'tool_use',
+        unresolvedToolCalls: true,
+        toolCalls: [{
+          toolName: 'Read',
+          argsHash: 'args-hash',
+          resultHash: 'result-hash',
+          success: true,
+          durationMs: 1,
+        }],
+      }));
+    });
+
+    const config = defaultLoopConfig(workspace, 'capture invoker metadata');
+    config.caps.maxIterations = 1;
+    config.completion.verifyCommand = '';
+    const state = await coordinator.startLoop('chat-capture-metadata', config);
+
+    await iterationComplete;
+
+    expect(coordinator.getLoop(state.id)?.lastIteration).toMatchObject({
+      filesRead: ['src/input.ts'],
+      finishReason: 'tool_use',
+      unresolvedToolCalls: true,
+      toolCalls: [expect.objectContaining({ resultHash: 'result-hash' })],
+    });
+  });
+
   it('clears the in-flight marker when an invocation exits after the loop is paused', async () => {
     const markerCleared = new Promise<void>((resolve) => {
       coordinator.on('loop:state-changed', (payload: unknown) => {

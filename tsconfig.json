@@ -80,6 +80,7 @@
       "@sdk/*": ["./packages/sdk/src/*"],
       "@sdk": ["./packages/sdk/src/index"],
       "@sdk/provider-adapter": ["./packages/sdk/src/provider-adapter"],
+      "@sdk/provider-adapter-worker-bridge": ["./packages/sdk/src/provider-adapter-worker-bridge"],
       "@sdk/provider-adapter-registry": ["./packages/sdk/src/provider-adapter-registry"]
     }
   },

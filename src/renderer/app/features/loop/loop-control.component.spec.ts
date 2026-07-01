@@ -43,6 +43,8 @@ describe('LoopControlComponent', () => {
     onFreshEyesReviewPassed: ReturnType<typeof vi.fn>;
     onFreshEyesReviewFailed: ReturnType<typeof vi.fn>;
     onFreshEyesReviewBlocked: ReturnType<typeof vi.fn>;
+    onSteeringDowngraded: ReturnType<typeof vi.fn>;
+    onFollowUpDrained: ReturnType<typeof vi.fn>;
     onCompleted: ReturnType<typeof vi.fn>;
     onCompletedNeedsReview: ReturnType<typeof vi.fn>;
     onFailed: ReturnType<typeof vi.fn>;
@@ -82,6 +84,8 @@ describe('LoopControlComponent', () => {
       onFreshEyesReviewPassed: vi.fn(() => noop),
       onFreshEyesReviewFailed: vi.fn(() => noop),
       onFreshEyesReviewBlocked: vi.fn(() => noop),
+      onSteeringDowngraded: vi.fn(() => noop),
+      onFollowUpDrained: vi.fn(() => noop),
       onCompleted: vi.fn(() => noop),
       onCompletedNeedsReview: vi.fn(() => noop),
       onFailed: vi.fn(() => noop),

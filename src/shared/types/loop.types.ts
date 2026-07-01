@@ -112,6 +112,8 @@ export interface LoopProgressThresholds {
   toolRepeatCriticalPerIteration: number;   // default 8
   /** Consecutive identical tool calls within one iteration. */
   identicalToolCallConsecutiveCritical: number; // default 3
+  /** Successful read-only tool calls returning the same result hash. */
+  idempotentReadRepeatWarn: number;          // default 3
   /** Test-pass-count unchanged with file writes. */
   testStagnationWarnIterations: number;     // default 3
   testStagnationCriticalIterations: number; // default 5
@@ -622,6 +624,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       toolRepeatWarnPerIteration: 5,
       toolRepeatCriticalPerIteration: 8,
       identicalToolCallConsecutiveCritical: 3,
+      idempotentReadRepeatWarn: 3,
       testStagnationWarnIterations: 3,
       testStagnationCriticalIterations: 5,
       churnRatioWarn: 0.30,

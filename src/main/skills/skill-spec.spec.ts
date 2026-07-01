@@ -56,6 +56,17 @@ describe('parseSkillMetadata (Task 12)', () => {
     expect(metadata.name).toBe('code-review');
     expect(metadata.triggers).toEqual(['/code-review']);
   });
+
+  it('preserves legacy model aliases accepted by the old skill parser', () => {
+    for (const field of ['preferred_model', 'model']) {
+      const metadata = parseSkillMetadata(
+        `---\nname: model-demo\ndescription: Uses an explicit model\n${field}: claude-opus-4-1\n---\n`,
+        'fallback',
+      );
+
+      expect(metadata.preferredModel).toBe('claude-opus-4-1');
+    }
+  });
 });
 
 describe('createSkillIgnoreMatcher (Task 12)', () => {

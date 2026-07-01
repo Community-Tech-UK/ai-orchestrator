@@ -140,6 +140,16 @@ class ComposerToolbarStubComponent {
 }
 
 @Component({
+  selector: 'app-composer-autocomplete',
+  standalone: true,
+  template: '',
+})
+class ComposerAutocompleteStubComponent {
+  @Input() textarea: HTMLTextAreaElement | null = null;
+  @Input() workspaceCwd: string | null = null;
+}
+
+@Component({
   selector: 'app-image-lightbox',
   standalone: true,
   template: '',
@@ -150,8 +160,10 @@ class ImageLightboxStubComponent {
 
 describe('InputPanelComponent queued message editing', () => {
   let fixture: ComponentFixture<InputPanelComponent>;
+  let keybindingHandlers: Map<string, (event: unknown) => void>;
 
   beforeEach(async () => {
+    keybindingHandlers = new Map();
     TestBed.resetTestingModule();
     TestBed.overrideComponent(InputPanelComponent, {
       set: {
@@ -167,6 +179,7 @@ describe('InputPanelComponent queued message editing', () => {
           LoopToggleStubComponent,
           LoopConfigPanelStubComponent,
           ComposerToolbarStubComponent,
+          ComposerAutocompleteStubComponent,
           ImageLightboxStubComponent,
         ],
       },
@@ -183,7 +196,16 @@ describe('InputPanelComponent queued message editing', () => {
         { provide: NewSessionDraftService, useValue: createNewSessionDraftMock() },
         { provide: SettingsStore, useValue: { defaultYoloMode: signal(false) } },
         { provide: ActionDispatchService, useValue: { dispatch: vi.fn() } },
-        { provide: KeybindingService, useValue: { setContext: vi.fn() } },
+        {
+          provide: KeybindingService,
+          useValue: {
+            setContext: vi.fn(),
+            onAction: vi.fn((action: string, handler: (event: unknown) => void) => {
+              keybindingHandlers.set(action, handler);
+              return vi.fn();
+            }),
+          },
+        },
         { provide: OrchestrationIpcService, useValue: createOrchestrationIpcMock() },
         { provide: PromptHistoryStore, useValue: createPromptHistoryStoreMock() },
         { provide: VoiceConversationStore, useValue: createVoiceConversationStoreMock() },
@@ -224,6 +246,28 @@ describe('InputPanelComponent queued message editing', () => {
     (editButtons[1] as HTMLButtonElement).click();
 
     expect(emitted).toEqual([1]);
+  });
+
+  it('applies composer editing through registered keybinding actions', () => {
+    const component = fixture.componentInstance;
+    component.message.set('alpha beta');
+    fixture.detectChanges();
+
+    const textarea = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+    textarea.value = 'alpha beta';
+    textarea.setSelectionRange(0, 0);
+    const handler = keybindingHandlers.get('composer.kill-word-right');
+    expect(handler).toBeTypeOf('function');
+
+    const event = new KeyboardEvent('keydown', { key: 'x', bubbles: true, cancelable: true });
+    textarea.dispatchEvent(event);
+    handler!({
+      event,
+    });
+    fixture.detectChanges();
+
+    expect(textarea.value).toBe(' beta');
+    expect(component.message()).toBe(' beta');
   });
 
   it('emits a draft workflow launch instead of showing a start-session error', async () => {

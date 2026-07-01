@@ -5,6 +5,13 @@ const mockReactionEngine = new EventEmitter();
 const mockDebateCoordinator = new EventEmitter();
 const mockConsensusCoordinator = new EventEmitter();
 const mockSessionContinuity = new EventEmitter();
+const settingsMock = vi.hoisted(() => ({
+  value: {
+    agents: {},
+    appearance: {},
+    projectPluginTrust: {},
+  } as Record<string, unknown>,
+}));
 
 vi.mock('electron', () => ({
   app: {
@@ -46,10 +53,7 @@ vi.mock('../logging/logger', () => ({
 
 vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: () => ({
-    getAll: () => ({
-      agents: {},
-      appearance: {},
-    }),
+    getAll: () => settingsMock.value,
   }),
 }));
 
@@ -91,9 +95,28 @@ import { getPluginRegistry, _resetPluginRegistryForTesting } from './plugin-regi
 import type { TypedOrchestratorHooks } from '../../shared/types/plugin.types';
 import type { InstanceManager } from '../instance/instance-manager';
 
+function trustProjectRoot(projectRoot: string): void {
+  const current = settingsMock.value['projectPluginTrust'];
+  const trustMap = current && typeof current === 'object' && !Array.isArray(current)
+    ? current as Record<string, unknown>
+    : {};
+  settingsMock.value = {
+    ...settingsMock.value,
+    projectPluginTrust: {
+      ...trustMap,
+      [path.resolve(projectRoot)]: 'trusted',
+    },
+  };
+}
+
 beforeEach(() => {
   _resetOrchestratorPluginManagerForTesting();
   _resetPluginRegistryForTesting();
+  settingsMock.value = {
+    agents: {},
+    appearance: {},
+    projectPluginTrust: {},
+  };
   mockReactionEngine.removeAllListeners();
   mockDebateCoordinator.removeAllListeners();
   mockConsensusCoordinator.removeAllListeners();
@@ -179,6 +202,7 @@ describe('OrchestratorPluginManager', () => {
 
   it('reads plugin.json manifest during plugin scan', async () => {
     const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
+    trustProjectRoot(tmpDir);
     const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'my-plugin');
     await fsPromises.mkdir(pluginDir, { recursive: true });
 
@@ -225,6 +249,7 @@ describe('OrchestratorPluginManager', () => {
 
   it('reads packaged .codex-plugin/plugin.json manifests during plugin scan', async () => {
     const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
+    trustProjectRoot(tmpDir);
     const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'packaged-plugin');
     await fsPromises.mkdir(path.join(pluginDir, '.codex-plugin'), { recursive: true });
 
@@ -261,6 +286,7 @@ describe('OrchestratorPluginManager', () => {
 
   it('registers notifier slot plugins with a live runtime', async () => {
     const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
+    trustProjectRoot(tmpDir);
     const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'notify-plugin');
     await fsPromises.mkdir(pluginDir, { recursive: true });
 
@@ -295,6 +321,7 @@ describe('OrchestratorPluginManager', () => {
 
   it('passes SDK-only context to module factories and create hooks', async () => {
     const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
+    trustProjectRoot(tmpDir);
     const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'ctx-plugin');
     await fsPromises.mkdir(pluginDir, { recursive: true });
 
@@ -332,6 +359,7 @@ describe('OrchestratorPluginManager', () => {
 
   it('loads worker-isolated manifest plugins through PluginWorkerHost', async () => {
     const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
+    trustProjectRoot(tmpDir);
     const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'worker-plugin');
     await fsPromises.mkdir(pluginDir, { recursive: true });
 
@@ -357,6 +385,9 @@ describe('OrchestratorPluginManager', () => {
     expect(mockPluginWorkerHostInstances[0]?.options).toMatchObject({
       filePath: pluginFile,
       requestedSlot: 'hook',
+      providerAdapterApi: {
+        registerProviderAdapter: expect.any(Function),
+      },
       context: {
         appPath: '/tmp/test-app',
         homeDir: '/tmp/test-home',
@@ -376,6 +407,7 @@ describe('OrchestratorPluginManager', () => {
 
   it('Task 17: loads a worker-isolated TypeScript plugin through PluginWorkerHost', async () => {
     const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
+    trustProjectRoot(tmpDir);
     const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'ts-plugin');
     await fsPromises.mkdir(pluginDir, { recursive: true });
 
@@ -399,6 +431,7 @@ describe('OrchestratorPluginManager', () => {
 
   it('Task 17: rejects an in-process (non-worker) TypeScript plugin with an actionable diagnostic', async () => {
     const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
+    trustProjectRoot(tmpDir);
     const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'ts-inprocess');
     await fsPromises.mkdir(pluginDir, { recursive: true });
 
@@ -425,6 +458,7 @@ describe('OrchestratorPluginManager', () => {
 
   it('Task 17: prefers the compiled .js over a sibling .ts entrypoint (no double-load)', async () => {
     const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
+    trustProjectRoot(tmpDir);
     const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'dual-plugin');
     await fsPromises.mkdir(pluginDir, { recursive: true });
 
@@ -447,6 +481,7 @@ describe('OrchestratorPluginManager', () => {
 
   it('marks non-hook slot plugins not ready when create(ctx) is missing', async () => {
     const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
+    trustProjectRoot(tmpDir);
     const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'bad-notifier');
     await fsPromises.mkdir(pluginDir, { recursive: true });
 
@@ -472,6 +507,79 @@ describe('OrchestratorPluginManager', () => {
     }));
 
     await fsPromises.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('surfaces untrusted project plugin metadata without importing the entrypoint', async () => {
+    const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
+    const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'untrusted-plugin');
+    await fsPromises.mkdir(pluginDir, { recursive: true });
+
+    const pluginFile = path.join(pluginDir, 'index.js');
+    await fsPromises.writeFile(pluginFile, 'throw new Error("should not import");');
+    await fsPromises.writeFile(
+      path.join(pluginDir, 'plugin.json'),
+      JSON.stringify({
+        name: 'untrusted-plugin',
+        version: '1.0.0',
+        isolation: 'worker',
+        hooks: ['instance.removed'],
+      }),
+    );
+
+    const manager = OrchestratorPluginManager.getInstance();
+    const loadSpy = vi.spyOn(
+      manager as unknown as { loadModule: (filePath: string) => Promise<unknown> },
+      'loadModule',
+    );
+    const result = await manager.listPlugins(tmpDir, {} as never);
+
+    const pluginEntry = result.plugins.find((plugin) => plugin.filePath === pluginFile);
+    expect(pluginEntry?.manifest).toMatchObject({
+      name: 'untrusted-plugin',
+      version: '1.0.0',
+    });
+    expect(pluginEntry?.loadReport.ready).toBe(false);
+    expect(pluginEntry?.loadReport.detected).toBe(false);
+    expect(pluginEntry?.loadReport.phases).toContainEqual(expect.objectContaining({
+      phase: 'instantiation',
+      status: 'skipped',
+      message: expect.stringContaining('trust'),
+    }));
+    expect(loadSpy).not.toHaveBeenCalled();
+    expect(mockPluginWorkerHostInstances).toHaveLength(0);
+
+    await fsPromises.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('loads user-installed home plugins without a project trust decision', async () => {
+    const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
+    const pluginDir = path.join('/tmp/test-home', '.orchestrator', 'plugins', `home-plugin-${Date.now()}`);
+    await fsPromises.mkdir(pluginDir, { recursive: true });
+
+    const pluginFile = path.join(pluginDir, 'index.js');
+    await fsPromises.writeFile(pluginFile, 'module.exports = {};');
+    await fsPromises.writeFile(
+      path.join(pluginDir, 'plugin.json'),
+      JSON.stringify({
+        name: 'home-plugin',
+        version: '1.0.0',
+        hooks: ['instance.created'],
+      }),
+    );
+
+    const manager = OrchestratorPluginManager.getInstance();
+    const loadSpy = vi.spyOn(
+      manager as unknown as { loadModule: (filePath: string) => Promise<unknown> },
+      'loadModule',
+    ).mockResolvedValue({});
+    const result = await manager.listPlugins(tmpDir, {} as never);
+
+    const pluginEntry = result.plugins.find((plugin) => plugin.filePath === pluginFile);
+    expect(pluginEntry?.loadReport.ready).toBe(true);
+    expect(loadSpy).toHaveBeenCalledWith(pluginFile);
+
+    await fsPromises.rm(tmpDir, { recursive: true, force: true });
+    await fsPromises.rm(pluginDir, { recursive: true, force: true });
   });
 
   it('swallows plugin hook errors so one plugin cannot crash dispatch', async () => {
@@ -734,6 +842,7 @@ describe('OrchestratorPluginManager — runtime lifecycle / quarantine (B11)', (
 
   it('resets quarantine when the plugin file changes on disk (hot-reload recovery)', async () => {
     const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-lifecycle-'));
+    trustProjectRoot(tmpDir);
     const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'flaky');
     await fsPromises.mkdir(pluginDir, { recursive: true });
     const pluginFile = path.join(pluginDir, 'index.js');

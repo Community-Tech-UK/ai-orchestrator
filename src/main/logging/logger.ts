@@ -10,6 +10,11 @@ import * as path from 'path';
 import { EventEmitter } from 'events';
 import { LogWriterClient } from './log-writer-client';
 import { redactForSink } from '../diagnostics/redaction';
+import {
+  redactLogString,
+  sanitizeLogError,
+  truncateLogString,
+} from './logger-redaction';
 
 /**
  * Safely get the Electron app userData path.
@@ -91,14 +96,6 @@ const MAX_LOG_OBJECT_DEPTH = 4;
 const MAX_LOG_OBJECT_KEYS = 40;
 const MAX_LOG_ARRAY_ITEMS = 25;
 
-function truncateLogString(value: string, maxLength = MAX_LOG_STRING_LENGTH): string {
-  if (value.length <= maxLength) {
-    return value;
-  }
-
-  return `${value.slice(0, maxLength)}... [truncated ${value.length - maxLength} chars]`;
-}
-
 function summarizeObject(value: object): string {
   const constructorName = value.constructor?.name;
   return constructorName ? `[${constructorName}]` : '[Object]';
@@ -114,7 +111,7 @@ function sanitizeLogValue(
   }
 
   if (typeof value === 'string') {
-    return truncateLogString(value);
+    return truncateLogString(value, MAX_LOG_STRING_LENGTH);
   }
 
   if (typeof value === 'bigint') {
@@ -136,7 +133,7 @@ function sanitizeLogValue(
   if (value instanceof Error) {
     return {
       name: value.name,
-      message: truncateLogString(value.message),
+      message: truncateLogString(value.message, MAX_LOG_STRING_LENGTH),
       stack: value.stack ? truncateLogString(value.stack, MAX_LOG_STACK_LENGTH) : undefined,
     };
   }
@@ -420,7 +417,7 @@ export class LogManager extends EventEmitter {
       timestamp: Date.now(),
       level,
       subsystem,
-      message: truncateLogString(message, MAX_LOG_MESSAGE_LENGTH),
+      message: redactLogString(message, MAX_LOG_MESSAGE_LENGTH),
       data: sanitizeLogData(data),
       context,
     };
@@ -445,14 +442,10 @@ export class LogManager extends EventEmitter {
       timestamp: Date.now(),
       level,
       subsystem,
-      message: truncateLogString(message, MAX_LOG_MESSAGE_LENGTH),
+      message: redactLogString(message, MAX_LOG_MESSAGE_LENGTH),
       data: sanitizeLogData(data),
       context,
-      error: error ? {
-        name: error.name,
-        message: truncateLogString(error.message, MAX_LOG_MESSAGE_LENGTH),
-        stack: error.stack ? truncateLogString(error.stack, MAX_LOG_STACK_LENGTH) : undefined,
-      } : undefined,
+      error: error ? sanitizeLogError(error, MAX_LOG_MESSAGE_LENGTH, MAX_LOG_STACK_LENGTH) : undefined,
     };
 
     this.processEntry(entry);

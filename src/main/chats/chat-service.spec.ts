@@ -7,6 +7,7 @@ import type { SqliteDriver } from '../db/sqlite-driver';
 import { createOperatorTables } from '../operator/operator-schema';
 import { createInstance, type FileAttachment, type Instance, type InstanceCreateConfig } from '../../shared/types/instance.types';
 import type { ChatEvent } from '../../shared/types/chat.types';
+import { BranchSummarizer } from '../context/branch-summarizer';
 import { ChatService } from './chat-service';
 
 describe('ChatService', () => {
@@ -671,6 +672,162 @@ describe('ChatService', () => {
     });
   });
 
+  it('creates a branch chat with a durable parent conversation id', async () => {
+    const { service } = createHarness();
+    const parent = await service.createChat({
+      provider: 'claude',
+      currentCwd: '/work/project',
+      name: 'Parent branch',
+    });
+
+    const child = await service.createChat({
+      provider: 'claude',
+      currentCwd: '/work/project',
+      name: 'Child branch',
+      parentChatId: parent.chat.id,
+    });
+
+    expect(child.conversation.thread.parentConversationId).toBe(parent.chat.ledgerThreadId);
+  });
+
+  it('summarizes a related branch when chat selection moves away and injects it once on destination send', async () => {
+    const { service, ledger, instanceManager } = createHarness();
+    const parent = await service.createChat({
+      provider: 'claude',
+      currentCwd: '/work/project',
+      name: 'Parent branch',
+    });
+    const child = await service.createChat({
+      provider: 'claude',
+      currentCwd: '/work/project',
+      name: 'Child branch',
+      parentChatId: parent.chat.id,
+    });
+    await ledger.appendMessage(parent.chat.ledgerThreadId, {
+      role: 'user',
+      phase: null,
+      content: 'Please implement branch summaries.',
+      createdAt: 100,
+    });
+    await ledger.appendMessage(parent.chat.ledgerThreadId, {
+      role: 'assistant',
+      phase: null,
+      content: 'Edited src/main/chats/chat-service.ts and wrote src/main/context/branch-summarizer.ts.',
+      createdAt: 101,
+    });
+
+    service.setUiState({
+      selectedChatId: parent.chat.id,
+      openChatIds: [parent.chat.id, child.chat.id],
+    });
+    service.setUiState({
+      selectedChatId: child.chat.id,
+      openChatIds: [parent.chat.id, child.chat.id],
+    });
+    await service.drainBranchSummariesForTesting();
+
+    const childDetail = await service.getChat(child.chat.id);
+    expect(childDetail.conversation.messages).toEqual([
+      expect.objectContaining({
+        role: 'system',
+        phase: 'branch_summary',
+        content: expect.stringContaining('Branch switch summary'),
+        rawJson: {
+          metadata: expect.objectContaining({
+            kind: 'branch-summary',
+            fromNodeId: parent.chat.ledgerThreadId,
+            toNodeId: child.chat.ledgerThreadId,
+            upToSequence: 2,
+          }),
+        },
+      }),
+    ]);
+    expect(childDetail.conversation.thread.metadata['branchSummaries']).toMatchObject({
+      [`${parent.chat.ledgerThreadId}::${child.chat.ledgerThreadId}`]: {
+        upToSequence: 2,
+        fileOperations: [
+          {
+            kind: 'write',
+            path: 'src/main/chats/chat-service.ts',
+            source: 'assistant-text',
+          },
+          {
+            kind: 'write',
+            path: 'src/main/context/branch-summarizer.ts',
+            source: 'assistant-text',
+          },
+        ],
+      },
+    });
+
+    await service.sendMessage({ chatId: child.chat.id, text: 'Continue on this branch' });
+    expect(instanceManager.preambles.at(-1)).toContain('Branch switch summary');
+    expect(instanceManager.preambles.at(-1)).toContain('src/main/chats/chat-service.ts');
+    expect(instanceManager.inputs.at(-1)?.message).toBe('Continue on this branch');
+
+    await service.sendMessage({ chatId: child.chat.id, text: 'Continue again' });
+    expect(instanceManager.preambles.at(-1)).toBeUndefined();
+  });
+
+  it('does not duplicate branch summaries for unchanged branch turns', async () => {
+    const { service, ledger } = createHarness();
+    const parent = await service.createChat({
+      provider: 'claude',
+      currentCwd: '/work/project',
+      name: 'Parent branch',
+    });
+    const child = await service.createChat({
+      provider: 'claude',
+      currentCwd: '/work/project',
+      name: 'Child branch',
+      parentChatId: parent.chat.id,
+    });
+    await ledger.appendMessage(parent.chat.ledgerThreadId, {
+      role: 'assistant',
+      phase: null,
+      content: 'Edited src/main/chats/chat-service.ts.',
+      createdAt: 1,
+    });
+
+    service.setUiState({ selectedChatId: parent.chat.id, openChatIds: [parent.chat.id, child.chat.id] });
+    service.setUiState({ selectedChatId: child.chat.id, openChatIds: [parent.chat.id, child.chat.id] });
+    await service.drainBranchSummariesForTesting();
+    service.setUiState({ selectedChatId: parent.chat.id, openChatIds: [parent.chat.id, child.chat.id] });
+    service.setUiState({ selectedChatId: child.chat.id, openChatIds: [parent.chat.id, child.chat.id] });
+    await service.drainBranchSummariesForTesting();
+
+    const summaries = (await service.getChat(child.chat.id)).conversation.messages.filter(
+      (message) => message.rawJson?.['metadata']?.['kind'] === 'branch-summary',
+    );
+    expect(summaries).toHaveLength(1);
+  });
+
+  it('does not summarize unrelated chat selection changes', async () => {
+    const { service, ledger } = createHarness();
+    const first = await service.createChat({
+      provider: 'claude',
+      currentCwd: '/work/first',
+      name: 'First',
+    });
+    const second = await service.createChat({
+      provider: 'claude',
+      currentCwd: '/work/second',
+      name: 'Second',
+    });
+    await ledger.appendMessage(first.chat.ledgerThreadId, {
+      role: 'assistant',
+      phase: null,
+      content: 'Edited src/main/chats/chat-service.ts.',
+      createdAt: 1,
+    });
+
+    service.setUiState({ selectedChatId: first.chat.id, openChatIds: [first.chat.id, second.chat.id] });
+    service.setUiState({ selectedChatId: second.chat.id, openChatIds: [first.chat.id, second.chat.id] });
+    await service.drainBranchSummariesForTesting();
+
+    expect((await service.getChat(second.chat.id)).conversation.messages).toEqual([]);
+  });
+
   it('persists normalized tool events as tool ledger messages for audit attribution', async () => {
     const { service, instanceManager } = createHarness();
     const chat = await service.createChat({
@@ -1023,6 +1180,7 @@ describe('ChatService', () => {
       ledger,
       instanceManager: instanceManager as never,
       eventBus: new EventEmitter(),
+      branchSummarizer: new BranchSummarizer(),
     });
     services.push(service);
     return { db, ledger, instanceManager, service };

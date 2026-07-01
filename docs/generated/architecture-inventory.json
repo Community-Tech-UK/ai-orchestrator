@@ -5140,7 +5140,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3524
+      "lines": 3547
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave2-navigation-pickers-prompt-recall-plan_completed.md",
@@ -5151,12 +5151,12 @@
       "lines": 3440
     },
     {
-      "path": "docs/superpowers/plans/2026-04-28-wave3-workflow-resume-history-recovery-plan_completed.md",
-      "lines": 3408
+      "path": "src/main/instance/instance-lifecycle.ts",
+      "lines": 3413
     },
     {
-      "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3397
+      "path": "docs/superpowers/plans/2026-04-28-wave3-workflow-resume-history-recovery-plan_completed.md",
+      "lines": 3408
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.ts",
@@ -5227,6 +5227,10 @@
       "lines": 2188
     },
     {
+      "path": "src/main/instance/__tests__/instance-manager.spec.ts",
+      "lines": 2185
+    },
+    {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
       "lines": 2120
     },
@@ -5252,10 +5256,6 @@
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-remote-nodes-phase1-phase2.COMPLETED.md",
-      "lines": 2078
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.spec.ts",
       "lines": 2078
     },
     {
@@ -5296,15 +5296,15 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1705
-    },
-    {
-      "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1651
+      "lines": 1720
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
       "lines": 1635
+    },
+    {
+      "path": "src/main/orchestration/default-invokers.ts",
+      "lines": 1616
     },
     {
       "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements.md",
@@ -5341,6 +5341,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-audit-phase2.COMPLETED.md",
       "lines": 1478
+    },
+    {
+      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
+      "lines": 1459
     },
     {
       "path": "src/main/orchestration/orchestration-handler.ts",
@@ -5420,7 +5424,7 @@
     },
     {
       "path": "src/main/plugins/plugin-manager.ts",
-      "lines": 1299
+      "lines": 1308
     },
     {
       "path": "src/main/workspace/git/vcs-manager.ts",
@@ -5451,16 +5455,16 @@
       "lines": 1261
     },
     {
-      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
-      "lines": 1261
-    },
-    {
       "path": "docs/plans/2026-03-02-architectural-remediation-plan.md",
       "lines": 1257
     },
     {
       "path": "docs/superpowers/plans/2026-03-11-f11-scale-operations.md",
       "lines": 1253
+    },
+    {
+      "path": "src/main/chats/chat-service.spec.ts",
+      "lines": 1252
     },
     {
       "path": "docs/plans/2026-05-12-loop-terminal-control-spec_completed.md",
@@ -5527,6 +5531,10 @@
       "lines": 1152
     },
     {
+      "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
+      "lines": 1152
+    },
+    {
       "path": "src/main/security/permission-manager.ts",
       "lines": 1151
     },
@@ -5571,10 +5579,6 @@
       "lines": 1104
     },
     {
-      "path": "src/main/chats/chat-service.spec.ts",
-      "lines": 1094
-    },
-    {
       "path": "src/main/orchestration/__tests__/debate-coordinator.spec.ts",
       "lines": 1091
     },
@@ -5615,12 +5619,12 @@
       "lines": 1044
     },
     {
-      "path": "src/renderer/app/features/plan/plan-page.component.ts",
-      "lines": 1036
+      "path": "packages/contracts/src/schemas/__tests__/loop.schemas.spec.ts",
+      "lines": 1041
     },
     {
-      "path": "src/main/rlm/__tests__/auxiliary-llm-service.spec.ts",
-      "lines": 1034
+      "path": "src/renderer/app/features/plan/plan-page.component.ts",
+      "lines": 1036
     },
     {
       "path": "docs/superpowers/plans/2026-03-14-worktree-safety-attention-cost.md",
@@ -5739,10 +5743,6 @@
       "lines": 932
     },
     {
-      "path": "packages/contracts/src/schemas/__tests__/loop.schemas.spec.ts",
-      "lines": 928
-    },
-    {
       "path": "src/main/ipc/handlers/mcp-handlers.ts",
       "lines": 925
     },
@@ -5765,6 +5765,10 @@
     {
       "path": "src/main/history/history-manager.spec.ts",
       "lines": 909
+    },
+    {
+      "path": "src/main/plugins/plugin-manager.spec.ts",
+      "lines": 900
     },
     {
       "path": "src/main/workspace/lsp-manager.ts",
@@ -5957,6 +5961,10 @@
     {
       "path": "src/main/memory/procedural-store.ts",
       "lines": 802
+    },
+    {
+      "path": "src/renderer/app/core/state/loop.store.spec.ts",
+      "lines": 801
     }
   ]
 }

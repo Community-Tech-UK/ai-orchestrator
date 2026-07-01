@@ -2,12 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TranscriptFindController } from './transcript-find-controller';
 
-function waitForController(): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(() => {
-      requestAnimationFrame(() => resolve());
-    }, 120);
-  });
+async function waitForController(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1_000;
+  while (Date.now() < deadline) {
+    await new Promise<void>((resolve) => {
+      window.setTimeout(() => {
+        requestAnimationFrame(() => resolve());
+      }, 20);
+    });
+    if (predicate()) {
+      return;
+    }
+  }
+  throw new Error('Timed out waiting for transcript find controller');
 }
 
 describe('TranscriptFindController', () => {
@@ -38,7 +45,7 @@ describe('TranscriptFindController', () => {
 
     controller.openFind();
     controller.setQuery('send queue');
-    await waitForController();
+    await waitForController(() => controller.matchCount() === 1);
 
     expect(controller.matchCount()).toBe(1);
     expect(controller.activeIndex()).toBe(0);
@@ -60,7 +67,7 @@ describe('TranscriptFindController', () => {
 
     controller.openFind();
     controller.setQuery('sendq');
-    await waitForController();
+    await waitForController(() => controller.matchCount() === 1);
 
     await controller.previousMatch();
 
@@ -86,7 +93,7 @@ describe('TranscriptFindController', () => {
 
     controller.openFind();
     controller.setQuery('sendq');
-    await waitForController();
+    await waitForController(() => controller.matchCount() === 1);
 
     expect(controller.matchCount()).toBe(1);
     expect(controller.activeIndex()).toBe(0);
@@ -108,7 +115,7 @@ describe('TranscriptFindController', () => {
 
     controller.openFind();
     controller.setQuery('sendq');
-    await waitForController();
+    await waitForController(() => controller.matchCount() === 2);
 
     await controller.nextMatch();
     await controller.nextMatch();

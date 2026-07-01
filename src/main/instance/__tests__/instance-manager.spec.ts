@@ -22,6 +22,8 @@ const {
   mockContextWorkerBuildProjectMemoryBrief,
   mockProjectMemoryBuildBrief,
   mockPromptHistoryRecord,
+  mockPromptHistoryClearForInstance,
+  mockSessionContinuity,
   mockResourceGovernorGetCreationBlockReason,
   mockLoopCoordinator,
   mockLoopStore,
@@ -47,6 +49,16 @@ const {
     },
   }),
   mockPromptHistoryRecord: vi.fn(),
+  mockPromptHistoryClearForInstance: vi.fn(),
+  mockSessionContinuity: {
+    startTracking: vi.fn().mockResolvedValue(undefined),
+    stopTracking: vi.fn().mockResolvedValue(undefined),
+    resumeSession: vi.fn().mockResolvedValue(null),
+    updateState: vi.fn().mockResolvedValue(undefined),
+    markNativeResumeFailed: vi.fn().mockResolvedValue(undefined),
+    writeThroughIdentityLocked: vi.fn().mockResolvedValue(undefined),
+    createSnapshot: vi.fn().mockResolvedValue({ id: 'snapshot-1' }),
+  },
   mockResourceGovernorGetCreationBlockReason: vi.fn<() => string | null>(() => null),
   mockLoopCoordinator: {
     startLoop: vi.fn(),
@@ -521,7 +533,13 @@ vi.mock('../context-worker-client', () => ({
 vi.mock('../../prompt-history/prompt-history-service', () => ({
   getPromptHistoryService: vi.fn(() => ({
     record: mockPromptHistoryRecord,
+    clearForInstance: mockPromptHistoryClearForInstance,
   })),
+}));
+
+vi.mock('../../session/session-continuity', () => ({
+  getSessionContinuityManager: vi.fn(() => mockSessionContinuity),
+  getSessionContinuityManagerIfInitialized: vi.fn(() => mockSessionContinuity),
 }));
 
 vi.mock('../../memory/project-knowledge-coordinator', () => ({
@@ -866,6 +884,14 @@ describe('InstanceManager', () => {
       },
     });
     mockPromptHistoryRecord.mockReset();
+    mockPromptHistoryClearForInstance.mockReset();
+    mockSessionContinuity.startTracking.mockResolvedValue(undefined);
+    mockSessionContinuity.stopTracking.mockResolvedValue(undefined);
+    mockSessionContinuity.resumeSession.mockResolvedValue(null);
+    mockSessionContinuity.updateState.mockResolvedValue(undefined);
+    mockSessionContinuity.markNativeResumeFailed.mockResolvedValue(undefined);
+    mockSessionContinuity.writeThroughIdentityLocked.mockResolvedValue(undefined);
+    mockSessionContinuity.createSnapshot.mockResolvedValue({ id: 'snapshot-1' });
     mockAdapterName = 'claude-cli';
     mockLoopCoordinator.startLoop.mockImplementation(async (chatId: string, config: unknown) => ({
       id: 'loop-goal-1',
@@ -999,6 +1025,34 @@ describe('InstanceManager', () => {
       })).rejects.toThrow(/resource governor \(instance-limit\)/);
 
       expect(mockAdapterSpawn).not.toHaveBeenCalled();
+    });
+
+    it('rolls back create-time registrations when adapter spawn fails', async () => {
+      const spawnFailure = new Error('spawn token=sk-test-1234567890abcdef failed');
+      mockCreateCliAdapter.mockImplementation((_cliType, options) => {
+        const adapter = makeMockAdapter();
+        if ((options as { instanceId?: string } | undefined)?.instanceId) {
+          adapter.spawn = vi.fn().mockRejectedValue(spawnFailure);
+        }
+        return adapter;
+      });
+      const removedPayloads: string[] = [];
+      manager.on('instance:removed', (instanceId) => removedPayloads.push(instanceId));
+
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Rollback Me',
+      });
+      const readyPromise = instance.readyPromise;
+
+      expect(readyPromise).toBeDefined();
+      await expect(readyPromise).rejects.toThrow('spawn token=sk-test-1234567890abcdef failed');
+
+      expect(manager.getInstance(instance.id)).toBeUndefined();
+      expect(manager.getAllInstances()).toHaveLength(0);
+      expect(mockSupervisorTree.unregisterInstance).toHaveBeenCalledWith(instance.id);
+      expect(mockAdapterTerminate).toHaveBeenCalled();
+      expect(removedPayloads).toContain(instance.id);
     });
 
     it('assigns a unique ID to each instance', async () => {
@@ -1481,6 +1535,59 @@ describe('InstanceManager', () => {
       expect(manager.getAllInstances()).toHaveLength(1);
       await manager.terminateInstance(instance.id);
       expect(manager.getAllInstances()).toHaveLength(0);
+    });
+  });
+
+  describe('wakeInstance', () => {
+    it('rolls back the newly registered adapter when wake spawn fails', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Wake Rollback',
+      });
+      await instance.readyPromise;
+      await manager.hibernateInstance(instance.id);
+
+      const spawnFailure = new Error('wake spawn failed');
+      mockCreateCliAdapter.mockImplementation((_cliType, options) => {
+        const adapter = makeMockAdapter();
+        if ((options as { instanceId?: string } | undefined)?.instanceId === instance.id) {
+          adapter.spawn = vi.fn().mockRejectedValue(spawnFailure);
+        }
+        return adapter;
+      });
+
+      await expect(manager.wakeInstance(instance.id)).rejects.toThrow('wake spawn failed');
+
+      expect(manager.getInstance(instance.id)).toBe(instance);
+      expect(manager.getAdapter(instance.id)).toBeUndefined();
+      expect(instance.status).toBe('failed');
+      expect(mockAdapterTerminate).toHaveBeenCalled();
+    });
+  });
+
+  describe('restartFreshInstance', () => {
+    it('rolls back the replacement adapter when fresh restart spawn fails', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        displayName: 'Fresh Restart Rollback',
+      });
+      await instance.readyPromise;
+
+      const spawnFailure = new Error('fresh restart spawn failed');
+      mockCreateCliAdapter.mockImplementation((_cliType, options) => {
+        const adapter = makeMockAdapter();
+        if ((options as { instanceId?: string } | undefined)?.instanceId === instance.id) {
+          adapter.spawn = vi.fn().mockRejectedValue(spawnFailure);
+        }
+        return adapter;
+      });
+
+      await manager.restartFreshInstance(instance.id);
+
+      expect(manager.getInstance(instance.id)).toBe(instance);
+      expect(manager.getAdapter(instance.id)).toBeUndefined();
+      expect(instance.status).toBe('error');
+      expect(mockAdapterTerminate).toHaveBeenCalled();
     });
   });
 

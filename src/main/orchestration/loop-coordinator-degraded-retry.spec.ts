@@ -144,6 +144,170 @@ describe('LoopCoordinator degraded iteration retry', () => {
     }
   });
 
+  it('parks structured rate-limit invocation errors before degraded retry', async () => {
+    let invokeCount = 0;
+    const scheduler = vi.fn(() => () => { /* noop */ });
+    const providerLimitEvents: unknown[] = [];
+    coordinator.setProviderLimitResumeScheduler(scheduler);
+    coordinator.on('loop:provider-limit', (event) => providerLimitEvents.push(event));
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as { callback: (result: LoopChildResult | { error: string }) => void };
+      invokeCount += 1;
+      p.callback({
+        error: 'Too many requests',
+        status: 429,
+        headers: { 'retry-after': '60' },
+        body: { error: { message: 'Rate limit exceeded; retry later.' } },
+      } as never);
+    });
+
+    const startedAt = Date.now();
+    const state = await coordinator.startLoop('chat-structured-rate-limit', {
+      initialPrompt: 'keep going',
+      workspaceCwd: workspace,
+      provider: 'claude',
+      caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 3 },
+      degradedIterationRetry: { enabled: true, maxRetries: 2 },
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        verifyCommand: 'false',
+        runVerifyTwice: false,
+        requireCompletedFileRename: false,
+        crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
+      },
+    });
+
+    try {
+      await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'provider-limit', 5000);
+      const parked = coordinator.getLoop(state.id);
+      expect(invokeCount).toBe(1);
+      expect(parked).toMatchObject({
+        status: 'provider-limit',
+        endedAt: null,
+      });
+      expect(parked?.endReason).toContain('rate_limit');
+      expect(providerLimitEvents[0]).toMatchObject({
+        source: 'quota',
+        action: 'throttle',
+        willResume: true,
+      });
+      expect(scheduler).toHaveBeenCalledWith(expect.objectContaining({
+        loopRunId: state.id,
+        provider: 'claude',
+        source: 'quota',
+        action: 'throttle',
+        resumeAt: expect.any(Number),
+      }));
+      expect(scheduler.mock.calls[0]?.[0].resumeAt).toBeGreaterThanOrEqual(startedAt + 60_000);
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  });
+
+  it('uses classification to run one fresh-context retry for context overflow even when degraded retry is disabled', async () => {
+    let invokeCount = 0;
+    const forceContextResets: boolean[] = [];
+    const contextWindowTokens: (number | undefined)[] = [];
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as {
+        forceContextReset?: boolean;
+        contextWindowTokens?: number;
+        callback: (result: LoopChildResult | { error: string }) => void;
+      };
+      invokeCount += 1;
+      forceContextResets.push(p.forceContextReset === true);
+      contextWindowTokens.push(p.contextWindowTokens);
+      if (invokeCount === 1) {
+        p.callback({
+          error: 'Request too large',
+          status: 400,
+          model: 'claude-default-current',
+          body: {
+            error: {
+              message: "This model's maximum context length is 1000000 tokens. Your request used 1100001 tokens.",
+            },
+          },
+        } as never);
+        return;
+      }
+      p.callback(iterationResult('recovered after context reset'));
+    });
+
+    const state = await coordinator.startLoop('chat-context-overflow-routing', {
+      initialPrompt: 'keep going',
+      workspaceCwd: workspace,
+      caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 1 },
+      degradedIterationRetry: { enabled: false, maxRetries: 0 },
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        verifyCommand: 'false',
+        runVerifyTwice: false,
+        requireCompletedFileRename: false,
+        crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
+      },
+    });
+
+    try {
+      await waitForCondition(() => invokeCount >= 2, 5000);
+      expect(forceContextResets).toEqual([false, true]);
+      expect(contextWindowTokens).toEqual([undefined, 1_000_000]);
+      const calibration = (coordinator.getLoop(state.id) as {
+        contextWindowCalibration?: { model?: string; windowTokens: number };
+      } | undefined)?.contextWindowCalibration;
+      expect(calibration).toMatchObject({
+        model: 'claude-default-current',
+        windowTokens: 1_000_000,
+      });
+      expect(coordinator.getLoop(state.id)?.status).not.toBe('error');
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  });
+
+  it('does not fall back to degraded retry when context-overflow recovery also fails', async () => {
+    let invokeCount = 0;
+    const forceContextResets: boolean[] = [];
+    coordinator.on('loop:invoke-iteration', (payload: unknown) => {
+      const p = payload as {
+        forceContextReset?: boolean;
+        callback: (result: LoopChildResult | { error: string }) => void;
+      };
+      invokeCount += 1;
+      forceContextResets.push(p.forceContextReset === true);
+      p.callback({
+        error: 'Request too large',
+        status: 400,
+        body: {
+          error: {
+            message: "This model's maximum context length is 200000 tokens. Your request used 220001 tokens.",
+          },
+        },
+      } as never);
+    });
+
+    const state = await coordinator.startLoop('chat-context-overflow-no-generic-retry', {
+      initialPrompt: 'keep going',
+      workspaceCwd: workspace,
+      caps: { ...defaultLoopConfig(workspace, 'x').caps, maxIterations: 3 },
+      degradedIterationRetry: { enabled: true, maxRetries: 2 },
+      completion: {
+        ...defaultLoopConfig(workspace, 'x').completion,
+        verifyCommand: 'false',
+        runVerifyTwice: false,
+        requireCompletedFileRename: false,
+        crossModelReview: { enabled: false, blockingSeverities: ['critical'], timeoutSeconds: 10, reviewDepth: 'structured' },
+      },
+    });
+
+    try {
+      await waitForCondition(() => coordinator.getLoop(state.id)?.status === 'error', 5000);
+      expect(invokeCount).toBe(2);
+      expect(forceContextResets).toEqual([false, true]);
+    } finally {
+      await coordinator.cancelLoop(state.id);
+    }
+  });
+
   it('does not retry over a pending terminal intent and pauses on block intent', async () => {
     let invokeCount = 0;
     coordinator.on('loop:invoke-iteration', async (payload: unknown) => {

@@ -4,6 +4,7 @@
  */
 
 import { estimateTokens as sharedEstimateTokens } from '../utils/token-estimate';
+import { parseMarkdownFrontmatter } from '../utils/markdown-frontmatter';
 
 export interface SkillMetadata {
   name: string;
@@ -182,103 +183,31 @@ export function validateSkillDirectory(files: string[]): { valid: boolean; error
 
 // Parse SKILL.md frontmatter
 export function parseSkillFrontmatter(content: string): SkillMetadata | null {
-  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-  if (!frontmatterMatch) {
-    return null;
-  }
+  const parsed = parseMarkdownFrontmatter(content);
+  if (!parsed.hasFrontmatter) return null;
 
-  const yaml = frontmatterMatch[1];
+  const data = parsed.data;
+  const name = getFrontmatterString(data, 'name') ?? '';
+  const triggers = getFrontmatterTriggers(data);
   const metadata: SkillMetadata = {
-    name: '',
-    description: '',
-    triggers: [],
-    version: '1.0.0',
+    name,
+    description: getFrontmatterString(data, 'description') ?? '',
+    triggers,
+    version: getFrontmatterString(data, 'version') ?? '1.0.0',
   };
 
-  // Simple YAML parsing
-  const lines = yaml.split('\n');
-  let inTriggers = false;
-  const triggers: string[] = [];
-
-  for (const line of lines) {
-    const trimmedLine = line.trim();
-
-    if (trimmedLine.startsWith('triggers:')) {
-      const inlineValue = trimmedLine.substring('triggers:'.length).trim();
-      if (inlineValue.startsWith('[') && inlineValue.endsWith(']')) {
-        triggers.push(
-          ...inlineValue
-            .slice(1, -1)
-            .split(',')
-            .map((trigger) => trigger.trim().replace(/^["']|["']$/g, ''))
-            .filter(Boolean)
-        );
-      } else {
-        inTriggers = true;
-      }
-      continue;
-    }
-
-    if (inTriggers) {
-      if (line.trim().startsWith('-')) {
-        const trigger = line
-          .replace(/^\s*-\s*/, '')
-          .trim()
-          .replace(/^["']|["']$/g, '');
-        triggers.push(trigger);
-        continue;
-      } else if (!line.startsWith(' ') && !line.startsWith('\t')) {
-        inTriggers = false;
-      }
-    }
-
-    const colonIdx = line.indexOf(':');
-    if (colonIdx === -1) continue;
-
-    const key = line.substring(0, colonIdx).trim();
-    const value = line
-      .substring(colonIdx + 1)
-      .trim()
-      .replace(/^["']|["']$/g, '');
-
-    switch (key) {
-      case 'name':
-        metadata.name = value;
-        break;
-      case 'trigger':
-        if (value) {
-          triggers.push(value);
-        }
-        break;
-      case 'description':
-        metadata.description = value;
-        break;
-      case 'version':
-        metadata.version = value;
-        break;
-      case 'author':
-        metadata.author = value;
-        break;
-      case 'category':
-        metadata.category = value;
-        break;
-      case 'icon':
-        metadata.icon = value;
-        break;
-      case 'effort':
-        if (value === 'low' || value === 'medium' || value === 'high') {
-          metadata.effort = value;
-        }
-        break;
-      case 'preferredModel':
-      case 'preferred_model':
-      case 'model':
-        metadata.preferredModel = value;
-        break;
-    }
+  const author = getFrontmatterString(data, 'author');
+  if (author) metadata.author = author;
+  const category = getFrontmatterString(data, 'category');
+  if (category) metadata.category = category;
+  const icon = getFrontmatterString(data, 'icon');
+  if (icon) metadata.icon = icon;
+  const effort = getFrontmatterString(data, 'effort');
+  if (effort === 'low' || effort === 'medium' || effort === 'high') {
+    metadata.effort = effort;
   }
-
-  metadata.triggers = triggers;
+  const preferredModel = getFrontmatterString(data, 'preferredModel', 'preferred_model', 'model');
+  if (preferredModel) metadata.preferredModel = preferredModel;
 
   // Validate required fields
   if (!metadata.name || metadata.triggers.length === 0) {
@@ -286,6 +215,27 @@ export function parseSkillFrontmatter(content: string): SkillMetadata | null {
   }
 
   return metadata;
+}
+
+function getFrontmatterString(data: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = data[key];
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  }
+  return undefined;
+}
+
+function getFrontmatterTriggers(data: Record<string, unknown>): string[] {
+  const triggers = data['triggers'];
+  if (Array.isArray(triggers)) {
+    return triggers.filter((trigger): trigger is string => typeof trigger === 'string' && trigger.length > 0);
+  }
+  if (typeof triggers === 'string' && triggers.length > 0) {
+    return [triggers];
+  }
+  const legacyTrigger = getFrontmatterString(data, 'trigger');
+  return legacyTrigger ? [legacyTrigger] : [];
 }
 
 // Remove frontmatter from skill content

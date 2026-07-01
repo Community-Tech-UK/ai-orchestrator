@@ -18,6 +18,8 @@ describe('LoopStore', () => {
     freshEyesReviewPassed: Listener<{ loopRunId: string; signal: string; reviewersUsed: string[]; nonBlockingFindings: number; summary?: string }>[];
     freshEyesReviewFailed: Listener<{ loopRunId: string; signal: string; error: string }>[];
     freshEyesReviewBlocked: Listener<{ loopRunId: string; signal: string; reviewersUsed: string[]; blockingFindings: unknown[]; summary?: string }>[];
+    steeringDowngraded: Listener<{ loopRunId: string; requestedKind: 'steer'; effectiveKind: 'queue'; reason: string }>[];
+    followUpDrained: Listener<{ loopRunId: string; seq: number; count: number; remaining: number }>[];
     completed: Listener<{ loopRunId: string; signal: string; verifyOutput: string }>[];
     completedNeedsReview: Listener<{ loopRunId: string; reason: string; acceptedByOperator: boolean }>[];
     failed: Listener<{ loopRunId: string; reason: string }>[];
@@ -44,6 +46,8 @@ describe('LoopStore', () => {
     onFreshEyesReviewPassed: ReturnType<typeof vi.fn>;
     onFreshEyesReviewFailed: ReturnType<typeof vi.fn>;
     onFreshEyesReviewBlocked: ReturnType<typeof vi.fn>;
+    onSteeringDowngraded: ReturnType<typeof vi.fn>;
+    onFollowUpDrained: ReturnType<typeof vi.fn>;
     onCompleted: ReturnType<typeof vi.fn>;
     onCompletedNeedsReview: ReturnType<typeof vi.fn>;
     onFailed: ReturnType<typeof vi.fn>;
@@ -72,6 +76,8 @@ describe('LoopStore', () => {
       freshEyesReviewPassed: [],
       freshEyesReviewFailed: [],
       freshEyesReviewBlocked: [],
+      steeringDowngraded: [],
+      followUpDrained: [],
       completed: [],
       completedNeedsReview: [],
       failed: [],
@@ -98,6 +104,8 @@ describe('LoopStore', () => {
       onFreshEyesReviewPassed: vi.fn((cb) => subscribe(listeners.freshEyesReviewPassed, cb)),
       onFreshEyesReviewFailed: vi.fn((cb) => subscribe(listeners.freshEyesReviewFailed, cb)),
       onFreshEyesReviewBlocked: vi.fn((cb) => subscribe(listeners.freshEyesReviewBlocked, cb)),
+      onSteeringDowngraded: vi.fn((cb) => subscribe(listeners.steeringDowngraded, cb)),
+      onFollowUpDrained: vi.fn((cb) => subscribe(listeners.followUpDrained, cb)),
       onCompleted: vi.fn((cb) => subscribe(listeners.completed, cb)),
       onCompletedNeedsReview: vi.fn((cb) => subscribe(listeners.completedNeedsReview, cb)),
       onFailed: vi.fn((cb) => subscribe(listeners.failed, cb)),
@@ -160,6 +168,14 @@ describe('LoopStore', () => {
       message: 'Read src/main/orchestration/default-invokers.ts',
       timestamp: 1778310000000,
     }));
+    listeners.activity.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      seq: 1,
+      stage: 'IMPLEMENT',
+      kind: 'tool_result',
+      message: 'Read completed',
+      timestamp: 1778310000100,
+    }));
 
     expect(store.runningIterationForChat('chat-1')()).toMatchObject({
       loopRunId: 'loop-1',
@@ -173,6 +189,13 @@ describe('LoopStore', () => {
       kind: 'tool_use',
       message: 'Read src/main/orchestration/default-invokers.ts',
       timestamp: 1778310000000,
+    }, {
+      loopRunId: 'loop-1',
+      seq: 1,
+      stage: 'IMPLEMENT',
+      kind: 'tool_result',
+      message: 'Read completed',
+      timestamp: 1778310000100,
     }]);
     expect(store.activityForLoop('loop-1')()).toEqual(store.activityForChat('chat-1')());
   });
@@ -201,6 +224,43 @@ describe('LoopStore', () => {
       'Fresh-eyes review blocked declared-complete',
     ]);
     expect(store.activityForLoop('loop-1')()[1]?.kind).toBe('input_required');
+  });
+
+  it('surfaces steering downgrade and follow-up drain events as loop activity', () => {
+    store.ensureWired();
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...activeState(), totalIterations: 4, currentStage: 'IMPLEMENT' },
+    }));
+
+    listeners.steeringDowngraded.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      requestedKind: 'steer',
+      effectiveKind: 'queue',
+      reason: 'active loop provider does not accept mid-iteration input',
+    }));
+    listeners.followUpDrained.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      seq: 5,
+      count: 1,
+      remaining: 2,
+    }));
+
+    expect(store.activityForLoop('loop-1')().map((activity) => activity.message)).toEqual([
+      'Live steering unavailable; queued for the next iteration',
+      'Queued follow-up drained (1); 2 remaining',
+    ]);
+    expect(store.activityForLoop('loop-1')()[0]).toMatchObject({
+      kind: 'status',
+      detail: {
+        effectiveKind: 'queue',
+        requestedKind: 'steer',
+      },
+    });
+    expect(store.activityForLoop('loop-1')()[1]).toMatchObject({
+      seq: 5,
+      detail: { count: 1, remaining: 2 },
+    });
   });
 
   it('clears the no-progress banner when the loop reaches a terminal state', () => {

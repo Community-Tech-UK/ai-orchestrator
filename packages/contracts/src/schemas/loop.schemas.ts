@@ -54,7 +54,7 @@ export const LoopVerifyFailureKindSchema = z.enum(['command', 'timeout', 'infra'
 export const LoopProviderSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor']);
 export const LoopReviewStyleSchema = z.enum(['single', 'debate', 'star-chamber']);
 export const LoopContextStrategySchema = z.enum(['fresh-child', 'hybrid', 'same-session']);
-export const ProgressSignalIdSchema = z.enum(['A', 'B', 'C', 'D', 'D-prime', 'E', 'F', 'G', 'H', 'BLOCKED']);
+export const ProgressSignalIdSchema = z.enum(['A', 'B', 'C', 'D', 'D-prime', 'E', 'F', 'G', 'H', 'I', 'BLOCKED']);
 export const CompletionSignalIdSchema = z.enum([
   'completed-rename',
   'done-promise',
@@ -110,6 +110,7 @@ export const LoopProgressThresholdsSchema = z.object({
   toolRepeatWarnPerIteration: z.number().int().min(2).max(1000),
   toolRepeatCriticalPerIteration: z.number().int().min(2).max(1000),
   identicalToolCallConsecutiveCritical: z.number().int().min(2).max(100).default(3),
+  idempotentReadRepeatWarn: z.number().int().min(2).max(100).default(3),
   testStagnationWarnIterations: z.number().int().min(1).max(50),
   testStagnationCriticalIterations: z.number().int().min(1).max(50),
   churnRatioWarn: z.number().min(0).max(1),
@@ -362,6 +363,7 @@ export const LoopFileChangeSchema = z.object({
 export const LoopToolCallRecordSchema = z.object({
   toolName: z.string(),
   argsHash: z.string(),
+  resultHash: z.string().optional(),
   success: z.boolean(),
   durationMs: z.number().int().nonnegative(),
 });
@@ -473,6 +475,15 @@ export const LoopInFlightIterationSchema = z.object({
   idempotencyKey: z.string().min(1),
 });
 
+export const LoopContextWindowCalibrationSchema = z.object({
+  provider: LoopProviderSchema,
+  model: z.string().min(1).optional(),
+  windowTokens: z.number().int().positive(),
+  calibratedAt: z.number().int().nonnegative(),
+  source: z.literal('provider-error'),
+  reason: z.string().min(1),
+});
+
 export const LoopIterationSchema = z.object({
   id: z.string(),
   loopRunId: z.string(),
@@ -484,10 +495,13 @@ export const LoopIterationSchema = z.object({
   tokens: z.number().int().nonnegative(),
   costCents: z.number().int().nonnegative(),
   filesChanged: z.array(LoopFileChangeSchema),
+  filesRead: z.array(z.string()).default([]),
   toolCalls: z.array(LoopToolCallRecordSchema),
   errors: z.array(LoopErrorRecordSchema),
   testPassCount: z.number().int().nullable(),
   testFailCount: z.number().int().nullable(),
+  finishReason: z.string().optional(),
+  unresolvedToolCalls: z.boolean().default(false),
   workHash: z.string(),
   outputSimilarityToPrev: z.number().min(0).max(1).nullable(),
   outputExcerpt: z.string(),
@@ -557,6 +571,8 @@ export const LoopStateSchema = z.object({
   /** LF-7: outcome of the most recent completion attempt. Optional for
    *  back-compat with rows persisted before the field existed. */
   lastCompletionOutcome: LoopCompletionOutcomeSchema.optional(),
+  /** B6: runtime context-window calibration learned from a provider overflow. */
+  contextWindowCalibration: LoopContextWindowCalibrationSchema.optional(),
   /** LF-4: LOOP_TASKS.md fully resolved at startLoop (staleness guard).
    *  Defaults false for back-compat with rows written before the field. */
   loopTasksLedgerResolvedAtStart: z.boolean().default(false),

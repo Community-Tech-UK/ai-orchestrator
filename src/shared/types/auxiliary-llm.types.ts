@@ -79,6 +79,14 @@ export interface AuxiliaryLlmEndpointConfig {
   provider: Exclude<AuxiliaryLlmProvider, 'local-fallback'>;
   baseUrl: string;
   apiKeyEnv?: string;
+  /**
+   * Trusted settings-only secret resolver. Accepts either a raw allowlisted
+   * command string (for example `security find-generic-password ...`) or a
+   * trusted resolver expression such as `${env:OPENAI_API_KEY}` /
+   * `${file:/path/to/key}` / `${cmd:security ...}`. Resolved values are runtime
+   * only and must never be persisted.
+   */
+  apiKeyCommand?: string;
   source: 'manual' | 'localhost' | 'worker-node';
   workerNodeId?: string;
   enabled: boolean;

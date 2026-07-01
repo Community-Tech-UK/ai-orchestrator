@@ -87,13 +87,15 @@ export function describeLoopCapReason(
 }
 
 export function cloneLoopStateForBroadcast(s: LoopState): LoopState {
-  const { nextObjectivePlanner: _runtimePlanner, ...config } = s.config;
+  const config = { ...s.config };
+  delete (config as { nextObjectivePlanner?: unknown }).nextObjectivePlanner;
   return {
     ...s,
     config,
     pendingInterventions: s.pendingInterventions.map((item) => ({ ...coercePendingInput(item) })),
     recentWarnIterationSeqs: [...s.recentWarnIterationSeqs],
     completionAttempts: s.completionAttempts,
+    contextWindowCalibration: s.contextWindowCalibration ? { ...s.contextWindowCalibration } : undefined,
     loopControl: s.loopControl ? { ...s.loopControl } : undefined,
     inFlightIteration: s.inFlightIteration ? { ...s.inFlightIteration } : undefined,
     terminalIntentPending: s.terminalIntentPending
@@ -126,7 +128,7 @@ export function syntheticChildResultFromTerminalIntent(
   tokens: number;
   filesChanged: [];
   toolCalls: [];
-  errors: Array<{ bucket: string; exactHash: string; excerpt: string }>;
+  errors: { bucket: string; exactHash: string; excerpt: string }[];
   testPassCount: null;
   testFailCount: null;
   exitedCleanly: false;

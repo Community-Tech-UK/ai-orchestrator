@@ -12,6 +12,11 @@ import {
 } from './provider-doctor';
 import type { ProbeResult, DiagnosisResult } from './provider-doctor';
 import type { ProviderProbeErrorKind } from '../../shared/types/provider-doctor.types';
+import { _resetProviderRuntimeRegistryForTesting, getProviderRuntimeRegistry } from './provider-runtime-registry';
+
+const { checkProviderStatus } = vi.hoisted(() => ({
+  checkProviderStatus: vi.fn(),
+}));
 
 // ---------------------------------------------------------------------------
 // Module-level mocks for all external dependencies the probes touch at import
@@ -45,6 +50,11 @@ vi.mock('../logging/logger', () => ({
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
+  }),
+}));
+vi.mock('./provider-instance-manager', () => ({
+  getProviderInstanceManager: vi.fn().mockReturnValue({
+    checkProviderStatus,
   }),
 }));
 // child_process is used by the cli_installed probe internally; provide a
@@ -332,6 +342,8 @@ describe('buildRepairActions', () => {
 describe('ProviderDoctor probe errorKind population', () => {
   beforeEach(() => {
     ProviderDoctor._resetForTesting();
+    _resetProviderRuntimeRegistryForTesting();
+    checkProviderStatus.mockReset();
   });
 
   it('populated errorKind is absent on a passing probe result', async () => {
@@ -391,6 +403,56 @@ describe('ProviderDoctor probe errorKind population', () => {
     const result = await probe!.run('anthropic-api');
     expect(result.status).toBe('fail');
     expect(result.errorKind).toBe('endpoint_unreachable');
+  });
+
+  it('diagnoses plugin providers through the provider instance manager status path', async () => {
+    checkProviderStatus.mockResolvedValueOnce({
+      type: 'plugin:acme-cli',
+      available: false,
+      authenticated: false,
+      error: 'worker factory failed health check',
+    });
+
+    const doctor = ProviderDoctor.getInstance();
+    const diagnosis = await doctor.diagnose('plugin:acme-cli');
+
+    expect(checkProviderStatus).toHaveBeenCalledWith('plugin:acme-cli', true);
+    expect(diagnosis.provider).toBe('plugin:acme-cli');
+    expect(diagnosis.overall).toBe('unhealthy');
+    expect(diagnosis.probes).toEqual([
+      expect.objectContaining({
+        name: 'plugin_provider_status',
+        status: 'fail',
+        message: 'worker factory failed health check',
+        errorKind: 'unknown',
+      }),
+    ]);
+    expect(getProviderRuntimeRegistry().getSnapshot('plugin:acme-cli' as never))
+      .toMatchObject({
+        provider: 'plugin:acme-cli',
+        status: 'unavailable',
+        diagnosis: {
+          provider: 'plugin:acme-cli',
+          failedProbeNames: ['plugin_provider_status'],
+        },
+      });
+  });
+
+  it('redacts secret-shaped plugin provider status errors before surfacing diagnosis output', async () => {
+    const secret = 'sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    checkProviderStatus.mockResolvedValueOnce({
+      type: 'plugin:acme-cli',
+      available: false,
+      authenticated: false,
+      error: `plugin rejected api key ${secret}`,
+    });
+
+    const doctor = ProviderDoctor.getInstance();
+    const diagnosis = await doctor.diagnose('plugin:acme-cli');
+
+    expect(diagnosis.probes[0].message).not.toContain(secret);
+    expect(diagnosis.probes[0].message).toContain('<redacted-secret>');
+    expect(diagnosis.recommendations.join('\n')).not.toContain(secret);
   });
 });
 

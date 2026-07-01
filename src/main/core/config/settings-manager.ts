@@ -11,9 +11,12 @@ import type { AppSettings } from '../../../shared/types/settings.types';
 import { DEFAULT_SETTINGS } from '../../../shared/types/settings.types';
 import { backfillSlotTiers, mergeMissingDefaultSlots, raiseSlotOutputBudget } from '../../rlm/auxiliary-llm-utils';
 import { getLogger } from '../../logging/logger';
+import { withLockSync } from '../../util/file-lock';
 import { PAUSE_SETTING_VALIDATORS, type Validator } from './settings-validators';
 
 const logger = getLogger('SettingsManager');
+const SETTINGS_LOCK_TIMEOUT_MS = 5000;
+const SETTINGS_LOCK_RETRY_INTERVAL_MS = 50;
 
 /**
  * Ordered config source hierarchy — later sources take precedence.
@@ -44,6 +47,7 @@ interface Store<T> {
   path: string;
   get<K extends keyof T>(key: K): T[K];
   set<K extends keyof T>(key: K, value: T[K]): void;
+  set(key: string, value: unknown): void;
   set(object: Partial<T>): void;
   clear(): void;
 }
@@ -92,6 +96,36 @@ export class SettingsManager extends EventEmitter {
       return 'codex' as AppSettings[K];
     }
     return value;
+  }
+
+  private persistSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): void {
+    this.withSettingsWriteLock(() => {
+      this.store.set(key, value);
+    });
+  }
+
+  private persistSettings(settings: Partial<AppSettings>): void {
+    if (Object.keys(settings).length === 0) {
+      return;
+    }
+    this.withSettingsWriteLock(() => {
+      this.store.set(settings);
+    });
+  }
+
+  private persistRawSetting(key: string, value: unknown): void {
+    this.withSettingsWriteLock(() => {
+      this.store.set(key, value);
+    });
+  }
+
+  private withSettingsWriteLock<T>(fn: () => T): T {
+    fs.mkdirSync(path.dirname(this.store.path), { recursive: true });
+    return withLockSync(`${this.store.path}.lock`, fn, {
+      purpose: 'settings-write',
+      timeoutMs: SETTINGS_LOCK_TIMEOUT_MS,
+      retryIntervalMs: SETTINGS_LOCK_RETRY_INTERVAL_MS,
+    });
   }
 
   constructor() {
@@ -173,7 +207,7 @@ export class SettingsManager extends EventEmitter {
     if (currentModel && MODEL_MIGRATION[currentModel]) {
       const newModel = MODEL_MIGRATION[currentModel];
       logger.info('Migrating defaultModel', { currentModel, newModel });
-      this.store.set('defaultModel', newModel);
+      this.persistSetting('defaultModel', newModel);
     }
   }
 
@@ -183,7 +217,7 @@ export class SettingsManager extends EventEmitter {
   private migrateCliProviderAlias(): void {
     const currentCli = this.store.get('defaultCli');
     if (currentCli === 'openai') {
-      this.store.set('defaultCli', 'codex');
+      this.persistSetting('defaultCli', 'codex');
     }
   }
 
@@ -203,10 +237,10 @@ export class SettingsManager extends EventEmitter {
 
     if (this.store.get('codebaseAutoIndexEnabled') === true) {
       logger.info('Disabling persisted legacy codebase auto-index default');
-      this.store.set('codebaseAutoIndexEnabled', false);
+      this.persistSetting('codebaseAutoIndexEnabled', false);
     }
 
-    migrationStore.set(CODEBASE_AUTOINDEX_DISABLED_MIGRATION_KEY, true);
+    this.persistRawSetting(CODEBASE_AUTOINDEX_DISABLED_MIGRATION_KEY, true);
   }
 
   /**
@@ -217,7 +251,7 @@ export class SettingsManager extends EventEmitter {
   private migrateResidentClaudeDefault(): void {
     if (this.store.get('residentClaudeSession') !== true) {
       logger.info('Enabling resident Claude sessions for no-respawn steering');
-      this.store.set('residentClaudeSession', true);
+      this.persistSetting('residentClaudeSession', true);
     }
   }
 
@@ -256,14 +290,14 @@ export class SettingsManager extends EventEmitter {
         }
         if (changed) {
           logger.info('Raising persisted auxiliary slot timeouts for cold local-model loads');
-          this.store.set('auxiliaryLlmSlotsJson', JSON.stringify(slots));
+          this.persistSetting('auxiliaryLlmSlotsJson', JSON.stringify(slots));
         }
       } catch {
         // Malformed JSON — leave as-is; AuxiliaryLlmService falls back to defaults.
       }
     }
 
-    migrationStore.set(AUX_SLOT_TIMEOUT_MIGRATION_KEY, true);
+    this.persistRawSetting(AUX_SLOT_TIMEOUT_MIGRATION_KEY, true);
   }
 
   /**
@@ -301,14 +335,14 @@ export class SettingsManager extends EventEmitter {
         }
         if (changed) {
           logger.info('Enabling frontier fallback for compression/memoryDistillation (new default)');
-          this.store.set('auxiliaryLlmSlotsJson', JSON.stringify(slots));
+          this.persistSetting('auxiliaryLlmSlotsJson', JSON.stringify(slots));
         }
       } catch {
         // Malformed JSON — leave as-is; AuxiliaryLlmService falls back to defaults.
       }
     }
 
-    migrationStore.set(AUX_FRONTIER_FALLBACK_MIGRATION_KEY, true);
+    this.persistRawSetting(AUX_FRONTIER_FALLBACK_MIGRATION_KEY, true);
   }
 
   private migrateAuxiliarySlotTiers(): void {
@@ -322,11 +356,11 @@ export class SettingsManager extends EventEmitter {
       const updated = backfillSlotTiers(raw);
       if (updated !== null) {
         logger.info('Backfilling auxiliary slot tiers (quick/quality) for existing config');
-        this.store.set('auxiliaryLlmSlotsJson', updated);
+        this.persistSetting('auxiliaryLlmSlotsJson', updated);
       }
     }
 
-    migrationStore.set(AUX_SLOT_TIERS_MIGRATION_KEY, true);
+    this.persistRawSetting(AUX_SLOT_TIERS_MIGRATION_KEY, true);
   }
 
   private migrateTitleGenerationBudget(): void {
@@ -340,11 +374,11 @@ export class SettingsManager extends EventEmitter {
       const updated = raiseSlotOutputBudget(raw, 'titleGeneration', 512);
       if (updated !== null) {
         logger.info('Raising titleGeneration output budget to 512 (was too small for reasoning models)');
-        this.store.set('auxiliaryLlmSlotsJson', updated);
+        this.persistSetting('auxiliaryLlmSlotsJson', updated);
       }
     }
 
-    migrationStore.set(AUX_TITLE_BUDGET_MIGRATION_KEY, true);
+    this.persistRawSetting(AUX_TITLE_BUDGET_MIGRATION_KEY, true);
   }
 
   private migrateAuxiliaryMissingSlots(): void {
@@ -354,7 +388,7 @@ export class SettingsManager extends EventEmitter {
     const updated = mergeMissingDefaultSlots(raw);
     if (updated !== null) {
       logger.info('Merging missing default auxiliary slots into existing config');
-      this.store.set('auxiliaryLlmSlotsJson', updated);
+      this.persistSetting('auxiliaryLlmSlotsJson', updated);
     }
   }
 
@@ -380,7 +414,7 @@ export class SettingsManager extends EventEmitter {
       || typeof defaultModel !== 'string'
       || defaultModel.trim().length === 0
     ) {
-      this.store.set('defaultModelByProvider', {});
+      this.persistSetting('defaultModelByProvider', {});
       return;
     }
 
@@ -389,7 +423,7 @@ export class SettingsManager extends EventEmitter {
       defaultCli,
       defaultModel,
     });
-    this.store.set('defaultModelByProvider', seeded);
+    this.persistSetting('defaultModelByProvider', seeded);
   }
 
   /**
@@ -472,7 +506,7 @@ export class SettingsManager extends EventEmitter {
     const validatedValue = this.validateSetting(key, value);
     const normalizedValue = this.normalizeSetting(key, validatedValue);
 
-    this.store.set(key, normalizedValue);
+    this.persistSetting(key, normalizedValue);
     this.invalidate(3);
     this.emit('setting-changed', key, normalizedValue);
     this.emit(`setting:${key}`, normalizedValue);
@@ -482,6 +516,7 @@ export class SettingsManager extends EventEmitter {
    * Update multiple settings at once
    */
   update(settings: Partial<AppSettings>): void {
+    const normalizedEntries: [keyof AppSettings, AppSettings[keyof AppSettings]][] = [];
     for (const [key, value] of Object.entries(settings)) {
       const typedKey = key as keyof AppSettings;
       const validatedValue = this.validateSetting(
@@ -490,11 +525,16 @@ export class SettingsManager extends EventEmitter {
       );
       const normalizedValue = this.normalizeSetting(typedKey, validatedValue);
 
-      this.store.set(typedKey, normalizedValue);
-      this.emit('setting-changed', key, normalizedValue);
-      this.emit(`setting:${key}`, normalizedValue);
+      normalizedEntries.push([typedKey, normalizedValue]);
     }
+
+    const normalizedSettings = Object.fromEntries(normalizedEntries) as Partial<AppSettings>;
+    this.persistSettings(normalizedSettings);
     this.invalidate(3);
+    for (const [key, value] of normalizedEntries) {
+      this.emit('setting-changed', key, value);
+      this.emit(`setting:${String(key)}`, value);
+    }
     this.emit('settings-updated', this.getAll());
   }
 
@@ -532,10 +572,12 @@ export class SettingsManager extends EventEmitter {
    * Reset all settings to defaults
    */
   reset(): void {
-    this.store.clear();
+    this.withSettingsWriteLock(() => {
+      this.store.clear();
+      this.store.set(DEFAULT_SETTINGS);
+    });
     for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
       const typedKey = key as keyof AppSettings;
-      this.store.set(typedKey, value as AppSettings[keyof AppSettings]);
       this.emit('setting-changed', typedKey, value);
       this.emit(`setting:${key}`, value);
     }
@@ -547,7 +589,7 @@ export class SettingsManager extends EventEmitter {
    * Reset a single setting to default
    */
   resetOne<K extends keyof AppSettings>(key: K): void {
-    this.store.set(key, DEFAULT_SETTINGS[key]);
+    this.persistSetting(key, DEFAULT_SETTINGS[key]);
     this.invalidate(3);
     this.emit('setting-changed', key, DEFAULT_SETTINGS[key]);
     this.emit(`setting:${key}`, DEFAULT_SETTINGS[key]);

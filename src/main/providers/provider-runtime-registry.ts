@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import type { PluginProviderName } from '@contracts/types/provider-runtime-events';
 import type { CliShadowReport, CliType } from '../cli/cli-detection';
 import type { AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
 import type { ExecutionLocation } from '../../shared/types/worker-node.types';
@@ -8,7 +9,7 @@ import type {
   ProbeResult,
 } from './provider-doctor';
 
-export type ProviderRuntimeProvider = CliType | 'anthropic-api';
+export type ProviderRuntimeProvider = CliType | 'anthropic-api' | PluginProviderName;
 
 export type ProviderRuntimeStatus =
   | 'unknown'
@@ -281,6 +282,10 @@ export function _resetProviderRuntimeRegistryForTesting(): void {
 }
 
 export function normalizeDiagnosisProvider(provider: string): ProviderRuntimeProvider {
+  if (provider.startsWith('plugin:')) {
+    return provider as PluginProviderName;
+  }
+
   switch (provider) {
     case 'claude-cli':
       return 'claude';

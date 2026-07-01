@@ -200,6 +200,7 @@ import { createAuxiliaryNextObjectivePlanner } from './loop-next-objective-plann
 import { LoopPingPongReviewAbortRegistry } from './loop-pingpong-review-abort';
 import { getWorktreeManager } from '../workspace/git/worktree-manager';
 import { getLoopStore } from './loop-store';
+import { routeClassifiedLoopInvocationFailure } from './loop-invocation-error-routing';
 export { computeWorkHash } from './loop-work-hash';
 export type {
   FreshEyesFinding,
@@ -210,6 +211,8 @@ export type {
 } from './loop-fresh-eyes-reviewer';
 export type {
   LoopAdapterCleanupHook,
+  LoopChildInvocationCallbackResult,
+  LoopChildInvocationError,
   LoopChildResult,
   LoopIntentPersistHook,
   LoopIterationHook,
@@ -1850,8 +1853,10 @@ export class LoopCoordinator extends EventEmitter {
 
       let childResult: LoopChildResult | null = null;
       let invocationError: string | null = null;
+      let invocationFailure: unknown = null;
       // LF-4 RPI: consume a one-shot PLAN→IMPLEMENT context reset request.
       let forceContextReset = this.pendingContextReset.delete(state.id);
+      let contextOverflowRecoveryAttempted = false;
 
       // Degraded-iteration resilience: a single transient invocation failure or a
       // "void" iteration (no output, no files, no tool calls) should not kill a
@@ -1866,9 +1871,11 @@ export class LoopCoordinator extends EventEmitter {
       for (;;) {
         childResult = null;
         invocationError = null;
+        invocationFailure = null;
         try {
           childResult = await this.invokeChild(state, prompt, stage, forceContextReset);
         } catch (err) {
+          invocationFailure = err;
           invocationError = err instanceof Error ? err.message : String(err);
           logger.error('Iteration invocation failed', err instanceof Error ? err : new Error(invocationError), { loopRunId: state.id, seq, attempt: invocationAttempts });
         } finally {
@@ -1890,6 +1897,19 @@ export class LoopCoordinator extends EventEmitter {
         // inner loop so runLoop's top-of-iteration pause check can wait for
         // a resume signal.
         if (isParkedLoopRuntimeState(state)) break;
+
+        if (!childResult && invocationFailure) {
+          const route = routeClassifiedLoopInvocationFailure({
+            state, error: invocationFailure, seq, stage,
+            model: this.downshiftModelByLoop.get(state.id),
+            contextOverflowRecoveryAttempted,
+            providerLimitHandler: this.providerLimitHandler,
+            emit: (eventName, payload) => this.emit(eventName, payload),
+          });
+          if (route === 'retry-fresh') { contextOverflowRecoveryAttempted = true; forceContextReset = true; continue; }
+          if (route === 'terminated') return;
+          if (route !== 'none') break;
+        }
 
         // Circuit-breaker-OPEN is a transient, self-healing rejection — NOT a
         // degraded iteration and NOT a fatal error. The breaker reopens to
@@ -2069,10 +2089,13 @@ export class LoopCoordinator extends EventEmitter {
         tokens,
         costCents,
         filesChanged: childResult.filesChanged,
+        filesRead: childResult.filesRead ?? [],
         toolCalls: childResult.toolCalls,
         errors: childResult.errors,
         testPassCount: childResult.testPassCount,
         testFailCount: childResult.testFailCount,
+        ...(childResult.finishReason ? { finishReason: childResult.finishReason } : {}),
+        unresolvedToolCalls: childResult.unresolvedToolCalls ?? false,
         workHash,
         outputSimilarityToPrev: outputSimToPrev,
         outputExcerpt,

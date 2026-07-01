@@ -2,12 +2,14 @@ import type { EventEmitter } from 'node:events';
 import type { ConversationLedgerService } from '../conversation-ledger';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import type { InstanceManager } from '../instance/instance-manager';
+import type { BranchSummarizerLike } from '../context/branch-summarizer';
 
 export interface ChatServiceConfig {
   db?: SqliteDriver;
   ledger?: ConversationLedgerService;
   instanceManager: InstanceManager;
   eventBus?: EventEmitter;
+  branchSummarizer?: BranchSummarizerLike;
 }
 
 export interface ChatSystemEventInput {

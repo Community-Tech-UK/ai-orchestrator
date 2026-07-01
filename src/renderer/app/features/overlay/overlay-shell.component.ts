@@ -3,6 +3,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  OnDestroy,
   TemplateRef,
   computed,
   input,
@@ -12,6 +13,7 @@ import {
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import type { OverlayController, OverlayItem, OverlayItemFooterTemplate } from './overlay.types';
+import { createFocusTrap, type FocusTrapHandle } from '../../shared/utils/focus-trap';
 
 @Component({
   selector: 'app-overlay-shell',
@@ -20,6 +22,7 @@ import type { OverlayController, OverlayItem, OverlayItemFooterTemplate } from '
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
+      #shell
       class="overlay-backdrop"
       tabindex="0"
       role="dialog"
@@ -273,7 +276,7 @@ import type { OverlayController, OverlayItem, OverlayItemFooterTemplate } from '
     }
   `],
 })
-export class OverlayShellComponent implements AfterViewInit {
+export class OverlayShellComponent implements AfterViewInit, OnDestroy {
   controller = input.required<OverlayController>();
   headerAccessory = input<TemplateRef<unknown> | null>(null);
   itemFooter = input<OverlayItemFooterTemplate | null>(null);
@@ -281,13 +284,49 @@ export class OverlayShellComponent implements AfterViewInit {
   selected = output<OverlayItem>();
 
   private searchInput = viewChild<ElementRef<HTMLInputElement>>('searchInput');
+  private shell = viewChild<ElementRef<HTMLElement>>('shell');
+  private focusTrap: FocusTrapHandle | null = null;
+  private readonly restoreFocusTarget = typeof document === 'undefined' ? null : document.activeElement;
+  private focusTimer: ReturnType<typeof setTimeout> | null = null;
   private selectedIndex = signal(0);
 
   flatItems = computed(() => this.controller().groups().flatMap((group) => group.items));
   selectedItem = computed(() => this.flatItems()[this.selectedIndex()] ?? null);
 
   ngAfterViewInit(): void {
-    setTimeout(() => this.searchInput()?.nativeElement.focus());
+    this.focusTimer = setTimeout(() => {
+      this.focusTimer = null;
+      this.ensureFocusTrap();
+      this.searchInput()?.nativeElement.focus();
+    });
+  }
+
+  ngOnDestroy(): void {
+    if (this.focusTimer) {
+      clearTimeout(this.focusTimer);
+      this.focusTimer = null;
+    }
+    this.focusTrap?.deactivate();
+    this.focusTrap?.restore();
+    this.restoreSavedFocus();
+    this.focusTrap = null;
+  }
+
+  private ensureFocusTrap(): void {
+    if (this.focusTrap) return;
+    const shell = this.shell()?.nativeElement
+      ?? this.searchInput()?.nativeElement.closest<HTMLElement>('.overlay-backdrop')
+      ?? null;
+    if (shell) {
+      this.focusTrap = createFocusTrap(shell, { initialFocus: this.searchInput()?.nativeElement ?? null });
+      this.focusTrap.activate();
+    }
+  }
+
+  private restoreSavedFocus(): void {
+    if (this.restoreFocusTarget instanceof HTMLElement && this.restoreFocusTarget.isConnected) {
+      this.restoreFocusTarget.focus();
+    }
   }
 
   onInput(event: Event): void {

@@ -8,6 +8,7 @@
 // Error Recovery
 export { ErrorRecoveryManager, getErrorRecoveryManager, retryWithBackoff, type WithRetryOptions } from './error-recovery';
 export { RetryManager, retryOperation, withRetry, type RetryOptions, type RetryResult } from './retry-manager';
+export { classifyLoopError, type LoopErrorClassification, type LoopErrorClassificationContext } from './loop-error-classification';
 
 // Circuit Breaker
 export {

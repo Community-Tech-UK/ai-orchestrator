@@ -71,6 +71,50 @@ export class KillRing {
   }
 }
 
+export type ComposerUndoKind = 'insert' | 'kill';
+
+interface ComposerUndoEntry {
+  readonly before: TextareaEditState;
+  readonly after: TextareaEditState;
+  readonly kind: ComposerUndoKind;
+}
+
+/**
+ * Undo stack for explicit composer editing commands. Ordinary typing stays on
+ * the browser's native textarea undo stack; this stack covers programmatic
+ * kill/yank edits that browsers do not reliably record.
+ */
+export class ComposerUndoStack {
+  private entries: ComposerUndoEntry[] = [];
+
+  push(before: TextareaEditState, after: TextareaEditState, kind: ComposerUndoKind): void {
+    if (before.text === after.text && before.selectionStart === after.selectionStart && before.selectionEnd === after.selectionEnd) {
+      return;
+    }
+
+    const last = this.entries.at(-1);
+    if (last && last.kind === kind && last.after.text === before.text) {
+      this.entries[this.entries.length - 1] = {
+        before: last.before,
+        after,
+        kind,
+      };
+      return;
+    }
+
+    this.entries.push({ before, after, kind });
+  }
+
+  undo(): TextareaEditState | null {
+    const entry = this.entries.pop();
+    return entry?.before ?? null;
+  }
+
+  get length(): number {
+    return this.entries.length;
+  }
+}
+
 /**
  * Move the caret one word left/right. `extend` grows the selection from the
  * stationary edge; otherwise the selection collapses onto the moved position.
@@ -131,36 +175,43 @@ export type ComposerEditingCommand =
   | 'select-word-right'
   | 'kill-word-left'
   | 'kill-word-right'
-  | 'yank';
+  | 'yank'
+  | 'undo';
 
-/**
- * Map a keyboard event to a composer editing command, or null if it is not one.
- * Centralized (rather than scattered `event.altKey && …` checks in the
- * component) and pure so the bindings are unit-testable. Emacs-flavoured, chosen
- * to add capabilities browsers don't provide for a `<textarea>` (kill-ring +
- * yank) plus consistent word motion:
- * - `Alt+Backspace` / `Alt+D` — kill word left / right (into the ring)
- * - `Ctrl+Y` — yank
- * - `Alt+Left` / `Alt+Right` (+`Shift` to extend) — move by word
- */
-export function matchComposerEditingCommand(e: {
-  key: string;
-  ctrlKey: boolean;
-  altKey: boolean;
-  shiftKey: boolean;
-  metaKey: boolean;
-}): ComposerEditingCommand | null {
-  const key = e.key.toLowerCase();
-  if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && key === 'y') return 'yank';
-  if (e.altKey && !e.ctrlKey && !e.metaKey && key === 'd') return 'kill-word-right';
-  if (e.altKey && !e.ctrlKey && !e.metaKey && key === 'backspace') return 'kill-word-left';
-  if (e.altKey && !e.ctrlKey && !e.metaKey && key === 'arrowleft') {
-    return e.shiftKey ? 'select-word-left' : 'word-left';
-  }
-  if (e.altKey && !e.ctrlKey && !e.metaKey && key === 'arrowright') {
-    return e.shiftKey ? 'select-word-right' : 'word-right';
-  }
-  return null;
+export type ComposerEditingAction =
+  | 'composer.word-left'
+  | 'composer.word-right'
+  | 'composer.select-word-left'
+  | 'composer.select-word-right'
+  | 'composer.kill-word-left'
+  | 'composer.kill-word-right'
+  | 'composer.yank'
+  | 'composer.undo-edit';
+
+export const COMPOSER_EDITING_ACTIONS: readonly ComposerEditingAction[] = [
+  'composer.word-left',
+  'composer.word-right',
+  'composer.select-word-left',
+  'composer.select-word-right',
+  'composer.kill-word-left',
+  'composer.kill-word-right',
+  'composer.yank',
+  'composer.undo-edit',
+];
+
+const ACTION_TO_COMMAND: Record<ComposerEditingAction, ComposerEditingCommand> = {
+  'composer.word-left': 'word-left',
+  'composer.word-right': 'word-right',
+  'composer.select-word-left': 'select-word-left',
+  'composer.select-word-right': 'select-word-right',
+  'composer.kill-word-left': 'kill-word-left',
+  'composer.kill-word-right': 'kill-word-right',
+  'composer.yank': 'yank',
+  'composer.undo-edit': 'undo',
+};
+
+export function composerEditingCommandForAction(actionId: string): ComposerEditingCommand | null {
+  return ACTION_TO_COMMAND[actionId as ComposerEditingAction] ?? null;
 }
 
 /**
@@ -180,6 +231,7 @@ export function applyComposerEditingCommand(
     case 'kill-word-left': return killWord(state, 'left', ring);
     case 'kill-word-right': return killWord(state, 'right', ring);
     case 'yank': return yank(state, ring);
+    case 'undo': return state;
   }
 }
 
@@ -190,30 +242,49 @@ export interface ComposerEditingResult {
   readonly changed: boolean;
 }
 
-/**
- * Apply a keyboard event to a real `<textarea>` if it is a composer editing
- * command: reads the textarea's current value+selection, runs the matching
- * primitive, and writes the result back (value + selection). Returns whether it
- * was handled and whether the text changed so the component can sync its state
- * signal / resize. Kept here (not in the component) so it is unit-testable with
- * a plain jsdom textarea.
- */
-export function applyEditingToTextarea(
-  textarea: HTMLTextAreaElement,
-  event: { key: string; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; metaKey: boolean },
-  ring: KillRing,
-): ComposerEditingResult {
-  const command = matchComposerEditingCommand(event);
-  if (!command) return { handled: false, changed: false };
-  const before: TextareaEditState = {
+function textareaState(textarea: HTMLTextAreaElement): TextareaEditState {
+  return {
     text: textarea.value,
     selectionStart: textarea.selectionStart ?? textarea.value.length,
     selectionEnd: textarea.selectionEnd ?? textarea.value.length,
   };
-  const after = applyComposerEditingCommand(command, before, ring);
+}
+
+function applyStateToTextarea(textarea: HTMLTextAreaElement, before: TextareaEditState, after: TextareaEditState): boolean {
   const changed = after.text !== before.text;
   if (changed) textarea.value = after.text;
   textarea.setSelectionRange(after.selectionStart, after.selectionEnd);
+  return changed;
+}
+
+function undoKindForCommand(command: ComposerEditingCommand): ComposerUndoKind | null {
+  if (command === 'kill-word-left' || command === 'kill-word-right') return 'kill';
+  if (command === 'yank') return 'insert';
+  return null;
+}
+
+export function applyComposerEditingActionToTextarea(
+  textarea: HTMLTextAreaElement,
+  actionId: string,
+  ring: KillRing,
+  undoStack?: ComposerUndoStack,
+): ComposerEditingResult {
+  const command = composerEditingCommandForAction(actionId);
+  if (!command) return { handled: false, changed: false };
+  const before = textareaState(textarea);
+
+  if (command === 'undo') {
+    const restored = undoStack?.undo();
+    if (!restored) return { handled: true, changed: false };
+    return { handled: true, changed: applyStateToTextarea(textarea, before, restored) };
+  }
+
+  const after = applyComposerEditingCommand(command, before, ring);
+  const changed = applyStateToTextarea(textarea, before, after);
+  const undoKind = undoKindForCommand(command);
+  if (changed && undoKind) {
+    undoStack?.push(before, after, undoKind);
+  }
   return { handled: true, changed };
 }
 

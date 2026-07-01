@@ -33,26 +33,30 @@ vi.mock('../../../logging/logger', () => ({
   getLogger: () => ({ warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
-import { getKnownModelsForCli, requiresFreshAcpModelSpawn } from '../create-validation-helpers';
+import { getKnownModelsForCli, requiresFreshConfiguredModelSpawn } from '../create-validation-helpers';
 
-describe('requiresFreshAcpModelSpawn', () => {
-  it('requires a fresh spawn for an explicit cursor/copilot model (warm process runs the default)', () => {
-    expect(requiresFreshAcpModelSpawn('cursor', 'composer-2.5')).toBe(true);
-    expect(requiresFreshAcpModelSpawn('cursor', 'gpt-5.3-codex')).toBe(true);
-    expect(requiresFreshAcpModelSpawn('copilot', 'claude-opus-4.8')).toBe(true);
+describe('requiresFreshConfiguredModelSpawn', () => {
+  it('requires a fresh spawn for an explicit Cursor/Copilot model (warm process runs the default)', () => {
+    expect(requiresFreshConfiguredModelSpawn('cursor', 'composer-2.5')).toBe(true);
+    expect(requiresFreshConfiguredModelSpawn('cursor', 'gpt-5.3-codex')).toBe(true);
+    expect(requiresFreshConfiguredModelSpawn('copilot', 'claude-opus-4.8')).toBe(true);
+  });
+
+  it('requires a fresh spawn for an explicit Antigravity model', () => {
+    expect(requiresFreshConfiguredModelSpawn('antigravity', 'Gemini 3.1 Pro (High)')).toBe(true);
   });
 
   it('allows warm-start for the auto sentinel / unset model', () => {
-    expect(requiresFreshAcpModelSpawn('cursor', 'auto')).toBe(false);
-    expect(requiresFreshAcpModelSpawn('cursor', 'AUTO')).toBe(false);
-    expect(requiresFreshAcpModelSpawn('cursor', undefined)).toBe(false);
-    expect(requiresFreshAcpModelSpawn('cursor', '   ')).toBe(false);
+    expect(requiresFreshConfiguredModelSpawn('cursor', 'auto')).toBe(false);
+    expect(requiresFreshConfiguredModelSpawn('cursor', 'AUTO')).toBe(false);
+    expect(requiresFreshConfiguredModelSpawn('cursor', undefined)).toBe(false);
+    expect(requiresFreshConfiguredModelSpawn('cursor', '   ')).toBe(false);
   });
 
-  it('never blocks warm-start for non-ACP-model providers', () => {
-    expect(requiresFreshAcpModelSpawn('claude', 'opus')).toBe(false);
-    expect(requiresFreshAcpModelSpawn('codex', 'gpt-5.5')).toBe(false);
-    expect(requiresFreshAcpModelSpawn('gemini', 'gemini-3.1-pro')).toBe(false);
+  it('never blocks warm-start for providers whose model can be applied after prewarm', () => {
+    expect(requiresFreshConfiguredModelSpawn('claude', 'opus')).toBe(false);
+    expect(requiresFreshConfiguredModelSpawn('codex', 'gpt-5.5')).toBe(false);
+    expect(requiresFreshConfiguredModelSpawn('gemini', 'gemini-3.1-pro')).toBe(false);
   });
 });
 

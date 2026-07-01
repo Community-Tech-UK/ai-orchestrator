@@ -1,14 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+const mockLogger = vi.hoisted(() => ({
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}));
+
 // ─── Module mocks ─────────────────────────────────────────────────────────────
 
 vi.mock('../../logging/logger', () => ({
-  getLogger: vi.fn(() => ({
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  })),
+  getLogger: vi.fn(() => mockLogger),
 }));
 
 vi.mock('../auxiliary-model-client', () => ({
@@ -33,13 +35,13 @@ interface MockWorkerNode {
   name: string;
   status: string;
   capabilities: {
-    localModelEndpoints?: Array<{
+    localModelEndpoints?: {
       provider: 'ollama' | 'openai-compatible';
       baseUrl: string;
       models: string[];
-      loadedModels?: Array<{ id: string; contextLength: number }>;
+      loadedModels?: { id: string; contextLength: number }[];
       healthy: boolean;
-    }>;
+    }[];
   };
 }
 const remoteState: {
@@ -145,7 +147,7 @@ describe('AuxiliaryLlmService — disabled service', () => {
     service.configure(baseSettings({ auxiliaryLlmRoutingMode: 'off' }));
     const mocks = await getMocks();
 
-    const { text, decision } = await service.generate('titleGeneration', 'sys', 'user');
+    const { decision } = await service.generate('titleGeneration', 'sys', 'user');
 
     expect(decision.source).toBe('fallback');
     expect(mocks.probeOllama).not.toHaveBeenCalled();
@@ -250,10 +252,17 @@ describe('AuxiliaryLlmService — local-first routing', () => {
 });
 
 describe('AuxiliaryLlmService — manual-only routing', () => {
+  const OLD_ENV = { ...process.env };
+
   beforeEach(async () => {
     vi.clearAllMocks();
+    process.env = { ...OLD_ENV };
     const { AuxiliaryLlmService } = await import('../auxiliary-llm-service');
     AuxiliaryLlmService._resetForTesting();
+  });
+
+  afterEach(() => {
+    process.env = { ...OLD_ENV };
   });
 
   it('returns fallback when no explicit endpointId/model is configured', async () => {
@@ -309,6 +318,115 @@ describe('AuxiliaryLlmService — manual-only routing', () => {
 
     expect(text).toBe('manual ok');
     expect(decision.model).toBe('model-b');
+  });
+
+  it('normalizes raw apiKeyCommand strings into trusted command resolver expressions', async () => {
+    const { normalizeApiKeyCommandForResolution } = await import('../auxiliary-api-key-resolver');
+
+    expect(normalizeApiKeyCommandForResolution('security find-generic-password -w -s aio')).toBe(
+      '${cmd:security find-generic-password -w -s aio}',
+    );
+    expect(normalizeApiKeyCommandForResolution('${file:/Users/me/.config/aio/openai-key}')).toBe(
+      '${file:/Users/me/.config/aio/openai-key}',
+    );
+  });
+
+  it('uses apiKeyEnv before apiKeyCommand when the environment variable resolves', async () => {
+    process.env.AIO_AUX_ENV_KEY = 'env-secret';
+    process.env.AIO_AUX_COMMAND_KEY = 'command-secret';
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOpenAi.mockResolvedValue(true);
+    mocks.listOpenAi.mockResolvedValue([
+      { id: 'model-b', name: 'model-b', provider: 'openai-compatible', endpointId: 'ep1' },
+    ]);
+    mocks.generateOpenAi.mockResolvedValue('manual ok');
+    service.configure(baseSettings({
+      auxiliaryLlmRoutingMode: 'manual-only',
+      auxiliaryLlmEndpointsJson: JSON.stringify([{
+        id: 'ep1',
+        label: 'Manual',
+        provider: 'openai-compatible',
+        baseUrl: 'http://localhost:9999',
+        source: 'manual',
+        enabled: true,
+        apiKeyEnv: 'AIO_AUX_ENV_KEY',
+        apiKeyCommand: '${env:AIO_AUX_COMMAND_KEY}',
+      }]),
+      auxiliaryLlmSlotsJson: JSON.stringify({
+        compression: { enabled: true, provider: 'auto', endpointId: 'ep1', model: 'model-b', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: false },
+      }),
+    }));
+
+    await service.generate('compression', 'sys', 'user');
+
+    expect(mocks.probeOpenAi).toHaveBeenCalledWith('http://localhost:9999', 'env-secret', expect.any(Number));
+    expect(mocks.listOpenAi).toHaveBeenCalledWith('http://localhost:9999', 'env-secret', expect.any(Number));
+    expect(mocks.generateOpenAi).toHaveBeenCalledWith('http://localhost:9999', 'env-secret', expect.any(Object));
+  });
+
+  it('falls through to apiKeyCommand when apiKeyEnv is configured but unset', async () => {
+    process.env.AIO_AUX_COMMAND_KEY = 'command-secret';
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOpenAi.mockResolvedValue(true);
+    mocks.listOpenAi.mockResolvedValue([
+      { id: 'model-b', name: 'model-b', provider: 'openai-compatible', endpointId: 'ep1' },
+    ]);
+    mocks.generateOpenAi.mockResolvedValue('manual ok');
+    service.configure(baseSettings({
+      auxiliaryLlmRoutingMode: 'manual-only',
+      auxiliaryLlmEndpointsJson: JSON.stringify([{
+        id: 'ep1',
+        label: 'Manual',
+        provider: 'openai-compatible',
+        baseUrl: 'http://localhost:9999',
+        source: 'manual',
+        enabled: true,
+        apiKeyEnv: 'AIO_AUX_MISSING_KEY',
+        apiKeyCommand: '${env:AIO_AUX_COMMAND_KEY}',
+      }]),
+      auxiliaryLlmSlotsJson: JSON.stringify({
+        compression: { enabled: true, provider: 'auto', endpointId: 'ep1', model: 'model-b', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: false },
+      }),
+    }));
+
+    await service.generate('compression', 'sys', 'user');
+
+    expect(mocks.probeOpenAi).toHaveBeenCalledWith('http://localhost:9999', 'command-secret', expect.any(Number));
+    expect(mocks.listOpenAi).toHaveBeenCalledWith('http://localhost:9999', 'command-secret', expect.any(Number));
+    expect(mocks.generateOpenAi).toHaveBeenCalledWith('http://localhost:9999', 'command-secret', expect.any(Object));
+  });
+
+  it('does not log the resolved apiKeyCommand value', async () => {
+    process.env.AIO_AUX_COMMAND_KEY = 'command-secret-never-log';
+    const service = await getService();
+    const mocks = await getMocks();
+    mocks.probeOpenAi.mockResolvedValue(true);
+    mocks.listOpenAi.mockResolvedValue([
+      { id: 'model-b', name: 'model-b', provider: 'openai-compatible', endpointId: 'ep1' },
+    ]);
+    mocks.generateOpenAi.mockResolvedValue('manual ok');
+    service.configure(baseSettings({
+      auxiliaryLlmRoutingMode: 'manual-only',
+      auxiliaryLlmEndpointsJson: JSON.stringify([{
+        id: 'ep1',
+        label: 'Manual',
+        provider: 'openai-compatible',
+        baseUrl: 'http://localhost:9999',
+        source: 'manual',
+        enabled: true,
+        apiKeyCommand: '${env:AIO_AUX_COMMAND_KEY}',
+      }]),
+      auxiliaryLlmSlotsJson: JSON.stringify({
+        compression: { enabled: true, provider: 'auto', endpointId: 'ep1', model: 'model-b', maxInputTokens: 96000, maxOutputTokens: 4096, temperature: 0.2, timeoutMs: 60000, requireJson: false, allowFrontierFallback: false },
+      }),
+    }));
+
+    await service.generate('compression', 'sys', 'user');
+
+    const loggerCalls = Object.values(mockLogger).flatMap((fn) => fn.mock.calls);
+    expect(JSON.stringify(loggerCalls)).not.toContain('command-secret-never-log');
   });
 });
 

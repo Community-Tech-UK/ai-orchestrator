@@ -24,6 +24,13 @@ Workspace SDK for authoring AI Orchestrator extensions.
   - `ProviderStatus`
   - `ProviderSessionOptions`
   - `ProviderAttachment`
+- `provider-adapter`
+  - `ProviderAdapter`
+  - `ProviderAdapterCapabilities`
+- `provider-adapter-registry`
+  - `PluginProviderAdapterDescriptor`
+  - `ProviderAdapterPluginApi`
+  - `PluginProviderAdapterFactory`
 
 ## Tool Example
 
@@ -53,6 +60,108 @@ const plugin: SdkPluginModule = (_ctx) => ({
 
 export = plugin;
 ```
+
+## Provider Adapter Plugin Manifest
+
+Provider adapter plugins must run in worker isolation and register their adapter
+through the worker context before the plugin reports ready.
+
+Minimum `plugin.json`:
+
+```json
+{
+  "name": "acme-cli-provider",
+  "version": "1.0.0",
+  "slot": "provider",
+  "isolation": "worker",
+  "capabilities": ["spawn.process"]
+}
+```
+
+Use `capabilities: ["network"]` for API-only adapters, and add
+`filesystem.read` or `filesystem.write` only when the adapter actually needs
+workspace file access. Plugin provider ids must use the `plugin:` namespace,
+for example `plugin:acme-cli`; built-in ids such as `claude`, `codex`, and
+`gemini` are reserved.
+
+```ts
+import { EMPTY } from 'rxjs';
+import type {
+  PluginProviderAdapterDescriptor,
+  ProviderAdapter,
+  ProviderAdapterPluginApi,
+  ProviderConfig,
+  SdkPluginContext,
+} from '@ai-orchestrator/sdk';
+
+type ProviderPluginContext = SdkPluginContext & {
+  providerAdapters: ProviderAdapterPluginApi;
+};
+
+const descriptor: PluginProviderAdapterDescriptor = {
+  provider: 'plugin:acme-cli',
+  displayName: 'Acme CLI',
+  isolation: 'worker',
+  capabilities: {
+    interruption: true,
+    permissionPrompts: false,
+    sessionResume: true,
+    streamingOutput: true,
+    usageReporting: true,
+    subAgents: false,
+  },
+  defaultConfig: {
+    type: 'plugin:acme-cli',
+    name: 'Acme CLI',
+    enabled: true,
+    defaultModel: 'acme-default',
+  },
+};
+
+function createAcmeAdapter(config: ProviderConfig): ProviderAdapter {
+  return {
+    provider: 'plugin:acme-cli',
+    capabilities: descriptor.capabilities,
+    events$: EMPTY,
+    getCapabilities: () => ({
+      toolExecution: true,
+      streaming: true,
+      multiTurn: true,
+      vision: false,
+      fileAttachments: true,
+      functionCalling: true,
+      builtInCodeTools: false,
+    }),
+    checkStatus: async () => ({
+      type: 'plugin:acme-cli',
+      available: true,
+      authenticated: true,
+      models: config.models,
+    }),
+    initialize: async () => undefined,
+    sendMessage: async () => undefined,
+    terminate: async () => undefined,
+    getUsage: () => null,
+    getPid: () => null,
+    isRunning: () => false,
+    getSessionId: () => '',
+  };
+}
+
+export = (ctx: ProviderPluginContext) => {
+  ctx.providerAdapters.registerProviderAdapterFactory('factory:acme-cli', createAcmeAdapter);
+  ctx.providerAdapters.registerProviderAdapter(descriptor, 'factory:acme-cli');
+
+  return {
+    slot: 'provider' as const,
+    create: () => ({}),
+  };
+};
+```
+
+Only registrations that have a live worker bridge are surfaced in provider
+lists and Doctor health checks. Descriptor-only registrations are kept internal
+until the host bridge succeeds.
 
 ## Notifier Plugin Example
 

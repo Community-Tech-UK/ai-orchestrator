@@ -201,6 +201,25 @@ describe('defaultLoopContextSurvivalManager', () => {
       expect(decision.rehydrate).not.toContain(path.join(cwd, 'src', 'over-cap.ts'));
     });
 
+    it('includes recently read files in post-reset rehydration candidates', async () => {
+      cwd = await fsp.mkdtemp(path.join(os.tmpdir(), 'aio-loop-survival-'));
+      const state = makeState('loop-rehydrate-read-1', cwd);
+      const tasksPath = resolveLoopArtifactPaths(cwd, state.id).tasks;
+      await fsp.mkdir(path.dirname(tasksPath), { recursive: true });
+      await fsp.writeFile(tasksPath, '- [ ] one\n', 'utf8');
+
+      const decision = await defaultLoopContextSurvivalManager.onIterationSealed({
+        state,
+        iteration: makeIteration(400),
+        childResult: {
+          ...makeReset(400),
+          filesRead: ['src/input.ts'],
+        },
+      });
+
+      expect(decision.rehydrate).toContain(path.join(cwd, 'src', 'input.ts'));
+    });
+
     it('does not set rehydrate when no context reset happened this iteration', async () => {
       cwd = await fsp.mkdtemp(path.join(os.tmpdir(), 'aio-loop-survival-'));
       const state = makeState('loop-rehydrate-2', cwd);

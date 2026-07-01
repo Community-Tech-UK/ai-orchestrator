@@ -21,6 +21,19 @@ describe('ProviderRuntimeEventEnvelope shape', () => {
     expectTypeOf(env.provider).toEqualTypeOf<ProviderName>();
   });
 
+  it('allows plugin provider names in runtime envelopes', () => {
+    const env: ProviderRuntimeEventEnvelope = {
+      eventId: 'a1b2c3d4-e5f6-7890-abcd-ef0123456789',
+      seq: 0,
+      timestamp: 1713340800000,
+      provider: 'plugin:acme-cli',
+      instanceId: 'i-1',
+      event: { kind: 'status', status: 'busy' },
+    };
+
+    expectTypeOf(env.provider).toEqualTypeOf<ProviderName>();
+  });
+
   it('supports rich output payloads', () => {
     const output: ProviderOutputEvent = {
       kind: 'output',

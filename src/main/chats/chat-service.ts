@@ -38,7 +38,8 @@ export type { ChatServiceConfig, ChatSystemEventInput } from './chat-service.typ
 import { ChatTranscriptBridge, createUserLedgerMessage } from './chat-transcript-bridge';
 import { ChatUiStateStore } from './chat-ui-state-store';
 import { ChatSessionBindingStore, evaluateLineage } from './chat-session-binding-store';
-import { buildLedgerRebuildPreamble, maybeProduceCheckpoint } from './chat-continuity';
+import { buildLedgerRebuildPreamble, isRebuildContextTurn, maybeProduceCheckpoint } from './chat-continuity';
+import { ChatBranchSummaryScheduler } from './chat-branch-summary';
 
 const logger = getLogger('ChatService');
 const CHAT_DETAIL_MESSAGE_LIMIT = 200;
@@ -53,6 +54,7 @@ export class ChatService {
   private readonly uiStateStore: ChatUiStateStore;
   private readonly bridge: ChatTranscriptBridge;
   private readonly sessionBindingStore: ChatSessionBindingStore;
+  private readonly branchSummaryScheduler: ChatBranchSummaryScheduler;
   private initialized = false;
   private migrationDone: Promise<void> = Promise.resolve();
 
@@ -97,6 +99,30 @@ export class ChatService {
     this.store = new ChatStore(db);
     this.uiStateStore = new ChatUiStateStore(db);
     this.sessionBindingStore = new ChatSessionBindingStore(db);
+    this.branchSummaryScheduler = new ChatBranchSummaryScheduler({
+      ledger: this.ledger,
+      getChat: (chatId) => this.store.get(chatId),
+      appendSummaryEvent: async (event) => {
+        await this.appendSystemEvent({
+          chatId: event.chatId,
+          nativeMessageId: event.nativeMessageId,
+          nativeTurnId: event.nativeTurnId,
+          phase: 'branch_summary',
+          role: 'system',
+          content: event.content,
+          metadata: event.metadata,
+        });
+      },
+      markNeedsRebuild: (chatId) => this.sessionBindingStore.markNeedsRebuild(chatId),
+      summarizer: config.branchSummarizer,
+      onError: (error, fromChatId, toChatId) => {
+        logger.warn('Branch summary generation failed', {
+          fromChatId,
+          toChatId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+    });
     this.bridge = new ChatTranscriptBridge({
       ledger: this.ledger,
       chatStore: this.store,
@@ -144,8 +170,15 @@ export class ChatService {
 
   setUiState(input: Pick<ChatUiState, 'selectedChatId' | 'openChatIds'>): ChatUiState {
     this.initialize();
+    const previousSelectedChatId = this.getUiState().selectedChatId;
     this.uiStateStore.set(input);
-    return this.getUiState();
+    const state = this.getUiState();
+    this.branchSummaryScheduler.queue(previousSelectedChatId, state.selectedChatId);
+    return state;
+  }
+
+  async drainBranchSummariesForTesting(): Promise<void> {
+    await this.branchSummaryScheduler.drainForTesting();
   }
 
   async getChat(chatId: string): Promise<ChatDetail> {
@@ -170,9 +203,11 @@ export class ChatService {
     this.initialize();
     const id = randomUUID();
     const name = normalizeChatName(input.name);
+    const parentConversationId = input.parentChatId ? this.requireChat(input.parentChatId).ledgerThreadId : null;
     const thread = await this.ledger.startConversation({
       provider: 'orchestrator',
       workspacePath: input.currentCwd,
+      parentConversationId,
       title: name,
       metadata: {
         chatId: id,
@@ -600,7 +635,7 @@ export class ChatService {
     }
     const currentSequence = messages[messages.length - 1]?.sequence ?? Number.MAX_SAFE_INTEGER;
     const priorTurns = messages.slice(0, -1);
-    if (!priorTurns.some((m) => m.role === 'user' || m.role === 'assistant')) {
+    if (!priorTurns.some(isRebuildContextTurn)) {
       return; // brand-new chat (or only system events) — nothing to replay.
     }
     const preamble = await buildLedgerRebuildPreamble(

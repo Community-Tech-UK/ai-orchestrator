@@ -24,10 +24,13 @@ export interface LoopChildResult {
   tokens: number;
   costUsd?: number;
   filesChanged: LoopFileChange[];
+  filesRead?: string[];
   toolCalls: LoopToolCallRecord[];
   errors: LoopErrorRecord[];
   testPassCount: number | null;
   testFailCount: number | null;
+  finishReason?: string;
+  unresolvedToolCalls?: boolean;
   exitedCleanly: boolean;
   contextCompacted?: { previousUtilization: number; newUtilization: number; reason: string };
   /** A3: adapter-layer degraded classification, when the feature flag was on. */
@@ -40,6 +43,20 @@ export interface LoopChildResult {
    */
   transcriptBound?: boolean;
 }
+
+export interface LoopChildInvocationError {
+  error: string;
+  status?: number;
+  statusCode?: number;
+  code?: string | number;
+  headers?: Record<string, string | readonly string[] | undefined>;
+  body?: unknown;
+  provider?: string;
+  model?: string;
+  instanceId?: string;
+}
+
+export type LoopChildInvocationCallbackResult = LoopChildResult | LoopChildInvocationError;
 
 export interface PauseGate {
   resolve: () => void;

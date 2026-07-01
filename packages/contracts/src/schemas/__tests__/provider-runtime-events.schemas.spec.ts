@@ -60,6 +60,15 @@ describe('ProviderRuntimeEventEnvelopeSchema', () => {
     expect(() => ProviderRuntimeEventEnvelopeSchema.parse({ ...baseEnv, provider: 'ollama' })).toThrow();
   });
 
+  it('parses namespaced plugin provider envelopes', () => {
+    expect(() =>
+      ProviderRuntimeEventEnvelopeSchema.parse({
+        ...baseEnv,
+        provider: 'plugin:acme-cli',
+      })
+    ).not.toThrow();
+  });
+
   it('rejects an unknown event.kind', () => {
     expect(() =>
       ProviderRuntimeEventEnvelopeSchema.parse({ ...baseEnv, event: { kind: 'nope' } })

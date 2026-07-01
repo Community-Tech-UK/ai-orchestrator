@@ -4,17 +4,14 @@ import {
   moveByWord,
   killWord,
   yank,
+  ComposerUndoStack,
   nextWordBoundary,
   prevWordBoundary,
-  matchComposerEditingCommand,
+  composerEditingCommandForAction,
   applyComposerEditingCommand,
-  applyEditingToTextarea,
+  applyComposerEditingActionToTextarea,
   type TextareaEditState,
 } from './composer-editing';
-
-function keyEvent(over: Partial<{ key: string; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; metaKey: boolean }>) {
-  return { key: '', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...over };
-}
 
 function state(text: string, start: number, end = start): TextareaEditState {
   return { text, selectionStart: start, selectionEnd: end };
@@ -144,19 +141,13 @@ describe('yank', () => {
   });
 });
 
-describe('matchComposerEditingCommand', () => {
-  it('maps the emacs-style editing chords', () => {
-    expect(matchComposerEditingCommand(keyEvent({ key: 'y', ctrlKey: true }))).toBe('yank');
-    expect(matchComposerEditingCommand(keyEvent({ key: 'd', altKey: true }))).toBe('kill-word-right');
-    expect(matchComposerEditingCommand(keyEvent({ key: 'Backspace', altKey: true }))).toBe('kill-word-left');
-    expect(matchComposerEditingCommand(keyEvent({ key: 'ArrowLeft', altKey: true }))).toBe('word-left');
-    expect(matchComposerEditingCommand(keyEvent({ key: 'ArrowRight', altKey: true, shiftKey: true }))).toBe('select-word-right');
-  });
-
-  it('does not match plain typing or unrelated chords', () => {
-    expect(matchComposerEditingCommand(keyEvent({ key: 'a' }))).toBeNull();
-    expect(matchComposerEditingCommand(keyEvent({ key: 'y', metaKey: true }))).toBeNull();
-    expect(matchComposerEditingCommand(keyEvent({ key: 'r', ctrlKey: true }))).toBeNull();
+describe('composer keybinding actions', () => {
+  it('maps remappable keybinding action ids to editing commands', () => {
+    expect(composerEditingCommandForAction('composer.kill-word-left')).toBe('kill-word-left');
+    expect(composerEditingCommandForAction('composer.kill-word-right')).toBe('kill-word-right');
+    expect(composerEditingCommandForAction('composer.yank')).toBe('yank');
+    expect(composerEditingCommandForAction('composer.undo-edit')).toBe('undo');
+    expect(composerEditingCommandForAction('send-message')).toBeNull();
   });
 
   it('applyComposerEditingCommand dispatches to the right primitive', () => {
@@ -169,7 +160,28 @@ describe('matchComposerEditingCommand', () => {
   });
 });
 
-describe('applyEditingToTextarea (jsdom integration)', () => {
+describe('ComposerUndoStack', () => {
+  it('coalesces adjacent explicit insertions into one undo entry', () => {
+    const undo = new ComposerUndoStack();
+    undo.push(state('', 0), state('a', 1), 'insert');
+    undo.push(state('a', 1), state('ab', 2), 'insert');
+
+    expect(undo.length).toBe(1);
+    expect(undo.undo()).toEqual(state('', 0));
+    expect(undo.length).toBe(0);
+  });
+
+  it('coalesces adjacent explicit kills into one undo entry', () => {
+    const undo = new ComposerUndoStack();
+    undo.push(state('alpha beta gamma', 11), state('alpha gamma', 6), 'kill');
+    undo.push(state('alpha gamma', 6), state('gamma', 0), 'kill');
+
+    expect(undo.length).toBe(1);
+    expect(undo.undo()).toEqual(state('alpha beta gamma', 11));
+  });
+});
+
+describe('applyComposerEditingActionToTextarea (jsdom integration)', () => {
   function makeTextarea(value: string, caret: number): HTMLTextAreaElement {
     const el = document.createElement('textarea');
     el.value = value;
@@ -177,25 +189,10 @@ describe('applyEditingToTextarea (jsdom integration)', () => {
     return el;
   }
 
-  it('kills a word and yanks it back through a real textarea + kill ring', () => {
-    const ring = new KillRing();
-    const el = makeTextarea('alpha beta', 0);
-
-    const killed = applyEditingToTextarea(el, keyEvent({ key: 'd', altKey: true }), ring);
-    expect(killed).toEqual({ handled: true, changed: true });
-    expect(el.value).toBe(' beta');
-
-    // Move caret to end and yank the killed word back.
-    el.setSelectionRange(el.value.length, el.value.length);
-    const yanked = applyEditingToTextarea(el, keyEvent({ key: 'y', ctrlKey: true }), ring);
-    expect(yanked).toEqual({ handled: true, changed: true });
-    expect(el.value).toBe(' betaalpha');
-  });
-
-  it('reports not-handled for a non-editing key and leaves the textarea untouched', () => {
+  it('reports not-handled for a non-editing action and leaves the textarea untouched', () => {
     const ring = new KillRing();
     const el = makeTextarea('hello', 2);
-    const result = applyEditingToTextarea(el, keyEvent({ key: 'a' }), ring);
+    const result = applyComposerEditingActionToTextarea(el, 'send-message', ring);
     expect(result.handled).toBe(false);
     expect(el.value).toBe('hello');
   });
@@ -203,9 +200,25 @@ describe('applyEditingToTextarea (jsdom integration)', () => {
   it('moves by word without changing the text', () => {
     const ring = new KillRing();
     const el = makeTextarea('one two', 0);
-    const result = applyEditingToTextarea(el, keyEvent({ key: 'ArrowRight', altKey: true }), ring);
+    const result = applyComposerEditingActionToTextarea(el, 'composer.word-right', ring);
     expect(result).toEqual({ handled: true, changed: false });
     expect(el.value).toBe('one two');
     expect(el.selectionStart).toBe(3);
+  });
+
+  it('applies editing actions from keybinding ids and supports explicit undo', () => {
+    const ring = new KillRing();
+    const undo = new ComposerUndoStack();
+    const el = makeTextarea('alpha beta', 0);
+
+    const killed = applyComposerEditingActionToTextarea(el, 'composer.kill-word-right', ring, undo);
+    expect(killed).toEqual({ handled: true, changed: true });
+    expect(el.value).toBe(' beta');
+    expect(undo.length).toBe(1);
+
+    const restored = applyComposerEditingActionToTextarea(el, 'composer.undo-edit', ring, undo);
+    expect(restored).toEqual({ handled: true, changed: true });
+    expect(el.value).toBe('alpha beta');
+    expect(el.selectionStart).toBe(0);
   });
 });

@@ -20,7 +20,6 @@ import type { CliMessage, CliResponse } from '../cli/adapters/base-cli-adapter';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { recordCostAttribution } from '../core/system/cost-attribution';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
-import { coerceToFailoverError } from '../core/failover-error';
 import { getDefaultModelForCli } from '../../shared/types/provider.types';
 import type { ProviderId, ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 import { getModelRouter, resolveRoutedModel } from '../routing';
@@ -41,6 +40,7 @@ import {
   WorkflowAgentInvocationPayloadSchema,
 } from '../../shared/types/orchestration-invocation.types';
 import type { z } from 'zod';
+import { buildLoopInvocationErrorPayload, logInvocationFailure } from './loop-invocation-error-payload';
 
 const logger = getLogger('DefaultInvokers');
 
@@ -270,7 +270,7 @@ async function invokeCliTextResponse(params: {
   activity?: (activity: LoopInvocationActivity) => void;
   onAdapterReady?: (adapter: CliAdapter) => (() => void) | void;
   cleanupAdapter?: (adapter: CliAdapter, graceful: boolean) => Promise<void>;
-}): Promise<ReturnType<typeof normalizeInvocationTextResult> & { costKnown: boolean; degradedReason?: DegradedReason }> {
+}): Promise<ReturnType<typeof normalizeInvocationTextResult> & { costKnown: boolean; degradedReason?: DegradedReason; finishReason?: string }> {
   const instance = params.instanceId
     ? params.instanceManager.getInstance(params.instanceId)
     : undefined;
@@ -449,45 +449,13 @@ async function invokeCliTextResponse(params: {
     costKnown: reportedCost !== null,
   });
 
+  const finishReason = extractFinishReasonFromResponse(response);
   return {
     ...normalized,
     costKnown: reportedCost !== null,
     ...(response.degradedReason ? { degradedReason: response.degradedReason } : {}),
+    ...(finishReason ? { finishReason } : {}),
   };
-}
-
-function logInvocationFailure(params: {
-  correlationId: string;
-  invocation: string;
-  error: unknown;
-  eventName?: string;
-  provider?: string;
-  model?: string;
-  instanceId?: string;
-}): string {
-  const failoverErr = coerceToFailoverError(params.error, {
-    provider: params.provider,
-    model: params.model,
-    instanceId: params.instanceId,
-  });
-  if (failoverErr) {
-    logger.warn(`${params.invocation} failed (classified)`, {
-      correlationId: params.correlationId,
-      eventName: params.eventName,
-      reason: failoverErr.reason,
-      retryable: failoverErr.retryable,
-    });
-  }
-
-  const message = params.error instanceof Error ? params.error.message : String(params.error);
-  logger.error(`${params.invocation} failed`, params.error instanceof Error ? params.error : undefined, {
-    correlationId: params.correlationId,
-    eventName: params.eventName,
-    provider: params.provider,
-    model: params.model,
-    instanceId: params.instanceId,
-  });
-  return message;
 }
 
 export function registerDefaultMultiVerifyInvoker(instanceManager: InstanceManager): void {
@@ -754,16 +722,16 @@ export function registerDefaultWorkflowInvoker(instanceManager: InstanceManager)
 // ─── Loop Mode invoker ─────────────────────────────────────────────────────
 
 import { spawnSync } from 'child_process';
-import { createHash } from 'crypto';
 import * as pathLoop from 'path';
 import { getLoopCoordinator } from './loop-coordinator';
 import { getProviderQuotaService } from '../core/system/provider-quota-service';
 import { registerLoopSafetyAdvisor } from './loop-safety-advisor';
-import type { LoopChildResult } from './loop-coordinator';
-import type { LoopErrorRecord, LoopProvider, LoopToolCallRecord } from '../../shared/types/loop.types';
+import type { LoopChildInvocationError, LoopChildResult } from './loop-coordinator';
+import type { LoopErrorRecord, LoopProvider } from '../../shared/types/loop.types';
 import { defaultLoopContextConfig, LOOP_DEFAULT_MAX_TURNS_PER_ITERATION } from '../../shared/types/loop.types';
 import { shouldRecycleLoopContext } from './loop-context-discipline';
 import { attachInvocationActivity, type LoopInvocationActivity, type LoopInvocationActivityKind } from './loop-invocation-activity';
+import { createLoopInvocationCapture, extractFinishReasonFromResponse } from './loop-invoker-capture';
 import {
   runBranchSelect,
   pickCandidateProvider,
@@ -844,6 +812,11 @@ function canBorrowParentLoopAdapter(loopProvider: LoopProvider, liveProvider: st
   // evicted independently of the visible chat, so Loop Mode should own its own
   // adapter/session instead of inheriting the parent chat's resume cursor.
   return loopProvider === 'claude' && liveProvider === 'claude';
+}
+
+function liveAdapterMatchesRequestedModel(currentModel: unknown, requestedModel: string | undefined): boolean {
+  if (!requestedModel || requestedModel === 'default') return true;
+  return typeof currentModel === 'string' && currentModel === requestedModel;
 }
 
 /**
@@ -997,9 +970,9 @@ export function buildLoopBranchSelectorDeps(instanceManager: InstanceManager): B
  * prompt is sent as a single user message; the response text is captured
  * along with token usage. File diffs are best-effort via git.
  *
- * Tool calls and structured error classification are not captured here in
- * v1 — those signals will be empty, which the progress detector handles
- * gracefully (it just doesn't fire G/E without data).
+ * Tool calls, result hashes, read paths, and finish metadata are captured from
+ * adapter activity while the turn is live; they cannot be reconstructed later
+ * from the sealed assistant text.
  */
 export function registerDefaultLoopInvoker(instanceManager: InstanceManager): void {
   const coordinator = getLoopCoordinator();
@@ -1013,6 +986,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   // map is keyed by loopRunId; entries are torn down when the coordinator
   // emits a terminal `loop:state-changed` for the matching run.
   const persistentLoopAdapters = new Map<string, unknown>();
+  const persistentLoopAdapterModels = new Map<string, string | undefined>();
   const activeLoopAdapters = new Map<string, Set<unknown>>();
   const terminatedAdapters = new WeakSet<object>();
   // LF-1: cumulative same-session tokens per loop, used to decide when to
@@ -1051,6 +1025,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   const recyclePersistentLoopAdapter = async (loopRunId: string): Promise<void> => {
     const adapter = persistentLoopAdapters.get(loopRunId);
     persistentLoopAdapters.delete(loopRunId);
+    persistentLoopAdapterModels.delete(loopRunId);
     loopContextTokens.delete(loopRunId);
     if (adapter) {
       const set = activeLoopAdapters.get(loopRunId);
@@ -1100,6 +1075,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     if (persistentAdapter) adapters.add(persistentAdapter);
     activeLoopAdapters.delete(loopRunId);
     persistentLoopAdapters.delete(loopRunId);
+    persistentLoopAdapterModels.delete(loopRunId);
     loopContextTokens.delete(loopRunId); // LF-1: drop cumulative-token tracking.
     if (adapters.size === 0) return Promise.resolve();
     const promise = Promise.allSettled(
@@ -1254,10 +1230,12 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         // Agentic-turn backstop per iteration; null disables, undefined → default.
         maxTurnsPerIteration?: number | null;
       };
-      callback: (result: LoopChildResult | { error: string }) => void;
+      callback: (result: LoopChildResult | LoopChildInvocationError) => void;
       // Forwarded from LoopConfig — overrides the invoker's defaults.
       iterationTimeoutMs?: number;
       streamIdleTimeoutMs?: number;
+      /** B6: provider/model context window learned from an overflow response. */
+      contextWindowTokens?: number;
       loopControlEnv?: Record<string, string>;
       // LF-4 RPI: recycle the same-session adapter before this iteration runs.
       forceContextReset?: boolean;
@@ -1267,14 +1245,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       logger.warn('loop:invoke-iteration payload missing callback');
       return;
     }
-    // FU-5: collect tool-use events from the adapter activity stream so
-    // LoopIteration.toolCalls reflects what the child actually did. The
-    // progress detector's G signal (tool-call repetition) was unable to
-    // fire before because this list was hardcoded to []. We capture
-    // tool name + a content-stable hash of the args + an approximate
-    // duration so the same call can be detected across iterations.
-    const toolCalls: LoopToolCallRecord[] = [];
-    const toolStarts = new Map<string, number>();
+    const workspaceDir = p.executionCwd ?? p.workspaceCwd;
+    const capture = createLoopInvocationCapture({ workspaceDir });
     // FU-1: when we see meaningful activity from the adapter's event
     // stream (tool use, assistant tokens, input_required), nudge the
     // adapter's stream-idle watchdog so it doesn't fire while the child
@@ -1287,6 +1259,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     const meaningfulKinds = new Set<LoopInvocationActivityKind>([
       'spawned',
       'tool_use',
+      'tool_result',
       'assistant',
       'input_required',
       'heartbeat',
@@ -1298,39 +1271,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     };
     const emitActivity = (activity: LoopInvocationActivity) => {
       if (meaningfulKinds.has(activity.kind)) nudgeAdapterIdle();
-      if (activity.kind === 'tool_use') {
-        const detail = activity.detail ?? {};
-        const toolName = typeof detail['name'] === 'string'
-          ? detail['name']
-          : activity.message.replace(/^Using tool:\s*/i, '');
-        const toolId = typeof detail['id'] === 'string' ? detail['id'] : null;
-        // Hash everything except identity-like fields so reruns with the
-        // same intent collapse to the same argsHash.
-        const argSource = (() => {
-          const copy: Record<string, unknown> = { ...detail };
-          delete copy['id'];
-          delete copy['name'];
-          delete copy['startedAt'];
-          delete copy['durationMs'];
-          try { return JSON.stringify(copy); } catch { return String(copy); }
-        })();
-        const argsHash = createHash('sha256').update(`${toolName}:${argSource}`).digest('hex').slice(0, 16);
-        if (toolId) toolStarts.set(toolId, Date.now());
-        toolCalls.push({ toolName: toolName || 'unknown', argsHash, success: true, durationMs: 0 });
-      } else if (activity.kind === 'complete' || activity.kind === 'error') {
-        // Approximate duration: distance from each tool start to the
-        // terminal event. Better than zero for the signal detectors.
-        const now = Date.now();
-        for (const [id, started] of toolStarts) {
-          for (let i = toolCalls.length - 1; i >= 0; i--) {
-            if (toolCalls[i].durationMs === 0) {
-              toolCalls[i] = { ...toolCalls[i], durationMs: now - started };
-              break;
-            }
-          }
-          toolStarts.delete(id);
-        }
-      }
+      capture.recordActivity(activity);
       coordinator.emit('loop:activity', {
         loopRunId: p.loopRunId,
         seq: p.seq,
@@ -1376,6 +1317,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       !(p.executionCwd && p.executionCwd !== p.workspaceCwd) &&
       liveAdapter &&
       canBorrowParentLoopAdapter(p.provider, liveInstance?.provider) &&
+      liveAdapterMatchesRequestedModel(liveInstance?.currentModel, p.model) &&
       isBaseCliAdapterLike(liveAdapter)
     ) {
       reusedAdapter = liveAdapter;
@@ -1396,10 +1338,34 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       emitActivity({ kind: 'status', message: 'Context reset for PLAN→IMPLEMENT (fresh session)' });
     }
     if (!reusedAdapter && sameSession) {
+      const persistentCliType = await resolveCliType(
+        p.provider as Parameters<typeof resolveCliType>[0],
+        getSettingsManager().getAll().defaultCli,
+      );
+      const persistentModel = resolveModelForInvocation({
+        cliType: persistentCliType,
+        requestedProvider: p.provider,
+        payloadModel: p.model,
+        prompt: p.prompt,
+        routingIntent: 'loop',
+      });
       const existing = persistentLoopAdapters.get(p.loopRunId);
       if (existing) {
-        reusedAdapter = existing;
-      } else {
+        const existingModelKnown = persistentLoopAdapterModels.has(p.loopRunId);
+        const existingModel = persistentLoopAdapterModels.get(p.loopRunId);
+        if (!existingModelKnown || existingModel !== persistentModel) {
+          await recyclePersistentLoopAdapter(p.loopRunId);
+          oneShotContextReset = true;
+          emitActivity({
+            kind: 'status',
+            message: `Context reset for model switch (${existingModel ?? 'default'} → ${persistentModel ?? 'default'})`,
+            detail: { previousModel: existingModel, nextModel: persistentModel },
+          });
+        } else {
+          reusedAdapter = existing;
+        }
+      }
+      if (!reusedAdapter) {
         // The first iteration creates the adapter. We let invokeCliTextResponse
         // do that the normal way, then capture the resulting adapter ref via
         // the breaker by routing through a small helper. Simpler approach:
@@ -1408,17 +1374,6 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         // iterations — previously this path hard-coded the house default
         // (Opus-1M), silently bypassing cost-tier routing for every
         // same-session loop.
-        const persistentCliType = await resolveCliType(
-          p.provider as Parameters<typeof resolveCliType>[0],
-          getSettingsManager().getAll().defaultCli,
-        );
-        const persistentModel = resolveModelForInvocation({
-          cliType: persistentCliType,
-          requestedProvider: p.provider,
-          payloadModel: p.model,
-          prompt: p.prompt,
-          routingIntent: 'loop',
-        });
         reusedAdapter = await createPersistentLoopAdapter({
           provider: p.provider,
           model: persistentModel,
@@ -1436,6 +1391,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         });
         if (reusedAdapter) {
           persistentLoopAdapters.set(p.loopRunId, reusedAdapter);
+          persistentLoopAdapterModels.set(p.loopRunId, persistentModel);
         }
       }
     }
@@ -1443,7 +1399,6 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     try {
       // When isolation is active, snapshot the worktree (executionCwd), not the
       // repo root — the agent edits the worktree and the diff must reflect that.
-      const workspaceDir = p.executionCwd ?? p.workspaceCwd;
       const workspaceBefore = snapshotWorkspaceFiles(workspaceDir);
       const result = await invokeCliTextResponse({
         instanceManager,
@@ -1538,16 +1493,20 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         ctxCompaction.clearToolResults,
         externalizeOptions,
       );
+      const captureSnapshot = capture.finalize({ finishReason: result.finishReason });
       const childResult: LoopChildResult = {
         childInstanceId: null,
         output: retainedOutput,
         tokens: result.tokens,
         ...(result.costKnown ? { costUsd: result.cost } : {}),
         filesChanged,
-        toolCalls,
+        filesRead: captureSnapshot.filesRead,
+        toolCalls: captureSnapshot.toolCalls,
         errors,
         testPassCount,
         testFailCount,
+        ...(captureSnapshot.finishReason ? { finishReason: captureSnapshot.finishReason } : {}),
+        unresolvedToolCalls: captureSnapshot.unresolvedToolCalls,
         exitedCleanly: true,
         ...(result.degradedReason ? { degradedReason: result.degradedReason } : {}),
         // When the chat's live adapter is borrowed, the iteration's assistant
@@ -1582,6 +1541,11 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
           enabled: ctxCfg.enabled,
           cumulativeTokens: cumulative,
           resetAtUtilization: ctxCfg.resetAtUtilization,
+          ...(typeof p.contextWindowTokens === 'number'
+            && Number.isFinite(p.contextWindowTokens)
+            && p.contextWindowTokens > 0
+            ? { windowTokens: p.contextWindowTokens }
+            : {}),
           ...(occupancy && occupancy.used > 0 && occupancy.total > 0
             ? { occupancyTokens: occupancy.used, occupancyWindowTokens: occupancy.total }
             : {}),
@@ -1638,13 +1602,14 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       }
       p.callback(childResult);
     } catch (err) {
-      const message = logInvocationFailure({
+      const failure = buildLoopInvocationErrorPayload({
         correlationId: p.correlationId,
         invocation: 'Loop iteration invocation',
         error: err,
         provider: p.provider,
+        model: p.model,
       });
-      p.callback({ error: message });
+      p.callback(failure);
     }
   });
 }

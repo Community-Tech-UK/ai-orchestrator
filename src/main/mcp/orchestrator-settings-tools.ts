@@ -21,7 +21,6 @@ import {
   type AppSettings,
 } from '../../shared/types/settings.types';
 import {
-  SETTINGS_TOOL_POLICY,
   assertReadableSetting,
   assertWritableSetting,
   coerceWritableSettingValue,
@@ -351,6 +350,7 @@ function inferCategory(key: keyof AppSettings): string {
     key.startsWith('codebase') ||
     key.startsWith('codemem') ||
     key.startsWith('projectKnowledge') ||
+    key === 'projectPluginTrust' ||
     key.startsWith('chromeDevtools') ||
     key === 'detectDegradedAdapterOutput' ||
     key === 'enableSpawnWorkerOffload'

@@ -9,11 +9,13 @@
  */
 
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
+import type { CliResponse, CliToolCall } from '../cli/adapters/base-cli-adapter.types';
 
 export type LoopInvocationActivityKind =
   | 'spawned'
   | 'status'
   | 'tool_use'
+  | 'tool_result'
   | 'assistant'
   | 'system'
   | 'input_required'
@@ -83,6 +85,12 @@ export function attachInvocationActivity(
   });
   listen('output', (output) => {
     sink(describeAdapterOutput(output));
+  });
+  listen('tool_use', (toolCall) => {
+    sink(describeToolEvent(toolCall, 'tool_use'));
+  });
+  listen('tool_result', (toolCall) => {
+    sink(describeToolEvent(toolCall, 'tool_result'));
   });
   listen('input_required', (payload) => {
     const data = isRecord(payload) ? payload : {};
@@ -158,6 +166,7 @@ export function attachInvocationActivity(
     const meta = isRecord(response) ? response : {};
     const usage = isRecord(meta['usage']) ? meta['usage'] : {};
     const metadata = isRecord(meta['metadata']) ? meta['metadata'] : {};
+    const finishReason = readFinishReason(response);
     sink({
       kind: 'complete',
       message: metadata['timedOut'] === true
@@ -167,6 +176,7 @@ export function attachInvocationActivity(
         tokens: typeof usage['totalTokens'] === 'number' ? usage['totalTokens'] : undefined,
         timedOut: metadata['timedOut'] === true ? true : undefined,
         timeoutMs: typeof metadata['timeoutMs'] === 'number' ? metadata['timeoutMs'] : undefined,
+        ...(finishReason ? { finishReason } : {}),
       },
     });
   });
@@ -194,24 +204,111 @@ function describeAdapterOutput(output: unknown): LoopInvocationActivity {
   const content = typeof output['content'] === 'string' ? output['content'] : '';
   const metadata = isRecord(output['metadata']) ? output['metadata'] : {};
   if (type === 'tool_use') {
-    const name = typeof metadata['name'] === 'string' ? metadata['name'] : undefined;
+    const tool = isRecord(output['tool']) ? output['tool'] : {};
+    const name = typeof metadata['name'] === 'string'
+      ? metadata['name']
+      : typeof tool['name'] === 'string'
+        ? tool['name']
+        : undefined;
+    const id = typeof metadata['id'] === 'string'
+      ? metadata['id']
+      : typeof tool['id'] === 'string'
+        ? tool['id']
+        : undefined;
+    const input = isRecord(metadata['input'])
+      ? metadata['input']
+      : isRecord(tool['input'])
+        ? tool['input']
+        : undefined;
     return {
       kind: 'tool_use',
       message: summarizeActivityText(name ? `Using tool: ${name}` : content || 'Using tool'),
-      detail: metadata,
+      detail: {
+        ...metadata,
+        ...(id ? { id } : {}),
+        ...(name ? { name } : {}),
+        ...(input ? { input } : {}),
+      },
+    };
+  }
+  if (type === 'tool_result') {
+    const id = typeof output['tool_use_id'] === 'string'
+      ? output['tool_use_id']
+      : typeof metadata['tool_use_id'] === 'string'
+        ? metadata['tool_use_id']
+        : typeof metadata['id'] === 'string'
+          ? metadata['id']
+          : undefined;
+    const name = typeof metadata['name'] === 'string' ? metadata['name'] : undefined;
+    const isError = output['is_error'] === true || metadata['is_error'] === true;
+    return {
+      kind: 'tool_result',
+      message: summarizeActivityText(name ? `Tool result: ${name}` : content || 'Tool result'),
+      detail: {
+        ...metadata,
+        ...(id ? { id } : {}),
+        ...(name ? { name } : {}),
+        result: content,
+        success: !isError,
+      },
     };
   }
   if (type === 'error') {
     return { kind: 'error', message: summarizeActivityText(content || 'CLI emitted an error'), detail: metadata };
   }
   if (type === 'assistant') {
-    return { kind: 'assistant', message: summarizeActivityText(content || 'Assistant output received'), detail: metadata };
+    const finishReason = readFinishReason(output);
+    return {
+      kind: 'assistant',
+      message: summarizeActivityText(content || 'Assistant output received'),
+      detail: { ...metadata, ...(finishReason ? { finishReason } : {}) },
+    };
+  }
+  if (type === 'result') {
+    const finishReason = readFinishReason(output);
+    return {
+      kind: 'complete',
+      message: summarizeActivityText(content || 'CLI response complete'),
+      detail: { ...metadata, ...(finishReason ? { finishReason } : {}) },
+    };
   }
   return {
     kind: 'system',
     message: summarizeActivityText(content || `CLI output: ${type}`),
     detail: metadata,
   };
+}
+
+function describeToolEvent(toolCall: unknown, kind: 'tool_use' | 'tool_result'): LoopInvocationActivity {
+  const call = isRecord(toolCall) ? toolCall as Partial<CliToolCall> & Record<string, unknown> : {};
+  const name = typeof call['name'] === 'string' ? call['name'] : 'unknown';
+  const id = typeof call['id'] === 'string' ? call['id'] : undefined;
+  const input = isRecord(call['arguments']) ? call['arguments'] : {};
+  const result = typeof call['result'] === 'string' ? call['result'] : undefined;
+  return {
+    kind,
+    message: summarizeActivityText(kind === 'tool_use' ? `Using tool: ${name}` : `Tool result: ${name}`),
+    detail: {
+      ...(id ? { id } : {}),
+      name,
+      input,
+      ...(result !== undefined ? { result } : {}),
+    },
+  };
+}
+
+function readFinishReason(value: unknown): string | undefined {
+  const direct = readString(value, 'finishReason') ?? readString(value, 'stopReason') ?? readString(value, 'stop_reason');
+  if (direct) return direct;
+  const response = value as Partial<CliResponse> | null | undefined;
+  const metadata = isRecord(response?.metadata) ? response.metadata : undefined;
+  return readString(metadata, 'finishReason') ?? readString(metadata, 'stopReason') ?? readString(metadata, 'stop_reason');
+}
+
+function readString(value: unknown, key: string): string | undefined {
+  if (!isRecord(value)) return undefined;
+  const child = value[key];
+  return typeof child === 'string' && child.trim() ? child : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -20,7 +20,22 @@
 // `gemini` is retained ONLY as a deprecated back-compat alias for persisted
 // data and older remote nodes; `antigravity` (the `agy` CLI) is the live
 // successor. New code paths should use `antigravity`.
-export type ProviderName = 'claude' | 'codex' | 'gemini' | 'antigravity' | 'copilot' | 'anthropic-api' | 'cursor';
+export type BuiltInProviderName =
+  | 'claude'
+  | 'codex'
+  | 'gemini'
+  | 'antigravity'
+  | 'copilot'
+  | 'anthropic-api'
+  | 'cursor';
+
+/**
+ * Worker-isolated plugin providers use a reserved namespace so they cannot
+ * collide with built-ins while still flowing through normalized runtime events.
+ */
+export type PluginProviderName = `plugin:${string}`;
+
+export type ProviderName = BuiltInProviderName | PluginProviderName;
 
 // ============================================
 // Event Kind Discriminator

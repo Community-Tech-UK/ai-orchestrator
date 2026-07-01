@@ -39,6 +39,7 @@ export interface ChatCreateInput {
   model?: string | null;
   reasoningEffort?: ReasoningEffort | null;
   currentCwd: string;
+  parentChatId?: string;
   yolo?: boolean;
 }
 

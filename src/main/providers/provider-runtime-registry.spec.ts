@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { DiagnosisResult, ProbeResult } from './provider-doctor';
-import { ProviderRuntimeRegistry } from './provider-runtime-registry';
+import { ProviderRuntimeRegistry, normalizeDiagnosisProvider } from './provider-runtime-registry';
 import { ProviderRuntimeService } from './provider-runtime-service';
 import type { AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
 
@@ -43,6 +43,10 @@ function diagnosis(
 }
 
 describe('ProviderRuntimeRegistry', () => {
+  it('preserves plugin provider ids when normalizing diagnosis keys', () => {
+    expect(normalizeDiagnosisProvider('plugin:acme-cli')).toBe('plugin:acme-cli');
+  });
+
   it('records an available runtime snapshot and emits a typed lifecycle event', () => {
     const registry = new ProviderRuntimeRegistry({ now: () => 1000 });
     const events: unknown[] = [];

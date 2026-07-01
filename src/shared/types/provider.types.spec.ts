@@ -40,10 +40,7 @@ describe('provider type helpers', () => {
     expect(getProviderModelContextWindow('claude', 'claude-opus-4-6')).toBe(1000000);
     expect(getProviderModelContextWindow('claude', 'claude-opus-4-8')).toBe(1000000);
     expect(getProviderModelContextWindow('claude-cli', 'claude-sonnet-4-6')).toBe(1000000);
-  });
-
-  it('does not give removed Claude Fable 5 a native 1M context special case', () => {
-    expect(getProviderModelContextWindow('claude-cli', 'claude-fable-5')).toBe(200000);
+    expect(getProviderModelContextWindow('claude-cli', 'claude-fable-5')).toBe(1000000);
   });
 
   it('returns 1M when Claude provider model is undefined or empty', () => {
@@ -82,13 +79,13 @@ describe('provider model lists', () => {
     expect(MODEL_PRICING[CLAUDE_PINNED_MODELS.OPUS_48]).toEqual({ input: 5.0, output: 25.0 });
   });
 
-  it('does not expose removed Claude Fable 5 as an explicit Claude model', () => {
+  it('exposes Claude Fable 5 as an explicit Claude model', () => {
     const claudeModels = PROVIDER_MODEL_LIST['claude'].map((model) => model.id);
     const pinned = CLAUDE_PINNED_MODELS as Record<string, string>;
 
-    expect(pinned['FABLE_5']).toBeUndefined();
-    expect(claudeModels).not.toContain('claude-fable-5');
-    expect(MODEL_PRICING['claude-fable-5']).toBeUndefined();
+    expect(pinned['FABLE_5']).toBe('claude-fable-5');
+    expect(claudeModels).toContain('claude-fable-5');
+    expect(MODEL_PRICING['claude-fable-5']).toEqual({ input: 10.0, output: 50.0 });
   });
 
   it('includes Claude Code session-only effort options in the shared reasoning set', () => {

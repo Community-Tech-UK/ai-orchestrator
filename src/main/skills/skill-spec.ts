@@ -111,6 +111,11 @@ export function parseSkillMetadata(content: string, defaultName: string): SkillM
       raw['triggers'] = [raw['trigger']];
     }
   }
+  for (const legacyField of ['preferred_model', 'model']) {
+    if (typeof raw['preferredModel'] !== 'string' && typeof raw[legacyField] === 'string') {
+      raw['preferredModel'] = raw[legacyField];
+    }
+  }
 
   const result = SkillFrontmatterSchema.safeParse(raw);
   if (result.success) {
@@ -127,6 +132,10 @@ export function parseSkillMetadata(content: string, defaultName: string): SkillM
     };
   }
 
+  const preferredModel = typeof raw['preferredModel'] === 'string'
+    ? raw['preferredModel']
+    : getLegacyPreferredModel(raw);
+
   return {
     ...defaults,
     name: typeof raw['name'] === 'string' && raw['name'] ? raw['name'] : defaultName,
@@ -134,12 +143,21 @@ export function parseSkillMetadata(content: string, defaultName: string): SkillM
     version: typeof raw['version'] === 'string' && raw['version'] ? raw['version'] : '1.0.0',
     author: typeof raw['author'] === 'string' ? raw['author'] : undefined,
     category: typeof raw['category'] === 'string' ? raw['category'] : undefined,
+    preferredModel,
     triggers: Array.isArray(raw['triggers'])
       ? raw['triggers'].filter((t): t is string => typeof t === 'string')
       : typeof raw['trigger'] === 'string' && raw['trigger']
         ? [raw['trigger']]
         : [],
   };
+}
+
+function getLegacyPreferredModel(raw: Record<string, unknown>): string | undefined {
+  for (const field of ['preferred_model', 'model']) {
+    const value = raw[field];
+    if (typeof value === 'string') return value;
+  }
+  return undefined;
 }
 
 export async function createSkillIgnoreMatcher(

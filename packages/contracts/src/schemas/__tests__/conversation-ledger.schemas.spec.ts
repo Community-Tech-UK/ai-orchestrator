@@ -32,11 +32,13 @@ describe('conversation ledger IPC schemas', () => {
       provider: 'orchestrator',
       workspacePath: null,
       title: 'Orchestrator',
+      parentConversationId: 'thread-parent',
       metadata: { scope: 'global' },
     })).toMatchObject({
       provider: 'orchestrator',
       workspacePath: null,
       title: 'Orchestrator',
+      parentConversationId: 'thread-parent',
       metadata: { scope: 'global' },
     });
     expect(ConversationLedgerSendTurnPayloadSchema.parse({

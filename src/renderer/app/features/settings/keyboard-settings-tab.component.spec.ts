@@ -48,4 +48,23 @@ describe('KeyboardSettingsTabComponent', () => {
     expect(banner).toBeTruthy();
     expect(banner.textContent).toContain('conflict');
   });
+
+  it('surfaces blocked import conflict details without applying the import', () => {
+    const textarea = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+    textarea.value = JSON.stringify([{ id: 'focus-input', keys: { key: 'o', modifiers: [] } }]);
+    textarea.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    const before = service.getCustomizations();
+    const importButton = [...fixture.nativeElement.querySelectorAll('button')]
+      .find((button: HTMLButtonElement) => button.textContent?.includes('Import shortcuts')) as HTMLButtonElement;
+    importButton.click();
+    fixture.detectChanges();
+
+    const pending = fixture.nativeElement.querySelector('.keybinding-import-conflicts');
+    expect(pending).toBeTruthy();
+    expect(pending.textContent).toContain('focus-input');
+    expect(pending.textContent).toContain('focus-output');
+    expect(service.getCustomizations()).toEqual(before);
+  });
 });

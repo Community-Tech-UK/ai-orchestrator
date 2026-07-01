@@ -1,6 +1,23 @@
 import { z } from 'zod';
 
-export const ProviderNameSchema = z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'anthropic-api', 'cursor']);
+export const BuiltInProviderNameSchema = z.enum([
+  'claude',
+  'codex',
+  'gemini',
+  'antigravity',
+  'copilot',
+  'anthropic-api',
+  'cursor',
+]);
+
+export const PluginProviderNameSchema = z
+  .string()
+  .regex(/^plugin:[a-z0-9][a-z0-9._-]{0,127}$/);
+
+export const ProviderNameSchema = z.union([
+  BuiltInProviderNameSchema,
+  PluginProviderNameSchema,
+]);
 
 /** Adapter-layer degraded-output reasons (A3). Keep in sync with the `DegradedReason` type. */
 export const DegradedReasonSchema = z.enum([

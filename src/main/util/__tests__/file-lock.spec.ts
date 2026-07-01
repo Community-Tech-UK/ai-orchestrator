@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { acquireLock, withLock } from '../file-lock';
+import { acquireLock, withLock, withLockSync } from '../file-lock';
 
 describe('file-lock', () => {
   let tmpDir: string;
@@ -98,7 +98,39 @@ describe('file-lock', () => {
 
     it('throws when lock is blocked and no timeout', async () => {
       const first = await acquireLock(lockPath);
-      await expect(withLock(lockPath, async () => {})).rejects.toThrow(/blocked/i);
+      await expect(withLock(lockPath, async () => undefined)).rejects.toThrow(/blocked/i);
+      if (first.kind === 'acquired') await first.release();
+    });
+  });
+
+  describe('withLockSync', () => {
+    it('acquires lock, runs fn, releases synchronously', () => {
+      let insideLock = false;
+
+      const result = withLockSync(lockPath, () => {
+        insideLock = true;
+        expect(fs.existsSync(lockPath)).toBe(true);
+        return 'ok';
+      });
+
+      expect(result).toBe('ok');
+      expect(insideLock).toBe(true);
+      expect(fs.existsSync(lockPath)).toBe(false);
+    });
+
+    it('releases lock when sync fn throws', () => {
+      expect(() => withLockSync(lockPath, () => {
+        throw new Error('boom');
+      })).toThrow('boom');
+
+      expect(fs.existsSync(lockPath)).toBe(false);
+    });
+
+    it('throws when a sync lock is already held', async () => {
+      const first = await acquireLock(lockPath);
+
+      expect(() => withLockSync(lockPath, () => undefined)).toThrow(/blocked/i);
+
       if (first.kind === 'acquired') await first.release();
     });
   });

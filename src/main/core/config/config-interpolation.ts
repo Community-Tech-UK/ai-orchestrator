@@ -9,6 +9,10 @@
  *   - {env:VAR:-fallback}  → process.env.VAR, or `fallback` when unset/empty
  *   - {file:path}          → contents of a PROJECT-RELATIVE file (bounded)
  *
+ * This resolver intentionally does NOT support command execution. Trusted,
+ * user-authored settings that need env/file/command-backed secret resolution
+ * must use `trusted-config-value-resolver.ts` instead.
+ *
  * SECURITY MODEL (instruction content can originate from an UNTRUSTED repo —
  * a cloned project's CLAUDE.md/AGENTS.md is attacker-controlled):
  *   - {file:...} is confined to the project root (`cwd`). Absolute paths, `~`

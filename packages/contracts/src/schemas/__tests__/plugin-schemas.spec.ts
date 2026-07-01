@@ -286,6 +286,15 @@ describe('SkillFrontmatterSchema', () => {
     })).toThrow(ZodError);
   });
 
+  it('rejects names outside the strict skill-name character set', () => {
+    for (const name of ['BadName', 'has space', '../escape', 'plugin::skill', 'a:b:c']) {
+      expect(() => SkillFrontmatterSchema.parse({
+        name,
+        description: 'desc',
+      })).toThrow(ZodError);
+    }
+  });
+
   it('rejects description exceeding 5000 characters', () => {
     expect(() => SkillFrontmatterSchema.parse({
       name: 'long-desc',

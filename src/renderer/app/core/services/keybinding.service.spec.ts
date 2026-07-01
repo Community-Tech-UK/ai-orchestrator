@@ -54,4 +54,21 @@ describe('KeybindingService — conflicts + import/export (Task 13)', () => {
     // State was NOT mutated.
     expect(service.getCustomizations()).toEqual(before);
   });
+
+  it('exposes remappable input-context composer editing bindings', () => {
+    const composerBindings = service.allBindings().filter((binding) => binding.id.startsWith('composer.'));
+
+    expect(composerBindings.map((binding) => binding.id)).toEqual([
+      'composer.word-left',
+      'composer.word-right',
+      'composer.select-word-left',
+      'composer.select-word-right',
+      'composer.kill-word-left',
+      'composer.kill-word-right',
+      'composer.yank',
+      'composer.undo-edit',
+    ]);
+    expect(composerBindings.every((binding) => binding.context === 'input')).toBe(true);
+    expect(composerBindings.every((binding) => binding.customizable === true)).toBe(true);
+  });
 });

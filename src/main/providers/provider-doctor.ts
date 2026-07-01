@@ -16,12 +16,14 @@ import { checkGeminiCliAuthentication } from './gemini-cli-auth';
 import { CliDetectionService, type CliType, type CliShadowReport } from '../cli/cli-detection';
 import type { ProviderProbeErrorKind, RepairAction, RuntimeLogBundle } from '../../shared/types/provider-doctor.types';
 import { getProviderRuntimeRegistry } from './provider-runtime-registry';
+import { getProviderInstanceManager } from './provider-instance-manager';
 import {
   buildRepairActions,
   classifyAuthKind,
   inferUninstallHint,
 } from './provider-doctor-repair';
 import { buildRuntimeLogBundle } from './provider-doctor-log-bundle';
+import { redactValue } from '../diagnostics/redaction';
 
 const logger = getLogger('ProviderDoctor');
 
@@ -65,7 +67,15 @@ export type { ProviderProbeErrorKind, RepairAction, RuntimeLogBundle };
 export { buildRepairActions, classifyProbeFailure } from './provider-doctor-repair';
 export { buildRuntimeLogBundle } from './provider-doctor-log-bundle';
 
-const CRITICAL_PROBES = new Set(['cli_installed', 'sdk_available']);
+const CRITICAL_PROBES = new Set(['cli_installed', 'sdk_available', 'plugin_provider_status']);
+
+function isPluginProviderId(provider: string): boolean {
+  return provider.startsWith('plugin:') && provider.length > 'plugin:'.length;
+}
+
+function redactProbeMessage(message: string): string {
+  return redactValue(message, {});
+}
 
 // ---------------------------------------------------------------------------
 // ProviderDoctor
@@ -334,10 +344,17 @@ export class ProviderDoctor {
   }
 
   getProbesForProvider(provider: string): ProbeDefinition[] {
+    if (isPluginProviderId(provider)) {
+      return [this.createPluginProviderStatusProbe()];
+    }
     return this.probes.filter(p => p.appliesTo.includes(provider));
   }
 
   async diagnose(provider: string): Promise<DiagnosisResult> {
+    if (isPluginProviderId(provider)) {
+      return this.diagnosePluginProvider(provider);
+    }
+
     const applicableProbes = this.getProbesForProvider(provider);
     const results: ProbeResult[] = [];
 
@@ -368,25 +385,7 @@ export class ProviderDoctor {
       }
     }
 
-    const diagnosis: DiagnosisResult = {
-      provider,
-      probes: results,
-      overall: this.aggregateProbeResults(results),
-      recommendations: this.generateRecommendations(provider, results),
-      repairActions: [],
-      timestamp: Date.now(),
-    };
-    // Populate repairActions after the base object is created so
-    // buildRepairActions can read diagnosis.provider.
-    diagnosis.repairActions = buildRepairActions(diagnosis);
-    // Attach redacted runtime-log bundle from failed probes (B4).
-    const logBundle = buildRuntimeLogBundle(results);
-    if (logBundle) diagnosis.logBundle = logBundle;
-
-    this.lastDiagnosis.set(provider, diagnosis);
-    getProviderRuntimeRegistry().applyDiagnosis(diagnosis);
-    logger.info('Provider diagnosis complete', { provider, overall: diagnosis.overall });
-    return diagnosis;
+    return this.finalizeDiagnosis(provider, results);
   }
 
   aggregateProbeResults(probes: ProbeResult[]): HealthStatus {
@@ -463,6 +462,95 @@ export class ProviderDoctor {
 
   getLastDiagnosis(provider: string): DiagnosisResult | undefined {
     return this.lastDiagnosis.get(provider);
+  }
+
+  private async diagnosePluginProvider(provider: string): Promise<DiagnosisResult> {
+    const statusProbe = await this.createPluginProviderStatusProbe().run(provider);
+    const results: ProbeResult[] = [statusProbe];
+
+    if (statusProbe.status === 'pass') {
+      const authenticated = statusProbe.metadata?.['authenticated'] === true;
+      results.push({
+        name: 'authenticated',
+        status: authenticated ? 'pass' : 'fail',
+        message: authenticated
+          ? 'Plugin provider reported authenticated'
+          : 'Plugin provider reported unauthenticated',
+        latencyMs: 0,
+        ...(authenticated ? {} : { errorKind: 'auth_missing' as const }),
+      });
+    }
+
+    return this.finalizeDiagnosis(provider, results);
+  }
+
+  private createPluginProviderStatusProbe(): ProbeDefinition {
+    return {
+      name: 'plugin_provider_status',
+      description: 'Check if the worker-isolated plugin provider adapter is invokable',
+      critical: true,
+      appliesTo: ['plugin:*'],
+      run: async (provider) => {
+        const start = Date.now();
+        try {
+          const status = await getProviderInstanceManager().checkProviderStatus(provider, true);
+          const latencyMs = Date.now() - start;
+          if (status.available) {
+            return {
+              name: 'plugin_provider_status',
+              status: 'pass' as const,
+              message: 'Plugin provider adapter is available',
+              latencyMs,
+              metadata: {
+                authenticated: status.authenticated,
+                modelCount: status.models?.length ?? 0,
+              },
+            };
+          }
+
+          return {
+            name: 'plugin_provider_status',
+            status: 'fail' as const,
+            message: redactProbeMessage(status.error ?? 'Plugin provider adapter is unavailable'),
+            latencyMs,
+            metadata: {
+              authenticated: status.authenticated,
+            },
+            errorKind: 'unknown' as const,
+          };
+        } catch (error) {
+          return {
+            name: 'plugin_provider_status',
+            status: 'fail' as const,
+            message: redactProbeMessage(error instanceof Error ? error.message : String(error)),
+            latencyMs: Date.now() - start,
+            errorKind: 'unknown' as const,
+          };
+        }
+      },
+    };
+  }
+
+  private finalizeDiagnosis(provider: string, results: ProbeResult[]): DiagnosisResult {
+    const diagnosis: DiagnosisResult = {
+      provider,
+      probes: results,
+      overall: this.aggregateProbeResults(results),
+      recommendations: this.generateRecommendations(provider, results),
+      repairActions: [],
+      timestamp: Date.now(),
+    };
+    // Populate repairActions after the base object is created so
+    // buildRepairActions can read diagnosis.provider.
+    diagnosis.repairActions = buildRepairActions(diagnosis);
+    // Attach redacted runtime-log bundle from failed probes (B4).
+    const logBundle = buildRuntimeLogBundle(results);
+    if (logBundle) diagnosis.logBundle = logBundle;
+
+    this.lastDiagnosis.set(provider, diagnosis);
+    getProviderRuntimeRegistry().applyDiagnosis(diagnosis);
+    logger.info('Provider diagnosis complete', { provider, overall: diagnosis.overall });
+    return diagnosis;
   }
 }
 

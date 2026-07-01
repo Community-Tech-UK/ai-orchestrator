@@ -94,6 +94,14 @@ export type KeybindingAction =
   | 'open-prompt-history-search'
   | 'recall-prompt-prev'
   | 'recall-prompt-next'
+  | 'composer.word-left'
+  | 'composer.word-right'
+  | 'composer.select-word-left'
+  | 'composer.select-word-right'
+  | 'composer.kill-word-left'
+  | 'composer.kill-word-right'
+  | 'composer.yank'
+  | 'composer.undo-edit'
   // Custom command
   | `command:${string}`;
 
@@ -413,6 +421,88 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     context: 'input',
     when: ['instance-selected'],
     category: 'Session',
+    customizable: true,
+  },
+
+  // Composer editing
+  {
+    id: 'composer.word-left',
+    name: 'Move Word Left',
+    description: 'Move the composer cursor one word left',
+    keys: { key: 'ArrowLeft', modifiers: ['alt'] },
+    action: 'composer.word-left',
+    context: 'input',
+    category: 'Composer',
+    customizable: true,
+  },
+  {
+    id: 'composer.word-right',
+    name: 'Move Word Right',
+    description: 'Move the composer cursor one word right',
+    keys: { key: 'ArrowRight', modifiers: ['alt'] },
+    action: 'composer.word-right',
+    context: 'input',
+    category: 'Composer',
+    customizable: true,
+  },
+  {
+    id: 'composer.select-word-left',
+    name: 'Select Word Left',
+    description: 'Extend the composer selection one word left',
+    keys: { key: 'ArrowLeft', modifiers: ['alt', 'shift'] },
+    action: 'composer.select-word-left',
+    context: 'input',
+    category: 'Composer',
+    customizable: true,
+  },
+  {
+    id: 'composer.select-word-right',
+    name: 'Select Word Right',
+    description: 'Extend the composer selection one word right',
+    keys: { key: 'ArrowRight', modifiers: ['alt', 'shift'] },
+    action: 'composer.select-word-right',
+    context: 'input',
+    category: 'Composer',
+    customizable: true,
+  },
+  {
+    id: 'composer.kill-word-left',
+    name: 'Kill Word Left',
+    description: 'Cut the word before the composer cursor into the kill ring',
+    keys: { key: 'Backspace', modifiers: ['alt'] },
+    action: 'composer.kill-word-left',
+    context: 'input',
+    category: 'Composer',
+    customizable: true,
+  },
+  {
+    id: 'composer.kill-word-right',
+    name: 'Kill Word Right',
+    description: 'Cut the word after the composer cursor into the kill ring',
+    keys: { key: 'd', modifiers: ['alt'] },
+    action: 'composer.kill-word-right',
+    context: 'input',
+    category: 'Composer',
+    customizable: true,
+  },
+  {
+    id: 'composer.yank',
+    name: 'Yank',
+    description: 'Paste the latest kill-ring text at the composer cursor',
+    keys: { key: 'y', modifiers: ['ctrl'] },
+    action: 'composer.yank',
+    context: 'input',
+    category: 'Composer',
+    customizable: true,
+  },
+  {
+    id: 'composer.undo-edit',
+    name: 'Undo Composer Edit',
+    description: 'Undo the latest explicit composer kill or yank',
+    keys: { key: '/', modifiers: ['ctrl'] },
+    action: 'composer.undo-edit',
+    context: 'input',
+    category: 'Composer',
     customizable: true,
   },
 

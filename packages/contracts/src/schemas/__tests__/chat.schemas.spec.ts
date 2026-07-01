@@ -25,11 +25,13 @@ describe('chat schemas', () => {
       provider: 'claude',
       currentCwd: '/work/project',
       model: null,
+      parentChatId: 'chat-parent',
       yolo: true,
     })).toMatchObject({
       provider: 'claude',
       currentCwd: '/work/project',
       model: null,
+      parentChatId: 'chat-parent',
       yolo: true,
     });
 

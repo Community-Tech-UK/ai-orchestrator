@@ -62,6 +62,7 @@ const exactAliases: Record<string, string> = {
   '@contracts/types/transport':                  path.join(baseContracts, 'types', 'transport.types'),
   '@contracts/types/browser':                    path.join(baseContracts, 'types', 'browser.types'),
   '@sdk/provider-adapter':                       path.join(baseSdk, 'provider-adapter'),
+  '@sdk/provider-adapter-worker-bridge':         path.join(baseSdk, 'provider-adapter-worker-bridge'),
   '@sdk/provider-adapter-registry':              path.join(baseSdk, 'provider-adapter-registry'),
 };
 

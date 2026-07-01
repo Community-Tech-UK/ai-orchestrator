@@ -70,8 +70,15 @@ describe('models-catalog', () => {
     expect(m.active).toBe(true);
   });
 
-  it('does not expose removed Claude Fable 5 in the static catalog', () => {
-    expect(getModelCatalogEntry('claude-fable-5')).toBeUndefined();
-    expect(MODEL_CATALOG.some((m) => m.name === 'Claude Fable 5')).toBe(false);
+  it('claude-fable-5 is active with documented limits and pricing', () => {
+    const m = getModelCatalogEntry('claude-fable-5')!;
+    expect(m.name).toBe('Claude Fable 5');
+    expect(m.contextWindow).toBe(1_000_000);
+    expect(m.maxOutputTokens).toBe(128_000);
+    expect(m.capabilities.promptCaching).toBe(true);
+    expect(m.capabilities.reasoning).toBe(true);
+    expect(m.pricing?.inputPer1mTokens).toBe(10.0);
+    expect(m.pricing?.outputPer1mTokens).toBe(50.0);
+    expect(m.active).toBe(true);
   });
 });

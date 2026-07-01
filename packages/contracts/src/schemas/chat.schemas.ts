@@ -22,6 +22,7 @@ export const ChatCreatePayloadSchema = z.object({
   model: z.string().max(160).nullable().optional(),
   reasoningEffort: ChatReasoningEffortSchema.nullable().optional(),
   currentCwd: z.string().min(1).max(4096),
+  parentChatId: ChatIdStringSchema.optional(),
   yolo: z.boolean().optional(),
 });
 

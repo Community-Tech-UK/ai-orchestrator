@@ -8,9 +8,22 @@ import {
   workerData,
 } from 'node:worker_threads';
 import type {
+  PluginProviderAdapterDescriptor,
+  PluginProviderAdapterBridge,
+  PluginProviderId,
+  ProviderAdapterPluginApi,
+  RegisteredPluginProviderAdapter,
+} from '@sdk/provider-adapter-registry';
+import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
+import type {
+  WorkerPluginProviderAdapterEventMessage,
+  WorkerPluginProviderAdapterOperation,
+  WorkerPluginProviderAdapterResponse,
+  WorkerPluginProviderAdapterRuntime,
+} from '@sdk/provider-adapter-worker-bridge';
+import type {
   NotifierPlugin,
   PluginHookEvent,
-  PluginRuntimeForSlot,
   PluginSlot,
   PluginTelemetryRecord,
   PluginTrackerEvent,
@@ -30,6 +43,7 @@ export interface PluginWorkerHostOptions {
   filePath: string;
   context: PluginWorkerContext;
   requestedSlot?: PluginSlot;
+  providerAdapterApi?: ProviderAdapterPluginApi;
   workerFactory?: (workerData: PluginWorkerData) => Worker;
   rpcTimeoutMs?: number;
 }
@@ -38,6 +52,7 @@ export interface PluginWorkerRuntime {
   slot: PluginSlot;
   detected: boolean;
   ready: boolean;
+  providerAdapters: readonly RegisteredPluginProviderAdapter[];
   hooks: TypedOrchestratorHooks;
   notifier?: NotifierPlugin;
   tracker?: TrackerPlugin;
@@ -48,13 +63,15 @@ interface PluginWorkerData {
   filePath: string;
   context: PluginWorkerContext;
   requestedSlot?: PluginSlot;
+  providerBridgeEntrypoint: string;
 }
 
 type PluginWorkerOperation =
   | { kind: 'hook'; event: PluginHookEvent; payload: unknown }
   | { kind: 'notifier'; payload: unknown }
   | { kind: 'tracker'; payload: unknown }
-  | { kind: 'telemetry_exporter'; payload: unknown };
+  | { kind: 'telemetry_exporter'; payload: unknown }
+  | { kind: 'provider_adapter'; operation: WorkerPluginProviderAdapterOperation };
 
 type PluginWorkerInboundMessage =
   | { type: 'invoke'; id: number; operation: PluginWorkerOperation }
@@ -67,15 +84,26 @@ type PluginWorkerOutboundMessage =
       detected: boolean;
       ready: boolean;
       hookKeys: PluginHookEvent[];
+      providerAdapters?: readonly RegisteredPluginProviderAdapter[];
     }
   | { type: 'startup-error'; error: string }
-  | { type: 'rpc-response'; id: number; error?: string };
+  | { type: 'rpc-response'; id: number; result?: unknown; error?: string }
+  | {
+      type: 'provider-event';
+      adapterId: string;
+      envelope: ProviderRuntimeEventEnvelope;
+    };
 
 interface PendingRpc {
-  resolve: () => void;
+  resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timeout: NodeJS.Timeout;
 }
+
+type HostProviderAdapterApi = ProviderAdapterPluginApi & {
+  registerPluginProviderAdapter?: (descriptor: PluginProviderAdapterDescriptor, factoryRef: string, bridge: PluginProviderAdapterBridge) => void;
+  unregisterPluginProviderAdapter?: (provider: PluginProviderId) => void;
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -181,10 +209,35 @@ function resolveWorkerEntrypoint(): string {
   return __filename;
 }
 
+type ProviderAdapterBridgeModule = typeof import('@sdk/provider-adapter-worker-bridge');
+
+let providerAdapterBridgeModulePromise: Promise<ProviderAdapterBridgeModule> | null = null;
+
+function resolveProviderAdapterBridgeEntrypoint(): string {
+  const relativeParts = ['..', '..', '..', 'packages', 'sdk', 'src', 'provider-adapter-worker-bridge'];
+  const jsEntrypoint = path.join(__dirname, ...relativeParts) + '.js';
+  if (existsSync(jsEntrypoint)) {
+    return jsEntrypoint;
+  }
+  return path.join(__dirname, ...relativeParts) + '.ts';
+}
+
+function loadProviderAdapterBridgeModule(entrypoint = resolveProviderAdapterBridgeEntrypoint()): Promise<ProviderAdapterBridgeModule> {
+  providerAdapterBridgeModulePromise ??= import(
+    pathToFileURL(entrypoint).href
+  ) as Promise<ProviderAdapterBridgeModule>;
+  return providerAdapterBridgeModulePromise;
+}
+
 export class PluginWorkerHost {
   private worker: Worker | null = null;
   private nextRpcId = 0;
   private readonly pending = new Map<number, PendingRpc>();
+  private readonly providerEventSinks = new Map<
+    string,
+    Set<(envelope: ProviderRuntimeEventEnvelope) => void>
+  >();
+  private readonly registeredProviderAdapterIds = new Set<PluginProviderId>();
   private runtime: PluginWorkerRuntime | null = null;
   private readonly rpcTimeoutMs: number;
   private readonly workerFactory: (workerData: PluginWorkerData) => Worker;
@@ -207,6 +260,7 @@ export class PluginWorkerHost {
     const workerDataValue: PluginWorkerData = {
       filePath: this.options.filePath,
       context: this.options.context,
+      providerBridgeEntrypoint: resolveProviderAdapterBridgeEntrypoint(),
       ...(this.options.requestedSlot ? { requestedSlot: this.options.requestedSlot } : {}),
     };
     const worker = this.workerFactory(workerDataValue);
@@ -215,16 +269,13 @@ export class PluginWorkerHost {
     const runtime = await new Promise<PluginWorkerRuntime>(
       (resolve, reject) => {
         let settled = false;
-        let startupTimeout: ReturnType<typeof setTimeout> | undefined;
         const cleanup = () => {
-          if (startupTimeout) {
-            clearTimeout(startupTimeout);
-          }
+          clearTimeout(startupTimeout);
           worker.off('message', onReadyMessage);
           worker.off('error', onStartupError);
           worker.off('exit', onStartupExit);
         };
-        const succeed = (msg: Extract<PluginWorkerOutboundMessage, { type: 'ready' }>) => {
+        const succeed = async (msg: Extract<PluginWorkerOutboundMessage, { type: 'ready' }>) => {
           if (settled) {
             return;
           }
@@ -243,6 +294,7 @@ export class PluginWorkerHost {
               this.worker = null;
             }
             this.runtime = null;
+            this.unregisterProviderAdapters();
             this.rejectAllPending(error);
           };
           function onRuntimeError(error: Error) {
@@ -254,8 +306,20 @@ export class PluginWorkerHost {
           worker.on('message', onRuntimeMessage);
           worker.once('error', onRuntimeError);
           worker.once('exit', onRuntimeExit);
-          this.runtime = this.buildRuntime(msg);
-          resolve(this.runtime);
+          let runtime: PluginWorkerRuntime;
+          try {
+            const builtRuntime = this.buildRuntime(msg);
+            runtime = builtRuntime instanceof Promise ? await builtRuntime : builtRuntime;
+          } catch (error) {
+            cleanupRuntime();
+            this.worker = null;
+            this.unregisterProviderAdapters();
+            void worker.terminate().catch(() => undefined);
+            reject(error instanceof Error ? error : new Error(String(error)));
+            return;
+          }
+          this.runtime = this.worker === worker ? runtime : null;
+          resolve(runtime);
         };
         const fail = (error: Error, terminate = false) => {
           if (settled) {
@@ -271,7 +335,7 @@ export class PluginWorkerHost {
         };
         const onReadyMessage = (msg: PluginWorkerOutboundMessage) => {
           if (msg.type === 'ready') {
-            succeed(msg);
+            void succeed(msg);
             return;
           }
           if (msg.type === 'startup-error') {
@@ -284,7 +348,7 @@ export class PluginWorkerHost {
         const onStartupExit = (code: number) => {
           fail(new Error(`Plugin worker exited during startup with code ${code}`));
         };
-        startupTimeout = setTimeout(() => {
+        const startupTimeout = setTimeout(() => {
           fail(
             new Error(`Plugin worker startup timeout after ${this.rpcTimeoutMs}ms: ${this.options.filePath}`),
             true,
@@ -304,6 +368,7 @@ export class PluginWorkerHost {
     const worker = this.worker;
     this.worker = null;
     this.runtime = null;
+    this.unregisterProviderAdapters();
     if (!worker) {
       return;
     }
@@ -312,7 +377,34 @@ export class PluginWorkerHost {
 
   private buildRuntime(
     ready: Extract<PluginWorkerOutboundMessage, { type: 'ready' }>,
+  ): PluginWorkerRuntime | Promise<PluginWorkerRuntime> {
+    const providerAdapters = ready.providerAdapters ?? [];
+    if (providerAdapters.length > 0 && !this.options.providerAdapterApi) {
+      throw new Error('Plugin registered provider adapters but no provider adapter API is available');
+    }
+    if (providerAdapters.length === 0) {
+      return this.buildRuntimeWithBridge(ready, null);
+    }
+    return this.createProviderAdapterBridge()
+      .then((bridge) => this.buildRuntimeWithBridge(ready, bridge));
+  }
+
+  private buildRuntimeWithBridge(
+    ready: Extract<PluginWorkerOutboundMessage, { type: 'ready' }>,
+    bridge: PluginProviderAdapterBridge | null,
   ): PluginWorkerRuntime {
+    const providerAdapters = ready.providerAdapters ?? [];
+    for (const registration of providerAdapters) {
+      if (!bridge) {
+        throw new Error('Provider adapter bridge is not available');
+      }
+      this.registerProviderAdapterWithHostBridge(
+        registration.descriptor,
+        registration.factoryRef,
+        bridge,
+      );
+    }
+
     const hooks: TypedOrchestratorHooks = {};
     const hookProxies = hooks as Record<PluginHookEvent, (payload: unknown) => Promise<void>>;
     for (const event of ready.hookKeys) {
@@ -327,6 +419,7 @@ export class PluginWorkerHost {
       slot: ready.slot,
       detected: ready.detected,
       ready: ready.ready,
+      providerAdapters,
       hooks,
       ...(ready.slot === 'notifier'
         ? { notifier: { notify: (notification) => this.postOperation({ kind: 'notifier', payload: notification }) } }
@@ -344,7 +437,65 @@ export class PluginWorkerHost {
     };
   }
 
-  private postOperation(operation: PluginWorkerOperation, timeoutMs = this.rpcTimeoutMs): Promise<void> {
+  private registerProviderAdapterWithHostBridge(
+    descriptor: PluginProviderAdapterDescriptor,
+    factoryRef: string,
+    bridge: PluginProviderAdapterBridge,
+  ): void {
+    const api = this.options.providerAdapterApi;
+    if (!api) {
+      return;
+    }
+    const hostApi = api as HostProviderAdapterApi;
+    if (typeof hostApi.registerPluginProviderAdapter === 'function') {
+      hostApi.registerPluginProviderAdapter(descriptor, factoryRef, bridge);
+    } else {
+      api.registerProviderAdapter(descriptor, factoryRef);
+    }
+    this.registeredProviderAdapterIds.add(descriptor.provider);
+  }
+
+  private unregisterProviderAdapters(): void {
+    const api = this.options.providerAdapterApi as HostProviderAdapterApi | undefined;
+    if (!api || typeof api.unregisterPluginProviderAdapter !== 'function') {
+      this.registeredProviderAdapterIds.clear();
+      return;
+    }
+    for (const provider of this.registeredProviderAdapterIds) {
+      api.unregisterPluginProviderAdapter(provider);
+    }
+    this.registeredProviderAdapterIds.clear();
+  }
+
+  private async createProviderAdapterBridge(): Promise<PluginProviderAdapterBridge> {
+    const providerAdapterBridgeModule = await loadProviderAdapterBridgeModule();
+    return {
+      createProviderAdapter: providerAdapterBridgeModule.createWorkerPluginProviderAdapterBridge({
+        invoke: (operation) => this.postOperation<WorkerPluginProviderAdapterResponse>({
+          kind: 'provider_adapter',
+          operation,
+        }),
+        subscribeToEvents: (adapterId, listener) => this.registerProviderEventSink(adapterId, listener),
+      }).createProviderAdapter,
+    };
+  }
+
+  private registerProviderEventSink(
+    adapterId: string,
+    listener: (envelope: ProviderRuntimeEventEnvelope) => void,
+  ): () => void {
+    const sinks = this.providerEventSinks.get(adapterId) ?? new Set();
+    sinks.add(listener);
+    this.providerEventSinks.set(adapterId, sinks);
+    return () => {
+      sinks.delete(listener);
+      if (sinks.size === 0) {
+        this.providerEventSinks.delete(adapterId);
+      }
+    };
+  }
+
+  private postOperation<T = void>(operation: PluginWorkerOperation, timeoutMs = this.rpcTimeoutMs): Promise<T> {
     if (!this.worker) {
       return Promise.reject(new Error('Plugin worker is not running'));
     }
@@ -355,12 +506,26 @@ export class PluginWorkerHost {
         this.pending.delete(id);
         reject(new Error(`Plugin worker operation timeout: ${this.options.filePath}`));
       }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timeout });
+      this.pending.set(id, {
+        resolve: (value) => resolve(value as T),
+        reject,
+        timeout,
+      });
       this.worker!.postMessage({ type: 'invoke', id, operation } satisfies PluginWorkerInboundMessage);
     });
   }
 
   private handleMessage(message: PluginWorkerOutboundMessage): void {
+    if (message.type === 'provider-event') {
+      const sinks = this.providerEventSinks.get(message.adapterId);
+      if (!sinks) {
+        return;
+      }
+      for (const sink of sinks) {
+        sink(message.envelope);
+      }
+      return;
+    }
     if (message.type !== 'rpc-response') {
       return;
     }
@@ -374,7 +539,7 @@ export class PluginWorkerHost {
       pending.reject(new Error(message.error));
       return;
     }
-    pending.resolve();
+    pending.resolve(message.result);
   }
 
   private rejectAllPending(error: Error): void {
@@ -389,6 +554,21 @@ export class PluginWorkerHost {
 let workerHooks: TypedOrchestratorHooks = {};
 let workerRuntime: unknown;
 let workerSlot: PluginSlot = 'hook';
+let workerProviderAdapterRuntime: WorkerPluginProviderAdapterRuntime | null = null;
+
+type WorkerRuntimeContext = PluginWorkerContext & {
+  providerAdapters: ProviderAdapterPluginApi;
+};
+
+function buildWorkerRuntimeContext(context: PluginWorkerContext): WorkerRuntimeContext {
+  if (!workerProviderAdapterRuntime) {
+    throw new Error('Provider adapter runtime is not initialized');
+  }
+  return {
+    ...context,
+    providerAdapters: workerProviderAdapterRuntime.api,
+  };
+}
 
 async function loadModule(filePath: string): Promise<WorkerPluginModule> {
   const moduleUrl = `${pathToFileURL(filePath).href}?t=${Date.now()}`;
@@ -397,10 +577,17 @@ async function loadModule(filePath: string): Promise<WorkerPluginModule> {
 }
 
 async function startWorkerRuntime(data: PluginWorkerData): Promise<void> {
+  const bridgeModule = await loadProviderAdapterBridgeModule(data.providerBridgeEntrypoint);
+  workerProviderAdapterRuntime = new bridgeModule.WorkerPluginProviderAdapterRuntime(
+    (message: WorkerPluginProviderAdapterEventMessage) => {
+      parentPort!.postMessage(message satisfies PluginWorkerOutboundMessage);
+    },
+  );
   const loaded = await loadModule(data.filePath);
+  const runtimeContext = buildWorkerRuntimeContext(data.context);
   const resolved =
     typeof loaded === 'function'
-      ? await loaded(data.context)
+      ? await loaded(runtimeContext)
       : loaded;
   const moduleDef = normalizePluginModule(resolved || {});
   workerHooks = moduleDef.hooks ?? {};
@@ -408,7 +595,7 @@ async function startWorkerRuntime(data: PluginWorkerData): Promise<void> {
 
   let detected = true;
   if (moduleDef.detect) {
-    detected = await moduleDef.detect(data.context);
+    detected = await moduleDef.detect(runtimeContext);
   }
 
   if (!detected) {
@@ -418,6 +605,7 @@ async function startWorkerRuntime(data: PluginWorkerData): Promise<void> {
       detected,
       ready: false,
       hookKeys: [],
+      providerAdapters: [],
     } satisfies PluginWorkerOutboundMessage);
     return;
   }
@@ -425,13 +613,14 @@ async function startWorkerRuntime(data: PluginWorkerData): Promise<void> {
   if (workerSlot === 'hook') {
     workerRuntime = workerHooks;
   } else if (moduleDef.create) {
-    workerRuntime = await moduleDef.create(data.context);
+    workerRuntime = await moduleDef.create(runtimeContext);
   }
 
   const validationError = workerSlot === 'hook' ? null : validateWorkerRuntime(workerSlot, workerRuntime);
   if (validationError) {
     throw new Error(validationError);
   }
+  workerProviderAdapterRuntime.assertFactoriesAvailable();
 
   parentPort!.postMessage({
     type: 'ready',
@@ -439,10 +628,11 @@ async function startWorkerRuntime(data: PluginWorkerData): Promise<void> {
     detected,
     ready: workerRuntime !== undefined,
     hookKeys: Object.keys(workerHooks) as PluginHookEvent[],
+    providerAdapters: workerProviderAdapterRuntime.listRegistrations(),
   } satisfies PluginWorkerOutboundMessage);
 }
 
-async function handleWorkerOperation(operation: PluginWorkerOperation): Promise<void> {
+async function handleWorkerOperation(operation: PluginWorkerOperation): Promise<unknown> {
   switch (operation.kind) {
     case 'hook': {
       const hook = workerHooks[operation.event];
@@ -463,7 +653,13 @@ async function handleWorkerOperation(operation: PluginWorkerOperation): Promise<
       await (workerRuntime as TelemetryExporterPlugin).export(operation.payload as PluginTelemetryRecord);
       break;
     }
+    case 'provider_adapter':
+      if (!workerProviderAdapterRuntime) {
+        throw new Error('Provider adapter runtime is not initialized');
+      }
+      return workerProviderAdapterRuntime.invoke(operation.operation);
   }
+  return undefined;
 }
 
 function runWorkerThread(): void {
@@ -482,10 +678,11 @@ function runWorkerThread(): void {
     }
 
     void handleWorkerOperation(message.operation)
-      .then(() => {
+      .then((result) => {
         parentPort!.postMessage({
           type: 'rpc-response',
           id: message.id,
+          result,
         } satisfies PluginWorkerOutboundMessage);
       })
       .catch((error: unknown) => {

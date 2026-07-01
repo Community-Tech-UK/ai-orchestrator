@@ -31,12 +31,16 @@ vi.mock('../../../logging/logger', () => ({
   })),
 }));
 
-vi.mock('fs', () => ({
-  existsSync: vi.fn(() => false),
-  copyFileSync: vi.fn(),
-  mkdirSync: vi.fn(),
-  watch: vi.fn(() => ({ close: vi.fn() })),
-}));
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>();
+  return {
+    ...actual,
+    existsSync: vi.fn(() => false),
+    copyFileSync: vi.fn(),
+    mkdirSync: vi.fn(),
+    watch: vi.fn(() => ({ close: vi.fn() })),
+  };
+});
 
 import { SettingsManager } from '../settings-manager';
 

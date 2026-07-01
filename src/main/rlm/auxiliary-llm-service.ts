@@ -34,6 +34,7 @@ import {
 } from './auxiliary-model-client';
 import { getTokenCounter } from './token-counter';
 import { getLogger } from '../logging/logger';
+import { resolveAuxiliaryEndpointApiKey } from './auxiliary-api-key-resolver';
 import { computeNumCtx, hostKeyFromUrl, localhostOllamaEndpoint, resolveSlotModel, pickModelForTier, workerEndpointHealthy, workerLoadedContexts, endpointAdvertisesModel, DEFAULT_SLOT_TIERS } from './auxiliary-llm-utils';
 import { sanitizeProviderText } from '../security/surrogate-sanitizer';
 // remote-node imports are lazy — worker-node-connection and service-rpc-client
@@ -443,7 +444,7 @@ export class AuxiliaryLlmService extends EventEmitter {
       } else if (ep.provider === 'ollama') {
         healthy = await probeOllamaEndpoint(ep.baseUrl, PROBE_TIMEOUT_MS);
       } else {
-        const apiKey = ep.apiKeyEnv ? process.env[ep.apiKeyEnv] : undefined;
+        const apiKey = await resolveAuxiliaryEndpointApiKey(ep);
         healthy = await probeOpenAiCompatibleEndpoint(ep.baseUrl, apiKey, PROBE_TIMEOUT_MS);
       }
     } catch {
@@ -465,7 +466,7 @@ export class AuxiliaryLlmService extends EventEmitter {
       if (ep.provider === 'ollama') {
         return await listOllamaModels(ep.baseUrl, PROBE_TIMEOUT_MS);
       }
-      const apiKey = ep.apiKeyEnv ? process.env[ep.apiKeyEnv] : undefined;
+      const apiKey = await resolveAuxiliaryEndpointApiKey(ep);
       return await listOpenAiCompatibleModels(ep.baseUrl, apiKey, PROBE_TIMEOUT_MS);
     } catch {
       return [];
@@ -543,7 +544,7 @@ export class AuxiliaryLlmService extends EventEmitter {
       return generateWithOllama(ep.baseUrl, req);
     }
 
-    const apiKey = ep.apiKeyEnv ? process.env[ep.apiKeyEnv] : undefined;
+    const apiKey = await resolveAuxiliaryEndpointApiKey(ep);
     return generateWithOpenAiCompatible(ep.baseUrl, apiKey, req);
   }
 
@@ -625,18 +626,18 @@ export class AuxiliaryLlmService extends EventEmitter {
    * directly by the coordinator — listing and generation for these endpoints go
    * through the worker-agent RPC channel.
    */
-  private workerNodeEndpoints(): Array<{
+  private workerNodeEndpoints(): {
     endpoint: AuxiliaryLlmEndpointConfig;
     models: AuxiliaryLlmModelInfo[];
     healthy: boolean;
-  }> {
+  }[] {
     if (!this.allowRemoteWorkerModels) return [];
 
-    const result: Array<{
+    const result: {
       endpoint: AuxiliaryLlmEndpointConfig;
       models: AuxiliaryLlmModelInfo[];
       healthy: boolean;
-    }> = [];
+    }[] = [];
     for (const node of getConnectedWorkerNodesLazy()) {
       for (const cap of node.capabilities.localModelEndpoints ?? []) {
         // Include host:port so a node advertising two endpoints of the same

@@ -39,6 +39,8 @@ export interface LoopFileChange {
 export interface LoopToolCallRecord {
   toolName: string;
   argsHash: string;
+  /** Hash of the tool_result content when the adapter exposes it. */
+  resultHash?: string;
   success: boolean;
   durationMs: number;
 }
@@ -139,10 +141,16 @@ export interface LoopIteration {
   tokens: number;
   costCents: number;
   filesChanged: LoopFileChange[];
+  /** Workspace-relative paths read by this iteration when the invoker can observe them. */
+  filesRead?: string[];
   toolCalls: LoopToolCallRecord[];
   errors: LoopErrorRecord[];
   testPassCount: number | null;
   testFailCount: number | null;
+  /** Adapter/provider stop reason, e.g. `end_turn`, `tool_use`, or `max_tokens`. */
+  finishReason?: string;
+  /** True when a tool_use was observed without a matching tool_result before the turn sealed. */
+  unresolvedToolCalls?: boolean;
   /** Hash of (sortedFileDiffPaths ‖ stage ‖ toolCallSignature). */
   workHash: string;
   /** Cosine/Jaccard similarity to previous iteration's output text (0..1). */
@@ -195,7 +203,7 @@ export interface LoopIteration {
 /**
  * Identifiers from `plan_loop_mode.md` § A. Aggressive no-progress detection.
  */
-export type ProgressSignalId = 'A' | 'B' | 'C' | 'D' | 'D-prime' | 'E' | 'F' | 'G' | 'H' | 'BLOCKED';
+export type ProgressSignalId = 'A' | 'B' | 'C' | 'D' | 'D-prime' | 'E' | 'F' | 'G' | 'H' | 'I' | 'BLOCKED';
 
 export interface ProgressSignalEvidence {
   id: ProgressSignalId;
@@ -279,6 +287,15 @@ export interface LoopInFlightIteration {
   idempotencyKey: string;
 }
 
+export interface LoopContextWindowCalibration {
+  provider: LoopConfig['provider'];
+  model?: string;
+  windowTokens: number;
+  calibratedAt: number;
+  source: 'provider-error';
+  reason: string;
+}
+
 export interface LoopState {
   id: string;
   chatId: string;
@@ -316,6 +333,12 @@ export interface LoopState {
   completionAttempts: number;
   announceThenHaltNudgeCount?: number;
   lastCompletionOutcome?: LoopCompletionOutcome;
+  /**
+   * B6: provider/model context window learned from a context-overflow response.
+   * Runtime state, not immutable config; reused by LF-1 context discipline so
+   * the next same-session recycle decision uses the server-reported window.
+   */
+  contextWindowCalibration?: LoopContextWindowCalibration;
   loopTasksLedgerResolvedAtStart: boolean;
   unresolvedReviewThreads?: string[];
   recentEvidenceHashes?: string[];

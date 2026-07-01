@@ -13,6 +13,7 @@
  *   F — Token burn without progress
  *   G — Tool-call repetition (within & across iterations)
  *   H — Output similarity
+ *   I — Idempotent read identity (same read result repeatedly)
  *
  * Each signal is a pure function over (history, current, thresholds). The
  * exported `LoopProgressDetector.evaluate()` aggregates them, then applies
@@ -31,6 +32,9 @@ import type {
   ProgressSignalEvidence,
   ProgressSignalId,
 } from '../../shared/types/loop.types';
+import { signalI_idempotentReadIdentity } from './loop-progress-idempotent-read';
+
+export { signalI_idempotentReadIdentity } from './loop-progress-idempotent-read';
 
 // ============ helpers ============
 
@@ -603,7 +607,7 @@ export interface LoopProgressEvaluation {
 }
 
 /** Order by signal severity then by ID priority. */
-const SIGNAL_PRIORITY: ProgressSignalId[] = ['A', 'B', 'D', 'D-prime', 'E', 'C', 'F', 'G', 'H'];
+const SIGNAL_PRIORITY: ProgressSignalId[] = ['A', 'B', 'D', 'D-prime', 'E', 'I', 'C', 'F', 'G', 'H'];
 
 /**
  * FU-4: weak signals — heuristic indicators (tool-call repetition,
@@ -643,6 +647,7 @@ export class LoopProgressDetector {
       signalF_tokenBurn(state, history, current, th),
       signalG_toolRepetition(history, current, th),
       signalH_outputSimilarity(history, current, th),
+      signalI_idempotentReadIdentity(history, current, th),
     ];
     const signals: ProgressSignalEvidence[] = candidates.filter(
       (s): s is ProgressSignalEvidence => s !== null,
@@ -730,6 +735,7 @@ export class LoopProgressDetector {
       signalD_testOscillation(history.slice(0, -1), last),
       signalDPrime_testStagnationWithWrites(history.slice(0, -1), last, th),
       signalH_outputSimilarity(history.slice(0, -1), last, th),
+      signalI_idempotentReadIdentity(history.slice(0, -1), last, th),
     ];
     for (const s of candidates) {
       if (!s || s.verdict !== 'CRITICAL') continue;

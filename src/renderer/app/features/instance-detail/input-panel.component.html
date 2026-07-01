@@ -242,6 +242,10 @@
         #textareaRef
       ></textarea>
     </div>
+    <app-composer-autocomplete
+      [textarea]="textareaRef"
+      [workspaceCwd]="workingDirectory()"
+    />
 
     @if (slashCommandError(); as error) {
       <div class="composer-inline-error" role="alert">{{ error }}</div>

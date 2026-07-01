@@ -261,6 +261,7 @@ export interface NativeConversationSnapshot {
 export interface NativeThreadStartRequest {
   provider: ConversationProvider;
   workspacePath?: string | null;
+  parentConversationId?: string | null;
   model?: string | null;
   title?: string | null;
   ephemeral?: boolean;

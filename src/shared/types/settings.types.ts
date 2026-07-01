@@ -18,6 +18,7 @@ export type ConfigSource = 'project' | 'user' | 'default';
 export type DefaultMissedRunPolicy = 'skip' | 'notify' | 'runOnce';
 export type PauseReachabilityProbeMode = 'disabled' | 'reachable-means-vpn' | 'unreachable-means-vpn';
 export type VoiceSttRoutingMode = 'auto' | 'this-device' | 'worker-node' | 'cloud' | 'this-device-or-cloud';
+export type ProjectPluginTrust = 'trusted' | 'untrusted' | 'ask';
 /**
  * How Harness handles newer versions of the CLI providers it wraps:
  * - `'off'`    — don't check; hide the update pill.
@@ -390,6 +391,12 @@ export interface AppSettings {
    * path is validated in production.
    */
   enableSpawnWorkerOffload: boolean;
+  /**
+   * Project plugin execution trust map keyed by canonical project root.
+   * Missing roots default to `ask`, which surfaces manifest metadata but does
+   * not import project plugin code until trust is granted.
+   */
+  projectPluginTrust: Record<string, ProjectPluginTrust>;
 
   // Auxiliary LLM (local/cheap model routing for helper calls)
   auxiliaryLlmEnabled: boolean;
@@ -604,6 +611,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   // D4 — CLI spawn worker offload pilot (off by default)
   enableSpawnWorkerOffload: false,
+  projectPluginTrust: {},
 
   // Reactions
   reactionsEnabled: true,

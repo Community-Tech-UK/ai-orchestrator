@@ -50,6 +50,7 @@ export const ConversationLedgerDiscoverPayloadSchema = z.object({
 const CodexConversationLedgerStartPayloadSchema = z.object({
   provider: z.literal('codex'),
   workspacePath: z.string().min(1),
+  parentConversationId: z.string().min(1).max(200).nullable().optional(),
   model: z.string().min(1).nullable().optional(),
   title: z.string().min(1).nullable().optional(),
   ephemeral: z.boolean().optional(),

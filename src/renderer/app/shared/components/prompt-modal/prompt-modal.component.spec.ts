@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PromptModalComponent } from './prompt-modal.component';
 
 /**
@@ -23,13 +23,22 @@ interface ModalInternals {
 describe('PromptModalComponent', () => {
   let fixture: ComponentFixture<PromptModalComponent>;
   let ci: ModalInternals;
+  let opener: HTMLButtonElement;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [PromptModalComponent],
     }).compileComponents();
+    opener = document.createElement('button');
+    opener.textContent = 'Open modal';
+    document.body.append(opener);
     fixture = TestBed.createComponent(PromptModalComponent);
     ci = fixture.componentInstance as unknown as ModalInternals;
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+    opener.remove();
   });
 
   it('renders nothing while closed (default)', () => {
@@ -72,5 +81,47 @@ describe('PromptModalComponent', () => {
     ci.onCancel();
 
     expect(cancelledCount).toBe(1);
+  });
+
+  it('restores focus when the open modal closes', async () => {
+    let open = true;
+    (fixture.componentInstance as unknown as { isOpen: () => boolean }).isOpen = () => open;
+    opener.focus();
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const field = fixture.nativeElement.querySelector('.pm-input') as HTMLInputElement | null;
+    expect(field).toBeTruthy();
+    field!.focus();
+    expect(document.activeElement).toBe(field);
+
+    open = false;
+    fixture.detectChanges();
+
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('restores focus after Escape requests modal close', async () => {
+    let open = true;
+    let cancelledCount = 0;
+    (fixture.componentInstance as unknown as { isOpen: () => boolean }).isOpen = () => open;
+    ci.cancelled.subscribe(() => (cancelledCount += 1));
+    opener.focus();
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const overlay = fixture.nativeElement.querySelector('.pm-overlay') as HTMLElement | null;
+    const field = fixture.nativeElement.querySelector('.pm-input') as HTMLInputElement | null;
+    expect(overlay).toBeTruthy();
+    expect(field).toBeTruthy();
+    field!.focus();
+
+    overlay!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(cancelledCount).toBe(1);
+
+    open = false;
+    fixture.detectChanges();
+
+    expect(document.activeElement).toBe(opener);
   });
 });

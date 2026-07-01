@@ -140,11 +140,14 @@ describe('UnifiedModelCatalogService — initial static catalog', () => {
     expect(entry!.provider).toBe('claude');
   });
 
-  it('static catalog does not include removed Claude Fable 5 metadata', () => {
+  it('static catalog includes Claude Fable 5 metadata', () => {
     const svc = makeServiceWithMock();
     const entry = svc.getModel('claude-fable-5');
-    expect(entry).toBeUndefined();
-    expect(svc.getModelsByProvider('claude').some((m) => m.id === 'claude-fable-5')).toBe(false);
+    expect(entry).toBeDefined();
+    expect(entry!.provider).toBe('claude');
+    expect(entry!.tier).toBe('powerful');
+    expect(entry!.family).toBe('Fable');
+    expect(entry!.pricing).toEqual({ inputPerMillion: 10.0, outputPerMillion: 50.0 });
   });
 
   it('getModel returns undefined for an unknown id', () => {

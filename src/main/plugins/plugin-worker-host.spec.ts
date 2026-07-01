@@ -5,6 +5,7 @@ import * as path from 'path';
 import type { Worker } from 'node:worker_threads';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PluginWorkerHost, resolveWorkerExecArgv } from './plugin-worker-host';
+import { ProviderAdapterRegistryImpl } from '../providers/provider-adapter-registry';
 
 describe('resolveWorkerExecArgv (Task 17)', () => {
   it('registers tsx when the plugin file is TypeScript, even with a .js host', () => {
@@ -115,6 +116,293 @@ describe('PluginWorkerHost', () => {
       .toContain('CI is failing');
   });
 
+  it('registers provider adapters declared from worker context before ready', async () => {
+    const pluginFile = path.join(tempDir, 'provider-plugin.js');
+    await fs.writeFile(
+      pluginFile,
+      `
+        module.exports = async (ctx) => {
+          ctx.providerAdapters.registerProviderAdapterFactory('factory:worker-provider', () => ({
+            provider: 'plugin:worker-provider',
+            capabilities: {
+              interruption: true,
+              permissionPrompts: false,
+              sessionResume: true,
+              streamingOutput: true,
+              usageReporting: false,
+              subAgents: false
+            },
+            events$: { subscribe: () => ({ unsubscribe() {} }) },
+            getCapabilities: () => ({
+              toolExecution: false,
+              streaming: true,
+              multiTurn: true,
+              vision: false,
+              fileAttachments: false,
+              functionCalling: false,
+              builtInCodeTools: false
+            }),
+            checkStatus: async () => ({ type: 'openai-compatible', available: true, authenticated: true }),
+            initialize: async () => undefined,
+            sendMessage: async () => undefined,
+            terminate: async () => undefined,
+            getUsage: () => null,
+            getPid: () => null,
+            isRunning: () => false,
+            getSessionId: () => ''
+          }));
+          ctx.providerAdapters.registerProviderAdapter({
+            provider: 'plugin:worker-provider',
+            displayName: 'Worker Provider',
+            capabilities: {
+              interruption: true,
+              permissionPrompts: false,
+              sessionResume: true,
+              streamingOutput: true,
+              usageReporting: false,
+              subAgents: false
+            },
+            defaultConfig: {
+              type: 'openai-compatible',
+              name: 'Worker Provider',
+              enabled: true
+            },
+            isolation: 'worker'
+          }, 'factory:worker-provider');
+          return { hooks: {} };
+        };
+      `,
+    );
+    const registrations: unknown[] = [];
+    const host = new PluginWorkerHost({
+      filePath: pluginFile,
+      context: { appPath: '/tmp/test-app', homeDir: '/tmp/test-home' },
+      requestedSlot: 'hook',
+      providerAdapterApi: {
+        registerProviderAdapter: (descriptor, factoryRef) => {
+          registrations.push({ descriptor, factoryRef });
+        },
+      },
+    });
+
+    const runtime = await host.start();
+    await host.stop();
+
+    expect(runtime.providerAdapters).toEqual([
+      {
+        descriptor: expect.objectContaining({
+          provider: 'plugin:worker-provider',
+          displayName: 'Worker Provider',
+          isolation: 'worker',
+        }),
+        factoryRef: 'factory:worker-provider',
+      },
+    ]);
+    expect(registrations).toEqual(runtime.providerAdapters);
+  });
+
+  it('unregisters worker provider adapters on stop so the plugin can reload', async () => {
+    const pluginFile = path.join(tempDir, 'provider-reload-plugin.js');
+    await fs.writeFile(
+      pluginFile,
+      `
+        module.exports = async (ctx) => {
+          ctx.providerAdapters.registerProviderAdapterFactory('factory:worker-provider', () => ({
+            provider: 'plugin:worker-provider',
+            capabilities: {
+              interruption: true,
+              permissionPrompts: false,
+              sessionResume: true,
+              streamingOutput: true,
+              usageReporting: false,
+              subAgents: false
+            },
+            events$: { subscribe: () => ({ unsubscribe() {} }) },
+            getCapabilities: () => ({
+              toolExecution: false,
+              streaming: true,
+              multiTurn: true,
+              vision: false,
+              fileAttachments: false,
+              functionCalling: false,
+              builtInCodeTools: false
+            }),
+            checkStatus: async () => ({ type: 'plugin:worker-provider', available: true, authenticated: true }),
+            initialize: async () => undefined,
+            sendMessage: async () => undefined,
+            terminate: async () => undefined,
+            getUsage: () => null,
+            getPid: () => null,
+            isRunning: () => false,
+            getSessionId: () => ''
+          }));
+          ctx.providerAdapters.registerProviderAdapter({
+            provider: 'plugin:worker-provider',
+            displayName: 'Worker Provider',
+            capabilities: {
+              interruption: true,
+              permissionPrompts: false,
+              sessionResume: true,
+              streamingOutput: true,
+              usageReporting: false,
+              subAgents: false
+            },
+            defaultConfig: {
+              type: 'plugin:worker-provider',
+              name: 'Worker Provider',
+              enabled: true
+            },
+            isolation: 'worker'
+          }, 'factory:worker-provider');
+          return { hooks: {} };
+        };
+      `,
+    );
+    const registry = new ProviderAdapterRegistryImpl();
+    const firstHost = new PluginWorkerHost({
+      filePath: pluginFile,
+      context: { appPath: '/tmp/test-app', homeDir: '/tmp/test-home' },
+      requestedSlot: 'hook',
+      providerAdapterApi: registry,
+    });
+
+    await firstHost.start();
+    expect(registry.listCreatablePluginProviderAdapters()).toHaveLength(1);
+    await firstHost.stop();
+    expect(registry.listCreatablePluginProviderAdapters()).toHaveLength(0);
+
+    const secondHost = new PluginWorkerHost({
+      filePath: pluginFile,
+      context: { appPath: '/tmp/test-app', homeDir: '/tmp/test-home' },
+      requestedSlot: 'hook',
+      providerAdapterApi: registry,
+    });
+    await expect(secondHost.start()).resolves.toMatchObject({ ready: true });
+    await secondHost.stop();
+  });
+
+  it('creates and invokes worker provider adapters through a registered factory ref', async () => {
+    const markerPath = path.join(tempDir, 'provider-marker.json');
+    const pluginFile = path.join(tempDir, 'provider-factory-plugin.js');
+    await fs.writeFile(
+      pluginFile,
+      `
+        const fs = require('fs');
+        const events$ = { subscribe: () => ({ unsubscribe() {} }) };
+        module.exports = async (ctx) => {
+          ctx.providerAdapters.registerProviderAdapterFactory('factory:worker-provider', (config) => {
+            let running = false;
+            let sessionId = '';
+            return {
+              provider: 'plugin:worker-provider',
+              capabilities: {
+                interruption: true,
+                permissionPrompts: false,
+                sessionResume: true,
+                streamingOutput: true,
+                usageReporting: true,
+                subAgents: false
+              },
+              events$,
+              getCapabilities: () => ({
+                toolExecution: true,
+                streaming: true,
+                multiTurn: true,
+                vision: false,
+                fileAttachments: true,
+                functionCalling: true,
+                builtInCodeTools: false
+              }),
+              checkStatus: async () => ({
+                type: config.type,
+                available: true,
+                authenticated: true
+              }),
+              initialize: async (options) => {
+                running = true;
+                sessionId = options.sessionId || 'worker-session';
+                fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify({
+                  config,
+                  initialize: options
+                }));
+              },
+              sendMessage: async (message, attachments) => {
+                const current = JSON.parse(fs.readFileSync(${JSON.stringify(markerPath)}, 'utf8'));
+                fs.writeFileSync(${JSON.stringify(markerPath)}, JSON.stringify({
+                  ...current,
+                  message,
+                  attachmentCount: attachments ? attachments.length : 0
+                }));
+              },
+              terminate: async () => {
+                running = false;
+              },
+              getUsage: () => ({
+                inputTokens: 1,
+                outputTokens: 2,
+                totalTokens: 3
+              }),
+              getPid: () => 4242,
+              isRunning: () => running,
+              getSessionId: () => sessionId
+            };
+          });
+          ctx.providerAdapters.registerProviderAdapter({
+            provider: 'plugin:worker-provider',
+            displayName: 'Worker Provider',
+            capabilities: {
+              interruption: true,
+              permissionPrompts: false,
+              sessionResume: true,
+              streamingOutput: true,
+              usageReporting: true,
+              subAgents: false
+            },
+            defaultConfig: {
+              type: 'openai-compatible',
+              name: 'Worker Provider',
+              enabled: true
+            },
+            isolation: 'worker'
+          }, 'factory:worker-provider');
+          return { hooks: {} };
+        };
+      `,
+    );
+    const registry = new ProviderAdapterRegistryImpl();
+    const host = new PluginWorkerHost({
+      filePath: pluginFile,
+      context: { appPath: '/tmp/test-app', homeDir: '/tmp/test-home' },
+      requestedSlot: 'hook',
+      providerAdapterApi: registry,
+    });
+
+    await host.start();
+    const adapter = registry.createPluginProviderAdapter('plugin:worker-provider', {
+      type: 'openai-compatible',
+      name: 'Runtime Worker Provider',
+      enabled: true,
+    });
+    await expect(adapter.checkStatus()).resolves.toMatchObject({
+      type: 'openai-compatible',
+      available: true,
+      authenticated: true,
+    });
+    await adapter.initialize({ workingDirectory: tempDir, instanceId: 'inst-1' });
+    await adapter.sendMessage('hello worker', [{ type: 'file', name: 'note.txt', mimeType: 'text/plain', data: 'hi' }]);
+
+    expect(adapter.provider).toBe('plugin:worker-provider');
+    expect(adapter.isRunning()).toBe(true);
+    expect(adapter.getSessionId()).toBe('worker-session');
+    expect(adapter.getPid()).toBe(4242);
+    expect(adapter.getUsage()).toEqual({ inputTokens: 1, outputTokens: 2, totalTokens: 3 });
+    await expect(fs.readFile(markerPath, 'utf-8')).resolves.toContain('hello worker');
+
+    await adapter.terminate();
+    expect(adapter.isRunning()).toBe(false);
+    await host.stop();
+  });
+
   it('rejects and terminates when a plugin never reaches worker startup ready', async () => {
     const pluginFile = path.join(tempDir, 'startup-hang-plugin.js');
     await fs.writeFile(
@@ -178,10 +466,10 @@ describe('PluginWorkerHost', () => {
   });
 
   it('does not cache a stale runtime when a worker exits immediately after ready', async () => {
-    const workers: Array<Worker & {
+    const workers: (Worker & {
       postMessage: ReturnType<typeof vi.fn>;
       terminate: ReturnType<typeof vi.fn>;
-    }> = [];
+    })[] = [];
     const host = new PluginWorkerHost({
       filePath: path.join(tempDir, 'exiting-worker-plugin.js'),
       context: { appPath: '/tmp/test-app', homeDir: '/tmp/test-home' },

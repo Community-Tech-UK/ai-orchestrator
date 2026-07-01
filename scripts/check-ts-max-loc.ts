@@ -260,6 +260,9 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/services/voice/providers/local-whisper-transcription-provider.ts': 849,
   // Shared
   'src/shared/types/loop.types.ts': 780,
+  // Allowlisted at 702 when Claude Fable 5 was re-added (pinned id, API pricing
+  // entry, and PROVIDER_MODEL_LIST row) tipped it just past 700.
+  'src/shared/types/provider.types.ts': 702,
   // Worker agent
   'src/worker-agent/worker-agent.ts': 872,
 };

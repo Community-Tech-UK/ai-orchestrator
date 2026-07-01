@@ -17,7 +17,7 @@ import {
 import { ProviderType } from '../../shared/types/provider.types';
 import { CliDetectionService, CliInfo, CliType } from '../cli/cli-detection';
 import { getProviderInstanceManager } from '../providers/provider-instance-manager';
-import { BaseProvider } from '../providers/provider-interface';
+import type { ProviderAdapter } from '@sdk/provider-adapter';
 import { selectPersonalities, PERSONALITY_PROMPTS } from './personalities';
 import { generateId } from '../../shared/utils/id-generator';
 import { estimateTokens } from '../rlm/token-counter';
@@ -43,7 +43,7 @@ export interface AgentConfig {
   type: 'cli' | 'api';
   name: string;
   command?: string;
-  provider: BaseProvider;
+  provider: ProviderAdapter;
   personality?: PersonalityType;
 }
 
@@ -74,7 +74,7 @@ const API_FALLBACKS: Record<string, ProviderType> = {
  */
 interface ActiveSession {
   request: VerificationRequest;
-  providers: Map<string, BaseProvider>;
+  providers: Map<string, ProviderAdapter>;
   cancelled: boolean;
 }
 

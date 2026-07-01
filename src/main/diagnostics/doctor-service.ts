@@ -10,6 +10,7 @@ import { getCommandManager } from '../commands/command-manager';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
 import { getProviderDoctor } from '../providers/provider-doctor';
+import { getProviderInstanceManager } from '../providers/provider-instance-manager';
 import type {
   BrowserAutomationHealthSnapshot,
   CliHealthEntry,
@@ -28,7 +29,13 @@ import { getSkillDiagnosticsService } from './skill-diagnostics-service';
 const logger = getLogger('DoctorService');
 
 const CACHE_TTL_MS = 30_000;
-const PROVIDERS: { id: string; doctorKey: string; label: string }[] = [
+interface ProviderDiagnosisTarget {
+  id: string;
+  doctorKey: string;
+  label: string;
+}
+
+const PROVIDERS: ProviderDiagnosisTarget[] = [
   { id: 'claude', doctorKey: 'claude-cli', label: 'Claude Code' },
   { id: 'codex', doctorKey: 'codex-cli', label: 'OpenAI Codex' },
   { id: 'gemini', doctorKey: 'gemini-cli', label: 'Google Gemini' },
@@ -237,7 +244,7 @@ export class DoctorService {
 
   private async getProviderDiagnoses(): Promise<ProviderDiagnosisSnapshot[]> {
     const doctor = getProviderDoctor();
-    const results = await Promise.all(PROVIDERS.map(async (provider) => {
+    const results = await Promise.all(this.getProviderDiagnosisTargets().map(async (provider) => {
       try {
         const diagnosis = await doctor.diagnose(provider.doctorKey);
         return {
@@ -261,6 +268,29 @@ export class DoctorService {
       }
     }));
     return results;
+  }
+
+  private getProviderDiagnosisTargets(): ProviderDiagnosisTarget[] {
+    const targets = [...PROVIDERS];
+    const seen = new Set(targets.map((provider) => provider.id));
+
+    try {
+      for (const config of getProviderInstanceManager().getAllConfigs()) {
+        if (!isPluginProviderId(config.type) || seen.has(config.type)) {
+          continue;
+        }
+        targets.push({
+          id: config.type,
+          doctorKey: config.type,
+          label: config.name,
+        });
+        seen.add(config.type);
+      }
+    } catch (error) {
+      logger.warn('Plugin provider diagnostics discovery failed', { error: String(error) });
+    }
+
+    return targets;
   }
 
   private async getCliHealth(forceRefresh: boolean): Promise<CliHealthSnapshot> {
@@ -397,6 +427,10 @@ export class DoctorService {
       .filter((check) => check.status !== 'ready' && check.status !== 'disabled')
       .sort((a, b) => rank[b.status] - rank[a.status] || Number(b.critical) - Number(a.critical))[0] ?? null;
   }
+}
+
+function isPluginProviderId(provider: string): boolean {
+  return provider.startsWith('plugin:') && provider.length > 'plugin:'.length;
 }
 
 function toUpdatePlanSummary(plan: CliUpdatePlanSummary): CliUpdatePlanSummary {

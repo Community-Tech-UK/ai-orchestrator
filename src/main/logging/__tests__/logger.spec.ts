@@ -176,5 +176,23 @@ describe('LogManager', () => {
       expect(entry.data?.['provider']).toBe('claude');
       expect(entry.data?.['promptTokens']).toBe(128);
     });
+
+    it('redacts secrets from log messages and error fields before buffering', () => {
+      const manager = new LogManager({ enableConsole: false, enableFile: false });
+      const secret = 'sk-1234567890abcdefghij';
+      const error = new Error(`provider rejected ${secret}`);
+
+      manager.logError('error', 'AuthTest', `request failed with ${secret}`, error, {
+        provider: 'claude',
+      });
+
+      const [entry] = manager.getRecentLogs({ limit: 1 });
+      const serialized = JSON.stringify(entry);
+      expect(serialized).not.toContain(secret);
+      expect(entry.message).toContain('<redacted-secret>');
+      expect(entry.error?.message).toContain('<redacted-secret>');
+      expect(entry.error?.stack).toContain('<redacted-secret>');
+      expect(entry.data?.['provider']).toBe('claude');
+    });
   });
 });

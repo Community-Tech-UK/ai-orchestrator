@@ -59,6 +59,7 @@ import { getAutoTitleService } from './auto-title-service';
 import { ActivityStateDetector } from '../providers/activity-state-detector';
 import { getDeferDecisionStore } from '../cli/hooks/defer-decision-store';
 import { InstanceSpawner } from './lifecycle/instance-spawner';
+import { createSpawnTransaction, type SpawnTransaction } from './lifecycle/spawn-transaction';
 import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handler';
 import { buildInstanceRecord } from './lifecycle/instance-create-builder';
 import { resolveInitialModel } from './lifecycle/resolve-initial-model';
@@ -106,7 +107,7 @@ import { summarizeCreateInstanceConfig } from './lifecycle/instance-create-loggi
 import { callWithDeadline } from '../util/deadline';
 import { LifecycleMemoryPressureMonitor } from './lifecycle/memory-pressure-monitor';
 import { getOrCreateTurnSupervisor } from '../session/session-turn-supervisor';
-import { getKnownModelsForCli, isRestoreOrReplayContinuity, requiresFreshAcpModelSpawn } from './lifecycle/create-validation-helpers';
+import { getKnownModelsForCli, isRestoreOrReplayContinuity, requiresFreshConfiguredModelSpawn } from './lifecycle/create-validation-helpers';
 import type { McpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-context';
 import { resolveExecutionLocation } from './lifecycle/execution-location-resolver';
 
@@ -467,6 +468,16 @@ export class InstanceLifecycleManager extends EventEmitter {
     executionLocation?: ExecutionLocation,
   ): CliAdapter {
     return getProviderRuntimeService().createAdapter({ cliType, options, executionLocation });
+  }
+
+  private addAdapterRollback(transaction: SpawnTransaction, instanceId: string, adapter: CliAdapter): void {
+    transaction.addRollback('adapter-registration', async () => {
+      (adapter as { removeAllListeners?: () => void }).removeAllListeners?.();
+      if (this.deps.getAdapter(instanceId) === adapter) this.deps.deleteAdapter(instanceId);
+      this.deps.deleteDiffTracker?.(instanceId);
+      this.activityDetectors.delete(instanceId);
+      await adapter.terminate(false).catch(() => { /* rollback continues after adapter cleanup errors */ });
+    });
   }
 
   async refreshAdapterRuntimeConfig(instanceId: string): Promise<void> {
@@ -862,6 +873,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       getParent: (id) => this.deps.getInstance(id),
     });
     const abortController = instance.abortController!;
+    const spawnTransaction = createSpawnTransaction(`create:${instance.id}`);
 
     // Load project permission rules early so the first prompts can be auto-decided.
     try {
@@ -884,15 +896,24 @@ export class InstanceLifecycleManager extends EventEmitter {
 
     // Store instance so UI renders immediately
     this.deps.setInstance(instance);
+    spawnTransaction.addRollback('instance-state', () => {
+      this.deps.deleteInstance(instance.id);
+      this.emit('removed', instance.id);
+    });
+    spawnTransaction.addRollback('output-storage', () => this.outputStorage.deleteInstance(instance.id));
 
     // Initialize state machine for this instance (starts in 'initializing').
     this.deps.setStateMachine?.(instance.id, new InstanceStateMachine('initializing'));
+    spawnTransaction.addRollback('state-machine', () => { this.deps.deleteStateMachine?.(instance.id); });
 
     // If has parent, update parent's children list
     if (instance.parentId) {
       const parent = this.deps.getInstance(instance.parentId);
       if (parent) {
         parent.childrenIds.push(instance.id);
+        spawnTransaction.addRollback('parent-child-link', () => {
+          parent.childrenIds = parent.childrenIds.filter((childId) => childId !== instance.id);
+        });
       }
     }
 
@@ -908,6 +929,7 @@ export class InstanceLifecycleManager extends EventEmitter {
     );
     instance.supervisorNodeId = supervisorNodeId;
     instance.workerNodeId = workerNodeId;
+    spawnTransaction.addRollback('supervisor-tree', () => { getSupervisorTree().unregisterInstance(instance.id); });
 
     // Emit creation event immediately with 'initializing' status so the UI
     // can render the instance card without waiting for the heavy init below.
@@ -917,6 +939,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       instance.workingDirectory,
       instance.parentId
     );
+    spawnTransaction.addRollback('orchestration-registry', () => { this.deps.unregisterOrchestration(instance.id); });
     this.emit('created', this.deps.serializeForIpc(instance));
 
     // Initial prompts never flow through InstanceManager.sendInput(), so kick
@@ -930,7 +953,8 @@ export class InstanceLifecycleManager extends EventEmitter {
     }
     if (initialPromptText.trim().length > 0) {
       try {
-        getPromptHistoryService().record({
+        const promptHistoryService = getPromptHistoryService();
+        promptHistoryService.record({
           instanceId: instance.id,
           id: createPromptHistoryEntryId(),
           text: initialPromptText.trim(),
@@ -939,6 +963,9 @@ export class InstanceLifecycleManager extends EventEmitter {
           provider: config.provider,
           model: config.modelOverride || resolvedAgent.modelOverride,
           wasSlashCommand: false,
+        });
+        spawnTransaction.addRollback('prompt-history', () => {
+          promptHistoryService.clearForInstance(instance.id);
         });
       } catch (error) {
         logger.warn('Failed to record initial prompt history in main process', {
@@ -992,6 +1019,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
         // Initialize RLM
         await this.deps.initializeRlm(instance);
+        spawnTransaction.addRollback('rlm-session', () => { this.deps.endRlmSession(instance.id); });
 
         if (signal.aborted) return;
 
@@ -1425,14 +1453,14 @@ export class InstanceLifecycleManager extends EventEmitter {
         // spawned CLI process.
         // NEVER use warm-start for remote sessions — warm adapters are local processes
         // and cannot proxy commands to a remote worker node.
-        // NEVER use warm-start for cursor/copilot when an explicit model is requested.
-        // Their ACP model is fixed by the `--model` launch flag (and session/new
-        // runs at pre-warm time), so a warm process always runs the account
-        // default. Reusing it would silently ignore the user's model pick — the
-        // chip would show e.g. Composer 2.5 while the agent runs the default
-        // (Codex 5.3). `auto` is fine: it intentionally means "let the CLI pick".
-        const wantsExplicitAcpModel = requiresFreshAcpModelSpawn(resolvedCliType, spawnOptions.model);
-        const warmAdapter = (config.resume || config.forceNodeId || config.nodePlacement || spawnOptions.browserGatewayMcp || wantsExplicitAcpModel || instance.bareMode === true)
+        // NEVER use warm-start for providers whose explicit model is fixed on
+        // the adapter at spawn/prewarm time. Cursor/Copilot bind `--model` at
+        // ACP session creation; Antigravity stores the exact `agy --model`
+        // label on the adapter config. Reusing a warm process would silently
+        // ignore the user's model pick. `auto`/unset is fine: it intentionally
+        // means "let the CLI pick".
+        const wantsExplicitConfiguredModel = requiresFreshConfiguredModelSpawn(resolvedCliType, spawnOptions.model);
+        const warmAdapter = (config.resume || config.forceNodeId || config.nodePlacement || spawnOptions.browserGatewayMcp || wantsExplicitConfiguredModel || instance.bareMode === true)
           ? null
           : (this.deps.warmStartManager?.consume(resolvedCliType, instance.workingDirectory) as CliAdapter | null ?? null);
 
@@ -1447,6 +1475,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           if (this.deps.setDiffTracker) {
             this.deps.setDiffTracker(instance.id, new SessionDiffTracker(instance.workingDirectory));
           }
+          this.addAdapterRollback(spawnTransaction, instance.id, adapter);
 
           if (signal.aborted) {
             await adapter.terminate(false).catch(() => { /* ignore */ });
@@ -1492,18 +1521,8 @@ export class InstanceLifecycleManager extends EventEmitter {
                 attachments: config.attachments,
               });
             } catch (error) {
-              this.transitionState(instance, 'failed');
               const errorMessage = error instanceof Error ? error.message : String(error);
               logger.error('Failed to send initial prompt via warm adapter', error instanceof Error ? error : undefined, { errorMessage });
-              const errorOutput = {
-                id: generateId(),
-                timestamp: Date.now(),
-                type: 'error' as const,
-                content: `Failed to initialize ${getCliDisplayName(resolvedCliType)}: ${errorMessage}`
-              };
-              this.deps.addToOutputBuffer(instance, errorOutput);
-              this.emit('output', { instanceId: instance.id, message: errorOutput });
-              this.deps.queueUpdate(instance.id, 'failed', instance.contextUsage);
               throw error;
             }
           }
@@ -1527,6 +1546,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           if (this.deps.setDiffTracker) {
             this.deps.setDiffTracker(instance.id, new SessionDiffTracker(instance.workingDirectory));
           }
+          this.addAdapterRollback(spawnTransaction, instance.id, adapter);
 
           if (signal.aborted) {
             // Clean up the adapter we just registered
@@ -1598,19 +1618,8 @@ export class InstanceLifecycleManager extends EventEmitter {
               });
             }
           } catch (error) {
-            this.transitionState(instance, 'failed');
             const errorMessage = error instanceof Error ? error.message : String(error);
             logger.error('Failed to spawn/initialize CLI', error instanceof Error ? error : undefined, { errorMessage });
-
-            const errorOutput = {
-              id: generateId(),
-              timestamp: Date.now(),
-              type: 'error' as const,
-              content: `Failed to initialize ${getCliDisplayName(resolvedCliType)}: ${errorMessage}`
-            };
-            this.deps.addToOutputBuffer(instance, errorOutput);
-            this.emit('output', { instanceId: instance.id, message: errorOutput });
-            this.deps.queueUpdate(instance.id, 'failed', instance.contextUsage);
             throw error;
           }
         }
@@ -1636,12 +1645,10 @@ export class InstanceLifecycleManager extends EventEmitter {
           });
         }
 
+        spawnTransaction.commit();
       } catch (error) {
         if (!signal.aborted) {
-          if (instance.status !== 'failed') {
-            this.transitionState(instance, 'failed');
-            this.deps.queueUpdate(instance.id, 'failed', instance.contextUsage);
-          }
+          await spawnTransaction.rollback(error);
           logger.error('Instance background init failed', error instanceof Error ? error : undefined, { instanceId: instance.id });
         }
         throw error;
@@ -1777,6 +1784,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
     const wakePromise = (async () => {
       const { signal } = abortController;
+      const spawnTransaction = createSpawnTransaction(`wake:${instanceId}`);
       try {
         if (signal.aborted) return;
 
@@ -1906,6 +1914,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         if (this.deps.setDiffTracker) {
           this.deps.setDiffTracker(instanceId, new SessionDiffTracker(instance.workingDirectory));
         }
+        this.addAdapterRollback(spawnTransaction, instanceId, adapter);
 
         if (signal.aborted) {
           await adapter.terminate(false).catch(() => { /* ignore */ });
@@ -1968,6 +1977,7 @@ export class InstanceLifecycleManager extends EventEmitter {
             if (this.deps.setDiffTracker) {
               this.deps.setDiffTracker(instanceId, new SessionDiffTracker(instance.workingDirectory));
             }
+            this.addAdapterRollback(spawnTransaction, instanceId, adapter);
             pid = await adapter.spawn();
             instance.processId = pid;
             await this.waitForInputReadinessBoundary(instanceId, adapter);
@@ -2018,7 +2028,9 @@ export class InstanceLifecycleManager extends EventEmitter {
           instance.currentModel,
         );
         logger.info('Instance woken successfully', { instanceId, pid });
+        spawnTransaction.commit();
       } catch (error) {
+        await spawnTransaction.rollback(error);
         this.transitionState(instance, 'failed');
         this.deps.queueUpdate(instanceId, 'failed', instance.contextUsage);
         logger.error('Failed to wake instance', error instanceof Error ? error : undefined, { instanceId });
@@ -2389,6 +2401,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         resetTotalTokensUsed: true,
         resetFirstMessageTracking: true,
       });
+      const spawnTransaction = createSpawnTransaction(`restart-fresh:${instanceId}`);
 
       const adapter = this.createRuntimeAdapter(
         cliType,
@@ -2417,6 +2430,7 @@ export class InstanceLifecycleManager extends EventEmitter {
 
       this.deps.setupAdapterEvents(instanceId, adapter);
       this.deps.setAdapter(instanceId, adapter);
+      this.addAdapterRollback(spawnTransaction, instanceId, adapter);
 
       instance.restartCount += 1;
       this.resetTerminalStateForRestart(instance);
@@ -2444,7 +2458,9 @@ export class InstanceLifecycleManager extends EventEmitter {
         instance.recoveryMethod = 'fresh';
         this.transitionState(instance, 'idle');
         this.deps.startStuckTracking?.(instanceId);
+        spawnTransaction.commit();
       } catch (error) {
+        await spawnTransaction.rollback(error);
         instance.recoveryMethod = 'failed';
         this.transitionState(instance, 'error');
         logger.error('Failed to restart CLI with fresh context', error instanceof Error ? error : undefined, {

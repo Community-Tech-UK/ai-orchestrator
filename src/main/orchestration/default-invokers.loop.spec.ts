@@ -315,6 +315,30 @@ describe('Loop Mode invoker plumbing', () => {
     });
   });
 
+  it('surfaces structured provider error metadata on loop invocation failures', async () => {
+    registerDefaultLoopInvoker({} as never);
+    const providerError = Object.assign(new Error('Too many requests'), {
+      status: 429,
+      headers: {
+        'retry-after': '120',
+        authorization: 'Bearer should-not-cross-the-loop-boundary',
+      },
+      body: { error: { message: 'quota exhausted; retry later', access_token: 'visible-by-key-only' } },
+    });
+    hoisted.sendMessage.mockRejectedValue(providerError);
+
+    const callbackResult = await emitIteration({});
+
+    expect(callbackResult).toMatchObject({
+      error: 'Too many requests',
+      status: 429,
+      provider: 'claude',
+      headers: { 'retry-after': '120' },
+      body: { error: { message: 'quota exhausted; retry later', access_token: '[REDACTED]' } },
+    });
+    expect((callbackResult as { headers?: Record<string, string> }).headers?.authorization).toBeUndefined();
+  });
+
   it('enables delegated large-output retrieval hints when branch exploration is enabled', async () => {
     registerDefaultLoopInvoker({} as never);
     hoisted.sendMessage.mockResolvedValue({
@@ -556,6 +580,56 @@ describe('Loop Mode invoker plumbing', () => {
         }),
       ]),
     );
+  });
+
+  it('captures loop child finish reason, unresolved tool calls, result hashes, and read files from live adapter events', async () => {
+    registerDefaultLoopInvoker({} as never);
+    hoisted.sendMessage.mockImplementation(async () => {
+      hoisted.adapterRef.current.emit('tool_use', {
+        id: 'read-1',
+        name: 'Read',
+        arguments: { file_path: 'src/input.ts' },
+      });
+      hoisted.adapterRef.current.emit('tool_result', {
+        id: 'read-1',
+        name: 'Read',
+        arguments: { file_path: 'src/input.ts' },
+        result: 'export const input = true;\n',
+      });
+      hoisted.adapterRef.current.emit('tool_use', {
+        id: 'bash-1',
+        name: 'Bash',
+        arguments: { command: 'npm test' },
+      });
+      return {
+        content: 'stopped after asking for another tool',
+        usage: { totalTokens: 5 },
+        metadata: { stopReason: 'tool_use' },
+      };
+    });
+
+    const callbackResult = await emitIteration({ workspaceCwd: '/Users/test/project' });
+
+    expect(callbackResult).toMatchObject({
+      finishReason: 'tool_use',
+      unresolvedToolCalls: true,
+      filesRead: ['src/input.ts'],
+    });
+    const result = callbackResult as LoopChildResult;
+    expect(result.toolCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolName: 'Read',
+          success: true,
+          resultHash: expect.any(String),
+        }),
+        expect.objectContaining({
+          toolName: 'Bash',
+          success: true,
+        }),
+      ]),
+    );
+    expect(result.toolCalls.find((call) => call.toolName === 'Bash')).not.toHaveProperty('resultHash');
   });
 
   it('captures file changes from non-git loop workspaces', async () => {
@@ -943,6 +1017,50 @@ describe('Loop Mode invoker plumbing', () => {
       expect(hoisted.sendMessage).toHaveBeenCalledTimes(1);
     });
 
+    it('B8: does not borrow a live Claude adapter when an explicit downshift model differs from the chat model', async () => {
+      const parentSendMessage = vi.fn().mockResolvedValue({ content: 'wrong model', usage: { totalTokens: 1 } });
+      const parentAdapter = Object.assign(new EventEmitter(), {
+        sendMessage: parentSendMessage,
+        terminate: vi.fn(),
+        setStreamIdleTimeoutMs: vi.fn(),
+        setResume: vi.fn(),
+      });
+      const instanceManager = {
+        getInstance: vi.fn(() => ({
+          id: 'chat-live',
+          provider: 'claude',
+          workingDirectory: '/tmp/ws',
+          currentModel: 'claude-opus-current',
+        })),
+        getAdapter: vi.fn(() => parentAdapter),
+      };
+      registerDefaultLoopInvoker(instanceManager as never);
+      hoisted.sendMessage.mockResolvedValue({ content: 'downshifted', usage: { totalTokens: 5 } });
+
+      const iter = new Promise<LoopChildResult | { error: string }>((resolve) => {
+        hoisted.loopCoordinatorRef.current.emit('loop:invoke-iteration', {
+          correlationId: 'loop-borrow-model-switch::0',
+          loopRunId: 'loop-borrow-model-switch',
+          chatId: 'chat-live',
+          provider: 'claude',
+          model: 'claude-sonnet-downshift',
+          workspaceCwd: '/tmp/ws',
+          stage: 'IMPLEMENT',
+          seq: 0,
+          prompt: 'iter 0',
+          config: { contextStrategy: 'same-session' },
+          callback: resolve,
+        });
+      });
+      await new Promise<void>((r) => setImmediate(r));
+      await new Promise<void>((r) => setImmediate(r));
+      await iter;
+
+      expect(parentSendMessage).not.toHaveBeenCalled();
+      expect(hoisted.createAdapter).toHaveBeenCalledTimes(1);
+      expect(hoisted.createAdapter.mock.calls[0][0].options.model).toBe('claude-sonnet-downshift');
+    });
+
     it('does not borrow when the loop is worktree-isolated — creates a loop-owned adapter pinned to the worktree', async () => {
       const instanceManager = {
         getInstance: vi.fn(() => ({ id: 'chat-live', provider: 'claude', workingDirectory: '/tmp/ws' })),
@@ -1076,6 +1194,86 @@ describe('Loop Mode invoker plumbing', () => {
       expect(hoisted.sendMessage).toHaveBeenCalledTimes(2);
       // Adapter is NOT torn down between iterations — it's reused.
       expect(hoisted.terminate).not.toHaveBeenCalled();
+    });
+
+    it('B6: uses calibrated context-window tokens before recycling a same-session adapter', async () => {
+      registerDefaultLoopInvoker({} as never);
+      hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 150_000 } });
+
+      const iter0 = new Promise<LoopChildResult | { error: string }>((resolve) => {
+        hoisted.loopCoordinatorRef.current.emit('loop:invoke-iteration', {
+          correlationId: 'loop-context-calibration::0',
+          loopRunId: 'loop-context-calibration',
+          chatId: 'chat-context-calibration',
+          provider: 'claude',
+          workspaceCwd: '/tmp/ws',
+          stage: 'IMPLEMENT',
+          seq: 0,
+          prompt: 'iter 0',
+          config: {
+            contextStrategy: 'same-session',
+            context: { compaction: { enabled: true, resetAtUtilization: 0.6, clearToolResults: true } },
+          },
+          contextWindowTokens: 1_000_000,
+          callback: resolve,
+        });
+      });
+      await new Promise<void>((r) => setImmediate(r));
+      await new Promise<void>((r) => setImmediate(r));
+      const result = await iter0;
+
+      expect((result as LoopChildResult).contextCompacted).toBeUndefined();
+      expect(hoisted.terminate).not.toHaveBeenCalled();
+    });
+
+    it('B8: recycles a same-session loop adapter when the requested model changes', async () => {
+      registerDefaultLoopInvoker({} as never);
+      hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 5 } });
+
+      const iter0 = new Promise<LoopChildResult | { error: string }>((resolve) => {
+        hoisted.loopCoordinatorRef.current.emit('loop:invoke-iteration', {
+          correlationId: 'loop-model-switch::0',
+          loopRunId: 'loop-model-switch',
+          chatId: 'chat-model-switch',
+          provider: 'claude',
+          workspaceCwd: '/tmp/ws',
+          stage: 'PLAN',
+          seq: 0,
+          prompt: 'iter 0',
+          config: { contextStrategy: 'same-session' },
+          callback: resolve,
+        });
+      });
+      await new Promise<void>((r) => setImmediate(r));
+      await new Promise<void>((r) => setImmediate(r));
+      await iter0;
+
+      const iter1 = new Promise<LoopChildResult | { error: string }>((resolve) => {
+        hoisted.loopCoordinatorRef.current.emit('loop:invoke-iteration', {
+          correlationId: 'loop-model-switch::1',
+          loopRunId: 'loop-model-switch',
+          chatId: 'chat-model-switch',
+          provider: 'claude',
+          model: 'claude-sonnet-downshift',
+          workspaceCwd: '/tmp/ws',
+          stage: 'IMPLEMENT',
+          seq: 1,
+          prompt: 'iter 1',
+          config: { contextStrategy: 'same-session' },
+          callback: resolve,
+        });
+      });
+      await new Promise<void>((r) => setImmediate(r));
+      await new Promise<void>((r) => setImmediate(r));
+      await iter1;
+
+      expect(hoisted.createAdapter).toHaveBeenCalledTimes(2);
+      const firstModel = hoisted.createAdapter.mock.calls[0][0].options.model;
+      const secondModel = hoisted.createAdapter.mock.calls[1][0].options.model;
+      expect(secondModel).toBe('claude-sonnet-downshift');
+      expect(secondModel).not.toBe(firstModel);
+      expect(hoisted.terminate).toHaveBeenCalledTimes(1);
+      expect(hoisted.terminate).toHaveBeenCalledWith(true);
     });
 
     it('uses configured timeout when creating a same-session adapter', async () => {

@@ -67,7 +67,7 @@ const auxiliaryProviderSchema = z.enum([
   'openai',
   'local-fallback',
   'auto',
-] satisfies Array<AuxiliaryLlmProvider | 'auto'>);
+] satisfies (AuxiliaryLlmProvider | 'auto')[]);
 const modelIdSchema = z.string().max(512);
 const shortStringSchema = z.string().min(1).max(128);
 const settingStringSchema = z.string().max(4096);
@@ -254,6 +254,7 @@ export const SETTINGS_TOOL_POLICY = {
   repoMapTokenBudget: open(z.number().finite().int().min(0).max(200_000)),
   detectDegradedAdapterOutput: open(z.boolean()),
   enableSpawnWorkerOffload: open(z.boolean(), true),
+  projectPluginTrust: readOnly(),
   auxiliaryLlmEnabled: open(z.boolean()),
   auxiliaryLlmRoutingMode: open(auxiliaryRoutingModeSchema),
   auxiliaryLlmAllowRemoteWorkerModels: open(z.boolean()),

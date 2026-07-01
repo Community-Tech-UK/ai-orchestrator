@@ -50,16 +50,17 @@ export async function getKnownModelsForCli(cliType: string): Promise<string[]> {
  *
  * Cursor and Copilot fix their ACP model via the `--model` launch flag, and
  * `session/new` runs at pre-warm time — so a pre-warmed process always runs the
- * account default. Reusing it for an explicit model pick would silently ignore
- * the selection (UI shows e.g. Composer 2.5 while the agent runs the default
- * Codex 5.3). `auto`/unset intentionally defers to the CLI default, so a warm
- * process is fine there.
+ * account default. Antigravity stores the selected `agy --model` label on the
+ * adapter config, which is also created at pre-warm time. Reusing a warm adapter
+ * for an explicit model pick would silently ignore the selection (UI shows e.g.
+ * Composer 2.5 or Gemini 3.1 Pro while the agent runs the default). `auto`/unset
+ * intentionally defers to the CLI default, so a warm process is fine there.
  */
-export function requiresFreshAcpModelSpawn(
+export function requiresFreshConfiguredModelSpawn(
   cliType: string,
   model: string | undefined,
 ): boolean {
-  if (cliType !== 'cursor' && cliType !== 'copilot') return false;
+  if (cliType !== 'cursor' && cliType !== 'copilot' && cliType !== 'antigravity') return false;
   const normalized = model?.trim().toLowerCase();
   return !!normalized && normalized !== 'auto';
 }

@@ -7,3 +7,5 @@
 export * from './tools';
 export * from './plugins';
 export * from './providers';
+export * from './provider-adapter';
+export * from './provider-adapter-registry';

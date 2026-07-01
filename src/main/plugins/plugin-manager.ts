@@ -34,6 +34,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
 import { getReactionEngine } from '../reactions';
 import { getSessionContinuityManager } from '../session/session-continuity';
+import { providerAdapterRegistry } from '../providers/provider-adapter-registry';
 import type { OutputMessage } from '../../shared/types/instance.types';
 import type {
   PluginLifecycleState,
@@ -59,7 +60,11 @@ import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-run
 import { getPluginRegistry } from './plugin-registry';
 import { classifyPluginEntrypoint, dedupePluginEntrypoints } from './plugin-entrypoint';
 import { PluginWorkerHost, type PluginWorkerContext, type PluginWorkerRuntime } from './plugin-worker-host';
-import { resolveProjectScanRoots } from '../util/project-scan-roots';
+import {
+  buildProjectPluginTrustSkippedPlugin,
+  resolveProjectPluginTrust,
+} from './project-plugin-trust';
+import { resolvePluginScanDirs } from './plugin-scan-dirs';
 import type { ReactionEvent } from '../reactions/reaction.types';
 import {
   isRecord,
@@ -235,7 +240,8 @@ function computePluginLifecycle(
 
 /** Strip internal-only fields before surfacing health over IPC. */
 function toPublicHealth(health: InternalPluginHealth): PluginRuntimeHealth {
-  const { loadedMtimeMs: _loadedMtimeMs, ...pub } = health;
+  const pub: PluginRuntimeHealth & { loadedMtimeMs?: number } = { ...health };
+  delete pub.loadedMtimeMs;
   return pub;
 }
 
@@ -348,18 +354,6 @@ export class OrchestratorPluginManager {
     }
   }
 
-  private getPluginDirs(workingDirectory: string): string[] {
-    const home = this.getHomeDir();
-    const dirs: string[] = [];
-    if (home) {
-      dirs.push(path.join(home, '.orchestrator', 'plugins'));
-    }
-    for (const root of resolveProjectScanRoots(workingDirectory, home)) {
-      dirs.push(path.join(root, '.orchestrator', 'plugins'));
-    }
-    return dirs;
-  }
-
   private buildContext(): OrchestratorPluginContext {
     return {
       appPath: app.getAppPath(),
@@ -440,8 +434,7 @@ export class OrchestratorPluginManager {
     phases: PluginPhaseResult[],
   ): Promise<LoadedPlugin> {
     const workerHost = new PluginWorkerHost({
-      filePath,
-      context: ctx,
+      filePath, context: ctx, providerAdapterApi: providerAdapterRegistry,
       ...(manifest?.slot ? { requestedSlot: manifest.slot } : manifest?.hooks ? { requestedSlot: 'hook' } : {}),
     });
     const workerRuntime: PluginWorkerRuntime = await workerHost.start();
@@ -503,9 +496,10 @@ export class OrchestratorPluginManager {
   ): Promise<{ plugins: LoadedPlugin[]; errors: { filePath: string; error: string }[] }> {
     const plugins: LoadedPlugin[] = [];
     const errors: { filePath: string; error: string }[] = [];
-    const dirs = this.getPluginDirs(workingDirectory);
-    for (const dir of dirs) {
-      const files = await this.walkPluginEntrypoints(dir);
+    const dirs = resolvePluginScanDirs(workingDirectory, this.getHomeDir());
+    const settings = getSettingsManager().getAll() as unknown;
+    for (const scanDir of dirs) {
+      const files = await this.walkPluginEntrypoints(scanDir.dir);
       for (const filePath of files) {
         let mtimeMs: number | undefined;
         try {
@@ -557,6 +551,20 @@ export class OrchestratorPluginManager {
           }
 
           this.warnForManifestCapabilities(filePath, manifest);
+
+          if (scanDir.scope === 'project' && scanDir.projectRoot) {
+            const decision = resolveProjectPluginTrust(scanDir.projectRoot, settings);
+            if (decision.trust !== 'trusted') {
+              logger.warn('Project plugin not loaded because its root is not trusted', {
+                filePath,
+                projectRoot: decision.projectRoot,
+                trust: decision.trust,
+                pluginName: manifest?.name,
+              });
+              plugins.push(buildProjectPluginTrustSkippedPlugin(filePath, manifest, phases, decision, buildPhase));
+              continue;
+            }
+          }
 
           // Task 17: TypeScript plugins are worker-only. Dynamically importing a
           // `.ts` file in-process is unreliable in a packaged Electron build (no
@@ -694,7 +702,7 @@ export class OrchestratorPluginManager {
       loadedAt: now,
       plugins,
       errors,
-      scanDirs: this.getPluginDirs(workingDirectory),
+      scanDirs: resolvePluginScanDirs(workingDirectory, this.getHomeDir()).map((scanDir) => scanDir.dir),
     });
     getPluginRegistry().replacePlugins(workingDirectory, plugins.map((plugin) => ({
       workingDirectory,
@@ -737,6 +745,7 @@ export class OrchestratorPluginManager {
     scanDirs: string[];
     errors: { filePath: string; error: string }[];
   }> {
+    void instanceManager;
     const ctx = this.buildContext();
     const plugins = await this.getPlugins(workingDirectory, ctx);
     const errors = this.cacheByWorkingDir.get(workingDirectory)?.errors || [];

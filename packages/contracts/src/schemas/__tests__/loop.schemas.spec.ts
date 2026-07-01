@@ -7,6 +7,7 @@ import {
   LoopInterveneePayloadSchema,
   LoopPendingInputSchema,
   LoopIterationSchema,
+  ProgressSignalEvidenceSchema,
   LoopTerminalIntentSchema,
   LoopReviewSeveritySchema,
   LoopStartPayloadSchema,
@@ -29,6 +30,19 @@ describe('Loop schemas — type/schema drift guards', () => {
     it('rejects anything else', () => {
       expect(() => LoopReviewSeveritySchema.parse('blocker')).toThrow();
       expect(() => LoopReviewSeveritySchema.parse('CRITICAL')).toThrow(); // case-sensitive
+    });
+  });
+
+  describe('ProgressSignalEvidenceSchema', () => {
+    it('accepts Workstream E signal I for idempotent read identity', () => {
+      const parsed = ProgressSignalEvidenceSchema.parse({
+        id: 'I',
+        verdict: 'WARN',
+        message: 'Read returned the same result repeatedly',
+        detail: { repeatCount: 3 },
+      });
+
+      expect(parsed.id).toBe('I');
     });
   });
 
@@ -277,6 +291,29 @@ describe('Loop schemas — type/schema drift guards', () => {
       });
       expect(parsed.justCompacted).toEqual({ seq: 7, reason: 'utilization recycle' });
     });
+
+    it('round-trips contextWindowCalibration (B6 provider window learning)', () => {
+      const parsed = LoopStateSchema.parse({
+        ...baseState,
+        contextWindowCalibration: {
+          provider: 'claude',
+          model: 'claude-sonnet-4-6',
+          windowTokens: 1_000_000,
+          calibratedAt: 1234,
+          source: 'provider-error',
+          reason: 'provider reported maximum context length',
+        },
+      });
+
+      expect(parsed.contextWindowCalibration).toEqual({
+        provider: 'claude',
+        model: 'claude-sonnet-4-6',
+        windowTokens: 1_000_000,
+        calibratedAt: 1234,
+        source: 'provider-error',
+        reason: 'provider reported maximum context length',
+      });
+    });
   });
 
   describe('LoopHardCapsSchema', () => {
@@ -516,6 +553,82 @@ describe('Loop schemas — type/schema drift guards', () => {
       });
 
       expect(parsed.verifyFailureKind).toBe('timeout');
+    });
+  });
+
+  describe('LoopIterationSchema invoker-capture fields', () => {
+    it('round-trips finishReason, unresolvedToolCalls, filesRead, and tool result hashes', () => {
+      const parsed = LoopIterationSchema.parse({
+        id: 'iter-capture',
+        loopRunId: 'loop-1',
+        seq: 0,
+        stage: 'IMPLEMENT',
+        startedAt: 1,
+        endedAt: 2,
+        childInstanceId: null,
+        tokens: 0,
+        costCents: 0,
+        filesChanged: [],
+        filesRead: ['src/input.ts'],
+        toolCalls: [{
+          toolName: 'Read',
+          argsHash: 'args-hash',
+          resultHash: 'result-hash',
+          success: true,
+          durationMs: 3,
+        }],
+        errors: [],
+        testPassCount: null,
+        testFailCount: null,
+        finishReason: 'tool_use',
+        unresolvedToolCalls: true,
+        workHash: 'hash',
+        outputSimilarityToPrev: null,
+        outputExcerpt: '',
+        outputFull: '',
+        progressVerdict: 'OK',
+        progressSignals: [],
+        completionSignalsFired: [],
+        verifyStatus: 'not-run',
+        verifyOutputExcerpt: '',
+      });
+
+      expect(parsed.finishReason).toBe('tool_use');
+      expect(parsed.unresolvedToolCalls).toBe(true);
+      expect(parsed.filesRead).toEqual(['src/input.ts']);
+      expect(parsed.toolCalls[0]?.resultHash).toBe('result-hash');
+    });
+
+    it('defaults legacy invoker-capture fields for pre-migration iterations', () => {
+      const parsed = LoopIterationSchema.parse({
+        id: 'iter-legacy',
+        loopRunId: 'loop-1',
+        seq: 0,
+        stage: 'IMPLEMENT',
+        startedAt: 1,
+        endedAt: 2,
+        childInstanceId: null,
+        tokens: 0,
+        costCents: 0,
+        filesChanged: [],
+        toolCalls: [],
+        errors: [],
+        testPassCount: null,
+        testFailCount: null,
+        workHash: 'hash',
+        outputSimilarityToPrev: null,
+        outputExcerpt: '',
+        outputFull: '',
+        progressVerdict: 'OK',
+        progressSignals: [],
+        completionSignalsFired: [],
+        verifyStatus: 'not-run',
+        verifyOutputExcerpt: '',
+      });
+
+      expect(parsed.finishReason).toBeUndefined();
+      expect(parsed.unresolvedToolCalls).toBe(false);
+      expect(parsed.filesRead).toEqual([]);
     });
   });
 

@@ -79,13 +79,13 @@ describe('ModelCapabilitiesRegistry', () => {
       expect(caps.pricing!.outputPerMillion).toBe(25.0);
     });
 
-    it('falls back for removed Claude Fable 5 instead of returning stale capabilities', () => {
+    it('returns Fable 5 limits and pricing for the pinned model id', () => {
       const registry = ModelCapabilitiesRegistry.getInstance();
       const caps = registry.getCapabilities('claude', 'claude-fable-5');
-      expect(caps.contextWindow).toBe(200_000);
-      expect(caps.maxOutputTokens).toBe(4096);
-      expect(caps.supportsThinking).toBe(false);
-      expect(caps.pricing).toBeUndefined();
+      expect(caps.contextWindow).toBe(1_000_000);
+      expect(caps.maxOutputTokens).toBe(128_000);
+      expect(caps.supportsThinking).toBe(true);
+      expect(caps.pricing).toEqual({ inputPerMillion: 10.0, outputPerMillion: 50.0 });
     });
   });
 

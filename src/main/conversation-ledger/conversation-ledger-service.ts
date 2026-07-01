@@ -202,6 +202,26 @@ export class ConversationLedgerService {
     return this.port.findThreadById(threadId);
   }
 
+  async updateThreadMetadata(
+    threadId: string,
+    metadata: Record<string, unknown>,
+  ): Promise<ConversationThreadRecord> {
+    const thread = await this.port.findThreadById(threadId);
+    if (!thread) {
+      throw new ConversationLedgerServiceError(`Conversation ${threadId} not found`, 'CONVERSATION_NOT_FOUND');
+    }
+    return this.port.upsertThread({
+      id: thread.id,
+      provider: thread.provider,
+      nativeThreadId: thread.nativeThreadId,
+      sourceKind: thread.sourceKind,
+      metadata: {
+        ...thread.metadata,
+        ...metadata,
+      },
+    });
+  }
+
   async hasMessages(threadId: string): Promise<boolean> {
     return (await this.port.countMessages(threadId)) > 0;
   }
@@ -363,6 +383,7 @@ export class ConversationLedgerService {
       nativeVisibilityMode: request.provider === 'orchestrator' ? 'none' : 'app-server-durable',
       syncStatus: 'synced',
       conflictStatus: 'none',
+      parentConversationId: request.parentConversationId ?? null,
       metadata: handle.metadata ?? {},
     });
   }

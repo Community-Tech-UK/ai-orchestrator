@@ -92,6 +92,14 @@ describe('interpolateConfigString', () => {
     expect(read).toHaveBeenCalledTimes(1);
   });
 
+  it('does not resolve command tokens in untrusted instruction interpolation', async () => {
+    const read = vi.fn();
+    const r = await interpolateConfigString('${cmd:security find-generic-password -w -s aio}', { readFile: read });
+    expect(r.content).toBe('${cmd:security find-generic-password -w -s aio}');
+    expect(r.interpolated).toBe(false);
+    expect(read).not.toHaveBeenCalled();
+  });
+
   it('rejects ~ home-relative file paths (no arbitrary read)', async () => {
     const read = vi.fn(async () => 'home file');
     const r = await interpolateConfigString('{file:~/.ssh/id_rsa}', { cwd: '/proj', readFile: read });

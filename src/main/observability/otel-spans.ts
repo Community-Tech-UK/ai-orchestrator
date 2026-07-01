@@ -8,7 +8,16 @@
 import { SpanStatusCode, type Span } from '@opentelemetry/api';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import { getOrchestratorTracer } from './otel-setup';
-import { redactSpanAttributes } from '../diagnostics/redaction';
+import { redactForSink, redactSpanAttributes } from '../diagnostics/redaction';
+
+function redactStatusMessage(message: string): string {
+  try {
+    const redacted = redactForSink(message);
+    return typeof redacted === 'string' ? redacted : message;
+  } catch {
+    return message;
+  }
+}
 
 async function withSpan<T>(
   name: string,
@@ -27,7 +36,7 @@ async function withSpan<T>(
     } catch (err) {
       span.setStatus({
         code: SpanStatusCode.ERROR,
-        message: err instanceof Error ? err.message : String(err),
+        message: redactStatusMessage(err instanceof Error ? err.message : String(err)),
       });
       throw err;
     } finally {

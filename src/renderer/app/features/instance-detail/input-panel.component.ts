@@ -21,7 +21,7 @@ import { CommandStore } from '../../core/state/command.store';
 import type { ExtendedCommand } from '../../core/state/command.store';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
 import { DraftService } from '../../core/services/draft.service';
-import { KeybindingService } from '../../core/services/keybinding.service';
+import { KeybindingService, type KeybindingEvent } from '../../core/services/keybinding.service';
 import { OrchestrationIpcService } from '../../core/services/ipc';
 import {
   VoiceConversationSessionContext,
@@ -61,9 +61,13 @@ import {
   isCaretOnLastVisualLine,
 } from '../../core/services/textarea-caret-position.util';
 import {
+  COMPOSER_EDITING_ACTIONS,
+  ComposerUndoStack,
   KillRing,
-  applyEditingToTextarea,
+  applyComposerEditingActionToTextarea,
+  type ComposerEditingAction,
 } from './composer-editing';
+import { ComposerAutocompleteComponent } from './composer-autocomplete';
 import type {
   ContextUsage,
   InstanceLaunchMode,
@@ -114,6 +118,7 @@ function commandSuggestionText(command: ExtendedCommand): string {
   imports: [
     AgentSelectorComponent,
     CompactModelPickerComponent,
+    ComposerAutocompleteComponent,
     ComposerToolbarComponent,
     LoopToggleComponent,
     LoopConfigPanelComponent,
@@ -618,6 +623,8 @@ export class InputPanelComponent implements OnDestroy {
   private textareaEl = viewChild<ElementRef<HTMLTextAreaElement>>('textareaRef');
 
   constructor() {
+    this.registerComposerEditingKeybindings();
+
     // Load commands on init
     this.commandStore.loadCommands();
 
@@ -759,6 +766,9 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    for (const unsubscribe of this.composerEditingUnsubscribers.splice(0)) {
+      unsubscribe();
+    }
     if (this.nlWorkflowSuggestionTimer) {
       clearTimeout(this.nlWorkflowSuggestionTimer);
       this.nlWorkflowSuggestionTimer = null;
@@ -1026,39 +1036,44 @@ export class InputPanelComponent implements OnDestroy {
 
   /** Task 16: per-composer kill ring for emacs-style word kill/yank. */
   private readonly killRing = new KillRing();
+  private readonly composerUndoStack = new ComposerUndoStack();
+  private readonly composerEditingUnsubscribers: (() => void)[] = [];
+
+  private registerComposerEditingKeybindings(): void {
+    for (const actionId of COMPOSER_EDITING_ACTIONS) {
+      this.composerEditingUnsubscribers.push(
+        this.keybindingService.onAction(actionId, (event) => this.handleComposerEditingAction(actionId, event)),
+      );
+    }
+  }
 
   /**
-   * Task 16: handle emacs-style composer editing chords (kill word, yank, word
-   * motion) via the pure primitives. Returns true when the event was an editing
-   * command and has been applied — the caller then stops further handling.
+   * Task 16: handle remappable composer editing actions (kill word, yank, word
+   * motion, explicit undo) via the pure primitives. Key matching belongs to the
+   * keybinding service so user customizations and import/export apply here too.
    */
-  private handleComposerEditingCommand(event: KeyboardEvent): boolean {
-    const textarea = (event.target as HTMLTextAreaElement | null)
+  private handleComposerEditingAction(actionId: ComposerEditingAction, bindingEvent: KeybindingEvent): boolean {
+    if (this.showCommandSuggestions()) return false;
+    const event = bindingEvent.event;
+    const textarea = (event.target instanceof HTMLTextAreaElement ? event.target : null)
       ?? this.textareaRef()?.nativeElement
       ?? null;
     if (!textarea) return false;
-    const result = applyEditingToTextarea(textarea, event, this.killRing);
+    const result = applyComposerEditingActionToTextarea(textarea, actionId, this.killRing, this.composerUndoStack);
     if (!result.handled) return false;
     event.preventDefault();
     if (result.changed) {
       // Run the SAME pipeline as ordinary typing (draft persistence, command/
       // ghost suggestions, prompt-recall reset, message signal, resize) so an
-      // editing command isn't a second-class input. `applyEditingToTextarea`
-      // already set value + selection; dispatch a real input event to sync the
-      // rest without duplicating onInput's logic here.
+      // editing command isn't a second-class input. The editing helper already
+      // set value + selection; dispatch a real input event to sync the rest
+      // without duplicating onInput's logic here.
       textarea.dispatchEvent(new Event('input', { bubbles: true }));
     }
     return true;
   }
 
   onKeyDown(event: KeyboardEvent): void {
-    // Task 16: emacs-style editing commands (kill/yank/word-motion) take
-    // priority over the rest of the handler, but never over the command
-    // suggestion popup below, which owns Arrow/Tab/Enter/Escape while open.
-    if (!this.showCommandSuggestions() && this.handleComposerEditingCommand(event)) {
-      return;
-    }
-
     // Handle command suggestions navigation
     if (this.showCommandSuggestions() && this.visibleCommandSuggestions().length > 0) {
       const commands = this.visibleCommandSuggestions();

@@ -2,6 +2,7 @@
  * Provider Types - Abstractions for AI providers
  */
 
+import type { PluginProviderName } from '@contracts/types/provider-runtime-events';
 import { getProviderModelContextWindow } from './provider-context-window';
 
 export { getProviderModelContextWindow };
@@ -20,6 +21,8 @@ export type ProviderType =
   | 'amazon-bedrock'  // AWS Bedrock
   | 'azure'           // Azure OpenAI
   | 'cursor';         // Cursor AI editor CLI
+
+export type ProviderConfigType = ProviderType | PluginProviderName;
 
 /**
  * Provider capability flags
@@ -47,7 +50,7 @@ export interface ProviderCapabilities {
 export interface ModelInfo {
   id: string;
   name: string;
-  provider: ProviderType;
+  provider: ProviderConfigType;
   contextWindow: number;
   maxOutputTokens: number;
   inputPricePerMillion: number;  // USD per million tokens
@@ -59,7 +62,7 @@ export interface ModelInfo {
  * Provider configuration
  */
 export interface ProviderConfig {
-  type: ProviderType;
+  type: ProviderConfigType;
   name: string;
   enabled: boolean;
   apiKey?: string;
@@ -69,11 +72,8 @@ export interface ProviderConfig {
   options?: Record<string, unknown>;
 }
 
-/**
- * Provider status
- */
 export interface ProviderStatus {
-  type: ProviderType;
+  type: ProviderConfigType;
   available: boolean;
   authenticated: boolean;
   error?: string;
@@ -175,6 +175,7 @@ export const CLAUDE_MODELS = {
  * an explicit generation instead of provider-latest routing.
  */
 export const CLAUDE_PINNED_MODELS = {
+  FABLE_5: 'claude-fable-5',
   OPUS_48: 'claude-opus-4-8',
   OPUS_47: 'claude-opus-4-7',
   OPUS_46: 'claude-opus-4-6-20260401',
@@ -315,6 +316,7 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   [CLAUDE_MODELS.OPUS_1M]: { input: 5.0, output: 25.0 },
   [CLAUDE_MODELS.HAIKU]: { input: 1.0, output: 5.0 },
   // Claude models (full IDs for API-level pricing lookups)
+  'claude-fable-5': { input: 10.0, output: 50.0 },
   'claude-sonnet-4-6-20260401': { input: 3.0, output: 15.0 },
   'claude-opus-4-6-20260401': { input: 5.0, output: 25.0 },
   'claude-haiku-4-6-20260401': { input: 1.0, output: 5.0 },
@@ -387,6 +389,7 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     // having to manually pick the [1m] variant every time.
     { id: CLAUDE_MODELS.OPUS_1M, name: 'Opus latest, 1M', tier: 'powerful', pinned: true, family: 'Opus' },
     { id: CLAUDE_MODELS.OPUS, name: 'Opus latest', tier: 'powerful', pinned: true, family: 'Opus' },
+    { id: CLAUDE_PINNED_MODELS.FABLE_5, name: 'Fable 5', tier: 'powerful', family: 'Fable' },
     { id: CLAUDE_PINNED_MODELS.OPUS_48, name: 'Opus 4.8', tier: 'powerful', family: 'Opus' },
     { id: CLAUDE_PINNED_MODELS.OPUS_47, name: 'Opus 4.7', tier: 'powerful', family: 'Opus' },
     { id: CLAUDE_PINNED_MODELS.OPUS_46, name: 'Opus 4.6', tier: 'powerful', family: 'Opus' },

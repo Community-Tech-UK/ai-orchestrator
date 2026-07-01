@@ -11,12 +11,19 @@
 import {
   CLAUDE_MODELS,
   OPENAI_MODELS,
+  type ProviderConfigType,
   type ProviderType,
   type ProviderConfig,
   type ProviderStatus,
 } from '../../shared/types/provider.types';
-import type { ProviderName } from '@contracts/types/provider-runtime-events';
-import type { ProviderAdapterRegistry } from '@sdk/provider-adapter-registry';
+import type { BuiltInProviderName } from '@contracts/types/provider-runtime-events';
+import type { ProviderAdapter } from '@sdk/provider-adapter';
+import type {
+  PluginProviderAdapterRegistry,
+  PluginProviderId,
+  ProviderAdapterRegistry,
+  RegisteredPluginProviderAdapter,
+} from '@sdk/provider-adapter-registry';
 import { BaseProvider, ProviderFactory } from './provider-interface';
 import { DEFAULT_CLAUDE_CONFIG } from './claude-cli-provider';
 import { DEFAULT_CODEX_CONFIG } from './codex-cli-provider';
@@ -74,7 +81,7 @@ export const DEFAULT_PROVIDER_CONFIGS: Record<ProviderType, ProviderConfig> = {
   },
 };
 
-const REGISTRY_PROVIDER_BY_TYPE: Partial<Record<ProviderType, ProviderName>> = {
+const REGISTRY_PROVIDER_BY_TYPE: Partial<Record<ProviderType, BuiltInProviderName>> = {
   'claude-cli': 'claude',
   'openai': 'codex',
   'google': 'gemini',
@@ -92,9 +99,9 @@ export class ProviderInstanceManager {
   private statusCache = new Map<string, ProviderStatus>();
   private statusCacheTime = new Map<string, number>();
   private readonly STATUS_CACHE_TTL = 60000; // 1 minute
-  private readonly adapterRegistry: ProviderAdapterRegistry;
+  private readonly adapterRegistry: ProviderAdapterRegistry & Partial<PluginProviderAdapterRegistry>;
 
-  constructor(adapterRegistry: ProviderAdapterRegistry = providerAdapterRegistry) {
+  constructor(adapterRegistry: ProviderAdapterRegistry & Partial<PluginProviderAdapterRegistry> = providerAdapterRegistry) {
     this.adapterRegistry = adapterRegistry;
     registerBuiltInProviders(this.adapterRegistry);
     // Initialize with default configs
@@ -108,14 +115,19 @@ export class ProviderInstanceManager {
    * Get all provider configurations
    */
   getAllConfigs(): ProviderConfig[] {
-    return Array.from(this.configs.values());
+    return [
+      ...Array.from(this.configs.values()),
+      ...this.listCreatablePluginProviders().map((registration) =>
+        this.toPluginProviderConfig(registration)
+      ),
+    ];
   }
 
   /**
    * Get configuration for a specific provider
    */
   getConfig(type: string): ProviderConfig | undefined {
-    return this.configs.get(type);
+    return this.configs.get(type) ?? this.getPluginProviderConfig(type);
   }
 
   /**
@@ -135,7 +147,7 @@ export class ProviderInstanceManager {
    * Get enabled providers
    */
   getEnabledProviders(): ProviderConfig[] {
-    return Array.from(this.configs.values()).filter((c) => c.enabled);
+    return this.getAllConfigs().filter((c) => c.enabled);
   }
 
   /**
@@ -148,7 +160,7 @@ export class ProviderInstanceManager {
 
     const providerName = REGISTRY_PROVIDER_BY_TYPE[type as ProviderType];
     if (!providerName) {
-      return false;
+      return this.isCreatablePluginProvider(type);
     }
 
     try {
@@ -200,9 +212,16 @@ export class ProviderInstanceManager {
    * consider delegating to `this.adapterRegistry.create(...)` so the SDK
    * surface becomes the single entry point for provider instantiation.
    */
-  createProvider(type: ProviderType | string, configOverrides?: Partial<ProviderConfig>): BaseProvider {
+  createProvider(type: ProviderConfigType | string, configOverrides?: Partial<ProviderConfig>): ProviderAdapter {
     const baseConfig = this.configs.get(type);
     if (!baseConfig) {
+      const pluginConfig = this.getPluginProviderConfig(type);
+      if (pluginConfig) {
+        return this.createPluginProvider(type, {
+          ...pluginConfig,
+          ...configOverrides,
+        });
+      }
       throw new Error(`No configuration found for provider '${type}'`);
     }
 
@@ -223,7 +242,19 @@ export class ProviderInstanceManager {
   /**
    * Check status of a provider (with caching)
    */
-  async checkProviderStatus(type: ProviderType, forceRefresh = false): Promise<ProviderStatus> {
+  async checkProviderStatus(type: ProviderConfigType | string, forceRefresh = false): Promise<ProviderStatus> {
+    if (!this.isSupported(type)) {
+      this.statusCache.delete(type);
+      this.statusCacheTime.delete(type);
+      const status: ProviderStatus = {
+        type: type as ProviderStatus['type'],
+        available: false,
+        authenticated: false,
+        error: `Provider '${type}' is not yet implemented`,
+      };
+      return status;
+    }
+
     // Check cache first
     if (!forceRefresh) {
       const cached = this.statusCache.get(type);
@@ -231,17 +262,6 @@ export class ProviderInstanceManager {
       if (cached && cachedTime && Date.now() - cachedTime < this.STATUS_CACHE_TTL) {
         return cached;
       }
-    }
-
-    // If not supported, return unavailable status
-    if (!this.isSupported(type)) {
-      const status: ProviderStatus = {
-        type,
-        available: false,
-        authenticated: false,
-        error: `Provider '${type}' is not yet implemented`,
-      };
-      return status;
     }
 
     // Create temporary provider to check status
@@ -256,7 +276,7 @@ export class ProviderInstanceManager {
       return status;
     } catch (error) {
       const status: ProviderStatus = {
-        type,
+        type: type as ProviderStatus['type'],
         available: false,
         authenticated: false,
         error: (error as Error).message,
@@ -268,12 +288,12 @@ export class ProviderInstanceManager {
   /**
    * Check status of all providers
    */
-  async checkAllProviderStatus(forceRefresh = false): Promise<Map<ProviderType, ProviderStatus>> {
-    const results = new Map<ProviderType, ProviderStatus>();
+  async checkAllProviderStatus(forceRefresh = false): Promise<Map<ProviderConfigType, ProviderStatus>> {
+    const results = new Map<ProviderConfigType, ProviderStatus>();
 
-    for (const type of this.configs.keys()) {
-      const status = await this.checkProviderStatus(type as ProviderType, forceRefresh);
-      results.set(type as ProviderType, status);
+    for (const config of this.getAllConfigs()) {
+      const status = await this.checkProviderStatus(config.type, forceRefresh);
+      results.set(config.type, status);
     }
 
     return results;
@@ -368,7 +388,7 @@ export class ProviderInstanceManager {
   /**
    * Create a CLI provider by CLI name
    */
-  createCliProvider(cliName: string, configOverrides?: Partial<ProviderConfig>): BaseProvider {
+  createCliProvider(cliName: string, configOverrides?: Partial<ProviderConfig>): ProviderAdapter {
     const providerType = this.mapCliToProviderType(cliName);
     if (!providerType) {
       throw new Error(`Unknown CLI: ${cliName}`);
@@ -396,6 +416,40 @@ export class ProviderInstanceManager {
       fileAttachments: caps.includes('file-access'),
       functionCalling: caps.includes('tool-use'),
       builtInCodeTools: caps.includes('file-access') || caps.includes('shell'),
+    };
+  }
+
+  private listCreatablePluginProviders(): readonly RegisteredPluginProviderAdapter[] {
+    return this.adapterRegistry.listCreatablePluginProviderAdapters?.() ?? [];
+  }
+
+  private getPluginProviderConfig(type: string): ProviderConfig | undefined {
+    const registration = this.listCreatablePluginProviders()
+      .find((pluginProvider) => pluginProvider.descriptor.provider === type);
+    return registration ? this.toPluginProviderConfig(registration) : undefined;
+  }
+
+  private isCreatablePluginProvider(type: string): type is PluginProviderId {
+    return this.listCreatablePluginProviders()
+      .some((pluginProvider) => pluginProvider.descriptor.provider === type);
+  }
+
+  private createPluginProvider(type: string, config: ProviderConfig): ProviderAdapter {
+    if (!this.isCreatablePluginProvider(type)) {
+      throw new Error(`Provider '${type}' is not yet implemented`);
+    }
+    const create = this.adapterRegistry.createPluginProviderAdapter;
+    if (!create) {
+      throw new Error(`Provider '${type}' has no plugin provider bridge`);
+    }
+    return create.call(this.adapterRegistry, type, config);
+  }
+
+  private toPluginProviderConfig(registration: RegisteredPluginProviderAdapter): ProviderConfig {
+    return {
+      ...registration.descriptor.defaultConfig,
+      type: registration.descriptor.provider,
+      name: registration.descriptor.displayName,
     };
   }
 }

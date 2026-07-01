@@ -10,6 +10,7 @@ import {
   signalF_tokenBurn,
   signalG_toolRepetition,
   signalH_outputSimilarity,
+  signalI_idempotentReadIdentity,
 } from './loop-progress-detector';
 import {
   defaultLoopConfig,
@@ -345,6 +346,72 @@ describe('signal G — tool repetition', () => {
   });
 });
 
+describe('signal I — idempotent read identity', () => {
+  it('WARNs when read-only tools return the same result hash 3 times without edits', () => {
+    const history = [
+      makeIteration({
+        seq: 0,
+        toolCalls: [{ toolName: 'Read', argsHash: 'src/a.ts', resultHash: 'same-output', success: true, durationMs: 1 }],
+        workHash: 'read-0',
+      }),
+      makeIteration({
+        seq: 1,
+        toolCalls: [{ toolName: 'Read', argsHash: 'src/./a.ts', resultHash: 'same-output', success: true, durationMs: 1 }],
+        workHash: 'read-1',
+      }),
+    ];
+    const current = makeIteration({
+      seq: 2,
+      toolCalls: [{ toolName: 'Read', argsHash: 'SRC/a.ts', resultHash: 'same-output', success: true, durationMs: 1 }],
+      workHash: 'read-2',
+    });
+
+    const sig = signalI_idempotentReadIdentity(history, current, T);
+
+    expect(sig?.id).toBe('I');
+    expect(sig?.verdict).toBe('WARN');
+    expect(sig?.detail).toMatchObject({ repeatCount: 3, resultHash: 'same-output' });
+  });
+
+  it('ignores repeated result hashes from write-capable or failed tool calls', () => {
+    const history = [
+      makeIteration({
+        toolCalls: [{ toolName: 'Edit', argsHash: 'src/a.ts', resultHash: 'same-output', success: true, durationMs: 1 }],
+      }),
+      makeIteration({
+        toolCalls: [{ toolName: 'Read', argsHash: 'src/a.ts', resultHash: 'same-output', success: false, durationMs: 1 }],
+      }),
+    ];
+    const current = makeIteration({
+      toolCalls: [{ toolName: 'Write', argsHash: 'src/a.ts', resultHash: 'same-output', success: true, durationMs: 1 }],
+    });
+
+    expect(signalI_idempotentReadIdentity(history, current, T)).toBeNull();
+  });
+
+  it('ignores stale repeated read results outside the recent progress window', () => {
+    const history = [
+      makeIteration({
+        seq: 0,
+        toolCalls: [{ toolName: 'Read', argsHash: 'old-0', resultHash: 'same-output', success: true, durationMs: 1 }],
+      }),
+      makeIteration({ seq: 1, toolCalls: [] }),
+      makeIteration({ seq: 2, toolCalls: [] }),
+      makeIteration({ seq: 3, toolCalls: [] }),
+      makeIteration({
+        seq: 4,
+        toolCalls: [{ toolName: 'Read', argsHash: 'recent-0', resultHash: 'same-output', success: true, durationMs: 1 }],
+      }),
+    ];
+    const current = makeIteration({
+      seq: 5,
+      toolCalls: [{ toolName: 'Read', argsHash: 'recent-1', resultHash: 'same-output', success: true, durationMs: 1 }],
+    });
+
+    expect(signalI_idempotentReadIdentity(history, current, T)).toBeNull();
+  });
+});
+
 describe('signal H — output similarity', () => {
   it('CRITICAL when last 3 outputs are highly similar', () => {
     const text = 'I will refactor the verification pipeline to extract a coordinator and a runner so the lifecycle is clearer';
@@ -406,6 +473,27 @@ describe('LoopProgressDetector aggregator', () => {
     const block = det.shouldRefuseToSpawnNext(makeState(), history);
     expect(block).not.toBeNull();
     expect(block?.id).toBe('A');
+  });
+
+  it('treats a confirmed idempotent-read signal as a pre-iteration block', () => {
+    const readCall = (seq: number, progressSignals: LoopIteration['progressSignals'] = []) =>
+      makeIteration({
+        seq,
+        workHash: `read-${seq}`,
+        toolCalls: [{ toolName: 'Read', argsHash: `variant-${seq}`, resultHash: 'same-output', success: true, durationMs: 1 }],
+        progressSignals,
+      });
+    const history = [
+      readCall(0),
+      readCall(1),
+      readCall(2, [{ id: 'I', verdict: 'WARN', message: 'prior repeated read' }]),
+      readCall(3),
+    ];
+
+    const block = det.shouldRefuseToSpawnNext(makeState(), history);
+
+    expect(block?.id).toBe('I');
+    expect(block?.verdict).toBe('CRITICAL');
   });
 });
 

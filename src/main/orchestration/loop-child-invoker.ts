@@ -4,6 +4,8 @@ import { getLogger } from '../logging/logger';
 import type { LoopControlEnv } from './loop-control';
 import {
   DEFAULT_ITERATION_TIMEOUT_MS,
+  type LoopChildInvocationCallbackResult,
+  type LoopChildInvocationError,
   type LoopChildResult,
 } from './loop-coordinator.types';
 
@@ -24,6 +26,19 @@ interface LoopActivityPayload {
   loopRunId?: string;
   seq?: number;
   kind?: string;
+}
+
+function contextWindowTokensForInvocation(
+  state: LoopState,
+  requestedModel: string | undefined,
+): number | undefined {
+  const calibration = state.contextWindowCalibration;
+  if (!calibration || calibration.provider !== state.config.provider) return undefined;
+  const normalizedRequestedModel = requestedModel && requestedModel !== 'default'
+    ? requestedModel
+    : undefined;
+  if (normalizedRequestedModel && calibration.model !== normalizedRequestedModel) return undefined;
+  return calibration.windowTokens;
 }
 
 export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): Promise<LoopChildResult> {
@@ -113,15 +128,29 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
       loopControlEnv: input.loopControlEnv,
       iterationTimeoutMs: state.config.iterationTimeoutMs,
       streamIdleTimeoutMs: state.config.streamIdleTimeoutMs,
+      contextWindowTokens: contextWindowTokensForInvocation(state, input.downshiftModel),
       // LF-4 RPI: recycle the same-session context before this iteration runs.
       forceContextReset: input.forceContextReset,
-      callback: (result: LoopChildResult | { error: string }) => {
+      callback: (result: LoopChildInvocationCallbackResult) => {
         if (settled) return;
         settled = true;
         cleanup();
-        if ('error' in result) reject(new Error(result.error));
+        if ('error' in result) reject(toInvocationError(result));
         else resolve(result);
       },
     });
   });
+}
+
+function toInvocationError(result: LoopChildInvocationError): Error {
+  const error = new Error(result.error) as Error & Omit<LoopChildInvocationError, 'error'>;
+  if (result.status !== undefined) error.status = result.status;
+  if (result.statusCode !== undefined) error.statusCode = result.statusCode;
+  if (result.code !== undefined) error.code = result.code;
+  if (result.headers !== undefined) error.headers = result.headers;
+  if (result.body !== undefined) error.body = result.body;
+  if (result.provider !== undefined) error.provider = result.provider;
+  if (result.model !== undefined) error.model = result.model;
+  if (result.instanceId !== undefined) error.instanceId = result.instanceId;
+  return error;
 }

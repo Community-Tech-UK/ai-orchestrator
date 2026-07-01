@@ -1,16 +1,19 @@
 import {
+  AfterViewChecked,
   ChangeDetectionStrategy,
   Component,
   computed,
   effect,
   ElementRef,
   input,
+  OnDestroy,
   output,
   signal,
   untracked,
   viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { createFocusTrap, type FocusTrapHandle } from '../../utils/focus-trap';
 
 /**
  * Generic single-field text-prompt modal.
@@ -34,6 +37,7 @@ import { FormsModule } from '@angular/forms';
   template: `
     @if (isOpen()) {
       <div
+        #overlay
         class="pm-overlay"
         role="dialog"
         aria-modal="true"
@@ -202,7 +206,7 @@ import { FormsModule } from '@angular/forms';
     }
   `],
 })
-export class PromptModalComponent {
+export class PromptModalComponent implements AfterViewChecked, OnDestroy {
   isOpen = input(false);
   title = input('Enter a value');
   message = input('');
@@ -218,7 +222,12 @@ export class PromptModalComponent {
   cancelled = output<void>();
 
   protected readonly draft = signal('');
+  private readonly overlay = viewChild<ElementRef<HTMLElement>>('overlay');
   private readonly field = viewChild<ElementRef<HTMLInputElement | HTMLTextAreaElement>>('field');
+  private focusTrap: FocusTrapHandle | null = null;
+  private focusTrapOpenScheduled = false;
+  private restoreFocusTarget: Element | null = null;
+  private destroyed = false;
 
   protected readonly canConfirm = computed(() => !this.requireValue() || this.draft().trim().length > 0);
 
@@ -229,10 +238,13 @@ export class PromptModalComponent {
     effect(() => {
       const open = this.isOpen();
       if (!open) return;
+      this.rememberFocusTarget();
       const seed = untracked(() => this.initialValue());
       this.draft.set(seed);
       // Defer focus/select until the field is rendered.
       queueMicrotask(() => {
+        if (this.destroyed || !this.isOpen()) return;
+        this.openFocusTrap();
         const el = this.field()?.nativeElement;
         if (el) {
           el.focus();
@@ -242,6 +254,22 @@ export class PromptModalComponent {
     });
   }
 
+  ngAfterViewChecked(): void {
+    if (this.isOpen()) {
+      this.rememberFocusTarget();
+      this.openFocusTrap();
+      this.scheduleFocusTrapOpenRetry();
+      return;
+    }
+
+    this.closeFocusTrap();
+  }
+
+  ngOnDestroy(): void {
+    this.destroyed = true;
+    this.closeFocusTrap();
+  }
+
   protected onConfirm(): void {
     if (!this.canConfirm()) return;
     this.submitted.emit(this.draft().trim());
@@ -249,5 +277,45 @@ export class PromptModalComponent {
 
   protected onCancel(): void {
     this.cancelled.emit();
+  }
+
+  private openFocusTrap(): void {
+    if (this.focusTrap) return;
+    const overlay = this.overlay()?.nativeElement
+      ?? this.field()?.nativeElement.closest<HTMLElement>('.pm-overlay')
+      ?? null;
+    if (!overlay) return;
+
+    this.focusTrap = createFocusTrap(overlay, {
+      initialFocus: this.field()?.nativeElement ?? null,
+    });
+    this.focusTrap.activate();
+  }
+
+  private rememberFocusTarget(): void {
+    if (this.restoreFocusTarget) return;
+    this.restoreFocusTarget = typeof document === 'undefined' ? null : document.activeElement;
+  }
+
+  private scheduleFocusTrapOpenRetry(): void {
+    if (this.focusTrap || this.focusTrapOpenScheduled) return;
+    this.focusTrapOpenScheduled = true;
+    queueMicrotask(() => {
+      this.focusTrapOpenScheduled = false;
+      if (!this.destroyed && this.isOpen()) {
+        this.openFocusTrap();
+      }
+    });
+  }
+
+  private closeFocusTrap(): void {
+    const restoreTarget = this.restoreFocusTarget;
+    this.focusTrap?.deactivate();
+    this.focusTrap?.restore();
+    if (restoreTarget instanceof HTMLElement && restoreTarget.isConnected) {
+      restoreTarget.focus();
+    }
+    this.focusTrap = null;
+    this.restoreFocusTarget = null;
   }
 }

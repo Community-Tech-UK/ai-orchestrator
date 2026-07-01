@@ -49,6 +49,7 @@ const DEFAULT_PROGRESS_THRESHOLDS = {
   toolRepeatWarnPerIteration: 5,
   toolRepeatCriticalPerIteration: 8,
   identicalToolCallConsecutiveCritical: 3,
+  idempotentReadRepeatWarn: 3,
   testStagnationWarnIterations: 3,
   testStagnationCriticalIterations: 5,
   churnRatioWarn: 0.30,

@@ -74,6 +74,7 @@ describe('shortTime', () => {
 describe('activityKindLabel', () => {
   it('aliases known kinds and falls through unknown ones', () => {
     expect(activityKindLabel('tool_use')).toBe('tool');
+    expect(activityKindLabel('tool_result')).toBe('result');
     expect(activityKindLabel('input_required')).toBe('input');
     expect(activityKindLabel('stream-idle')).toBe('quiet');
     expect(activityKindLabel('error')).toBe('error');

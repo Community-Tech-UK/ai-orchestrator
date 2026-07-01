@@ -20,7 +20,7 @@ export interface LoopActivityPayload {
   loopRunId: string;
   seq: number;
   stage: string;
-  kind: 'spawned' | 'status' | 'tool_use' | 'assistant' | 'system' | 'input_required' | 'error' | 'stream-idle' | 'complete' | 'heartbeat';
+  kind: 'spawned' | 'status' | 'tool_use' | 'tool_result' | 'assistant' | 'system' | 'input_required' | 'error' | 'stream-idle' | 'complete' | 'heartbeat';
   message: string;
   timestamp: number;
   detail?: Record<string, unknown>;
@@ -33,6 +33,20 @@ export interface LoopControlResult {
 
 export type LoopPendingInputKind = 'steer' | 'queue' | 'follow-up';
 export type LoopQueueDrainMode = 'all' | 'one-at-a-time';
+
+export interface LoopSteeringDowngradedPayload {
+  loopRunId: string;
+  requestedKind: 'steer';
+  effectiveKind: 'queue';
+  reason: string;
+}
+
+export interface LoopFollowUpDrainedPayload {
+  loopRunId: string;
+  seq: number;
+  count: number;
+  remaining: number;
+}
 
 export interface LoopStartConfigInput {
   initialPrompt: string;
@@ -103,6 +117,7 @@ export interface LoopStartConfigInput {
     toolRepeatWarnPerIteration: number;
     toolRepeatCriticalPerIteration: number;
     identicalToolCallConsecutiveCritical: number;
+    idempotentReadRepeatWarn: number;
     testStagnationWarnIterations: number;
     testStagnationCriticalIterations: number;
     churnRatioWarn: number;
@@ -386,6 +401,22 @@ export class LoopIpcService {
   onFreshEyesReviewBlocked(cb: (data: { loopRunId: string; signal: string; reviewersUsed: string[]; blockingFindings: unknown[]; summary?: string }) => void): () => void {
     if (!this.api) return () => { /* noop */ };
     return this.api.onLoopFreshEyesReviewBlocked((p) => this.ngZone.run(() => cb(p as { loopRunId: string; signal: string; reviewersUsed: string[]; blockingFindings: unknown[]; summary?: string })));
+  }
+  onSteeringDowngraded(cb: (data: LoopSteeringDowngradedPayload) => void): () => void {
+    if (!this.api) return () => { /* noop */ };
+    const subscribe = (this.api as unknown as {
+      onLoopSteeringDowngraded?: (cb: (p: unknown) => void) => () => void;
+    }).onLoopSteeringDowngraded;
+    if (typeof subscribe !== 'function') return () => { /* noop */ };
+    return subscribe((p) => this.ngZone.run(() => cb(p as LoopSteeringDowngradedPayload)));
+  }
+  onFollowUpDrained(cb: (data: LoopFollowUpDrainedPayload) => void): () => void {
+    if (!this.api) return () => { /* noop */ };
+    const subscribe = (this.api as unknown as {
+      onLoopFollowUpDrained?: (cb: (p: unknown) => void) => () => void;
+    }).onLoopFollowUpDrained;
+    if (typeof subscribe !== 'function') return () => { /* noop */ };
+    return subscribe((p) => this.ngZone.run(() => cb(p as LoopFollowUpDrainedPayload)));
   }
   onCompleted(cb: (data: { loopRunId: string; signal: string; verifyOutput: string; acceptedByOperator?: boolean }) => void): () => void {
     if (!this.api) return () => { /* noop */ };
