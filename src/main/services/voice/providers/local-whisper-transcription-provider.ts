@@ -732,7 +732,7 @@ export class LocalWhisperTranscriptionProvider implements VoiceTranscriptionProv
     }
   }
 
-  private thisDeviceHeaders(): HeadersInit | undefined {
+  private thisDeviceHeaders(): RequestInit['headers'] | undefined {
     const envName = this.settings.voiceThisDeviceSttApiKeyEnv.trim();
     if (!envName) return undefined;
     const apiKey = process.env[envName]?.trim();

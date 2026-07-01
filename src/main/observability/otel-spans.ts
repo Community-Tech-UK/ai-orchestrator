@@ -8,6 +8,7 @@
 import { SpanStatusCode, type Span } from '@opentelemetry/api';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import { getOrchestratorTracer } from './otel-setup';
+import { redactSpanAttributes } from '../diagnostics/redaction';
 
 async function withSpan<T>(
   name: string,
@@ -15,7 +16,10 @@ async function withSpan<T>(
   fn: (span: Span) => Promise<T>,
 ): Promise<T> {
   const tracer = getOrchestratorTracer();
-  return tracer.startActiveSpan(name, { attributes }, async (span) => {
+  // Task 14: redact secret-shaped attributes before they reach the tracer — this
+  // is the sink that feeds a remote OTLP collector (the local file exporter also
+  // redacts at serialization, but a remote exporter would not).
+  return tracer.startActiveSpan(name, { attributes: redactSpanAttributes(attributes) }, async (span) => {
     try {
       const result = await fn(span);
       span.setStatus({ code: SpanStatusCode.OK });
@@ -120,6 +124,8 @@ export function recordProviderRuntimeEventSpan(envelope: ProviderRuntimeEventEnv
     attributes['ai.provider.quota.exhausted'] = (event as { quota: { exhausted: boolean } }).quota.exhausted;
   }
 
-  const span = getOrchestratorTracer().startSpan('provider.runtime_event', { attributes });
+  const span = getOrchestratorTracer().startSpan('provider.runtime_event', {
+    attributes: redactSpanAttributes(attributes),
+  });
   span.end();
 }

@@ -1387,8 +1387,12 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     // LF-4 RPI: a PLAN→IMPLEMENT context reset recycles the persistent adapter
     // first, so the IMPLEMENT iteration starts from a fresh session anchored on
     // the finalized plan (durable disk state) rather than the planning chatter.
+    // Also used by degraded-iteration retries. Tracked so B5a rehydration can
+    // fire via `childResult.contextCompacted` after the iteration seals.
+    let oneShotContextReset = false;
     if (sameSession && p.forceContextReset && persistentLoopAdapters.has(p.loopRunId)) {
       await recyclePersistentLoopAdapter(p.loopRunId);
+      oneShotContextReset = true;
       emitActivity({ kind: 'status', message: 'Context reset for PLAN→IMPLEMENT (fresh session)' });
     }
     if (!reusedAdapter && sameSession) {
@@ -1595,6 +1599,17 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
             detail: { previousUtilization: decision.utilization },
           });
         }
+      }
+
+      // B5a: one-shot resets (PLAN→IMPLEMENT, degraded retry) recycle at the
+      // start of the iteration but do not cross the LF-1 utilization threshold.
+      // Mark contextCompacted so the survival manager re-injects plan/ledger/files.
+      if (oneShotContextReset && !childResult.contextCompacted) {
+        childResult.contextCompacted = {
+          previousUtilization: 0,
+          newUtilization: 0,
+          reason: 'one-shot context reset (fresh session)',
+        };
       }
 
       // D6: If borrowing the parent instance and it was interrupted mid-iteration

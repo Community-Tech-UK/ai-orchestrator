@@ -2,7 +2,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { CompletedFileWatcher, LoopCompletionDetector, buildVerifyInvocation, isCompletedRenameForPlan } from './loop-completion-detector';
+import {
+  CompletedFileWatcher,
+  LoopCompletionDetector,
+  buildVerifyInvocation,
+  isCompletedRenameForPlan,
+  parseAgentMoreWorkRemaining,
+  MORE_WORK_REMAINING_SENTINEL,
+} from './loop-completion-detector';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import { defaultLoopConfig, type LoopIteration, type LoopState } from '../../shared/types/loop.types';
 
@@ -588,5 +595,18 @@ describe('isCompletedRenameForPlan (completion tied to THIS loop\'s plan)', () =
 
   it('REJECTS any rename for a no-plan loop (must complete via DONE.txt/verify/ledger)', () => {
     expect(isCompletedRenameForPlan(cfg(undefined), '/tmp/ws/anything_completed.md')).toBe(false);
+  });
+});
+
+describe('parseAgentMoreWorkRemaining (D5)', () => {
+  it('detects the sentinel anywhere in the output', () => {
+    expect(parseAgentMoreWorkRemaining(`done with subtask\n${MORE_WORK_REMAINING_SENTINEL}\n`)).toBe(true);
+    expect(parseAgentMoreWorkRemaining(MORE_WORK_REMAINING_SENTINEL)).toBe(true);
+  });
+
+  it('returns false when the sentinel is absent or the input is not a string', () => {
+    expect(parseAgentMoreWorkRemaining('all done, verify passed')).toBe(false);
+    expect(parseAgentMoreWorkRemaining('')).toBe(false);
+    expect(parseAgentMoreWorkRemaining(undefined as unknown as string)).toBe(false);
   });
 });

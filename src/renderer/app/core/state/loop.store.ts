@@ -11,6 +11,7 @@ import {
   type LoopOutstandingQuery,
   type LoopOutstandingStatus,
   type LoopPendingInputKind,
+  type LoopQueueDrainMode,
   type LoopStartConfigInput,
 } from '../services/ipc/loop-ipc.service';
 import type {
@@ -432,13 +433,21 @@ export class LoopStore {
     if (ok && chatId) this.setBanner(chatId, null);
   }
 
-  async intervene(loopRunId: string, message: string, kind?: LoopPendingInputKind): Promise<void> {
-    const response = kind
-      ? await this.ipc.intervene(loopRunId, message, kind)
-      : await this.ipc.intervene(loopRunId, message);
+  async intervene(
+    loopRunId: string,
+    message: string,
+    kind?: LoopPendingInputKind,
+    drainMode?: LoopQueueDrainMode,
+  ): Promise<void> {
+    // Task 18: thread kind + drainMode end-to-end (renderer → ipc → main), so a
+    // `follow-up` (optionally `one-at-a-time`) can be enqueued from the renderer.
+    const response = await this.ipc.intervene(loopRunId, message, kind, drainMode);
     const ok = this.applyControlResponse(loopRunId, response, 'hint');
     if (ok) {
-      this.addControlActivity(loopRunId, 'status', 'Hint queued for the next loop iteration');
+      const label = kind === 'follow-up'
+        ? 'Follow-up queued to run before the loop finishes'
+        : 'Hint queued for the next loop iteration';
+      this.addControlActivity(loopRunId, 'status', label);
     }
   }
 

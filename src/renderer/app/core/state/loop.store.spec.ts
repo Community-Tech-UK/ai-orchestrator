@@ -641,6 +641,16 @@ describe('LoopStore', () => {
     expect(ipc.getIterations).toHaveBeenCalledWith('loop-1');
     expect(store.iterationsForLoop('loop-1')()).toEqual([iteration]);
   });
+
+  it('Task 18: forwards kind + drainMode through intervene to the IPC layer', async () => {
+    ipc.intervene.mockResolvedValue({ success: true, data: { ok: true } });
+
+    await store.intervene('loop-1', 'run before finishing', 'follow-up', 'one-at-a-time');
+    expect(ipc.intervene).toHaveBeenCalledWith('loop-1', 'run before finishing', 'follow-up', 'one-at-a-time');
+
+    await store.intervene('loop-1', 'plain hint');
+    expect(ipc.intervene).toHaveBeenLastCalledWith('loop-1', 'plain hint', undefined, undefined);
+  });
 });
 
 function validConfig(): LoopStartConfigInput {

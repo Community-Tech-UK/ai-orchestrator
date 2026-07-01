@@ -45,7 +45,24 @@ export interface LoopToolCallRecord {
 
 export type LoopVerifyFailureKind = 'command' | 'timeout' | 'infra';
 
-export type LoopPendingInputKind = 'steer' | 'queue';
+/**
+ * Drain timing for a queued loop message (Pi Task 18 taxonomy):
+ * - `queue`  ≙ next-iteration: embedded into the next prompt and drained then.
+ * - `steer`  ≙ steering: intended as mid-iteration input; no current loop
+ *              adapter accepts live input, so `intervene()` downgrades it to
+ *              next-iteration and surfaces the downgrade (loop:steering-downgraded).
+ * - `follow-up`: held back from prompt-build and only drained at the completion
+ *              seam — "run this before you finish."
+ */
+export type LoopPendingInputKind = 'steer' | 'queue' | 'follow-up';
+/**
+ * Pi Task 18 drain policy for a queued message. `all` (default) drains the whole
+ * queued batch together; `one-at-a-time` drains a single message per drain cycle
+ * so the agent addresses queued items sequentially. Only meaningful for
+ * `follow-up` messages today (they drain at the completion seam, one per
+ * completion attempt when `one-at-a-time`).
+ */
+export type LoopQueueDrainMode = 'all' | 'one-at-a-time';
 export type LoopPendingInputSource =
   | 'human'
   | 'block-override'
@@ -62,6 +79,12 @@ export interface LoopPendingInput {
   message: string;
   enqueuedAt: number;
   source: LoopPendingInputSource;
+  /**
+   * Task 18 drain policy. Optional; absent is treated as `all`. Honored by the
+   * follow-up drain: a `one-at-a-time` follow-up drains a single message per
+   * completion seam instead of the whole batch.
+   */
+  drainMode?: LoopQueueDrainMode;
 }
 
 export function createLoopPendingInput(
@@ -71,6 +94,7 @@ export function createLoopPendingInput(
     kind?: LoopPendingInputKind;
     enqueuedAt?: number;
     source?: LoopPendingInputSource;
+    drainMode?: LoopQueueDrainMode;
   } = {},
 ): LoopPendingInput {
   const enqueuedAt = opts.enqueuedAt ?? Date.now();
@@ -80,6 +104,7 @@ export function createLoopPendingInput(
     message,
     enqueuedAt,
     source: opts.source ?? 'human',
+    ...(opts.drainMode ? { drainMode: opts.drainMode } : {}),
   };
 }
 
@@ -198,6 +223,13 @@ export interface CompletionSignalEvidence {
    */
   sufficient: boolean;
   detail: string;
+  /**
+   * Structured open-item count for the `ledger-complete` signal (0 when the
+   * ledger is fully resolved, >0 while items remain). Undefined for every other
+   * signal id. Consumed by the ledger-progress stall tracker so it never has to
+   * parse the human-readable `detail` string.
+   */
+  openCount?: number;
 }
 
 export type LoopTerminalIntentKind = 'complete' | 'block' | 'fail' | 'wakeup';
@@ -290,6 +322,22 @@ export interface LoopState {
   repeatedEvidenceCount?: number;
   consecutiveCleanReviewPasses?: number;
   reviewDrivenStallIterations?: number;
+  /**
+   * Lowest `LOOP_TASKS.md` open-item count observed so far this run (undefined
+   * until the first ledger reading). "Net ledger progress" = reaching a new low.
+   * Paired with `ledgerNoImprovementIterations` to detect a loop that edits
+   * files every iteration but never closes ledger items (see loop-ledger-progress).
+   */
+  ledgerOpenCountBest?: number;
+  /** Consecutive iterations since the ledger open-count last reached a new low. */
+  ledgerNoImprovementIterations?: number;
+  /**
+   * B5: set at the end of an iteration whose context was reset/compacted (LF-1
+   * utilization recycle, PLAN→IMPLEMENT reset, or degraded-retry fresh session).
+   * Consumed at the start of the next iteration to run the post-compaction health
+   * canary, then cleared. Carries the compacting seq + reason for diagnostics.
+   */
+  justCompacted?: { seq: number; reason: string };
   freshEyesForcedByContradiction?: boolean;
   pingPong?: LoopPingPongState;
 }

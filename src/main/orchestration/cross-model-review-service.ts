@@ -44,6 +44,7 @@ import {
 import { extractJson, resolveReviewWorkingDirectory } from './cross-model-review-service.helpers';
 
 const logger = getLogger('CrossModelReviewService');
+const CODEX_REVIEW_MIN_TIMEOUT_MS = 300_000;
 
 function isCliAdapterLike(adapter: unknown): adapter is { sendMessage: (m: CliMessage) => Promise<CliResponse> } {
   return typeof (adapter as Record<string, unknown>)?.['sendMessage'] === 'function';
@@ -51,6 +52,16 @@ function isCliAdapterLike(adapter: unknown): adapter is { sendMessage: (m: CliMe
 
 function isTerminableAdapter(adapter: unknown): adapter is { terminate: (graceful?: boolean) => Promise<void> } {
   return typeof (adapter as Record<string, unknown>)?.['terminate'] === 'function';
+}
+
+function resolveReviewerTimeoutMs(cliType: string, timeoutSeconds: number): number {
+  const configuredSeconds = Number.isFinite(timeoutSeconds)
+    ? Math.max(1, Math.floor(timeoutSeconds))
+    : 30;
+  const configuredMs = configuredSeconds * 1000;
+  return cliType === 'codex'
+    ? Math.max(configuredMs, CODEX_REVIEW_MIN_TIMEOUT_MS)
+    : configuredMs;
 }
 
 export class CrossModelReviewService extends EventEmitter {
@@ -321,13 +332,15 @@ export class CrossModelReviewService extends EventEmitter {
       resetTimeoutMs: 60000,
     });
 
-    // Codex is slow: a tiered review at default effort blows the per-review deadline
-    // (the configured `timeout` is codex's absolute total budget) and gets dropped
-    // every time. Force structured depth + low reasoning effort for codex only so it
-    // finishes in budget; other reviewers keep full depth. Declared in the outer
-    // scope so the parse below uses the same depth the adapter was prompted with.
+    // Codex is slow: a tiered review at default effort blows the per-review
+    // deadline because the configured `timeout` is codex's absolute total
+    // process budget. Force structured depth + low reasoning effort for codex
+    // only, and give it a codex-specific timeout floor; other reviewers keep
+    // the configured depth and timeout. Declared in the outer scope so the
+    // parse below uses the same depth the adapter was prompted with.
     const isCodex = cliType === 'codex';
     const effectiveDepth: 'structured' | 'tiered' = isCodex ? 'structured' : request.reviewDepth;
+    const timeoutMs = resolveReviewerTimeoutMs(cliType, timeoutSeconds);
 
     try {
       const response = await breaker.execute(async () => {
@@ -340,7 +353,7 @@ export class CrossModelReviewService extends EventEmitter {
           cliType: resolvedCli,
           options: {
             workingDirectory: request.workingDirectory,
-            timeout: timeoutSeconds * 1000,
+            timeout: timeoutMs,
             yoloMode: false,
             ...(isCodex ? { reasoningEffort: 'low' as const } : {}),
             // When no override is configured, leave `model` unset so the

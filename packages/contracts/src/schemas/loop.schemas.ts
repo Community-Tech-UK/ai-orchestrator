@@ -196,6 +196,14 @@ export const LoopCompletionConfigSchema = z.object({
   requiredCleanReviewPasses: z.number().int().positive().max(20).optional(),
   /** review-driven: preferred no-actionable-issues wording / high-confidence shortcut. */
   noOutstandingPhrase: z.string().min(1).optional(),
+  /** review-driven: max consecutive CRITICAL no-progress iterations (no prod
+   *  change, no clean-streak advance) before stopping as completed-needs-review.
+   *  Mirrors `LoopCompletionConfig.maxStalledReviewIterations`. Default 3. */
+  maxStalledReviewIterations: z.number().int().positive().max(1000).optional(),
+  /** review-driven: max consecutive iterations the LOOP_TASKS.md open-item count
+   *  may fail to reach a new low before stopping as completed-needs-review.
+   *  Mirrors `LoopCompletionConfig.maxLedgerStallIterations`. Default 8. */
+  maxLedgerStallIterations: z.number().int().positive().max(1000).optional(),
   completedFilenamePattern: z.string().min(1),
   donePromiseRegex: z.string().min(1),
   doneSentinelFile: z.string().min(1),
@@ -358,7 +366,9 @@ export const LoopToolCallRecordSchema = z.object({
   durationMs: z.number().int().nonnegative(),
 });
 
-export const LoopPendingInputKindSchema = z.enum(['steer', 'queue']);
+export const LoopPendingInputKindSchema = z.enum(['steer', 'queue', 'follow-up']);
+/** Task 18 drain policy. Mirrors `LoopQueueDrainMode`. */
+export const LoopQueueDrainModeSchema = z.enum(['all', 'one-at-a-time']);
 export const LoopPendingInputSourceSchema = z.enum([
   'human', 'block-override', 'plan-regen', 'phase-recovery',
   'context-survival', 'announce-then-halt', 'subagent-result', 'wakeup',
@@ -370,6 +380,8 @@ export const LoopPendingInputSchema = z.object({
   message: z.string().min(1),
   enqueuedAt: z.number().int().nonnegative(),
   source: LoopPendingInputSourceSchema,
+  /** Task 18 drain policy; absent is treated as `all`. */
+  drainMode: LoopQueueDrainModeSchema.optional(),
 });
 
 const LegacyLoopPendingInputSchema = z.string().min(1).transform((message) => ({
@@ -405,6 +417,10 @@ export const CompletionSignalEvidenceSchema = z.object({
   id: CompletionSignalIdSchema,
   sufficient: z.boolean(),
   detail: z.string(),
+  /** Structured open-item count for the `ledger-complete` signal (0 when the
+   *  ledger is fully resolved). Undefined for every other signal id. Mirrors
+   *  `CompletionSignalEvidence.openCount`. */
+  openCount: z.number().int().nonnegative().optional(),
 });
 
 export const LoopTerminalIntentKindSchema = z.enum(['complete', 'block', 'fail', 'wakeup']);
@@ -544,6 +560,19 @@ export const LoopStateSchema = z.object({
   /** LF-4: LOOP_TASKS.md fully resolved at startLoop (staleness guard).
    *  Defaults false for back-compat with rows written before the field. */
   loopTasksLedgerResolvedAtStart: z.boolean().default(false),
+  /** Lowest LOOP_TASKS.md open-item count observed so far this run (undefined
+   *  until the first ledger reading). Mirrors `LoopState.ledgerOpenCountBest`. */
+  ledgerOpenCountBest: z.number().int().nonnegative().optional(),
+  /** Consecutive iterations since the ledger open-count last reached a new low.
+   *  Mirrors `LoopState.ledgerNoImprovementIterations`. */
+  ledgerNoImprovementIterations: z.number().int().nonnegative().optional(),
+  /** B5: marks that the prior iteration reset/compacted the context; consumed by
+   *  the next iteration's post-compaction health canary. Mirrors
+   *  `LoopState.justCompacted`. */
+  justCompacted: z.object({
+    seq: z.number().int().nonnegative(),
+    reason: z.string(),
+  }).optional(),
   /** Ping-pong runtime state (round count, issue ledger, reviewer spend).
    *  Optional — only present on loops running in ping-pong mode. */
   pingPong: LoopPingPongStateSchema.optional(),
@@ -624,6 +653,8 @@ export const LoopInterveneePayloadSchema = z.object({
   loopRunId: z.string().min(1),
   message: z.string().min(1),
   kind: LoopPendingInputKindSchema.optional(),
+  /** Task 18: drain policy for a `follow-up` message (absent = `all`). */
+  drainMode: LoopQueueDrainModeSchema.optional(),
 });
 
 export const LoopListByChatPayloadSchema = z.object({

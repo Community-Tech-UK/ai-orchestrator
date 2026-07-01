@@ -68,6 +68,10 @@ const ALLOWLIST: Record<string, number> = {
   'benchmarks/orchestrator-benchmark/runner.ts': 768,
   // Contracts
   'packages/contracts/src/schemas/session.schemas.ts': 743,
+  // Raised to allowlist at 724 for the loop-engine/Pi-Task-18 fields
+  // (ledger-stall bounds, CompletionSignalEvidence.openCount, LoopState ledger +
+  // justCompacted, follow-up pending-input kind) — type/schema round-trip.
+  'packages/contracts/src/schemas/loop.schemas.ts': 724,
   'packages/contracts/src/types/transport.types.ts': 1810,
   // Main process — automations
   'src/main/automations/automation-store.ts': 852,
@@ -145,7 +149,15 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/orchestration/embedding-service.ts': 845,
   // Raised 3170 -> 3277 for typed intervention queueing and audit-gate
   // integration points. Audit mechanics live in loop-audit-runtime.ts.
-  'src/main/orchestration/loop-coordinator.ts': 3277,
+  // Raised 3369 -> 3480 for B5 post-compaction canary + Pi Task 18
+  // follow-up/steering drain (pure helpers extracted to loop-coordinator-block-utils.ts).
+  // Raised 3480 -> 3496 for D5 self-declared more-work-remaining completion veto.
+  'src/main/orchestration/loop-coordinator.ts': 3496,
+  // Allowlisted at 712 when the D5 more-work-remaining sentinel parser
+  // (parseAgentMoreWorkRemaining) tipped it just past 700.
+  'src/main/orchestration/loop-completion-detector.ts': 712,
+  // Allowlisted at 702 when the D5 sentinel prompt guidance tipped it past 700.
+  'src/main/orchestration/loop-stage-machine.ts': 702,
   'src/main/orchestration/loop-store.ts': 721,
   'src/main/orchestration/loop-progress-detector.ts': 725,
   'src/main/orchestration/multi-verify-coordinator.ts': 1177,
@@ -210,7 +222,9 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/instance-list/instance-row.component.ts': 404,
   'src/renderer/app/features/knowledge/knowledge-page.component.ts': 1322,
   'src/renderer/app/features/logs/logs-page.component.ts': 1020,
-  'src/renderer/app/features/loop/loop-control.component.ts': 992,
+  // Raised 992 -> 1051 for the Task 18 renderer follow-up affordance (queue a
+  // `follow-up` from the loop control bar) — completes end-to-end exposure.
+  'src/renderer/app/features/loop/loop-control.component.ts': 1051,
   'src/renderer/app/features/mcp/mcp-page.component.ts': 1123,
   'src/renderer/app/features/memory/memory-browser.component.ts': 957,
   'src/renderer/app/features/models/model-selection-panel.component.ts': 945,
@@ -239,8 +253,13 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/workflow/workflow-progress.component.ts': 733,
   'src/renderer/app/features/worktree/worktree-page.component.ts': 717,
   'src/renderer/app/features/worktree/worktree-panel.component.ts': 714,
+  // Main process — services (voice/STT)
+  // Pre-existing large file committed in the "Loop engine overhaul" work,
+  // unrelated to the loop-engine/pi-capabilities specs. Allowlisted at its
+  // current size pending a dedicated STT-follow-up split (see OUTSTANDING.md).
+  'src/main/services/voice/providers/local-whisper-transcription-provider.ts': 849,
   // Shared
-  'src/shared/types/loop.types.ts': 728,
+  'src/shared/types/loop.types.ts': 780,
   // Worker agent
   'src/worker-agent/worker-agent.ts': 872,
 };

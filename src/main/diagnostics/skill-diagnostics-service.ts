@@ -1,6 +1,6 @@
 import * as fs from 'fs/promises';
 import type { SkillBundle } from '../../shared/types/skill.types';
-import { parseSkillFrontmatter } from '../../shared/types/skill.types';
+import { parseSkillFrontmatter, parseSkillMetadata, validateSkillName } from '../skills/skill-spec';
 import type { SkillDiagnostic } from '../../shared/types/diagnostics.types';
 import { getLogger } from '../logging/logger';
 import { getSkillRegistry } from '../skills/skill-registry';
@@ -92,7 +92,9 @@ export class SkillDiagnosticsService {
 
     try {
       const content = await fs.readFile(skill.corePath, 'utf-8');
-      if (!parseSkillFrontmatter(content)) {
+      const metadata = parseSkillMetadata(content, skill.metadata.name);
+      const nameOk = validateSkillName(metadata.name).ok;
+      if (!parseSkillFrontmatter(content) || !nameOk || metadata.triggers.length === 0) {
         diagnostics.push({
           code: 'invalid-frontmatter',
           severity: 'error',

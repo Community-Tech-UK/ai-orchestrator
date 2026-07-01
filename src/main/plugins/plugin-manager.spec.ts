@@ -86,6 +86,7 @@ import {
   _resetOrchestratorPluginManagerForTesting,
   OrchestratorPluginManager,
 } from './plugin-manager';
+import { classifyPluginEntrypoint } from './plugin-entrypoint';
 import { getPluginRegistry, _resetPluginRegistryForTesting } from './plugin-registry';
 import type { TypedOrchestratorHooks } from '../../shared/types/plugin.types';
 import type { InstanceManager } from '../instance/instance-manager';
@@ -361,6 +362,85 @@ describe('OrchestratorPluginManager', () => {
         homeDir: '/tmp/test-home',
       },
     });
+
+    await fsPromises.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('classifyPluginEntrypoint distinguishes TypeScript from JavaScript by extension', () => {
+    expect(classifyPluginEntrypoint('/x/index.ts')).toBe('typescript');
+    expect(classifyPluginEntrypoint('/x/index.mts')).toBe('typescript');
+    expect(classifyPluginEntrypoint('/x/index.cts')).toBe('typescript');
+    expect(classifyPluginEntrypoint('/x/index.js')).toBe('javascript');
+    expect(classifyPluginEntrypoint('/x/Index.JS')).toBe('javascript');
+  });
+
+  it('Task 17: loads a worker-isolated TypeScript plugin through PluginWorkerHost', async () => {
+    const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
+    const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'ts-plugin');
+    await fsPromises.mkdir(pluginDir, { recursive: true });
+
+    const pluginFile = path.join(pluginDir, 'index.ts');
+    await fsPromises.writeFile(pluginFile, 'export default {};');
+    await fsPromises.writeFile(
+      path.join(pluginDir, 'plugin.json'),
+      JSON.stringify({ name: 'ts-plugin', version: '1.0.0', isolation: 'worker', hooks: ['instance.removed'] }),
+    );
+
+    const manager = OrchestratorPluginManager.getInstance();
+    const result = await manager.listPlugins(tmpDir, {} as never);
+
+    const entry = result.plugins.find((plugin) => plugin.filePath === pluginFile);
+    expect(entry?.loadReport.ready).toBe(true);
+    expect(mockPluginWorkerHostInstances).toHaveLength(1);
+    expect(mockPluginWorkerHostInstances[0]?.options).toMatchObject({ filePath: pluginFile });
+
+    await fsPromises.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('Task 17: rejects an in-process (non-worker) TypeScript plugin with an actionable diagnostic', async () => {
+    const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
+    const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'ts-inprocess');
+    await fsPromises.mkdir(pluginDir, { recursive: true });
+
+    const pluginFile = path.join(pluginDir, 'index.ts');
+    await fsPromises.writeFile(pluginFile, 'export default {};');
+    // Manifest present but WITHOUT isolation: 'worker'.
+    await fsPromises.writeFile(
+      path.join(pluginDir, 'plugin.json'),
+      JSON.stringify({ name: 'ts-inprocess', version: '1.0.0', hooks: ['instance.removed'] }),
+    );
+
+    const manager = OrchestratorPluginManager.getInstance();
+    const result = await manager.listPlugins(tmpDir, {} as never);
+
+    const entry = result.plugins.find((plugin) => plugin.filePath === pluginFile);
+    expect(entry?.loadReport.ready).toBe(false);
+    expect(entry?.loadReport.error).toContain('isolation');
+    expect(entry?.loadReport.error).toContain('worker');
+    // No worker host was started for the rejected in-process TS plugin.
+    expect(mockPluginWorkerHostInstances).toHaveLength(0);
+
+    await fsPromises.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('Task 17: prefers the compiled .js over a sibling .ts entrypoint (no double-load)', async () => {
+    const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
+    const pluginDir = path.join(tmpDir, '.orchestrator', 'plugins', 'dual-plugin');
+    await fsPromises.mkdir(pluginDir, { recursive: true });
+
+    await fsPromises.writeFile(path.join(pluginDir, 'index.js'), 'module.exports = {};');
+    await fsPromises.writeFile(path.join(pluginDir, 'index.ts'), 'export default {};');
+    await fsPromises.writeFile(
+      path.join(pluginDir, 'plugin.json'),
+      JSON.stringify({ name: 'dual-plugin', version: '1.0.0', hooks: ['instance.removed'] }),
+    );
+
+    const manager = OrchestratorPluginManager.getInstance();
+    const result = await manager.listPlugins(tmpDir, {} as never);
+
+    const dualEntries = result.plugins.filter((plugin) => plugin.filePath.startsWith(pluginDir));
+    expect(dualEntries).toHaveLength(1);
+    expect(dualEntries[0]?.filePath).toBe(path.join(pluginDir, 'index.js'));
 
     await fsPromises.rm(tmpDir, { recursive: true, force: true });
   });

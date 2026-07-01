@@ -1,13 +1,14 @@
 /**
  * Orchestrator Plugin Manager
  *
- * Loads JS plugins from well-known directories and dispatches events to them.
+ * Loads JS/TS plugins from well-known directories and dispatches events to them.
  * The goal is a stable event surface (similar to how modern coding agents expose hooks),
  * without depending on any external repo runtime code.
  *
- * Plugin locations:
- * - `~/.orchestrator/plugins/**.js`
- * - `<project-scan-root>/.orchestrator/plugins/**.js`
+ * Plugin locations (`.js` always; `.ts`/`.mts`/`.cts` when the manifest sets
+ * `"isolation": "worker"`, since TypeScript is loaded via tsx in the worker):
+ * - `~/.orchestrator/plugins/**`
+ * - `<project-scan-root>/.orchestrator/plugins/**`
  *
  * Project scan roots run from the repository root (when available) down to the
  * active working directory, so nested worktrees inherit plugin definitions from
@@ -56,6 +57,7 @@ import type { PluginManifest } from '@sdk/plugins';
 import { PluginManifestSchema } from '@contracts/schemas/plugin';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import { getPluginRegistry } from './plugin-registry';
+import { classifyPluginEntrypoint, dedupePluginEntrypoints } from './plugin-entrypoint';
 import { PluginWorkerHost, type PluginWorkerContext, type PluginWorkerRuntime } from './plugin-worker-host';
 import { resolveProjectScanRoots } from '../util/project-scan-roots';
 import type { ReactionEvent } from '../reactions/reaction.types';
@@ -365,7 +367,7 @@ export class OrchestratorPluginManager {
     };
   }
 
-  private async walkJsFiles(dir: string): Promise<string[]> {
+  private async walkPluginEntrypoints(dir: string): Promise<string[]> {
     const out: string[] = [];
     const stack: string[] = [dir];
     while (stack.length > 0) {
@@ -388,10 +390,23 @@ export class OrchestratorPluginManager {
           stack.push(full);
           continue;
         }
-        if (entry.isFile() && entry.name.toLowerCase().endsWith('.js')) out.push(full);
+        if (!entry.isFile()) continue;
+        const lower = entry.name.toLowerCase();
+        // Declaration files are never plugin entrypoints.
+        if (lower.endsWith('.d.ts')) continue;
+        // Task 17: discover `.ts`/`.mts`/`.cts` alongside `.js`. TS entrypoints
+        // are accepted only in worker isolation (enforced at load time below).
+        if (
+          lower.endsWith('.js') ||
+          lower.endsWith('.ts') ||
+          lower.endsWith('.mts') ||
+          lower.endsWith('.cts')
+        ) {
+          out.push(full);
+        }
       }
     }
-    return out;
+    return dedupePluginEntrypoints(out);
   }
 
   private async loadModule(filePath: string): Promise<OrchestratorPluginModule> {
@@ -490,7 +505,7 @@ export class OrchestratorPluginManager {
     const errors: { filePath: string; error: string }[] = [];
     const dirs = this.getPluginDirs(workingDirectory);
     for (const dir of dirs) {
-      const files = await this.walkJsFiles(dir);
+      const files = await this.walkPluginEntrypoints(dir);
       for (const filePath of files) {
         let mtimeMs: number | undefined;
         try {
@@ -542,6 +557,33 @@ export class OrchestratorPluginManager {
           }
 
           this.warnForManifestCapabilities(filePath, manifest);
+
+          // Task 17: TypeScript plugins are worker-only. Dynamically importing a
+          // `.ts` file in-process is unreliable in a packaged Electron build (no
+          // TS loader), so reject it with an actionable diagnostic instead of
+          // failing later with an opaque import error.
+          if (classifyPluginEntrypoint(filePath) === 'typescript' && !shouldUseWorkerIsolation(manifest)) {
+            const message =
+              'TypeScript plugin entrypoints require "isolation": "worker" in plugin.json ' +
+              '(in-process TypeScript loading is unavailable in packaged builds).';
+            phases.push(buildPhase('instantiation', 'failed', message));
+            logger.warn(message, { filePath });
+            errors.push({ filePath, error: message });
+            plugins.push({
+              filePath,
+              hooks: {},
+              slot: manifest?.slot ?? 'hook',
+              manifest,
+              loadReport: {
+                slot: manifest?.slot ?? 'hook',
+                detected: false,
+                ready: false,
+                phases,
+                error: message,
+              },
+            });
+            continue;
+          }
 
           if (shouldUseWorkerIsolation(manifest)) {
             plugins.push(await this.loadWorkerPlugin(filePath, ctx, manifest, phases));

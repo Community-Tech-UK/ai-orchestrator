@@ -175,6 +175,16 @@ export interface LoopCompletionConfig {
    * wasted cost. Ignored in `'gated'` mode.
    */
   maxStalledReviewIterations?: number;
+  /**
+   * review-driven only: max consecutive iterations the `LOOP_TASKS.md`
+   * open-item count may fail to reach a new low before the loop stops itself as
+   * `completed-needs-review`. Unlike `maxStalledReviewIterations` (which resets
+   * on ANY production file change), this keys off ledger *open-count* not
+   * decreasing — so it catches a loop that edits files every round yet never
+   * closes an item (e.g. an open-ended "continue remaining slices" bucket that
+   * re-expands as fast as it drains). Default 8. Ignored in `'gated'` mode.
+   */
+  maxLedgerStallIterations?: number;
   /** Path glob matched against rename events. */
   completedFilenamePattern: string; // default '*_[Cc]ompleted.md'
   /** Regex applied to iteration output. */
@@ -635,6 +645,7 @@ export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): 
       requiredCleanReviewPasses: 2,
       noOutstandingPhrase: 'There are no outstanding issues',
       maxStalledReviewIterations: 3,
+      maxLedgerStallIterations: 8,
       completedFilenamePattern: '*_[Cc]ompleted.md',
       donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
       doneSentinelFile: 'DONE.txt',
@@ -741,6 +752,7 @@ export type {
   LoopPendingInput,
   LoopPendingInputKind,
   LoopPendingInputSource,
+  LoopQueueDrainMode,
   LoopState,
   LoopTerminalIntent,
   LoopTerminalIntentEvidence,

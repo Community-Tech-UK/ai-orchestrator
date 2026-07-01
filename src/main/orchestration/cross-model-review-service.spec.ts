@@ -380,6 +380,32 @@ describe('CrossModelReviewService', () => {
     expect(result?.reviewType).toBe('structured');
   });
 
+  it('gives codex reviewers a longer process deadline than the global review timeout', async () => {
+    const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
+
+    let capturedTimeout: unknown = 0;
+    vi.mocked(getProviderRuntimeService().createAdapter).mockImplementation(({ options }) => {
+      capturedTimeout = options.timeout;
+      return {
+        sendMessage: async () => ({
+          content: JSON.stringify({
+            correctness: { reasoning: 'ok', score: 4, issues: [] },
+            completeness: { reasoning: 'ok', score: 4, issues: [] },
+            security: { reasoning: 'ok', score: 4, issues: [] },
+            consistency: { reasoning: 'ok', score: 4, issues: [] },
+            overall_verdict: 'APPROVE',
+            summary: 'approved',
+          }),
+        }),
+        terminate: vi.fn().mockResolvedValue(undefined),
+      };
+    });
+
+    await service.executeOneReview(makeRequest(), 'codex', 120, new AbortController().signal);
+
+    expect(capturedTimeout).toBe(300_000);
+  });
+
   it('keeps full tiered depth and default effort for non-codex reviewers', async () => {
     const service = CrossModelReviewService.getInstance() as unknown as TestReviewService;
 

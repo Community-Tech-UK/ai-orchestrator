@@ -242,19 +242,29 @@ describe('LoopControlComponent', () => {
     // submitting it routes the hint to the active loop id.
     const ci = fixture.componentInstance as unknown as {
       hintModalOpen: () => boolean;
+      hintMode: () => 'hint' | 'follow-up';
+      onQueueFollowUp: () => void;
       onHintSubmitted: (message: string) => Promise<void>;
     };
     bannerButton('Inject hint').click();
     await settle(fixture);
 
     expect(ci.hintModalOpen()).toBe(true);
+    expect(ci.hintMode()).toBe('hint');
     expect(fixture.nativeElement.querySelector('app-prompt-modal')).toBeTruthy();
 
     await ci.onHintSubmitted('try a different verification path');
     await settle(fixture);
 
     expect(ci.hintModalOpen()).toBe(false);
-    expect(ipc.intervene).toHaveBeenCalledWith('loop-1', 'try a different verification path');
+    // Task 18: the store threads kind + drainMode (undefined for a plain hint).
+    expect(ipc.intervene).toHaveBeenCalledWith('loop-1', 'try a different verification path', undefined, undefined);
+
+    // Task 18: queuing a follow-up sets the mode and enqueues with kind 'follow-up'.
+    ci.onQueueFollowUp();
+    expect(ci.hintMode()).toBe('follow-up');
+    await ci.onHintSubmitted('check the edge case before finishing');
+    expect(ipc.intervene).toHaveBeenLastCalledWith('loop-1', 'check the edge case before finishing', 'follow-up', undefined);
 
     bannerButton('Resume anyway').click();
     await settle(fixture);

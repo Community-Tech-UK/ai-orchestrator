@@ -68,7 +68,8 @@ export interface LoopConfigInput {
   };
 }
 
-export type LoopPendingInputKind = 'steer' | 'queue';
+export type LoopPendingInputKind = 'steer' | 'queue' | 'follow-up';
+export type LoopQueueDrainMode = 'all' | 'one-at-a-time';
 
 export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNELS) {
   const sub = (channel: string) => (callback: (payload: unknown) => void): (() => void) => {
@@ -88,8 +89,18 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
       ipcRenderer.invoke(ch.LOOP_PAUSE, { loopRunId }),
     loopResume: (loopRunId: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_RESUME, { loopRunId }),
-    loopIntervene: (loopRunId: string, message: string, kind?: LoopPendingInputKind): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.LOOP_INTERVENE, kind ? { loopRunId, message, kind } : { loopRunId, message }),
+    loopIntervene: (
+      loopRunId: string,
+      message: string,
+      kind?: LoopPendingInputKind,
+      drainMode?: LoopQueueDrainMode,
+    ): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.LOOP_INTERVENE, {
+        loopRunId,
+        message,
+        ...(kind ? { kind } : {}),
+        ...(drainMode ? { drainMode } : {}),
+      }),
     loopCancel: (loopRunId: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_CANCEL, { loopRunId }),
     loopAcceptCompletion: (loopRunId: string): Promise<IpcResponse> =>
@@ -148,6 +159,10 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
     onLoopCompleted: sub(ch.LOOP_COMPLETED),
     onLoopCompletedNeedsReview: sub(ch.LOOP_COMPLETED_NEEDS_REVIEW),
     onLoopNotesCurated: sub(ch.LOOP_NOTES_CURATED),
+    onLoopLedgerLint: sub(ch.LOOP_LEDGER_LINT),
+    onLoopSteeringDowngraded: sub(ch.LOOP_STEERING_DOWNGRADED),
+    onLoopFollowUpDrained: sub(ch.LOOP_FOLLOW_UP_DRAINED),
+    onLoopMoreWorkDeclared: sub(ch.LOOP_MORE_WORK_DECLARED),
     onLoopFailed: sub(ch.LOOP_FAILED),
     onLoopCapReached: sub(ch.LOOP_CAP_REACHED),
     onLoopProviderLimit: sub(ch.LOOP_PROVIDER_LIMIT),

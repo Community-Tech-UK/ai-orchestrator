@@ -130,6 +130,7 @@ import { PromptModalComponent } from '../../shared/components/prompt-modal/promp
           }
           <button type="button" (click)="onToggleInspector()" title="Show loop trace">{{ inspectorExpanded() ? 'Hide trace' : 'Inspect' }}</button>
           <button type="button" (click)="onInjectHint()" title="Inject a hint into next iteration">Hint</button>
+          <button type="button" (click)="onQueueFollowUp()" title="Queue a message to run before the loop finishes">Follow-up</button>
           <button type="button" class="ls-stop" (click)="onStop()" title="Stop loop">Stop</button>
         </span>
       </div>
@@ -459,10 +460,12 @@ import { PromptModalComponent } from '../../shared/components/prompt-modal/promp
 
     <app-prompt-modal
       [isOpen]="hintModalOpen()"
-      title="Inject a hint"
-      message="This is added to the next loop iteration as a steering instruction. The loop keeps running."
+      [title]="hintMode() === 'follow-up' ? 'Queue a follow-up' : 'Inject a hint'"
+      [message]="hintMode() === 'follow-up'
+        ? 'This runs before the loop finishes: when the loop next tries to complete, it addresses this first, then re-checks. The loop keeps running.'
+        : 'This is added to the next loop iteration as a steering instruction. The loop keeps running.'"
       placeholder="e.g. Skip councils that need a login; move on to the next one."
-      confirmLabel="Inject hint"
+      [confirmLabel]="hintMode() === 'follow-up' ? 'Queue follow-up' : 'Inject hint'"
       [multiline]="true"
       (submitted)="onHintSubmitted($event)"
       (cancelled)="onHintCancelled()"
@@ -498,6 +501,8 @@ export class LoopControlComponent implements OnDestroy {
   protected inspectorExpanded = signal(false);
   protected inspectorLoading = signal(false);
   protected hintModalOpen = signal(false);
+  /** Task 18: whether the hint modal is queuing a plain hint or a `follow-up`. */
+  protected hintMode = signal<'hint' | 'follow-up'>('hint');
   private copyClearHandle: ReturnType<typeof setTimeout> | null = null;
   private lastSummaryRunId: string | null = null;
   private lastInspectableLoopId: string | null = null;
@@ -939,6 +944,14 @@ export class LoopControlComponent implements OnDestroy {
    *  sandboxed Electron renderer, so the prompt must be in-app.) */
   onInjectHint(): void {
     if (!this.controlLoopId()) return;
+    this.hintMode.set('hint');
+    this.hintModalOpen.set(true);
+  }
+
+  /** Task 18: queue a `follow-up` — a message the loop runs before it finishes. */
+  onQueueFollowUp(): void {
+    if (!this.controlLoopId()) return;
+    this.hintMode.set('follow-up');
     this.hintModalOpen.set(true);
   }
 
@@ -947,7 +960,7 @@ export class LoopControlComponent implements OnDestroy {
     const loopId = this.controlLoopId();
     const trimmed = message.trim();
     if (!loopId || !trimmed) return;
-    await this.store.intervene(loopId, trimmed);
+    await this.store.intervene(loopId, trimmed, this.hintMode() === 'follow-up' ? 'follow-up' : undefined);
   }
 
   onHintCancelled(): void {

@@ -5,6 +5,7 @@ import {
   LoopCrossModelReviewConfigSchema,
   LoopHardCapsSchema,
   LoopInterveneePayloadSchema,
+  LoopPendingInputSchema,
   LoopIterationSchema,
   LoopTerminalIntentSchema,
   LoopReviewSeveritySchema,
@@ -135,6 +136,146 @@ describe('Loop schemas — type/schema drift guards', () => {
       const json = JSON.stringify(parsed1);
       const parsed2 = LoopCompletionConfigSchema.parse(JSON.parse(json));
       expect(parsed2.crossModelReview).toEqual(original.crossModelReview);
+    });
+
+    it('round-trips the review-driven stall bounds (maxStalledReviewIterations / maxLedgerStallIterations)', () => {
+      // Type/schema drift: these fields exist on LoopCompletionConfig but were
+      // absent from the schema, so a renderer-submitted value was silently
+      // stripped at LOOP_START (LoopConfigInputSchema → LoopCompletionConfigSchema).
+      const parsed = LoopCompletionConfigSchema.parse({
+        ...base,
+        maxStalledReviewIterations: 5,
+        maxLedgerStallIterations: 12,
+      });
+      expect(parsed.maxStalledReviewIterations).toBe(5);
+      expect(parsed.maxLedgerStallIterations).toBe(12);
+    });
+  });
+
+  describe('CompletionSignalEvidenceSchema.openCount', () => {
+    const baseIteration = {
+      id: 'iter-1',
+      loopRunId: 'loop-1',
+      seq: 0,
+      stage: 'IMPLEMENT' as const,
+      startedAt: 1,
+      endedAt: 2,
+      childInstanceId: null,
+      tokens: 0,
+      costCents: 0,
+      filesChanged: [],
+      toolCalls: [],
+      errors: [],
+      testPassCount: null,
+      testFailCount: null,
+      workHash: 'hash',
+      outputSimilarityToPrev: null,
+      outputExcerpt: '',
+      outputFull: '',
+      progressVerdict: 'OK' as const,
+      progressSignals: [],
+      completionSignalsFired: [],
+      verifyStatus: 'not-run' as const,
+      verifyOutputExcerpt: '',
+    };
+
+    it('round-trips the structured ledger open-item count', () => {
+      const parsed = LoopIterationSchema.parse({
+        ...baseIteration,
+        completionSignalsFired: [
+          { id: 'ledger-complete', sufficient: true, detail: 'all resolved', openCount: 0 },
+          { id: 'declared-complete', sufficient: false, detail: 'agent said done' },
+        ],
+      });
+      expect(parsed.completionSignalsFired[0].openCount).toBe(0);
+      expect(parsed.completionSignalsFired[1].openCount).toBeUndefined();
+    });
+  });
+
+  describe('LoopStateSchema ledger-stall fields', () => {
+    const baseState = {
+      id: 'loop-1',
+      chatId: 'chat-1',
+      config: {
+        initialPrompt: 'do thing',
+        workspaceCwd: '/tmp',
+        provider: 'claude' as const,
+        reviewStyle: 'single' as const,
+        contextStrategy: 'fresh-child' as const,
+        caps: {
+          maxIterations: 50,
+          maxWallTimeMs: 60_000,
+          maxTokens: 100_000,
+          maxCostCents: 100,
+          maxToolCallsPerIteration: 100,
+        },
+        progressThresholds: {
+          identicalHashWarnConsecutive: 2,
+          identicalHashCriticalConsecutive: 3,
+          identicalHashCriticalWindow: 3,
+          similarityWarnMean: 0.85,
+          similarityCriticalMean: 0.92,
+          stageWarnIterations: { PLAN: 3, REVIEW: 2, IMPLEMENT: 8 },
+          stageCriticalIterations: { PLAN: 5, REVIEW: 3, IMPLEMENT: 12 },
+          errorRepeatWarnInWindow: 3,
+          errorRepeatCriticalInWindow: 4,
+          tokensWithoutProgressWarn: 25_000,
+          tokensWithoutProgressCritical: 60_000,
+          pauseOnTokenBurn: false,
+          toolRepeatWarnPerIteration: 5,
+          toolRepeatCriticalPerIteration: 8,
+          testStagnationWarnIterations: 3,
+          testStagnationCriticalIterations: 5,
+          churnRatioWarn: 0.30,
+          churnRatioCritical: 0.50,
+          warnEscalationWindow: 5,
+          warnEscalationCount: 3,
+        },
+        completion: {
+          completedFilenamePattern: '*_completed.md',
+          donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
+          doneSentinelFile: 'DONE.txt',
+          verifyCommand: '',
+          verifyTimeoutMs: 600_000,
+          runVerifyTwice: true,
+          requireCompletedFileRename: false,
+        },
+        allowDestructiveOps: false,
+        initialStage: 'IMPLEMENT' as const,
+      },
+      status: 'running' as const,
+      startedAt: 0,
+      endedAt: null,
+      totalIterations: 0,
+      totalTokens: 0,
+      totalCostCents: 0,
+      currentStage: 'IMPLEMENT' as const,
+      pendingInterventions: [],
+      completedFileRenameObserved: false,
+      doneSentinelPresentAtStart: false,
+      planChecklistFullyCheckedAtStart: false,
+      tokensSinceLastTestImprovement: 0,
+      highestTestPassCount: 0,
+      iterationsOnCurrentStage: 0,
+      recentWarnIterationSeqs: [],
+    };
+
+    it('round-trips ledgerOpenCountBest / ledgerNoImprovementIterations', () => {
+      const parsed = LoopStateSchema.parse({
+        ...baseState,
+        ledgerOpenCountBest: 3,
+        ledgerNoImprovementIterations: 4,
+      });
+      expect(parsed.ledgerOpenCountBest).toBe(3);
+      expect(parsed.ledgerNoImprovementIterations).toBe(4);
+    });
+
+    it('round-trips justCompacted (B5 canary flag)', () => {
+      const parsed = LoopStateSchema.parse({
+        ...baseState,
+        justCompacted: { seq: 7, reason: 'utilization recycle' },
+      });
+      expect(parsed.justCompacted).toEqual({ seq: 7, reason: 'utilization recycle' });
     });
   });
 
@@ -747,6 +888,40 @@ describe('Loop schemas — type/schema drift guards', () => {
       });
 
       expect(parsed.resumeAt).toBe(1_700_000_060_000);
+    });
+  });
+
+  describe('Task 18 queue kind + drainMode', () => {
+    it('LoopInterveneePayloadSchema accepts a follow-up + one-at-a-time drainMode', () => {
+      const parsed = LoopInterveneePayloadSchema.parse({
+        loopRunId: 'loop-1',
+        message: 'run this before you finish',
+        kind: 'follow-up',
+        drainMode: 'one-at-a-time',
+      });
+      expect(parsed.kind).toBe('follow-up');
+      expect(parsed.drainMode).toBe('one-at-a-time');
+    });
+
+    it('LoopInterveneePayloadSchema rejects an unknown drainMode', () => {
+      expect(
+        LoopInterveneePayloadSchema.safeParse({ loopRunId: 'l', message: 'm', drainMode: 'bogus' }).success,
+      ).toBe(false);
+    });
+
+    it('LoopPendingInputSchema round-trips drainMode', () => {
+      const parsed = LoopPendingInputSchema.parse({
+        id: 'p1',
+        kind: 'follow-up',
+        message: 'later',
+        enqueuedAt: 0,
+        source: 'human',
+        drainMode: 'one-at-a-time',
+      });
+      expect(parsed.drainMode).toBe('one-at-a-time');
+      // Absent drainMode stays absent (treated as `all` by the drain).
+      const noDrain = LoopPendingInputSchema.parse({ id: 'p2', kind: 'queue', message: 'x', enqueuedAt: 0, source: 'human' });
+      expect(noDrain.drainMode).toBeUndefined();
     });
   });
 });

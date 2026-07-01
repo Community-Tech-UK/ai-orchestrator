@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { ExportResultCode, hrTimeToMilliseconds, type ExportResult } from '@opentelemetry/core';
 import type { SpanExporter, ReadableSpan } from '@opentelemetry/sdk-trace-base';
+import { redactForSink } from '../diagnostics/redaction';
 
 function getElectronUserDataPath(): string | undefined {
   try {
@@ -26,7 +27,9 @@ export class LocalTraceFileExporter implements SpanExporter {
   constructor(private readonly traceFilePath = resolveDefaultTraceFilePath()) {}
 
   export(spans: ReadableSpan[], resultCallback: (result: ExportResult) => void): void {
-    const lines = spans.map((span) => JSON.stringify(this.serializeSpan(span))).join('\n');
+    // Task 14: redact secrets from span attributes/events/resource before they
+    // are serialized to the on-disk trace file.
+    const lines = spans.map((span) => JSON.stringify(redactForSink(this.serializeSpan(span)))).join('\n');
     this.writeQueue = this.writeQueue
       .catch(() => undefined)
       .then(async () => {

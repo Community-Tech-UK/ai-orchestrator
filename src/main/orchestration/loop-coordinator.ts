@@ -28,10 +28,12 @@ import {
   createLoopPendingInput,
   type LoopPendingInput,
   type LoopPendingInputKind,
+  type LoopQueueDrainMode,
 } from '../../shared/types/loop.types';
 import {
   LoopCompletionDetector,
   CompletedFileWatcher,
+  parseAgentMoreWorkRemaining,
 } from './loop-completion-detector';
 import { maybeQueueAnnounceThenHaltContinuation } from './loop-announce-then-halt';
 import { wireLoopCompletionWatcher } from './loop-completion-watcher-runtime';
@@ -113,9 +115,12 @@ import {
 import { applyLoopContextSurvivalDecision, defaultLoopContextSurvivalManager, type LoopContextSurvivalManager } from './loop-context-survival';
 import {
   classifyDegradedIteration as classifyDegradedIterationHelper,
+  drainFollowUpsForCompletion,
+  evaluatePostCompactionCanaryPause,
   getBlockOverrideInterventionText as getBlockOverrideInterventionTextHelper,
   isCircuitBreakerOpenError,
   isToolchainClassBlock as isToolchainClassBlockHelper,
+  partitionPendingByDrainTiming,
   runWorkspaceLivenessProbe as runWorkspaceLivenessProbeHelper,
 } from './loop-coordinator-block-utils';
 import { defaultLoopExplorationConfig } from '../../shared/types/loop.types';
@@ -182,6 +187,12 @@ import {
   isTerminalLoopRuntimeStatus,
 } from './loop-runtime-status';
 import { recordLoopLearningForState } from './loop-learning-recorder';
+import {
+  extractLedgerOpenCount,
+  updateLedgerProgress,
+  isLedgerStalled,
+} from './loop-ledger-progress';
+import { lintTaskLedger } from './loop-ledger-lint';
 import { importTerminalIntentsForBoundary as importTerminalIntentsForBoundaryHelper } from './loop-terminal-intent-importer';
 import type { LoopCheckpoint } from './loop-checkpoint';
 import type { LongRunResourceDecision } from '../runtime/long-run-resource-governor';
@@ -992,6 +1003,24 @@ export class LoopCoordinator extends EventEmitter {
     this.emit('loop:started', { loopRunId: id, chatId });
     this.emit('loop:state-changed', { loopRunId: id, state: this.cloneStateForBroadcast(state) });
 
+    // Start-time ledger lint: warn when LOOP_TASKS.md has structurally
+    // unclosable OPEN items (open-ended "continue remaining…" buckets or
+    // hardware/manual-gated items) that the completion gate can never clear.
+    // Advisory only — surfaced to the operator and (via the event) the UI so the
+    // ledger can be split into finite slices / deferred before it spins to a cap.
+    try {
+      const lintFindings = lintTaskLedger(await stageMachine.readTaskLedger());
+      if (lintFindings.length > 0) {
+        logger.warn('Loop start: ledger has structurally unclosable open items', {
+          loopRunId: id,
+          findings: lintFindings.map((f) => `[${f.category}] ${f.item}`),
+        });
+        this.emit('loop:ledger-lint', { loopRunId: id, findings: lintFindings });
+      }
+    } catch {
+      // Ledger unreadable / absent — lint inactive, no effect.
+    }
+
     // Run the loop in the background. Errors propagate via 'loop:error'.
     void this.runLoop(state, stageMachine).catch((err) => {
       logger.error('Loop runtime error', err instanceof Error ? err : new Error(String(err)), { loopRunId: id });
@@ -1228,16 +1257,66 @@ export class LoopCoordinator extends EventEmitter {
     });
   }
 
-  /** Queue a user-supplied hint for the next iteration. */
-  intervene(loopRunId: string, message: string, kind: LoopPendingInputKind = 'queue'): boolean {
+  /** Queue a user-supplied hint. See `LoopPendingInputKind` for drain timing. */
+  intervene(
+    loopRunId: string,
+    message: string,
+    kind: LoopPendingInputKind = 'queue',
+    drainMode?: LoopQueueDrainMode,
+  ): boolean {
     const state = this.active.get(loopRunId);
     if (!state) return false;
     if (!isActiveLoopRuntimeState(state)) return false;
-    const intervention = createLoopPendingInput(message, { kind, source: 'human' });
+    // Pi Task 18: live mid-iteration steering requires a provider adapter that
+    // accepts input while a turn is in flight. The loop invokes discrete turns
+    // (no live-input channel today), so a `steer` request is downgraded to a
+    // next-iteration hint and the downgrade is surfaced so the UI never pretends
+    // the message was delivered live.
+    let effectiveKind = kind;
+    if (kind === 'steer' && !this.supportsLiveSteering()) {
+      effectiveKind = 'queue';
+      this.emit('loop:steering-downgraded', {
+        loopRunId,
+        requestedKind: 'steer',
+        effectiveKind: 'queue',
+        reason: 'active loop provider does not accept mid-iteration input; queued for the next iteration',
+      });
+      logger.info('Loop steering downgraded to next-iteration', { loopRunId });
+    }
+    // Task 18: drainMode only affects follow-up drain cadence; it is harmless on
+    // other kinds but only meaningful for `follow-up`.
+    const intervention = createLoopPendingInput(message, {
+      kind: effectiveKind,
+      source: 'human',
+      ...(drainMode ? { drainMode } : {}),
+    });
     state.pendingInterventions.push(intervention);
-    this.emit('loop:intervention-applied', { loopRunId, message, kind });
-    logger.info('Loop intervention queued', { loopRunId, length: state.pendingInterventions.length });
+    this.emit('loop:intervention-applied', { loopRunId, message, kind: effectiveKind });
+    // Task 18: make the queued message DURABLE immediately. The loop:state-changed
+    // handler persists a checkpoint (state_json carries pendingInterventions), so
+    // a queued/follow-up message survives an app restart even while the loop sits
+    // idle/paused between iterations — not only after the next iteration's own
+    // checkpoint write.
+    this.emit('loop:state-changed', { loopRunId, state: this.cloneStateForBroadcast(state) });
+    logger.info('Loop intervention queued', { loopRunId, kind: effectiveKind, length: state.pendingInterventions.length });
     return true;
+  }
+
+  /**
+   * Pi Task 18: whether the active loop can deliver a "steering" message live to
+   * an in-flight turn. No current loop provider adapter exposes a mid-iteration
+   * input channel in the loop path (turns are discrete), so this is false and
+   * `intervene('steer')` downgrades to next-iteration. A future adapter that
+   * genuinely supports live input registers via `setLiveSteeringSupported(true)`;
+   * kept as real state (not a call-site literal) so the non-downgrade path stays
+   * reachable and testable.
+   */
+  private liveSteeringSupported = false;
+  setLiveSteeringSupported(supported: boolean): void {
+    this.liveSteeringSupported = supported;
+  }
+  private supportsLiveSteering(): boolean {
+    return this.liveSteeringSupported;
   }
 
   /**
@@ -1727,30 +1806,36 @@ export class LoopCoordinator extends EventEmitter {
       // loop-control CLI hints (completion there is the no-outstanding phrase,
       // not an explicit `complete` intent — surfacing the CLI would just invite
       // a self-declared completion the review-driven path ignores).
+      // Pi Task 18: partition the queue by drain timing. `next-iteration`
+      // (kind `queue`) and `steering` (kind `steer`) hints are embedded into
+      // THIS prompt and drained now; `follow-up` hints are held back — they only
+      // activate at the completion seam, "before you finish" (drained there).
+      const { drainNow: drainNowInterventions, deferredFollowUps } =
+        partitionPendingByDrainTiming(state.pendingInterventions);
       const prompt = reviewDriven
         ? stageMachine.buildReviewDrivenPrompt({
             config: state.config,
             iterationSeq: seq,
-            pendingInterventions: state.pendingInterventions,
+            pendingInterventions: drainNowInterventions,
             existingSessionContext: this.runtimeContexts.get(state.id)?.existingSessionContext,
             priorObservations: this.runtimeContexts.get(state.id)?.priorObservations,
           })
         : this.appendLoopControlPrompt(state, stageMachine.buildPrompt({
             config: state.config,
             iterationSeq: seq,
-            pendingInterventions: state.pendingInterventions,
+            pendingInterventions: drainNowInterventions,
             capUsage: { totalTokens: state.totalTokens, totalCostCents: state.totalCostCents },
             existingSessionContext: this.runtimeContexts.get(state.id)?.existingSessionContext,
             priorObservations: this.runtimeContexts.get(state.id)?.priorObservations,
             uncompletedPlanFilesAtStart: state.uncompletedPlanFilesAtStart,
             manualReviewOnly: state.manualReviewOnly && !crossModelReviewEnabled,
           }));
-      // The buildPrompt() call above embedded the pending interventions into
-      // the iteration prompt, so we can clear the queue. (Previous revisions
+      // The buildPrompt() call above embedded the drain-now interventions into
+      // the iteration prompt, so we clear them — but RETAIN any `follow-up`
+      // hints so they survive to the completion seam. (Previous revisions
       // captured the consumed list for a lockout decision that no longer
-      // exists — Task 2 in the 2026-05-26 loop-mode-reliability plan
-      // removed it.)
-      state.pendingInterventions.length = 0;
+      // exists — Task 2 in the 2026-05-26 loop-mode-reliability plan removed it.)
+      state.pendingInterventions = deferredFollowUps;
 
       const inFlightIteration = {
         seq,
@@ -1916,6 +2001,43 @@ export class LoopCoordinator extends EventEmitter {
         return;
       }
 
+      // -- B5: post-compaction health canary --
+      // The prior iteration reset/compacted the context, so this turn started
+      // from a fresh session. If it came back "void" (no output, no tool calls,
+      // no file changes) the executor may not have survived the reset. Run one
+      // cheap workspace liveness probe (exec + fs); if the workspace/executor is
+      // genuinely unresponsive, pause with a loud BLOCKED rather than grinding
+      // out more corrupt turns. A responsive workspace defers to normal
+      // no-progress handling (see evaluatePostCompactionCanary).
+      const postCompaction = state.justCompacted;
+      state.justCompacted = undefined;
+      const canaryPause = await evaluatePostCompactionCanaryPause({
+        postCompaction,
+        childResultVoid: classifyDegradedIterationHelper(childResult, null) === 'void-iteration',
+        workspaceCwd: state.config.workspaceCwd,
+        probeTimeoutMs: 5000,
+      });
+      if (canaryPause) {
+        state.status = 'paused';
+        state.endReason = canaryPause.reason;
+        if (!this.convergenceNotes.has(state.id)) this.convergenceNotes.set(state.id, canaryPause.reason);
+        const signal: ProgressSignalEvidence = {
+          id: 'BLOCKED',
+          verdict: 'CRITICAL',
+          message: canaryPause.reason,
+          detail: { canary: 'post-compaction', compactedAtSeq: canaryPause.compactedAtSeq, probeDetail: canaryPause.probeDetail },
+        };
+        this.emit('loop:paused-no-progress', { loopRunId: state.id, signal });
+        this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
+        logger.warn('Loop paused — post-compaction health canary failed', {
+          loopRunId: state.id,
+          seq,
+          compactedAtSeq: canaryPause.compactedAtSeq,
+          probeDetail: canaryPause.probeDetail,
+        });
+        continue;
+      }
+
       // -- assemble iteration record --
       const iterEnd = Date.now();
       const tokens = childResult.tokens;
@@ -2070,6 +2192,24 @@ export class LoopCoordinator extends EventEmitter {
         state,
       });
       iteration.completionSignalsFired = completionSignals;
+
+      // -- ledger-progress stall tracking (non-convergence backstop) --
+      // Keys off the ledger open-count reaching a new low, NOT file churn, so it
+      // catches a loop that edits files every round but never closes an item.
+      // Only meaningful when a ledger is active (openCount !== null).
+      let ledgerStalled = false;
+      const ledgerOpenCount = extractLedgerOpenCount(completionSignals);
+      if (ledgerOpenCount !== null) {
+        const progress = updateLedgerProgress(state, ledgerOpenCount);
+        state.ledgerOpenCountBest = progress.ledgerOpenCountBest;
+        state.ledgerNoImprovementIterations = progress.ledgerNoImprovementIterations;
+        ledgerStalled = reviewDriven
+          && isLedgerStalled(state, ledgerOpenCount, state.config.completion.maxLedgerStallIterations);
+      } else {
+        // Ledger inactive this iteration — reset the counter so a ledger that
+        // appears later isn't pre-stalled by stale accounting.
+        state.ledgerNoImprovementIterations = 0;
+      }
 
       // -- verify-before-stop --
       // I/O (verify runs, fresh-eyes gate) is performed here as before;
@@ -2360,6 +2500,9 @@ export class LoopCoordinator extends EventEmitter {
           newUtilization: childResult.contextCompacted.newUtilization,
           reason: childResult.contextCompacted.reason,
         });
+        // B5: arm the post-compaction canary for the next iteration's fresh
+        // session. Consumed at the top of the next iteration.
+        state.justCompacted = { seq, reason: childResult.contextCompacted.reason };
         logger.info('Loop context recycled to fresh session', {
           loopRunId: state.id,
           seq,
@@ -2430,13 +2573,66 @@ export class LoopCoordinator extends EventEmitter {
         logger.warn('NOTES.md curation failed', { loopRunId: state.id, error: String(err) });
       }
 
+      // Pi Task 18: follow-up drain. A `follow-up` intervention is one the
+      // operator queued to run "after an iteration would otherwise stop but
+      // before terminal completion is accepted." When THIS iteration would
+      // complete successfully (a sufficient completion signal, or a review-driven
+      // convergence), convert any pending follow-ups into next-iteration hints
+      // and keep going instead of stopping. Pauses / needs-review / deadlock
+      // terminals are NOT a successful finish and do not consume follow-ups.
+      // Ping-pong runs its own dedicated convergence branch and is left intact.
+      if (state.status === 'running' && (stopWithSignal || reviewDrivenTerminal?.status === 'completed')) {
+        const drained = drainFollowUpsForCompletion(state.pendingInterventions);
+        if (drained) {
+          state.pendingInterventions = drained.requeued;
+          stopWithSignal = null;
+          reviewDrivenTerminal = null;
+          this.rejectPendingCompleteIntent(state, 'deferring completion to run queued follow-up messages');
+          // `remaining` > 0 means a `one-at-a-time` follow-up deferred the rest to
+          // the next completion seam — surfaced so the UI/log can show the queue is
+          // draining sequentially rather than all at once.
+          this.emit('loop:follow-up-drained', {
+            loopRunId: state.id,
+            seq,
+            count: drained.followUpCount,
+            remaining: drained.remainingFollowUps,
+          });
+          logger.info('Loop completion deferred to run queued follow-up messages', {
+            loopRunId: state.id,
+            seq,
+            count: drained.followUpCount,
+            remaining: drained.remainingFollowUps,
+          });
+        }
+      }
+
+      // D5: self-declared "more work remaining". The executor that just did the
+      // work is the authority on whether it is finished, so an explicit sentinel
+      // in its output vetoes a would-be completion (e.g. a sub-task
+      // `*_Completed.md` rename or a stray DONE.txt fired a forensic signal).
+      // Fail-safe: it ONLY suppresses a clean stop — it can never cause a false
+      // stop, and the hard caps bound how long it can keep the loop running.
+      if (state.status === 'running' && (stopWithSignal || reviewDrivenTerminal?.status === 'completed')
+          && parseAgentMoreWorkRemaining(childResult.output)) {
+        stopWithSignal = null;
+        reviewDrivenTerminal = null;
+        this.rejectPendingCompleteIntent(state, 'agent self-declared more work remaining');
+        this.emit('loop:more-work-declared', { loopRunId: state.id, seq });
+        logger.info('Loop completion vetoed by self-declared more-work-remaining', { loopRunId: state.id, seq });
+      }
+
       const completionWillStopOrPause = Boolean(
         pingPongTerminal || reviewDrivenTerminal || stopWithSignal || completionNeedsReviewReason
         || pauseBecauseCompletionCannotBeVerified,
       );
       if (!completionWillStopOrPause && state.status === 'running') maybeQueueAnnounceThenHaltContinuation(state, iteration);
-      if (!completionWillStopOrPause && state.status === 'running' && state.pendingInterventions.length === 0) {
-        await applyLoopContextSurvivalDecision({ manager: this.contextSurvivalManager, state, iteration, childResult, pendingContextReset: this.pendingContextReset, emit: (eventName, payload) => this.emit(eventName, payload) });
+      if (!completionWillStopOrPause && state.status === 'running') {
+        // B5a rehydration must fire whenever a context reset happened, even if
+        // the operator/reviewer already queued interventions — surviving the
+        // reset is orthogonal to steering. Only the budget nudge yields to a
+        // non-empty queue (suppressNudge), preserving the old "don't pile
+        // automated nudges on active steering" behaviour.
+        await applyLoopContextSurvivalDecision({ manager: this.contextSurvivalManager, state, iteration, childResult, pendingContextReset: this.pendingContextReset, emit: (eventName, payload) => this.emit(eventName, payload), suppressNudge: state.pendingInterventions.length > 0 });
       }
       for (const hook of this.iterationHooks) {
         try { await hook({ state, iteration }); } catch (err) {
@@ -2578,6 +2774,46 @@ export class LoopCoordinator extends EventEmitter {
       // hard cap or the circuit breaker trips — surfacing as a misleading
       // `error` (see the one-more-floor 3h/$8 spin). Stop as a SUCCESSFUL
       // `completed-needs-review` so a human can glance, with a convergence note.
+      // -- terminal: ledger-progress stall (non-convergence backstop) --
+      // The file-churn stall guard below resets whenever ANY production file
+      // changes, so a loop that edits files every round but never CLOSES a
+      // ledger item (an open-ended "continue remaining slices" bucket that
+      // re-expands as fast as it drains, or a hardware/manual-gated item that
+      // can never reach [x]) never trips it and spins to the iteration cap.
+      // This check keys off the ledger open-count failing to reach a new low for
+      // N iterations — the true convergence signal in ledger mode, independent
+      // of file churn. Terminal is a SUCCESSFUL completed-needs-review so a human
+      // can glance and either finish the bookkeeping or defer the open items.
+      if (ledgerStalled) {
+        const openBest = state.ledgerOpenCountBest ?? 0;
+        const stalledFor = state.ledgerNoImprovementIterations ?? 0;
+        const reason =
+          `Review-driven loop stalled: LOOP_TASKS.md open-count has not reached a new low ` +
+          `for ${stalledFor} iteration(s) (best ${openBest} item(s) still open). The loop is ` +
+          `changing files each round but not closing ledger items — likely an open-ended or ` +
+          `externally-gated item that can never reach [x]. Stopped for human review instead of ` +
+          `spinning to a hard cap.`;
+        if (!this.convergenceNotes.has(state.id)) {
+          this.convergenceNotes.set(
+            state.id,
+            `ledger stall: ${openBest} open, no new low for ${stalledFor} iters`,
+          );
+        }
+        recordLoopLearningForState({
+          state,
+          status: 'no-progress',
+          note: this.convergenceNotes.get(state.id),
+          store: this.loopMemoryStore,
+        });
+        this.emit('loop:completed-needs-review', {
+          loopRunId: state.id,
+          reason,
+          acceptedByOperator: false,
+        });
+        this.terminate(state, 'completed-needs-review', reason);
+        return;
+      }
+
       if (reviewDriven && evaluation.verdict === 'CRITICAL') {
         const madeProductionChange = iteration.filesChanged.some(
           (f) => isReviewDrivenProductionChange(f.path),

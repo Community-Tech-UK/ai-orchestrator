@@ -222,16 +222,20 @@ describe('StuckProcessDetector', () => {
       );
     });
 
-    it('does not defer when process is dead', () => {
+    it('emits stuck at the soft threshold when an active process is confirmed dead', () => {
       const softHandler = vi.fn();
+      const hardHandler = vi.fn();
       aliveDetector.on('process:suspect-stuck', softHandler);
+      aliveDetector.on('process:stuck', hardHandler);
       aliveDetector.startTracking('inst-1');
-      aliveDetector.updateState('inst-1', 'tool_executing');
+      aliveDetector.updateState('inst-1', 'generating');
       // Process NOT in aliveSet — no deferral
 
-      // Base soft is 240s
-      vi.advanceTimersByTime(250_000);
-      expect(softHandler).toHaveBeenCalled();
+      vi.advanceTimersByTime(70_000);
+      expect(softHandler).not.toHaveBeenCalled();
+      expect(hardHandler).toHaveBeenCalledWith(
+        expect.objectContaining({ instanceId: 'inst-1', state: 'generating' })
+      );
     });
 
     it('resets deferral count on state change', () => {

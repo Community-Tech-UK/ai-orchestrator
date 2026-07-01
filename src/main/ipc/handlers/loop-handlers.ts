@@ -201,6 +201,10 @@ export function registerLoopHandlers(deps: {
   coordinator.on('loop:context-compacted', (data: unknown) => send(IPC_CHANNELS.LOOP_CONTEXT_COMPACTED, data));
   coordinator.on('loop:branch-select', (data: unknown) => send(IPC_CHANNELS.LOOP_BRANCH_SELECT, data));
   coordinator.on('loop:plan-regenerated', (data: unknown) => send(IPC_CHANNELS.LOOP_PLAN_REGENERATED, data));
+  coordinator.on('loop:ledger-lint', (data: unknown) => send(IPC_CHANNELS.LOOP_LEDGER_LINT, data));
+  coordinator.on('loop:steering-downgraded', (data: unknown) => send(IPC_CHANNELS.LOOP_STEERING_DOWNGRADED, data));
+  coordinator.on('loop:follow-up-drained', (data: unknown) => send(IPC_CHANNELS.LOOP_FOLLOW_UP_DRAINED, data));
+  coordinator.on('loop:more-work-declared', (data: unknown) => send(IPC_CHANNELS.LOOP_MORE_WORK_DECLARED, data));
   coordinator.on('loop:failed', (data: unknown) => send(IPC_CHANNELS.LOOP_FAILED, data));
   coordinator.on('loop:cap-reached', (data: unknown) => send(IPC_CHANNELS.LOOP_CAP_REACHED, data));
   coordinator.on('loop:provider-limit', (data: unknown) => send(IPC_CHANNELS.LOOP_PROVIDER_LIMIT, data));
@@ -313,9 +317,12 @@ export function registerLoopHandlers(deps: {
   ipcMain.handle(IPC_CHANNELS.LOOP_INTERVENE, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
       const validated = validateIpcPayload(LoopInterveneePayloadSchema, payload, 'LOOP_INTERVENE');
-      const ok = validated.kind
-        ? coordinator.intervene(validated.loopRunId, validated.message, validated.kind)
-        : coordinator.intervene(validated.loopRunId, validated.message);
+      const ok = coordinator.intervene(
+        validated.loopRunId,
+        validated.message,
+        validated.kind ?? 'queue',
+        validated.drainMode,
+      );
       if (ok) {
         const state = coordinator.getLoop(validated.loopRunId);
         if (state) {

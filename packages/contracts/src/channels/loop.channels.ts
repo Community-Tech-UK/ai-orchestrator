@@ -55,6 +55,19 @@ export const LOOP_CHANNELS = {
   LOOP_BRANCH_SELECT: 'loop:branch-select',
   /** LF-4: emitted when a disposable-plan regeneration was injected on stall. */
   LOOP_PLAN_REGENERATED: 'loop:plan-regenerated',
+  /** Emitted once at loop start when LOOP_TASKS.md has structurally unclosable
+   *  open items (open-ended scope or hardware/manual-gated) — advisory only. */
+  LOOP_LEDGER_LINT: 'loop:ledger-lint',
+  /** Pi Task 18: a `steer` intervention was downgraded to next-iteration because
+   *  the active loop provider cannot accept mid-iteration input. Lets the UI show
+   *  the message was queued, never delivered live. */
+  LOOP_STEERING_DOWNGRADED: 'loop:steering-downgraded',
+  /** Pi Task 18: the loop deferred a would-be completion to run queued
+   *  `follow-up` messages first ("run this before you finish"). */
+  LOOP_FOLLOW_UP_DRAINED: 'loop:follow-up-drained',
+  /** D5: the agent self-declared "more work remaining", vetoing a would-be
+   *  completion so the loop continues. */
+  LOOP_MORE_WORK_DECLARED: 'loop:more-work-declared',
   LOOP_FAILED: 'loop:failed',
   LOOP_CAP_REACHED: 'loop:cap-reached',
   /** Usage-aware throttling: the active provider hit a usage/rate limit. The

@@ -155,4 +155,26 @@ describe('LogManager', () => {
       expect(entries[0].message).toBe('hello world');
     });
   });
+
+  describe('secret redaction at the sink (Task 14)', () => {
+    it('redacts secret-shaped metadata but preserves operational fields', () => {
+      const manager = new LogManager({ enableConsole: false, enableFile: false });
+
+      manager.log('info', 'AuthTest', 'calling provider', {
+        apiKey: 'sk-1234567890abcdefghij',
+        authorization: 'Bearer abcdef1234567890ghijkl',
+        provider: 'claude',
+        promptTokens: 128,
+      });
+
+      const [entry] = manager.getRecentLogs({ limit: 1 });
+      const serialized = JSON.stringify(entry);
+      expect(serialized).not.toContain('sk-1234567890');
+      expect(serialized).not.toContain('abcdef1234567890');
+      expect(entry.data?.['apiKey']).toBe('<redacted-secret>');
+      // Operational fields survive so diagnostics stay useful.
+      expect(entry.data?.['provider']).toBe('claude');
+      expect(entry.data?.['promptTokens']).toBe(128);
+    });
+  });
 });

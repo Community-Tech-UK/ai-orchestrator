@@ -9,6 +9,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { EventEmitter } from 'events';
 import { LogWriterClient } from './log-writer-client';
+import { redactForSink } from '../diagnostics/redaction';
 
 /**
  * Safely get the Electron app userData path.
@@ -240,7 +241,17 @@ function sanitizeLogData(data?: Record<string, unknown>): Record<string, unknown
     return undefined;
   }
 
-  return sanitizeLogValue(data) as Record<string, unknown>;
+  // Bound the object first (depth/keys/circular), then redact secrets on the
+  // bounded result so the redaction cost stays capped. Task 14: secrets in log
+  // metadata must never reach the console buffer or the on-disk log file.
+  const bounded = sanitizeLogValue(data) as Record<string, unknown>;
+  try {
+    return redactForSink(bounded);
+  } catch {
+    // Redaction must never crash logging. If it throws on some exotic value,
+    // fall back to the bounded (already structurally-safe) object.
+    return bounded;
+  }
 }
 
 /**

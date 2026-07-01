@@ -146,11 +146,26 @@ function validateWorkerRuntime(slot: PluginSlot, runtime: unknown): string | nul
   return null;
 }
 
+/**
+ * Task 17: decide the worker's `execArgv`. tsx must be registered when EITHER the
+ * worker-host entrypoint is TypeScript (dev build) OR the plugin loaded inside
+ * the worker is a `.ts`/`.mts`/`.cts` file — TS plugins are worker-only precisely
+ * because the packaged `.js` host would otherwise `import()` the plugin with no
+ * TypeScript loader and fail. Pure + exported for testing.
+ */
+export function resolveWorkerExecArgv(hostEntrypoint: string, pluginFilePath: string): string[] {
+  const isTs = (p: string): boolean => {
+    const lower = p.toLowerCase();
+    return lower.endsWith('.ts') || lower.endsWith('.mts') || lower.endsWith('.cts');
+  };
+  return isTs(hostEntrypoint) || isTs(pluginFilePath) ? ['--import', 'tsx'] : [];
+}
+
 function createDefaultWorker(workerDataValue: PluginWorkerData): Worker {
   const entrypoint = resolveWorkerEntrypoint();
   return new Worker(entrypoint, {
     workerData: workerDataValue,
-    execArgv: entrypoint.endsWith('.ts') ? ['--import', 'tsx'] : [],
+    execArgv: resolveWorkerExecArgv(entrypoint, workerDataValue.filePath),
   });
 }
 

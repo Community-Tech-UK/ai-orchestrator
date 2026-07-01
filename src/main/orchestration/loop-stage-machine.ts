@@ -527,6 +527,8 @@ Honor every safety rail: do not run destructive operations (\`rm -rf\`, \`git pu
 
 ${completionStepsBlock}
 
+If a completion signal would fire (the durable done sentinel \`${doneRel}\`, a completed-file rename, or a fully-checked plan) but you KNOW real work still remains — e.g. the signal was for one sub-task, or you still have open ledger items — emit \`[[LOOP:MORE_WORK_REMAINING]]\` on its own line in your output. The coordinator treats it as an authoritative "do not stop yet" and continues to the next iteration. It only ever keeps the loop going; it can never cause a premature stop, so use it whenever you are unsure you are truly done.
+
 If you are blocked and need a human, write \`${blockedRel}\` describing what you need, then exit.
 
 ## Step 4 — Update notes
@@ -634,6 +636,8 @@ When — and ONLY when — that is true this iteration (you changed no productio
 ${preferredCleanStatement}
 
 Do **not** write an equivalent clean statement in any other situation. If you changed code or found anything actionable, keep working. Claiming a clean review prematurely just delays the real finish, because the loop re-checks and will reset the moment it sees more changes.
+
+If the loop is about to stop but you KNOW real work still remains — e.g. your wording was misread as "done", or an item is genuinely unresolved — emit \`[[LOOP:MORE_WORK_REMAINING]]\` on its own line in your output. The coordinator treats it as an authoritative "do not stop yet" and keeps the loop running. It can only ever keep the loop going; it can never cause a premature stop.
 
 ## Safety
 This loop ${config.allowDestructiveOps ? 'DOES' : 'DOES NOT'} allow destructive operations (\`rm -rf\`, \`git push --force\`, schema drops). Honor that.

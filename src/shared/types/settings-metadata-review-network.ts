@@ -49,7 +49,7 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
     type: 'number',
     category: 'review',
     min: 10,
-    max: 120,
+    max: 600,
   },
   {
     key: 'crossModelReviewTypes',

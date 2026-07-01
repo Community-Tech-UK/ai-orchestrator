@@ -267,6 +267,23 @@ export class StuckProcessDetector extends EventEmitter {
       // terminating active work. Soft warnings use the base threshold
       // but are deferred while the process is alive (up to a cap).
       const processAlive = this.isProcessAlive?.(instanceId) ?? false;
+      const livenessKnown = this.isProcessAlive !== undefined;
+
+      if (livenessKnown && !processAlive && elapsed >= config.softMs) {
+        logger.warn('Process stuck — provider process is not running', {
+          instanceId,
+          state: tracker.instanceState,
+          elapsedMs: elapsed,
+          processAlive,
+        });
+        this.emit('process:stuck', {
+          instanceId,
+          state: tracker.instanceState,
+          elapsedMs: elapsed,
+        });
+        this.trackers.delete(instanceId);
+        continue;
+      }
 
       // Long-tool grace: a live process blocked in `tool_executing` is
       // legitimately waiting on a long-running tool (e.g. a codex/gemini MCP

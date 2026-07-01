@@ -7,17 +7,24 @@ import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import {
+import type {
   SkillBundle,
   LoadedSkill,
   SkillMatch,
-  parseSkillFrontmatter,
+} from '../../shared/types/skill.types';
+import {
   removeSkillFrontmatter,
   estimateTokens,
   calculateMatchConfidence,
 } from '../../shared/types/skill.types';
 import { getLogger } from '../logging/logger';
 import { getSkillLoader } from './skill-loader';
+import {
+  createSkillIgnoreMatcher,
+  parseSkillMetadata,
+  validateSkillName,
+  type SkillIgnoreMatcher,
+} from './skill-spec';
 
 const logger = getLogger('SkillRegistry');
 
@@ -143,11 +150,26 @@ export class SkillRegistry extends EventEmitter {
       return null;
     }
 
-    const metadata = parseSkillFrontmatter(content);
-    if (!metadata) {
+    const defaultName = path.basename(skillPath);
+    const metadata = parseSkillMetadata(content, defaultName);
+
+    const nameCheck = validateSkillName(metadata.name);
+    if (!nameCheck.ok) {
+      logger.warn('Skipping skill with invalid name', {
+        skillPath,
+        name: metadata.name,
+        reason: nameCheck.reason,
+      });
+      return null;
+    }
+
+    // Registry discovery requires at least one trigger (legacy contract).
+    if (metadata.triggers.length === 0) {
       logger.warn('Invalid skill: missing or invalid frontmatter', { skillPath });
       return null;
     }
+
+    const ignoreMatcher = await createSkillIgnoreMatcher(skillPath);
 
     // Calculate core size
     metadata.coreSize = Buffer.byteLength(content, 'utf-8');
@@ -157,10 +179,10 @@ export class SkillRegistry extends EventEmitter {
       path: skillPath,
       metadata,
       corePath: skillMdPath,
-      referencePaths: await this.findFiles(skillPath, 'references'),
-      examplePaths: await this.findFiles(skillPath, 'examples'),
-      scriptPaths: await this.findFiles(skillPath, 'scripts'),
-      assetPaths: await this.findFiles(skillPath, 'assets'),
+      referencePaths: await this.findFiles(skillPath, 'references', ignoreMatcher),
+      examplePaths: await this.findFiles(skillPath, 'examples', ignoreMatcher),
+      scriptPaths: await this.findFiles(skillPath, 'scripts', ignoreMatcher),
+      assetPaths: await this.findFiles(skillPath, 'assets', ignoreMatcher),
     };
 
     // Update metadata counts
@@ -171,11 +193,18 @@ export class SkillRegistry extends EventEmitter {
     return bundle;
   }
 
-  private async findFiles(basePath: string, subdir: string): Promise<string[]> {
+  private async findFiles(
+    basePath: string,
+    subdir: string,
+    ignoreMatcher: SkillIgnoreMatcher,
+  ): Promise<string[]> {
     const dirPath = path.join(basePath, subdir);
     try {
-      const entries = await fs.readdir(dirPath);
-      return entries.map((e) => path.join(dirPath, e));
+      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      return entries
+        .filter((e) => e.isFile())
+        .map((e) => path.join(dirPath, e.name))
+        .filter((full) => !ignoreMatcher.ignores(path.relative(basePath, full)));
     } catch {
       return [];
     }

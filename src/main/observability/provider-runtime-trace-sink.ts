@@ -13,6 +13,7 @@ import * as path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { BoundedAsyncQueue } from '../runtime/bounded-async-queue';
 import { getLogger } from '../logging/logger';
+import { redactForSink } from '../diagnostics/redaction';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import type {
   TraceRecord,
@@ -32,7 +33,8 @@ export interface ProviderRuntimeTraceSinkMetrics {
   workerRotations: number;
 }
 
-function toTraceRecord(envelope: ProviderRuntimeEventEnvelope): TraceRecord {
+/** Exported for unit testing (redaction of free-form diagnostic attributes). */
+export function toTraceRecord(envelope: ProviderRuntimeEventEnvelope): TraceRecord {
   const event = envelope.event;
   const record: TraceRecord = {
     eventId: envelope.eventId,
@@ -61,6 +63,13 @@ function toTraceRecord(envelope: ProviderRuntimeEventEnvelope): TraceRecord {
       'context.total': event.total,
       ...(event.percentage !== undefined ? { 'context.percentage': event.percentage } : {}),
     };
+  }
+
+  // Task 14: the `error.message` attribute is a free-form string that can echo a
+  // failing request (URLs with tokens, auth headers). Redact the diagnostic
+  // attributes before they are posted to the worker for on-disk NDJSON writing.
+  if (record.attributes) {
+    record.attributes = redactForSink(record.attributes);
   }
 
   return record;

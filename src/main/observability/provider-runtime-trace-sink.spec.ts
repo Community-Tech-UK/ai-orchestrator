@@ -3,6 +3,7 @@ import {
   ProviderRuntimeTraceSink,
   _resetProviderRuntimeTraceSinkForTesting,
   getProviderRuntimeTraceSink,
+  toTraceRecord,
 } from './provider-runtime-trace-sink';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 
@@ -142,5 +143,26 @@ describe('ProviderRuntimeTraceSink', () => {
 
     // After crash, enqueue should not throw
     expect(() => sink.enqueue(makeEnvelope('output', 0))).not.toThrow();
+  });
+
+  it('redacts secrets in error-event trace attributes (Task 14)', () => {
+    const envelope = {
+      eventId: 'evt-err',
+      seq: 1,
+      timestamp: Date.now(),
+      provider: 'claude',
+      instanceId: 'inst-1',
+      sessionId: 'session-1',
+      event: { kind: 'error', message: 'auth failed: Bearer abcdef1234567890ghijkl', code: 'ERR' },
+    } as ProviderRuntimeEventEnvelope;
+
+    const record = toTraceRecord(envelope);
+    const errorMessage = record.attributes?.['error.message'];
+    expect(typeof errorMessage).toBe('string');
+    expect(errorMessage as string).not.toContain('abcdef1234567890');
+    expect(errorMessage as string).toContain('<redacted-secret>');
+    // Safe top-level identifiers are untouched.
+    expect(record.provider).toBe('claude');
+    expect(record.instanceId).toBe('inst-1');
   });
 });

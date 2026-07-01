@@ -12,6 +12,7 @@ import {
   getDefaultReasoningEffort,
   getPrimaryModelForProvider,
   getProviderModelContextWindow,
+  isAntigravityModelId,
   normalizeModelAliasForProvider,
   normalizeModelForProvider,
 } from './provider.types';
@@ -169,5 +170,41 @@ describe('model alias normalization', () => {
 
   it('preserves unknown dynamic Copilot model IDs', () => {
     expect(normalizeModelForProvider('copilot', 'grok-4-next')).toBe('grok-4-next');
+  });
+});
+
+describe('antigravity model selection', () => {
+  it('exposes the agy display labels as its model catalog', () => {
+    const ids = PROVIDER_MODEL_LIST['antigravity'].map((model) => model.id);
+    // ids must be the verbatim `agy models` labels — they are forwarded to
+    // `agy --model` as-is, and agy silently ignores anything it does not know.
+    expect(ids).toContain('Gemini 3.1 Pro (High)');
+    expect(ids).toContain('Claude Opus 4.6 (Thinking)');
+    expect(ids).toContain('GPT-OSS 120B (Medium)');
+    expect(ids.length).toBeGreaterThan(0);
+  });
+
+  it('uses Gemini 3.1 Pro (High) as the primary antigravity default', () => {
+    expect(getPrimaryModelForProvider('antigravity')).toBe('Gemini 3.1 Pro (High)');
+  });
+
+  it('recognizes known agy labels and rejects everything else', () => {
+    expect(isAntigravityModelId('Gemini 3.1 Pro (High)')).toBe(true);
+    expect(isAntigravityModelId('GPT-OSS 120B (Medium)')).toBe(true);
+    // Stale cross-provider id, tier name, and empty must not be treated as agy models.
+    expect(isAntigravityModelId('gemini-3-pro-preview')).toBe(false);
+    expect(isAntigravityModelId('balanced')).toBe(false);
+    expect(isAntigravityModelId('')).toBe(false);
+    expect(isAntigravityModelId(undefined)).toBe(false);
+  });
+
+  it('keeps valid agy labels and falls back stale ids to the default', () => {
+    expect(normalizeModelForProvider('antigravity', 'Claude Sonnet 4.6 (Thinking)')).toBe(
+      'Claude Sonnet 4.6 (Thinking)'
+    );
+    // A legacy gemini id inherited from a normalized Gemini instance falls back.
+    expect(normalizeModelForProvider('antigravity', 'gemini-3-pro-preview')).toBe(
+      'Gemini 3.1 Pro (High)'
+    );
   });
 });

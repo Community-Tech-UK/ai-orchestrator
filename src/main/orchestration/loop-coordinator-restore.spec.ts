@@ -37,8 +37,12 @@ describe('LoopCoordinator checkpoint restore', () => {
       totalTokens: 100,
       totalCostCents: 0,
       currentStage: 'IMPLEMENT',
-      // Legacy checkpoints stored this queue as raw strings; restore should coerce it.
-      pendingInterventions: ['remember this'] as unknown as LoopState['pendingInterventions'],
+      // Legacy checkpoints stored this queue as raw strings (coerced on restore);
+      // Task 18: a structured follow-up with a drainMode must survive restore too.
+      pendingInterventions: [
+        'remember this',
+        { id: 'p-followup', kind: 'follow-up', message: 'run before finishing', enqueuedAt: 1, source: 'human', drainMode: 'one-at-a-time' },
+      ] as unknown as LoopState['pendingInterventions'],
       completedFileRenameObserved: false,
       doneSentinelPresentAtStart: false,
       planChecklistFullyCheckedAtStart: false,
@@ -102,7 +106,12 @@ describe('LoopCoordinator checkpoint restore', () => {
     }));
 
     expect(restored.status).toBe('paused');
-    expect(coordinator.getLoop('loop-restore-1')?.pendingInterventions.map((item) => item.message)).toEqual(['remember this']);
+    const restoredQueue = coordinator.getLoop('loop-restore-1')?.pendingInterventions ?? [];
+    expect(restoredQueue.map((item) => item.message)).toEqual(['remember this', 'run before finishing']);
+    // Task 18: the follow-up's kind + drainMode survived the checkpoint round-trip.
+    const followUp = restoredQueue.find((i) => i.message === 'run before finishing');
+    expect(followUp?.kind).toBe('follow-up');
+    expect(followUp?.drainMode).toBe('one-at-a-time');
     expect(coordinator.resumeLoop('loop-restore-1')).toBe(true);
     expect(coordinator.getLoop('loop-restore-1')?.status).toBe('running');
     await invoked;

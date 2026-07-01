@@ -14,7 +14,7 @@
  */
 export const TOOL_ACTIVITY_MAP: Record<string, string> = {
   // File reading tools
-  Read: 'Gathering context',
+  Read: 'Reading files',
 
   // Search tools
   Grep: 'Searching the codebase',
@@ -44,7 +44,7 @@ export const TOOL_ACTIVITY_MAP: Record<string, string> = {
 
   // ACP tool kinds (Copilot / Cursor via agent-client-protocol).
   // See src/shared/types/cli.types.ts → AcpToolKind.
-  read: 'Gathering context',
+  read: 'Reading files',
   edit: 'Making edits',
   move: 'Making edits',
   delete: 'Making edits',

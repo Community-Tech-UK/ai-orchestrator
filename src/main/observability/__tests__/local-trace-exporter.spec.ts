@@ -71,4 +71,26 @@ describe('LocalTraceFileExporter', () => {
       name: 'orchestration.debate',
     }));
   });
+
+  it('redacts secret-shaped span attributes before writing (Task 14)', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'trace-exporter-'));
+    tempDirs.push(dir);
+    const traceFilePath = path.join(dir, 'traces.ndjson');
+    const exporter = new LocalTraceFileExporter(traceFilePath);
+
+    const span = createSpan('provider.runtime_event');
+    (span.attributes as Record<string, unknown>)['authorization'] = 'Bearer abcdef1234567890ghijkl';
+    (span.attributes as Record<string, unknown>)['error.message'] = 'failed calling sk-1234567890abcdefghij';
+    (span.attributes as Record<string, unknown>)['ai.provider.model'] = 'claude-opus';
+
+    await exportSpans(exporter, [span]);
+    await exporter.forceFlush();
+
+    const contents = await fs.readFile(traceFilePath, 'utf8');
+    expect(contents).not.toContain('abcdef1234567890');
+    expect(contents).not.toContain('sk-1234567890');
+    const record = JSON.parse(contents.trim()) as { attributes: Record<string, unknown> };
+    expect(record.attributes['authorization']).toBe('<redacted-secret>');
+    expect(record.attributes['ai.provider.model']).toBe('claude-opus');
+  });
 });

@@ -22,10 +22,23 @@ import {
   formatKeyBinding,
 } from '../../../../shared/types/keybinding.types';
 import { ActionDispatchService } from './action-dispatch.service';
+import {
+  detectKeybindingConflicts,
+  serializeKeybindingCustomizations,
+  parseKeybindingCustomizations,
+  hasNewConflicts,
+  type KeybindingConflict,
+} from './keybinding-conflicts';
 
 export interface KeybindingEvent {
   binding: KeyBinding;
   event: KeyboardEvent;
+}
+
+/** Result of importing a keybindings JSON blob (Task 13). */
+export interface KeybindingImportResult {
+  readonly applied: number;
+  readonly conflicts: readonly KeybindingConflict[];
 }
 
 type KeybindingHandler = (event: KeybindingEvent) => void;
@@ -68,6 +81,10 @@ export class KeybindingService {
       return binding;
     });
   });
+
+  // Task 13: conflicts across the currently-active binding set (exact same-key
+  // and leader-prefix), recomputed whenever bindings/customizations change.
+  readonly conflicts = computed<KeybindingConflict[]>(() => detectKeybindingConflicts(this.allBindings()));
 
   readonly bindingsByCategory = computed(() => {
     const bindings = this.allBindings();
@@ -373,6 +390,45 @@ export class KeybindingService {
    */
   getCustomizations(): KeybindingCustomization[] {
     return this.customizations();
+  }
+
+  /**
+   * Task 13: export the user's current keybinding customizations as a JSON
+   * string suitable for import on another machine.
+   */
+  exportKeybindings(): string {
+    return serializeKeybindingCustomizations(this.customizations());
+  }
+
+  /**
+   * Task 13: import keybinding customizations from a JSON string.
+   *
+   * - Malformed JSON / schema throws (nothing is applied — no partial import).
+   * - If applying the imported customizations would introduce a NEW conflict
+   *   (one the current bindings don't already have), nothing is applied and the
+   *   conflicts are returned so the UI can surface them before saving.
+   * - Otherwise the customizations are applied and `applied` is the count.
+   */
+  importKeybindings(json: string): KeybindingImportResult {
+    const imported = parseKeybindingCustomizations(json); // throws on invalid
+    const currentConflicts = this.conflicts();
+    // Compute the binding set that WOULD result, without mutating state yet.
+    const byId = new Map(imported.map((c) => [c.id, c.keys]));
+    const projected = this.bindings().map((binding) => {
+      const keys = byId.get(binding.id);
+      return keys ? { ...binding, keys } : binding;
+    });
+    const projectedConflicts = detectKeybindingConflicts(projected);
+    if (hasNewConflicts(currentConflicts, projectedConflicts)) {
+      return { applied: 0, conflicts: projectedConflicts };
+    }
+    // Only accept customizations for bindings that exist and are customizable.
+    const applicable = imported.filter((c) => {
+      const binding = this.getBinding(c.id);
+      return binding && binding.customizable !== false;
+    });
+    this.customizations.set(applicable);
+    return { applied: applicable.length, conflicts: projectedConflicts };
   }
 
   /**

@@ -31,6 +31,7 @@ import type {
 } from '../../../shared/types/instance.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { computeTokenCost } from '../../../shared/data/model-pricing';
+import { isAntigravityModelId } from '../../../shared/types/provider.types';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 
@@ -293,14 +294,20 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
   protected buildArgs(message: CliMessage): string[] {
     const args: string[] = [];
 
-    // Model selection is intentionally NOT forwarded yet. agy's accepted
-    // `--model` ID format is undocumented (its `agy models` output is
-    // display-only) and a wrong value errors, so the antigravity model catalog
-    // ships empty and agy is left to pick its own default. The only `model`
-    // values that can reach here are stale `gemini-*` ids carried by a legacy
-    // Gemini instance normalized to antigravity — passing those to agy would
-    // crash the spawn. Re-enable once agy's accepted IDs are confirmed.
-    // if (this.cliConfig.model) { args.push('--model', this.cliConfig.model); }
+    // Forward the selected model iff it's a known agy label. agy's `--model`
+    // accepts the EXACT display label from `agy models` (e.g.
+    // "Gemini 3.1 Pro (High)"); an unrecognized value is silently ignored and
+    // agy uses its configured default. isAntigravityModelId gates on the static
+    // catalog so stale cross-provider ids (e.g. a legacy `gemini-*` id inherited
+    // when a Gemini instance is normalized to antigravity) are dropped rather
+    // than forwarded as a bogus --model value.
+    if (isAntigravityModelId(this.cliConfig.model)) {
+      args.push('--model', this.cliConfig.model as string);
+    } else if (this.cliConfig.model) {
+      logger.debug('Ignoring non-antigravity model id; letting agy use its default', {
+        model: this.cliConfig.model,
+      });
+    }
 
     if (this.cliConfig.sandbox) {
       args.push('--sandbox');

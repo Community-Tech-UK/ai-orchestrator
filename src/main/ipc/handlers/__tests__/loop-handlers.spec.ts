@@ -761,7 +761,8 @@ describe('LOOP_INTERVENE handler', () => {
 
     const response = await handler({}, { loopRunId: state.id, message: 'try a different angle' });
 
-    expect(hoisted.coordinator.intervene).toHaveBeenCalledWith(state.id, 'try a different angle');
+    // Task 18: the handler now forwards an explicit kind (default 'queue') + optional drainMode.
+    expect(hoisted.coordinator.intervene).toHaveBeenCalledWith(state.id, 'try a different angle', 'queue', undefined);
     expect(hoisted.chatService.appendSystemEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         chatId: state.chatId,

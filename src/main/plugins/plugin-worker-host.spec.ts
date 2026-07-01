@@ -4,7 +4,22 @@ import * as os from 'os';
 import * as path from 'path';
 import type { Worker } from 'node:worker_threads';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PluginWorkerHost } from './plugin-worker-host';
+import { PluginWorkerHost, resolveWorkerExecArgv } from './plugin-worker-host';
+
+describe('resolveWorkerExecArgv (Task 17)', () => {
+  it('registers tsx when the plugin file is TypeScript, even with a .js host', () => {
+    expect(resolveWorkerExecArgv('/app/plugin-worker-host.js', '/plugins/index.ts')).toEqual(['--import', 'tsx']);
+    expect(resolveWorkerExecArgv('/app/plugin-worker-host.js', '/plugins/index.mts')).toEqual(['--import', 'tsx']);
+  });
+
+  it('registers tsx when the worker-host entrypoint itself is TypeScript (dev build)', () => {
+    expect(resolveWorkerExecArgv('/app/plugin-worker-host.ts', '/plugins/index.js')).toEqual(['--import', 'tsx']);
+  });
+
+  it('uses no extra execArgv for a plain JavaScript plugin under a JavaScript host', () => {
+    expect(resolveWorkerExecArgv('/app/plugin-worker-host.js', '/plugins/index.js')).toEqual([]);
+  });
+});
 
 describe('PluginWorkerHost', () => {
   let tempDir: string;

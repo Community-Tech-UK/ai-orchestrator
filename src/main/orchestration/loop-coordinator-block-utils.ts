@@ -1,10 +1,90 @@
 import { execFile } from 'node:child_process';
 import * as path from 'path';
 import { promisify } from 'node:util';
-import type { LoopTerminalIntentEvidence } from '../../shared/types/loop.types';
+import {
+  coercePendingInput,
+  createLoopPendingInput,
+  type LoopPendingInput,
+  type LoopTerminalIntentEvidence,
+} from '../../shared/types/loop.types';
 import type { DegradedReason } from '../cli/adapters/degraded-output-classifier';
+import { evaluatePostCompactionCanary } from './loop-context-survival';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Pi Task 18: split a pending-input queue by drain timing. `follow-up` hints are
+ * held back for the completion seam; everything else (`queue`/`steer`) drains
+ * into the current prompt. See `LoopPendingInputKind`.
+ */
+export function partitionPendingByDrainTiming(
+  pending: readonly (string | LoopPendingInput)[],
+): { drainNow: LoopPendingInput[]; deferredFollowUps: LoopPendingInput[] } {
+  const coerced = pending.map(coercePendingInput);
+  return {
+    drainNow: coerced.filter((i) => i.kind !== 'follow-up'),
+    deferredFollowUps: coerced.filter((i) => i.kind === 'follow-up'),
+  };
+}
+
+/**
+ * Pi Task 18: when the loop would complete, convert queued `follow-up` messages
+ * into next-iteration hints so they run "before you finish."
+ *
+ * Drain policy (per-message `drainMode`, FIFO): messages drain from the front
+ * until — and including — the first `one-at-a-time` message, at which point the
+ * remaining follow-ups stay deferred for the NEXT completion seam. With the
+ * default `all` mode (no one-at-a-time), the whole batch drains at once.
+ *
+ * Returns the re-queued list (drained→`queue`, remaining kept as `follow-up`),
+ * how many drained, and how many remain; or null when there are no follow-ups.
+ */
+export function drainFollowUpsForCompletion(
+  pending: readonly (string | LoopPendingInput)[],
+): { requeued: LoopPendingInput[]; followUpCount: number; remainingFollowUps: number } | null {
+  const coerced = pending.map(coercePendingInput);
+  const nonFollowUps = coerced.filter((i) => i.kind !== 'follow-up');
+  const followUps = coerced.filter((i) => i.kind === 'follow-up');
+  if (followUps.length === 0) return null;
+
+  let cut = followUps.length;
+  for (let i = 0; i < followUps.length; i++) {
+    if (followUps[i].drainMode === 'one-at-a-time') {
+      cut = i + 1; // drain this one, defer the rest
+      break;
+    }
+  }
+  const toDrain = followUps.slice(0, cut);
+  const remaining = followUps.slice(cut);
+  const requeued = nonFollowUps
+    .concat(toDrain.map((f) => createLoopPendingInput(f.message, { kind: 'queue', source: f.source })))
+    .concat(remaining);
+  return { requeued, followUpCount: toDrain.length, remainingFollowUps: remaining.length };
+}
+
+/**
+ * B5: run the post-compaction health canary. If the prior iteration reset the
+ * context and this turn came back void, probe the workspace; return pause details
+ * when the executor/workspace is genuinely unresponsive, else null (defer to
+ * normal no-progress handling). See `evaluatePostCompactionCanary`.
+ */
+export async function evaluatePostCompactionCanaryPause(params: {
+  postCompaction: { seq: number; reason: string } | undefined;
+  childResultVoid: boolean;
+  workspaceCwd: string;
+  probeTimeoutMs: number;
+}): Promise<{ reason: string; probeDetail: string; compactedAtSeq: number } | null> {
+  if (!params.postCompaction || !params.childResultVoid) return null;
+  const probe = await runWorkspaceLivenessProbe(params.workspaceCwd, params.probeTimeoutMs)
+    .catch((err) => ({ alive: false, detail: `liveness probe threw: ${err instanceof Error ? err.message : String(err)}` }));
+  const canary = evaluatePostCompactionCanary({ iterationVoid: true, workspaceAlive: probe.alive });
+  if (!canary.failed) return null;
+  return {
+    reason: `post-compaction canary failed (compacted at seq ${params.postCompaction.seq}: ${params.postCompaction.reason}): ${canary.reason}`,
+    probeDetail: probe.detail,
+    compactedAtSeq: params.postCompaction.seq,
+  };
+}
 
 export interface DegradedIterationChildResult {
   output: string;

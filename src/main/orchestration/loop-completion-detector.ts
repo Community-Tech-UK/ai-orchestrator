@@ -273,6 +273,22 @@ export function isSubstantiveInvestigationReport(content: string): boolean {
   return FILE_LINE_CITATION_RE.test(trimmed);
 }
 
+/**
+ * D5: the sentinel an agent emits to self-declare that work remains even when a
+ * forensic completion signal (a sub-task `*_Completed.md` rename, a stray
+ * DONE.txt, a fully-checked plan file) would otherwise fire. It ONLY ever forces
+ * the loop to CONTINUE — never toward a false stop — so a false positive costs at
+ * most one extra iteration (bounded by the hard caps). Less spoofable than the
+ * coordinator re-deriving doneness, because the executor that just did the work
+ * is the authority on whether it is finished.
+ */
+export const MORE_WORK_REMAINING_SENTINEL = '[[LOOP:MORE_WORK_REMAINING]]';
+
+/** Pure + exported for testing. True iff the agent declared more work remains. */
+export function parseAgentMoreWorkRemaining(output: string): boolean {
+  return typeof output === 'string' && output.includes(MORE_WORK_REMAINING_SENTINEL);
+}
+
 export class LoopCompletionDetector {
   /**
    * Inspect the just-completed iteration + workspace and return any
@@ -419,6 +435,7 @@ export class LoopCompletionDetector {
             out.push({
               id: 'ledger-complete',
               sufficient: isImplement,
+              openCount: 0,
               detail: isImplement
                 ? `All ${ledger.total} ${LOOP_TASKS_FILE} items resolved (done/deferred) during this run`
                 : `All ${ledger.total} ${LOOP_TASKS_FILE} items resolved, but stage is not IMPLEMENT — ignoring`,
@@ -432,6 +449,7 @@ export class LoopCompletionDetector {
           out.push({
             id: 'ledger-complete',
             sufficient: false,
+            openCount: open,
             detail: `${LOOP_TASKS_FILE} has ${open} open item(s)` +
               (ledger.nextTodo ? ` — next: ${ledger.nextTodo}` : '') +
               ' — completion blocked until every item is done or deferred (with a reason)',

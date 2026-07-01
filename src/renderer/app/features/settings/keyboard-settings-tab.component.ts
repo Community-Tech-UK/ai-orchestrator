@@ -2,7 +2,7 @@
  * Keyboard Settings Tab Component - Displays keyboard shortcuts
  */
 
-import { ChangeDetectionStrategy, Component, inject, computed } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, computed, signal } from '@angular/core';
 import { KeybindingService } from '../../core/services/keybinding.service';
 import type { KeyBinding } from '../../../../shared/types/keybinding.types';
 
@@ -21,6 +21,32 @@ interface KeybindingCategory {
         A reference of all keyboard shortcuts in the app. Press the key
         combination shown to trigger that action.
       </p>
+
+      @if (conflicts().length > 0) {
+        <div class="keybinding-conflicts" role="alert">
+          <strong>{{ conflicts().length }} keybinding conflict(s):</strong>
+          <ul>
+            @for (conflict of conflicts(); track conflict.scope + conflict.key) {
+              <li><kbd>{{ conflict.key }}</kbd> ({{ conflict.scope }}) — {{ conflict.actionIds.join(', ') }}</li>
+            }
+          </ul>
+        </div>
+      }
+
+      <div class="keybinding-io">
+        <button type="button" (click)="onExport()">Export shortcuts</button>
+        <textarea
+          [value]="importText()"
+          (input)="importText.set($any($event.target).value)"
+          placeholder="Paste exported shortcuts JSON to import"
+          rows="3"
+        ></textarea>
+        <button type="button" [disabled]="!importText().trim()" (click)="onImport()">Import shortcuts</button>
+        @if (ioMessage()) {
+          <p class="keybinding-io-message">{{ ioMessage() }}</p>
+        }
+      </div>
+
       @for (category of keybindingCategories(); track category.name) {
         <div class="shortcut-category">
           <h3 class="category-title">{{ category.name }}</h3>
@@ -46,6 +72,10 @@ interface KeybindingCategory {
 export class KeyboardSettingsTabComponent {
   keybindingService = inject(KeybindingService);
 
+  protected readonly conflicts = this.keybindingService.conflicts;
+  protected readonly importText = signal('');
+  protected readonly ioMessage = signal('');
+
   keybindingCategories = computed(() => {
     const byCategory = this.keybindingService.bindingsByCategory();
     const categories: KeybindingCategory[] = [];
@@ -54,4 +84,30 @@ export class KeyboardSettingsTabComponent {
     });
     return categories;
   });
+
+  /** Task 13: copy the exported keybindings JSON to the clipboard. */
+  protected onExport(): void {
+    const json = this.keybindingService.exportKeybindings();
+    void navigator.clipboard?.writeText(json).then(
+      () => this.ioMessage.set('Shortcuts copied to clipboard.'),
+      () => this.ioMessage.set('Could not access the clipboard.'),
+    );
+  }
+
+  /** Task 13: import keybindings from the pasted JSON, surfacing conflicts. */
+  protected onImport(): void {
+    try {
+      const result = this.keybindingService.importKeybindings(this.importText());
+      if (result.applied === 0 && result.conflicts.length > 0) {
+        this.ioMessage.set(
+          `Import blocked: it would introduce ${result.conflicts.length} conflict(s). Resolve them first.`,
+        );
+        return;
+      }
+      this.importText.set('');
+      this.ioMessage.set(`Imported ${result.applied} shortcut customization(s).`);
+    } catch (err) {
+      this.ioMessage.set(err instanceof Error ? err.message : 'Import failed.');
+    }
+  }
 }

@@ -455,13 +455,23 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: COPILOT_MODELS.AUTO, name: 'Auto', tier: 'balanced', pinned: true, family: 'Auto' },
   ],
   ollama: [],
-  // Antigravity (`agy`) routes across multiple model families (Gemini 3.x,
-  // Claude 4.6, GPT-OSS). Its `--model` ID format is undocumented (the `agy
-  // models` subcommand prints display names only), and sending an unrecognized
-  // ID errors, so the list is intentionally empty: the adapter omits --model
-  // and lets agy pick its configured default. Populate once the accepted
-  // --model identifiers are confirmed.
-  antigravity: [],
+  // Antigravity (`agy`, verified v1.0.14): `agy --model <label>` accepts the
+  // EXACT display label from `agy models` (confirmed via model_config_manager
+  // "Propagating selected model override" logs); an unrecognized value is
+  // silently ignored and agy uses its default. So each `id` is the verbatim
+  // label forwarded to `--model` and must match `agy models`. The
+  // `(Low|Medium|High|Thinking)` suffix is agy's per-model reasoning tier, part
+  // of the label. The adapter only forwards ids present here (isAntigravityModelId).
+  antigravity: [
+    { id: 'Gemini 3.1 Pro (High)', name: 'Gemini 3.1 Pro (High)', tier: 'powerful', pinned: true, family: 'Gemini Pro' },
+    { id: 'Gemini 3.5 Flash (Medium)', name: 'Gemini 3.5 Flash (Medium)', tier: 'balanced', pinned: true, family: 'Gemini Flash' },
+    { id: 'Claude Opus 4.6 (Thinking)', name: 'Claude Opus 4.6 (Thinking)', tier: 'powerful', pinned: true, family: 'Claude' },
+    { id: 'Claude Sonnet 4.6 (Thinking)', name: 'Claude Sonnet 4.6 (Thinking)', tier: 'balanced', pinned: true, family: 'Claude' },
+    { id: 'GPT-OSS 120B (Medium)', name: 'GPT-OSS 120B (Medium)', tier: 'balanced', pinned: true, family: 'GPT' },
+    { id: 'Gemini 3.1 Pro (Low)', name: 'Gemini 3.1 Pro (Low)', tier: 'powerful', family: 'Gemini Pro' },
+    { id: 'Gemini 3.5 Flash (High)', name: 'Gemini 3.5 Flash (High)', tier: 'balanced', family: 'Gemini Flash' },
+    { id: 'Gemini 3.5 Flash (Low)', name: 'Gemini 3.5 Flash (Low)', tier: 'fast', family: 'Gemini Flash' },
+  ],
   cursor: [
     // The live picker (instance-detail dropdown, CLI settings) queries
     // `cursor-agent --list-models` dynamically and surfaces the full
@@ -488,6 +498,18 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
  */
 export function getModelsForProvider(provider: string): ModelDisplayInfo[] {
   return PROVIDER_MODEL_LIST[provider] ?? [];
+}
+
+/**
+ * True when `modelId` is a known Antigravity (`agy`) model — an exact display
+ * label from `agy models` present in PROVIDER_MODEL_LIST.antigravity. The
+ * adapter gates `--model` forwarding on this so stale ids (a `gemini-*` id, a
+ * tier name, etc.) are dropped and agy uses its default rather than a bogus value.
+ */
+export function isAntigravityModelId(modelId?: string | null): boolean {
+  const trimmed = modelId?.trim();
+  if (!trimmed) return false;
+  return (PROVIDER_MODEL_LIST['antigravity'] ?? []).some((model) => model.id === trimmed);
 }
 
 function normalizeProviderModelNamespace(provider: string): string {
@@ -587,7 +609,13 @@ export function normalizeModelForProvider(
 
   switch (normalizedProvider) {
     case 'claude':
-    case 'gemini': {
+    case 'gemini':
+    case 'antigravity': {
+      // Antigravity is validated against its static label list like the other
+      // fixed-catalog providers: agy accepts only the exact display labels, and
+      // a stale cross-provider id (e.g. a legacy `gemini-*` id inherited when a
+      // Gemini instance is normalized to antigravity) must fall back to the
+      // default rather than be forwarded as a bogus --model value.
       const providerModels = getModelsForProvider(normalizedProvider);
       return providerModels.some((model) => model.id === normalizedModel)
         ? normalizedModel

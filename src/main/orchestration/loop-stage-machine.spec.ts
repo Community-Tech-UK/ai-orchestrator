@@ -715,6 +715,9 @@ describe('LoopStageMachine.buildReviewDrivenPrompt', () => {
     expect(prompt).toContain('3 consecutive');
     expect(prompt).toContain('OUTSTANDING.md');
     expect(prompt).toContain('fresh eyes');
+    // D5: the review-driven prompt must also expose the more-work sentinel so the
+    // coordinator's review-driven completion veto (which checks it) is reachable.
+    expect(prompt).toContain('[[LOOP:MORE_WORK_REMAINING]]');
   });
 
   it('folds a configured verify command into the review instructions', () => {

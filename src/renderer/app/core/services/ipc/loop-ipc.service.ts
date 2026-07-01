@@ -31,7 +31,8 @@ export interface LoopControlResult {
   state?: LoopStatePayload | null;
 }
 
-export type LoopPendingInputKind = 'steer' | 'queue';
+export type LoopPendingInputKind = 'steer' | 'queue' | 'follow-up';
+export type LoopQueueDrainMode = 'all' | 'one-at-a-time';
 
 export interface LoopStartConfigInput {
   initialPrompt: string;
@@ -188,11 +189,10 @@ export class LoopIpcService {
     loopRunId: string,
     message: string,
     kind?: LoopPendingInputKind,
+    drainMode?: LoopQueueDrainMode,
   ): Promise<IpcResponse<LoopControlResult>> {
     if (!this.api) return notInElectron();
-    return (kind
-      ? this.api.loopIntervene(loopRunId, message, kind)
-      : this.api.loopIntervene(loopRunId, message)) as Promise<IpcResponse<LoopControlResult>>;
+    return this.api.loopIntervene(loopRunId, message, kind, drainMode) as Promise<IpcResponse<LoopControlResult>>;
   }
 
   async cancel(loopRunId: string): Promise<IpcResponse<LoopControlResult>> {

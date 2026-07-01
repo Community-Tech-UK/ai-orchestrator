@@ -60,6 +60,10 @@ import {
   isCaretOnFirstVisualLine,
   isCaretOnLastVisualLine,
 } from '../../core/services/textarea-caret-position.util';
+import {
+  KillRing,
+  applyEditingToTextarea,
+} from './composer-editing';
 import type {
   ContextUsage,
   InstanceLaunchMode,
@@ -1020,7 +1024,41 @@ export class InputPanelComponent implements OnDestroy {
     });
   }
 
+  /** Task 16: per-composer kill ring for emacs-style word kill/yank. */
+  private readonly killRing = new KillRing();
+
+  /**
+   * Task 16: handle emacs-style composer editing chords (kill word, yank, word
+   * motion) via the pure primitives. Returns true when the event was an editing
+   * command and has been applied — the caller then stops further handling.
+   */
+  private handleComposerEditingCommand(event: KeyboardEvent): boolean {
+    const textarea = (event.target as HTMLTextAreaElement | null)
+      ?? this.textareaRef()?.nativeElement
+      ?? null;
+    if (!textarea) return false;
+    const result = applyEditingToTextarea(textarea, event, this.killRing);
+    if (!result.handled) return false;
+    event.preventDefault();
+    if (result.changed) {
+      // Run the SAME pipeline as ordinary typing (draft persistence, command/
+      // ghost suggestions, prompt-recall reset, message signal, resize) so an
+      // editing command isn't a second-class input. `applyEditingToTextarea`
+      // already set value + selection; dispatch a real input event to sync the
+      // rest without duplicating onInput's logic here.
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    return true;
+  }
+
   onKeyDown(event: KeyboardEvent): void {
+    // Task 16: emacs-style editing commands (kill/yank/word-motion) take
+    // priority over the rest of the handler, but never over the command
+    // suggestion popup below, which owns Arrow/Tab/Enter/Escape while open.
+    if (!this.showCommandSuggestions() && this.handleComposerEditingCommand(event)) {
+      return;
+    }
+
     // Handle command suggestions navigation
     if (this.showCommandSuggestions() && this.visibleCommandSuggestions().length > 0) {
       const commands = this.visibleCommandSuggestions();
