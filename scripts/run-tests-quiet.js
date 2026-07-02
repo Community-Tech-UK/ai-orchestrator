@@ -103,7 +103,6 @@ function runPreflight() {
 function runVitest() {
   return new Promise((resolve) => {
     const args = [
-      'vitest',
       'run',
       ...passthroughArgs,
       // NB: no --silent. The child's stdout/stderr is redirected to the log FILE
@@ -113,7 +112,15 @@ function runVitest() {
       '--reporter=json',
       `--outputFile.json=${JSON_PATH}`,
     ];
-    const child = spawn('npx', args, {
+    // Launch vitest's JS entry directly with the current Node binary instead of
+    // going through `npx`. On Windows `npx` is `npx.cmd`, and modern Node
+    // refuses to spawn a `.cmd` without a shell (ENOENT for bare `npx`, EINVAL
+    // for `npx.cmd` since the CVE-2024-27980 hardening). `shell: true` would fix
+    // that but re-parse args and mangle test paths containing spaces. Resolving
+    // the `vitest.mjs` bin and running it under process.execPath sidesteps all
+    // of it and is fully cross-platform (macOS/Linux behaviour is unchanged).
+    const vitestBin = require.resolve('vitest/vitest.mjs');
+    const child = spawn(process.execPath, [vitestBin, ...args], {
       cwd: ROOT,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: process.env,
