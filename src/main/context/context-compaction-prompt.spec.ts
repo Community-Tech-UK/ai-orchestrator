@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCompactionPrompt } from './context-compaction-prompt';
+import { buildCompactionPrompt, extractBranchSummaryBlocks } from './context-compaction-prompt';
 import type { FileOperation } from './file-operation-extractor';
 
 describe('buildCompactionPrompt', () => {
@@ -39,5 +39,61 @@ describe('buildCompactionPrompt', () => {
     expect(prompt).toMatch(
       /## Relevant Files[\s\S]*## File Operations Observed[\s\S]*## Remaining Work/
     );
+  });
+
+  it('anchors branch-switch summaries with a preservation instruction when provided', () => {
+    const block = [
+      '<branch_switch_summary>',
+      'from: thread-main',
+      'to: thread-branch',
+      'Implemented the parser on the main branch.',
+      '</branch_switch_summary>',
+    ].join('\n');
+
+    const prompt = buildCompactionPrompt('new turn', null, [], [block]);
+
+    expect(prompt).toContain('<branch_switch_summaries>');
+    expect(prompt).toContain('Implemented the parser on the main branch.');
+    expect(prompt).toContain('</branch_switch_summaries>');
+    expect(prompt).toMatch(/branch_switch_summaries[\s\S]*Preserve their decisions, file paths, and unresolved work/);
+  });
+
+  it('omits the branch summary section when none are supplied', () => {
+    expect(buildCompactionPrompt('new turn', null)).not.toContain('<branch_switch_summaries>');
+    expect(buildCompactionPrompt('new turn', null, [], [])).not.toContain('<branch_switch_summaries>');
+  });
+});
+
+describe('extractBranchSummaryBlocks', () => {
+  const block = (label: string) =>
+    `<branch_switch_summary>\n${label}\n</branch_switch_summary>`;
+
+  it('takes whole turns flagged as branch-summary ledger events', () => {
+    const blocks = extractBranchSummaryBlocks([
+      { content: 'regular assistant turn' },
+      { content: block('summary of main branch'), metadata: { kind: 'branch-summary' } },
+    ]);
+
+    expect(blocks).toEqual([block('summary of main branch')]);
+  });
+
+  it('extracts blocks embedded inside continuity preamble content', () => {
+    const embedded = `Context rebuild preamble.\n\n${block('embedded branch context')}\n\nContinue.`;
+    const blocks = extractBranchSummaryBlocks([{ content: embedded }]);
+
+    expect(blocks).toEqual([block('embedded branch context')]);
+  });
+
+  it('returns an empty list when no branch summaries are present', () => {
+    expect(extractBranchSummaryBlocks([{ content: 'user: hello' }, { content: 'assistant: hi' }])).toEqual([]);
+  });
+
+  it('keeps only the most recent blocks, oldest first, when over the cap', () => {
+    const turns = ['one', 'two', 'three', 'four'].map((label) => ({
+      content: block(label),
+      metadata: { kind: 'branch-summary' },
+    }));
+
+    expect(extractBranchSummaryBlocks(turns)).toEqual([block('two'), block('three'), block('four')]);
   });
 });

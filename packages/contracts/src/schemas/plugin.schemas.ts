@@ -162,6 +162,23 @@ export type RuntimePluginUninstallPayload = z.infer<typeof RuntimePluginUninstal
 export type RuntimePluginPrunePayload = z.infer<typeof RuntimePluginPrunePayloadSchema>;
 
 // ============================================
+// Project Plugin Trust (Task 9)
+// ============================================
+
+/** Query the trust decision for every project scan root of a working directory. */
+export const ProjectPluginTrustQueryPayloadSchema = z.object({
+  workingDirectory: z.string().min(1).max(4096),
+});
+
+/** Grant or revoke trust for a single project plugin root. */
+export const ProjectPluginTrustRootPayloadSchema = z.object({
+  projectRoot: z.string().min(1).max(4096),
+});
+
+export type ProjectPluginTrustQueryPayload = z.infer<typeof ProjectPluginTrustQueryPayloadSchema>;
+export type ProjectPluginTrustRootPayload = z.infer<typeof ProjectPluginTrustRootPayloadSchema>;
+
+// ============================================
 // Skill Frontmatter Schema
 // ============================================
 

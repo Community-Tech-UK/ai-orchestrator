@@ -10,12 +10,28 @@ vi.mock('../../logging/logger', () => ({
   }),
 }));
 
+const llmMocks = vi.hoisted(() => ({
+  isAvailable: vi.fn<() => Promise<boolean>>().mockResolvedValue(false),
+  summarize: vi.fn().mockResolvedValue('Summary of conversation'),
+}));
+
 vi.mock('../../rlm/llm-service', () => ({
   getLLMService: () => ({
     configure: vi.fn(),
-    isAvailable: vi.fn().mockResolvedValue(false),
-    summarize: vi.fn().mockResolvedValue('Summary of conversation'),
+    isAvailable: llmMocks.isAvailable,
+    summarize: llmMocks.summarize,
   }),
+}));
+
+const auxMocks = vi.hoisted(() => ({
+  generate: vi.fn(async (..._args: unknown[]) => ({
+    text: '',
+    decision: { source: 'fallback' as const, allowFrontierFallback: true },
+  })),
+}));
+
+vi.mock('../../rlm/auxiliary-llm-service', () => ({
+  getAuxiliaryLlmService: () => ({ generate: auxMocks.generate }),
 }));
 
 vi.mock('../../../shared/constants/limits', () => ({
@@ -402,6 +418,81 @@ describe('ContextCompactor', () => {
         expect(vi.getTimerCount()).toBe(0);
       } finally {
         vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('branch summary injection into compaction prompts', () => {
+    const branchBlock = [
+      '<branch_switch_summary>',
+      'from: thread-main',
+      'to: thread-branch',
+      'Implemented the parser on the main branch.',
+      '</branch_switch_summary>',
+    ].join('\n');
+
+    it('passes branch-switch summaries from compacted turns into the summarizer prompt', async () => {
+      llmMocks.isAvailable.mockResolvedValue(true);
+      auxMocks.generate.mockClear();
+      try {
+        compactor.updateConfig({
+          maxContextTokens: 1100,
+          autoCompact: false,
+          triggerThreshold: 0.85,
+          preserveRecent: 2,
+        });
+
+        compactor.addTurn(makeTurn({
+          role: 'system',
+          content: branchBlock,
+          tokenCount: 100,
+          metadata: { kind: 'branch-summary' },
+        }));
+        for (let i = 0; i < 9; i++) {
+          compactor.addTurn(makeTurn({
+            tokenCount: 100,
+            role: i % 2 === 0 ? 'user' : 'assistant',
+            content: `turn ${i}`,
+          }));
+        }
+
+        const result = await compactor.compact();
+        expect(result.summaryGenerated).toBe(true);
+
+        expect(auxMocks.generate).toHaveBeenCalledTimes(1);
+        const [slot, , userPrompt] = auxMocks.generate.mock.calls[0] as [string, string, string];
+        expect(slot).toBe('compression');
+        expect(userPrompt).toContain('<branch_switch_summaries>');
+        expect(userPrompt).toContain('Implemented the parser on the main branch.');
+      } finally {
+        llmMocks.isAvailable.mockResolvedValue(false);
+      }
+    });
+
+    it('omits the branch summary section when no compacted turn carries one', async () => {
+      llmMocks.isAvailable.mockResolvedValue(true);
+      auxMocks.generate.mockClear();
+      try {
+        compactor.updateConfig({
+          maxContextTokens: 1100,
+          autoCompact: false,
+          triggerThreshold: 0.85,
+          preserveRecent: 2,
+        });
+        for (let i = 0; i < 10; i++) {
+          compactor.addTurn(makeTurn({
+            tokenCount: 100,
+            role: i % 2 === 0 ? 'user' : 'assistant',
+            content: `turn ${i}`,
+          }));
+        }
+
+        await compactor.compact();
+
+        const [, , userPrompt] = auxMocks.generate.mock.calls[0] as [string, string, string];
+        expect(userPrompt).not.toContain('<branch_switch_summaries>');
+      } finally {
+        llmMocks.isAvailable.mockResolvedValue(false);
       }
     });
   });

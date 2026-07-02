@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "scripts/generate-architecture-inventory.js",
   "ipc": {
-    "channelCount": 1009,
+    "channelCount": 1012,
     "channels": [
       {
         "name": "INSTANCE_CREATE",
@@ -4640,414 +4640,429 @@
         "line": 1162
       },
       {
+        "name": "PROJECT_PLUGIN_TRUST_QUERY",
+        "value": "project-plugin-trust:query",
+        "line": 1166
+      },
+      {
+        "name": "PROJECT_PLUGIN_TRUST_GRANT",
+        "value": "project-plugin-trust:grant",
+        "line": 1167
+      },
+      {
+        "name": "PROJECT_PLUGIN_TRUST_REVOKE",
+        "value": "project-plugin-trust:revoke",
+        "line": 1168
+      },
+      {
         "name": "RTK_GET_SUMMARY",
         "value": "rtk:get-summary",
-        "line": 1164
+        "line": 1170
       },
       {
         "name": "RTK_GET_HISTORY",
         "value": "rtk:get-history",
-        "line": 1165
+        "line": 1171
       },
       {
         "name": "RTK_GET_STATUS",
         "value": "rtk:get-status",
-        "line": 1166
+        "line": 1172
       },
       {
         "name": "RTK_SAVINGS_DELTA",
         "value": "rtk:savings-delta",
-        "line": 1167
+        "line": 1173
       },
       {
         "name": "LOOP_START",
         "value": "loop:start",
-        "line": 1170
+        "line": 1176
       },
       {
         "name": "LOOP_PAUSE",
         "value": "loop:pause",
-        "line": 1171
+        "line": 1177
       },
       {
         "name": "LOOP_RESUME",
         "value": "loop:resume",
-        "line": 1172
+        "line": 1178
       },
       {
         "name": "LOOP_INTERVENE",
         "value": "loop:intervene",
-        "line": 1173
+        "line": 1179
       },
       {
         "name": "LOOP_CANCEL",
         "value": "loop:cancel",
-        "line": 1174
+        "line": 1180
       },
       {
         "name": "LOOP_ACCEPT_COMPLETION",
         "value": "loop:accept-completion",
-        "line": 1178
+        "line": 1184
       },
       {
         "name": "LOOP_GET_STATE",
         "value": "loop:get-state",
-        "line": 1179
+        "line": 1185
       },
       {
         "name": "LOOP_LIST_RUNS_FOR_CHAT",
         "value": "loop:list-runs-for-chat",
-        "line": 1180
+        "line": 1186
       },
       {
         "name": "LOOP_GET_ITERATIONS",
         "value": "loop:get-iterations",
-        "line": 1181
+        "line": 1187
       },
       {
         "name": "LOOP_INFER_VERIFY",
         "value": "loop:infer-verify",
-        "line": 1184
+        "line": 1190
       },
       {
         "name": "LOOP_LIST_OUTSTANDING",
         "value": "loop:list-outstanding",
-        "line": 1187
+        "line": 1193
       },
       {
         "name": "LOOP_SET_OUTSTANDING_STATUS",
         "value": "loop:set-outstanding-status",
-        "line": 1189
+        "line": 1195
       },
       {
         "name": "LOOP_EXPORT_OUTSTANDING",
         "value": "loop:export-outstanding",
-        "line": 1191
+        "line": 1197
       },
       {
         "name": "LOOP_RESUME_WITH_ANSWERS",
         "value": "loop:resume-with-answers",
-        "line": 1194
+        "line": 1200
       },
       {
         "name": "LOOP_PINGPONG_SKIP_ROUND",
         "value": "loop:pingpong-skip-round",
-        "line": 1196
+        "line": 1202
       },
       {
         "name": "LOOP_PINGPONG_FORCE_ARBITRATION",
         "value": "loop:pingpong-force-arbitration",
-        "line": 1198
+        "line": 1204
       },
       {
         "name": "LOOP_STARTED",
         "value": "loop:started",
-        "line": 1201
+        "line": 1207
       },
       {
         "name": "LOOP_ITERATION_STARTED",
         "value": "loop:iteration-started",
-        "line": 1202
+        "line": 1208
       },
       {
         "name": "LOOP_ACTIVITY",
         "value": "loop:activity",
-        "line": 1203
+        "line": 1209
       },
       {
         "name": "LOOP_ITERATION_COMPLETE",
         "value": "loop:iteration-complete",
-        "line": 1204
+        "line": 1210
       },
       {
         "name": "LOOP_PAUSED_NO_PROGRESS",
         "value": "loop:paused-no-progress",
-        "line": 1205
+        "line": 1211
       },
       {
         "name": "LOOP_CLAIMED_DONE_BUT_FAILED",
         "value": "loop:claimed-done-but-failed",
-        "line": 1206
+        "line": 1212
       },
       {
         "name": "LOOP_TERMINAL_INTENT_RECORDED",
         "value": "loop:terminal-intent-recorded",
-        "line": 1207
+        "line": 1213
       },
       {
         "name": "LOOP_TERMINAL_INTENT_REJECTED",
         "value": "loop:terminal-intent-rejected",
-        "line": 1208
+        "line": 1214
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_STARTED",
         "value": "loop:fresh-eyes-review-started",
-        "line": 1209
+        "line": 1215
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_PASSED",
         "value": "loop:fresh-eyes-review-passed",
-        "line": 1210
+        "line": 1216
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_FAILED",
         "value": "loop:fresh-eyes-review-failed",
-        "line": 1211
+        "line": 1217
       },
       {
         "name": "LOOP_FRESH_EYES_REVIEW_BLOCKED",
         "value": "loop:fresh-eyes-review-blocked",
-        "line": 1212
+        "line": 1218
       },
       {
         "name": "LOOP_INTERVENTION_APPLIED",
         "value": "loop:intervention-applied",
-        "line": 1213
+        "line": 1219
       },
       {
         "name": "LOOP_COMPLETED",
         "value": "loop:completed",
-        "line": 1214
+        "line": 1220
       },
       {
         "name": "LOOP_COMPLETED_NEEDS_REVIEW",
         "value": "loop:completed-needs-review",
-        "line": 1216
+        "line": 1222
       },
       {
         "name": "LOOP_NOTES_CURATED",
         "value": "loop:notes-curated",
-        "line": 1218
+        "line": 1224
       },
       {
         "name": "LOOP_CONTEXT_COMPACTED",
         "value": "loop:context-compacted",
-        "line": 1220
+        "line": 1226
       },
       {
         "name": "LOOP_BRANCH_SELECT",
         "value": "loop:branch-select",
-        "line": 1222
+        "line": 1228
       },
       {
         "name": "LOOP_PLAN_REGENERATED",
         "value": "loop:plan-regenerated",
-        "line": 1224
+        "line": 1230
       },
       {
         "name": "LOOP_LEDGER_LINT",
         "value": "loop:ledger-lint",
-        "line": 1227
+        "line": 1233
       },
       {
         "name": "LOOP_STEERING_DOWNGRADED",
         "value": "loop:steering-downgraded",
-        "line": 1231
+        "line": 1237
       },
       {
         "name": "LOOP_FOLLOW_UP_DRAINED",
         "value": "loop:follow-up-drained",
-        "line": 1234
+        "line": 1240
       },
       {
         "name": "LOOP_MORE_WORK_DECLARED",
         "value": "loop:more-work-declared",
-        "line": 1237
+        "line": 1243
       },
       {
         "name": "LOOP_FAILED",
         "value": "loop:failed",
-        "line": 1238
+        "line": 1244
       },
       {
         "name": "LOOP_CAP_REACHED",
         "value": "loop:cap-reached",
-        "line": 1239
+        "line": 1245
       },
       {
         "name": "LOOP_PROVIDER_LIMIT",
         "value": "loop:provider-limit",
-        "line": 1244
+        "line": 1250
       },
       {
         "name": "LOOP_CANCELLED",
         "value": "loop:cancelled",
-        "line": 1245
+        "line": 1251
       },
       {
         "name": "LOOP_ERROR",
         "value": "loop:error",
-        "line": 1246
+        "line": 1252
       },
       {
         "name": "LOOP_STATE_CHANGED",
         "value": "loop:state-changed",
-        "line": 1247
+        "line": 1253
       },
       {
         "name": "LOOP_OUTSTANDING_CHANGED",
         "value": "loop:outstanding-changed",
-        "line": 1250
+        "line": 1256
       },
       {
         "name": "MOBILE_GATEWAY_GET_STATUS",
         "value": "mobile-gateway:get-status",
-        "line": 1252
+        "line": 1258
       },
       {
         "name": "MOBILE_GATEWAY_START",
         "value": "mobile-gateway:start",
-        "line": 1253
+        "line": 1259
       },
       {
         "name": "MOBILE_GATEWAY_STOP",
         "value": "mobile-gateway:stop",
-        "line": 1254
+        "line": 1260
       },
       {
         "name": "MOBILE_GATEWAY_ISSUE_PAIRING",
         "value": "mobile-gateway:issue-pairing",
-        "line": 1255
+        "line": 1261
       },
       {
         "name": "MOBILE_GATEWAY_LIST_DEVICES",
         "value": "mobile-gateway:list-devices",
-        "line": 1256
+        "line": 1262
       },
       {
         "name": "MOBILE_GATEWAY_REVOKE_DEVICE",
         "value": "mobile-gateway:revoke-device",
-        "line": 1257
+        "line": 1263
       },
       {
         "name": "TERMINAL_SPAWN",
         "value": "terminal:spawn",
-        "line": 1260
+        "line": 1266
       },
       {
         "name": "TERMINAL_WRITE",
         "value": "terminal:write",
-        "line": 1261
+        "line": 1267
       },
       {
         "name": "TERMINAL_RESIZE",
         "value": "terminal:resize",
-        "line": 1262
+        "line": 1268
       },
       {
         "name": "TERMINAL_KILL",
         "value": "terminal:kill",
-        "line": 1263
+        "line": 1269
       },
       {
         "name": "TERMINAL_OUTPUT",
         "value": "terminal:output",
-        "line": 1266
+        "line": 1272
       },
       {
         "name": "TERMINAL_EXIT",
         "value": "terminal:exit",
-        "line": 1267
+        "line": 1273
       },
       {
         "name": "TERMINAL_SPAWNED",
         "value": "terminal:spawned",
-        "line": 1268
+        "line": 1274
       },
       {
         "name": "AUXILIARY_LLM_LIST_CANDIDATES",
         "value": "auxiliary-llm:list-candidates",
-        "line": 1270
+        "line": 1276
       },
       {
         "name": "AUXILIARY_LLM_PROBE_ENDPOINT",
         "value": "auxiliary-llm:probe-endpoint",
-        "line": 1271
+        "line": 1277
       },
       {
         "name": "AUXILIARY_LLM_TEST_GENERATE",
         "value": "auxiliary-llm:test-generate",
-        "line": 1272
+        "line": 1278
       },
       {
         "name": "AUXILIARY_LLM_SAVE_SETTINGS",
         "value": "auxiliary-llm:save-settings",
-        "line": 1273
+        "line": 1279
       },
       {
         "name": "AUXILIARY_LLM_EXTRACT_WEB",
         "value": "auxiliary-llm:extract-web",
-        "line": 1274
+        "line": 1280
       },
       {
         "name": "CAMPAIGN_START",
         "value": "campaign:start",
-        "line": 1277
+        "line": 1283
       },
       {
         "name": "CAMPAIGN_GET",
         "value": "campaign:get",
-        "line": 1278
+        "line": 1284
       },
       {
         "name": "CAMPAIGN_LIST",
         "value": "campaign:list",
-        "line": 1279
+        "line": 1285
       },
       {
         "name": "CAMPAIGN_HALT",
         "value": "campaign:halt",
-        "line": 1280
+        "line": 1286
       },
       {
         "name": "CAMPAIGN_RESUME",
         "value": "campaign:resume",
-        "line": 1281
+        "line": 1287
       },
       {
         "name": "CAMPAIGN_VALIDATE",
         "value": "campaign:validate",
-        "line": 1282
+        "line": 1288
       },
       {
         "name": "CAMPAIGN_STATE_CHANGED",
         "value": "campaign:state-changed",
-        "line": 1285
+        "line": 1291
       },
       {
         "name": "CAMPAIGN_NODE_STARTED",
         "value": "campaign:node-started",
-        "line": 1286
+        "line": 1292
       },
       {
         "name": "CAMPAIGN_NODE_TERMINAL",
         "value": "campaign:node-terminal",
-        "line": 1287
+        "line": 1293
       },
       {
         "name": "CAMPAIGN_NODE_SKIPPED",
         "value": "campaign:node-skipped",
-        "line": 1288
+        "line": 1294
       },
       {
         "name": "CAMPAIGN_PAUSED",
         "value": "campaign:paused",
-        "line": 1289
+        "line": 1295
       },
       {
         "name": "CAMPAIGN_COMPLETED",
         "value": "campaign:completed",
-        "line": 1290
+        "line": 1296
       },
       {
         "name": "CAMPAIGN_FAILED",
         "value": "campaign:failed",
-        "line": 1291
+        "line": 1297
       },
       {
         "name": "CAMPAIGN_HALTED",
         "value": "campaign:halted",
-        "line": 1292
+        "line": 1298
       }
     ]
   },
@@ -5140,7 +5155,7 @@
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 3544
+      "lines": 3533
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave2-navigation-pickers-prompt-recall-plan_completed.md",
@@ -5216,7 +5231,7 @@
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2288
+      "lines": 2304
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.spec.ts",
@@ -5300,7 +5315,7 @@
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1636
+      "lines": 1652
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -5315,6 +5330,10 @@
       "lines": 1582
     },
     {
+      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
+      "lines": 1564
+    },
+    {
       "path": "docs/superpowers/specs/2026-04-16-ai-orchestrator-cross-repo-improvements-design.md",
       "lines": 1561
     },
@@ -5325,10 +5344,6 @@
     {
       "path": "docs/superpowers/specs/2026-04-28-pause-on-vpn-design_completed.md",
       "lines": 1540
-    },
-    {
-      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
-      "lines": 1521
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-e-developer-experience.md",
@@ -5345,6 +5360,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-audit-phase2.COMPLETED.md",
       "lines": 1478
+    },
+    {
+      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
+      "lines": 1462
     },
     {
       "path": "src/main/orchestration/orchestration-handler.ts",
@@ -5381,10 +5400,6 @@
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
       "lines": 1375
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-service.spec.ts",
-      "lines": 1353
     },
     {
       "path": "src/renderer/app/core/state/source-control.store.spec.ts",
@@ -5424,7 +5439,7 @@
     },
     {
       "path": "src/main/plugins/plugin-manager.ts",
-      "lines": 1308
+      "lines": 1312
     },
     {
       "path": "src/main/workspace/git/vcs-manager.ts",
@@ -5727,6 +5742,10 @@
       "lines": 951
     },
     {
+      "path": "src/main/plugins/plugin-manager.spec.ts",
+      "lines": 949
+    },
+    {
       "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
       "lines": 945
     },
@@ -5760,15 +5779,11 @@
     },
     {
       "path": "src/main/context/context-compactor.ts",
-      "lines": 909
+      "lines": 912
     },
     {
       "path": "src/main/history/history-manager.spec.ts",
       "lines": 909
-    },
-    {
-      "path": "src/main/plugins/plugin-manager.spec.ts",
-      "lines": 900
     },
     {
       "path": "src/main/workspace/lsp-manager.ts",

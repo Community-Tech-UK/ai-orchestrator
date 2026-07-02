@@ -12,7 +12,7 @@ import { HYDE_PROMPTS } from '../../rlm/hyde-service.constants';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getLogger } from '../../logging/logger';
 import type { IpcResponse } from '../validated-handler';
-import type { AuxiliaryLlmSlot } from '../../../shared/types/auxiliary-llm.types';
+import type { AuxiliaryLlmEndpointConfig, AuxiliaryLlmSlot } from '../../../shared/types/auxiliary-llm.types';
 
 const logger = getLogger('AuxiliaryLlmHandlers');
 
@@ -87,6 +87,24 @@ function looksLikeRawApiKey(value: string): boolean {
   );
 }
 
+/**
+ * Persisted endpoint config matching the probed baseUrl, if any. Lets the probe
+ * exercise the exact same key resolution the runtime service uses — including
+ * settings-scoped `apiKeyCommand` — so command-backed endpoints don't falsely
+ * report unhealthy from the Settings probe button.
+ */
+function findConfiguredEndpoint(baseUrl: string): AuxiliaryLlmEndpointConfig | undefined {
+  const normalize = (url: string) => url.trim().replace(/\/+$/, '');
+  try {
+    const endpoints = JSON.parse(
+      getSettingsManager().getAll().auxiliaryLlmEndpointsJson,
+    ) as AuxiliaryLlmEndpointConfig[];
+    return endpoints.find((ep) => normalize(ep.baseUrl) === normalize(baseUrl));
+  } catch {
+    return undefined;
+  }
+}
+
 /** True if baseUrl is private/LAN/localhost (safe for Ollama). */
 function isPrivateOrLocalhostUrl(baseUrl: string): boolean {
   try {
@@ -159,7 +177,16 @@ export function registerAuxiliaryLlmHandlers(): void {
       if (provider === 'ollama') {
         healthy = await probeOllamaEndpoint(baseUrl, 5000);
       } else {
-        const resolvedKey = apiKeyEnv ? process.env[apiKeyEnv] : undefined;
+        // Resolve through the same path the runtime service uses so the probe
+        // reflects real health. `apiKeyCommand` is taken ONLY from persisted
+        // settings (trusted, settings-scoped) — never from the IPC payload —
+        // and the resolved value is used in-memory only, never logged.
+        const configured = findConfiguredEndpoint(baseUrl);
+        const { resolveAuxiliaryEndpointApiKey } = await import('../../rlm/auxiliary-api-key-resolver');
+        const resolvedKey = await resolveAuxiliaryEndpointApiKey({
+          apiKeyEnv: apiKeyEnv?.trim() || configured?.apiKeyEnv,
+          apiKeyCommand: configured?.apiKeyCommand,
+        });
         healthy = await probeOpenAiCompatibleEndpoint(baseUrl, resolvedKey, 5000);
       }
 

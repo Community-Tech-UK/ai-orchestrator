@@ -12,10 +12,14 @@ import type { LoopCompletionDetector } from './loop-completion-detector';
 import { LOOP_STATE_DIR_NAME } from './loop-artifact-paths';
 import { collectWorkspaceDiff } from './loop-diff';
 import {
+  computeCompletionEvidenceHash,
   computeReviewThreadSet,
   dedupeAndRankFindings,
   diffReviewThreads,
+  pushBoundedEvidence,
 } from './review-thread-fingerprint';
+import type { CompletionSignalEvidence } from '../../shared/types/loop-state.types';
+import type { EvidenceResolution } from './evidence-resolver';
 import type {
   FreshEyesReviewer,
   FreshEyesReviewerResult,
@@ -169,6 +173,48 @@ export function isReviewDrivenProductionChange(filePath: string): boolean {
   return true;
 }
 
+/**
+ * claude2_todo #1c: record a completion attempt's *evidence hash* into a
+ * bounded ring buffer on state. Identical evidence (same trigger signal, same
+ * verify outcome, same belt-and-braces state, same unresolved review threads)
+ * re-presented across attempts climbs `repeatedEvidenceCount`; the count only
+ * resets when the evidence actually changes — so unchanged weak evidence can't
+ * masquerade as progress. Surfaces a stuck-evidence convergence note (it feeds
+ * describeCapReason) when the same evidence repeats on a continue decision.
+ * Extracted verbatim from the coordinator's completion seam.
+ */
+export function trackRepeatedCompletionEvidence(args: {
+  state: LoopState;
+  candidate: CompletionSignalEvidence;
+  verifyStatus: 'passed' | 'failed' | 'skipped';
+  beltAndBracesPassed: boolean;
+  resolution: Pick<EvidenceResolution, 'decision' | 'outcome'>;
+  convergenceNotes: Map<string, string>;
+}): void {
+  const { state, candidate, verifyStatus, beltAndBracesPassed, resolution, convergenceNotes } = args;
+  const evidenceHash = computeCompletionEvidenceHash({
+    candidateId: candidate.id,
+    verifyStatus,
+    beltAndBracesPassed,
+    unresolvedReviewThreads: state.unresolvedReviewThreads ?? [],
+  });
+  const evidence = pushBoundedEvidence(state.recentEvidenceHashes, evidenceHash);
+  state.recentEvidenceHashes = evidence.buffer;
+  state.repeatedEvidenceCount = evidence.repeatCount;
+  if (resolution.decision === 'continue' && evidence.repeatCount >= 2) {
+    const stuck =
+      `the same completion evidence has now been presented ${evidence.repeatCount} times without change`;
+    const existingNote = convergenceNotes.get(state.id);
+    convergenceNotes.set(state.id, existingNote ? `${existingNote}; ${stuck}` : stuck);
+    logger.info('Loop completion attempt re-presented identical evidence', {
+      loopRunId: state.id,
+      signal: candidate.id,
+      repeatCount: evidence.repeatCount,
+      outcome: resolution.outcome,
+    });
+  }
+}
+
 export async function runFreshEyesReviewGate(args: {
   state: LoopState;
   signalId: string;
@@ -192,6 +238,37 @@ export async function runFreshEyesReviewGate(args: {
   }
   if (forcedByContradiction && !reviewCfg?.enabled) {
     logger.info('Running forced fresh-eyes review after verify contradiction', { loopRunId: state.id });
+  }
+
+  // D6 (#7) part 3: instant ALLOW for non-edit turns. A clean cross-model
+  // verdict is cached on state (`freshEyesCleanForWorkState`) and stays valid
+  // while no production file changes land; a completion attempt from a
+  // status/summary-only iteration reuses it instead of paying another
+  // multi-minute cross-model review. This never fabricates authority: the
+  // flag is ONLY set by a real clean review below, and the coordinator
+  // invalidates it on any later iteration that touches production files
+  // (edit-invalidates-proof, symmetric with the stale-verify rung). A
+  // contradiction-forced review always runs for real. Opt-in via
+  // `completion.antiSelfGrading`.
+  if (
+    state.config.completion.antiSelfGrading === true
+    && !forcedByContradiction
+    && state.freshEyesCleanForWorkState === true
+    && !iteration.filesChanged.some((f) => isReviewDrivenProductionChange(f.path))
+  ) {
+    logger.info('Fresh-eyes gate: instant ALLOW — clean verdict cached, no production changes since', {
+      loopRunId: state.id,
+      signal: signalId,
+    });
+    emit('loop:fresh-eyes-review-passed', {
+      loopRunId: state.id,
+      signal: signalId,
+      reviewersUsed: [],
+      nonBlockingFindings: 0,
+      summary: 'instant ALLOW — no production changes since the last clean fresh-eyes review',
+      instantAllow: true,
+    });
+    return { blocked: false, ran: true, errored: false };
   }
 
   emit('loop:fresh-eyes-review-started', { loopRunId: state.id, signal: signalId });
@@ -261,6 +338,9 @@ export async function runFreshEyesReviewGate(args: {
     }
 
     state.unresolvedReviewThreads = [];
+    // D6 (#7) part 3: cache the clean verdict for the current work state. The
+    // coordinator clears this on any later production-file change.
+    state.freshEyesCleanForWorkState = true;
     emit('loop:fresh-eyes-review-passed', {
       loopRunId: state.id,
       signal: signalId,
@@ -289,6 +369,8 @@ export async function runFreshEyesReviewGate(args: {
   const currThreads = computeReviewThreadSet(dedupedFindings);
   const threadDiff = diffReviewThreads(prevThreads, currThreads);
   state.unresolvedReviewThreads = currThreads;
+  // D6 (#7) part 3: a blocked review invalidates any cached clean verdict.
+  state.freshEyesCleanForWorkState = false;
 
   const persistenceNote =
     threadDiff.persisted.length > 0

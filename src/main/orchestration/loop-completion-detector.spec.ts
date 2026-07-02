@@ -10,8 +10,10 @@ import {
   parseAgentMoreWorkRemaining,
   MORE_WORK_REMAINING_SENTINEL,
 } from './loop-completion-detector';
+import { findSelfAssignedCaveat } from './loop-anti-self-grading';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import { defaultLoopConfig, type LoopIteration, type LoopState } from '../../shared/types/loop.types';
+import type { LoopTerminalIntentEvidence } from '../../shared/types/loop-state.types';
 
 let tmpDir: string;
 
@@ -318,6 +320,142 @@ describe('LoopCompletionDetector.observe', () => {
       sufficient: true,
       detail: expect.stringContaining('implementation complete'),
     });
+  });
+
+  // D6 (#7): anti-self-grading guards on declared-complete.
+  function makeCompleteIntentState(
+    summary: string,
+    antiSelfGrading: boolean,
+    opts: { verifyCommand?: string; evidence?: LoopTerminalIntentEvidence[] } = {},
+  ): LoopState {
+    const cfg = defaultLoopConfig(tmpDir, 'do thing');
+    return makeState(tmpDir, {
+      config: {
+        ...cfg,
+        completion: {
+          ...cfg.completion,
+          antiSelfGrading,
+          ...(opts.verifyCommand !== undefined ? { verifyCommand: opts.verifyCommand } : {}),
+        },
+      },
+      terminalIntentPending: {
+        id: 'intent-1',
+        loopRunId: 'loop-1',
+        iterationSeq: 0,
+        kind: 'complete',
+        summary,
+        evidence: opts.evidence ?? [],
+        source: 'loop-control-cli',
+        createdAt: 1,
+        receivedAt: 2,
+        status: 'pending',
+      },
+    });
+  }
+
+  it('demotes a caveated complete intent to insufficient when antiSelfGrading is on', async () => {
+    const det = new LoopCompletionDetector();
+    const state = makeCompleteIntentState('Partially implemented the parser; tests still failing', true);
+    const sigs = await det.observe({ iteration: makeIteration(), config: state.config, state });
+    const signal = sigs.find((s) => s.id === 'declared-complete');
+    expect(signal).toBeDefined();
+    expect(signal?.sufficient).toBe(false);
+    expect(signal?.detail).toContain('Partially');
+    expect(signal?.detail).toContain('only the verify flow / fresh-eyes gate issues completion verdicts');
+    expect(signal?.detail).toContain('Partially implemented the parser');
+  });
+
+  it('keeps a clean complete intent sufficient when antiSelfGrading is on', async () => {
+    const det = new LoopCompletionDetector();
+    const state = makeCompleteIntentState('All ledger items done; verify green', true);
+    const sigs = await det.observe({ iteration: makeIteration(), config: state.config, state });
+    expect(sigs.find((s) => s.id === 'declared-complete')?.sufficient).toBe(true);
+  });
+
+  it('leaves a caveated complete intent sufficient when antiSelfGrading is off (default)', async () => {
+    const det = new LoopCompletionDetector();
+    const state = makeCompleteIntentState('Partially implemented the parser', false);
+    const sigs = await det.observe({ iteration: makeIteration(), config: state.config, state });
+    expect(sigs.find((s) => s.id === 'declared-complete')?.sufficient).toBe(true);
+  });
+
+  // D6 (#7) part 2: targeted-verify masquerade guard.
+  it('demotes a complete intent whose evidence cites only a targeted verify run', async () => {
+    const det = new LoopCompletionDetector();
+    const state = makeCompleteIntentState('All done, tests pass', true, {
+      verifyCommand: 'npm run test',
+      evidence: [
+        { kind: 'command', label: 'tests', value: 'npm run test -- --grep login' },
+      ],
+    });
+    const sigs = await det.observe({ iteration: makeIteration(), config: state.config, state });
+    const signal = sigs.find((s) => s.id === 'declared-complete');
+    expect(signal?.sufficient).toBe(false);
+    expect(signal?.detail).toContain('targeted verification run');
+    expect(signal?.detail).toContain('npm run test -- --grep login');
+  });
+
+  it('keeps a complete intent sufficient when a claimed command fully matches the verify command', async () => {
+    const det = new LoopCompletionDetector();
+    const state = makeCompleteIntentState('All done, tests pass', true, {
+      verifyCommand: 'npm run test',
+      evidence: [
+        { kind: 'test', label: 'targeted first', value: 'npx vitest run src/x.spec.ts' },
+        { kind: 'command', label: 'full suite', value: 'npm test' },
+      ],
+    });
+    const sigs = await det.observe({ iteration: makeIteration(), config: state.config, state });
+    expect(sigs.find((s) => s.id === 'declared-complete')?.sufficient).toBe(true);
+  });
+
+  it('does not punish unrelated command evidence (the coordinator runs verify itself)', async () => {
+    const det = new LoopCompletionDetector();
+    const state = makeCompleteIntentState('All done', true, {
+      verifyCommand: 'npm run test',
+      evidence: [{ kind: 'command', label: 'search', value: 'grep -r TODO src/' }],
+    });
+    const sigs = await det.observe({ iteration: makeIteration(), config: state.config, state });
+    expect(sigs.find((s) => s.id === 'declared-complete')?.sufficient).toBe(true);
+  });
+
+  it('ignores targeted claims when antiSelfGrading is off', async () => {
+    const det = new LoopCompletionDetector();
+    const state = makeCompleteIntentState('All done', false, {
+      verifyCommand: 'npm run test',
+      evidence: [{ kind: 'command', label: 'tests', value: 'npm run test -- --grep login' }],
+    });
+    const sigs = await det.observe({ iteration: makeIteration(), config: state.config, state });
+    expect(sigs.find((s) => s.id === 'declared-complete')?.sufficient).toBe(true);
+  });
+});
+
+describe('findSelfAssignedCaveat', () => {
+  it.each([
+    ['Partially implemented the parser', 'Partially'],
+    ['All done except the integration tests', 'except'],
+    ["Complete, but I couldn't run the tests", "couldn't run"],
+    ['Work remains on the CLI flags', 'Work remains'],
+    ['Done — 3 tasks remaining for a follow-up', 'tasks remaining'],
+    ['Feature is mostly done', 'mostly done'],
+    ['Incomplete migration of the settings panel', 'Incomplete'],
+    ['TODOs left in the parser module', 'TODOs left'],
+    ['Implemented, though the e2e tests were skipped', 'tests were skipped'],
+    ['Everything works; one caveat about Windows paths', 'caveat'],
+    ['Landing this as WIP', 'WIP'],
+    ['The refactor is not yet finished', 'not yet finished'],
+  ])('flags %j (matched phrase %j)', (summary, phrase) => {
+    expect(findSelfAssignedCaveat(summary)).toBe(phrase);
+  });
+
+  it.each([
+    'implementation complete',
+    'All ledger items done and verify passes',
+    'Fixed the remaining issues and all tests pass',
+    'Two flaky specs deferred in the ledger with reasons; everything else done',
+    'Created a follow-up spec for the mobile work',
+    '',
+  ])('does not flag clean summary %j', (summary) => {
+    expect(findSelfAssignedCaveat(summary)).toBeNull();
   });
 });
 

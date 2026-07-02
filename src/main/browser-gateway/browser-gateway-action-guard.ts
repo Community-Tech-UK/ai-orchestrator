@@ -19,7 +19,10 @@ import {
   type BrowserAutoApprovePredicate,
 } from './browser-auto-approve';
 import { classifyBrowserAction } from './browser-action-classifier';
-import { findMatchingBrowserGrant } from './browser-grant-policy';
+import {
+  actionClassRequiresAutonomy,
+  findMatchingBrowserGrant,
+} from './browser-grant-policy';
 import { isOriginAllowed } from './browser-origin-policy';
 import { redactElementContext } from './browser-redaction';
 
@@ -209,9 +212,7 @@ export class BrowserGatewayActionGuard {
       origin: originDecision.origin,
       liveOrigin: target.origin ?? originDecision.origin,
       actionClass: classification.actionClass,
-      autonomousRequired:
-        classification.actionClass === 'submit' ||
-        classification.actionClass === 'destructive',
+      autonomousRequired: actionClassRequiresAutonomy(classification.actionClass),
     });
 
     if (!match.grant || classification.hardStop) {
@@ -292,9 +293,7 @@ export class BrowserGatewayActionGuard {
       origin: prepared.origin,
       liveOrigin: prepared.origin,
       actionClass: prepared.actionClass,
-      autonomousRequired:
-        prepared.actionClass === 'submit' ||
-        prepared.actionClass === 'destructive',
+      autonomousRequired: actionClassRequiresAutonomy(prepared.actionClass),
     });
     if (match.grant?.id === prepared.grant.id) {
       return null;
@@ -320,6 +319,14 @@ export class BrowserGatewayActionGuard {
       },
       expiresAt: Date.now() + 30 * 60 * 1000,
     });
+    // YOLO instances must not be blocked by a grant change between preparation
+    // and execution — attempt the same auto-approval every other approval
+    // creation site performs and adopt the fresh grant for this execution.
+    const autoGrant = this.autoApproveApproval(approval);
+    if (autoGrant) {
+      prepared.grant = autoGrant;
+      return null;
+    }
     return this.result({
       context: request,
       profileId: request.profileId,
@@ -440,9 +447,7 @@ export class BrowserGatewayActionGuard {
       origin: originDecision.origin,
       liveOrigin: attachment.origin,
       actionClass: classification.actionClass,
-      autonomousRequired:
-        classification.actionClass === 'submit' ||
-        classification.actionClass === 'destructive',
+      autonomousRequired: actionClassRequiresAutonomy(classification.actionClass),
     });
 
     if (!match.grant || classification.hardStop) {

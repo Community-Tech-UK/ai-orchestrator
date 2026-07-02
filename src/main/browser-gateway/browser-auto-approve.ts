@@ -4,6 +4,7 @@ import type {
 } from '@contracts/types/browser';
 import type { BrowserApprovalStore } from './browser-approval-store';
 import type { BrowserGrantStore } from './browser-grant-store';
+import { requiresAutonomousGrant } from './browser-grant-policy';
 
 export interface BrowserAutoApproveRequest {
   approval: BrowserApprovalRequest;
@@ -47,11 +48,18 @@ export function autoApproveBrowserApproval(
   }
 
   const now = deps.now?.() ?? Date.now();
+  const proposedGrant = deps.approval.proposedGrant;
   const grant = deps.grantStore.createGrant({
-    ...deps.approval.proposedGrant,
+    ...proposedGrant,
+    // YOLO auto-approval is the user's standing consent to proceed without
+    // per-action confirmation. Grants covering submit/destructive classes must
+    // carry `autonomous: true` — grantMatches() rejects non-autonomous grants
+    // for those classes, so without this the auto-approved grant is instantly
+    // unusable and every submit/destructive action re-prompts the user even
+    // though yolo is on.
     autonomous:
-      deps.approval.proposedGrant.mode === 'autonomous' &&
-      deps.approval.proposedGrant.autonomous,
+      (proposedGrant.mode === 'autonomous' && proposedGrant.autonomous) ||
+      requiresAutonomousGrant(proposedGrant.allowedActionClasses),
     instanceId: deps.approval.instanceId,
     provider: deps.approval.provider,
     profileId: deps.approval.profileId,

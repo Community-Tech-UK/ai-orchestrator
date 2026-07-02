@@ -551,6 +551,55 @@ describe('OrchestratorPluginManager', () => {
     await fsPromises.rm(tmpDir, { recursive: true, force: true });
   });
 
+  it('does not import untrusted legacy in-process project plugins (manifest or bare entrypoint)', async () => {
+    const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
+    const legacyDir = path.join(tmpDir, '.orchestrator', 'plugins', 'legacy-plugin');
+    const bareDir = path.join(tmpDir, '.orchestrator', 'plugins', 'bare-plugin');
+    await fsPromises.mkdir(legacyDir, { recursive: true });
+    await fsPromises.mkdir(bareDir, { recursive: true });
+
+    const legacyFile = path.join(legacyDir, 'index.js');
+    await fsPromises.writeFile(legacyFile, 'throw new Error("should not import");');
+    // Legacy in-process manifest: no "isolation": "worker".
+    await fsPromises.writeFile(
+      path.join(legacyDir, 'plugin.json'),
+      JSON.stringify({
+        name: 'legacy-plugin',
+        version: '2.0.0',
+        hooks: ['instance.created'],
+      }),
+    );
+    // Manifest-less legacy hook module — the trust gate must still apply.
+    const bareFile = path.join(bareDir, 'index.js');
+    await fsPromises.writeFile(bareFile, 'throw new Error("should not import");');
+
+    const manager = OrchestratorPluginManager.getInstance();
+    const loadSpy = vi.spyOn(
+      manager as unknown as { loadModule: (filePath: string) => Promise<unknown> },
+      'loadModule',
+    );
+    const result = await manager.listPlugins(tmpDir, {} as never);
+
+    const legacyEntry = result.plugins.find((plugin) => plugin.filePath === legacyFile);
+    expect(legacyEntry?.manifest).toMatchObject({ name: 'legacy-plugin', version: '2.0.0' });
+    expect(legacyEntry?.loadReport.ready).toBe(false);
+    expect(legacyEntry?.loadReport.detected).toBe(false);
+    expect(legacyEntry?.loadReport.phases).toContainEqual(expect.objectContaining({
+      phase: 'instantiation',
+      status: 'skipped',
+      message: expect.stringContaining('trust'),
+    }));
+
+    const bareEntry = result.plugins.find((plugin) => plugin.filePath === bareFile);
+    expect(bareEntry?.loadReport.ready).toBe(false);
+    expect(bareEntry?.loadReport.detected).toBe(false);
+
+    expect(loadSpy).not.toHaveBeenCalled();
+    expect(mockPluginWorkerHostInstances).toHaveLength(0);
+
+    await fsPromises.rm(tmpDir, { recursive: true, force: true });
+  });
+
   it('loads user-installed home plugins without a project trust decision', async () => {
     const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'plugin-manager-test-'));
     const pluginDir = path.join('/tmp/test-home', '.orchestrator', 'plugins', `home-plugin-${Date.now()}`);

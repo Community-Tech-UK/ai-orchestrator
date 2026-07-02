@@ -116,6 +116,46 @@ describe('otel-spans', () => {
     expect(span.status.message).toContain('Bearer <redacted-secret>');
   });
 
+  it('redacts secrets embedded in span attribute values before they reach the exporter (Task 14)', async () => {
+    const secret = 'sk-1234567890abcdefghij';
+
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    await traceVerification('v-attr-secret', { query: `find ${secret} in the repo`, agentCount: 2 }, async () => {});
+
+    await provider.forceFlush();
+    const [span] = exporter.getFinishedSpans();
+
+    // The secret never reaches the exporter verbatim — through any attribute.
+    expect(JSON.stringify(span.attributes)).not.toContain(secret);
+    expect(span.attributes['verification.query']).toContain('<redacted-secret>');
+    // Operational attributes are preserved.
+    expect(span.attributes['verification.id']).toBe('v-attr-secret');
+    expect(span.attributes['verification.agent_count']).toBe(2);
+  });
+
+  it('redacts secret-keyed provider runtime event attributes but keeps operational ones (Task 14)', async () => {
+    recordProviderRuntimeEventSpan({
+      eventId: 'evt-secret',
+      seq: 1,
+      timestamp: 1_717_000_000_001,
+      provider: 'claude',
+      instanceId: 'inst-1',
+      model: 'claude-sonnet-4-5',
+      event: {
+        kind: 'error',
+        message: 'rejected Bearer abcdef1234567890ghijkl',
+        requestId: 'req_456',
+      },
+    });
+
+    await provider.forceFlush();
+    const span = exporter.getFinishedSpans().find((candidate) => candidate.name === 'provider.runtime_event');
+
+    expect(JSON.stringify(span?.attributes)).not.toContain('abcdef1234567890ghijkl');
+    expect(span?.attributes['provider.name']).toBe('claude');
+    expect(span?.attributes['ai.provider.request_id']).toBe('req_456');
+  });
+
   it('returns the value produced by the wrapped function', async () => {
     const result = await traceDebate('d-2', {}, async () => 42);
 

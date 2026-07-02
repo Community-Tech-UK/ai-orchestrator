@@ -360,6 +360,29 @@ describe('ClaudeCliAdapter host cloud-scheduler denylist', () => {
     expect(disallowed).not.toContain('CronList');
     expect(disallowed).not.toContain('CronDelete');
   });
+
+  // D2 (#6): loop cap wrap-up temporarily denies tool use for one send.
+  it('merges the setDisallowedToolsOverride list per send and clears it on null', () => {
+    const adapter = new ClaudeCliAdapter({
+      workingDirectory: '/tmp/x',
+      disallowedTools: ['SomeCallerTool'],
+    });
+
+    adapter.setDisallowedToolsOverride(['Bash', 'Edit', 'Write']);
+    const withOverride = getDisallowed(getBuildArgs(adapter));
+    expect(withOverride).toContain('Bash');
+    expect(withOverride).toContain('Edit');
+    expect(withOverride).toContain('Write');
+    // Additive: existing restrictions survive the override.
+    expect(withOverride).toContain('SomeCallerTool');
+    expect(withOverride).toContain('CronCreate');
+
+    adapter.setDisallowedToolsOverride(null);
+    const cleared = getDisallowed(getBuildArgs(adapter));
+    expect(cleared).not.toContain('Bash');
+    expect(cleared).toContain('SomeCallerTool');
+    expect(cleared).toContain('CronCreate');
+  });
 });
 
 describe('ClaudeCliAdapter deferred-permission tool_input', () => {

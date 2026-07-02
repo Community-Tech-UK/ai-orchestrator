@@ -294,6 +294,23 @@ describe('LoopCoordinator fresh-eyes review — behaviour at completion', () => 
     expect(r.pendingInterventions.length).toBe(0);
   });
 
+  it('records lastVerifiedWorkHash on state when verify passes at the gate (D6 #7)', async () => {
+    let lastBroadcastState: { lastVerifiedWorkHash?: string } | null = null;
+    coordinator.on('loop:state-changed', (payload: unknown) => {
+      lastBroadcastState = (payload as { state: { lastVerifiedWorkHash?: string } }).state;
+    });
+
+    const r = await runOneIterationAttempt({
+      reviewResult: { findings: [], reviewersUsed: ['gemini'], summary: 'clean' },
+      completedRenameFile: 'plan_completed.md',
+    });
+
+    expect(r.ended).toBe(true);
+    // computeWorkHash produces a sha256 hex digest; the passing verify at the
+    // completion gate must have anchored it on state (edit-invalidates-proof).
+    expect(lastBroadcastState?.lastVerifiedWorkHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
   it('PAUSES when the reviewer is unavailable even if a verify command passed', async () => {
     // runOneIterationAttempt always configures verifyCommand: 'true' (passing).
     // A configured review gate that returns zero reviewers is an infrastructure

@@ -21,6 +21,7 @@ import {
 } from './browser-gateway-service-helpers';
 import type { BrowserGatewayContext } from './browser-gateway-service-types';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
+import { requiresAutonomousGrant } from './browser-grant-policy';
 
 interface BrowserGatewayApprovalOperationsDeps {
   approvalStore: Pick<BrowserApprovalStore, 'getRequest' | 'listRequests' | 'resolveRequest'>;
@@ -154,7 +155,14 @@ export class BrowserGatewayApprovalOperations {
     const now = Date.now();
     const grant = this.deps.grantStore.createGrant({
       ...request.grant,
-      autonomous: request.grant.mode === 'autonomous' && request.grant.autonomous,
+      // An explicit user "Allow" on an approval covering submit/destructive
+      // classes must produce a grant that can actually authorize that action:
+      // grantMatches() requires `autonomous: true` for those classes, so a
+      // non-autonomous per_action/session grant would be dead on arrival and
+      // the very next retry would re-prompt the user in a loop.
+      autonomous:
+        (request.grant.mode === 'autonomous' && request.grant.autonomous) ||
+        requiresAutonomousGrant(request.grant.allowedActionClasses),
       instanceId: approval.instanceId,
       provider: approval.provider,
       profileId: approval.profileId,

@@ -22,5 +22,14 @@ export function createRuntimePluginDomain(ipcRenderer: IpcRenderer, ch: typeof I
 
     runtimePluginsUninstall: (pluginId: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.RUNTIME_PLUGINS_UNINSTALL, { pluginId }),
+
+    projectPluginTrustQuery: (workingDirectory: string): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PROJECT_PLUGIN_TRUST_QUERY, { workingDirectory }),
+
+    projectPluginTrustGrant: (projectRoot: string): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PROJECT_PLUGIN_TRUST_GRANT, { projectRoot }),
+
+    projectPluginTrustRevoke: (projectRoot: string): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PROJECT_PLUGIN_TRUST_REVOKE, { projectRoot }),
   };
 }

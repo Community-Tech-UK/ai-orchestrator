@@ -30,6 +30,22 @@ export type BrowserGrantMatchResult =
         | 'no_matching_grant';
     };
 
+/**
+ * Action classes that may only execute under a grant with `autonomous: true`
+ * (see grantMatches below). Grants covering these classes must be created
+ * with `autonomous: true` or they can never authorize the action they were
+ * approved for.
+ */
+export function actionClassRequiresAutonomy(actionClass: BrowserActionClass): boolean {
+  return actionClass === 'submit' || actionClass === 'destructive';
+}
+
+export function requiresAutonomousGrant(
+  actionClasses: readonly BrowserActionClass[],
+): boolean {
+  return actionClasses.some(actionClassRequiresAutonomy);
+}
+
 export function findMatchingBrowserGrant(
   input: BrowserGrantMatchInput,
 ): BrowserGrantMatchResult {

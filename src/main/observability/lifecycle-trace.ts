@@ -1,5 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { redactForSink } from '../diagnostics/redaction';
 import { resolveDefaultTraceFilePath } from './local-trace-exporter';
 
 export interface LifecycleTraceEvent {
@@ -27,10 +28,21 @@ export function recordLifecycleTrace(
   event: LifecycleTraceEvent,
   traceFilePath = resolveLifecycleTraceFilePath(),
 ): void {
-  const line = JSON.stringify({
+  const payload = {
     timestamp: event.timestamp ?? Date.now(),
     ...event,
-  });
+  };
+  // Task 14: `metadata`, `errorClass`, and `recoveryReason` are free-form and
+  // can echo failing requests (URLs with tokens, auth headers). Redact before
+  // the NDJSON line is serialized to disk. Redaction must never break tracing;
+  // fall back to the raw payload if it throws on an exotic value.
+  let redacted: typeof payload;
+  try {
+    redacted = redactForSink(payload);
+  } catch {
+    redacted = payload;
+  }
+  const line = JSON.stringify(redacted);
 
   writeQueue = writeQueue
     .catch(() => undefined)

@@ -54,7 +54,7 @@ vi.mock('../../util/file-lock', () => ({
   withLockSync: mocks.withLockSync,
 }));
 
-import { SettingsManager } from './settings-manager';
+import { SettingsManager, type SettingsConflict, type SettingsWriteContext } from './settings-manager';
 
 describe('SettingsManager locked writes', () => {
   beforeEach(() => {
@@ -119,5 +119,113 @@ describe('SettingsManager locked writes', () => {
 
     expect(mocks.store.theme).not.toBe('light');
     expect(observed).toEqual([]);
+  });
+});
+
+describe('SettingsManager field-level dirty writes', () => {
+  beforeEach(() => {
+    for (const key of Object.keys(mocks.store)) delete mocks.store[key];
+    mocks.setCalls.length = 0;
+    mocks.storeSet.mockClear();
+    mocks.withLockSync.mockClear();
+    mocks.withLockSync.mockImplementation(<T>(_lockPath: string, fn: () => T) => fn());
+  });
+
+  it('preserves a concurrent external change to an unrelated field', () => {
+    mocks.store.fontSize = 14;
+    const manager = new SettingsManager();
+    const conflicts: SettingsConflict[][] = [];
+    manager.on('settings-conflict', (found: SettingsConflict[]) => conflicts.push(found));
+
+    // Another process writes fontSize while we change theme.
+    mocks.store.fontSize = 18;
+    manager.update({ theme: 'light' });
+
+    expect(mocks.store.theme).toBe('light');
+    expect(mocks.store.fontSize).toBe(18);
+    expect(conflicts).toEqual([]);
+  });
+
+  it('merges concurrent nested-field changes, writing only the dirty subfield', () => {
+    mocks.store.defaultModelByProvider = { claude: 'opus' };
+    const manager = new SettingsManager();
+    const conflicts: SettingsConflict[][] = [];
+    const emitted: unknown[] = [];
+    manager.on('settings-conflict', (found: SettingsConflict[]) => conflicts.push(found));
+    manager.on('setting-changed', (_key: keyof AppSettings, value: unknown) => emitted.push(value));
+
+    // Another process adds a sibling key inside the same nested object.
+    mocks.store.defaultModelByProvider = { claude: 'opus', codex: 'gpt-5.5' };
+    manager.set('defaultModelByProvider', { claude: 'sonnet' });
+
+    expect(mocks.store.defaultModelByProvider).toEqual({ claude: 'sonnet', codex: 'gpt-5.5' });
+    expect(conflicts).toEqual([]);
+    // The emitted value reflects what was actually persisted (merged).
+    expect(emitted).toEqual([{ claude: 'sonnet', codex: 'gpt-5.5' }]);
+  });
+
+  it('treats nested keys removed by the caller as deletions', () => {
+    mocks.store.defaultModelByProvider = { claude: 'opus', codex: 'gpt-5.5' };
+    const manager = new SettingsManager();
+
+    manager.set('defaultModelByProvider', { claude: 'opus' });
+
+    expect(mocks.store.defaultModelByProvider).toEqual({ claude: 'opus' });
+  });
+
+  it('detects a concurrent write to the same field and keeps last-write-wins', () => {
+    mocks.store.theme = 'dark';
+    const manager = new SettingsManager();
+    const observed: { conflicts: SettingsConflict[]; context: SettingsWriteContext }[] = [];
+    manager.on('settings-conflict', (conflicts: SettingsConflict[], context: SettingsWriteContext) =>
+      observed.push({ conflicts, context }));
+    const expectedVersion = manager.getVersion();
+
+    // Another process changes theme between our last read and our write.
+    mocks.store.theme = 'light';
+    manager.set('theme', 'solarized');
+
+    expect(mocks.store.theme).toBe('solarized');
+    expect(observed).toHaveLength(1);
+    expect(observed[0].conflicts).toEqual([
+      { path: 'theme', diskValue: 'light', attemptedValue: 'solarized' },
+    ]);
+    expect(observed[0].context.dirtyPaths).toEqual(['theme']);
+    expect(observed[0].context.expectedVersion).toBe(expectedVersion);
+  });
+
+  it('does not report a conflict when both writers landed on the same value', () => {
+    mocks.store.theme = 'dark';
+    const manager = new SettingsManager();
+    const conflicts: SettingsConflict[][] = [];
+    manager.on('settings-conflict', (found: SettingsConflict[]) => conflicts.push(found));
+
+    mocks.store.theme = 'light';
+    manager.set('theme', 'light');
+
+    expect(mocks.store.theme).toBe('light');
+    expect(conflicts).toEqual([]);
+  });
+
+  it('bumps the in-memory version counter on each durable write', () => {
+    const manager = new SettingsManager();
+    const before = manager.getVersion();
+
+    manager.set('theme', 'light');
+    manager.update({ fontSize: 16 });
+
+    expect(manager.getVersion()).toBe(before + 2);
+  });
+
+  it('does not bump the version when the locked write fails', () => {
+    const manager = new SettingsManager();
+    const before = manager.getVersion();
+    mocks.withLockSync.mockImplementationOnce(() => {
+      throw new Error('Lock blocked by PID 123 (settings-write)');
+    });
+
+    expect(() => manager.set('theme', 'light')).toThrow(/Lock blocked/);
+
+    expect(manager.getVersion()).toBe(before);
   });
 });

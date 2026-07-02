@@ -10,7 +10,7 @@ export function normalizeApiKeyCommandForResolution(value: string): string {
 }
 
 export async function resolveAuxiliaryEndpointApiKey(
-  endpoint: AuxiliaryLlmEndpointConfig,
+  endpoint: Pick<AuxiliaryLlmEndpointConfig, 'apiKeyEnv' | 'apiKeyCommand'>,
 ): Promise<string | undefined> {
   const envName = endpoint.apiKeyEnv?.trim();
   if (envName) {

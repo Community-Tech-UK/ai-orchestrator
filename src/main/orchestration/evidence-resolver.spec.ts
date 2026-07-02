@@ -21,7 +21,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { resolveCompletion, type EvidenceInput } from './evidence-resolver';
+import { isVerifyEvidenceStale, resolveCompletion, type EvidenceInput } from './evidence-resolver';
 
 /** Minimal baseline input: no sufficient signal, all gates nominal. */
 function base(over: Partial<EvidenceInput> = {}): EvidenceInput {
@@ -562,5 +562,84 @@ describe('resolveCompletion — quick-verify skipped, full verify determines out
     }));
     expect(r.decision).toBe('continue');
     expect(r.outcome).toBe('verify-failed');
+  });
+});
+
+// ============ D6 (#7): stale verify evidence (edit-invalidates-proof) ============
+
+describe('resolveCompletion — D6 stale verify evidence (anti-self-grading)', () => {
+  it('flag OFF: differing work hashes do not affect the decision (back-compat)', () => {
+    const r = resolveCompletion(base({
+      candidate: renameSig,
+      currentWorkHash: 'hash-b',
+      lastVerifiedWorkHash: 'hash-a',
+    }));
+    expect(r.decision).toBe('stop');
+    expect(r.outcome).toBe('accepted');
+  });
+
+  it('flag ON + matching hashes: verify evidence is fresh → stop/accepted', () => {
+    const r = resolveCompletion(base({
+      candidate: renameSig,
+      antiSelfGrading: true,
+      currentWorkHash: 'hash-a',
+      lastVerifiedWorkHash: 'hash-a',
+    }));
+    expect(r.decision).toBe('stop');
+    expect(r.outcome).toBe('accepted');
+  });
+
+  it('flag ON + differing hashes: stale proof → continue/verify-failed', () => {
+    const r = resolveCompletion(base({
+      candidate: declaredSig,
+      antiSelfGrading: true,
+      currentWorkHash: 'hash-b',
+      lastVerifiedWorkHash: 'hash-a',
+    }));
+    expect(r.decision).toBe('continue');
+    expect(r.outcome).toBe('verify-failed');
+    expect(r.authorityTier).toBe(3);
+    expect(r.reason).toContain('stale');
+    expect(r.convergenceNote).toContain('stale');
+  });
+
+  it('flag ON + no recorded hash: fails open → stop/accepted (unwired callers unaffected)', () => {
+    const r = resolveCompletion(base({
+      candidate: renameSig,
+      antiSelfGrading: true,
+      currentWorkHash: 'hash-b',
+      lastVerifiedWorkHash: undefined,
+    }));
+    expect(r.decision).toBe('stop');
+    expect(r.outcome).toBe('accepted');
+  });
+
+  it('flag ON: the rung only applies to a PASSED verify, not review-authority stops', () => {
+    // verify skipped + clean fresh-eyes review = review is the authority;
+    // staleness of a verify that never ran must not block it.
+    const r = resolveCompletion(base({
+      candidate: renameSig,
+      antiSelfGrading: true,
+      verifyStatus: 'skipped',
+      freshEyesRan: true,
+      freshEyesErrored: false,
+      currentWorkHash: 'hash-b',
+      lastVerifiedWorkHash: 'hash-a',
+    }));
+    expect(r.decision).toBe('stop');
+    expect(r.outcome).toBe('accepted');
+  });
+});
+
+describe('isVerifyEvidenceStale', () => {
+  it.each([
+    ['differing hashes are stale', 'a', 'b', true],
+    ['matching hashes are fresh', 'a', 'a', false],
+    ['missing current hash fails open', undefined, 'a', false],
+    ['missing recorded hash fails open', 'a', undefined, false],
+    ['null hashes fail open', null, null, false],
+    ['empty-string hashes fail open', '', '', false],
+  ] as const)('%s', (_name, currentWorkHash, lastVerifiedWorkHash, expected) => {
+    expect(isVerifyEvidenceStale({ currentWorkHash, lastVerifiedWorkHash })).toBe(expected);
   });
 });

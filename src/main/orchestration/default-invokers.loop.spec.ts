@@ -27,6 +27,7 @@ const hoisted = vi.hoisted(() => ({
   sendRaw: vi.fn(),
   terminate: vi.fn(),
   setStreamIdleTimeoutMs: vi.fn(),
+  setDisallowedToolsOverride: vi.fn(),
   setResume: vi.fn(),
   createAdapter: vi.fn(),
   createAutomationWithScheduling: vi.fn(),
@@ -51,6 +52,7 @@ const hoisted = vi.hoisted(() => ({
     sendRaw: ReturnType<typeof vi.fn>;
     terminate: ReturnType<typeof vi.fn>;
     setStreamIdleTimeoutMs: ReturnType<typeof vi.fn>;
+    setDisallowedToolsOverride: ReturnType<typeof vi.fn>;
     setResume: ReturnType<typeof vi.fn>;
   } },
 }));
@@ -152,6 +154,7 @@ describe('Loop Mode invoker plumbing', () => {
     hoisted.sendRaw.mockReset().mockResolvedValue(undefined);
     hoisted.terminate.mockReset().mockResolvedValue(undefined);
     hoisted.setStreamIdleTimeoutMs.mockReset();
+    hoisted.setDisallowedToolsOverride.mockReset();
     hoisted.setResume.mockReset();
     hoisted.createAdapter.mockReset();
     hoisted.createAutomationWithScheduling.mockReset().mockResolvedValue({ id: 'automation-1' });
@@ -166,14 +169,17 @@ describe('Loop Mode invoker plumbing', () => {
     // simulate stream:idle events.
     const adapterEmitter = new EventEmitter() as unknown as EventEmitter & {
       sendMessage: typeof hoisted.sendMessage;
+      sendRaw: typeof hoisted.sendRaw;
       terminate: typeof hoisted.terminate;
       setStreamIdleTimeoutMs: typeof hoisted.setStreamIdleTimeoutMs;
+      setDisallowedToolsOverride: typeof hoisted.setDisallowedToolsOverride;
       setResume: typeof hoisted.setResume;
     };
     adapterEmitter.sendMessage = hoisted.sendMessage;
     adapterEmitter.sendRaw = hoisted.sendRaw;
     adapterEmitter.terminate = hoisted.terminate;
     adapterEmitter.setStreamIdleTimeoutMs = hoisted.setStreamIdleTimeoutMs;
+    adapterEmitter.setDisallowedToolsOverride = hoisted.setDisallowedToolsOverride;
     adapterEmitter.setResume = hoisted.setResume;
     hoisted.adapterRef.current = adapterEmitter;
     hoisted.createAdapter.mockReturnValue(adapterEmitter);
@@ -570,6 +576,41 @@ describe('Loop Mode invoker plumbing', () => {
     expect(calls.every((value) => value === 240_000)).toBe(true);
   });
 
+  it('D2 (#6): disableTools applies the tools-disable override before the send and clears it after', async () => {
+    registerDefaultLoopInvoker({} as never);
+    hoisted.sendMessage.mockImplementation(async () => {
+      // The override must already be active while the CLI turn runs.
+      const calls = hoisted.setDisallowedToolsOverride.mock.calls;
+      expect(calls.length).toBe(1);
+      expect(Array.isArray(calls[0][0])).toBe(true);
+      expect(calls[0][0].length).toBeGreaterThan(0);
+      expect(calls[0][0]).toContain('Bash');
+      return { content: 'wrap-up summary', usage: { totalTokens: 1 } };
+    });
+
+    const result = emitIteration({ disableTools: true });
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+    await result;
+
+    // Restored after the send so a reused/borrowed adapter regains its tools.
+    const calls = hoisted.setDisallowedToolsOverride.mock.calls;
+    expect(calls.length).toBe(2);
+    expect(calls[1][0]).toBeNull();
+  });
+
+  it('D2 (#6): ordinary iterations never touch the tools-disable override', async () => {
+    registerDefaultLoopInvoker({} as never);
+    hoisted.sendMessage.mockResolvedValue({ content: 'ok', usage: { totalTokens: 1 } });
+
+    const result = emitIteration();
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+    await result;
+
+    expect(hoisted.setDisallowedToolsOverride).not.toHaveBeenCalled();
+  });
+
   it('does not abort the iteration when adapter emits stream:idle before the CLI finishes', async () => {
     registerDefaultLoopInvoker({} as never);
     let resolveSend!: (value: { content: string; usage: { totalTokens: number } }) => void;
@@ -661,7 +702,7 @@ describe('Loop Mode invoker plumbing', () => {
       hoisted.adapterRef.current.emit('tool_use', {
         id: 'bash-1',
         name: 'Bash',
-        arguments: { command: 'npm test' },
+        arguments: { command: 'npm test', timeout: 600_000 },
       });
       return {
         content: 'stopped after asking for another tool',
@@ -688,6 +729,8 @@ describe('Loop Mode invoker plumbing', () => {
         expect.objectContaining({
           toolName: 'Bash',
           success: true,
+          // E2 (#12) capture half: agent-declared timeout persisted on the record.
+          declaredTimeoutMs: 600_000,
         }),
       ]),
     );

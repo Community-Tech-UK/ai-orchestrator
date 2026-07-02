@@ -8,6 +8,20 @@ import {
   type TrustedCommandInvocation,
 } from '../trusted-config-value-resolver';
 
+// Guardrail (plan C.4): resolved secret values must never reach a logger. The
+// resolver deliberately does not import the logging module at all; this spy
+// verifies that stays true even if a future edit adds one.
+const loggerSpies = vi.hoisted(() => ({
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}));
+
+vi.mock('../../../logging/logger', () => ({
+  getLogger: vi.fn(() => loggerSpies),
+}));
+
 describe('trusted config value resolver', () => {
   it('parses literal, env, file, and cmd tokens in order', () => {
     expect(parseTrustedConfigValue('a-${env:A}-${file:key.txt}-${cmd:security find-generic-password -w -s aio}')).toEqual([
@@ -119,5 +133,55 @@ describe('trusted config value resolver', () => {
         runCommand: () => new Promise(() => undefined),
       }),
     ).rejects.toThrow(/timed out after 1ms/i);
+  });
+
+  it('rejects env tokens with hostile non-identifier names instead of resolving them', async () => {
+    await expect(
+      resolveTrustedConfigValue('${env:PATH;whoami}', {
+        cwd: process.cwd(),
+        allowCommand: false,
+        env: { 'PATH;whoami': 'should-never-resolve' },
+      }),
+    ).rejects.toThrow(/invalid name/i);
+  });
+
+  it('passes shell metacharacters through as literal argv strings, never a shell', async () => {
+    const invocations: TrustedCommandInvocation[] = [];
+    const runCommand = vi.fn(async (invocation: TrustedCommandInvocation) => {
+      invocations.push(invocation);
+      return { stdout: 'ok', stderr: '', exitCode: 0 };
+    });
+
+    await resolveTrustedConfigValue('${cmd:security find-generic-password -s "$(whoami); rm -rf /" -w}', {
+      cwd: process.cwd(),
+      allowCommand: true,
+      runCommand,
+    });
+
+    // The metacharacter blob arrives as ONE literal argument — command
+    // substitution and `;` chaining are impossible because spawn uses
+    // shell:false and the injected runner receives argv, not a command line.
+    expect(invocations[0].executable).toBe('security');
+    expect(invocations[0].args).toEqual(['find-generic-password', '-s', '$(whoami); rm -rf /', '-w']);
+  });
+
+  it('never passes resolved secret values to a logger', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'aio-trusted-config-'));
+    await writeFile(path.join(dir, 'secret.txt'), 'file-secret-never-log\n', 'utf8');
+
+    const resolved = await resolveTrustedConfigValue(
+      '${env:AIO_TEST_ENV_SECRET}:${file:secret.txt}:${cmd:security find-generic-password -w -s aio}',
+      {
+        cwd: dir,
+        allowCommand: true,
+        env: { AIO_TEST_ENV_SECRET: 'env-secret-never-log' },
+        runCommand: async () => ({ stdout: 'cmd-secret-never-log', stderr: '', exitCode: 0 }),
+      },
+    );
+
+    expect(resolved).toBe('env-secret-never-log:file-secret-never-log:cmd-secret-never-log');
+    const loggerCalls = Object.values(loggerSpies).flatMap((fn) => fn.mock.calls);
+    expect(loggerCalls).toHaveLength(0);
+    expect(JSON.stringify(loggerCalls)).not.toContain('never-log');
   });
 });

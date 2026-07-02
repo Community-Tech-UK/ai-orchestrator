@@ -39,16 +39,55 @@ export function redactSecrets(text: string): string {
     .replace(/api_key\s*=\s*\S+/gi, 'api_key=[REDACTED]');
 }
 
+/** Maximum branch-switch summary blocks injected into one compaction prompt. */
+const MAX_BRANCH_SUMMARIES_IN_PROMPT = 3;
+
+/** Minimal structural view of a turn for branch-summary extraction. */
+export interface BranchSummarySourceTurn {
+  readonly content: string;
+  readonly metadata?: Record<string, unknown>;
+}
+
+const BRANCH_SUMMARY_BLOCK_PATTERN = /<branch_switch_summary>[\s\S]*?<\/branch_switch_summary>/g;
+
+/**
+ * Collect branch-switch summary blocks from the turns about to be compacted so
+ * the summarizer can preserve cross-branch context. Blocks arrive either as
+ * whole turns flagged `kind: 'branch-summary'` (ledger branch-summary events)
+ * or embedded inside a turn's content (continuity/rebuild preambles). Returns
+ * the most recent blocks, oldest first, bounded to keep the prompt small.
+ */
+export function extractBranchSummaryBlocks(
+  turns: readonly BranchSummarySourceTurn[],
+): string[] {
+  const blocks: string[] = [];
+  for (const turn of turns) {
+    if (turn.metadata?.['kind'] === 'branch-summary') {
+      blocks.push(turn.content.trim());
+      continue;
+    }
+    const embedded = turn.content.match(BRANCH_SUMMARY_BLOCK_PATTERN);
+    if (embedded) {
+      blocks.push(...embedded.map((block) => block.trim()));
+    }
+  }
+  return blocks.slice(-MAX_BRANCH_SUMMARIES_IN_PROMPT);
+}
+
 export function buildCompactionPrompt(
   conversationText: string,
   priorSummary: string | null,
-  fileOperations: readonly FileOperation[] = []
+  fileOperations: readonly FileOperation[] = [],
+  branchSummaries: readonly string[] = []
 ): string {
   const anchorSection = priorSummary
     ? `\n\n<prior_summary>\n${priorSummary}\n</prior_summary>\n\nPreserve all decisions and state from the prior summary above as-is. Only add deltas for what changed in the new conversation turns below.\n`
     : '';
   const fileOperationSection = fileOperations.length > 0
     ? `\n\n<file_operations_observed>\n${summarizeFileOperations(fileOperations)}\n</file_operations_observed>\n\nFor "File Operations Observed": preserve the bounded list above, keeping operation kind, path, and source. Do not add paths that are not present in the turns.\n`
+    : '';
+  const branchSummarySection = branchSummaries.length > 0
+    ? `\n\n<branch_switch_summaries>\n${branchSummaries.join('\n\n')}\n</branch_switch_summaries>\n\nThe blocks above summarize work done on related conversation branches before switching here. Preserve their decisions, file paths, and unresolved work under "Critical Context" unless newer turns contradict them.\n`
     : '';
 
   return `CONTEXT COMPACTION - REFERENCE ONLY.
@@ -60,7 +99,7 @@ Use exactly these section headers (omit any section that has no relevant content
 
 ${COMPACTION_TEMPLATE_SECTIONS.join('\n')}
 ${anchorSection}
-${fileOperationSection}
+${fileOperationSection}${branchSummarySection}
 For "Completed Actions": list each tool invocation on one line as: \`<tool-name>: <exit-status-or-result-excerpt>\`. Omit bulk output — keep only the command name and outcome.
 For "Key Decisions": explain the WHY, not just what was chosen.
 For "Pending User Asks": copy every unresolved user ask or intervention verbatim; do not paraphrase, merge, or polish it.

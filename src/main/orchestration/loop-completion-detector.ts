@@ -26,6 +26,7 @@ import * as fs from 'fs';
 import { watch, type FSWatcher } from 'chokidar';
 import { getLogger } from '../logging/logger';
 import { parsePlanChecklist, LOOP_TASKS_FILE, INVESTIGATION_REPORT_FILE } from './loop-stage-machine';
+import { findSelfAssignedCaveat, findTargetedVerifyMasquerade } from './loop-anti-self-grading';
 import { parseTaskLedger } from './loop-task-ledger';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import { readUtf8FileHead } from './bounded-file-read';
@@ -303,11 +304,46 @@ export class LoopCompletionDetector {
     const artifactPaths = resolveLoopArtifactPaths(config.workspaceCwd, state.id);
 
     if (state.terminalIntentPending?.kind === 'complete' && state.terminalIntentPending.status === 'pending') {
-      out.push({
-        id: 'declared-complete',
-        sufficient: true,
-        detail: `Loop-control complete intent: ${state.terminalIntentPending.summary}`,
-      });
+      // D6 (#7): with anti-self-grading on, a complete claim is demoted to
+      // insufficient when its own summary admits a PARTIAL/caveated verdict
+      // (3b), or when its evidence cites only a *targeted* narrowing of the
+      // configured verify command (part 2) — the agent does not grade its own
+      // work; only verify / fresh-eyes do.
+      const intent = state.terminalIntentPending;
+      let demotionReason: string | null = null;
+      if (config.completion.antiSelfGrading) {
+        const caveat = findSelfAssignedCaveat(intent.summary);
+        if (caveat !== null) {
+          demotionReason = `self-assigns a partial/caveated verdict ("${caveat}")`;
+        } else {
+          const masquerade = findTargetedVerifyMasquerade(
+            intent.evidence,
+            config.completion.verifyCommand,
+          );
+          if (masquerade !== null) {
+            demotionReason =
+              `cites only a targeted verification run ("${masquerade}") — a narrowed subset of the ` +
+              `configured verify command (\`${config.completion.verifyCommand}\`) cannot stand in for the full suite`;
+          }
+        }
+      }
+      out.push(
+        demotionReason !== null
+          ? {
+              id: 'declared-complete',
+              sufficient: false,
+              detail:
+                `Loop-control complete intent ${demotionReason} — ` +
+                'only the verify flow / fresh-eyes gate issues completion verdicts, so this claim cannot ' +
+                `stop the loop. Finish the work (or defer ledger items with a reason) and declare again. ` +
+                `Summary: ${intent.summary}`,
+            }
+          : {
+              id: 'declared-complete',
+              sufficient: true,
+              detail: `Loop-control complete intent: ${intent.summary}`,
+            },
+      );
     }
 
     // Textual/sentinel/checklist completion signals are only actionable when

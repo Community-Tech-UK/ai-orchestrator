@@ -241,6 +241,20 @@ export interface LoopCompletionConfig {
    */
   maxReviewCycles?: number;
   /**
+   * D6 (#7): anti-self-grading verification hardening. When true:
+   * - a `declared-complete` intent whose summary self-assigns a PARTIAL /
+   *   caveated verdict ("partially done", "except", "couldn't run tests", …)
+   *   is demoted to insufficient — only the verify flow / fresh-eyes gate
+   *   issues completion verdicts, never the agent's own summary;
+   * - verify evidence is treated as stale when the workspace work-hash no
+   *   longer matches the hash recorded at the last passing verify
+   *   (`LoopState.lastVerifiedWorkHash`) — edit-invalidates-proof;
+   * - the iteration prompt states the verdict discipline explicitly.
+   * Default false (off): completion gating is a hot path, so the hardening is
+   * strictly opt-in per the overhaul spec's §9 guard.
+   */
+  antiSelfGrading?: boolean;
+  /**
    * Optional fresh-eyes cross-model review before accepting completion.
    *
    * When this block is explicitly set with `{ enabled: true }` and the agent
@@ -594,96 +608,9 @@ export interface LoopConfig {
   autoIntegrateWorktree?: boolean;
 }
 
-/** Default config factory. */
-export function defaultLoopConfig(workspaceCwd: string, initialPrompt: string): LoopConfig {
-  return {
-    initialPrompt,
-    // Default to undefined so legacy single-prompt loops keep their existing
-    // behaviour (initialPrompt used on every iteration). The renderer fills
-    // this in when the user types both a textarea goal and a panel directive.
-    iterationPrompt: undefined,
-    workspaceCwd,
-    provider: 'claude',
-    reviewStyle: 'debate',
-    contextStrategy: 'same-session',
-    maxTurnsPerIteration: LOOP_DEFAULT_MAX_TURNS_PER_ITERATION,
-    caps: {
-      maxIterations: DEFAULT_LOOP_MAX_ITERATIONS,
-      maxWallTimeMs: DEFAULT_LOOP_MAX_WALL_TIME_MS,
-      maxTokens: DEFAULT_LOOP_MAX_TOKENS,
-      maxCostCents: DEFAULT_LOOP_MAX_COST_CENTS,
-      maxToolCallsPerIteration: 200,
-      maxCompletionAttempts: 3,
-      // D2 (#6 interim): end capped runs with a structured hand-off iteration.
-      capWrapUpIteration: true,
-    },
-    progressThresholds: {
-      identicalHashWarnConsecutive: 2,
-      identicalHashCriticalConsecutive: 3,
-      identicalHashCriticalWindow: 3,
-      similarityWarnMean: 0.85,
-      similarityCriticalMean: 0.92,
-      stageWarnIterations: { PLAN: 3, REVIEW: 2, IMPLEMENT: 8 },
-      stageCriticalIterations: { PLAN: 5, REVIEW: 3, IMPLEMENT: 12 },
-      errorRepeatWarnInWindow: 3,
-      errorRepeatCriticalInWindow: 4,
-      tokensWithoutProgressWarn: 25_000,
-      tokensWithoutProgressCritical: 60_000,
-      // Default OFF: too many real tasks spend tokens without moving the
-      // test pass count, and the user shouldn't have to babysit the loop.
-      // Renderer panel exposes a checkbox to opt-in for tests-driven flows.
-      pauseOnTokenBurn: false,
-      toolRepeatWarnPerIteration: 5,
-      toolRepeatCriticalPerIteration: 8,
-      identicalToolCallConsecutiveCritical: 3,
-      idempotentReadRepeatWarn: 3,
-      testStagnationWarnIterations: 3,
-      testStagnationCriticalIterations: 5,
-      churnRatioWarn: 0.30,
-      churnRatioCritical: 0.50,
-      warnEscalationWindow: 5,
-      warnEscalationCount: 3,
-    },
-    semanticProgress: defaultSemanticProgressConfig(),
-    context: defaultLoopContextConfig(),
-    exploration: defaultLoopExplorationConfig(),
-    plan: defaultLoopPlanConfig(),
-    audit: defaultLoopAuditConfig(),
-    nextObjectivePlanning: defaultNextObjectivePlanningConfig(),
-    blockSanityProbe: { enabled: true, timeoutMs: 5000 },
-    degradedIterationRetry: { enabled: true, maxRetries: 2 },
-    completion: {
-      // Engine default is the legacy gated ladder so the test suite and
-      // programmatic callers are unaffected; `prepareLoopStartConfig` upgrades
-      // user-started loops to 'review-driven'.
-      mode: 'gated',
-      requiredCleanReviewPasses: 2,
-      noOutstandingPhrase: 'There are no outstanding issues',
-      maxStalledReviewIterations: 3,
-      maxLedgerStallIterations: 8,
-      completedFilenamePattern: '*_[Cc]ompleted.md',
-      donePromiseRegex: '<promise>\\s*DONE\\s*</promise>',
-      doneSentinelFile: 'DONE.txt',
-      verifyCommand: '',
-      allowOperatorReviewedCompletion: false,
-      verifyTimeoutMs: 600_000,
-      // FU-6 quick-verify defaults: undefined command means the optimization
-      // is opt-in. A 2-minute timeout reflects "should be fast or it isn't
-      // a quick verify". Callers wanting the split set both fields.
-      quickVerifyCommand: undefined,
-      quickVerifyTimeoutMs: 120_000,
-      runVerifyTwice: true,
-      requireCompletedFileRename: false,
-      // F2 (#22): coordinator-enforced REVIEW→PLAN back-edge cap. 0 disables.
-      maxReviewCycles: 10,
-    },
-    allowDestructiveOps: false,
-    initialStage: 'IMPLEMENT',
-    goalIntent: 'implementation',
-    iterationTimeoutMs: undefined,
-    streamIdleTimeoutMs: undefined,
-  };
-}
+// Fix 6 (audit-fixes plan): `defaultLoopConfig` moved to its own module for
+// LOC-ratchet headroom; re-exported here so import sites are unchanged.
+export { defaultLoopConfig } from './loop-config-defaults';
 
 export type LoopStage = 'PLAN' | 'REVIEW' | 'IMPLEMENT';
 

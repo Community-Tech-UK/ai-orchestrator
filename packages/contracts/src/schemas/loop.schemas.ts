@@ -226,6 +226,10 @@ export const LoopCompletionConfigSchema = z.object({
    *  0 disables the enforced back-edge. Mirrors
    *  `LoopCompletionConfig.maxReviewCycles`. Default 10. */
   maxReviewCycles: z.number().int().min(0).max(1000).optional(),
+  /** D6 (#7): anti-self-grading verification hardening (caveated
+   *  declared-complete demotion + stale-verify gate + prompt discipline).
+   *  Mirrors `LoopCompletionConfig.antiSelfGrading`. Default false. */
+  antiSelfGrading: z.boolean().optional(),
   /** Optional. When set, the loop coordinator runs a different CLI provider
    *  as a fresh-eyes reviewer before accepting completion. Blocking findings
    *  re-open the loop with the findings injected as user interventions. */
@@ -373,6 +377,8 @@ export const LoopToolCallRecordSchema = z.object({
   resultHash: z.string().optional(),
   success: z.boolean(),
   durationMs: z.number().int().nonnegative(),
+  /** E2 (#12): agent-declared tool timeout (ms), when present in the raw input. */
+  declaredTimeoutMs: z.number().positive().optional(),
 });
 
 export const LoopPendingInputKindSchema = z.enum(['steer', 'queue', 'follow-up']);
@@ -579,6 +585,12 @@ export const LoopStateSchema = z.object({
   /** LF-7: outcome of the most recent completion attempt. Optional for
    *  back-compat with rows persisted before the field existed. */
   lastCompletionOutcome: LoopCompletionOutcomeSchema.optional(),
+  /** D6 (#7): work-hash recorded at the last PASSING verify (edit-invalidates-
+   *  proof staleness anchor). Mirrors `LoopState.lastVerifiedWorkHash`. */
+  lastVerifiedWorkHash: z.string().optional(),
+  /** D6 (#7): cached clean fresh-eyes verdict, valid while no production file
+   *  changed since. Mirrors `LoopState.freshEyesCleanForWorkState`. */
+  freshEyesCleanForWorkState: z.boolean().optional(),
   /** B6: runtime context-window calibration learned from a provider overflow. */
   contextWindowCalibration: LoopContextWindowCalibrationSchema.optional(),
   /** LF-4: LOOP_TASKS.md fully resolved at startLoop (staleness guard).

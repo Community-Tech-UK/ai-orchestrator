@@ -16,7 +16,7 @@ import { LIMITS } from '../../shared/constants/limits';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import { Microcompact, type MicrocompactTurn, type MicrocompactResult } from './microcompact';
 import { ContextCollapse, type CollapsibleTurn, type ApplyResult } from './context-collapse';
-import { buildCompactionPrompt, redactSecrets } from './context-compaction-prompt';
+import { buildCompactionPrompt, extractBranchSummaryBlocks, redactSecrets } from './context-compaction-prompt';
 import { generateLocalSummary } from './context-local-summary';
 import { extractFileOperationsFromTurns } from './file-operation-extractor';
 import { repairOrphanedToolPairs } from './tool-pair-repair';
@@ -577,7 +577,10 @@ export class ContextCompactor extends EventEmitter {
       const compactionPrompt = buildCompactionPrompt(
         conversationText,
         priorSummary,
-        extractFileOperationsFromTurns(turns)
+        extractFileOperationsFromTurns(turns),
+        // Branch-switch summaries in the compacted window (ledger events or
+        // rebuild preambles) are re-anchored so cross-branch context survives.
+        extractBranchSummaryBlocks(turns)
       );
       const compactionSystemPrompt =
         'You are a context compaction assistant. Produce a structured summary of the provided conversation turns using the section headers given in the prompt. Be concise and preserve key decisions, file names, and pending work.';

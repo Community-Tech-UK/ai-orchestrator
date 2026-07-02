@@ -13,6 +13,14 @@ import { backfillSlotTiers, mergeMissingDefaultSlots, raiseSlotOutputBudget } fr
 import { getLogger } from '../../logging/logger';
 import { withLockSync } from '../../util/file-lock';
 import { PAUSE_SETTING_VALIDATORS, type Validator } from './settings-validators';
+import {
+  computeDirtyPaths,
+  detectConflicts,
+  mergeDirtyPaths,
+  type SettingsWriteContext,
+} from './settings-dirty-merge';
+
+export type { SettingsConflict, SettingsWriteContext } from './settings-dirty-merge';
 
 const logger = getLogger('SettingsManager');
 const SETTINGS_LOCK_TIMEOUT_MS = 5000;
@@ -79,6 +87,21 @@ export class SettingsManager extends EventEmitter {
   private store: Store<AppSettings>;
   private settingsCache: SettingsCache = { merged: null, mergedAt: 0 };
 
+  /**
+   * In-memory settings version counter, bumped after every durable write. The
+   * settings JSON has no metadata section (electron-store persists a flat
+   * `AppSettings`), so the version stays in memory and conflicts are detected
+   * by re-reading the file under the write lock.
+   */
+  private version = 0;
+
+  /**
+   * Last-known settings snapshot — baseline for dirty-path diffing and
+   * conflict detection. `null` until constructor migrations finish, so
+   * migration writes keep today's wholesale-write semantics.
+   */
+  private lastKnown: AppSettings | null = null;
+
   private validateSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): AppSettings[K] {
     const validator = PAUSE_SETTING_VALIDATORS[key] as Validator<K> | undefined;
     if (!validator) return value;
@@ -99,18 +122,58 @@ export class SettingsManager extends EventEmitter {
   }
 
   private persistSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): void {
-    this.withSettingsWriteLock(() => {
-      this.store.set(key, value);
-    });
+    this.writeDirtyFields({ [key]: value } as Partial<AppSettings>);
   }
 
-  private persistSettings(settings: Partial<AppSettings>): void {
-    if (Object.keys(settings).length === 0) {
-      return;
-    }
-    this.withSettingsWriteLock(() => {
-      this.store.set(settings);
+  /**
+   * Persist dirty fields under the settings file lock: re-read disk, detect
+   * concurrent same-field conflicts against the last-known snapshot, and merge
+   * ONLY the dirty dot-paths over the latest disk state so unrelated concurrent
+   * changes (including sibling keys of nested objects) survive.
+   *
+   * Conflict policy: attempted values win (last-write-wins, matching the
+   * pre-existing behavior); conflicts surface via the 'settings-conflict'
+   * event and a warning log after the write succeeds. Returns the per-key
+   * values actually persisted (merged) for change-event emission.
+   */
+  private writeDirtyFields(dirty: Partial<AppSettings>): Partial<AppSettings> {
+    const dirtyKeys = Object.keys(dirty) as (keyof AppSettings)[];
+    if (dirtyKeys.length === 0) return {};
+
+    const attempted = dirty as Record<string, unknown>;
+    const expected = this.lastKnown as Record<string, unknown> | null;
+    const dirtyPaths = dirtyKeys.flatMap((key) =>
+      computeDirtyPaths(String(key), attempted[String(key)], expected?.[String(key)], expected !== null));
+    const context: SettingsWriteContext = { dirtyPaths, expectedVersion: this.version };
+
+    const { conflicts, persisted } = this.withSettingsWriteLock(() => {
+      const disk = this.store.store as unknown as Record<string, unknown>;
+      const found = expected === null ? [] : detectConflicts(dirtyPaths, disk, expected, attempted);
+      const merged = mergeDirtyPaths(disk, attempted, dirtyPaths);
+      const persistedEntries = dirtyKeys.map((key) => [key, merged[String(key)]] as const);
+
+      if (persistedEntries.length === 1) {
+        this.store.set(String(persistedEntries[0][0]), persistedEntries[0][1]);
+      } else {
+        this.store.set(Object.fromEntries(persistedEntries) as Partial<AppSettings>);
+      }
+
+      this.lastKnown = merged as unknown as AppSettings;
+      this.version++;
+      return {
+        conflicts: found,
+        persisted: Object.fromEntries(persistedEntries) as Partial<AppSettings>,
+      };
     });
+
+    if (conflicts.length > 0) {
+      logger.warn('Concurrent settings write conflict; attempted values win (last-write-wins)', {
+        paths: conflicts.map((conflict) => conflict.path),
+        expectedVersion: context.expectedVersion,
+      });
+      this.emit('settings-conflict', conflicts, context);
+    }
+    return persisted;
   }
 
   private persistRawSetting(key: string, value: unknown): void {
@@ -170,6 +233,10 @@ export class SettingsManager extends EventEmitter {
     // first launch after this feature lands. This avoids an empty map showing
     // 'opus' for Claude and nothing else.
     this.seedDefaultModelByProvider();
+
+    // Baseline snapshot for field-level dirty diffing and conflict detection.
+    // Captured after migrations so migration writes stay wholesale.
+    this.lastKnown = this.store.store;
   }
 
   /**
@@ -506,10 +573,11 @@ export class SettingsManager extends EventEmitter {
     const validatedValue = this.validateSetting(key, value);
     const normalizedValue = this.normalizeSetting(key, validatedValue);
 
-    this.persistSetting(key, normalizedValue);
+    const persisted = this.writeDirtyFields({ [key]: normalizedValue } as Partial<AppSettings>);
+    const persistedValue = persisted[key] as AppSettings[K];
     this.invalidate(3);
-    this.emit('setting-changed', key, normalizedValue);
-    this.emit(`setting:${key}`, normalizedValue);
+    this.emit('setting-changed', key, persistedValue);
+    this.emit(`setting:${key}`, persistedValue);
   }
 
   /**
@@ -529,11 +597,12 @@ export class SettingsManager extends EventEmitter {
     }
 
     const normalizedSettings = Object.fromEntries(normalizedEntries) as Partial<AppSettings>;
-    this.persistSettings(normalizedSettings);
+    const persisted = this.writeDirtyFields(normalizedSettings);
     this.invalidate(3);
-    for (const [key, value] of normalizedEntries) {
-      this.emit('setting-changed', key, value);
-      this.emit(`setting:${String(key)}`, value);
+    for (const [key] of normalizedEntries) {
+      const persistedValue = persisted[key];
+      this.emit('setting-changed', key, persistedValue);
+      this.emit(`setting:${String(key)}`, persistedValue);
     }
     this.emit('settings-updated', this.getAll());
   }
@@ -575,6 +644,8 @@ export class SettingsManager extends EventEmitter {
     this.withSettingsWriteLock(() => {
       this.store.clear();
       this.store.set(DEFAULT_SETTINGS);
+      this.lastKnown = this.store.store;
+      this.version++;
     });
     for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
       const typedKey = key as keyof AppSettings;
@@ -589,10 +660,21 @@ export class SettingsManager extends EventEmitter {
    * Reset a single setting to default
    */
   resetOne<K extends keyof AppSettings>(key: K): void {
-    this.persistSetting(key, DEFAULT_SETTINGS[key]);
+    const persisted = this.writeDirtyFields(
+      { [key]: DEFAULT_SETTINGS[key] } as Partial<AppSettings>,
+    );
+    const persistedValue = persisted[key] as AppSettings[K];
     this.invalidate(3);
-    this.emit('setting-changed', key, DEFAULT_SETTINGS[key]);
-    this.emit(`setting:${key}`, DEFAULT_SETTINGS[key]);
+    this.emit('setting-changed', key, persistedValue);
+    this.emit(`setting:${key}`, persistedValue);
+  }
+
+  /**
+   * Current in-memory settings version. Bumps after every durable write;
+   * `SettingsWriteContext.expectedVersion` captures it at write time.
+   */
+  getVersion(): number {
+    return this.version;
   }
 
   /**

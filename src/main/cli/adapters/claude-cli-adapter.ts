@@ -385,6 +385,20 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     });
   }
 
+  /** D2 (#6): per-send tools-disable override; merged into --disallowedTools by buildArgs. */
+  private disallowedToolsOverride: readonly string[] | null = null;
+
+  /**
+   * D2 (#6) loop cap wrap-up: temporarily deny extra tools on the NEXT spawn
+   * (each sendMessage rebuilds argv from spawnOptions, so this takes effect
+   * per send). Pass `null` to clear. Purely additive — merged on top of the
+   * host denylist and any caller-supplied `disallowedTools`; never removes
+   * an existing restriction.
+   */
+  setDisallowedToolsOverride(tools: readonly string[] | null): void {
+    this.disallowedToolsOverride = tools && tools.length > 0 ? [...tools] : null;
+  }
+
   /** Temp dir holding inline-JSON args materialized to files on Windows. */
   private inlineArgTempDir: string | null = null;
   /** Dedup map: inline-JSON content → temp file path (stable across buildArgs calls). */
@@ -1132,6 +1146,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       new Set<string>([
         ...HOST_CLI_CLOUD_SCHEDULER_TOOLS,
         ...(this.spawnOptions.disallowedTools ?? []),
+        // D2 (#6): transient per-send override (loop cap wrap-up tools-disable).
+        ...(this.disallowedToolsOverride ?? []),
       ]),
     );
     if (disallowedTools.length > 0) {

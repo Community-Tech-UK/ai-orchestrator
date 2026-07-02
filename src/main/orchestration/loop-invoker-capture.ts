@@ -61,7 +61,17 @@ export function createLoopInvocationCapture(options: {
       const startedAt = now();
       const argsHash = hashStable(`${toolName}:${stableStringify(input ?? scrubToolDetail(detail))}`);
       const index = toolCalls.length;
-      toolCalls.push({ toolName, argsHash, success: true, durationMs: 0 });
+      // E2 (#12) capture half: persist the agent-declared timeout on the
+      // sealed record so post-hoc consumers (watchdog tuning, progress
+      // signals) can see it — the live widener below only acts in-flight.
+      const declaredTimeoutMs = extractDeclaredToolTimeoutMs(input);
+      toolCalls.push({
+        toolName,
+        argsHash,
+        success: true,
+        durationMs: 0,
+        ...(declaredTimeoutMs !== undefined ? { declaredTimeoutMs } : {}),
+      });
       pending.set(id, { id, startedAt, index });
 
       if (READ_FILE_TOOLS.has(toolName) && input) {

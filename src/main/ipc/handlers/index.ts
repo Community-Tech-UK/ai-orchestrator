@@ -61,6 +61,7 @@ export { registerConversationLedgerHandlers } from './conversation-ledger-handle
 export { registerOperatorHandlers } from './operator-handlers';
 export { registerChatHandlers } from './chat-handlers';
 export { registerRuntimePluginHandlers } from './runtime-plugin-handlers';
+export { registerProjectPluginTrustHandlers } from './project-plugin-trust-handlers';
 export { registerRtkHandlers } from './rtk-handlers';
 export { registerLoopHandlers } from './loop-handlers';
 export { registerTerminalHandlers } from './terminal-handlers';

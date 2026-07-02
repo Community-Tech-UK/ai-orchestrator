@@ -5,8 +5,9 @@
  * The goal is a stable event surface (similar to how modern coding agents expose hooks),
  * without depending on any external repo runtime code.
  *
- * Plugin locations (`.js` always; `.ts`/`.mts`/`.cts` when the manifest sets
- * `"isolation": "worker"`, since TypeScript is loaded via tsx in the worker):
+ * Plugin locations (`.js`/`.mjs`/`.cjs` always; `.ts`/`.mts`/`.cts` only when
+ * the manifest sets `"isolation": "worker"`, since TypeScript is loaded via
+ * tsx in the worker — a TypeScript entrypoint is never imported in-process):
  * - `~/.orchestrator/plugins/**`
  * - `<project-scan-root>/.orchestrator/plugins/**`
  *
@@ -387,11 +388,14 @@ export class OrchestratorPluginManager {
         if (!entry.isFile()) continue;
         const lower = entry.name.toLowerCase();
         // Declaration files are never plugin entrypoints.
-        if (lower.endsWith('.d.ts')) continue;
-        // Task 17: discover `.ts`/`.mts`/`.cts` alongside `.js`. TS entrypoints
-        // are accepted only in worker isolation (enforced at load time below).
+        if (lower.endsWith('.d.ts') || lower.endsWith('.d.mts') || lower.endsWith('.d.cts')) continue;
+        // Task 17: discover `.ts`/`.mts`/`.cts` alongside `.js`/`.mjs`/`.cjs`.
+        // TS entrypoints are accepted only in worker isolation (enforced at
+        // load time below).
         if (
           lower.endsWith('.js') ||
+          lower.endsWith('.mjs') ||
+          lower.endsWith('.cjs') ||
           lower.endsWith('.ts') ||
           lower.endsWith('.mts') ||
           lower.endsWith('.cts')

@@ -11,6 +11,8 @@ describe('classifyPluginEntrypoint', () => {
 
   it('classifies everything else as JavaScript', () => {
     expect(classifyPluginEntrypoint('/p/index.js')).toBe('javascript');
+    expect(classifyPluginEntrypoint('/p/index.mjs')).toBe('javascript');
+    expect(classifyPluginEntrypoint('/p/index.cjs')).toBe('javascript');
     expect(classifyPluginEntrypoint('/p/index')).toBe('javascript');
   });
 });
@@ -19,6 +21,11 @@ describe('dedupePluginEntrypoints', () => {
   it('prefers the .js sibling over a same-stem .ts', () => {
     const out = dedupePluginEntrypoints(['/p/a/index.ts', '/p/a/index.js']);
     expect(out).toEqual(['/p/a/index.js']);
+  });
+
+  it('prefers a compiled .mjs/.cjs sibling over a same-stem .ts', () => {
+    expect(dedupePluginEntrypoints(['/p/a/index.ts', '/p/a/index.mjs'])).toEqual(['/p/a/index.mjs']);
+    expect(dedupePluginEntrypoints(['/p/a/index.cts', '/p/a/index.cjs'])).toEqual(['/p/a/index.cjs']);
   });
 
   it('keeps a lone .ts entrypoint', () => {

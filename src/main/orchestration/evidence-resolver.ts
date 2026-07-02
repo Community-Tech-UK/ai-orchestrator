@@ -113,6 +113,28 @@ export interface EvidenceInput {
   finalAuditStatus: LoopAuditStatus;
   /** Final audit findings; used only for human-readable reasons. */
   finalAuditFindings: LoopAuditFinding[];
+  /**
+   * D6 (#7): `config.completion.antiSelfGrading`. Gates the stale-verify
+   * (edit-invalidates-proof) rung below. Optional — absent means off, so
+   * existing callers are unaffected.
+   */
+  antiSelfGrading?: boolean;
+  /**
+   * D6 (#7): the work-hash of the iteration under decision
+   * (`iteration.workHash` — the structural fingerprint of what the iteration
+   * did). Optional; the stale-verify rung fails open when absent.
+   */
+  currentWorkHash?: string | null;
+  /**
+   * D6 (#7): `state.lastVerifiedWorkHash` — the work-hash recorded when the
+   * verify command last PASSED. Wiring contract: record it AFTER a fresh
+   * passing verify for the current attempt (in which case it equals
+   * `currentWorkHash` and the rung is a no-op), and pass the PRIOR recorded
+   * value whenever a `verifyStatus: 'passed'` is carried over from an earlier
+   * run/attempt instead of being re-run — that is the reuse the rung rejects.
+   * Optional; the rung fails open when absent (never recorded / not wired).
+   */
+  lastVerifiedWorkHash?: string | null;
 }
 
 /** Possible decisions the resolver can return. */
@@ -181,6 +203,24 @@ function signalTier(id: CompletionSignalId): 3 | 4 {
 }
 
 /**
+ * D6 (#7) edit-invalidates-proof: a passing verify only proves the work state
+ * it ran against. When the workspace work-hash no longer matches the hash
+ * recorded at the last passing verify, the recorded proof is STALE and cannot
+ * satisfy the completion gate until verify is re-run.
+ *
+ * Fails OPEN (not stale) when either hash is absent — an unwired caller or a
+ * loop that has never had a passing verify must behave exactly as before.
+ * Pure + exported for coordinator wiring and unit tests.
+ */
+export function isVerifyEvidenceStale(args: {
+  currentWorkHash: string | null | undefined;
+  lastVerifiedWorkHash: string | null | undefined;
+}): boolean {
+  if (!args.currentWorkHash || !args.lastVerifiedWorkHash) return false;
+  return args.currentWorkHash !== args.lastVerifiedWorkHash;
+}
+
+/**
  * Resolve the completion decision from fully-gathered evidence.
  *
  * This is a pure function — call it with all evidence already in hand and
@@ -191,6 +231,9 @@ function signalTier(id: CompletionSignalId): 3 | 4 {
  *   1. No sufficient signal → continue (no-op).
  *   2. quick-verify failed → continue (verify-failed).
  *   3. full verify failed → continue (verify-failed).
+ *   3b. D6 anti-self-grading: verify passed but the work-hash no longer
+ *       matches the hash recorded at that pass (edit-invalidates-proof) →
+ *       continue (verify-failed) until verify is re-run.
  *   4. verify skipped AND no clean fresh-eyes verdict (review disabled or
  *      reviewer unavailable) → pause-operator-review (unverifiable).
  *   5. authority present (verify passed, OR verify skipped + a fresh-eyes
@@ -242,6 +285,31 @@ export function resolveCompletion(input: EvidenceInput): EvidenceResolution {
       reason: `${label} failed`,
       needsReviewReason: null,
       convergenceNote: `${label} failed`,
+    };
+  }
+
+  // --- D6 (#7): stale verify evidence (edit-invalidates-proof) ---
+  // A 'passed' verify only satisfies the gate while the workspace still
+  // matches the work-hash recorded at that pass. Any later edit invalidates
+  // the proof; the gate treats it like a failed verify (continue, re-run)
+  // rather than silently accepting stale evidence. Opt-in via
+  // `completion.antiSelfGrading`; fails open when the hashes are not wired.
+  if (
+    input.antiSelfGrading === true
+    && input.verifyStatus === 'passed'
+    && isVerifyEvidenceStale({
+      currentWorkHash: input.currentWorkHash,
+      lastVerifiedWorkHash: input.lastVerifiedWorkHash,
+    })
+  ) {
+    return {
+      decision: 'continue',
+      authorityTier: tier,
+      outcome: 'verify-failed',
+      signalId: candidate.id,
+      reason: 'verify evidence is stale — the workspace changed after the last passing verify; verify must be re-run against the current work state',
+      needsReviewReason: null,
+      convergenceNote: 'verify evidence stale (workspace changed after last passing verify)',
     };
   }
 

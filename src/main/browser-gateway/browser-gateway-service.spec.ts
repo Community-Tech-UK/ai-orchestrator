@@ -481,6 +481,115 @@ describe('BrowserGatewayService', () => {
     });
   });
 
+  it('auto-approves submit-classified actions for YOLO instances with a usable autonomous grant', async () => {
+    const { service, driver, grants, approvalRequests } = makeService({
+      autoApproveRequests: ({ instanceId }) => instanceId === 'instance-1',
+    });
+    driver.inspectElement.mockResolvedValueOnce({
+      role: 'button',
+      accessibleName: 'Save changes',
+    });
+
+    const result = await service.click({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      selector: 'button.save',
+      instanceId: 'instance-1',
+      provider: 'codex',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+    });
+    expect(driver.click).toHaveBeenCalledWith('profile-1', 'target-1', 'button.save');
+    // The auto-approved grant must be autonomous or the submit-class recheck
+    // would immediately reject it and re-prompt the user despite yolo.
+    expect(grants[0]).toMatchObject({
+      mode: 'per_action',
+      instanceId: 'instance-1',
+      allowedActionClasses: ['submit'],
+      autonomous: true,
+    });
+    expect(approvalRequests).toHaveLength(1);
+  });
+
+  it('creates a usable grant when the user approves a submit action per_action', async () => {
+    const { service, driver, grants, approvalRequests } = makeService();
+    driver.inspectElement.mockResolvedValue({
+      role: 'button',
+      accessibleName: 'Save changes',
+    });
+
+    const first = await service.click({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      selector: 'button.save',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    });
+    expect(first).toMatchObject({
+      decision: 'requires_user',
+      outcome: 'not_run',
+    });
+
+    // Approve with the dialog default: the proposed per_action grant.
+    await service.approveRequest({
+      requestId: approvalRequests[0].requestId,
+      grant: approvalRequests[0].proposedGrant,
+      reason: 'Approved from session page',
+    });
+    expect(grants[0]).toMatchObject({
+      mode: 'per_action',
+      allowedActionClasses: ['submit'],
+      autonomous: true,
+    });
+
+    const retry = await service.click({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      selector: 'button.save',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    });
+    expect(retry).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+    });
+    expect(driver.click).toHaveBeenCalledWith('profile-1', 'target-1', 'button.save');
+  });
+
+  it('auto-approves a grant change between preparation and execution for YOLO instances', async () => {
+    const grant = makeGrant({ mode: 'per_action' });
+    const { service, driver, grantStore, approvalStore } = makeService({
+      grants: [grant],
+      autoApproveRequests: ({ instanceId }) => instanceId === 'instance-1',
+    });
+    // First lookup (preparation) sees the grant; every later lookup (the
+    // pre-execution recheck) sees it gone, simulating a revocation race.
+    grantStore.listGrants
+      .mockImplementationOnce(() => [grant])
+      .mockImplementation(() => []);
+
+    const result = await service.click({
+      profileId: 'profile-1',
+      targetId: 'target-1',
+      selector: 'button.continue',
+      instanceId: 'instance-1',
+      provider: 'copilot',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'succeeded',
+    });
+    expect(driver.click).toHaveBeenCalledWith('profile-1', 'target-1', 'button.continue');
+    expect(approvalStore.resolveRequest).toHaveBeenCalledWith('request-1', {
+      status: 'approved',
+      grantId: 'grant-2',
+    });
+  });
+
   it('installs auto-approval when the singleton already exists before runtime initialization', async () => {
     BrowserGatewayService._resetForTesting();
     const { service, driver, approvalStore, grants } = makeService({

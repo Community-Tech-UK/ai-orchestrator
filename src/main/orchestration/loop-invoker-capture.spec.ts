@@ -33,7 +33,7 @@ describe('createLoopInvocationCapture', () => {
     capture.recordActivity({
       kind: 'tool_use',
       message: 'Using tool: Bash',
-      detail: { id: 'bash-1', name: 'Bash', input: { command: 'npm test' } },
+      detail: { id: 'bash-1', name: 'Bash', input: { command: 'npm test', timeout: 1_200_000 } },
     });
     timestamp = 175;
     capture.recordActivity({
@@ -59,9 +59,28 @@ describe('createLoopInvocationCapture', () => {
           argsHash: expect.any(String),
           success: true,
           durationMs: 25,
+          // E2 (#12) capture half: agent-declared timeout persisted on the record.
+          declaredTimeoutMs: 1_200_000,
         },
       ],
     });
+  });
+
+  it('omits declaredTimeoutMs when the tool call declares none or an insane value', () => {
+    const capture = createLoopInvocationCapture({ workspaceDir: '/workspace/project', now: () => 0 });
+    capture.recordActivity({
+      kind: 'tool_use',
+      message: 'Using tool: Bash',
+      detail: { id: 'b1', name: 'Bash', input: { command: 'ls' } },
+    });
+    capture.recordActivity({
+      kind: 'tool_use',
+      message: 'Using tool: Bash',
+      detail: { id: 'b2', name: 'Bash', input: { command: 'ls', timeout: MAX_DECLARED_TOOL_TIMEOUT_MS + 1 } },
+    });
+    for (const record of capture.finalize().toolCalls) {
+      expect(record.declaredTimeoutMs).toBeUndefined();
+    }
   });
 });
 

@@ -467,6 +467,13 @@ export class LoopStageMachine {
     3. If a plan file exists, rename it before declaring done: \`mv ${config.planFile ?? '<plan-file>'} ${(config.planFile ?? '<plan-file>').replace(/\.md$/, '_Completed.md')}\` (or use git mv if applicable).
     4. Write \`${doneRel}\` containing the date — this durable sentinel is required for no-plan loops.
     5. Append \`<promise>DONE</promise>\` on its own line at the end of your output only after the durable marker above exists.`;
+    // D6 (#7) "only the verifier issues a verdict": when anti-self-grading is
+    // on, tell the agent up front that a caveated complete-claim is demoted —
+    // so it declares cleanly (or defers ledger items) instead of burning a
+    // completion attempt on a claim the detector will reject.
+    const verdictDisciplineBlock = config.completion.antiSelfGrading
+      ? '\n\n## Verdict Discipline (anti-self-grading)\nOnly the verify command / fresh-eyes review issues completion verdicts — never your own summary. Do NOT declare completion with a partial or caveated claim ("partially done", "complete except …", "couldn\'t run the tests"): a caveated `complete` declaration is automatically demoted and will not stop the loop. If work remains, keep iterating or mark the ledger item `[-]` deferred with a reason, and declare complete only when the claim is unqualified.\n'
+      : '';
     const freshEyesReviewBlock = config.completion.crossModelReview?.enabled
       ? `\n\n## Fresh-Eyes Review Gate\nFresh-eyes review is enabled: when you declare done, the coordinator will run an independent cross-model review. Any ${config.completion.crossModelReview.blockingSeverities.join('/')} severity finding is automatically injected as a user intervention here in the prompt, and the loop continues with you addressing it. If you address every intervention and the reviewer has no further blocking findings, the loop accepts completion.\n`
       : '';
@@ -523,7 +530,7 @@ All loop-owned state files for THIS run live in \`${sd}/\` (absolute path — va
 2. Open ${planRef}.
 3. Open \`${notesRel}\`. It contains the rolling notes from prior iterations.
 4. Open \`${logRel}\` if you need detailed per-iteration history.
-5. Open \`${tasksRel}\` — the structured task ledger. For a multi-item goal, list every concrete work item there as a markdown checkbox and keep it current: \`[ ]\` todo, \`[~]\` in progress, \`[x]\` done, \`[-] … — deferred: <why>\`. **The loop stops only when every ledger item is \`[x]\` or \`[-]\` (with a reason) AND verify passes** — so an item you can't finish must be explicitly deferred with a reason, not left \`[ ]\`. (If no plan file is configured and the goal is broad, you may instead keep a \`## Completion Inventory\` in \`${notesRel}\`, but the ledger is preferred because the loop reads it as the source of truth for stopping.)${reanchorBlock}${planPacketBlock}${investigationBlock}${uncompletedPlansBlock}${freshEyesReviewBlock}${manualReviewBlock}${priorObservationsBlock}${interventions}${promptBlocks}
+5. Open \`${tasksRel}\` — the structured task ledger. For a multi-item goal, list every concrete work item there as a markdown checkbox and keep it current: \`[ ]\` todo, \`[~]\` in progress, \`[x]\` done, \`[-] … — deferred: <why>\`. **The loop stops only when every ledger item is \`[x]\` or \`[-]\` (with a reason) AND verify passes** — so an item you can't finish must be explicitly deferred with a reason, not left \`[ ]\`. (If no plan file is configured and the goal is broad, you may instead keep a \`## Completion Inventory\` in \`${notesRel}\`, but the ledger is preferred because the loop reads it as the source of truth for stopping.)${reanchorBlock}${planPacketBlock}${investigationBlock}${uncompletedPlansBlock}${verdictDisciplineBlock}${freshEyesReviewBlock}${manualReviewBlock}${priorObservationsBlock}${interventions}${promptBlocks}
 
 ## Step 2 — Do this iteration's work
 

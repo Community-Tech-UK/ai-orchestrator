@@ -41,6 +41,7 @@ import {
 } from '../../shared/types/orchestration-invocation.types';
 import type { z } from 'zod';
 import { buildLoopInvocationErrorPayload, logInvocationFailure } from './loop-invocation-error-payload';
+import { applyWrapUpToolsDisable } from './loop-tools-disable';
 
 const logger = getLogger('DefaultInvokers');
 
@@ -259,6 +260,9 @@ async function invokeCliTextResponse(params: {
   activeTimeoutMs?: number;
   /** Hidden loop workers cannot ask the user; ordinary clarification prompts get an autonomous response. */
   autoAnswerInputRequired?: boolean;
+  /** D2 (#6): deny tool use for this send (cap wrap-up). Enforced where the
+   *  adapter supports it (claude); otherwise prompt-only fallback. */
+  disableTools?: boolean;
   permissionHookPath?: string;
   env?: Record<string, string>;
   rtk?: UnifiedSpawnOptions['rtk'];
@@ -362,6 +366,14 @@ async function invokeCliTextResponse(params: {
           autoAnswerInputRequired: params.autoAnswerInputRequired,
         })
       : () => { /* noop */ };
+    // D2 (#6): adapter-enforced tools-disable for the cap wrap-up send; reused
+    // adapters get the override cleared in `finally`. Providers without a
+    // mechanism fall back to the prompt-only wrap-up directive (per-provider
+    // matrix in loop-tools-disable.ts).
+    const toolsDisable = params.disableTools ? applyWrapUpToolsDisable(adapter) : null;
+    if (params.disableTools && !toolsDisable?.applied) {
+      logger.info('disableTools requested but adapter has no tools-disable mechanism; prompt-only wrap-up', { cliType });
+    }
     params.activity?.({
       kind: ownsAdapter ? 'spawned' : 'status',
       message: ownsAdapter
@@ -400,6 +412,7 @@ async function invokeCliTextResponse(params: {
           metadata: sendMetadata,
         });
     } finally {
+      toolsDisable?.restore();
       detachActivity();
       // Caller owns the lifecycle when reusing an adapter (same-session
       // loops keep it alive across iterations and tear it down on terminate).
@@ -1243,6 +1256,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       loopControlEnv?: Record<string, string>;
       // LF-4 RPI: recycle the same-session adapter before this iteration runs.
       forceContextReset?: boolean;
+      /** D2 (#6): cap wrap-up runs this iteration with tools disabled (optional; default off). */
+      disableTools?: boolean;
     }
     const p = payload as Payload;
     if (!p?.callback || typeof p.callback !== 'function') {
@@ -1456,6 +1471,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         continueWhileActiveOnTimeout: true,
         activeTimeoutMs: loopActiveTimeoutMs,
         autoAnswerInputRequired: true,
+        disableTools: p.disableTools === true,
         env: p.loopControlEnv,
         reusedAdapter,
         activity: emitActivity,

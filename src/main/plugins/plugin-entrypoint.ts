@@ -12,7 +12,7 @@ export type PluginEntrypointKind = 'javascript' | 'typescript';
 /**
  * Classify a plugin entrypoint by extension. TypeScript entrypoints (`.ts`,
  * `.mts`, `.cts`) can only be loaded in worker isolation (where tsx is
- * registered); everything else is treated as JavaScript.
+ * registered); everything else (`.js`, `.mjs`, `.cjs`, …) is JavaScript.
  */
 export function classifyPluginEntrypoint(filePath: string): PluginEntrypointKind {
   const lower = filePath.toLowerCase();

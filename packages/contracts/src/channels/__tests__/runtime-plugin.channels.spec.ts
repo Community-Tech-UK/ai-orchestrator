@@ -10,4 +10,10 @@ describe('RUNTIME_PLUGIN_CHANNELS', () => {
     expect(RUNTIME_PLUGIN_CHANNELS.RUNTIME_PLUGINS_PRUNE).toBe('runtime-plugins:prune');
     expect(RUNTIME_PLUGIN_CHANNELS.RUNTIME_PLUGINS_UNINSTALL).toBe('runtime-plugins:uninstall');
   });
+
+  it('defines project plugin trust channels', () => {
+    expect(RUNTIME_PLUGIN_CHANNELS.PROJECT_PLUGIN_TRUST_QUERY).toBe('project-plugin-trust:query');
+    expect(RUNTIME_PLUGIN_CHANNELS.PROJECT_PLUGIN_TRUST_GRANT).toBe('project-plugin-trust:grant');
+    expect(RUNTIME_PLUGIN_CHANNELS.PROJECT_PLUGIN_TRUST_REVOKE).toBe('project-plugin-trust:revoke');
+  });
 });

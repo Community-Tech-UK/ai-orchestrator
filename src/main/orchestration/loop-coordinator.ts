@@ -86,10 +86,6 @@ import { EvidenceStore } from './evidence-store';
 import { summarizeVerifyOutput } from './verify-output-summarizer';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import {
-  computeCompletionEvidenceHash,
-  pushBoundedEvidence,
-} from './review-thread-fingerprint';
-import {
   defaultFreshEyesReviewer,
   type FreshEyesReviewer,
 } from './loop-fresh-eyes-reviewer';
@@ -153,6 +149,7 @@ import {
   evaluateReviewDrivenCompletion as evaluateReviewDrivenCompletionGate,
   isReviewDrivenProductionChange,
   runFreshEyesReviewGate as runFreshEyesReviewGateHelper,
+  trackRepeatedCompletionEvidence,
   type FreshEyesGateResult,
 } from './loop-coordinator-completion-gates';
 import {
@@ -176,6 +173,7 @@ import {
   preflightBlockedSignal,
   rememberLoopTerminalIntent,
   readBlockedFileIfPresent as readBlockedFileIfPresentHelper,
+  reconcileRestoredLoopState,
   resourceGovernorPauseSignal,
   syntheticChildResultFromTerminalIntent as syntheticChildResultFromTerminalIntentHelper,
 } from './loop-coordinator-state-helpers';
@@ -1049,28 +1047,11 @@ export class LoopCoordinator extends EventEmitter {
       return existing;
     }
     state.config = materializeLoopConfig(state.config);
-    // Ping-pong crash-restore reconciliation (bigchange_pingpong_review §4.12):
-    // a reviewer instance that was mid-run at crash is dead. NEVER resume
-    // pointing at its instance id — drop the in-flight pointer so the next
-    // builder done-declaration re-runs that round fresh. The interrupted round
-    // was never counted (roundCount only increments on a reliable verdict), so
-    // no double-counting occurs.
-    if (state.pingPong?.inFlightReviewerInstanceId) {
-      logger.info('Loop restore: dropping in-flight ping-pong reviewer (crash reconciliation)', {
-        id: state.id,
-        staleReviewerInstanceId: state.pingPong.inFlightReviewerInstanceId,
-        round: state.pingPong.inFlightRound,
-      });
-      state.pingPong.inFlightReviewerInstanceId = undefined;
-      state.pingPong.inFlightRound = undefined;
-    }
-    if (state.status === 'running') {
-      state.status = 'paused';
-      state.endReason = state.endReason ?? 'app-restart';
-      logger.info('Loop restore: treating running checkpoint as interrupted paused state', {
-        id: state.id,
-        inFlightSeq: state.inFlightIteration?.seq,
-      });
+    // Crash-restore reconciliation (ping-pong in-flight drop, running→paused,
+    // D6 fresh-eyes cache clear) — see reconcileRestoredLoopState for the rules.
+    const reconciliationNotes = reconcileRestoredLoopState(state);
+    for (const note of reconciliationNotes) {
+      logger.info(`Loop restore: ${note}`, { id: state.id });
     }
     if (state.status === 'provider-limit' && state.endedAt != null) {
       throw new Error('Cannot restore terminal provider-limit loop checkpoint');
@@ -2168,6 +2149,15 @@ export class LoopCoordinator extends EventEmitter {
         transcriptBound: childResult.transcriptBound ?? false,
       };
 
+      // D6 (#7) part 3: any production-file change invalidates the cached
+      // clean fresh-eyes verdict (edit-invalidates-proof for reviews).
+      if (
+        state.freshEyesCleanForWorkState
+        && iteration.filesChanged.some((f) => isReviewDrivenProductionChange(f.path))
+      ) {
+        state.freshEyesCleanForWorkState = false;
+      }
+
       // -- update state aggregates pre-detection --
       state.totalIterations = seq + 1;
       state.totalTokens += tokens;
@@ -2352,6 +2342,15 @@ export class LoopCoordinator extends EventEmitter {
 
         const finalAudit = await runLoopFinalAudit(state, iteration, v2.status, stageMachine);
 
+        // D6 (#7) edit-invalidates-proof: a fresh passing verify (re)anchors
+        // the staleness fingerprint. The resolver rejects any 'passed' status
+        // whose recorded anchor no longer matches the current work-hash — a
+        // carried-over pass (restored run / future re-verify skip) can't
+        // satisfy the gate after the workspace changed.
+        if (v2.status === 'passed') {
+          state.lastVerifiedWorkHash = iteration.workHash;
+        }
+
         // --- evidence-precedence resolution ---
         const resolution = resolveCompletion({
           signals: completionSignals,
@@ -2370,6 +2369,9 @@ export class LoopCoordinator extends EventEmitter {
           finalAuditMode: state.config.audit.finalAuditMode,
           finalAuditStatus: finalAudit.status,
           finalAuditFindings: finalAudit.findings,
+          antiSelfGrading: state.config.completion.antiSelfGrading === true,
+          currentWorkHash: iteration.workHash,
+          lastVerifiedWorkHash: state.lastVerifiedWorkHash ?? null,
         });
 
         // --- map resolution to coordinator actions ---
@@ -2386,34 +2388,17 @@ export class LoopCoordinator extends EventEmitter {
           resolution,
         });
 
-        // claude2_todo #1c: record this attempt's *evidence hash* into a bounded
-        // ring buffer. Identical evidence (same trigger signal, same verify
-        // outcome, same belt-and-braces state, same unresolved review threads)
-        // re-presented across attempts climbs `repeatedEvidenceCount`; the count
-        // only resets when the evidence actually changes — so unchanged weak
-        // evidence can't masquerade as progress. We surface a stuck-evidence
-        // note (it feeds describeCapReason) when the same evidence repeats.
-        const evidenceHash = computeCompletionEvidenceHash({
-          candidateId: candidate.id,
+        // claude2_todo #1c: bounded evidence-hash ring buffer — identical weak
+        // evidence re-presented across attempts surfaces a stuck-evidence note
+        // (see trackRepeatedCompletionEvidence in loop-coordinator-completion-gates).
+        trackRepeatedCompletionEvidence({
+          state,
+          candidate,
           verifyStatus: v2.status,
           beltAndBracesPassed,
-          unresolvedReviewThreads: state.unresolvedReviewThreads ?? [],
+          resolution,
+          convergenceNotes: this.convergenceNotes,
         });
-        const evidence = pushBoundedEvidence(state.recentEvidenceHashes, evidenceHash);
-        state.recentEvidenceHashes = evidence.buffer;
-        state.repeatedEvidenceCount = evidence.repeatCount;
-        if (resolution.decision === 'continue' && evidence.repeatCount >= 2) {
-          const stuck =
-            `the same completion evidence has now been presented ${evidence.repeatCount} times without change`;
-          const existingNote = this.convergenceNotes.get(state.id);
-          this.convergenceNotes.set(state.id, existingNote ? `${existingNote}; ${stuck}` : stuck);
-          logger.info('Loop completion attempt re-presented identical evidence', {
-            loopRunId: state.id,
-            signal: candidate.id,
-            repeatCount: evidence.repeatCount,
-            outcome: resolution.outcome,
-          });
-        }
 
         if (resolution.decision === 'stop') {
           stopWithSignal = candidate;
@@ -3242,6 +3227,10 @@ export class LoopCoordinator extends EventEmitter {
       loopControlEnv: control ? buildLoopControlEnv(control) : undefined,
       idempotencyKey: state.inFlightIteration?.idempotencyKey
         ?? this.iterationIdempotencyKey(state.id, state.totalIterations),
+      // D2 (#6): the cap wrap-up turn runs with new-work tools disabled where
+      // the provider supports enforcement (bookkeeping tools stay available —
+      // the directive requires LOOP_TASKS.md/NOTES.md updates).
+      disableTools: this.capWrapUpRuns.has(state.id),
     });
   }
 

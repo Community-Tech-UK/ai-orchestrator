@@ -47,6 +47,38 @@ describe('lifecycle trace', () => {
     });
   });
 
+  it('redacts secrets from metadata and error fields before writing (Task 14)', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lifecycle-trace-'));
+    tempDirs.push(dir);
+    const tracePath = path.join(dir, 'lifecycle.ndjson');
+    const secret = 'sk-1234567890abcdefghij';
+
+    recordLifecycleTrace({
+      instanceId: 'inst-1',
+      eventType: 'recovery',
+      errorClass: `auth failure using ${secret}`,
+      metadata: {
+        apiKey: secret,
+        detail: `request rejected: Bearer abcdef1234567890ghijkl`,
+        durationMs: 42,
+      },
+    }, tracePath);
+
+    await flushLifecycleTraces();
+
+    const contents = await fs.readFile(tracePath, 'utf8');
+    expect(contents).not.toContain(secret);
+    expect(contents).not.toContain('abcdef1234567890ghijkl');
+    const record = JSON.parse(contents.trim());
+    expect(record.errorClass).toContain('<redacted-secret>');
+    expect(record.metadata.apiKey).toBe('<redacted-secret>');
+    expect(record.metadata.detail).toContain('Bearer <redacted-secret>');
+    // Operational fields survive redaction.
+    expect(record.instanceId).toBe('inst-1');
+    expect(record.eventType).toBe('recovery');
+    expect(record.metadata.durationMs).toBe(42);
+  });
+
   it('does not reject when the trace path cannot be written', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lifecycle-trace-'));
     tempDirs.push(dir);

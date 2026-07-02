@@ -20,6 +20,13 @@ export interface InvokeLoopChildIterationInput {
   downshiftModel?: string;
   loopControlEnv?: LoopControlEnv;
   idempotencyKey: string;
+  /**
+   * D2 (#6): enforce the tools-disabled wrap-up for this iteration. Set by the
+   * coordinator only for cap wrap-up turns; the listener applies the adapter
+   * override where the provider supports one (see loop-tools-disable.ts) and
+   * falls back to the prompt-only directive elsewhere.
+   */
+  disableTools?: boolean;
 }
 
 interface LoopActivityPayload {
@@ -131,6 +138,8 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
       contextWindowTokens: contextWindowTokensForInvocation(state, input.downshiftModel),
       // LF-4 RPI: recycle the same-session context before this iteration runs.
       forceContextReset: input.forceContextReset,
+      // D2 (#6): tools-disabled wrap-up enforcement (cap wrap-up turns only).
+      disableTools: input.disableTools === true,
       callback: (result: LoopChildInvocationCallbackResult) => {
         if (settled) return;
         settled = true;

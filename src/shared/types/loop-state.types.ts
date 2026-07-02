@@ -43,6 +43,12 @@ export interface LoopToolCallRecord {
   resultHash?: string;
   success: boolean;
   durationMs: number;
+  /**
+   * E2 (#12) capture half: the timeout the agent itself declared for this
+   * call (e.g. Claude's Bash `timeout` arg, ms), when present and sane.
+   * Lets the stall watchdog widen its kill threshold for a legit long build.
+   */
+  declaredTimeoutMs?: number;
 }
 
 export type LoopVerifyFailureKind = 'command' | 'timeout' | 'infra';
@@ -335,6 +341,15 @@ export interface LoopState {
   announceThenHaltNudgeCount?: number;
   lastCompletionOutcome?: LoopCompletionOutcome;
   /**
+   * D6 (#7) edit-invalidates-proof: the iteration work-hash recorded when the
+   * verify command last PASSED at the completion gate. Verify evidence only
+   * satisfies the gate while the workspace still matches this fingerprint —
+   * any later edit makes the recorded proof stale until verify is re-run.
+   * Undefined until the first passing verify (or while `antiSelfGrading` is
+   * off / the recording seam is not wired).
+   */
+  lastVerifiedWorkHash?: string;
+  /**
    * B6: provider/model context window learned from a context-overflow response.
    * Runtime state, not immutable config; reused by LF-1 context discipline so
    * the next same-session recycle decision uses the server-reported window.
@@ -378,5 +393,14 @@ export interface LoopState {
    */
   justCompacted?: { seq: number; reason: string };
   freshEyesForcedByContradiction?: boolean;
+  /**
+   * D6 (#7) part 3: true while the last fresh-eyes gate review ran CLEAN and
+   * no production file has changed since. Lets a completion attempt from a
+   * status/summary-only iteration reuse the verdict (instant ALLOW, gated on
+   * `completion.antiSelfGrading`) instead of re-running a multi-minute
+   * cross-model review. Set only by a real clean review; cleared by the
+   * coordinator on any later production-file change and by a blocked review.
+   */
+  freshEyesCleanForWorkState?: boolean;
   pingPong?: LoopPingPongState;
 }

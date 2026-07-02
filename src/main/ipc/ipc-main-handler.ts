@@ -97,6 +97,7 @@ import {
   registerChatHandlers,
   registerOperatorHandlers,
   registerRuntimePluginHandlers,
+  registerProjectPluginTrustHandlers,
   registerRtkHandlers,
   registerLoopHandlers,
   registerTerminalHandlers,
@@ -448,6 +449,7 @@ export class IpcMainHandler {
     registerChatHandlers({ instanceManager: this.instanceManager });
     registerOperatorHandlers();
     registerRuntimePluginHandlers();
+    registerProjectPluginTrustHandlers();
 
     // Set up event forwarding to renderer
     setupIpcEventForwarding({

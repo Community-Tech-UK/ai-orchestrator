@@ -12,6 +12,7 @@ import {
   cloneLoopStateForBroadcast,
   firstExistingBlockedFile,
   materializeLoopConfig,
+  reconcileRestoredLoopState,
 } from './loop-coordinator-state-helpers';
 
 function stateWithTokens(totalTokens: number, maxTokens: number | null): LoopState {
@@ -189,5 +190,74 @@ describe('firstExistingBlockedFile — P1 BLOCKED.md scope guard', () => {
     // Isolated loop must NOT find the root file (it would pause the wrong loop).
     const result = await firstExistingBlockedFile(makeState(true));
     expect(result).toBeNull();
+  });
+});
+
+describe('reconcileRestoredLoopState', () => {
+  function makeRestoredState(over: Partial<LoopState> = {}): LoopState {
+    const config = defaultLoopConfig('/tmp/ws', 'test goal');
+    return {
+      id: 'loop-restore-test',
+      chatId: 'chat-1',
+      config,
+      status: 'paused',
+      startedAt: 1,
+      endedAt: null,
+      totalIterations: 0,
+      totalTokens: 0,
+      totalCostCents: 0,
+      currentStage: 'IMPLEMENT',
+      pendingInterventions: [],
+      completedFileRenameObserved: false,
+      doneSentinelPresentAtStart: false,
+      planChecklistFullyCheckedAtStart: false,
+      uncompletedPlanFilesAtStart: [],
+      manualReviewOnly: false,
+      tokensSinceLastTestImprovement: 0,
+      highestTestPassCount: 0,
+      iterationsOnCurrentStage: 0,
+      recentWarnIterationSeqs: [],
+      completionAttempts: 0,
+      loopTasksLedgerResolvedAtStart: false,
+      ...over,
+    };
+  }
+
+  it('pauses an interrupted running checkpoint and notes it', () => {
+    const state = makeRestoredState({ status: 'running' });
+    const notes = reconcileRestoredLoopState(state);
+    expect(state.status).toBe('paused');
+    expect(state.endReason).toBe('app-restart');
+    expect(notes.some((n) => n.includes('interrupted paused state'))).toBe(true);
+  });
+
+  it('clears the cached clean fresh-eyes verdict fail-closed (D6 #7)', () => {
+    const state = makeRestoredState({
+      freshEyesCleanForWorkState: true,
+      lastVerifiedWorkHash: 'anchor-hash',
+    });
+    const notes = reconcileRestoredLoopState(state);
+    expect(state.freshEyesCleanForWorkState).toBe(false);
+    // The staleness anchor must SURVIVE restore (clearing it would fail open).
+    expect(state.lastVerifiedWorkHash).toBe('anchor-hash');
+    expect(notes.some((n) => n.includes('fresh-eyes'))).toBe(true);
+  });
+
+  it('drops an in-flight ping-pong reviewer pointer', () => {
+    const state = makeRestoredState({
+      pingPong: {
+        roundCount: 2,
+        inFlightReviewerInstanceId: 'reviewer-9',
+        inFlightRound: 3,
+      } as LoopState['pingPong'],
+    });
+    const notes = reconcileRestoredLoopState(state);
+    expect(state.pingPong?.inFlightReviewerInstanceId).toBeUndefined();
+    expect(state.pingPong?.inFlightRound).toBeUndefined();
+    expect(notes.some((n) => n.includes('reviewer-9'))).toBe(true);
+  });
+
+  it('returns no notes for an already-clean paused state', () => {
+    expect(reconcileRestoredLoopState(makeRestoredState())).toEqual([]);
   });
 });

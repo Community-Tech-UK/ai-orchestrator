@@ -129,6 +129,48 @@ export function cloneLoopStateForBroadcast(s: LoopState): LoopState {
   };
 }
 
+/**
+ * Crash-restore reconciliation applied to a checkpointed LoopState before it
+ * re-enters the active map. Pure state mutation; returns human-readable notes
+ * for the caller to log. Three rules:
+ *
+ * 1. Ping-pong (bigchange_pingpong_review §4.12): a reviewer instance that was
+ *    mid-run at crash is dead. NEVER resume pointing at its instance id — drop
+ *    the in-flight pointer so the next builder done-declaration re-runs that
+ *    round fresh. The interrupted round was never counted (roundCount only
+ *    increments on a reliable verdict), so no double-counting occurs.
+ * 2. A 'running' checkpoint is an interrupted run — restore it as paused.
+ * 3. D6 (#7) part 3, fail-closed: the cached clean fresh-eyes verdict is only
+ *    valid while the coordinator OBSERVES every production change. While the
+ *    app was down the workspace could have changed unobserved, so a restored
+ *    loop must re-earn the verdict with a real review. (lastVerifiedWorkHash
+ *    deliberately survives restore — it is the staleness ANCHOR the resolver
+ *    compares against; clearing it would fail open, not closed.)
+ */
+export function reconcileRestoredLoopState(state: LoopState): string[] {
+  const notes: string[] = [];
+  if (state.pingPong?.inFlightReviewerInstanceId) {
+    notes.push(
+      `dropped in-flight ping-pong reviewer ${state.pingPong.inFlightReviewerInstanceId}` +
+      ` (round ${state.pingPong.inFlightRound ?? '?'}) — crash reconciliation`,
+    );
+    state.pingPong.inFlightReviewerInstanceId = undefined;
+    state.pingPong.inFlightRound = undefined;
+  }
+  if (state.status === 'running') {
+    state.status = 'paused';
+    state.endReason = state.endReason ?? 'app-restart';
+    notes.push(
+      `treating running checkpoint as interrupted paused state (inFlightSeq ${state.inFlightIteration?.seq ?? 'none'})`,
+    );
+  }
+  if (state.freshEyesCleanForWorkState) {
+    state.freshEyesCleanForWorkState = false;
+    notes.push('cleared cached clean fresh-eyes verdict (unobserved offline changes possible)');
+  }
+  return notes;
+}
+
 export function rememberLoopTerminalIntent(state: LoopState, intent: LoopTerminalIntent): void {
   const history = state.terminalIntentHistory ?? [];
   const existingIndex = history.findIndex((item) => item.id === intent.id);
